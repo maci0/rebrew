@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.venv*/
+.python-version
+
+# IDE / tool caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.claude/
+.opencode/
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
+# Recoverage generated data
+recoverage/data.json
+recoverage/data_*.json
+recoverage/server_functions.csv
+recoverage/coverage.db
+recoverage/coverage.db-shm
+recoverage/coverage.db-wal
+recoverage/__pycache__/
+
+# OS
+.DS_Store
+Thumbs.db
