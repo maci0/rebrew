@@ -8,10 +8,9 @@ public function symbol with its COFF relocations, and emits a
 Usage: uv run python tools/gen_flirt_pat.py tools/MSVC600/VC98/Lib/LIBCMT.LIB -o flirt_sigs/libcmt_vc6.pat
 """
 
-import struct
-import sys
-import os
 import argparse
+import os
+import sys
 
 
 def parse_archive(lib_path):
@@ -46,111 +45,74 @@ def parse_archive(lib_path):
 
 
 def parse_coff_obj(obj_data):
-    """Parse a COFF .obj and yield (symbol_name, code_bytes, reloc_offsets)."""
+    """Parse a COFF .obj and yield (symbol_name, code_bytes, reloc_offsets).
+
+    Uses LIEF for parsing. ``obj_data`` is raw bytes of a COFF .obj file.
+    ``reloc_offsets`` is a set of individual *byte* positions that are
+    covered by relocations (expanded to cover the full fixup width).
+    """
+    import tempfile
+
+    import lief
+
     if len(obj_data) < 20:
         return
 
-    machine = struct.unpack_from('<H', obj_data, 0)[0]
-    if machine not in (0x14c, 0):
+    # LIEF needs a file path, so write to a temp file
+    with tempfile.NamedTemporaryFile(suffix=".obj", delete=False) as f:
+        f.write(obj_data)
+        tmp_path = f.name
+
+    try:
+        coff = lief.COFF.parse(tmp_path)
+    finally:
+        os.unlink(tmp_path)
+
+    if coff is None:
         return
 
-    num_sections = struct.unpack_from('<H', obj_data, 2)[0]
-    sym_offset = struct.unpack_from('<I', obj_data, 8)[0]
-    num_symbols = struct.unpack_from('<I', obj_data, 12)[0]
+    for sym in coff.symbols:
+        # Only external function symbols in code sections
+        if (sym.storage_class != lief.COFF.Symbol.STORAGE_CLASS.EXTERNAL
+                or sym.section is None):
+            continue
 
-    if sym_offset == 0 or num_symbols == 0:
-        return
+        section = sym.section
+        # Check if this is a code section (IMAGE_SCN_CNT_CODE = 0x20)
+        if not (section.characteristics & 0x20):
+            continue
 
-    str_tab_off = sym_offset + num_symbols * 18
-    if str_tab_off + 4 > len(obj_data):
-        return
+        content = bytes(section.content)
+        func_start = sym.value
+        func_end = len(content)
 
-    def get_sym_name(entry):
-        if entry[:4] == b'\x00\x00\x00\x00':
-            offset = struct.unpack_from('<I', entry, 4)[0]
-            try:
-                end = obj_data.index(b'\x00', str_tab_off + offset)
-                return obj_data[str_tab_off + offset:end].decode('ascii', errors='replace')
-            except (ValueError, IndexError):
-                return None
-        return entry[:8].rstrip(b'\x00').decode('ascii', errors='replace')
+        # Find the next symbol in the same section to bound this function
+        for other in coff.symbols:
+            if (other.section is not None
+                    and other.section.name == section.name
+                    and other.value > func_start
+                    and other.value < func_end
+                    and not other.name.startswith("$")):
+                func_end = other.value
 
-    # Parse sections: (name, raw_ptr, raw_size, characteristics, reloc_ptr, num_relocs)
-    sections = []
-    off = 20
-    for _ in range(num_sections):
-        if off + 40 > len(obj_data):
-            break
-        sec = obj_data[off:off + 40]
-        sec_name = sec[0:8].rstrip(b'\x00').decode('ascii', errors='replace')
-        raw_size = struct.unpack_from('<I', sec, 16)[0]
-        raw_ptr = struct.unpack_from('<I', sec, 20)[0]
-        reloc_ptr = struct.unpack_from('<I', sec, 24)[0]
-        num_relocs = struct.unpack_from('<H', sec, 32)[0]
-        characteristics = struct.unpack_from('<I', sec, 36)[0]
-        sections.append((sec_name, raw_ptr, raw_size, characteristics, reloc_ptr, num_relocs))
-        off += 40
+        if func_start >= func_end or func_start + func_end > len(content) + func_start:
+            continue
 
-    # Find function symbols
-    i = 0
-    while i < num_symbols:
-        entry = obj_data[sym_offset + i * 18:sym_offset + i * 18 + 18]
-        if len(entry) < 18:
-            break
-        name = get_sym_name(entry)
-        value = struct.unpack_from('<I', entry, 8)[0]
-        sec_num = struct.unpack_from('<h', entry, 12)[0]
-        storage_class = entry[16]
-        num_aux = entry[17]
+        code = content[func_start:func_end]
 
-        if name and sec_num > 0 and storage_class == 2:
-            sec_idx = sec_num - 1
-            if sec_idx < len(sections):
-                sec_name, raw_ptr, raw_size, chars, reloc_ptr, num_relocs = sections[sec_idx]
-                if chars & 0x20:  # IMAGE_SCN_CNT_CODE
-                    func_start = value
-                    func_end = raw_size
-                    j = 0
-                    while j < num_symbols:
-                        e2 = obj_data[sym_offset + j * 18:sym_offset + j * 18 + 18]
-                        if len(e2) < 18:
-                            break
-                        v2 = struct.unpack_from('<I', e2, 8)[0]
-                        s2 = struct.unpack_from('<h', e2, 12)[0]
-                        if s2 == sec_num and v2 > func_start and v2 < func_end:
-                            n2 = get_sym_name(e2)
-                            if n2 and not n2.startswith('$'):
-                                func_end = v2
-                        j += 1 + e2[17]
+        # Collect relocation byte offsets (expanded to cover full fixup width)
+        reloc_offsets = set()
+        for reloc in section.relocations:
+            rva = reloc.address
+            if func_start <= rva < func_end:
+                func_rel = rva - func_start
+                # reloc.size gives the fixup width in bits
+                fixup_bytes = max(reloc.size // 8, 1)
+                for k in range(fixup_bytes):
+                    reloc_offsets.add(func_rel + k)
 
-                    if raw_ptr + func_end <= len(obj_data):
-                        code = obj_data[raw_ptr + func_start:raw_ptr + func_end]
-
-                        # Parse COFF relocations for this function
-                        reloc_offsets = set()
-                        for ri in range(num_relocs):
-                            roff = reloc_ptr + ri * 10
-                            if roff + 10 > len(obj_data):
-                                break
-                            rva = struct.unpack_from('<I', obj_data, roff)[0]
-                            rtype = struct.unpack_from('<H', obj_data, roff + 8)[0]
-                            # rva is offset within section
-                            if func_start <= rva < func_end:
-                                func_rel = rva - func_start
-                                # IMAGE_REL_I386_DIR32 (0x06) and
-                                # IMAGE_REL_I386_REL32 (0x14) are 4-byte fixups
-                                if rtype in (0x06, 0x14):
-                                    for k in range(4):
-                                        reloc_offsets.add(func_rel + k)
-                                # IMAGE_REL_I386_DIR16 (0x01) is 2-byte
-                                elif rtype == 0x01:
-                                    for k in range(2):
-                                        reloc_offsets.add(func_rel + k)
-
-                        if len(code) >= 4:
-                            yield name, code, reloc_offsets
-
-        i += 1 + num_aux
+        if len(code) >= 4:
+            yield sym.name, code, reloc_offsets
 
 
 def bytes_to_pat_line(name, code_bytes, reloc_offsets, max_lead=32):

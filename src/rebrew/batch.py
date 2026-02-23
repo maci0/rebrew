@@ -1,66 +1,43 @@
 #!/usr/bin/env python3
-"""Batch extract and disassemble functions from server.dll.
+"""Batch extract and disassemble functions from the target binary.
 
-Reads r2_functions.txt (or .json), auto-detects already-reversed VAs from
-src/server_dll/*.c annotations, and lets you list/extract/batch the remaining
+Reads a function list (r2_functions.txt or .json), auto-detects already-reversed VAs from
+the projects src directory, and lets you list/extract/batch the remaining
 candidates.
 
 Usage:
-    python3 batch_extract.py list                # List un-reversed candidates
-    python3 batch_extract.py extract 0x10001860  # Extract + disasm one VA
-    python3 batch_extract.py batch 20            # Extract first 20 smallest
-    python3 batch_extract.py batch 20 --start 10 # Offset into sorted list
+    rebrew extract list                # List un-reversed candidates
+    rebrew extract extract 0x10001860  # Extract + disasm one VA
+    rebrew extract batch 20            # Extract first 20 smallest
+    rebrew extract batch 20 --start 10 # Offset into sorted list
 """
 
-import typer
-from typing import Optional
 import json
-import os
 import sys
 from pathlib import Path
 
-import pefile
-from capstone import Cs, CS_ARCH_X86, CS_MODE_32
+import typer
+from capstone import CS_ARCH_X86, CS_MODE_32, Cs
 
-# SCRIPT_DIR removed — use load_config()
-# PROJECT_ROOT removed — use cfg.root
-
-from verify import parse_c_file, parse_r2_functions
-
+from rebrew.annotation import parse_c_file
+from rebrew.binary_loader import extract_bytes_at_va, load_binary
+from rebrew.cli import get_config
+from rebrew.verify import parse_r2_functions
 
 # ---------------------------------------------------------------------------
-# PE helpers
+# Binary helpers
 # ---------------------------------------------------------------------------
 
 
-def load_pe(dll_path: Path):
-    """Load PE and return (pe, dll_data)."""
-    pe = pefile.PE(str(dll_path))
-    with open(dll_path, "rb") as f:
-        data = f.read()
-    return pe, data
+def load_target_binary(bin_path: Path):
+    """Load binary and return BinaryInfo."""
+    return load_binary(bin_path)
 
 
-def va_to_file_offset(pe, va: int) -> int:
-    """Convert VA to raw file offset using PE section headers."""
-    rva = va - pe.OPTIONAL_HEADER.ImageBase
-    for section in pe.sections:
-        sec_start = section.VirtualAddress
-        sec_end = sec_start + section.Misc_VirtualSize
-        if sec_start <= rva < sec_end:
-            return section.PointerToRawData + (rva - sec_start)
-    # Fallback for .text section
-    return rva
-
-
-def extract_bytes(dll_data: bytes, pe, va: int, size: int) -> bytes:
-    """Extract raw bytes from DLL at given VA."""
-    off = va_to_file_offset(pe, va)
-    data = dll_data[off : off + size]
-    # Trim trailing padding
-    while data and data[-1] in (0xCC, 0x90):
-        data = data[:-1]
-    return data
+def extract_bytes(binary_info, va: int, size: int) -> bytes:
+    """Extract raw bytes from binary at given VA."""
+    data = extract_bytes_at_va(binary_info, va, size)
+    return data if data is not None else b""
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +62,7 @@ def disasm(code_bytes: bytes, va: int) -> str:
 
 
 def detect_reversed_vas(src_dir: Path) -> set:
-    """Scan src/server_dll/*.c for annotation headers and return set of VAs."""
+    """Scan the reversed source directory for annotation headers and return set of VAs."""
     reversed_vas = set()
     if not src_dir.exists():
         return reversed_vas
@@ -101,10 +78,10 @@ def detect_reversed_vas(src_dir: Path) -> set:
 # ---------------------------------------------------------------------------
 
 
-def load_functions(root: Path):
+def load_functions(cfg):
     """Load function list from r2_functions.txt (preferred) or .json."""
-    txt_path = root / "src" / "server_dll" / "r2_functions.txt"
-    json_path = root / "src" / "server_dll" / "r2_functions.json"
+    txt_path = cfg.function_list
+    json_path = txt_path.with_suffix(".json")
 
     if txt_path.exists():
         return parse_r2_functions(txt_path)
@@ -133,40 +110,38 @@ def cmd_list(candidates):
         print(f"  {i:3d}  0x{va:08X}  {size:5d}B  {name}")
 
 
-def cmd_extract(dll_data, pe, candidates, target_va, bin_dir):
+def cmd_extract(binary_info, candidates, target_va, bin_dir: Path):
     """Extract and disassemble a single function."""
     for va, size, name in candidates:
         if va == target_va:
-            code = extract_bytes(dll_data, pe, va, size)
+            code = extract_bytes(binary_info, va, size)
             print(f"=== {name} @ 0x{va:08X}, {len(code)} bytes ===")
             print(f"Hex: {code.hex()}")
             print()
             print(disasm(code, va))
             # Save .bin
-            os.makedirs(bin_dir, exist_ok=True)
-            bin_path = os.path.join(bin_dir, f"func_0x{va:08X}.bin")
-            with open(bin_path, "wb") as f:
-                f.write(code)
+            bin_dir.mkdir(parents=True, exist_ok=True)
+            bin_path = bin_dir / f"func_0x{va:08X}.bin"
+            bin_path.write_bytes(code)
             print(f"\nSaved to {bin_path}")
             return
     print(f"VA 0x{target_va:08X} not found in candidate list")
 
 
-def cmd_batch(dll_data, pe, candidates, count, start, bin_dir):
+def cmd_batch(binary_info, candidates, count, start, bin_dir: Path):
     """Extract and disassemble a batch of functions."""
-    os.makedirs(bin_dir, exist_ok=True)
+    bin_dir.mkdir(parents=True, exist_ok=True)
     batch = candidates[start : start + count]
     for va, size, name in batch:
-        code = extract_bytes(dll_data, pe, va, size)
+        code = extract_bytes(binary_info, va, size)
         print(f"\n{'=' * 60}")
         print(f"=== {name} @ 0x{va:08X}, {len(code)} bytes ===")
         print(f"{'=' * 60}")
         print(f"Hex: {code.hex()}")
         print()
         print(disasm(code, va))
-        bin_path = os.path.join(bin_dir, f"func_0x{va:08X}.bin")
-        with open(bin_path, "wb") as f:
-            f.write(code)
+        bin_path = bin_dir / f"func_0x{va:08X}.bin"
+        bin_path.write_bytes(code)
 
 
 # ---------------------------------------------------------------------------
@@ -174,33 +149,29 @@ def cmd_batch(dll_data, pe, candidates, count, start, bin_dir):
 # ---------------------------------------------------------------------------
 
 
-app = typer.Typer(help="Batch extract and disassemble functions from server.dll.")
+app = typer.Typer(help="Batch extract and disassemble functions from the target binary.")
 
 
-@app.command()
+@app.callback(invoke_without_command=True)
 def main(
     command: str = typer.Argument(help="Command: list, extract, or batch"),
-    batch_target: Optional[str] = typer.Argument(None, help="VA (hex) for extract, or count for batch"),
-    exe: Optional[Path] = typer.Option(None, help="Path to DLL/EXE (default: from config)"),
-    root: Path = typer.Option(PROJECT_ROOT, help="Project root directory"),
+    batch_target: str | None = typer.Argument(None, help="VA (hex) for extract, or count for batch"),
+    exe: Path | None = typer.Option(None, help="Path to DLL/EXE (default: from config)"),
+    root: Path = typer.Option(Path.cwd(), help="Project root directory (auto-detected via rebrew.toml)"),
     start: int = typer.Option(0, help="Start offset for batch mode"),
     min_size: int = typer.Option(8, help="Minimum function size"),
     max_size: int = typer.Option(50000, help="Maximum function size"),
-    config_target: Optional[str] = typer.Option(None, "--target", "-t", help="Target from rebrew.toml"),
+    config_target: str | None = typer.Option(None, "--target", "-t", help="Target from rebrew.toml"),
 ):
-    """Batch extract and disassemble functions from server.dll."""
-    args = type("Args", (), {
-        "command": command, "target": batch_target,
-        "exe": exe or (PROJECT_ROOT / "original" / "Server" / "server.dll"),
-        "root": root, "start": start, "min_size": min_size, "max_size": max_size,
-    })()
+    """Batch extract and disassemble functions from the target binary."""
+    cfg = get_config(target=config_target)
 
-    root = args.root
-    src_dir = root / "src" / "server_dll"
-    bin_dir = str(root / "bin" / "server_dll")
+    exe_path = exe or cfg.target_binary
+    src_dir = cfg.reversed_dir
+    bin_dir = cfg.bin_dir
 
     # Load functions
-    funcs = load_functions(root)
+    funcs = load_functions(cfg)
 
     # Auto-detect already-reversed VAs
     reversed_vas = detect_reversed_vas(src_dir)
@@ -215,27 +186,30 @@ def main(
 
         if va in reversed_vas:
             continue
-        if size < args.min_size or size > args.max_size:
+        if size < min_size or size > max_size:
             continue
 
         candidates.append((va, size, name))
 
     candidates.sort(key=lambda x: x[1])  # Sort by size
 
-    if args.command == "list":
+    if command == "list":
         cmd_list(candidates)
-    elif args.command == "extract":
-        if not args.target:
+    elif command == "extract":
+        if not batch_target:
             print("ERROR: extract requires a VA argument (e.g. 0x10001860)")
             sys.exit(1)
-        pe, dll_data = load_pe(args.exe)
-        target_va = int(args.target, 16)
-        cmd_extract(dll_data, pe, candidates, target_va, bin_dir)
-    elif args.command == "batch":
-        count = int(args.target) if args.target else 20
-        pe, dll_data = load_pe(args.exe)
-        cmd_batch(dll_data, pe, candidates, count, args.start, bin_dir)
+        binary_info = load_target_binary(exe_path)
+        target_va = int(batch_target, 16)
+        cmd_extract(binary_info, candidates, target_va, bin_dir)
+    elif command == "batch":
+        count = int(batch_target) if batch_target else 20
+        binary_info = load_target_binary(exe_path)
+        cmd_batch(binary_info, candidates, count, start, bin_dir)
 
+
+def main_entry():
+    app()
 
 if __name__ == "__main__":
-    app()
+    main_entry()

@@ -6,10 +6,10 @@ This document outlines improvements to the GA matcher for training a machine lea
 
 We have a unified GA matcher powered by the modular `matcher` package:
 
-1. **`tools/matcher.py`** - Unified entry point (delegates to PyGAD-based engine)
-2. **`tools/matcher/`** - Modular package containing core, compiler, scoring, parsers, and mutator logic.
+1. **`src/rebrew/match.py`** - Unified entry point (delegates to PyGAD-based engine)
+2. **`src/rebrew/matcher/`** - Modular package containing core, compiler, scoring, parsers, and mutator logic.
 
-Mutation logic is now fully modularized in `matcher.mutator`, supporting both regex-based and AST-aware (via `pycparser`) transformations.
+Mutation logic is now fully modularized in `rebrew.matcher.mutator`, supporting both regex-based and AST-aware (via `pycparser`) transformations.
 
 The engine supports:
 - Training data collection (`--training-output` flag)

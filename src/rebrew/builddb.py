@@ -2,19 +2,24 @@ import json
 import sqlite3
 import sys
 from pathlib import Path
-import yaml
+
+try:
+    import yaml
+except ImportError:
+    yaml = None  # type: ignore[assignment]
 
 
-def build_db():
-    script_dir = Path(__file__).resolve().parent
-    root_dir = script_dir.parent
-    db_path = script_dir / "coverage.db"
+def build_db(project_root: Path | None = None):
+    root_dir = Path(project_root).resolve() if project_root else Path.cwd().resolve()
+    db_dir = root_dir / "db"
+    db_dir.mkdir(parents=True, exist_ok=True)
+    db_path = db_dir / "coverage.db"
 
-    # Load project config
+    # Load project config (optional, requires PyYAML)
     project_config = {}
     yml_path = root_dir / "reccmp-project.yml"
-    if yml_path.exists():
-        with open(yml_path, "r") as f:
+    if yaml and yml_path.exists():
+        with open(yml_path) as f:
             project_config = yaml.safe_load(f)
     targets_info = project_config.get("targets", {})
 
@@ -130,9 +135,9 @@ def build_db():
         """)
 
         # Process all data_*.json files
-        json_files = list((root_dir / "recoverage").glob("data_*.json"))
+        json_files = list((root_dir / "db").glob("data_*.json"))
         if not json_files:
-            print("Error: No data_*.json files found. Run catalog.py first.")
+            print("Error: No data_*.json files found in db/. Run 'rebrew-catalog --json' first.")
             sys.exit(1)
 
         for json_path in json_files:
@@ -312,9 +317,134 @@ def build_db():
 
         c.execute("COMMIT")
         print(f"Database built successfully at {db_path}")
+
+        # Generate CATALOG.md from DB for each target
+        _generate_catalogs(conn, root_dir)
     finally:
         conn.close()
 
 
+def _generate_catalogs(conn: sqlite3.Connection, root_dir: Path):
+    """Generate CATALOG.md files from DB data (DB is single source of truth)."""
+    c = conn.cursor()
+    c.execute("SELECT DISTINCT target FROM functions")
+    targets = [row[0] for row in c.fetchall()]
+
+    # Try to read reversed_dir from rebrew.toml
+    toml_path = root_dir / "rebrew.toml"
+    target_dirs = {}
+    if toml_path.exists():
+        try:
+            if sys.version_info >= (3, 11):
+                import tomllib
+            else:
+                import tomli as tomllib  # type: ignore
+            with open(toml_path, "rb") as f:
+                raw = tomllib.load(f)
+            for tname, tdata in raw.get("targets", {}).items():
+                rdir = tdata.get("reversed_dir")
+                if rdir:
+                    target_dirs[tname] = root_dir / rdir
+        except Exception:
+            pass
+
+    for target_name in targets:
+        # Get summary stats
+        c.execute(
+            "SELECT value FROM metadata WHERE target = ? AND key = 'summary'",
+            (target_name,),
+        )
+        row = c.fetchone()
+        summary = json.loads(row[0]) if row else {}
+
+        # Get all functions
+        c.execute(
+            "SELECT va, name, size, status, origin, symbol, markerType, files "
+            "FROM functions WHERE target = ? ORDER BY va",
+            (target_name,),
+        )
+        functions = c.fetchall()
+
+        # Compute stats
+        total = len(functions)
+        by_status = {}
+        by_origin = {}
+        covered_bytes = 0
+        for fn in functions:
+            st = fn[3] or "UNKNOWN"
+            by_status[st] = by_status.get(st, 0) + 1
+            orig = fn[4] or "UNKNOWN"
+            by_origin.setdefault(orig, []).append(fn)
+            covered_bytes += fn[2] or 0
+
+        text_summary = summary.get(".text", {})
+        text_size = text_summary.get("size", 0)
+        coverage_pct = (covered_bytes / text_size * 100.0) if text_size else 0.0
+
+        # Build markdown
+        lines = []
+        lines.append("<!-- AUTO-GENERATED FILE — DO NOT EDIT. Regenerate with: rebrew-build-db -->\n")
+        lines.append("# Reversed Functions Catalog\n")
+        lines.append(
+            f"Total: {total} functions matched "
+            f"({by_status.get('EXACT', 0)} exact, "
+            f"{by_status.get('RELOC', 0)} reloc, "
+            f"{by_status.get('STUB', 0)} stubs)  "
+        )
+        lines.append(
+            f"Coverage: {coverage_pct:.1f}% of .text section "
+            f"({covered_bytes}/{text_size} bytes)\n"
+        )
+
+        # Table by origin
+        for origin in sorted(by_origin.keys()):
+            fns = by_origin[origin]
+            lines.append(f"\n## {origin} ({len(fns)} functions)\n")
+            lines.append("| VA | Symbol | Size | Status | Files |")
+            lines.append("|---:|--------|-----:|--------|-------|")
+            for fn in fns:
+                va_hex = f"0x{fn[0]:08x}" if fn[0] else "???"
+                sym = fn[5] or fn[1] or "???"
+                size = fn[2] or 0
+                status = fn[3] or "?"
+                try:
+                    file_list = json.loads(fn[7]) if fn[7] else []
+                except (json.JSONDecodeError, TypeError):
+                    file_list = []
+                files_str = ", ".join(file_list) if file_list else ""
+                lines.append(f"| {va_hex} | {sym} | {size} | {status} | {files_str} |")
+
+        catalog_text = "\n".join(lines) + "\n"
+
+        # Write to reversed_dir if known, otherwise db/
+        out_dir = target_dirs.get(target_name, root_dir / "db")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        catalog_path = out_dir / "CATALOG.md"
+        catalog_path.write_text(catalog_text, encoding="utf-8")
+        print(f"Generated {catalog_path}")
+
+
+import typer
+
+from rebrew.cli import TargetOption
+
+app = typer.Typer(help="Build SQLite coverage database.")
+
+@app.callback(invoke_without_command=True)
+def main(
+    root: Path = typer.Option(
+        None,
+        "--root",
+        help="Project root directory",
+    ),
+    target: str = TargetOption,
+):
+    """CLI entry point for rebrew-build-db."""
+    build_db(root)
+
+def main_entry():
+    app()
+
 if __name__ == "__main__":
-    build_db()
+    main_entry()
+

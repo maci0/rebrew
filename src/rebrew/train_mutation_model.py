@@ -9,14 +9,14 @@ Usage:
 import argparse
 import json
 import pickle
-from pathlib import Path
 from collections import defaultdict
+from pathlib import Path
 
 
 def load_training_data(jsonl_path: Path) -> list:
     """Load training data from JSONL file."""
     records = []
-    with open(jsonl_path, "r") as f:
+    with open(jsonl_path) as f:
         for line in f:
             if line.strip():
                 records.append(json.loads(line))
@@ -125,7 +125,7 @@ def main():
         model = create_simple_model(stats)
         with open(args.output, "wb") as f:
             pickle.dump(model, f)
-        print(f"Model saved!")
+        print("Model saved!")
 
     return 0
 

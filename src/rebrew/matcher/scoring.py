@@ -1,5 +1,6 @@
+
 import capstone
-from typing import Optional, Tuple, List
+
 from .core import Score
 
 # Architecture from config (fallback to x86-32)
@@ -20,39 +21,19 @@ def _normalize_reloc_x86_32(code: bytes) -> bytes:
 
     for insn in md.disasm(code, 0):
         # call rel32 / jmp rel32
-        if insn.opcode[0] in (0xE8, 0xE9):
-            if insn.size >= 5:
-                for i in range(1, 5):
-                    if insn.address + i < len(out):
-                        out[insn.address + i] = 0
-        # mov eax, [moffs32]
-        elif insn.opcode[0] == 0xA1:
+        if insn.opcode[0] in (0xE8, 0xE9) or insn.opcode[0] == 0xA1:
             if insn.size >= 5:
                 for i in range(1, 5):
                     if insn.address + i < len(out):
                         out[insn.address + i] = 0
         # cmp [abs32], imm8
-        elif insn.opcode[0] == 0x83 and insn.opcode[1] == 0x3D:
-            if insn.size >= 6:
-                for i in range(2, 6):
-                    if insn.address + i < len(out):
-                        out[insn.address + i] = 0
-        # conditional jumps near (0F 8x)
-        elif insn.opcode[0] == 0x0F and (insn.opcode[1] & 0xF0) == 0x80:
+        elif insn.opcode[0] == 0x83 and insn.opcode[1] == 0x3D or insn.opcode[0] == 0x0F and (insn.opcode[1] & 0xF0) == 0x80:
             if insn.size >= 6:
                 for i in range(2, 6):
                     if insn.address + i < len(out):
                         out[insn.address + i] = 0
         # push imm32 (if it looks like an address)
-        elif insn.opcode[0] == 0x68:
-            if insn.size >= 5:
-                imm = int.from_bytes(insn.bytes[1:5], byteorder="little")
-                if imm > 0x10000000:
-                    for i in range(1, 5):
-                        if insn.address + i < len(out):
-                            out[insn.address + i] = 0
-        # mov reg, imm32 (if it looks like an address)
-        elif 0xB8 <= insn.opcode[0] <= 0xBF:
+        elif insn.opcode[0] == 0x68 or 0xB8 <= insn.opcode[0] <= 0xBF:
             if insn.size >= 5:
                 imm = int.from_bytes(insn.bytes[1:5], byteorder="little")
                 if imm > 0x10000000:
@@ -80,7 +61,7 @@ def _normalize_reloc_x86_32(code: bytes) -> bytes:
 def score_candidate(
     target_bytes: bytes,
     candidate_bytes: bytes,
-    reloc_offsets: Optional[List[int]] = None,
+    reloc_offsets: list[int] | None = None,
 ) -> Score:
     """Score a candidate against the target bytes."""
     len_diff = abs(len(target_bytes) - len(candidate_bytes))
@@ -155,7 +136,7 @@ def score_candidate(
 def diff_functions(
     target_bytes: bytes,
     candidate_bytes: bytes,
-    reloc_offsets: Optional[List[int]] = None,
+    reloc_offsets: list[int] | None = None,
 ):
     """Print a side-by-side diff of target and candidate disassembly."""
     md = capstone.Cs(_CS_ARCH, _CS_MODE)

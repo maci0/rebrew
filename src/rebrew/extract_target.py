@@ -25,7 +25,7 @@ import argparse
 import sys
 from pathlib import Path
 
-# Reuse functions from matcher.py
+# Reuse build functions from matcher package
 from rebrew.matcher import (
     build_candidate,
     extract_candidate_symbol_bytes,

@@ -1,12 +1,11 @@
+import hashlib
 import json
 import os
-import time
-import sqlite3
 import pickle
+import sqlite3
 import threading
-import hashlib
-from dataclasses import dataclass, asdict
-from typing import List, Optional, Tuple, Dict
+from dataclasses import asdict, dataclass
+
 
 @dataclass
 class Score:
@@ -20,9 +19,9 @@ class Score:
 @dataclass
 class BuildResult:
     ok: bool
-    score: Optional[Score] = None
-    obj_bytes: Optional[bytes] = None
-    reloc_offsets: Optional[List[int]] = None
+    score: Score | None = None
+    obj_bytes: bytes | None = None
+    reloc_offsets: list[int] | None = None
     error_msg: str = ""
 
 class BuildCache:
@@ -40,7 +39,7 @@ class BuildCache:
             conn.commit()
             conn.close()
 
-    def get(self, key: str) -> Optional[BuildResult]:
+    def get(self, key: str) -> BuildResult | None:
         with self.lock:
             conn = sqlite3.connect(self.db_path)
             cur = conn.cursor()
@@ -68,8 +67,8 @@ class BuildCache:
 class GACheckpoint:
     generation: int
     best_score: float
-    best_source: Optional[str]
-    population: List[str]
+    best_source: str | None
+    population: list[str]
     rng_state: tuple
     stagnant_gens: int
     elapsed_sec: float
@@ -81,11 +80,11 @@ def save_checkpoint(path: str, ckpt: GACheckpoint):
         json.dump(asdict(ckpt), f, indent=2)
     os.replace(tmp, path)
 
-def load_checkpoint(path: str, expected_hash: str) -> Optional[GACheckpoint]:
+def load_checkpoint(path: str, expected_hash: str) -> GACheckpoint | None:
     if not os.path.exists(path):
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
         if data.get("args_hash") != expected_hash:
             print("Checkpoint args hash mismatch, ignoring checkpoint.")
