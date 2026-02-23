@@ -4,11 +4,16 @@
 
 Rebrew is a reusable Python tooling package for reconstructing exact C source code from compiled binaries. It provides a genetic algorithm engine, annotation pipeline, verification framework, and CLI tools.
 
-### Core Principles
+### ❓ What is Rebrew?
+
+Rebrew is the engine behind binary-matching game decompilation. When you are writing C arrays, structs, and logic to perfectly match a 25-year-old compiled game binary, Rebrew orchestrates the constant cycle of compiling your C code and diffing it against the original binary to tell you how close you are to an exact match.
+
+### 🎯 Core Principles
 
 - **Idempotent**: Every tool can be run repeatedly with the same result. `rebrew-catalog`, `rebrew-verify`, `rebrew-cfg`, `rebrew-init` — running them twice changes nothing the second time. No destructive side effects.
 - **Config-driven**: All tools read from `rebrew.toml` — zero manual path arguments needed.
 - **Composable**: Tools are small, single-purpose, and designed to be chained by scripts or AI agents.
+- **Genetic Algorithm (GA) Search Engine**: Brute-forcing compiler flags and mutating source code AST to discover the exact code changes needed to fix compiler discrepancies.
 
 ## Supported Platforms
 
@@ -52,22 +57,29 @@ All CLI tools must be run **from within a project directory** that contains a `r
 ```bash
 cd /path/to/your-decomp-project    # must contain rebrew.toml
 
-rebrew next --stats                 # show progress (unified command, equivalent to rebrew-next)
+# Initialization & Configuration
 rebrew-init --target mygame --binary mygame.exe --compiler msvc6 # initialize project
-rebrew-skeleton 0x10003DA0          # generate skeleton
-rebrew-test src/target_name/f.c     # test implementation
-rebrew-verify                       # bulk verify all functions
-rebrew-match ...                    # run GA engine
-rebrew-catalog                      # regenerate catalog
-rebrew-lint                         # lint annotations
-rebrew-sync                         # export to Ghidra
-rebrew-batch                        # batch extract functions
-rebrew-asm                          # quick disassembly
-rebrew-ga                           # batch GA runner
-rebrew-build-db                     # build SQLite coverage database
 rebrew-cfg list-targets              # list configured targets
 rebrew-cfg add-origin ZLIB           # add origin to default target
 rebrew-cfg set compiler.cflags "/O1" # set a config value
+
+# Daily Workflow
+rebrew-skeleton 0x10003DA0          # generate C skeleton from disassembly
+rebrew-test src/target_name/f.c     # test implementation against target
+rebrew next --stats                 # show progress (equivalent to rebrew-next)
+rebrew-lint                         # lint annotations in your source files
+rebrew-catalog                      # regenerate the function catalog and coverage JSON
+rebrew-build-db                     # build SQLite coverage database from catalog
+
+# Solving the matching puzzle
+rebrew-match src/target_name/f.c    # run the Genetic Algorithm Engine to resolve diffs
+rebrew-ga                           # batch GA runner to continuously try to solve all stubs
+
+# Advanced & Sync
+rebrew-verify                       # bulk compile and verify all reversed functions
+rebrew-batch                        # batch extract and disassemble functions
+rebrew-asm                          # quick offline disassembly
+rebrew-sync                         # export annotations to Ghidra
 ```
 
 ## CLI Tools
