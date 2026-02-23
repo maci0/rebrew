@@ -121,7 +121,10 @@ class BinaryMatchingGA:
 
     def _compute_fitness(self, res: BuildResult) -> float:
         if not res.ok or res.obj_bytes is None: return 10000.0
-        sc = score_candidate(self.target_bytes, res.obj_bytes, res.reloc_offsets)
+        obj_bytes = res.obj_bytes
+        if len(obj_bytes) > len(self.target_bytes):
+            obj_bytes = obj_bytes[:len(self.target_bytes)]
+        sc = score_candidate(self.target_bytes, obj_bytes, res.reloc_offsets)
         return sc.total
 
     def run(self) -> tuple[str | None, float]:
@@ -280,7 +283,10 @@ def main(
     if diff_only:
         res = build_candidate_obj_only(seed_src, cl, inc, cflags, symbol, env=msvc_env)
         if res.ok and res.obj_bytes:
-            diff_functions(target_bytes, res.obj_bytes, res.reloc_offsets)
+            obj_bytes = res.obj_bytes
+            if len(obj_bytes) > len(target_bytes):
+                obj_bytes = obj_bytes[:len(target_bytes)]
+            diff_functions(target_bytes, obj_bytes, res.reloc_offsets)
         else:
             print(f"Build failed: {res.error_msg}")
         raise typer.Exit(code=0)

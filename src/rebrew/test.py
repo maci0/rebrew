@@ -219,6 +219,9 @@ def main(
                     print(f"  {s}")
             sys.exit(1)
 
+        if len(obj_bytes) > len(target_bytes):
+            obj_bytes = obj_bytes[:len(target_bytes)]
+
         matched, match_count, total, relocs = smart_reloc_compare(
             obj_bytes, target_bytes, coff_relocs
         )

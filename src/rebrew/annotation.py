@@ -340,7 +340,7 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
             pass
             
         # Check for marker
-        m = NEW_FUNC_CAPTURE_RE.match(stripped)
+        m = NEW_FUNC_CAPTURE_RE.match(stripped) or BLOCK_FUNC_CAPTURE_RE.match(stripped)
         if m:
             marker_type = m.group("type")
             va = int(m.group("va"), 16)
@@ -351,7 +351,7 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
             continue
             
         # Check for key-value
-        m2 = NEW_KV_RE.match(stripped)
+        m2 = NEW_KV_RE.match(stripped) or BLOCK_KV_RE.match(stripped)
         if m2:
             key = m2.group("key").upper()
             val = m2.group("value").strip()
