@@ -1,41 +1,24 @@
 #!/usr/bin/env python3
 """Quick compile-and-compare for reversed functions.
-Usage: python3 test_func.py <source.c> <symbol> <target.bin> [cflags]
-       python3 test_func.py <source.c> <symbol> --va=0xHEX --size=N [cflags]
+
+Usage:
+    rebrew-test <source.c> [symbol] [--va 0xHEX --size N] [--cflags ...]
 """
 
-import sys, os, re, struct, subprocess, tempfile, shutil
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
-from typing import Optional
 
 import typer
+import rich
 
-from rebrew.config import load_config
-from rebrew.matcher.parsers import parse_coff_symbol_bytes
-
-# Lazy config — loaded when main() runs (not at import time)
-_cfg = None
-
-
-def _get_cfg(target=None):
-    """Load config lazily from cwd."""
-    global _cfg
-    if _cfg is None:
-        _cfg = load_config(target=target)
-    return _cfg
-
-
-def va_to_offset(cfg, va):
-    return va - cfg.text_va + cfg.text_raw_offset
-
-
-def extract_from_dll(cfg, va, size):
-    with open(str(cfg.target_binary), "rb") as f:
-        f.seek(va_to_offset(cfg, va))
-        return f.read(size)
-
-
-# parse_coff_symbol_bytes imported from rebrew.matcher.parsers
+from rebrew.cli import TargetOption, get_config
+from rebrew.matcher.parsers import list_obj_symbols, parse_coff_symbol_bytes
+from rebrew.annotation import parse_c_file
 
 
 def compile_obj(cfg, source_path, cflags, workdir):
@@ -46,11 +29,22 @@ def compile_obj(cfg, source_path, cflags, workdir):
     shutil.copy2(source_path, local_src)
 
     obj_name = os.path.splitext(src_name)[0] + ".obj"
-    cl_path = str(cfg.compiler_command.split()[-1]) if " " in cfg.compiler_command else str(cfg.root / cfg.compiler_command)
+    cmd_parts = cfg.compiler_command.split()
+    if len(cmd_parts) > 1 and cmd_parts[0] == "wine":
+        # Handle "wine path/to/cl.exe"
+        cl_rel = Path(cmd_parts[1])
+        cl_abs = str(cfg.root / cl_rel) if not cl_rel.is_absolute() else str(cl_rel)
+        cmd = ["wine", cl_abs, "/nologo", "/c"]
+    else:
+        # Handle "cl.exe" or "path/to/cl.exe"
+        cl_rel = Path(cfg.compiler_command)
+        cl_abs = str(cfg.root / cl_rel) if not cl_rel.is_absolute() else str(cl_rel)
+        cmd = [cl_abs, "/nologo", "/c"]
+
     inc_path = str(cfg.compiler_includes)
 
     cmd = (
-        ["wine", cl_path, "/nologo", "/c"]
+        cmd
         + cflags
         + [f"/I{inc_path}", f"/Fo{obj_name}", src_name]
     )
@@ -66,17 +60,17 @@ def compile_obj(cfg, source_path, cflags, workdir):
 def smart_reloc_compare(obj_bytes, target_bytes, coff_relocs=None):
     """Compare bytes with relocation masking.
     Uses COFF relocation records if available, falls back to zero-span detection."""
-    if len(obj_bytes) != len(target_bytes):
-        return False, 0, len(obj_bytes), []
+    min_len = min(len(obj_bytes), len(target_bytes))
+    max_len = max(len(obj_bytes), len(target_bytes))
 
     relocs = []
     if coff_relocs:
         # Use actual COFF relocation offsets (each is a 4-byte fixup site)
-        relocs = [r for r in coff_relocs if r + 4 <= len(obj_bytes)]
+        relocs = [r for r in coff_relocs if r + 4 <= min_len]
     else:
         # Fallback: find 4-byte zero spans in obj that differ
         i = 0
-        while i <= len(obj_bytes) - 4:
+        while i <= min_len - 4:
             if (
                 obj_bytes[i : i + 4] == b"\x00\x00\x00\x00"
                 and obj_bytes[i : i + 4] != target_bytes[i : i + 4]
@@ -90,13 +84,13 @@ def smart_reloc_compare(obj_bytes, target_bytes, coff_relocs=None):
     reloc_set = set()
     for r in relocs:
         for j in range(4):
-            if r + j < len(obj_bytes):
+            if r + j < min_len:
                 reloc_set.add(r + j)
 
     # Compare with relocs masked
     match_count = 0
     mismatches = []
-    for i in range(len(obj_bytes)):
+    for i in range(min_len):
         if i in reloc_set:
             match_count += 1  # reloc bytes always count as matching
         elif obj_bytes[i] == target_bytes[i]:
@@ -104,24 +98,24 @@ def smart_reloc_compare(obj_bytes, target_bytes, coff_relocs=None):
         else:
             mismatches.append(i)
 
-    masked_match = len(mismatches) == 0
-    return masked_match, match_count, len(obj_bytes), relocs
+    masked_match = len(mismatches) == 0 and len(obj_bytes) == len(target_bytes)
+    return masked_match, match_count, max_len, relocs
 
 
 def parse_source_metadata(source_path):
     meta = {}
     try:
-        with open(source_path, "r") as f:
+        with open(source_path) as f:
             for _ in range(50):
                 line = f.readline()
                 if not line:
                     break
-                
+
                 # Check // comment
                 m = re.match(r'^//\s*([A-Z]+):\s*(.*)$', line.strip())
                 if m:
                     meta[m.group(1)] = m.group(2).strip()
-                
+
                 # Check /* comment
                 m2 = re.match(r'^/\*\s*([A-Z]+):\s*(.*?)\s*\*/$', line.strip())
                 if m2:
@@ -131,16 +125,16 @@ def parse_source_metadata(source_path):
     return meta
 
 def update_source_status(source_path, new_status, blockers_to_remove=True):
-    with open(source_path, "r") as f:
+    with open(source_path) as f:
         lines = f.readlines()
-    
+
     with open(source_path, "w") as f:
         for line in lines:
             if re.match(r'^(//|/\*)\s*STATUS:', line):
                 if line.startswith('//'):
-                    f.write(f"// STATUS: {new_status}\\n")
+                    f.write(f"// STATUS: {new_status}\n")
                 else:
-                    f.write(f"/* STATUS: {new_status} */\\n")
+                    f.write(f"/* STATUS: {new_status} */\n")
             elif blockers_to_remove and re.match(r'^(//|/\*)\s*BLOCKER:', line):
                 continue
             else:
@@ -152,18 +146,26 @@ app = typer.Typer(help="Quick compile-and-compare for reversed functions.")
 @app.command()
 def main(
     source: str = typer.Argument(help="C source file"),
-    symbol: Optional[str] = typer.Argument(None, help="COFF symbol name (e.g. _funcname)"),
-    target_bin: Optional[str] = typer.Argument(None, help="Target .bin file"),
-    va: Optional[str] = typer.Option(None, help="VA in hex (e.g. 0x10009310)"),
-    size: Optional[int] = typer.Option(None, help="Size in bytes"),
-    cflags: Optional[str] = typer.Option(None, help="Compiler flags"),
+    symbol: str | None = typer.Argument(None, help="COFF symbol name (e.g. _funcname)"),
+    target_bin: str | None = typer.Argument(None, help="Target .bin file"),
+    va: str | None = typer.Option(None, help="VA in hex (e.g. 0x10009310)"),
+    size: int | None = typer.Option(None, help="Size in bytes"),
+    cflags: str | None = typer.Option(None, help="Compiler flags"),
     update: bool = typer.Option(False, help="Auto-update STATUS in source file"),
-    target: Optional[str] = typer.Option(None, "--target", "-t", help="Target from rebrew.toml"),
+    target: str | None = TargetOption,
 ):
     """Quick compile-and-compare for reversed functions."""
-    cfg = _get_cfg(target=target)
+    cfg = get_config(target=target)
 
-    source = source
+    # Optional: lint the file first to catch basic annotation errors
+    anno = parse_c_file(Path(source))
+    if anno:
+        eval_errs, eval_warns = anno.validate()
+        for e in eval_errs:
+            rich.print(f"[bold red]LINT ERROR:[/bold red] {e}")
+        for w in eval_warns:
+            rich.print(f"[bold yellow]LINT WARNING:[/bold yellow] {w}")
+
     meta = parse_source_metadata(source)
 
     symbol = symbol or meta.get("SYMBOL")
@@ -173,11 +175,13 @@ def main(
 
     va_str = va
     if not va_str:
-        # Check FUNCTION marker like // FUNCTION: SERVER 0x100011f0
-        func_meta = meta.get("FUNCTION")
-        if func_meta and "0x" in func_meta:
-            va_str = "0x" + func_meta.split("0x")[1].split()[0]
-    
+        # Check FUNCTION/LIBRARY/STUB marker like // FUNCTION: [TARGET] 0x100011f0
+        for marker_key in ("FUNCTION", "LIBRARY", "STUB"):
+            func_meta = meta.get(marker_key)
+            if func_meta and "0x" in func_meta:
+                va_str = "0x" + func_meta.split("0x")[1].split()[0]
+                break
+
     size_val = size
     if size_val is None and "SIZE" in meta:
         size_val = int(meta["SIZE"])
@@ -187,7 +191,7 @@ def main(
 
     if va_str and size_val:
         va = int(va_str, 16)
-        target_bytes = extract_from_dll(cfg, va, size_val)
+        target_bytes = cfg.extract_dll_bytes(va, size_val)
     elif target_bin:
         with open(target_bin, "rb") as f:
             target_bytes = f.read()
@@ -207,26 +211,12 @@ def main(
         coff_relocs = result[1] if result[0] is not None else None
         if obj_bytes is None:
             print(f"Symbol '{symbol}' not found in .obj")
-            # List available symbols
-            with open(obj_path, "rb") as f:
-                d = f.read()
-            (sym_off,) = struct.unpack_from("<I", d, 8)
-            (num_sym,) = struct.unpack_from("<I", d, 12)
-            str_off = sym_off + num_sym * 18
-            print("Available symbols:")
-            j = 0
-            while j < num_sym:
-                e = d[sym_off + j * 18 : sym_off + j * 18 + 18]
-                if e[:4] == b"\x00\x00\x00\x00":
-                    (o,) = struct.unpack_from("<I", e, 4)
-                    end = d.index(b"\x00", str_off + o)
-                    n = d[str_off + o : end].decode()
-                else:
-                    n = e[:8].rstrip(b"\x00").decode()
-                (sec,) = struct.unpack_from("<h", e, 12)
-                if sec > 0:
-                    print(f"  {n} (section {sec})")
-                j += 1 + e[17]
+            # List available symbols using LIEF
+            available = list_obj_symbols(obj_path)
+            if available:
+                print("Available symbols:")
+                for s in available:
+                    print(f"  {s}")
             sys.exit(1)
 
         matched, match_count, total, relocs = smart_reloc_compare(
@@ -241,7 +231,7 @@ def main(
                 )
             else:
                 print(f"EXACT MATCH: {total}/{total} bytes")
-            
+
             if update:
                 update_source_status(source, status_match)
                 print(f"Updated status to {status_match} in {source}")
@@ -265,5 +255,8 @@ def main(
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-if __name__ == "__main__":
+def main_entry():
     app()
+
+if __name__ == "__main__":
+    main_entry()

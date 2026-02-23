@@ -1,27 +1,20 @@
-import pytest
-import argparse
-import json
+import os
 import random
 import struct
-import sys
-import os
 import tempfile
 from pathlib import Path
 
 from rebrew.matcher import (
-    parse_coff_obj_symbol_bytes,
-    list_coff_obj_symbols,
-    generate_flag_combinations,
-    MSVC6_FLAG_AXES,
     GACheckpoint,
-    save_checkpoint,
-    load_checkpoint,
     compute_args_hash,
     diff_functions,
+    generate_flag_combinations,
+    list_coff_obj_symbols,
+    load_checkpoint,
+    parse_coff_obj_symbol_bytes,
+    save_checkpoint,
     score_candidate,
 )
-
-
 
 # -------------------------
 # COFF parser tests
@@ -183,16 +176,16 @@ def test_parse_coff_obj_trims_padding():
 
 
 def test_parse_coff_obj_too_small():
-    """Test that files smaller than COFF header raise struct.error."""
+    """Test that files smaller than COFF header return None gracefully."""
     with tempfile.NamedTemporaryFile(suffix=".obj", delete=False) as f:
         f.write(b"\x00" * 10)
         f.flush()
         obj_path = Path(f.name)
 
     try:
-        import struct as _struct
-        with pytest.raises(_struct.error):
-            parse_coff_obj_symbol_bytes(obj_path, "_func")
+        code, relocs = parse_coff_obj_symbol_bytes(obj_path, "_func")
+        assert code is None
+        assert relocs is None
     finally:
         obj_path.unlink()
 
@@ -218,16 +211,14 @@ def test_generate_flag_combinations_dedup():
 
 
 def test_generate_flag_combinations_max_limit():
-    """Test that combination count is bounded by MSVC6_FLAG_AXES product."""
-    combos = generate_flag_combinations()
-    max_possible = 1
-    for axis_values in MSVC6_FLAG_AXES.values():
-        max_possible *= len(axis_values)
-    assert len(combos) <= max_possible
+    """Test that quick tier produces a bounded number of combinations."""
+    combos = generate_flag_combinations()  # defaults to "quick"
+    # Quick tier should be small — well under 1000 combos
+    assert len(combos) < 1000
 
 
 def test_generate_flag_combinations_full_axes():
-    """Test that generated combos contain expected flag substrings."""
+    """Test that generated combos contain expected MSVC flag substrings."""
     combos = generate_flag_combinations()
     has_opt = any("/O" in c for c in combos)
     assert has_opt

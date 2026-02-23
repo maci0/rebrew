@@ -1,20 +1,21 @@
+import itertools
 import os
+import shutil
 import subprocess
 import tempfile
-import shutil
-import itertools
-from typing import List, Optional, Tuple, Dict
+import warnings
+
 from .core import BuildResult
+from .flags import Checkbox, Flags, FlagSet
 from .parsers import parse_coff_obj_symbol_bytes
 
-# Compiler flag axes (from config / fallback to MSVC6)
-try:
-    from rebrew.config import cfg as _cfg
-    _COMPILER_PROFILE = _cfg.compiler_profile
-except Exception:
-    _cfg = None  # type: ignore[assignment]
-    _COMPILER_PROFILE = "msvc6"
+# Compiler flag axes (default to MSVC6, override via function params)
+_COMPILER_PROFILE = "msvc6"
 
+# --- Synced flag data from decomp.me (see tools/sync_decomp_flags.py) ---
+from .flag_data import COMMON_MSVC_FLAGS, MSVC6_FLAGS, MSVC_SWEEP_TIERS
+
+# Legacy dict-based axes (kept for backward compatibility)
 MSVC6_FLAG_AXES = {
     "opt": ["/O1", "/O2", "/Os", "/Ot", "/Ox", "/Od", ""],
     "fp": ["/Oy", "/Oy-", ""],
@@ -33,24 +34,74 @@ GCC_FLAG_AXES = {
     "intrinsics": [""],
 }
 
+# Map of profiles → synced Flags lists
+_FLAGS_MAP: dict[str, Flags] = {
+    "msvc": COMMON_MSVC_FLAGS,
+    "msvc7": COMMON_MSVC_FLAGS,
+    "msvc6": MSVC6_FLAGS,  # excludes MSVC 7.x+ only flags (/fp:*, /GS-)
+}
+
+# Legacy dict-based map (for backward compat)
 _FLAG_AXES_MAP = {
     "msvc6": MSVC6_FLAG_AXES,
     "gcc": GCC_FLAG_AXES,
-    "clang": GCC_FLAG_AXES,  # Clang accepts GCC flags
+    "clang": GCC_FLAG_AXES,
 }
 
-def _get_flag_axes() -> Dict[str, List[str]]:
+def _get_flag_axes() -> dict[str, list[str]]:
     return _FLAG_AXES_MAP.get(_COMPILER_PROFILE, MSVC6_FLAG_AXES)
 
-def generate_flag_combinations() -> List[str]:
-    """Generate all valid combinations of MSVC6 compiler flags."""
-    axes_dict = _get_flag_axes()
-    axes = list(axes_dict.values())
-    combos = []
+
+def _flags_to_axes(flags: Flags, tier_ids: list[str] | None = None) -> list[list[str]]:
+    """Convert FlagSet/Checkbox list to list of axes (each axis = list of options).
+
+    FlagSet  → [flag1, flag2, ..., ""]  (mutually exclusive + none)
+    Checkbox → [flag, ""]              (on or off)
+    """
+    axes = []
+    for item in flags:
+        if tier_ids is not None and item.id not in tier_ids:
+            continue
+        if isinstance(item, FlagSet):
+            axes.append(list(item.flags) + [""])
+        elif isinstance(item, Checkbox):
+            axes.append([item.flag, ""])
+    return axes
+
+
+def generate_flag_combinations(tier: str = "quick") -> list[str]:
+    """Generate flag combinations for the active compiler profile.
+
+    Args:
+        tier: Sweep effort level — "quick", "normal", "thorough", or "full".
+              Controls how many flag axes are included.
+    """
+    profile = _COMPILER_PROFILE
+
+    # Use synced Flags if available for this profile
+    if profile in _FLAGS_MAP:
+        flags = _FLAGS_MAP[profile]
+        tier_ids = MSVC_SWEEP_TIERS.get(tier)  # None = all axes
+        axes = _flags_to_axes(flags, tier_ids)
+    else:
+        # Fall back to legacy dict-based axes
+        axes_dict = _FLAG_AXES_MAP.get(profile, MSVC6_FLAG_AXES)
+        axes = list(axes_dict.values())
+
+    combos = set()
     for combo in itertools.product(*axes):
-        flags = [f for f in combo if f]
-        combos.append(" ".join(flags))
-    return list(set(combos))
+        flags_str = " ".join(f for f in combo if f)
+        combos.add(flags_str)
+
+    if len(combos) > 50_000:
+        warnings.warn(
+            f"Flag sweep tier '{tier}' produces {len(combos):,} combinations. "
+            f"Consider using 'quick' or 'normal' tier, or use sampling.",
+            stacklevel=2,
+        )
+
+    return sorted(combos)
+
 
 def build_candidate_obj_only(
     source_code: str,
@@ -58,7 +109,8 @@ def build_candidate_obj_only(
     inc_dir: str,
     cflags: str,
     symbol: str,
-    extra_sources: Optional[List[str]] = None,
+    extra_sources: list[str] | None = None,
+    env: dict[str, str] | None = None,
 ) -> BuildResult:
     """Compile source to .obj and extract symbol bytes (no linking)."""
     workdir = tempfile.mkdtemp(prefix="matcher_")
@@ -72,15 +124,12 @@ def build_candidate_obj_only(
         # MSVC6 under Wine sometimes dislikes absolute Unix paths for source files
         # We use relative paths since we are running in workdir
         cmd = cl_cmd.split() + cflags.split() + [f"/I{inc_dir}", f"/Fo{obj_name}", src_name]
-        try:
-            from rebrew.config import cfg
-            env = cfg.msvc_env()
-        except Exception:
+        if env is None:
             env = {**os.environ, "WINEDEBUG": "-all"}
 
         r = subprocess.run(cmd, capture_output=True, cwd=workdir, env=env)
         obj_path = os.path.join(workdir, obj_name)
-        
+
         if r.returncode != 0 or not os.path.exists(obj_path):
             return BuildResult(ok=False, error_msg=r.stderr.decode()[:200])
 
@@ -101,7 +150,8 @@ def build_candidate(
     cflags: str,
     ldflags: str,
     symbol: str,
-    extra_sources: Optional[List[str]] = None,
+    extra_sources: list[str] | None = None,
+    env: dict[str, str] | None = None,
 ) -> BuildResult:
     """Compile and link source to .exe, then extract symbol bytes."""
     workdir = tempfile.mkdtemp(prefix="matcher_")
@@ -129,16 +179,17 @@ def build_candidate(
             + [f"/LIBPATH:{lib_dir}", f"/OUT:{exe_name}", f"/MAP:{map_name}"]
         )
 
-        env = {**os.environ, "WINEDEBUG": "-all"}
+        if env is None:
+            env = {**os.environ, "WINEDEBUG": "-all"}
         r = subprocess.run(cmd, capture_output=True, cwd=workdir, env=env)
-        
+
         exe_path = os.path.join(workdir, exe_name)
         map_path = os.path.join(workdir, map_name)
 
         if r.returncode != 0 or not os.path.exists(exe_path) or not os.path.exists(map_path):
             return BuildResult(ok=False, error_msg=r.stderr.decode()[:200])
 
-        with open(map_path, "r") as f:
+        with open(map_path) as f:
             map_text = f.read()
 
         import re
@@ -146,14 +197,14 @@ def build_candidate(
         m = sym_re.search(map_text)
         if not m:
             return BuildResult(ok=False, error_msg=f"Symbol {symbol} not found in MAP")
-        
+
         lines = map_text.splitlines()
         sym_idx = -1
         for i, line in enumerate(lines):
             if symbol in line and m.group(1) in line:
                 sym_idx = i
                 break
-        
+
         size = 1000
         if sym_idx != -1 and sym_idx + 1 < len(lines):
             next_line = lines[sym_idx + 1]
@@ -164,9 +215,10 @@ def build_candidate(
                     size = 1000
 
         va = int(m.group(1), 16)
-        from .parsers import extract_function_from_pe
         from pathlib import Path
-        
+
+        from .parsers import extract_function_from_pe
+
         code = extract_function_from_pe(Path(exe_path), va, size)
         if code is None:
             return BuildResult(ok=False, error_msg="Failed to extract from PE")
@@ -183,17 +235,23 @@ def flag_sweep(
     base_cflags: str,
     symbol: str,
     n_jobs: int = 4,
-) -> List[Tuple[float, str]]:
-    """Sweep compiler flags to find the best match."""
+    tier: str = "quick",
+) -> list[tuple[float, str]]:
+    """Sweep compiler flags to find the best match.
+
+    Args:
+        tier: Sweep effort level — "quick", "normal", "thorough", or "full".
+    """
     from concurrent.futures import ThreadPoolExecutor, as_completed
+
     from .scoring import score_candidate
 
-    combos = generate_flag_combinations()
-    print(f"Sweeping {len(combos)} flag combinations...")
+    combos = generate_flag_combinations(tier=tier)
+    print(f"Sweeping {len(combos)} flag combinations (tier={tier})...")
 
     results = []
-    
-    def _eval_flags(flags: str) -> Tuple[float, str]:
+
+    def _eval_flags(flags: str) -> tuple[float, str]:
         full_flags = f"{base_cflags} {flags}"
         res = build_candidate_obj_only(
             source_code, cl_cmd, inc_dir, full_flags, symbol

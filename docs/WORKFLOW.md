@@ -1,47 +1,40 @@
 # Decompilation Workflow Guide
 
-Step-by-step guide for reverse engineering server.dll functions.
+Step-by-step guide for reverse engineering target binary functions.
 Aimed at AI agents and new contributors.
 
 ## Prerequisites
 
 - MSVC6 toolchain at `tools/MSVC600/VC98/` (already in repo)
 - Wine installed and working
-- Python with dependencies (`pefile`, `capstone`, `pygad`, etc.) specified in `pyproject.toml`. Install them using: `uv sync`
+- Python with dependencies (`lief`, `capstone`, `pygad`, etc.) specified in `pyproject.toml`. Install them using: `uv sync`
 - Ghidra with ReVa MCP (optional but strongly recommended)
 
-## Quick Reference
+# Quick Reference
 
 ```bash
+# Initialize a new project
+rebrew-init --target target_name --binary target.dll --compiler msvc6
+
 # See what needs work
 rebrew-next --stats
 rebrew-next --origin GAME -n 30
 
 # Generate a skeleton .c file
-rebrew-skeleton 0x10003da0
+rebrew-skeleton --va 0x10003da0
 
 # Test a function
-rebrew-test src/server_dll/my_func.c --update
+rebrew-test src/target_name/my_func.c --update
 
 # Structural diff (see exactly which bytes differ)
 rebrew-match \
-    --cl "wine tools/MSVC600/VC98/Bin/CL.EXE" \
-    --inc "tools/MSVC600/VC98/Include" \
-    --cflags "/nologo /c /O2 /MT /Gd" \
-    --diff-only src/server_dll/my_func.c \
-    --target-exe original/Server/server.dll \
-    --target-va 0x10003da0 --target-size 160 \
-    --symbol "_my_func" --seed-c src/server_dll/my_func.c
+    --diff-only src/target_name/my_func.c \
+    --va 0x10003da0 --size 160
 
 # Run the GA to auto-search for matching source
 rebrew-match \
-    --cl "wine tools/MSVC600/VC98/Bin/CL.EXE" \
-    --inc "tools/MSVC600/VC98/Include" \
-    --cflags "/nologo /c /O2 /MT /Gd" \
-    --target-exe original/Server/server.dll \
     --target-va 0x10003da0 --target-size 160 \
-    --symbol "_my_func" \
-    --seed-c src/server_dll/my_func.c \
+    --seed-c src/target_name/my_func.c \
     --out-dir run_my_func \
     --generations 200 --pop 64 --elite 8 -j 16 --diff
 
@@ -51,23 +44,28 @@ rebrew-catalog --summary
 # Batch test all reversed functions
 ./tools/batch_test.sh
 
+# Lint and verify Python health
+uv run ruff check .
+uv run ruff format .
+uv run pyright .
+
 # [EXPERIMENTAL] Scan DLL against FLIRT signatures
-uv run python tools/identify_libs.py flirt_sigs/
+rebrew-flirt flirt_sigs/
 ```
 
 ## Step-by-Step Process
 
 ```mermaid
 graph TD
-    Pick[Pick a function<br/>next_work.py] --> Gen[Generate skeleton<br/>gen_skeleton.py]
+    Pick[Pick a function<br/>rebrew-next] --> Gen[Generate skeleton<br/>rebrew-skeleton]
     Gen --> Decomp[Get decompilation<br/>Ghidra/IDA]
     Decomp --> Write[Write C89 source]
-    Write --> Test{Test the match<br/>test_func.py}
+    Write --> Test{Test the match<br/>rebrew-test}
     Test -->|EXACT / RELOC| Done[Update annotation<br/>DONE]
-    Test -->|MISMATCH| Diff[Investigate diffs<br/>matcher.py --diff-only]
+    Test -->|MISMATCH| Diff[Investigate diffs<br/>rebrew-match --diff-only]
     Test -->|COMPILE ERROR| Write
     Diff --> Flags{Unsure about flags?}
-    Flags -->|Yes| Sweep[Sweep flags<br/>matcher.py --flag-sweep-only]
+    Flags -->|Yes| Sweep[Sweep flags<br/>rebrew-match --flag-sweep-only]
     Sweep --> Write
     Flags -->|No| Write
 ```
@@ -87,26 +85,26 @@ Difficulty ratings: `*` = trivial, `*****` = very hard.
 rebrew-skeleton 0x<VA>
 ```
 
-This creates `src/server_dll/<name>.c` with proper annotations and
+This creates `src/target_name/<name>.c` with proper annotations and
 prints the exact test command.
 
 ### 3. Get the decompilation
 
 If you have Ghidra + ReVa MCP:
 ```
-get-decompilation programPath="/server.dll" functionNameOrAddress="0x<VA>"
+get-decompilation programPath="/target.dll" functionNameOrAddress="0x<VA>"
 ```
 
-the function at the given VA in `original/Server/server.dll`.
+the function at the given VA in `original/target.dll`.
 
 Alternatively, use the built-in offline disassembler script:
 ```bash
-rebrew-asm 0x<VA> <SIZE>
+rebrew-asm --va 0x<VA> --size <SIZE>
 ```
 
 Or you can try to automatically identify it against known FLIRT signatures (**experimental**):
 ```bash
-uv run python tools/identify_libs.py [path_to_sig_directory]
+rebrew-flirt [path_to_sig_directory]
 ```
 
 ### 4. Write C89 source
@@ -156,7 +154,7 @@ int __cdecl my_func(int param_1, char *param_2)
 ### 5. Test the match
 
 ```bash
-rebrew-test src/server_dll/my_func.c --update
+rebrew-test src/target_name/my_func.c --update
 ```
 
 **Possible results:**
@@ -173,15 +171,7 @@ rebrew-test src/server_dll/my_func.c --update
 ### 6. If MISMATCH — use diff mode
 
 ```bash
-rebrew-match \
-    --cl "wine tools/MSVC600/VC98/Bin/CL.EXE" \
-    --inc "tools/MSVC600/VC98/Include" \
-    --cflags "/nologo /c /O2 /MT /Gd" \
-    --compare-obj \
-    --diff-only src/server_dll/my_func.c \
-    --target-exe original/Server/server.dll \
-    --target-va 0x<VA> --target-size <SIZE> \
-    --symbol "_my_func" --seed-c src/server_dll/my_func.c
+rebrew-match --diff-only src/target_name/my_func.c --va 0x<VA> --size <SIZE>
 ```
 
 **Diff markers:**
@@ -192,15 +182,7 @@ rebrew-match \
 ### 7. If unsure about compiler flags — sweep
 
 ```bash
-rebrew-match \
-    --cl "wine tools/MSVC600/VC98/Bin/CL.EXE" \
-    --inc "tools/MSVC600/VC98/Include" \
-    --cflags "/nologo /c /MT" \
-    --flag-sweep-only \
-    --target-exe original/Server/server.dll \
-    --target-va 0x<VA> --target-size <SIZE> \
-    --symbol "_my_func" \
-    --seed-c src/server_dll/my_func.c -j 16
+rebrew-match --flag-sweep-only src/target_name/my_func.c --va 0x<VA> --size <SIZE>
 ```
 
 ### 8. Update the annotation
@@ -218,7 +200,13 @@ Based on test results, update the header:
 If STATUS is MATCHING, add a BLOCKER line:
 ```c
 // STATUS: MATCHING
-// BLOCKER: loop-tail inversion (3B size diff)
+### 9. Lint and Verify Annotation Health
+
+Before committing or finishing a batch of functions, ensure your C files have valid headers and annotations. Run the built-in annotation linter (`rebrew-catalog`) periodically throughout the RE pipeline to catch formatting errors early, especially when collaborating or generating many templates:
+
+```bash
+rebrew-catalog --lint    # Check for invalid headers, statuses, and origins
+rebrew-catalog --summary # View overall RE progress and stats
 ```
 
 ## Compiler Flags by Origin
@@ -229,7 +217,7 @@ If STATUS is MATCHING, add a BLOCKER line:
 | MSVCRT | `/O1` | Size optimization. Some need `/O1 /Oy-` (frame pointer) or `/O1 /Oi` (intrinsics) |
 | ZLIB | `/O2` | Full optimization (no `/Gd` needed — zlib uses default cdecl) |
 
-Always include `/nologo /c /MT` as base flags (added automatically by test_func.py).
+Always include `/nologo /c /MT` as base flags (added automatically by `rebrew-test`).
 
 ## Annotation Format
 
@@ -375,7 +363,7 @@ A STUB should always have a `BLOCKER` annotation:
 // BLOCKER: needs complete rewrite, 199B vs 163B
 ```
 
-### How test_func.py Classifies Results
+### How rebrew-test Classifies Results
 
 ```mermaid
 flowchart TD
@@ -430,7 +418,7 @@ linker-dependent addresses differ. This is the RELOC match.
 
 SEH helper functions in MSVCRT are **not matchable from pure C89 source**. These functions manipulate the exception handling frame directly in ways that cannot be expressed in C.
 
-**Identified SEH helpers in server.dll:**
+**Identified SEH helpers in target binary:**
 
 | VA | Size | Name | Description |
 |----|------|------|-------------|
@@ -495,8 +483,8 @@ graph LR
         G4["Decompiler output<br/>& variable names"]
     end
 
-    L1 -->|"ghidra_sync.py --export<br/>create-label"| G1
-    L4 -->|"ghidra_sync.py --export<br/>set-comment, set-bookmark"| G3
+    L1 -->|"rebrew-sync --export<br/>create-label"| G1
+    L4 -->|"rebrew-sync --export<br/>set-comment, set-bookmark"| G3
     G4 -->|"get-decompilation"| L1
     G2 -->|"get-structure-info"| L2
     L2 -->|"parse-c-structure /<br/>modify-structure-from-c"| G2
@@ -543,7 +531,7 @@ rebrew-catalog --export-ghidra
 ```
 
 This caches all Ghidra function entries to `src/server_dll/ghidra_functions.json`
-so that `gen_skeleton.py` and `next_work.py` work offline.
+so that `rebrew-skeleton` and `rebrew-next` work offline.
 
 #### Pulling cross-references (callers & callees)
 
@@ -568,7 +556,7 @@ be reflected in Ghidra.
 rebrew-sync --export
 ```
 
-This reads all annotation headers from `src/server_dll/*.c` and generates
+This reads all annotation headers from `src/target_name/*.c` and generates
 `ghidra_commands.json` containing ReVa MCP operations:
 
 | Operation | What it does |
@@ -579,8 +567,8 @@ This reads all annotation headers from `src/server_dll/*.c` and generates
 
 To apply them via MCP, iterate the commands:
 ```
-create-label programPath="/server.dll" addressOrSymbol="0x10003DA0" labelName="alloc_game_object"
-set-comment programPath="/server.dll" addressOrSymbol="0x10003DA0" comment="..." commentType="plate"
+create-label programPath="/target.dll" addressOrSymbol="0x10003DA0" labelName="alloc_game_object"
+set-comment programPath="/target.dll" addressOrSymbol="0x10003DA0" comment="..." commentType="plate"
 ```
 
 #### Pushing struct definitions to Ghidra
@@ -595,7 +583,7 @@ parse-c-structure programPath="/server.dll" cCode="typedef struct { int bitvEntr
 To update an existing Ghidra struct:
 
 ```
-modify-structure-from-c programPath="/server.dll" structureName="HEADER" cCode="typedef struct { ... };"
+modify-structure-from-c programPath="/target.dll" structureName="HEADER" cCode="typedef struct { ... };"
 ```
 
 #### Pushing individual renames (ad-hoc)
@@ -604,8 +592,8 @@ When you discover a function's real name during RE but haven't written a full
 `.c` file yet:
 
 ```
-create-label programPath="/server.dll" addressOrSymbol="0x10001000" labelName="inflate_init"
-set-comment programPath="/server.dll" addressOrSymbol="0x10001000" comment="zlib inflateInit2_ wrapper" commentType="plate"
+create-label programPath="/target.dll" addressOrSymbol="0x10001000" labelName="inflate_init"
+set-comment programPath="/target.dll" addressOrSymbol="0x10001000" comment="zlib inflateInit2_ wrapper" commentType="plate"
 ```
 
 ### Recommended Sync Cycle
@@ -617,8 +605,8 @@ graph TD
     A["Start reversing<br/>a function"] --> B["Pull decompilation<br/>(get-decompilation)"]
     B --> C["Pull struct defs<br/>(get-structure-info)"]
     C --> D["Write/update .c file<br/>with real names & types"]
-    D --> E["Test the match<br/>(test_func.py)"]
-    E --> F["Push names back<br/>(ghidra_sync.py --export)"]
+    D --> E["Test the match<br/>(rebrew-test)"]
+    E --> F["Push names back<br/>(rebrew-sync --export)"]
     F --> G["Push new structs<br/>(parse-c-structure)"]
     G --> H{"More functions<br/>that use these types?"}
     H -->|Yes| I["Re-pull decompilation<br/>(names now resolved)"]
@@ -668,9 +656,9 @@ successive function easier to understand.
 > The tools in this section are experimental and may produce incomplete or incorrect results.
 > They are provided as aids, not as replacements for manual analysis.
 
-### FLIRT Signature Scanner (`identify_libs.py`)
+### FLIRT Signature Scanner (`rebrew-flirt`)
 
-Automatically identifies known library functions in the target DLL by matching
+Automatically identifies known library functions in the target binary by matching
 against [IDA FLIRT](https://hex-rays.com/products/ida/tech/flirt/) signature
 files (`.sig` / `.pat`). This runs standalone — **no IDA Pro required**.
 
@@ -683,10 +671,10 @@ Uses the [`python-flirt`](https://pypi.org/project/python-flirt/) library.
 **Usage:**
 ```bash
 # Scan using signatures in the flirt_sigs/ directory
-uv run python tools/identify_libs.py flirt_sigs/
+rebrew-flirt flirt_sigs/
 
 # Scan using a custom signature directory
-uv run python tools/identify_libs.py /path/to/my/signatures/
+rebrew-flirt /path/to/my/signatures/
 ```
 
 **Where to get signatures:**
@@ -716,12 +704,153 @@ uv run python tools/gen_flirt_pat.py tools/MSVC600/VC98/Lib/LIBCMT.LIB -o flirt_
 ### Assembly Dumper (`dump_asm.py`)
 
 Quick offline disassembly of a function from the target binary using
-`pefile` + `capstone`. Useful when Ghidra MCP is unavailable or for
+`lief` + `capstone`. Useful when Ghidra MCP is unavailable or for
 quick spot-checks.
 
 ```bash
 rebrew-asm 0x<VA> [SIZE]
 ```
+
+## Working with Multiple Binaries
+
+When a game ships multiple executables or DLLs that share code (e.g. a
+`server.dll` and a `Europa1400Gold_TL.exe` built from the same codebase),
+rebrew handles them as **separate targets** inside one project.
+
+### Multi-target `rebrew.toml`
+
+Define each binary as its own `[targets.<name>]` section. Each target gets
+its own binary path, source directory, function list, and optional overrides.
+Global compiler settings under `[compiler]` are inherited by all targets
+unless overridden.
+
+```toml
+# ── Global compiler defaults (inherited by all targets) ──────────
+[compiler]
+profile = "msvc6"
+command = "wine tools/MSVC600/VC98/Bin/CL.EXE"
+includes = "tools/MSVC600/VC98/Include"
+libs = "tools/MSVC600/VC98/Lib"
+cflags = "/O2 /Gd"
+
+[compiler.cflags_presets]
+GAME = "/O2 /Gd"
+MSVCRT = "/O1"
+ZLIB = "/O2"
+
+[compiler.profiles.clang]
+command = "clang"
+includes = "/usr/include/x86_64-linux-gnu/"
+libs = "/usr/lib/x86_64-linux-gnu/"
+cflags = "-O2"
+
+# ── Target 1 ─────────────────────────────────────────────────────
+[targets."server.dll"]
+binary = "original/Server/server.dll"
+format = "pe"
+arch = "x86_32"
+reversed_dir = "src/server.dll"
+function_list = "src/server.dll/r2_functions.txt"
+bin_dir = "bin/server.dll"
+origins = ["GAME", "ZLIB", "MSVCRT"]
+
+[targets."server.dll".compiler]          # override compiler for this target
+profile = "msvc6"
+command = "wine tools/MSVC600/VC98/Bin/CL.EXE"
+
+[targets."server.dll".cflags_presets]    # override cflags per-origin
+#ORIGIN = "FLAGS"
+ZLIB = "/O3"
+
+# ── Target 2 ─────────────────────────────────────────────────────
+[targets."Europa1400Gold_TL.exe"]
+binary = "original/Europa1400Gold_TL.exe"
+format = "pe"
+arch = "x86_32"
+reversed_dir = "src/Europa1400Gold_TL.exe"
+function_list = "src/Europa1400Gold_TL.exe/r2_functions.txt"
+bin_dir = "bin/Europa1400Gold_TL.exe"
+```
+
+Tools default to the **first** target. Use `--target` to select another:
+
+```bash
+rebrew-test --target Europa1400Gold_TL.exe src/Europa1400Gold_TL.exe/my_func.c
+rebrew-next --target Europa1400Gold_TL.exe --stats
+```
+
+### Sharing code between targets
+
+Two binaries compiled from the same source tree will have **identical function
+bodies** at different VAs. Rather than duplicating the C implementation, keep
+the shared logic in a common directory and use thin per-target wrapper files
+that `#include` it.
+
+**Directory layout:**
+
+```
+src/
+  shared/                          # shared implementations (no rebrew headers)
+    my_shared_func.c
+  server.dll/                      # target 1 wrappers + unique functions
+    game_my_shared_func.c          # wrapper with SERVER annotations
+    game_server_only_func.c        # unique to server.dll
+  Europa1400Gold_TL.exe/           # target 2 wrappers + unique functions
+    game_my_shared_func.c          # wrapper with CLIENT annotations
+    game_client_only_func.c        # unique to client
+```
+
+**`src/shared/my_shared_func.c`** — the single source of truth:
+
+```c
+/* No rebrew annotation header here */
+int __cdecl my_shared_func(int param)
+{
+    int result;
+    result = param + 1;
+    return result;
+}
+```
+
+**`src/server.dll/game_my_shared_func.c`** — target 1 wrapper:
+
+```c
+// FUNCTION: SERVER 0x10001000
+// STATUS: RELOC
+// ORIGIN: GAME
+// SIZE: 42
+// CFLAGS: /O2 /Gd
+// SYMBOL: _my_shared_func
+
+#include "../shared/my_shared_func.c"
+```
+
+**`src/Europa1400Gold_TL.exe/game_my_shared_func.c`** — target 2 wrapper:
+
+```c
+// FUNCTION: CLIENT 0x00405000
+// STATUS: RELOC
+// ORIGIN: GAME
+// SIZE: 42
+// CFLAGS: /O2 /Gd
+// SYMBOL: _my_shared_func
+
+#include "../shared/my_shared_func.c"
+```
+
+This way rebrew tests and catalogs each target independently at the correct VA
+and size, while the actual C logic lives in one place. When you fix a mismatch,
+both targets benefit automatically.
+
+> [!TIP]
+> If a function exists in both binaries but with **different compiler flags**
+> (e.g. one uses `/O2`, the other `/O1`), both wrappers can specify different
+> `CFLAGS` lines while still `#include`-ing the same source file.
+
+> [!NOTE]
+> The annotation parser reads each `.c` file's header independently. Only one
+> `// FUNCTION:` marker per file is supported — this is why the wrapper
+> pattern is necessary instead of putting multiple markers in one file.
 
 ## Bootstrapping a New Binary
 
@@ -729,55 +858,30 @@ Step-by-step guide for adding an entirely new executable or DLL to the project
 when **no prior RE work exists** for it — no `.c` files, no `ghidra_functions.json`,
 no catalog entries.
 
-### 1. Place the binary
+### 1. Initialize the project
 
-Copy the target file into the `original/` directory under a descriptive subfolder:
-
-```bash
-mkdir -p original/MyGame
-cp /path/to/mygame.exe original/MyGame/mygame.exe
-```
-
-### 2. Register the target in `rebrew.toml`
-
-Add a new entry under `[targets]`. The key becomes the target label used
-in annotation markers (e.g., `// FUNCTION: MYGAME 0x...`).
-
-```toml
-[targets.server_dll]
-binary = "original/Server/server.dll"
-format = "pe"
-arch = "x86_32"
-reversed_dir = "src/server_dll"
-function_list = "src/server_dll/r2_functions.txt"
-
-# ↓ New target ↓
-[targets.mygame]
-binary = "original/MyGame/mygame.exe"
-format = "pe"
-arch = "x86_32"
-reversed_dir = "src/mygame"
-function_list = "src/mygame/r2_functions.txt"
-
-[compiler]
-profile = "msvc6"
-command = "wine tools/MSVC600/VC98/Bin/CL.EXE"
-includes = "tools/MSVC600/VC98/Include"
-libs = "tools/MSVC600/VC98/Lib"
-```
-
-### 3. Create the source directory
+Run the initialize command inside an empty or existing directory. Pass the
+target name, original executable filename, and compiler profile.
 
 ```bash
-mkdir -p src/mygame
+uv run rebrew-init --target mygame --binary mygame.exe --compiler msvc6
 ```
 
-This is where all reversed `.c` files for this target will live.
+This will automatically create your `rebrew.toml` as well as the
+`original/`, `src/mygame/`, and `bin/mygame/` folders.
 
-### 4. Discover functions
+### 2. Place the binary
+
+Copy the target file into the generated `original/` directory:
+
+```bash
+cp /path/to/mygame.exe original/mygame.exe
+```
+
+### 3. Discover functions
 
 You need a `ghidra_functions.json` inside the source directory. This is the
-function list that `gen_skeleton.py` and `next_work.py` consume.
+function list that `rebrew-skeleton` and `rebrew-next` consume.
 
 **Option A — Ghidra (recommended):**
 
@@ -819,11 +923,12 @@ Determine the original compiler so you can set up the correct build backend.
 
 ```bash
 uv run python -c "
-import pefile
-pe = pefile.PE('original/MyGame/mygame.exe')
-print('Rich header entries:')
-for entry in pe.RICH_HEADER.values if hasattr(pe, 'RICH_HEADER') else []:
-    print(f'  Product {entry.get(\"prodid\", \"?\")} count {entry.get(\"count\", \"?\")}')
+import lief
+pe = lief.parse('original/MyGame/mygame.exe')
+if pe.has_rich_header:
+    print('Rich header entries:')
+    for entry in pe.rich_header.entries:
+        print(f'  Product {entry.id} count {entry.count}')
 "
 ```
 
@@ -847,7 +952,7 @@ Run the FLIRT scanner to auto-identify known library functions. This provides
 any manual RE.
 
 ```bash
-uv run python tools/identify_libs.py flirt_sigs/ \
+rebrew-flirt flirt_sigs/ \
     --target original/MyGame/mygame.exe
 ```
 
@@ -858,17 +963,14 @@ uv run python tools/gen_flirt_pat.py /path/to/LIBCMT.LIB \
     -o flirt_sigs/libcmt_vc6.pat
 ```
 
-### 7. Adapt tool paths (current limitation)
+### 7. Full tool support
 
-> [!WARNING]
-> Most tools (`gen_skeleton.py`, `next_work.py`, `test_func.py`, `matcher.py`)
-> currently hardcode paths to `server.dll` and `src/server_dll/`. Until these
-> are made target-aware, you must either:
->
-> 1. **Edit the tool constants** (e.g., `SRC_DIR`, `GHIDRA_JSON`, target paths)
->    to point at your new target, or
-> 2. **Use the tools manually** by passing explicit `--target-exe`, `--target-va`,
->    and `--symbol` flags to `matcher.py` and `test_func.py`.
+The core tools (`rebrew-skeleton`, `rebrew-next`, `rebrew-test`, `rebrew-match`) are fully target-aware. They automatically read the target configuration from `rebrew.toml` and operate on the selected target's binary and source directory.
+
+If you have multiple targets, switch between them using the `--target` flag:
+```bash
+rebrew-test --target mygame src/mygame/my_func.c
+```
 
 Example manual test for a new binary:
 

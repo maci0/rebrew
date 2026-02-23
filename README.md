@@ -4,6 +4,28 @@
 
 Rebrew is a reusable Python tooling package for reconstructing exact C source code from compiled binaries. It provides a genetic algorithm engine, annotation pipeline, verification framework, and CLI tools.
 
+### Core Principles
+
+- **Idempotent**: Every tool can be run repeatedly with the same result. `rebrew-catalog`, `rebrew-verify`, `rebrew-cfg`, `rebrew-init` — running them twice changes nothing the second time. No destructive side effects.
+- **Config-driven**: All tools read from `rebrew.toml` — zero manual path arguments needed.
+- **Composable**: Tools are small, single-purpose, and designed to be chained by scripts or AI agents.
+
+## Supported Platforms
+
+| Architecture | Binary Format | Compiler | Binary Loading | Object Parsing | GA Matching | Verification |
+|:------------|:-------------|:---------|:--------------:|:--------------:|:-----------:|:------------:|
+| x86 (32-bit) | PE (`.exe`/`.dll`) | MSVC 6.0 | ✅ | ✅ | ✅ | ✅ |
+| x86 (32-bit) | PE | MSVC 7.x+ | ✅ | ✅ | ✅ | ✅ |
+| x86 (32-bit) | PE | Watcom C | ✅ | ⬜ | ✅ | ⬜ |
+| x86 (32-bit) | ELF (`.so`/exec) | GCC/Clang | ✅ | ✅ | ⬜ | ⬜ |
+| x86_64 | PE | MSVC | ✅ | ✅ | ⬜ | ⬜ |
+| x86_64 | ELF | GCC/Clang | ✅ | ✅ | ⬜ | ⬜ |
+| x86_64 | Mach-O | Clang | ✅ | ✅ | ⬜ | ⬜ |
+| ARM32 | ELF | GCC/Clang | ✅ | ✅ | ⬜ | ⬜ |
+| ARM64 | ELF | GCC/Clang | ✅ | ✅ | ⬜ | ⬜ |
+| ARM64 | Mach-O | Clang | ✅ | ✅ | ⬜ | ⬜ |
+
+**Legend:** ✅ Supported  ⬜ Planned / Not yet implemented
 ## Installation
 
 Rebrew is designed to be consumed as a dependency by a project-specific decomp repo (e.g., [guild-rebrew](../guild-rebrew/)).
@@ -30,9 +52,10 @@ All CLI tools must be run **from within a project directory** that contains a `r
 ```bash
 cd /path/to/your-decomp-project    # must contain rebrew.toml
 
-rebrew-next --stats                 # show progress
+rebrew next --stats                 # show progress (unified command, equivalent to rebrew-next)
+rebrew-init --target mygame --binary mygame.exe --compiler msvc6 # initialize project
 rebrew-skeleton 0x10003DA0          # generate skeleton
-rebrew-test src/server_dll/f.c      # test implementation
+rebrew-test src/target_name/f.c     # test implementation
 rebrew-verify                       # bulk verify all functions
 rebrew-match ...                    # run GA engine
 rebrew-catalog                      # regenerate catalog
@@ -40,12 +63,19 @@ rebrew-lint                         # lint annotations
 rebrew-sync                         # export to Ghidra
 rebrew-batch                        # batch extract functions
 rebrew-asm                          # quick disassembly
+rebrew-ga                           # batch GA runner
+rebrew-build-db                     # build SQLite coverage database
+rebrew-cfg list-targets              # list configured targets
+rebrew-cfg add-origin ZLIB           # add origin to default target
+rebrew-cfg set compiler.cflags "/O1" # set a config value
 ```
 
 ## CLI Tools
 
 | Command | Description |
 |---------|-------------|
+| `rebrew` | Unified CLI entry point for all subcommands (e.g. `rebrew test`) |
+| `rebrew-init` | Initialize a new rebrew project from scratch |
 | `rebrew-next` | Show uncovered functions and progress stats |
 | `rebrew-skeleton` | Auto-generate .c skeleton from a virtual address |
 | `rebrew-test` | Quick compile-and-compare harness |
@@ -57,19 +87,22 @@ rebrew-asm                          # quick disassembly
 | `rebrew-batch` | Batch extract and disassemble functions |
 | `rebrew-asm` | Quick offline disassembly |
 | `rebrew-ga` | Batch GA runner for STUB functions |
+| `rebrew-build-db` | Build SQLite coverage database |
+| `rebrew-cfg` | Read and edit `rebrew.toml` programmatically (idempotent) |
+| `rebrew-add-target` | Add a target binary (alias for `rebrew-cfg add-target`) |
 
 ## Project Configuration (`rebrew.toml`)
 
 Each decomp project provides a `rebrew.toml` in its root:
 
 ```toml
-[targets.server_dll]
-binary = "original/Server/server.dll"
+[targets.target_name]
+binary = "original/target.dll"
 format = "pe"
 arch = "x86_32"
-reversed_dir = "src/server_dll"
-function_list = "src/server_dll/r2_functions.txt"
-bin_dir = "bin/server_dll"
+reversed_dir = "src/target_name"
+function_list = "src/target_name/r2_functions.txt"
+bin_dir = "bin/target_name"
 
 [compiler]
 profile = "msvc6"
@@ -83,10 +116,24 @@ libs = "tools/MSVC600/VC98/Lib"
 ```bash
 cd rebrew/
 uv sync --all-extras       # install dev dependencies
-uv run pytest tests/ -v    # run tests (62 tests)
+uv run pytest tests/ -v    # run tests (201 tests)
 uv run ruff check .        # lint
 uv run black .             # format
+python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me
 ```
+
+### Flag Sweep Tiers
+
+The flag sweep uses compiler flag definitions synced from [decomp.me](https://github.com/decompme/decomp.me). The `generate_flag_combinations(tier)` function supports four effort levels:
+
+| Tier | MSVC Axes | Approx. Combos | Use Case |
+|------|-----------|---------------|----------|
+| `quick` | 3 (opt, callconv, codegen) | 192 | Fast iteration |
+| `normal` | 6 (+fp, rtlib, inline) | 21K | Default sweep |
+| `thorough` | 10 (+alignment, toggles) | 1M | Deep search |
+| `full` | 13 (all) | 8.3M | Exhaustive (use sampling) |
+
+The `msvc6` compiler profile automatically excludes MSVC 7.x+ flags (`/fp:*`, `/GS-`).
 
 ## License
 

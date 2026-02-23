@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""next_work.py - Show what to work on next in the rebrew RE project.
+"""next.py - Show what to work on next in the rebrew RE project.
 
 Analyzes the current state of reverse engineering progress and recommends
 the next functions to work on, sorted by estimated difficulty and priority.
@@ -12,27 +12,16 @@ Usage:
     rebrew-next --stats             # Show overall progress statistics
 """
 
-import typer
 import json
 import os
 import re
-import sys
-from typing import Dict, List, Optional, Tuple
+from pathlib import Path
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+import typer
 
-# Lazy config — loaded when main() runs
-_cfg = None
-
-
-def _get_cfg(target=None):
-    global _cfg
-    if _cfg is None:
-        from rebrew.config import load_config
-        _cfg = load_config(target=target)
-    return _cfg
-
-GAME_RANGE_END = 0x10019000
+from rebrew.annotation import parse_c_file
+from rebrew.cli import TargetOption, get_config
+from rebrew.verify import load_ghidra_functions
 
 # Known ASM builtins - cannot be matched from C source
 ASM_BUILTINS = {
@@ -52,27 +41,8 @@ ASM_BUILTINS = {
     "__except_handler3",
 }
 
-# IAT thunks (6-byte jmp stubs, not reversible)
-IAT_THUNKS = {
-    0x1001A160,
-    0x1001A166,
-    0x1001A16C,
-    0x1001A172,
-    0x1001A178,
-    0x1001A17E,
-    0x1001A184,
-    0x10023840,
-}
-
-DEFAULT_CFLAGS = {
-    "GAME": "/O2 /Gd",
-    "MSVCRT": "/O1",
-    "ZLIB": "/O2",
-}
-
-
-def detect_origin(va: int, name: str) -> str:
-    if va >= GAME_RANGE_END:
+def detect_origin(va: int, name: str, cfg) -> str:
+    if cfg.game_range_end and va >= cfg.game_range_end:
         return "MSVCRT"
     if name.startswith("__") or name.startswith("_crt"):
         return "MSVCRT"
@@ -81,44 +51,29 @@ def detect_origin(va: int, name: str) -> str:
 
 def load_data(cfg):
     """Load all project data."""
-    src_dir = str(cfg.reversed_dir)
-    ghidra_json = os.path.join(src_dir, "ghidra_functions.json")
+    src_dir = Path(cfg.reversed_dir)
+    ghidra_json = src_dir / "ghidra_functions.json"
 
     # Ghidra functions
-    with open(ghidra_json) as f:
-        ghidra_funcs = json.load(f)
+    ghidra_funcs = load_ghidra_functions(ghidra_json)
 
     # Existing .c files
     existing = {}  # va -> {filename, status, origin, blocker}
-    for fname in os.listdir(src_dir):
-        if not fname.endswith(".c"):
-            continue
-        filepath = os.path.join(src_dir, fname)
-        with open(filepath) as f:
-            content = f.read(1024)
-
-        m = re.search(
-            r"(?:FUNCTION|LIBRARY|STUB):\s*SERVER\s+(0x[0-9a-fA-F]+)", content
-        )
-        if not m:
-            continue
-        va = int(m.group(1), 16)
-
-        status_m = re.search(r"STATUS:\s*(\w+)", content)
-        origin_m = re.search(r"ORIGIN:\s*(\w+)", content)
-        blocker_m = re.search(r"BLOCKER:\s*(.+?)(?:\s*\*/|\n)", content)
-
-        existing[va] = {
-            "filename": fname,
-            "status": status_m.group(1) if status_m else "UNKNOWN",
-            "origin": origin_m.group(1) if origin_m else "UNKNOWN",
-            "blocker": blocker_m.group(1).strip() if blocker_m else "",
-        }
+    for cfile in sorted(src_dir.glob("*.c")):
+        entry = parse_c_file(cfile)
+        if entry is not None:
+            existing[entry.va] = {
+                "filename": Path(entry.filepath).name,
+                "status": entry.status,
+                "origin": entry.origin,
+                "blocker": entry.blocker,
+                "symbol": entry.symbol,
+            }
 
     return ghidra_funcs, existing
 
 
-def estimate_difficulty(size: int, name: str, origin: str) -> Tuple[int, str]:
+def estimate_difficulty(size: int, name: str, origin: str) -> tuple[int, str]:
     """Estimate difficulty (1-5) and reason."""
     if name in ASM_BUILTINS:
         return 0, "ASM builtin (skip)"
@@ -154,10 +109,10 @@ def main(
     max_size: int = typer.Option(9999, help="Max function size"),
     min_size: int = typer.Option(10, help="Min function size"),
     commands: bool = typer.Option(False, help="Print test commands for each"),
-    target: str = typer.Option(None, "--target", "-t", help="Target from rebrew.toml"),
+    target: str | None = TargetOption,
 ):
     """Show what to work on next in the rebrew RE project."""
-    cfg = _get_cfg(target=target)
+    cfg = get_config(target=target)
     ghidra_funcs, existing = load_data(cfg)
 
     # --stats mode
@@ -186,10 +141,10 @@ def main(
         print("=" * 60)
         print()
         print(f"Total functions (Ghidra):  {total}")
-        print(f"  IAT thunks (skip):       {len(IAT_THUNKS)}")
+        print(f"  IAT thunks (skip):       {len(cfg.iat_thunks)}")
         print(f"  ASM builtins (skip):     ~{len(ASM_BUILTINS)}")
         print(
-            f"  Actionable:              ~{total - len(IAT_THUNKS) - len(ASM_BUILTINS)}"
+            f"  Actionable:              ~{total - len(cfg.iat_thunks) - len(ASM_BUILTINS)}"
         )
         print()
         print(f"Covered (.c files):        {covered} ({100 * covered / total:.1f}%)")
@@ -206,12 +161,12 @@ def main(
         unc_game = unc_crt = unc_zlib = 0
         for func in ghidra_funcs:
             va = func["va"]
-            if va in existing or va in IAT_THUNKS:
+            if va in existing or va in cfg.iat_thunks:
                 continue
             name = func.get("ghidra_name", "")
             if name in ASM_BUILTINS:
                 continue
-            origin = detect_origin(va, name)
+            origin = detect_origin(va, name, cfg)
             if origin == "GAME":
                 unc_game += 1
             elif origin == "MSVCRT":
@@ -219,7 +174,7 @@ def main(
             elif origin == "ZLIB":
                 unc_zlib += 1
 
-        print(f"Uncovered by origin:")
+        print("Uncovered by origin:")
         print(f"  GAME:   {unc_game}")
         print(f"  MSVCRT: {unc_crt}")
         print(f"  ZLIB:   {unc_zlib}")
@@ -229,7 +184,7 @@ def main(
             print(
                 f"MATCHING functions that could be improved to EXACT/RELOC: {matching}"
             )
-            print(f"  Run: rebrew-next --improving")
+            print("  Run: rebrew-next --improving")
         return
 
     # --improving mode
@@ -259,14 +214,9 @@ def main(
             )
 
             if commands:
-                symbol_m = None
-                filepath = os.path.join(str(cfg.reversed_dir), info["filename"])
-                with open(filepath) as f:
-                    content = f.read(512)
-                sm = re.search(r"SYMBOL:\s*(\S+)", content)
-                symbol = sm.group(1) if sm else f"_func_{va:08x}"
-                cflags = DEFAULT_CFLAGS.get(info["origin"], "/O2 /Gd")
-                rel_path = f"src/server_dll/{info['filename']}"
+                symbol = info.get("symbol") or f"_func_{va:08x}"
+                cflags = cfg.cflags_presets.get(info["origin"], "/O2 /Gd")
+                rel_path = f"{cfg.reversed_dir.name}/{info['filename']}"
                 print(
                     f'    TEST: rebrew-test {rel_path} {symbol} --va 0x{va:08x} --size {size} --cflags "{cflags}"'
                 )
@@ -279,14 +229,14 @@ def main(
         size = func["size"]
         name = func.get("ghidra_name", f"FUN_{va:08x}")
 
-        if va in existing or va in IAT_THUNKS:
+        if va in existing or va in cfg.iat_thunks:
             continue
         if name in ASM_BUILTINS:
             continue
         if size < min_size or size > max_size:
             continue
 
-        origin = detect_origin(va, name)
+        origin = detect_origin(va, name, cfg)
         if origin_filter and origin != origin_filter:
             continue
 
@@ -320,10 +270,10 @@ def main(
         )
 
         if commands:
-            cflags = DEFAULT_CFLAGS.get(origin, "/O2 /Gd")
+            cflags = cfg.cflags_presets.get(origin, "/O2 /Gd")
             print(f"     GEN: rebrew-skeleton 0x{va:08x}")
             print(
-                f'     TEST: rebrew-test src/server_dll/... _... --va 0x{va:08x} --size {size} --cflags "{cflags}"'
+                f'     TEST: rebrew-test {cfg.reversed_dir.name}/... _... --va 0x{va:08x} --size {size} --cflags "{cflags}"'
             )
 
     print()
@@ -333,5 +283,8 @@ def main(
     )
 
 
-if __name__ == "__main__":
+def main_entry():
     app()
+
+if __name__ == "__main__":
+    main_entry()

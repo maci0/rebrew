@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""validate.py - Core traceability pipeline for rebrew RE project.
+"""catalog.py - Unified function catalog and reporting.
 
-Parses annotations from server_dll/*.c files, reads r2_functions.txt for the
-full function list, optionally verifies against original/Server/server.dll, and generates
-CATALOG.md + recoverage/data.json.
+Merges r2 function lists, Ghidra export JSON, and local reversed .c files
+into a single source of truth for progress tracking and batch operations.
 
 Supports both OLD format:
     /* func_name @ 0x10001000 (302B) - /O2 - EXACT MATCH [GAME] */
 and NEW reccmp-style format:
-    // FUNCTION: SERVER 0x10001000
+    // FUNCTION: [TARGET] 0x10001000
     // STATUS: EXACT
     // ORIGIN: GAME
     // SIZE: 302
@@ -16,68 +15,25 @@ and NEW reccmp-style format:
     // SYMBOL: _func_name
 """
 
-import typer
-from typing import Optional
 import hashlib
 import json
 import math
-import os
 import re
-import struct
-import pefile
-import subprocess
 import sys
-import shutil
-import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-IMAGE_BASE = 0x10000000
-TEXT_VA = 0x10001000
-TEXT_RAW_OFFSET = 0x1000
+import typer
 
-VALID_STATUSES = {"EXACT", "RELOC", "MATCHING", "MATCHING_RELOC", "STUB"}
-VALID_ORIGINS = {"GAME", "MSVCRT", "ZLIB"}
-VALID_MARKERS = {"FUNCTION", "LIBRARY", "STUB"}
+from rebrew.annotation import (
+    normalize_cflags,
+    normalize_status,
+    parse_c_file,
+)
+from rebrew.binary_loader import load_binary
 
-# ---------------------------------------------------------------------------
-# Data classes (plain dicts for stdlib-only)
-# ---------------------------------------------------------------------------
-
-
-def make_func_entry(
-    va: int,
-    size: int,
-    name: str,
-    symbol: str,
-    status: str,
-    origin: str,
-    cflags: str,
-    marker_type: str,
-    filepath: str,
-    source: str = "",
-    blocker: str = "",
-    note: str = "",
-    globals_list: Optional[List[str]] = None,
-) -> dict:
-    return {
-        "va": va,
-        "size": size,
-        "name": name,
-        "symbol": symbol,
-        "status": status,
-        "origin": origin,
-        "cflags": cflags,
-        "marker_type": marker_type,
-        "filepath": filepath,
-        "source": source,
-        "blocker": blocker,
-        "note": note,
-        "globals": globals_list or [],
-    }
+# make_func_entry and make_r2_func/make_ghidra_func are now imported from annotation.py
+# and defined locally for backward compat
 
 
 def make_r2_func(va: int, size: int, r2_name: str) -> dict:
@@ -88,36 +44,15 @@ def make_ghidra_func(va: int, size: int, name: str) -> dict:
     return {"va": va, "size": size, "ghidra_name": name}
 
 
-# ---------------------------------------------------------------------------
-# Cross-tool function registry
-# ---------------------------------------------------------------------------
-
-# IAT thunk addresses (6B jmp [addr] stubs -- not reversible C code)
-IAT_THUNKS = {
-    0x1001A160,
-    0x1001A166,
-    0x1001A16C,
-    0x1001A172,
-    0x1001A178,
-    0x1001A17E,
-    0x1001A184,
-    0x10023840,
-}
-
-# DLL exports (from DUMPBIN /EXPORTS)
-DLL_EXPORTS = {
-    0x10009320: "Init",
-    0x10009350: "Exit",
-}
-
 # r2 entries with known bogus sizes (analysis artifacts)
 R2_BOGUS_SIZES = {0x1000AD40, 0x10018200}
 
 
 def build_function_registry(
-    r2_funcs: List[dict],
-    ghidra_path: Optional[Path] = None,
-) -> Dict[int, dict]:
+    r2_funcs: list[dict],
+    cfg: Any,
+    ghidra_path: Path | None = None,
+) -> dict[int, dict]:
     """Build a unified function registry merging r2 + ghidra + exports.
 
     Returns dict keyed by VA with:
@@ -128,7 +63,7 @@ def build_function_registry(
         is_export: bool
         canonical_size: best-known size
     """
-    registry: Dict[int, dict] = {}
+    registry: dict[int, dict] = {}
 
     # --- r2 functions ---
     for func in r2_funcs:
@@ -140,8 +75,8 @@ def build_function_registry(
                 "size_by_tool": {},
                 "r2_name": "",
                 "ghidra_name": "",
-                "is_thunk": va in IAT_THUNKS,
-                "is_export": va in DLL_EXPORTS,
+                "is_thunk": va in cfg.iat_thunks if cfg else False,
+                "is_export": va in cfg.dll_exports if cfg else False,
                 "canonical_size": 0,
             },
         )
@@ -168,8 +103,8 @@ def build_function_registry(
                 "size_by_tool": {},
                 "r2_name": "",
                 "ghidra_name": "",
-                "is_thunk": va in IAT_THUNKS,
-                "is_export": va in DLL_EXPORTS,
+                "is_thunk": va in cfg.iat_thunks if cfg else False,
+                "is_export": va in cfg.dll_exports if cfg else False,
                 "canonical_size": 0,
             },
         )
@@ -179,7 +114,8 @@ def build_function_registry(
         entry["ghidra_name"] = func["ghidra_name"]
 
     # --- Exports ---
-    for va, name in DLL_EXPORTS.items():
+    exports = cfg.dll_exports if cfg else {}
+    for va, name in exports.items():
         entry = registry.setdefault(
             va,
             {
@@ -206,7 +142,7 @@ def build_function_registry(
     return registry
 
 
-def load_ghidra_functions(path: Path) -> List[dict]:
+def load_ghidra_functions(path: Path) -> list[dict]:
     """Load cached ghidra_functions.json."""
     if not path.exists():
         return []
@@ -216,171 +152,11 @@ def load_ghidra_functions(path: Path) -> List[dict]:
         return []
 
 
-# ---------------------------------------------------------------------------
-# Annotation parsers
-# ---------------------------------------------------------------------------
-
-# OLD format: /* name @ 0xVA (NB) - /flags - STATUS [ORIGIN] */
-_OLD_RE = re.compile(
-    r"/\*\s*"
-    r"(?P<name>\S+)"
-    r"\s+@\s+"
-    r"(?P<va>0x[0-9a-fA-F]+)"
-    r"\s+\((?P<size>\d+)B\)"
-    r"\s*-\s*"
-    r"(?P<cflags>[^-]+?)"
-    r"\s*-\s*"
-    r"(?P<status>[^[]+?)"
-    r"\s*\[(?P<origin>[A-Z]+)\]"
-    r"\s*\*/"
-)
-
-# NEW format markers
-_NEW_FUNC_RE = re.compile(
-    r"//\s*(?P<type>FUNCTION|LIBRARY|STUB):\s*(?P<target>[A-Z0-9_]+)\s+(?P<va>0x[0-9a-fA-F]+)"
-)
-_NEW_KV_RE = re.compile(r"//\s*(?P<key>[A-Z]+):\s*(?P<value>.+)")
-
-
-def _normalize_status(raw: str) -> str:
-    """Map old-format status strings to canonical values."""
-    s = raw.strip().upper()
-    if "EXACT" in s:
-        return "EXACT"
-    if "RELOC" in s:
-        return "RELOC"
-    if "STUB" in s:
-        return "STUB"
-    return s
-
-
-def _normalize_cflags(raw: str) -> str:
-    """Clean up cflags string."""
-    return raw.strip().rstrip(",").strip()
-
-
-def parse_old_format(line: str) -> Optional[dict]:
-    """Try to parse old-format header comment. Returns dict or None."""
-    m = _OLD_RE.match(line.strip())
-    if not m:
-        return None
-    status = _normalize_status(m.group("status"))
-    origin = m.group("origin").strip().upper()
-    cflags = _normalize_cflags(m.group("cflags"))
-    name = m.group("name")
-
-    # Derive marker type from origin
-    if status == "STUB":
-        marker_type = "STUB"
-    elif origin in ("ZLIB", "MSVCRT"):
-        marker_type = "LIBRARY"
-    else:
-        marker_type = "FUNCTION"
-
-    return make_func_entry(
-        va=int(m.group("va"), 16),
-        size=int(m.group("size")),
-        name=name,
-        symbol="_" + name,
-        status=status,
-        origin=origin,
-        cflags=cflags,
-        marker_type=marker_type,
-        filepath="",
-    )
-
-
-def parse_new_format(lines: List[str]) -> Optional[dict]:
-    """Try to parse new reccmp-style annotations from first lines.
-    Returns dict or None."""
-    # Find the marker line
-    marker_type = None
-    va = None
-    kv = {}
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            continue
-        # Check for marker
-        m = _NEW_FUNC_RE.match(stripped)
-        if m:
-            marker_type = m.group("type")
-            va = int(m.group("va"), 16)
-            continue
-        # Check for key-value
-        m2 = _NEW_KV_RE.match(stripped)
-        if m2:
-            kv[m2.group("key").upper()] = m2.group("value").strip()
-            continue
-        # Non-annotation line => stop
-        break
-
-    if marker_type is None or va is None:
-        return None
-
-    status = kv.get("STATUS", "RELOC")
-    origin = kv.get("ORIGIN", "GAME")
-    size_str = kv.get("SIZE", "0")
-    cflags = kv.get("CFLAGS", "")
-    symbol = kv.get("SYMBOL", "")
-    name = symbol.lstrip("_") if symbol else ""
-
-    try:
-        size = int(size_str)
-    except ValueError:
-        size = 0
-
-    source = kv.get("SOURCE", "")
-    blocker = kv.get("BLOCKER", "")
-    note = kv.get("NOTE", "")
-
-    globals_list = []
-    raw_globals = kv.get("GLOBALS", "")
-    if raw_globals:
-        globals_list = [g.strip() for g in raw_globals.split(",") if g.strip()]
-
-    return make_func_entry(
-        va=va,
-        size=size,
-        name=name,
-        symbol=symbol,
-        status=status,
-        origin=origin,
-        cflags=cflags,
-        marker_type=marker_type,
-        filepath="",
-        source=source,
-        blocker=blocker,
-        note=note,
-        globals_list=globals_list,
-    )
-
-
-def parse_c_file(filepath: Path) -> Optional[dict]:
-    """Parse a decomp .c file for annotations (tries new then old format)."""
-    try:
-        text = filepath.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return None
-
-    lines = text.splitlines()
-    if not lines:
-        return None
-
-    # Try new format first (multi-line)
-    entry = parse_new_format(lines[:20])
-    if entry is not None:
-        entry["filepath"] = filepath.name
-        return entry
-
-    # Try old format (first line)
-    entry = parse_old_format(lines[0])
-    if entry is not None:
-        entry["filepath"] = filepath.name
-        return entry
-
-    return None
+# Annotation parsers are now imported from rebrew.annotation above.
+# The local aliases _OLD_RE, _NEW_FUNC_RE, _NEW_KV_RE are kept for
+# any code that references them from this module.
+_normalize_status = normalize_status
+_normalize_cflags = normalize_cflags
 
 
 # ---------------------------------------------------------------------------
@@ -390,7 +166,7 @@ def parse_c_file(filepath: Path) -> Optional[dict]:
 _R2_LINE_RE = re.compile(r"\s*(0x[0-9a-fA-F]+)\s+(\d+)\s+(\S+)")
 
 
-def parse_r2_functions(path: Path) -> List[dict]:
+def parse_r2_functions(path: Path) -> list[dict]:
     """Parse r2_functions.txt into list of {va, size, r2_name}."""
     funcs = []
     try:
@@ -417,10 +193,10 @@ def parse_r2_functions(path: Path) -> List[dict]:
 # ---------------------------------------------------------------------------
 
 
-def extract_dll_bytes(dll_path: Path, file_offset: int, size: int) -> Optional[bytes]:
+def extract_dll_bytes(bin_path: Path, file_offset: int, size: int) -> bytes | None:
     """Extract raw bytes from DLL at given file offset."""
     try:
-        with open(dll_path, "rb") as f:
+        with open(bin_path, "rb") as f:
             f.seek(file_offset)
             data = f.read(size)
         # Trim trailing CC/90 padding
@@ -432,7 +208,6 @@ def extract_dll_bytes(dll_path: Path, file_offset: int, size: int) -> Optional[b
 
 
 # COFF .obj parsing: imported from canonical source
-from rebrew.matcher.parsers import parse_coff_symbol_bytes
 
 
 # ---------------------------------------------------------------------------
@@ -440,12 +215,11 @@ from rebrew.matcher.parsers import parse_coff_symbol_bytes
 # ---------------------------------------------------------------------------
 
 
-def scan_reversed_dir(reversed_dir: Path) -> List[dict]:
+def scan_reversed_dir(reversed_dir: Path) -> list[dict]:
     """Scan target dir *.c files and parse annotations from each."""
     entries = []
     for cfile in sorted(reversed_dir.glob("*.c")):
-        if cfile.name in ("test_func.py",):
-            continue
+
         entry = parse_c_file(cfile)
         if entry is not None:
             entries.append(entry)
@@ -458,13 +232,13 @@ def scan_reversed_dir(reversed_dir: Path) -> List[dict]:
 
 
 def generate_catalog(
-    entries: List[dict],
-    r2_funcs: List[dict],
+    entries: list[dict],
+    r2_funcs: list[dict],
     text_size: int,
 ) -> str:
     """Generate CATALOG.md content."""
     # Deduplicate by VA (keep first occurrence per VA)
-    by_va: Dict[int, List[dict]] = {}
+    by_va: dict[int, list[dict]] = {}
     for e in entries:
         by_va.setdefault(e["va"], []).append(e)
 
@@ -504,7 +278,7 @@ def generate_catalog(
     )
 
     # Group by origin
-    by_origin: Dict[str, List[dict]] = {"GAME": [], "ZLIB": [], "MSVCRT": []}
+    by_origin: dict[str, list[dict]] = {"GAME": [], "ZLIB": [], "MSVCRT": []}
     for e in entries:
         origin = e["origin"]
         if origin not in by_origin:
@@ -542,7 +316,7 @@ def generate_catalog(
 # ---------------------------------------------------------------------------
 
 
-def merge_ranges(ranges: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+def merge_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
     if not ranges:
         return []
     ranges = sorted(ranges)
@@ -557,16 +331,16 @@ def merge_ranges(ranges: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
 
 
 def generate_data_json(
-    entries: List[dict],
-    r2_funcs: List[dict],
+    entries: list[dict],
+    r2_funcs: list[dict],
     text_size: int,
-    dll_path: Optional[Path] = None,
-    registry: Optional[Dict[int, dict]] = None,
-    src_dir: Optional[Path] = None,
-    root_dir: Optional[Path] = None,
+    bin_path: Path | None = None,
+    registry: dict[int, dict] | None = None,
+    src_dir: Path | None = None,
+    root_dir: Path | None = None,
 ) -> dict:
-    """Generate recoverage/data.json structure."""
-    by_va: Dict[int, List[dict]] = {}
+    """Generate db/data.json structure."""
+    by_va: dict[int, list[dict]] = {}
     for e in entries:
         by_va.setdefault(e["va"], []).append(e)
 
@@ -597,10 +371,10 @@ def generate_data_json(
 
     coverage_pct = (covered_bytes / text_size * 100.0) if text_size else 0.0
 
-    sections = get_sections(dll_path) if dll_path else {}
+    sections = get_sections(bin_path) if bin_path else {}
     globals_dict = get_globals(src_dir) if src_dir else {}
 
-    # Fallback if pefile fails
+    # Fallback if LIEF fails
     if ".text" not in sections:
         sections[".text"] = {
             "va": IMAGE_BASE + TEXT_RAW_OFFSET,
@@ -635,8 +409,8 @@ def generate_data_json(
             canonical_size = r2_by_va[va]["size"] if va in r2_by_va else e["size"]
 
         fn_hash = ""
-        if dll_path and dll_path.exists():
-            raw = extract_dll_bytes(dll_path, file_off, canonical_size)
+        if bin_path and bin_path.exists():
+            raw = extract_dll_bytes(bin_path, file_off, canonical_size)
             if raw:
                 fn_hash = hashlib.sha256(raw).hexdigest()
 
@@ -756,8 +530,8 @@ def generate_data_json(
         "sections": sections,
         "globals": globals_dict,
         "paths": {
-            "originalDll": f"/{dll_path.relative_to(root_dir)}"
-            if dll_path and root_dir
+            "originalDll": f"/{bin_path.relative_to(root_dir)}"
+            if bin_path and root_dir
             else "",
         },
         "summary": {
@@ -779,13 +553,13 @@ def generate_data_json(
     columns = 64
 
     # Map text offsets for matched functions
-    fn_by_text_off: Dict[int, dict] = {}
+    fn_by_text_off: dict[int, dict] = {}
     for fname, fdata in functions.items():
         fn_by_text_off[fdata["textOffset"]] = fdata
 
     fn_starts = sorted(fn_by_text_off.keys())
 
-    segments: List[Tuple[int, int, str, List[str]]] = []
+    segments: list[tuple[int, int, str, list[str]]] = []
     off = 0
     idx = 0
     while off < text_size:
@@ -840,8 +614,8 @@ def generate_data_json(
         "unitBytes": unit_bytes,
         "columns": columns,
         "paths": {
-            "originalDll": f"/{dll_path.relative_to(root_dir)}"
-            if dll_path and root_dir
+            "originalDll": f"/{bin_path.relative_to(root_dir)}"
+            if bin_path and root_dir
             else "",
         },
         "summary": {
@@ -874,10 +648,11 @@ def _reccmp_type(entry: dict) -> str:
 
 
 def generate_reccmp_csv(
-    entries: List[dict],
-    r2_funcs: List[dict],
-    registry: Optional[Dict[int, dict]] = None,
-    target_name: str = "SERVER",
+    entries: list[dict],
+    r2_funcs: list[dict],
+    registry: dict[int, dict] | None = None,
+    target_name: str = "TARGET",
+    cfg: Any = None,
 ) -> str:
     """Generate reccmp-compatible pipe-delimited CSV.
 
@@ -888,14 +663,14 @@ def generate_reccmp_csv(
     a complete function catalog for the binary.  Comments and blank lines are
     allowed by the reccmp spec.
     """
-    by_va: Dict[int, dict] = {}
+    by_va: dict[int, dict] = {}
     for e in entries:
         if e["va"] not in by_va:
             by_va[e["va"]] = e
 
     r2_by_va = {f["va"]: f for f in r2_funcs}
 
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append(f"# reccmp-compatible function catalog for {target_name}")
     lines.append("# Generated by validate.py — do not edit manually")
     lines.append("#")
@@ -939,7 +714,10 @@ def generate_reccmp_csv(
                     name = rn
 
             # Determine type
-            is_thunk = reg.get("is_thunk", va in IAT_THUNKS)
+            # Determine type
+            is_thunk = reg.get("is_thunk", False)
+            if not is_thunk and cfg:
+                is_thunk = va in cfg.iat_thunks
             etype = "function"
             if is_thunk:
                 etype = "stub"
@@ -962,41 +740,31 @@ def generate_reccmp_csv(
 # ---------------------------------------------------------------------------
 
 
-def get_sections(dll_path: Path) -> dict:
+def get_sections(bin_path: Path) -> dict:
     try:
-        pe = pefile.PE(str(dll_path))
+        info = load_binary(bin_path)
         sections = {}
-        for section in pe.sections:
-            name = section.Name.decode("utf-8").rstrip("\x00")
-            if pe.OPTIONAL_HEADER is not None and hasattr(
-                pe.OPTIONAL_HEADER, "ImageBase"
-            ):
-                va = getattr(pe.OPTIONAL_HEADER, "ImageBase") + section.VirtualAddress
-            else:
-                va = section.VirtualAddress
-            vsize = section.Misc_VirtualSize
-            raw_size = section.SizeOfRawData
-
-            if name == ".data" and vsize > raw_size:
+        for name, sec in info.sections.items():
+            if name == ".data" and sec.size > sec.raw_size:
                 sections[".data"] = {
-                    "va": va,
-                    "size": raw_size,
-                    "fileOffset": section.PointerToRawData,
+                    "va": sec.va,
+                    "size": sec.raw_size,
+                    "fileOffset": sec.file_offset,
                 }
                 sections[".bss"] = {
-                    "va": va + raw_size,
-                    "size": vsize - raw_size,
+                    "va": sec.va + sec.raw_size,
+                    "size": sec.size - sec.raw_size,
                     "fileOffset": 0,
                 }
             else:
                 sections[name] = {
-                    "va": va,
-                    "size": vsize,
-                    "fileOffset": section.PointerToRawData,
+                    "va": sec.va,
+                    "size": sec.size,
+                    "fileOffset": sec.file_offset,
                 }
         return sections
     except Exception as e:
-        print(f"Warning: Failed to parse PE sections: {e}", file=sys.stderr)
+        print(f"Warning: Failed to parse binary sections: {e}", file=sys.stderr)
         return {}
 
 
@@ -1037,30 +805,12 @@ def get_globals(src_dir: Path) -> dict:
     return globals_dict
 
 
-def get_text_section_size(dll_path: Path) -> int:
-    """Get .text section virtual size from PE headers."""
+def get_text_section_size(bin_path: Path) -> int:
+    """Get .text section virtual size from binary headers."""
     try:
-        with open(dll_path, "rb") as f:
-            # DOS header -> PE offset
-            f.seek(0x3C)
-            pe_off = struct.unpack("<I", f.read(4))[0]
-            # PE signature + COFF header
-            f.seek(pe_off + 4)  # skip "PE\0\0"
-            (num_sections,) = struct.unpack("<H", f.read(2))
-            f.seek(pe_off + 4 + 20)  # skip COFF header (20 bytes)
-            # Optional header size
-            f.seek(pe_off + 4 + 16)
-            (opt_hdr_size,) = struct.unpack("<H", f.read(2))
-            # Section headers start after optional header
-            sec_start = pe_off + 4 + 20 + opt_hdr_size
-            for i in range(num_sections):
-                f.seek(sec_start + i * 40)
-                sec_name = f.read(8).rstrip(b"\x00").decode("ascii", errors="replace")
-                if sec_name == ".text":
-                    f.seek(sec_start + i * 40 + 8)  # VirtualSize
-                    (vsize,) = struct.unpack("<I", f.read(4))
-                    return vsize
-    except (OSError, struct.error):
+        info = load_binary(bin_path)
+        return info.text_size
+    except Exception:
         pass
     # Fallback: estimate from r2_functions.txt last function
     return 0x24000  # rough estimate
@@ -1074,28 +824,34 @@ def get_text_section_size(dll_path: Path) -> int:
 app = typer.Typer(help="Rebrew validation pipeline: parse annotations, generate catalog and coverage data.")
 
 
-@app.command()
+@app.callback(invoke_without_command=True)
 def main(
-    gen_json: bool = typer.Option(False, "--json", help="Generate recoverage/data.json"),
-    catalog: bool = typer.Option(False, "--catalog", help="Generate server_dll/CATALOG.md"),
+    gen_json: bool = typer.Option(False, "--json", help="Generate db/data.json"),
+    catalog: bool = typer.Option(False, "--catalog", help="Generate CATALOG.md in reversed directory"),
     summary: bool = typer.Option(False, "--summary", help="Print summary to stdout"),
     csv: bool = typer.Option(False, "--csv", help="Generate reccmp-compatible CSV"),
     export_ghidra: bool = typer.Option(False, "--export-ghidra", help="Cache Ghidra function list"),
-    root: Path = typer.Option(
-        Path(__file__).resolve().parent.parent,
-        help="Project root directory",
+    root: Path | None = typer.Option(
+        None,
+        help="Project root directory (auto-detected from rebrew.toml if omitted)",
     ),
-    target: str = typer.Option("server_dll", "--target", "-t", help="Target name from rebrew.toml"),
+    target: str | None = typer.Option(None, "--target", "-t", help="Target name from rebrew.toml"),
 ):
     """Rebrew validation pipeline: parse annotations, generate catalog and coverage data."""
+    cfg = None
     try:
         from rebrew.config import load_config
-        _c = load_config(root, target=target)
-        dll_path = _c.target_binary
-        reversed_dir = _c.reversed_dir
+        cfg = load_config(root, target=target)
+        bin_path = cfg.target_binary
+        reversed_dir = cfg.reversed_dir
+        root = cfg.root
+        target = cfg.target_name
     except Exception:
-        dll_path = root / "original" / "Server" / "server.dll"
-        reversed_dir = root / "src" / "server_dll"
+        if root is None:
+            root = Path.cwd().resolve()
+        bin_path = root / "binary.dll"
+        reversed_dir = root / "src"
+        target = target or "default"
 
     r2_path = reversed_dir / "r2_functions.txt"
     ghidra_json_path = reversed_dir / "ghidra_functions.json"
@@ -1117,7 +873,7 @@ def main(
     if export_ghidra:
         print(
             "To export Ghidra functions, run this in the MCP console:\n"
-            f"  get-functions programPath=/{dll_path.name} filterDefaultNames=false\n"
+            f"  get-functions programPath=/{bin_path.name} filterDefaultNames=false\n"
             f"Then save the output as {reversed_dir.name}/ghidra_functions.json with format:\n"
             '  [{"va": 0x10001000, "size": 302, "ghidra_name": "FUN_10001000"}, ...]',
             file=sys.stderr,
@@ -1128,9 +884,9 @@ def main(
     entries = scan_reversed_dir(reversed_dir)
     r2_funcs = parse_r2_functions(r2_path)
 
-    text_size = get_text_section_size(dll_path) if dll_path.exists() else 0x24000
+    text_size = get_text_section_size(bin_path) if bin_path.exists() else 0x24000
 
-    registry = build_function_registry(r2_funcs, ghidra_json_path)
+    registry = build_function_registry(r2_funcs, cfg, ghidra_json_path)
 
     unique_vas = set(e["va"] for e in entries)
     ghidra_count = sum(1 for r in registry.values() if "ghidra" in r["detected_by"])
@@ -1156,7 +912,7 @@ def main(
 
         exact = sum(1 for e in entries if e["status"] == "EXACT")
         reloc = sum(1 for e in entries if e["status"] == "RELOC")
-        print(f"\n=== Rebrew Status ===")
+        print("\n=== Rebrew Status ===")
         print(f"Matched: {len(unique_vas)}/{len(registry)} functions")
         print(f"  EXACT: {exact}")
         print(f"  RELOC: {reloc}")
@@ -1171,7 +927,7 @@ def main(
         pct = (covered / text_size * 100.0) if text_size else 0.0
         print(f"Coverage: {pct:.1f}% ({covered}/{text_size} bytes)")
 
-        print(f"\n=== Tool Detection ===")
+        print("\n=== Tool Detection ===")
         print(
             f"  radare2 only: {sum(1 for r in registry.values() if r['detected_by'] == ['r2'])}"
         )
@@ -1190,24 +946,25 @@ def main(
         print(f"  Size disagree: {size_mismatches}")
 
     if catalog:
-        catalog = generate_catalog(entries, r2_funcs, text_size)
+        catalog_text = generate_catalog(entries, r2_funcs, text_size)
         catalog_path = reversed_dir / "CATALOG.md"
-        catalog_path.write_text(catalog, encoding="utf-8")
+        catalog_path.parent.mkdir(parents=True, exist_ok=True)
+        catalog_path.write_text(catalog_text, encoding="utf-8")
         print(f"Wrote {catalog_path}", file=sys.stderr)
 
     if gen_json:
         data = generate_data_json(
-            entries, r2_funcs, text_size, dll_path, registry, reversed_dir, root
+            entries, r2_funcs, text_size, bin_path, registry, reversed_dir, root
         )
-        coverage_dir = root / "recoverage"
+        coverage_dir = root / "db"
         coverage_dir.mkdir(parents=True, exist_ok=True)
         json_path = coverage_dir / f"data_{target}.json"
         json_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
         print(f"Wrote {json_path}", file=sys.stderr)
 
     if csv:
-        csv_text = generate_reccmp_csv(entries, r2_funcs, registry, target)
-        csv_path = root / "recoverage" / f"{target.lower()}_functions.csv"
+        csv_text = generate_reccmp_csv(entries, r2_funcs, registry, target, cfg)
+        csv_path = root / "db" / f"{target.lower()}_functions.csv"
         csv_path.write_text(csv_text, encoding="utf-8")
         print(
             f"Wrote {csv_path} ({len(csv_text.splitlines()) - 6} functions)",
@@ -1217,5 +974,8 @@ def main(
     return 0
 
 
-if __name__ == "__main__":
+def main_entry():
     app()
+
+if __name__ == "__main__":
+    main_entry()

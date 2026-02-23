@@ -1,8 +1,9 @@
 import random
 import re
-from typing import Tuple, Optional, List, Dict, Any
+from typing import Any
 
-def _split_preamble_body(source: str) -> Tuple[str, str]:
+
+def _split_preamble_body(source: str) -> tuple[str, str]:
     """Split source into preamble (includes, typedefs, externs) and function body."""
     lines = source.splitlines()
     preamble = []
@@ -35,11 +36,11 @@ def _quick_validate(source: str) -> bool:
         return False
     return True
 
-def compute_population_diversity(pop: List[str]) -> float:
+def compute_population_diversity(pop: list[str]) -> float:
     """Compute diversity of the population (0.0 to 1.0)."""
     if not pop or len(pop) < 2:
         return 0.0
-    
+
     unique_sources = set(pop)
     return len(unique_sources) / len(pop)
 
@@ -57,7 +58,7 @@ def crossover(parent1: str, parent2: str, rng: random.Random) -> str:
     # Find a safe split point (not inside a statement)
     # This is a naive implementation. A real AST-based crossover is better.
     split_idx = rng.randint(1, min(len(lines1), len(lines2)) - 1)
-    
+
     child_body = "\n".join(lines1[:split_idx] + lines2[split_idx:])
     child = p1_pre + "\n" + child_body
 
@@ -67,18 +68,18 @@ def crossover(parent1: str, parent2: str, rng: random.Random) -> str:
 
 # --- Mutations ---
 
-def mut_commute_simple_add(s: str, rng: random.Random) -> Optional[str]:
+def mut_commute_simple_add(s: str, rng: random.Random) -> str | None:
     # x + y  -> y + x  (identifiers only)
     pat = r"\b([A-Za-z_]\w*)\s*\+\s*([A-Za-z_]\w*)\b"
     return _sub_once(pat, lambda m: f"{m.group(2)} + {m.group(1)}", s, rng)
 
 
-def mut_commute_simple_mul(s: str, rng: random.Random) -> Optional[str]:
+def mut_commute_simple_mul(s: str, rng: random.Random) -> str | None:
     pat = r"\b([A-Za-z_]\w*)\s*\*\s*([A-Za-z_]\w*)\b"
     return _sub_once(pat, lambda m: f"{m.group(2)} * {m.group(1)}", s, rng)
 
 
-def mut_flip_eq_zero(s: str, rng: random.Random) -> Optional[str]:
+def mut_flip_eq_zero(s: str, rng: random.Random) -> str | None:
     # x == 0 -> !x , x != 0 -> !!x
     pat = r"\b([A-Za-z_]\w*)\s*(==|!=)\s*0\b"
 
@@ -89,18 +90,18 @@ def mut_flip_eq_zero(s: str, rng: random.Random) -> Optional[str]:
     return _sub_once(pat, repl, s, rng)
 
 
-def mut_flip_lt_ge(s: str, rng: random.Random) -> Optional[str]:
+def mut_flip_lt_ge(s: str, rng: random.Random) -> str | None:
     # a < b -> !(a >= b)
     pat = r"\b([A-Za-z_]\w*)\s*<\s*([A-Za-z_]\w*)\b"
     return _sub_once(pat, lambda m: f"!({m.group(1)} >= {m.group(2)})", s, rng)
 
 
-def mut_add_redundant_parens(s: str, rng: random.Random) -> Optional[str]:
+def mut_add_redundant_parens(s: str, rng: random.Random) -> str | None:
     pat = r"\b([A-Za-z_]\w*)\b"
     return _sub_once(pat, lambda m: f"({m.group(1)})", s, rng)
 
 
-def mut_reassociate_add(s: str, rng: random.Random) -> Optional[str]:
+def mut_reassociate_add(s: str, rng: random.Random) -> str | None:
     # (a + b) + c -> a + (b + c)
     pat = r"\(\s*([A-Za-z_]\w*)\s*\+\s*([A-Za-z_]\w*)\s*\)\s*\+\s*([A-Za-z_]\w*)"
     return _sub_once(
@@ -108,7 +109,7 @@ def mut_reassociate_add(s: str, rng: random.Random) -> Optional[str]:
     )
 
 
-def mut_insert_noop_block(s: str, rng: random.Random) -> Optional[str]:
+def mut_insert_noop_block(s: str, rng: random.Random) -> str | None:
     # Insert a no-op volatile read, tends to affect optimization, use sparingly.
     insertion = "\n    { volatile int __noop = 0; (void)__noop; }\n"
     lines = s.splitlines(True)
@@ -118,26 +119,26 @@ def mut_insert_noop_block(s: str, rng: random.Random) -> Optional[str]:
     return "".join(lines[:idx] + [insertion] + lines[idx:])
 
 
-def mut_toggle_bool_not(s: str, rng: random.Random) -> Optional[str]:
+def mut_toggle_bool_not(s: str, rng: random.Random) -> str | None:
     # !!x -> x, and x -> !!x for identifiers in boolean contexts is unsafe.
     # Here only remove !! on identifiers.
     pat = r"!!\s*([A-Za-z_]\w*)"
     return _sub_once(pat, lambda m: f"{m.group(1)}", s, rng)
 
 
-def mut_swap_eq_operands(s: str, rng: random.Random) -> Optional[str]:
+def mut_swap_eq_operands(s: str, rng: random.Random) -> str | None:
     """a == b -> b == a"""
     pat = r"(\b\w+\b)\s*==\s*(\b\w+\b)"
     return _sub_once(pat, lambda m: f"{m.group(2)} == {m.group(1)}", s, rng)
 
 
-def mut_swap_ne_operands(s: str, rng: random.Random) -> Optional[str]:
+def mut_swap_ne_operands(s: str, rng: random.Random) -> str | None:
     """a != b -> b != a"""
     pat = r"(\b\w+\b)\s*!=\s*(\b\w+\b)"
     return _sub_once(pat, lambda m: f"{m.group(2)} != {m.group(1)}", s, rng)
 
 
-def mut_swap_or_operands(s: str, rng: random.Random) -> Optional[str]:
+def mut_swap_or_operands(s: str, rng: random.Random) -> str | None:
     """a || b -> b || a  (changes short-circuit order, affects codegen)"""
     pat = r"([^|&\n]+?)\s*\|\|\s*([^|&\n;)]+)"
     matches = list(re.finditer(pat, s))
@@ -152,7 +153,7 @@ def mut_swap_or_operands(s: str, rng: random.Random) -> Optional[str]:
     return s[:start] + f"{b_text} || {a_text}" + s[end:]
 
 
-def mut_swap_and_operands(s: str, rng: random.Random) -> Optional[str]:
+def mut_swap_and_operands(s: str, rng: random.Random) -> str | None:
     """a && b -> b && a"""
     pat = r"([^|&\n]+?)\s*&&\s*([^|&\n;)]+)"
     matches = list(re.finditer(pat, s))
@@ -167,7 +168,7 @@ def mut_swap_and_operands(s: str, rng: random.Random) -> Optional[str]:
     return s[:start] + f"{b_text} && {a_text}" + s[end:]
 
 
-def mut_return_to_goto(s: str, rng: random.Random) -> Optional[str]:
+def mut_return_to_goto(s: str, rng: random.Random) -> str | None:
     """Replace 'return FALSE;' or 'return 0;' with 'goto ret_false;' and add label."""
     if "ret_false:" in s:
         return None  # already has the label
@@ -195,7 +196,7 @@ def mut_return_to_goto(s: str, rng: random.Random) -> Optional[str]:
     return result
 
 
-def mut_goto_to_return(s: str, rng: random.Random) -> Optional[str]:
+def mut_goto_to_return(s: str, rng: random.Random) -> str | None:
     """Reverse: replace 'goto ret_false;' with 'return FALSE;'"""
     pat = r"\bgoto\s+ret_false\s*;"
     matches = list(re.finditer(pat, s))
@@ -211,7 +212,7 @@ def mut_goto_to_return(s: str, rng: random.Random) -> Optional[str]:
     return result
 
 
-def mut_introduce_local_alias(s: str, rng: random.Random) -> Optional[str]:
+def mut_introduce_local_alias(s: str, rng: random.Random) -> str | None:
     """Create a local variable aliasing a parameter and replace some uses."""
     # Find parameter names in __stdcall function signatures
     params = re.findall(r"\b(?:HANDLE|DWORD|LPVOID|int|BOOL)\s+(\w+)", s)
@@ -260,7 +261,7 @@ def mut_introduce_local_alias(s: str, rng: random.Random) -> Optional[str]:
     return result[:body_start] + body
 
 
-def mut_reorder_declarations(s: str, rng: random.Random) -> Optional[str]:
+def mut_reorder_declarations(s: str, rng: random.Random) -> str | None:
     """Move a local variable declaration or add an initializer."""
     # Find declarations like "TYPE varname;" at the start of function body
     pat = r"^([ \t]+)((?:BOOL|int|DWORD|HANDLE|LPVOID)\s+\w+)\s*;$"
@@ -289,7 +290,7 @@ def mut_reorder_declarations(s: str, rng: random.Random) -> Optional[str]:
         return s[: im.start()] + im.group(1) + ";" + s[im.end() :]
 
 
-def _find_matching_brace(s: str, open_pos: int) -> Optional[int]:
+def _find_matching_brace(s: str, open_pos: int) -> int | None:
     """Find closing brace matching the opening brace at open_pos."""
     if open_pos >= len(s) or s[open_pos] != "{":
         return None
@@ -304,7 +305,7 @@ def _find_matching_brace(s: str, open_pos: int) -> Optional[int]:
     return i if depth == 0 else None
 
 
-def mut_swap_if_else(s: str, rng: random.Random) -> Optional[str]:
+def mut_swap_if_else(s: str, rng: random.Random) -> str | None:
     """Negate condition and swap if/else bodies."""
     pat = r"\bif\s*\(([^{]*?)\)\s*\{"
     matches = list(re.finditer(pat, s))
@@ -349,7 +350,7 @@ def mut_swap_if_else(s: str, rng: random.Random) -> Optional[str]:
     return result
 
 
-def mut_reorder_elseif(s: str, rng: random.Random) -> Optional[str]:
+def mut_reorder_elseif(s: str, rng: random.Random) -> str | None:
     """Swap two branches in an else-if chain."""
     # Find if(...){...} else if(...){...} patterns
     pat = r"(\bif\s*\([^{]*?\)\s*\{)"
@@ -394,7 +395,7 @@ def mut_reorder_elseif(s: str, rng: random.Random) -> Optional[str]:
     return None
 
 
-def mut_add_cast(s: str, rng: random.Random) -> Optional[str]:
+def mut_add_cast(s: str, rng: random.Random) -> str | None:
     """Wrap an expression in (BOOL) or (int) cast."""
     casts = ["(BOOL)", "(int)", "(DWORD)"]
     cast = rng.choice(casts)
@@ -426,13 +427,13 @@ def mut_add_cast(s: str, rng: random.Random) -> Optional[str]:
     return s[:start] + f"{cast}{ident}" + s[end:]
 
 
-def mut_remove_cast(s: str, rng: random.Random) -> Optional[str]:
+def mut_remove_cast(s: str, rng: random.Random) -> str | None:
     """Remove a (TYPE) cast."""
     pat = r"\((?:BOOL|int|DWORD|HANDLE|LPVOID)\)(\w+)"
     return _sub_once(pat, lambda m: m.group(1), s, rng)
 
 
-def mut_toggle_volatile(s: str, rng: random.Random) -> Optional[str]:
+def mut_toggle_volatile(s: str, rng: random.Random) -> str | None:
     """Add or remove 'volatile' on a local variable declaration."""
     # Try removing volatile first
     vol_pat = r"\bvolatile\s+"
@@ -450,7 +451,7 @@ def mut_toggle_volatile(s: str, rng: random.Random) -> Optional[str]:
     return s[: m.start()] + m.group(1) + "volatile " + m.group(2) + s[m.end() :]
 
 
-def mut_add_register_keyword(s: str, rng: random.Random) -> Optional[str]:
+def mut_add_register_keyword(s: str, rng: random.Random) -> str | None:
     """Add 'register' keyword to a local variable declaration.
     Note: MSVC6 largely ignores register hints, but the keyword
     can sometimes affect variable ordering in the symbol table."""
@@ -464,7 +465,7 @@ def mut_add_register_keyword(s: str, rng: random.Random) -> Optional[str]:
     return s[: m.start()] + m.group(1) + "register " + m.group(2) + s[m.end() :]
 
 
-def mut_remove_register_keyword(s: str, rng: random.Random) -> Optional[str]:
+def mut_remove_register_keyword(s: str, rng: random.Random) -> str | None:
     """Remove 'register' keyword from a declaration."""
     pat = r"\bregister\s+"
     matches = list(re.finditer(pat, s))
@@ -474,7 +475,7 @@ def mut_remove_register_keyword(s: str, rng: random.Random) -> Optional[str]:
     return s[: m.start()] + s[m.end() :]
 
 
-def mut_if_false_to_bitand(s: str, rng: random.Random) -> Optional[str]:
+def mut_if_false_to_bitand(s: str, rng: random.Random) -> str | None:
     """Convert 'if (!expr) var = FALSE;' to 'var &= expr;'.
 
     This can produce `and [mem], reg` instead of `test/jne/mov` pattern,
@@ -492,7 +493,7 @@ def mut_if_false_to_bitand(s: str, rng: random.Random) -> Optional[str]:
     return s[: m.start()] + replacement + s[m.end() :]
 
 
-def mut_bitand_to_if_false(s: str, rng: random.Random) -> Optional[str]:
+def mut_bitand_to_if_false(s: str, rng: random.Random) -> str | None:
     """Reverse of mut_if_false_to_bitand: convert 'var &= expr;' to 'if (!expr) var = FALSE;'."""
     pat = r"(\w+)\s*&=\s*(\w+\s*\([^)]*\))\s*;"
     matches = list(re.finditer(pat, s))
@@ -505,7 +506,7 @@ def mut_bitand_to_if_false(s: str, rng: random.Random) -> Optional[str]:
     return s[: m.start()] + replacement + s[m.end() :]
 
 
-def mut_introduce_temp_for_call(s: str, rng: random.Random) -> Optional[str]:
+def mut_introduce_temp_for_call(s: str, rng: random.Random) -> str | None:
     """Introduce a temp variable for a function call result.
 
     Transforms: var = FuncCall(...);
@@ -531,7 +532,7 @@ def mut_introduce_temp_for_call(s: str, rng: random.Random) -> Optional[str]:
     return s[: m.start()] + replacement + s[m.end() :]
 
 
-def mut_remove_temp_var(s: str, rng: random.Random) -> Optional[str]:
+def mut_remove_temp_var(s: str, rng: random.Random) -> str | None:
     """Remove a temp variable usage: 'tmp = expr; var = tmp;' -> 'var = expr;'."""
     pat = r"tmp\s*=\s*([^;]+);\s*\n\s*(\w+)\s*=\s*tmp\s*;"
     matches = list(re.finditer(pat, s))
@@ -551,7 +552,7 @@ def mut_remove_temp_var(s: str, rng: random.Random) -> Optional[str]:
 # -------------------------
 
 
-def mut_toggle_signedness(s: str, rng: random.Random) -> Optional[str]:
+def mut_toggle_signedness(s: str, rng: random.Random) -> str | None:
     """Toggle signed/unsigned on a local variable declaration.
 
     MSVC6 generates different instructions for signed vs unsigned:
@@ -583,7 +584,7 @@ def mut_toggle_signedness(s: str, rng: random.Random) -> Optional[str]:
         )
 
 
-def mut_swap_adjacent_declarations(s: str, rng: random.Random) -> Optional[str]:
+def mut_swap_adjacent_declarations(s: str, rng: random.Random) -> str | None:
     """Swap two adjacent variable declarations at function start.
 
     MSVC6 register allocator is sensitive to declaration order when
@@ -617,7 +618,7 @@ def mut_swap_adjacent_declarations(s: str, rng: random.Random) -> Optional[str]:
     return "\n".join(lines)
 
 
-def mut_split_declaration_init(s: str, rng: random.Random) -> Optional[str]:
+def mut_split_declaration_init(s: str, rng: random.Random) -> str | None:
     """Split 'TYPE var = expr;' into 'TYPE var; var = expr;'.
 
     Separating declaration from initialization changes when the compiler
@@ -640,7 +641,7 @@ def mut_split_declaration_init(s: str, rng: random.Random) -> Optional[str]:
     return s[: m.start()] + replacement + s[m.end() :]
 
 
-def mut_merge_declaration_init(s: str, rng: random.Random) -> Optional[str]:
+def mut_merge_declaration_init(s: str, rng: random.Random) -> str | None:
     """Merge 'TYPE var; ... var = expr;' into 'TYPE var = expr;'.
 
     Reverse of mut_split_declaration_init. Merging shortens the live range
@@ -667,7 +668,7 @@ def mut_merge_declaration_init(s: str, rng: random.Random) -> Optional[str]:
     return s[: m.start()] + replacement + s[m.end() :]
 
 
-def mut_while_to_dowhile(s: str, rng: random.Random) -> Optional[str]:
+def mut_while_to_dowhile(s: str, rng: random.Random) -> str | None:
     """Convert 'while (cond) { body }' to 'if (cond) { do { body } while (cond); }'.
 
     MSVC6 performs loop rotation differently for while vs do-while.
@@ -691,7 +692,7 @@ def mut_while_to_dowhile(s: str, rng: random.Random) -> Optional[str]:
     return before + replacement + after
 
 
-def mut_dowhile_to_while(s: str, rng: random.Random) -> Optional[str]:
+def mut_dowhile_to_while(s: str, rng: random.Random) -> str | None:
     """Convert 'do { body } while (cond);' to 'while (cond) { body }'.
 
     Reverse of mut_while_to_dowhile. Changes loop rotation behavior.
@@ -718,7 +719,7 @@ def mut_dowhile_to_while(s: str, rng: random.Random) -> Optional[str]:
     return before + replacement + rest
 
 
-def mut_early_return_to_accum(s: str, rng: random.Random) -> Optional[str]:
+def mut_early_return_to_accum(s: str, rng: random.Random) -> str | None:
     """Convert 'if (!expr) return 0;' to 'ret &= expr;' accumulator pattern.
 
     This extends the live range of a return-value variable, creating register
@@ -741,7 +742,7 @@ def mut_early_return_to_accum(s: str, rng: random.Random) -> Optional[str]:
     return s[: m.start()] + replacement + s[m.end() :]
 
 
-def mut_accum_to_early_return(s: str, rng: random.Random) -> Optional[str]:
+def mut_accum_to_early_return(s: str, rng: random.Random) -> str | None:
     """Convert 'ret &= expr;' to 'if (!expr) return 0;'.
 
     Reverse of mut_early_return_to_accum.
@@ -759,7 +760,7 @@ def mut_accum_to_early_return(s: str, rng: random.Random) -> Optional[str]:
     return s[: m.start()] + replacement + s[m.end() :]
 
 
-def mut_pointer_to_int_param(s: str, rng: random.Random) -> Optional[str]:
+def mut_pointer_to_int_param(s: str, rng: random.Random) -> str | None:
     """Change a pointer parameter to int or vice versa.
 
     MSVC6 generates different address computation instructions for
@@ -781,7 +782,7 @@ def mut_pointer_to_int_param(s: str, rng: random.Random) -> Optional[str]:
     return s[: m.start()] + "int " + var_name + s[m.end() :]
 
 
-def mut_int_to_pointer_param(s: str, rng: random.Random) -> Optional[str]:
+def mut_int_to_pointer_param(s: str, rng: random.Random) -> str | None:
     """Change an int parameter to char* (for pointer-based access).
 
     Reverse of mut_pointer_to_int_param. Using char* changes how the
@@ -797,7 +798,7 @@ def mut_int_to_pointer_param(s: str, rng: random.Random) -> Optional[str]:
     return s[: m.start()] + " char *" + var_name + s[m.end() :]
 
 
-def mut_duplicate_loop_body(s: str, rng: random.Random) -> Optional[str]:
+def mut_duplicate_loop_body(s: str, rng: random.Random) -> str | None:
     """Duplicate loop body (manual loop unrolling by 2x).
 
     Changes:
@@ -824,7 +825,7 @@ def mut_duplicate_loop_body(s: str, rng: random.Random) -> Optional[str]:
     return s[: m.start()] + new_while + s[m.end() :]
 
 
-def mut_fold_constant_add(s: str, rng: random.Random) -> Optional[str]:
+def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
     """Fold multiple +1 or +N into a single addition.
 
     Changes: x = x + 1; x = x + 1; -> x = x + 2;
@@ -846,7 +847,7 @@ def mut_fold_constant_add(s: str, rng: random.Random) -> Optional[str]:
     return s[: m.start()] + new + s[m.end() :]
 
 
-def mut_unfold_constant_add(s: str, rng: random.Random) -> Optional[str]:
+def mut_unfold_constant_add(s: str, rng: random.Random) -> str | None:
     """Unfold addition into multiple increments.
 
     Changes: x = x + 2; -> x = x + 1; x = x + 1;
@@ -870,7 +871,7 @@ def mut_unfold_constant_add(s: str, rng: random.Random) -> Optional[str]:
     return s[: m.start()] + incs + s[m.end() :]
 
 
-def mut_change_array_index_order(s: str, rng: random.Random) -> Optional[str]:
+def mut_change_array_index_order(s: str, rng: random.Random) -> str | None:
     """Change array[i] to i[array] (equivalent but different codegen).
 
     Both compile to same code but can affect MSVC register allocation.
@@ -890,7 +891,7 @@ def mut_change_array_index_order(s: str, rng: random.Random) -> Optional[str]:
     return s[: m.start()] + new + s[m.end() :]
 
 
-def mut_struct_vs_ptr_access(s: str, rng: random.Random) -> Optional[str]:
+def mut_struct_vs_ptr_access(s: str, rng: random.Random) -> str | None:
     """Change ptr->field to (*ptr).field (equivalent semantics, different codegen).
 
     This affects how MSVC generates field access code.
@@ -910,7 +911,7 @@ def mut_struct_vs_ptr_access(s: str, rng: random.Random) -> Optional[str]:
     return s[: m.start()] + new + s[m.end() :]
 
 
-def mut_split_cmp_chain(s: str, rng: random.Random) -> Optional[str]:
+def mut_split_cmp_chain(s: str, rng: random.Random) -> str | None:
     """Split chained comparisons into separate if statements.
 
     Changes: if (a == b && b == c) -> if (a == b) if (b == c)
@@ -948,7 +949,7 @@ def mut_split_cmp_chain(s: str, rng: random.Random) -> Optional[str]:
     return s[: m.start()] + new_ifs + s[m.end() :]
 
 
-def mut_merge_cmp_chain(s: str, rng: random.Random) -> Optional[str]:
+def mut_merge_cmp_chain(s: str, rng: random.Random) -> str | None:
     """Merge separate if statements into chained comparison.
 
     Changes: if (a == b) {} if (b == c) {} -> if (a == b && b == c) {}
@@ -969,7 +970,7 @@ def mut_merge_cmp_chain(s: str, rng: random.Random) -> Optional[str]:
     return s[: m.start()] + new + s[m.end() :]
 
 
-def mut_combine_ptr_arith(s: str, rng: random.Random) -> Optional[str]:
+def mut_combine_ptr_arith(s: str, rng: random.Random) -> str | None:
     """Combine separate pointer arithmetic into single expression.
 
     Changes: p = p + n; p = p + m; -> p = p + (n + m);
@@ -990,7 +991,7 @@ def mut_combine_ptr_arith(s: str, rng: random.Random) -> Optional[str]:
     return s[: m.start()] + new + s[m.end() :]
 
 
-def mut_split_ptr_arith(s: str, rng: random.Random) -> Optional[str]:
+def mut_split_ptr_arith(s: str, rng: random.Random) -> str | None:
     """Split combined pointer arithmetic into separate statements.
 
     Changes: p = p + n; -> p = p + n1; p = p + n2; where n1+n2=n
@@ -1015,7 +1016,7 @@ def mut_split_ptr_arith(s: str, rng: random.Random) -> Optional[str]:
     return s[: m.start()] + new + s[m.end() :]
 
 
-def mut_change_return_type(s: str, rng: random.Random) -> Optional[str]:
+def mut_change_return_type(s: str, rng: random.Random) -> str | None:
     """Change return type between int/char/short for register pressure.
 
     Different return types generate different register usage (al vs ax vs eax).
@@ -1038,7 +1039,7 @@ def mut_change_return_type(s: str, rng: random.Random) -> Optional[str]:
     return s[: m.start()] + new + s[m.end() :]
 
 
-def mut_change_param_order(s: str, rng: random.Random) -> Optional[str]:
+def mut_change_param_order(s: str, rng: random.Random) -> str | None:
     """Reorder function parameters to affect register allocation.
 
     MSVC passes parameters in different registers based on position.
@@ -1113,13 +1114,13 @@ def mutate_code(
     source: str,
     rng: random.Random,
     track_mutation: bool = False,
-    mutation_weights: Optional[Dict[str, float]] = None,
+    mutation_weights: dict[str, float] | None = None,
 ) -> Any:
     """Apply a random mutation to the source code."""
     preamble, body = _split_preamble_body(source)
-    
+
     valid_mutations = [m for m in ALL_MUTATIONS if m is not None]
-    
+
     for _ in range(10):
         mut_func = rng.choice(valid_mutations)
         new_body = mut_func(body, rng)
@@ -1129,7 +1130,7 @@ def mutate_code(
                 if track_mutation:
                     return new_source, mut_func.__name__
                 return new_source
-                
+
     if track_mutation:
         return source, "none"
     return source

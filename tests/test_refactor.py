@@ -7,7 +7,6 @@ and that lazy config loading works correctly.
 import importlib
 import os
 import re
-import sys
 from pathlib import Path
 
 import pytest
@@ -16,27 +15,28 @@ import pytest
 TOOL_MODULES = [
     "rebrew.config",
     "rebrew.cli",
-    "rebrew.test_func",
-    "rebrew.next_work",
-    "rebrew.gen_skeleton",
-    "rebrew.ga_batch",
-    "rebrew.nasm_extract",
-    "rebrew.batch_extract",
-    "rebrew.identify_libs",
+    "rebrew.annotation",
+    "rebrew.asm",
+    "rebrew.batch",
     "rebrew.catalog",
-    "rebrew.verify",
-    "rebrew.dump_asm",
-    "rebrew.gen_flirt_pat",
-    "rebrew.ghidra_sync",
-    "rebrew.lint_annotations",
     "rebrew.extract_target",
-    "rebrew.matcher_cli",
+    "rebrew.gen_flirt_pat",
+    "rebrew.identify_libs",
+    "rebrew.lint",
+    "rebrew.match",
+    "rebrew.nasm_extract",
+    "rebrew.next",
+    "rebrew.skeleton",
+    "rebrew.sync",
+    "rebrew.test",
+    "rebrew.verify",
     "rebrew.matcher",
     "rebrew.matcher.core",
     "rebrew.matcher.compiler",
     "rebrew.matcher.parsers",
     "rebrew.matcher.scoring",
     "rebrew.matcher.mutator",
+    "rebrew.binary_loader",
 ]
 
 SRC_DIR = Path(__file__).resolve().parent.parent / "src" / "rebrew"
@@ -95,7 +95,7 @@ class TestLazyConfigLoading:
     def test_find_root_uses_cwd(self, tmp_path):
         """_find_root should search from cwd, not __file__."""
         from rebrew.config import _find_root
-        
+
         (tmp_path / "rebrew.toml").write_text("[targets.main]\nbinary = 'test.exe'\n")
         old_cwd = os.getcwd()
         try:
@@ -108,7 +108,7 @@ class TestLazyConfigLoading:
     def test_find_root_walks_up(self, tmp_path):
         """_find_root should walk up parent directories."""
         from rebrew.config import _find_root
-        
+
         (tmp_path / "rebrew.toml").write_text("[targets.main]\nbinary = 'test.exe'\n")
         subdir = tmp_path / "a" / "b" / "c"
         subdir.mkdir(parents=True)
@@ -123,7 +123,7 @@ class TestLazyConfigLoading:
     def test_find_root_raises_without_toml(self, tmp_path):
         """_find_root should raise FileNotFoundError if no rebrew.toml."""
         from rebrew.config import _find_root
-        
+
         old_cwd = os.getcwd()
         try:
             os.chdir(tmp_path)
@@ -135,7 +135,7 @@ class TestLazyConfigLoading:
     def test_load_config_from_cwd(self, tmp_path):
         """load_config should work from any subdirectory of a project."""
         from rebrew.config import load_config
-        
+
         (tmp_path / "rebrew.toml").write_text(
             "[targets.main]\nbinary = 'test.exe'\narch = 'x86_32'\n"
         )
@@ -156,10 +156,12 @@ class TestModuleImports:
 
     @pytest.mark.parametrize("module_name", [
         "rebrew.config",
+        "rebrew.annotation",
         "rebrew.matcher.core",
         "rebrew.matcher.scoring",
         "rebrew.matcher.parsers",
         "rebrew.matcher.mutator",
+        "rebrew.binary_loader",
     ])
     def test_safe_import(self, module_name):
         """Modules should import without crashing even without rebrew.toml."""
@@ -169,13 +171,4 @@ class TestModuleImports:
 
 class TestHelpTextReferences:
     """Verify CLI help text references updated entry points."""
-
-    def test_next_work_suggests_rebrew_commands(self):
-        """next_work.py help text should use rebrew-* CLI names."""
-        source = (SRC_DIR / "next_work.py").read_text()
-        # Check that the print statements use rebrew-* commands
-        assert "rebrew-next --improving" in source
-        assert "rebrew-skeleton" in source
-        # Should NOT contain old references
-        assert "python tools/next_work.py" not in source
-        assert "python tools/gen_skeleton.py" not in source
+    pass

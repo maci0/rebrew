@@ -29,7 +29,7 @@ Crucially, this AI integration will not operate in isolation. It will be backed 
 * **Target Functions**: When `call 0x10003da0` is seen inside the ASM, the system looks up `0x10003da0`. If it's already matched as `_alloc_game_object` (from `CATALOG.md`), the RAG retrieves its C signature (`int __cdecl alloc_game_object(...)`) and injects it into the prompt.
 * **Caller Context (Reverse Lookups)**: If the function currently being reversed is already known to be *called by* other matched functions, the system queries the DB for the AST context of those calls. For example, if we are reversing `0x10001000` and `_alloc_game_object` calls `FUN_10001000(player_id, &global_state)`, providing this surrounding code block to the LLM allows it to deduce the exact intended parameter names (`player_id`, `state`), struct types, and the semantic purpose of returning values.
 * **Globals**: When `mov eax, [0x10031b78]` is found, the system queries the RAG to find this is `__old_small_block_heap`. The struct definition of `__old_sbh_region_t` should also be provided to the AI.
-* **Cross-References (XREFs)**: The system utilizes Capstone, `pefile` (Windows), or `pyelftools` (Linux) to scrape all direct code and data cross-references pointing *to* and *from* the target VA.
+* **Cross-References (XREFs)**: The system utilizes Capstone and `lief` (all formats) to scrape all direct code and data cross-references pointing *to* and *from* the target VA.
   * **Data XREFs**: For example, if the function references static strings (`mov eax, offset "Error loading AI"`) or a VTable pointer (`mov dword ptr [ecx], 0x1005a0b8`), the RAG dumps the strings/vtable layouts to the LM.
   * **Code XREFs**: By providing a list of all callers to the current function (`XREF from 0x1004a8b0`, `XREF from 0x1009c2a4`), the LM maps the overall application flow, even if the caller isn't decompiled yet, by exposing its raw assembly blocks for heuristic naming.
 * **String Literals**: A core part of RE is relying on embedded text. The RAG system must scrape the read-only data sections (`.rdata` / `.rodata`) so that when the target function moves a string address (`mov edi, offset string_val`), the LLM receives the absolute ASCII/UTF-16 text.
@@ -199,7 +199,7 @@ sequenceDiagram
     loop Max N Iterations
         LLM->>O: Generates target C source file
         O->>O: Compile via target toolchain
-        O->>O: Diff against original bytes
+        O->>O: Diff against original bytes (rebrew-match)
         
         alt Matches EXACT or RELOC
             O-->>LLM: Success! Break loop.
@@ -310,7 +310,7 @@ Please adjust your C89 logic to match the target's comparison operators exactly 
 
 ### 3.9 Output Normalization
 
-Because LLM generation isn't always perfectly clean, a normalization pipeline must be used before writing the model's output to `src/server_dll/<func>.c` and executing the compiler:
+Because LLM generation isn't always perfectly clean, a normalization pipeline must be used before writing the model's output to `src/target_name/<func>.c` and executing the compiler:
 
 1.  **Markdown Extraction**: Use regex to extract the code block from the ChatML response (e.g., matching `` ```c\n(.*?)\n``` ``). If no markdown block is found, the system should parse the raw text body but warn or trigger a retry.
 2.  **Top-level Comments and Metadata**:
@@ -404,11 +404,11 @@ The following table maps every existing tool to its role in the AI-augmented pip
 | `dump_asm.py` | Disassemble a VA with Capstone | **ASM extraction** for LLM prompt (§3.1) |
 | `batch_extract.py` | Bulk extract `.bin` files + ndisasm | **Batch mode** ASM extraction |
 | `nasm_extract.py` | Round-trip verified NASM output | **High-fidelity ASM** for prompt |
-| `gen_skeleton.py` | Generate annotated `.c` skeleton from VA | **Scaffolding** — AI fills the skeleton body |
-| `next_work.py` | Prioritize uncovered functions by difficulty | **Work queue** — feeds AI batch runner |
-| `identify_libs.py` | FLIRT signature matching | **Pre-filter** — skip LLM for known libs |
+| `rebrew-skeleton` | Generate annotated `.c` skeleton from VA | **Scaffolding** — AI fills the skeleton body |
+| `rebrew-next` | Prioritize uncovered functions by difficulty | **Work queue** — feeds AI batch runner |
+| `rebrew-flirt` | FLIRT signature matching | **Pre-filter** — skip LLM for known libs |
 | `catalog.py` | Annotation parser + function registry | **RAG source** — VA→signature lookups |
-| `test_func.py` | Quick compile-and-compare | **Validation** — classifies each result |
+| `rebrew-test` | Quick compile-and-compare | **Validation** — classifies each result |
 | `matcher.py` | Unified GA engine (diff, flag-sweep) | **Diff engine** — `--diff-only` for feedback |
 | `matcher/mutator.py` | 40+ C mutation operators | **GA refinement** — closes byte gaps |
 | `matcher/scoring.py` | Multi-metric fitness scoring | **Score parsing** — decides next action |
@@ -419,23 +419,23 @@ The following table maps every existing tool to its role in the AI-augmented pip
 | `verify.py` | Full verification pipeline | **CI/CD gate** — post-batch validation |
 | `ghidra_sync.py` | Ghidra label/comment sync | **Decompilation source** — pseudo-C |
 | `train_mutation_model.py` | Train ML mutation model | **Future** — improve GA selection |
-| `lint_annotations.py` | Annotation linter | **Post-gen lint** — validates headers |
+| `rebrew-lint` | Annotation linter | **Post-gen lint** — validates headers |
 | `batch_test.sh` | Batch test all reversed functions | **Regression gate** — prevents breaks |
 
 ### Workflow A: Zero-Shot RAG Pipeline (LLM Heavy)
 Used for **entirely new, unreversed functions**.
-1. **Target Selection**: `next_work.py --origin GAME` picks the next function by difficulty.
-2. **Pre-filter**: `identify_libs.py` checks if the VA matches a known FLIRT signature. If matched (CRT/zlib), skip LLM — use reference source directly.
-3. **Scaffolding**: `gen_skeleton.py 0x<VA>` creates the annotated `.c` file with the correct header.
+1. **Target Selection**: `rebrew-next --origin GAME` picks the next function by difficulty.
+2. **Pre-filter**: `rebrew-flirt` checks if the VA matches a known FLIRT signature. If matched (CRT/zlib), skip LLM — use reference source directly.
+3. **Scaffolding**: `rebrew-skeleton 0x<VA>` creates the annotated `.c` file with the correct header.
 4. **ASM Extraction**: `dump_asm.py` (or `nasm_extract.py` for higher fidelity) dumps the target function.
 5. **Context Assembly**: The RAG queries `catalog.py`'s function registry and trims ASTs to fit the context budget (§3.5).
 6. **LLM Generation**: Qwen3 generates the C implementation body.
-7. **Validation**: `test_func.py` compiles and classifies the result (`EXACT`/`RELOC`/`MATCHING`/`MISMATCH`).
+7. **Validation**: `rebrew-test` compiles and classifies the result (`EXACT`/`RELOC`/`MATCHING`/`MISMATCH`).
 8. *Result*: A `MATCHING` or `RELOC` baseline is established.
 
 ### Workflow B: GA-Refinement Pipeline (Programmatic Heavy)
 Used when a function is `MATCHING` but needs minor register allocation or comparison operator fixes.
-1. **Trigger**: `test_func.py` classified the result as `MATCHING` with a small byte delta.
+1. **Trigger**: `rebrew-test` classified the result as `MATCHING` with a small byte delta.
 2. **Programmatic Handoff**: Do *not* waste LLM tokens guessing compilation jitter. Pass the LLM's output as the `--seed-c` to `ga_batch.py` or `matcher.py`.
 3. **GA Brute-force**: `matcher/mutator.py` (40+ operators: `if`-branch swaps, `for`↔`while`, operand commutation) mutates the C AST until the byte distance reaches 0.
 4. **Shared Cache**: Results stored in `matcher/core.py`'s `BuildCache` (SQLite) — no duplicate compilations across AI and GA runs.
@@ -446,14 +446,14 @@ Used when the GA stalls on a `MATCHING` file because the structural logic is fun
 1. **Trigger**: `ga_batch.py` hits its stagnation limit without finding a match.
 2. **Diff Extraction**: `matcher.py --diff-only` outputs the byte-level comparison with `**` markers.
 3. **Targeted Prompt**: The LLM receives only the exact failure block: `"Your code produced 'cmp eax, 6' but the target requires 'test eax, eax' at offset +0x14. Rewrite this specific loop."`
-4. **Lint Check**: `lint_annotations.py` validates the annotation header after rewrite.
+4. **Lint Check**: `rebrew-lint` validates the annotation header after rewrite.
 5. **Regression Gate**: `batch_test.sh` ensures the fix doesn't break existing matches.
 
 ### Workflow D: Cold-Start Bootstrapping (Clean Binary)
 Used when starting from **a completely new binary with zero prior RE work**.
 
-1. **Function Discovery**: `pefile`/`pyelftools` + radare2/Ghidra headless to identify function boundaries → export as `r2_functions.json`.
-2. **FLIRT Pre-filter**: `identify_libs.py` auto-identifies CRT/zlib/Lua functions. Each match is a free win seeding the RAG DB.
+1. **Function Discovery**: `lief` + radare2/Ghidra headless to identify function boundaries → export as `r2_functions.json`.
+2. **FLIRT Pre-filter**: `rebrew-flirt` auto-identifies CRT/zlib/Lua functions. Each match is a free win seeding the RAG DB.
 3. **String & Export Anchoring**: Scrape `.rdata`/`.rodata` strings and PE export table for named entry points.
 4. **Progressive Snowball**: Start with smallest leaf functions (10–30 bytes). Each `RELOC`/`EXACT` match enriches the RAG for larger functions.
 5. **Compiler Identification**: Detect compiler from PE Rich Header or CRT prologue patterns → auto-configure workspace.
@@ -471,7 +471,7 @@ graph TD
     G --> H[Rank by size: smallest first]
     
     H --> I[LLM generates tiny leaf functions]
-    I --> J{test_func.py}
+    I --> J{rebrew-test}
     
     J -->|RELOC/EXACT| F
     J -->|MATCHING| K[GA Refinement]
@@ -487,13 +487,13 @@ Used when a `.c` file already exists at `MATCHING` or `STUB` status and you want
 This is the **shortest path** — no discovery, no scaffolding, no FLIRT. The code and its diff already exist.
 
 1. **Input**: The existing `.c` file + its annotation header (VA, SIZE, CFLAGS already known).
-2. **Diff Snapshot**: `test_func.py` captures the current byte delta and structural diff.
+2. **Diff Snapshot**: `rebrew-test` captures the current byte delta and structural diff.
 3. **Contextual Prompt**: Feed the LLM the current source, diff output, `BLOCKER` notes, and minimal RAG context.
 4. **LLM Rewrites**: Targeted fixes (swap `if`/`else`, change `> 5` to `>= 6`).
-5. **Validate**: `test_func.py` re-checks. If `MATCHING` → optionally hand off to GA (Workflow B).
+5. **Validate**: `rebrew-test` re-checks. If `MATCHING` → optionally hand off to GA (Workflow B).
 
 > [!TIP]
-> Can be triggered in batch via `next_work.py --improving` to list all `MATCHING` functions sorted by proximity to `RELOC`.
+> Can be triggered in batch via `rebrew-next --improving` to list all `MATCHING` functions sorted by proximity to `RELOC`.
 
 ```mermaid
 graph TD
@@ -502,7 +502,7 @@ graph TD
     B -->|No| C[Workflow A: Zero-Shot RAG]
     C --> D[Extract ASM & RAG Context]
     D --> E[qwen3-coder-next generates C]
-    E --> F[Compile & Diff]
+    E --> F[Compile & Diff (rebrew-match)]
     
     F -->|EXACT/RELOC| Z[Done! Add to RAG DB]
     F -->|MATCHING| G[Baseline Captured]

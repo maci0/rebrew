@@ -1,87 +1,24 @@
 #!/usr/bin/env python3
-"""validate.py - Core traceability pipeline for rebrew RE project.
+"""verify.py - Traceability and verification tool for rebrew.
 
-Parses annotations from server_dll/*.c files, reads r2_functions.txt for the
-full function list, optionally verifies against original/Server/server.dll, and generates
-CATALOG.md + recoverage/data.json.
-
-Supports both OLD format:
-    /* func_name @ 0x10001000 (302B) - /O2 - EXACT MATCH [GAME] */
-and NEW reccmp-style format:
-    // FUNCTION: SERVER 0x10001000
-    // STATUS: EXACT
-    // ORIGIN: GAME
-    // SIZE: 302
-    // CFLAGS: /O2 /Gd
-    // SYMBOL: _func_name
+Analyzes src/*.c files, matches them against the target binary,
+and reports status (EXACT, RELOC, MATCHING, etc.).
 """
 
-import argparse
-import hashlib
+import concurrent.futures
 import json
-import math
 import os
 import re
-import struct
+import shutil
 import subprocess
 import sys
-import shutil
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any
 
-# ---------------------------------------------------------------------------
-# Constants (from config, with hardcoded fallbacks for standalone use)
-# ---------------------------------------------------------------------------
-try:
-    from rebrew.config import cfg as _cfg
-    IMAGE_BASE = _cfg.image_base
-    TEXT_VA = _cfg.text_va
-    TEXT_RAW_OFFSET = _cfg.text_raw_offset
-except Exception:
-    IMAGE_BASE = 0x10000000
-    TEXT_VA = 0x10001000
-    TEXT_RAW_OFFSET = 0x1000
-
-VALID_STATUSES = {"EXACT", "RELOC", "MATCHING", "MATCHING_RELOC", "STUB"}
-VALID_ORIGINS = {"GAME", "MSVCRT", "ZLIB"}
-VALID_MARKERS = {"FUNCTION", "LIBRARY", "STUB"}
-
-# ---------------------------------------------------------------------------
-# Data classes (plain dicts for stdlib-only)
-# ---------------------------------------------------------------------------
-
-
-def make_func_entry(
-    va: int,
-    size: int,
-    name: str,
-    symbol: str,
-    status: str,
-    origin: str,
-    cflags: str,
-    marker_type: str,
-    filepath: str,
-    source: str = "",
-    blocker: str = "",
-    note: str = "",
-    globals_list: Optional[List[str]] = None,
-) -> dict:
-    return {
-        "va": va,
-        "size": size,
-        "name": name,
-        "symbol": symbol,
-        "status": status,
-        "origin": origin,
-        "cflags": cflags,
-        "marker_type": marker_type,
-        "filepath": filepath,
-        "source": source,
-        "blocker": blocker,
-        "note": note,
-        "globals": globals_list or [],
-    }
+from rebrew.annotation import (
+    parse_c_file,
+)
 
 
 def make_r2_func(va: int, size: int, r2_name: str) -> dict:
@@ -96,32 +33,17 @@ def make_ghidra_func(va: int, size: int, name: str) -> dict:
 # Cross-tool function registry
 # ---------------------------------------------------------------------------
 
-# IAT thunk addresses (6B jmp [addr] stubs -- not reversible C code)
-IAT_THUNKS = {
-    0x1001A160,
-    0x1001A166,
-    0x1001A16C,
-    0x1001A172,
-    0x1001A178,
-    0x1001A17E,
-    0x1001A184,
-    0x10023840,
-}
-
-# DLL exports (from DUMPBIN /EXPORTS)
-DLL_EXPORTS = {
-    0x10009320: "Init",
-    0x10009350: "Exit",
-}
+# registry is now built using cfg values in build_function_registry
 
 # r2 entries with known bogus sizes (analysis artifacts)
 R2_BOGUS_SIZES = {0x1000AD40, 0x10018200}
 
 
 def build_function_registry(
-    r2_funcs: List[dict],
-    ghidra_path: Optional[Path] = None,
-) -> Dict[int, dict]:
+    r2_funcs: list[dict],
+    cfg: Any,
+    ghidra_path: Path | None = None,
+) -> dict[int, dict]:
     """Build a unified function registry merging r2 + ghidra + exports.
 
     Returns dict keyed by VA with:
@@ -132,7 +54,7 @@ def build_function_registry(
         is_export: bool
         canonical_size: best-known size
     """
-    registry: Dict[int, dict] = {}
+    registry: dict[int, dict] = {}
 
     # --- r2 functions ---
     for func in r2_funcs:
@@ -144,8 +66,8 @@ def build_function_registry(
                 "size_by_tool": {},
                 "r2_name": "",
                 "ghidra_name": "",
-                "is_thunk": va in IAT_THUNKS,
-                "is_export": va in DLL_EXPORTS,
+                "is_thunk": va in cfg.iat_thunks,
+                "is_export": va in cfg.dll_exports,
                 "canonical_size": 0,
             },
         )
@@ -172,8 +94,8 @@ def build_function_registry(
                 "size_by_tool": {},
                 "r2_name": "",
                 "ghidra_name": "",
-                "is_thunk": va in IAT_THUNKS,
-                "is_export": va in DLL_EXPORTS,
+                "is_thunk": va in cfg.iat_thunks,
+                "is_export": va in cfg.dll_exports,
                 "canonical_size": 0,
             },
         )
@@ -183,7 +105,7 @@ def build_function_registry(
         entry["ghidra_name"] = func["ghidra_name"]
 
     # --- Exports ---
-    for va, name in DLL_EXPORTS.items():
+    for va, _name in cfg.dll_exports.items():
         entry = registry.setdefault(
             va,
             {
@@ -200,7 +122,7 @@ def build_function_registry(
             entry["detected_by"].append("exports")
 
     # --- Resolve canonical size: prefer ghidra > r2 ---
-    for va, entry in registry.items():
+    for _va, entry in registry.items():
         sizes = entry["size_by_tool"]
         if "ghidra" in sizes:
             entry["canonical_size"] = sizes["ghidra"]
@@ -210,7 +132,7 @@ def build_function_registry(
     return registry
 
 
-def load_ghidra_functions(path: Path) -> List[dict]:
+def load_ghidra_functions(path: Path) -> list[dict]:
     """Load cached ghidra_functions.json."""
     if not path.exists():
         return []
@@ -221,180 +143,13 @@ def load_ghidra_functions(path: Path) -> List[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Annotation parsers
-# ---------------------------------------------------------------------------
-
-# OLD format: /* name @ 0xVA (NB) - /flags - STATUS [ORIGIN] */
-_OLD_RE = re.compile(
-    r"/\*\s*"
-    r"(?P<name>\S+)"
-    r"\s+@\s+"
-    r"(?P<va>0x[0-9a-fA-F]+)"
-    r"\s+\((?P<size>\d+)B\)"
-    r"\s*-\s*"
-    r"(?P<cflags>[^-]+?)"
-    r"\s*-\s*"
-    r"(?P<status>[^[]+?)"
-    r"\s*\[(?P<origin>[A-Z]+)\]"
-    r"\s*\*/"
-)
-
-# NEW format markers
-_NEW_FUNC_RE = re.compile(
-    r"//\s*(?P<type>FUNCTION|LIBRARY|STUB):\s*SERVER\s+(?P<va>0x[0-9a-fA-F]+)"
-)
-_NEW_KV_RE = re.compile(r"//\s*(?P<key>[A-Z]+):\s*(?P<value>.+)")
-
-
-def _normalize_status(raw: str) -> str:
-    """Map old-format status strings to canonical values."""
-    s = raw.strip().upper()
-    if "EXACT" in s:
-        return "EXACT"
-    if "RELOC" in s:
-        return "RELOC"
-    if "STUB" in s:
-        return "STUB"
-    return s
-
-
-def _normalize_cflags(raw: str) -> str:
-    """Clean up cflags string."""
-    return raw.strip().rstrip(",").strip()
-
-
-def parse_old_format(line: str) -> Optional[dict]:
-    """Try to parse old-format header comment. Returns dict or None."""
-    m = _OLD_RE.match(line.strip())
-    if not m:
-        return None
-    status = _normalize_status(m.group("status"))
-    origin = m.group("origin").strip().upper()
-    cflags = _normalize_cflags(m.group("cflags"))
-    name = m.group("name")
-
-    # Derive marker type from origin
-    if status == "STUB":
-        marker_type = "STUB"
-    elif origin in ("ZLIB", "MSVCRT"):
-        marker_type = "LIBRARY"
-    else:
-        marker_type = "FUNCTION"
-
-    return make_func_entry(
-        va=int(m.group("va"), 16),
-        size=int(m.group("size")),
-        name=name,
-        symbol="_" + name,
-        status=status,
-        origin=origin,
-        cflags=cflags,
-        marker_type=marker_type,
-        filepath="",
-    )
-
-
-def parse_new_format(lines: List[str]) -> Optional[dict]:
-    """Try to parse new reccmp-style annotations from first lines.
-    Returns dict or None."""
-    # Find the marker line
-    marker_type = None
-    va = None
-    kv = {}
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            continue
-        # Check for marker
-        m = _NEW_FUNC_RE.match(stripped)
-        if m:
-            marker_type = m.group("type")
-            va = int(m.group("va"), 16)
-            continue
-        # Check for key-value
-        m2 = _NEW_KV_RE.match(stripped)
-        if m2:
-            kv[m2.group("key").upper()] = m2.group("value").strip()
-            continue
-        # Non-annotation line => stop
-        break
-
-    if marker_type is None or va is None:
-        return None
-
-    status = kv.get("STATUS", "RELOC")
-    origin = kv.get("ORIGIN", "GAME")
-    size_str = kv.get("SIZE", "0")
-    cflags = kv.get("CFLAGS", "")
-    symbol = kv.get("SYMBOL", "")
-    name = symbol.lstrip("_") if symbol else ""
-
-    try:
-        size = int(size_str)
-    except ValueError:
-        size = 0
-
-    source = kv.get("SOURCE", "")
-    blocker = kv.get("BLOCKER", "")
-    note = kv.get("NOTE", "")
-
-    globals_list = []
-    raw_globals = kv.get("GLOBALS", "")
-    if raw_globals:
-        globals_list = [g.strip() for g in raw_globals.split(",") if g.strip()]
-
-    return make_func_entry(
-        va=va,
-        size=size,
-        name=name,
-        symbol=symbol,
-        status=status,
-        origin=origin,
-        cflags=cflags,
-        marker_type=marker_type,
-        filepath="",
-        source=source,
-        blocker=blocker,
-        note=note,
-        globals_list=globals_list,
-    )
-
-
-def parse_c_file(filepath: Path) -> Optional[dict]:
-    """Parse a decomp .c file for annotations (tries new then old format)."""
-    try:
-        text = filepath.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return None
-
-    lines = text.splitlines()
-    if not lines:
-        return None
-
-    # Try new format first (multi-line)
-    entry = parse_new_format(lines[:20])
-    if entry is not None:
-        entry["filepath"] = filepath.name
-        return entry
-
-    # Try old format (first line)
-    entry = parse_old_format(lines[0])
-    if entry is not None:
-        entry["filepath"] = filepath.name
-        return entry
-
-    return None
-
-
-# ---------------------------------------------------------------------------
 # r2_functions.txt parser
 # ---------------------------------------------------------------------------
 
 _R2_LINE_RE = re.compile(r"\s*(0x[0-9a-fA-F]+)\s+(\d+)\s+(\S+)")
 
 
-def parse_r2_functions(path: Path) -> List[dict]:
+def parse_r2_functions(path: Path) -> list[dict]:
     """Parse r2_functions.txt into list of {va, size, r2_name}."""
     funcs = []
     try:
@@ -416,43 +171,23 @@ def parse_r2_functions(path: Path) -> List[dict]:
     return funcs
 
 
-# ---------------------------------------------------------------------------
-# DLL byte extraction
-# ---------------------------------------------------------------------------
 
 
-def va_to_file_offset(va: int) -> int:
-    return va - TEXT_VA + TEXT_RAW_OFFSET
-
-
-def extract_dll_bytes(dll_path: Path, va: int, size: int) -> Optional[bytes]:
-    """Extract raw bytes from DLL at given VA."""
-    try:
-        with open(dll_path, "rb") as f:
-            f.seek(va_to_file_offset(va))
-            data = f.read(size)
-        # Trim trailing CC/90 padding
-        while data and data[-1] in (0xCC, 0x90):
-            data = data[:-1]
-        return data
-    except (OSError, ValueError):
-        return None
+# extract_dll_bytes is now handled by cfg.extract_dll_bytes() in verify_entry
 
 
 from rebrew.matcher.parsers import parse_coff_symbol_bytes
-
 
 # ---------------------------------------------------------------------------
 # Scanning
 # ---------------------------------------------------------------------------
 
 
-def scan_reversed_dir(reversed_dir: Path) -> List[dict]:
+def scan_reversed_dir(reversed_dir: Path) -> list[dict]:
     """Scan target dir *.c files and parse annotations from each."""
     entries = []
     for cfile in sorted(reversed_dir.glob("*.c")):
-        if cfile.name in ("test_func.py",):
-            continue
+
         entry = parse_c_file(cfile)
         if entry is not None:
             entries.append(entry)
@@ -464,20 +199,28 @@ def scan_reversed_dir(reversed_dir: Path) -> List[dict]:
 # ---------------------------------------------------------------------------
 
 
-def verify_entry(entry: dict, dll_path: Path, root: Path) -> Tuple[bool, str]:
+def verify_entry(entry: dict, cfg) -> tuple[bool, str]:
     """Compile a .c file and compare output bytes against DLL."""
-    cfile = root / "src" / "server_dll" / entry["filepath"]
+    cfile = cfg.reversed_dir / entry["filepath"]
     if not cfile.exists():
         return False, f"File not found: {cfile}"
 
-    cl_exe = str(root / "tools" / "MSVC600" / "VC98" / "Bin" / "CL.EXE")
-    inc_path = str(root / "tools" / "MSVC600" / "VC98" / "Include")
+    cmd_parts = cfg.compiler_command.split()
+    if len(cmd_parts) > 1 and cmd_parts[0] == "wine":
+        cl_rel = Path(cmd_parts[1])
+        cl_abs = str(cfg.root / cl_rel) if not cl_rel.is_absolute() else str(cl_rel)
+        base_cmd = ["wine", cl_abs, "/nologo", "/c", "/MT", "/Gd"]
+    else:
+        cl_rel = Path(cfg.compiler_command)
+        cl_abs = str(cfg.root / cl_rel) if not cl_rel.is_absolute() else str(cl_rel)
+        base_cmd = [cl_abs, "/nologo", "/c", "/MT", "/Gd"]
+    inc_path = str(cfg.compiler_includes)
 
     cflags_str = entry["cflags"]
     cflags = cflags_str.split() if cflags_str else ["/O2"]
     symbol = entry["symbol"] if entry["symbol"] else "_" + entry["name"]
 
-    target_bytes = extract_dll_bytes(dll_path, entry["va"], entry["size"])
+    target_bytes = cfg.extract_dll_bytes(entry["va"], entry["size"])
     if target_bytes is None:
         return False, "Cannot extract DLL bytes"
 
@@ -489,7 +232,7 @@ def verify_entry(entry: dict, dll_path: Path, root: Path) -> Tuple[bool, str]:
 
         obj_name = os.path.splitext(src_name)[0] + ".obj"
         cmd = (
-            ["wine", cl_exe, "/nologo", "/c", "/MT", "/Gd"]
+            base_cmd
             + cflags
             + [f"/I{inc_path}", f"/Fo{obj_name}", src_name]
         )
@@ -546,30 +289,13 @@ def verify_entry(entry: dict, dll_path: Path, root: Path) -> Tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 
-def get_text_section_size(dll_path: Path) -> int:
-    """Get .text section virtual size from PE headers."""
+def get_text_section_size(bin_path: Path) -> int:
+    """Get .text section virtual size from binary headers."""
     try:
-        with open(dll_path, "rb") as f:
-            # DOS header -> PE offset
-            f.seek(0x3C)
-            pe_off = struct.unpack("<I", f.read(4))[0]
-            # PE signature + COFF header
-            f.seek(pe_off + 4)  # skip "PE\0\0"
-            (num_sections,) = struct.unpack("<H", f.read(2))
-            f.seek(pe_off + 4 + 20)  # skip COFF header (20 bytes)
-            # Optional header size
-            f.seek(pe_off + 4 + 16)
-            (opt_hdr_size,) = struct.unpack("<H", f.read(2))
-            # Section headers start after optional header
-            sec_start = pe_off + 4 + 20 + opt_hdr_size
-            for i in range(num_sections):
-                f.seek(sec_start + i * 40)
-                sec_name = f.read(8).rstrip(b"\x00").decode("ascii", errors="replace")
-                if sec_name == ".text":
-                    f.seek(sec_start + i * 40 + 8)  # VirtualSize
-                    (vsize,) = struct.unpack("<I", f.read(4))
-                    return vsize
-    except (OSError, struct.error):
+        from rebrew.binary_loader import load_binary
+        info = load_binary(bin_path)
+        return info.text_size
+    except Exception:
         pass
     # Fallback: estimate from r2_functions.txt last function
     return 0x24000  # rough estimate
@@ -580,37 +306,50 @@ def get_text_section_size(dll_path: Path) -> int:
 # ---------------------------------------------------------------------------
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Rebrew verification pipeline: compile each .c and verify bytes match."
-    )
-    parser.add_argument(
-        "--root",
-        type=Path,
-        default=Path(__file__).resolve().parent.parent,
-        help="Project root directory",
-    )
-    args = parser.parse_args()
+import typer
+from rich.console import Console
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
+from rich.text import Text
 
-    root = args.root
+from rebrew.cli import TargetOption, get_config
+
+console = Console(stderr=True)
+out_console = Console()
+
+app = typer.Typer(help="Rebrew verification pipeline: compile each .c and verify bytes match.")
+
+@app.callback(invoke_without_command=True)
+def main(
+    root: Path = typer.Option(
+        None,
+        "--root",
+        help="Project root directory (auto-detected from rebrew.toml if omitted)",
+    ),
+    target: str | None = TargetOption,
+    jobs: int = typer.Option(
+        4,
+        "-j",
+        "--jobs",
+        help="Number of parallel compile jobs",
+    ),
+):
+    """Rebrew verification pipeline: compile each .c and verify bytes match."""
     try:
-        from rebrew.config import load_config
-        _c = load_config(root)
-        dll_path = _c.target_binary
-        reversed_dir = _c.reversed_dir
+        cfg = get_config(target=target)
+        bin_path = cfg.target_binary
+        reversed_dir = cfg.reversed_dir
     except Exception:
-        dll_path = root / "original" / "Server" / "server.dll"
-        reversed_dir = root / "src" / "server_dll"
+        # Generic fallbacks
+        bin_path = root / "binary.dll"
+        reversed_dir = root / "src"
     r2_path = reversed_dir / "r2_functions.txt"
     ghidra_json_path = reversed_dir / "ghidra_functions.json"
 
-    print(f"Scanning {reversed_dir}...", file=sys.stderr)
+    console.print(f"Scanning {reversed_dir}...")
     entries = scan_reversed_dir(reversed_dir)
     r2_funcs = parse_r2_functions(r2_path)
 
-    text_size = get_text_section_size(dll_path) if dll_path.exists() else 0x24000
-
-    registry = build_function_registry(r2_funcs, ghidra_json_path)
+    registry = build_function_registry(r2_funcs, cfg, ghidra_json_path)
 
     unique_vas = set(e["va"] for e in entries)
     ghidra_count = sum(1 for r in registry.values() if "ghidra" in r["detected_by"])
@@ -621,43 +360,83 @@ def main():
         if "ghidra" in r["detected_by"] and "r2" in r["detected_by"]
     )
     thunk_count = sum(1 for r in registry.values() if r["is_thunk"])
-    print(
+    console.print(
         f"Found {len(entries)} annotations ({len(unique_vas)} unique VAs) "
         f"from {len(registry)} total functions "
         f"(r2: {r2_count}, ghidra: {ghidra_count}, both: {both_count}, "
-        f"thunks: {thunk_count})",
-        file=sys.stderr,
+        f"thunks: {thunk_count})"
     )
 
     # Verify
 
-    if not dll_path.exists():
-        print(f"ERROR: {dll_path} not found", file=sys.stderr)
+    if not bin_path.exists():
+        console.print(f"[red bold]ERROR:[/] {bin_path} not found")
         return 1
+
+    # Deduplicate: only verify once per VA
+    seen_vas: set = set()
+    unique_entries = []
+    for entry in sorted(entries, key=lambda x: x["va"]):
+        if entry["va"] not in seen_vas:
+            seen_vas.add(entry["va"])
+            unique_entries.append(entry)
 
     passed = 0
     failed = 0
-    # Deduplicate: only verify once per VA
-    seen_vas = set()
-    for entry in sorted(entries, key=lambda x: x["va"]):
-        if entry["va"] in seen_vas:
-            continue
-        seen_vas.add(entry["va"])
+    fail_details = []
+    total = len(unique_entries)
+    effective_jobs = min(jobs, total) if total else 1
 
-        ok, msg = verify_entry(entry, dll_path, root)
-        status_char = "OK" if ok else "FAIL"
-        print(f"  [{status_char}] 0x{entry['va']:08X} {entry['name']}: {msg}")
-        if ok:
-            passed += 1
-        else:
-            failed += 1
+    def _verify(e: dict) -> tuple:
+        return (e, *verify_entry(e, cfg))
 
-    print(f"\nVerification: {passed} passed, {failed} failed")
+    with Progress(
+        TextColumn("[bold blue]Verifying"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TextColumn("[dim]{task.description}"),
+        console=console,
+    ) as progress:
+        task = progress.add_task("functions", total=total)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=effective_jobs) as pool:
+            futures = {pool.submit(_verify, e): e for e in unique_entries}
+            for future in concurrent.futures.as_completed(futures):
+                entry, ok, msg = future.result()
+                name = entry['name']
+                progress.update(task, advance=1, description=name)
+                if ok:
+                    passed += 1
+                else:
+                    failed += 1
+                    fail_details.append((entry, msg))
+
+    # Print failures
+    if fail_details:
+        out_console.print()
+        for entry, msg in sorted(fail_details, key=lambda x: x[0]['va']):
+            out_console.print(
+                rf"  [red bold]\[FAIL][/] 0x{entry['va']:08X} {entry['name']}: {msg}"
+            )
+
+    # Summary
+    style = "green" if failed == 0 else "red"
+    result_text = Text()
+    result_text.append("\nVerification: ")
+    result_text.append(f"{passed}/{total} passed", style=style)
+    if failed:
+        result_text.append(", ")
+        result_text.append(f"{failed} failed", style="red")
+    out_console.print(result_text)
+
     if failed > 0:
         return 1
 
     return 0
 
 
+def main_entry():
+    app()
+
 if __name__ == "__main__":
-    sys.exit(main())
+    main_entry()
+

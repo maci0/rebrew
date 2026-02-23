@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""ghidra_sync.py - Sync annotations between server_dll/*.c files and Ghidra.
+"""Sync annotations between reversed source .c files and Ghidra.
 
-This script reads annotations from decomp C source files and generates
-Ghidra script commands to rename functions, add comments, and set bookmarks
-in the Ghidra project via ReVa MCP tools.
+Reads annotations from decomp C source files and generates Ghidra script
+commands to rename functions, add comments, and set bookmarks via ReVa MCP.
 
 Usage:
-    uv run python ghidra_sync.py --export    Export annotations to ghidra_commands.json
-    uv run python ghidra_sync.py --summary   Show what would be synced
+    rebrew-sync --export    Export annotations to ghidra_commands.json
+    rebrew-sync --summary   Show what would be synced
 
 The exported JSON can be consumed by automation that calls ReVa MCP tools:
   - create-label: rename functions at their VA
@@ -16,20 +15,15 @@ The exported JSON can be consumed by automation that calls ReVa MCP tools:
 """
 
 import json
-import sys
-from pathlib import Path
-from typing import Dict, List, Optional
 
 import typer
 
-from verify import parse_c_file, scan_reversed_dir
+from rebrew.cli import TargetOption, get_config
+from rebrew.verify import scan_reversed_dir
 
 
-PROGRAM_PATH = "/server.dll"
-
-
-def build_sync_commands(entries: List[dict]) -> List[dict]:
-    by_va: Dict[int, List[dict]] = {}
+def build_sync_commands(entries: list[dict], program_path: str) -> list[dict]:
+    by_va: dict[int, list[dict]] = {}
     for e in entries:
         by_va.setdefault(e["va"], []).append(e)
 
@@ -44,7 +38,7 @@ def build_sync_commands(entries: List[dict]) -> List[dict]:
             {
                 "tool": "create-label",
                 "args": {
-                    "programPath": PROGRAM_PATH,
+                    "programPath": program_path,
                     "addressOrSymbol": va_hex,
                     "labelName": primary["name"],
                 },
@@ -63,7 +57,7 @@ def build_sync_commands(entries: List[dict]) -> List[dict]:
             {
                 "tool": "set-comment",
                 "args": {
-                    "programPath": PROGRAM_PATH,
+                    "programPath": program_path,
                     "addressOrSymbol": va_hex,
                     "comment": "\n".join(comment_lines),
                     "commentType": "plate",
@@ -80,7 +74,7 @@ def build_sync_commands(entries: List[dict]) -> List[dict]:
             {
                 "tool": "set-bookmark",
                 "args": {
-                    "programPath": PROGRAM_PATH,
+                    "programPath": program_path,
                     "addressOrSymbol": va_hex,
                     "type": "Analysis",
                     "category": bm_category,
@@ -95,32 +89,19 @@ def build_sync_commands(entries: List[dict]) -> List[dict]:
 app = typer.Typer(help="Sync annotations between decomp C files and Ghidra.")
 
 
-@app.command()
+@app.callback(invoke_without_command=True)
 def main(
     export: bool = typer.Option(False, help="Export Ghidra commands to ghidra_commands.json"),
     summary: bool = typer.Option(False, help="Show sync summary without exporting"),
-    root: Path = typer.Option(
-        Path(__file__).resolve().parent.parent,
-        help="Project root directory",
-    ),
-    target: Optional[str] = typer.Option(
-        None, "--target", "-t",
-        help="Target name from rebrew.toml (default: first target)",
-    ),
+    target: str | None = TargetOption,
 ):
     """Sync annotation data between decomp C files and Ghidra."""
-    if not export and not summary:
-        summary = True
-
-    try:
-        from rebrew.config import load_config
-        _c = load_config(root, target=target)
-        reversed_dir = _c.reversed_dir
-    except Exception:
-        reversed_dir = root / "src" / "server_dll"
+    cfg = get_config(target=target)
+    reversed_dir = cfg.reversed_dir
+    program_path = f"/{cfg.target_binary.name}"
 
     entries = scan_reversed_dir(reversed_dir)
-    by_va: Dict[int, List[dict]] = {}
+    by_va: dict[int, list[dict]] = {}
     for e in entries:
         by_va.setdefault(e["va"], []).append(e)
 
@@ -132,7 +113,7 @@ def main(
         for origin in sorted(by_origin):
             print(f"  {origin}: {len(by_origin[origin])}")
 
-        ops = build_sync_commands(entries)
+        ops = build_sync_commands(entries, program_path)
         labels = [o for o in ops if o["tool"] == "create-label"]
         comments = [o for o in ops if o["tool"] == "set-comment"]
         bookmarks = [o for o in ops if o["tool"] == "set-bookmark"]
@@ -143,12 +124,15 @@ def main(
         print(f"  Total: {len(ops)} operations")
 
     if export:
-        ops = build_sync_commands(entries)
-        out_path = root / "ghidra_commands.json"
+        ops = build_sync_commands(entries, program_path)
+        out_path = cfg.root / "ghidra_commands.json"
         with open(out_path, "w") as f:
             json.dump(ops, f, indent=2)
         print(f"Exported {len(ops)} operations to {out_path}")
 
 
-if __name__ == "__main__":
+def main_entry():
     app()
+
+if __name__ == "__main__":
+    main_entry()

@@ -18,14 +18,12 @@ Usage in a tool::
 
 from __future__ import annotations
 
-from typing import Optional
-
 import typer
 
 from rebrew.config import ProjectConfig, load_config
 
 # Re-usable Typer option for --target
-TargetOption: Optional[str] = typer.Option(
+TargetOption: str | None = typer.Option(
     None,
     "--target",
     "-t",
@@ -33,6 +31,6 @@ TargetOption: Optional[str] = typer.Option(
 )
 
 
-def get_config(target: Optional[str] = None) -> ProjectConfig:
+def get_config(target: str | None = None) -> ProjectConfig:
     """Load the project config for the given target."""
     return load_config(target=target)

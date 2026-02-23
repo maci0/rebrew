@@ -28,7 +28,7 @@ stateDiagram-v2
 
     UNDISCOVERED --> DISCOVERED : Function discovery
     DISCOVERED --> LIBRARY : FLIRT match
-    DISCOVERED --> STUB : gen_skeleton.py
+    DISCOVERED --> STUB : rebrew-skeleton
 
     STUB --> MATCHING : Workflow A (LLM)
     STUB --> MISMATCH : Compilation error
@@ -87,7 +87,7 @@ def select_workflow(func_state):
 ```mermaid
 graph TD
     A[Agent Starts] --> B[Load workspace config]
-    B --> C[Build/refresh work queue from next_work.py]
+    B --> C[Build/refresh work queue from rebrew-next]
     C --> D{Queue empty?}
 
     D -->|Yes| R[Generate run report]
@@ -203,7 +203,7 @@ AFTER:  RELOC    (score: 0)                         ← Accept ✓ (promoted)
 | **L0: Read-only RAG** | Agent reads from the SQLite DB but writes candidates to a **staging area**, never directly to `src/` | LLM can't corrupt source files |
 | **L1: Status lock** | `EXACT` and `RELOC` files are **frozen** — agent skips them entirely unless `--force-recheck` is set | Can't touch finished work |
 | **L2: Shadow workspace** | Agent writes candidates to `staging/<VA>.c`. Only promoted to `src/` after passing all gates | Bad output never hits the source tree |
-| **L3: Score gate** | `test_func.py` compares new candidate score vs current best. Only promote if **strictly better or equal status** | Regressions are impossible |
+| **L3: Score gate** | `rebrew-test` compares new candidate score vs current best. Only promote if **strictly better or equal status** | Regressions are impossible |
 | **L4: Regression gate** | After any promotion, `batch_test.sh` re-verifies **all** existing matches, not just the changed file | Catches cross-function side effects (e.g., symbol collisions) |
 | **L5: Git isolation** | All changes on `agent/batch-<timestamp>` branch. Never touches `main` directly | Human reviews the PR before merge |
 | **L6: Audit trail** | Every LLM prompt/response pair logged to `reports/audit/<VA>/attempt_<N>.json` | Full reproducibility for debugging |
@@ -211,7 +211,7 @@ AFTER:  RELOC    (score: 0)                         ← Accept ✓ (promoted)
 ### File Access Rules
 
 ```
-src/server_dll/*.c          → READ-ONLY during agent run
+src/target_name/*.c          → READ-ONLY during agent run
 staging/<VA>.c              → WRITE (candidates go here)
 rebrew.db                → READ (RAG lookups) + WRITE (new matches only)
 reports/                    → WRITE (logs, report)
@@ -251,7 +251,7 @@ Variable renames, comments, whitespace, and annotation updates **don't change th
 | Add/remove a function call | **Yes** | ❌ |
 | Change a type (`int` → `short`) | **Yes** | ❌ |
 
-The verification is simple: after a cosmetic change, `test_func.py` must produce **byte-identical output**. If the compiled bytes change at all, the edit is rejected.
+The verification is simple: after a cosmetic change, `rebrew-test` must produce **byte-identical output**. If the compiled bytes change at all, the edit is rejected.
 
 ```
 Cosmetic edit: rename var1 → player_hp
@@ -285,7 +285,7 @@ graph TD
 ```mermaid
 graph LR
     A[Agent generates candidate] --> B["staging/10003da0.c"]
-    B --> C{test_func.py}
+    B --> C{rebrew-test}
 
     C -->|Score improved| D{batch_test.sh}
     C -->|Score same + bytes identical| D2[Cosmetic-only change]
@@ -333,13 +333,13 @@ This agent is a **consumer** of the RAG pipeline, not a replacement:
 graph TD
     A[agent.py] -->|orchestrates| B[AI RAG Pipeline]
     A -->|reads| C[agent.yml config]
-    A -->|queries| D[next_work.py]
+    A -->|queries| D[rebrew-next]
 
     B -->|Workflow A| E[ai_reverser.py]
     B -->|Workflow B| F[ga_batch.py]
     B -->|Workflow C| G[matcher.py --diff-only + LLM]
-    B -->|Workflow D| H[identify_libs.py + bootstrap]
-    B -->|Workflow E| I[test_func.py + LLM improvement]
+    B -->|Workflow D| H[rebrew-flirt + bootstrap]
+    B -->|Workflow E| I[rebrew-test + LLM improvement]
 
     E -->|reads| J[SQLite RAG DB]
     F -->|reads| J
@@ -358,7 +358,7 @@ This section describes the complete autonomous pipeline from a cold binary to a 
 
 ### Input
 ```
-server.dll              # The target binary
+target.dll              # The target binary
 rebrew.toml          # Target + compiler config (multi-target)
 agent.yml               # Agent tuning (retries, budget, priorities)
 references/             # Optional: known library sources (zlib, Lua, etc.)
@@ -367,7 +367,7 @@ references/             # Optional: known library sources (zlib, Lua, etc.)
 
 ### Output
 ```
-src/server_dll/         # Generated .c files with annotation headers
+src/target_name/         # Generated .c files with annotation headers
   alloc_game_object.c   #   STATUS: EXACT / RELOC / MATCHING
   process_packet.c
   render_frame.c
@@ -382,7 +382,7 @@ reports/
 ```mermaid
 graph LR
     subgraph "Phase 1: Discovery"
-        A["server.dll"] --> B[pefile: parse .text section]
+        A["target.dll"] --> B[LIEF: parse .text section]
         B --> C["radare2/Ghidra: function boundary detection"]
         C --> D["functions.json (VA, size, name?)"]
     end
@@ -400,7 +400,7 @@ graph LR
         H --> K["Sort by size (smallest first)"]
         I --> K
         K --> L["LLM generates .c (Workflow A)"]
-        L --> M{test_func.py}
+        L --> M{rebrew-test}
         M -->|EXACT/RELOC| J
         M -->|MATCHING| N["GA refine (Workflow B)"]
         N -->|EXACT/RELOC| J
@@ -410,7 +410,7 @@ graph LR
     end
 
     subgraph "Phase 4: Output"
-        J --> P["src/server_dll/*.c"]
+        J --> P["src/target_name/*.c"]
         J --> Q["reports/agent_run.md"]
     end
 ```
@@ -419,9 +419,9 @@ graph LR
 
 | Step | Command | Output |
 |------|---------|--------|
-| Parse PE | `pefile` / `pyelftools` | Section headers, entry point, exports |
-| Find functions | `r2 -qc 'aaa; aflj' server.dll` | `functions.json` with VA + size for every function |
-| Extract strings | `r2 -qc 'izj' server.dll` | String→VA mapping for RAG |
+| Parse binaries | `lief` | Section headers, entry point, exports |
+| Find functions | `r2 -qc 'aaa; aflj' target.dll` | `functions.json` with VA + size for every function |
+| Extract strings | `r2 -qc 'izj' target.dll` | String→VA mapping for RAG |
 | Detect compiler | PE Rich header / CRT prologue scan | Auto-populate `rebrew.toml` |
 
 **Result**: A list of every function in the binary with its address and size. Typically 500–5000 functions.
@@ -432,7 +432,7 @@ If a Ghidra headless instance is available, the agent can use the [ReVa MCP serv
 
 | ReVa MCP Tool | Replaces | Output |
 |---------------|----------|--------|
-| `get-current-program` | `pefile` PE parsing | Program metadata (name, type, platform) |
+| `get-current-program` | `lief` parsing | Program metadata (name, type, platform) |
 | `get-memory-blocks` | PE section parsing | Section layout with permissions and sizes |
 | `get-strings` (paginated) | `r2 izj` | All strings with addresses, paginated |
 | `get-symbols` (`includeExternal=true`) | `r2 aflj` / PE export table | Named + imported symbols |
@@ -445,10 +445,10 @@ If a Ghidra headless instance is available, the agent can use the [ReVa MCP serv
 The triage phase classifies every discovered function and seeds the RAG database. It follows ReVa's [binary-triage skill](https://github.com/cyberkaida/reverse-engineering-assistant/tree/main/ReVa/skills/binary-triage) methodology, adapted for Rebrew's matching pipeline.
 
 #### Step 1: FLIRT Signature Matching
-Run `identify_libs.py` against all `.sig`/`.pat` files. ~20–40% of functions typically match CRT/runtime libraries. Each match is a **free win** — no LLM needed.
+Run `rebrew-flirt` against all `.sig`/`.pat` files. ~20–40% of functions typically match CRT/runtime libraries. Each match is a **free win** — no LLM needed.
 
 #### Step 2: Symbol & Import Survey
-Using ReVa MCP or `pefile`:
+Using ReVa MCP or `lief`:
 * Named exports get real symbol names. Unnamed functions get `FUN_<VA>`.
 * Categorize imports by type (network APIs, file I/O, crypto, Win32, CRT) — this tells the LLM what headers to include.
 
@@ -465,7 +465,7 @@ For the most promising functions (entry points, string-heavy, small leaf functio
 * Ghidra's decompilation provides variable count estimates, control flow structure, and approximate type hints that dramatically improve LLM accuracy.
 
 #### Step 5: Skeleton Generation & RAG Seeding
-* `gen_skeleton.py` creates the `.c` file with the annotation header for every non-FLIRT function.
+* `rebrew-skeleton` creates the `.c` file with the annotation header for every non-FLIRT function.
 * Every FLIRT match + Ghidra decompilation becomes an instant entry in the RAG DB.
 
 #### Triage Output
@@ -473,7 +473,7 @@ For the most promising functions (entry points, string-heavy, small leaf functio
 The triage phase produces a structured report following ReVa's format:
 
 ```
-Triage Report: server.dll
+Triage Report: target.dll
 ├── Program: PE32 / Windows / MSVC6 (detected)
 ├── Functions: 1,847 total (312 named, 1,535 unnamed)
 ├── FLIRT matches: 347 (18.8%) — CRT: 280, zlib: 52, Lua: 15
@@ -519,7 +519,7 @@ For each function:
 │  3. Assemble prompt (P0→P4 priority budget)      │
 │  4. LLM generates C body                        │
 │  5. Normalize output (§3.9)                      │
-│  6. test_func.py → classify result               │
+│  6. rebrew-test → classify result               │
 │                                                  │
 │  ┌── EXACT/RELOC ──→ Ingest into RAG DB ✓       │
 │  │                                               │
@@ -553,7 +553,7 @@ After the queue is exhausted (or budget reached):
 | Large (10MB+) | ~8000 | ~1500 | ~3000–5000 | ~1500–3000 | 55–75% |
 
 > [!IMPORTANT]
-> These are rough estimates. Actual match rates depend heavily on compiler optimization level, coding complexity, and how many open-source libraries are statically linked. Game binaries with lots of template/C++ code will have lower match rates than C-heavy server DLLs.
+> These are rough estimates. Actual match rates depend heavily on compiler optimization level, coding complexity, and how many open-source libraries are statically linked. Game binaries with lots of template/C++ code will have lower match rates than C-heavy system binaries.
 
 ## 10. Tech Stack
 
@@ -567,7 +567,7 @@ After the queue is exhausted (or budget reached):
 | **Async compilation** | `asyncio.create_subprocess_exec` | Already shelling out to `wine CL.EXE` |
 | **Reporting** | Jinja2 → Markdown | Lightweight, human-readable |
 | **Function discovery** | `radare2` (r2pipe) or Ghidra headless | Both free, both have JSON output modes |
-| **FLIRT** | `identify_libs.py` (existing) | Already in the codebase |
+| **FLIRT** | `rebrew-flirt` (existing) | Already in the codebase |
 
 > [!TIP]
 > Start with this minimal stack. If you later need checkpointing, human-in-the-loop breakpoints, or distributed execution across multiple machines, graduate to **LangGraph** (medium complexity) or **Temporal** (heavy, for multi-binary farms).

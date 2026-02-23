@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Run FLIRT signature matching against functions in the target DLL.
-Usage: uv run python tools/identify_libs.py [sig_dir]
+"""Run FLIRT signature matching against functions in the target binary.
+Usage: rebrew-flirt [sig_dir]
 """
 
+import glob
 import os
 import sys
-import glob
-import pefile
-from typing import List, Tuple
-from collections import defaultdict
+from pathlib import Path
+
+from rebrew.binary_loader import load_binary
 
 try:
     import flirt
@@ -16,43 +16,26 @@ except ImportError:
     print("ERROR: flirt module not found. Run 'uv sync' to install dependencies.")
     sys.exit(1)
 
-# SCRIPT_DIR removed — use load_config()
-# PROJECT_ROOT removed — use cfg.root
-DLL_PATH = os.path.join(PROJECT_ROOT, "original", "Server", "server.dll")
+import typer
+
+from rebrew.cli import TargetOption, get_config
+
 
 def extract_all_functions(exe_path: str) -> dict[int, bytes]:
     """Extract standard functions based on the text section for simple pattern matching."""
-    pe = pefile.PE(exe_path)
-    text_section = None
-    for section in pe.sections:
-        if b".text" in section.Name:
-            text_section = section
-            break
-            
-    if not text_section:
+    info = load_binary(exe_path)
+    if ".text" not in info.sections and "__text" not in info.sections:
         return {}
-        
-    base_addr = pe.OPTIONAL_HEADER.ImageBase
-    start_va = base_addr + text_section.VirtualAddress
-    # We don't have perfect boundaries without IDA, so we just grab chunks
-    # This is a naive heuristic specifically for the scanner. 
-    # Realistically we'd use the `next_work.py` list if available, but for now we'll 
-    # scan at known VA boundaries if we have them, or just let 'flirt' scan chunks
-    
-    # Actually, a better approach for the script: 
-    # Let's import the `next_work.py` logic to get the VAs we need to check, 
-    # or just read the whole text section and search.
-    # We will grab all VAs from src/server_dll/*.c if they exist, or use a list.
     return {}
 
 def load_signatures(sig_dir: str):
     print(f"Loading signatures from {sig_dir}...")
     sigs = []
-    
+
     if not os.path.exists(sig_dir):
         print(f"Signature directory {sig_dir} not found.")
         return []
-        
+
     for file in glob.glob(os.path.join(sig_dir, "*.sig")) + glob.glob(os.path.join(sig_dir, "*.pat")):
         try:
             with open(file, "rb") as f:
@@ -65,7 +48,7 @@ def load_signatures(sig_dir: str):
             print(f"Loaded {len(parsed)} signatures from {os.path.basename(file)}")
         except Exception as e:
             print(f"Error loading {file}: {e}")
-            
+
     return sigs
 
 def find_func_size(code_data, offset):
@@ -81,50 +64,58 @@ def find_func_size(code_data, offset):
     return max_scan
 
 
-def main():
-    import argparse
-    parser = argparse.ArgumentParser(description="FLIRT signature scanner for PE binaries")
-    parser.add_argument("sig_dir", nargs="?", default=os.path.join(PROJECT_ROOT, "flirt_sigs"),
-                        help="Directory containing .sig/.pat files")
-    parser.add_argument("--exe", default=DLL_PATH, help="Target PE file")
-    parser.add_argument("--min-size", type=int, default=16,
-                        help="Minimum function size in bytes to report (default: 16)")
-    args = parser.parse_args()
+app = typer.Typer(help="FLIRT signature scanner for binaries")
+
+@app.callback(invoke_without_command=True)
+def main(
+    sig_dir: Path | None = typer.Argument(None, help="Directory containing .sig/.pat files"),
+    exe: Path | None = typer.Option(None, help="Target PE file (default: from config)"),
+    min_size: int = typer.Option(16, help="Minimum function size in bytes to report (default: 16)"),
+    target: str | None = TargetOption,
+):
+    """FLIRT signature scanner for binaries"""
+    cfg = get_config(target=target)
+
+    final_sig_dir = sig_dir or (cfg.root / "flirt_sigs")
+    final_exe = exe or cfg.target_binary
 
     # 1. Load FLIRT signatures
-    sigs = load_signatures(args.sig_dir)
+    sigs = load_signatures(str(final_sig_dir))
     if not sigs:
         print("No signatures loaded. Please provide a directory containing .sig or .pat files.")
         return
-        
+
     print("Compiling FLIRT matching engine...")
     matcher = flirt.compile(sigs)
-    
-    # 2. Extract function bytes from DLL
-    print(f"Analyzing {args.exe}...")
-    pe = pefile.PE(args.exe)
-    text_section = next((s for s in pe.sections if b".text" in s.Name), None)
-    if not text_section:
+
+    # 2. Extract function bytes from binary
+    print(f"Analyzing {final_exe}...")
+    info = load_binary(final_exe)
+
+    # Find the text section (PE: .text, Mach-O: __text)
+    text_name = ".text" if ".text" in info.sections else "__text"
+    if text_name not in info.sections:
         print("Could not find .text section.")
         return
-        
-    code_data = text_section.get_data()
-    base_va = pe.OPTIONAL_HEADER.ImageBase + text_section.VirtualAddress
-    
+
+    text_sec = info.sections[text_name]
+    code_data = info.data[text_sec.file_offset : text_sec.file_offset + text_sec.raw_size]
+    base_va = text_sec.va
+
     print(f"Searching for signature matches in {len(code_data)} bytes "
-          f"(min function size: {args.min_size}B)...")
-    
+          f"(min function size: {min_size}B)...")
+
     found = 0
     skipped = 0
     stride = 16  # standard function alignment
     max_ambiguous = 3  # if more unique names match, it's noise
-    
+
     for offset in range(0, len(code_data) - 32, stride):
         # Estimate the function size at this offset
         func_size = find_func_size(code_data, offset)
-        if func_size < args.min_size:
+        if func_size < min_size:
             continue
-            
+
         matches = matcher.match(code_data[offset:offset + 1024])
         if matches:
             va = base_va + offset
@@ -142,10 +133,13 @@ def main():
                 continue
             print(f"[+] 0x{va:08x} ({func_size:4d}B): {', '.join(names)}")
             found += 1
-            
+
     print(f"\nTotal matches found: {found}")
     if skipped:
         print(f"Skipped {skipped} ambiguous matches (>{max_ambiguous} candidate names)")
 
+def main_entry():
+    app()
+
 if __name__ == "__main__":
-    main()
+    main_entry()

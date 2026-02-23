@@ -1,21 +1,20 @@
 """Tests for the config loader and multi-target support."""
 
 import os
-import tempfile
 from pathlib import Path
 
 import pytest
 
 # Import from the rebrew package
 from rebrew.config import (
-    ProjectConfig,
     _ARCH_PRESETS,
+    ProjectConfig,
+    _detect_binary_layout,
     _detect_pe_layout,
     _find_root,
     _resolve,
     load_config,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helper: create a temp rebrew.toml and return the root dir
@@ -43,6 +42,10 @@ class TestResolve:
     def test_dot_path(self, tmp_path: Path):
         result = _resolve(tmp_path, ".")
         assert result == tmp_path / "."
+
+    def test_none_returns_none(self, tmp_path: Path):
+        result = _resolve(tmp_path, None)
+        assert result is None
 
 
 # ---------------------------------------------------------------------------
@@ -297,6 +300,10 @@ class TestPEDetection:
         result = _detect_pe_layout(fake)
         assert result["image_base"] == 0
 
+    def test_binary_layout_alias(self):
+        """_detect_pe_layout is an alias for _detect_binary_layout."""
+        assert _detect_pe_layout is _detect_binary_layout
+
 
 # ---------------------------------------------------------------------------
 # Tool smoke tests (import + help)
@@ -310,7 +317,7 @@ class TestToolImports:
         assert load_config is not None
 
     def test_import_cli(self):
-        from rebrew.cli import TargetOption, get_config
+        from rebrew.cli import get_config
         assert get_config is not None
 
     def test_import_matcher_scoring(self):
@@ -326,10 +333,20 @@ class TestToolImports:
         assert build_candidate_obj_only is not None
 
     def test_import_matcher_core(self):
-        from rebrew.matcher.core import Score, BuildResult
+        from rebrew.matcher.core import BuildResult, Score
         assert Score is not None
         assert BuildResult is not None
 
     def test_import_matcher_mutator(self):
         from rebrew.matcher.mutator import mutate_code
         assert mutate_code is not None
+
+    def test_import_binary_loader(self):
+        from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va, load_binary
+        assert load_binary is not None
+        assert BinaryInfo is not None
+        assert extract_bytes_at_va is not None
+
+    def test_import_detect_binary_layout(self):
+        from rebrew.config import _detect_binary_layout
+        assert _detect_binary_layout is not None
