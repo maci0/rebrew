@@ -15,25 +15,11 @@ Rebrew is the engine behind binary-matching game decompilation. When you are wri
 - **Composable**: Tools are small, single-purpose, and designed to be chained by scripts or AI agents.
 - **Genetic Algorithm (GA) Search Engine**: Brute-forcing compiler flags and mutating source code AST to discover the exact code changes needed to fix compiler discrepancies.
 
-## Supported Platforms
-
-| Architecture | Binary Format | Compiler | Binary Loading | Object Parsing | GA Matching | Verification |
-|:------------|:-------------|:---------|:--------------:|:--------------:|:-----------:|:------------:|
-| x86 (32-bit) | PE (`.exe`/`.dll`) | MSVC 6.0 | ✅ | ✅ | ✅ | ✅ |
-| x86 (32-bit) | PE | MSVC 7.x+ | ✅ | ✅ | ✅ | ✅ |
-| x86 (32-bit) | PE | Watcom C | ✅ | ⬜ | ✅ | ⬜ |
-| x86 (32-bit) | ELF (`.so`/exec) | GCC/Clang | ✅ | ✅ | ⬜ | ⬜ |
-| x86_64 | PE | MSVC | ✅ | ✅ | ⬜ | ⬜ |
-| x86_64 | ELF | GCC/Clang | ✅ | ✅ | ⬜ | ⬜ |
-| x86_64 | Mach-O | Clang | ✅ | ✅ | ⬜ | ⬜ |
-| ARM32 | ELF | GCC/Clang | ✅ | ✅ | ⬜ | ⬜ |
-| ARM64 | ELF | GCC/Clang | ✅ | ✅ | ⬜ | ⬜ |
-| ARM64 | Mach-O | Clang | ✅ | ✅ | ⬜ | ⬜ |
-
-**Legend:** ✅ Supported  ⬜ Planned / Not yet implemented
-## Installation
+## 🚀 Quick Start & Setup
 
 Rebrew is designed to be consumed as a dependency by a project-specific decomp repo (e.g., [guild-rebrew](../guild-rebrew/)).
+
+### 1. Installation
 
 ```bash
 # In your decomp project's pyproject.toml:
@@ -50,9 +36,29 @@ Then from within the project directory:
 uv sync
 ```
 
-## Usage
+### 2. Project Configuration (`rebrew.toml`)
 
-All CLI tools must be run **from within a project directory** that contains a `rebrew.toml` config file. Rebrew finds `rebrew.toml` by searching upward from the current working directory (similar to how `git` finds `.git/`).
+Each decomp project provides a `rebrew.toml` in its root. Rebrew finds it by searching upward from the current working directory (similar to how `git` finds `.git/`).
+
+```toml
+[targets.target_name]
+binary = "original/target.dll"
+format = "pe"
+arch = "x86_32"
+reversed_dir = "src/target_name"
+function_list = "src/target_name/r2_functions.txt"
+bin_dir = "bin/target_name"
+
+[compiler]
+profile = "msvc6"
+command = "wine tools/MSVC600/VC98/Bin/CL.EXE"
+includes = "tools/MSVC600/VC98/Include"
+libs = "tools/MSVC600/VC98/Lib"
+```
+
+## 💻 Usage & Workflow
+
+All CLI tools must be run **from within a project directory** that contains a `rebrew.toml` config file.
 
 ```bash
 cd /path/to/your-decomp-project    # must contain rebrew.toml
@@ -71,7 +77,7 @@ rebrew-lint                         # lint annotations in your source files
 rebrew-catalog                      # regenerate the function catalog and coverage JSON
 rebrew-build-db                     # build SQLite coverage database from catalog
 
-# Solving the matching puzzle
+# Solving the Matching Puzzle
 rebrew-match src/target_name/f.c    # run the Genetic Algorithm Engine to resolve diffs
 rebrew-ga                           # batch GA runner to continuously try to solve all stubs
 
@@ -82,48 +88,24 @@ rebrew-asm                          # quick offline disassembly
 rebrew-sync                         # export annotations to Ghidra
 ```
 
-## CLI Tools
+## ⚙️ Supported Platforms
 
-| Command | Description |
-|---------|-------------|
-| `rebrew` | Unified CLI entry point for all subcommands (e.g. `rebrew test`) |
-| `rebrew-init` | Initialize a new rebrew project from scratch |
-| `rebrew-next` | Show uncovered functions and progress stats |
-| `rebrew-skeleton` | Auto-generate .c skeleton from a virtual address |
-| `rebrew-test` | Quick compile-and-compare harness |
-| `rebrew-match` | Run the genetic algorithm or diff mode |
-| `rebrew-catalog` | Generate function catalog and coverage JSON |
-| `rebrew-verify` | Bulk compile and verify all reversed functions |
-| `rebrew-lint` | Lint annotation headers |
-| `rebrew-sync` | Export annotations to Ghidra |
-| `rebrew-batch` | Batch extract and disassemble functions |
-| `rebrew-asm` | Quick offline disassembly |
-| `rebrew-ga` | Batch GA runner for STUB functions |
-| `rebrew-build-db` | Build SQLite coverage database |
-| `rebrew-cfg` | Read and edit `rebrew.toml` programmatically (idempotent) |
-| `rebrew-add-target` | Add a target binary (alias for `rebrew-cfg add-target`) |
+| Architecture | Binary Format | Compiler | Binary Loading | Object Parsing | GA Matching | Verification |
+|:------------|:-------------|:---------|:--------------:|:--------------:|:-----------:|:------------:|
+| x86 (32-bit) | PE (`.exe`/`.dll`) | MSVC 6.0 | ✅ | ✅ | ✅ | ✅ |
+| x86 (32-bit) | PE | MSVC 7.x+| ✅ | ✅ | ✅ | ✅ |
+| x86 (32-bit) | PE | Watcom C | ✅ | ⬜ | ✅ | ⬜ |
+| x86 (32-bit) | ELF (`.so`/exec) | GCC/Clang| ✅ | ✅ | ⬜ | ⬜ |
+| x86_64     | PE | MSVC     | ✅ | ✅ | ⬜ | ⬜ |
+| x86_64     | ELF | GCC/Clang| ✅ | ✅ | ⬜ | ⬜ |
+| x86_64     | Mach-O| Clang    | ✅ | ✅ | ⬜ | ⬜ |
+| ARM32      | ELF | GCC/Clang| ✅ | ✅ | ⬜ | ⬜ |
+| ARM64      | ELF | GCC/Clang| ✅ | ✅ | ⬜ | ⬜ |
+| ARM64      | Mach-O| Clang    | ✅ | ✅ | ⬜ | ⬜ |
 
-## Project Configuration (`rebrew.toml`)
+**Legend:** ✅ Supported  ⬜ Planned / Not yet implemented
 
-Each decomp project provides a `rebrew.toml` in its root:
-
-```toml
-[targets.target_name]
-binary = "original/target.dll"
-format = "pe"
-arch = "x86_32"
-reversed_dir = "src/target_name"
-function_list = "src/target_name/r2_functions.txt"
-bin_dir = "bin/target_name"
-
-[compiler]
-profile = "msvc6"
-command = "wine tools/MSVC600/VC98/Bin/CL.EXE"
-includes = "tools/MSVC600/VC98/Include"
-libs = "tools/MSVC600/VC98/Lib"
-```
-
-## Development
+## 🛠️ Development
 
 ```bash
 cd rebrew/
@@ -136,16 +118,7 @@ python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me
 
 ### Flag Sweep Tiers
 
-The flag sweep uses compiler flag definitions synced from [decomp.me](https://github.com/decompme/decomp.me). The `generate_flag_combinations(tier)` function supports four effort levels:
-
-| Tier | MSVC Axes | Approx. Combos | Use Case |
-|------|-----------|---------------|----------|
-| `quick` | 3 (opt, callconv, codegen) | 192 | Fast iteration |
-| `normal` | 6 (+fp, rtlib, inline) | 21K | Default sweep |
-| `thorough` | 10 (+alignment, toggles) | 1M | Deep search |
-| `full` | 13 (all) | 8.3M | Exhaustive (use sampling) |
-
-The `msvc6` compiler profile automatically excludes MSVC 7.x+ flags (`/fp:*`, `/GS-`).
+The flag sweep uses compiler flag definitions synced from [decomp.me](https://github.com/decompme/decomp.me). The `generate_flag_combinations(tier)` function supports four effort levels: `quick` (~192 combos), `normal` (~21K combos), `thorough` (~1M combos), and `full` (~8.3M combos). The `msvc6` compiler profile automatically excludes incompatible MSVC 7.x+ flags.
 
 ## License
 
