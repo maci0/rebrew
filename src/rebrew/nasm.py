@@ -30,6 +30,7 @@ import typer
 
 from rebrew.annotation import parse_c_file
 from rebrew.cli import TargetOption, get_config
+from rebrew.config import ProjectConfig
 
 try:
     from capstone import CS_ARCH_X86, CS_MODE_32, CS_OPT_SYNTAX_INTEL, Cs
@@ -265,7 +266,7 @@ def _parse_annotations(filepath: Path) -> dict[str, Any] | None:
 
 
 def batch_extract(
-    cfg: Any,
+    cfg: ProjectConfig,
     out_dir: Path,
     verify_flag: bool = False,
     stubs_only: bool = False,
