@@ -1,11 +1,11 @@
-"""Tests for rebrew.batch — extract_bytes, detect_reversed_vas, cmd_list."""
+"""Tests for rebrew.extract — extract_bytes, detect_reversed_vas, cmd_list."""
 
 from pathlib import Path
 
 import pytest
 
-from rebrew.batch import cmd_list, detect_reversed_vas, extract_bytes
 from rebrew.binary_loader import BinaryInfo, SectionInfo
+from rebrew.extract import cmd_list, detect_reversed_vas, extract_bytes
 
 # ---------------------------------------------------------------------------
 # extract_bytes
