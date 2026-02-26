@@ -33,8 +33,8 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any
 
+from rebrew.config import ProjectConfig
 from rebrew.matcher.parsers import parse_coff_symbol_bytes
 
 # ---------------------------------------------------------------------------
@@ -42,7 +42,7 @@ from rebrew.matcher.parsers import parse_coff_symbol_bytes
 # ---------------------------------------------------------------------------
 
 
-def resolve_cl_command(cfg: Any) -> list[str]:
+def resolve_cl_command(cfg: ProjectConfig) -> list[str]:
     """Build the base CL.EXE command list from config.
 
     Handles both ``wine path/to/cl.exe`` and bare ``cl.exe`` formats,
@@ -73,7 +73,7 @@ def resolve_cl_command(cfg: Any) -> list[str]:
 
 
 def compile_to_obj(
-    cfg: Any,
+    cfg: ProjectConfig,
     source_path: str | Path,
     cflags: list[str],
     workdir: str | Path,
@@ -102,7 +102,7 @@ def compile_to_obj(
     # Copy source to workdir for Wine compatibility
     src_name = source_path.name
     local_src = workdir / src_name
-    shutil.copy2(str(source_path), str(local_src))
+    shutil.copy2(source_path, local_src)
 
     obj_name = source_path.stem + ".obj"
     inc_path = str(cfg.compiler_includes)
@@ -154,7 +154,7 @@ def compile_to_obj(
 
 
 def compile_and_compare(
-    cfg: Any,
+    cfg: ProjectConfig,
     source_path: str | Path,
     symbol: str,
     target_bytes: bytes,
