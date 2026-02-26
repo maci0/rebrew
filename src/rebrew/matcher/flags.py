@@ -13,13 +13,15 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class FlagSet:
     """A set of mutually exclusive compiler flags (pick one or none)."""
+
     id: str
-    flags: list[str]
+    flags: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class Checkbox:
     """An optional toggle flag (on or off)."""
+
     id: str
     flag: str
 

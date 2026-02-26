@@ -1,47 +1,55 @@
 #!/usr/bin/env python3
-"""Batch GA runner for STUB functions.
+"""Batch GA runner for STUB and near-miss MATCHING functions.
 
-Parses all .c files in the reversed directory for STUB annotations, then runs
+Parses all .c files in the reversed directory for STUB annotations (default)
+or MATCHING annotations with a small byte delta (--near-miss), then runs
 rebrew-match GA on each one (sorted by target size, smallest first) to attempt
 automatic byte-perfect matching.
 
 Usage:
     rebrew-ga [--max-stubs N] [--generations G] [-j JOBS] [--dry-run]
+    rebrew-ga --near-miss --threshold 10
 """
 
+import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import typer
 
-from rebrew.annotation import parse_c_file
+from rebrew.annotation import has_skip_annotation, parse_c_file, resolve_symbol
 from rebrew.cli import TargetOption, get_config
 
-# ga.py invokes rebrew-match as a subprocess for each STUB function.
+# Type alias for parsed stub/matching info dicts
+StubInfo = dict[str, str | int | Path]
 
-NON_MATCHABLE_SYMBOLS = frozenset(
-    [
-        "_strlen",
-        "_strcmp",
-        "_memset",
-        "_strstr",
-        "_strchr",
-        "_strncpy",
-        "__aulldiv",
-        "__aullrem",
-        "__local_unwind2",
-    ]
+# Match function definition start: return type at start of line.
+# Covers standard C types, Win32 types, and modifiers.
+_FUNC_START_RE = re.compile(
+    r"^(?:BOOL|int|void|char|short|long|unsigned|signed|float|double|"
+    r"DWORD|HANDLE|LPVOID|LPCSTR|LPSTR|HRESULT|UINT|ULONG|BYTE|WORD|"
+    r"SIZE_T|WPARAM|LPARAM|LRESULT|"
+    r"static|__declspec|extern|struct|enum|union)\s",
+    re.MULTILINE,
 )
 
 
-def parse_stub_info(filepath: Path) -> dict | None:
+def parse_stub_info(filepath: Path, ignored: set[str] | None = None) -> StubInfo | None:
     """Extract STUB annotation fields from a reversed .c file.
 
     Uses the canonical parser from rebrew.annotation, then applies
-    STUB-specific filtering (SKIP, NON_MATCHABLE_SYMBOLS, min size).
+    STUB-specific filtering (SKIP, ignored symbols, min size).
+
+    Args:
+        filepath: Path to the .c source file.
+        ignored: Set of symbol names to skip (from cfg.ignored_symbols).
     """
+    if ignored is None:
+        ignored = set()
     entry = parse_c_file(filepath)
     if entry is None:
         return None
@@ -50,33 +58,28 @@ def parse_stub_info(filepath: Path) -> dict | None:
     if status != "STUB":
         return None
 
-    # Read raw text to check for SKIP key (not always in canonical parser)
-    try:
-        text = filepath.read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    if has_skip_annotation(filepath):
         return None
-    for line in text.split("\n")[:20]:
-        stripped = line.strip()
-        if stripped.upper().startswith("// SKIP:") or stripped.upper().startswith("/* SKIP:"):
-            return None
 
-    symbol = entry["symbol"]
-    if symbol == "?" or not symbol:
-        func_name = filepath.stem
-        symbol = "_" + func_name
-    if symbol.lstrip("_") in NON_MATCHABLE_SYMBOLS or symbol in NON_MATCHABLE_SYMBOLS:
+    symbol = resolve_symbol(entry, filepath)
+    if symbol in ignored or symbol.lstrip("_") in ignored:
+        return None
+
+    if entry.va < 0x1000:
         return None
 
     size = entry["size"]
     if size < 10:
         return None
 
+    # Fallback defaults — used only when annotation lacks CFLAGS/ORIGIN.
+    # Config-driven values should be set upstream in the annotation itself.
     cflags = entry["cflags"] or "/O2 /Gd"
     origin = entry["origin"] or "GAME"
 
     return {
         "filepath": filepath,
-        "va": f"0x{entry['va']:08X}" if isinstance(entry['va'], int) else entry['va'],
+        "va": f"0x{entry['va']:08X}",
         "size": size,
         "symbol": symbol,
         "cflags": cflags,
@@ -84,22 +87,143 @@ def parse_stub_info(filepath: Path) -> dict | None:
     }
 
 
-def find_all_stubs(reversed_dir: Path) -> list[dict]:
-    """Find all STUB files in reversed/ and return sorted by size."""
+def parse_matching_info(
+    filepath: Path, ignored: set[str] | None = None, max_delta: int = 10
+) -> StubInfo | None:
+    """Extract MATCHING annotation fields from a reversed .c file.
+
+    Like parse_stub_info but for MATCHING functions with small byte deltas.
+    Only returns functions whose BLOCKER byte-delta is <= max_delta.
+
+    Args:
+        filepath: Path to the .c source file.
+        ignored: Set of symbol names to skip.
+        max_delta: Maximum byte delta to include.
+    """
+    from rebrew.next import parse_byte_delta
+
+    if ignored is None:
+        ignored = set()
+    entry = parse_c_file(filepath)
+    if entry is None:
+        return None
+
+    status = entry["status"]
+    if status != "MATCHING":
+        return None
+
+    if entry.va < 0x1000:
+        return None
+
+    if has_skip_annotation(filepath):
+        return None
+
+    symbol = resolve_symbol(entry, filepath)
+    if symbol in ignored or symbol.lstrip("_") in ignored:
+        return None
+
+    size = entry["size"]
+    if size < 10:
+        return None
+
+    # Parse byte delta from BLOCKER annotation
+    blocker = entry.get("blocker") or ""
+    delta = parse_byte_delta(blocker) if blocker else None
+    if delta is None or delta > max_delta:
+        return None
+
+    cflags = entry["cflags"] or "/O2 /Gd"
+    origin = entry["origin"] or "GAME"
+
+    return {
+        "filepath": filepath,
+        "va": f"0x{entry['va']:08X}",
+        "size": size,
+        "symbol": symbol,
+        "cflags": cflags,
+        "origin": origin,
+        "delta": delta,
+    }
+
+
+def find_near_miss(
+    reversed_dir: Path,
+    ignored: set[str] | None = None,
+    max_delta: int = 10,
+    cfg: Any = None,
+) -> list[StubInfo]:
+    """Find MATCHING functions with small byte deltas, sorted by delta ascending.
+
+    Args:
+        reversed_dir: Directory containing reversed .c files.
+        ignored: Set of symbol names to skip.
+        max_delta: Maximum byte delta to include.
+        cfg: Optional config for source extension.
+    """
+    from rebrew.cli import source_glob
+
+    results = []
+    seen_vas: dict[str, str] = {}
+
+    if not reversed_dir.exists():
+        return results
+
+    for cfile in sorted(reversed_dir.glob(source_glob(cfg))):
+        info = parse_matching_info(cfile, ignored=ignored, max_delta=max_delta)
+        if info is not None:
+            va_str = info["va"]
+            if va_str in seen_vas:
+                print(
+                    f"  WARNING: Duplicate VA {va_str} found in {cfile.name} "
+                    f"(already in {seen_vas[va_str]}), skipping"
+                )
+                continue
+            seen_vas[va_str] = cfile.name
+            results.append(info)
+
+    # Sort by delta (smallest first = easiest to match)
+    results.sort(key=lambda x: (x["delta"], x["size"]))
+    return results
+
+
+def find_all_stubs(
+    reversed_dir: Path, ignored: set[str] | None = None, cfg: Any = None
+) -> list[StubInfo]:
+    """Find all STUB files in reversed/ and return sorted by size.
+
+    Detects and warns about duplicate VAs across files, keeping only the first.
+
+    Args:
+        reversed_dir: Directory containing reversed .c files.
+        ignored: Set of symbol names to skip (from cfg.ignored_symbols).
+        cfg: Optional config for source extension.
+    """
+    from rebrew.cli import source_glob
+
     stubs = []
+    seen_vas: dict[str, str] = {}  # va_str -> filepath
+
     if not reversed_dir.exists():
         return stubs
 
-    for cfile in sorted(reversed_dir.glob("*.c")):
-        info = parse_stub_info(cfile)
+    for cfile in sorted(reversed_dir.glob(source_glob(cfg))):
+        info = parse_stub_info(cfile, ignored=ignored)
         if info is not None:
+            va_str = info["va"]
+            if va_str in seen_vas:
+                print(
+                    f"  WARNING: Duplicate VA {va_str} found in {cfile.name} "
+                    f"(already in {seen_vas[va_str]}), skipping"
+                )
+                continue
+            seen_vas[va_str] = cfile.name
             stubs.append(info)
     stubs.sort(key=lambda x: x["size"])
     return stubs
 
 
 def run_ga(
-    stub: dict,
+    stub: StubInfo,
     target_binary: Path,
     compiler_command: str,
     inc_dir: Path,
@@ -114,23 +238,35 @@ def run_ga(
     filepath = stub["filepath"]
     out_dir = project_root / "output" / "ga_runs" / filepath.stem
 
-    base_cflags = "/nologo /c /MT " + stub["cflags"]
+    base_cflags = stub["cflags"]
 
     # Build the rebrew-match CLI command.  seed_c is a positional argument.
     cmd = [
-        sys.executable, "-m", "rebrew.match",
-        str(filepath.resolve()),       # seed_c (positional)
-        "--cl", compiler_command,
-        "--inc", str(inc_dir.resolve()),
-        "--cflags", base_cflags,
+        sys.executable,
+        "-m",
+        "rebrew.match",
+        str(filepath.resolve()),  # seed_c (positional)
+        "--cl",
+        compiler_command,
+        "--inc",
+        str(inc_dir.resolve()),
+        "--cflags",
+        base_cflags,
         "--compare-obj",
-        "--target-va", stub["va"],
-        "--target-size", str(stub["size"]),
-        "--symbol", stub["symbol"],
-        "--out-dir", str(out_dir),
-        "--generations", str(generations),
-        "--pop-size", str(pop),
-        "-j", str(jobs),
+        "--target-va",
+        stub["va"],
+        "--target-size",
+        str(stub["size"]),
+        "--symbol",
+        stub["symbol"],
+        "--out-dir",
+        str(out_dir),
+        "--generations",
+        str(generations),
+        "--pop-size",
+        str(pop),
+        "-j",
+        str(jobs),
     ]
     if extra_flags:
         cmd.extend(extra_flags)
@@ -140,6 +276,8 @@ def run_ga(
             cmd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout_min * 60 + 60,
             cwd=str(project_root),
         )
@@ -147,72 +285,130 @@ def run_ga(
     except subprocess.TimeoutExpired:
         return False, "TIMEOUT"
 
-    matched = "EXACT MATCH" in output or "score = 0.0" in output.lower()
+    matched = "EXACT MATCH" in output
 
     if matched:
         best_c = out_dir / "best.c"
         if best_c.exists():
             best_src = best_c.read_text(encoding="utf-8", errors="replace")
-            update_stub_to_matched(filepath, best_src, stub)
+            try:
+                update_stub_to_matched(filepath, best_src, stub)
+            except (RuntimeError, OSError) as e:
+                print(f"  WARNING: GA matched but failed to update source: {e}")
 
     return matched, output
 
 
-def update_stub_to_matched(filepath: Path, best_src: str, stub: dict) -> None:
-    """Replace STUB source with matched source and update STATUS."""
+def update_stub_to_matched(filepath: Path, best_src: str, stub: StubInfo) -> None:
+    """Replace STUB source with matched source and update STATUS.
+
+    Uses atomic write (write to .tmp, validate, rename) with .bak backup
+    to prevent data loss from crashes or invalid writes.
+    """
+    tmp_path = filepath.with_suffix(".c.tmp")
+    bak_path = filepath.with_suffix(".c.bak")
+
     original = filepath.read_text(encoding="utf-8", errors="replace")
 
-    updated = original.replace("STATUS: STUB", "STATUS: RELOC")
-    if "BLOCKER:" in updated:
-        updated = re.sub(r"//\s*BLOCKER:.*\n?", "", updated)
-        updated = re.sub(r"/\*\s*BLOCKER:.*?\*/\s*\n?", "", updated)
-
-    body_start = re.search(
-        r"^(?:BOOL|int|void|char|short|long|unsigned|DWORD|HANDLE|LPVOID|static|__declspec)\s",
+    # Handle both STUB and MATCHING status (near-miss mode uses MATCHING)
+    updated = re.sub(
+        r"^(//\s*)STATUS:\s*(STUB|MATCHING(?:_RELOC)?)",
+        r"\1STATUS: RELOC",
         original,
-        re.MULTILINE,
+        flags=re.MULTILINE,
     )
-    best_body = re.search(
-        r"^(?:BOOL|int|void|char|short|long|unsigned|DWORD|HANDLE|LPVOID|static|__declspec)\s",
-        best_src,
-        re.MULTILINE,
-    )
+    if "BLOCKER:" in updated:
+        updated = re.sub(r"//\s*BLOCKER:[^\n]*\n?", "", updated)
+        updated = re.sub(r"/\*\s*BLOCKER:.*?\*/[ \t]*\n?", "", updated)
+
+    body_start = _FUNC_START_RE.search(updated)
+    best_body = _FUNC_START_RE.search(best_src)
 
     if body_start and best_body:
         header = updated[: body_start.start()]
         new_body = best_src[best_body.start() :]
         updated = header + new_body
-    else:
-        updated = updated.replace("STATUS: STUB", "STATUS: RELOC")
+    # else: header already had STATUS: STUB replaced on line above
 
-    filepath.write_text(updated, encoding="utf-8")
-    print(f"  Updated {filepath.name}: STUB -> RELOC")
+    # Write to temp file first
+    tmp_path.write_text(updated, encoding="utf-8")
+
+    # Validate the written file re-parses correctly
+    anno = parse_c_file(tmp_path)
+    if anno is None:
+        tmp_path.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Post-write validation failed: {filepath} would not re-parse after stub update"
+        )
+
+    # Atomic swap: backup original, rename tmp to source
+    shutil.copy2(filepath, bak_path)
+    tmp_path.rename(filepath)
+    print(f"  Updated {filepath.name}: STUB -> RELOC (backup: {bak_path.name})")
 
 
+app = typer.Typer(
+    help="Batch GA runner for STUB and near-miss MATCHING functions.",
+    rich_markup_mode="rich",
+    epilog="""\
+[bold]Examples:[/bold]
+  rebrew-ga                                     Run GA on all STUB functions
+  rebrew-ga --dry-run                           List targets without running GA
+  rebrew-ga --max-stubs 5                       Process at most 5 functions
+  rebrew-ga --near-miss --threshold 10          Target MATCHING funcs within 10B
+  rebrew-ga --min-size 20 --max-size 200        Filter by function size
+  rebrew-ga --filter my_func                    Only functions matching substring
+  rebrew-ga -j 16 --generations 300 --pop 64    Tune GA parameters
 
+[bold]How it works:[/bold]
+  Scans reversed_dir for STUB (or near-miss MATCHING) annotations, sorts by
+  size (smallest first), and runs rebrew-match GA on each one. On match,
+  auto-updates the .c file from STUB → RELOC with the matched source.
 
-app = typer.Typer(help="Batch GA runner for STUB functions")
+[dim]Functions are processed smallest-first for quick wins. Duplicate VAs are
+detected and skipped. Ignored symbols from rebrew.toml are excluded.[/dim]""",
+)
+
 
 @app.callback(invoke_without_command=True)
 def main(
-    max_stubs: int = typer.Option(0, help="Max stubs to process (0=all)"),
+    max_stubs: int = typer.Option(0, help="Max functions to process (0=all)"),
     generations: int = typer.Option(200),
     pop: int = typer.Option(48),
-    jobs: int = typer.Option(16, "-j", "--jobs"),
-    timeout_min: int = typer.Option(30, help="Per-stub GA timeout in minutes"),
-    dry_run: bool = typer.Option(False, help="List stubs without running GA"),
+    jobs: int | None = typer.Option(
+        None, "-j", "--jobs", help="Parallel jobs (default: from [project].jobs)"
+    ),
+    timeout_min: int = typer.Option(30, help="Per-function GA timeout in minutes"),
+    dry_run: bool = typer.Option(False, help="List targets without running GA"),
     min_size: int = typer.Option(0, help="Min target size to attempt"),
     max_size: int = typer.Option(9999, help="Max target size to attempt"),
-    filter_str: str = typer.Option("", "--filter", help="Only process stubs matching this substring"),
+    filter_str: str = typer.Option(
+        "", "--filter", help="Only process functions matching this substring"
+    ),
+    near_miss: bool = typer.Option(
+        False, "--near-miss", help="Target MATCHING functions instead of STUBs"
+    ),
+    threshold: int = typer.Option(10, "--threshold", help="Max byte delta for --near-miss mode"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
-):
-    """Batch GA runner for STUB functions."""
+) -> None:
+    """Batch GA runner for STUB and near-miss MATCHING functions."""
     cfg = get_config(target=target)
+    if jobs is None:
+        jobs = getattr(cfg, "default_jobs", 4)
 
     reversed_dir = cfg.reversed_dir
     target_binary = cfg.target_binary
 
-    stubs = find_all_stubs(reversed_dir)
+    # Build ignored symbols set from config
+    ignored = set(getattr(cfg, "ignored_symbols", None) or [])
+
+    if near_miss:
+        stubs = find_near_miss(reversed_dir, ignored=ignored, max_delta=threshold, cfg=cfg)
+        mode_label = "MATCHING (near-miss)"
+    else:
+        stubs = find_all_stubs(reversed_dir, ignored=ignored, cfg=cfg)
+        mode_label = "STUB"
 
     if min_size > 0:
         stubs = [s for s in stubs if s["size"] >= min_size]
@@ -221,32 +417,65 @@ def main(
     if filter_str:
         stubs = [s for s in stubs if filter_str in str(s["filepath"])]
     if max_stubs > 0:
-        stubs = stubs[: max_stubs]
+        stubs = stubs[:max_stubs]
 
-    print(f"Found {len(stubs)} STUB(s) to process:\n")
-    for i, stub in enumerate(stubs, 1):
-        print(
-            f"  {i:3d}. {stub['filepath'].name:45s}  {stub['size']:4d}B  "
-            f"{stub['va']}  {stub['symbol']:30s}  {stub['cflags']}"
-        )
-    print()
+    if not json_output:
+        print(f"Found {len(stubs)} {mode_label} function(s) to process:\n")
+        for i, stub in enumerate(stubs, 1):
+            delta_str = f"  Δ{stub['delta']}B" if "delta" in stub else ""
+            print(
+                f"  {i:3d}. {stub['filepath'].name:45s}  {stub['size']:4d}B  "
+                f"{stub['va']}  {stub['symbol']:30s}  {stub['cflags']}{delta_str}"
+            )
+        print()
 
     if dry_run:
-        print("Dry run — exiting.")
+        if json_output:
+            items = []
+            for stub in stubs:
+                item: dict[str, Any] = {
+                    "file": str(stub["filepath"]),
+                    "va": stub["va"],
+                    "size": stub["size"],
+                    "symbol": stub["symbol"],
+                    "cflags": stub["cflags"],
+                }
+                if "delta" in stub:
+                    item["delta"] = stub["delta"]
+                items.append(item)
+            print(
+                json.dumps(
+                    {
+                        "mode": mode_label,
+                        "dry_run": True,
+                        "count": len(stubs),
+                        "items": items,
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            print("Dry run — exiting.")
         return
 
     Path("output/ga_runs").mkdir(parents=True, exist_ok=True)
 
     matched_count = 0
     failed_count = 0
+    ga_results: list[dict[str, Any]] = []
 
     for i, stub in enumerate(stubs, 1):
-        print(f"\n{'=' * 60}")
-        print(
-            f"[{i}/{len(stubs)}] {stub['filepath'].name} ({stub['size']}B) "
-            f"symbol={stub['symbol']}"
-        )
-        print(f"{'=' * 60}")
+        if not json_output:
+            print(f"\n{'=' * 60}")
+            print(
+                f"[{i}/{len(stubs)}] {stub['filepath'].name} ({stub['size']}B) symbol={stub['symbol']}"
+            )
+            print(f"{'=' * 60}")
+        else:
+            print(
+                f"[{i}/{len(stubs)}] {stub['filepath'].name} ({stub['size']}B)",
+                file=sys.stderr,
+            )
 
         matched, output = run_ga(
             stub,
@@ -260,25 +489,52 @@ def main(
             timeout_min=timeout_min,
         )
 
+        result_entry: dict[str, Any] = {
+            "file": str(stub["filepath"]),
+            "va": stub["va"],
+            "size": stub["size"],
+            "symbol": stub["symbol"],
+            "matched": matched,
+        }
+        if "delta" in stub:
+            result_entry["delta"] = stub["delta"]
+
         if matched:
             matched_count += 1
-            print(f"  MATCHED! ({matched_count} total matches)")
+            if not json_output:
+                print(f"  MATCHED! ({matched_count} total matches)")
         else:
             failed_count += 1
-            last_lines = output.strip().split("\n")[-5:]
-            print("  No match. Last output:")
-            for line in last_lines:
-                print(f"    {line}")
+            if not json_output:
+                last_lines = output.strip().split("\n")[-5:]
+                print("  No match. Last output:")
+                for line in last_lines:
+                    print(f"    {line}")
 
-    print(f"\n{'=' * 60}")
-    print(
-        f"Results: {matched_count} matched, {failed_count} failed, {len(stubs)} total"
-    )
-    print(f"{'=' * 60}")
+        ga_results.append(result_entry)
+
+    if json_output:
+        print(
+            json.dumps(
+                {
+                    "mode": mode_label,
+                    "matched": matched_count,
+                    "failed": failed_count,
+                    "total": len(stubs),
+                    "results": ga_results,
+                },
+                indent=2,
+            )
+        )
+    else:
+        print(f"\n{'=' * 60}")
+        print(f"Results: {matched_count} matched, {failed_count} failed, {len(stubs)} total")
+        print(f"{'=' * 60}")
 
 
-def main_entry():
+def main_entry() -> None:
     app()
+
 
 if __name__ == "__main__":
     main_entry()

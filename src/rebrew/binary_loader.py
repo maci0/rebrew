@@ -14,16 +14,17 @@ Usage::
     code = extract_bytes_at_va(info, va=0x10001000, size=64)
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 import lief
 
 # ---------------------------------------------------------------------------
 # Data types
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class SectionInfo:
@@ -69,6 +70,7 @@ class BinaryInfo:
 # Format-specific loaders
 # ---------------------------------------------------------------------------
 
+
 def _load_pe(binary: lief.PE.Binary, path: Path) -> BinaryInfo:
     """Extract layout information from a PE binary."""
     image_base = binary.optional_header.imagebase
@@ -112,10 +114,7 @@ def _load_pe(binary: lief.PE.Binary, path: Path) -> BinaryInfo:
 def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
     """Extract layout information from an ELF binary."""
     # Image base: lowest PT_LOAD segment virtual address
-    load_segments = [
-        seg for seg in binary.segments
-        if seg.type == lief.ELF.Segment.TYPE.LOAD
-    ]
+    load_segments = [seg for seg in binary.segments if seg.type == lief.ELF.Segment.TYPE.LOAD]
     image_base = min((seg.virtual_address for seg in load_segments), default=0)
 
     sections: dict[str, SectionInfo] = {}
@@ -156,7 +155,7 @@ def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
     )
 
 
-def _load_macho(fat_or_binary, path: Path) -> BinaryInfo:
+def _load_macho(fat_or_binary: Any, path: Path) -> BinaryInfo:
     """Extract layout information from a Mach-O binary.
 
     LIEF's ``lief.MachO.parse()`` returns a ``FatBinary`` even for thin
@@ -216,6 +215,8 @@ def _load_macho(fat_or_binary, path: Path) -> BinaryInfo:
 # Public API
 # ---------------------------------------------------------------------------
 
+
+@lru_cache(maxsize=16)
 def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     """Parse a binary file and return a ``BinaryInfo``.
 
@@ -258,7 +259,9 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
 
 
 def extract_bytes_at_va(
-    info: BinaryInfo, va: int, size: int,
+    info: BinaryInfo,
+    va: int,
+    size: int,
     padding_bytes: tuple[int, ...] = (0xCC, 0x90),
 ) -> bytes | None:
     """Extract raw bytes from a binary at a given virtual address.
@@ -276,14 +279,16 @@ def extract_bytes_at_va(
         Extracted bytes, or ``None`` if the VA is not in any section.
     """
     for section in info.sections.values():
-        if section.va <= va < section.va + section.size:
+        if section.va <= va < section.va + section.raw_size:
             offset = va - section.va
             file_pos = section.file_offset + offset
-            data = info.data[file_pos: file_pos + size]
-            # Trim trailing padding
-            while data and data[-1] in padding_bytes:
-                data = data[:-1]
-            return data
+            max_read = min(size, section.raw_size - offset)
+            data = info.data[file_pos : file_pos + max_read]
+            # Trim trailing padding (single slice instead of per-byte)
+            end = len(data)
+            while end > 0 and data[end - 1] in padding_bytes:
+                end -= 1
+            return data[:end]
     return None
 
 
@@ -303,6 +308,100 @@ def va_to_file_offset(info: BinaryInfo, va: int) -> int:
 # Format detection
 # ---------------------------------------------------------------------------
 
+
+def detect_source_language(binary_path: Path) -> tuple[str, str]:
+    """Detect likely source language from binary symbol names and sections.
+
+    Examines exported/imported symbol mangling schemes and well-known section
+    names to infer the original source language.
+
+    Args:
+        binary_path: Path to the binary file.
+
+    Returns:
+        ``(language_name, file_extension)`` — e.g. ``("C++", ".cpp")``.
+        Falls back to ``("C", ".c")`` when no strong signal is found.
+    """
+    _THRESHOLD = 3  # minimum matching symbols to avoid false positives
+
+    binary_path = Path(binary_path)
+    if not binary_path.exists():
+        return ("C", ".c")
+
+    try:
+        parsed = lief.parse(str(binary_path))
+    except (OSError, ValueError, RuntimeError):
+        return ("C", ".c")
+
+    if parsed is None:
+        return ("C", ".c")
+
+    # Collect section names
+    section_names: list[str] = []
+    try:
+        for sec in parsed.sections:
+            name = sec.name.rstrip("\x00") if hasattr(sec, "name") else ""
+            if name:
+                section_names.append(name)
+    except (AttributeError, TypeError):
+        pass
+
+    # Check sections for language-specific markers
+    for name in section_names:
+        if name == ".gopclntab" or name == ".gosymtab":
+            return ("Go", ".go")
+        if name in ("__objc_methnames", "__objc_classlist", "__objc_selrefs"):
+            return ("Objective-C", ".m")
+
+    # Collect symbol names
+    symbols: list[str] = []
+    try:
+        if hasattr(parsed, "symbols"):
+            for sym in parsed.symbols:
+                if sym.name:
+                    symbols.append(sym.name)
+    except (AttributeError, TypeError):
+        pass
+    try:
+        if hasattr(parsed, "exported_functions"):
+            for func in parsed.exported_functions:
+                if hasattr(func, "name") and func.name:
+                    symbols.append(func.name)
+    except (AttributeError, TypeError):
+        pass
+
+    # Count mangling scheme hits
+    go_count = 0
+    rust_count = 0
+    d_count = 0
+    cpp_msvc_count = 0
+    cpp_itanium_count = 0
+
+    for sym in symbols:
+        if sym.startswith("go.") or sym.startswith("go:"):
+            go_count += 1
+        if sym.startswith("_R") and len(sym) > 2 and sym[2:3].isalpha():
+            rust_count += 1
+        if sym.startswith("_D") and len(sym) > 2 and sym[2:3].isdigit():
+            d_count += 1
+        if sym.startswith("?"):
+            cpp_msvc_count += 1
+        if sym.startswith("_Z"):
+            cpp_itanium_count += 1
+
+    # Return first language exceeding threshold (most specific first)
+    if go_count >= _THRESHOLD:
+        return ("Go", ".go")
+    if rust_count >= _THRESHOLD:
+        return ("Rust", ".rs")
+    if d_count >= _THRESHOLD:
+        return ("D", ".d")
+    if cpp_msvc_count >= _THRESHOLD or cpp_itanium_count >= _THRESHOLD:
+        return ("C++", ".cpp")
+
+    return ("C", ".c")
+
+
 def _detect_format(path: Path) -> str:
     """Detect binary format from magic bytes."""
     with open(path, "rb") as f:
@@ -312,12 +411,13 @@ def _detect_format(path: Path) -> str:
         return "pe"
     elif magic[:4] == b"\x7fELF":
         return "elf"
-    elif magic[:4] in (b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf",
-                        b"\xce\xfa\xed\xfe", b"\xcf\xfa\xed\xfe",
-                        b"\xca\xfe\xba\xbe"):
+    elif magic[:4] in (
+        b"\xfe\xed\xfa\xce",
+        b"\xfe\xed\xfa\xcf",
+        b"\xce\xfa\xed\xfe",
+        b"\xcf\xfa\xed\xfe",
+        b"\xca\xfe\xba\xbe",
+    ):
         return "macho"
     else:
-        raise ValueError(
-            f"Cannot detect binary format from magic bytes: {magic.hex()!r} "
-            f"in {path}"
-        )
+        raise ValueError(f"Cannot detect binary format from magic bytes: {magic.hex()!r} in {path}")

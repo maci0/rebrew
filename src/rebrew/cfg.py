@@ -15,9 +15,8 @@ Usage::
     rebrew cfg set-cflags ZLIB "/O3" --target server.dll
 """
 
-from __future__ import annotations
-
 import shutil
+import struct
 from pathlib import Path
 
 import tomlkit
@@ -41,7 +40,7 @@ def _find_root() -> Path:
         fg=typer.colors.RED,
         err=True,
     )
-    raise typer.Exit(1)
+    raise typer.Exit(code=1)
 
 
 def _load_toml(root: Path | None = None) -> tuple[tomlkit.TOMLDocument, Path]:
@@ -51,7 +50,7 @@ def _load_toml(root: Path | None = None) -> tuple[tomlkit.TOMLDocument, Path]:
     toml_path = root / "rebrew.toml"
     if not toml_path.exists():
         typer.secho(f"Error: {toml_path} not found.", fg=typer.colors.RED, err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(code=1)
     doc = tomlkit.parse(toml_path.read_text(encoding="utf-8"))
     return doc, toml_path
 
@@ -66,7 +65,7 @@ def _resolve_target(doc: tomlkit.TOMLDocument, target: str | None) -> str:
     targets = doc.get("targets", {})
     if not targets:
         typer.secho("Error: No [targets] section in rebrew.toml.", fg=typer.colors.RED, err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(code=1)
     if target is None:
         target = list(targets.keys())[0]
     if target not in targets:
@@ -75,7 +74,7 @@ def _resolve_target(doc: tomlkit.TOMLDocument, target: str | None) -> str:
             fg=typer.colors.RED,
             err=True,
         )
-        raise typer.Exit(1)
+        raise typer.Exit(code=1)
     return target
 
 
@@ -85,7 +84,7 @@ def _detect_format(path: Path) -> str:
     return fmt
 
 
-def _detect_format_and_arch(path: Path) -> tuple:
+def _detect_format_and_arch(path: Path) -> tuple[str, str | None]:
     """Detect binary format and architecture from file header.
 
     Returns (format, arch) where arch may be None if detection fails.
@@ -94,6 +93,13 @@ def _detect_format_and_arch(path: Path) -> tuple:
         with open(path, "rb") as f:
             header = f.read(64)  # enough for PE/ELF/Mach-O headers
     except OSError:
+        # Cannot read file — warn rather than silently assuming PE
+        import sys as _sys
+
+        print(
+            f"Warning: cannot read '{path}' for format detection, defaulting to PE",
+            file=_sys.stderr,
+        )
         return "pe", None
 
     magic = header[:4]
@@ -102,9 +108,8 @@ def _detect_format_and_arch(path: Path) -> tuple:
         # PE: check optional header machine type
         arch = None
         if len(header) >= 64:
-            import struct
             pe_offset_loc = 60
-            if len(header) > pe_offset_loc + 4:
+            if len(header) >= pe_offset_loc + 4:
                 pe_off = struct.unpack_from("<I", header, pe_offset_loc)[0]
                 # Read COFF header machine field (need to re-read if pe_off is far)
                 try:
@@ -113,13 +118,13 @@ def _detect_format_and_arch(path: Path) -> tuple:
                         pe_sig = f.read(4)
                         if pe_sig == b"PE\x00\x00":
                             machine = struct.unpack("<H", f.read(2))[0]
-                            if machine == 0x14C:    # IMAGE_FILE_MACHINE_I386
+                            if machine == 0x14C:  # IMAGE_FILE_MACHINE_I386
                                 arch = "x86_32"
-                            elif machine == 0x8664: # IMAGE_FILE_MACHINE_AMD64
+                            elif machine == 0x8664:  # IMAGE_FILE_MACHINE_AMD64
                                 arch = "x86_64"
                             elif machine == 0x1C0:  # IMAGE_FILE_MACHINE_ARM
                                 arch = "arm32"
-                            elif machine == 0xAA64: # IMAGE_FILE_MACHINE_ARM64
+                            elif machine == 0xAA64:  # IMAGE_FILE_MACHINE_ARM64
                                 arch = "arm64"
                 except OSError:
                     pass
@@ -129,15 +134,14 @@ def _detect_format_and_arch(path: Path) -> tuple:
         # ELF: byte 4 is class (1=32-bit, 2=64-bit), byte 18-19 is machine
         arch = None
         if len(header) >= 20:
-            import struct
             ei_class = header[4]  # 1=32, 2=64
             # Machine is at offset 18 in both 32/64 ELF
             machine = struct.unpack_from("<H", header, 18)[0]
-            if machine == 3:      # EM_386
+            if machine == 3:  # EM_386
                 arch = "x86_32"
-            elif machine == 62:   # EM_X86_64
+            elif machine == 62:  # EM_X86_64
                 arch = "x86_64"
-            elif machine == 40:   # EM_ARM
+            elif machine == 40:  # EM_ARM
                 arch = "arm32"
             elif machine == 183:  # EM_AARCH64
                 arch = "arm64"
@@ -156,6 +160,22 @@ def _detect_format_and_arch(path: Path) -> tuple:
         arch = "x86_64" if magic in (b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe") else "x86_32"
         return "macho", arch
 
+    elif magic[:4] in (
+        b"\xca\xfe\xba\xbe",  # Fat binary (big-endian)
+        b"\xbe\xba\xfe\xca",  # Fat binary (little-endian)
+    ):
+        # Universal (fat) binary — contains multiple architectures.
+        # Default to x86_32; actual slice selection would need LIEF.
+        return "macho", None
+
+    # Unrecognized format — warn rather than silently assuming PE
+    import sys as _sys
+
+    print(
+        f"Warning: unrecognized binary format for '{path}' (magic: {magic[:4]!r}), defaulting to PE",
+        file=_sys.stderr,
+    )
+
     return "pe", None
 
 
@@ -163,11 +183,24 @@ def _detect_format_and_arch(path: Path) -> tuple:
 # Typer app
 # ---------------------------------------------------------------------------
 
-app = typer.Typer(help="Read and edit rebrew.toml programmatically.")
+app = typer.Typer(
+    help="Read and edit rebrew.toml programmatically.",
+    rich_markup_mode="rich",
+    epilog="""\
+[bold]Examples:[/bold]
+  rebrew-cfg get compiler.command            Read a config value
+  rebrew-cfg set compiler.timeout 120        Set a config value
+  rebrew-cfg get targets.main.binary         Read target-specific setting
+  rebrew-cfg dump                            Dump entire rebrew.toml as JSON
+  rebrew-cfg path                            Print path to rebrew.toml
+
+[dim]Useful for scripting and automation. Supports dotted key paths
+for nested TOML tables (e.g. 'targets.main.binary').[/dim]""",
+)
 
 
 @app.command("list-targets")
-def list_targets():
+def list_targets() -> None:
     """List all targets defined in rebrew.toml."""
     doc, _ = _load_toml()
     targets = doc.get("targets", {})
@@ -180,15 +213,18 @@ def list_targets():
         arch = tgt.get("arch", "?")
         marker = "→" if i == 0 else " "
         typer.echo(f"  {marker} {name}  ({arch}, {binary})")
-    if len(targets) > 0:
-        typer.secho("\n  → = default target", dim=True)
+    typer.secho("\n  → = default target", dim=True)
 
 
 @app.command("show")
 def show(
-    key: str | None = typer.Argument(None, help="Dot-separated key to show, e.g. 'compiler.cflags'"),
-    target: str | None = typer.Option(None, "--target", "-t", help="Target name (for target-scoped keys)."),
-):
+    key: str | None = typer.Argument(
+        None, help="Dot-separated key to show, e.g. 'compiler.cflags'"
+    ),
+    target: str | None = typer.Option(
+        None, "--target", "-t", help="Target name (for target-scoped keys)."
+    ),
+) -> None:
     """Show the current config, or a specific key."""
     doc, _ = _load_toml()
 
@@ -205,7 +241,7 @@ def show(
             current = current[part]
         else:
             typer.secho(f"Key '{key}' not found.", fg=typer.colors.RED, err=True)
-            raise typer.Exit(1)
+            raise typer.Exit(code=1)
 
     if isinstance(current, (dict, list)):
         typer.echo(tomlkit.dumps(current) if isinstance(current, dict) else str(current))
@@ -214,14 +250,30 @@ def show(
 
 
 @app.command("add-target")
-def add_target(
+def add_target(  # noqa: PLR0912
     name: str = typer.Argument(..., help="Target name (e.g. 'server.dll')."),
     binary: str = typer.Option(..., "--binary", "-b", help="Path to the original binary."),
-    arch: str | None = typer.Option(None, "--arch", "-a", help="Architecture: x86_32, x86_64, arm32, arm64 (auto-detected if omitted)."),
-    fmt: str | None = typer.Option(None, "--format", "-f", help="Binary format: pe, elf, macho (auto-detected if omitted)."),
-    origins: str | None = typer.Option(None, "--origins", help="Comma-separated origin list (inherits from project or defaults to GAME)."),
+    arch: str | None = typer.Option(
+        None,
+        "--arch",
+        "-a",
+        help="Architecture: x86_32, x86_64, arm32, arm64 (auto-detected if omitted).",
+    ),
+    fmt: str | None = typer.Option(
+        None, "--format", "-f", help="Binary format: pe, elf, macho (auto-detected if omitted)."
+    ),
+    origins: str | None = typer.Option(
+        None,
+        "--origins",
+        help="Comma-separated origin list (inherits from project or defaults to GAME).",
+    ),
+    source_ext: str | None = typer.Option(
+        None,
+        "--source-ext",
+        help="Source file extension (e.g. .c, .cpp). Auto-detected from binary if omitted.",
+    ),
     copy_binary: bool = typer.Option(True, "--copy/--no-copy", help="Copy binary into original/."),
-):
+) -> None:
     """Add a new target section to rebrew.toml (idempotent).
 
     Auto-detects binary format and architecture from file headers when not
@@ -257,6 +309,16 @@ def add_target(
         fmt = detected_fmt
     if arch is None:
         arch = detected_arch or "x86_32"
+
+    # Auto-detect source language from binary symbols
+    detected_lang = "C"
+    if source_ext is None:
+        if resolved.exists():
+            from rebrew.binary_loader import detect_source_language
+
+            detected_lang, source_ext = detect_source_language(resolved)
+        else:
+            source_ext = ".c"
 
     # Inherit defaults from first existing target in the project
     first_target = None
@@ -299,6 +361,7 @@ def add_target(
     tgt.add("reversed_dir", f"src/{name}")
     tgt.add("function_list", f"src/{name}/functions.txt")
     tgt.add("bin_dir", f"bin/{name}")
+    tgt.add("source_ext", source_ext)
 
     # Parse origins
     origin_list = [o.strip() for o in origins.split(",") if o.strip()]
@@ -307,16 +370,17 @@ def add_target(
     targets[name] = tgt
     _save_toml(doc, toml_path)
 
-    typer.secho(f"Added [targets.\"{name}\"] to rebrew.toml", fg=typer.colors.GREEN)
+    typer.secho(f'Added [targets."{name}"] to rebrew.toml', fg=typer.colors.GREEN)
     typer.secho(f"  Format: {fmt}, Arch: {arch} (auto-detected)", fg=typer.colors.GREEN)
+    typer.secho(f"  Language: {detected_lang} ({source_ext})", fg=typer.colors.GREEN)
     typer.secho(f"  Created src/{name}/ and bin/{name}/", fg=typer.colors.GREEN)
-    typer.echo(f"\nNext: rebrew-next --target \"{name}\" --stats")
+    typer.echo(f'\nNext: rebrew-next --target "{name}" --stats')
 
 
 @app.command("remove-target")
 def remove_target(
     name: str = typer.Argument(..., help="Target name to remove."),
-):
+) -> None:
     """Remove a target section from rebrew.toml (idempotent)."""
     doc, toml_path = _load_toml()
     targets = doc.get("targets", {})
@@ -326,15 +390,17 @@ def remove_target(
 
     del targets[name]
     _save_toml(doc, toml_path)
-    typer.secho(f"Removed [targets.\"{name}\"] from rebrew.toml", fg=typer.colors.GREEN)
+    typer.secho(f'Removed [targets."{name}"] from rebrew.toml', fg=typer.colors.GREEN)
     typer.secho("  Note: src/ and bin/ directories were NOT deleted.", dim=True)
 
 
 @app.command("set")
 def set_value(
-    key: str = typer.Argument(..., help="Dot-separated key, e.g. 'compiler.cflags' or 'targets.server.dll.arch'."),
+    key: str = typer.Argument(
+        ..., help="Dot-separated key, e.g. 'compiler.cflags' or 'targets.server.dll.arch'."
+    ),
     value: str = typer.Argument(..., help="Value to set."),
-):
+) -> None:
     """Set a scalar config key."""
     doc, toml_path = _load_toml()
 
@@ -348,7 +414,7 @@ def set_value(
     final_key = parts[-1]
 
     # Try to coerce value to int/float/bool
-    parsed_value: object = value
+    parsed_value: str | int | float | bool = value
     if value.lower() in ("true", "false"):
         parsed_value = value.lower() == "true"
     else:
@@ -372,7 +438,7 @@ def set_value(
 def add_origin(
     origin: str = typer.Argument(..., help="Origin name to add (e.g. 'ZLIB')."),
     target: str | None = typer.Option(None, "--target", "-t", help="Target name."),
-):
+) -> None:
     """Add an origin to a target's origins list."""
     doc, toml_path = _load_toml()
     target = _resolve_target(doc, target)
@@ -390,14 +456,17 @@ def add_origin(
 
     origins.append(origin_upper)
     _save_toml(doc, toml_path)
-    typer.secho(f"Added origin '{origin_upper}' to {target}. Origins: {list(origins)}", fg=typer.colors.GREEN)
+    typer.secho(
+        f"Added origin '{origin_upper}' to {target}. Origins: {list(origins)}",
+        fg=typer.colors.GREEN,
+    )
 
 
 @app.command("remove-origin")
 def remove_origin(
     origin: str = typer.Argument(..., help="Origin name to remove."),
     target: str | None = typer.Option(None, "--target", "-t", help="Target name."),
-):
+) -> None:
     """Remove an origin from a target's origins list (idempotent)."""
     doc, toml_path = _load_toml()
     target = _resolve_target(doc, target)
@@ -405,20 +474,30 @@ def remove_origin(
 
     origins = tgt.get("origins")
     if origins is None or origin.upper() not in origins:
-        typer.secho(f"Origin '{origin.upper()}' not in {target} (already removed).", fg=typer.colors.YELLOW)
+        typer.secho(
+            f"Origin '{origin.upper()}' not in {target} (already removed).", fg=typer.colors.YELLOW
+        )
         return
 
     origins.remove(origin.upper())
     _save_toml(doc, toml_path)
-    typer.secho(f"Removed origin '{origin.upper()}' from {target}. Origins: {list(origins)}", fg=typer.colors.GREEN)
+    typer.secho(
+        f"Removed origin '{origin.upper()}' from {target}. Origins: {list(origins)}",
+        fg=typer.colors.GREEN,
+    )
 
 
 @app.command("set-cflags")
 def set_cflags(
     origin: str = typer.Argument(..., help="Origin/preset name (e.g. 'ZLIB', 'GAME')."),
     flags: str = typer.Argument(..., help="Compiler flags string (e.g. '/O3')."),
-    target: str | None = typer.Option(None, "--target", "-t", help="Target name (sets per-target preset). Omit to set global preset."),
-):
+    target: str | None = typer.Option(
+        None,
+        "--target",
+        "-t",
+        help="Target name (sets per-target preset). Omit to set global preset.",
+    ),
+) -> None:
     """Set cflags preset for an origin."""
     doc, toml_path = _load_toml()
 
@@ -431,7 +510,7 @@ def set_cflags(
             presets = tomlkit.table()
             tgt["cflags_presets"] = presets
         presets[origin.upper()] = flags
-        scope = f"targets.\"{target}\""
+        scope = f'targets."{target}"'
     else:
         # Global cflags_presets
         compiler = doc.get("compiler")
@@ -446,7 +525,7 @@ def set_cflags(
         scope = "compiler"
 
     _save_toml(doc, toml_path)
-    typer.secho(f"Set {scope}.cflags_presets.{origin.upper()} = \"{flags}\"", fg=typer.colors.GREEN)
+    typer.secho(f'Set {scope}.cflags_presets.{origin.upper()} = "{flags}"', fg=typer.colors.GREEN)
 
 
 # ---------------------------------------------------------------------------
@@ -454,7 +533,7 @@ def set_cflags(
 # ---------------------------------------------------------------------------
 
 
-def main_entry():
+def main_entry() -> None:
     app()
 
 

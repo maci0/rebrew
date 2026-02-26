@@ -7,8 +7,10 @@ Supports --fix mode to auto-migrate from old format to new format.
 Inspired by reccmp's decomplint tool.
 """
 
+import contextlib
 import json as _json
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -23,6 +25,7 @@ from rebrew.annotation import (
     BLOCK_FUNC_CAPTURE_RE,
     BLOCK_FUNC_RE,
     BLOCK_KV_RE,
+    FILENAME_ORIGIN_PREFIXES,
     JAVADOC_ADDR_RE,
     JAVADOC_KV_RE,
     NEW_FUNC_RE,
@@ -37,8 +40,6 @@ from rebrew.annotation import (
 )
 from rebrew.cli import TargetOption, get_config
 
-console = Console(stderr=True)
-err_console = Console(stderr=True)
 out_console = Console()
 
 
@@ -48,17 +49,17 @@ class LintResult:
     errors: list[tuple[int, str, str]] = field(default_factory=list)
     warnings: list[tuple[int, str, str]] = field(default_factory=list)
 
-    def error(self, line: int, code: str, msg: str):
+    def error(self, line: int, code: str, msg: str) -> None:
         self.errors.append((line, code, msg))
 
-    def warning(self, line: int, code: str, msg: str):
+    def warning(self, line: int, code: str, msg: str) -> None:
         self.warnings.append((line, code, msg))
 
     @property
     def passed(self) -> bool:
         return len(self.errors) == 0
 
-    def display(self, quiet: bool = False):
+    def display(self, quiet: bool = False) -> None:
         rel = self.filepath.name
         for line, code, msg in self.errors:
             out_console.print(f"  [bold]{rel}[/bold]:{line}: [red]{code}[/red]: {msg}")
@@ -66,7 +67,7 @@ class LintResult:
             for line, code, msg in self.warnings:
                 out_console.print(f"  [bold]{rel}[/bold]:{line}: [yellow]{code}[/yellow]: {msg}")
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize for JSON output."""
         return {
             "file": str(self.filepath.name),
@@ -75,6 +76,373 @@ class LintResult:
             "warnings": [{"line": l, "code": c, "message": m} for l, c, m in self.warnings],
             "passed": self.passed,
         }
+
+
+def _parse_header(lines: list[str]) -> tuple[dict[str, str], dict[str, bool]]:
+    """Parse annotation header from first 20 lines.
+
+    Returns:
+        (found_keys, format_flags) where format_flags has keys:
+        has_new, has_old, has_block, has_javadoc
+    """
+    found_keys: dict[str, str] = {}
+    flags = {"has_new": False, "has_old": False, "has_block": False, "has_javadoc": False}
+
+    for _i, line in enumerate(lines[:20], 1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        if NEW_FUNC_RE.match(stripped):
+            flags["has_new"] = True
+            m = re.match(r"//\s*(\w+):\s*(\S+)\s+(0x[0-9a-fA-F]+)", stripped)
+            if m:
+                found_keys["MARKER"] = m.group(1)
+                found_keys["MODULE"] = m.group(2)
+                found_keys["VA"] = m.group(3)
+            continue
+
+        m = NEW_KV_RE.match(stripped)
+        if m and flags["has_new"]:
+            found_keys[m.group("key").upper()] = m.group("value").strip()
+            continue
+
+        if BLOCK_FUNC_RE.match(stripped):
+            flags["has_block"] = True
+            bm = BLOCK_FUNC_CAPTURE_RE.match(stripped)
+            if bm:
+                found_keys["MARKER"] = bm.group("type")
+                found_keys["MODULE"] = bm.group("module")
+                found_keys["VA"] = bm.group("va")
+            continue
+
+        bm = BLOCK_KV_RE.match(stripped)
+        if bm and flags["has_block"] and not flags["has_new"]:
+            found_keys[bm.group("key").upper()] = bm.group("value").strip()
+            continue
+
+        jm = JAVADOC_ADDR_RE.search(stripped)
+        if jm:
+            flags["has_javadoc"] = True
+            found_keys["VA"] = jm.group("va")
+            continue
+
+        jm = JAVADOC_KV_RE.match(stripped)
+        if jm and flags["has_javadoc"]:
+            key = jm.group("key").upper()
+            val = jm.group("value").strip()
+            if key == "ADDRESS":
+                found_keys["VA"] = val
+            elif key in (
+                "STATUS",
+                "ORIGIN",
+                "SIZE",
+                "CFLAGS",
+                "SYMBOL",
+                "SOURCE",
+                "BLOCKER",
+                "NOTE",
+            ):
+                found_keys[key] = val
+            continue
+
+        if OLD_RE.match(stripped):
+            flags["has_old"] = True
+            break
+
+        if (
+            not stripped.startswith("//")
+            and not stripped.startswith("/*")
+            and not stripped.startswith("*")
+            and not stripped.startswith("*/")
+        ):
+            break
+
+    return found_keys, flags
+
+
+def _check_format_warnings(
+    result: LintResult, found_keys: dict[str, str], flags: dict[str, bool]
+) -> bool:
+    """Check format-level warnings (W002, W012, W013). Returns True if validation should proceed."""
+    has_new = flags["has_new"]
+    has_old = flags["has_old"]
+    has_block = flags["has_block"]
+    has_javadoc = flags["has_javadoc"]
+
+    if has_block and not has_new:
+        result.warning(
+            1,
+            "W012",
+            "Block-comment annotation format detected "
+            "(/* FUNCTION: ... */ — run with --fix to migrate)",
+        )
+        flags["has_new"] = True
+
+    if has_javadoc and not flags["has_new"]:
+        result.warning(
+            1,
+            "W013",
+            "Javadoc-style annotation format detected (@address — run with --fix to migrate)",
+        )
+        if "MARKER" not in found_keys:
+            origin = found_keys.get("ORIGIN", "GAME")
+            status = found_keys.get("STATUS", "RELOC")
+            found_keys["MARKER"] = marker_for_origin(origin, status)
+        flags["has_new"] = True
+
+    if has_old and not flags["has_new"]:
+        result.warning(1, "W002", "Old-format header detected (run with --fix to migrate)")
+        return False
+
+    if not flags["has_new"] and not has_old:
+        result.error(1, "E001", "Missing FUNCTION/LIBRARY/STUB annotation")
+        return False
+
+    return True
+
+
+def _check_E001_marker(result: LintResult, marker: str) -> None:
+    if marker not in VALID_MARKERS:
+        result.error(1, "E001", f"Invalid marker type: {marker}")
+
+
+def _check_E002_va(result: LintResult, va_str: str) -> int | None:
+    try:
+        va_int = int(va_str, 16)
+        if not (0x1000 <= va_int <= 0xFFFFFFFF):
+            result.error(1, "E002", f"VA {va_str} is suspicious (outside 32-bit range)")
+        return va_int
+    except ValueError:
+        result.error(1, "E002", f"Invalid VA format: {va_str}")
+        return None
+
+
+def _check_E013_duplicate_va(
+    result: LintResult,
+    va_int: int | None,
+    va_str: str,
+    filepath: Path,
+    seen_vas: dict[int, str] | None,
+) -> None:
+    if va_int is not None and seen_vas is not None:
+        if va_int in seen_vas:
+            result.error(1, "E013", f"Duplicate VA {va_str} — also in {seen_vas[va_int]}")
+        else:
+            seen_vas[va_int] = filepath.name
+
+
+def _check_E003_E004_status(result: LintResult, found_keys: dict[str, str]) -> None:
+    if "STATUS" not in found_keys:
+        result.error(1, "E003", "Missing // STATUS: annotation")
+    elif found_keys["STATUS"] not in VALID_STATUSES:
+        if "\\n" in found_keys["STATUS"]:
+            result.error(
+                1,
+                "E014",
+                f"Corrupted STATUS value contains literal '\\n': {found_keys['STATUS']!r}",
+            )
+        else:
+            result.error(1, "E004", f"Invalid STATUS: {found_keys['STATUS']}")
+
+
+def _check_E005_E006_origin(
+    result: LintResult, found_keys: dict[str, str], cfg: Any = None
+) -> None:
+    if "ORIGIN" not in found_keys:
+        result.error(1, "E005", "Missing // ORIGIN: annotation")
+    else:
+        valid = set(cfg.origins) if cfg and getattr(cfg, "origins", None) else VALID_ORIGINS
+        if valid and found_keys["ORIGIN"] not in valid:
+            result.error(1, "E006", f"Invalid ORIGIN: {found_keys['ORIGIN']}")
+
+
+def _check_E007_E008_size(result: LintResult, found_keys: dict[str, str]) -> None:
+    if "SIZE" not in found_keys:
+        result.error(1, "E007", "Missing // SIZE: annotation")
+    else:
+        try:
+            sz = int(found_keys["SIZE"])
+            if sz <= 0:
+                result.error(1, "E008", f"Invalid SIZE: {found_keys['SIZE']}")
+        except ValueError:
+            result.error(1, "E008", f"Invalid SIZE: {found_keys['SIZE']}")
+
+
+def _check_E009_cflags(result: LintResult, found_keys: dict[str, str]) -> None:
+    if "CFLAGS" not in found_keys:
+        result.error(1, "E009", "Missing // CFLAGS: annotation")
+    elif not found_keys["CFLAGS"].strip():
+        result.error(1, "E009", "Empty // CFLAGS: value")
+
+
+def _check_E010_unknown_keys(result: LintResult, found_keys: dict[str, str]) -> None:
+    for key in found_keys:
+        if key not in ALL_KNOWN_KEYS and key != "MODULE":
+            result.error(1, "E010", f"Unknown annotation key: {key}")
+
+
+def _check_E015_marker_consistency(
+    result: LintResult, marker: str, origin: str, status: str, cfg: Any = None
+) -> None:
+    lib_origins = (
+        cfg.library_origins if cfg and getattr(cfg, "library_origins", None) is not None else None
+    )
+    expected_marker = marker_for_origin(origin, status, lib_origins)
+    if marker != expected_marker and marker in VALID_MARKERS and marker not in ("GLOBAL", "DATA"):
+        result.error(
+            1,
+            "E015",
+            f"Marker {marker} inconsistent with ORIGIN {origin} (expected {expected_marker})",
+        )
+
+
+def _check_E016_filename(result: LintResult, filepath: Path, symbol: str, marker: str) -> None:
+    if symbol and marker not in ("GLOBAL", "DATA") and not filepath.stem.startswith("data_"):
+        expected_stem = symbol.lstrip("_")
+        actual_stem = filepath.stem
+        if expected_stem and actual_stem != expected_stem:
+            prefix_match = False
+            for prefix in FILENAME_ORIGIN_PREFIXES:
+                if actual_stem.startswith(prefix):
+                    unprefixed = actual_stem[len(prefix) :]
+                    if unprefixed == expected_stem:
+                        prefix_match = True
+                        break
+            if not prefix_match:
+                result.error(
+                    1,
+                    "E016",
+                    f"Filename '{filepath.name}' doesn't match SYMBOL "
+                    f"'{symbol}' (expected '{expected_stem}{filepath.suffix}')",
+                )
+
+
+def _check_E017_contradictory(result: LintResult, status: str, marker: str) -> None:
+    if status in ("MATCHING", "MATCHING_RELOC") and marker == "STUB":
+        result.error(1, "E017", f"Contradictory: status is {status} but marker is STUB")
+
+
+def _check_W001_symbol(result: LintResult, found_keys: dict[str, str]) -> None:
+    if "SYMBOL" not in found_keys:
+        result.warning(1, "W001", "Missing // SYMBOL: annotation (recommended)")
+
+
+def _check_W005_blocker(result: LintResult, status: str, found_keys: dict[str, str]) -> None:
+    if status == "STUB" and "BLOCKER" not in found_keys:
+        result.warning(
+            1,
+            "W005",
+            "STUB function missing // BLOCKER: annotation (explain why it doesn't match)",
+        )
+
+
+def _check_W006_source(
+    result: LintResult, origin: str, found_keys: dict[str, str], cfg: Any = None
+) -> None:
+    lib_origins = (
+        cfg.library_origins
+        if cfg and getattr(cfg, "library_origins", None) is not None
+        else {"MSVCRT", "ZLIB"}
+    )
+    if origin in lib_origins and "SOURCE" not in found_keys:
+        result.warning(
+            1,
+            "W006",
+            f"{origin} function missing // SOURCE: annotation "
+            "(reference file, e.g. SBHEAP.C:195 or deflate.c)",
+        )
+
+
+def _check_W014_origin_prefix(
+    result: LintResult, filepath: Path, origin: str, cfg: Any = None
+) -> None:
+    # Use config origin_prefixes if available (reversed: origin→prefix to prefix→origin)
+    prefixes = None
+    if cfg and getattr(cfg, "origin_prefixes", None):
+        prefixes = {v: k for k, v in cfg.origin_prefixes.items()}
+    expected_origin = origin_from_filename(filepath.stem, prefixes)
+    if expected_origin and origin and expected_origin != origin:
+        result.warning(
+            1,
+            "W014",
+            f"Filename prefix suggests ORIGIN '{expected_origin}' but annotation says '{origin}'",
+        )
+
+
+def _check_W015_va_case(result: LintResult, va_str: str) -> None:
+    if va_str and va_str.startswith("0x"):
+        hex_digits = va_str[2:]
+        if hex_digits != hex_digits.lower() and hex_digits != hex_digits.upper():
+            result.warning(
+                1,
+                "W015",
+                f"VA '{va_str}' has mixed-case hex digits (prefer consistent case)",
+            )
+
+
+def _check_config_rules(
+    result: LintResult, found_keys: dict[str, str], cfg: Any, origin: str
+) -> None:
+    """Config-aware checks (W008, E012)."""
+    if cfg is None:
+        return
+
+    # Note: W011 (origin not in configured origins) removed — E006 already checks
+    # cfg.origins when available, so W011 would be a duplicate diagnostic.
+
+    module = found_keys.get("MODULE", "")
+    if module and hasattr(cfg, "marker") and cfg.marker and module != cfg.marker:
+        result.error(
+            1,
+            "E012",
+            f"Module '{module}' doesn't match configured marker '{cfg.marker}'",
+        )
+
+    if (
+        "CFLAGS" in found_keys
+        and hasattr(cfg, "cflags_presets")
+        and cfg.cflags_presets
+        and origin in cfg.cflags_presets
+    ):
+        expected_cflags = cfg.cflags_presets[origin]
+        actual_cflags = found_keys["CFLAGS"]
+        if actual_cflags != expected_cflags:
+            result.warning(
+                1,
+                "W008",
+                f"CFLAGS '{actual_cflags}' differ from {origin} preset '{expected_cflags}'",
+            )
+
+
+def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> None:
+    """Check struct SIZE comments and code presence (W003, W007)."""
+    has_code = False
+    has_struct = False
+    struct_has_size = False
+    for line in lines[1:]:
+        stripped = line.strip()
+        if (
+            stripped
+            and not stripped.startswith("//")
+            and not stripped.startswith("/*")
+            and not stripped.startswith("*")
+        ):
+            has_code = True
+        if "typedef struct" in stripped or "struct " in stripped:
+            has_struct = True
+        if re.match(r"//\s*SIZE\s+0x[0-9a-fA-F]+", stripped):
+            struct_has_size = True
+
+    if not has_code and has_new:
+        result.warning(1, "W003", "File has no function implementation")
+
+    if has_struct and not struct_has_size:
+        result.warning(
+            1,
+            "W007",
+            "File defines struct(s) without // SIZE 0xNN annotation (reccmp recommendation)",
+        )
 
 
 def lint_file(
@@ -103,319 +471,40 @@ def lint_file(
         result.error(1, "E001", "Empty file, missing FUNCTION/LIBRARY/STUB annotation")
         return result
 
-    has_new = False
-    has_old = False
-    has_block = False
-    has_javadoc = False
-    found_keys: dict[str, str] = {}
+    found_keys, flags = _parse_header(lines)
 
-    for i, line in enumerate(lines[:20], 1):
-        stripped = line.strip()
-        if not stripped:
-            continue
-
-        # --- New format: // FUNCTION: SERVER 0x10008880 ---
-        if NEW_FUNC_RE.match(stripped):
-            has_new = True
-            m = re.match(r"//\s*(\w+):\s*(\S+)\s+(0x[0-9a-fA-F]+)", stripped)
-            if m:
-                found_keys["MARKER"] = m.group(1)
-                found_keys["MODULE"] = m.group(2)
-                found_keys["VA"] = m.group(3)
-            continue
-
-        m = NEW_KV_RE.match(stripped)
-        if m and has_new:
-            found_keys[m.group("key").upper()] = m.group("value").strip()
-            continue
-
-        # --- Block-comment format: /* FUNCTION: SERVER 0x10003260 */ ---
-        if BLOCK_FUNC_RE.match(stripped):
-            has_block = True
-            bm = BLOCK_FUNC_CAPTURE_RE.match(stripped)
-            if bm:
-                found_keys["MARKER"] = bm.group("type")
-                found_keys["MODULE"] = bm.group("module")
-                found_keys["VA"] = bm.group("va")
-            continue
-
-        bm = BLOCK_KV_RE.match(stripped)
-        if bm and has_block and not has_new:
-            found_keys[bm.group("key").upper()] = bm.group("value").strip()
-            continue
-
-        # --- Javadoc format: @address 0x... ---
-        jm = JAVADOC_ADDR_RE.search(stripped)
-        if jm:
-            has_javadoc = True
-            found_keys["VA"] = jm.group("va")
-            continue
-
-        jm = JAVADOC_KV_RE.match(stripped)
-        if jm and has_javadoc:
-            key = jm.group("key").upper()
-            val = jm.group("value").strip()
-            if key == "ADDRESS":
-                found_keys["VA"] = val
-            elif key in ("STATUS", "ORIGIN", "SIZE", "CFLAGS", "SYMBOL",
-                         "SOURCE", "BLOCKER", "NOTE", "BRIEF"):
-                if key != "BRIEF":
-                    found_keys[key] = val
-            continue
-
-        if OLD_RE.match(stripped):
-            has_old = True
-            break
-
-        if (not stripped.startswith("//")
-                and not stripped.startswith("/*")
-                and not stripped.startswith("*")
-                and not stripped.startswith("*/")):
-            break
-
-    # --- Detect block-comment format (not yet auto-fixable) ---
-    if has_block and not has_new:
-        result.warning(
-            1, "W012",
-            "Block-comment annotation format detected "
-            "(/* FUNCTION: ... */ — run with --fix to migrate)"
-        )
-        # Still validate the extracted keys below
-        has_new = True  # treat as new-format for validation purposes
-
-    # --- Detect javadoc format ---
-    if has_javadoc and not has_new:
-        result.warning(
-            1, "W013",
-            "Javadoc-style annotation format detected "
-            "(@address — run with --fix to migrate)"
-        )
-        # Derive missing fields for javadoc format
-        if "MARKER" not in found_keys:
-            origin = found_keys.get("ORIGIN", "GAME")
-            status = found_keys.get("STATUS", "RELOC")
-            found_keys["MARKER"] = marker_for_origin(origin, status)
-        has_new = True  # treat as new-format for validation
-
-    if has_old and not has_new:
-        result.warning(
-            1, "W002", "Old-format header detected (run with --fix to migrate)"
-        )
+    if not _check_format_warnings(result, found_keys, flags):
         return result
 
-    if not has_new and not has_old:
-        result.error(1, "E001", "Missing FUNCTION/LIBRARY/STUB annotation")
-        return result
-
-    if has_new:
+    if flags["has_new"]:
         marker = found_keys.get("MARKER", "")
-        if marker not in VALID_MARKERS:
-            result.error(1, "E001", f"Invalid marker type: {marker}")
+        _check_E001_marker(result, marker)
 
         va_str = found_keys.get("VA", "")
-        va_int: int | None = None
-        try:
-            va_int = int(va_str, 16)
-            # Generic sanity check: just ensure it's a reasonable 32-bit VA
-            if not (0x1000 <= va_int <= 0xFFFFFFFF):
-                result.error(1, "E002", f"VA {va_str} is suspicious (outside 32-bit range)")
-        except ValueError:
-            result.error(1, "E002", f"Invalid VA format: {va_str}")
+        va_int = _check_E002_va(result, va_str)
+        _check_E013_duplicate_va(result, va_int, va_str, filepath, seen_vas)
 
-        # E013: Duplicate VA across files
-        if va_int is not None and seen_vas is not None:
-            if va_int in seen_vas:
-                result.error(
-                    1,
-                    "E013",
-                    f"Duplicate VA {va_str} — also in {seen_vas[va_int]}",
-                )
-            else:
-                seen_vas[va_int] = filepath.name
-
-        if "STATUS" not in found_keys:
-            result.error(1, "E003", "Missing // STATUS: annotation")
-        elif found_keys["STATUS"] not in VALID_STATUSES:
-            # E014: Check for corrupted values (literal \n in annotations)
-            if "\\n" in found_keys["STATUS"]:
-                result.error(
-                    1, "E014",
-                    f"Corrupted STATUS value contains literal '\\n': "
-                    f"{found_keys['STATUS']!r}"
-                )
-            else:
-                result.error(1, "E004", f"Invalid STATUS: {found_keys['STATUS']}")
-
-        if "ORIGIN" not in found_keys:
-            result.error(1, "E005", "Missing // ORIGIN: annotation")
-        elif found_keys["ORIGIN"] not in VALID_ORIGINS:
-            result.error(1, "E006", f"Invalid ORIGIN: {found_keys['ORIGIN']}")
-
-        if "SIZE" not in found_keys:
-            result.error(1, "E007", "Missing // SIZE: annotation")
-        else:
-            try:
-                sz = int(found_keys["SIZE"])
-                if sz <= 0:
-                    result.error(1, "E008", f"Invalid SIZE: {found_keys['SIZE']}")
-            except ValueError:
-                result.error(1, "E008", f"Invalid SIZE: {found_keys['SIZE']}")
-
-        if "CFLAGS" not in found_keys:
-            result.error(1, "E009", "Missing // CFLAGS: annotation")
-
-        if "SYMBOL" not in found_keys:
-            result.warning(1, "W001", "Missing // SYMBOL: annotation (recommended)")
+        if marker not in ("GLOBAL", "DATA"):
+            _check_E003_E004_status(result, found_keys)
+            _check_E005_E006_origin(result, found_keys, cfg)
+            _check_E009_cflags(result, found_keys)
+            _check_W001_symbol(result, found_keys)
+        _check_E007_E008_size(result, found_keys)
 
         origin = found_keys.get("ORIGIN", "GAME")
         status = found_keys.get("STATUS", "")
 
-        expected_marker = marker_for_origin(origin, status)
-        if marker != expected_marker and marker in VALID_MARKERS:
-            result.warning(
-                1,
-                "W004",
-                f"Marker {marker} inconsistent with ORIGIN {origin} "
-                f"(expected {expected_marker})",
-            )
+        _check_E015_marker_consistency(result, marker, origin, status, cfg)
+        _check_W005_blocker(result, status, found_keys)
+        _check_W006_source(result, origin, found_keys, cfg)
+        _check_E010_unknown_keys(result, found_keys)
+        _check_E017_contradictory(result, status, marker)
+        _check_config_rules(result, found_keys, cfg, origin)
+        _check_E016_filename(result, filepath, found_keys.get("SYMBOL", ""), marker)
+        _check_W014_origin_prefix(result, filepath, origin, cfg)
+        _check_W015_va_case(result, found_keys.get("VA", ""))
 
-        # W005: STUB functions should have // BLOCKER: explaining why
-        if status == "STUB" and "BLOCKER" not in found_keys:
-            result.warning(
-                1,
-                "W005",
-                "STUB function missing // BLOCKER: annotation "
-                "(explain why it doesn't match)",
-            )
-
-        # W006: CRT/ZLIB functions should have // SOURCE: pointing to reference
-        if origin in ("MSVCRT", "ZLIB") and "SOURCE" not in found_keys:
-            result.warning(
-                1,
-                "W006",
-                f"{origin} function missing // SOURCE: annotation "
-                "(reference file, e.g. SBHEAP.C:195 or deflate.c)",
-            )
-
-        # E010: Unknown annotation keys
-        for key in found_keys:
-            if key not in ALL_KNOWN_KEYS and key != "MODULE":
-                result.error(1, "E010", f"Unknown annotation key: {key}")
-
-        # W010: Contradictory MATCHING status with STUB marker
-        if status in ("MATCHING", "MATCHING_RELOC") and marker == "STUB":
-            result.warning(
-                1,
-                "W010",
-                f"Contradictory: status is {status} but marker is STUB",
-            )
-
-        # ----- Config-aware checks (only when cfg is available) -----
-        if cfg is not None:
-            # W011: ORIGIN not in configured origins list (advisory — may
-            # not be set yet in fresh projects)
-            if (
-                origin
-                and hasattr(cfg, "origins")
-                and cfg.origins
-                and origin not in cfg.origins
-            ):
-                result.warning(
-                    1,
-                    "W011",
-                    f"ORIGIN '{origin}' not in configured origins: {cfg.origins}",
-                )
-
-            # E012: Module name doesn't match configured marker
-            module = found_keys.get("MODULE", "")
-            if (
-                module
-                and hasattr(cfg, "marker")
-                and cfg.marker
-                and module != cfg.marker
-            ):
-                result.error(
-                    1,
-                    "E012",
-                    f"Module '{module}' doesn't match configured marker '{cfg.marker}'",
-                )
-
-            # W008: CFLAGS don't match preset for this ORIGIN
-            if (
-                "CFLAGS" in found_keys
-                and hasattr(cfg, "cflags_presets")
-                and cfg.cflags_presets
-                and origin in cfg.cflags_presets
-            ):
-                expected_cflags = cfg.cflags_presets[origin]
-                actual_cflags = found_keys["CFLAGS"]
-                if actual_cflags != expected_cflags:
-                    result.warning(
-                        1,
-                        "W008",
-                        f"CFLAGS '{actual_cflags}' differ from {origin} preset "
-                        f"'{expected_cflags}'",
-                    )
-
-        # W009: Filename doesn't match function name
-        symbol = found_keys.get("SYMBOL", "")
-        if symbol:
-            expected_stem = symbol.lstrip("_")
-            actual_stem = filepath.stem
-            if expected_stem and actual_stem != expected_stem:
-                result.warning(
-                    1,
-                    "W009",
-                    f"Filename '{filepath.name}' doesn't match SYMBOL "
-                    f"'{symbol}' (expected '{expected_stem}.c')",
-                )
-
-        # W014: ORIGIN doesn't match filename prefix convention
-        expected_origin = origin_from_filename(filepath.stem)
-        if expected_origin and origin and expected_origin != origin:
-            result.warning(
-                1,
-                "W014",
-                f"Filename prefix suggests ORIGIN '{expected_origin}' "
-                f"but annotation says '{origin}'",
-            )
-
-        # W015: VA hex digits should use lowercase for consistency
-        va_str = found_keys.get("VA", "")
-        if va_str and va_str.startswith("0x"):
-            hex_digits = va_str[2:]
-            if hex_digits != hex_digits.lower() and hex_digits != hex_digits.upper():
-                result.warning(
-                    1,
-                    "W015",
-                    f"VA '{va_str}' has mixed-case hex digits "
-                    f"(prefer consistent case)",
-                )
-
-    # Check for struct SIZE comments (reccmp recommendation)
-    has_code = False
-    has_struct = False
-    struct_has_size = False
-    for line in lines[1:]:
-        stripped = line.strip()
-        if stripped and not stripped.startswith("//") and not stripped.startswith("/*"):
-            has_code = True
-        if "typedef struct" in stripped or "struct " in stripped:
-            has_struct = True
-        if re.match(r"//\s*SIZE\s+0x[0-9a-fA-F]+", stripped):
-            struct_has_size = True
-
-    if not has_code and has_new:
-        result.warning(1, "W003", "File has no function implementation")
-
-    # W007: Structs without SIZE annotation
-    if has_struct and not struct_has_size:
-        result.warning(
-            1,
-            "W007",
-            "File defines struct(s) without // SIZE 0xNN annotation "
-            "(reccmp recommendation)",
-        )
+    _check_body_rules(result, lines, flags["has_new"])
 
     return result
 
@@ -452,7 +541,12 @@ def fix_file(cfg: Any, filepath: Path) -> bool:
         origin = m.group("origin").strip().upper()
         marker = marker_for_origin(origin, status)
         cflags_parts = raw_cflags.split()
-        if "/Gd" not in cflags_parts and origin == "GAME":
+        lib_origins = (
+            cfg.library_origins
+            if getattr(cfg, "library_origins", None) is not None
+            else {"MSVCRT", "ZLIB"}
+        )
+        if "/Gd" not in cflags_parts and origin not in lib_origins:
             cflags_parts.append("/Gd")
         cflags = " ".join(cflags_parts)
         symbol = "_" + name
@@ -569,13 +663,13 @@ def fix_file(cfg: Any, filepath: Path) -> bool:
     return False
 
 
-def _print_summary(results: list[LintResult]):
+def _print_summary(results: list[LintResult]) -> None:
     """Print a breakdown table by status and origin."""
     from collections import Counter
 
-    status_counts: Counter = Counter()
-    origin_counts: Counter = Counter()
-    marker_counts: Counter = Counter()
+    status_counts: Counter[str] = Counter()
+    origin_counts: Counter[str] = Counter()
+    marker_counts: Counter[str] = Counter()
 
     for r in results:
         # Re-parse to get fields (lightweight — only header lines)
@@ -614,7 +708,30 @@ def _print_summary(results: list[LintResult]):
     out_console.print(table)
 
 
-app = typer.Typer(help="Lint annotation standards for decomp C source files.")
+app = typer.Typer(
+    help="Lint annotation standards for decomp C source files.",
+    rich_markup_mode="rich",
+    epilog="""\
+[bold]Examples:[/bold]
+  rebrew-lint                                  Lint all .c files in reversed_dir
+  rebrew-lint --fix                            Auto-migrate old-format annotations
+  rebrew-lint --quiet                          Errors only, suppress warnings
+  rebrew-lint --json                           Machine-readable JSON output
+  rebrew-lint --summary                        Show status/origin breakdown table
+  rebrew-lint --files src/game/foo.c           Lint specific files only
+
+[bold]Error codes:[/bold]
+  E001   Missing FUNCTION/LIBRARY/STUB annotation
+  E002   Invalid VA format or range
+  E003   Missing STATUS annotation
+  E013   Duplicate VA across files
+  E016   Filename doesn't match SYMBOL
+  W001   Missing SYMBOL (recommended)
+  W005   STUB without BLOCKER explanation
+
+[dim]Checks for reccmp-style annotations in the first 20 lines of each .c file.
+Supports old-format, block-comment, and javadoc annotation styles (--fix migrates them).[/dim]""",
+)
 
 
 @app.callback(invoke_without_command=True)
@@ -625,35 +742,34 @@ def main(
     target: str | None = TargetOption,
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     summary: bool = typer.Option(False, "--summary", help="Print status/origin breakdown"),
-):
+) -> None:
     """Lint annotation standards in decomp C source files."""
     cfg = None
-    try:
+    with contextlib.suppress(FileNotFoundError, KeyError, ValueError):
         cfg = get_config(target=target)
-    except Exception:
-        pass
 
     reversed_dir = cfg.reversed_dir if cfg else None
 
+    from rebrew.cli import source_glob
+
+    ext = getattr(cfg, "source_ext", ".c") if cfg else ".c"
+    glob_pat = source_glob(cfg)
     if files:
-        c_files = [f for f in files if f.suffix == ".c"]
+        c_files = [f for f in files if f.suffix == ext]
     elif reversed_dir:
-        c_files = sorted(reversed_dir.glob("*.c"))
+        c_files = sorted(reversed_dir.glob(glob_pat))
     else:
-        c_files = sorted(Path.cwd().glob("*.c"))
+        c_files = sorted(Path.cwd().glob(glob_pat))
 
     if fix:
         if cfg is None:
-            print("Error: --fix requires a valid rebrew.toml config")
-            raise SystemExit(1)
+            print("Error: --fix requires a valid rebrew.toml config", file=sys.stderr)
+            raise typer.Exit(code=1)
         fixed = 0
         already_ok = 0
         for cfile in c_files:
-            result = lint_file(cfile)
-            needs_fix = any(
-                code in ("W002", "W012", "W013")
-                for _, code, _ in result.warnings
-            )
+            result = lint_file(cfile, cfg=cfg)
+            needs_fix = any(code in ("W002", "W012", "W013") for _, code, _ in result.warnings)
             if needs_fix:
                 if fix_file(cfg, cfile):
                     fixed += 1
@@ -662,7 +778,7 @@ def main(
             else:
                 already_ok += 1
         print(f"Fixed {fixed} files, {already_ok} already compliant")
-        raise SystemExit(0)
+        return
 
     # Cross-file duplicate VA tracking
     seen_vas: dict[int, str] = {}
@@ -677,9 +793,9 @@ def main(
         total += 1
         result = lint_file(cfile, cfg=cfg, seen_vas=seen_vas)
         all_results.append(result)
-        if result.passed and (quiet or not result.warnings):
+        if result.passed:
             passed += 1
-        elif not json_output:
+        if not json_output and (not result.passed or (not quiet and result.warnings)):
             result.display(quiet=quiet)
         error_count += len(result.errors)
         warning_count += len(result.warnings)
@@ -707,11 +823,13 @@ def main(
         if summary:
             _print_summary(all_results)
 
-    raise SystemExit(1 if error_count > 0 else 0)
+    if error_count > 0:
+        raise typer.Exit(code=1)
 
 
-def main_entry():
+def main_entry() -> None:
     app()
+
 
 if __name__ == "__main__":
     main_entry()

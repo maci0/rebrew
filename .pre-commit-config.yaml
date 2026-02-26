@@ -1,27 +1,43 @@
+# See https://pre-commit.com for more information
+# Install: uv run pre-commit install
+# Run all: uv run pre-commit run --all-files
+
 repos:
--   repo: local
+  # ---------- General file hygiene ----------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: "v5.0.0"
     hooks:
-    -   id: ruff-check
+      - id: trailing-whitespace
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: debug-statements
+
+  # ---------- Local tools (use uv-managed versions) ----------
+  - repo: local
+    hooks:
+      - id: skills-ref
+        name: Validate Agent Skills
+        entry: bash -c 'for f in "$@"; do uv run skills-ref validate "$f" || exit 1; done' --
+        language: system
+        pass_filenames: true
+        files: ^agent-skills/
+
+      - id: ruff-check
         name: Ruff Lint
         entry: uv run ruff check --fix
         language: system
         types: [python]
 
-    -   id: ruff-format
+      - id: ruff-format
         name: Ruff Format
-        entry: uv run ruff format --check
+        entry: uv run ruff format
         language: system
         types: [python]
 
-    -   id: black
-        name: Black
-        entry: uv run black --check
+      - id: pytest
+        name: pytest (fast)
+        entry: uv run pytest tests/ -q --tb=short
         language: system
-        types: [python]
-
-    -   id: mypy
-        name: Mypy
-        entry: uv run mypy
-        language: system
-        types: [python]
         pass_filenames: false
+        always_run: true
+        stages: [pre-push]

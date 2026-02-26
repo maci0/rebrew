@@ -1,6 +1,175 @@
+"""mutator.py – C source mutation engine for GA-based binary matching.
+
+Provides 48+ mutation functions that transform C89 source code to explore
+the MSVC6 code generation space. Each mutation targets a specific compiler
+behavior (register allocation, instruction selection, calling conventions).
+"""
+
 import random
 import re
 from typing import Any
+
+# ---------------------------------------------------------------------------
+# Pre-compiled regex patterns (module-level for performance)
+# ---------------------------------------------------------------------------
+
+_RE_FUNC_START = re.compile(
+    r"^[a-zA-Z_][a-zA-Z0-9_*\s]*\s+[a-zA-Z_][a-zA-Z0-9_]*\s*\(",
+    re.MULTILINE,
+)
+_RE_COMMUTE_ADD = re.compile(r"\b([A-Za-z_]\w*)\s*\+\s*([A-Za-z_]\w*)\b")
+_RE_COMMUTE_MUL = re.compile(r"\b([A-Za-z_]\w*)\s*\*\s*([A-Za-z_]\w*)\b")
+_RE_FLIP_EQ_ZERO = re.compile(r"\b([A-Za-z_]\w*)\s*(==|!=)\s*0\b")
+_RE_FLIP_LT_GE = re.compile(r"\b([A-Za-z_]\w*)\s*<\s*([A-Za-z_]\w*)\b")
+_C_KEYWORDS = frozenset(
+    {
+        "auto",
+        "break",
+        "case",
+        "char",
+        "const",
+        "continue",
+        "default",
+        "do",
+        "double",
+        "else",
+        "enum",
+        "extern",
+        "float",
+        "for",
+        "goto",
+        "if",
+        "int",
+        "long",
+        "register",
+        "return",
+        "short",
+        "signed",
+        "sizeof",
+        "static",
+        "struct",
+        "switch",
+        "typedef",
+        "union",
+        "unsigned",
+        "void",
+        "volatile",
+        "while",
+        "BOOL",
+        "DWORD",
+        "HANDLE",
+        "LPVOID",
+        "LPCSTR",
+        "LPSTR",
+        "HRESULT",
+        "UINT",
+        "ULONG",
+        "BYTE",
+        "WORD",
+        "SIZE_T",
+        "WPARAM",
+        "LPARAM",
+        "LRESULT",
+        "TRUE",
+        "FALSE",
+        "NULL",
+        "include",
+        "define",
+        "ifdef",
+        "ifndef",
+        "endif",
+        "pragma",
+    }
+)
+_RE_ADD_PARENS = re.compile(r"\b([A-Za-z_]\w*)\b")
+_RE_REASSOCIATE = re.compile(
+    r"\(\s*([A-Za-z_]\w*)\s*\+\s*([A-Za-z_]\w*)\s*\)\s*\+\s*([A-Za-z_]\w*)"
+)
+_RE_DOUBLE_NOT = re.compile(r"!!\s*([A-Za-z_]\w*)")
+_RE_SWAP_EQ = re.compile(r"(\b\w+\b)\s*==\s*(\b\w+\b)")
+_RE_SWAP_NE = re.compile(r"(\b\w+\b)\s*!=\s*(\b\w+\b)")
+_RE_SWAP_OR = re.compile(r"([^|&\n]+?)\s*\|\|\s*([^|&\n;)]+)")
+_RE_SWAP_AND = re.compile(r"([^|&\n]+?)\s*&&\s*([^|&\n;)]+)")
+_RE_RETURN_FALSE = re.compile(r"\breturn\s+(?:FALSE|0)\s*;")
+_RE_GOTO_RET_FALSE = re.compile(r"\bgoto\s+ret_false\s*;")
+_RE_FINAL_RET = re.compile(r"(\n)([ \t]*return\s+\w+\s*;\s*\n\})")
+_RE_RET_FALSE_LABEL = re.compile(r"\n\s*ret_false:\s*\n\s*return\s+0\s*;\s*\n")
+_RE_RET_FALSE_LABEL_BARE = re.compile(r"\n\s*ret_false:\s*\n")
+_RE_LOCAL_PARAMS = re.compile(r"\b(?:HANDLE|DWORD|LPVOID|int|BOOL)\s+(\w+)")
+_RE_BRACE_AFTER_PAREN = re.compile(r"\)\s*\{")
+_RE_DECL_LINE = re.compile(r"^([ \t]+)((?:BOOL|int|DWORD|HANDLE|LPVOID)\s+\w+)\s*;$", re.MULTILINE)
+_RE_INIT_LINE = re.compile(
+    r"^([ \t]+(?:BOOL|int|DWORD|HANDLE|LPVOID)\s+\w+)\s*=\s*[^;]+;$", re.MULTILINE
+)
+_RE_IF_COND = re.compile(r"\bif\s*\(([^{]*?)\)\s*\{")
+_RE_ELSEIF_CHAIN = re.compile(r"(\bif\s*\([^{]*?\)\s*\{)")
+_RE_CAST_TARGET = re.compile(r"(?<=[=(,!])\s*(\b[A-Za-z_]\w*\b)(?!\s*\()")
+_RE_REMOVE_CAST = re.compile(r"\((?:BOOL|int|DWORD|HANDLE|LPVOID)\)(\w+)")
+_RE_VOLATILE = re.compile(r"\bvolatile\s+")
+_RE_ADD_VOLATILE = re.compile(r"^([ \t]+)((?:BOOL|int|DWORD|HANDLE|LPVOID)\s+\w+)", re.MULTILINE)
+_RE_ADD_REGISTER = re.compile(r"^([ \t]+)((?:BOOL|int|DWORD|HANDLE|LPVOID)\s+\w+)", re.MULTILINE)
+_RE_REMOVE_REGISTER = re.compile(r"\bregister\s+")
+_RE_IF_FALSE_BITAND = re.compile(
+    r"if\s*\(\s*!\s*(\w+\s*\([^)]*(?:\([^)]*\)[^)]*)*\))\s*\)\s*\n?\s*(\w+)\s*=\s*(?:FALSE|0)\s*;"
+)
+_RE_BITAND_TO_IF = re.compile(r"(\w+)\s*&=\s*(\w+\s*\([^)]*(?:\([^)]*\)[^)]*)*\))\s*;")
+_RE_VAR_ASSIGN_CALL = re.compile(r"(\w+)\s*=\s*(\w+\s*\([^;]+\))\s*;")
+_RE_BOOL_TMP_DECL = re.compile(r"\b(?:BOOL|int)\s+tmp\b")
+_RE_TEMP_VAR = re.compile(r"tmp\s*=\s*([^;]+);\s*\n\s*(\w+)\s*=\s*tmp\s*;")
+_RE_UNSIGNED_REMOVE = re.compile(r"\bunsigned\s+(int|long|short|char)\b")
+_RE_UNSIGNED_ADD = re.compile(r"(?<!\bunsigned\s)(?<!\bsigned\s)\b(int|long|short)\s+(\w+)\s*[;=,]")
+_TYPE_PAT_STR = (
+    r"(?:const\s+)?(?:unsigned\s+)?(?:volatile\s+)?"
+    r"(?:BOOL|int|DWORD|HANDLE|LPVOID|HLOCAL|void|char|short|long|float|double|"
+    r"UINT|ULONG|BYTE|WORD|SIZE_T|CRITICAL_SECTION|ushort|uint|undefined\d?)"
+)
+_RE_DECL_SWAP = re.compile(
+    r"^([ \t]+)(" + _TYPE_PAT_STR + r")\s+\**\w+(?:\s*\[[^\]]*\])?\s*(?:=\s*[^;]+)?;\s*$"
+)
+_TYPE_KW = (
+    r"(?:BOOL|int|DWORD|HANDLE|LPVOID|char|short|long|float|double|"
+    r"UINT|ULONG|BYTE|WORD)"
+)
+_RE_SPLIT_DECL = re.compile(
+    r"^([ \t]+)((?:const\s+)?(?:unsigned\s+)?(?:volatile\s+)?"
+    + _TYPE_KW
+    + r"\s+\**(\w+))\s*=\s*([^;]+);",
+    re.MULTILINE,
+)
+_RE_MERGE_DECL = re.compile(
+    r"^([ \t]+)((?:unsigned\s+)?(?:volatile\s+)?" + _TYPE_KW + r")\s+(\w+)\s*;\s*\n"
+    r"\1\3\s*=\s*([^;]+);",
+    re.MULTILINE,
+)
+_RE_WHILE_LOOP = re.compile(r"\bwhile\s*\(")
+_RE_DO_WHILE = re.compile(r"\bdo\s*\{")
+_RE_DO_WHILE_COND = re.compile(r"while\s*\((.+)\)\s*;")  # .+ allows nested parens like func()
+_RE_EARLY_RETURN = re.compile(
+    r"if\s*\(\s*!\s*(\w+\s*\([^)]*(?:\([^)]*\)[^)]*)*\))\s*\)\s*\n?\s*return\s+(?:FALSE|0)\s*;"
+)
+_RE_ACCUM = re.compile(r"(\w+)\s*&=\s*(\w+\s*\([^)]*(?:\([^)]*\)[^)]*)*\))\s*;")
+_RE_RETCODE_VAR = re.compile(r"\bret(?:code)?\b")
+_RE_PTR_PARAM = re.compile(r"\b(char|void|int|short|long|unsigned\s+char)\s*\*\s*(\w+)")
+_RE_INT_PARAM = re.compile(r"(?<=[(,])\s*int\s+(\w+)")
+_RE_CONST_ADD = re.compile(r"(\w+)\s*=\s*\1\s*\+\s*(\d+);\s*(\1)\s*=\s*\3\s*\+\s*(\d+);")
+_RE_SINGLE_ADD = re.compile(r"(\w+)\s*=\s*\1\s*\+\s*(\d+);")
+_RE_ARRAY_INDEX = re.compile(r"(\w+)\s*\[\s*(\w+)\s*\]")
+_RE_PTR_ARROW = re.compile(r"(\w+)\s*->\s*(\w+)")
+_RE_CMP_CHAIN_3 = re.compile(r"if\s*\(([^=!&|]+)\s*&&\s*([^=!&|]+)\s*&&\s*([^)]+)\)", re.MULTILINE)
+_RE_CMP_CHAIN_2 = re.compile(r"if\s*\(([^=!&|]+)\s*&&\s*([^)]+)\)")
+_RE_MERGE_IF = re.compile(r"if\s*\(([^)]+)\)\s*\{\s*\}\s*if\s*\(([^)]+)\)\s*\{\s*\}")
+_RE_PTR_ARITH_DOUBLE = _RE_CONST_ADD  # Same pattern: fold two consecutive adds
+_RE_PTR_ARITH_SINGLE = _RE_SINGLE_ADD  # Same pattern: split a single add
+_RE_RETURN_TYPE = re.compile(r"^(int|char|short|long)\s+(\*?\s*\w+)\s*\([^)]*\)\s*\{", re.MULTILINE)
+_RE_FUNC_SIG = re.compile(r"^(\w+(?:[ \t]+\w+)+)[ \t]*\(([^)]+)\)[ \t]*\{", re.MULTILINE)
+# Validation patterns (used by quick_validate)
+_RE_VALIDATE_LABEL = re.compile(r"^\s*([a-zA-Z_]\w*)\s*:", re.MULTILINE)
+_LABEL_IGNORE = frozenset({"case", "default", "public", "private", "protected"})
+_TYPE_KEYWORDS = (
+    r"(?:BOOL|int|DWORD|HANDLE|LPVOID|void|char|short|long|float|double|"
+    r"unsigned|signed|const|volatile|register|UINT|ULONG|BYTE|WORD)"
+)
+_RE_VALIDATE_DOUBLE_TYPE = re.compile(r"\b(" + _TYPE_KEYWORDS + r")\s+\1\b")
 
 
 def _split_preamble_body(source: str) -> tuple[str, str]:
@@ -13,7 +182,7 @@ def _split_preamble_body(source: str) -> tuple[str, str]:
 
     for line in lines:
         if not in_body:
-            if re.match(r"^[a-zA-Z_][a-zA-Z0-9_*\s]*\s+[a-zA-Z_][a-zA-Z0-9_]*\s*\(", line):
+            if _RE_FUNC_START.match(line):
                 in_body = True
                 body.append(line)
                 brace_count += line.count("{") - line.count("}")
@@ -28,13 +197,38 @@ def _split_preamble_body(source: str) -> tuple[str, str]:
 
     return "\n".join(preamble), "\n".join(body)
 
-def _quick_validate(source: str) -> bool:
-    """Fast check for obvious syntax errors (unbalanced braces/parens)."""
+
+def quick_validate(source: str) -> bool:
+    """Fast check for obvious syntax errors that would waste a compilation round.
+
+    Checks:
+    - Balanced braces and parentheses
+    - At least one function definition present
+    - No duplicate goto labels (e.g. two ``ret_false:`` labels)
+    - No adjacent duplicate type keywords (e.g. ``int int``)
+    """
     if source.count("{") != source.count("}"):
         return False
     if source.count("(") != source.count(")"):
         return False
-    return True
+
+    # Must contain at least one function definition
+    if not _RE_FUNC_START.search(source):
+        return False
+
+    # Detect duplicate goto labels (common mutation artifact)
+    labels: set[str] = set()
+    for m in _RE_VALIDATE_LABEL.finditer(source):
+        label = m.group(1)
+        if label in _LABEL_IGNORE:
+            continue
+        if label in labels:
+            return False
+        labels.add(label)
+
+    # Detect adjacent duplicate type keywords (e.g. "int int x;")
+    return not _RE_VALIDATE_DOUBLE_TYPE.search(source)
+
 
 def compute_population_diversity(pop: list[str]) -> float:
     """Compute diversity of the population (0.0 to 1.0)."""
@@ -44,10 +238,11 @@ def compute_population_diversity(pop: list[str]) -> float:
     unique_sources = set(pop)
     return len(unique_sources) / len(pop)
 
+
 def crossover(parent1: str, parent2: str, rng: random.Random) -> str:
     """Line-level crossover of two parent sources."""
     p1_pre, p1_body = _split_preamble_body(parent1)
-    p2_pre, p2_body = _split_preamble_body(parent2)
+    _, p2_body = _split_preamble_body(parent2)
 
     lines1 = p1_body.splitlines()
     lines2 = p2_body.splitlines()
@@ -55,57 +250,69 @@ def crossover(parent1: str, parent2: str, rng: random.Random) -> str:
     if not lines1 or not lines2:
         return parent1
 
-    # Find a safe split point (not inside a statement)
-    # This is a naive implementation. A real AST-based crossover is better.
-    split_idx = rng.randint(1, min(len(lines1), len(lines2)) - 1)
+    # Need at least 2 lines in both parents to have a meaningful split point
+    min_len = min(len(lines1), len(lines2))
+    if min_len < 2:
+        return parent1
+
+    split_idx = rng.randint(1, min_len - 1)
 
     child_body = "\n".join(lines1[:split_idx] + lines2[split_idx:])
     child = p1_pre + "\n" + child_body
 
-    if _quick_validate(child):
+    if quick_validate(child):
         return child
     return parent1
 
+
 # --- Mutations ---
+
+
+def _sub_once(pat: str | re.Pattern[str], repl: Any, s: str, rng: random.Random) -> str | None:
+    """Helper to randomly replace one occurrence of a pattern."""
+    matches = list(pat.finditer(s) if isinstance(pat, re.Pattern) else re.finditer(pat, s))
+    if not matches:
+        return None
+    m = rng.choice(matches)
+    replacement = repl(m) if callable(repl) else repl
+    return s[: m.start()] + replacement + s[m.end() :]
+
 
 def mut_commute_simple_add(s: str, rng: random.Random) -> str | None:
     # x + y  -> y + x  (identifiers only)
-    pat = r"\b([A-Za-z_]\w*)\s*\+\s*([A-Za-z_]\w*)\b"
-    return _sub_once(pat, lambda m: f"{m.group(2)} + {m.group(1)}", s, rng)
+    return _sub_once(_RE_COMMUTE_ADD, lambda m: f"{m.group(2)} + {m.group(1)}", s, rng)
 
 
 def mut_commute_simple_mul(s: str, rng: random.Random) -> str | None:
-    pat = r"\b([A-Za-z_]\w*)\s*\*\s*([A-Za-z_]\w*)\b"
-    return _sub_once(pat, lambda m: f"{m.group(2)} * {m.group(1)}", s, rng)
+    return _sub_once(_RE_COMMUTE_MUL, lambda m: f"{m.group(2)} * {m.group(1)}", s, rng)
 
 
 def mut_flip_eq_zero(s: str, rng: random.Random) -> str | None:
     # x == 0 -> !x , x != 0 -> !!x
-    pat = r"\b([A-Za-z_]\w*)\s*(==|!=)\s*0\b"
-
-    def repl(m):
+    def repl(m: re.Match[str]) -> str:
         x, op = m.group(1), m.group(2)
         return f"!{x}" if op == "==" else f"!!{x}"
 
-    return _sub_once(pat, repl, s, rng)
+    return _sub_once(_RE_FLIP_EQ_ZERO, repl, s, rng)
 
 
 def mut_flip_lt_ge(s: str, rng: random.Random) -> str | None:
     # a < b -> !(a >= b)
-    pat = r"\b([A-Za-z_]\w*)\s*<\s*([A-Za-z_]\w*)\b"
-    return _sub_once(pat, lambda m: f"!({m.group(1)} >= {m.group(2)})", s, rng)
+    return _sub_once(_RE_FLIP_LT_GE, lambda m: f"!({m.group(1)} >= {m.group(2)})", s, rng)
 
 
 def mut_add_redundant_parens(s: str, rng: random.Random) -> str | None:
-    pat = r"\b([A-Za-z_]\w*)\b"
-    return _sub_once(pat, lambda m: f"({m.group(1)})", s, rng)
+    matches = [m for m in _RE_ADD_PARENS.finditer(s) if m.group(1) not in _C_KEYWORDS]
+    if not matches:
+        return None
+    m = rng.choice(matches)
+    return s[: m.start()] + f"({m.group(1)})" + s[m.end() :]
 
 
 def mut_reassociate_add(s: str, rng: random.Random) -> str | None:
     # (a + b) + c -> a + (b + c)
-    pat = r"\(\s*([A-Za-z_]\w*)\s*\+\s*([A-Za-z_]\w*)\s*\)\s*\+\s*([A-Za-z_]\w*)"
     return _sub_once(
-        pat, lambda m: f"{m.group(1)} + ({m.group(2)} + {m.group(3)})", s, rng
+        _RE_REASSOCIATE, lambda m: f"{m.group(1)} + ({m.group(2)} + {m.group(3)})", s, rng
     )
 
 
@@ -122,26 +329,22 @@ def mut_insert_noop_block(s: str, rng: random.Random) -> str | None:
 def mut_toggle_bool_not(s: str, rng: random.Random) -> str | None:
     # !!x -> x, and x -> !!x for identifiers in boolean contexts is unsafe.
     # Here only remove !! on identifiers.
-    pat = r"!!\s*([A-Za-z_]\w*)"
-    return _sub_once(pat, lambda m: f"{m.group(1)}", s, rng)
+    return _sub_once(_RE_DOUBLE_NOT, lambda m: f"{m.group(1)}", s, rng)
 
 
 def mut_swap_eq_operands(s: str, rng: random.Random) -> str | None:
     """a == b -> b == a"""
-    pat = r"(\b\w+\b)\s*==\s*(\b\w+\b)"
-    return _sub_once(pat, lambda m: f"{m.group(2)} == {m.group(1)}", s, rng)
+    return _sub_once(_RE_SWAP_EQ, lambda m: f"{m.group(2)} == {m.group(1)}", s, rng)
 
 
 def mut_swap_ne_operands(s: str, rng: random.Random) -> str | None:
     """a != b -> b != a"""
-    pat = r"(\b\w+\b)\s*!=\s*(\b\w+\b)"
-    return _sub_once(pat, lambda m: f"{m.group(2)} != {m.group(1)}", s, rng)
+    return _sub_once(_RE_SWAP_NE, lambda m: f"{m.group(2)} != {m.group(1)}", s, rng)
 
 
 def mut_swap_or_operands(s: str, rng: random.Random) -> str | None:
     """a || b -> b || a  (changes short-circuit order, affects codegen)"""
-    pat = r"([^|&\n]+?)\s*\|\|\s*([^|&\n;)]+)"
-    matches = list(re.finditer(pat, s))
+    matches = list(_RE_SWAP_OR.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
@@ -155,8 +358,7 @@ def mut_swap_or_operands(s: str, rng: random.Random) -> str | None:
 
 def mut_swap_and_operands(s: str, rng: random.Random) -> str | None:
     """a && b -> b && a"""
-    pat = r"([^|&\n]+?)\s*&&\s*([^|&\n;)]+)"
-    matches = list(re.finditer(pat, s))
+    matches = list(_RE_SWAP_AND.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
@@ -172,15 +374,14 @@ def mut_return_to_goto(s: str, rng: random.Random) -> str | None:
     """Replace 'return FALSE;' or 'return 0;' with 'goto ret_false;' and add label."""
     if "ret_false:" in s:
         return None  # already has the label
-    pat = r"\breturn\s+(?:FALSE|0)\s*;"
-    matches = list(re.finditer(pat, s))
+    matches = list(_RE_RETURN_FALSE.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
     start, end = m.span()
     result = s[:start] + "goto ret_false;" + s[end:]
     # Add label before the final return statement
-    final_ret = re.search(r"(\n)([ \t]*return\s+\w+\s*;\s*\n\})", result)
+    final_ret = _RE_FINAL_RET.search(result)
     if final_ret:
         pos = final_ret.start(1)
         result = result[:pos] + "\nret_false:\n" + result[pos:]
@@ -188,38 +389,31 @@ def mut_return_to_goto(s: str, rng: random.Random) -> str | None:
         # Fallback: add before closing brace
         last_brace = result.rfind("}")
         if last_brace >= 0:
-            result = (
-                result[:last_brace]
-                + "ret_false:\n    return 0;\n"
-                + result[last_brace:]
-            )
+            result = result[:last_brace] + "ret_false:\n    return 0;\n" + result[last_brace:]
     return result
 
 
 def mut_goto_to_return(s: str, rng: random.Random) -> str | None:
     """Reverse: replace 'goto ret_false;' with 'return FALSE;'"""
-    pat = r"\bgoto\s+ret_false\s*;"
-    matches = list(re.finditer(pat, s))
+    matches = list(_RE_GOTO_RET_FALSE.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
     start, end = m.span()
-    result = s[:start] + "return FALSE;" + s[end:]
+    result = s[:start] + "return 0;" + s[end:]
     # Remove the label if no more gotos reference it
     if "goto ret_false" not in result:
-        result = re.sub(r"\n\s*ret_false:\s*\n\s*return\s+0\s*;\s*\n", "\n", result)
-        result = re.sub(r"\n\s*ret_false:\s*\n", "\n", result)
+        result = _RE_RET_FALSE_LABEL.sub("\n", result)
+        result = _RE_RET_FALSE_LABEL_BARE.sub("\n", result)
     return result
 
 
 def mut_introduce_local_alias(s: str, rng: random.Random) -> str | None:
     """Create a local variable aliasing a parameter and replace some uses."""
     # Find parameter names in __stdcall function signatures
-    params = re.findall(r"\b(?:HANDLE|DWORD|LPVOID|int|BOOL)\s+(\w+)", s)
+    params = _RE_LOCAL_PARAMS.findall(s)
     params = [
-        p
-        for p in params
-        if len(p) > 1 and p not in ("WINAPI", "BOOL", "HANDLE", "DWORD", "LPVOID")
+        p for p in params if len(p) > 1 and p not in ("WINAPI", "BOOL", "HANDLE", "DWORD", "LPVOID")
     ]
     if not params:
         return None
@@ -229,15 +423,13 @@ def mut_introduce_local_alias(s: str, rng: random.Random) -> str | None:
         return None  # already aliased
 
     # Find the type of the parameter
-    type_match = re.search(
-        r"\b(HANDLE|DWORD|LPVOID|int|BOOL)\s+" + re.escape(param) + r"\b", s
-    )
+    type_match = re.search(r"\b(HANDLE|DWORD|LPVOID|int|BOOL)\s+" + re.escape(param) + r"\b", s)
     if not type_match:
         return None
     ptype = type_match.group(1)
 
     # Insert alias declaration after opening brace of function body
-    brace_match = re.search(r"\)\s*\{", s)
+    brace_match = _RE_BRACE_AFTER_PAREN.search(s)
     if not brace_match:
         return None
     insert_pos = brace_match.end()
@@ -252,9 +444,7 @@ def mut_introduce_local_alias(s: str, rng: random.Random) -> str | None:
     if not occurrences:
         return result
     # Replace a random subset
-    to_replace = rng.sample(
-        occurrences, k=min(rng.randint(1, len(occurrences)), len(occurrences))
-    )
+    to_replace = rng.sample(occurrences, k=rng.randint(1, len(occurrences)))
     to_replace.sort(key=lambda m: m.start(), reverse=True)
     for occ in to_replace:
         body = body[: occ.start()] + alias + body[occ.end() :]
@@ -263,9 +453,7 @@ def mut_introduce_local_alias(s: str, rng: random.Random) -> str | None:
 
 def mut_reorder_declarations(s: str, rng: random.Random) -> str | None:
     """Move a local variable declaration or add an initializer."""
-    # Find declarations like "TYPE varname;" at the start of function body
-    pat = r"^([ \t]+)((?:BOOL|int|DWORD|HANDLE|LPVOID)\s+\w+)\s*;$"
-    matches = list(re.finditer(pat, s, re.MULTILINE))
+    matches = list(_RE_DECL_LINE.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
@@ -282,38 +470,47 @@ def mut_reorder_declarations(s: str, rng: random.Random) -> str | None:
         return s[: m.start()] + new_line + s[m.end() :]
     else:
         # Remove initializer if present
-        init_pat = r"^([ \t]+(?:BOOL|int|DWORD|HANDLE|LPVOID)\s+\w+)\s*=\s*\w+\s*;$"
-        init_matches = list(re.finditer(init_pat, s, re.MULTILINE))
+        init_matches = list(_RE_INIT_LINE.finditer(s))
         if not init_matches:
             return None
         im = rng.choice(init_matches)
         return s[: im.start()] + im.group(1) + ";" + s[im.end() :]
 
 
-def _find_matching_brace(s: str, open_pos: int) -> int | None:
-    """Find closing brace matching the opening brace at open_pos."""
-    if open_pos >= len(s) or s[open_pos] != "{":
+def _find_matching_char(s: str, open_pos: int, open_ch: str, close_ch: str) -> int | None:
+    """Find closing delimiter matching the opener at *open_pos*.
+
+    Returns the index **after** the closing delimiter, or ``None`` if
+    unbalanced.  Works for ``{}`` and ``()``.
+    """
+    if open_pos >= len(s) or s[open_pos] != open_ch:
         return None
     depth = 1
     i = open_pos + 1
     while i < len(s) and depth > 0:
-        if s[i] == "{":
+        if s[i] == open_ch:
             depth += 1
-        elif s[i] == "}":
+        elif s[i] == close_ch:
             depth -= 1
         i += 1
     return i if depth == 0 else None
 
 
+def _find_matching_brace(s: str, open_pos: int) -> int | None:
+    """Find closing brace matching the opening brace at open_pos."""
+    return _find_matching_char(s, open_pos, "{", "}")
+
+
 def mut_swap_if_else(s: str, rng: random.Random) -> str | None:
     """Negate condition and swap if/else bodies."""
-    pat = r"\bif\s*\(([^{]*?)\)\s*\{"
-    matches = list(re.finditer(pat, s))
+    matches = list(_RE_IF_COND.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
     cond = m.group(1).strip()
-    if_brace_start = s.index("{", m.start())
+    if_brace_start = s.find("{", m.start())
+    if if_brace_start == -1:
+        return None
     if_brace_end = _find_matching_brace(s, if_brace_start)
     if if_brace_end is None:
         return None
@@ -322,11 +519,15 @@ def mut_swap_if_else(s: str, rng: random.Random) -> str | None:
     rest = s[if_brace_end:].lstrip()
     if not rest.startswith("else"):
         return None
-    else_start = s.index("else", if_brace_end)
+    else_start = s.find("else", if_brace_end)
+    if else_start == -1:
+        return None
     after_else = s[else_start + 4 :].lstrip()
     if not after_else.startswith("{"):
         return None
-    else_brace_start = s.index("{", else_start + 4)
+    else_brace_start = s.find("{", else_start + 4)
+    if else_brace_start == -1:
+        return None
     else_brace_end = _find_matching_brace(s, else_brace_start)
     if else_brace_end is None:
         return None
@@ -343,35 +544,37 @@ def mut_swap_if_else(s: str, rng: random.Random) -> str | None:
         neg_cond = f"!({cond})"
 
     result = (
-        s[: m.start()]
-        + f"if ({neg_cond}) {{{else_body}}} else {{{if_body}}}"
-        + s[else_brace_end:]
+        s[: m.start()] + f"if ({neg_cond}) {{{else_body}}} else {{{if_body}}}" + s[else_brace_end:]
     )
     return result
 
 
 def mut_reorder_elseif(s: str, rng: random.Random) -> str | None:
     """Swap two branches in an else-if chain."""
-    # Find if(...){...} else if(...){...} patterns
-    pat = r"(\bif\s*\([^{]*?\)\s*\{)"
-    matches = list(re.finditer(pat, s))
+    matches = list(_RE_ELSEIF_CHAIN.finditer(s))
     if len(matches) < 2:
         return None
 
     # Find adjacent if/else-if pairs
     for m in matches:
-        brace_start = s.index("{", m.start())
+        brace_start = s.find("{", m.start())
+        if brace_start == -1:
+            continue
         brace_end = _find_matching_brace(s, brace_start)
         if brace_end is None:
             continue
         rest = s[brace_end:].lstrip()
         if rest.startswith("else if"):
-            else_if_start = s.index("else if", brace_end)
+            else_if_start = s.find("else if", brace_end)
+            if else_if_start == -1:
+                continue
             # Extract the else-if condition and body
             ei_match = re.match(r"else\s+if\s*\(([^{]*?)\)\s*\{", s[else_if_start:])
             if not ei_match:
                 continue
-            ei_brace_start = s.index("{", else_if_start + ei_match.start())
+            ei_brace_start = s.find("{", else_if_start + ei_match.start())
+            if ei_brace_start == -1:
+                continue
             ei_brace_end = _find_matching_brace(s, ei_brace_start)
             if ei_brace_end is None:
                 continue
@@ -397,11 +600,9 @@ def mut_reorder_elseif(s: str, rng: random.Random) -> str | None:
 
 def mut_add_cast(s: str, rng: random.Random) -> str | None:
     """Wrap an expression in (BOOL) or (int) cast."""
-    casts = ["(BOOL)", "(int)", "(DWORD)"]
+    casts = ["(int)", "(unsigned int)"]
     cast = rng.choice(casts)
-    # Find identifiers in expression contexts (after = or in function args)
-    pat = r"(?<=[=(,!])\s*(\b[A-Za-z_]\w*\b)(?!\s*\()"
-    matches = list(re.finditer(pat, s))
+    matches = list(_RE_CAST_TARGET.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
@@ -429,21 +630,18 @@ def mut_add_cast(s: str, rng: random.Random) -> str | None:
 
 def mut_remove_cast(s: str, rng: random.Random) -> str | None:
     """Remove a (TYPE) cast."""
-    pat = r"\((?:BOOL|int|DWORD|HANDLE|LPVOID)\)(\w+)"
-    return _sub_once(pat, lambda m: m.group(1), s, rng)
+    return _sub_once(_RE_REMOVE_CAST, lambda m: m.group(1), s, rng)
 
 
 def mut_toggle_volatile(s: str, rng: random.Random) -> str | None:
     """Add or remove 'volatile' on a local variable declaration."""
     # Try removing volatile first
-    vol_pat = r"\bvolatile\s+"
-    vol_matches = list(re.finditer(vol_pat, s))
+    vol_matches = list(_RE_VOLATILE.finditer(s))
     if vol_matches and rng.random() < 0.5:
         m = rng.choice(vol_matches)
         return s[: m.start()] + s[m.end() :]
     # Try adding volatile
-    pat = r"^([ \t]+)((?:BOOL|int|DWORD|HANDLE|LPVOID)\s+\w+)"
-    matches = list(re.finditer(pat, s, re.MULTILINE))
+    matches = list(_RE_ADD_VOLATILE.finditer(s))
     matches = [m for m in matches if "volatile" not in s[m.start() : m.end() + 20]]
     if not matches:
         return None
@@ -455,8 +653,7 @@ def mut_add_register_keyword(s: str, rng: random.Random) -> str | None:
     """Add 'register' keyword to a local variable declaration.
     Note: MSVC6 largely ignores register hints, but the keyword
     can sometimes affect variable ordering in the symbol table."""
-    pat = r"^([ \t]+)((?:BOOL|int|DWORD|HANDLE|LPVOID)\s+\w+)"
-    matches = list(re.finditer(pat, s, re.MULTILINE))
+    matches = list(_RE_ADD_REGISTER.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
@@ -467,8 +664,7 @@ def mut_add_register_keyword(s: str, rng: random.Random) -> str | None:
 
 def mut_remove_register_keyword(s: str, rng: random.Random) -> str | None:
     """Remove 'register' keyword from a declaration."""
-    pat = r"\bregister\s+"
-    matches = list(re.finditer(pat, s))
+    matches = list(_RE_REMOVE_REGISTER.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
@@ -481,28 +677,25 @@ def mut_if_false_to_bitand(s: str, rng: random.Random) -> str | None:
     This can produce `and [mem], reg` instead of `test/jne/mov` pattern,
     which is how MSVC6 sometimes optimizes this idiom.
     """
-    # Match: if (!CALL(...)) VAR = FALSE;
-    pat = r"if\s*\(\s*!\s*(\w+\s*\([^)]*\))\s*\)\s*\n?\s*(\w+)\s*=\s*(?:FALSE|0)\s*;"
-    matches = list(re.finditer(pat, s))
+    matches = list(_RE_IF_FALSE_BITAND.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
     call_expr = m.group(1)
     var_name = m.group(2)
-    replacement = "%s &= %s;" % (var_name, call_expr)
+    replacement = f"{var_name} &= {call_expr};"
     return s[: m.start()] + replacement + s[m.end() :]
 
 
 def mut_bitand_to_if_false(s: str, rng: random.Random) -> str | None:
     """Reverse of mut_if_false_to_bitand: convert 'var &= expr;' to 'if (!expr) var = FALSE;'."""
-    pat = r"(\w+)\s*&=\s*(\w+\s*\([^)]*\))\s*;"
-    matches = list(re.finditer(pat, s))
+    matches = list(_RE_BITAND_TO_IF.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
     var_name = m.group(1)
     call_expr = m.group(2)
-    replacement = "if (!%s)\n            %s = FALSE;" % (call_expr, var_name)
+    replacement = f"if (!{call_expr})\n            {var_name} = 0;"
     return s[: m.start()] + replacement + s[m.end() :]
 
 
@@ -514,9 +707,7 @@ def mut_introduce_temp_for_call(s: str, rng: random.Random) -> str | None:
 
     This can help the compiler keep the result in a register for subsequent tests.
     """
-    # Match: VAR = CALL(args);  (but not var &= or var |= etc.)
-    pat = r"(\w+)\s*=\s*(\w+\s*\([^;]+\))\s*;"
-    matches = list(re.finditer(pat, s))
+    matches = list(_RE_VAR_ASSIGN_CALL.finditer(s))
     # Filter to only function calls (must have parens), not already using tmp
     matches = [m for m in matches if "(" in m.group(2) and "tmp" not in m.group(0)]
     if not matches:
@@ -525,23 +716,22 @@ def mut_introduce_temp_for_call(s: str, rng: random.Random) -> str | None:
     var_name = m.group(1)
     call_expr = m.group(2)
     # Check if tmp is already declared
-    if re.search(r"\b(?:BOOL|int)\s+tmp\b", s):
-        replacement = "tmp = %s;\n    %s = tmp;" % (call_expr, var_name)
+    if _RE_BOOL_TMP_DECL.search(s):
+        replacement = f"tmp = {call_expr};\n    {var_name} = tmp;"
     else:
-        replacement = "tmp = %s;\n    %s = tmp;" % (call_expr, var_name)
+        replacement = f"BOOL tmp = {call_expr};\n    {var_name} = tmp;"
     return s[: m.start()] + replacement + s[m.end() :]
 
 
 def mut_remove_temp_var(s: str, rng: random.Random) -> str | None:
     """Remove a temp variable usage: 'tmp = expr; var = tmp;' -> 'var = expr;'."""
-    pat = r"tmp\s*=\s*([^;]+);\s*\n\s*(\w+)\s*=\s*tmp\s*;"
-    matches = list(re.finditer(pat, s))
+    matches = list(_RE_TEMP_VAR.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
     expr = m.group(1)
     var_name = m.group(2)
-    return s[: m.start()] + "%s = %s;" % (var_name, expr) + s[m.end() :]
+    return s[: m.start()] + f"{var_name} = {expr};" + s[m.end() :]
 
 
 # -------------------------
@@ -561,10 +751,8 @@ def mut_toggle_signedness(s: str, rng: random.Random) -> str | None:
     - jl/jge vs jb/jae for comparisons
     These changes alter register pressure and allocation order.
     """
-    pat_remove = r"\bunsigned\s+(int|long|short|char)\b"
-    matches = list(re.finditer(pat_remove, s))
-    pat_add = r"(?<!\bunsigned\s)(?<!\bsigned\s)\b(int|long|short)\s+(\w+)\s*[;=,]"
-    matches_add = list(re.finditer(pat_add, s))
+    matches = list(_RE_UNSIGNED_REMOVE.finditer(s))
+    matches_add = list(_RE_UNSIGNED_ADD.finditer(s))
 
     candidates = []
     if matches:
@@ -579,9 +767,7 @@ def mut_toggle_signedness(s: str, rng: random.Random) -> str | None:
     if action == "remove":
         return s[: m.start()] + m.group(1) + s[m.end() :]
     else:
-        return (
-            s[: m.start()] + "unsigned " + m.group(0) + s[m.end() + len(m.group(0)) :]
-        )
+        return s[: m.start()] + "unsigned " + m.group(0) + s[m.end() :]
 
 
 def mut_swap_adjacent_declarations(s: str, rng: random.Random) -> str | None:
@@ -592,18 +778,10 @@ def mut_swap_adjacent_declarations(s: str, rng: random.Random) -> str | None:
     can change which variable gets EAX vs ECX vs EDX.
     """
 
-    type_pat = (
-        r"(?:const\s+)?(?:unsigned\s+)?(?:volatile\s+)?"
-        r"(?:BOOL|int|DWORD|HANDLE|LPVOID|HLOCAL|void|char|short|long|float|double|"
-        r"UINT|ULONG|BYTE|WORD|SIZE_T|CRITICAL_SECTION|ushort|uint|undefined\d?)"
-    )
-    pat = (
-        r"^([ \t]+)(" + type_pat + r")\s+\**\w+(?:\s*\[[^\]]*\])?\s*(?:=\s*[^;]+)?;\s*$"
-    )
     lines = s.split("\n")
     decl_indices = []
     for i, line in enumerate(lines):
-        if re.match(pat, line):
+        if _RE_DECL_SWAP.match(line):
             decl_indices.append(i)
 
     pairs = []
@@ -624,12 +802,7 @@ def mut_split_declaration_init(s: str, rng: random.Random) -> str | None:
     Separating declaration from initialization changes when the compiler
     considers the variable 'live', which affects register allocation.
     """
-    pat = (
-        r"^([ \t]+)((?:const\s+)?(?:unsigned\s+)?(?:volatile\s+)?"
-        r"(?:BOOL|int|DWORD|HANDLE|LPVOID|char|short|long|float|double|"
-        r"UINT|ULONG|BYTE|WORD)\s+\**(\w+))\s*=\s*([^;]+);"
-    )
-    matches = list(re.finditer(pat, s, re.MULTILINE))
+    matches = list(_RE_SPLIT_DECL.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
@@ -637,7 +810,7 @@ def mut_split_declaration_init(s: str, rng: random.Random) -> str | None:
     decl = m.group(2)
     var = m.group(3)
     init_expr = m.group(4).strip()
-    replacement = "%s%s;\n%s%s = %s;" % (indent, decl, indent, var, init_expr)
+    replacement = f"{indent}{decl};\n{indent}{var} = {init_expr};"
     return s[: m.start()] + replacement + s[m.end() :]
 
 
@@ -648,23 +821,15 @@ def mut_merge_declaration_init(s: str, rng: random.Random) -> str | None:
     gap, which can free a register for other variables.
     """
 
-    type_kw = (
-        r"(?:BOOL|int|DWORD|HANDLE|LPVOID|char|short|long|float|double|"
-        r"UINT|ULONG|BYTE|WORD)"
-    )
-    pat = (
-        r"^([ \t]+)((?:unsigned\s+)?(?:volatile\s+)?" + type_kw + r")\s+(\w+)\s*;\s*\n"
-        r"([ \t]+)\3\s*=\s*([^;]+);"
-    )
-    matches = list(re.finditer(pat, s, re.MULTILINE))
+    matches = list(_RE_MERGE_DECL.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
     indent = m.group(1)
     type_decl = m.group(2)
     var = m.group(3)
-    init_expr = m.group(5).strip()
-    replacement = "%s%s %s = %s;" % (indent, type_decl, var, init_expr)
+    init_expr = m.group(4).strip()
+    replacement = f"{indent}{type_decl} {var} = {init_expr};"
     return s[: m.start()] + replacement + s[m.end() :]
 
 
@@ -674,21 +839,29 @@ def mut_while_to_dowhile(s: str, rng: random.Random) -> str | None:
     MSVC6 performs loop rotation differently for while vs do-while.
     A do-while avoids the duplicated condition check at loop top.
     """
-    pat = r"while\s*\(([^)]+)\)\s*\{"
-    matches = list(re.finditer(pat, s))
+    matches = list(_RE_WHILE_LOOP.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
-    cond = m.group(1)
+    # Find balanced closing paren for the condition
+    paren_start = m.end() - 1  # index of '('
+    paren_end = _find_matching_char(s, paren_start, "(", ")")
+    if paren_end is None:
+        return None
+    cond = s[paren_start + 1 : paren_end - 1]
 
-    brace_start = m.end() - 1
+    # Find opening brace after condition
+    rest_after_paren = s[paren_end:].lstrip()
+    if not rest_after_paren.startswith("{"):
+        return None
+    brace_start = s.index("{", paren_end)
     close = _find_matching_brace(s, brace_start)
     if close is None:
         return None
-    body = s[brace_start + 1 : close]
+    body = s[brace_start + 1 : close - 1]
     before = s[: m.start()]
-    after = s[close + 1 :]
-    replacement = "if (%s) {\n    do {%s} while (%s);\n    }" % (cond, body, cond)
+    after = s[close:]
+    replacement = f"if ({cond}) {{\n    do {{{body}}} while ({cond});\n    }}"
     return before + replacement + after
 
 
@@ -697,8 +870,7 @@ def mut_dowhile_to_while(s: str, rng: random.Random) -> str | None:
 
     Reverse of mut_while_to_dowhile. Changes loop rotation behavior.
     """
-    pat = r"\bdo\s*\{"
-    matches = list(re.finditer(pat, s))
+    matches = list(_RE_DO_WHILE.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
@@ -706,16 +878,18 @@ def mut_dowhile_to_while(s: str, rng: random.Random) -> str | None:
     close = _find_matching_brace(s, brace_start)
     if close is None:
         return None
-    body = s[brace_start + 1 : close]
+    body = s[brace_start + 1 : close - 1]
     # Find 'while (cond);' after closing brace
-    after_close = s[close + 1 :].lstrip()
-    wm = re.match(r"while\s*\(([^)]+)\)\s*;", after_close)
+    after_close_raw = s[close:]
+    after_close = after_close_raw.lstrip()
+    wm = _RE_DO_WHILE_COND.match(after_close)
     if not wm:
         return None
     cond = wm.group(1)
     before = s[: m.start()]
-    rest = s[close + 1 + len(s[close + 1 :]) - len(after_close) + wm.end() :]
-    replacement = "while (%s) {%s}" % (cond, body)
+    whitespace_skip = len(after_close_raw) - len(after_close)
+    rest = s[close + whitespace_skip + wm.end() :]
+    replacement = f"while ({cond}) {{{body}}}"
     return before + replacement + rest
 
 
@@ -726,18 +900,16 @@ def mut_early_return_to_accum(s: str, rng: random.Random) -> str | None:
     pressure that forces the compiler to spill other variables to stack,
     changing the overall register allocation.
     """
-    pat = r"if\s*\(\s*!\s*(\w+\s*\([^)]*\))\s*\)\s*\n?\s*return\s+(?:FALSE|0)\s*;"
-    matches = list(re.finditer(pat, s))
+    matches = list(_RE_EARLY_RETURN.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
     call_expr = m.group(1)
     # Check if 'ret' or 'retcode' already exists
-    if re.search(r"\bret(?:code)?\b", s):
+    if _RE_RETCODE_VAR.search(s):
         var = "retcode" if "retcode" in s else "ret"
-        replacement = "%s &= %s;" % (var, call_expr)
+        replacement = f"{var} &= {call_expr};"
     else:
-        replacement = "if (!%s) return 0;" % call_expr  # no change
         return None
     return s[: m.start()] + replacement + s[m.end() :]
 
@@ -747,8 +919,7 @@ def mut_accum_to_early_return(s: str, rng: random.Random) -> str | None:
 
     Reverse of mut_early_return_to_accum.
     """
-    pat = r"(\w+)\s*&=\s*(\w+\s*\([^)]*\))\s*;"
-    matches = list(re.finditer(pat, s))
+    matches = list(_RE_ACCUM.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
@@ -756,7 +927,7 @@ def mut_accum_to_early_return(s: str, rng: random.Random) -> str | None:
     if var_name not in ("ret", "retcode", "result"):
         return None
     call_expr = m.group(2)
-    replacement = "if (!%s)\n        return 0;" % call_expr
+    replacement = f"if (!{call_expr})\n        return 0;"
     return s[: m.start()] + replacement + s[m.end() :]
 
 
@@ -766,9 +937,7 @@ def mut_pointer_to_int_param(s: str, rng: random.Random) -> str | None:
     MSVC6 generates different address computation instructions for
     pointer arithmetic vs integer + cast, affecting register usage.
     """
-    # Find pointer params: TYPE *name or TYPE* name
-    pat_ptr = r"\b(char|void|int|short|long|unsigned\s+char)\s*\*\s*(\w+)"
-    matches = list(re.finditer(pat_ptr, s))
+    matches = list(_RE_PTR_PARAM.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
@@ -788,9 +957,7 @@ def mut_int_to_pointer_param(s: str, rng: random.Random) -> str | None:
     Reverse of mut_pointer_to_int_param. Using char* changes how the
     compiler generates field access (lea vs add).
     """
-    # Find 'int name' in function signatures (after '(' or ',')
-    pat = r"(?<=[(,])\s*int\s+(\w+)"
-    matches = list(re.finditer(pat, s))
+    matches = list(_RE_INT_PARAM.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
@@ -807,22 +974,29 @@ def mut_duplicate_loop_body(s: str, rng: random.Random) -> str | None:
     while(condition) { body; body; }
     This affects register pressure and loop overhead.
     """
-    import re
-
-    # Find while loops
-    while_pat = re.compile(
-        r"\bwhile\s*\(([^)]+)\)\s*\{([^}]+)\}", re.MULTILINE | re.DOTALL
-    )
-    matches = list(while_pat.finditer(s))
+    matches = list(_RE_WHILE_LOOP.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
-    cond = m.group(1)
-    body = m.group(2)
+    # Find balanced condition parens
+    paren_start = m.end() - 1
+    paren_end = _find_matching_char(s, paren_start, "(", ")")
+    if paren_end is None:
+        return None
+    cond = s[paren_start + 1 : paren_end - 1]
+    # Find balanced body braces
+    rest_after_paren = s[paren_end:].lstrip()
+    if not rest_after_paren.startswith("{"):
+        return None
+    brace_start = s.index("{", paren_end)
+    brace_end = _find_matching_brace(s, brace_start)
+    if brace_end is None:
+        return None
+    body = s[brace_start + 1 : brace_end - 1]
     # Duplicate body
     new_body = body + "\n" + body.strip()
     new_while = f"while ({cond}) {{{new_body}}}"
-    return s[: m.start()] + new_while + s[m.end() :]
+    return s[: m.start()] + new_while + s[brace_end:]
 
 
 def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
@@ -831,18 +1005,14 @@ def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
     Changes: x = x + 1; x = x + 1; -> x = x + 2;
     This affects how many add instructions are generated.
     """
-    import re
 
-    # Find repeated increments of same var: var = var + N
-    pat = re.compile(r"(\w+)\s*=\s*\1\s*\+\s*(\d+);\s*(\1)\s*=\s*\3\s*\+\s*(\d+);")
-    matches = list(pat.finditer(s))
+    matches = list(_RE_CONST_ADD.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
     var = m.group(1)
     n1 = int(m.group(2))
     n2 = int(m.group(4))
-    old = m.group(0)
     new = f"{var} = {var} + {n1 + n2};"
     return s[: m.start()] + new + s[m.end() :]
 
@@ -853,21 +1023,17 @@ def mut_unfold_constant_add(s: str, rng: random.Random) -> str | None:
     Changes: x = x + 2; -> x = x + 1; x = x + 1;
     This adds more add instructions for register pressure.
     """
-    import re
 
-    # Find x = x + N where N > 1
-    pat = re.compile(r"(\w+)\s*=\s*\1\s*\+\s*(\d+);")
-    matches = list(pat.finditer(s))
+    matches = list(_RE_SINGLE_ADD.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
     var = m.group(1)
     n = int(m.group(2))
-    if n <= 1:
+    if n <= 1 or n > 16:
         return None
     # Split into n increments of 1
-    incs = "; ".join([f"{var} = {var} + 1" for _ in range(n)])
-    old = m.group(0)
+    incs = "; ".join([f"{var} = {var} + 1" for _ in range(n)]) + ";"
     return s[: m.start()] + incs + s[m.end() :]
 
 
@@ -876,17 +1042,13 @@ def mut_change_array_index_order(s: str, rng: random.Random) -> str | None:
 
     Both compile to same code but can affect MSVC register allocation.
     """
-    import re
 
-    # Find array[index] patterns
-    pat = re.compile(r"(\w+)\s*\[\s*(\w+)\s*\]")
-    matches = list(pat.finditer(s))
+    matches = list(_RE_ARRAY_INDEX.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
     arr = m.group(1)
     idx = m.group(2)
-    old = m.group(0)
     new = f"{idx}[{arr}]"
     return s[: m.start()] + new + s[m.end() :]
 
@@ -896,57 +1058,56 @@ def mut_struct_vs_ptr_access(s: str, rng: random.Random) -> str | None:
 
     This affects how MSVC generates field access code.
     """
-    import re
 
-    # Find ptr->field
-    pat = re.compile(r"(\w+)\s*->\s*(\w+)")
-    matches = list(pat.finditer(s))
+    matches = list(_RE_PTR_ARROW.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
     ptr = m.group(1)
     field = m.group(2)
-    old = m.group(0)
     new = f"(*{ptr}).{field}"
     return s[: m.start()] + new + s[m.end() :]
 
 
 def mut_split_cmp_chain(s: str, rng: random.Random) -> str | None:
-    """Split chained comparisons into separate if statements.
+    """Split chained && into nested if statements.
 
-    Changes: if (a == b && b == c) -> if (a == b) if (b == c)
-    This changes control flow and register usage.
+    Changes: if (a && b) { body } -> if (a) { if (b) { body } }
+    This preserves semantics while changing control flow and register usage.
     """
-    import re
-
-    # Find if with && chain
-    pat = re.compile(
-        r"if\s*\(([^=!&|]+)\s*&&\s*([^=!&|]+)\s*&&\s*([^)]+)\)", re.MULTILINE
-    )
-    matches = list(pat.finditer(s))
+    matches = list(_RE_CMP_CHAIN_3.finditer(s))
     if not matches:
-        # Try 2-way &&
-        pat = re.compile(r"if\s*\(([^=!&|]+)\s*&&\s*([^)]+)\)")
-        matches = list(pat.finditer(s))
+        matches = list(_RE_CMP_CHAIN_2.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
-    cond = m.group(0)
-    inner = (
-        m.group(1)
-        if m.lastindex == 1
-        else m.group(2)
-        if m.lastindex == 2
-        else m.group(3)
-    )
-    parts = [
-        p.strip()
-        for p in re.split(r"\s*&&\s*", m.group(0).replace("if (", "").replace(")", ""))
-    ]
+    # Find the body braces following the if(...)
+    rest = s[m.end() :].lstrip()
+    if not rest.startswith("{"):
+        return None
+    brace_start = s.index("{", m.end())
+    brace_end = _find_matching_brace(s, brace_start)
+    if brace_end is None:
+        return None
+    body = s[brace_start + 1 : brace_end - 1]
+
+    # Extract the condition text between "if (" and the closing ")"
+    cond_text = m.group(0)
+    inner = cond_text[cond_text.index("(") + 1 : cond_text.rindex(")")]
+    parts = [p.strip() for p in re.split(r"\s*&&\s*", inner)]
     if len(parts) < 2:
         return None
-    new_ifs = "; ".join([f"if ({p}) {{}}" for p in parts])
-    return s[: m.start()] + new_ifs + s[m.end() :]
+
+    # Build nested ifs with balanced braces:
+    # if (a && b) { body }  ->  if (a) { if (b) { body } }
+    # if (a && b && c) { body }  ->  if (a) { if (b) { if (c) { body } } }
+    inner_block = "{" + body + "}"
+    for i in range(len(parts) - 1, -1, -1):
+        inner_block = f"if ({parts[i]}) {inner_block}"
+        if i > 0:
+            inner_block = "{ " + inner_block + " }"
+    result = s[: m.start()] + inner_block + s[brace_end:]
+    return result
 
 
 def mut_merge_cmp_chain(s: str, rng: random.Random) -> str | None:
@@ -955,17 +1116,13 @@ def mut_merge_cmp_chain(s: str, rng: random.Random) -> str | None:
     Changes: if (a == b) {} if (b == c) {} -> if (a == b && b == c) {}
     Opposite of split_cmp_chain.
     """
-    import re
 
-    # Find adjacent if statements
-    if_pat = re.compile(r"if\s*\(([^)]+)\)\s*\{\s*\}\s*if\s*\(([^)]+)\)\s*\{\s*\}")
-    matches = list(if_pat.finditer(s))
+    matches = list(_RE_MERGE_IF.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
     cond1 = m.group(1)
     cond2 = m.group(2)
-    old = m.group(0)
     new = f"if ({cond1} && {cond2}) {{}}"
     return s[: m.start()] + new + s[m.end() :]
 
@@ -976,17 +1133,14 @@ def mut_combine_ptr_arith(s: str, rng: random.Random) -> str | None:
     Changes: p = p + n; p = p + m; -> p = p + (n + m);
     Affects number of add instructions generated.
     """
-    import re
 
-    pat = re.compile(r"(\w+)\s*=\s*\1\s*\+\s*(\d+);\s*(\1)\s*=\s*\3\s*\+\s*(\d+);")
-    matches = list(pat.finditer(s))
+    matches = list(_RE_PTR_ARITH_DOUBLE.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
     var = m.group(1)
     n1 = int(m.group(2))
     n2 = int(m.group(4))
-    old = m.group(0)
     new = f"{var} = {var} + {n1 + n2};"
     return s[: m.start()] + new + s[m.end() :]
 
@@ -997,10 +1151,8 @@ def mut_split_ptr_arith(s: str, rng: random.Random) -> str | None:
     Changes: p = p + n; -> p = p + n1; p = p + n2; where n1+n2=n
     Adds more add instructions for register pressure.
     """
-    import re
 
-    pat = re.compile(r"(\w+)\s*=\s*\1\s*\+\s*(\d+);")
-    matches = list(pat.finditer(s))
+    matches = list(_RE_PTR_ARITH_SINGLE.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
@@ -1011,7 +1163,6 @@ def mut_split_ptr_arith(s: str, rng: random.Random) -> str | None:
     # Split into two parts
     n1 = n // 2
     n2 = n - n1
-    old = m.group(0)
     new = f"{var} = {var} + {n1}; {var} = {var} + {n2};"
     return s[: m.start()] + new + s[m.end() :]
 
@@ -1021,22 +1172,16 @@ def mut_change_return_type(s: str, rng: random.Random) -> str | None:
 
     Different return types generate different register usage (al vs ax vs eax).
     """
-    import re
 
-    # Find function return type
-    pat = re.compile(
-        r"^(int|char|short|long)\s+(\*?\s*\w+)\s*\([^)]*\)\s*\{", re.MULTILINE
-    )
-    matches = list(pat.finditer(s))
+    matches = list(_RE_RETURN_TYPE.finditer(s))
     if not matches:
         return None
     m = rng.choice(matches)
     types = ["int", "char", "short", "long"]
     current = m.group(1)
     new_type = rng.choice([t for t in types if t != current])
-    old = m.group(0)
-    new = f"{new_type} {m.group(2)} {{"
-    return s[: m.start()] + new + s[m.end() :]
+    # Replace only the return type, preserving everything after it
+    return s[: m.start()] + new_type + s[m.start() + len(m.group(1)) :]
 
 
 def mut_change_param_order(s: str, rng: random.Random) -> str | None:
@@ -1044,11 +1189,8 @@ def mut_change_param_order(s: str, rng: random.Random) -> str | None:
 
     MSVC passes parameters in different registers based on position.
     """
-    import re
 
-    # Find function signature
-    pat = re.compile(r"^(\w+\s+\w+)\s*\(([^)]+)\)\s*\{", re.MULTILINE | re.DOTALL)
-    match = pat.search(s)
+    match = _RE_FUNC_SIG.search(s)
     if not match:
         return None
     params = [p.strip() for p in match.group(2).split(",")]
@@ -1057,7 +1199,108 @@ def mut_change_param_order(s: str, rng: random.Random) -> str | None:
     # Swap two random params
     i, j = rng.sample(range(len(params)), 2)
     params[i], params[j] = params[j], params[i]
-    old = match.group(0)
+    new_sig = match.group(1) + "(" + ", ".join(params) + ") {"
+    return s[: match.start()] + new_sig + s[match.end() :]
+
+
+# Calling convention patterns
+_RE_FUNC_DEF_CONV = re.compile(
+    r"^([a-zA-Z_][a-zA-Z0-9_*\s]*)\s+(__cdecl|__stdcall)\s+([a-zA-Z_][a-zA-Z0-9_]*\s*\()",
+    re.MULTILINE,
+)
+# Char signedness
+_RE_UNSIGNED_CHAR = re.compile(r"\bunsigned\s+char\b")
+_RE_SIGNED_CHAR = re.compile(r"\bsigned\s+char\b")
+_RE_BARE_CHAR = re.compile(r"(?<!unsigned )(?<!unsigned\t)(?<!signed )(?<!signed\t)\bchar\b")
+# Comparison boundary
+_RE_GE_ONE = re.compile(r"(\b\w+)\s*>=\s*1\b")
+_RE_GT_ZERO = re.compile(r"(\b\w+)\s*>\s*0\b")
+_RE_LE_ZERO = re.compile(r"(\b\w+)\s*<=\s*0\b")
+_RE_LT_ONE = re.compile(r"(\b\w+)\s*<\s*1\b")
+
+
+def mut_toggle_calling_convention(s: str, rng: random.Random) -> str | None:
+    """Toggle between __cdecl and __stdcall calling conventions.
+
+    MSVC6 generates different prologue/epilogue code for each convention.
+    __cdecl: caller cleans stack; __stdcall: callee cleans stack (ret N).
+    """
+    m = _RE_FUNC_DEF_CONV.search(s)
+    if m:
+        old_conv = m.group(2)
+        new_conv = "__stdcall" if old_conv == "__cdecl" else "__cdecl"
+        return s[: m.start(2)] + new_conv + s[m.end(2) :]
+
+    # No explicit convention — try adding one
+    match = _RE_FUNC_SIG.search(s)
+    if not match:
+        return None
+    conv = rng.choice(["__cdecl", "__stdcall"])
+    # Insert convention between return type and function name
+    # group(1) captures "rettype funcname" — split on last whitespace
+    sig = match.group(1)
+    last_space = sig.rfind(" ")
+    if last_space < 0:
+        return None
+    return (
+        s[: match.start(1)]
+        + sig[:last_space]
+        + " "
+        + conv
+        + " "
+        + sig[last_space + 1 :]
+        + s[match.end(1) :]
+    )
+
+
+def mut_toggle_char_signedness(s: str, rng: random.Random) -> str | None:
+    """Toggle char signedness: char -> unsigned char -> signed char -> char.
+
+    MSVC6 treats char as signed by default, but explicit signedness
+    affects sign-extension in generated code (movsx vs movzx).
+    """
+    # Collect all replacement candidates
+    candidates: list[tuple[re.Match[str], str, bool]] = []  # (match, replacement, is_line_based)
+    for m in _RE_UNSIGNED_CHAR.finditer(s):
+        candidates.append((m, "signed char", False))
+    for m in _RE_SIGNED_CHAR.finditer(s):
+        candidates.append((m, "char", False))
+    # Bare char → unsigned char (only in declaration-like lines)
+    for m in _RE_BARE_CHAR.finditer(s):
+        candidates.append((m, "unsigned char", False))
+
+    if not candidates:
+        return None
+    m, replacement, _ = rng.choice(candidates)
+    result = s[: m.start()] + replacement + s[m.end() :]
+    # Guard against double-keyword artifacts like "unsigned unsigned char"
+    if "unsigned unsigned" in result or "signed signed" in result:
+        return None
+    return result
+
+
+def mut_comparison_boundary(s: str, rng: random.Random) -> str | None:
+    """Toggle comparison boundary: >= 1 <-> > 0, <= 0 <-> < 1.
+
+    These generate different x86 comparison encodings (cmp+jge vs cmp+jg)
+    which can cause byte-level mismatches even with identical logic.
+    """
+    # Collect all matches across all four patterns with their replacements
+    candidates: list[tuple[re.Match[str], str]] = []
+    for m in _RE_GE_ONE.finditer(s):
+        candidates.append((m, m.group(1) + " > 0"))
+    for m in _RE_GT_ZERO.finditer(s):
+        candidates.append((m, m.group(1) + " >= 1"))
+    for m in _RE_LE_ZERO.finditer(s):
+        candidates.append((m, m.group(1) + " < 1"))
+    for m in _RE_LT_ONE.finditer(s):
+        candidates.append((m, m.group(1) + " <= 0"))
+
+    if not candidates:
+        return None
+    m, replacement = rng.choice(candidates)
+    return s[: m.start()] + replacement + s[m.end() :]
+
 
 ALL_MUTATIONS = [
     mut_commute_simple_add,
@@ -1108,25 +1351,44 @@ ALL_MUTATIONS = [
     mut_split_ptr_arith,
     mut_change_return_type,
     mut_change_param_order,
+    mut_toggle_calling_convention,
+    mut_toggle_char_signedness,
+    mut_comparison_boundary,
 ]
+
 
 def mutate_code(
     source: str,
     rng: random.Random,
     track_mutation: bool = False,
     mutation_weights: dict[str, float] | None = None,
-) -> Any:
-    """Apply a random mutation to the source code."""
+) -> str | tuple[str, str]:
+    """Apply a random mutation to the source code.
+
+    When *mutation_weights* is provided, it maps mutation function names
+    (e.g. ``"mut_swap_if_else"``) to relative weights.  Mutations not
+    listed default to weight 1.0.
+    """
     preamble, body = _split_preamble_body(source)
 
-    valid_mutations = [m for m in ALL_MUTATIONS if m is not None]
+    # Build weighted selection list
+    if mutation_weights:
+        weights = [mutation_weights.get(m.__name__, 1.0) for m in ALL_MUTATIONS]
+        # Fall back to uniform if all weights are zero
+        if not any(w > 0 for w in weights):
+            weights = None
+    else:
+        weights = None
 
     for _ in range(10):
-        mut_func = rng.choice(valid_mutations)
+        if weights:
+            mut_func = rng.choices(ALL_MUTATIONS, weights=weights, k=1)[0]
+        else:
+            mut_func = rng.choice(ALL_MUTATIONS)
         new_body = mut_func(body, rng)
         if new_body and new_body != body:
             new_source = preamble + "\n" + new_body
-            if _quick_validate(new_source):
+            if quick_validate(new_source):
                 if track_mutation:
                     return new_source, mut_func.__name__
                 return new_source
