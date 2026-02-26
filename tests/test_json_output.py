@@ -7,7 +7,7 @@ rebrew-next JSON modes, rebrew-test result dicts, and rebrew-asm JSON.
 import json
 
 from rebrew.matcher.scoring import diff_functions
-from rebrew.test import _build_result_dict
+from rebrew.test import build_result_dict
 
 # ---------------------------------------------------------------------------
 # diff_functions(as_dict=True)
@@ -120,7 +120,7 @@ class TestDiffFunctionsAsDict:
 
 
 # ---------------------------------------------------------------------------
-# _build_result_dict (rebrew-test)
+# build_result_dict (rebrew-test)
 # ---------------------------------------------------------------------------
 
 
@@ -129,7 +129,7 @@ class TestBuildResultDict:
 
     def test_exact_match(self) -> None:
         data = b"\x55\x8b\xec\x5d\xc3"
-        result = _build_result_dict(
+        result = build_result_dict(
             "src/test.c",
             "_func",
             "0x10001000",
@@ -147,7 +147,7 @@ class TestBuildResultDict:
         assert result["obj_size"] == 5
 
     def test_reloc_match(self) -> None:
-        result = _build_result_dict(
+        result = build_result_dict(
             "src/test.c",
             "_func",
             "0x10001000",
@@ -165,7 +165,7 @@ class TestBuildResultDict:
     def test_mismatch(self) -> None:
         target = b"\x55\x8b\xec\x5d\xc3"
         candidate = b"\x55\x8b\xec\x5d\xcc"
-        result = _build_result_dict(
+        result = build_result_dict(
             "src/test.c",
             "_func",
             "0x10001000",
@@ -185,7 +185,7 @@ class TestBuildResultDict:
         """Mismatches list should not include bytes covered by relocations."""
         target = b"\xe8\x10\x00\x00\x00"
         candidate = b"\xe8\x20\x00\x00\x00"
-        result = _build_result_dict(
+        result = build_result_dict(
             "src/test.c",
             "_func",
             "0x10001000",
@@ -206,7 +206,7 @@ class TestBuildResultDict:
 
     def test_json_serializable(self) -> None:
         data = b"\x55\x8b\xec"
-        result = _build_result_dict(
+        result = build_result_dict(
             "src/test.c",
             "_func",
             "0x10001000",
@@ -225,7 +225,7 @@ class TestBuildResultDict:
     def test_all_required_keys(self) -> None:
         """Result dict should have all documented keys."""
         data = b"\x55\x8b\xec"
-        result = _build_result_dict(
+        result = build_result_dict(
             "src/test.c",
             "_func",
             "0x10001000",

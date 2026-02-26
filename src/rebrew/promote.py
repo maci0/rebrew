@@ -22,7 +22,7 @@ from rebrew.annotation import parse_c_file_multi
 from rebrew.cli import TargetOption, get_config
 from rebrew.matcher.parsers import parse_coff_symbol_bytes
 from rebrew.test import (
-    _build_result_dict,
+    build_result_dict,
     compile_obj,
     smart_reloc_compare,
     update_source_status,
@@ -150,7 +150,7 @@ def main(
                     )
                 action = "updated" if not dry_run else "would_update"
 
-            result_dict = _build_result_dict(
+            result_dict = build_result_dict(
                 source,
                 sym,
                 f"0x{ann.va:08x}",
