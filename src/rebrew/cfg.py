@@ -17,6 +17,7 @@ Usage::
 
 import shutil
 import struct
+import sys
 from pathlib import Path
 
 import tomlkit
@@ -94,11 +95,9 @@ def _detect_format_and_arch(path: Path) -> tuple[str, str | None]:
             header = f.read(64)  # enough for PE/ELF/Mach-O headers
     except OSError:
         # Cannot read file — warn rather than silently assuming PE
-        import sys as _sys
-
         print(
             f"Warning: cannot read '{path}' for format detection, defaulting to PE",
-            file=_sys.stderr,
+            file=sys.stderr,
         )
         return "pe", None
 
@@ -169,11 +168,9 @@ def _detect_format_and_arch(path: Path) -> tuple[str, str | None]:
         return "macho", None
 
     # Unrecognized format — warn rather than silently assuming PE
-    import sys as _sys
-
     print(
         f"Warning: unrecognized binary format for '{path}' (magic: {magic[:4]!r}), defaulting to PE",
-        file=_sys.stderr,
+        file=sys.stderr,
     )
 
     return "pe", None
