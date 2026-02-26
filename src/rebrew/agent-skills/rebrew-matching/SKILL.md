@@ -12,8 +12,8 @@ For the overall reversing workflow, see the `rebrew-workflow` skill.
 ## 1. Diff Analysis (Always Start Here)
 
 ```bash
-rebrew-match --diff-only src/<target>/<file>.c --json        # structured diff
-rebrew-match --diff-only --mm src/<target>/<file>.c --json   # structural diffs only
+rebrew match --diff-only src/<target>/<file>.c --json        # structured diff
+rebrew match --diff-only --mm src/<target>/<file>.c --json   # structural diffs only
 ```
 
 ### Diff Markers
@@ -29,8 +29,8 @@ If the diff shows only `~~` lines, the function is already RELOC — promote it.
 When code logic is correct but bytes diverge, try different compiler flags:
 
 ```bash
-rebrew-match --flag-sweep-only src/<target>/<file>.c              # default tier
-rebrew-match --flag-sweep-only --tier quick src/<target>/<file>.c # fast, common flags
+rebrew match --flag-sweep-only src/<target>/<file>.c              # default tier
+rebrew match --flag-sweep-only --tier quick src/<target>/<file>.c # fast, common flags
 ```
 
 | Tier | Combinations | Use Case |
@@ -45,7 +45,7 @@ rebrew-match --flag-sweep-only --tier quick src/<target>/<file>.c # fast, common
 For automated matching when manual tuning is insufficient:
 
 ```bash
-rebrew-match src/<target>/<file>.c --generations 200 --pop-size 64 -j 16 --json
+rebrew match src/<target>/<file>.c --generations 200 --pop-size 64 -j 16 --json
 ```
 
 - `--generations N` — GA generations (default: 100)

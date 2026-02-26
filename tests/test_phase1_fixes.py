@@ -135,7 +135,7 @@ class TestGenFlirtPatEmptyDirname:
 
 
 # ---------------------------------------------------------------------------
-# batch.py — type-safe dict access
+# extract.py — type-safe dict access
 # ---------------------------------------------------------------------------
 
 
@@ -150,13 +150,14 @@ class TestBatchTypeSafety:
     def test_load_from_txt(self, tmp_path: Path) -> None:
         """parse_r2_functions returns {va: int, size: int, r2_name: str}."""
         from types import SimpleNamespace
+        from typing import Any
 
         func_list = tmp_path / "r2_functions.txt"
         func_list.write_text(
             "0x10001000 64 _func_a\n0x10002000 128 _func_b\n",
             encoding="utf-8",
         )
-        cfg = SimpleNamespace(function_list=func_list)
+        cfg: Any = SimpleNamespace(function_list=func_list)
         funcs = load_functions(cfg)
         assert len(funcs) == 2
 
