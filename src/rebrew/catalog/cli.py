@@ -10,7 +10,7 @@ from pathlib import Path
 
 import typer
 
-from rebrew.annotation import parse_c_file_multi
+from rebrew.annotation import Annotation, parse_c_file_multi
 from rebrew.catalog.export import generate_catalog, generate_reccmp_csv
 from rebrew.catalog.grid import generate_data_json
 from rebrew.catalog.loaders import parse_r2_functions, scan_reversed_dir
@@ -140,22 +140,58 @@ def main(
     )
 
     if summary:
-        by_origin = {}
+        by_va: dict[int, list[Annotation]] = {}
         for e in entries:
-            by_origin.setdefault(e["origin"], []).append(e)
+            by_va.setdefault(e["va"], []).append(e)
 
-        exact = sum(1 for e in entries if e["status"] == "EXACT")
-        reloc = sum(1 for e in entries if e["status"] == "RELOC")
+        fn_vas = {
+            va
+            for va, vas in by_va.items()
+            if any(e["marker_type"] not in ("GLOBAL", "DATA") for e in vas)
+        }
+
+        exact = sum(1 for va in fn_vas if any(e["status"] == "EXACT" for e in by_va[va]))
+        reloc = sum(
+            1
+            for va in fn_vas
+            if any(e["status"] in ("RELOC", "MATCHING_RELOC") for e in by_va[va])
+            and not any(e["status"] == "EXACT" for e in by_va[va])
+        )
+        matching = sum(
+            1
+            for va in fn_vas
+            if any(e["status"] in ("MATCHING", "MATCHING_RELOC") for e in by_va[va])
+            and not any(e["status"] in ("EXACT", "RELOC") for e in by_va[va])
+        )
+        stub = sum(
+            1
+            for va in fn_vas
+            if any(e["status"] == "STUB" for e in by_va[va])
+            and not any(
+                e["status"] in ("EXACT", "RELOC", "MATCHING", "MATCHING_RELOC") for e in by_va[va]
+            )
+        )
+
+        origin_counts: dict[str, int] = {}
+        for va in fn_vas:
+            origin = by_va[va][0]["origin"]
+            origin_counts[origin] = origin_counts.get(origin, 0) + 1
+
+        done = exact + reloc + matching
         print("\n=== Rebrew Status ===")
-        print(f"Matched: {len(unique_vas)}/{len(registry)} functions")
+        print(f"Matched: {done}/{len(registry)} functions")
         print(f"  EXACT: {exact}")
         print(f"  RELOC: {reloc}")
-        for origin in sorted(by_origin):
-            count = len(by_origin.get(origin, []))
-            print(f"  {origin}: {count}")
+        if matching:
+            print(f"  MATCHING: {matching}")
+        if stub:
+            print(f"  STUB: {stub}")
+        print("By origin:")
+        for origin in sorted(origin_counts):
+            print(f"  {origin}: {origin_counts[origin]}")
 
         covered = 0
-        for va in unique_vas:
+        for va in fn_vas:
             if va in registry:
                 covered += registry[va]["canonical_size"]
         pct = (covered / text_size * 100.0) if text_size else 0.0
