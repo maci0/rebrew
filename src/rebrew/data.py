@@ -814,13 +814,13 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew-data                                Scan all data sections
-  rebrew-data --section .rdata               Scan only .rdata section
-  rebrew-data --section .data                Scan only .data section
-  rebrew-data --section .bss                 Scan only .bss section
-  rebrew-data --json                         Output as JSON
-  rebrew-data --annotate                     Generate .c annotation stubs for globals
-  rebrew-data 0x10008000                     Show details for specific address
+  rebrew data                                Scan all data sections
+  rebrew data --section .rdata               Scan only .rdata section
+  rebrew data --section .data                Scan only .data section
+  rebrew data --section .bss                 Scan only .bss section
+  rebrew data --json                         Output as JSON
+  rebrew data --annotate                     Generate .c annotation stubs for globals
+  rebrew data 0x10008000                     Show details for specific address
 
 [dim]Analyzes PE data sections to find global variables, string tables,
 vtables, and other data structures. Cross-references with existing

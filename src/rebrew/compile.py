@@ -1,7 +1,7 @@
 """Unified MSVC compilation helper for rebrew.
 
 Provides a single, consistent interface for compiling C source to .obj files
-using MSVC under Wine. All tools (rebrew-test, rebrew-match, rebrew-verify)
+using MSVC under Wine. All tools (rebrew test, rebrew match, rebrew verify)
 should use these functions instead of building compile commands independently.
 
 Architecture
@@ -110,8 +110,8 @@ def compile_to_obj(
     # Prepend base_cflags from config (e.g. /nologo /c /MT).
     # This ensures every compile invocation has consistent core flags
     # without requiring callers to remember them.
-    base_flags = getattr(cfg, "base_cflags", "/nologo /c /MT").split()
-    use_timeout = getattr(cfg, "compile_timeout", timeout)
+    base_flags = cfg.base_cflags.split()
+    use_timeout = cfg.compile_timeout
 
     # Build full command: [wine, cl.exe] + base + user flags + includes + output + source
     cmd = (
@@ -164,8 +164,8 @@ def compile_and_compare(
 ) -> tuple[bool, str, bytes | None, list[int] | None]:
     """Compile source, extract COFF symbol, compare against target bytes with reloc masking.
 
-    This is the shared compile→extract→compare flow used by both ``rebrew-test``
-    and ``rebrew-verify``.
+    This is the shared compile→extract→compare flow used by both ``rebrew test``
+    and ``rebrew verify``.
 
     Args:
         cfg: ProjectConfig with compiler settings.
@@ -183,7 +183,7 @@ def compile_and_compare(
 
     workdir = tempfile.mkdtemp(prefix="rebrew_cmp_")
     try:
-        use_timeout = getattr(cfg, "compile_timeout", timeout)
+        use_timeout = cfg.compile_timeout
         obj_path, err = compile_to_obj(
             cfg,
             source_path,
@@ -208,7 +208,7 @@ def compile_and_compare(
 
         # Compare with reloc masking
         reloc_set: set[int] = set()
-        pointer_size = getattr(cfg, "pointer_size", 4)
+        pointer_size = cfg.pointer_size
         if reloc_offsets:
             for ro in reloc_offsets:
                 for j in range(pointer_size):

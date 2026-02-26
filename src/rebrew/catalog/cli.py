@@ -22,11 +22,11 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew-catalog                              Validate annotations (default)
-  rebrew-catalog --json                       Generate db/data_<target>.json
-  rebrew-catalog --catalog                    Generate CATALOG.md in reversed_dir
-  rebrew-catalog --json --catalog             Generate both JSON and CATALOG.md
-  rebrew-catalog -t server.dll                Catalog a specific target
+  rebrew catalog                              Validate annotations (default)
+  rebrew catalog --json                       Generate db/data_<target>.json
+  rebrew catalog --catalog                    Generate CATALOG.md in reversed_dir
+  rebrew catalog --json --catalog             Generate both JSON and CATALOG.md
+  rebrew catalog -t server.dll                Catalog a specific target
 
 [bold]What it does:[/bold]
   1. Scans reversed_dir for .c files with reccmp-style annotations
@@ -35,7 +35,7 @@ app = typer.Typer(
   4. Generates cell-level coverage data for the .text section
   5. Outputs structured JSON and/or CATALOG.md
 
-[dim]The JSON output feeds into 'rebrew-build-db' to create the SQLite database
+[dim]The JSON output feeds into 'rebrew build-db' to create the SQLite database
 used by the recoverage dashboard.[/dim]""",
 )
 

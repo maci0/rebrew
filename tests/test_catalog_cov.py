@@ -1,7 +1,7 @@
 """Tests for rebrew.catalog — report generation and registry building."""
 
 import json
-from types import SimpleNamespace
+from pathlib import Path
 
 from rebrew.catalog import (
     build_function_registry,
@@ -13,6 +13,7 @@ from rebrew.catalog import (
     parse_r2_functions,
     scan_reversed_dir,
 )
+from rebrew.config import ProjectConfig
 
 # -------------------------------------------------------------------------
 # Helper factories
@@ -70,7 +71,8 @@ class TestMergeRanges:
 
 class TestBuildFunctionRegistry:
     def setup_method(self) -> None:
-        self.cfg = SimpleNamespace(
+        self.cfg = ProjectConfig(
+            root=Path("/tmp"),
             iat_thunks=[],
             dll_exports={},
             ignored_symbols=[],
@@ -111,7 +113,8 @@ class TestBuildFunctionRegistry:
 
     def test_iat_thunks(self) -> None:
         r2_funcs = [make_r2_func(0x10001000, 6, "_thunk_func")]
-        cfg = SimpleNamespace(
+        cfg = ProjectConfig(
+            root=Path("/tmp"),
             iat_thunks=[0x10001000],
             dll_exports={},
             ignored_symbols=[],
@@ -121,7 +124,8 @@ class TestBuildFunctionRegistry:
 
     def test_exports(self) -> None:
         r2_funcs = [make_r2_func(0x10001000, 64, "_my_export")]
-        cfg = SimpleNamespace(
+        cfg = ProjectConfig(
+            root=Path("/tmp"),
             iat_thunks=[],
             dll_exports={0x10001000: "MyExport"},
             ignored_symbols=[],

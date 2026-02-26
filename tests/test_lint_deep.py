@@ -1,8 +1,8 @@
 """Deep tests for rebrew.lint — exercising edge cases in lint_file and LintResult."""
 
 from pathlib import Path
-from types import SimpleNamespace
 
+from rebrew.config import ProjectConfig
 from rebrew.lint import lint_file
 
 
@@ -302,7 +302,8 @@ class TestLintFileEdgeCases:
         assert any(code == "W003" for _, code, _ in result.warnings)
 
     def test_config_module_mismatch(self, tmp_path) -> None:
-        cfg = SimpleNamespace(
+        cfg = ProjectConfig(
+            root=Path("/tmp"),
             origins=["GAME", "MSVCRT"],
             cflags_presets={"GAME": "/O2 /Gd"},
             marker="GAME_DLL",
@@ -323,7 +324,8 @@ class TestLintFileEdgeCases:
         assert any(code == "E012" for _, code, _ in result.errors)
 
     def test_config_cflags_mismatch(self, tmp_path) -> None:
-        cfg = SimpleNamespace(
+        cfg = ProjectConfig(
+            root=Path("/tmp"),
             origins=["GAME"],
             cflags_presets={"GAME": "/O2 /Gd"},
             marker="SERVER",

@@ -1,8 +1,8 @@
 """Tests for rebrew.lint — lint_file and LintResult."""
 
 from pathlib import Path
-from types import SimpleNamespace
 
+from rebrew.config import ProjectConfig
 from rebrew.lint import LintResult, lint_file
 
 # -------------------------------------------------------------------------
@@ -142,7 +142,8 @@ class TestLintFile:
         assert any(c == "E013" for _, c, _ in result2.errors)
 
     def test_with_config(self, tmp_path) -> None:
-        cfg = SimpleNamespace(
+        cfg = ProjectConfig(
+            root=Path("/tmp"),
             origins=["GAME", "MSVCRT"],
             cflags_presets={"GAME": "/O2 /Gd"},
             marker="SERVER",

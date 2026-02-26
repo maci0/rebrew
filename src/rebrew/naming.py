@@ -88,7 +88,7 @@ def ignored_symbols(cfg: ProjectConfig) -> set[str]:
 
     Reads from ``cfg.ignored_symbols`` (populated from ``rebrew.toml``).
     """
-    syms = getattr(cfg, "ignored_symbols", None)
+    syms = cfg.ignored_symbols
     return set(syms) if syms else set()
 
 
@@ -140,18 +140,18 @@ def detect_origin(va: int, name: str, cfg: ProjectConfig) -> str:
     Uses project-specific heuristics (zlib_vas, game_range_end) for known
     origins, then falls back to cfg.default_origin or the first configured origin.
     """
-    zlib_vas = set(getattr(cfg, "zlib_vas", None) or [])
+    zlib_vas = set(cfg.zlib_vas or [])
     if va in zlib_vas:
         return "ZLIB"
-    game_range_end = getattr(cfg, "game_range_end", None)
+    game_range_end = cfg.game_range_end
     if game_range_end and va >= game_range_end:
         return "MSVCRT"
     if name.startswith(("__", "_crt")):
         return "MSVCRT"
-    default = getattr(cfg, "default_origin", "") or ""
+    default = cfg.default_origin or ""
     if default:
         return default
-    origins = getattr(cfg, "origins", None) or []
+    origins = cfg.origins or []
     return origins[0] if origins else "GAME"
 
 
@@ -166,7 +166,7 @@ def estimate_difficulty(
     if ignored and name in ignored:
         return 0, "ASM builtin / ignored symbol (skip)"
 
-    lib_origins = getattr(cfg, "library_origins", None) if cfg else None
+    lib_origins = cfg.library_origins if cfg else None
     if lib_origins is None:
         lib_origins = {"ZLIB", "MSVCRT"}
     if origin in lib_origins:
@@ -407,7 +407,7 @@ def make_filename(
         base = sanitize_name(ghidra_name)
 
     # Apply origin prefix convention (config-driven or default)
-    if cfg is not None and getattr(cfg, "origin_prefixes", None):
+    if cfg is not None and cfg.origin_prefixes:
         prefix = cfg.origin_prefixes.get(origin, "")
     else:
         prefix = _ORIGIN_TO_PREFIX.get(origin, "")
@@ -416,5 +416,5 @@ def make_filename(
     if prefix and not base.startswith(prefix) and not base.startswith("func_"):
         base = prefix + base
 
-    ext = getattr(cfg, "source_ext", ".c") if cfg is not None else ".c"
+    ext = cfg.source_ext if cfg is not None else ".c"
     return base + ext
