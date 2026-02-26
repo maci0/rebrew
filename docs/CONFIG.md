@@ -81,14 +81,14 @@ All 22 tools read from `rebrew.toml`. Each uses `try/except` with hardcoded fall
 | `sync.py` | `reversed_dir` |
 | `next.py` | `reversed_dir` |
 | `skeleton.py` | `reversed_dir` |
-| `batch.py` | `reversed_dir`, `target_binary` |
+| `extract.py` | `reversed_dir`, `target_binary` |
 | `asm.py` | `target_binary`, `capstone_arch`, `capstone_mode` |
-| `annotation.py` | Canonical annotation parser — used by verify, batch, sync, ga, nasm |
-| `binary_loader.py` | LIEF-based binary loading — used by batch, flirt |
+| `annotation.py` | Canonical annotation parser — used by verify, extract, sync, ga, nasm |
+| `binary_loader.py` | LIEF-based binary loading — used by extract, flirt |
 | `matcher/scoring.py` | `capstone_arch`, `capstone_mode` |
 | `matcher/compiler.py` | `compiler_profile` (drives flag axes) |
 | `matcher/parsers.py` | `padding_bytes` |
-| `catalog.py` | `image_base`, `text_va` (via verify.py) |
+| `catalog/` | `image_base`, `text_va` (via verify.py) |
 | `status.py` | `reversed_dir`, `text_va` |
 | `data.py` | `reversed_dir`, `target_binary`, `image_base` |
 | `depgraph.py` | `reversed_dir` |

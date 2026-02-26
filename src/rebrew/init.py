@@ -177,6 +177,10 @@ Use `--json` for structured output (preferred for agents).
 | `rebrew status --json` | Coverage progress |
 | `rebrew-verify --json` | Bulk verify all reversed files |
 | `rebrew-lint --json` | Validate annotations |
+| `rebrew-extract` | Batch extract and disassemble functions |
+| `rebrew-asm` | Quick offline disassembly |
+| `rebrew-sync --push` | Push annotations to Ghidra |
+| `rebrew-sync --summary` | Preview what would be synced |
 
 ## Annotation Format
 
