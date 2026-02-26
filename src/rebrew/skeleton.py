@@ -28,6 +28,7 @@ from rebrew.annotation import (
 )
 from rebrew.catalog import load_ghidra_functions
 from rebrew.cli import TargetOption, get_config
+from rebrew.config import ProjectConfig
 from rebrew.decompiler import fetch_decompilation
 from rebrew.naming import (
     detect_origin,
@@ -109,7 +110,7 @@ int __cdecl {{ func_name }}(void)
 
 
 def generate_skeleton(
-    cfg: Any,
+    cfg: ProjectConfig,
     va: int,
     size: int,
     ghidra_name: str,
@@ -165,7 +166,7 @@ def generate_skeleton(
 
 
 def generate_annotation_block(
-    cfg: Any,
+    cfg: ProjectConfig,
     va: int,
     size: int,
     ghidra_name: str,
@@ -207,7 +208,7 @@ def generate_test_command(filepath: str, symbol: str, va: int, size: int, cflags
 
 
 def generate_diff_command(
-    cfg: Any, filepath: str, symbol: str, va: int, size: int, cflags: str
+    cfg: ProjectConfig, filepath: str, symbol: str, va: int, size: int, cflags: str
 ) -> str:
     """Generate the rebrew-match diff command."""
     return f'rebrew-match {filepath} --diff-only --symbol "{symbol}" --cflags "{cflags}"'
@@ -216,7 +217,7 @@ def generate_diff_command(
 def list_uncovered(
     ghidra_funcs: list[dict[str, Any]],
     existing_vas: dict[int, str],
-    cfg: Any,
+    cfg: ProjectConfig,
     origin_filter: str | None = None,
     min_size: int = 10,
     max_size: int = 9999,
