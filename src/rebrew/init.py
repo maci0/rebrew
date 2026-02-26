@@ -149,37 +149,34 @@ DEFAULT_AGENTS_MD = """# AGENTS.md — {project_name}
 - **Language**: {lang} — follow compiler constraints below
 - **Config**: `rebrew.toml` (all tools read from here)
 
-## Core Principles
-
-- **Idempotent**: Every tool can be run repeatedly with the same result. Safe to retry or re-run.
-- **Config-driven**: All tools read from `rebrew.toml` — zero manual paths needed.
-- **Composable**: Small, single-purpose tools designed to be chained by scripts or AI agents.
-
-## Workflow
+## Quick Start
 
 ```
-1. rebrew-next --origin GAME          # pick next function
-2. rebrew-skeleton 0x<VA>             # generate .c skeleton
-3. # write implementation in src/{target_name}/<func>.c
-4. rebrew-test src/{target_name}/<func>.c  # compile + compare
-5. # iterate until STATUS: EXACT or RELOC
-6. rebrew-catalog                     # update coverage
+1. rebrew triage --json                        # assess the binary
+2. rebrew-next --json                          # pick next function
+3. rebrew-skeleton 0x<VA>                      # generate .c skeleton
+4. rebrew-test src/{target_name}/<func>.c --json  # compile + compare
+5. # iterate code until STATUS: EXACT or RELOC
+6. rebrew promote src/{target_name}/<func>.c --json  # update STATUS
 ```
 
 ## CLI Tools
 
+Use `--json` for structured output (preferred for agents).
+
 | Command | Use |
 |---------|-----|
-| `rebrew-next --stats` | Show coverage progress |
-| `rebrew-next` | Find next function to reverse |
+| `rebrew triage --json` | Combined overview: coverage, near-misses, recommendations |
+| `rebrew-next --json` | Find next function to reverse |
 | `rebrew-skeleton 0x<VA>` | Generate C skeleton from address |
-| `rebrew-test <file>` | Compile and byte-compare against target |
-| `rebrew-match --diff-only <file>` | Show byte diff |
+| `rebrew-test <file> --json` | Compile and byte-compare against target |
+| `rebrew-match --diff-only <file> --json` | Structured byte diff |
 | `rebrew-match --flag-sweep-only <file>` | Find best compiler flags |
-| `rebrew-match <file>` | Run GA matching engine |
-| `rebrew-catalog` | Regenerate function catalog |
-| `rebrew-verify` | Bulk verify all reversed files |
-| `rebrew-cfg` | Read/edit rebrew.toml programmatically |
+| `rebrew-match <file> --json` | Run GA matching engine |
+| `rebrew promote <file> --json` | Test + atomically update STATUS |
+| `rebrew status --json` | Coverage progress |
+| `rebrew-verify --json` | Bulk verify all reversed files |
+| `rebrew-lint --json` | Validate annotations |
 
 ## Annotation Format
 
@@ -194,37 +191,23 @@ Every reversed `.c` file starts with:
 // SYMBOL: _function_name
 ```
 
-**STATUS**: `EXACT` (byte-perfect) → `RELOC` (match after masking relocations)
-→ `MATCHING` (close) → `STUB` (incomplete)
+**STATUS**: `EXACT` (byte-perfect) > `RELOC` (match after masking relocations)
+> `MATCHING` (close) > `STUB` (incomplete)
 
 ## Compiler Constraints ({compiler_profile})
 
 {compiler_constraints}
 
-## Flag Sweep
-
-Flags are synced from decomp.me. Use `--tier` to control sweep effort:
-
-| Tier | Combos | Use Case |
-|------|--------|----------|
-| `quick` | ~192 | Fast iteration |
-| `normal` | ~21K | Default sweep |
-| `thorough` | ~1M | Deep search |
-| `full` | ~8.3M | Exhaustive (needs sampling) |
-
-Re-sync: `python tools/sync_decomp_flags.py`
-
 ## Agent Skills
 
 Detailed workflow instructions are in `agent-skills/`:
 
-| Skill | Description |
-|-------|-------------|
+| Skill | Use When |
+|-------|----------|
+| `rebrew-intake` | Onboarding a new binary, initial triage |
 | `rebrew-workflow` | End-to-end function reversing workflow |
-| `rebrew-matching` | GA engine, flag sweeping, diff analysis |
-| `rebrew-data-analysis` | Global variables, structs, dispatch tables |
-| `rebrew-status-tracking` | Progress monitoring, verification, dependency graphs |
-| `rebrew-sync` | Ghidra synchronization via ReVa MCP |
+| `rebrew-matching` | Flag sweeping, GA engine, diff analysis |
+| `rebrew-data-analysis` | Globals, dispatch tables, BSS debugging |
 
 Read the `SKILL.md` in each directory for step-by-step instructions.
 """
