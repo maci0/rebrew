@@ -36,7 +36,7 @@ Run any tool with `--help` to see usage examples and context
 
 ## Tool Flags
 
-### `rebrew-match`
+### `rebrew match`
 
 | Flag | Description |
 |------|-------------|
@@ -52,13 +52,13 @@ Run any tool with `--help` to see usage examples and context
 | `--out-dir DIR` | Output directory for GA results |
 | `--json` | JSON structured output (with `--diff-only`) |
 
-### `rebrew-test`
+### `rebrew test`
 
 | Flag | Description |
 |------|-------------|
 | `--json` | JSON structured output |
 
-### `rebrew-next`
+### `rebrew next`
 
 | Flag | Description |
 |------|-------------|
@@ -69,7 +69,7 @@ Run any tool with `--help` to see usage examples and context
 | `-n N` | Number of recommendations |
 | `--json` | JSON output for all modes |
 
-### `rebrew-skeleton`
+### `rebrew skeleton`
 
 | Flag | Description |
 |------|-------------|
@@ -78,7 +78,7 @@ Run any tool with `--help` to see usage examples and context
 | `--append FILE` | Append to existing multi-function file |
 | `--name NAME` | Override function name |
 
-### `rebrew-verify`
+### `rebrew verify`
 
 | Flag | Description |
 |------|-------------|
@@ -94,7 +94,7 @@ Output prefixes for unambiguous parsing:
 | `MISSING_FILE:` | Source file not found |
 | `EXACT MATCH` / `RELOC-NORM MATCH` | Success |
 
-### `rebrew-ga`
+### `rebrew ga`
 
 | Flag | Description |
 |------|-------------|
@@ -102,7 +102,7 @@ Output prefixes for unambiguous parsing:
 | `--threshold N` | Only attempt functions with byte delta <= N (default 10) |
 | `--dry-run` | List candidates without running GA |
 
-### `rebrew-data`
+### `rebrew data`
 
 | Flag | Description |
 |------|-------------|
@@ -111,7 +111,7 @@ Output prefixes for unambiguous parsing:
 | `--dispatch` | Detect dispatch tables / vtables |
 | `--json` | JSON output for all modes |
 
-### `rebrew-graph`
+### `rebrew graph`
 
 | Flag | Description |
 |------|-------------|
@@ -120,7 +120,7 @@ Output prefixes for unambiguous parsing:
 | `--focus NAME` | Neighbourhood of a specific function |
 | `--depth N` | Depth for focus mode |
 
-### `rebrew-lint`
+### `rebrew lint`
 
 | Flag | Description |
 |------|-------------|
@@ -136,49 +136,49 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E001-E0
 
 ```bash
 # Disassembly
-rebrew-asm 0x100011f0 64                         # Disassemble 64 bytes at VA
-rebrew-asm 0x100011f0 --target server.dll         # Use alternate target
+rebrew asm 0x100011f0 64                         # Disassemble 64 bytes at VA
+rebrew asm 0x100011f0 --target server.dll         # Use alternate target
 
 # Skeleton generation
-rebrew-skeleton 0x10003da0 --decomp               # Skeleton with inline decompilation
-rebrew-skeleton 0x10003da0 --decomp --decomp-backend r2dec
-rebrew-skeleton 0x10003da0 --append crt_env.c     # Append to multi-function file
+rebrew skeleton 0x10003da0 --decomp               # Skeleton with inline decompilation
+rebrew skeleton 0x10003da0 --decomp --decomp-backend r2dec
+rebrew skeleton 0x10003da0 --append crt_env.c     # Append to multi-function file
 
 # Testing
-rebrew-test src/target_name/my_func.c --json      # JSON test result
+rebrew test src/target_name/my_func.c --json      # JSON test result
 
 # Prioritization
-rebrew-next --stats                                # Show progress statistics
-rebrew-next --stats --json                         # JSON progress stats
-rebrew-next --improving                            # MATCHING functions by byte delta
-rebrew-next --unmatchable                          # Show unmatchable functions
-rebrew-next --origin GAME -n 20                    # Top 20 GAME functions
+rebrew next --stats                                # Show progress statistics
+rebrew next --stats --json                         # JSON progress stats
+rebrew next --improving                            # MATCHING functions by byte delta
+rebrew next --unmatchable                          # Show unmatchable functions
+rebrew next --origin GAME -n 20                    # Top 20 GAME functions
 
 # Matching & GA
-rebrew-match --diff-only src/target_name/f.c       # Side-by-side diff
-rebrew-match --diff-only --mm src/target_name/f.c  # Only structural diffs
-rebrew-match --diff-only --json src/target_name/f.c # JSON diff
-rebrew-ga                                          # Batch GA on all STUBs
-rebrew-ga --near-miss --threshold 5                # GA on MATCHING with <=5B delta
-rebrew-ga --dry-run                                # List candidates only
+rebrew match --diff-only src/target_name/f.c       # Side-by-side diff
+rebrew match --diff-only --mm src/target_name/f.c  # Only structural diffs
+rebrew match --diff-only --json src/target_name/f.c # JSON diff
+rebrew ga                                          # Batch GA on all STUBs
+rebrew ga --near-miss --threshold 5                # GA on MATCHING with <=5B delta
+rebrew ga --dry-run                                # List candidates only
 
 # Verification & status
-rebrew-verify                                      # Verify all reversed functions
-rebrew-verify --json                               # Structured JSON report
-rebrew-verify -o db/verify_results.json            # Write report to file
-rebrew-lint --fix && rebrew-lint                   # Fix then re-lint
-rebrew-status                                      # Reversing progress overview
-rebrew-catalog --summary --csv                     # Catalog + CSV
+rebrew verify                                      # Verify all reversed functions
+rebrew verify --json                               # Structured JSON report
+rebrew verify -o db/verify_results.json            # Write report to file
+rebrew lint --fix && rebrew lint                   # Fix then re-lint
+rebrew status                                      # Reversing progress overview
+rebrew catalog --summary --csv                     # Catalog + CSV
 
 # Data analysis
-rebrew-data                                        # Inventory globals
-rebrew-data --dispatch --json                      # Dispatch tables as JSON
-rebrew-data --bss --json                           # BSS layout as JSON
+rebrew data                                        # Inventory globals
+rebrew data --dispatch --json                      # Dispatch tables as JSON
+rebrew data --bss --json                           # BSS layout as JSON
 
 # Dependency graph
-rebrew-graph                                       # Mermaid call graph
-rebrew-graph --format dot --origin GAME            # DOT graph, GAME only
-rebrew-graph --focus FuncName --depth 2            # Neighbourhood of a function
+rebrew graph                                       # Mermaid call graph
+rebrew graph --format dot --origin GAME            # DOT graph, GAME only
+rebrew graph --focus FuncName --depth 2            # Neighbourhood of a function
 ```
 
 ## Internal Modules
@@ -214,4 +214,4 @@ rebrew-graph --focus FuncName --depth 2            # Neighbourhood of a function
 
 All tools share a single compile path via `rebrew.compile`. The module reads
 `base_cflags` and `timeout` from config, ensuring consistent behavior across
-`rebrew-test`, `rebrew-verify`, and `rebrew-match`.
+`rebrew test`, `rebrew verify`, and `rebrew match`.

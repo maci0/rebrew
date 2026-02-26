@@ -75,7 +75,7 @@ When a function is MATCHING but not byte-perfect, track the blocker in annotatio
 // BLOCKER_DELTA: 3
 ```
 
-Used by `rebrew-next --improving` to sort by proximity to a match.
+Used by `rebrew next --improving` to sort by proximity to a match.
 
 ## Tips
 

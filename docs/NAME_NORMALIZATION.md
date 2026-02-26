@@ -93,8 +93,8 @@ Everything else is treated as a **user-assigned** name and is always preserved.
 
 ### Implications
 
-- **`rebrew-sync`**: only pushes labels to Ghidra for user-assigned names (skips generic `func_XXXXXXXX`).
-- **`rebrew-catalog --csv`**: emits user-assigned names in the reccmp `name` column; leaves it blank for auto-names per the reccmp spec.
+- **`rebrew sync`**: only pushes labels to Ghidra for user-assigned names (skips generic `func_XXXXXXXX`).
+- **`rebrew catalog --csv`**: emits user-assigned names in the reccmp `name` column; leaves it blank for auto-names per the reccmp spec.
 - **`sanitize_name()`** in `skeleton.py`: normalizes any tool prefix to `func_<hex>` for C filenames and identifiers.
 
 ---

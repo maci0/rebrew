@@ -203,7 +203,7 @@ extern int g_frame_counter;
 | `NOTE` | Optional | Description of the data item's purpose |
 
 > [!NOTE]
-> `DATA` markers are recognized and tracked as first-class citizens by `rebrew-data` and `rebrew-catalog`.
+> `DATA` markers are recognized and tracked as first-class citizens by `rebrew data` and `rebrew catalog`.
 
 ### Filename Convention
 
@@ -234,17 +234,17 @@ The linter (W007) will warn if a file defining structs lacks the `// SIZE 0xNN` 
 
 ---
 
-## Linter Reference (`rebrew-lint`)
+## Linter Reference (`rebrew lint`)
 
 The linter validates annotation headers in all `.c` files under the reversed source directory. It enforces the format described above and catches common mistakes.
 
 ```
-Usage:  rebrew-lint [OPTIONS]
+Usage:  rebrew lint [OPTIONS]
 ```
 
 ### Errors (block CI, non-zero exit)
 
-Errors indicate broken annotations that will cause `rebrew-test`, `rebrew-verify`, and other tools to fail.
+Errors indicate broken annotations that will cause `rebrew test`, `rebrew verify`, and other tools to fail.
 
 #### Structural Errors
 
@@ -333,26 +333,26 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 
 ```bash
 # Lint all files in the configured source directory
-rebrew-lint
+rebrew lint
 
 # Fix legacy annotations and re-lint
-rebrew-lint --fix && rebrew-lint
+rebrew lint --fix && rebrew lint
 
 # CI pipeline — errors only, JSON for parsing
-rebrew-lint --quiet --json > lint-results.json
+rebrew lint --quiet --json > lint-results.json
 
 # Check a specific file during development
-rebrew-lint --files src/server.dll/alloc_game_object.c
+rebrew lint --files src/server.dll/alloc_game_object.c
 
 # Print progress breakdown after linting
-rebrew-lint --summary
+rebrew lint --summary
 ```
 
 ### `--fix` Migration Flow
 
 ```mermaid
 graph TD
-    A["rebrew-lint --fix"] --> B["Read .c file header"]
+    A["rebrew lint --fix"] --> B["Read .c file header"]
     B --> C{"Format?"}
     C -->|"Old single-line<br/>/* name @ 0xVA ... */"| D["Parse name, VA,<br/>size, flags, status"]
     C -->|"Block-comment<br/>/* FUNCTION: ... */"| E["Parse marker + KV<br/>block comments"]
@@ -439,7 +439,7 @@ The old format is a single-line comment:
 /* func_name @ 0x10008880 (31B) - /O2 /Gd - EXACT [GAME] */
 ```
 
-Run `rebrew-lint --fix` to auto-migrate to the new multi-line format.
+Run `rebrew lint --fix` to auto-migrate to the new multi-line format.
 
 ### Block-Comment Format (Legacy)
 
@@ -466,7 +466,7 @@ Run `rebrew-lint --fix` to auto-migrate to the new multi-line format.
  */
 ```
 
-All legacy formats are auto-migrated by `rebrew-lint --fix`.
+All legacy formats are auto-migrated by `rebrew lint --fix`.
 
 ---
 
@@ -516,23 +516,23 @@ int _wsetenvp(void)
 
 ### Creating Multi-Function Files
 
-Use `rebrew-skeleton --append` to add a function to an existing file:
+Use `rebrew skeleton --append` to add a function to an existing file:
 
 ```bash
 # Create the first function
-rebrew-skeleton 0x10022340 --name getenv
+rebrew skeleton 0x10022340 --name getenv
 
 # Append a related function to the same file
-rebrew-skeleton 0x10022f83 --append crt_getenv.c
+rebrew skeleton 0x10022f83 --append crt_getenv.c
 ```
 
 ### Testing Multi-Function Files
 
-`rebrew-test` automatically detects multi-function files and tests each symbol independently:
+`rebrew test` automatically detects multi-function files and tests each symbol independently:
 
 ```bash
 # Tests all annotated functions in the file (compiles once, tests each symbol)
-rebrew-test src/server.dll/crt_getenv.c
+rebrew test src/server.dll/crt_getenv.c
 ```
 
 ### When to Use Multi-Function Files

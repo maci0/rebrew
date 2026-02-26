@@ -27,12 +27,12 @@
 
 ## Ideas
 
-### 1. `rebrew-sync --pull` — Import Ghidra Renames
+### 1. `rebrew sync --pull` — Import Ghidra Renames
 
 After manually renaming functions in Ghidra, pull those names back into the local `.c` files:
 
 ```bash
-rebrew-sync --pull
+rebrew sync --pull
 ```
 
 This would:
@@ -71,7 +71,7 @@ struct ArrayItem {
 };
 ```
 
-`rebrew-sync` should detect these and generate `parse-c-structure` commands to push them
+`rebrew sync` should detect these and generate `parse-c-structure` commands to push them
 into Ghidra's Data Type Manager. This would make Ghidra's decompiler output use our
 struct definitions, dramatically improving readability for the *next* function we pull.
 
@@ -109,7 +109,7 @@ When reversing a function, automatically fetch its cross-references from Ghidra 
 callers and callees. This context is critical for understanding parameter types.
 
 ```bash
-rebrew-skeleton 0x10006c00 --xrefs
+rebrew skeleton 0x10006c00 --xrefs
 ```
 
 This would call:
@@ -137,11 +137,11 @@ This would give instant visual feedback in Ghidra's bookmark window about projec
 
 ### 7. Decompilation Caching in Skeleton Generation
 
-`rebrew-skeleton --decomp` currently uses radare2 backends. Add a `--decomp-backend ghidra`
+`rebrew skeleton --decomp` currently uses radare2 backends. Add a `--decomp-backend ghidra`
 option that calls ReVa's `get-decompilation` and caches the result:
 
 ```bash
-rebrew-skeleton 0x10006c00 --decomp --decomp-backend ghidra
+rebrew skeleton 0x10006c00 --decomp --decomp-backend ghidra
 ```
 
 The cached Ghidra decompilation would be stored alongside the skeleton as a `.ghidra.c`
@@ -166,11 +166,11 @@ The `--pull` command could detect these conflicts and offer resolution.
 
 ### 9. Watch Mode for Live Sync
 
-A `rebrew-sync --watch` mode that monitors `.c` file changes and automatically pushes
+A `rebrew sync --watch` mode that monitors `.c` file changes and automatically pushes
 updates to Ghidra in near-real-time:
 
 ```bash
-rebrew-sync --watch
+rebrew sync --watch
 # Watching src/server.dll/*.c for changes...
 # [12:30:01] func_10006c00.c changed → pushed label + comment
 # [12:30:45] zlib_adler32.c status MATCHING→RELOC → updated bookmark
