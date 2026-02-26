@@ -16,12 +16,13 @@ Usage:
 import re
 import sys
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import TypedDict
 
 import typer
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.cli import TargetOption, get_config, iter_sources
+from rebrew.config import ProjectConfig
 
 
 class NodeInfo(TypedDict):
@@ -99,7 +100,7 @@ def _extract_callees(c_path: Path) -> list[str]:
 def build_graph(
     reversed_dir: Path,
     origin_filter: str | None = None,
-    cfg: Any = None,
+    cfg: ProjectConfig | None = None,
 ) -> tuple[dict[str, NodeInfo], list[tuple[str, str]]]:
     """Build a call graph from reversed source files.
 
