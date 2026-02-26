@@ -12,6 +12,7 @@ from typing import Any
 
 from rebrew.annotation import Annotation, parse_c_file_multi
 from rebrew.catalog.registry import make_r2_func
+from rebrew.config import ProjectConfig
 
 # ---------------------------------------------------------------------------
 # Ghidra function loader
@@ -117,7 +118,7 @@ def parse_r2_functions(path: Path) -> list[dict[str, Any]]:
 def extract_dll_bytes(bin_path: Path, file_offset: int, size: int) -> bytes | None:
     """Extract raw bytes from DLL at given file offset."""
     try:
-        with open(bin_path, "rb") as f:
+        with bin_path.open("rb") as f:
             f.seek(file_offset)
             data = f.read(size)
         # Trim trailing CC/90 padding (index-based to avoid O(n^2) copies)
@@ -134,7 +135,7 @@ def extract_dll_bytes(bin_path: Path, file_offset: int, size: int) -> bytes | No
 # ---------------------------------------------------------------------------
 
 
-def scan_reversed_dir(reversed_dir: Path, cfg: Any = None) -> list[Annotation]:
+def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> list[Annotation]:
     """Scan target dir source files and parse annotations from each.
 
     Supports multi-function files: a single source file may contain multiple

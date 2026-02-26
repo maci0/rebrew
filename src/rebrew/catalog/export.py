@@ -6,6 +6,8 @@ from parsed annotations and function registries.
 
 from typing import Any
 
+from rebrew.config import ProjectConfig
+
 
 def generate_catalog(
     entries: list[dict[str, Any]],
@@ -111,7 +113,7 @@ def generate_reccmp_csv(
     r2_funcs: list[dict[str, Any]],
     registry: dict[int, dict[str, Any]] | None = None,
     target_name: str = "TARGET",
-    cfg: Any = None,
+    cfg: ProjectConfig | None = None,
 ) -> str:
     """Generate reccmp-compatible pipe-delimited CSV.
 
