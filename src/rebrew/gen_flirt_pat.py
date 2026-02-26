@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Generate FLIRT .pat files from MSVC6 COFF .lib archives.
 
 This reads the object files inside a .lib archive, extracts every

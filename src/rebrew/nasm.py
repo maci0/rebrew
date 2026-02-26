@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Extract function bytes from PE and produce NASM-reassembleable ASM.
 
 Round-trip guarantee: nasm -f bin output.asm → byte-identical to original.

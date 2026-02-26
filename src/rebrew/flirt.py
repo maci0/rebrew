@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Run FLIRT signature matching against functions in the target binary.
 Usage: rebrew-flirt [sig_dir]
 """
