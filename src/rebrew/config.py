@@ -24,7 +24,7 @@ To load a specific target::
 """
 
 import os
-import tomllib  # type: ignore[import,no-redef]
+import tomllib
 import warnings as _warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -196,7 +196,7 @@ class ProjectConfig:
         if data is not None:
             return data
         # Fallback to simple file-offset calculation for .text section
-        with open(self.target_binary, "rb") as f:
+        with self.target_binary.open("rb") as f:
             f.seek(self.va_to_file_offset(va))
             return f.read(size)
 
@@ -292,7 +292,7 @@ def load_config(
     if not toml_path.exists():
         raise FileNotFoundError(f"Config not found: {toml_path}")
 
-    with open(toml_path, "rb") as f:
+    with toml_path.open("rb") as f:
         raw = tomllib.load(f)
 
     # --- Validate known keys to catch typos ---
