@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Batch extract and disassemble functions from the target binary.
+"""extract.py - Extract and disassemble functions from the target binary.
 
 Reads a function list (r2_functions.txt or .json), auto-detects already-reversed VAs from
 the projects src directory, and lets you list/extract/batch the remaining
@@ -168,16 +168,16 @@ def cmd_batch(
 
 
 app = typer.Typer(
-    help="Batch extract and disassemble functions from the target binary.",
+    help="Extract and disassemble functions from the target binary.",
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew-batch                            Extract all annotated functions
-  rebrew-batch --extract                  Extract .bin files for each function
-  rebrew-batch --disasm                   Disassemble all extracted functions
-  rebrew-batch --origin GAME              Filter by origin
-  rebrew-batch --status STUB              Only STUB functions
-  rebrew-batch -j 8                       Parallel extraction with 8 jobs
+  rebrew-extract                            Extract all annotated functions
+  rebrew-extract --extract                  Extract .bin files for each function
+  rebrew-extract --disasm                   Disassemble all extracted functions
+  rebrew-extract --origin GAME              Filter by origin
+  rebrew-extract --status STUB              Only STUB functions
+  rebrew-extract -j 8                       Parallel extraction with 8 jobs
 
 [dim]Reads function list from reversed .c file annotations.
 Outputs .bin and .asm files to the configured bin_dir.[/dim]""",

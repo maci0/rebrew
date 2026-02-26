@@ -1,14 +1,14 @@
-"""Tests for Phase 1 logic fixes: flirt, gen_flirt_pat, and batch.
+"""Tests for Phase 1 logic fixes: flirt, gen_flirt_pat, and extract.
 
 Covers new logic paths introduced during the deep audit:
 - flirt.py: small .text section guard (<32 bytes)
 - gen_flirt_pat.py: empty dirname handling, bytes_to_pat_line correctness
-- batch.py: type-safe dict value casting from JSON
+- extract.py: type-safe dict value casting from JSON
 """
 
 from pathlib import Path
 
-from rebrew.batch import load_functions
+from rebrew.extract import load_functions
 from rebrew.flirt import find_func_size
 from rebrew.gen_flirt_pat import bytes_to_pat_line
 
