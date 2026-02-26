@@ -232,9 +232,10 @@ def test_init_agents_md_has_skills_section() -> None:
     from rebrew.init import DEFAULT_AGENTS_MD
 
     assert "## Agent Skills" in DEFAULT_AGENTS_MD
+    assert "rebrew-intake" in DEFAULT_AGENTS_MD
     assert "rebrew-workflow" in DEFAULT_AGENTS_MD
     assert "rebrew-matching" in DEFAULT_AGENTS_MD
-    assert "rebrew-sync" in DEFAULT_AGENTS_MD
+    assert "rebrew-data-analysis" in DEFAULT_AGENTS_MD
 
 
 def test_init_agent_skills_source_exists() -> None:
@@ -243,11 +244,10 @@ def test_init_agent_skills_source_exists() -> None:
 
     assert _AGENT_SKILLS_SRC.is_dir()
     subdirs = sorted(d.name for d in _AGENT_SKILLS_SRC.iterdir() if d.is_dir())
+    assert "rebrew-intake" in subdirs
     assert "rebrew-workflow" in subdirs
     assert "rebrew-matching" in subdirs
-    assert "rebrew-sync" in subdirs
     assert "rebrew-data-analysis" in subdirs
-    assert "rebrew-status-tracking" in subdirs
 
 
 def test_init_copies_agent_skills(tmp_path) -> None:
@@ -259,9 +259,9 @@ def test_init_copies_agent_skills(tmp_path) -> None:
     skills_dir = tmp_path / "agent-skills"
     assert skills_dir.is_dir()
 
-    # All 5 skill subdirectories present
+    # All 4 skill subdirectories present
     subdirs = sorted(d.name for d in skills_dir.iterdir() if d.is_dir())
-    assert len(subdirs) == 5
+    assert len(subdirs) == 4
 
     # Each has a SKILL.md
     for subdir in skills_dir.iterdir():
