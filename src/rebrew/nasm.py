@@ -274,10 +274,10 @@ def batch_extract(
     reversed_dir = cfg.reversed_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    from rebrew.cli import source_glob
+    from rebrew.cli import iter_sources
 
     entries = []
-    for cfile in sorted(reversed_dir.glob(source_glob(cfg))):
+    for cfile in iter_sources(reversed_dir, cfg):
         info = _parse_annotations(cfile)
         if info is None:
             continue

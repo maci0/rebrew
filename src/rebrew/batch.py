@@ -66,12 +66,12 @@ def disasm(code_bytes: bytes, va: int, cfg: Any = None) -> str:
 
 def detect_reversed_vas(src_dir: Path, cfg: Any = None) -> set[int]:
     """Scan the reversed source directory for annotation headers and return set of VAs."""
-    from rebrew.cli import source_glob
+    from rebrew.cli import iter_sources
 
     reversed_vas: set[int] = set()
     if not src_dir.exists():
         return reversed_vas
-    for cfile in sorted(src_dir.glob(source_glob(cfg))):
+    for cfile in iter_sources(src_dir, cfg):
         for entry in parse_c_file_multi(cfile):
             if entry.marker_type not in ("GLOBAL", "DATA"):
                 reversed_vas.add(entry.va)

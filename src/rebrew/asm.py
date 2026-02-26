@@ -15,7 +15,7 @@ import typer
 
 from rebrew.annotation import parse_c_file
 from rebrew.catalog import load_ghidra_functions
-from rebrew.cli import TargetOption, get_config, source_glob
+from rebrew.cli import TargetOption, get_config, iter_sources
 
 _EPILOG = """\
 [bold]Examples:[/bold]
@@ -56,7 +56,7 @@ def build_function_lookup(cfg: Any) -> dict[int, tuple[str, str]]:
     # Override with names from existing source files (more accurate)
     src_dir = Path(cfg.reversed_dir)
     if src_dir.is_dir():
-        for cfile in src_dir.glob(source_glob(cfg)):
+        for cfile in iter_sources(src_dir, cfg):
             try:
                 entry = parse_c_file(cfile)
                 if not entry:

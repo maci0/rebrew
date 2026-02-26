@@ -177,20 +177,20 @@ def load_data(
 
     # Existing source files — use parse_c_file_multi to capture all VAs in
     # multi-function files (not just the first annotation).
-    from rebrew.cli import source_glob
+    from rebrew.cli import iter_sources, rel_display_path
 
     existing: dict[int, dict[str, str]] = {}
     covered_vas: dict[int, str] = {}
-    for cfile in sorted(src_dir.glob(source_glob(cfg))):
+    for cfile in iter_sources(src_dir, cfg):
         entries = parse_c_file_multi(cfile)
+        rel_name = rel_display_path(cfile, src_dir)
         for entry in entries:
             if entry.marker_type in ("GLOBAL", "DATA"):
                 continue
             if entry.va < 0x1000:
                 continue
-            filename = Path(entry.filepath).name
             existing[entry.va] = {
-                "filename": filename,
+                "filename": rel_name,
                 "status": entry.status,
                 "origin": entry.origin,
                 "blocker": entry.blocker,
@@ -199,7 +199,7 @@ def load_data(
                 else "",
                 "symbol": entry.symbol,
             }
-            covered_vas[entry.va] = filename
+            covered_vas[entry.va] = rel_name
 
     return ghidra_funcs, existing, covered_vas
 

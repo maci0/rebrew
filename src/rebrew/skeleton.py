@@ -31,7 +31,7 @@ from rebrew.annotation import (
     parse_c_file_multi,
 )
 from rebrew.catalog import load_ghidra_functions
-from rebrew.cli import TargetOption, get_config, source_glob
+from rebrew.cli import TargetOption, get_config, iter_sources, rel_display_path
 from rebrew.decompiler import fetch_decompilation
 from rebrew.next import detect_origin
 
@@ -111,21 +111,25 @@ int __cdecl {{ func_name }}(void)
 
 
 def load_existing_vas(src_dir: str | Path, cfg: Any = None) -> dict[int, str]:
-    """Load VAs already covered by source files. Returns {va: filename}.
+    """Load VAs already covered by source files. Returns {va: rel_path}.
 
     Supports multi-function files: a single source file may contain multiple
     annotation blocks, each registering a separate VA.
+
+    Values are relative paths from *src_dir* (e.g. ``"game/pool_free.c"``
+    for nested layouts, or ``"pool_free.c"`` for flat layouts).
 
     Args:
         src_dir: Directory containing reversed source files.
         cfg: Optional config for source extension (defaults to ``".c"``).
     """
+    src_path = Path(src_dir)
     existing: dict[int, str] = {}
-    pattern = source_glob(cfg) if cfg is not None else "*.c"
-    for cfile in Path(src_dir).glob(pattern):
+    for cfile in iter_sources(src_path, cfg):
+        rel_name = rel_display_path(cfile, src_path)
         entries = parse_c_file_multi(cfile)
         for entry in entries:
-            existing[entry.va] = Path(entry.filepath).name
+            existing[entry.va] = rel_name
     return existing
 
 
