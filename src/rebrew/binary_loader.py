@@ -416,7 +416,7 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
 
 def _detect_format(path: Path) -> str:
     """Detect binary format from magic bytes."""
-    with open(path, "rb") as f:
+    with path.open("rb") as f:
         magic = f.read(4)
 
     if magic[:2] == b"MZ":

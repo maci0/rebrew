@@ -466,7 +466,7 @@ def main(
         if ops is None:  # pragma: no cover — guarded by branch above
             raise typer.Exit(code=1)
         out_path = cfg.root / "ghidra_commands.json"
-        with open(out_path, "w", encoding="utf-8") as f:
+        with out_path.open("w", encoding="utf-8") as f:
             json.dump(ops, f, indent=2)
         print(f"Exported {len(ops)} operations to {out_path}")
 
@@ -476,7 +476,7 @@ def main(
             print(f"ERROR: {cmds_path} not found. Run --export first.", file=sys.stderr)
             raise typer.Exit(code=1)
         try:
-            with open(cmds_path, encoding="utf-8") as f:
+            with cmds_path.open(encoding="utf-8") as f:
                 commands = json.load(f)
         except (json.JSONDecodeError, OSError) as exc:
             print(f"ERROR: Failed to read {cmds_path}: {exc}", file=sys.stderr)
@@ -520,7 +520,7 @@ def main(
 
         if all_cmds:
             out_path = cfg.root / "ghidra_size_commands.json"
-            with open(out_path, "w", encoding="utf-8") as f:
+            with out_path.open("w", encoding="utf-8") as f:
                 json.dump(all_cmds, f, indent=2)
             print(f"Exported {len(all_cmds)} operations to {out_path}")
 
