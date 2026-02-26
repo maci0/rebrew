@@ -13,7 +13,7 @@ Onboard a new binary into a rebrew project and produce an initial assessment.
 A `rebrew.toml` must exist with the new target configured. If starting from scratch:
 
 ```bash
-rebrew-init --target <name> --binary <filename> --compiler msvc6
+rebrew init --target <name> --binary <filename> --compiler msvc6
 ```
 
 Then place the binary at the path specified in `rebrew.toml` (default: `original/<filename>`).
@@ -23,14 +23,14 @@ Then place the binary at the path specified in `rebrew.toml` (default: `original
 ### 1. Verify Configuration
 
 ```bash
-rebrew-cfg list-targets                 # confirm target is configured
+rebrew cfg list-targets                 # confirm target is configured
 rebrew status --json                    # should show the target with 0 functions
 ```
 
 If the target is missing, add it:
 
 ```bash
-rebrew-cfg add-target <name> --binary original/<filename>
+rebrew cfg add-target <name> --binary original/<filename>
 ```
 
 ### 2. FLIRT Library Scan
@@ -39,7 +39,7 @@ Identify known library functions (MSVCRT, zlib, DirectX, etc.) to separate
 library code from game code:
 
 ```bash
-rebrew-flirt --json                     # scan binary against FLIRT signatures
+rebrew flirt --json                     # scan binary against FLIRT signatures
 ```
 
 Library matches are fast wins — they can be skeletonized and matched quickly
@@ -50,8 +50,8 @@ since the original source is often available.
 Generate the function catalog from the binary's symbol table and any existing annotations:
 
 ```bash
-rebrew-catalog --json                   # build catalog + data JSON
-rebrew-build-db                         # build SQLite coverage database
+rebrew catalog --json                   # build catalog + data JSON
+rebrew build-db                         # build SQLite coverage database
 ```
 
 ### 4. Initial Triage
@@ -60,7 +60,7 @@ Get a comprehensive overview of the reversing landscape:
 
 ```bash
 rebrew triage --json                    # coverage stats, recommendations, FLIRT counts
-rebrew-next --stats --json              # detailed progress statistics
+rebrew next --stats --json              # detailed progress statistics
 rebrew data --dispatch --json           # detect dispatch tables / vtables
 ```
 
@@ -78,8 +78,8 @@ From the triage output, evaluate:
 Start with the easiest functions identified by triage:
 
 ```bash
-rebrew-next --json                      # get recommended functions
-rebrew-skeleton 0x<VA>                  # generate skeleton for each
+rebrew next --json                      # get recommended functions
+rebrew skeleton 0x<VA>                  # generate skeleton for each
 ```
 
 For library functions identified by FLIRT, check if reference source is available
@@ -90,7 +90,7 @@ For library functions identified by FLIRT, check if reference source is availabl
 If a Ghidra instance is available with ReVa MCP:
 
 ```bash
-rebrew-sync --push                      # push annotations + FLIRT labels to Ghidra
+rebrew sync --push                      # push annotations + FLIRT labels to Ghidra
 ```
 
 ## Summary Checklist
@@ -98,7 +98,7 @@ rebrew-sync --push                      # push annotations + FLIRT labels to Ghi
 ```
 Intake Progress:
 - [ ] Binary placed at configured path
-- [ ] rebrew-cfg confirms target
+- [ ] rebrew cfg confirms target
 - [ ] FLIRT scan complete
 - [ ] Catalog and coverage DB built
 - [ ] Triage report reviewed

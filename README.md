@@ -30,7 +30,7 @@ The project includes four `agent-skills` for AI coding agent integration:
 | `rebrew-data-analysis` | Global data scanning, BSS layout, dispatch tables |
 | `rebrew-intake` | Binary onboarding, triage, and initial FLIRT scanning |
 
-See the `agent-skills/` directory for the SKILL.md files.
+See the `src/rebrew/agent-skills/` directory for the SKILL.md files.
 
 ### ❓ What is Rebrew?
 

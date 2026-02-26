@@ -105,7 +105,7 @@ To add support for a new RE tool (e.g. IDA, Binary Ninja, angr):
 
 ### 1. Ingestion
 
-Add a parser in `catalog.py` (or a new module) that reads the tool's function list export.
+Add a parser in `catalog/loaders.py` (or a new module) that reads the tool's function list export.
 The parser must produce records with at minimum:
 
 ```python
@@ -114,7 +114,7 @@ The parser must produce records with at minimum:
 
 ### 2. Function Registry
 
-Update `build_function_registry()` in `catalog.py` to merge the new tool's data:
+Update `build_function_registry()` in `catalog/registry.py` to merge the new tool's data:
 
 ```python
 registry[va]["<tool>_name"] = entry["<tool>_name"]
