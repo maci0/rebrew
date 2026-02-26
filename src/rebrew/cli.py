@@ -17,7 +17,6 @@ Usage in a tool::
 """
 
 from pathlib import Path
-from typing import Any
 
 import typer
 
@@ -37,7 +36,7 @@ def get_config(target: str | None = None) -> ProjectConfig:
     return load_config(target=target)
 
 
-def source_glob(cfg: Any) -> str:
+def source_glob(cfg: ProjectConfig | None) -> str:
     """Return glob pattern for source files based on the configured extension.
 
     Uses ``cfg.source_ext`` (e.g. ``".c"``, ``".cpp"``) to build a pattern
@@ -64,7 +63,7 @@ def rel_display_path(filepath: Path, base_dir: Path | None = None) -> str:
     return filepath.name
 
 
-def iter_sources(directory: Path, cfg: Any = None) -> list[Path]:
+def iter_sources(directory: Path, cfg: ProjectConfig | None = None) -> list[Path]:
     """Return all source files under *directory*, recursively, sorted by path.
 
     Uses :func:`source_glob` to determine the file extension and ``rglob``
