@@ -14,42 +14,42 @@ Aimed at AI agents and new contributors.
 
 ```bash
 # Initialize a new project
-rebrew-init --target target_name --binary target.dll --compiler msvc6
+rebrew init --target target_name --binary target.dll --compiler msvc6
 
 # See what needs work
-rebrew-next --stats
-rebrew-next --origin GAME -n 30
+rebrew next --stats
+rebrew next --origin GAME -n 30
 
 # Generate a skeleton .c file
-rebrew-skeleton --va 0x10003da0
+rebrew skeleton --va 0x10003da0
 
 # Test a function
-rebrew-test src/target_name/my_func.c
+rebrew test src/target_name/my_func.c
 
 # Structural diff (see exactly which bytes differ)
-rebrew-match \
+rebrew match \
     --diff-only src/target_name/my_func.c \
     --target-va 0x10003da0 --target-size 160
 
 # Run the GA to auto-search for matching source
-rebrew-match \
+rebrew match \
     src/target_name/my_func.c \
     --target-va 0x10003da0 --target-size 160 \
     --out-dir run_my_func \
     --generations 200 --pop-size 64 -j 16 --diff-only
 
 # Validate all annotations
-rebrew-catalog --summary
+rebrew catalog --summary
 
 # Bulk compile and verify all reversed functions
-rebrew-verify
+rebrew verify
 
 # Lint and verify Python health
 uv run ruff check .
 uv run ruff format .
 
 # Scan DLL against FLIRT signatures
-rebrew-flirt flirt_sigs/
+rebrew flirt flirt_sigs/
 ```
 
 ## JSON Output for Automation
@@ -59,56 +59,56 @@ scripting and AI agent integration:
 
 ```bash
 # Test a function and parse results with jq
-rebrew-test src/target_name/my_func.c --json | jq '.status'
+rebrew test src/target_name/my_func.c --json | jq '.status'
 
 # Get progress stats as JSON
-rebrew-next --stats --json | jq '.coverage_pct'
+rebrew next --stats --json | jq '.coverage_pct'
 
 # List recommendations as JSON
-rebrew-next --json -n 10 | jq '.items[] | {va, size, difficulty}'
+rebrew next --json -n 10 | jq '.items[] | {va, size, difficulty}'
 
 # List MATCHING functions sorted by byte delta
-rebrew-next --improving --json | jq '.items[] | select(.byte_delta != null and .byte_delta <= 5)'
+rebrew next --improving --json | jq '.items[] | select(.byte_delta != null and .byte_delta <= 5)'
 
 # Structured diff output
-rebrew-match --diff-only --json src/target_name/my_func.c | jq '.summary'
+rebrew match --diff-only --json src/target_name/my_func.c | jq '.summary'
 
 # Disassembly as JSON
-rebrew-asm 0x10003da0 --size 160 --json | jq '.instructions[] | .mnemonic'
+rebrew asm 0x10003da0 --size 160 --json | jq '.instructions[] | .mnemonic'
 ```
 
 **Tools with `--json` support:**
 | Tool | Modes |
 |------|-------|
-| `rebrew-test` | Single and multi-function test results |
-| `rebrew-next` | `--stats`, default recommendations, `--improving`, `--unmatchable`, `--group` |
-| `rebrew-match` | `--diff-only` mode |
-| `rebrew-asm` | Disassembly output |
-| `rebrew-verify` | Verification report |
-| `rebrew-lint` | Lint results |
-| `rebrew-flirt` | FLIRT scan results |
-| `rebrew-status` | Status overview |
-| `rebrew-data` | Data scan results |
-| `rebrew-promote` | Promotion results |
-| `rebrew-triage` | Triage report |
-| `rebrew-ga` | Batch GA results |
-| `rebrew-extract` | Batch extraction results |
-| `rebrew-catalog` | Catalog JSON generation (`--json`) |
+| `rebrew test` | Single and multi-function test results |
+| `rebrew next` | `--stats`, default recommendations, `--improving`, `--unmatchable`, `--group` |
+| `rebrew match` | `--diff-only` mode |
+| `rebrew asm` | Disassembly output |
+| `rebrew verify` | Verification report |
+| `rebrew lint` | Lint results |
+| `rebrew flirt` | FLIRT scan results |
+| `rebrew status` | Status overview |
+| `rebrew data` | Data scan results |
+| `rebrew promote` | Promotion results |
+| `rebrew triage` | Triage report |
+| `rebrew ga` | Batch GA results |
+| `rebrew extract` | Batch extraction results |
+| `rebrew catalog` | Catalog JSON generation (`--json`) |
 
 ## Step-by-Step Process
 
 ```mermaid
 graph TD
-    Pick[Pick a function<br/>rebrew-next] --> Gen[Generate skeleton<br/>rebrew-skeleton]
+    Pick[Pick a function<br/>rebrew next] --> Gen[Generate skeleton<br/>rebrew skeleton]
     Gen --> Decomp[Get decompilation<br/>Ghidra/IDA]
     Decomp --> Write[Write C89 source]
-    Write --> Test{Test the match<br/>rebrew-test}
-    Test -->|EXACT / RELOC| Promote[Promote status<br/>rebrew-promote]
-    Test -->|MISMATCH| Diff[Investigate diffs<br/>rebrew-match --diff-only]
+    Write --> Test{Test the match<br/>rebrew test}
+    Test -->|EXACT / RELOC| Promote[Promote status<br/>rebrew promote]
+    Test -->|MISMATCH| Diff[Investigate diffs<br/>rebrew match --diff-only]
     Test -->|COMPILE ERROR| Write
-    Promote --> Lint[Lint & verify<br/>rebrew-lint]
+    Promote --> Lint[Lint & verify<br/>rebrew lint]
     Diff --> Flags{Unsure about flags?}
-    Flags -->|Yes| Sweep[Sweep flags<br/>rebrew-match --flag-sweep-only]
+    Flags -->|Yes| Sweep[Sweep flags<br/>rebrew match --flag-sweep-only]
     Sweep --> Write
     Flags -->|No| Write
 ```
@@ -116,21 +116,21 @@ graph TD
 ### 1. Pick a function
 
 ```bash
-rebrew-next --origin GAME -n 10
+rebrew next --origin GAME -n 10
 ```
 
 Pick from the top of the list (smallest = easiest).
 Difficulty ratings: `*` = trivial, `*****` = very hard.
 
 > [!TIP]
-> `rebrew-next` **auto-filters unmatchable functions** (IAT thunks, single-byte
+> `rebrew next` **auto-filters unmatchable functions** (IAT thunks, single-byte
 > RET/INT3 stubs, SEH `fs:[0]` handlers) so you only see actionable targets.
 > Use `--stats` to see the unmatchable breakdown, or `--unmatchable` to list them.
 
 To see MATCHING functions sorted by how close they are to RELOC:
 
 ```bash
-rebrew-next --improving
+rebrew next --improving
 ```
 
 The **Delta** column shows how many non-reloc bytes differ (parsed from BLOCKER
@@ -139,9 +139,9 @@ annotations). Smallest delta = highest ROI for improvement.
 ### 2. Generate skeleton
 
 ```bash
-rebrew-skeleton 0x<VA>
-rebrew-skeleton 0x<VA> --decomp                    # with inline decompilation
-rebrew-skeleton 0x<VA> --decomp --decomp-backend r2dec  # specific backend
+rebrew skeleton 0x<VA>
+rebrew skeleton 0x<VA> --decomp                    # with inline decompilation
+rebrew skeleton 0x<VA> --decomp --decomp-backend r2dec  # specific backend
 ```
 
 This creates `src/target_name/<name>.c` with proper annotations and
@@ -150,7 +150,7 @@ a decompiler backend (r2ghidra, r2dec, or auto).
 
 To add a function to an existing multi-function file:
 ```bash
-rebrew-skeleton 0x<VA> --append existing_file.c
+rebrew skeleton 0x<VA> --append existing_file.c
 ```
 
 ### 3. Get the decompilation
@@ -164,12 +164,12 @@ the function at the given VA in `original/target.dll`.
 
 Alternatively, use the built-in offline disassembler script:
 ```bash
-rebrew-asm --va 0x<VA> --size <SIZE>
+rebrew asm --va 0x<VA> --size <SIZE>
 ```
 
 Or you can try to automatically identify it against known FLIRT signatures (**experimental**):
 ```bash
-rebrew-flirt [path_to_sig_directory]
+rebrew flirt [path_to_sig_directory]
 ```
 
 ### 4. Write C89 source
@@ -219,7 +219,7 @@ int __cdecl my_func(int param_1, char *param_2)
 ### 5. Test the match
 
 ```bash
-rebrew-test src/target_name/my_func.c
+rebrew test src/target_name/my_func.c
 ```
 
 **Possible results:**
@@ -238,10 +238,10 @@ For a detailed explanation of each match type, see [MATCH_TYPES.md](MATCH_TYPES.
 ### 6. If MISMATCH — use diff mode
 
 ```bash
-rebrew-match --diff-only src/target_name/my_func.c --target-va 0x<VA> --target-size <SIZE>
+rebrew match --diff-only src/target_name/my_func.c --target-va 0x<VA> --target-size <SIZE>
 
 # Show only structural differences (** lines)
-rebrew-match --diff-only --mm src/target_name/my_func.c
+rebrew match --diff-only --mm src/target_name/my_func.c
 ```
 
 **Diff markers:**
@@ -252,7 +252,7 @@ rebrew-match --diff-only --mm src/target_name/my_func.c
 ### 7. If unsure about compiler flags — sweep
 
 ```bash
-rebrew-match --flag-sweep-only src/target_name/my_func.c --target-va 0x<VA> --target-size <SIZE>
+rebrew match --flag-sweep-only src/target_name/my_func.c --target-va 0x<VA> --target-size <SIZE>
 ```
 
 ### 8. Update the annotation
@@ -278,19 +278,19 @@ If STATUS is MATCHING, add a BLOCKER line:
 When a function reaches EXACT or RELOC, promote it:
 
 ```bash
-rebrew-promote src/target_name/my_func.c
-rebrew-promote src/target_name/my_func.c --json   # agent-friendly output
+rebrew promote src/target_name/my_func.c
+rebrew promote src/target_name/my_func.c --json   # agent-friendly output
 ```
 
-`rebrew-promote` updates the STATUS annotation and verifies the match still holds.
+`rebrew promote` updates the STATUS annotation and verifies the match still holds.
 
 ### 10. Lint and Verify Annotation Health
 
-Before committing or finishing a batch of functions, ensure your C files have valid headers and annotations. Run the built-in annotation linter (`rebrew-catalog`) periodically throughout the RE pipeline to catch formatting errors early, especially when collaborating or generating many templates:
+Before committing or finishing a batch of functions, ensure your C files have valid headers and annotations. Run the built-in annotation linter (`rebrew catalog`) periodically throughout the RE pipeline to catch formatting errors early, especially when collaborating or generating many templates:
 
 ```bash
-rebrew-lint              # Check for invalid headers, statuses, and origins
-rebrew-catalog --summary # View overall RE progress and stats
+rebrew lint              # Check for invalid headers, statuses, and origins
+rebrew catalog --summary # View overall RE progress and stats
 ```
 
 ## Compiler Flags by Origin
@@ -301,7 +301,7 @@ rebrew-catalog --summary # View overall RE progress and stats
 | MSVCRT | `/O1` | Size optimization. Some need `/O1 /Oy-` (frame pointer) or `/O1 /Oi` (intrinsics) |
 | ZLIB | `/O2` | Full optimization (no `/Gd` needed — zlib uses default cdecl) |
 
-Always include `/nologo /c /MT` as base flags (added automatically by `rebrew-test`).
+Always include `/nologo /c /MT` as base flags (added automatically by `rebrew test`).
 
 ## Annotation Format
 
@@ -363,9 +363,9 @@ These affect whether your code produces matching bytes:
 ## Non-Matchable Functions (Skip These)
 
 > [!NOTE]
-> `rebrew-next` now **auto-detects** most unmatchable patterns via byte-level
+> `rebrew next` now **auto-detects** most unmatchable patterns via byte-level
 > inspection. They are automatically filtered from the work queue. Run
-> `rebrew-next --stats` to see the breakdown, or `--unmatchable` to list them.
+> `rebrew next --stats` to see the breakdown, or `--unmatchable` to list them.
 
 - **IAT thunks**: 6-byte `jmp [addr]` stubs (8 total) — not C code
 - **ASM builtins**: `memset`, `strcmp`, `strstr`, `strchr`, `strlen`, `strncpy`, `strpbrk`, `strcspn`, `__local_unwind2`, `__aulldiv`, `__aullrem` — hand-written assembly
@@ -413,7 +413,7 @@ SEH helper functions in MSVCRT are **not matchable from pure C89 source**. These
 - Has `__local_unwind` or `except` in the call graph
 
 ...then it's likely an SEH helper. Mark as STUB and move on.
-> `rebrew-next` auto-detects functions starting with `mov eax, fs:[0]` (`64 A1 00 00 00 00`) and filters them.
+> `rebrew next` auto-detects functions starting with `mov eax, fs:[0]` (`64 A1 00 00 00 00`) and filters them.
 
 ## Working with Multiple Binaries
 
@@ -431,8 +431,8 @@ See [CONFIG.md](CONFIG.md) for the full `rebrew.toml` key reference and architec
 Tools default to the **first** target. Use `--target` to select another:
 
 ```bash
-rebrew-test --target Europa1400Gold_TL.exe src/Europa1400Gold_TL.exe/my_func.c
-rebrew-next --target Europa1400Gold_TL.exe --stats
+rebrew test --target Europa1400Gold_TL.exe src/Europa1400Gold_TL.exe/my_func.c
+rebrew next --target Europa1400Gold_TL.exe --stats
 ```
 
 ## Sharing code between targets

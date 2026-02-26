@@ -3,7 +3,7 @@
 This document outlines the core architectural and operational philosophies that guide the development of the Rebrew ecosystem. These principles ensure the tooling remains robust, safe for autonomous AI usage, and conducive to a reproducible reverse-engineering workflow.
 
 ## 1. Idempotency First
-Every tool in the Rebrew suite (`rebrew-catalog`, `rebrew-verify`, `rebrew-init`, etc.) must be safely repeatable. Running a command twice should not yield a different outcome than running it once. There must be no destructive side-effects when re-running workflows, ensuring that humans and AI agents can safely retry operations.
+Every tool in the Rebrew suite (`rebrew catalog`, `rebrew verify`, `rebrew init`, etc.) must be safely repeatable. Running a command twice should not yield a different outcome than running it once. There must be no destructive side-effects when re-running workflows, ensuring that humans and AI agents can safely retry operations.
 
 ## 2. Config-Driven Execution
 Global and project-specific settings live in `rebrew.toml`. Tools must rely on this central configuration rather than requiring complex, manual CLI path arguments. This creates a unified entry point and guarantees that any agent or contributor is working with the exact same context (paths, compiler flags, target binaries).
@@ -15,7 +15,7 @@ Rebrew is built as a collection of small, single-purpose CLI utilities following
 Whether driven by a human or an AI agent, the system must **never** make a function's decompiled state worse. Every proposed change is evaluated against a strict byte-comparison score. Updates to existing functions are only promoted if their status improves (e.g., `MATCHING` -> `RELOC`) or the mismatched byte count strictly decreases.
 
 ## 5. Byte-Identical Ground Truth
-"Close enough" is not the goal. The ultimate source of truth is the compiler output. Cosmetic changes (renaming variables, adding comments) are only accepted if `rebrew-test` verifies that the resulting `.obj` bytes remain completely identical to the existing matched baseline.
+"Close enough" is not the goal. The ultimate source of truth is the compiler output. Cosmetic changes (renaming variables, adding comments) are only accepted if `rebrew test` verifies that the resulting `.obj` bytes remain completely identical to the existing matched baseline.
 
 ## 6. Safe by Default (Shadow Workspaces)
 To prevent corruption of known-good decompilation (`EXACT` / `RELOC` states), experimental generation and compilation must occur in isolated staging areas. Changes are promoted to the main source tree only after passing the byte-matching gates and regression suites.
@@ -46,10 +46,10 @@ When dealing with older compilers (like MSVC6), code must map directly to compil
 - Logic structure (`if/else` flow, loop choice) dictates the machine code generation directly, requiring rigid adherence over modern "clean code" stylistic preferences.
 
 ## 14. Continuous Linting and Validation
-Metadata integrity is critical for a smooth reverse-engineering pipeline. Every decompiled `.c` file must undergo strict, continuous linting (`rebrew-lint`) at every step of the generation, compilation, and modification process. This guarantees that all header annotations (`STATUS`, `ORIGIN`, `SIZE`, `CFLAGS`) remain structurally compliant, enabling seamless downstream parsing by the dashboard and matching engines without manual intervention.
+Metadata integrity is critical for a smooth reverse-engineering pipeline. Every decompiled `.c` file must undergo strict, continuous linting (`rebrew lint`) at every step of the generation, compilation, and modification process. This guarantees that all header annotations (`STATUS`, `ORIGIN`, `SIZE`, `CFLAGS`) remain structurally compliant, enabling seamless downstream parsing by the dashboard and matching engines without manual intervention.
 
 ## 15. Full-Binary Scope (Beyond `.text`)
-A faithful decompilation requires coverage of the *entire* binary, not just executable code. The `.data`, `.rdata`, and `.bss` sections contain globals, dispatch tables, vtables, string tables, and const arrays that are equally critical for correctness. Tools must inventory and cross-reference data-section artifacts (`rebrew-data`), detect dispatch tables / vtables by scanning for contiguous function-pointer arrays, and flag type conflicts across files. Code coverage and data coverage are tracked together.
+A faithful decompilation requires coverage of the *entire* binary, not just executable code. The `.data`, `.rdata`, and `.bss` sections contain globals, dispatch tables, vtables, string tables, and const arrays that are equally critical for correctness. Tools must inventory and cross-reference data-section artifacts (`rebrew data`), detect dispatch tables / vtables by scanning for contiguous function-pointer arrays, and flag type conflicts across files. Code coverage and data coverage are tracked together.
 
 ## 16. Automated Near-Miss Promotion
-Many `MATCHING` functions differ from the target by only a handful of bytes — an operand swap, branch inversion, or register allocation jitter. The system must be able to batch-process these near-miss cases unattended (`rebrew-ga --near-miss --threshold N`), sorted by byte delta so the easiest wins come first. This ensures that trivial MATCHING→RELOC promotions are never left on the table, and that human attention is reserved for functions that genuinely require it.
+Many `MATCHING` functions differ from the target by only a handful of bytes — an operand swap, branch inversion, or register allocation jitter. The system must be able to batch-process these near-miss cases unattended (`rebrew ga --near-miss --threshold N`), sorted by byte delta so the easiest wins come first. This ensures that trivial MATCHING→RELOC promotions are never left on the table, and that human attention is reserved for functions that genuinely require it.

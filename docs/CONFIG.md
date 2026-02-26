@@ -95,7 +95,7 @@ All 22 tools read from `rebrew.toml`. Each uses `try/except` with hardcoded fall
 | `lint.py` | `reversed_dir`, module name |
 | `init.py` | All target config (scaffolding) |
 
-## Config Editor (`rebrew-cfg`)
+## Config Editor (`rebrew cfg`)
 
 Programmatically read and write `rebrew.toml` using `tomlkit` for format-preserving
 edits (comments and ordering are retained). All mutating commands are idempotent —
@@ -103,19 +103,19 @@ running the same command twice produces the same result with no errors.
 
 | Subcommand | Description | Example |
 |------------|-------------|---------|
-| `list-targets` | List all defined targets | `rebrew-cfg list-targets` |
-| `show [KEY]` | Print config or a dot-separated key | `rebrew-cfg show compiler.cflags` |
-| `add-target NAME` | Add a target section + create dirs | `rebrew-cfg add-target client.exe -b original/client.exe` |
-| `remove-target NAME` | Remove a target section | `rebrew-cfg remove-target old_target` |
-| `set KEY VALUE` | Set a scalar config key | `rebrew-cfg set compiler.cflags "/O1"` |
-| `add-origin ORIGIN` | Append origin to targets list | `rebrew-cfg add-origin ZLIB -t server.dll` |
-| `remove-origin ORIGIN` | Remove origin from targets list | `rebrew-cfg remove-origin ZLIB -t server.dll` |
-| `set-cflags ORIGIN FLAGS` | Set cflags preset for an origin | `rebrew-cfg set-cflags ZLIB "/O3" -t server.dll` |
+| `list-targets` | List all defined targets | `rebrew cfg list-targets` |
+| `show [KEY]` | Print config or a dot-separated key | `rebrew cfg show compiler.cflags` |
+| `add-target NAME` | Add a target section + create dirs | `rebrew cfg add-target client.exe -b original/client.exe` |
+| `remove-target NAME` | Remove a target section | `rebrew cfg remove-target old_target` |
+| `set KEY VALUE` | Set a scalar config key | `rebrew cfg set compiler.cflags "/O1"` |
+| `add-origin ORIGIN` | Append origin to targets list | `rebrew cfg add-origin ZLIB -t server.dll` |
+| `remove-origin ORIGIN` | Remove origin from targets list | `rebrew cfg remove-origin ZLIB -t server.dll` |
+| `set-cflags ORIGIN FLAGS` | Set cflags preset for an origin | `rebrew cfg set-cflags ZLIB "/O3" -t server.dll` |
 
 ```bash
 # Example workflow: add a second binary and configure it
-rebrew-cfg add-target client.exe --binary original/Client/client.exe --arch x86_32
-rebrew-cfg add-origin ZLIB --target client.exe
-rebrew-cfg set-cflags GAME "/O2 /Gd" --target client.exe
-rebrew-cfg show targets.client.exe
+rebrew cfg add-target client.exe --binary original/Client/client.exe --arch x86_32
+rebrew cfg add-origin ZLIB --target client.exe
+rebrew cfg set-cflags GAME "/O2 /Gd" --target client.exe
+rebrew cfg show targets.client.exe
 ```

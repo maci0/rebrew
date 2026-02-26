@@ -46,7 +46,7 @@ Used for function boundary detection and as an alternative analysis perspective.
 **Data files consumed by rebrew:**
 - `r2_functions.txt` — Human-readable function list (VA, size, name)
 - `r2_functions.json` — Full r2 analysis output with metadata
-- `ghidra_functions.json` — Ghidra function list (consumed by `rebrew-skeleton`, `rebrew-next`)
+- `ghidra_functions.json` — Ghidra function list (consumed by `rebrew skeleton`, `rebrew next`)
 
 **Known issues:**
 - r2 occasionally reports bogus sizes for some functions
@@ -161,12 +161,12 @@ are normalized.
 4. Use **yara** rules for bulk pattern identification of CRT/zlib functions
 
 ### For Byte Comparison
-1. `rebrew-match --diff-only` for side-by-side disassembly (add `--mm` for structural diffs only)
+1. `rebrew match --diff-only` for side-by-side disassembly (add `--mm` for structural diffs only)
 2. **objconv** to verify comp.id on compiled .obj files
 3. **DUMPBIN /DISASM** for quick .obj inspection
 
 ### For Compiler Flag Analysis
-1. `rebrew-match --flag-sweep-only --tier normal` (~21K combos)
+1. `rebrew match --flag-sweep-only --tier normal` (~21K combos)
 2. Use `--tier quick` for fast iteration (192) or `--tier thorough` for deep search (~1M)
 3. **objconv** comp.id verification to confirm same compiler
 4. Re-sync flags from decomp.me: `python tools/sync_decomp_flags.py`
