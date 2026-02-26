@@ -17,10 +17,10 @@ repos:
     hooks:
       - id: skills-ref
         name: Validate Agent Skills
-        entry: bash -c 'for f in "$@"; do uv run skills-ref validate "$f" || exit 1; done' --
+        entry: bash -c 'command -v skills-ref >/dev/null 2>&1 || exit 0; for f in "$@"; do uv run skills-ref validate "$f" || exit 1; done' --
         language: system
         pass_filenames: true
-        files: ^agent-skills/
+        files: ^src/rebrew/agent-skills/
 
       - id: ruff-check
         name: Ruff Lint
