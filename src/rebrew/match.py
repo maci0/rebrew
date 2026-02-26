@@ -20,7 +20,7 @@ from pathlib import Path
 import rich
 import typer
 
-from rebrew.annotation import parse_c_file
+from rebrew.annotation import parse_c_file, parse_source_metadata
 from rebrew.cli import TargetOption, get_config
 from rebrew.matcher import (
     BuildCache,
@@ -35,7 +35,6 @@ from rebrew.matcher import (
     score_candidate,
 )
 from rebrew.matcher.mutator import quick_validate
-from rebrew.test import parse_source_metadata
 
 
 class BinaryMatchingGA:

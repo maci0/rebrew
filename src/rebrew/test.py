@@ -16,7 +16,7 @@ from typing import Any
 import rich
 import typer
 
-from rebrew.annotation import Annotation, parse_c_file, parse_c_file_multi
+from rebrew.annotation import Annotation, parse_c_file, parse_c_file_multi, parse_source_metadata
 from rebrew.cli import TargetOption, get_config
 from rebrew.matcher.parsers import list_obj_symbols, parse_coff_symbol_bytes
 
@@ -45,10 +45,8 @@ def smart_reloc_compare(
 
     relocs = []
     if coff_relocs is not None:
-        # Use actual COFF relocation offsets (each is a 4-byte fixup site)
         relocs = [r for r in coff_relocs if r + 4 <= min_len]
     else:
-        # Fallback: find 4-byte zero spans in obj that differ
         i = 0
         while i <= min_len - 4:
             if (
@@ -60,62 +58,22 @@ def smart_reloc_compare(
             else:
                 i += 1
 
-    # Build reloc mask set for O(1) lookup
     reloc_set = set()
     for r in relocs:
         for j in range(4):
             if r + j < min_len:
                 reloc_set.add(r + j)
 
-    # Compare with relocs masked
     match_count = 0
     mismatches = []
     for i in range(min_len):
-        if i in reloc_set:
-            match_count += 1  # reloc bytes always count as matching
-        elif obj_bytes[i] == target_bytes[i]:
+        if i in reloc_set or obj_bytes[i] == target_bytes[i]:
             match_count += 1
         else:
             mismatches.append(i)
 
     masked_match = len(mismatches) == 0 and len(obj_bytes) == len(target_bytes)
     return masked_match, match_count, max_len, relocs
-
-
-def parse_source_metadata(source_path: str | Path) -> dict[str, str]:
-    """Extract annotation metadata as a flat dict.
-
-    Delegates to the canonical ``parse_c_file`` parser so that every tool
-    agrees on what the annotations say, then reshapes the result into the
-    ``{KEY: value}`` dict format that callers expect.
-    """
-    anno = parse_c_file(Path(source_path))
-    if anno is None:
-        return {}
-
-    meta = {}
-    # Map Annotation fields → the uppercase keys callers look up
-    if anno.marker_type:
-        # e.g. meta["FUNCTION"] = "SERVER 0x10001a60"
-        va_hex = f"0x{anno.va:08x}" if anno.va is not None else ""
-        meta[anno.marker_type] = va_hex
-    if anno.status:
-        meta["STATUS"] = anno.status
-    if anno.origin:
-        meta["ORIGIN"] = anno.origin
-    if anno.size > 0:
-        meta["SIZE"] = str(anno.size)
-    if anno.cflags:
-        meta["CFLAGS"] = anno.cflags
-    if anno.symbol:
-        meta["SYMBOL"] = anno.symbol
-    if anno.blocker:
-        meta["BLOCKER"] = anno.blocker
-    if anno.source:
-        meta["SOURCE"] = anno.source
-    if anno.note:
-        meta["NOTE"] = anno.note
-    return meta
 
 
 def update_source_status(
@@ -191,7 +149,6 @@ _EPILOG = """\
 [bold]Examples:[/bold]
   rebrew-test src/game_dll/my_func.c                  Auto-detect symbol, VA, size from annotations
   rebrew-test src/game_dll/my_func.c _my_func         Explicit symbol name
-  rebrew-test src/game_dll/my_func.c --update          Auto-update STATUS to EXACT/RELOC on match
   rebrew-test f.c _sym --va 0x10009310 --size 42      Override VA and size from CLI
   rebrew-test f.c _sym --cflags "/O1 /Gd"             Override compiler flags
   rebrew-test src/game_dll/my_func.c --json            Machine-readable JSON output
@@ -219,7 +176,6 @@ def main(
     va: str | None = typer.Option(None, help="VA in hex (e.g. 0x10009310)"),
     size: int | None = typer.Option(None, help="Size in bytes"),
     cflags: str | None = typer.Option(None, help="Compiler flags"),
-    update: bool = typer.Option(False, help="Auto-update STATUS in source file"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -240,7 +196,7 @@ def main(
     if symbol is None and va is None and size is None:
         annotations = parse_c_file_multi(Path(source))
         if len(annotations) > 1:
-            _test_multi(cfg, source, annotations, cflags, update, json_output=json_output)
+            _test_multi(cfg, source, annotations, cflags, json_output=json_output)
             return
 
     meta = parse_source_metadata(source)
@@ -350,7 +306,7 @@ def main(
         )
 
         if json_output:
-            result_dict = _build_result_dict(
+            result_dict = build_result_dict(
                 source,
                 symbol,
                 va_str or "",
@@ -364,15 +320,10 @@ def main(
             )
             print(json.dumps(result_dict, indent=2))
         elif matched:
-            status_match = "RELOC" if relocs else "EXACT"
             if relocs:
                 print(f"RELOC-NORMALIZED MATCH: {total}/{total} bytes ({len(relocs)} relocations)")
             else:
                 print(f"EXACT MATCH: {total}/{total} bytes")
-
-            if update:
-                update_source_status(source, status_match)
-                print(f"Updated status to {status_match} in {source}")
         else:
             print(f"MISMATCH: {match_count}/{total} bytes")
             print(f"\nTarget ({len(target_bytes)}B): {target_bytes.hex()}")
@@ -397,7 +348,7 @@ def main(
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def _build_result_dict(
+def build_result_dict(
     source: str,
     symbol: str,
     va_str: str,
@@ -449,7 +400,6 @@ def _test_multi(
     source: str,
     annotations: list[Annotation],
     cflags_override: str | None,
-    update: bool,
     *,
     json_output: bool = False,
 ) -> None:
@@ -537,7 +487,7 @@ def _test_multi(
 
             if json_output:
                 results_list.append(
-                    _build_result_dict(
+                    build_result_dict(
                         source,
                         sym,
                         f"0x{ann.va:08x}",
@@ -551,16 +501,12 @@ def _test_multi(
                     )
                 )
             elif matched:
-                status_match = "RELOC" if relocs else "EXACT"
                 if relocs:
                     rich.print(
                         f"[green]RELOC[/green] {sym} — {total}/{total}B ({len(relocs)} relocs)"
                     )
                 else:
                     rich.print(f"[bold green]EXACT[/bold green] {sym} — {total}/{total}B")
-                if update:
-                    update_source_status(source, status_match, target_va=ann.va)
-                    rich.print(f"  Updated {sym} status to {status_match}")
             else:
                 rich.print(f"[red]MISMATCH[/red] {sym} — {match_count}/{total}B")
 
