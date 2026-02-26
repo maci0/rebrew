@@ -19,7 +19,7 @@ from rich.text import Text
 
 from rebrew.catalog import get_text_section_size, scan_reversed_dir
 from rebrew.cli import TargetOption
-from rebrew.config import load_config
+from rebrew.config import ProjectConfig, load_config
 
 # ---------------------------------------------------------------------------
 # Data collection
@@ -75,7 +75,7 @@ def collect_target_stats(
     target_name: str,
     reversed_dir: Path,
     bin_path: Path | None = None,
-    cfg: Any = None,
+    cfg: ProjectConfig | None = None,
 ) -> TargetStats:
     """Scan a target's reversed directory and aggregate annotation stats."""
     stats = TargetStats(name=target_name)
