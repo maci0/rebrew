@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.binary_loader import load_binary
+from rebrew.config import ProjectConfig
 
 # ---------------------------------------------------------------------------
 # Factory helpers
@@ -173,7 +174,7 @@ def _resolve_canonical_size(
 
 def build_function_registry(
     r2_funcs: list[dict[str, Any]],
-    cfg: Any,
+    cfg: ProjectConfig,
     ghidra_path: Path | None = None,
     bin_path: Path | None = None,
 ) -> dict[int, dict[str, Any]]:
