@@ -1,5 +1,10 @@
 # User Stories & Workflow Diagrams
 
+> [!NOTE]
+> These stories describe the **target architecture** for rebrew workflows.
+> Some tools and orchestration steps (e.g. agent batch processing, LLM pipelines)
+> are aspirational and not yet implemented.
+
 User stories for the Rebrew decompilation workbench, organized by persona and workflow.
 
 ---
@@ -31,7 +36,7 @@ graph TD
     B --> C["rebrew.toml created"]
     B --> D["src/game/ directory created"]
     B --> E["bin/game/ directory created"]
-    C --> F["rebrew-cfg verify config"]
+    C --> F["rebrew-cfg show"]
     F --> G["Project ready for RE work"]
 
     style A fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
@@ -70,7 +75,8 @@ graph TD
 
 ### Acceptance Criteria
 - Function list generated (r2 / Ghidra / lief)
-- FLIRT signatures auto-identify CRT/zlib/Lua functions (~20–40%)
+- FLIRT signatures auto-identify CRT/zlib/Lua functions (~20-40%)
+- `rebrew-triage` classifies functions by origin, size, and matchability
 - Functions ranked by size and tagged with origin
 - IAT thunks, SEH helpers, and ASM builtins flagged as non-matchable
 
@@ -84,8 +90,9 @@ graph TD
     F -->|Yes| G["Named STUB"]
     F -->|No| H["Anonymous STUB<br/>(FUN_XXXXXXXX)"]
     E --> I["Seed RAG database"]
-    G --> J["rebrew-next --stats<br/>prioritize by size"]
-    H --> J
+    G --> T["rebrew-triage<br/>classify & prioritize"]
+    H --> T
+    T --> J["rebrew-next --stats<br/>prioritize by size"]
 
     style A fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
     style I fill:#d1fae5,stroke:#059669,color:#065f46
@@ -105,6 +112,7 @@ graph TD
 - `rebrew-skeleton` creates annotated `.c` file
 - `rebrew-test` classifies result as EXACT / RELOC / MATCHING / MISMATCH
 - Annotation header updated with correct STATUS and BLOCKER (if any)
+- `rebrew-promote` used to promote status on match
 
 ```mermaid
 graph TD
@@ -112,8 +120,10 @@ graph TD
     Skel --> Decompile["Get ASM / Ghidra decompilation"]
     Decompile --> Write["Write C89 source code"]
     Write --> Test{"rebrew-test<br/>src/target/func.c"}
-    Test -->|EXACT| Done["✅ Set STATUS: EXACT"]
-    Test -->|RELOC| DoneR["✅ Set STATUS: RELOC"]
+    Test -->|EXACT| Promote["rebrew-promote<br/>→ STATUS: EXACT"]
+    Promote --> Done["✅ Done"]
+    Test -->|RELOC| PromoteR["rebrew-promote<br/>→ STATUS: RELOC"]
+    PromoteR --> DoneR["✅ Done"]
     Test -->|MISMATCH| Diff["rebrew-match --diff-only"]
     Test -->|COMPILE ERROR| Write
     Diff --> Flags{"Unsure about<br/>compiler flags?"}
@@ -122,6 +132,8 @@ graph TD
     Flags -->|No| Write
 
     style Pick fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
+    style Promote fill:#d1fae5,stroke:#059669,color:#065f46
+    style PromoteR fill:#d1fae5,stroke:#059669,color:#065f46
     style Done fill:#d1fae5,stroke:#059669,color:#065f46
     style DoneR fill:#d1fae5,stroke:#059669,color:#065f46
     style Test fill:#fef3c7,stroke:#d97706,color:#92400e
@@ -142,13 +154,13 @@ graph TD
 
 ```mermaid
 graph TD
-    A["Function at STATUS: MATCHING<br/>(small byte delta)"] --> B["rebrew-match --seed-c func.c<br/>--generations 200 --pop 64"]
+    A["Function at STATUS: MATCHING<br/>(small byte delta)"] --> B["rebrew-match func.c<br/>--generations 200 --pop-size 64"]
     B --> C["GA mutates C AST<br/>(40+ operators)"]
     C --> D["Compile each candidate<br/>(MSVC6 via Wine)"]
     D --> E{"Fitness improved?"}
     E -->|"EXACT / RELOC"| F["✅ Match found!<br/>Update annotation"]
     E -->|"Improved but not exact"| G["Continue evolving<br/>(next generation)"]
-    E -->|"Stagnation<br/>(50 gen no improvement)"| H["Mark STALLED<br/>escalate to LLM"]
+    E -->|"Stagnation<br/>(50 gen no improvement)"| H["Add BLOCKER note<br/>escalate to LLM"]
     G --> C
 
     style A fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
@@ -164,19 +176,19 @@ graph TD
 > **As an AI Operator**, I want the LLM to generate an initial C implementation from assembly so that I get a semantic baseline without manual effort.
 
 ### Acceptance Criteria
-- ASM extracted via `dump_asm.py` and fed to LLM with RAG context
+- ASM extracted via `rebrew-asm` and fed to LLM with RAG context
 - RAG resolves called function signatures, globals, strings, and caller context
 - Output normalized (C89 dialect, proper annotation header prepended)
 - Result tested and classified automatically
 
 ```mermaid
 sequenceDiagram
-    participant O as Orchestrator<br/>(ai_reverser.py)
+    participant O as Orchestrator
     participant DB as SQLite RAG
-    participant LLM as qwen3-coder-next
+    participant LLM as LLM
     participant T as rebrew-test
 
-    O->>O: Extract ASM via dump_asm.py
+    O->>O: Extract ASM via rebrew-asm
     O->>DB: Query all referenced VAs
     DB-->>O: Function sigs + globals + strings
     O->>LLM: ASM + RAG context + compiler rules
@@ -230,7 +242,7 @@ graph TD
     Result -->|MATCHING| Requeue["Update state<br/>re-queue"]
     Result -->|STALLED| Log["Log for<br/>human review"]
 
-    Stage --> Regression["batch_test.sh<br/>regression gate"]
+    Stage --> Regression["rebrew-verify<br/>regression gate"]
     Regression -->|Pass| Commit["Promote to src/<br/>git commit"]
     Regression -->|Fail| Rollback["Rollback<br/>mark STALLED"]
 
@@ -309,21 +321,23 @@ graph TD
 > **As a Project Lead**, I want to bootstrap an entirely new binary from scratch so that the RAG database gets seeded progressively and enables the snowball effect.
 
 ### Acceptance Criteria
+- `rebrew-init` scaffolds the project directory and config
 - Function boundaries detected via radare2/Ghidra
 - FLIRT identifies library functions automatically
+- `rebrew-triage` classifies and prioritizes all functions
 - Smallest leaf functions processed first (snowball strategy)
 - Each match enriches RAG for subsequent functions
-- Triage report generated with function counts and classification
 
 ```mermaid
 graph TD
-    A["New binary<br/>(no prior RE work)"] --> B["Parse PE / ELF<br/>detect sections"]
+    A["New binary<br/>(no prior RE work)"] --> Init["rebrew-init<br/>scaffold project"]
+    Init --> B["Parse PE / ELF<br/>detect sections"]
     B --> C["Function boundary<br/>detection"]
     C --> D["FLIRT signature<br/>matching"]
     D -->|"~20-40% matched"| E["Compile from<br/>reference source"]
-    D -->|"Unmatched"| F["String & export<br/>anchoring"]
+    D -->|"Unmatched"| F["rebrew-triage<br/>classify functions"]
     E --> G["Seed RAG database"]
-    F --> H["Sort by size<br/>(smallest first)"]
+    F --> H["rebrew-next<br/>sort by size"]
     H --> I["LLM generates<br/>tiny leaf functions"]
     I --> J{"rebrew-test"}
     J -->|"EXACT/RELOC"| G
@@ -345,14 +359,17 @@ graph TD
 > **As a Project Lead**, I want to see at-a-glance progress stats and verify all existing matches still hold so that I can track coverage and catch regressions.
 
 ### Acceptance Criteria
+- `rebrew-status` shows at-a-glance reversing progress overview
 - `rebrew-next --stats` shows function counts by status and origin
 - `rebrew-verify` bulk-compiles and re-verifies all `.c` files
-- `rebrew-catalog` regenerates coverage JSON and function registry
-- `batch_test.sh` regression gate prevents breaking existing matches
+- `rebrew-catalog --json` regenerates coverage JSON and function registry
+- `rebrew-build-db` updates the dashboard database
+- `rebrew-verify` regression gate prevents breaking existing matches
 
 ```mermaid
 graph TD
-    A["Check project status"] --> B["rebrew-next --stats"]
+    A["Check project status"] --> S["rebrew-status"]
+    S --> B["rebrew-next --stats"]
     B --> C["Coverage summary:<br/>EXACT / RELOC / MATCHING / STUB"]
 
     D["Verify integrity"] --> E["rebrew-verify"]
@@ -360,8 +377,9 @@ graph TD
     F -->|Yes| G["✅ All green"]
     F -->|No| H["❌ Regressions found<br/>report affected files"]
 
-    I["Generate catalog"] --> J["rebrew-catalog --summary"]
-    J --> K["CATALOG.md +<br/>coverage.json updated"]
+    I["Generate catalog"] --> J["rebrew-catalog --json"]
+    J --> BD["rebrew-build-db"]
+    BD --> K["coverage.db +<br/>dashboard updated"]
 
     style A fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
     style D fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
@@ -379,7 +397,7 @@ graph TD
 
 ### Acceptance Criteria
 - `rebrew-lint` checks all annotation fields (FUNCTION, STATUS, ORIGIN, SIZE, CFLAGS)
-- Error codes E001–E014 for hard errors, W001–W015 for warnings
+- Error codes E001–E017 for hard errors, W001–W015 for warnings
 - `rebrew-lint --fix` auto-migrates old annotation formats
 - Running lint twice changes nothing (idempotent)
 
@@ -423,7 +441,7 @@ graph TD
     E -->|No matches| G["No library functions<br/>identified"]
     F --> H["Mark as LIBRARY<br/>in annotations"]
 
-    I["Custom .lib file"] --> J["gen_flirt_pat.py<br/>→ custom.pat"]
+    I["Custom .lib file"] --> J["python -m rebrew.gen_flirt_pat<br/>→ custom.pat"]
     J --> A
 
     style A fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
@@ -453,7 +471,7 @@ graph TD
     E -->|"EXACT / RELOC"| F["✅ Promoted!"]
     E -->|"Improved MATCHING"| G["Accept improvement<br/>optionally → GA"]
     E -->|"Same / Worse"| H["Reject change"]
-    G --> I["rebrew-match --seed-c<br/>(Workflow B)"]
+    G --> I["rebrew-match func.c<br/>(Workflow B)"]
     I -->|"EXACT / RELOC"| F
 
     style A fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f

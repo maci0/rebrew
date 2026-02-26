@@ -197,49 +197,7 @@ Each `data_<target>.json` file is the output of `rebrew-catalog --json`. It cont
 
 ---
 
-## 3. `reccmp` Database (In-Memory Entity Database)
-
-### Overview
-Instead of writing to disk, the `reccmp` matching pipeline uses a transient, in-memory SQLite database (`reccmp/compare/db.py`). It effectively operates as an ORM to relate parsed objects ("entities") between the original executable and the newly recompiled binary using a graph-like mapping table approach.
-
-### `entities` Table
-The primary source of truth storing matched and unmatched items.
-
-| Column | Type | Description |
-|---|---|---|
-| `orig_addr` | `INTEGER` | (UNIQUE null-able) Virtual address in the original binary. |
-| `recomp_addr` | `INTEGER` | (UNIQUE null-able) Virtual address in the recompiled binary. |
-| `kvstore` | `TEXT` | JSON store containing entity metadata (e.g. `type`, `name`, `size`). Default: `{}` |
-
-### `names` Table
-An explicit cache of entity names to aid in resolving thunks and references across functions.
-
-| Column | Type | Description |
-|---|---|---|
-| `img` | `INTEGER` | Enum denoting origin: `0` for original, `1` for recompiled. (Primary Key) |
-| `addr` | `INTEGER` | Entity address. (Primary Key) |
-| `name` | `TEXT` | Extracted name of the entity. |
-| `computed_name` | `TEXT` | The algorithmically resolved or demangled function name. |
-
-### `refs` Table
-Used to store jump tables, destinations, and vtable dispatch targets for entities (especially `vtordisp` offsets and thunks).
-
-| Column | Type | Description |
-|---|---|---|
-| `img` | `INTEGER` | `0` (original) or `1` (recomp). (Primary Key) |
-| `addr` | `INTEGER` | Sub-address inside the thunk/dispatch. (Primary Key) |
-| `ref` | `INTEGER` | Jump/Reference destination address. |
-| `disp0` | `INTEGER` | Virtual dispatch displacement 0. |
-| `disp1` | `INTEGER` | Virtual dispatch displacement 1. |
-
-### Essential `reccmp` SQL Views
-- **`matches`**: Filters `entities` natively yielding `orig_addr` and `recomp_addr` where **both** are explicitly populated (successfully matched pairs).
-- **`match_ids`**: Flattens `matches` into a unified layout returning binary `img` index + its internal `addr`.
-- **`orig_unmatched` / `recomp_unmatched`**: Helper views projecting sides of `entities` with dangling original or recompiled addresses without a counterpart.
-
----
-
-## 4. Recoverage REST API
+## 3. Recoverage REST API
 
 The `recoverage` server exposes the following endpoints. All data endpoints return compressed JSON.
 

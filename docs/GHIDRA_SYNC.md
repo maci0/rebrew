@@ -27,31 +27,7 @@
 
 ## Ideas
 
-### 1. `rebrew-sync --apply` — Batch Push to Ghidra
-
-Add a `--apply` flag to `rebrew-sync` that reads `ghidra_commands.json` and executes each
-operation via the ReVa MCP Streamable HTTP endpoint. This closes the loop — right now the
-JSON is generated but never consumed.
-
-**Implementation sketch:**
-```python
-# Use httpx with SSE support to establish a session, then POST each tool call
-async def apply_commands(commands, endpoint="http://localhost:8080/mcp/message"):
-    async with httpx.AsyncClient() as client:
-        # Initialize MCP session
-        session = await mcp_initialize(client, endpoint)
-        for cmd in commands:
-            await mcp_call_tool(client, endpoint, session, cmd["tool"], cmd["args"])
-```
-
-**Benefits:**
-- One-command push: `rebrew-sync --export && rebrew-sync --apply`
-- Or just `rebrew-sync --push` doing both in one step
-- Progress bar showing N/1464 operations applied
-
----
-
-### 2. `rebrew-sync --pull` — Import Ghidra Renames
+### 1. `rebrew-sync --pull` — Import Ghidra Renames
 
 After manually renaming functions in Ghidra, pull those names back into the local `.c` files:
 
@@ -69,7 +45,7 @@ This would:
 
 ---
 
-### 3. Incremental / Dirty-Only Sync
+### 2. Incremental / Dirty-Only Sync
 
 Currently `--export` regenerates all 1464 operations every time. Instead:
 
@@ -82,7 +58,7 @@ the changed functions.
 
 ---
 
-### 4. Struct Sync via `parse-c-structure`
+### 3. Struct Sync via `parse-c-structure`
 
 When a `.c` file defines a struct with offset annotations:
 
@@ -104,7 +80,7 @@ the function body in a reversed `.c` file.
 
 ---
 
-### 5. Function Signature Push
+### 4. Function Signature Push
 
 When we have a complete, verified function signature:
 
@@ -127,7 +103,7 @@ that a Ghidra script could parse, or use `parse-c-structure` for the function ty
 
 ---
 
-### 6. Cross-Reference Context Enrichment
+### 5. Cross-Reference Context Enrichment
 
 When reversing a function, automatically fetch its cross-references from Ghidra to find
 callers and callees. This context is critical for understanding parameter types.
@@ -143,7 +119,7 @@ This would call:
 
 ---
 
-### 7. Status Color Coding in Bookmarks
+### 6. Status Color Coding in Bookmarks
 
 Currently all bookmarks use the "Analysis" type. Instead, use bookmark categories that
 map to status:
@@ -159,7 +135,7 @@ This would give instant visual feedback in Ghidra's bookmark window about projec
 
 ---
 
-### 8. Decompilation Caching in Skeleton Generation
+### 7. Decompilation Caching in Skeleton Generation
 
 `rebrew-skeleton --decomp` currently uses radare2 backends. Add a `--decomp-backend ghidra`
 option that calls ReVa's `get-decompilation` and caches the result:
@@ -173,7 +149,7 @@ file for reference, and would be significantly better quality than radare2 outpu
 
 ---
 
-### 9. Bidirectional Name Conflict Detection
+### 8. Bidirectional Name Conflict Detection
 
 Before pushing labels, check if Ghidra already has a meaningful name at that VA:
 
@@ -188,7 +164,7 @@ The `--pull` command could detect these conflicts and offer resolution.
 
 ---
 
-### 10. Watch Mode for Live Sync
+### 9. Watch Mode for Live Sync
 
 A `rebrew-sync --watch` mode that monitors `.c` file changes and automatically pushes
 updates to Ghidra in near-real-time:
@@ -233,13 +209,12 @@ pushed.
 
 | # | Idea | Effort | Impact |
 |---|------|--------|--------|
-| 1 | `--apply` batch push | Medium | **Critical** — closes the loop |
-| 2 | Skip generic labels | Low | High — prevents name pollution |
-| 3 | Status bookmark categories | Low | Medium — visual progress |
-| 4 | `--pull` import renames | Medium | High — bidirectional flow |
-| 5 | Struct sync | Medium | High — improves decompiler |
-| 6 | Incremental sync | Medium | Medium — performance |
-| 7 | Ghidra decompilation backend | Low | Medium — better skeletons |
-| 8 | XREF context in skeleton | Low | Medium — better context |
-| 9 | Conflict detection | Medium | Medium — safety |
-| 10 | Watch mode | High | Low — nice to have |
+| 1 | `--pull` import renames | Medium | High — bidirectional flow |
+| 2 | Struct sync | Medium | High — improves decompiler |
+| 3 | Incremental sync | Medium | Medium — performance |
+| 4 | Function signature push | Medium | Medium — better decompiler |
+| 5 | XREF context in skeleton | Low | Medium — better context |
+| 6 | Ghidra decompilation backend | Low | Medium — better skeletons |
+| 7 | Conflict detection | Medium | Medium — safety |
+| 8 | Bookmark color coding | Low | Low — visual progress |
+| 9 | Watch mode | High | Low — nice to have |
