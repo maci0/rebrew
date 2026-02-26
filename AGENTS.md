@@ -140,7 +140,7 @@ def main_entry() -> None:
 
 - `TargetOption` + `get_config()` from `rebrew.cli` — never build config manually
 - `main_entry()` registered in `pyproject.toml` `[project.scripts]`
-- Most tools support `--json` for machine-readable output
+- Most tools support `--json` for machine-readable output. Always use `--json` when executing these CLI tools yourself to receive structured output.
 
 ### Test Patterns
 
