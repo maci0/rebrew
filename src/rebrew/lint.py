@@ -39,6 +39,7 @@ from rebrew.annotation import (
     origin_from_filename,
 )
 from rebrew.cli import TargetOption, get_config
+from rebrew.config import ProjectConfig
 
 out_console = Console()
 
@@ -249,7 +250,7 @@ def _check_E003_E004_status(result: LintResult, found_keys: dict[str, str]) -> N
 
 
 def _check_E005_E006_origin(
-    result: LintResult, found_keys: dict[str, str], cfg: Any = None
+    result: LintResult, found_keys: dict[str, str], cfg: ProjectConfig | None = None
 ) -> None:
     if "ORIGIN" not in found_keys:
         result.error(1, "E005", "Missing // ORIGIN: annotation")
@@ -285,7 +286,7 @@ def _check_E010_unknown_keys(result: LintResult, found_keys: dict[str, str]) -> 
 
 
 def _check_E015_marker_consistency(
-    result: LintResult, marker: str, origin: str, status: str, cfg: Any = None
+    result: LintResult, marker: str, origin: str, status: str, cfg: ProjectConfig | None = None
 ) -> None:
     lib_origins = (
         cfg.library_origins if cfg and getattr(cfg, "library_origins", None) is not None else None
@@ -340,7 +341,7 @@ def _check_W005_blocker(result: LintResult, status: str, found_keys: dict[str, s
 
 
 def _check_W006_source(
-    result: LintResult, origin: str, found_keys: dict[str, str], cfg: Any = None
+    result: LintResult, origin: str, found_keys: dict[str, str], cfg: ProjectConfig | None = None
 ) -> None:
     lib_origins = (
         cfg.library_origins
@@ -357,7 +358,7 @@ def _check_W006_source(
 
 
 def _check_W014_origin_prefix(
-    result: LintResult, filepath: Path, origin: str, cfg: Any = None
+    result: LintResult, filepath: Path, origin: str, cfg: ProjectConfig | None = None
 ) -> None:
     # Use config origin_prefixes if available (reversed: origin→prefix to prefix→origin)
     prefixes = None
@@ -384,7 +385,7 @@ def _check_W015_va_case(result: LintResult, va_str: str) -> None:
 
 
 def _check_config_rules(
-    result: LintResult, found_keys: dict[str, str], cfg: Any, origin: str
+    result: LintResult, found_keys: dict[str, str], cfg: ProjectConfig | None, origin: str
 ) -> None:
     """Config-aware checks (W008, E012)."""
     if cfg is None:
@@ -449,7 +450,7 @@ def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> No
 
 def lint_file(
     filepath: Path,
-    cfg: Any = None,
+    cfg: ProjectConfig | None = None,
     seen_vas: dict[int, str] | None = None,
 ) -> LintResult:
     """Lint a single C file.
@@ -511,7 +512,7 @@ def lint_file(
     return result
 
 
-def fix_file(cfg: Any, filepath: Path) -> bool:
+def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
     """Auto-migrate any legacy format to the canonical // KV format.
 
     Handles:
