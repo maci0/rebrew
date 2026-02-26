@@ -10,7 +10,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 - **Compile-and-compare** — `rebrew-test` compiles your C and diffs it byte-by-byte against the original binary
 - **GA matching engine** — `rebrew-match` uses a genetic algorithm to brute-force compiler flags and mutate source code to find exact byte matches
 - **Batch GA** — `rebrew-ga` runs GA across all STUB functions unattended; `--near-miss` targets MATCHING functions with small byte deltas
-- **Annotation pipeline** — `rebrew-lint` validates `// FUNCTION:`, `// STATUS:`, `// ORIGIN:` annotations across the codebase (E001–E014, W001–W015)
+- **Annotation pipeline** — `rebrew-lint` validates `// FUNCTION:`, `// STATUS:`, `// ORIGIN:` annotations across the codebase (E001–E017, W001–W015)
 - **Verification** — `rebrew-verify` bulk-compiles every reversed function and reports match status with a progress bar; `--json` emits timestamped structured reports to `db/verify_results.json`
 - **Smart prioritization** — `rebrew-next` recommends functions to work on, auto-filters unmatchable stubs, and shows byte-delta for near-miss MATCHING functions
 - **Dependency graph** — `rebrew graph` builds call graphs from `extern` declarations in mermaid, DOT, or summary format with focus mode
@@ -21,7 +21,16 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 - **Agent-friendly** — includes `agent-skills/` for AI coding agent integration
 
 ## Agent Skills
-The project includes a set of `agent-skills` that AI coding agents (like Claude Code and GitHub Copilot) can use to autonomously understand and run `rebrew` workflows. See the `agent-skills/` directory for the SKILL.md files.
+The project includes four `agent-skills` for AI coding agent integration:
+
+| Skill | Purpose |
+|-------|---------|
+| `rebrew-workflow` | End-to-end reversing workflow, status tracking, Ghidra sync |
+| `rebrew-matching` | GA matching engine, flag sweeps, diff analysis |
+| `rebrew-data-analysis` | Global data scanning, BSS layout, dispatch tables |
+| `rebrew-intake` | Binary onboarding, triage, and initial FLIRT scanning |
+
+See the `agent-skills/` directory for the SKILL.md files.
 
 ### ❓ What is Rebrew?
 
@@ -113,7 +122,7 @@ rebrew-ga --near-miss --threshold 5 # batch GA on MATCHING functions with ≤5B 
 rebrew-verify                       # bulk compile and verify all reversed functions
 rebrew-verify --json                # structured JSON report to stdout
 rebrew-verify --output report.json  # write report to specific file
-rebrew-batch                        # batch extract and disassemble functions
+rebrew-extract                        # batch extract and disassemble functions
 rebrew-asm                          # quick offline disassembly
 rebrew-sync --push                  # export annotations and push to Ghidra via ReVa MCP
 rebrew-sync --summary               # preview what would be synced
@@ -141,7 +150,7 @@ rebrew-sync --summary               # preview what would be synced
 ```bash
 cd rebrew/
 uv sync --all-extras       # install dev dependencies
-uv run pytest tests/ -v    # run tests (606 tests)
+uv run pytest tests/ -v    # run tests (1029 tests)
 uv run ruff check .        # lint
 uv run ruff format .       # format
 python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me
