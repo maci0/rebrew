@@ -63,7 +63,7 @@ rebrew/
 │       ├── mutator.py          # Mutation engine, crossover
 │       ├── parsers.py          # COFF/PE extraction
 │       └── scoring.py          # Byte/mnemonic comparison
-├── tests/                      # pytest tests (996 tests)
+├── tests/                      # pytest tests (1003 tests)
 └── docs/                       # WORKFLOW.md, TOOLS.md, and more
 ```
 
@@ -316,7 +316,7 @@ typer>=0.9        # CLI framework
 
 ```bash
 uv pip install -e .           # install
-uv run pytest tests/ -v       # test (996 tests)
+uv run pytest tests/ -v       # test (1003 tests)
 uv run ruff check src/        # lint
 ```
 
