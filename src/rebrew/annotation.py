@@ -739,3 +739,44 @@ def parse_c_file_multi(filepath: Path) -> list[Annotation]:
         return [entry]
 
     return []
+
+
+# ---------------------------------------------------------------------------
+# Metadata extraction
+# ---------------------------------------------------------------------------
+
+
+def parse_source_metadata(source_path: str | Path) -> dict[str, str]:
+    """Extract annotation metadata as a flat dict.
+
+    Delegates to the canonical ``parse_c_file`` parser so that every tool
+    agrees on what the annotations say, then reshapes the result into the
+    ``{KEY: value}`` dict format that callers expect.
+    """
+    anno = parse_c_file(Path(source_path))
+    if anno is None:
+        return {}
+
+    meta: dict[str, str] = {}
+    # Map Annotation fields → the uppercase keys callers look up
+    if anno.marker_type:
+        # e.g. meta["FUNCTION"] = "SERVER 0x10001a60"
+        va_hex = f"0x{anno.va:08x}" if anno.va is not None else ""
+        meta[anno.marker_type] = va_hex
+    if anno.status:
+        meta["STATUS"] = anno.status
+    if anno.origin:
+        meta["ORIGIN"] = anno.origin
+    if anno.size > 0:
+        meta["SIZE"] = str(anno.size)
+    if anno.cflags:
+        meta["CFLAGS"] = anno.cflags
+    if anno.symbol:
+        meta["SYMBOL"] = anno.symbol
+    if anno.blocker:
+        meta["BLOCKER"] = anno.blocker
+    if anno.source:
+        meta["SOURCE"] = anno.source
+    if anno.note:
+        meta["NOTE"] = anno.note
+    return meta
