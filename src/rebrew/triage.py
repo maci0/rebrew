@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Cold-start triage: combine FLIRT scan, coverage stats, and recommendations.
 
 Produces a single JSON report suitable for an agent's first action in a session.

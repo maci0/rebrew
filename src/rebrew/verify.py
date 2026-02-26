@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """verify.py - Traceability and verification tool for rebrew.
 
 Analyzes src/*.c files, matches them against the target binary,

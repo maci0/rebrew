@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """decompiler.py - Pluggable decompiler backend for skeleton generation.
 
 Provides a unified interface to fetch pseudo-C decompilation from multiple

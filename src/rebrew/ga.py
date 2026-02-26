@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Batch GA runner for STUB and near-miss MATCHING functions.
 
 Parses all .c files in the reversed directory for STUB annotations (default)

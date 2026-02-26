@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Atomic promote: test a function and update its STATUS annotation.
 
 Runs rebrew-test internally, then updates the STATUS and BLOCKER annotations

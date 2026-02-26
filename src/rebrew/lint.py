@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """lint.py - Annotation linter for rebrew decomp C files.
 
 Check that all .c files in the reversed directory have proper reccmp-style annotations.

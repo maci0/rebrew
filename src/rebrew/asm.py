@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Dump assembly bytes for a function from the target binary.
 
 Usage:

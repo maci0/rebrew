@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """next.py - Show what to work on next in the rebrew RE project.
 
 Analyzes the current state of reverse engineering progress and recommends
