@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """skeleton.py - Generate .c skeleton file for an uncovered function.
 
 Given a VA address, generates a properly annotated .c file skeleton with:

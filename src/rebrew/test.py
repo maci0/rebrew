@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Quick compile-and-compare for reversed functions.
 
 Usage:

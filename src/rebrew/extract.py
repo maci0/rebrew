@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """extract.py - Extract and disassemble functions from the target binary.
 
 Reads a function list (r2_functions.txt or .json), auto-detects already-reversed VAs from

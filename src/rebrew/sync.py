@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Sync annotations between reversed source .c files and Ghidra.
 
 Reads annotations from decomp C source files and generates Ghidra script

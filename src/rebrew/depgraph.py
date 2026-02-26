@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """depgraph.py - Function dependency graph visualization.
 
 Builds a call graph from extern function declarations in reversed .c files,
