@@ -2,12 +2,12 @@
 
 Parses all .c files in the reversed directory for STUB annotations (default)
 or MATCHING annotations with a small byte delta (--near-miss), then runs
-rebrew-match GA on each one (sorted by target size, smallest first) to attempt
+rebrew match GA on each one (sorted by target size, smallest first) to attempt
 automatic byte-perfect matching.
 
 Usage:
-    rebrew-ga [--max-stubs N] [--generations G] [-j JOBS] [--dry-run]
-    rebrew-ga --near-miss --threshold 10
+    rebrew ga [--max-stubs N] [--generations G] [-j JOBS] [--dry-run]
+    rebrew ga --near-miss --threshold 10
 """
 
 import json
@@ -250,7 +250,7 @@ def run_ga(
     timeout_min: int = 30,
     extra_flags: list[str] | None = None,
 ) -> tuple[bool, str]:
-    """Run rebrew-match GA on a single STUB. Returns (matched, output)."""
+    """Run rebrew match GA on a single STUB. Returns (matched, output)."""
     filepath = stub["filepath"]
     # Use relative path with suffix stripped to avoid collisions when nested
     # dirs contain files with the same stem (e.g. game/init.c vs network/init.c).
@@ -262,7 +262,7 @@ def run_ga(
 
     base_cflags = stub["cflags"]
 
-    # Build the rebrew-match CLI command.  seed_c is a positional argument.
+    # Build the rebrew match CLI command.  seed_c is a positional argument.
     cmd = [
         sys.executable,
         "-m",
@@ -378,17 +378,17 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew-ga                                     Run GA on all STUB functions
-  rebrew-ga --dry-run                           List targets without running GA
-  rebrew-ga --max-stubs 5                       Process at most 5 functions
-  rebrew-ga --near-miss --threshold 10          Target MATCHING funcs within 10B
-  rebrew-ga --min-size 20 --max-size 200        Filter by function size
-  rebrew-ga --filter my_func                    Only functions matching substring
-  rebrew-ga -j 16 --generations 300 --pop-size 64  Tune GA parameters
+  rebrew ga                                     Run GA on all STUB functions
+  rebrew ga --dry-run                           List targets without running GA
+  rebrew ga --max-stubs 5                       Process at most 5 functions
+  rebrew ga --near-miss --threshold 10          Target MATCHING funcs within 10B
+  rebrew ga --min-size 20 --max-size 200        Filter by function size
+  rebrew ga --filter my_func                    Only functions matching substring
+  rebrew ga -j 16 --generations 300 --pop-size 64  Tune GA parameters
 
 [bold]How it works:[/bold]
   Scans reversed_dir for STUB (or near-miss MATCHING) annotations, sorts by
-  size (smallest first), and runs rebrew-match GA on each one. On match,
+  size (smallest first), and runs rebrew match GA on each one. On match,
   auto-updates the .c file from STUB → RELOC with the matched source.
 
 [dim]Functions are processed smallest-first for quick wins. Duplicate VAs are
@@ -421,13 +421,13 @@ def main(
     """Batch GA runner for STUB and near-miss MATCHING functions."""
     cfg = get_config(target=target)
     if jobs is None:
-        jobs = int(getattr(cfg, "default_jobs", 4))
+        jobs = int(cfg.default_jobs)
 
     reversed_dir = cfg.reversed_dir
     target_binary = cfg.target_binary
 
     # Build ignored symbols set from config
-    ignored = set(getattr(cfg, "ignored_symbols", None) or [])
+    ignored = set(cfg.ignored_symbols or [])
 
     if near_miss:
         stubs = find_near_miss(reversed_dir, ignored=ignored, max_delta=threshold, cfg=cfg)

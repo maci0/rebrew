@@ -157,7 +157,7 @@ def build_db(project_root: Path | None = None, target: str | None = None) -> Non
             json_files = [f for f in json_files if f.stem.removeprefix("data_") == target]
         if not json_files:
             print(
-                "Error: No data_*.json files found in db/. Run 'rebrew-catalog --json' first.",
+                "Error: No data_*.json files found in db/. Run 'rebrew catalog --json' first.",
                 file=sys.stderr,
             )
             raise typer.Exit(code=1)
@@ -433,7 +433,7 @@ def _generate_catalogs(conn: sqlite3.Connection, root_dir: Path) -> None:
         # Build markdown
         lines = []
         lines.append(
-            "<!-- AUTO-GENERATED FILE — DO NOT EDIT. Regenerate with: rebrew-build-db -->\n"
+            "<!-- AUTO-GENERATED FILE — DO NOT EDIT. Regenerate with: rebrew build-db -->\n"
         )
         lines.append("# Reversed Functions Catalog\n")
         lines.append(
@@ -479,11 +479,11 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew-build-db                          Build db/coverage.db from db/data_*.json
-  rebrew-build-db --root /path/to/project  Specify project root explicitly
+  rebrew build-db                          Build db/coverage.db from db/data_*.json
+  rebrew build-db --root /path/to/project  Specify project root explicitly
 
 [bold]Prerequisites:[/bold]
-  Run 'rebrew-catalog --json' first to generate db/data_*.json files.
+  Run 'rebrew catalog --json' first to generate db/data_*.json files.
 
 [bold]What it creates:[/bold]
   db/coverage.db          SQLite database with functions, globals, sections, cells
@@ -503,7 +503,7 @@ def main(
     ),
     target: str | None = TargetOption,
 ) -> None:
-    """CLI entry point for rebrew-build-db."""
+    """CLI entry point for rebrew build-db."""
     build_db(root, target=target)
 
 

@@ -1,5 +1,5 @@
 """Run FLIRT signature matching against functions in the target binary.
-Usage: rebrew-flirt [sig_dir]
+Usage: rebrew flirt [sig_dir]
 """
 
 import json
@@ -80,10 +80,10 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew-flirt                                  Scan with default .sig files
-  rebrew-flirt --sig-dir sigs/                  Use custom signature directory
-  rebrew-flirt --json                           Output matches as JSON
-  rebrew-flirt --verbose                        Show detailed match information
+  rebrew flirt                                  Scan with default .sig files
+  rebrew flirt --sig-dir sigs/                  Use custom signature directory
+  rebrew flirt --json                           Output matches as JSON
+  rebrew flirt --verbose                        Show detailed match information
 
 [bold]How it works:[/bold]
   Scans the target binary using FLIRT (Fast Library Identification and

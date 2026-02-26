@@ -203,8 +203,8 @@ def build_function_registry(
                 "size_by_tool": {},
                 "r2_name": "",
                 "ghidra_name": "",
-                "is_thunk": va in getattr(cfg, "iat_thunks", []) if cfg else False,
-                "is_export": va in getattr(cfg, "dll_exports", {}) if cfg else False,
+                "is_thunk": va in cfg.iat_thunks if cfg else False,
+                "is_export": va in cfg.dll_exports if cfg else False,
                 "canonical_size": 0,
             },
         )
@@ -230,8 +230,8 @@ def build_function_registry(
                 "size_by_tool": {},
                 "r2_name": "",
                 "ghidra_name": "",
-                "is_thunk": va in getattr(cfg, "iat_thunks", []) if cfg else False,
-                "is_export": va in getattr(cfg, "dll_exports", {}) if cfg else False,
+                "is_thunk": va in cfg.iat_thunks if cfg else False,
+                "is_export": va in cfg.dll_exports if cfg else False,
                 "canonical_size": 0,
             },
         )
@@ -241,7 +241,7 @@ def build_function_registry(
         entry["ghidra_name"] = func["ghidra_name"]
 
     # --- Exports ---
-    exports: dict[int, str] = getattr(cfg, "dll_exports", {}) if cfg else {}
+    exports: dict[int, str] = cfg.dll_exports if cfg else {}
     for va, _name in exports.items():
         entry = registry.setdefault(
             va,

@@ -6,9 +6,9 @@ vs src/server.dll/network/init.c).
 """
 
 from pathlib import Path
-from types import SimpleNamespace
 
 from rebrew.cli import iter_sources, rel_display_path
+from rebrew.config import ProjectConfig
 from rebrew.data import scan_data_annotations, scan_globals
 from rebrew.ga import find_all_stubs, find_near_miss
 from rebrew.lint import lint_file
@@ -170,7 +170,7 @@ class TestIterSources:
         (tmp_path / "sub").mkdir()
         (tmp_path / "sub" / "file.cpp").touch()
         (tmp_path / "sub" / "file.c").touch()
-        cfg = SimpleNamespace(source_ext=".cpp")
+        cfg = ProjectConfig(root=Path("/tmp"), source_ext=".cpp")
         result = iter_sources(tmp_path, cfg)
         assert len(result) == 1
         assert result[0].suffix == ".cpp"

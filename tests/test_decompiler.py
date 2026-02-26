@@ -120,6 +120,9 @@ class TestGenerateSkeletonWithDecomp:
             cflags_presets = {"GAME": "/O2 /Gd"}
             root = Path("/fake")
             target_binary = Path("/fake/bin")
+            library_origins = []
+            origin_todos = {}
+            origin_comments = {}
 
         result = generate_skeleton(FakeCfg(), 0x10001000, 100, "FUN_10001000", "GAME")
         assert "/* TODO:" in result
@@ -134,6 +137,9 @@ class TestGenerateSkeletonWithDecomp:
             cflags_presets = {"GAME": "/O2 /Gd"}
             root = Path("/fake")
             target_binary = Path("/fake/bin")
+            library_origins = []
+            origin_todos = {}
+            origin_comments = {}
 
         result = generate_skeleton(
             FakeCfg(),
@@ -159,6 +165,9 @@ class TestGenerateSkeletonWithDecomp:
             cflags_presets = {"MSVCRT": "/O1"}
             root = Path("/fake")
             target_binary = Path("/fake/bin")
+            library_origins = []
+            origin_todos = {}
+            origin_comments = {}
 
         result = generate_skeleton(
             FakeCfg(),

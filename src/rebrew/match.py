@@ -5,7 +5,7 @@ Compile C source, compare object bytes against a target function, and
 iteratively mutate to find a byte-perfect or relocation-normalized match.
 
 Usage:
-    rebrew-match <source.c> [--diff-only] [--flag-sweep-only --tier TIER]
+    rebrew match <source.c> [--diff-only] [--flag-sweep-only --tier TIER]
 """
 
 import hashlib
@@ -221,17 +221,17 @@ class BinaryMatchingGA:
 
 _EPILOG = """\
 [bold]Modes:[/bold]
-  rebrew-match src/f.c --diff-only               Show byte diff vs target
-  rebrew-match src/f.c --diff-only --mm          Show only structural diffs (**)
-  rebrew-match src/f.c --flag-sweep-only          Find best compiler flags
-  rebrew-match src/f.c                            Full GA matching run
+  rebrew match src/f.c --diff-only               Show byte diff vs target
+  rebrew match src/f.c --diff-only --mm          Show only structural diffs (**)
+  rebrew match src/f.c --flag-sweep-only          Find best compiler flags
+  rebrew match src/f.c                            Full GA matching run
 
 [bold]Examples:[/bold]
-  rebrew-match src/game/my_func.c --diff-only
-  rebrew-match src/game/my_func.c --flag-sweep-only --tier quick
-  rebrew-match src/game/my_func.c --generations 200 --pop-size 48 -j 8
-  rebrew-match src/game/my_func.c --seed 42       Reproducible GA run
-  rebrew-match src/f.c --diff-only --json          JSON structured diff
+  rebrew match src/game/my_func.c --diff-only
+  rebrew match src/game/my_func.c --flag-sweep-only --tier quick
+  rebrew match src/game/my_func.c --generations 200 --pop-size 48 -j 8
+  rebrew match src/game/my_func.c --seed 42       Reproducible GA run
+  rebrew match src/f.c --diff-only --json          JSON structured diff
 
 [bold]Flag sweep tiers:[/bold]
   quick      ~192 combos     Fast iteration
@@ -245,10 +245,11 @@ Requires rebrew.toml with valid compiler paths.[/dim]"""
 app = typer.Typer(
     help="GA engine for binary matching (diff, flag-sweep, GA).",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 
-@app.command(epilog=_EPILOG)
+@app.callback(invoke_without_command=True)
 def main(
     seed_c: str = typer.Argument(..., help="Seed source file (.c)"),
     cl: str | None = typer.Option(None, help="CL.EXE command (auto from rebrew.toml)"),

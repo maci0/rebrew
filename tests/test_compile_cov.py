@@ -1,9 +1,9 @@
 """Tests for rebrew.compile — resolve_cl_command and compile_and_compare helpers."""
 
 from pathlib import Path
-from types import SimpleNamespace
 
 from rebrew.compile import resolve_cl_command
+from rebrew.config import ProjectConfig
 
 # ---------------------------------------------------------------------------
 # resolve_cl_command
@@ -15,9 +15,9 @@ class TestResolveClCommand:
 
     def test_wine_relative_path(self, tmp_path: Path) -> None:
         """wine + relative CL.EXE path is resolved against cfg.root."""
-        cfg = SimpleNamespace(
-            compiler_command="wine tools/MSVC600/VC98/Bin/CL.EXE",
+        cfg = ProjectConfig(
             root=tmp_path,
+            compiler_command="wine tools/MSVC600/VC98/Bin/CL.EXE",
         )
         result = resolve_cl_command(cfg)
         assert result[0] == "wine"
@@ -25,45 +25,45 @@ class TestResolveClCommand:
 
     def test_wine_absolute_path(self, tmp_path: Path) -> None:
         """wine + absolute CL.EXE path is preserved as-is."""
-        cfg = SimpleNamespace(
-            compiler_command="wine /opt/msvc/CL.EXE",
+        cfg = ProjectConfig(
             root=tmp_path,
+            compiler_command="wine /opt/msvc/CL.EXE",
         )
         result = resolve_cl_command(cfg)
         assert result == ["wine", "/opt/msvc/CL.EXE"]
 
     def test_bare_relative_path(self, tmp_path: Path) -> None:
         """Bare relative path is resolved against cfg.root."""
-        cfg = SimpleNamespace(
-            compiler_command="tools/CL.EXE",
+        cfg = ProjectConfig(
             root=tmp_path,
+            compiler_command="tools/CL.EXE",
         )
         result = resolve_cl_command(cfg)
         assert result == [str(tmp_path / "tools/CL.EXE")]
 
     def test_bare_absolute_path(self, tmp_path: Path) -> None:
         """Bare absolute path is preserved."""
-        cfg = SimpleNamespace(
-            compiler_command="/usr/bin/cl",
+        cfg = ProjectConfig(
             root=tmp_path,
+            compiler_command="/usr/bin/cl",
         )
         result = resolve_cl_command(cfg)
         assert result == ["/usr/bin/cl"]
 
     def test_empty_command_fallback(self, tmp_path: Path) -> None:
         """Empty compiler_command falls back to CL.EXE."""
-        cfg = SimpleNamespace(
-            compiler_command="",
+        cfg = ProjectConfig(
             root=tmp_path,
+            compiler_command="",
         )
         result = resolve_cl_command(cfg)
         assert result == [str(tmp_path / "CL.EXE")]
 
     def test_quoted_wine_path(self, tmp_path: Path) -> None:
         """Quoted path with spaces is handled by shlex.split."""
-        cfg = SimpleNamespace(
-            compiler_command='wine "tools/MS VC/CL.EXE"',
+        cfg = ProjectConfig(
             root=tmp_path,
+            compiler_command='wine "tools/MS VC/CL.EXE"',
         )
         result = resolve_cl_command(cfg)
         assert result[0] == "wine"
@@ -71,9 +71,9 @@ class TestResolveClCommand:
 
     def test_returns_list(self, tmp_path: Path) -> None:
         """Result is always a list of strings."""
-        cfg = SimpleNamespace(
-            compiler_command="wine tools/CL.EXE",
+        cfg = ProjectConfig(
             root=tmp_path,
+            compiler_command="wine tools/CL.EXE",
         )
         result = resolve_cl_command(cfg)
         assert isinstance(result, list)

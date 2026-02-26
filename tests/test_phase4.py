@@ -50,12 +50,13 @@ def test_parse_r2_functions_reexported_from_verify() -> None:
 
 def test_r2_bogus_vas_via_config() -> None:
     """verify uses cfg.r2_bogus_vas instead of module-level constant."""
-    from types import SimpleNamespace
+    from pathlib import Path
 
     from rebrew.catalog import build_function_registry, make_r2_func
+    from rebrew.config import ProjectConfig
 
     bogus_va = 0xBEEF0000
-    cfg = SimpleNamespace(iat_thunks=set(), dll_exports={}, r2_bogus_vas=[bogus_va])
+    cfg = ProjectConfig(root=Path("/tmp"), iat_thunks=[], dll_exports={}, r2_bogus_vas=[bogus_va])
     r2_funcs = [make_r2_func(bogus_va, 12345, "_bogus")]
     reg = build_function_registry(r2_funcs, cfg)
     assert bogus_va in reg

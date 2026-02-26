@@ -6,12 +6,12 @@ Supports neighbor-file detection (suggesting append targets for multi-function
 files) and grouping adjacent uncovered functions by address proximity.
 
 Usage:
-    rebrew-next                     # Show top 20 recommendations
-    rebrew-next --count 50          # Show top 50
-    rebrew-next --origin GAME       # Only GAME functions
-    rebrew-next --improving         # Show MATCHING functions to improve
-    rebrew-next --stats             # Show overall progress statistics
-    rebrew-next --group             # Group adjacent uncovered functions
+    rebrew next                     # Show top 20 recommendations
+    rebrew next --count 50          # Show top 50
+    rebrew next --origin GAME       # Only GAME functions
+    rebrew next --improving         # Show MATCHING functions to improve
+    rebrew next --stats             # Show overall progress statistics
+    rebrew next --group             # Group adjacent uncovered functions
 """
 
 import contextlib
@@ -38,19 +38,19 @@ from rebrew.naming import (
 
 _EPILOG = """\
 [bold]Examples:[/bold]
-  rebrew-next                          Top 20 recommendations (easiest first)
-  rebrew-next --count 50               Show top 50
-  rebrew-next --origin GAME            Only GAME-origin functions
-  rebrew-next --improving              Show MATCHING functions to improve
-  rebrew-next --stats                  Overall progress statistics
-  rebrew-next --commands               Include rebrew-test commands for each
-  rebrew-next --unmatchable            Show detected unmatchable functions
-  rebrew-next --min-size 50 --max-size 200   Filter by function size
-  rebrew-next --group                  Group adjacent functions by proximity
-  rebrew-next --group --group-gap 8192 Custom grouping distance (bytes)
-  rebrew-next --group --commands       Show batch skeleton commands per group
-  rebrew-next --json                  Machine-readable JSON output
-  rebrew-next --stats --json          JSON progress statistics
+  rebrew next                          Top 20 recommendations (easiest first)
+  rebrew next --count 50               Show top 50
+  rebrew next --origin GAME            Only GAME-origin functions
+  rebrew next --improving              Show MATCHING functions to improve
+  rebrew next --stats                  Overall progress statistics
+  rebrew next --commands               Include rebrew test commands for each
+  rebrew next --unmatchable            Show detected unmatchable functions
+  rebrew next --min-size 50 --max-size 200   Filter by function size
+  rebrew next --group                  Group adjacent functions by proximity
+  rebrew next --group --group-gap 8192 Custom grouping distance (bytes)
+  rebrew next --group --commands       Show batch skeleton commands per group
+  rebrew next --json                  Machine-readable JSON output
+  rebrew next --stats --json          JSON progress statistics
 
 [bold]Difficulty ratings:[/bold]
   *      Tiny function (< 80B), likely getter/setter
@@ -65,10 +65,11 @@ Auto-skips IAT thunks, single-byte stubs, and ignored symbols.[/dim]"""
 app = typer.Typer(
     help="Show what to work on next in the rebrew RE project.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 
-@app.command(epilog=_EPILOG)
+@app.callback(invoke_without_command=True)
 def main(
     count: int = typer.Option(20, "--count", "-n", help="Number of recommendations"),
     origin_filter: str | None = typer.Option(
@@ -95,7 +96,7 @@ def main(
         raise typer.Exit(code=1) from None
     ghidra_funcs, existing, covered_vas = load_data(cfg)
     ignored = ignored_symbols(cfg)
-    iat_thunks = getattr(cfg, "iat_thunks", None)
+    iat_thunks = cfg.iat_thunks
     iat_set: set[int] = set(iat_thunks) if iat_thunks else set()
 
     # Load binary for byte-pattern detection
@@ -184,7 +185,7 @@ def main(
 
         if matching > 0:
             print(f"MATCHING functions that could be improved to EXACT/RELOC: {matching}")
-            print("  Run: rebrew-next --improving")
+            print("  Run: rebrew next --improving")
         return
 
     # --improving mode
@@ -253,12 +254,10 @@ def main(
 
             if commands:
                 symbol = info.get("symbol") or f"_func_{imp_va:08x}"
-                imp_cflags = (getattr(cfg, "cflags_presets", None) or {}).get(
-                    info["origin"], "/O2 /Gd"
-                )
+                imp_cflags = (cfg.cflags_presets or {}).get(info["origin"], "/O2 /Gd")
                 rel_path = f"{cfg.reversed_dir.name}/{info['filename']}"
                 print(
-                    f'    TEST: rebrew-test {rel_path} {symbol} --va 0x{imp_va:08x} --size {imp_size} --cflags "{imp_cflags}"'
+                    f'    TEST: rebrew test {rel_path} {symbol} --va 0x{imp_va:08x} --size {imp_size} --cflags "{imp_cflags}"'
                 )
         return
 
@@ -432,13 +431,13 @@ def main(
             if commands:
                 if neighbor:
                     for item in grp:
-                        print(f"    GEN: rebrew-skeleton 0x{item[2]:08x} --append {neighbor}")
+                        print(f"    GEN: rebrew skeleton 0x{item[2]:08x} --append {neighbor}")
                 else:
                     first = grp[0]
-                    print(f"    GEN: rebrew-skeleton 0x{first[2]:08x}")
+                    print(f"    GEN: rebrew skeleton 0x{first[2]:08x}")
                     fname = make_filename(first[2], first[3], first[4])
                     for item in grp[1:]:
-                        print(f"    GEN: rebrew-skeleton 0x{item[2]:08x} --append {fname}")
+                        print(f"    GEN: rebrew skeleton 0x{item[2]:08x} --append {fname}")
             print()
 
         return
@@ -499,18 +498,18 @@ def main(
         print(line)
 
         if commands:
-            rec_cflags = (getattr(cfg, "cflags_presets", None) or {}).get(rec_origin, "/O2 /Gd")
+            rec_cflags = (cfg.cflags_presets or {}).get(rec_origin, "/O2 /Gd")
             if neighbor:
-                print(f"     GEN: rebrew-skeleton 0x{rec_va:08x} --append {neighbor}")
+                print(f"     GEN: rebrew skeleton 0x{rec_va:08x} --append {neighbor}")
             else:
-                print(f"     GEN: rebrew-skeleton 0x{rec_va:08x}")
+                print(f"     GEN: rebrew skeleton 0x{rec_va:08x}")
             print(
-                f'     TEST: rebrew-test {cfg.reversed_dir.name}/... _... --va 0x{rec_va:08x} --size {rec_size} --cflags "{rec_cflags}"'
+                f'     TEST: rebrew test {cfg.reversed_dir.name}/... _... --va 0x{rec_va:08x} --size {rec_size} --cflags "{rec_cflags}"'
             )
 
     print()
-    print("To generate a skeleton: rebrew-skeleton 0x<VA>")
-    print("To generate a batch:    rebrew-skeleton --batch 10 --origin GAME")
+    print("To generate a skeleton: rebrew skeleton 0x<VA>")
+    print("To generate a batch:    rebrew skeleton --batch 10 --origin GAME")
 
 
 def main_entry() -> None:

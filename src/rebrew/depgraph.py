@@ -5,11 +5,11 @@ then outputs it as Mermaid or DOT for visualization. Highlights reversed vs.
 unreversed nodes and their match status.
 
 Usage:
-    rebrew-graph                          # Mermaid output to stdout
-    rebrew-graph --format dot             # DOT output
-    rebrew-graph --origin GAME            # Filter to GAME functions
-    rebrew-graph --focus FuncName         # Show only neighbours of FuncName
-    rebrew-graph --output graph.md        # Write to file
+    rebrew graph                          # Mermaid output to stdout
+    rebrew graph --format dot             # DOT output
+    rebrew graph --origin GAME            # Filter to GAME functions
+    rebrew graph --focus FuncName         # Show only neighbours of FuncName
+    rebrew graph --output graph.md        # Write to file
 """
 
 import re
@@ -337,12 +337,12 @@ def render_summary(nodes: dict[str, NodeInfo], edges: list[tuple[str, str]]) -> 
 
 _EPILOG = """\
 [bold]Examples:[/bold]
-  rebrew-graph                                  Mermaid diagram of all functions
-  rebrew-graph --format dot                     Graphviz DOT format
-  rebrew-graph --format summary                 Text summary only
-  rebrew-graph --origin GAME                    Only GAME-origin functions
-  rebrew-graph --focus _my_func --depth 2       Neighbourhood around one function
-  rebrew-graph -o graph.md                      Write output to file
+  rebrew graph                                  Mermaid diagram of all functions
+  rebrew graph --format dot                     Graphviz DOT format
+  rebrew graph --format summary                 Text summary only
+  rebrew graph --origin GAME                    Only GAME-origin functions
+  rebrew graph --focus _my_func --depth 2       Neighbourhood around one function
+  rebrew graph -o graph.md                      Write output to file
 
 [bold]Output formats:[/bold]
   mermaid    Mermaid flowchart (default; paste into docs)
@@ -355,10 +355,11 @@ Uses annotations to determine function origins and status.[/dim]"""
 app = typer.Typer(
     help="Generate function dependency graph from reversed .c files.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 
-@app.command(epilog=_EPILOG)
+@app.callback(invoke_without_command=True)
 def main(
     fmt: str = typer.Option(
         "mermaid", "--format", "-f", help="Output format: mermaid, dot, summary"

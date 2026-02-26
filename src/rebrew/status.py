@@ -233,17 +233,17 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew-status                          Rich dashboard with progress bars
-  rebrew-status --json                   Machine-readable JSON output
-  rebrew-status --compact                One-line summary
-  rebrew-status --origin GAME            Filter by function origin
+  rebrew status                          Rich dashboard with progress bars
+  rebrew status --json                   Machine-readable JSON output
+  rebrew status --compact                One-line summary
+  rebrew status --origin GAME            Filter by function origin
 
 [bold]What it shows:[/bold]
   Total functions, bytes matched, status breakdown (EXACT / RELOC / MATCHING /
   STUB / NONE), per-origin coverage, and recent activity.
 
 [dim]Reads from data_*.json or db/coverage.db.
-Run 'rebrew-catalog --json' first to generate the data.[/dim]""",
+Run 'rebrew catalog --json' first to generate the data.[/dim]""",
 )
 
 

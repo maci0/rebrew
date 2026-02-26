@@ -1,7 +1,7 @@
 """Quick compile-and-compare for reversed functions.
 
 Usage:
-    rebrew-test <source.c> [symbol] [--va 0xHEX --size N] [--cflags ...]
+    rebrew test <source.c> [symbol] [--va 0xHEX --size N] [--cflags ...]
 """
 
 import json
@@ -147,11 +147,11 @@ def update_source_status(
 
 _EPILOG = """\
 [bold]Examples:[/bold]
-  rebrew-test src/game_dll/my_func.c                  Auto-detect symbol, VA, size from annotations
-  rebrew-test src/game_dll/my_func.c _my_func         Explicit symbol name
-  rebrew-test f.c _sym --va 0x10009310 --size 42      Override VA and size from CLI
-  rebrew-test f.c _sym --cflags "/O1 /Gd"             Override compiler flags
-  rebrew-test src/game_dll/my_func.c --json            Machine-readable JSON output
+  rebrew test src/game_dll/my_func.c                  Auto-detect symbol, VA, size from annotations
+  rebrew test src/game_dll/my_func.c _my_func         Explicit symbol name
+  rebrew test f.c _sym --va 0x10009310 --size 42      Override VA and size from CLI
+  rebrew test f.c _sym --cflags "/O1 /Gd"             Override compiler flags
+  rebrew test src/game_dll/my_func.c --json            Machine-readable JSON output
 
 [bold]How it works:[/bold]
   1. Compiles the .c file with MSVC6 (via Wine) using annotation CFLAGS
@@ -165,10 +165,11 @@ _EPILOG = """\
 app = typer.Typer(
     help="Quick compile-and-compare for reversed functions.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 
-@app.command(epilog=_EPILOG)
+@app.callback(invoke_without_command=True)
 def main(
     source: str = typer.Argument(help="C source file"),
     symbol: str | None = typer.Argument(None, help="COFF symbol name (e.g. _funcname)"),
