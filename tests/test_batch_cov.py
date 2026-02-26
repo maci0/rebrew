@@ -15,7 +15,9 @@ from rebrew.binary_loader import BinaryInfo, SectionInfo
 class TestExtractBytes:
     """Tests for extract_bytes() wrapper."""
 
-    def _make_binary_info(self, data: bytes, va_start: int = 0x10001000) -> BinaryInfo:
+    def _make_binary_info(
+        self, data: bytes, tmp_path: Path, va_start: int = 0x10001000
+    ) -> BinaryInfo:
         """Create a BinaryInfo with a single .text section."""
         section = SectionInfo(
             name=".text",
@@ -24,8 +26,7 @@ class TestExtractBytes:
             file_offset=0,
             raw_size=len(data),
         )
-        # Write data to a temp file so BinaryInfo.data works
-        tmp = Path(__file__).parent / "_test_bin.tmp"
+        tmp = tmp_path / "test_bin.tmp"
         tmp.write_bytes(data)
         bi = BinaryInfo(
             path=tmp,
@@ -36,24 +37,24 @@ class TestExtractBytes:
         )
         return bi
 
-    def test_basic_extraction(self) -> None:
+    def test_basic_extraction(self, tmp_path: Path) -> None:
         """Extracts bytes at the given VA."""
         data = b"\x55\x8b\xec\x83\xec\x08\xc3"
-        bi = self._make_binary_info(data)
+        bi = self._make_binary_info(data, tmp_path)
         result = extract_bytes(bi, 0x10001000, 4)
         assert result == b"\x55\x8b\xec\x83"
 
-    def test_full_size(self) -> None:
+    def test_full_size(self, tmp_path: Path) -> None:
         """Extracts full function bytes."""
         data = b"\x55\x8b\xec\xc3"
-        bi = self._make_binary_info(data)
+        bi = self._make_binary_info(data, tmp_path)
         result = extract_bytes(bi, 0x10001000, len(data))
         assert result == data
 
-    def test_va_not_in_section_returns_empty(self) -> None:
+    def test_va_not_in_section_returns_empty(self, tmp_path: Path) -> None:
         """VA outside any section returns empty bytes."""
         data = b"\x55\x8b\xec\xc3"
-        bi = self._make_binary_info(data)
+        bi = self._make_binary_info(data, tmp_path)
         result = extract_bytes(bi, 0x20000000, 4)
         assert result == b""
 
