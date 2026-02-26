@@ -114,7 +114,7 @@ def parse_matching_info(
         ignored: Set of symbol names to skip.
         max_delta: Maximum byte delta to include.
     """
-    from rebrew.next import parse_byte_delta
+    from rebrew.naming import parse_byte_delta
 
     if ignored is None:
         ignored = set()
@@ -384,7 +384,7 @@ app = typer.Typer(
   rebrew-ga --near-miss --threshold 10          Target MATCHING funcs within 10B
   rebrew-ga --min-size 20 --max-size 200        Filter by function size
   rebrew-ga --filter my_func                    Only functions matching substring
-  rebrew-ga -j 16 --generations 300 --pop 64    Tune GA parameters
+  rebrew-ga -j 16 --generations 300 --pop-size 64  Tune GA parameters
 
 [bold]How it works:[/bold]
   Scans reversed_dir for STUB (or near-miss MATCHING) annotations, sorts by
@@ -400,7 +400,7 @@ detected and skipped. Ignored symbols from rebrew.toml are excluded.[/dim]""",
 def main(
     max_stubs: int = typer.Option(0, help="Max functions to process (0=all)"),
     generations: int = typer.Option(200),
-    pop: int = typer.Option(48),
+    pop_size: int = typer.Option(48, "--pop-size", help="GA population size"),
     jobs: int | None = typer.Option(
         None, "-j", "--jobs", help="Parallel jobs (default: from [project].jobs)"
     ),
@@ -512,7 +512,7 @@ def main(
             inc_dir=cfg.compiler_includes,
             project_root=cfg.root,
             generations=generations,
-            pop=pop,
+            pop=pop_size,
             jobs=jobs,
             timeout_min=timeout_min,
         )

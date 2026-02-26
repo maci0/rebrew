@@ -7,7 +7,7 @@ marker field, and estimate_difficulty using ignored_symbols.
 from pathlib import Path
 
 from rebrew.config import load_config
-from rebrew.next import estimate_difficulty, ignored_symbols
+from rebrew.naming import estimate_difficulty, ignored_symbols
 
 # ---------------------------------------------------------------------------
 # Helper

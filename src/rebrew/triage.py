@@ -15,7 +15,7 @@ from typing import Any
 import typer
 
 from rebrew.cli import TargetOption, get_config
-from rebrew.next import (
+from rebrew.naming import (
     detect_origin,
     detect_unmatchable,
     estimate_difficulty,
@@ -52,7 +52,7 @@ def main(
 ) -> None:
     """Generate a cold-start triage report."""
     from rebrew.binary_loader import BinaryInfo, load_binary
-    from rebrew.skeleton import find_neighbor_file, make_filename
+    from rebrew.naming import find_neighbor_file, make_filename
 
     cfg = get_config(target=target)
     ghidra_funcs, existing, covered_vas = load_data(cfg)

@@ -12,7 +12,7 @@ from rebrew.cli import iter_sources, rel_display_path
 from rebrew.data import scan_data_annotations, scan_globals
 from rebrew.ga import find_all_stubs, find_near_miss
 from rebrew.lint import lint_file
-from rebrew.skeleton import load_existing_vas
+from rebrew.naming import load_existing_vas
 
 # ---------------------------------------------------------------------------
 # Helpers
