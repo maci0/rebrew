@@ -16,19 +16,21 @@ from rich.console import Console
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
 from rich.text import Text
 
+from rebrew.annotation import Annotation
 from rebrew.catalog import (
     build_function_registry,
     parse_r2_functions,
     scan_reversed_dir,
 )
 from rebrew.cli import TargetOption, get_config
+from rebrew.config import ProjectConfig
 
 # ---------------------------------------------------------------------------
 # Verification (--verify)
 # ---------------------------------------------------------------------------
 
 
-def verify_entry(entry: dict[str, Any], cfg: Any) -> tuple[bool, str]:
+def verify_entry(entry: Annotation, cfg: ProjectConfig) -> tuple[bool, str]:
     """Compile a .c file and compare output bytes against DLL.
 
     Delegates to ``compile_and_compare`` for the compile→extract→compare flow.
@@ -54,7 +56,7 @@ def verify_entry(entry: dict[str, Any], cfg: Any) -> tuple[bool, str]:
 
     matched, msg, _obj_bytes, _reloc_offsets = compile_and_compare(
         cfg,
-        str(cfile),
+        cfile,
         symbol,
         target_bytes,
         cflags,
@@ -121,7 +123,7 @@ def main(
     bin_path = cfg.target_binary
     reversed_dir = cfg.reversed_dir
     if jobs is None:
-        jobs = getattr(cfg, "default_jobs", 4)
+        jobs = cfg.default_jobs
     r2_path = reversed_dir / "r2_functions.txt"
     ghidra_json_path = reversed_dir / "ghidra_functions.json"
 
@@ -153,7 +155,7 @@ def main(
 
     # Deduplicate: only verify once per VA
     seen_vas: set[int] = set()
-    unique_entries: list[dict[str, Any]] = []
+    unique_entries: list[Annotation] = []
     for entry in sorted(entries, key=lambda x: x["va"]):
         if entry["va"] not in seen_vas:
             seen_vas.add(entry["va"])
@@ -161,12 +163,12 @@ def main(
 
     passed = 0
     failed = 0
-    fail_details: list[tuple[dict[str, Any], str]] = []
+    fail_details: list[tuple[Annotation, str]] = []
     results: list[dict[str, Any]] = []  # per-function structured results
     total = len(unique_entries)
     effective_jobs = min(jobs, total) if total else 1
 
-    def _verify(e: dict[str, Any]) -> tuple[dict[str, Any], bool, str]:
+    def _verify(e: Annotation) -> tuple[Annotation, bool, str]:
         return (e, *verify_entry(e, cfg))
 
     with Progress(

@@ -15,7 +15,6 @@ Usage:
 import json
 import sys
 from pathlib import Path
-from typing import Any
 
 import typer
 
@@ -23,6 +22,7 @@ from rebrew.annotation import parse_c_file_multi
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va, load_binary
 from rebrew.catalog import parse_r2_functions
 from rebrew.cli import get_config
+from rebrew.config import ProjectConfig
 
 # ---------------------------------------------------------------------------
 # Binary helpers
@@ -45,7 +45,7 @@ def extract_bytes(binary_info: BinaryInfo, va: int, size: int) -> bytes:
 # ---------------------------------------------------------------------------
 
 
-def disasm(code_bytes: bytes, va: int, cfg: Any = None) -> str:
+def disasm(code_bytes: bytes, va: int, cfg: ProjectConfig | None = None) -> str:
     """Disassemble using capstone and return formatted string."""
     from capstone import CS_ARCH_X86, CS_MODE_32, Cs
 
@@ -64,7 +64,7 @@ def disasm(code_bytes: bytes, va: int, cfg: Any = None) -> str:
 # ---------------------------------------------------------------------------
 
 
-def detect_reversed_vas(src_dir: Path, cfg: Any = None) -> set[int]:
+def detect_reversed_vas(src_dir: Path, cfg: ProjectConfig | None = None) -> set[int]:
     """Scan the reversed source directory for annotation headers and return set of VAs."""
     from rebrew.cli import iter_sources
 
@@ -83,7 +83,7 @@ def detect_reversed_vas(src_dir: Path, cfg: Any = None) -> set[int]:
 # ---------------------------------------------------------------------------
 
 
-def load_functions(cfg: Any) -> list[dict[str, int | str]]:
+def load_functions(cfg: ProjectConfig) -> list[dict[str, int | str]]:
     """Load function list from r2_functions.txt (preferred) or .json."""
     txt_path = cfg.function_list
     json_path = txt_path.with_suffix(".json")
@@ -92,7 +92,7 @@ def load_functions(cfg: Any) -> list[dict[str, int | str]]:
         return parse_r2_functions(txt_path)
 
     if json_path.exists():
-        with open(json_path, encoding="utf-8") as f:
+        with json_path.open(encoding="utf-8") as f:
             raw = json.load(f)
         return [
             {"va": fn["offset"], "size": fn.get("realsz", fn.get("size", 0)), "r2_name": fn["name"]}
@@ -120,7 +120,7 @@ def cmd_extract(
     candidates: list[tuple[int, int, str]],
     target_va: int,
     bin_dir: Path,
-    cfg: Any = None,
+    cfg: ProjectConfig | None = None,
 ) -> None:
     """Extract and disassemble a single function."""
     for va, size, name in candidates:
@@ -145,7 +145,7 @@ def cmd_batch(
     count: int,
     start: int,
     bin_dir: Path,
-    cfg: Any = None,
+    cfg: ProjectConfig | None = None,
 ) -> None:
     """Extract and disassemble a batch of functions."""
     bin_dir.mkdir(parents=True, exist_ok=True)
