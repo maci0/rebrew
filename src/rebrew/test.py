@@ -18,11 +18,15 @@ import typer
 
 from rebrew.annotation import Annotation, parse_c_file, parse_c_file_multi, parse_source_metadata
 from rebrew.cli import TargetOption, get_config
+from rebrew.config import ProjectConfig
 from rebrew.matcher.parsers import list_obj_symbols, parse_coff_symbol_bytes
+
+# Regex for detecting FUNCTION/LIBRARY/STUB marker lines (used by update_source_status)
+_MARKER_RE = re.compile(r"^(//|/\*)\s*(?:FUNCTION|LIBRARY|STUB):\s*\S+\s+(0x[0-9a-fA-F]+)")
 
 
 def compile_obj(
-    cfg: Any, source_path: str, cflags: list[str], workdir: str
+    cfg: ProjectConfig, source_path: str, cflags: list[str], workdir: str
 ) -> tuple[str | None, str]:
     """Compile .c to .obj using MSVC6 under Wine.
 
@@ -102,15 +106,12 @@ def update_source_status(
         if existing is not None and existing.status == new_status:
             return
 
-    with open(source_path, encoding="utf-8") as f:
+    with source_path.open(encoding="utf-8") as f:
         lines = f.readlines()
 
-    # When target_va is set, track which annotation block we're in so we
-    # only modify the STATUS/BLOCKER belonging to that specific function.
     in_target_block = target_va is None  # None → update all
-    _MARKER_RE = re.compile(r"^(//|/\*)\s*(?:FUNCTION|LIBRARY|STUB):\s*\S+\s+(0x[0-9a-fA-F]+)")
 
-    with open(tmp_path, "w", encoding="utf-8") as f:
+    with tmp_path.open("w", encoding="utf-8") as f:
         for line in lines:
             # Detect FUNCTION/LIBRARY/STUB markers to track annotation blocks
             if target_va is not None:
@@ -396,7 +397,7 @@ def build_result_dict(
 
 
 def _test_multi(
-    cfg: Any,
+    cfg: ProjectConfig,
     source: str,
     annotations: list[Annotation],
     cflags_override: str | None,
