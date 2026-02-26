@@ -78,9 +78,6 @@ file directly. Rebrew includes `gen_flirt_pat.py` for this purpose.
 
 ```bash
 # Generate a .pat from the MSVC6 CRT library
-rebrew-gen-pat tools/MSVC600/VC98/Lib/LIBCMT.LIB -o flirt_sigs/libcmt_vc6.pat
-
-# Or run the script directly
 uv run python -m rebrew.gen_flirt_pat tools/MSVC600/VC98/Lib/LIBCMT.LIB \
     -o flirt_sigs/libcmt_vc6.pat
 ```
