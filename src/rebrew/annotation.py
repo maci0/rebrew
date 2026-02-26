@@ -3,14 +3,24 @@
 Extracts the common annotation-parsing logic used by both lint.py and verify.py
 so that there is a single source of truth for the decomp annotation format.
 
-Supports two formats:
-  - **New (reccmp-style)**: ``// FUNCTION: SERVER 0x10008880`` followed by
-    key-value lines like ``// STATUS: EXACT``.
-  - **Old (legacy)**:  ``/* name @ 0xVA (NB) - /flags - STATUS [ORIGIN] */``
+Supports three annotation formats:
+
+1. **New (reccmp-style)** — the canonical format:
+   ``// FUNCTION: SERVER 0x10008880`` followed by key-value lines
+   like ``// STATUS: EXACT``.  This is what all tools output.
+
+2. **Block-comment variant** — same semantics but wrapped in ``/* ... */``:
+   ``/* FUNCTION: SERVER 0x10003260 */``
+
+3. **Old (legacy)** — single-line shorthand from early decomp work:
+   ``/* name @ 0xVA (NB) - /flags - STATUS [ORIGIN] */``
+
+The parser always tries the new format first; the old format is a fallback.
 """
 
 from __future__ import annotations
 
+import contextlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,19 +30,33 @@ from typing import Any
 # Valid sets
 # ---------------------------------------------------------------------------
 
-VALID_MARKERS = {"FUNCTION", "LIBRARY", "STUB"}
+VALID_MARKERS = {"FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"}
 VALID_STATUSES = {"EXACT", "RELOC", "MATCHING", "MATCHING_RELOC", "STUB"}
-VALID_ORIGINS = {"GAME", "MSVCRT", "ZLIB"}
+# Default origins — used as fallback when config is not available.
+# Projects should define their own origins in rebrew.toml.
+_DEFAULT_ORIGINS = {"GAME", "MSVCRT", "ZLIB"}
+
+# Backward-compatible alias (deprecated, prefer config origins).
+VALID_ORIGINS = _DEFAULT_ORIGINS
 
 REQUIRED_KEYS = {"STATUS", "ORIGIN", "SIZE", "CFLAGS"}
 RECOMMENDED_KEYS = {"SYMBOL"}
-OPTIONAL_KEYS = {"SOURCE", "BLOCKER", "NOTE", "GLOBALS", "SKIP"}
+OPTIONAL_KEYS = {"SOURCE", "BLOCKER", "BLOCKER_DELTA", "NOTE", "GLOBALS", "SKIP", "SECTION"}
 ALL_KNOWN_KEYS = REQUIRED_KEYS | RECOMMENDED_KEYS | OPTIONAL_KEYS | {"MARKER", "VA"}
 
 # ---------------------------------------------------------------------------
 # Regex patterns
 # ---------------------------------------------------------------------------
 
+# Old format regex — matches the one-liner:
+#   /* name @ 0xVA (NB) - /cflags - STATUS [ORIGIN] */
+# Named groups:
+#   name   — function name (e.g. "bit_reverse")
+#   va     — virtual address hex (e.g. "0x10008880")
+#   size   — size in bytes (e.g. "31")
+#   cflags — compiler flags (e.g. "/O2 /Gd")
+#   status — status string (e.g. "MATCHED")
+#   origin — origin tag (e.g. "GAME")
 OLD_RE = re.compile(
     r"/\*\s*"
     r"(?P<name>\S+)"
@@ -47,31 +71,41 @@ OLD_RE = re.compile(
     r"\s*\*/"
 )
 
-NEW_FUNC_RE = re.compile(r"//\s*(?:FUNCTION|LIBRARY|STUB):\s*\S+\s+0x[0-9a-fA-F]+")
+# New format — line-comment style (the canonical output format).
+# Quick match (no captures): used to test if a line is a marker line.
+NEW_FUNC_RE = re.compile(r"//\s*(?:FUNCTION|LIBRARY|STUB|GLOBAL|DATA):\s*\S+\s+0x[0-9a-fA-F]+")
+# Full capture: extracts the marker type and VA.
 NEW_FUNC_CAPTURE_RE = re.compile(
-    r"//\s*(?P<type>FUNCTION|LIBRARY|STUB):\s*\S+\s+(?P<va>0x[0-9a-fA-F]+)"
+    r"//\s*(?P<type>FUNCTION|LIBRARY|STUB|GLOBAL|DATA):\s*\S+\s+(?P<va>0x[0-9a-fA-F]+)"
 )
+# Key-value pairs: ``// STATUS: EXACT``, ``// SIZE: 31``, etc.
 NEW_KV_RE = re.compile(r"//\s*(?P<key>[A-Z]+):\s*(?P<value>.*)")
 
-# Block-comment format: /* FUNCTION: SERVER 0x10003260 */
+# Block-comment format — same semantics, different delimiters.
+# Used by some auto-migrated files: /* FUNCTION: SERVER 0x10003260 */
 BLOCK_FUNC_RE = re.compile(
-    r"/\*\s*(?:FUNCTION|LIBRARY|STUB):\s*\S+\s+0x[0-9a-fA-F]+\s*\*/"
+    r"/\*\s*(?:FUNCTION|LIBRARY|STUB|GLOBAL|DATA):\s*\S+\s+0x[0-9a-fA-F]+\s*\*/"
 )
 BLOCK_FUNC_CAPTURE_RE = re.compile(
-    r"/\*\s*(?P<type>FUNCTION|LIBRARY|STUB):\s*(?P<module>\S+)\s+(?P<va>0x[0-9a-fA-F]+)\s*\*/"
+    r"/\*\s*(?P<type>FUNCTION|LIBRARY|STUB|GLOBAL|DATA):\s*(?P<module>\S+)\s+(?P<va>0x[0-9a-fA-F]+)\s*\*/"
 )
 BLOCK_KV_RE = re.compile(r"/\*\s*(?P<key>[A-Z]+):\s*(?P<value>.*?)\s*\*/")
 
-# Javadoc format: /** @address 0x10003640 ... */
+# Javadoc format — rare, from early experiments:
+#   /** @address 0x10003640  @origin GAME */
 JAVADOC_ADDR_RE = re.compile(r"@address\s+(?P<va>0x[0-9a-fA-F]+)")
 JAVADOC_KV_RE = re.compile(r"@(?P<key>\w+)\s+(?P<value>.+)")
 
-# Filename prefix → expected ORIGIN mapping
-FILENAME_ORIGIN_PREFIXES = {
+# Default filename prefix → expected ORIGIN mapping.
+# Projects can override via origin_prefixes in rebrew.toml.
+_DEFAULT_ORIGIN_PREFIXES = {
     "crt_": "MSVCRT",
     "zlib_": "ZLIB",
     "game_": "GAME",
 }
+
+# Backward-compatible alias.
+FILENAME_ORIGIN_PREFIXES = _DEFAULT_ORIGIN_PREFIXES
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +118,10 @@ def normalize_status(raw: str) -> str:
     s = raw.strip().upper()
     if "EXACT" in s:
         return "EXACT"
+    if "MATCHING_RELOC" in s:
+        return "MATCHING_RELOC"
+    if "MATCHING" in s:
+        return "MATCHING"
     if "RELOC" in s:
         return "RELOC"
     if "STUB" in s:
@@ -96,21 +134,59 @@ def normalize_cflags(raw: str) -> str:
     return raw.strip().rstrip(",").strip()
 
 
-def marker_for_origin(origin: str, status: str) -> str:
-    """Derive expected marker type from origin and status."""
+def marker_for_origin(origin: str, status: str, library_origins: set[str] | None = None) -> str:
+    """Derive expected marker type from origin and status.
+
+    Args:
+        origin: Origin tag (e.g. "GAME", "ZLIB").
+        status: Status string (e.g. "EXACT", "STUB").
+        library_origins: Set of origins that should use LIBRARY marker.
+                         Defaults to {"ZLIB", "MSVCRT"} if not provided.
+    """
     if status == "STUB":
         return "STUB"
-    if origin in ("ZLIB", "MSVCRT"):
+    if library_origins is None:
+        library_origins = {"ZLIB", "MSVCRT"}
+    if origin in library_origins:
         return "LIBRARY"
     return "FUNCTION"
 
 
-def origin_from_filename(stem: str) -> str | None:
-    """Guess expected ORIGIN from filename prefix."""
-    for prefix, origin in FILENAME_ORIGIN_PREFIXES.items():
+def origin_from_filename(stem: str, prefixes: dict[str, str] | None = None) -> str | None:
+    """Guess expected ORIGIN from filename prefix.
+
+    Args:
+        stem: Filename stem (without extension).
+        prefixes: Mapping of filename prefix to origin.
+                  Defaults to _DEFAULT_ORIGIN_PREFIXES.
+    """
+    if prefixes is None:
+        prefixes = _DEFAULT_ORIGIN_PREFIXES
+    for prefix, origin in prefixes.items():
         if stem.startswith(prefix):
             return origin
     return None
+
+
+def has_skip_annotation(filepath: Path) -> bool:
+    """Check if a .c file has a ``// SKIP:`` annotation in the first 20 lines."""
+    try:
+        text = filepath.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    for line in text.splitlines()[:20]:
+        stripped = line.strip().upper()
+        if stripped.startswith("// SKIP:") or stripped.startswith("/* SKIP:"):
+            return True
+    return False
+
+
+def resolve_symbol(entry: Annotation, filepath: Path) -> str:
+    """Resolve a usable symbol name from an annotation, falling back to filename."""
+    symbol = entry.symbol
+    if symbol and symbol != "?":
+        return symbol
+    return "_" + filepath.stem
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +194,7 @@ def origin_from_filename(stem: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 # Field name mapping for dict-like access (handles "globals" → globals_list)
-_FIELD_ALIASES = {"globals": "globals_list", "marker_type": "marker_type"}
+_FIELD_ALIASES = {"globals": "globals_list"}
 
 
 @dataclass
@@ -140,9 +216,11 @@ class Annotation:
     filepath: str = ""
     source: str = ""
     blocker: str = ""
+    blocker_delta: int | None = None
     note: str = ""
     inline_error: str = ""
     globals_list: list[str] = field(default_factory=list)
+    section: str = ""  # .data, .rdata, .bss — used by DATA annotations
 
     # -- Dict-like access for backward compat --
 
@@ -170,9 +248,9 @@ class Annotation:
         except KeyError:
             return default
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict (for JSON output or legacy code)."""
-        return {
+        d = {
             "va": self.va,
             "size": self.size,
             "name": self.name,
@@ -184,11 +262,21 @@ class Annotation:
             "filepath": self.filepath,
             "source": self.source,
             "blocker": self.blocker,
+            "blocker_delta": self.blocker_delta,
             "note": self.note,
             "globals": self.globals_list,
         }
+        if self.section:
+            d["section"] = self.section
+        return d
 
-    def validate(self, filepath: Path | None = None) -> tuple[list[str], list[str]]:
+    def validate(
+        self,
+        filepath: Path | None = None,
+        valid_origins: set[str] | None = None,
+        library_origins: set[str] | None = None,
+        origin_prefixes: dict[str, str] | None = None,
+    ) -> tuple[list[str], list[str]]:
         """Validate annotation fields. Returns (errors, warnings)."""
         errors: list[str] = []
         warnings: list[str] = []
@@ -197,27 +285,49 @@ class Annotation:
             errors.append(f"Invalid marker type: {self.marker_type}")
 
         if self.inline_error:
-            errors.append(f"Multiple annotations found on the same line: '{self.inline_error}' (please separate them into different lines)")
+            errors.append(
+                f"Multiple annotations found on the same line: '{self.inline_error}' (please separate them into different lines)"
+            )
 
-        if not (0x1000 <= self.va <= 0xFFFFFFFF):
-            errors.append(f"VA 0x{self.va:x} is suspicious (outside 32-bit range)")
+        if self.va < 0x1000:
+            errors.append(f"VA 0x{self.va:x} is suspicious (below 0x1000)")
 
         if self.status and self.status not in VALID_STATUSES:
             errors.append(f"Invalid STATUS: {self.status}")
 
-        if self.origin and self.origin not in VALID_ORIGINS:
+        if self.origin and self.origin not in (valid_origins or _DEFAULT_ORIGINS):
             errors.append(f"Invalid ORIGIN: {self.origin}")
 
         if self.size <= 0:
             errors.append(f"Invalid SIZE: {self.size}")
 
-        if not self.cflags:
-            errors.append("Missing CFLAGS")
+        # DATA annotations don't require CFLAGS (they aren't compiled)
+        is_data = self.marker_type in ("DATA", "GLOBAL")
+        if not is_data:
+            if not self.cflags or not self.cflags.strip():
+                errors.append("Missing CFLAGS")
+            else:
+                # Validate CFLAGS look like MSVC-style flags
+                flags = self.cflags.strip().split()
+                for flag in flags:
+                    if not flag.startswith("/") and not flag.startswith("-"):
+                        warnings.append(
+                            f"CFLAGS token '{flag}' doesn't start with '/' or '-' "
+                            "(expected MSVC-style flags like /O2 /Gd)"
+                        )
+                # Detect common typo: flags glued together like "/O2/Gd"
+                for flag in flags:
+                    if re.match(r"^/\w+/\w+", flag):
+                        warnings.append(
+                            f"CFLAGS token '{flag}' looks like multiple flags "
+                            "glued together (missing space?)"
+                        )
 
         if not self.symbol:
             warnings.append("Missing SYMBOL (recommended)")
 
-        expected_marker = marker_for_origin(self.origin, self.status)
+        _lib = library_origins if library_origins is not None else {"ZLIB", "MSVCRT"}
+        expected_marker = marker_for_origin(self.origin, self.status, _lib)
         if self.marker_type and self.marker_type != expected_marker:
             warnings.append(
                 f"Marker {self.marker_type} inconsistent with ORIGIN {self.origin} "
@@ -227,7 +337,7 @@ class Annotation:
         if self.status == "STUB" and not self.blocker:
             warnings.append("STUB function missing BLOCKER annotation")
 
-        if self.origin in ("MSVCRT", "ZLIB") and not self.source:
+        if self.origin in _lib and not self.source:
             warnings.append(
                 f"{self.origin} function missing SOURCE annotation "
                 "(reference file, e.g. SBHEAP.C:195 or deflate.c)"
@@ -241,11 +351,15 @@ class Annotation:
             if expected_stem and filepath.stem != expected_stem:
                 warnings.append(
                     f"Filename '{filepath.name}' doesn't match SYMBOL "
-                    f"'{self.symbol}' (expected '{expected_stem}.c')"
+                    f"'{self.symbol}' (expected '{expected_stem}{filepath.suffix}')"
                 )
 
         if filepath:
-            expected_origin = origin_from_filename(filepath.stem)
+            # Reverse origin_prefixes (origin→prefix) to prefix→origin for lookup
+            _prefixes = None
+            if origin_prefixes:
+                _prefixes = {v: k for k, v in origin_prefixes.items()}
+            expected_origin = origin_from_filename(filepath.stem, _prefixes)
             if expected_origin and self.origin and expected_origin != self.origin:
                 warnings.append(
                     f"Filename prefix suggests ORIGIN '{expected_origin}' "
@@ -295,6 +409,31 @@ def make_func_entry(
 # ---------------------------------------------------------------------------
 
 
+def update_size_annotation(filepath: Path, new_size: int) -> bool:
+    """Update the ``// SIZE: NNN`` annotation in a .c file.
+
+    Only increases size (safety: never shrinks a manually-set value).
+    Returns True if the file was modified, False otherwise.
+    """
+    try:
+        text = filepath.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+
+    size_re = re.compile(r"(//\s*SIZE:\s*)(\d+)")
+    match = size_re.search(text)
+    if not match:
+        return False
+
+    old_size = int(match.group(2))
+    if new_size <= old_size:
+        return False
+
+    new_text = text[: match.start()] + match.group(1) + str(new_size) + text[match.end() :]
+    filepath.write_text(new_text, encoding="utf-8")
+    return True
+
+
 def parse_old_format(line: str) -> Annotation | None:
     """Try to parse old-format header comment.  Returns Annotation or None."""
     m = OLD_RE.match(line.strip())
@@ -322,7 +461,12 @@ def parse_old_format(line: str) -> Annotation | None:
 
 def parse_new_format(lines: list[str]) -> Annotation | None:
     """Try to parse new reccmp-style annotations from first lines.
-    Returns Annotation or None."""
+
+    State machine: scans up to 20 lines looking for a marker line
+    (``// FUNCTION: SERVER 0x...``), then collects subsequent key-value
+    comment lines until a non-annotation line is hit. Returns None if
+    no valid marker line is found.
+    """
     marker_type = None
     va = None
     kv: dict[str, str] = {}
@@ -331,42 +475,35 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
         stripped = line.strip()
         if not stripped:
             continue
-            
-        # Check for multiple annotations on one line
-        if stripped.count("//") > 1:
-            # We strictly enforce one annotation per line
-            # We will grab the first one so at least it parses something,
-            # but the linter will complain later (we will add a check in validate).
-            pass
-            
+
         # Check for marker
         m = NEW_FUNC_CAPTURE_RE.match(stripped) or BLOCK_FUNC_CAPTURE_RE.match(stripped)
         if m:
             marker_type = m.group("type")
             va = int(m.group("va"), 16)
-            
+
             # If there's inline stuff after the VA, stash it in a special internal field to lint later
             if stripped.count("//") > 1:
                 kv["_INLINE_ERROR"] = stripped
             continue
-            
+
         # Check for key-value
         m2 = NEW_KV_RE.match(stripped) or BLOCK_KV_RE.match(stripped)
         if m2:
             key = m2.group("key").upper()
             val = m2.group("value").strip()
-            
+
             # Stash the full line if there are multiple slashes
             if stripped.count("//") > 1:
                 kv["_INLINE_ERROR"] = stripped
-                
+
                 # Try to extract just the first value before the next //
                 if "//" in val:
                     val = val.split("//")[0].strip()
-                    
+
             kv[key] = val
             continue
-            
+
         # Non-annotation line => stop
         break
 
@@ -388,13 +525,20 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
     source = kv.get("SOURCE", "")
     blocker = kv.get("BLOCKER", "")
     note = kv.get("NOTE", "")
+    section = kv.get("SECTION", "")
+
+    blocker_delta: int | None = None
+    raw_delta = kv.get("BLOCKER_DELTA", "")
+    if raw_delta:
+        with contextlib.suppress(ValueError):
+            blocker_delta = int(raw_delta)
 
     globals_list: list[str] = []
     raw_globals = kv.get("GLOBALS", "")
     if raw_globals:
         globals_list = [g.strip() for g in raw_globals.split(",") if g.strip()]
 
-    return make_func_entry(
+    ann = make_func_entry(
         va=va,
         size=size,
         name=name,
@@ -410,10 +554,20 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
         inline_error=kv.get("_INLINE_ERROR", ""),
         globals_list=globals_list,
     )
+    ann.section = section
+    ann.blocker_delta = blocker_delta
+    return ann
 
 
 def parse_c_file(filepath: Path) -> Annotation | None:
-    """Parse a decomp .c file for annotations (tries new then old format)."""
+    """Parse a decomp .c file for annotations.
+
+    Format disambiguation: tries the new (multi-line ``// KEY: value``)
+    format first against the first 20 lines, then falls back to the
+    old single-line legacy format on line 1 only.
+
+    Sets ``filepath`` on the returned Annotation for downstream use.
+    """
     try:
         text = filepath.read_text(encoding="utf-8", errors="replace")
     except OSError:
@@ -423,16 +577,160 @@ def parse_c_file(filepath: Path) -> Annotation | None:
     if not lines:
         return None
 
-    # Try new format first (multi-line)
+    # Try new format first (multi-line) — preferred, canonical output
     entry = parse_new_format(lines[:20])
     if entry is not None:
         entry["filepath"] = filepath.name
         return entry
 
-    # Try old format (first line)
+    # Fallback: try old format (first line only)
     entry = parse_old_format(lines[0])
     if entry is not None:
         entry["filepath"] = filepath.name
         return entry
 
     return None
+
+
+def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
+    """Parse ALL reccmp-style annotation blocks from a file's lines.
+
+    Scans the full file for ``// FUNCTION:`` markers.  Each marker starts
+    a new annotation block; subsequent ``// KEY: value`` lines attach to
+    the current block.  Non-annotation lines (code) between blocks are
+    skipped — they don't terminate scanning.
+
+    Returns a list of Annotations (may be empty).
+    """
+    results: list[Annotation] = []
+    current_marker_type: str | None = None
+    current_va: int | None = None
+    current_kv: dict[str, str] = {}
+
+    def _flush() -> None:
+        """Emit the current block (if any) into *results*."""
+        nonlocal current_marker_type, current_va, current_kv
+        if current_marker_type is None or current_va is None:
+            return
+
+        status = current_kv.get("STATUS", "RELOC")
+        origin = current_kv.get("ORIGIN", "GAME")
+        size_str = current_kv.get("SIZE", "0")
+        cflags = current_kv.get("CFLAGS", "")
+        symbol = current_kv.get("SYMBOL", "")
+        name = symbol.lstrip("_") if symbol else ""
+
+        try:
+            size = int(size_str)
+        except ValueError:
+            size = 0
+
+        source = current_kv.get("SOURCE", "")
+        blocker = current_kv.get("BLOCKER", "")
+        note = current_kv.get("NOTE", "")
+        section = current_kv.get("SECTION", "")
+
+        blocker_delta: int | None = None
+        raw_delta = current_kv.get("BLOCKER_DELTA", "")
+        if raw_delta:
+            with contextlib.suppress(ValueError):
+                blocker_delta = int(raw_delta)
+
+        globals_list: list[str] = []
+        raw_globals = current_kv.get("GLOBALS", "")
+        if raw_globals:
+            globals_list = [g.strip() for g in raw_globals.split(",") if g.strip()]
+
+        ann = make_func_entry(
+            va=current_va,
+            size=size,
+            name=name,
+            symbol=symbol,
+            status=status,
+            origin=origin,
+            cflags=cflags,
+            marker_type=current_marker_type,
+            filepath="",
+            source=source,
+            blocker=blocker,
+            note=note,
+            inline_error=current_kv.get("_INLINE_ERROR", ""),
+            globals_list=globals_list,
+        )
+        ann.section = section
+        ann.blocker_delta = blocker_delta
+        results.append(ann)
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        # Check for a new marker line (starts a new block)
+        m = NEW_FUNC_CAPTURE_RE.match(stripped) or BLOCK_FUNC_CAPTURE_RE.match(stripped)
+        if m:
+            # Flush the previous block before starting a new one
+            _flush()
+            current_marker_type = m.group("type")
+            current_va = int(m.group("va"), 16)
+            current_kv = {}
+
+            if stripped.count("//") > 1:
+                current_kv["_INLINE_ERROR"] = stripped
+            continue
+
+        # Only collect key-value lines if we're inside a block
+        if current_marker_type is not None:
+            m2 = NEW_KV_RE.match(stripped) or BLOCK_KV_RE.match(stripped)
+            if m2:
+                key = m2.group("key").upper()
+                val = m2.group("value").strip()
+
+                if stripped.count("//") > 1:
+                    current_kv["_INLINE_ERROR"] = stripped
+                    if "//" in val:
+                        val = val.split("//")[0].strip()
+
+                current_kv[key] = val
+                continue
+
+        # Non-annotation line — DON'T break scanning (code between blocks)
+        # Just skip it and keep looking for the next marker
+
+    # Flush the last block
+    _flush()
+    return results
+
+
+def parse_c_file_multi(filepath: Path) -> list[Annotation]:
+    """Parse ALL annotation blocks from a decomp .c file.
+
+    Returns a list of Annotations, one per ``// FUNCTION:`` marker found
+    in the file.  For single-function files this returns a one-element list.
+    Returns an empty list if no annotations are found.
+
+    Sets ``filepath`` on each returned Annotation.
+    """
+    try:
+        text = filepath.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+
+    lines = text.splitlines()
+    if not lines:
+        return []
+
+    # Try multi-block new format (scans entire file)
+    entries = parse_new_format_multi(lines)
+    if entries:
+        for entry in entries:
+            entry.filepath = filepath.name
+        return entries
+
+    # Fallback: try old format (first line only) — returns at most one
+    entry = parse_old_format(lines[0])
+    if entry is not None:
+        entry.filepath = filepath.name
+        return [entry]
+
+    return []

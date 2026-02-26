@@ -16,7 +16,7 @@ Usage in a tool::
         ...
 """
 
-from __future__ import annotations
+from typing import Any
 
 import typer
 
@@ -34,3 +34,14 @@ TargetOption: str | None = typer.Option(
 def get_config(target: str | None = None) -> ProjectConfig:
     """Load the project config for the given target."""
     return load_config(target=target)
+
+
+def source_glob(cfg: Any) -> str:
+    """Return glob pattern for source files based on the configured extension.
+
+    Uses ``cfg.source_ext`` (e.g. ``".c"``, ``".cpp"``) to build a pattern
+    like ``"*.c"`` or ``"*.cpp"``.  Falls back to ``"*.c"`` if the attribute
+    is missing.
+    """
+    ext = getattr(cfg, "source_ext", ".c")
+    return f"*{ext}"

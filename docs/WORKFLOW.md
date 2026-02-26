@@ -53,6 +53,44 @@ uv run pyright .
 rebrew-flirt flirt_sigs/
 ```
 
+## JSON Output for Automation
+
+All core CLI tools support `--json` for machine-readable output, enabling
+scripting and AI agent integration:
+
+```bash
+# Test a function and parse results with jq
+rebrew-test src/target_name/my_func.c --json | jq '.status'
+
+# Get progress stats as JSON
+rebrew-next --stats --json | jq '.coverage_pct'
+
+# List recommendations as JSON
+rebrew-next --json -n 10 | jq '.items[] | {va, size, difficulty}'
+
+# List MATCHING functions sorted by byte delta
+rebrew-next --improving --json | jq '.items[] | select(.byte_delta != null and .byte_delta <= 5)'
+
+# Structured diff output
+rebrew-match --diff-only --json src/target_name/my_func.c | jq '.summary'
+
+# Disassembly as JSON
+rebrew-asm 0x10003da0 --size 160 --json | jq '.instructions[] | .mnemonic'
+```
+
+**Tools with `--json` support:**
+| Tool | Modes |
+|------|-------|
+| `rebrew-test` | Single and multi-function test results |
+| `rebrew-next` | `--stats`, default recommendations, `--improving`, `--unmatchable`, `--group` |
+| `rebrew-match` | `--diff-only` mode |
+| `rebrew-asm` | Disassembly output |
+| `rebrew-verify` | Verification report |
+| `rebrew-lint` | Lint results |
+| `rebrew-flirt` | FLIRT scan results |
+| `rebrew-status` | Status overview |
+| `rebrew-data` | Data scan results |
+
 ## Step-by-Step Process
 
 ```mermaid
@@ -79,14 +117,36 @@ rebrew-next --origin GAME -n 10
 Pick from the top of the list (smallest = easiest).
 Difficulty ratings: `*` = trivial, `*****` = very hard.
 
+> [!TIP]
+> `rebrew-next` **auto-filters unmatchable functions** (IAT thunks, single-byte
+> RET/INT3 stubs, SEH `fs:[0]` handlers) so you only see actionable targets.
+> Use `--stats` to see the unmatchable breakdown, or `--unmatchable` to list them.
+
+To see MATCHING functions sorted by how close they are to RELOC:
+
+```bash
+rebrew-next --improving
+```
+
+The **Delta** column shows how many non-reloc bytes differ (parsed from BLOCKER
+annotations). Smallest delta = highest ROI for improvement.
+
 ### 2. Generate skeleton
 
 ```bash
 rebrew-skeleton 0x<VA>
+rebrew-skeleton 0x<VA> --decomp                    # with inline decompilation
+rebrew-skeleton 0x<VA> --decomp --decomp-backend r2dec  # specific backend
 ```
 
 This creates `src/target_name/<name>.c` with proper annotations and
-prints the exact test command.
+prints the exact test command. Use `--decomp` to embed pseudo-C from
+a decompiler backend (r2ghidra, r2dec, or auto).
+
+To add a function to an existing multi-function file:
+```bash
+rebrew-skeleton 0x<VA> --append existing_file.c
+```
 
 ### 3. Get the decompilation
 
@@ -172,6 +232,9 @@ rebrew-test src/target_name/my_func.c --update
 
 ```bash
 rebrew-match --diff-only src/target_name/my_func.c --va 0x<VA> --size <SIZE>
+
+# Show only structural differences (** lines)
+rebrew-match --diff-only --mm src/target_name/my_func.c
 ```
 
 **Diff markers:**
@@ -225,6 +288,9 @@ Every .c file MUST start with an annotation block. See AGENTS.md for full spec.
 
 Required fields: marker (FUNCTION/LIBRARY/STUB), STATUS, ORIGIN, SIZE, CFLAGS.
 Recommended: SYMBOL, SOURCE (for CRT/ZLIB), BLOCKER (for MATCHING/STUB).
+
+A file may contain **multiple annotation blocks** for multi-function compilation.
+See [ANNOTATIONS.md](ANNOTATIONS.md#multi-function-files) for details.
 
 Two comment styles are both valid:
 ```c
@@ -410,6 +476,11 @@ linker-dependent addresses differ. This is the RELOC match.
 
 ## Non-Matchable Functions (Skip These)
 
+> [!NOTE]
+> `rebrew-next` now **auto-detects** most unmatchable patterns via byte-level
+> inspection. They are automatically filtered from the work queue. Run
+> `rebrew-next --stats` to see the breakdown, or `--unmatchable` to list them.
+
 - **IAT thunks**: 6-byte `jmp [addr]` stubs (8 total) — not C code
 - **ASM builtins**: `memset`, `strcmp`, `strstr`, `strchr`, `strlen`, `strncpy`, `strpbrk`, `strcspn`, `__local_unwind2`, `__aulldiv`, `__aullrem` — hand-written assembly
 - **Single-byte stubs**: `ret` alignment padding — not real functions
@@ -456,6 +527,7 @@ SEH helper functions in MSVCRT are **not matchable from pure C89 source**. These
 - Has `__local_unwind` or `except` in the call graph
 
 ...then it's likely an SEH helper. Mark as STUB and move on.
+> `rebrew-next` auto-detects functions starting with `mov eax, fs:[0]` (`64 A1 00 00 00 00`) and filters them.
 
 ## Syncing Improvements Between Ghidra and Local Decomp
 
@@ -483,8 +555,8 @@ graph LR
         G4["Decompiler output<br/>& variable names"]
     end
 
-    L1 -->|"rebrew-sync --export<br/>create-label"| G1
-    L4 -->|"rebrew-sync --export<br/>set-comment, set-bookmark"| G3
+    L1 -->|"rebrew-sync --push<br/>create-label"| G1
+    L4 -->|"rebrew-sync --push<br/>set-comment, set-bookmark"| G3
     G4 -->|"get-decompilation"| L1
     G2 -->|"get-structure-info"| L2
     L2 -->|"parse-c-structure /<br/>modify-structure-from-c"| G2
@@ -553,22 +625,25 @@ be reflected in Ghidra.
 #### Pushing function names and annotations (batch)
 
 ```bash
-rebrew-sync --export
+rebrew-sync --push
 ```
 
-This reads all annotation headers from `src/target_name/*.c` and generates
-`ghidra_commands.json` containing ReVa MCP operations:
+This reads all annotation headers from `src/target_name/*.c`, generates MCP
+operations, and applies them directly to Ghidra via the ReVa MCP endpoint.
+Generic `func_XXXXXXXX` labels are skipped by default to avoid overwriting
+better names from Ghidra analysis.
 
 | Operation | What it does |
 |-----------|-------------|
-| `create-label` | Renames the function at the VA to your local name |
+| `create-label` | Renames the function at the VA to your local name (non-generic only) |
 | `set-comment` | Adds a plate comment with STATUS, ORIGIN, CFLAGS, SYMBOL |
-| `set-bookmark` | Bookmarks the function under its origin category |
+| `set-bookmark` | Bookmarks the function under a status-based category (`rebrew/exact`, `rebrew/reloc`, etc.) |
 
-To apply them via MCP, iterate the commands:
-```
-create-label programPath="/target.dll" addressOrSymbol="0x10003DA0" labelName="alloc_game_object"
-set-comment programPath="/target.dll" addressOrSymbol="0x10003DA0" comment="..." commentType="plate"
+Alternatively, export and apply as separate steps:
+```bash
+rebrew-sync --export           # write ghidra_commands.json
+rebrew-sync --apply            # push commands to Ghidra via MCP
+rebrew-sync --summary          # preview without exporting
 ```
 
 #### Pushing struct definitions to Ghidra
@@ -606,7 +681,7 @@ graph TD
     B --> C["Pull struct defs<br/>(get-structure-info)"]
     C --> D["Write/update .c file<br/>with real names & types"]
     D --> E["Test the match<br/>(rebrew-test)"]
-    E --> F["Push names back<br/>(rebrew-sync --export)"]
+    E --> F["Push names back<br/>(rebrew-sync --push)"]
     F --> G["Push new structs<br/>(parse-c-structure)"]
     G --> H{"More functions<br/>that use these types?"}
     H -->|Yes| I["Re-pull decompilation<br/>(names now resolved)"]
@@ -649,6 +724,48 @@ successive function easier to understand.
 - Expand `ghidra_sync.py` to dump decompiled pseudo-C per function
 - Add `--import` mode to pull Ghidra renames/types back into `.c` files
 - Build a diffing tool that compares local annotations against Ghidra state
+
+## Module Architecture
+
+Where each shared function lives (after Phase 4 deduplication):
+
+```mermaid
+graph TD
+    annotation["annotation.py<br/>parse_c_file, normalize_status,<br/>marker_for_origin"]
+    catalog["catalog.py<br/>scan_reversed_dir, parse_r2_functions,<br/>R2_BOGUS_SIZES, build_function_registry"]
+    compile["compile.py<br/>compile_to_obj, compile_source_string"]
+    config["config.py<br/>load_config, ProjectConfig"]
+    binary_loader["binary_loader.py<br/>load_binary, extract_bytes_at_va"]
+
+    verify["verify.py"] -->|imports| catalog
+    verify -->|imports| annotation
+    verify -->|imports| compile
+    sync["sync.py"] -->|imports| catalog
+    batch["batch.py"] -->|imports| catalog
+    ga["ga.py"] -->|imports| annotation
+    ga -->|imports| config
+    test["test.py"] -->|imports| annotation
+    test -->|imports| compile
+    skeleton["skeleton.py"] -->|imports| annotation
+    next["next.py"] -->|imports| annotation
+    next -->|imports| binary_loader
+    data["data.py"] -->|imports| catalog
+    data -->|imports| binary_loader
+    status["status.py"] -->|imports| catalog
+```
+
+| Function | Canonical Module | Re-exported From |
+|----------|-----------------|------------------|
+| `parse_c_file` | `annotation.py` | — |
+| `parse_c_file_multi` | `annotation.py` | — |
+| `scan_reversed_dir` | `catalog.py` | `verify.py` |
+| `parse_r2_functions` | `catalog.py` | `verify.py` |
+| `R2_BOGUS_SIZES` | `catalog.py` | `verify.py` |
+| `compile_to_obj` | `compile.py` | — |
+| `load_config` | `config.py` | `cli.py` |
+| `load_binary` | `binary_loader.py` | — |
+| `detect_unmatchable` | `next.py` | — |
+| `scan_globals` | `data.py` | — |
 
 ## Experimental Tools
 
@@ -725,6 +842,13 @@ Global compiler settings under `[compiler]` are inherited by all targets
 unless overridden.
 
 ```toml
+# ── Project-level settings ───────────────────────────────────────
+[project]
+name = "My Game Decomp"
+jobs = 8                   # default parallelism for verify/batch
+db_dir = "db"              # coverage database output
+output_dir = "output"      # GA run output
+
 # ── Global compiler defaults (inherited by all targets) ──────────
 [compiler]
 profile = "msvc6"
@@ -732,6 +856,8 @@ command = "wine tools/MSVC600/VC98/Bin/CL.EXE"
 includes = "tools/MSVC600/VC98/Include"
 libs = "tools/MSVC600/VC98/Lib"
 cflags = "/O2 /Gd"
+base_cflags = "/nologo /c /MT"   # always-on flags prepended to every compile
+timeout = 60                     # compile timeout in seconds
 
 [compiler.cflags_presets]
 GAME = "/O2 /Gd"
@@ -749,10 +875,21 @@ cflags = "-O2"
 binary = "original/Server/server.dll"
 format = "pe"
 arch = "x86_32"
+marker = "SERVER"                    # annotation prefix: // FUNCTION: SERVER 0x...
 reversed_dir = "src/server.dll"
 function_list = "src/server.dll/r2_functions.txt"
 bin_dir = "bin/server.dll"
 origins = ["GAME", "ZLIB", "MSVCRT"]
+library_origins = ["ZLIB", "MSVCRT"]     # origins that use LIBRARY marker (default: all except first)
+# default_origin = "GAME"               # fallback when ORIGIN not specified
+
+# [targets."server.dll".origin_comments]  # skeleton preamble comments per origin
+# GAME = "TODO: Add extern declarations"
+# MSVCRT = "CRT function - check tools/MSVC600/VC98/CRT/SRC/"
+
+# [targets."server.dll".origin_todos]     # skeleton TODO text per origin
+# GAME = "Implement based on Ghidra decompilation"
+# MSVCRT = "Implement from CRT source"
 
 [targets."server.dll".compiler]          # override compiler for this target
 profile = "msvc6"
@@ -767,6 +904,7 @@ ZLIB = "/O3"
 binary = "original/Europa1400Gold_TL.exe"
 format = "pe"
 arch = "x86_32"
+marker = "CLIENT"                    # different annotation prefix for this target
 reversed_dir = "src/Europa1400Gold_TL.exe"
 function_list = "src/Europa1400Gold_TL.exe/r2_functions.txt"
 bin_dir = "bin/Europa1400Gold_TL.exe"
@@ -778,6 +916,98 @@ Tools default to the **first** target. Use `--target` to select another:
 rebrew-test --target Europa1400Gold_TL.exe src/Europa1400Gold_TL.exe/my_func.c
 rebrew-next --target Europa1400Gold_TL.exe --stats
 ```
+
+### `rebrew.toml` Key Reference
+
+All keys with their defaults. Unrecognized keys trigger a warning.
+
+#### `[project]`
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `name` | string | `""` | Human-readable project name |
+| `jobs` | int | `4` | Default parallelism for verify/batch/GA |
+| `db_dir` | path | `"db"` | Coverage database output directory |
+| `output_dir` | path | `"output"` | GA run output directory |
+
+#### `[compiler]`
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `profile` | string | `"msvc6"` | Compiler profile name |
+| `command` | string | `"wine CL.EXE"` | Compiler invocation command |
+| `includes` | path | — | Path to MSVC include directory |
+| `libs` | path | — | Path to MSVC lib directory |
+| `cflags` | string | `"/O2 /Gd"` | Default compiler flags |
+| `base_cflags` | string | `"/nologo /c /MT"` | Always-on flags prepended to every compile |
+| `timeout` | int | `60` | Compile subprocess timeout (seconds) |
+
+#### `[compiler.cflags_presets]`
+| Key | Type | Description |
+|-----|------|-------------|
+| `<ORIGIN>` | string | Compiler flags for each origin (e.g. `GAME = "/O2 /Gd"`, `MSVCRT = "/O1"`) |
+
+#### `[targets.<name>]`
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `binary` | path | — | Path to target binary |
+| `format` | string | `"pe"` | Binary format: `pe`, `elf`, `macho` |
+| `arch` | string | `"x86_32"` | Architecture: `x86_32`, `x86_64` |
+| `marker` | string | `"SERVER"` | Annotation prefix (e.g. `// FUNCTION: SERVER`) |
+| `reversed_dir` | path | — | Directory containing reversed `.c` files |
+| `function_list` | path | — | Path to function list (`.txt` or `.json`) |
+| `bin_dir` | path | — | Directory for extracted `.bin` files |
+| `origins` | list | `[]` | Valid ORIGIN values (e.g. `["GAME", "MSVCRT", "ZLIB"]`) |
+| `default_origin` | string | `""` | Default ORIGIN when not specified (first origin if empty) |
+| `library_origins` | list | `[]` | Origins using LIBRARY marker (default: all except first) |
+| `origin_prefixes` | dict | `{}` | Origin → filename prefix (e.g. `{MSVCRT = "crt_"}`) |
+| `ignored_symbols` | list | `[]` | Symbols to skip (ASM builtins etc.) |
+
+#### `[targets.<name>.origin_comments]`
+| Key | Type | Description |
+|-----|------|-------------|
+| `<ORIGIN>` | string | Skeleton preamble comment for this origin |
+
+#### `[targets.<name>.origin_todos]`
+| Key | Type | Description |
+|-----|------|-------------|
+| `<ORIGIN>` | string | Skeleton TODO text for this origin |
+
+### Tool Flags Added in Phase 2/3
+
+#### `rebrew-match --seed <N>`
+Seed the random number generator for reproducible GA runs. Useful for debugging
+or comparing approaches with identical starting conditions.
+
+```bash
+rebrew-match --seed 42 src/server.dll/my_func.c
+```
+
+#### `rebrew-match --mismatches-only` / `--mm`
+With `--diff-only`, show only structural difference (`**`) lines instead of
+the full side-by-side listing. Includes a summary line with counts of
+structural diffs, relocation diffs, and exact matches.
+
+```bash
+rebrew-match --diff-only --mm src/server.dll/my_func.c
+```
+
+#### `rebrew-match --force`
+Continue even if the annotation linter finds errors. By default, `rebrew-match`
+runs a lint pass and aborts if there are issues.
+
+#### `rebrew-verify` Output Prefixes
+Verification results now include typed prefixes for unambiguous parsing:
+
+| Prefix | Meaning |
+|--------|---------|
+| `COMPILE_ERROR:` | Source failed to compile |
+| `MISMATCH:` | Compiled but bytes differ |
+| `MISSING_FILE:` | Source file not found |
+| `EXACT MATCH` / `RELOC-NORM MATCH` | Success |
+
+#### Unified Compilation (`rebrew.compile`)
+All tools now share a single compile path via `rebrew.compile`. The module
+reads `base_cflags` and `timeout` from config, ensuring consistent behavior
+across `rebrew-test`, `rebrew-verify`, and `rebrew-match`.
 
 ### Sharing code between targets
 
@@ -1003,8 +1233,10 @@ Each successful match becomes context for harder functions — creating a
 
 ### 9. Set up annotation conventions
 
-Decide on the origin categories for your binary. For `server.dll`, the origins
-are `GAME`, `MSVCRT`, and `ZLIB`. For a new binary, define your own:
+Decide on the origin categories for your binary and configure them in `rebrew.toml`.
+For `server.dll`, the origins are `GAME`, `MSVCRT`, and `ZLIB`. For a new binary,
+define your own via the `origins`, `library_origins`, `origin_comments`, and
+`origin_todos` config keys. Example annotation:
 
 ```c
 // FUNCTION: MYGAME 0x00401000

@@ -1,7 +1,19 @@
+"""build_db.py – Build SQLite coverage database from function catalog.
+
+Aggregates annotation data, verification results, and coverage statistics
+into a single SQLite database for querying and reporting.
+"""
+
+import contextlib
 import json
 import sqlite3
 import sys
 from pathlib import Path
+from typing import Any
+
+import typer
+
+from rebrew.cli import TargetOption
 
 try:
     import yaml
@@ -9,7 +21,7 @@ except ImportError:
     yaml = None  # type: ignore[assignment]
 
 
-def build_db(project_root: Path | None = None):
+def build_db(project_root: Path | None = None, target: str | None = None) -> None:
     root_dir = Path(project_root).resolve() if project_root else Path.cwd().resolve()
     db_dir = root_dir / "db"
     db_dir.mkdir(parents=True, exist_ok=True)
@@ -19,14 +31,14 @@ def build_db(project_root: Path | None = None):
     project_config = {}
     yml_path = root_dir / "reccmp-project.yml"
     if yaml and yml_path.exists():
-        with open(yml_path) as f:
+        with open(yml_path, encoding="utf-8") as f:
             project_config = yaml.safe_load(f)
     targets_info = project_config.get("targets", {})
 
-    conn = sqlite3.connect(db_path)
-    c = conn.cursor()
-
+    conn: sqlite3.Connection | None = None
     try:
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
         # Enable WAL mode for better concurrency during regen
         c.execute("PRAGMA journal_mode=WAL")
 
@@ -53,6 +65,9 @@ def build_db(project_root: Path | None = None):
                 is_export BOOLEAN,
                 sha256 TEXT,
                 files TEXT,
+                detected_by TEXT,
+                size_by_tool TEXT,
+                textOffset INTEGER,
                 PRIMARY KEY (target, va)
             )
         """)
@@ -65,6 +80,8 @@ def build_db(project_root: Path | None = None):
                 name TEXT,
                 decl TEXT,
                 files TEXT,
+                origin TEXT,
+                size INTEGER,
                 PRIMARY KEY (target, va)
             )
         """)
@@ -93,7 +110,9 @@ def build_db(project_root: Path | None = None):
                 end INTEGER,
                 span INTEGER,
                 state TEXT,
-                functions TEXT
+                functions TEXT,
+                label TEXT,
+                parent_function TEXT
             )
         """)
 
@@ -108,15 +127,9 @@ def build_db(project_root: Path | None = None):
         """)
 
         # Create indexes for fast lookups
-        c.execute(
-            "CREATE INDEX IF NOT EXISTS idx_functions_name ON functions(target, name)"
-        )
-        c.execute(
-            "CREATE INDEX IF NOT EXISTS idx_globals_name ON globals(target, name)"
-        )
-        c.execute(
-            "CREATE INDEX IF NOT EXISTS idx_cells_section ON cells(target, section_name)"
-        )
+        c.execute("CREATE INDEX IF NOT EXISTS idx_functions_name ON functions(target, name)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_globals_name ON globals(target, name)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_cells_section ON cells(target, section_name)")
 
         # Create views for pre-computed aggregate stats (used by both UIs)
         c.execute("DROP VIEW IF EXISTS section_cell_stats")
@@ -129,22 +142,31 @@ def build_db(project_root: Path | None = None):
                 SUM(CASE WHEN state = 'exact' THEN 1 ELSE 0 END) as exact_count,
                 SUM(CASE WHEN state = 'reloc' THEN 1 ELSE 0 END) as reloc_count,
                 SUM(CASE WHEN state IN ('matching', 'matching_reloc') THEN 1 ELSE 0 END) as matching_count,
-                SUM(CASE WHEN state = 'stub' THEN 1 ELSE 0 END) as stub_count
+                SUM(CASE WHEN state = 'stub' THEN 1 ELSE 0 END) as stub_count,
+                SUM(CASE WHEN state = 'padding' THEN 1 ELSE 0 END) as padding_count,
+                SUM(CASE WHEN state = 'data' THEN 1 ELSE 0 END) as data_count,
+                SUM(CASE WHEN state = 'thunk' THEN 1 ELSE 0 END) as thunk_count,
+                SUM(CASE WHEN state = 'none' THEN 1 ELSE 0 END) as none_count
             FROM cells
             GROUP BY target, section_name
         """)
 
-        # Process all data_*.json files
+        # Process data_*.json files, optionally filtered by target
         json_files = list((root_dir / "db").glob("data_*.json"))
+        if target:
+            json_files = [f for f in json_files if f.stem.removeprefix("data_") == target]
         if not json_files:
-            print("Error: No data_*.json files found in db/. Run 'rebrew-catalog --json' first.")
-            sys.exit(1)
+            print(
+                "Error: No data_*.json files found in db/. Run 'rebrew-catalog --json' first.",
+                file=sys.stderr,
+            )
+            raise typer.Exit(code=1)
 
         for json_path in json_files:
-            target_name = json_path.stem.replace("data_", "")
-            print(f"Processing {target_name}...")
+            target_name = json_path.stem.removeprefix("data_")
+            print(f"Processing {target_name}...", file=sys.stderr)
 
-            with open(json_path) as f:
+            with open(json_path, encoding="utf-8") as f:
                 data = json.load(f)
 
             fn_rows = []
@@ -153,7 +175,9 @@ def build_db(project_root: Path | None = None):
                 va_int = (
                     int(va, 16)
                     if isinstance(va, str) and va.startswith("0x")
-                    else int(va) if str(va).isdigit() else None
+                    else int(va)
+                    if str(va).isdigit()
+                    else None
                 )
                 if va_int is None:
                     # Fallback if va is a name (like adler32)
@@ -178,34 +202,40 @@ def build_db(project_root: Path | None = None):
                         fn.get("is_export", False),
                         fn.get("sha256"),
                         json.dumps(fn.get("files", [])),
+                        json.dumps(fn.get("detected_by", [])),
+                        json.dumps(fn.get("size_by_tool", {})),
+                        fn.get("textOffset"),
                     )
                 )
 
             c.executemany(
                 """
-                INSERT INTO functions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO functions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 fn_rows,
             )
 
-            g_rows = [
-                (
-                    target_name,
+            g_rows = []
+            for va, g in data.get("globals", {}).items():
+                try:
+                    va_int = int(va, 16) if isinstance(va, str) and va.startswith("0x") else int(va)
+                except (ValueError, TypeError):
+                    va_int = int(g.get("va", "0"), 16) if g.get("va") else 0
+                g_rows.append(
                     (
-                        int(va, 16)
-                        if isinstance(va, str) and va.startswith("0x")
-                        else int(va)
-                    ),
-                    g.get("name"),
-                    g.get("decl"),
-                    json.dumps(g.get("files", [])),
+                        target_name,
+                        va_int,
+                        g.get("name"),
+                        g.get("decl"),
+                        json.dumps(g.get("files", [])),
+                        g.get("origin"),
+                        g.get("size", 4),
+                    )
                 )
-                for va, g in data.get("globals", {}).items()
-            ]
 
             c.executemany(
                 """
-                INSERT INTO globals VALUES (?, ?, ?, ?, ?)
+                INSERT INTO globals VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
                 g_rows,
             )
@@ -220,7 +250,9 @@ def build_db(project_root: Path | None = None):
                 # Calculate stats for data sections
                 if sec_name != ".text":
                     exact_count = reloc_count = matching_count = stub_count = 0
+                    padding_count = 0
                     exact_bytes = reloc_bytes = matching_bytes = stub_bytes = 0
+                    padding_bytes = 0
                     covered_bytes = 0
                     total_items = 0
 
@@ -244,16 +276,21 @@ def build_db(project_root: Path | None = None):
                             elif state == "stub":
                                 stub_count += 1
                                 stub_bytes += size
+                            elif state == "padding":
+                                padding_count += 1
+                                padding_bytes += size
 
                     summary_data[sec_name] = {
                         "exactMatches": exact_count,
                         "relocMatches": reloc_count,
                         "matchingMatches": matching_count,
                         "stubCount": stub_count,
+                        "paddingCount": padding_count,
                         "exactBytes": exact_bytes,
                         "relocBytes": reloc_bytes,
                         "matchingBytes": matching_bytes,
                         "stubBytes": stub_bytes,
+                        "paddingBytes": padding_bytes,
                         "coveredBytes": covered_bytes,
                         "totalFunctions": total_items,
                         "size": sec.get("size", 0),
@@ -284,14 +321,16 @@ def build_db(project_root: Path | None = None):
                         cell.get("span"),
                         cell.get("state"),
                         json.dumps(cell.get("functions", [])),
+                        cell.get("label"),
+                        cell.get("parent_function"),
                     )
                     for cell in sec.get("cells", [])
                 ]
 
                 c.executemany(
                     """
-                    INSERT INTO cells (target, section_name, start, end, span, state, functions)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO cells (target, section_name, start, end, span, state, functions, label, parent_function)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     cell_rows,
                 )
@@ -315,16 +354,28 @@ def build_db(project_root: Path | None = None):
                 (target_name, "paths", json.dumps(paths_data)),
             )
 
+            # Schema version stamp
+            c.execute(
+                "INSERT OR REPLACE INTO metadata VALUES (?, ?, ?)",
+                (target_name, "db_version", json.dumps("2")),
+            )
+
         c.execute("COMMIT")
         print(f"Database built successfully at {db_path}")
 
         # Generate CATALOG.md from DB for each target
         _generate_catalogs(conn, root_dir)
+    except Exception:
+        if conn is not None:
+            with contextlib.suppress(Exception):
+                conn.rollback()
+        raise
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
-def _generate_catalogs(conn: sqlite3.Connection, root_dir: Path):
+def _generate_catalogs(conn: sqlite3.Connection, root_dir: Path) -> None:
     """Generate CATALOG.md files from DB data (DB is single source of truth)."""
     c = conn.cursor()
     c.execute("SELECT DISTINCT target FROM functions")
@@ -332,20 +383,18 @@ def _generate_catalogs(conn: sqlite3.Connection, root_dir: Path):
 
     # Try to read reversed_dir from rebrew.toml
     toml_path = root_dir / "rebrew.toml"
-    target_dirs = {}
+    target_dirs: dict[str, Path] = {}
     if toml_path.exists():
         try:
-            if sys.version_info >= (3, 11):
-                import tomllib
-            else:
-                import tomli as tomllib  # type: ignore
+            import tomllib  # type: ignore
+
             with open(toml_path, "rb") as f:
                 raw = tomllib.load(f)
             for tname, tdata in raw.get("targets", {}).items():
                 rdir = tdata.get("reversed_dir")
                 if rdir:
                     target_dirs[tname] = root_dir / rdir
-        except Exception:
+        except (OSError, KeyError, ValueError):
             pass
 
     for target_name in targets:
@@ -360,15 +409,15 @@ def _generate_catalogs(conn: sqlite3.Connection, root_dir: Path):
         # Get all functions
         c.execute(
             "SELECT va, name, size, status, origin, symbol, markerType, files "
-            "FROM functions WHERE target = ? ORDER BY va",
+            "FROM functions WHERE target = ? AND markerType NOT IN ('GLOBAL', 'DATA') ORDER BY va",
             (target_name,),
         )
         functions = c.fetchall()
 
         # Compute stats
         total = len(functions)
-        by_status = {}
-        by_origin = {}
+        by_status: dict[str, int] = {}
+        by_origin: dict[str, list[Any]] = {}
         covered_bytes = 0
         for fn in functions:
             st = fn[3] or "UNKNOWN"
@@ -383,7 +432,9 @@ def _generate_catalogs(conn: sqlite3.Connection, root_dir: Path):
 
         # Build markdown
         lines = []
-        lines.append("<!-- AUTO-GENERATED FILE — DO NOT EDIT. Regenerate with: rebrew-build-db -->\n")
+        lines.append(
+            "<!-- AUTO-GENERATED FILE — DO NOT EDIT. Regenerate with: rebrew-build-db -->\n"
+        )
         lines.append("# Reversed Functions Catalog\n")
         lines.append(
             f"Total: {total} functions matched "
@@ -392,8 +443,7 @@ def _generate_catalogs(conn: sqlite3.Connection, root_dir: Path):
             f"{by_status.get('STUB', 0)} stubs)  "
         )
         lines.append(
-            f"Coverage: {coverage_pct:.1f}% of .text section "
-            f"({covered_bytes}/{text_size} bytes)\n"
+            f"Coverage: {coverage_pct:.1f}% of .text section ({covered_bytes}/{text_size} bytes)\n"
         )
 
         # Table by origin
@@ -424,27 +474,42 @@ def _generate_catalogs(conn: sqlite3.Connection, root_dir: Path):
         print(f"Generated {catalog_path}")
 
 
-import typer
+app = typer.Typer(
+    help="Build SQLite coverage database from catalog JSON.",
+    rich_markup_mode="rich",
+    epilog="""\
+[bold]Examples:[/bold]
+  rebrew-build-db                          Build db/coverage.db from db/data_*.json
+  rebrew-build-db --root /path/to/project  Specify project root explicitly
 
-from rebrew.cli import TargetOption
+[bold]Prerequisites:[/bold]
+  Run 'rebrew-catalog --json' first to generate db/data_*.json files.
 
-app = typer.Typer(help="Build SQLite coverage database.")
+[bold]What it creates:[/bold]
+  db/coverage.db          SQLite database with functions, globals, sections, cells
+  src/<target>/CATALOG.md  Markdown catalog of all reversed functions
+
+[dim]The database is used by recoverage (coverage dashboard) and can be queried
+directly for reports. Schema version is stamped in the metadata table.[/dim]""",
+)
+
 
 @app.callback(invoke_without_command=True)
 def main(
-    root: Path = typer.Option(
+    root: Path | None = typer.Option(
         None,
         "--root",
         help="Project root directory",
     ),
-    target: str = TargetOption,
-):
+    target: str | None = TargetOption,
+) -> None:
     """CLI entry point for rebrew-build-db."""
-    build_db(root)
+    build_db(root, target=target)
 
-def main_entry():
+
+def main_entry() -> None:
     app()
+
 
 if __name__ == "__main__":
     main_entry()
-

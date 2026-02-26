@@ -1,43 +1,76 @@
+"""main.py – Umbrella CLI entry point for rebrew.
+
+Lazily imports and registers all subcommand typer apps so that missing
+optional dependencies don't prevent the entire CLI from loading.
+"""
+
+import importlib
 import sys
 
 import typer
 
-app = typer.Typer(help="Compiler-in-the-loop decompilation workbench")
+app = typer.Typer(
+    help="Compiler-in-the-loop decompilation workbench for binary-matching reversing.",
+    rich_markup_mode="rich",
+    epilog="""\
+[bold]Typical workflow:[/bold]
+  rebrew next                  Pick the next function to reverse
+  rebrew skeleton 0x<VA>       Generate a .c skeleton from address
+  rebrew test src/<func>.c     Compile and byte-compare against target
+  rebrew match --diff-only f   Show byte diff for near-misses
+  rebrew verify                Bulk-verify all reversed functions
+  rebrew catalog               Regenerate coverage catalog + JSON
 
-# Import subcommands
-from rebrew.asm import app as asm_app
-from rebrew.batch import app as batch_app
-from rebrew.builddb import app as build_db_app
-from rebrew.catalog import app as catalog_app
-from rebrew.cfg import app as cfg_app
-from rebrew.ga import app as ga_app
-from rebrew.init import app as init_app
-from rebrew.lint import app as lint_app
-from rebrew.match import app as match_app
-from rebrew.next import app as next_app
-from rebrew.skeleton import app as skeleton_app
-from rebrew.sync import app as sync_app
-from rebrew.test import app as test_app
-from rebrew.verify import app as verify_app
+[dim]All subcommands read project settings from rebrew.toml.
+Run 'rebrew init' to create a new project, or 'rebrew <cmd> --help' for details.[/dim]""",
+)
 
-# Register subcommands
-app.add_typer(test_app, name="test", help="Quick compile-and-compare for reversed functions.")
-app.add_typer(verify_app, name="verify", help="Validate compiled bytes against original DLL.")
-app.add_typer(next_app, name="next", help="Find the next best functions to work on.")
-app.add_typer(skeleton_app, name="skeleton", help="Generate skeleton C files for matching.")
-app.add_typer(catalog_app, name="catalog", help="Build JSON coverage catalogs for the web UI.")
-app.add_typer(sync_app, name="sync", help="Sync GHIDRA annotations with rebrew.")
-app.add_typer(lint_app, name="lint", help="Lint C annotations.")
-app.add_typer(batch_app, name="batch", help="Batch extract assembly or functions.")
-app.add_typer(match_app, name="match", help="GA engine for binary matching (diff, flag-sweep, GA).")
-app.add_typer(ga_app, name="ga", help="Batch GA runner for STUB functions.")
-app.add_typer(asm_app, name="asm", help="Disassemble original bytes.")
-app.add_typer(build_db_app, name="build-db", help="Build SQLite coverage database.")
-app.add_typer(init_app, name="init", help="Initialize a new rebrew project.")
-app.add_typer(cfg_app, name="cfg", help="Read and edit rebrew.toml programmatically.")
+# Lazy-load subcommand modules to avoid crashing the entire CLI
+# when an optional dependency is missing for one subcommand.
+_SUBCOMMANDS: list[tuple[str, str, str]] = [
+    ("test", "rebrew.test", "Quick compile-and-compare for reversed functions."),
+    ("verify", "rebrew.verify", "Validate compiled bytes against original DLL."),
+    ("next", "rebrew.next", "Find the next best functions to work on."),
+    ("skeleton", "rebrew.skeleton", "Generate skeleton C files for matching."),
+    ("catalog", "rebrew.catalog", "Build JSON coverage catalogs for the web UI."),
+    ("sync", "rebrew.sync", "Sync GHIDRA annotations with rebrew."),
+    ("lint", "rebrew.lint", "Lint C annotations."),
+    ("batch", "rebrew.batch", "Batch extract assembly or functions."),
+    ("match", "rebrew.match", "GA engine for binary matching (diff, flag-sweep, GA)."),
+    ("ga", "rebrew.ga", "Batch GA runner for STUB functions."),
+    ("asm", "rebrew.asm", "Disassemble original bytes."),
+    ("build-db", "rebrew.build_db", "Build SQLite coverage database."),
+    ("init", "rebrew.init", "Initialize a new rebrew project."),
+    ("cfg", "rebrew.cfg", "Read and edit rebrew.toml programmatically."),
+    ("status", "rebrew.status", "Project reversing status overview."),
+    ("data", "rebrew.data", "Global data scanner for .data/.rdata/.bss sections."),
+    ("graph", "rebrew.depgraph", "Function dependency graph visualization."),
+    ("promote", "rebrew.promote", "Test + atomically update STATUS annotation."),
+    ("triage", "rebrew.triage", "Cold-start triage: FLIRT scan + coverage summary."),
+]
 
-def main():
+for _name, _module, _help in _SUBCOMMANDS:
+    try:
+        _mod = importlib.import_module(_module)
+        app.add_typer(_mod.app, name=_name, help=_help)
+    except ImportError as _exc:
+        # Create a stub that reports the missing dependency
+        def _make_stub(mod_name: str, err: ImportError) -> typer.Typer:
+            stub = typer.Typer(help=f"[unavailable] {mod_name}")
+
+            @stub.callback(invoke_without_command=True)
+            def _stub_main() -> None:
+                print(f"Error: could not load '{mod_name}': {err}", file=sys.stderr)
+                raise typer.Exit(code=1)
+
+            return stub
+
+        app.add_typer(_make_stub(_module, _exc), name=_name, help=f"[unavailable] {_help}")
+
+
+def main() -> None:
     app()
 
+
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

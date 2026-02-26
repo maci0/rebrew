@@ -18,12 +18,14 @@ Usage:
     rebrew nasm --va 0x10003ca0 --size 77 --verify
 """
 
+import contextlib
 import os
 import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -34,7 +36,7 @@ try:
     from capstone import CS_ARCH_X86, CS_MODE_32, CS_OPT_SYNTAX_INTEL, Cs
 except ImportError:
     print("ERROR: capstone required. Install: pip install capstone", file=sys.stderr)
-    sys.exit(1)
+    raise typer.Exit(code=1) from None
 
 
 def extract_from_bin(bin_path: Path) -> bytes:
@@ -47,8 +49,6 @@ def capstone_to_nasm(mnemonic: str, op_str: str) -> str:
 
     line = line.replace("ptr ", "")
 
-    line = re.sub(r"\b0x([0-9a-fA-F]+)\b", r"0x\1", line)
-
     return line
 
 
@@ -56,7 +56,7 @@ def disassemble_to_nasm(
     code: bytes,
     base_va: int,
     label: str | None = None,
-) -> tuple[str, dict]:
+) -> tuple[str, dict[str, Any]]:
     """Disassemble bytes to NASM source with round-trip verification.
 
     Two-pass approach:
@@ -98,7 +98,7 @@ def disassemble_to_nasm(
     pass1_src = "\n".join(pass1_lines)
     pass1_bin = _run_nasm(pass1_src)
 
-    bad_indices: set = set()
+    bad_indices: set[int] = set()
     if pass1_bin is not None and len(pass1_bin) == len(code):
         for idx, entry in enumerate(insn_data):
             off = entry["offset"]
@@ -135,13 +135,15 @@ def disassemble_to_nasm(
 
 
 def _find_bad_instructions_individually(
-    insn_data: list[dict],
+    insn_data: list[dict[str, Any]],
     base_va: int,
     code: bytes,
-) -> set:
+) -> set[int]:
     """Per-instruction fallback: test each instruction by embedding it in a
     db-padded file at its correct offset, then checking its bytes."""
-    bad = set()
+    bad: set[int] = set()
+    total_insn_size = sum(e["size"] for e in insn_data)
+    trailing = code[total_insn_size:]
     for idx, entry in enumerate(insn_data):
         src_lines = ["bits 32", f"org 0x{base_va:08X}"]
         for j, e in enumerate(insn_data):
@@ -150,7 +152,6 @@ def _find_bad_instructions_individually(
             else:
                 db_hex = ", ".join(f"0x{b:02X}" for b in e["raw"])
                 src_lines.append(f"db {db_hex}")
-        trailing = code[sum(e["size"] for e in insn_data) :]
         if trailing:
             db_hex = ", ".join(f"0x{b:02X}" for b in trailing)
             src_lines.append(f"db {db_hex}")
@@ -166,11 +167,11 @@ def _find_bad_instructions_individually(
 
 
 def _build_nasm_lines(
-    insn_data: list[dict],
+    insn_data: list[dict[str, Any]],
     base_va: int,
     safe_label: str | None,
     trailing: bytes,
-    db_indices: set,
+    db_indices: set[int],
 ) -> list[str]:
     lines: list[str] = []
     lines.append("bits 32")
@@ -195,32 +196,30 @@ def _build_nasm_lines(
 
 
 def _run_nasm(source: str) -> bytes | None:
-    """Run nasm on source text, return binary output or None."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".asm", delete=False) as f:
-        f.write(source)
-        asm_path = f.name
+    """Run nasm on source text, return binary output or None.
 
-    bin_path = asm_path + ".bin"
-    try:
-        r = subprocess.run(
-            ["nasm", "-f", "bin", "-o", bin_path, asm_path],
-            capture_output=True,
-            timeout=5,
-        )
-        if r.returncode != 0:
+    Uses a TemporaryDirectory so that both the .asm input and .bin output
+    are cleaned up automatically — even if the process is killed mid-run.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        asm_path = os.path.join(tmpdir, "input.asm")
+        bin_path = os.path.join(tmpdir, "output.bin")
+        with open(asm_path, "w", encoding="utf-8") as f:
+            f.write(source)
+        try:
+            r = subprocess.run(
+                ["nasm", "-f", "bin", "-o", bin_path, asm_path],
+                capture_output=True,
+                timeout=5,
+            )
+            if r.returncode != 0:
+                return None
+            if os.path.exists(bin_path):
+                with open(bin_path, "rb") as fout:
+                    return fout.read()
             return None
-        if os.path.exists(bin_path):
-            with open(bin_path, "rb") as f:
-                return f.read()
-        return None
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return None
-    finally:
-        for p in (asm_path, bin_path):
-            try:
-                os.unlink(p)
-            except OSError:
-                pass
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return None
 
 
 def verify_roundtrip(nasm_source: str, original_bytes: bytes) -> tuple[bool, str]:
@@ -231,9 +230,7 @@ def verify_roundtrip(nasm_source: str, original_bytes: bytes) -> tuple[bool, str
     if result == original_bytes:
         return True, f"PASS: {len(original_bytes)} bytes identical"
     if len(result) != len(original_bytes):
-        return False, (
-            f"FAIL: size mismatch (nasm={len(result)}, original={len(original_bytes)})"
-        )
+        return False, (f"FAIL: size mismatch (nasm={len(result)}, original={len(original_bytes)})")
     diffs = []
     for i in range(len(original_bytes)):
         if result[i] != original_bytes[i]:
@@ -241,7 +238,7 @@ def verify_roundtrip(nasm_source: str, original_bytes: bytes) -> tuple[bool, str
     return False, (f"FAIL: {len(diffs)} byte diffs at offsets {diffs[:10]}")
 
 
-def _parse_annotations(filepath: Path) -> dict | None:
+def _parse_annotations(filepath: Path) -> dict[str, Any] | None:
     """Parse reccmp-style annotations from a reversed .c file.
 
     Uses the canonical parser from rebrew.annotation.parse_c_file,
@@ -269,18 +266,19 @@ def _parse_annotations(filepath: Path) -> dict | None:
 
 
 def batch_extract(
-    cfg,
+    cfg: Any,
     out_dir: Path,
     verify_flag: bool = False,
     stubs_only: bool = False,
 ) -> None:
     """Extract NASM for all annotated functions in reversed_dir."""
     reversed_dir = cfg.reversed_dir
-    exe_path = cfg.target_binary
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    from rebrew.cli import source_glob
+
     entries = []
-    for cfile in sorted(reversed_dir.glob("*.c")):
+    for cfile in sorted(reversed_dir.glob(source_glob(cfg))):
         info = _parse_annotations(cfile)
         if info is None:
             continue
@@ -306,8 +304,8 @@ def batch_extract(
             code = cfg.extract_dll_bytes(va, size)
             if code is None:
                 raise ValueError("VA not in any section")
-        except Exception as e:
-            print(f"  [{i}/{total}] {stem}: SKIP (extraction error: {e})")
+        except (OSError, KeyError, ValueError) as e:
+            print(f"  [{i}/{total}] {stem}: SKIP (extraction error: {e})", file=sys.stderr)
             continue
 
         nasm_src, stats = disassemble_to_nasm(code, va, symbol)
@@ -329,14 +327,32 @@ def batch_extract(
         pct = stats["pct_nasm"]
         db = stats["db_fallbacks"]
         print(
-            f"  [{i}/{total}] {stem:40s} {size:4d}B  "
-            f"nasm={pct:5.1f}% db={db:2d}  {status}"
+            f"  [{i}/{total}] {stem:40s} {size:4d}B  nasm={pct:5.1f}% db={db:2d}  {status}",
+            file=sys.stderr,
         )
 
-    print(f"\nDone: {ok} ok, {fail} failed, {total} total")
+    print(f"\nDone: {ok} ok, {fail} failed, {total} total", file=sys.stderr)
 
 
-app = typer.Typer(help="Extract function bytes from PE and produce NASM-reassembleable ASM.")
+app = typer.Typer(
+    help="Extract function bytes from PE and produce NASM-reassembleable ASM.",
+    rich_markup_mode="rich",
+    epilog="""\
+[bold]Examples:[/bold]
+  rebrew-nasm 0x10003da0                         Extract and disassemble one function
+  rebrew-nasm 0x10003da0 --size 128              Specify function size
+  rebrew-nasm 0x10003da0 -o func.asm             Write NASM output to file
+  rebrew-nasm 0x10003da0 --raw                   Output raw bytes only
+
+[bold]How it works:[/bold]
+  Extracts raw bytes at the given VA from the PE binary, disassembles
+  them with capstone, and emits NASM-syntax assembly with relocations
+  annotated so the output can be reassembled with 'nasm'.
+
+[dim]Useful for understanding compiler output and verifying relocation
+patterns. Requires capstone and rebrew.toml.[/dim]""",
+)
+
 
 @app.callback(invoke_without_command=True)
 def main(
@@ -346,19 +362,22 @@ def main(
     bin: Path | None = typer.Option(None, help="Raw .bin file"),
     label: str | None = typer.Option(None, help="Label name for the function"),
     out: Path | None = typer.Option(None, "--out", "-o", help="Output .asm file (default: stdout)"),
-    verify: bool = typer.Option(False, help="Verify round-trip: assemble output and compare to original"),
+    verify: bool = typer.Option(
+        False, help="Verify round-trip: assemble output and compare to original"
+    ),
     stats: bool = typer.Option(False, help="Print stats only (no ASM output)"),
     batch: bool = typer.Option(False, help="Batch mode: extract all functions from reversed_dir"),
     batch_stubs: bool = typer.Option(False, help="Batch mode: extract only STUB functions"),
-    out_dir: Path | None = typer.Option(None, help="Output directory for batch mode (default: output/nasm/)"),
+    out_dir: Path | None = typer.Option(
+        None, help="Output directory for batch mode (default: output/nasm/)"
+    ),
     base_va: str = typer.Option("0", help="Base VA for .bin files (default: 0)"),
     target: str | None = TargetOption,
-):
+) -> None:
     """Extract function bytes from PE and produce NASM-reassembleable ASM."""
     cfg = get_config(target=target)
 
     if batch or batch_stubs:
-        exe_path = exe or cfg.target_binary
         batch_out_dir = out_dir or Path("output/nasm")
         batch_extract(
             cfg,
@@ -376,13 +395,15 @@ def main(
         computed_va = int(va, 16)
         code = cfg.extract_dll_bytes(computed_va, size)
         if code is None:
-            print(f"Error: could not extract {size} bytes at VA 0x{computed_va:08X}")
-            raise typer.Exit(1)
+            print(
+                f"Error: could not extract {size} bytes at VA 0x{computed_va:08X}", file=sys.stderr
+            )
+            raise typer.Exit(code=1)
         computed_base_va = computed_va
         computed_label = label or f"func_{computed_va:08X}"
     else:
-        print("ERROR: Specify either --bin FILE or --va HEX --size N")
-        raise typer.Exit(1)
+        print("ERROR: Specify either --bin FILE or --va HEX --size N", file=sys.stderr)
+        raise typer.Exit(code=1)
 
     nasm_src, run_stats = disassemble_to_nasm(code, computed_base_va, computed_label)
 
@@ -402,12 +423,13 @@ def main(
         print(nasm_src)
 
     if verify:
-        passed, msg = verify_roundtrip(nasm_src, code)
+        _, msg = verify_roundtrip(nasm_src, code)
         print(f"\nRound-trip verification: {msg}")
 
 
-def main_entry():
+def main_entry() -> None:
     app()
+
 
 if __name__ == "__main__":
     main_entry()

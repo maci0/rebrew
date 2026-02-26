@@ -28,6 +28,15 @@ recoverage/coverage.db-shm
 recoverage/coverage.db-wal
 recoverage/__pycache__/
 
+# Generated files
+.slim/
+codemap.md
+src/codemap.md
+src/rebrew/codemap.md
+src/rebrew/matcher/codemap.md
+CLAUDE.md
+src/rebrew/agent-skills/
+
 # OS
 .DS_Store
 Thumbs.db

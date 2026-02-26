@@ -7,298 +7,59 @@ and reports status (EXACT, RELOC, MATCHING, etc.).
 
 import concurrent.futures
 import json
-import os
-import re
-import shutil
-import subprocess
-import sys
-import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from rebrew.annotation import (
-    parse_c_file,
+import typer
+from rich.console import Console
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
+from rich.text import Text
+
+from rebrew.catalog import (
+    build_function_registry,
+    parse_r2_functions,
+    scan_reversed_dir,
 )
-
-
-def make_r2_func(va: int, size: int, r2_name: str) -> dict:
-    return {"va": va, "size": size, "r2_name": r2_name}
-
-
-def make_ghidra_func(va: int, size: int, name: str) -> dict:
-    return {"va": va, "size": size, "ghidra_name": name}
-
-
-# ---------------------------------------------------------------------------
-# Cross-tool function registry
-# ---------------------------------------------------------------------------
-
-# registry is now built using cfg values in build_function_registry
-
-# r2 entries with known bogus sizes (analysis artifacts)
-R2_BOGUS_SIZES = {0x1000AD40, 0x10018200}
-
-
-def build_function_registry(
-    r2_funcs: list[dict],
-    cfg: Any,
-    ghidra_path: Path | None = None,
-) -> dict[int, dict]:
-    """Build a unified function registry merging r2 + ghidra + exports.
-
-    Returns dict keyed by VA with:
-        detected_by: list of tool names
-        size_by_tool: {tool: size}
-        r2_name / ghidra_name: tool-specific names
-        is_thunk: bool
-        is_export: bool
-        canonical_size: best-known size
-    """
-    registry: dict[int, dict] = {}
-
-    # --- r2 functions ---
-    for func in r2_funcs:
-        va = func["va"]
-        entry = registry.setdefault(
-            va,
-            {
-                "detected_by": [],
-                "size_by_tool": {},
-                "r2_name": "",
-                "ghidra_name": "",
-                "is_thunk": va in cfg.iat_thunks,
-                "is_export": va in cfg.dll_exports,
-                "canonical_size": 0,
-            },
-        )
-        entry["detected_by"].append("r2")
-        r2_size = func["size"]
-        if va not in R2_BOGUS_SIZES:
-            entry["size_by_tool"]["r2"] = r2_size
-        entry["r2_name"] = func["r2_name"]
-
-    # --- Ghidra functions (from cached JSON) ---
-    ghidra_funcs = []
-    if ghidra_path and ghidra_path.exists():
-        try:
-            ghidra_funcs = json.loads(ghidra_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            pass
-
-    for func in ghidra_funcs:
-        va = func["va"]
-        entry = registry.setdefault(
-            va,
-            {
-                "detected_by": [],
-                "size_by_tool": {},
-                "r2_name": "",
-                "ghidra_name": "",
-                "is_thunk": va in cfg.iat_thunks,
-                "is_export": va in cfg.dll_exports,
-                "canonical_size": 0,
-            },
-        )
-        if "ghidra" not in entry["detected_by"]:
-            entry["detected_by"].append("ghidra")
-        entry["size_by_tool"]["ghidra"] = func["size"]
-        entry["ghidra_name"] = func["ghidra_name"]
-
-    # --- Exports ---
-    for va, _name in cfg.dll_exports.items():
-        entry = registry.setdefault(
-            va,
-            {
-                "detected_by": [],
-                "size_by_tool": {},
-                "r2_name": "",
-                "ghidra_name": "",
-                "is_thunk": False,
-                "is_export": True,
-                "canonical_size": 0,
-            },
-        )
-        if "exports" not in entry["detected_by"]:
-            entry["detected_by"].append("exports")
-
-    # --- Resolve canonical size: prefer ghidra > r2 ---
-    for _va, entry in registry.items():
-        sizes = entry["size_by_tool"]
-        if "ghidra" in sizes:
-            entry["canonical_size"] = sizes["ghidra"]
-        elif "r2" in sizes:
-            entry["canonical_size"] = sizes["r2"]
-
-    return registry
-
-
-def load_ghidra_functions(path: Path) -> list[dict]:
-    """Load cached ghidra_functions.json."""
-    if not path.exists():
-        return []
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return []
-
-
-# ---------------------------------------------------------------------------
-# r2_functions.txt parser
-# ---------------------------------------------------------------------------
-
-_R2_LINE_RE = re.compile(r"\s*(0x[0-9a-fA-F]+)\s+(\d+)\s+(\S+)")
-
-
-def parse_r2_functions(path: Path) -> list[dict]:
-    """Parse r2_functions.txt into list of {va, size, r2_name}."""
-    funcs = []
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        print(f"WARNING: Cannot read {path}", file=sys.stderr)
-        return funcs
-
-    for line in text.splitlines():
-        m = _R2_LINE_RE.match(line)
-        if m:
-            funcs.append(
-                make_r2_func(
-                    va=int(m.group(1), 16),
-                    size=int(m.group(2)),
-                    r2_name=m.group(3),
-                )
-            )
-    return funcs
-
-
-
-
-# extract_dll_bytes is now handled by cfg.extract_dll_bytes() in verify_entry
-
-
-from rebrew.matcher.parsers import parse_coff_symbol_bytes
-
-# ---------------------------------------------------------------------------
-# Scanning
-# ---------------------------------------------------------------------------
-
-
-def scan_reversed_dir(reversed_dir: Path) -> list[dict]:
-    """Scan target dir *.c files and parse annotations from each."""
-    entries = []
-    for cfile in sorted(reversed_dir.glob("*.c")):
-
-        entry = parse_c_file(cfile)
-        if entry is not None:
-            entries.append(entry)
-    return entries
-
+from rebrew.cli import TargetOption, get_config
 
 # ---------------------------------------------------------------------------
 # Verification (--verify)
 # ---------------------------------------------------------------------------
 
 
-def verify_entry(entry: dict, cfg) -> tuple[bool, str]:
-    """Compile a .c file and compare output bytes against DLL."""
+def verify_entry(entry: dict[str, Any], cfg: Any) -> tuple[bool, str]:
+    """Compile a .c file and compare output bytes against DLL.
+
+    Delegates to ``compile_and_compare`` for the compile→extract→compare flow.
+    """
+    from rebrew.compile import compile_and_compare
+
     cfile = cfg.reversed_dir / entry["filepath"]
     if not cfile.exists():
-        return False, f"File not found: {cfile}"
+        return False, f"MISSING_FILE: {cfile}"
 
-    cmd_parts = cfg.compiler_command.split()
-    if len(cmd_parts) > 1 and cmd_parts[0] == "wine":
-        cl_rel = Path(cmd_parts[1])
-        cl_abs = str(cfg.root / cl_rel) if not cl_rel.is_absolute() else str(cl_rel)
-        base_cmd = ["wine", cl_abs, "/nologo", "/c", "/MT", "/Gd"]
-    else:
-        cl_rel = Path(cfg.compiler_command)
-        cl_abs = str(cfg.root / cl_rel) if not cl_rel.is_absolute() else str(cl_rel)
-        base_cmd = [cl_abs, "/nologo", "/c", "/MT", "/Gd"]
-    inc_path = str(cfg.compiler_includes)
+    if entry["va"] < 0x1000:
+        return False, "INVALID_VA: VA too low"
+    if entry["size"] <= 0:
+        return False, "MISSING_SIZE: No SIZE annotation"
 
     cflags_str = entry["cflags"]
-    cflags = cflags_str.split() if cflags_str else ["/O2"]
+    cflags = cflags_str if cflags_str else "/O2"
     symbol = entry["symbol"] if entry["symbol"] else "_" + entry["name"]
 
     target_bytes = cfg.extract_dll_bytes(entry["va"], entry["size"])
-    if target_bytes is None:
+    if not target_bytes:
         return False, "Cannot extract DLL bytes"
 
-    workdir = tempfile.mkdtemp(prefix="validate_")
-    try:
-        src_name = cfile.name
-        local_src = os.path.join(workdir, src_name)
-        shutil.copy2(str(cfile), local_src)
-
-        obj_name = os.path.splitext(src_name)[0] + ".obj"
-        cmd = (
-            base_cmd
-            + cflags
-            + [f"/I{inc_path}", f"/Fo{obj_name}", src_name]
-        )
-        env = cfg.msvc_env()
-        r = subprocess.run(cmd, capture_output=True, cwd=workdir, env=env, timeout=30)
-        obj_path = os.path.join(workdir, obj_name)
-
-        if r.returncode != 0 or not os.path.exists(obj_path):
-            return False, f"Compile error: {r.stderr.decode()[:200]}"
-
-        obj_bytes, reloc_offsets = parse_coff_symbol_bytes(obj_path, symbol)
-        if obj_bytes is None:
-            return False, f"Symbol '{symbol}' not found in .obj"
-
-        if len(obj_bytes) != len(target_bytes):
-            return (
-                False,
-                f"Size mismatch: got {len(obj_bytes)}B, want {len(target_bytes)}B",
-            )
-
-        # Compare with reloc masking
-        reloc_set = set()
-        if reloc_offsets:
-            for ro in reloc_offsets:
-                for j in range(4):
-                    if ro + j < len(obj_bytes):
-                        reloc_set.add(ro + j)
-
-        mismatches = []
-        for i in range(len(obj_bytes)):
-            if i in reloc_set:
-                continue
-            if obj_bytes[i] != target_bytes[i]:
-                mismatches.append(i)
-
-        if not mismatches:
-            if reloc_offsets:
-                return True, f"RELOC-NORM MATCH ({len(reloc_offsets)} relocs)"
-            else:
-                return True, "EXACT MATCH"
-        else:
-            return False, f"MISMATCH: {len(mismatches)} byte diffs at {mismatches[:5]}"
-
-    except subprocess.TimeoutExpired:
-        return False, "Compile timed out"
-    except Exception as exc:
-        return False, f"Error: {exc}"
-    finally:
-        shutil.rmtree(workdir, ignore_errors=True)
-
-
-# ---------------------------------------------------------------------------
-# Text section size
-# ---------------------------------------------------------------------------
-
-
-def get_text_section_size(bin_path: Path) -> int:
-    """Get .text section virtual size from binary headers."""
-    try:
-        from rebrew.binary_loader import load_binary
-        info = load_binary(bin_path)
-        return info.text_size
-    except Exception:
-        pass
-    # Fallback: estimate from r2_functions.txt last function
-    return 0x24000  # rough estimate
+    matched, msg, _obj_bytes, _reloc_offsets = compile_and_compare(
+        cfg,
+        str(cfile),
+        symbol,
+        target_bytes,
+        cflags,
+    )
+    return matched, msg
 
 
 # ---------------------------------------------------------------------------
@@ -306,17 +67,29 @@ def get_text_section_size(bin_path: Path) -> int:
 # ---------------------------------------------------------------------------
 
 
-import typer
-from rich.console import Console
-from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
-from rich.text import Text
-
-from rebrew.cli import TargetOption, get_config
-
 console = Console(stderr=True)
 out_console = Console()
 
-app = typer.Typer(help="Rebrew verification pipeline: compile each .c and verify bytes match.")
+app = typer.Typer(
+    help="Rebrew verification pipeline: compile each .c and verify bytes match.",
+    rich_markup_mode="rich",
+    epilog="""\
+[bold]Examples:[/bold]
+  rebrew-verify                             Verify all .c files (rich progress bar)
+  rebrew-verify --json                      Emit structured JSON report to stdout
+  rebrew-verify -o db/verify_results.json   Write JSON report to file
+  rebrew-verify -j 8                        Use 8 parallel compile jobs
+  rebrew-verify -t server.dll               Verify a specific target
+
+[bold]How it works:[/bold]
+  For each .c file in reversed_dir, compiles it, extracts the COFF symbol,
+  and compares the output bytes against the original DLL. Reports EXACT,
+  RELOC (match after relocation masking), MISMATCH, or COMPILE_ERROR.
+
+[dim]Requires rebrew.toml with valid compiler and target binary paths.
+Run 'rebrew-catalog' first to generate coverage data.[/dim]""",
+)
+
 
 @app.callback(invoke_without_command=True)
 def main(
@@ -326,27 +99,34 @@ def main(
         help="Project root directory (auto-detected from rebrew.toml if omitted)",
     ),
     target: str | None = TargetOption,
-    jobs: int = typer.Option(
-        4,
+    jobs: int | None = typer.Option(
+        None,
         "-j",
         "--jobs",
-        help="Number of parallel compile jobs",
+        help="Number of parallel compile jobs (default: from [project].jobs or 4)",
     ),
-):
+    output_json: bool = typer.Option(
+        False, "--json", help="Emit structured JSON report instead of rich output"
+    ),
+    output_path: str | None = typer.Option(
+        None, "--output", "-o", help="Write JSON report to file (default: db/verify_results.json)"
+    ),
+) -> None:
     """Rebrew verification pipeline: compile each .c and verify bytes match."""
     try:
         cfg = get_config(target=target)
-        bin_path = cfg.target_binary
-        reversed_dir = cfg.reversed_dir
-    except Exception:
-        # Generic fallbacks
-        bin_path = root / "binary.dll"
-        reversed_dir = root / "src"
+    except (FileNotFoundError, KeyError) as exc:
+        console.print(f"[red bold]ERROR:[/] {exc}")
+        raise typer.Exit(code=1) from None
+    bin_path = cfg.target_binary
+    reversed_dir = cfg.reversed_dir
+    if jobs is None:
+        jobs = getattr(cfg, "default_jobs", 4)
     r2_path = reversed_dir / "r2_functions.txt"
     ghidra_json_path = reversed_dir / "ghidra_functions.json"
 
     console.print(f"Scanning {reversed_dir}...")
-    entries = scan_reversed_dir(reversed_dir)
+    entries = scan_reversed_dir(reversed_dir, cfg=cfg)
     r2_funcs = parse_r2_functions(r2_path)
 
     registry = build_function_registry(r2_funcs, cfg, ghidra_json_path)
@@ -355,9 +135,7 @@ def main(
     ghidra_count = sum(1 for r in registry.values() if "ghidra" in r["detected_by"])
     r2_count = sum(1 for r in registry.values() if "r2" in r["detected_by"])
     both_count = sum(
-        1
-        for r in registry.values()
-        if "ghidra" in r["detected_by"] and "r2" in r["detected_by"]
+        1 for r in registry.values() if "ghidra" in r["detected_by"] and "r2" in r["detected_by"]
     )
     thunk_count = sum(1 for r in registry.values() if r["is_thunk"])
     console.print(
@@ -371,11 +149,11 @@ def main(
 
     if not bin_path.exists():
         console.print(f"[red bold]ERROR:[/] {bin_path} not found")
-        return 1
+        raise typer.Exit(code=1)
 
     # Deduplicate: only verify once per VA
-    seen_vas: set = set()
-    unique_entries = []
+    seen_vas: set[int] = set()
+    unique_entries: list[dict[str, Any]] = []
     for entry in sorted(entries, key=lambda x: x["va"]):
         if entry["va"] not in seen_vas:
             seen_vas.add(entry["va"])
@@ -383,11 +161,12 @@ def main(
 
     passed = 0
     failed = 0
-    fail_details = []
+    fail_details: list[tuple[dict[str, Any], str]] = []
+    results: list[dict[str, Any]] = []  # per-function structured results
     total = len(unique_entries)
     effective_jobs = min(jobs, total) if total else 1
 
-    def _verify(e: dict) -> tuple:
+    def _verify(e: dict[str, Any]) -> tuple[dict[str, Any], bool, str]:
         return (e, *verify_entry(e, cfg))
 
     with Progress(
@@ -396,27 +175,96 @@ def main(
         MofNCompleteColumn(),
         TextColumn("[dim]{task.description}"),
         console=console,
+        disable=output_json,
     ) as progress:
         task = progress.add_task("functions", total=total)
         with concurrent.futures.ThreadPoolExecutor(max_workers=effective_jobs) as pool:
             futures = {pool.submit(_verify, e): e for e in unique_entries}
             for future in concurrent.futures.as_completed(futures):
-                entry, ok, msg = future.result()
-                name = entry['name']
+                try:
+                    entry, ok, msg = future.result()
+                except Exception as exc:
+                    entry = futures[future]
+                    ok, msg = False, f"INTERNAL_ERROR: {exc}"
+                name = entry["name"]
                 progress.update(task, advance=1, description=name)
+
+                # Classify result
                 if ok:
                     passed += 1
+                    status = "RELOC" if "RELOC" in msg else "EXACT"
                 else:
                     failed += 1
                     fail_details.append((entry, msg))
+                    if "MISMATCH" in msg:
+                        status = "MISMATCH"
+                    elif "COMPILE_ERROR" in msg:
+                        status = "COMPILE_ERROR"
+                    elif "MISSING_FILE" in msg:
+                        status = "MISSING_FILE"
+                    else:
+                        status = "FAIL"
+
+                results.append(
+                    {
+                        "va": f"0x{entry['va']:08x}",
+                        "name": name,
+                        "filepath": entry.get("filepath", ""),
+                        "size": entry.get("size", 0),
+                        "status": status,
+                        "message": msg,
+                        "passed": ok,
+                    }
+                )
+
+    # Sort results by VA
+    results.sort(key=lambda r: r["va"])
+
+    # Build structured report
+    timestamp = datetime.now(UTC).isoformat()
+    report = {
+        "timestamp": timestamp,
+        "target": getattr(cfg, "target_name", ""),
+        "binary": str(bin_path),
+        "summary": {
+            "total": total,
+            "passed": passed,
+            "failed": failed,
+            "exact": sum(1 for r in results if r["status"] == "EXACT"),
+            "reloc": sum(1 for r in results if r["status"] == "RELOC"),
+            "mismatch": sum(1 for r in results if r["status"] == "MISMATCH"),
+            "compile_error": sum(1 for r in results if r["status"] == "COMPILE_ERROR"),
+            "missing_file": sum(1 for r in results if r["status"] == "MISSING_FILE"),
+        },
+        "results": results,
+    }
+
+    # JSON output mode
+    if output_json or output_path:
+        report_json = json.dumps(report, indent=2)
+
+        if output_path:
+            out_file = Path(output_path)
+        else:
+            out_file = cfg.root / "db" / "verify_results.json" if hasattr(cfg, "root") else None
+
+        if out_file:
+            out_file.parent.mkdir(parents=True, exist_ok=True)
+            out_file.write_text(report_json, encoding="utf-8")
+            if not output_json:
+                console.print(f"Report written to {out_file}")
+
+        if output_json:
+            print(report_json)
+            if failed > 0:
+                raise typer.Exit(code=1)
+            return
 
     # Print failures
     if fail_details:
         out_console.print()
-        for entry, msg in sorted(fail_details, key=lambda x: x[0]['va']):
-            out_console.print(
-                rf"  [red bold]\[FAIL][/] 0x{entry['va']:08X} {entry['name']}: {msg}"
-            )
+        for entry, msg in sorted(fail_details, key=lambda x: x[0]["va"]):
+            out_console.print(rf"  [red bold]\[FAIL][/] 0x{entry['va']:08X} {entry['name']}: {msg}")
 
     # Summary
     style = "green" if failed == 0 else "red"
@@ -429,14 +277,12 @@ def main(
     out_console.print(result_text)
 
     if failed > 0:
-        return 1
-
-    return 0
+        raise typer.Exit(code=1)
 
 
-def main_entry():
+def main_entry() -> None:
     app()
+
 
 if __name__ == "__main__":
     main_entry()
-

@@ -255,7 +255,8 @@ graph TD
 > **As an RE Dev**, I want improvements from my `.c` files pushed to Ghidra (and vice versa) so that the decompiler always shows resolved names and correct types.
 
 ### Acceptance Criteria
-- `rebrew-sync --export` pushes function names, comments, and bookmarks to Ghidra
+- `rebrew-sync --push` pushes function names, comments, and bookmarks to Ghidra via ReVa MCP
+- Generic `func_XXXXXXXX` labels are skipped by default (`--skip-generic`)
 - Struct definitions pushed via `parse-c-structure` MCP tool
 - Ghidra decompilation and struct info can be pulled into local `.c` files
 - Sync is bidirectional and incremental
@@ -274,8 +275,8 @@ graph LR
         G3["Decompiler output"]
     end
 
-    L1 -->|"rebrew-sync --export<br/>(create-label)"| G1
-    L3 -->|"rebrew-sync --export<br/>(set-comment)"| G1
+    L1 -->|"rebrew-sync --push<br/>(create-label)"| G1
+    L3 -->|"rebrew-sync --push<br/>(set-comment)"| G1
     L2 -->|"parse-c-structure"| G2
     G3 -->|"get-decompilation"| L1
     G2 -->|"get-structure-info"| L2
@@ -378,7 +379,7 @@ graph TD
 
 ### Acceptance Criteria
 - `rebrew-lint` checks all annotation fields (FUNCTION, STATUS, ORIGIN, SIZE, CFLAGS)
-- Error codes E001–E010 for hard errors, W001–W007 for warnings
+- Error codes E001–E014 for hard errors, W001–W015 for warnings
 - `rebrew-lint --fix` auto-migrates old annotation formats
 - Running lint twice changes nothing (idempotent)
 
@@ -387,7 +388,7 @@ graph TD
     A["Write or edit a .c file"] --> B["rebrew-lint"]
     B --> C{"Annotations valid?"}
     C -->|Yes| D["✅ Clean"]
-    C -->|No| E["Report errors<br/>(E001-E010, W001-W007)"]
+    C -->|No| E["Report errors<br/>(E001-E017, W001-W015)"]
     E --> F{"Auto-fixable?"}
     F -->|Yes| G["rebrew-lint --fix"]
     G --> B

@@ -12,7 +12,7 @@ Global and project-specific settings live in `rebrew.toml`. Tools must rely on t
 Rebrew is built as a collection of small, single-purpose CLI utilities following the Unix philosophy. Complex workflows—like autonomous batch reversing—are achieved by chaining these tools together. This makes the system extremely friendly to AI orchestration and custom batch scripting.
 
 ## 4. Score Monotonicity (Strict Non-Regression)
-Whether driven by a human or an AI agent, the system must **never** make a function's decompiled state worse. Every proposed change is evaluated against a strict byte-comparison score. Updates to existing functions are only promoted if their status improves (e.g., `MATCHING` -> `RELOC`) or the mismatched byte count strictly decreases. 
+Whether driven by a human or an AI agent, the system must **never** make a function's decompiled state worse. Every proposed change is evaluated against a strict byte-comparison score. Updates to existing functions are only promoted if their status improves (e.g., `MATCHING` -> `RELOC`) or the mismatched byte count strictly decreases.
 
 ## 5. Byte-Identical Ground Truth
 "Close enough" is not the goal. The ultimate source of truth is the compiler output. Cosmetic changes (renaming variables, adding comments) are only accepted if `rebrew-test` verifies that the resulting `.obj` bytes remain completely identical to the existing matched baseline.
@@ -36,14 +36,20 @@ The LLM's role is to generate a semantically correct structural baseline. It sho
 Context windows are finite and expensive. When injecting RAG context for a target function, a strict priority budget must be enforced. Critical definitions (directly referenced struct types and called function signatures) take precedence over "nice-to-have" context (like the raw assembly of distant caller algorithms).
 
 ## 12. Explicit Typing and Code Clarity
-Relying on implicit language features introduces hidden codegen discrepancies. Code implementation should favor maximum explicitness to ensure reliable, deterministic output: 
-- Explicit precision: Always use `__cdecl`, `__stdcall`, and exact variable sizes (`unsigned char` over `char`) matching the original binary. 
+Relying on implicit language features introduces hidden codegen discrepancies. Code implementation should favor maximum explicitness to ensure reliable, deterministic output:
+- Explicit precision: Always use `__cdecl`, `__stdcall`, and exact variable sizes (`unsigned char` over `char`) matching the original binary.
 - Avoid expression tricks: Prefer clear, explicit control flow (`if/return`) over size-optimized but complex expressions (like `(x != -1) - 1`).
 
 ## 13. Predictable C89 Structural Conformity
-When dealing with older compilers (like MSVC6), code must map directly to compiler idiosyncrasies: 
+When dealing with older compilers (like MSVC6), code must map directly to compiler idiosyncrasies:
 - Variable declarations must stay grouped at the top of a block.
 - Logic structure (`if/else` flow, loop choice) dictates the machine code generation directly, requiring rigid adherence over modern "clean code" stylistic preferences.
 
 ## 14. Continuous Linting and Validation
 Metadata integrity is critical for a smooth reverse-engineering pipeline. Every decompiled `.c` file must undergo strict, continuous linting (`rebrew-lint`) at every step of the generation, compilation, and modification process. This guarantees that all header annotations (`STATUS`, `ORIGIN`, `SIZE`, `CFLAGS`) remain structurally compliant, enabling seamless downstream parsing by the dashboard and matching engines without manual intervention.
+
+## 15. Full-Binary Scope (Beyond `.text`)
+A faithful decompilation requires coverage of the *entire* binary, not just executable code. The `.data`, `.rdata`, and `.bss` sections contain globals, dispatch tables, vtables, string tables, and const arrays that are equally critical for correctness. Tools must inventory and cross-reference data-section artifacts (`rebrew-data`), detect dispatch tables / vtables by scanning for contiguous function-pointer arrays, and flag type conflicts across files. Code coverage and data coverage are tracked together.
+
+## 16. Automated Near-Miss Promotion
+Many `MATCHING` functions differ from the target by only a handful of bytes — an operand swap, branch inversion, or register allocation jitter. The system must be able to batch-process these near-miss cases unattended (`rebrew-ga --near-miss --threshold N`), sorted by byte delta so the easiest wins come first. This ensures that trivial MATCHING→RELOC promotions are never left on the table, and that human attention is reserved for functions that genuinely require it.

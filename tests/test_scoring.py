@@ -1,0 +1,158 @@
+"""Tests for rebrew.matcher.scoring — score_candidate, diff_functions."""
+
+from rebrew.matcher.core import Score
+from rebrew.matcher.scoring import (
+    _normalize_reloc_x86_32,
+    diff_functions,
+    score_candidate,
+)
+
+# -------------------------------------------------------------------------
+# _normalize_reloc_x86_32
+# -------------------------------------------------------------------------
+
+
+class TestNormalizeReloc:
+    def test_noop_on_empty(self) -> None:
+        result = _normalize_reloc_x86_32(b"")
+        assert result == b""
+
+    def test_call_rel32_zeroed(self) -> None:
+        # E8 xx xx xx xx  (call near)
+        code = b"\xe8\xab\xcd\xef\x01"
+        result = _normalize_reloc_x86_32(code)
+        assert result[0] == 0xE8
+        # The 4 displacement bytes should be zeroed
+        assert result[1:5] == b"\x00\x00\x00\x00"
+
+    def test_jmp_rel32_zeroed(self) -> None:
+        # E9 xx xx xx xx  (jmp near)
+        code = b"\xe9\xab\xcd\xef\x01"
+        result = _normalize_reloc_x86_32(code)
+        assert result[0] == 0xE9
+        assert result[1:5] == b"\x00\x00\x00\x00"
+
+    def test_non_reloc_unchanged(self) -> None:
+        # push ebp; mov ebp, esp; sub esp, 10h
+        code = b"\x55\x8b\xec\x83\xec\x10"
+        result = _normalize_reloc_x86_32(code)
+        assert result == code
+
+
+# -------------------------------------------------------------------------
+# score_candidate
+# -------------------------------------------------------------------------
+
+
+class TestScoreCandidate:
+    def test_perfect_match(self) -> None:
+        # push ebp; mov ebp, esp; sub esp, 10h; ret
+        code = b"\x55\x8b\xec\x83\xec\x10\xc3"
+        score = score_candidate(code, code)
+        assert isinstance(score, Score)
+        assert score.length_diff == 0
+        assert score.byte_score == 0.0
+
+    def test_different_code(self) -> None:
+        target = b"\x55\x8b\xec\x83\xec\x10\xc3"
+        cand = b"\x55\x8b\xec\x83\xec\x20\xc3"
+        score = score_candidate(target, cand)
+        assert score.byte_score > 0.0
+
+    def test_different_length(self) -> None:
+        target = b"\x55\x8b\xec\xc3"
+        cand = b"\x55\x8b\xec\x83\xec\x10\xc3"
+        score = score_candidate(target, cand)
+        assert score.length_diff > 0
+
+    def test_with_reloc_offsets(self) -> None:
+        # call near with different displacement — should score better with relocs
+        target = b"\x55\x8b\xec\xe8\x01\x02\x03\x04\xc3"
+        cand = b"\x55\x8b\xec\xe8\xff\xfe\xfd\xfc\xc3"
+        score_no_reloc = score_candidate(target, cand)
+        score_with_reloc = score_candidate(target, cand, reloc_offsets=[4])
+        # With reloc offsets, reloc bytes are excluded; score should differ or be better
+        assert score_with_reloc.reloc_score <= score_no_reloc.reloc_score
+
+    def test_empty(self) -> None:
+        score = score_candidate(b"", b"")
+        assert isinstance(score, Score)
+        assert score.length_diff == 0
+        assert score.byte_score == 0.0
+
+    def test_prologue_bonus_for_matching_start(self) -> None:
+        # First 20 bytes identical → prologue_bonus should be negative (bonus)
+        code = b"\x55\x8b\xec\x83\xec\x40\x53\x56\x57\x89\x65\xe8\x89\x45\xfc\x8b\x45\x08\x89\x45\xf8\xc3"
+        # Same first 20 bytes, different ending
+        cand = b"\x55\x8b\xec\x83\xec\x40\x53\x56\x57\x89\x65\xe8\x89\x45\xfc\x8b\x45\x08\x89\x45\xf8\x90"
+        score = score_candidate(code, cand)
+        assert score.prologue_bonus < 0  # bonus is negative (reward)
+
+    def test_prologue_penalty_for_different_start(self) -> None:
+        # Different first bytes → no prologue bonus
+        code = b"\x55\x8b\xec\x83\xec\x10\xc3"
+        cand = b"\x56\x8b\xf0\x83\xec\x10\xc3"
+        score = score_candidate(code, cand)
+        assert score.prologue_bonus == 0.0
+
+    def test_total_is_sum_of_components(self) -> None:
+        target = b"\x55\x8b\xec\x83\xec\x10\xc3"
+        cand = b"\x55\x8b\xec\x83\xec\x20\xc3"
+        score = score_candidate(target, cand)
+        expected = (
+            score.length_diff * 3.0
+            + score.byte_score * 1000.0
+            + score.reloc_score * 500.0
+            + score.mnemonic_score * 200.0
+            + score.prologue_bonus
+        )
+        assert abs(score.total - expected) < 0.01
+
+    def test_negative_reloc_offsets_ignored(self) -> None:
+        code = b"\x55\x8b\xec\xe8\x01\x02\x03\x04\xc3"
+        score = score_candidate(code, code, reloc_offsets=[-1, 4])
+        assert score.reloc_score == 0.0
+
+
+# -------------------------------------------------------------------------
+# diff_functions
+# -------------------------------------------------------------------------
+
+
+class TestDiffFunctions:
+    def test_identical_code(self) -> None:
+        code = b"\x55\x8b\xec\xc3"
+        result = diff_functions(code, code, as_dict=True)
+        assert isinstance(result, dict)
+        assert "instructions" in result
+        assert "summary" in result
+        # All lines should be exact matches
+        for line in result["instructions"]:
+            assert line["match"] in ("==", "~~"), (
+                f"Expected match for identical code, got {line['match']}"
+            )
+        assert result["summary"]["structural"] == 0
+
+    def test_different_code(self) -> None:
+        # sub esp, 0x10 vs sub esp, 0x20 — structural difference (not relocation)
+        target = b"\x55\x8b\xec\x83\xec\x10\xc3"
+        cand = b"\x55\x8b\xec\x83\xec\x20\xc3"
+        result = diff_functions(target, cand, as_dict=True)
+        assert isinstance(result, dict)
+        matches = [line["match"] for line in result["instructions"]]
+        # Must have structural diffs, not just relocation diffs
+        assert "**" in matches
+        assert result["summary"]["structural"] > 0
+
+    def test_mismatched_length(self) -> None:
+        target = b"\x55\x8b\xec\xc3"
+        cand = b"\x55\x8b\xec\x83\xec\x10\xc3"
+        result = diff_functions(target, cand, as_dict=True)
+        assert isinstance(result, dict)
+        assert result["target_size"] == 4
+        assert result["candidate_size"] == 7
+
+    def test_empty_inputs(self) -> None:
+        result = diff_functions(b"", b"", as_dict=True)
+        assert isinstance(result, dict)
+        assert len(result["instructions"]) == 0

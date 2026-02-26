@@ -1,174 +1,199 @@
-"""Tests for the refactored tool imports and path resolution.
+"""Tests for config refactors phase 3.
 
-Verifies that tool scripts do NOT use stale __file__-relative path patterns
-and that lazy config loading works correctly.
+Covers: [project] section, base_cflags / compile_timeout,
+marker field, and estimate_difficulty using ignored_symbols.
 """
 
-import importlib
-import os
-import re
 from pathlib import Path
 
-import pytest
+from rebrew.config import load_config
+from rebrew.next import estimate_difficulty, ignored_symbols
 
-# All tool modules that should exist in the rebrew package
-TOOL_MODULES = [
-    "rebrew.config",
-    "rebrew.cli",
-    "rebrew.annotation",
-    "rebrew.asm",
-    "rebrew.batch",
-    "rebrew.catalog",
-    "rebrew.extract_target",
-    "rebrew.gen_flirt_pat",
-    "rebrew.identify_libs",
-    "rebrew.lint",
-    "rebrew.match",
-    "rebrew.nasm_extract",
-    "rebrew.next",
-    "rebrew.skeleton",
-    "rebrew.sync",
-    "rebrew.test",
-    "rebrew.verify",
-    "rebrew.matcher",
-    "rebrew.matcher.core",
-    "rebrew.matcher.compiler",
-    "rebrew.matcher.parsers",
-    "rebrew.matcher.scoring",
-    "rebrew.matcher.mutator",
-    "rebrew.binary_loader",
-]
-
-SRC_DIR = Path(__file__).resolve().parent.parent / "src" / "rebrew"
+# ---------------------------------------------------------------------------
+# Helper
+# ---------------------------------------------------------------------------
 
 
-class TestNoStalePathPatterns:
-    """Verify tools don't use stale __file__-relative PROJECT_ROOT patterns."""
-
-    @pytest.fixture
-    def tool_py_files(self):
-        """Get all .py files in src/rebrew/."""
-        return sorted(SRC_DIR.glob("*.py"))
-
-    def test_no_active_project_root_assignment(self, tool_py_files):
-        """Check that no tool file has an active PROJECT_ROOT = ... assignment
-        (commented-out lines are OK)."""
-        violations = []
-        for pyfile in tool_py_files:
-            text = pyfile.read_text()
-            for i, line in enumerate(text.splitlines(), 1):
-                stripped = line.lstrip()
-                # Skip comments
-                if stripped.startswith("#"):
-                    continue
-                if re.match(r"^PROJECT_ROOT\s*=", stripped):
-                    violations.append(f"{pyfile.name}:{i}: {line.strip()}")
-        assert not violations, (
-            "Stale PROJECT_ROOT assignments found (should use load_config()):\n"
-            + "\n".join(violations)
-        )
-
-    def test_no_old_tools_help_text(self, tool_py_files):
-        """Check that no tool references old 'tools/' path in user-facing text."""
-        violations = []
-        for pyfile in tool_py_files:
-            text = pyfile.read_text()
-            for i, line in enumerate(text.splitlines(), 1):
-                stripped = line.lstrip()
-                # Skip comments, docstrings
-                if stripped.startswith("#"):
-                    continue
-                # Check for old-style "python tools/" or "uv run python tools/" in print/help
-                if "python tools/" in line and ("print" in line or "help" in line or "f'" in line or 'f"' in line):
-                    violations.append(f"{pyfile.name}:{i}: {line.strip()}")
-        # Allow some in docstrings at the top of files, but not in print statements
-        real_violations = [v for v in violations if "print" in v]
-        assert not real_violations, (
-            "Old 'tools/' references in print statements:\n"
-            + "\n".join(real_violations)
-        )
+def _make_project(tmp_path: Path, toml_content: str) -> Path:
+    (tmp_path / "rebrew.toml").write_text(toml_content, encoding="utf-8")
+    return tmp_path
 
 
-class TestLazyConfigLoading:
-    """Verify config loading works correctly with the new cwd-based approach."""
+# ---------------------------------------------------------------------------
+# 1. [project] section parsing
+# ---------------------------------------------------------------------------
 
-    def test_find_root_uses_cwd(self, tmp_path):
-        """_find_root should search from cwd, not __file__."""
-        from rebrew.config import _find_root
+TOML_WITH_PROJECT = """\
+[project]
+name = "Test Game"
+jobs = 16
+db_dir = "mydb"
+output_dir = "myout"
 
-        (tmp_path / "rebrew.toml").write_text("[targets.main]\nbinary = 'test.exe'\n")
-        old_cwd = os.getcwd()
-        try:
-            os.chdir(tmp_path)
-            root = _find_root()
-            assert root == tmp_path
-        finally:
-            os.chdir(old_cwd)
+[targets.main]
+binary = "test.exe"
+format = "pe"
+arch = "x86_32"
+reversed_dir = "src"
+"""
 
-    def test_find_root_walks_up(self, tmp_path):
-        """_find_root should walk up parent directories."""
-        from rebrew.config import _find_root
-
-        (tmp_path / "rebrew.toml").write_text("[targets.main]\nbinary = 'test.exe'\n")
-        subdir = tmp_path / "a" / "b" / "c"
-        subdir.mkdir(parents=True)
-        old_cwd = os.getcwd()
-        try:
-            os.chdir(subdir)
-            root = _find_root()
-            assert root == tmp_path
-        finally:
-            os.chdir(old_cwd)
-
-    def test_find_root_raises_without_toml(self, tmp_path):
-        """_find_root should raise FileNotFoundError if no rebrew.toml."""
-        from rebrew.config import _find_root
-
-        old_cwd = os.getcwd()
-        try:
-            os.chdir(tmp_path)
-            with pytest.raises(FileNotFoundError, match="rebrew.toml"):
-                _find_root()
-        finally:
-            os.chdir(old_cwd)
-
-    def test_load_config_from_cwd(self, tmp_path):
-        """load_config should work from any subdirectory of a project."""
-        from rebrew.config import load_config
-
-        (tmp_path / "rebrew.toml").write_text(
-            "[targets.main]\nbinary = 'test.exe'\narch = 'x86_32'\n"
-        )
-        subdir = tmp_path / "src" / "data"
-        subdir.mkdir(parents=True)
-        old_cwd = os.getcwd()
-        try:
-            os.chdir(subdir)
-            cfg = load_config()
-            assert cfg.target_name == "main"
-            assert cfg.root == tmp_path
-        finally:
-            os.chdir(old_cwd)
+TOML_WITHOUT_PROJECT = """\
+[targets.main]
+binary = "test.exe"
+format = "pe"
+arch = "x86_32"
+reversed_dir = "src"
+"""
 
 
-class TestModuleImports:
-    """Verify all modules can be imported without side effects."""
+class TestProjectSection:
+    def test_project_name(self, tmp_path: Path) -> None:
+        root = _make_project(tmp_path, TOML_WITH_PROJECT)
+        cfg = load_config(root)
+        assert cfg.project_name == "Test Game"
 
-    @pytest.mark.parametrize("module_name", [
-        "rebrew.config",
-        "rebrew.annotation",
-        "rebrew.matcher.core",
-        "rebrew.matcher.scoring",
-        "rebrew.matcher.parsers",
-        "rebrew.matcher.mutator",
-        "rebrew.binary_loader",
-    ])
-    def test_safe_import(self, module_name):
-        """Modules should import without crashing even without rebrew.toml."""
-        mod = importlib.import_module(module_name)
-        assert mod is not None
+    def test_default_jobs(self, tmp_path: Path) -> None:
+        root = _make_project(tmp_path, TOML_WITH_PROJECT)
+        cfg = load_config(root)
+        assert cfg.default_jobs == 16
+
+    def test_db_dir_resolved(self, tmp_path: Path) -> None:
+        root = _make_project(tmp_path, TOML_WITH_PROJECT)
+        cfg = load_config(root)
+        assert cfg.db_dir == root / "mydb"
+
+    def test_output_dir_resolved(self, tmp_path: Path) -> None:
+        root = _make_project(tmp_path, TOML_WITH_PROJECT)
+        cfg = load_config(root)
+        assert cfg.output_dir == root / "myout"
+
+    def test_defaults_when_missing(self, tmp_path: Path) -> None:
+        root = _make_project(tmp_path, TOML_WITHOUT_PROJECT)
+        cfg = load_config(root)
+        assert cfg.project_name == ""
+        assert cfg.default_jobs == 4
+        assert cfg.db_dir == root / "db"
+        assert cfg.output_dir == root / "output"
 
 
-class TestHelpTextReferences:
-    """Verify CLI help text references updated entry points."""
-    pass
+# ---------------------------------------------------------------------------
+# 2. Compiler base_cflags + compile_timeout
+# ---------------------------------------------------------------------------
+
+TOML_WITH_COMPILER = """\
+[compiler]
+base_cflags = "/nologo /c"
+timeout = 30
+
+[targets.main]
+binary = "test.exe"
+format = "pe"
+arch = "x86_32"
+reversed_dir = "src"
+"""
+
+
+class TestCompilerConfig:
+    def test_base_cflags(self, tmp_path: Path) -> None:
+        root = _make_project(tmp_path, TOML_WITH_COMPILER)
+        cfg = load_config(root)
+        assert cfg.base_cflags == "/nologo /c"
+
+    def test_compile_timeout(self, tmp_path: Path) -> None:
+        root = _make_project(tmp_path, TOML_WITH_COMPILER)
+        cfg = load_config(root)
+        assert cfg.compile_timeout == 30
+
+    def test_defaults_when_missing(self, tmp_path: Path) -> None:
+        root = _make_project(tmp_path, TOML_WITHOUT_PROJECT)
+        cfg = load_config(root)
+        assert cfg.base_cflags == "/nologo /c /MT"
+        assert cfg.compile_timeout == 60
+
+
+# ---------------------------------------------------------------------------
+# 3. Marker field
+# ---------------------------------------------------------------------------
+
+TOML_WITH_MARKER = """\
+[targets.server]
+binary = "server.dll"
+format = "pe"
+arch = "x86_32"
+marker = "MYMARKER"
+reversed_dir = "src"
+"""
+
+
+class TestMarkerField:
+    def test_explicit_marker(self, tmp_path: Path) -> None:
+        root = _make_project(tmp_path, TOML_WITH_MARKER)
+        cfg = load_config(root)
+        assert cfg.marker == "MYMARKER"
+
+    def test_default_marker(self, tmp_path: Path) -> None:
+        root = _make_project(tmp_path, TOML_WITHOUT_PROJECT)
+        cfg = load_config(root)
+        assert cfg.marker == "SERVER"
+
+
+# ---------------------------------------------------------------------------
+# 4. estimate_difficulty with ignored symbols
+# ---------------------------------------------------------------------------
+
+
+class TestEstimateDifficulty:
+    def test_ignored_returns_zero(self) -> None:
+        d, _ = estimate_difficulty(100, "memset", "GAME", {"memset", "strcmp"})
+        assert d == 0
+
+    def test_not_ignored_nonzero(self) -> None:
+        d, _ = estimate_difficulty(100, "foo_bar", "GAME", {"memset"})
+        assert d > 0
+
+    def test_empty_ignored(self) -> None:
+        d, _ = estimate_difficulty(100, "memset", "GAME", set())
+        assert d > 0
+
+    def test_none_ignored(self) -> None:
+        d, _ = estimate_difficulty(100, "memset", "GAME", None)
+        assert d > 0
+
+    def test_zlib_easy(self) -> None:
+        d, _ = estimate_difficulty(50, "deflate", "ZLIB")
+        assert d == 2  # small library origin with reference source
+
+    def test_small_game_easy(self) -> None:
+        d, _ = estimate_difficulty(50, "get_x", "GAME")
+        assert d == 1
+
+    def test_large_game_hard(self) -> None:
+        d, _ = estimate_difficulty(500, "process_all", "GAME")
+        assert d == 5
+
+
+# ---------------------------------------------------------------------------
+# 5. ignored_symbols helper
+# ---------------------------------------------------------------------------
+
+
+class TestIgnoredSymbolsHelper:
+    def test_from_config(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+format = "pe"
+arch = "x86_32"
+reversed_dir = "src"
+ignored_symbols = ["memset", "strcmp"]
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        result = ignored_symbols(cfg)
+        assert result == {"memset", "strcmp"}
+
+    def test_empty_when_not_set(self, tmp_path: Path) -> None:
+        root = _make_project(tmp_path, TOML_WITHOUT_PROJECT)
+        cfg = load_config(root)
+        result = ignored_symbols(cfg)
+        assert result == set()

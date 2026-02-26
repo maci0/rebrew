@@ -17,8 +17,6 @@ from .core import (
 from .flag_data import COMMON_MSVC_FLAGS, MSVC6_FLAGS, MSVC_SWEEP_TIERS
 from .flags import Checkbox, Flags, FlagSet
 from .mutator import (
-    _quick_validate,
-    _split_preamble_body,
     compute_population_diversity,
     crossover,
     mut_accum_to_early_return,
@@ -32,6 +30,7 @@ from .mutator import (
     mut_combine_ptr_arith,
     mut_commute_simple_add,
     mut_commute_simple_mul,
+    mut_comparison_boundary,
     mut_dowhile_to_while,
     mut_duplicate_loop_body,
     mut_early_return_to_accum,
@@ -65,6 +64,8 @@ from .mutator import (
     mut_swap_ne_operands,
     mut_swap_or_operands,
     mut_toggle_bool_not,
+    mut_toggle_calling_convention,
+    mut_toggle_char_signedness,
     mut_toggle_signedness,
     mut_toggle_volatile,
     mut_unfold_constant_add,
@@ -72,10 +73,9 @@ from .mutator import (
     mutate_code,
 )
 from .parsers import (
-    extract_function_from_lib,
     extract_function_from_pe,
     list_coff_obj_symbols,
     parse_coff_obj_symbol_bytes,
     parse_coff_symbol_bytes,
 )
-from .scoring import _normalize_reloc_x86_32, diff_functions, score_candidate
+from .scoring import diff_functions, score_candidate

@@ -9,10 +9,14 @@ description = "Compiler-in-the-loop decompilation workbench for binary-matching 
 requires-python = ">=3.12"
 dependencies = [
     "capstone>=5.0.0",
+    "diskcache>=5.6",
+    "jinja2>=3.1",
     "lief>=0.17.4",
+    "numpy>=1.26",
     "pycparser>=2.21",
-    "pygad>=3.2.0",
     "python-flirt>=0.9.10",
+    "pyyaml>=6.0",
+    "reccmp",
     "rich>=13.0",
     "tomlkit>=0.12",
     "typer>=0.9",
@@ -20,11 +24,12 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "mypy>=1.8",
     "ruff>=0.3",
-    "black>=24.0",
-    "isort>=5.13",
     "pytest>=8.0",
+    "slipcover>=1.0.17",
+]
+ghidra = [
+    "httpx>=0.28",
 ]
 
 [project.scripts]
@@ -40,12 +45,20 @@ rebrew-batch = "rebrew.batch:main_entry"
 rebrew-match = "rebrew.match:main_entry"
 rebrew-ga = "rebrew.ga:main_entry"
 rebrew-asm = "rebrew.asm:main_entry"
-rebrew-build-db = "rebrew.builddb:main_entry"
+rebrew-build-db = "rebrew.build_db:main_entry"
 rebrew-init = "rebrew.init:main_entry"
-rebrew-nasm = "rebrew.nasm_extract:main_entry"
-rebrew-flirt = "rebrew.identify_libs:main_entry"
+rebrew-nasm = "rebrew.nasm:main_entry"
+rebrew-flirt = "rebrew.flirt:main_entry"
 
 rebrew-cfg = "rebrew.cfg:main_entry"
+rebrew-status = "rebrew.status:main_entry"
+rebrew-data = "rebrew.data:main_entry"
+rebrew-graph = "rebrew.depgraph:main_entry"
+rebrew-promote = "rebrew.promote:main_entry"
+rebrew-triage = "rebrew.triage:main_entry"
+
+[tool.setuptools.package-data]
+rebrew = ["agent-skills/**/*.md"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -54,31 +67,59 @@ where = ["src"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 
+[tool.slipcover]
+source = ["src/rebrew"]
+# Run: uv run python -m slipcover -m pytest
+# Or for JSON output: uv run python -m slipcover --json cov.json -m pytest
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]
-ignore = ["E501"]
+ignore = ["E501", "B008", "B904"]
 
-[tool.black]
-target-version = ["py312"]
-line-length = 100
-
-[tool.mypy]
-python_version = "3.12"
-ignore_missing_imports = true
-warn_unused_configs = true
+[tool.ruff.lint.per-file-ignores]
+# CLI entrypoints use conditional/lazy imports and Rich formatting
+"src/rebrew/asm.py" = ["F401", "E402"]
+"src/rebrew/batch.py" = ["F401", "E402"]
+"src/rebrew/build_db.py" = ["F401", "E402", "F841"]
+"src/rebrew/catalog.py" = ["F401", "E402", "F841", "F821", "B007"]
+"src/rebrew/compile.py" = ["F401", "E402"]
+"src/rebrew/config.py" = ["F401", "E402"]
+"src/rebrew/ga.py" = ["F401", "E402"]
+"src/rebrew/gen_flirt_pat.py" = ["F401", "E402"]
+"src/rebrew/flirt.py" = ["F401", "E402"]
+"src/rebrew/init.py" = ["F401", "E402"]
+"src/rebrew/lint.py" = ["F401", "E402", "B007", "E741"]
+"src/rebrew/match.py" = ["F401", "E402", "F841"]
+"src/rebrew/nasm.py" = ["F401", "E402", "F841"]
+"src/rebrew/next.py" = ["F401", "E402"]
+"src/rebrew/skeleton.py" = ["F401", "E402"]
+"src/rebrew/sync.py" = ["F401", "E402"]
+"src/rebrew/test.py" = ["F401", "E402"]
+"src/rebrew/verify.py" = ["F401", "E402"]
+"src/rebrew/status.py" = ["F401", "E402"]
+"src/rebrew/data.py" = ["F401", "E402"]
+# CLI app modules with typer-specific patterns
+"src/rebrew/cfg.py" = ["E741", "SIM105"]
+"src/rebrew/main.py" = ["E402"]
+# Build infrastructure with runtime-defined constants
+"src/rebrew/matcher/compiler.py" = ["E402", "F821"]
+# Re-export packages expose public API via __init__.py
+"src/rebrew/matcher/__init__.py" = ["F401"]
 
 [tool.uv]
 package = true
 
-[tool.isort]
-profile = "black"
-line_length = 100
+[tool.uv.sources]
+reccmp = { git = "https://github.com/isledecomp/reccmp.git" }
 
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
+    "slipcover>=1.0.17",
+    "ruff>=0.3",
+    "pre-commit>=4.5.1",
 ]
