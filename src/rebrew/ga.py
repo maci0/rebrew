@@ -174,7 +174,7 @@ def find_near_miss(
         max_delta: Maximum byte delta to include.
         cfg: Optional config for source extension.
     """
-    from rebrew.cli import source_glob
+    from rebrew.cli import iter_sources, rel_display_path
 
     results = []
     seen_vas: dict[str, str] = {}
@@ -182,17 +182,18 @@ def find_near_miss(
     if not reversed_dir.exists():
         return results
 
-    for cfile in sorted(reversed_dir.glob(source_glob(cfg))):
+    for cfile in iter_sources(reversed_dir, cfg):
         info = parse_matching_info(cfile, ignored=ignored, max_delta=max_delta)
         if info is not None:
             va_str = info["va"]
+            rel_name = rel_display_path(cfile, reversed_dir)
             if va_str in seen_vas:
                 print(
-                    f"  WARNING: Duplicate VA {va_str} found in {cfile.name} "
+                    f"  WARNING: Duplicate VA {va_str} found in {rel_name} "
                     f"(already in {seen_vas[va_str]}), skipping"
                 )
                 continue
-            seen_vas[va_str] = cfile.name
+            seen_vas[va_str] = rel_name
             results.append(info)
 
     # Sort by delta (smallest first = easiest to match)
@@ -212,25 +213,26 @@ def find_all_stubs(
         ignored: Set of symbol names to skip (from cfg.ignored_symbols).
         cfg: Optional config for source extension.
     """
-    from rebrew.cli import source_glob
+    from rebrew.cli import iter_sources, rel_display_path
 
     stubs = []
-    seen_vas: dict[str, str] = {}  # va_str -> filepath
+    seen_vas: dict[str, str] = {}  # va_str -> rel_path
 
     if not reversed_dir.exists():
         return stubs
 
-    for cfile in sorted(reversed_dir.glob(source_glob(cfg))):
+    for cfile in iter_sources(reversed_dir, cfg):
         info = parse_stub_info(cfile, ignored=ignored)
         if info is not None:
             va_str = info["va"]
+            rel_name = rel_display_path(cfile, reversed_dir)
             if va_str in seen_vas:
                 print(
-                    f"  WARNING: Duplicate VA {va_str} found in {cfile.name} "
+                    f"  WARNING: Duplicate VA {va_str} found in {rel_name} "
                     f"(already in {seen_vas[va_str]}), skipping"
                 )
                 continue
-            seen_vas[va_str] = cfile.name
+            seen_vas[va_str] = rel_name
             stubs.append(info)
     stubs.sort(key=lambda x: x["size"])
     return stubs
@@ -250,7 +252,13 @@ def run_ga(
 ) -> tuple[bool, str]:
     """Run rebrew-match GA on a single STUB. Returns (matched, output)."""
     filepath = stub["filepath"]
-    out_dir = project_root / "output" / "ga_runs" / filepath.stem
+    # Use relative path with suffix stripped to avoid collisions when nested
+    # dirs contain files with the same stem (e.g. game/init.c vs network/init.c).
+    try:
+        rel = filepath.relative_to(project_root)
+    except ValueError:
+        rel = Path(filepath.stem)
+    out_dir = project_root / "output" / "ga_runs" / rel.with_suffix("")
 
     base_cflags = stub["cflags"]
 
@@ -358,7 +366,11 @@ def update_stub_to_matched(filepath: Path, best_src: str, stub: StubInfo) -> Non
     # Atomic swap: backup original, rename tmp to source
     shutil.copy2(filepath, bak_path)
     tmp_path.rename(filepath)
-    print(f"  Updated {filepath.name}: STUB -> RELOC (backup: {bak_path.name})")
+    # Show relative path for clarity in nested directory layouts.
+    from rebrew.cli import rel_display_path
+
+    display = rel_display_path(filepath, filepath.parent.parent)
+    print(f"  Updated {display}: STUB -> RELOC (backup: {bak_path.name})")
 
 
 app = typer.Typer(
@@ -433,12 +445,15 @@ def main(
     if max_stubs > 0:
         stubs = stubs[:max_stubs]
 
+    from rebrew.cli import rel_display_path
+
     if not json_output:
         print(f"Found {len(stubs)} {mode_label} function(s) to process:\n")
         for i, stub in enumerate(stubs, 1):
             delta_str = f"  Δ{stub['delta']}B" if "delta" in stub else ""
+            display = rel_display_path(stub["filepath"], reversed_dir)
             print(
-                f"  {i:3d}. {stub['filepath'].name:45s}  {stub['size']:4d}B  "
+                f"  {i:3d}. {display:45s}  {stub['size']:4d}B  "
                 f"{stub['va']}  {stub['symbol']:30s}  {stub['cflags']}{delta_str}"
             )
         print()
@@ -479,15 +494,14 @@ def main(
     ga_results: list[dict[str, Any]] = []
 
     for i, stub in enumerate(stubs, 1):
+        display = rel_display_path(stub["filepath"], reversed_dir)
         if not json_output:
             print(f"\n{'=' * 60}")
-            print(
-                f"[{i}/{len(stubs)}] {stub['filepath'].name} ({stub['size']}B) symbol={stub['symbol']}"
-            )
+            print(f"[{i}/{len(stubs)}] {display} ({stub['size']}B) symbol={stub['symbol']}")
             print(f"{'=' * 60}")
         else:
             print(
-                f"[{i}/{len(stubs)}] {stub['filepath'].name} ({stub['size']}B)",
+                f"[{i}/{len(stubs)}] {display} ({stub['size']}B)",
                 file=sys.stderr,
             )
 

@@ -21,7 +21,7 @@ from typing import Any, TypedDict
 import typer
 
 from rebrew.annotation import parse_c_file_multi
-from rebrew.cli import TargetOption, get_config, source_glob
+from rebrew.cli import TargetOption, get_config, iter_sources
 
 
 class NodeInfo(TypedDict):
@@ -115,7 +115,10 @@ def build_graph(
 
     # Single pass: collect all reversed functions and prepare edge extraction.
     # Uses parse_c_file_multi to capture every annotation in multi-function files.
-    for cfile in sorted(reversed_dir.glob(source_glob(cfg))):
+    from rebrew.cli import rel_display_path
+
+    for cfile in iter_sources(reversed_dir, cfg):
+        rel_name = rel_display_path(cfile, reversed_dir)
         for entry in parse_c_file_multi(cfile):
             if entry.marker_type in ("GLOBAL", "DATA"):
                 continue
@@ -128,7 +131,7 @@ def build_graph(
                 "status": entry.status,
                 "origin": entry.origin,
                 "va": entry.va,
-                "file": cfile.name,
+                "file": rel_name,
             }
             # Map both the raw symbol and display name
             if entry.symbol:

@@ -229,7 +229,9 @@ def _check_E013_duplicate_va(
         if va_int in seen_vas:
             result.error(1, "E013", f"Duplicate VA {va_str} — also in {seen_vas[va_int]}")
         else:
-            seen_vas[va_int] = filepath.name
+            from rebrew.cli import rel_display_path
+
+            seen_vas[va_int] = rel_display_path(filepath)
 
 
 def _check_E003_E004_status(result: LintResult, found_keys: dict[str, str]) -> None:
@@ -750,16 +752,15 @@ def main(
 
     reversed_dir = cfg.reversed_dir if cfg else None
 
-    from rebrew.cli import source_glob
+    from rebrew.cli import iter_sources
 
     ext = getattr(cfg, "source_ext", ".c") if cfg else ".c"
-    glob_pat = source_glob(cfg)
     if files:
         c_files = [f for f in files if f.suffix == ext]
     elif reversed_dir:
-        c_files = sorted(reversed_dir.glob(glob_pat))
+        c_files = iter_sources(reversed_dir, cfg)
     else:
-        c_files = sorted(Path.cwd().glob(glob_pat))
+        c_files = sorted(Path.cwd().rglob(f"*{ext}"))
 
     if fix:
         if cfg is None:

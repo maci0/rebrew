@@ -380,10 +380,10 @@ def scan_reversed_dir(reversed_dir: Path, cfg: Any = None) -> list[Annotation]:
     Supports multi-function files: a single source file may contain multiple
     ``// FUNCTION:`` blocks, each generating a separate entry.
     """
-    from rebrew.cli import source_glob
+    from rebrew.cli import iter_sources
 
     entries: list[Annotation] = []
-    for cfile in sorted(reversed_dir.glob(source_glob(cfg))):
+    for cfile in iter_sources(reversed_dir, cfg):
         parsed = parse_c_file_multi(cfile)
         entries.extend(parsed)
     return entries
@@ -1182,10 +1182,10 @@ def get_sections(bin_path: Path) -> dict[str, dict[str, int]]:
 
 def get_globals(src_dir: Path, cfg: Any = None) -> dict[int, dict[str, Any]]:
     globals_dict: dict[int, dict[str, Any]] = {}
-    from rebrew.cli import source_glob
+    from rebrew.cli import iter_sources
 
     pattern = re.compile(r"(?://|/\*)\s*GLOBAL:\s*(?P<target>[A-Z0-9_]+)\s+(0x[0-9a-fA-F]+)")
-    for p in src_dir.rglob(source_glob(cfg)):
+    for p in iter_sources(src_dir, cfg):
         try:
             lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()
             for i, line in enumerate(lines):
@@ -1458,11 +1458,11 @@ def main(
 
     if fix_sizes:
         from rebrew.annotation import update_size_annotation
-        from rebrew.cli import source_glob
+        from rebrew.cli import iter_sources
 
         updated = 0
         skipped = 0
-        for cfile in sorted(reversed_dir.glob(source_glob(cfg))):
+        for cfile in iter_sources(reversed_dir, cfg):
             parsed = parse_c_file_multi(cfile)
             for ann in parsed:
                 va = ann.va
@@ -1474,7 +1474,10 @@ def main(
                 reason = registry[va].get("size_reason", "")
                 if update_size_annotation(cfile, canonical):
                     diff = canonical - ann.size
-                    print(f"  {cfile.name}: SIZE {ann.size} → {canonical} (+{diff}B, {reason})")
+                    from rebrew.cli import rel_display_path
+
+                    display = rel_display_path(cfile, cfg.reversed_dir)
+                    print(f"  {display}: SIZE {ann.size} → {canonical} (+{diff}B, {reason})")
                     updated += 1
                 else:
                     skipped += 1

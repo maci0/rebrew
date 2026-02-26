@@ -187,7 +187,7 @@ def scan_globals(src_dir: Path, cfg: Any = None) -> ScanResult:
 
     Returns a ScanResult with all discovered globals and type conflicts.
     """
-    from rebrew.cli import source_glob
+    from rebrew.cli import iter_sources, rel_display_path
 
     result = ScanResult()
     # Track all type declarations per name for conflict detection
@@ -196,13 +196,13 @@ def scan_globals(src_dir: Path, cfg: Any = None) -> ScanResult:
     if not src_dir.exists():
         return result
 
-    for cfile in sorted(src_dir.glob(source_glob(cfg))):
+    for cfile in iter_sources(src_dir, cfg):
         try:
             lines = cfile.read_text(encoding="utf-8", errors="ignore").splitlines()
         except OSError:
             continue
 
-        fname = cfile.name
+        fname = rel_display_path(cfile, src_dir)
 
         for i, line in enumerate(lines):
             # 1. Check for // GLOBAL: annotation
@@ -310,13 +310,14 @@ def scan_data_annotations(src_dir: Path, cfg: Any = None) -> list[dict[str, Any]
     Returns a list of dicts with: va, name, size, section, origin, note, filepath.
     """
     from rebrew.annotation import parse_c_file_multi
-    from rebrew.cli import source_glob
+    from rebrew.cli import iter_sources, rel_display_path
 
     entries: list[dict[str, Any]] = []
     if not src_dir.exists():
         return entries
 
-    for cfile in sorted(src_dir.glob(source_glob(cfg))):
+    for cfile in iter_sources(src_dir, cfg):
+        rel_name = rel_display_path(cfile, src_dir)
         for ann in parse_c_file_multi(cfile):
             if ann.marker_type == "DATA":
                 entries.append(
@@ -327,7 +328,7 @@ def scan_data_annotations(src_dir: Path, cfg: Any = None) -> list[dict[str, Any]
                         "section": ann.section,
                         "origin": ann.origin,
                         "note": ann.note,
-                        "filepath": ann.filepath or cfile.name,
+                        "filepath": ann.filepath or rel_name,
                     }
                 )
     return entries
@@ -902,14 +903,14 @@ def main(
         }
 
         # Build known functions map from reversed source files
-        from rebrew.cli import source_glob
+        from rebrew.cli import iter_sources, rel_display_path
 
         known_functions: dict[int, dict[str, str]] = {}
-        for cfile in sorted(src_dir.glob(source_glob(cfg))):
+        for cfile in iter_sources(src_dir, cfg):
             for entry in parse_c_file_multi(cfile):
                 if entry.va:
                     known_functions[entry.va] = {
-                        "name": entry.name or cfile.stem,
+                        "name": entry.name or rel_display_path(cfile, src_dir),
                         "status": entry.status,
                     }
 
