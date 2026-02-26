@@ -35,7 +35,7 @@ _SUBCOMMANDS: list[tuple[str, str, str]] = [
     ("catalog", "rebrew.catalog", "Build JSON coverage catalogs for the web UI."),
     ("sync", "rebrew.sync", "Sync GHIDRA annotations with rebrew."),
     ("lint", "rebrew.lint", "Lint C annotations."),
-    ("batch", "rebrew.batch", "Batch extract assembly or functions."),
+    ("extract", "rebrew.extract", "Extract and disassemble functions from binary."),
     ("match", "rebrew.match", "GA engine for binary matching (diff, flag-sweep, GA)."),
     ("ga", "rebrew.ga", "Batch GA runner for STUB functions."),
     ("asm", "rebrew.asm", "Disassemble original bytes."),
