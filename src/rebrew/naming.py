@@ -14,6 +14,7 @@ from typing import Any
 
 from rebrew.annotation import _DEFAULT_ORIGIN_PREFIXES, parse_c_file_multi
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va
+from rebrew.config import ProjectConfig
 
 # 7-tuple: (difficulty, size, va, name, origin, reason, neighbor_file)
 UncoveredItem = tuple[int, int, int, str, str, str, str | None]
@@ -82,7 +83,7 @@ def detect_unmatchable(
     return None
 
 
-def ignored_symbols(cfg: Any) -> set[str]:
+def ignored_symbols(cfg: ProjectConfig) -> set[str]:
     """Return the set of symbols to skip (ASM builtins, etc.).
 
     Reads from ``cfg.ignored_symbols`` (populated from ``rebrew.toml``).
@@ -133,7 +134,7 @@ def parse_byte_delta(blocker: str) -> int | None:
 # ---------------------------------------------------------------------------
 
 
-def detect_origin(va: int, name: str, cfg: Any) -> str:
+def detect_origin(va: int, name: str, cfg: ProjectConfig) -> str:
     """Detect function origin based on VA, name, and config rules.
 
     Uses project-specific heuristics (zlib_vas, game_range_end) for known
@@ -159,7 +160,7 @@ def estimate_difficulty(
     name: str,
     origin: str,
     ignored: set[str] | None = None,
-    cfg: Any = None,
+    cfg: ProjectConfig | None = None,
 ) -> tuple[int, str]:
     """Estimate difficulty (1-5) and reason."""
     if ignored and name in ignored:
@@ -191,7 +192,7 @@ def estimate_difficulty(
 
 
 def load_data(
-    cfg: Any,
+    cfg: ProjectConfig,
 ) -> tuple[list[dict[str, Any]], dict[int, dict[str, str]], dict[int, str]]:
     """Load all project data.
 
@@ -290,7 +291,7 @@ def group_uncovered(
 _ORIGIN_TO_PREFIX: dict[str, str] = {v: k for k, v in _DEFAULT_ORIGIN_PREFIXES.items()}
 
 
-def load_existing_vas(src_dir: str | Path, cfg: Any = None) -> dict[int, str]:
+def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> dict[int, str]:
     """Load VAs already covered by source files. Returns {va: rel_path}.
 
     Supports multi-function files: a single source file may contain multiple
@@ -391,7 +392,11 @@ def sanitize_name(ghidra_name: str) -> str:
 
 
 def make_filename(
-    va: int, ghidra_name: str, origin: str, custom_name: str | None = None, cfg: Any = None
+    va: int,
+    ghidra_name: str,
+    origin: str,
+    custom_name: str | None = None,
+    cfg: ProjectConfig | None = None,
 ) -> str:
     """Generate the .c filename following project naming conventions."""
     if custom_name:
