@@ -2,10 +2,16 @@
 
 Lazily imports and registers all subcommand typer apps so that missing
 optional dependencies don't prevent the entire CLI from loading.
+
+Single-command modules are registered as flat ``app.command()`` entries,
+avoiding the Typer "group" behaviour of ``add_typer()`` which expects a
+``COMMAND [ARGS]...`` token after callback arguments.  Only true
+multi-command modules (currently only ``cfg``) use ``add_typer()``.
 """
 
 import importlib
 import sys
+from collections.abc import Callable
 
 import typer
 
@@ -25,9 +31,12 @@ app = typer.Typer(
 Run 'rebrew init' to create a new project, or 'rebrew <cmd> --help' for details.[/dim]""",
 )
 
-# Lazy-load subcommand modules to avoid crashing the entire CLI
-# when an optional dependency is missing for one subcommand.
-_SUBCOMMANDS: list[tuple[str, str, str]] = [
+# ---------------------------------------------------------------------------
+# Subcommand registry
+# ---------------------------------------------------------------------------
+
+# Single-command modules – registered as flat commands via app.command().
+_SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("test", "rebrew.test", "Quick compile-and-compare for reversed functions."),
     ("verify", "rebrew.verify", "Validate compiled bytes against original DLL."),
     ("next", "rebrew.next", "Find the next best functions to work on."),
@@ -41,7 +50,6 @@ _SUBCOMMANDS: list[tuple[str, str, str]] = [
     ("asm", "rebrew.asm", "Disassemble original bytes."),
     ("build-db", "rebrew.build_db", "Build SQLite coverage database."),
     ("init", "rebrew.init", "Initialize a new rebrew project."),
-    ("cfg", "rebrew.cfg", "Read and edit rebrew.toml programmatically."),
     ("status", "rebrew.status", "Project reversing status overview."),
     ("data", "rebrew.data", "Global data scanner for .data/.rdata/.bss sections."),
     ("graph", "rebrew.depgraph", "Function dependency graph visualization."),
@@ -51,23 +59,53 @@ _SUBCOMMANDS: list[tuple[str, str, str]] = [
     ("nasm", "rebrew.nasm", "NASM assembly extraction."),
 ]
 
-for _name, _module, _help in _SUBCOMMANDS:
+# Multi-command modules – registered as groups via app.add_typer().
+# Only modules with multiple @app.command() subcommands belong here.
+_MULTI_COMMANDS: list[tuple[str, str, str]] = [
+    ("cfg", "rebrew.cfg", "Read and edit rebrew.toml programmatically."),
+]
+
+
+def _make_stub_cmd(mod_name: str, err: ImportError) -> Callable[[], None]:
+    """Create a stub command function that reports a missing dependency."""
+
+    def _stub() -> None:
+        print(f"Error: could not load '{mod_name}': {err}", file=sys.stderr)
+        raise typer.Exit(code=1)
+
+    return _stub
+
+
+def _make_stub_app(mod_name: str, err: ImportError) -> typer.Typer:
+    """Create a stub Typer app that reports a missing dependency."""
+    stub = typer.Typer(help=f"[unavailable] {mod_name}")
+
+    @stub.callback(invoke_without_command=True)
+    def _stub_main() -> None:
+        print(f"Error: could not load '{mod_name}': {err}", file=sys.stderr)
+        raise typer.Exit(code=1)
+
+    return stub
+
+
+# Register single-command modules as flat commands.
+for _name, _module, _help in _SINGLE_COMMANDS:
+    try:
+        _mod = importlib.import_module(_module)
+        _epilog = getattr(_mod.app.info, "epilog", None)
+        if not isinstance(_epilog, str):
+            _epilog = None
+        app.command(name=_name, help=_help, epilog=_epilog)(_mod.main)
+    except ImportError as _exc:
+        app.command(name=_name, help=f"[unavailable] {_help}")(_make_stub_cmd(_module, _exc))
+
+# Register multi-command modules as groups (Typer sub-apps).
+for _name, _module, _help in _MULTI_COMMANDS:
     try:
         _mod = importlib.import_module(_module)
         app.add_typer(_mod.app, name=_name, help=_help)
     except ImportError as _exc:
-        # Create a stub that reports the missing dependency
-        def _make_stub(mod_name: str, err: ImportError) -> typer.Typer:
-            stub = typer.Typer(help=f"[unavailable] {mod_name}")
-
-            @stub.callback(invoke_without_command=True)
-            def _stub_main() -> None:
-                print(f"Error: could not load '{mod_name}': {err}", file=sys.stderr)
-                raise typer.Exit(code=1)
-
-            return stub
-
-        app.add_typer(_make_stub(_module, _exc), name=_name, help=f"[unavailable] {_help}")
+        app.add_typer(_make_stub_app(_module, _exc), name=_name, help=f"[unavailable] {_help}")
 
 
 def main() -> None:

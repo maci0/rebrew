@@ -258,7 +258,7 @@ def _copy_agent_skills(dest: Path, target_name: str) -> None:
 
 
 @app.callback(invoke_without_command=True)
-def init(
+def main(
     target_name: str = typer.Option("main", "--target", "-t", help="Name of the initial target."),
     binary_name: str = typer.Option(
         "program.exe", "--binary", "-b", help="Name of the executable binary file."
@@ -356,6 +356,9 @@ def init(
     typer.echo(f"1. Copy your original binary to original/{binary_name}")
     typer.echo("2. Verify your compiler paths in rebrew.toml")
     typer.echo("3. Run 'rebrew next --stats' to get started!")
+
+
+init = main
 
 
 def main_entry() -> None:
