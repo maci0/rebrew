@@ -3,7 +3,7 @@
 ## Overview
 
 **Rebrew** is a compiler-in-the-loop decompilation workbench for binary-matching
-game reversing. It provides 21 CLI tools for compiling, comparing, and matching
+game reversing. It provides 22 CLI tools for compiling, comparing, and matching
 C source against target binary functions, using MSVC6 under Wine.
 
 This is a **pip-installable Python package** (`uv pip install -e .`). It is
@@ -20,12 +20,15 @@ actual binaries, source files, and toolchains.
 
 ```
 rebrew/
-├── pyproject.toml              # Package config, 21 CLI entry points
+├── pyproject.toml              # Package config, 22 CLI entry points
 ├── src/rebrew/
 │   ├── __init__.py
 │   ├── main.py                 # `rebrew` — umbrella CLI with subcommands
 │   ├── cli.py                  # Shared: TargetOption, get_config()
 │   ├── config.py               # ProjectConfig, rebrew.toml loader
+│   ├── annotation.py           # Annotation parsing and manipulation
+│   ├── binary_loader.py        # PE/COFF binary loading helpers
+│   ├── compile.py              # Shared compile helpers (compile_to_obj, compile_and_compare)
 │   │
 │   ├── test.py                 # `rebrew-test` — quick compile-and-compare
 │   ├── verify.py               # `rebrew-verify` — batch verify all .c files
@@ -42,24 +45,29 @@ rebrew/
 │   ├── init.py                 # `rebrew-init` — initialize new project
 │   ├── nasm.py                 # `rebrew-nasm` — NASM extraction
 │   ├── flirt.py                # `rebrew-flirt` — FLIRT signature scanning
-│   ├── compile.py              # Shared compile helpers (compile_to_obj, compile_and_compare)
 │   ├── cfg.py                  # `rebrew-cfg` — programmatic config editor
-│   ├── add_target.py           # `rebrew-add-target` — wrapper for cfg add-target
-│   ├── train_mutation_model.py # ML mutation model trainer
+│   ├── status.py               # `rebrew-status` — project status overview
+│   ├── data.py                 # `rebrew-data` — global data scanning
+│   ├── depgraph.py             # `rebrew-graph` — dependency graph visualization
+│   ├── promote.py              # `rebrew-promote` — promote function status
+│   ├── triage.py               # `rebrew-triage` — triage unmatched functions
+│   ├── decompiler.py           # Decompiler interface (used by skeleton.py)
 │   ├── gen_flirt_pat.py        # FLIRT pattern generator
 │   │
 │   └── matcher/                # Core GA engine package
 │       ├── __init__.py         # Public API re-exports
 │       ├── compiler.py         # Wine execution, build_candidate*()
-│       ├── core.py             # BuildCache (SQLite), GACheckpoint
+│       ├── core.py             # BuildCache (diskcache), GACheckpoint
+│       ├── flags.py            # FlagSet, Checkbox, Flags primitives
+│       ├── flag_data.py        # MSVC flag definitions and sweep tiers
 │       ├── mutator.py          # Mutation engine, crossover
 │       ├── parsers.py          # COFF/PE extraction
 │       └── scoring.py          # Byte/mnemonic comparison
-├── tests/                      # pytest tests
-└── docs/                       # WORKFLOW.md, TOOLS.md
+├── tests/                      # pytest tests (809 tests)
+└── docs/                       # WORKFLOW.md, TOOLS.md, and more
 ```
 
-## CLI Tools (21 entry points)
+## CLI Tools (22 entry points)
 
 | Command | Source | Purpose |
 |---------|--------|---------|
@@ -80,6 +88,11 @@ rebrew/
 | `rebrew-flirt` | `flirt.py` | FLIRT signature scanning |
 | `rebrew-init` | `init.py` | Initialize a new rebrew project |
 | `rebrew-cfg` | `cfg.py` | Read/edit `rebrew.toml` (idempotent) |
+| `rebrew-status` | `status.py` | Project status overview |
+| `rebrew-data` | `data.py` | Global data scanning and analysis |
+| `rebrew-graph` | `depgraph.py` | Dependency graph visualization |
+| `rebrew-promote` | `promote.py` | Promote function status (STUB → MATCHING → RELOC) |
+| `rebrew-triage` | `triage.py` | Triage unmatched functions |
 
 
 ## JSON Output
@@ -187,9 +200,9 @@ The core GA engine, used by `match.py` and `ga.py`:
 | Module | Key Exports |
 |--------|-------------|
 | `compiler.py` | `build_candidate_obj_only()`, `build_candidate()`, `flag_sweep(tier=)`, `generate_flag_combinations(tier=)` |
+| `core.py` | `BuildCache` (diskcache), `GACheckpoint`, `save/load_checkpoint` |
 | `flags.py` | `FlagSet`, `Checkbox`, `Flags` — flag primitives (compatible with decomp.me) |
 | `flag_data.py` | `COMMON_MSVC_FLAGS`, `MSVC6_FLAGS`, `MSVC_SWEEP_TIERS` — auto-generated from decomp.me |
-| `core.py` | `BuildCache` (diskcache), `GACheckpoint`, `save/load_checkpoint` |
 | `mutator.py` | `mutate_code()`, `crossover()`, `compute_population_diversity()` |
 | `parsers.py` | `parse_coff_symbol_bytes()`, `extract_function_from_pe()` (LIEF-based) |
 | `scoring.py` | `score_candidate()`, `diff_functions()` |
@@ -303,7 +316,7 @@ typer>=0.9        # CLI framework
 
 ```bash
 uv pip install -e .           # install
-uv run pytest tests/ -v       # test (662 tests)
+uv run pytest tests/ -v       # test (809 tests)
 uv run ruff check src/        # lint
 ```
 

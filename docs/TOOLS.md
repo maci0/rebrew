@@ -76,7 +76,7 @@ Sweep tiers: `quick` (~192), `normal` (~21K), `thorough` (~1M), `full` (~8.3M).
 
 ### Tools using config
 
-All 21 tools read from `rebrew.toml`. Each uses `try/except` with hardcoded fallbacks:
+All 22 tools read from `rebrew.toml`. Each uses `try/except` with hardcoded fallbacks:
 
 | Tool | Config Values Used |
 |------|--------------------|
@@ -362,6 +362,8 @@ Run any tool with `--help` to see usage examples and context.
 | `rebrew-status` | `status.py` | Project reversing status overview (per-target breakdowns) |
 | `rebrew-data` | `data.py` | Global data scanner for .data/.rdata/.bss; `--bss` layout verification; `--dispatch` vtable detection; `// DATA:` annotations |
 | `rebrew-graph` | `depgraph.py` | Function dependency graph (mermaid, DOT, summary) |
+| `rebrew-promote` | `promote.py` | Promote function status (STUB → MATCHING → RELOC) |
+| `rebrew-triage` | `triage.py` | Triage unmatched functions |
 
 
 All typer-based tools support `--target / -t` to select a target from `rebrew.toml` and
@@ -462,7 +464,6 @@ rebrew-cfg show targets.client.exe
 | Script | Purpose | Usage |
 |--------|---------|-------|
 | `extract_target.py` | Compile C, extract function bytes via MAP file | `uv run python tools/extract_target.py --cl ... --symbol _add` |
-| `train_mutation_model.py` | Train mutation guidance model from GA data | `uv run python tools/train_mutation_model.py data.jsonl` |
 | `batch_test.sh` | Batch test all reversed functions | `./tools/batch_test.sh` |
 
 ---
