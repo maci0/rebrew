@@ -25,6 +25,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from rebrew.cli import TargetOption, get_config
+from rebrew.config import ProjectConfig
 
 # ---------------------------------------------------------------------------
 # Regexes
@@ -178,7 +179,7 @@ def _is_function_decl(type_str: str, rest_of_line: str) -> bool:
     return any(cc in type_str for cc in ("__cdecl", "__stdcall", "__fastcall", "__thiscall"))
 
 
-def scan_globals(src_dir: Path, cfg: Any = None) -> ScanResult:
+def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
     """Scan reversed source files for global declarations.
 
     Collects:
@@ -303,7 +304,7 @@ def scan_globals(src_dir: Path, cfg: Any = None) -> ScanResult:
     return result
 
 
-def scan_data_annotations(src_dir: Path, cfg: Any = None) -> list[dict[str, Any]]:
+def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> list[dict[str, Any]]:
     """Scan for ``// DATA: MODULE 0xVA`` annotations in source files.
 
     These mark standalone global data objects for tracking in the catalog.
