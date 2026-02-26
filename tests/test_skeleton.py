@@ -3,17 +3,19 @@
 from types import SimpleNamespace
 from typing import Any
 
-from rebrew.skeleton import (
+from rebrew.naming import (
     detect_origin,
     find_neighbor_file,
+    load_existing_vas,
+    make_filename,
+    sanitize_name,
+)
+from rebrew.skeleton import (
     generate_annotation_block,
     generate_diff_command,
     generate_skeleton,
     generate_test_command,
     list_uncovered,
-    load_existing_vas,
-    make_filename,
-    sanitize_name,
 )
 
 # -------------------------------------------------------------------------

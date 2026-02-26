@@ -180,7 +180,7 @@ def test_config_source_ext_default() -> None:
 
 def test_make_filename_c() -> None:
     """Default cfg → .c extension."""
-    from rebrew.skeleton import make_filename
+    from rebrew.naming import make_filename
 
     cfg = SimpleNamespace(origin_prefixes={}, source_ext=".c")
     result = make_filename(0x10001000, "my_func", "GAME", cfg=cfg)
@@ -189,7 +189,7 @@ def test_make_filename_c() -> None:
 
 def test_make_filename_cpp() -> None:
     """source_ext=.cpp → .cpp extension."""
-    from rebrew.skeleton import make_filename
+    from rebrew.naming import make_filename
 
     cfg = SimpleNamespace(origin_prefixes={}, source_ext=".cpp")
     result = make_filename(0x10001000, "my_func", "GAME", cfg=cfg)
@@ -198,7 +198,7 @@ def test_make_filename_cpp() -> None:
 
 def test_make_filename_no_cfg() -> None:
     """No cfg → .c extension (backward compat)."""
-    from rebrew.skeleton import make_filename
+    from rebrew.naming import make_filename
 
     result = make_filename(0x10001000, "my_func", "GAME")
     assert result.endswith(".c")
@@ -211,7 +211,7 @@ def test_make_filename_no_cfg() -> None:
 
 def test_load_existing_vas_with_cfg(tmp_path: Path) -> None:
     """load_existing_vas uses source_glob(cfg) pattern."""
-    from rebrew.skeleton import load_existing_vas
+    from rebrew.naming import load_existing_vas
 
     # Create a .cpp file with annotation
     cpp_file = tmp_path / "my_func.cpp"

@@ -17,264 +17,25 @@ Usage:
 
 import contextlib
 import json
-import re
 import sys
-from pathlib import Path
 from typing import Any
 
 import typer
 
-from rebrew.annotation import parse_c_file_multi
-from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va, load_binary
-from rebrew.catalog import load_ghidra_functions
+from rebrew.binary_loader import BinaryInfo, load_binary
 from rebrew.cli import TargetOption, get_config
-
-# 7-tuple: (difficulty, size, va, name, origin, reason, neighbor_file)
-UncoveredItem = tuple[int, int, int, str, str, str, str | None]
-
-# ---------------------------------------------------------------------------
-# Unmatchable function detection
-# ---------------------------------------------------------------------------
-
-# x86 IAT thunk: FF 25 xx xx xx xx  (jmp [addr])
-_IAT_JMP = bytes([0xFF, 0x25])
-
-# Single-byte ret: C3 or CC (int3 padding)
-_RET = 0xC3
-_INT3 = 0xCC
-_NOP = 0x90
-
-# SEH prologue using fs segment: 64 A1 00 00 00 00 (mov eax, fs:[0])
-_SEH_FS = bytes([0x64, 0xA1, 0x00, 0x00, 0x00, 0x00])
-
-
-def detect_unmatchable(
-    va: int,
-    size: int,
-    binary_info: BinaryInfo | None,
-    iat_thunks: set[int] | None = None,
-    ignored_symbols: set[str] | None = None,
-    name: str = "",
-) -> str | None:
-    """Check if a function is unmatchable from C source.
-
-    Returns a reason string if unmatchable, or None if it appears normal.
-    """
-    # 1. Explicit IAT thunk list from config
-    if iat_thunks and va in iat_thunks:
-        return "IAT thunk (config)"
-
-    # 2. Known ignored symbols (ASM builtins)
-    if ignored_symbols and name in ignored_symbols:
-        return f"ignored symbol: {name}"
-
-    # 3. Byte-pattern detection (requires binary)
-    if binary_info is None:
-        return None
-
-    raw = extract_bytes_at_va(binary_info, va, max(size, 8), padding_bytes=())
-    if raw is None or len(raw) == 0:
-        return None
-
-    # 3a. Tiny functions: single ret or int3/nop padding
-    if size <= 2:
-        if raw[0] == _RET:
-            return "single-byte RET stub"
-        if raw[0] == _INT3:
-            return "INT3 padding"
-        if raw[0] == _NOP:
-            return "NOP padding"
-
-    # 3b. IAT jmp [addr] thunk (6 bytes: FF 25 xx xx xx xx)
-    if size <= 8 and len(raw) >= 2 and raw[:2] == _IAT_JMP:
-        return "IAT jmp [addr] thunk"
-
-    # 3c. SEH handler manipulating fs:[0] directly (ASM-only patterns)
-    if len(raw) >= 6 and raw[:6] == _SEH_FS:
-        return "SEH handler (fs:[0] access)"
-
-    return None
-
-
-def ignored_symbols(cfg: Any) -> set[str]:
-    """Return the set of symbols to skip (ASM builtins, etc.).
-
-    Reads from ``cfg.ignored_symbols`` (populated from ``rebrew.toml``).
-    """
-    syms = getattr(cfg, "ignored_symbols", None)
-    return set(syms) if syms else set()
-
-
-# Patterns for extracting byte delta from BLOCKER annotations
-# Matches: "2B diff", "24B diff:", "1B diff:", "(2B diff)"
-_DELTA_PATTERN_DIFF = re.compile(r"(\d+)\s*B?\s*(?:byte[s]?)?\s*diff", re.IGNORECASE)
-# Matches: "XB vs YB" → delta = abs(X - Y)
-_DELTA_PATTERN_VS = re.compile(r"(\d+)\s*B\s*vs\s*(\d+)\s*B", re.IGNORECASE)
-
-
-def parse_byte_delta(blocker: str) -> int | None:
-    """Extract byte delta from a BLOCKER annotation string.
-
-    Tries several patterns seen in practice:
-    - ``(2B diff)`` → 2
-    - ``24B diff:`` → 24
-    - ``229B vs 205B`` → 24 (abs difference)
-
-    Returns None if no delta can be parsed.
-    """
-    if not blocker:
-        return None
-
-    # Try explicit "XB diff" pattern first
-    m = _DELTA_PATTERN_DIFF.search(blocker)
-    if m:
-        return int(m.group(1))
-
-    # Try "XB vs YB" pattern
-    m = _DELTA_PATTERN_VS.search(blocker)
-    if m:
-        return abs(int(m.group(1)) - int(m.group(2)))
-
-    return None
-
-
-def detect_origin(va: int, name: str, cfg: Any) -> str:
-    """Detect function origin based on VA, name, and config rules.
-
-    Uses project-specific heuristics (zlib_vas, game_range_end) for known
-    origins, then falls back to cfg.default_origin or the first configured origin.
-    """
-    zlib_vas = set(getattr(cfg, "zlib_vas", None) or [])
-    if va in zlib_vas:
-        return "ZLIB"
-    game_range_end = getattr(cfg, "game_range_end", None)
-    if game_range_end and va >= game_range_end:
-        return "MSVCRT"
-    if name.startswith(("__", "_crt")):
-        return "MSVCRT"
-    default = getattr(cfg, "default_origin", "") or ""
-    if default:
-        return default
-    origins = getattr(cfg, "origins", None) or []
-    return origins[0] if origins else "GAME"
-
-
-def load_data(
-    cfg: Any,
-) -> tuple[list[dict[str, Any]], dict[int, dict[str, str]], dict[int, str]]:
-    """Load all project data.
-
-    Returns (ghidra_funcs, existing, covered_vas) where:
-    - ghidra_funcs: list of function dicts from ghidra_functions.json
-    - existing: dict mapping VA -> {filename, status, origin, blocker, symbol}
-    - covered_vas: dict mapping VA -> filename (for find_neighbor_file)
-    """
-    src_dir = Path(cfg.reversed_dir)
-    ghidra_json = src_dir / "ghidra_functions.json"
-
-    # Ghidra functions
-    ghidra_funcs = load_ghidra_functions(ghidra_json)
-
-    # Existing source files — use parse_c_file_multi to capture all VAs in
-    # multi-function files (not just the first annotation).
-    from rebrew.cli import iter_sources, rel_display_path
-
-    existing: dict[int, dict[str, str]] = {}
-    covered_vas: dict[int, str] = {}
-    for cfile in iter_sources(src_dir, cfg):
-        entries = parse_c_file_multi(cfile)
-        rel_name = rel_display_path(cfile, src_dir)
-        for entry in entries:
-            if entry.marker_type in ("GLOBAL", "DATA"):
-                continue
-            if entry.va < 0x1000:
-                continue
-            existing[entry.va] = {
-                "filename": rel_name,
-                "status": entry.status,
-                "origin": entry.origin,
-                "blocker": entry.blocker,
-                "blocker_delta": str(entry.blocker_delta)
-                if entry.blocker_delta is not None
-                else "",
-                "symbol": entry.symbol,
-            }
-            covered_vas[entry.va] = rel_name
-
-    return ghidra_funcs, existing, covered_vas
-
-
-def estimate_difficulty(
-    size: int,
-    name: str,
-    origin: str,
-    ignored: set[str] | None = None,
-    cfg: Any = None,
-) -> tuple[int, str]:
-    """Estimate difficulty (1-5) and reason."""
-    if ignored and name in ignored:
-        return 0, "ASM builtin / ignored symbol (skip)"
-
-    lib_origins = getattr(cfg, "library_origins", None) if cfg else None
-    if lib_origins is None:
-        lib_origins = {"ZLIB", "MSVCRT"}
-    if origin in lib_origins:
-        if size < 100:
-            return 2, f"small {origin} function, reference source available"
-        return 3, f"{origin} function, check reference sources"
-
-    # Primary origin (GAME or equivalent)
-    if size < 80:
-        return 1, "tiny function, likely simple getter/setter"
-    if size < 150:
-        return 2, "small function, straightforward logic"
-    if size < 250:
-        return 3, "medium function, may have branches/loops"
-    if size < 400:
-        return 4, "large function, complex control flow"
-    return 5, "very large function, expect significant effort"
-
-
-def group_uncovered(
-    uncovered: list[UncoveredItem],
-    max_gap: int = 0x1000,
-) -> list[list[UncoveredItem]]:
-    """Group uncovered functions by address proximity.
-
-    Adjacent functions are grouped when the gap from the *end* of one function
-    to the *start* of the next is within *max_gap* bytes.  This accounts for
-    function body size, not just VA distance.  Groups are sorted by total size
-    (smallest first — easiest batch to tackle).
-    """
-    if not uncovered:
-        return []
-
-    # Sort by VA (index 2) for contiguity detection
-    by_va = sorted(uncovered, key=lambda x: x[2])
-
-    groups: list[list[UncoveredItem]] = []
-    current_group = [by_va[0]]
-
-    for item in by_va[1:]:
-        prev_va = current_group[-1][2]
-        prev_size = current_group[-1][1]
-        curr_va = item[2]
-
-        # Gap from end of previous function to start of current
-        gap = curr_va - (prev_va + prev_size)
-        if gap <= max_gap:
-            current_group.append(item)
-        else:
-            groups.append(current_group)
-            current_group = [item]
-
-    groups.append(current_group)
-
-    # Sort groups by total size (smallest first)
-    groups.sort(key=lambda g: sum(item[1] for item in g))
-
-    return groups
-
+from rebrew.naming import (
+    UncoveredItem,
+    detect_origin,
+    detect_unmatchable,
+    estimate_difficulty,
+    find_neighbor_file,
+    group_uncovered,
+    ignored_symbols,
+    load_data,
+    make_filename,
+    parse_byte_delta,
+)
 
 _EPILOG = """\
 [bold]Examples:[/bold]
@@ -328,8 +89,6 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Show what to work on next in the rebrew RE project."""
-    from rebrew.skeleton import find_neighbor_file, make_filename
-
     try:
         cfg = get_config(target=target)
     except (FileNotFoundError, KeyError) as exc:
