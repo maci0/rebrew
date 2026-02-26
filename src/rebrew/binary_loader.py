@@ -263,20 +263,30 @@ def extract_bytes_at_va(
     va: int,
     size: int,
     padding_bytes: tuple[int, ...] = (0xCC, 0x90),
+    *,
+    trim_padding: bool = True,
 ) -> bytes | None:
     """Extract raw bytes from a binary at a given virtual address.
 
     Locates the section containing *va*, reads *size* bytes from the
-    underlying file, and trims trailing padding.
+    underlying file, and optionally trims trailing linker padding.
 
     Args:
         info: Parsed ``BinaryInfo``.
         va: Virtual address to read from.
         size: Number of bytes to read.
-        padding_bytes: Bytes to trim from the end (default: x86 CC/90).
+        padding_bytes: Bytes to consider padding (default: x86 INT3/NOP).
+        trim_padding: Whether to strip trailing padding bytes.  Set to
+            ``False`` when exact byte fidelity is required (e.g. scoring).
 
     Returns:
         Extracted bytes, or ``None`` if the VA is not in any section.
+
+    Note:
+        Trimming is appropriate when the caller wants only the semantic
+        function body (linker-inserted INT3/NOP alignment padding removed).
+        When the exact ``size`` bytes are needed for byte-level comparison
+        or scoring, pass ``trim_padding=False``.
     """
     for section in info.sections.values():
         if section.va <= va < section.va + section.raw_size:
@@ -284,11 +294,13 @@ def extract_bytes_at_va(
             file_pos = section.file_offset + offset
             max_read = min(size, section.raw_size - offset)
             data = info.data[file_pos : file_pos + max_read]
-            # Trim trailing padding (single slice instead of per-byte)
-            end = len(data)
-            while end > 0 and data[end - 1] in padding_bytes:
-                end -= 1
-            return data[:end]
+            if trim_padding:
+                # Trim trailing linker padding (single slice instead of per-byte)
+                end = len(data)
+                while end > 0 and data[end - 1] in padding_bytes:
+                    end -= 1
+                return data[:end]
+            return data
     return None
 
 
@@ -378,7 +390,7 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
     cpp_itanium_count = 0
 
     for sym in symbols:
-        if sym.startswith("go.") or sym.startswith("go:"):
+        if sym.startswith(("go.", "go:")):
             go_count += 1
         if sym.startswith("_R") and len(sym) > 2 and sym[2:3].isalpha():
             rust_count += 1

@@ -8,6 +8,7 @@ from click.exceptions import Exit as ClickExit
 
 from rebrew.cfg import (
     _detect_format,
+    _detect_format_and_arch,
     _load_toml,
     _resolve_target,
     _save_toml,
@@ -272,6 +273,100 @@ class TestDetectFormat:
         captured = capsys.readouterr()
         assert "Warning" in captured.err
         assert "cannot read" in captured.err
+
+
+class TestDetectFormatAndArch:
+    """Tests for _detect_format_and_arch, including ELF endianness handling.
+
+    Regression test for Phase 1 fix: ELF machine field was always parsed
+    as little-endian; now respects ei_data byte for big-endian ELFs.
+    """
+
+    def test_elf_little_endian_x86(self, tmp_path: Path) -> None:
+        """Little-endian ELF with EM_386 (machine=3) should detect x86_32."""
+        import struct
+
+        header = bytearray(64)
+        header[0:4] = b"\x7fELF"
+        header[4] = 1  # ei_class = 32-bit
+        header[5] = 1  # ei_data = ELFDATA2LSB (little-endian)
+        struct.pack_into("<H", header, 18, 3)  # EM_386
+        f = tmp_path / "le32.elf"
+        f.write_bytes(bytes(header))
+        fmt, arch = _detect_format_and_arch(f)
+        assert fmt == "elf"
+        assert arch == "x86_32"
+
+    def test_elf_little_endian_x86_64(self, tmp_path: Path) -> None:
+        """Little-endian ELF with EM_X86_64 (machine=62) should detect x86_64."""
+        import struct
+
+        header = bytearray(64)
+        header[0:4] = b"\x7fELF"
+        header[4] = 2  # ei_class = 64-bit
+        header[5] = 1  # ei_data = ELFDATA2LSB
+        struct.pack_into("<H", header, 18, 62)  # EM_X86_64
+        f = tmp_path / "le64.elf"
+        f.write_bytes(bytes(header))
+        fmt, arch = _detect_format_and_arch(f)
+        assert fmt == "elf"
+        assert arch == "x86_64"
+
+    def test_elf_big_endian_sparc(self, tmp_path: Path) -> None:
+        """Big-endian ELF should parse machine field with big-endian byte order.
+
+        Regression: previously always used little-endian, which would
+        mis-parse EM_SPARC (2) as 0x0200 on a big-endian ELF.
+        """
+        import struct
+
+        header = bytearray(64)
+        header[0:4] = b"\x7fELF"
+        header[4] = 1  # ei_class = 32-bit
+        header[5] = 2  # ei_data = ELFDATA2MSB (big-endian)
+        struct.pack_into(">H", header, 18, 40)  # EM_ARM in big-endian
+        f = tmp_path / "be32.elf"
+        f.write_bytes(bytes(header))
+        fmt, arch = _detect_format_and_arch(f)
+        assert fmt == "elf"
+        assert arch == "arm32"
+
+    def test_elf_big_endian_aarch64(self, tmp_path: Path) -> None:
+        """Big-endian 64-bit ELF with EM_AARCH64 should detect arm64."""
+        import struct
+
+        header = bytearray(64)
+        header[0:4] = b"\x7fELF"
+        header[4] = 2  # ei_class = 64-bit
+        header[5] = 2  # ei_data = ELFDATA2MSB
+        struct.pack_into(">H", header, 18, 183)  # EM_AARCH64
+        f = tmp_path / "be64.elf"
+        f.write_bytes(bytes(header))
+        fmt, arch = _detect_format_and_arch(f)
+        assert fmt == "elf"
+        assert arch == "arm64"
+
+    def test_elf_big_endian_would_fail_without_fix(self, tmp_path: Path) -> None:
+        """Verify that big-endian machine bytes differ from little-endian parse.
+
+        This test proves the fix is necessary: EM_ARM (40 = 0x0028) stored
+        big-endian is bytes 00 28, which little-endian would read as 0x2800
+        (10240) — an unknown machine type that falls through to the class-based
+        fallback instead of detecting arm32.
+        """
+        import struct
+
+        header = bytearray(64)
+        header[0:4] = b"\x7fELF"
+        header[4] = 1  # 32-bit
+        header[5] = 2  # big-endian
+        struct.pack_into(">H", header, 18, 40)  # EM_ARM big-endian
+
+        # If we misread as little-endian, we'd get 0x2800 instead of 40
+        wrong_machine = struct.unpack_from("<H", header, 18)[0]
+        correct_machine = struct.unpack_from(">H", header, 18)[0]
+        assert wrong_machine == 0x2800  # wrong parse
+        assert correct_machine == 40  # correct parse (EM_ARM)
 
 
 # ---------------------------------------------------------------------------

@@ -17,15 +17,29 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NotRequired, TypedDict
 
 import typer
 
 from rebrew.annotation import has_skip_annotation, parse_c_file, resolve_symbol
 from rebrew.cli import TargetOption, get_config
 
-# Type alias for parsed stub/matching info dicts
-StubInfo = dict[str, str | int | Path]
+
+class StubInfo(TypedDict):
+    """Parsed annotation fields for a STUB or near-miss MATCHING function.
+
+    All fields are required except ``delta``, which is only present for
+    near-miss MATCHING functions (populated by ``parse_matching_info``).
+    """
+
+    filepath: Path
+    va: str
+    size: int
+    symbol: str
+    cflags: str
+    origin: str
+    delta: NotRequired[int]
+
 
 # Match function definition start: return type at start of line.
 # Covers standard C types, Win32 types, and modifiers.
@@ -395,7 +409,7 @@ def main(
     """Batch GA runner for STUB and near-miss MATCHING functions."""
     cfg = get_config(target=target)
     if jobs is None:
-        jobs = getattr(cfg, "default_jobs", 4)
+        jobs = int(getattr(cfg, "default_jobs", 4))
 
     reversed_dir = cfg.reversed_dir
     target_binary = cfg.target_binary

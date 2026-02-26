@@ -294,7 +294,7 @@ def scan_globals(src_dir: Path, cfg: Any = None) -> ScanResult:
         if len(types) > 1:
             conflict = {
                 "name": name,
-                "types": {t: files for t, files in types.items()},
+                "types": dict(types),
             }
             result.type_conflicts.append(conflict)
             if name in result.globals:
@@ -347,7 +347,7 @@ def enrich_with_sections(scan: ScanResult, sections: dict[str, dict[str, Any]]) 
 
 def find_dispatch_tables(
     binary_data: bytes,
-    image_base: int,  # noqa: ARG001 — reserved for future use
+    image_base: int,
     sections: dict[str, dict[str, Any]],
     known_functions: dict[int, dict[str, str]],
     ptr_size: int = 4,

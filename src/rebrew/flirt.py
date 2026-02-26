@@ -53,11 +53,13 @@ def find_func_size(code_data: bytes, offset: int) -> int:
     """Estimate function size by scanning for common end patterns."""
     # Look for ret (0xC3), ret imm16 (0xC2), or int3 padding (0xCC)
     max_scan = min(4096, len(code_data) - offset)
-    for i in range(offset, offset + max_scan):
+    scan_end = offset + max_scan
+    for i in range(offset, scan_end):
         b = code_data[i]
         if b == 0xC3:  # ret
             return i - offset + 1
-        if b == 0xC2 and i + 2 < len(code_data):  # ret imm16
+        # ret imm16 (C2 xx xx): 3-byte instruction, must fit within scan window
+        if b == 0xC2 and i + 2 < scan_end:
             return i - offset + 3
     return max_scan
 

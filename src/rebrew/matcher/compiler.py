@@ -16,6 +16,7 @@ import warnings
 from pathlib import Path
 
 from .core import BuildResult
+from .flag_data import COMMON_MSVC_FLAGS, MSVC6_FLAGS, MSVC_SWEEP_TIERS
 from .flags import Checkbox, Flags, FlagSet
 from .parsers import extract_function_from_pe, parse_coff_obj_symbol_bytes
 
@@ -27,9 +28,6 @@ _MAP_SYM_RE = re.compile(
     r"^\s*\d+:[0-9a-fA-F]+\s+\S+\s+([0-9a-fA-F]+)",
     re.MULTILINE,
 )
-
-# --- Synced flag data from decomp.me (see tools/sync_decomp_flags.py) ---
-from .flag_data import COMMON_MSVC_FLAGS, MSVC6_FLAGS, MSVC_SWEEP_TIERS
 
 # Legacy dict-based axes (kept for backward compatibility)
 MSVC6_FLAG_AXES = {
