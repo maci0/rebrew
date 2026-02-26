@@ -131,7 +131,7 @@ def main(
 
     registry = build_function_registry(r2_funcs, cfg, ghidra_json_path)
 
-    unique_vas = set(e["va"] for e in entries)
+    unique_vas = {e["va"] for e in entries}
     ghidra_count = sum(1 for r in registry.values() if "ghidra" in r["detected_by"])
     r2_count = sum(1 for r in registry.values() if "r2" in r["detected_by"])
     both_count = sum(

@@ -15,6 +15,7 @@ Usage::
     rebrew cfg set-cflags ZLIB "/O3" --target server.dll
 """
 
+import contextlib
 import shutil
 import struct
 import sys
@@ -130,12 +131,15 @@ def _detect_format_and_arch(path: Path) -> tuple[str, str | None]:
         return "pe", arch
 
     elif magic[:4] == b"\x7fELF":
-        # ELF: byte 4 is class (1=32-bit, 2=64-bit), byte 18-19 is machine
+        # ELF: byte 5 is data encoding (1=LE, 2=BE), byte 4 is class
         arch = None
         if len(header) >= 20:
             ei_class = header[4]  # 1=32, 2=64
-            # Machine is at offset 18 in both 32/64 ELF
-            machine = struct.unpack_from("<H", header, 18)[0]
+            ei_data = header[5]  # 1=ELFDATA2LSB, 2=ELFDATA2MSB
+            # Machine is at offset 18 in both 32/64 ELF headers;
+            # endianness must match the ELF encoding to parse correctly.
+            elf_endian = "<H" if ei_data != 2 else ">H"
+            machine = struct.unpack_from(elf_endian, header, 18)[0]
             if machine == 3:  # EM_386
                 arch = "x86_32"
             elif machine == 62:  # EM_X86_64
@@ -247,7 +251,7 @@ def show(
 
 
 @app.command("add-target")
-def add_target(  # noqa: PLR0912
+def add_target(
     name: str = typer.Argument(..., help="Target name (e.g. 'server.dll')."),
     binary: str = typer.Option(..., "--binary", "-b", help="Path to the original binary."),
     arch: str | None = typer.Option(
@@ -416,15 +420,10 @@ def set_value(
         parsed_value = value.lower() == "true"
     else:
         try:
-            if value.startswith("0x") or value.startswith("0X"):
-                parsed_value = int(value, 16)
-            else:
-                parsed_value = int(value)
+            parsed_value = int(value, 16) if value.startswith(("0x", "0X")) else int(value)
         except ValueError:
-            try:
+            with contextlib.suppress(ValueError):
                 parsed_value = float(value)
-            except ValueError:
-                pass  # keep as string
 
     current[final_key] = parsed_value
     _save_toml(doc, toml_path)

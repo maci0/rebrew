@@ -72,8 +72,8 @@ class LintResult:
         return {
             "file": str(self.filepath.name),
             "path": str(self.filepath),
-            "errors": [{"line": l, "code": c, "message": m} for l, c, m in self.errors],
-            "warnings": [{"line": l, "code": c, "message": m} for l, c, m in self.warnings],
+            "errors": [{"line": ln, "code": c, "message": m} for ln, c, m in self.errors],
+            "warnings": [{"line": ln, "code": c, "message": m} for ln, c, m in self.warnings],
             "passed": self.passed,
         }
 
@@ -613,7 +613,7 @@ def fix_file(cfg: Any, filepath: Path) -> bool:
         return True
 
     # --- Try javadoc format: /** ... @address 0x... */ ---
-    if first.startswith("/**") or first.startswith("/*"):
+    if first.startswith(("/**", "/*")):
         found_keys_jd: dict[str, str] = {}
         header_end = 0
         in_javadoc = True

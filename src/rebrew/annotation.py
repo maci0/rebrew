@@ -114,10 +114,15 @@ FILENAME_ORIGIN_PREFIXES = _DEFAULT_ORIGIN_PREFIXES
 
 
 def normalize_status(raw: str) -> str:
-    """Map old-format status strings to canonical values."""
+    """Map old-format status strings to canonical values.
+
+    Check order matters: ``MATCHING_RELOC`` must be tested before both
+    ``MATCHING`` and ``RELOC`` because it contains both as substrings.
+    """
     s = raw.strip().upper()
     if "EXACT" in s:
         return "EXACT"
+    # MATCHING_RELOC must precede MATCHING and RELOC (substring containment)
     if "MATCHING_RELOC" in s:
         return "MATCHING_RELOC"
     if "MATCHING" in s:
@@ -176,7 +181,7 @@ def has_skip_annotation(filepath: Path) -> bool:
         return False
     for line in text.splitlines()[:20]:
         stripped = line.strip().upper()
-        if stripped.startswith("// SKIP:") or stripped.startswith("/* SKIP:"):
+        if stripped.startswith(("// SKIP:", "/* SKIP:")):
             return True
     return False
 

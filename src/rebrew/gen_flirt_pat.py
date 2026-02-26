@@ -137,12 +137,14 @@ def bytes_to_pat_line(
     crc_start = lead_len
     crc_len = min(len(code_bytes) - crc_start, 255)
 
+    # CRC-16 using the FLIRT polynomial (0x8005)
+    _CRC16_POLY = 0x8005
     crc = 0
     for i in range(crc_start, crc_start + crc_len):
         b = 0 if i in reloc_offsets else code_bytes[i]
         crc ^= b << 8
         for _ in range(8):
-            crc = crc << 1 ^ 32773 if crc & 32768 else crc << 1
+            crc = crc << 1 ^ _CRC16_POLY if crc & 0x8000 else crc << 1
             crc &= 0xFFFF
 
     total_size = len(code_bytes)

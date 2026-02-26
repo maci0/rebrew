@@ -162,7 +162,7 @@ def main(
     flirt_count: int | None = None
     if binary_info is not None:
         try:
-            import flirt as flirt_mod  # noqa: I001
+            import flirt as flirt_mod
 
             from rebrew.flirt import find_func_size, load_signatures
 

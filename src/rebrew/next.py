@@ -150,7 +150,7 @@ def detect_origin(va: int, name: str, cfg: Any) -> str:
     game_range_end = getattr(cfg, "game_range_end", None)
     if game_range_end and va >= game_range_end:
         return "MSVCRT"
-    if name.startswith("__") or name.startswith("_crt"):
+    if name.startswith(("__", "_crt")):
         return "MSVCRT"
     default = getattr(cfg, "default_origin", "") or ""
     if default:

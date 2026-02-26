@@ -81,34 +81,10 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM"]
 ignore = ["E501", "B008", "B904"]
 
 [tool.ruff.lint.per-file-ignores]
-# CLI entrypoints use conditional/lazy imports and Rich formatting
-"src/rebrew/asm.py" = ["F401", "E402"]
-"src/rebrew/batch.py" = ["F401", "E402"]
-"src/rebrew/build_db.py" = ["F401", "E402", "F841"]
-"src/rebrew/catalog.py" = ["F401", "E402", "F841", "F821", "B007"]
-"src/rebrew/compile.py" = ["F401", "E402"]
-"src/rebrew/config.py" = ["F401", "E402"]
-"src/rebrew/ga.py" = ["F401", "E402"]
-"src/rebrew/gen_flirt_pat.py" = ["F401", "E402"]
-"src/rebrew/flirt.py" = ["F401", "E402"]
-"src/rebrew/init.py" = ["F401", "E402"]
-"src/rebrew/lint.py" = ["F401", "E402", "B007", "E741"]
-"src/rebrew/match.py" = ["F401", "E402", "F841"]
-"src/rebrew/nasm.py" = ["F401", "E402", "F841"]
-"src/rebrew/next.py" = ["F401", "E402"]
-"src/rebrew/skeleton.py" = ["F401", "E402"]
-"src/rebrew/sync.py" = ["F401", "E402"]
-"src/rebrew/test.py" = ["F401", "E402"]
-"src/rebrew/verify.py" = ["F401", "E402"]
-"src/rebrew/status.py" = ["F401", "E402"]
-"src/rebrew/data.py" = ["F401", "E402"]
-# CLI app modules with typer-specific patterns
-"src/rebrew/cfg.py" = ["E741", "SIM105"]
-"src/rebrew/main.py" = ["E402"]
-# Build infrastructure with runtime-defined constants
-"src/rebrew/matcher/compiler.py" = ["E402", "F821"]
-# Re-export packages expose public API via __init__.py
-"src/rebrew/matcher/__init__.py" = ["F401"]
+# Re-export packages expose public API via __init__.py — redundant aliases
+# are the canonical way to silence F401 for intentional re-exports, but we
+# keep the suppression as a safety net for any future additions.
+# (All current re-exports use explicit `X as X` aliases.)
 
 [tool.uv]
 package = true

@@ -279,7 +279,7 @@ def _sub_once(
     if not matches:
         return None
     m = rng.choice(matches)
-    replacement: str = repl(m) if isinstance(repl, Callable) else repl  # type: ignore[arg-type]
+    replacement: str = repl(m) if callable(repl) else repl  # type: ignore[arg-type]
     return s[: m.start()] + replacement + s[m.end() :]
 
 

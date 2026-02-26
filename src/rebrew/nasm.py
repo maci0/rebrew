@@ -18,7 +18,6 @@ Usage:
     rebrew nasm --va 0x10003ca0 --size 77 --verify
 """
 
-import contextlib
 import os
 import re
 import subprocess

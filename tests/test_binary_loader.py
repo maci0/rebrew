@@ -113,6 +113,58 @@ class TestExtractBytesAtVa:
         assert result is not None
         assert len(result) <= 0x100  # clamped to raw_size
 
+    def test_trim_padding_default(self, tmp_path) -> None:
+        """Default behavior strips trailing 0xCC/0x90 padding bytes."""
+        f = tmp_path / "test.bin"
+        # 4 real bytes + 4 INT3 padding bytes
+        content = b"\x00" * 0x400 + b"\x55\x8b\xec\xc3" + b"\xcc" * 4
+        f.write_bytes(content)
+
+        info = BinaryInfo(
+            path=f,
+            format="pe",
+            image_base=0x10000000,
+            text_va=0x10001000,
+            text_size=0x1000,
+            text_raw_offset=0x400,
+            sections={
+                ".text": SectionInfo(
+                    name=".text", va=0x10001000, size=0x1000, file_offset=0x400, raw_size=0x1000
+                )
+            },
+        )
+        result = extract_bytes_at_va(info, 0x10001000, 8)
+        assert result is not None
+        assert result == b"\x55\x8b\xec\xc3"  # padding stripped
+
+    def test_trim_padding_false_preserves_bytes(self, tmp_path) -> None:
+        """trim_padding=False returns exact bytes including trailing padding.
+
+        Regression test for Phase 1 fix: callers doing byte-level scoring
+        need exact fidelity, not trimmed output.
+        """
+        f = tmp_path / "test.bin"
+        content = b"\x00" * 0x400 + b"\x55\x8b\xec\xc3" + b"\xcc" * 4
+        f.write_bytes(content)
+
+        info = BinaryInfo(
+            path=f,
+            format="pe",
+            image_base=0x10000000,
+            text_va=0x10001000,
+            text_size=0x1000,
+            text_raw_offset=0x400,
+            sections={
+                ".text": SectionInfo(
+                    name=".text", va=0x10001000, size=0x1000, file_offset=0x400, raw_size=0x1000
+                )
+            },
+        )
+        result = extract_bytes_at_va(info, 0x10001000, 8, trim_padding=False)
+        assert result is not None
+        assert len(result) == 8
+        assert result == b"\x55\x8b\xec\xc3" + b"\xcc" * 4  # padding preserved
+
     def test_va_not_in_section(self, tmp_path) -> None:
         f = tmp_path / "test.bin"
         f.write_bytes(b"\x00" * 100)
