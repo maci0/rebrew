@@ -7,7 +7,7 @@ behavior (register allocation, instruction selection, calling conventions).
 
 import random
 import re
-from typing import Any
+from collections.abc import Callable
 
 # ---------------------------------------------------------------------------
 # Pre-compiled regex patterns (module-level for performance)
@@ -268,13 +268,18 @@ def crossover(parent1: str, parent2: str, rng: random.Random) -> str:
 # --- Mutations ---
 
 
-def _sub_once(pat: str | re.Pattern[str], repl: Any, s: str, rng: random.Random) -> str | None:
+def _sub_once(
+    pat: str | re.Pattern[str],
+    repl: str | Callable[[re.Match[str]], str],
+    s: str,
+    rng: random.Random,
+) -> str | None:
     """Helper to randomly replace one occurrence of a pattern."""
     matches = list(pat.finditer(s) if isinstance(pat, re.Pattern) else re.finditer(pat, s))
     if not matches:
         return None
     m = rng.choice(matches)
-    replacement = repl(m) if callable(repl) else repl
+    replacement: str = repl(m) if isinstance(repl, Callable) else repl  # type: ignore[arg-type]
     return s[: m.start()] + replacement + s[m.end() :]
 
 

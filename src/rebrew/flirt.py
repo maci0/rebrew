@@ -5,6 +5,7 @@ Usage: rebrew-flirt [sig_dir]
 
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -61,7 +62,7 @@ def find_func_size(code_data: bytes, offset: int) -> int:
     return max_scan
 
 
-def _make_progress_printer(json_output: bool) -> Any:
+def _make_progress_printer(json_output: bool) -> Callable[..., None]:
     """Return a print function that goes to stderr when json_output is True."""
     if json_output:
 

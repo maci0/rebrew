@@ -13,6 +13,7 @@ Also provides:
 import json
 import re
 import struct
+import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -211,12 +212,10 @@ def scan_globals(src_dir: Path, cfg: Any = None) -> ScanResult:
                 # Next line should be the declaration
                 decl = lines[i + 1].strip() if i + 1 < len(lines) else ""
                 if not decl:
-                    import sys as _sys
-
                     print(
                         f"Warning: {fname}:{i + 1}: // GLOBAL: annotation at 0x{va:08x} "
                         f"has no declaration on the following line",
-                        file=_sys.stderr,
+                        file=sys.stderr,
                     )
                 name = "unknown"
                 type_str = ""
