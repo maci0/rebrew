@@ -78,7 +78,7 @@ A STUB should always have a `BLOCKER` annotation:
 // BLOCKER: needs complete rewrite, 199B vs 163B
 ```
 
-## How rebrew-test Classifies Results
+## How rebrew test Classifies Results
 
 ```mermaid
 flowchart TD

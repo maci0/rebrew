@@ -28,15 +28,15 @@ User stories for the Rebrew decompilation workbench, organized by persona and wo
 - `rebrew.toml` created with target binary, format, arch, and compiler settings
 - Source, bin, and output directories scaffolded
 - Compiler detected from PE Rich Header or CRT prologue patterns
-- Running `rebrew-init` a second time changes nothing (idempotent)
+- Running `rebrew init` a second time changes nothing (idempotent)
 
 ```mermaid
 graph TD
-    A["Obtain target binary<br/>(e.g. game.dll)"] --> B["rebrew-init --target game<br/>--binary game.dll --compiler msvc6"]
+    A["Obtain target binary<br/>(e.g. game.dll)"] --> B["rebrew init --target game<br/>--binary game.dll --compiler msvc6"]
     B --> C["rebrew.toml created"]
     B --> D["src/game/ directory created"]
     B --> E["bin/game/ directory created"]
-    C --> F["rebrew-cfg show"]
+    C --> F["rebrew cfg show"]
     F --> G["Project ready for RE work"]
 
     style A fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
@@ -57,11 +57,11 @@ graph TD
 
 ```mermaid
 graph TD
-    A["Existing project with<br/>server.dll target"] --> B["rebrew-cfg add-target client.exe<br/>--binary original/client.exe"]
-    B --> C["rebrew-cfg add-origin ZLIB<br/>--target client.exe"]
-    C --> D["rebrew-cfg set-cflags GAME<br/>'/O2 /Gd' --target client.exe"]
+    A["Existing project with<br/>server.dll target"] --> B["rebrew cfg add-target client.exe<br/>--binary original/client.exe"]
+    B --> C["rebrew cfg add-origin ZLIB<br/>--target client.exe"]
+    C --> D["rebrew cfg set-cflags GAME<br/>'/O2 /Gd' --target client.exe"]
     D --> E["Both targets in rebrew.toml"]
-    E --> F["rebrew-next --target client.exe"]
+    E --> F["rebrew next --target client.exe"]
 
     style A fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
     style F fill:#d1fae5,stroke:#059669,color:#065f46
@@ -76,7 +76,7 @@ graph TD
 ### Acceptance Criteria
 - Function list generated (r2 / Ghidra / lief)
 - FLIRT signatures auto-identify CRT/zlib/Lua functions (~20-40%)
-- `rebrew-triage` classifies functions by origin, size, and matchability
+- `rebrew triage` classifies functions by origin, size, and matchability
 - Functions ranked by size and tagged with origin
 - IAT thunks, SEH helpers, and ASM builtins flagged as non-matchable
 
@@ -84,15 +84,15 @@ graph TD
 graph TD
     A["Target binary loaded"] --> B["radare2 / Ghidra:<br/>function boundary detection"]
     B --> C["functions.json<br/>(VA, size, name)"]
-    C --> D{"rebrew-flirt:<br/>FLIRT match?"}
+    C --> D{"rebrew flirt:<br/>FLIRT match?"}
     D -->|"Match (CRT/zlib)"| E["Mark as LIBRARY<br/>compile from reference"]
     D -->|"No match"| F{"Named export?"}
     F -->|Yes| G["Named STUB"]
     F -->|No| H["Anonymous STUB<br/>(FUN_XXXXXXXX)"]
     E --> I["Seed RAG database"]
-    G --> T["rebrew-triage<br/>classify & prioritize"]
+    G --> T["rebrew triage<br/>classify & prioritize"]
     H --> T
-    T --> J["rebrew-next --stats<br/>prioritize by size"]
+    T --> J["rebrew next --stats<br/>prioritize by size"]
 
     style A fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
     style I fill:#d1fae5,stroke:#059669,color:#065f46
@@ -108,26 +108,26 @@ graph TD
 > **As an RE Dev**, I want to pick a function, write C89 source, and verify it produces byte-identical output so that I can incrementally build the decompiled codebase.
 
 ### Acceptance Criteria
-- `rebrew-next` shows prioritized list of uncovered functions
-- `rebrew-skeleton` creates annotated `.c` file
-- `rebrew-test` classifies result as EXACT / RELOC / MATCHING / MISMATCH
+- `rebrew next` shows prioritized list of uncovered functions
+- `rebrew skeleton` creates annotated `.c` file
+- `rebrew test` classifies result as EXACT / RELOC / MATCHING / MISMATCH
 - Annotation header updated with correct STATUS and BLOCKER (if any)
-- `rebrew-promote` used to promote status on match
+- `rebrew promote` used to promote status on match
 
 ```mermaid
 graph TD
-    Pick["rebrew-next --origin GAME<br/>pick smallest function"] --> Skel["rebrew-skeleton 0xVA"]
+    Pick["rebrew next --origin GAME<br/>pick smallest function"] --> Skel["rebrew skeleton 0xVA"]
     Skel --> Decompile["Get ASM / Ghidra decompilation"]
     Decompile --> Write["Write C89 source code"]
-    Write --> Test{"rebrew-test<br/>src/target/func.c"}
-    Test -->|EXACT| Promote["rebrew-promote<br/>→ STATUS: EXACT"]
+    Write --> Test{"rebrew test<br/>src/target/func.c"}
+    Test -->|EXACT| Promote["rebrew promote<br/>→ STATUS: EXACT"]
     Promote --> Done["✅ Done"]
-    Test -->|RELOC| PromoteR["rebrew-promote<br/>→ STATUS: RELOC"]
+    Test -->|RELOC| PromoteR["rebrew promote<br/>→ STATUS: RELOC"]
     PromoteR --> DoneR["✅ Done"]
-    Test -->|MISMATCH| Diff["rebrew-match --diff-only"]
+    Test -->|MISMATCH| Diff["rebrew match --diff-only"]
     Test -->|COMPILE ERROR| Write
     Diff --> Flags{"Unsure about<br/>compiler flags?"}
-    Flags -->|Yes| Sweep["rebrew-match<br/>--flag-sweep-only"]
+    Flags -->|Yes| Sweep["rebrew match<br/>--flag-sweep-only"]
     Sweep --> Write
     Flags -->|No| Write
 
@@ -154,7 +154,7 @@ graph TD
 
 ```mermaid
 graph TD
-    A["Function at STATUS: MATCHING<br/>(small byte delta)"] --> B["rebrew-match func.c<br/>--generations 200 --pop-size 64"]
+    A["Function at STATUS: MATCHING<br/>(small byte delta)"] --> B["rebrew match func.c<br/>--generations 200 --pop-size 64"]
     B --> C["GA mutates C AST<br/>(40+ operators)"]
     C --> D["Compile each candidate<br/>(MSVC6 via Wine)"]
     D --> E{"Fitness improved?"}
@@ -176,7 +176,7 @@ graph TD
 > **As an AI Operator**, I want the LLM to generate an initial C implementation from assembly so that I get a semantic baseline without manual effort.
 
 ### Acceptance Criteria
-- ASM extracted via `rebrew-asm` and fed to LLM with RAG context
+- ASM extracted via `rebrew asm` and fed to LLM with RAG context
 - RAG resolves called function signatures, globals, strings, and caller context
 - Output normalized (C89 dialect, proper annotation header prepended)
 - Result tested and classified automatically
@@ -186,9 +186,9 @@ sequenceDiagram
     participant O as Orchestrator
     participant DB as SQLite RAG
     participant LLM as LLM
-    participant T as rebrew-test
+    participant T as rebrew test
 
-    O->>O: Extract ASM via rebrew-asm
+    O->>O: Extract ASM via rebrew asm
     O->>DB: Query all referenced VAs
     DB-->>O: Function sigs + globals + strings
     O->>LLM: ASM + RAG context + compiler rules
@@ -222,7 +222,7 @@ sequenceDiagram
 
 ```mermaid
 graph TD
-    Start["Agent starts<br/>load agent.yml"] --> Queue["Build work queue<br/>from rebrew-next"]
+    Start["Agent starts<br/>load agent.yml"] --> Queue["Build work queue<br/>from rebrew next"]
     Queue --> Empty{"Queue empty?"}
     Empty -->|Yes| Report["Generate run report<br/>agent_run_TIMESTAMP.md"]
     Empty -->|No| Pop["Pop next function"]
@@ -242,7 +242,7 @@ graph TD
     Result -->|MATCHING| Requeue["Update state<br/>re-queue"]
     Result -->|STALLED| Log["Log for<br/>human review"]
 
-    Stage --> Regression["rebrew-verify<br/>regression gate"]
+    Stage --> Regression["rebrew verify<br/>regression gate"]
     Regression -->|Pass| Commit["Promote to src/<br/>git commit"]
     Regression -->|Fail| Rollback["Rollback<br/>mark STALLED"]
 
@@ -267,7 +267,7 @@ graph TD
 > **As an RE Dev**, I want improvements from my `.c` files pushed to Ghidra (and vice versa) so that the decompiler always shows resolved names and correct types.
 
 ### Acceptance Criteria
-- `rebrew-sync --push` pushes function names, comments, and bookmarks to Ghidra via ReVa MCP
+- `rebrew sync --push` pushes function names, comments, and bookmarks to Ghidra via ReVa MCP
 - Generic `func_XXXXXXXX` labels are skipped by default (`--skip-generic`)
 - Struct definitions pushed via `parse-c-structure` MCP tool
 - Ghidra decompilation and struct info can be pulled into local `.c` files
@@ -287,8 +287,8 @@ graph LR
         G3["Decompiler output"]
     end
 
-    L1 -->|"rebrew-sync --push<br/>(create-label)"| G1
-    L3 -->|"rebrew-sync --push<br/>(set-comment)"| G1
+    L1 -->|"rebrew sync --push<br/>(create-label)"| G1
+    L3 -->|"rebrew sync --push<br/>(set-comment)"| G1
     L2 -->|"parse-c-structure"| G2
     G3 -->|"get-decompilation"| L1
     G2 -->|"get-structure-info"| L2
@@ -301,7 +301,7 @@ graph TD
     A["Start reversing<br/>a function"] --> B["Pull decompilation<br/>(Ghidra → Local)"]
     B --> C["Pull struct defs<br/>(Ghidra → Local)"]
     C --> D["Write/update .c file"]
-    D --> E["rebrew-test"]
+    D --> E["rebrew test"]
     E --> F["Push names back<br/>(Local → Ghidra)"]
     F --> G["Push new structs<br/>(Local → Ghidra)"]
     G --> H{"More functions<br/>using these types?"}
@@ -321,25 +321,25 @@ graph TD
 > **As a Project Lead**, I want to bootstrap an entirely new binary from scratch so that the RAG database gets seeded progressively and enables the snowball effect.
 
 ### Acceptance Criteria
-- `rebrew-init` scaffolds the project directory and config
+- `rebrew init` scaffolds the project directory and config
 - Function boundaries detected via radare2/Ghidra
 - FLIRT identifies library functions automatically
-- `rebrew-triage` classifies and prioritizes all functions
+- `rebrew triage` classifies and prioritizes all functions
 - Smallest leaf functions processed first (snowball strategy)
 - Each match enriches RAG for subsequent functions
 
 ```mermaid
 graph TD
-    A["New binary<br/>(no prior RE work)"] --> Init["rebrew-init<br/>scaffold project"]
+    A["New binary<br/>(no prior RE work)"] --> Init["rebrew init<br/>scaffold project"]
     Init --> B["Parse PE / ELF<br/>detect sections"]
     B --> C["Function boundary<br/>detection"]
     C --> D["FLIRT signature<br/>matching"]
     D -->|"~20-40% matched"| E["Compile from<br/>reference source"]
-    D -->|"Unmatched"| F["rebrew-triage<br/>classify functions"]
+    D -->|"Unmatched"| F["rebrew triage<br/>classify functions"]
     E --> G["Seed RAG database"]
-    F --> H["rebrew-next<br/>sort by size"]
+    F --> H["rebrew next<br/>sort by size"]
     H --> I["LLM generates<br/>tiny leaf functions"]
-    I --> J{"rebrew-test"}
+    I --> J{"rebrew test"}
     J -->|"EXACT/RELOC"| G
     J -->|"MATCHING"| K["GA refinement"]
     K -->|Success| G
@@ -359,26 +359,26 @@ graph TD
 > **As a Project Lead**, I want to see at-a-glance progress stats and verify all existing matches still hold so that I can track coverage and catch regressions.
 
 ### Acceptance Criteria
-- `rebrew-status` shows at-a-glance reversing progress overview
-- `rebrew-next --stats` shows function counts by status and origin
-- `rebrew-verify` bulk-compiles and re-verifies all `.c` files
-- `rebrew-catalog --json` regenerates coverage JSON and function registry
-- `rebrew-build-db` updates the dashboard database
-- `rebrew-verify` regression gate prevents breaking existing matches
+- `rebrew status` shows at-a-glance reversing progress overview
+- `rebrew next --stats` shows function counts by status and origin
+- `rebrew verify` bulk-compiles and re-verifies all `.c` files
+- `rebrew catalog --json` regenerates coverage JSON and function registry
+- `rebrew build-db` updates the dashboard database
+- `rebrew verify` regression gate prevents breaking existing matches
 
 ```mermaid
 graph TD
-    A["Check project status"] --> S["rebrew-status"]
-    S --> B["rebrew-next --stats"]
+    A["Check project status"] --> S["rebrew status"]
+    S --> B["rebrew next --stats"]
     B --> C["Coverage summary:<br/>EXACT / RELOC / MATCHING / STUB"]
 
-    D["Verify integrity"] --> E["rebrew-verify"]
+    D["Verify integrity"] --> E["rebrew verify"]
     E --> F{"All files compile<br/>& match?"}
     F -->|Yes| G["✅ All green"]
     F -->|No| H["❌ Regressions found<br/>report affected files"]
 
-    I["Generate catalog"] --> J["rebrew-catalog --json"]
-    J --> BD["rebrew-build-db"]
+    I["Generate catalog"] --> J["rebrew catalog --json"]
+    J --> BD["rebrew build-db"]
     BD --> K["coverage.db +<br/>dashboard updated"]
 
     style A fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
@@ -396,19 +396,19 @@ graph TD
 > **As a Contributor**, I want the linter to catch annotation mistakes in my `.c` files so that all files follow the project's annotation standard.
 
 ### Acceptance Criteria
-- `rebrew-lint` checks all annotation fields (FUNCTION, STATUS, ORIGIN, SIZE, CFLAGS)
+- `rebrew lint` checks all annotation fields (FUNCTION, STATUS, ORIGIN, SIZE, CFLAGS)
 - Error codes E001–E017 for hard errors, W001–W015 for warnings
-- `rebrew-lint --fix` auto-migrates old annotation formats
+- `rebrew lint --fix` auto-migrates old annotation formats
 - Running lint twice changes nothing (idempotent)
 
 ```mermaid
 graph TD
-    A["Write or edit a .c file"] --> B["rebrew-lint"]
+    A["Write or edit a .c file"] --> B["rebrew lint"]
     B --> C{"Annotations valid?"}
     C -->|Yes| D["✅ Clean"]
     C -->|No| E["Report errors<br/>(E001-E017, W001-W015)"]
     E --> F{"Auto-fixable?"}
-    F -->|Yes| G["rebrew-lint --fix"]
+    F -->|Yes| G["rebrew lint --fix"]
     G --> B
     F -->|No| H["Manual fix required"]
     H --> A
@@ -433,7 +433,7 @@ graph TD
 
 ```mermaid
 graph TD
-    A["Obtain FLIRT<br/>signatures (.sig/.pat)"] --> B["rebrew-flirt flirt_sigs/"]
+    A["Obtain FLIRT<br/>signatures (.sig/.pat)"] --> B["rebrew flirt flirt_sigs/"]
     B --> C["Load & compile<br/>signature patterns"]
     C --> D["Scan .text section<br/>(16-byte aligned)"]
     D --> E{"Matches found?"}
@@ -464,14 +464,14 @@ graph TD
 
 ```mermaid
 graph TD
-    A["MATCHING function<br/>(existing .c file)"] --> B["rebrew-test<br/>capture current diff"]
+    A["MATCHING function<br/>(existing .c file)"] --> B["rebrew test<br/>capture current diff"]
     B --> C["Feed to LLM:<br/>source + diff + BLOCKER"]
     C --> D["LLM suggests<br/>targeted fixes"]
-    D --> E{"rebrew-test<br/>re-check"}
+    D --> E{"rebrew test<br/>re-check"}
     E -->|"EXACT / RELOC"| F["✅ Promoted!"]
     E -->|"Improved MATCHING"| G["Accept improvement<br/>optionally → GA"]
     E -->|"Same / Worse"| H["Reject change"]
-    G --> I["rebrew-match func.c<br/>(Workflow B)"]
+    G --> I["rebrew match func.c<br/>(Workflow B)"]
     I -->|"EXACT / RELOC"| F
 
     style A fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f

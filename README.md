@@ -6,19 +6,19 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 
 ## ✨ Features
 
-- **Skeleton generation** — `rebrew-skeleton` creates annotated `.c` stubs from VAs with optional inline decompilation (`--decomp`) via r2ghidra, r2dec, or Ghidra
-- **Compile-and-compare** — `rebrew-test` compiles your C and diffs it byte-by-byte against the original binary
-- **GA matching engine** — `rebrew-match` uses a genetic algorithm to brute-force compiler flags and mutate source code to find exact byte matches
-- **Batch GA** — `rebrew-ga` runs GA across all STUB functions unattended; `--near-miss` targets MATCHING functions with small byte deltas
-- **Annotation pipeline** — `rebrew-lint` validates `// FUNCTION:`, `// STATUS:`, `// ORIGIN:` annotations across the codebase (E001–E017, W001–W015)
-- **Verification** — `rebrew-verify` bulk-compiles every reversed function and reports match status with a progress bar; `--json` emits timestamped structured reports to `db/verify_results.json`
-- **Smart prioritization** — `rebrew-next` recommends functions to work on, auto-filters unmatchable stubs, and shows byte-delta for near-miss MATCHING functions
+- **Skeleton generation** — `rebrew skeleton` creates annotated `.c` stubs from VAs with optional inline decompilation (`--decomp`) via r2ghidra, r2dec, or Ghidra
+- **Compile-and-compare** — `rebrew test` compiles your C and diffs it byte-by-byte against the original binary
+- **GA matching engine** — `rebrew match` uses a genetic algorithm to brute-force compiler flags and mutate source code to find exact byte matches
+- **Batch GA** — `rebrew ga` runs GA across all STUB functions unattended; `--near-miss` targets MATCHING functions with small byte deltas
+- **Annotation pipeline** — `rebrew lint` validates `// FUNCTION:`, `// STATUS:`, `// ORIGIN:` annotations across the codebase (E001–E017, W001–W015)
+- **Verification** — `rebrew verify` bulk-compiles every reversed function and reports match status with a progress bar; `--json` emits timestamped structured reports to `db/verify_results.json`
+- **Smart prioritization** — `rebrew next` recommends functions to work on, auto-filters unmatchable stubs, and shows byte-delta for near-miss MATCHING functions
 - **Dependency graph** — `rebrew graph` builds call graphs from `extern` declarations in mermaid, DOT, or summary format with focus mode
 - **Global data scanner** — `rebrew data` inventories `.data`/`.rdata`/`.bss` globals, detects type conflicts, finds dispatch tables / vtables (`--dispatch`), verifies BSS layout (`--bss`), and supports `// DATA:` annotations for first-class data tracking
 - **Status tracking** — `rebrew status` gives a per-target breakdown of EXACT/RELOC/MATCHING/STUB counts
 - **Multi-target** — all tools read from `rebrew.toml` with `--target` selection; supports PE, ELF, Mach-O across x86, x64, ARM32/64
 - **Rich CLI help** — every tool has detailed `--help` with usage examples, context, and prerequisites via Typer's `rich_markup_mode`
-- **Agent-friendly** — bundled `agent-skills/` copied to projects on `rebrew-init`
+- **Agent-friendly** — bundled `agent-skills/` copied to projects on `rebrew init`
 
 ## Agent Skills
 The project includes four `agent-skills` for AI coding agent integration:
@@ -38,7 +38,7 @@ Rebrew is the engine behind binary-matching game decompilation. When you are wri
 
 ### 🎯 Core Principles
 
-- **Idempotent**: Every tool can be run repeatedly with the same result. `rebrew-catalog`, `rebrew-verify`, `rebrew-cfg`, `rebrew-init` — running them twice changes nothing the second time. No destructive side effects.
+- **Idempotent**: Every tool can be run repeatedly with the same result. `rebrew catalog`, `rebrew verify`, `rebrew cfg`, `rebrew init` — running them twice changes nothing the second time. No destructive side effects.
 - **Config-driven**: All tools read from `rebrew.toml` — zero manual path arguments needed.
 - **Composable**: Tools are small, single-purpose, and designed to be chained by scripts or AI agents.
 - **Genetic Algorithm (GA) Search Engine**: Brute-forcing compiler flags and mutating source code AST to discover the exact code changes needed to fix compiler discrepancies.
@@ -92,40 +92,40 @@ All CLI tools must be run **from within a project directory** that contains a `r
 cd /path/to/your-decomp-project    # must contain rebrew.toml
 
 # Initialization & Configuration
-rebrew-init --target mygame --binary mygame.exe --compiler msvc6 # initialize project
-rebrew-cfg list-targets              # list configured targets
-rebrew-cfg add-origin ZLIB           # add origin to default target
-rebrew-cfg set compiler.cflags "/O1" # set a config value
+rebrew init --target mygame --binary mygame.exe --compiler msvc6 # initialize project
+rebrew cfg list-targets              # list configured targets
+rebrew cfg add-origin ZLIB           # add origin to default target
+rebrew cfg set compiler.cflags "/O1" # set a config value
 
 # Daily Workflow
-rebrew-skeleton 0x10003DA0          # generate C skeleton from disassembly
-rebrew-test src/target_name/f.c     # test implementation against target
-rebrew next --stats                 # show progress (equivalent to rebrew-next)
+rebrew skeleton 0x10003DA0          # generate C skeleton from disassembly
+rebrew test src/target_name/f.c     # test implementation against target
+rebrew next --stats                 # show progress (equivalent to rebrew next)
 rebrew next --improving             # list MATCHING functions sorted by byte delta
-rebrew-lint                         # lint annotations in your source files
+rebrew lint                         # lint annotations in your source files
 rebrew status                       # show reversing status overview
 rebrew data                         # inventory globals in .data/.rdata/.bss
 rebrew data --dispatch              # detect dispatch tables / vtables
 rebrew graph --format summary       # call graph stats and blockers
-rebrew-catalog                      # regenerate the function catalog and coverage JSON
-rebrew-catalog --export-ghidra-labels  # generate ghidra_data_labels.json from detected tables
-rebrew-build-db                     # build SQLite coverage database from catalog
+rebrew catalog                      # regenerate the function catalog and coverage JSON
+rebrew catalog --export-ghidra-labels  # generate ghidra_data_labels.json from detected tables
+rebrew build-db                     # build SQLite coverage database from catalog
 
 # Solving the Matching Puzzle
-rebrew-match --diff-only src/target_name/f.c       # side-by-side disassembly diff
-rebrew-match --diff-only --mm src/target_name/f.c  # show only structural diffs (**)
-rebrew-match src/target_name/f.c    # run the Genetic Algorithm Engine to resolve diffs
-rebrew-ga                           # batch GA runner to solve all stubs
-rebrew-ga --near-miss --threshold 5 # batch GA on MATCHING functions with ≤5B delta
+rebrew match --diff-only src/target_name/f.c       # side-by-side disassembly diff
+rebrew match --diff-only --mm src/target_name/f.c  # show only structural diffs (**)
+rebrew match src/target_name/f.c    # run the Genetic Algorithm Engine to resolve diffs
+rebrew ga                           # batch GA runner to solve all stubs
+rebrew ga --near-miss --threshold 5 # batch GA on MATCHING functions with ≤5B delta
 
 # Advanced & Sync
-rebrew-verify                       # bulk compile and verify all reversed functions
-rebrew-verify --json                # structured JSON report to stdout
-rebrew-verify --output report.json  # write report to specific file
-rebrew-extract                        # batch extract and disassemble functions
-rebrew-asm                          # quick offline disassembly
-rebrew-sync --push                  # export annotations and push to Ghidra via ReVa MCP
-rebrew-sync --summary               # preview what would be synced
+rebrew verify                       # bulk compile and verify all reversed functions
+rebrew verify --json                # structured JSON report to stdout
+rebrew verify --output report.json  # write report to specific file
+rebrew extract                        # batch extract and disassemble functions
+rebrew asm                          # quick offline disassembly
+rebrew sync --push                  # export annotations and push to Ghidra via ReVa MCP
+rebrew sync --summary               # preview what would be synced
 ```
 
 ## ⚙️ Supported Platforms

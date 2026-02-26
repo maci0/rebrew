@@ -18,7 +18,7 @@ Ideas collected during hands-on workflow testing, prioritized by impact.
 | 8 | [Auto-detect ASM-origin CRT functions](#8-auto-detect-asm-origin-crt-functions) | Medium | Low | **P2** |
 | 9 | [Structural similarity metric](#9-structural-similarity-metric) | Low | Medium | **P3** |
 | 10 | [Targeted flag sweep tier](#10-targeted-flag-sweep-tier) | Low | Low | **P3** |
-| 11 | [Similarity-based prioritization in rebrew-next](#11-similarity-based-prioritization-in-rebrew-next) | Low | Medium | **P3** |
+| 11 | [Similarity-based prioritization in rebrew next](#11-similarity-based-prioritization-in-rebrew next) | Low | Medium | **P3** |
 | 12 | [Callee-save register injection](#12-callee-save-register-injection) | High | High | **P3** |
 
 ---
@@ -51,9 +51,9 @@ Ideas collected during hands-on workflow testing, prioritized by impact.
 
 ### 4. Verify summary with STATUS breakdown
 
-**Pain**: `rebrew-verify` output doesn't show STATUS per function or byte match percentages, making progress tracking difficult at a glance.
+**Pain**: `rebrew verify` output doesn't show STATUS per function or byte match percentages, making progress tracking difficult at a glance.
 
-**Proposed**: `rebrew-verify --summary` showing a table with EXACT/RELOC/MATCHING (by delta range: 0B, 1-5B, 6-20B, 21+B)/STUB counts, plus byte match percentage per function (e.g., "MATCHING 274/297B (92%)").
+**Proposed**: `rebrew verify --summary` showing a table with EXACT/RELOC/MATCHING (by delta range: 0B, 1-5B, 6-20B, 21+B)/STUB counts, plus byte match percentage per function (e.g., "MATCHING 274/297B (92%)").
 
 **Impact**: Single-command progress overview.
 
@@ -75,7 +75,7 @@ Ideas collected during hands-on workflow testing, prioritized by impact.
 
 ### 7. Batch flag sweep mode
 
-**Pain**: Running `rebrew-match --flag-sweep-only` on all MATCHING functions sequentially is slow. The GA is CPU-intensive but embarrassingly parallel.
+**Pain**: Running `rebrew match --flag-sweep-only` on all MATCHING functions sequentially is slow. The GA is CPU-intensive but embarrassingly parallel.
 
 **Proposed**: A batch flag sweep mode that parallelizes across functions with priority queuing (smallest delta first).
 
@@ -85,7 +85,7 @@ Ideas collected during hands-on workflow testing, prioritized by impact.
 
 **Pain**: Many CRT STUB functions use hand-written assembly (`strpbrk`, `strcspn`, `strlen` use BTS/BT, `repne scasb`, etc.) that C can never produce. Time is wasted attempting to match these.
 
-**Proposed**: Auto-detect and mark as `ASM_ORIGIN` based on instruction pattern analysis. Note: `rebrew-next` already filters IAT thunks, single-byte stubs, and SEH handlers — this extends that to ASM-origin CRT.
+**Proposed**: Auto-detect and mark as `ASM_ORIGIN` based on instruction pattern analysis. Note: `rebrew next` already filters IAT thunks, single-byte stubs, and SEH handlers — this extends that to ASM-origin CRT.
 
 **Impact**: Prevents wasted effort on inherently unmatchable functions.
 
@@ -105,9 +105,9 @@ Ideas collected during hands-on workflow testing, prioritized by impact.
 
 **Impact**: More focused flag exploration between "quick" and "normal" tiers.
 
-### 11. Similarity-based prioritization in rebrew-next
+### 11. Similarity-based prioritization in rebrew next
 
-**Pain**: Functions that share code patterns with already-matched functions would be easier to reverse, but `rebrew-next` doesn't account for this.
+**Pain**: Functions that share code patterns with already-matched functions would be easier to reverse, but `rebrew next` doesn't account for this.
 
 **Proposed**: Prioritize by similarity to already-matched functions (shared call targets, similar size/structure).
 

@@ -10,7 +10,7 @@ Run the initialize command inside an empty or existing directory. Pass the
 target name, original executable filename, and compiler profile.
 
 ```bash
-rebrew-init --target mygame --binary mygame.exe --compiler msvc6
+rebrew init --target mygame --binary mygame.exe --compiler msvc6
 ```
 
 This will automatically create your `rebrew.toml` as well as the
@@ -27,7 +27,7 @@ cp /path/to/mygame.exe original/mygame.exe
 ## 3. Discover functions
 
 You need a `ghidra_functions.json` inside the source directory. This is the
-function list that `rebrew-skeleton` and `rebrew-next` consume.
+function list that `rebrew skeleton` and `rebrew next` consume.
 
 **Option A — Ghidra (recommended):**
 
@@ -98,7 +98,7 @@ Run the FLIRT scanner to auto-identify known library functions. This provides
 any manual RE.
 
 ```bash
-rebrew-flirt flirt_sigs/
+rebrew flirt flirt_sigs/
 ```
 
 If you need signatures for a specific library version, generate them:
@@ -116,7 +116,7 @@ obtaining, creating, and troubleshooting FLIRT signatures.
 Run triage to classify discovered functions by type and priority:
 
 ```bash
-rebrew-triage --json
+rebrew triage --json
 ```
 
 This categorizes functions as library, game code, CRT, unmatchable (IAT thunks,
@@ -129,8 +129,8 @@ functions with no calls to other functions. These are often trivial
 getters/setters/wrappers.
 
 ```bash
-rebrew-next --stats            # see the overall breakdown
-rebrew-next --origin GAME -n 20  # smallest actionable functions
+rebrew next --stats            # see the overall breakdown
+rebrew next --origin GAME -n 20  # smallest actionable functions
 ```
 
 Each successful match becomes context for harder functions — creating a
@@ -156,15 +156,15 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full annotation format reference.
 
 ## 9. Full tool support
 
-The core tools (`rebrew-skeleton`, `rebrew-next`, `rebrew-test`, `rebrew-match`)
+The core tools (`rebrew skeleton`, `rebrew next`, `rebrew test`, `rebrew match`)
 are fully target-aware. They automatically read the target configuration from
 `rebrew.toml` and operate on the selected target's binary and source directory.
 
 If you have multiple targets, switch between them using the `--target` flag:
 
 ```bash
-rebrew-test --target mygame src/mygame/my_func.c
-rebrew-next --target mygame --stats
+rebrew test --target mygame src/mygame/my_func.c
+rebrew next --target mygame --stats
 ```
 
 ## Checklist
@@ -176,7 +176,7 @@ rebrew-next --target mygame --stats
 [ ] Function list exported: src/<target>/ghidra_functions.json
 [ ] Compiler identified and toolchain verified
 [ ] FLIRT scan completed, library functions cataloged
-[ ] Functions triaged (rebrew-triage)
+[ ] Functions triaged (rebrew triage)
 [ ] First leaf functions reversed and tested
 [ ] Annotation conventions documented
 ```
