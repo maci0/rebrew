@@ -92,7 +92,7 @@ def _detect_format_and_arch(path: Path) -> tuple[str, str | None]:
     Returns (format, arch) where arch may be None if detection fails.
     """
     try:
-        with open(path, "rb") as f:
+        with path.open("rb") as f:
             header = f.read(64)  # enough for PE/ELF/Mach-O headers
     except OSError:
         # Cannot read file — warn rather than silently assuming PE
@@ -113,7 +113,7 @@ def _detect_format_and_arch(path: Path) -> tuple[str, str | None]:
                 pe_off = struct.unpack_from("<I", header, pe_offset_loc)[0]
                 # Read COFF header machine field (need to re-read if pe_off is far)
                 try:
-                    with open(path, "rb") as f:
+                    with path.open("rb") as f:
                         f.seek(pe_off)
                         pe_sig = f.read(4)
                         if pe_sig == b"PE\x00\x00":

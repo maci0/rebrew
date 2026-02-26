@@ -31,7 +31,7 @@ def build_db(project_root: Path | None = None, target: str | None = None) -> Non
     project_config = {}
     yml_path = root_dir / "reccmp-project.yml"
     if yaml and yml_path.exists():
-        with open(yml_path, encoding="utf-8") as f:
+        with yml_path.open(encoding="utf-8") as f:
             project_config = yaml.safe_load(f)
     targets_info = project_config.get("targets", {})
 
@@ -166,7 +166,7 @@ def build_db(project_root: Path | None = None, target: str | None = None) -> Non
             target_name = json_path.stem.removeprefix("data_")
             print(f"Processing {target_name}...", file=sys.stderr)
 
-            with open(json_path, encoding="utf-8") as f:
+            with json_path.open(encoding="utf-8") as f:
                 data = json.load(f)
 
             fn_rows = []
@@ -386,9 +386,9 @@ def _generate_catalogs(conn: sqlite3.Connection, root_dir: Path) -> None:
     target_dirs: dict[str, Path] = {}
     if toml_path.exists():
         try:
-            import tomllib  # type: ignore
+            import tomllib
 
-            with open(toml_path, "rb") as f:
+            with toml_path.open("rb") as f:
                 raw = tomllib.load(f)
             for tname, tdata in raw.get("targets", {}).items():
                 rdir = tdata.get("reversed_dir")
