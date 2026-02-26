@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from rebrew.binary_loader import BinaryInfo, SectionInfo
-from rebrew.next import (
+from rebrew.naming import (
     detect_origin,
     detect_unmatchable,
     group_uncovered,

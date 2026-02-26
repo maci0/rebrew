@@ -15,9 +15,7 @@ Usage:
     rebrew-skeleton --list --origin GAME          # List uncovered GAME functions
 """
 
-import bisect
 import json
-import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -26,17 +24,17 @@ import jinja2
 import typer
 
 from rebrew.annotation import (
-    _DEFAULT_ORIGIN_PREFIXES,
     marker_for_origin,
-    parse_c_file_multi,
 )
 from rebrew.catalog import load_ghidra_functions
-from rebrew.cli import TargetOption, get_config, iter_sources, rel_display_path
+from rebrew.cli import TargetOption, get_config
 from rebrew.decompiler import fetch_decompilation
-from rebrew.next import detect_origin
-
-# Reverse mapping: origin → filename prefix (derived from annotation defaults)
-_ORIGIN_TO_PREFIX: dict[str, str] = {v: k for k, v in _DEFAULT_ORIGIN_PREFIXES.items()}
+from rebrew.naming import (
+    detect_origin,
+    load_existing_vas,
+    make_filename,
+    sanitize_name,
+)
 
 # Default skeleton TODO text per origin (used when cfg.origin_todos is empty)
 _DEFAULT_ORIGIN_TODOS: dict[str, str] = {
@@ -108,129 +106,6 @@ int __cdecl {{ func_name }}(void)
 """,
     keep_trailing_newline=True,
 )
-
-
-def load_existing_vas(src_dir: str | Path, cfg: Any = None) -> dict[int, str]:
-    """Load VAs already covered by source files. Returns {va: rel_path}.
-
-    Supports multi-function files: a single source file may contain multiple
-    annotation blocks, each registering a separate VA.
-
-    Values are relative paths from *src_dir* (e.g. ``"game/pool_free.c"``
-    for nested layouts, or ``"pool_free.c"`` for flat layouts).
-
-    Args:
-        src_dir: Directory containing reversed source files.
-        cfg: Optional config for source extension (defaults to ``".c"``).
-    """
-    src_path = Path(src_dir)
-    existing: dict[int, str] = {}
-    for cfile in iter_sources(src_path, cfg):
-        rel_name = rel_display_path(cfile, src_path)
-        entries = parse_c_file_multi(cfile)
-        for entry in entries:
-            existing[entry.va] = rel_name
-    return existing
-
-
-def find_neighbor_file(
-    va: int,
-    existing_vas: dict[int, str],
-    max_gap: int = 0x1000,
-    _sorted_keys: list[int] | None = None,
-) -> str | None:
-    """Find an existing .c file containing a function near this VA.
-
-    Searches for the closest covered VA within *max_gap* bytes. If found,
-    returns the filename — suggesting the uncovered function should be
-    appended to that file rather than getting its own skeleton.
-
-    Args:
-        va: The uncovered function's virtual address.
-        existing_vas: Mapping of covered VA -> filename (from load_existing_vas).
-        max_gap: Maximum address distance to consider (default 4KB).
-        _sorted_keys: Optional pre-sorted list of VAs from *existing_vas*.
-            Pass this when calling in a loop to avoid re-sorting on each call.
-    """
-    if not existing_vas:
-        return None
-
-    covered = _sorted_keys if _sorted_keys is not None else sorted(existing_vas)
-    idx = bisect.bisect_left(covered, va)
-    best_file = None
-    best_gap = max_gap + 1
-
-    # Check left neighbor
-    if idx > 0:
-        left_va = covered[idx - 1]
-        gap = va - left_va
-        if gap <= max_gap and gap < best_gap:
-            best_gap = gap
-            best_file = existing_vas[left_va]
-
-    # Check right neighbor
-    if idx < len(covered):
-        right_va = covered[idx]
-        gap = right_va - va
-        if gap <= max_gap and gap < best_gap:
-            best_gap = gap
-            best_file = existing_vas[right_va]
-
-    return best_file
-
-
-def sanitize_name(ghidra_name: str) -> str:
-    """Convert Ghidra name to a safe C filename prefix.
-
-    Ensures:
-    - No characters outside [a-zA-Z0-9_]
-    - No leading digits (would be an invalid C identifier)
-    - No consecutive underscores
-    - Maximum 64 characters
-    """
-    # Strip FUN_ prefix
-    name = ghidra_name
-    if name.startswith("FUN_"):
-        # Use the address as the name
-        return "func_" + name[4:].lower()
-    # Clean up special chars
-    name = re.sub(r"[^a-zA-Z0-9_]", "_", name)
-    # Collapse consecutive underscores
-    name = re.sub(r"_+", "_", name)
-    # Strip leading/trailing underscores
-    name = name.strip("_")
-    # Ensure no leading digit (invalid C identifier)
-    if name and name[0].isdigit():
-        name = "_" + name
-    # Limit length
-    if len(name) > 64:
-        name = name[:64]
-    return name or "unnamed"
-
-
-def make_filename(
-    va: int, ghidra_name: str, origin: str, custom_name: str | None = None, cfg: Any = None
-) -> str:
-    """Generate the .c filename following project naming conventions."""
-    if custom_name:
-        base = custom_name
-    elif ghidra_name.startswith("FUN_"):
-        base = "func_" + ghidra_name[4:].lower()
-    else:
-        base = sanitize_name(ghidra_name)
-
-    # Apply origin prefix convention (config-driven or default)
-    if cfg is not None and getattr(cfg, "origin_prefixes", None):
-        prefix = cfg.origin_prefixes.get(origin, "")
-    else:
-        prefix = _ORIGIN_TO_PREFIX.get(origin, "")
-
-    # Don't double-prefix
-    if prefix and not base.startswith(prefix) and not base.startswith("func_"):
-        base = prefix + base
-
-    ext = getattr(cfg, "source_ext", ".c") if cfg is not None else ".c"
-    return base + ext
 
 
 def generate_skeleton(

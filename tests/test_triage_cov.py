@@ -1,6 +1,6 @@
 """Tests for triage module helpers -- coverage stats, near-miss sorting."""
 
-from rebrew.next import parse_byte_delta
+from rebrew.naming import parse_byte_delta
 
 # ---------------------------------------------------------------------------
 # parse_byte_delta (used by triage near-miss computation)

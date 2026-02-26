@@ -7,9 +7,9 @@ Covers: parser consolidation, CFLAGS validation, safe file write-back,
 import re
 from pathlib import Path
 
-from rebrew.annotation import make_func_entry, parse_c_file
-from rebrew.skeleton import sanitize_name
-from rebrew.test import parse_source_metadata, smart_reloc_compare, update_source_status
+from rebrew.annotation import make_func_entry, parse_c_file, parse_source_metadata
+from rebrew.naming import sanitize_name
+from rebrew.test import smart_reloc_compare, update_source_status
 
 # ---------------------------------------------------------------------------
 # Helpers
