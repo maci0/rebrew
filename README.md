@@ -18,7 +18,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 - **Status tracking** — `rebrew status` gives a per-target breakdown of EXACT/RELOC/MATCHING/STUB counts
 - **Multi-target** — all tools read from `rebrew.toml` with `--target` selection; supports PE, ELF, Mach-O across x86, x64, ARM32/64
 - **Rich CLI help** — every tool has detailed `--help` with usage examples, context, and prerequisites via Typer's `rich_markup_mode`
-- **Agent-friendly** — includes `agent-skills/` for AI coding agent integration
+- **Agent-friendly** — bundled `agent-skills/` copied to projects on `rebrew-init`
 
 ## Agent Skills
 The project includes four `agent-skills` for AI coding agent integration:
