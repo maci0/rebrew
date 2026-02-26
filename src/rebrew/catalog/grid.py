@@ -40,7 +40,7 @@ def _find_ghidra_data_label(
 
 
 def generate_data_json(
-    entries: list[dict[str, Any]],
+    entries: list[Any],
     r2_funcs: list[dict[str, Any]],
     text_size: int,
     bin_path: Path | None = None,
@@ -93,7 +93,10 @@ def generate_data_json(
             elif vas:
                 covered_bytes += vas[0]["size"]
 
-    sections = get_sections(bin_path) if bin_path else {}
+    sections: dict[str, Any] = {}
+    if bin_path:
+        for k, v in get_sections(bin_path).items():
+            sections[k] = dict(v)
     globals_dict = get_globals(src_dir) if src_dir else {}
     ghidra_data_labels = load_ghidra_data_labels(src_dir)
 
@@ -222,7 +225,7 @@ def generate_data_json(
                     }  # Default size 4 for globals
 
         item_starts = sorted(items_by_off.keys())
-        segments = []
+        segments: list[tuple[int, int, str, list[str], str | None, str | None]] = []
         off = 0
         idx = 0
 

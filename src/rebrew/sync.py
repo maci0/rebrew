@@ -4,9 +4,9 @@ Reads annotations from decomp C source files and generates Ghidra script
 commands to rename functions, add comments, and set bookmarks via ReVa MCP.
 
 Usage:
-    rebrew-sync --export    Export annotations to ghidra_commands.json
-    rebrew-sync --summary   Show what would be synced
-    rebrew-sync --apply     Apply ghidra_commands.json to Ghidra via ReVa MCP
+    rebrew sync --export    Export annotations to ghidra_commands.json
+    rebrew sync --summary   Show what would be synced
+    rebrew sync --apply     Apply ghidra_commands.json to Ghidra via ReVa MCP
 
 The exported JSON can be consumed by automation that calls ReVa MCP tools:
   - create-function: define functions at annotated VAs (before labeling)
@@ -174,7 +174,7 @@ def apply_commands_via_mcp(
             "params": {
                 "protocolVersion": "2025-03-26",
                 "capabilities": {},
-                "clientInfo": {"name": "rebrew-sync", "version": "1.0.0"},
+                "clientInfo": {"name": "rebrew sync", "version": "1.0.0"},
             },
         }
         try:
@@ -349,14 +349,14 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew-sync --export                   Export annotations to ghidra_commands.json
-  rebrew-sync --summary                  Show what would be synced (dry run)
-  rebrew-sync --apply                    Apply ghidra_commands.json via ReVa MCP
+  rebrew sync --export                   Export annotations to ghidra_commands.json
+  rebrew sync --summary                  Show what would be synced (dry run)
+  rebrew sync --apply                    Apply ghidra_commands.json via ReVa MCP
 
 [bold]Typical workflow:[/bold]
-  1. rebrew-sync --summary               Preview changes
-  2. rebrew-sync --export                Generate JSON command file
-  3. rebrew-sync --apply                 Push to Ghidra via ReVa MCP
+  1. rebrew sync --summary               Preview changes
+  2. rebrew sync --export                Generate JSON command file
+  3. rebrew sync --apply                 Push to Ghidra via ReVa MCP
 
 [bold]What it syncs:[/bold]
   Function renames, status comments, bookmarks, and origin labels
@@ -405,7 +405,7 @@ def main(
     for e in entries:
         by_va.setdefault(e["va"], []).append(e)
 
-    iat_thunk_set: set[int] = set(getattr(cfg, "iat_thunks", []))
+    iat_thunk_set: set[int] = set(cfg.iat_thunks)
 
     # Build commands once (reused by --summary, --export, --push)
     ops: list[dict[str, Any]] | None = None

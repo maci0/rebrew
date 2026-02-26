@@ -43,7 +43,7 @@ def source_glob(cfg: ProjectConfig | None) -> str:
     like ``"*.c"`` or ``"*.cpp"``.  Falls back to ``"*.c"`` if the attribute
     is missing.
     """
-    ext = getattr(cfg, "source_ext", ".c")
+    ext = cfg.source_ext if cfg is not None else getattr(cfg, "source_ext", ".c")
     return f"*{ext}"
 
 

@@ -1,8 +1,10 @@
 """Tests for rebrew.skeleton — utility functions for skeleton generation."""
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from rebrew.config import ProjectConfig
 from rebrew.naming import (
     detect_origin,
     find_neighbor_file,
@@ -55,7 +57,8 @@ class TestSanitizeName:
 
 class TestDetectOrigin:
     def setup_method(self) -> None:
-        self.cfg = SimpleNamespace(
+        self.cfg = ProjectConfig(
+            root=Path("/tmp"),
             zlib_vas=[0x10020000],
             game_range_end=0x1000B460,
             default_origin="",
@@ -113,7 +116,7 @@ class TestMakeFilename:
 class TestGenerateTestCommand:
     def test_basic(self) -> None:
         cmd = generate_test_command("src/game_func.c", "_my_func", 0x10001000, 64, "/O2 /Gd")
-        assert "rebrew-test" in cmd
+        assert "rebrew test" in cmd
         assert "src/game_func.c" in cmd
 
 
@@ -124,9 +127,9 @@ class TestGenerateTestCommand:
 
 class TestGenerateDiffCommand:
     def test_basic(self) -> None:
-        cfg = SimpleNamespace(target_name="server.dll")
+        cfg = ProjectConfig(root=Path("/tmp"), target_name="server.dll")
         cmd = generate_diff_command(cfg, "src/game_func.c", "_my_func", 0x10001000, 64, "/O2")
-        assert "rebrew-match" in cmd
+        assert "rebrew match" in cmd
         assert "src/game_func.c" in cmd
 
 
@@ -163,7 +166,8 @@ class TestLoadExistingVas:
 
 class TestListUncovered:
     def setup_method(self) -> None:
-        self.cfg = SimpleNamespace(
+        self.cfg = ProjectConfig(
+            root=Path("/tmp"),
             zlib_vas=[],
             game_range_end=0x1000B460,
             ignored_symbols=[],
@@ -209,7 +213,7 @@ class TestGenerateSkeletonOrigins:
             origin_todos={},
         )
         defaults.update(overrides)
-        return SimpleNamespace(**defaults)
+        return ProjectConfig(root=Path("/tmp"), **defaults)
 
     def test_custom_library_origin_uses_library_marker(self) -> None:
         cfg = self._make_cfg()

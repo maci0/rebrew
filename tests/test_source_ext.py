@@ -140,25 +140,27 @@ def test_source_glob_default() -> None:
 
 def test_source_glob_c() -> None:
     """source_ext=.c → *.c."""
-    cfg = SimpleNamespace(source_ext=".c")
+    cfg = ProjectConfig(root=Path("/tmp"), source_ext=".c")
     assert source_glob(cfg) == "*.c"
 
 
 def test_source_glob_cpp() -> None:
     """source_ext=.cpp → *.cpp."""
-    cfg = SimpleNamespace(source_ext=".cpp")
+    cfg = ProjectConfig(root=Path("/tmp"), source_ext=".cpp")
     assert source_glob(cfg) == "*.cpp"
 
 
 def test_source_glob_rs() -> None:
     """source_ext=.rs → *.rs."""
-    cfg = SimpleNamespace(source_ext=".rs")
+    cfg = ProjectConfig(root=Path("/tmp"), source_ext=".rs")
     assert source_glob(cfg) == "*.rs"
 
 
 def test_source_glob_no_attr() -> None:
     """cfg without source_ext attribute → *.c."""
-    cfg = SimpleNamespace()
+    cfg = ProjectConfig(
+        root=Path("/tmp"),
+    )
     assert source_glob(cfg) == "*.c"
 
 
@@ -182,7 +184,7 @@ def test_make_filename_c() -> None:
     """Default cfg → .c extension."""
     from rebrew.naming import make_filename
 
-    cfg = SimpleNamespace(origin_prefixes={}, source_ext=".c")
+    cfg = ProjectConfig(root=Path("/tmp"), origin_prefixes={}, source_ext=".c")
     result = make_filename(0x10001000, "my_func", "GAME", cfg=cfg)
     assert result.endswith(".c")
 
@@ -191,7 +193,7 @@ def test_make_filename_cpp() -> None:
     """source_ext=.cpp → .cpp extension."""
     from rebrew.naming import make_filename
 
-    cfg = SimpleNamespace(origin_prefixes={}, source_ext=".cpp")
+    cfg = ProjectConfig(root=Path("/tmp"), origin_prefixes={}, source_ext=".cpp")
     result = make_filename(0x10001000, "my_func", "GAME", cfg=cfg)
     assert result.endswith(".cpp")
 
@@ -238,12 +240,12 @@ def test_load_existing_vas_with_cfg(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    cfg_cpp = SimpleNamespace(source_ext=".cpp")
+    cfg_cpp = ProjectConfig(root=Path("/tmp"), source_ext=".cpp")
     result_cpp = load_existing_vas(tmp_path, cfg=cfg_cpp)
     assert 0x10001000 in result_cpp
     assert 0x10002000 not in result_cpp
 
-    cfg_c = SimpleNamespace(source_ext=".c")
+    cfg_c = ProjectConfig(root=Path("/tmp"), source_ext=".c")
     result_c = load_existing_vas(tmp_path, cfg=cfg_c)
     assert 0x10002000 in result_c
     assert 0x10001000 not in result_c

@@ -48,8 +48,8 @@ def disasm(code_bytes: bytes, va: int, cfg: ProjectConfig | None = None) -> str:
     """Disassemble using capstone and return formatted string."""
     from capstone import CS_ARCH_X86, CS_MODE_32, Cs
 
-    arch = getattr(cfg, "capstone_arch", CS_ARCH_X86) if cfg else CS_ARCH_X86
-    mode = getattr(cfg, "capstone_mode", CS_MODE_32) if cfg else CS_MODE_32
+    arch = cfg.capstone_arch if cfg else CS_ARCH_X86
+    mode = cfg.capstone_mode if cfg else CS_MODE_32
     md = Cs(arch, mode)
     lines = []
     for insn in md.disasm(code_bytes, va):
@@ -171,12 +171,12 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew-extract                            Extract all annotated functions
-  rebrew-extract --extract                  Extract .bin files for each function
-  rebrew-extract --disasm                   Disassemble all extracted functions
-  rebrew-extract --origin GAME              Filter by origin
-  rebrew-extract --status STUB              Only STUB functions
-  rebrew-extract -j 8                       Parallel extraction with 8 jobs
+  rebrew extract                            Extract all annotated functions
+  rebrew extract --extract                  Extract .bin files for each function
+  rebrew extract --disasm                   Disassemble all extracted functions
+  rebrew extract --origin GAME              Filter by origin
+  rebrew extract --status STUB              Only STUB functions
+  rebrew extract -j 8                       Parallel extraction with 8 jobs
 
 [dim]Reads function list from reversed .c file annotations.
 Outputs .bin and .asm files to the configured bin_dir.[/dim]""",

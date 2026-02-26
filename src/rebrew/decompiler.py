@@ -1,7 +1,7 @@
 """decompiler.py - Pluggable decompiler backend for skeleton generation.
 
 Provides a unified interface to fetch pseudo-C decompilation from multiple
-backends (r2ghidra, r2dec, Ghidra headless). Used by rebrew-skeleton when
+backends (r2ghidra, r2dec, Ghidra headless). Used by rebrew skeleton when
 the ``--decomp`` flag is set.
 
 Usage (internal)::

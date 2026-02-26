@@ -10,7 +10,7 @@ from rebrew.config import ProjectConfig
 
 
 def generate_catalog(
-    entries: list[dict[str, Any]],
+    entries: list[Any],
     r2_funcs: list[dict[str, Any]],
     text_size: int,
 ) -> str:
@@ -99,7 +99,7 @@ def generate_catalog(
 # ---------------------------------------------------------------------------
 
 
-def _reccmp_type(entry: dict[str, Any]) -> str:
+def _reccmp_type(entry: Any) -> str:
     """Map our marker_type + origin to reccmp entity type."""
     if entry["marker_type"] == "STUB":
         return "stub"
@@ -109,7 +109,7 @@ def _reccmp_type(entry: dict[str, Any]) -> str:
 
 
 def generate_reccmp_csv(
-    entries: list[dict[str, Any]],
+    entries: list[Any],
     r2_funcs: list[dict[str, Any]],
     registry: dict[int, dict[str, Any]] | None = None,
     target_name: str = "TARGET",
@@ -177,7 +177,7 @@ def generate_reccmp_csv(
             # Determine type
             is_thunk = reg.get("is_thunk", False)
             if not is_thunk and cfg:
-                is_thunk = va in getattr(cfg, "iat_thunks", [])
+                is_thunk = va in cfg.iat_thunks
             etype = "function"
             if is_thunk:
                 etype = "stub"

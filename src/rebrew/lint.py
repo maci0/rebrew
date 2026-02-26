@@ -254,7 +254,7 @@ def _check_E005_E006_origin(
     if "ORIGIN" not in found_keys:
         result.error(1, "E005", "Missing // ORIGIN: annotation")
     else:
-        valid = set(cfg.origins) if cfg and getattr(cfg, "origins", None) else VALID_ORIGINS
+        valid = set(cfg.origins) if cfg and cfg.origins else VALID_ORIGINS
         if valid and found_keys["ORIGIN"] not in valid:
             result.error(1, "E006", f"Invalid ORIGIN: {found_keys['ORIGIN']}")
 
@@ -287,9 +287,7 @@ def _check_E010_unknown_keys(result: LintResult, found_keys: dict[str, str]) -> 
 def _check_E015_marker_consistency(
     result: LintResult, marker: str, origin: str, status: str, cfg: ProjectConfig | None = None
 ) -> None:
-    lib_origins = (
-        cfg.library_origins if cfg and getattr(cfg, "library_origins", None) is not None else None
-    )
+    lib_origins = cfg.library_origins if cfg and cfg.library_origins is not None else None
     expected_marker = marker_for_origin(origin, status, lib_origins)
     if marker != expected_marker and marker in VALID_MARKERS and marker not in ("GLOBAL", "DATA"):
         result.error(
@@ -343,9 +341,7 @@ def _check_W006_source(
     result: LintResult, origin: str, found_keys: dict[str, str], cfg: ProjectConfig | None = None
 ) -> None:
     lib_origins = (
-        cfg.library_origins
-        if cfg and getattr(cfg, "library_origins", None) is not None
-        else {"MSVCRT", "ZLIB"}
+        cfg.library_origins if cfg and cfg.library_origins is not None else {"MSVCRT", "ZLIB"}
     )
     if origin in lib_origins and "SOURCE" not in found_keys:
         result.warning(
@@ -361,7 +357,7 @@ def _check_W014_origin_prefix(
 ) -> None:
     # Use config origin_prefixes if available (reversed: origin→prefix to prefix→origin)
     prefixes = None
-    if cfg and getattr(cfg, "origin_prefixes", None):
+    if cfg and cfg.origin_prefixes:
         prefixes = {v: k for k, v in cfg.origin_prefixes.items()}
     expected_origin = origin_from_filename(filepath.stem, prefixes)
     if expected_origin and origin and expected_origin != origin:
@@ -543,11 +539,7 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
         origin = m.group("origin").strip().upper()
         marker = marker_for_origin(origin, status)
         cflags_parts = raw_cflags.split()
-        lib_origins = (
-            cfg.library_origins
-            if getattr(cfg, "library_origins", None) is not None
-            else {"MSVCRT", "ZLIB"}
-        )
+        lib_origins = cfg.library_origins if cfg.library_origins is not None else {"MSVCRT", "ZLIB"}
         if "/Gd" not in cflags_parts and origin not in lib_origins:
             cflags_parts.append("/Gd")
         cflags = " ".join(cflags_parts)
@@ -715,12 +707,12 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew-lint                                  Lint all .c files in reversed_dir
-  rebrew-lint --fix                            Auto-migrate old-format annotations
-  rebrew-lint --quiet                          Errors only, suppress warnings
-  rebrew-lint --json                           Machine-readable JSON output
-  rebrew-lint --summary                        Show status/origin breakdown table
-  rebrew-lint --files src/game/foo.c           Lint specific files only
+  rebrew lint                                  Lint all .c files in reversed_dir
+  rebrew lint --fix                            Auto-migrate old-format annotations
+  rebrew lint --quiet                          Errors only, suppress warnings
+  rebrew lint --json                           Machine-readable JSON output
+  rebrew lint --summary                        Show status/origin breakdown table
+  rebrew lint --files src/game/foo.c           Lint specific files only
 
 [bold]Error codes:[/bold]
   E001   Missing FUNCTION/LIBRARY/STUB annotation
@@ -754,7 +746,7 @@ def main(
 
     from rebrew.cli import iter_sources
 
-    ext = getattr(cfg, "source_ext", ".c") if cfg else ".c"
+    ext = cfg.source_ext if cfg else ".c"
     if files:
         c_files = [f for f in files if f.suffix == ext]
     elif reversed_dir:

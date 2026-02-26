@@ -3,6 +3,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+from rebrew.config import ProjectConfig
 from rebrew.lint import lint_file
 
 # ---------------------------------------------------------------------------
@@ -24,7 +25,8 @@ def _make_cfg(
     library_origins: set[str] | None = None,
 ) -> SimpleNamespace:
     """Create a minimal config-like namespace for config-aware lint tests."""
-    return SimpleNamespace(
+    return ProjectConfig(
+        root=Path("/tmp"),
         marker=marker,
         origins=origins or ["GAME", "MSVCRT", "ZLIB"],
         cflags_presets=cflags_presets or {},

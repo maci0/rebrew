@@ -1,8 +1,8 @@
 """Dump assembly bytes for a function from the target binary.
 
 Usage:
-    rebrew-asm 0x10003ca0 --size 77
-    rebrew-asm --va 0x10003ca0 --size 77
+    rebrew asm 0x10003ca0 --size 77
+    rebrew asm --va 0x10003ca0 --size 77
 """
 
 import json
@@ -18,12 +18,12 @@ from rebrew.config import ProjectConfig
 
 _EPILOG = """\
 [bold]Examples:[/bold]
-  rebrew-asm 0x10003ca0                     Disassemble 32 bytes (default)
-  rebrew-asm 0x10003ca0 --size 77           Disassemble 77 bytes
-  rebrew-asm --va 0x10003ca0 --size 128     Using named option
-  rebrew-asm 0x10003ca0 --no-annotate       Skip call/jmp name annotations
-  rebrew-asm 0x10003ca0 -t server.dll       Use alternate target
-  rebrew-asm 0x10003ca0 --size 77 --json    Machine-readable JSON output
+  rebrew asm 0x10003ca0                     Disassemble 32 bytes (default)
+  rebrew asm 0x10003ca0 --size 77           Disassemble 77 bytes
+  rebrew asm --va 0x10003ca0 --size 128     Using named option
+  rebrew asm 0x10003ca0 --no-annotate       Skip call/jmp name annotations
+  rebrew asm 0x10003ca0 -t server.dll       Use alternate target
+  rebrew asm 0x10003ca0 --size 77 --json    Machine-readable JSON output
 
 [dim]Uses capstone for x86 disassembly with call/jmp annotation.
 Falls back to hex dump if capstone is not installed.
@@ -32,6 +32,7 @@ Reads binary path and architecture from rebrew.toml.[/dim]"""
 app = typer.Typer(
     help="Dump hex/asm for a function from the target binary.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 
@@ -73,7 +74,7 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
     return lookup
 
 
-@app.command(epilog=_EPILOG)
+@app.callback(invoke_without_command=True)
 def main(
     va_hex: str | None = typer.Argument(None, help="Function VA in hex"),
     va: str | None = typer.Option(None, "--va", help="Function VA in hex"),

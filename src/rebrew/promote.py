@@ -1,11 +1,11 @@
 """Atomic promote: test a function and update its STATUS annotation.
 
-Runs rebrew-test internally, then updates the STATUS and BLOCKER annotations
+Runs rebrew test internally, then updates the STATUS and BLOCKER annotations
 based on the result. Outputs structured JSON for agent consumption.
 
 Usage:
-    rebrew-promote src/server.dll/my_func.c
-    rebrew-promote src/server.dll/my_func.c --json
+    rebrew promote src/server.dll/my_func.c
+    rebrew promote src/server.dll/my_func.c --json
 """
 
 import json
@@ -29,9 +29,9 @@ from rebrew.test import (
 
 _EPILOG = """\
 [bold]Examples:[/bold]
-  rebrew-promote src/game_dll/my_func.c             Test + update STATUS
-  rebrew-promote src/game_dll/my_func.c --json       JSON output for agents
-  rebrew-promote src/game_dll/my_func.c --dry-run    Show what would change
+  rebrew promote src/game_dll/my_func.c             Test + update STATUS
+  rebrew promote src/game_dll/my_func.c --json       JSON output for agents
+  rebrew promote src/game_dll/my_func.c --dry-run    Show what would change
 
 [bold]How it works:[/bold]
   1. Compiles the source file
@@ -40,16 +40,17 @@ _EPILOG = """\
   4. Removes BLOCKER annotation if the function matches (EXACT/RELOC)
   5. Reports the result as structured JSON
 
-[dim]This is the atomic version of 'rebrew-test + manual STATUS edit'.
+[dim]This is the atomic version of 'rebrew test + manual STATUS edit'.
 Safe for agent use — idempotent, validates before writing.[/dim]"""
 
 app = typer.Typer(
     help="Test a function and atomically update its STATUS annotation.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 
-@app.command(epilog=_EPILOG)
+@app.callback(invoke_without_command=True)
 def main(
     source: str = typer.Argument(help="C source file"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

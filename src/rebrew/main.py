@@ -47,6 +47,8 @@ _SUBCOMMANDS: list[tuple[str, str, str]] = [
     ("graph", "rebrew.depgraph", "Function dependency graph visualization."),
     ("promote", "rebrew.promote", "Test + atomically update STATUS annotation."),
     ("triage", "rebrew.triage", "Cold-start triage: FLIRT scan + coverage summary."),
+    ("flirt", "rebrew.flirt", "FLIRT signature scanning."),
+    ("nasm", "rebrew.nasm", "NASM assembly extraction."),
 ]
 
 for _name, _module, _help in _SUBCOMMANDS:

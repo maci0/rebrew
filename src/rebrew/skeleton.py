@@ -3,15 +3,15 @@
 Given a VA address, generates a properly annotated .c file skeleton with:
 - reccmp-style annotations (FUNCTION/LIBRARY marker, STATUS, ORIGIN, SIZE, CFLAGS, SYMBOL)
 - A placeholder function body
-- The exact rebrew-test command to verify it
+- The exact rebrew test command to verify it
 
 Usage:
-    rebrew-skeleton 0x10003da0                    # Auto-detect origin
-    rebrew-skeleton 0x10003da0 --origin GAME      # Force origin
-    rebrew-skeleton 0x10003da0 --name my_func     # Custom name
-    rebrew-skeleton 0x10003da0 --output path.c    # Custom output path
-    rebrew-skeleton --list                        # List all uncovered functions
-    rebrew-skeleton --list --origin GAME          # List uncovered GAME functions
+    rebrew skeleton 0x10003da0                    # Auto-detect origin
+    rebrew skeleton 0x10003da0 --origin GAME      # Force origin
+    rebrew skeleton 0x10003da0 --name my_func     # Custom name
+    rebrew skeleton 0x10003da0 --output path.c    # Custom output path
+    rebrew skeleton --list                        # List all uncovered functions
+    rebrew skeleton --list --origin GAME          # List uncovered GAME functions
 """
 
 import json
@@ -127,21 +127,21 @@ def generate_skeleton(
     # Derive marker from origin (FUNCTION vs LIBRARY). We pass "MATCHED" as status
     # so that marker_for_origin picks FUNCTION/LIBRARY rather than STUB — the template
     # writes STATUS: STUB on its own annotation line.
-    lib_origins = getattr(cfg, "library_origins", None) or None
+    lib_origins = cfg.library_origins or None
     marker = marker_for_origin(origin, "MATCHED", lib_origins)
-    cflags = getattr(cfg, "cflags_presets", {}).get(origin, "/O2 /Gd")
+    cflags = cfg.cflags_presets.get(origin, "/O2 /Gd")
 
     # Determine symbol name
     symbol = "_" + custom_name if custom_name else "_" + sanitize_name(ghidra_name)
     func_name = symbol.lstrip("_")
 
-    cfg_todos = getattr(cfg, "origin_todos", None) or {}
+    cfg_todos = cfg.origin_todos or {}
     if cfg_todos:
         todo = cfg_todos.get(origin, "Implement function")
     else:
         todo = _DEFAULT_ORIGIN_TODOS.get(origin, "Implement function")
 
-    cfg_comments = getattr(cfg, "origin_comments", None) or {}
+    cfg_comments = cfg.origin_comments or {}
     if cfg_comments:
         origin_comment = cfg_comments.get(origin, "")
     else:
@@ -179,9 +179,9 @@ def generate_annotation_block(
     Unlike generate_skeleton(), this omits origin-specific preamble comments
     and produces a compact block suitable for appending after existing code.
     """
-    lib_origins = getattr(cfg, "library_origins", None) or None
+    lib_origins = cfg.library_origins or None
     marker = marker_for_origin(origin, "MATCHED", lib_origins)
-    cflags = getattr(cfg, "cflags_presets", {}).get(origin, "/O2 /Gd")
+    cflags = cfg.cflags_presets.get(origin, "/O2 /Gd")
 
     symbol = "_" + custom_name if custom_name else "_" + sanitize_name(ghidra_name)
     func_name = symbol.lstrip("_")
@@ -202,15 +202,15 @@ def generate_annotation_block(
 
 
 def generate_test_command(filepath: str, symbol: str, va: int, size: int, cflags: str) -> str:
-    """Generate the rebrew-test command to verify this function."""
-    return f'rebrew-test {filepath} {symbol} --va 0x{va:08x} --size {size} --cflags "{cflags}"'
+    """Generate the rebrew test command to verify this function."""
+    return f'rebrew test {filepath} {symbol} --va 0x{va:08x} --size {size} --cflags "{cflags}"'
 
 
 def generate_diff_command(
     cfg: ProjectConfig, filepath: str, symbol: str, va: int, size: int, cflags: str
 ) -> str:
-    """Generate the rebrew-match diff command."""
-    return f'rebrew-match {filepath} --diff-only --symbol "{symbol}" --cflags "{cflags}"'
+    """Generate the rebrew match diff command."""
+    return f'rebrew match {filepath} --diff-only --symbol "{symbol}" --cflags "{cflags}"'
 
 
 def list_uncovered(
@@ -223,7 +223,7 @@ def list_uncovered(
 ) -> list[tuple[int, int, str, str]]:
     """List uncovered functions. Returns [(va, size, ghidra_name, origin)]."""
     uncovered: list[tuple[int, int, str, str]] = []
-    ignored_symbols = set(getattr(cfg, "ignored_symbols", None) or [])
+    ignored_symbols = set(cfg.ignored_symbols or [])
     for func in ghidra_funcs:
         va = func["va"]
         size = func["size"]
@@ -248,14 +248,14 @@ def list_uncovered(
 
 _EPILOG = """\
 [bold]Examples:[/bold]
-  rebrew-skeleton 0x10003da0                     Generate skeleton for one function
-  rebrew-skeleton 0x10003da0 --name my_func      Custom function name
-  rebrew-skeleton 0x10003da0 --origin MSVCRT      Set origin (default: auto-detect)
-  rebrew-skeleton 0x10003da0 --append crt_env.c  Append to existing multi-function file
-  rebrew-skeleton --batch 10                     Generate 10 skeletons at once
-  rebrew-skeleton --batch 10 --origin GAME       Batch, filtered by origin
-  rebrew-skeleton --list                         List uncovered functions
-  rebrew-skeleton --list --origin ZLIB           List uncovered ZLIB functions
+  rebrew skeleton 0x10003da0                     Generate skeleton for one function
+  rebrew skeleton 0x10003da0 --name my_func      Custom function name
+  rebrew skeleton 0x10003da0 --origin MSVCRT      Set origin (default: auto-detect)
+  rebrew skeleton 0x10003da0 --append crt_env.c  Append to existing multi-function file
+  rebrew skeleton --batch 10                     Generate 10 skeletons at once
+  rebrew skeleton --batch 10 --origin GAME       Batch, filtered by origin
+  rebrew skeleton --list                         List uncovered functions
+  rebrew skeleton --list --origin ZLIB           List uncovered ZLIB functions
 
 [bold]What it creates:[/bold]
   A .c file with reccmp-style annotations (FUNCTION, STATUS, ORIGIN, SIZE,
@@ -271,10 +271,11 @@ Uses rebrew.toml for compiler flags and origin presets.[/dim]"""
 app = typer.Typer(
     help="Generate .c skeleton files for uncovered functions in the target binary.",
     rich_markup_mode="rich",
+    epilog=_EPILOG,
 )
 
 
-@app.command(epilog=_EPILOG)
+@app.callback(invoke_without_command=True)
 def main(
     va_arg: str | None = typer.Argument(None, help="Function VA in hex (e.g. 0x10003da0)"),
     va: str | None = typer.Option(None, "--va", help="Function VA in hex"),
@@ -368,7 +369,7 @@ def main(
             filepath.write_text(content, encoding="utf-8")
 
             symbol_val = "_" + sanitize_name(name_val)
-            cflags_val = getattr(cfg, "cflags_presets", {}).get(origin_val, "/O2 /Gd")
+            cflags_val = cfg.cflags_presets.get(origin_val, "/O2 /Gd")
             test_cmd = generate_test_command(
                 str(rel_path), symbol_val, va_val, size_val, cflags_val
             )
@@ -471,7 +472,7 @@ def main(
         print(f"  Symbol: {symbol_val}", file=sys.stderr)
         print(file=sys.stderr)
         print("Test all functions in this file:", file=sys.stderr)
-        print(f"  rebrew-test {rel_path_val}", file=sys.stderr)
+        print(f"  rebrew test {rel_path_val}", file=sys.stderr)
         if json_output:
             print(
                 json.dumps(
@@ -482,7 +483,7 @@ def main(
                         "size": size,
                         "origin": origin_val,
                         "symbol": symbol_val,
-                        "test_command": f"rebrew-test {rel_path_val}",
+                        "test_command": f"rebrew test {rel_path_val}",
                     },
                     indent=2,
                 )
@@ -518,7 +519,7 @@ def main(
 
     # Compute test commands
     symbol_val = "_" + name if name else "_" + sanitize_name(ghidra_name)
-    cflags_val = getattr(cfg, "cflags_presets", {}).get(origin_val, "/O2 /Gd")
+    cflags_val = cfg.cflags_presets.get(origin_val, "/O2 /Gd")
 
     test_cmd = generate_test_command(str(rel_path_val), symbol_val, va_int, size, cflags_val)
     diff_cmd = generate_diff_command(cfg, str(rel_path_val), symbol_val, va_int, size, cflags_val)

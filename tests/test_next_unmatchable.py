@@ -2,9 +2,9 @@
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 from rebrew.binary_loader import BinaryInfo, SectionInfo
+from rebrew.config import ProjectConfig
 from rebrew.naming import (
     detect_origin,
     detect_unmatchable,
@@ -170,21 +170,23 @@ class TestParseByteDelta:
 
 class TestIgnoredSymbols:
     def test_with_list(self) -> None:
-        cfg = SimpleNamespace(ignored_symbols=["__allshl", "__aullshr"])
+        cfg = ProjectConfig(root=Path("/tmp"), ignored_symbols=["__allshl", "__aullshr"])
         result = ignored_symbols(cfg)
         assert result == {"__allshl", "__aullshr"}
 
     def test_with_none(self) -> None:
-        cfg = SimpleNamespace(ignored_symbols=None)
+        cfg = ProjectConfig(root=Path("/tmp"), ignored_symbols=None)
         assert ignored_symbols(cfg) == set()
 
     def test_missing_attr(self) -> None:
         """Should not crash when cfg lacks ignored_symbols entirely."""
-        cfg = SimpleNamespace()
+        cfg = ProjectConfig(
+            root=Path("/tmp"),
+        )
         assert ignored_symbols(cfg) == set()
 
     def test_empty_list(self) -> None:
-        cfg = SimpleNamespace(ignored_symbols=[])
+        cfg = ProjectConfig(root=Path("/tmp"), ignored_symbols=[])
         assert ignored_symbols(cfg) == set()
 
 
@@ -196,12 +198,12 @@ class TestIgnoredSymbols:
 class TestDetectOriginRobust:
     def test_missing_game_range_end(self) -> None:
         """Should not crash when cfg lacks game_range_end."""
-        cfg = SimpleNamespace(origins=["GAME"])
+        cfg = ProjectConfig(root=Path("/tmp"), origins=["GAME"])
         assert detect_origin(0x1000C000, "my_func", cfg) == "GAME"
 
     def test_crt_prefix_without_game_range(self) -> None:
         """CRT prefix detection should work regardless of game_range_end."""
-        cfg = SimpleNamespace(origins=["GAME", "MSVCRT"])
+        cfg = ProjectConfig(root=Path("/tmp"), origins=["GAME", "MSVCRT"])
         assert detect_origin(0x10001000, "__security_init_cookie", cfg) == "MSVCRT"
 
 
@@ -348,7 +350,7 @@ class TestLoadDataMultiVA:
             encoding="utf-8",
         )
 
-        cfg = SimpleNamespace(reversed_dir=src_dir)
+        cfg = ProjectConfig(root=Path("/tmp"), reversed_dir=src_dir)
         ghidra_funcs, existing, covered_vas = load_data(cfg)
 
         # Both VAs from the multi-function file should be in existing
@@ -389,7 +391,7 @@ class TestLoadDataMultiVA:
             encoding="utf-8",
         )
 
-        cfg = SimpleNamespace(reversed_dir=src_dir)
+        cfg = ProjectConfig(root=Path("/tmp"), reversed_dir=src_dir)
         ghidra_funcs, existing, covered_vas = load_data(cfg)
 
         assert 0x10001000 in existing
@@ -414,7 +416,7 @@ class TestLoadDataMultiVA:
         ghidra_json = src_dir / "ghidra_functions.json"
         ghidra_json.write_text(json.dumps([]), encoding="utf-8")
 
-        cfg = SimpleNamespace(reversed_dir=src_dir)
+        cfg = ProjectConfig(root=Path("/tmp"), reversed_dir=src_dir)
         _, existing, covered_vas = load_data(cfg)
 
         assert 0x10001000 not in existing

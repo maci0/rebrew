@@ -2,9 +2,9 @@
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 from rebrew.asm import build_function_lookup
+from rebrew.config import ProjectConfig
 
 # ---------------------------------------------------------------------------
 # build_function_lookup
@@ -16,7 +16,7 @@ class TestBuildFunctionLookup:
 
     def test_empty_dir(self, tmp_path: Path) -> None:
         """Empty reversed_dir with no ghidra JSON returns empty lookup."""
-        cfg = SimpleNamespace(reversed_dir=tmp_path)
+        cfg = ProjectConfig(root=Path("/tmp"), reversed_dir=tmp_path)
         result = build_function_lookup(cfg)
         assert result == {}
 
@@ -32,7 +32,7 @@ class TestBuildFunctionLookup:
             ),
             encoding="utf-8",
         )
-        cfg = SimpleNamespace(reversed_dir=tmp_path)
+        cfg = ProjectConfig(root=Path("/tmp"), reversed_dir=tmp_path)
         result = build_function_lookup(cfg)
         assert 0x10001000 in result
         assert result[0x10001000] == ("my_func", "")
@@ -57,7 +57,7 @@ class TestBuildFunctionLookup:
             "void game_func(void) {}\n",
             encoding="utf-8",
         )
-        cfg = SimpleNamespace(reversed_dir=tmp_path)
+        cfg = ProjectConfig(root=Path("/tmp"), reversed_dir=tmp_path)
         result = build_function_lookup(cfg)
         # Source file overrides Ghidra
         assert result[0x10001000] == ("game_func", "RELOC")
@@ -78,7 +78,7 @@ class TestBuildFunctionLookup:
             "void stub_func(void) {}\n",
             encoding="utf-8",
         )
-        cfg = SimpleNamespace(reversed_dir=tmp_path)
+        cfg = ProjectConfig(root=Path("/tmp"), reversed_dir=tmp_path)
         result = build_function_lookup(cfg)
         assert result[0x10003000] == ("stub_func", "STUB")
 
@@ -97,7 +97,7 @@ class TestBuildFunctionLookup:
             "void my_func(void) {}\n",
             encoding="utf-8",
         )
-        cfg = SimpleNamespace(reversed_dir=tmp_path)
+        cfg = ProjectConfig(root=Path("/tmp"), reversed_dir=tmp_path)
         result = build_function_lookup(cfg)
         name, _ = result[0x10001000]
         assert name == "my_func"
@@ -110,7 +110,7 @@ class TestBuildFunctionLookup:
             json.dumps([{"va": 0x10001000, "ghidra_name": "", "size": 64}]),
             encoding="utf-8",
         )
-        cfg = SimpleNamespace(reversed_dir=tmp_path)
+        cfg = ProjectConfig(root=Path("/tmp"), reversed_dir=tmp_path)
         result = build_function_lookup(cfg)
         assert 0x10001000 not in result
 
@@ -121,7 +121,7 @@ class TestBuildFunctionLookup:
             json.dumps([{"ghidra_name": "orphan_func", "size": 64}]),
             encoding="utf-8",
         )
-        cfg = SimpleNamespace(reversed_dir=tmp_path)
+        cfg = ProjectConfig(root=Path("/tmp"), reversed_dir=tmp_path)
         result = build_function_lookup(cfg)
         assert result == {}
 
@@ -129,7 +129,7 @@ class TestBuildFunctionLookup:
         """Non-existent reversed_dir returns only Ghidra data."""
         nonexistent = tmp_path / "nonexistent"
         # No ghidra JSON either — directory doesn't exist
-        cfg = SimpleNamespace(reversed_dir=nonexistent)
+        cfg = ProjectConfig(root=Path("/tmp"), reversed_dir=nonexistent)
         result = build_function_lookup(cfg)
         assert result == {}
 
@@ -139,7 +139,7 @@ class TestBuildFunctionLookup:
         ghidra_json.write_text(json.dumps([]), encoding="utf-8")
         bad = tmp_path / "bad.c"
         bad.write_text("this is not a valid annotation header\n", encoding="utf-8")
-        cfg = SimpleNamespace(reversed_dir=tmp_path)
+        cfg = ProjectConfig(root=Path("/tmp"), reversed_dir=tmp_path)
         result = build_function_lookup(cfg)
         assert result == {}
 
@@ -159,7 +159,7 @@ class TestBuildFunctionLookup:
                 f"void func_{i}(void) {{}}\n",
                 encoding="utf-8",
             )
-        cfg = SimpleNamespace(reversed_dir=tmp_path)
+        cfg = ProjectConfig(root=Path("/tmp"), reversed_dir=tmp_path)
         result = build_function_lookup(cfg)
         assert len(result) == 3
         assert 0x10001000 in result

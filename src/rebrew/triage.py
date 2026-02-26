@@ -3,8 +3,8 @@
 Produces a single JSON report suitable for an agent's first action in a session.
 
 Usage:
-    rebrew-triage                  Human-readable summary
-    rebrew-triage --json           Machine-readable JSON report
+    rebrew triage                  Human-readable summary
+    rebrew triage --json           Machine-readable JSON report
 """
 
 import contextlib
@@ -28,8 +28,8 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew-triage               Human-readable summary
-  rebrew-triage --json        Full JSON report for agents
+  rebrew triage               Human-readable summary
+  rebrew triage --json        Full JSON report for agents
 
 [bold]What it includes:[/bold]
   - Coverage statistics (total, covered, by status)
@@ -38,7 +38,7 @@ app = typer.Typer(
   - Top recommendations for new functions
   - FLIRT library match count (if signatures available)
 
-[dim]Combines rebrew-next --stats, --improving, and rebrew-flirt
+[dim]Combines rebrew next --stats, --improving, and rebrew flirt
 into a single command for cold-start agent sessions.[/dim]""",
 )
 
@@ -56,7 +56,7 @@ def main(
     cfg = get_config(target=target)
     ghidra_funcs, existing, covered_vas = load_data(cfg)
     ignored = ignored_symbols(cfg)
-    iat_thunks = getattr(cfg, "iat_thunks", None)
+    iat_thunks = cfg.iat_thunks
     iat_set: set[int] = set(iat_thunks) if iat_thunks else set()
 
     # Load binary

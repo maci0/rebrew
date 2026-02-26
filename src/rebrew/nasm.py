@@ -338,10 +338,10 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew-nasm 0x10003da0                         Extract and disassemble one function
-  rebrew-nasm 0x10003da0 --size 128              Specify function size
-  rebrew-nasm 0x10003da0 -o func.asm             Write NASM output to file
-  rebrew-nasm 0x10003da0 --raw                   Output raw bytes only
+  rebrew nasm 0x10003da0                         Extract and disassemble one function
+  rebrew nasm 0x10003da0 --size 128              Specify function size
+  rebrew nasm 0x10003da0 -o func.asm             Write NASM output to file
+  rebrew nasm 0x10003da0 --raw                   Output raw bytes only
 
 [bold]How it works:[/bold]
   Extracts raw bytes at the given VA from the PE binary, disassembles

@@ -76,11 +76,11 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew-verify                             Verify all .c files (rich progress bar)
-  rebrew-verify --json                      Emit structured JSON report to stdout
-  rebrew-verify -o db/verify_results.json   Write JSON report to file
-  rebrew-verify -j 8                        Use 8 parallel compile jobs
-  rebrew-verify -t server.dll               Verify a specific target
+  rebrew verify                             Verify all .c files (rich progress bar)
+  rebrew verify --json                      Emit structured JSON report to stdout
+  rebrew verify -o db/verify_results.json   Write JSON report to file
+  rebrew verify -j 8                        Use 8 parallel compile jobs
+  rebrew verify -t server.dll               Verify a specific target
 
 [bold]How it works:[/bold]
   For each .c file in reversed_dir, compiles it, extracts the COFF symbol,
@@ -88,7 +88,7 @@ app = typer.Typer(
   RELOC (match after relocation masking), MISMATCH, or COMPILE_ERROR.
 
 [dim]Requires rebrew.toml with valid compiler and target binary paths.
-Run 'rebrew-catalog' first to generate coverage data.[/dim]""",
+Run 'rebrew catalog' first to generate coverage data.[/dim]""",
 )
 
 
@@ -225,7 +225,7 @@ def main(
     timestamp = datetime.now(UTC).isoformat()
     report = {
         "timestamp": timestamp,
-        "target": getattr(cfg, "target_name", ""),
+        "target": cfg.target_name,
         "binary": str(bin_path),
         "summary": {
             "total": total,

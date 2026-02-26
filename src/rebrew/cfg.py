@@ -1,4 +1,4 @@
-"""rebrew-cfg: Programmatic editor for rebrew.toml.
+"""rebrew cfg: Programmatic editor for rebrew.toml.
 
 Uses tomlkit for format-preserving round-trip editing (comments,
 ordering, and whitespace are retained).
@@ -38,7 +38,7 @@ def _find_root() -> Path:
         candidate = candidate.parent
     typer.secho(
         "Error: Could not find rebrew.toml in any parent directory.\n"
-        "Run this command from within a rebrew project, or use 'rebrew-init' first.",
+        "Run this command from within a rebrew project, or use 'rebrew init' first.",
         fg=typer.colors.RED,
         err=True,
     )
@@ -189,11 +189,11 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew-cfg get compiler.command            Read a config value
-  rebrew-cfg set compiler.timeout 120        Set a config value
-  rebrew-cfg get targets.main.binary         Read target-specific setting
-  rebrew-cfg dump                            Dump entire rebrew.toml as JSON
-  rebrew-cfg path                            Print path to rebrew.toml
+  rebrew cfg get compiler.command            Read a config value
+  rebrew cfg set compiler.timeout 120        Set a config value
+  rebrew cfg get targets.main.binary         Read target-specific setting
+  rebrew cfg dump                            Dump entire rebrew.toml as JSON
+  rebrew cfg path                            Print path to rebrew.toml
 
 [dim]Useful for scripting and automation. Supports dotted key paths
 for nested TOML tables (e.g. 'targets.main.binary').[/dim]""",
@@ -375,7 +375,7 @@ def add_target(
     typer.secho(f"  Format: {fmt}, Arch: {arch} (auto-detected)", fg=typer.colors.GREEN)
     typer.secho(f"  Language: {detected_lang} ({source_ext})", fg=typer.colors.GREEN)
     typer.secho(f"  Created src/{name}/ and bin/{name}/", fg=typer.colors.GREEN)
-    typer.echo(f'\nNext: rebrew-next --target "{name}" --stats')
+    typer.echo(f'\nNext: rebrew next --target "{name}" --stats')
 
 
 @app.command("remove-target")
