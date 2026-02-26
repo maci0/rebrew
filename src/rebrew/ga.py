@@ -23,6 +23,7 @@ import typer
 
 from rebrew.annotation import has_skip_annotation, parse_c_file, resolve_symbol
 from rebrew.cli import TargetOption, get_config
+from rebrew.config import ProjectConfig
 
 
 class StubInfo(TypedDict):
@@ -164,7 +165,7 @@ def find_near_miss(
     reversed_dir: Path,
     ignored: set[str] | None = None,
     max_delta: int = 10,
-    cfg: Any = None,
+    cfg: ProjectConfig | None = None,
 ) -> list[StubInfo]:
     """Find MATCHING functions with small byte deltas, sorted by delta ascending.
 
@@ -202,7 +203,7 @@ def find_near_miss(
 
 
 def find_all_stubs(
-    reversed_dir: Path, ignored: set[str] | None = None, cfg: Any = None
+    reversed_dir: Path, ignored: set[str] | None = None, cfg: ProjectConfig | None = None
 ) -> list[StubInfo]:
     """Find all STUB files in reversed/ and return sorted by size.
 

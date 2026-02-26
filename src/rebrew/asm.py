@@ -9,13 +9,13 @@ Usage:
 import json
 import sys
 from pathlib import Path
-from typing import Any
 
 import typer
 
 from rebrew.annotation import parse_c_file
 from rebrew.catalog import load_ghidra_functions
 from rebrew.cli import TargetOption, get_config, iter_sources
+from rebrew.config import ProjectConfig
 
 _EPILOG = """\
 [bold]Examples:[/bold]
@@ -36,7 +36,7 @@ app = typer.Typer(
 )
 
 
-def build_function_lookup(cfg: Any) -> dict[int, tuple[str, str]]:
+def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
     """Build a VA -> (name, status) lookup from Ghidra JSON and existing .c files.
 
     Returns dict mapping VA int -> (display_name, status_string).
