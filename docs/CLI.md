@@ -44,7 +44,7 @@ Run any tool with `--help` to see usage examples and context
 | `--mm` / `--mismatches-only` | With `--diff-only`, show only structural (`**`) lines + summary |
 | `--rr` / `--register-aware` | With `--diff-only`, normalize register encodings and mark as `RR` |
 | `--flag-sweep-only` | Sweep compiler flags without GA mutations |
-| `--tier TIER` | Flag sweep tier: `quick` (192), `targeted` (6k), `normal` (21K), `thorough` (1M), `full` (8.3M) |
+| `--tier TIER` | Flag sweep tier: `quick` (192), `targeted` (1.1K), `normal` (21K), `thorough` (1M), `full` (8.3M) |
 | `--seed N` | Seed RNG for reproducible GA runs |
 | `--force` | Continue even if annotation linter finds errors |
 | `--generations N` | Number of GA generations (default 100) |

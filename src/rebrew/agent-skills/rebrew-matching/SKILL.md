@@ -42,7 +42,7 @@ rebrew match --flag-sweep-only --tier targeted src/<target>/<file>.c # codegen-a
 | Tier | Combinations | Use Case |
 |------|-------------|----------|
 | `quick` | ~192 | Fast iteration |
-| `targeted` | ~6K | Codegen-altering flags only (`/Oy`, `/Op`) |
+| `targeted` | ~1.1K | Codegen-altering flags only (`/Oy`, `/Op`) |
 | `normal` | ~21K | Default sweep |
 | `thorough` | ~1M | Deep search |
 | `full` | ~8.3M | Exhaustive |
