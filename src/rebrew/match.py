@@ -62,8 +62,10 @@ def classify_blockers(diff_summary: dict[str, Any]) -> list[str]:
             blockers.add("register allocation")
             continue
 
-        t_mnem = t_asm.split()[0] if t_asm else ""
-        c_mnem = c_asm.split()[0] if c_asm else ""
+        t_parts = t_asm.split()
+        c_parts = c_asm.split()
+        t_mnem = t_parts[0] if t_parts else ""
+        c_mnem = c_parts[0] if c_parts else ""
 
         # Loop rotation / jump conditions
         if (t_mnem.startswith("j") and c_mnem.startswith("j")) and t_mnem != c_mnem:
