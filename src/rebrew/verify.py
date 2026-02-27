@@ -220,12 +220,13 @@ def main(
                         status = "MISMATCH"
                         if target_bytes and obj_bytes:
                             min_len = min(len(target_bytes), len(obj_bytes))
+                            max_len = max(len(target_bytes), len(obj_bytes))
                             mismatches = 0
                             for i in range(min_len):
                                 if target_bytes[i] != obj_bytes[i]:
                                     mismatches += 1
-                            if min_len > 0:
-                                match_percent = ((min_len - mismatches) / len(target_bytes)) * 100
+                            if max_len > 0:
+                                match_percent = ((min_len - mismatches) / max_len) * 100
                             delta = abs(len(target_bytes) - len(obj_bytes)) + mismatches
                     elif "COMPILE_ERROR" in msg:
                         status = "COMPILE_ERROR"

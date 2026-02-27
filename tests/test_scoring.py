@@ -191,3 +191,13 @@ class TestDiffFunctions:
         result = diff_functions(b"", b"", as_dict=True)
         assert isinstance(result, dict)
         assert len(result["instructions"]) == 0
+
+    def test_disp32_zeroed_general(self) -> None:
+        # A1 00 00 00 10 is mov eax, dword ptr [0x10000000]
+        # This is caught by the specific A0-A3 check, but let's test a general one like 8b 0d
+        # mov ecx, dword ptr [0x100358a0] -> 8b 0d a0 58 03 10
+        code = b"\x8b\x0d\xa0\x58\x03\x10"
+        result = _normalize_reloc_x86_32(code)
+        # Should be caught by 8B check:
+        assert result[0:2] == code[0:2]
+        assert result[2:6] == b"\x00\x00\x00\x00"
