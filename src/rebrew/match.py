@@ -292,6 +292,7 @@ _EPILOG = """\
 
 [bold]Flag sweep tiers:[/bold]
   quick      ~192 combos     Fast iteration
+  targeted   ~1.1K combos    Codegen-altering flags only (/Oy, /Op)
   normal     ~21K combos     Default sweep
   thorough   ~1M combos      Deep search
   full       ~8.3M combos    Exhaustive (needs sampling)
