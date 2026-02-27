@@ -3,7 +3,7 @@
 ## Overview
 
 **Rebrew** is a compiler-in-the-loop decompilation workbench for binary-matching
-game reversing. Python package (`src/rebrew/`) with 21 CLI tools for compiling,
+game reversing. Python package (`src/rebrew/`) with 22 CLI tools for compiling,
 comparing, and matching C source against target binary functions (MSVC6 under Wine).
 
 Installed as an editable package (`uv pip install -e .`) into a workspace project
