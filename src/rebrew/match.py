@@ -38,6 +38,8 @@ from rebrew.matcher.mutator import quick_validate
 
 
 class BinaryMatchingGA:
+    """Genetic algorithm engine for finding byte-identical C source matches."""
+
     def __init__(
         self,
         seed_source: str,
@@ -147,6 +149,7 @@ class BinaryMatchingGA:
         return sc.total
 
     def run(self) -> tuple[str | None, float]:
+        """Run the GA and return ``(best_source, best_score)``."""
         for gen in range(self.num_generations):
             gen_start = time.time()
             scored_pop = []

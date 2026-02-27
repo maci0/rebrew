@@ -310,6 +310,82 @@ class TestBuildDbRoundTrip:
         assert c.fetchone()[0] == 2
         conn.close()
 
+    def test_function_key_name_uses_va_start_decimal(self, tmp_path: Path) -> None:
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        data = {
+            "sections": {},
+            "globals": {},
+            "summary": {},
+            "functions": {
+                "adler32": {
+                    "name": "adler32",
+                    "vaStart": "268439552",
+                    "size": 64,
+                    "status": "EXACT",
+                }
+            },
+            "paths": {},
+        }
+        (db_dir / "data_alpha.json").write_text(json.dumps(data), encoding="utf-8")
+
+        build_db(tmp_path)
+
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT va FROM functions WHERE target = 'alpha' AND name = 'adler32'")
+        row = c.fetchone()
+        conn.close()
+        assert row is not None
+        assert row[0] == 268439552
+
+    def test_data_section_negative_cell_size_is_clamped(self, tmp_path: Path) -> None:
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        data = {
+            "sections": {
+                ".data": {
+                    "va": 0x10030000,
+                    "size": 256,
+                    "fileOffset": 0x3000,
+                    "unitBytes": 64,
+                    "columns": 64,
+                    "cells": [
+                        {
+                            "start": 64,
+                            "end": 32,
+                            "span": 1,
+                            "state": "exact",
+                            "functions": ["g_bad"],
+                        }
+                    ],
+                }
+            },
+            "globals": {},
+            "summary": {},
+            "functions": {
+                "0x10001000": {
+                    "name": "f",
+                    "vaStart": "0x10001000",
+                    "size": 16,
+                    "status": "EXACT",
+                }
+            },
+            "paths": {},
+        }
+        (db_dir / "data_alpha.json").write_text(json.dumps(data), encoding="utf-8")
+
+        build_db(tmp_path)
+
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT value FROM metadata WHERE target = 'alpha' AND key = 'summary'")
+        row = c.fetchone()
+        conn.close()
+        assert row is not None
+        summary = json.loads(row[0])
+        assert summary[".data"]["coveredBytes"] == 0
+
 
 class TestBuildDbTargetFiltering:
     """Verify that build_db(target=...) only processes matching JSON files."""

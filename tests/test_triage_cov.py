@@ -152,3 +152,19 @@ def test_coverage_percentage():
     total = 0
     pct = 100 * covered / total if total else 0.0
     assert pct == 0.0
+
+
+def test_actionable_clamped_non_negative():
+    total = 10
+    covered = 9
+    unmatchable = 5
+    actionable = max(0, total - covered - unmatchable)
+    assert actionable == 0
+
+
+def test_coverage_percentage_bounded():
+    total = 10
+    covered = 15
+    bounded_covered = min(max(covered, 0), total)
+    pct = 100 * bounded_covered / total if total else 0.0
+    assert pct == 100.0
