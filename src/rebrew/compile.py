@@ -27,7 +27,6 @@ All functions read from ``cfg`` (a ``ProjectConfig`` instance):
 - ``cfg.msvc_env()`` — environment dict with ``LIB`` / ``INCLUDE`` etc.
 """
 
-import os
 import shlex
 import shutil
 import subprocess
@@ -77,8 +76,6 @@ def compile_to_obj(
     source_path: str | Path,
     cflags: list[str],
     workdir: str | Path,
-    *,
-    timeout: int = 60,
 ) -> tuple[str | None, str]:
     """Compile a .c file to .obj using the project compiler.
 
@@ -86,12 +83,13 @@ def compile_to_obj(
     Wine's path mapping works correctly (Wine cannot see paths outside of
     its configured drives).
 
+    The timeout is taken from ``cfg.compile_timeout``.
+
     Args:
         cfg: ProjectConfig with compiler settings.
         source_path: Path to the .c source file.
         cflags: List of compiler flag strings (e.g. ["/O2", "/Gd"]).
         workdir: Working directory for compilation.
-        timeout: Maximum seconds for the compile process.
 
     Returns:
         (obj_path, error_msg) — obj_path is None on failure.
@@ -140,12 +138,12 @@ def compile_to_obj(
     except OSError as e:
         return None, f"Failed to run compiler: {e}"
 
-    obj_path = str(workdir / obj_name)
-    if r.returncode != 0 or not os.path.exists(obj_path):
+    obj_file = workdir / obj_name
+    if r.returncode != 0 or not obj_file.exists():
         err = (r.stdout + r.stderr).decode("utf-8", errors="replace")[:400]
         return None, err
 
-    return obj_path, ""
+    return str(obj_file), ""
 
 
 # ---------------------------------------------------------------------------
@@ -159,13 +157,11 @@ def compile_and_compare(
     symbol: str,
     target_bytes: bytes,
     cflags: str | list[str],
-    *,
-    timeout: int = 60,
 ) -> tuple[bool, str, bytes | None, list[int] | None]:
     """Compile source, extract COFF symbol, compare against target bytes with reloc masking.
 
     This is the shared compile→extract→compare flow used by both ``rebrew test``
-    and ``rebrew verify``.
+    and ``rebrew verify``.  Timeout is taken from ``cfg.compile_timeout``.
 
     Args:
         cfg: ProjectConfig with compiler settings.
@@ -173,7 +169,6 @@ def compile_and_compare(
         symbol: COFF symbol name to extract (e.g. ``_my_func``).
         target_bytes: Expected bytes from the target binary.
         cflags: Compiler flags (string or list).
-        timeout: Maximum seconds for compilation.
 
     Returns:
         (matched, message, obj_bytes, reloc_offsets)
@@ -183,13 +178,11 @@ def compile_and_compare(
 
     workdir = tempfile.mkdtemp(prefix="rebrew_cmp_")
     try:
-        use_timeout = cfg.compile_timeout
         obj_path, err = compile_to_obj(
             cfg,
             source_path,
             cflags_list,
             workdir,
-            timeout=use_timeout,
         )
         if obj_path is None:
             return False, f"COMPILE_ERROR: {err[:200]}", None, None
