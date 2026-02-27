@@ -32,7 +32,7 @@ The file extension comes from `source_ext` in `rebrew.toml` (default: `.c`).
 ## 3. Review Disassembly
 
 ```bash
-rebrew asm 0x<VA> 128 --json            # dump 128 bytes of disassembly at VA
+rebrew asm 0x<VA> --size 128 --json            # dump 128 bytes of disassembly at VA
 ```
 
 ## 4. Implement and Test

@@ -121,7 +121,7 @@ tests/
 
 ### CLI Tool Pattern
 
-Every tool follows this structure:
+Every single-command tool follows this structure:
 
 ```python
 import typer
@@ -129,7 +129,7 @@ from rebrew.cli import TargetOption, get_config
 
 app = typer.Typer(help="Tool description", rich_markup_mode="rich")
 
-@app.command()
+@app.callback(invoke_without_command=True)
 def main(target: str | None = TargetOption) -> None:
     cfg = get_config(target=target)
     # ... implementation
@@ -138,9 +138,13 @@ def main_entry() -> None:
     app()
 ```
 
-- `TargetOption` + `get_config()` from `rebrew.cli` — never build config manually
-- `main_entry()` registered in `pyproject.toml` `[project.scripts]`
+- Uses `@app.callback(invoke_without_command=True)` so the function works both
+  as a standalone entry point (`rebrew-<cmd>`) and as a flat subcommand when
+  registered via `app.command()` in `main.py`.
+- `TargetOption` + `get_config()` from `rebrew.cli` — never build config manually.
+- `main_entry()` registered in `pyproject.toml` `[project.scripts]`.
 - Most tools support `--json` for machine-readable output. Always use `--json` when executing these CLI tools yourself to receive structured output.
+- The only multi-command module is `cfg.py`, which uses multiple `@app.command()` decorators and is registered via `add_typer()` in `main.py`.
 
 ### Test Patterns
 
