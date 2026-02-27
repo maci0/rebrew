@@ -78,6 +78,49 @@ def _normalize_reloc_x86_32(
                 if insn.address + i < len(out):
                     out[insn.address + i] = 0
 
+        # General fallback: Any instruction with a 32-bit displacement that looks like an address (> 0x10000)
+        # Handles SIB+disp32, lea reg, [reg*scale + disp32], and other indirect addressing modes
+        if getattr(insn, "disp_size", 0) == 4 and getattr(insn, "disp_offset", 0) > 0:
+            for op in insn.operands:
+                if op.type == capstone.x86.X86_OP_MEM:
+                    disp = op.mem.disp
+                    if disp > 0x10000 or disp < -0x10000:
+                        offset = insn.address + insn.disp_offset
+                        for i in range(4):
+                            if offset + i < len(out):
+                                out[offset + i] = 0
+
+    return bytes(out)
+
+
+def _mask_registers_x86_32(
+    code: bytes,
+    cs_arch: int = _DEFAULT_CS_ARCH,
+    cs_mode: int = _DEFAULT_CS_MODE,
+) -> bytes:
+    """Mask out register encodings in ModR/M and opcode bytes for register-aware diff."""
+    md = capstone.Cs(cs_arch, cs_mode)
+    md.detail = True
+    out = bytearray(code)
+
+    for insn in md.disasm(code, 0):
+        modrm_offset = getattr(insn, "modrm_offset", 0)
+        if modrm_offset > 0:
+            offset = insn.address + modrm_offset
+            # Mask out reg (bits 3-5) and rm (bits 0-2), keep mod (bits 6-7)
+            out[offset] &= 0xC0
+
+        op0 = insn.opcode[0]
+        if (
+            (0x40 <= op0 <= 0x5F)  # inc/dec/push/pop reg
+            or (0x90 <= op0 <= 0x97)  # xchg eax, reg
+            or (0xB8 <= op0 <= 0xBF)  # mov reg, imm32
+        ):
+            for i in range(insn.size):
+                if out[insn.address + i] == op0:
+                    out[insn.address + i] &= 0xF8
+                    break
+
     return bytes(out)
 
 
@@ -164,6 +207,7 @@ def diff_functions(
     candidate_bytes: bytes,
     reloc_offsets: dict[int, str] | list[int] | None = None,
     mismatches_only: bool = False,
+    register_aware: bool = False,
     as_dict: bool = False,
     cs_arch: int = _DEFAULT_CS_ARCH,
     cs_mode: int = _DEFAULT_CS_MODE,
@@ -187,6 +231,10 @@ def diff_functions(
 
     norm_target = _normalize_reloc_x86_32(target_bytes, cs_arch, cs_mode)
     norm_cand = _normalize_reloc_x86_32(candidate_bytes, cs_arch, cs_mode)
+    reg_norm_target = (
+        _mask_registers_x86_32(norm_target, cs_arch, cs_mode) if register_aware else None
+    )
+    reg_norm_cand = _mask_registers_x86_32(norm_cand, cs_arch, cs_mode) if register_aware else None
 
     # Build rows with match markers.  When as_dict is True we collect
     # structured dicts and simple counters instead of formatted lines.
@@ -194,6 +242,7 @@ def diff_functions(
     insn_data: list[dict[str, Any]] = []  # populated only when as_dict=True
     exact_count = 0
     reloc_count = 0
+    reg_count = 0
     mismatch_count = 0
     max_insns = max(len(target_insns), len(cand_insns))
     for i in range(max_insns):
@@ -225,7 +274,16 @@ def diff_functions(
                 else:
                     t_norm = norm_target[ti.address : ti.address + ti.size]
                     c_norm = norm_cand[ci.address : ci.address + ci.size]
-                    match_char = "~~" if t_norm == c_norm and t_norm else "**"
+                    if t_norm == c_norm and t_norm:
+                        match_char = "~~"
+                    elif (
+                        register_aware and reg_norm_target is not None and reg_norm_cand is not None
+                    ):
+                        t_reg = reg_norm_target[ti.address : ti.address + ti.size]
+                        c_reg = reg_norm_cand[ci.address : ci.address + ci.size]
+                        match_char = "RR" if (t_reg == c_reg and t_reg) else "**"
+                    else:
+                        match_char = "**"
 
         # Classify unpaired instructions (one side exhausted) as structural diffs
         if match_char == "  " and (t_bytes_hex or c_bytes_hex):
@@ -236,6 +294,8 @@ def diff_functions(
             exact_count += 1
         elif match_char == "~~":
             reloc_count += 1
+        elif match_char == "RR":
+            reg_count += 1
         elif match_char == "**":
             mismatch_count += 1
 
@@ -261,6 +321,7 @@ def diff_functions(
             "summary": {
                 "exact": exact_count,
                 "reloc": reloc_count,
+                "reg": reg_count,
                 "structural": mismatch_count,
                 "total": max_insns,
             },
@@ -287,9 +348,12 @@ def diff_functions(
     if not mismatches_only:
         print("== : exact match")
         print("~~ : relocation difference (acceptable)")
+        if register_aware:
+            print("RR : register encoding difference")
         print("** : structural difference")
     print(
         f"Summary: {mismatch_count} structural diff(s), "
+        f"{reg_count} register diff(s), "
         f"{reloc_count} reloc diff(s), "
         f"{exact_count} exact match(es)"
     )

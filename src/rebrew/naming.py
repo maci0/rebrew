@@ -34,6 +34,12 @@ _NOP = 0x90
 # SEH prologue using fs segment: 64 A1 00 00 00 00 (mov eax, fs:[0])
 _SEH_FS = bytes([0x64, 0xA1, 0x00, 0x00, 0x00, 0x00])
 
+# ASM CRT patterns
+_ASM_BT = bytes([0x0F, 0xA3])
+_ASM_BTS = bytes([0x0F, 0xAB])
+_ASM_REPNE_SCASB = bytes([0xF2, 0xAE])
+_ASM_REP_MOVS = (bytes([0xF3, 0xA4]), bytes([0xF3, 0xA5]))
+
 
 def detect_unmatchable(
     va: int,
@@ -79,6 +85,16 @@ def detect_unmatchable(
     # 3c. SEH handler manipulating fs:[0] directly (ASM-only patterns)
     if len(raw) >= 6 and raw[:6] == _SEH_FS:
         return "SEH handler (fs:[0] access)"
+
+    # 3d. ASM-origin CRT patterns
+    for i in range(len(raw) - 1):
+        pair = raw[i : i + 2]
+        if pair in (_ASM_BT, _ASM_BTS):
+            return "ASM-origin CRT (BT/BTS)"
+        if pair == _ASM_REPNE_SCASB:
+            return "ASM-origin CRT (repne scasb)"
+        if pair in _ASM_REP_MOVS:
+            return "ASM-origin CRT (rep movs)"
 
     return None
 

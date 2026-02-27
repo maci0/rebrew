@@ -13,6 +13,7 @@ from typing import Any
 import typer
 from rich.console import Console
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
+from rich.table import Table
 from rich.text import Text
 
 from rebrew.annotation import Annotation
@@ -29,7 +30,9 @@ from rebrew.config import ProjectConfig
 # ---------------------------------------------------------------------------
 
 
-def verify_entry(entry: Annotation, cfg: ProjectConfig) -> tuple[bool, str]:
+def verify_entry(
+    entry: Annotation, cfg: ProjectConfig
+) -> tuple[bool, str, bytes | None, bytes | None, list[int] | dict[int, str] | None]:
     """Compile a .c file and compare output bytes against DLL.
 
     Delegates to ``compile_and_compare`` for the compile→extract→compare flow.
@@ -38,12 +41,12 @@ def verify_entry(entry: Annotation, cfg: ProjectConfig) -> tuple[bool, str]:
 
     cfile = cfg.reversed_dir / entry["filepath"]
     if not cfile.exists():
-        return False, f"MISSING_FILE: {cfile}"
+        return False, f"MISSING_FILE: {cfile}", None, None, None
 
     if entry["va"] < 0x1000:
-        return False, "INVALID_VA: VA too low"
+        return False, "INVALID_VA: VA too low", None, None, None
     if entry["size"] <= 0:
-        return False, "MISSING_SIZE: No SIZE annotation"
+        return False, "MISSING_SIZE: No SIZE annotation", None, None, None
 
     cflags_str = entry["cflags"]
     cflags = cflags_str if cflags_str else "/O2"
@@ -51,16 +54,16 @@ def verify_entry(entry: Annotation, cfg: ProjectConfig) -> tuple[bool, str]:
 
     target_bytes = cfg.extract_dll_bytes(entry["va"], entry["size"])
     if not target_bytes:
-        return False, "Cannot extract DLL bytes"
+        return False, "Cannot extract DLL bytes", None, None, None
 
-    matched, msg, _obj_bytes, _reloc_offsets = compile_and_compare(
+    matched, msg, obj_bytes, reloc_offsets = compile_and_compare(
         cfg,
         cfile,
         symbol,
         target_bytes,
         cflags,
     )
-    return matched, msg
+    return matched, msg, target_bytes, obj_bytes, reloc_offsets
 
 
 # ---------------------------------------------------------------------------
@@ -111,6 +114,9 @@ def main(
     ),
     output_path: str | None = typer.Option(
         None, "--output", "-o", help="Write JSON report to file (default: db/verify_results.json)"
+    ),
+    summary: bool = typer.Option(
+        False, "--summary", help="Show summary table with STATUS breakdown and match percentages"
     ),
 ) -> None:
     """Rebrew verification pipeline: compile each .c and verify bytes match."""
@@ -167,7 +173,11 @@ def main(
     total = len(unique_entries)
     effective_jobs = min(jobs, total) if total else 1
 
-    def _verify(e: Annotation) -> tuple[Annotation, bool, str]:
+    def _verify(
+        e: Annotation,
+    ) -> tuple[
+        Annotation, bool, str, bytes | None, bytes | None, list[int] | dict[int, str] | None
+    ]:
         return (e, *verify_entry(e, cfg))
 
     with Progress(
@@ -183,22 +193,40 @@ def main(
             futures = {pool.submit(_verify, e): e for e in unique_entries}
             for future in concurrent.futures.as_completed(futures):
                 try:
-                    entry, ok, msg = future.result()
+                    entry, ok, msg, target_bytes, obj_bytes, reloc_offsets = future.result()
                 except Exception as exc:
                     entry = futures[future]
-                    ok, msg = False, f"INTERNAL_ERROR: {exc}"
+                    ok, msg, target_bytes, obj_bytes, _reloc_offsets = (
+                        False,
+                        f"INTERNAL_ERROR: {exc}",
+                        None,
+                        None,
+                        None,
+                    )
                 name = entry["name"]
                 progress.update(task, advance=1, description=name)
 
                 # Classify result
+                match_percent = 0.0
+                delta = 0
                 if ok:
                     passed += 1
                     status = "RELOC" if "RELOC" in msg else "EXACT"
+                    match_percent = 100.0
                 else:
                     failed += 1
                     fail_details.append((entry, msg))
                     if "MISMATCH" in msg:
                         status = "MISMATCH"
+                        if target_bytes and obj_bytes:
+                            min_len = min(len(target_bytes), len(obj_bytes))
+                            mismatches = 0
+                            for i in range(min_len):
+                                if target_bytes[i] != obj_bytes[i]:
+                                    mismatches += 1
+                            if min_len > 0:
+                                match_percent = ((min_len - mismatches) / len(target_bytes)) * 100
+                            delta = abs(len(target_bytes) - len(obj_bytes)) + mismatches
                     elif "COMPILE_ERROR" in msg:
                         status = "COMPILE_ERROR"
                     elif "MISSING_FILE" in msg:
@@ -215,6 +243,8 @@ def main(
                         "status": status,
                         "message": msg,
                         "passed": ok,
+                        "match_percent": match_percent,
+                        "delta": delta,
                     }
                 )
 
@@ -260,6 +290,63 @@ def main(
             if failed > 0:
                 raise typer.Exit(code=1)
             return
+
+    if summary:
+        out_console.print()
+        table = Table(title="Verification Summary", show_header=True)
+        table.add_column("VA", style="cyan")
+        table.add_column("Symbol", style="magenta")
+        table.add_column("Size", justify="right")
+        table.add_column("Status", style="bold")
+        table.add_column("Match %", justify="right")
+        table.add_column("Delta", justify="right")
+
+        for r in results:
+            st = r["status"]
+            if st == "EXACT":
+                st_str = "[green]EXACT[/]"
+            elif st == "RELOC":
+                st_str = "[green]RELOC[/]"
+            elif st == "MISMATCH":
+                st_str = "[yellow]MATCHING[/]"
+            elif st == "COMPILE_ERROR":
+                st_str = "[red]ERROR[/]"
+            else:
+                st_str = f"[red]{st}[/]"
+
+            pct = f"{r['match_percent']:.1f}%" if st == "MISMATCH" else "-"
+            dt = f"{r.get('delta', 0)}B" if st == "MISMATCH" else "-"
+            table.add_row(r["va"], r["name"], f"{r['size']}B", st_str, pct, dt)
+
+        out_console.print(table)
+
+        exact = sum(1 for r in results if r["status"] == "EXACT")
+        reloc = sum(1 for r in results if r["status"] == "RELOC")
+        sum(1 for r in results if r["status"] == "MISMATCH")
+        mismatch_0b = sum(
+            1 for r in results if r["status"] == "MISMATCH" and r.get("delta", 0) == 0
+        )
+        mismatch_1_5 = sum(
+            1 for r in results if r["status"] == "MISMATCH" and 1 <= r.get("delta", 0) <= 5
+        )
+        mismatch_6_20 = sum(
+            1 for r in results if r["status"] == "MISMATCH" and 6 <= r.get("delta", 0) <= 20
+        )
+        mismatch_21 = sum(
+            1 for r in results if r["status"] == "MISMATCH" and r.get("delta", 0) > 20
+        )
+
+        stat_table = Table(title="STATUS Breakdown", show_header=False)
+        stat_table.add_column("Category", style="cyan")
+        stat_table.add_column("Count", justify="right")
+        stat_table.add_row("EXACT", str(exact))
+        stat_table.add_row("RELOC", str(reloc))
+        stat_table.add_row("MATCHING (0B delta)", str(mismatch_0b))
+        stat_table.add_row("MATCHING (1-5B delta)", str(mismatch_1_5))
+        stat_table.add_row("MATCHING (6-20B delta)", str(mismatch_6_20))
+        stat_table.add_row("MATCHING (21+B delta)", str(mismatch_21))
+
+        out_console.print(stat_table)
 
     # Print failures
     if fail_details:
