@@ -35,6 +35,8 @@ COMMON_MSVC_FLAGS: Flags = [
     Checkbox(id="msvc_disable_stack_checking", flag="/Gs"),
     Checkbox(id="msvc_disable_buffer_security_checks", flag="/GS-"),
     Checkbox(id="msvc_runtime_debug_checks", flag="/GZ"),
+    FlagSet(id="msvc_fpo", flags=("/Oy", "/Oy-")),
+    Checkbox(id="msvc_fp_consistency", flag="/Op"),
 ]
 
 # MSVC 6.0 — excludes flags only available in 7.x+
@@ -62,6 +64,8 @@ MSVC6_FLAGS: Flags = [
     Checkbox(id="msvc_use_ehsc", flag="/GX"),
     Checkbox(id="msvc_disable_stack_checking", flag="/Gs"),
     Checkbox(id="msvc_runtime_debug_checks", flag="/GZ"),
+    FlagSet(id="msvc_fpo", flags=("/Oy", "/Oy-")),
+    Checkbox(id="msvc_fp_consistency", flag="/Op"),
 ]
 
 # Flag IDs only available in MSVC 7.x+
@@ -69,11 +73,19 @@ MSVC7_ONLY_IDS: set[str] = {"msvc_fp", "msvc_disable_buffer_security_checks"}
 
 # Sweep tiers — which flag IDs to include per effort level.
 # quick:    core code-affecting axes (~fast)
+# targeted: core + specific codegen-altering flags (/Oy, /Op)
 # normal:   adds codegen, inline, callconv (~moderate)
 # thorough: adds alignment + key toggles (~heavy)
 # full:     all axes (use with sampling for large spaces)
 MSVC_SWEEP_TIERS: dict[str, list[str] | None] = {
     "quick": ["msvc_opt_level", "msvc_callconv", "msvc_codegen"],
+    "targeted": [
+        "msvc_opt_level",
+        "msvc_callconv",
+        "msvc_codegen",
+        "msvc_fpo",
+        "msvc_fp_consistency",
+    ],
     "normal": [
         "msvc_opt_level",
         "msvc_codegen",

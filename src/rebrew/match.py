@@ -16,6 +16,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Any
 
 import rich
 import typer
@@ -35,6 +36,59 @@ from rebrew.matcher import (
     score_candidate,
 )
 from rebrew.matcher.mutator import quick_validate
+
+
+def classify_blockers(diff_summary: dict[str, Any]) -> list[str]:
+    """Auto-classify MATCHING blockers from structural diffs.
+
+    Looks for patterns in mismatched (** / RR) lines to identify systemic
+    compiler differences like register allocation, loop rotation, etc.
+    """
+    blockers = set()
+    insns = diff_summary.get("instructions", [])
+
+    for row in insns:
+        match_char = row.get("match")
+        if match_char not in ("**", "RR"):
+            continue
+
+        t = row.get("target") or {}
+        c = row.get("candidate") or {}
+        t_asm = t.get("disasm", "")
+        c_asm = c.get("disasm", "")
+
+        # Register allocation
+        if match_char == "RR":
+            blockers.add("register allocation")
+            continue
+
+        t_mnem = t_asm.split()[0] if t_asm else ""
+        c_mnem = c_asm.split()[0] if c_asm else ""
+
+        # Loop rotation / jump conditions
+        if (t_mnem.startswith("j") and c_mnem.startswith("j")) and t_mnem != c_mnem:
+            if t_mnem != "jmp" and c_mnem != "jmp":
+                blockers.add("jump condition swap")
+            else:
+                blockers.add("loop rotation / branch layout")
+
+        # Zero-extend patterns
+        if ("xor" in t_mnem and "mov" in c_mnem) or ("mov" in t_mnem and "xor" in c_mnem):
+            blockers.add("zero-extend pattern (xor vs mov)")
+
+        # Comparison direction swap
+        if t_mnem == "cmp" and c_mnem == "cmp" and t_asm != c_asm:
+            blockers.add("comparison direction swap")
+
+        # Stack frame choice
+        if ("push" in t_mnem and "sub esp" in c_asm) or ("sub esp" in t_asm and "push" in c_mnem):
+            blockers.add("stack frame choice (push vs sub esp)")
+
+        # Instruction folding (lea vs mov)
+        if ("lea" in t_mnem and "mov" in c_mnem) or ("mov" in t_mnem and "lea" in c_mnem):
+            blockers.add("instruction folding (lea vs mov)")
+
+    return sorted(list(blockers))
 
 
 class BinaryMatchingGA:
@@ -279,6 +333,12 @@ def main(
         "--mm",
         help="With --diff-only, show only ** (structural diff) lines",
     ),
+    register_aware: bool = typer.Option(
+        False,
+        "--register-aware",
+        "--rr",
+        help="With --diff-only, normalize register encodings and mark differences as RR",
+    ),
     flag_sweep_only: bool = typer.Option(False),
     tier: str = typer.Option(
         "quick",
@@ -405,6 +465,7 @@ def main(
                 obj_bytes,
                 res.reloc_offsets,
                 mismatches_only=mismatches_only,
+                register_aware=register_aware,
                 as_dict=True,
             )
             if json_output:
@@ -412,9 +473,23 @@ def main(
             else:
                 # Print human-readable diff
                 diff_functions(
-                    target_bytes, obj_bytes, res.reloc_offsets, mismatches_only=mismatches_only
+                    target_bytes,
+                    obj_bytes,
+                    res.reloc_offsets,
+                    mismatches_only=mismatches_only,
+                    register_aware=register_aware,
                 )
-            has_structural = summary["summary"]["structural"] > 0
+
+            has_structural = False
+            if summary:
+                blockers = classify_blockers(summary)
+                if not json_output and blockers:
+                    print("\nAuto-classified blockers:")
+                    for b in blockers:
+                        print(f"  - {b}")
+                elif json_output:
+                    pass
+                has_structural = summary["summary"]["structural"] > 0
             if has_structural:
                 raise typer.Exit(code=1)
             return

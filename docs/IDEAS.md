@@ -9,15 +9,15 @@ Ideas collected during hands-on workflow testing, prioritized by impact.
 | # | Idea | Impact | Effort | Priority |
 |---|------|--------|--------|----------|
 | 1 | [CRT source cross-reference tool](#1-crt-source-cross-reference-tool) | High | Medium | **P0** |
-| 2 | [Register-aware diff mode](#2-register-aware-diff-mode) | High | Medium | **P1** |
-| 3 | [Auto-classify MATCHING blockers](#3-auto-classify-matching-blockers) | High | Medium | **P1** |
-| 4 | [Verify summary with STATUS breakdown](#4-verify-summary-with-status-breakdown) | High | Low | **P1** |
+| 2 | ~~[Register-aware diff mode](#2-register-aware-diff-mode)~~ | High | Medium | **DONE** |
+| 3 | ~~[Auto-classify MATCHING blockers](#3-auto-classify-matching-blockers)~~ | High | Medium | **DONE** |
+| 4 | ~~[Verify summary with STATUS breakdown](#4-verify-summary-with-status-breakdown)~~ | High | Low | **DONE** |
 | 5 | [GA code layout mutations](#5-ga-code-layout-mutations) | Medium | High | **P2** |
-| 6 | [Fix diff relocation marking](#6-fix-diff-relocation-marking) | Medium | Low | **P2** |
+| 6 | ~~[Fix diff relocation marking](#6-fix-diff-relocation-marking)~~ | Medium | Low | **DONE** |
 | 7 | [Batch flag sweep mode](#7-batch-flag-sweep-mode) | Medium | Medium | **P2** |
-| 8 | [Auto-detect ASM-origin CRT functions](#8-auto-detect-asm-origin-crt-functions) | Medium | Low | **P2** |
+| 8 | ~~[Auto-detect ASM-origin CRT functions](#8-auto-detect-asm-origin-crt-functions)~~ | Medium | Low | **DONE** |
 | 9 | [Structural similarity metric](#9-structural-similarity-metric) | Low | Medium | **P3** |
-| 10 | [Targeted flag sweep tier](#10-targeted-flag-sweep-tier) | Low | Low | **P3** |
+| 10 | ~~[Targeted flag sweep tier](#10-targeted-flag-sweep-tier)~~ | Low | Low | **DONE** |
 | 11 | [Similarity-based prioritization in rebrew next](#11-similarity-based-prioritization-in-rebrew-next) | Low | Medium | **P3** |
 | 12 | [Callee-save register injection](#12-callee-save-register-injection) | High | High | **P3** |
 | 13 | [Data Sync and XREF Pipeline](#13-data-sync-and-xref-pipeline) | High | Medium | **P1** |

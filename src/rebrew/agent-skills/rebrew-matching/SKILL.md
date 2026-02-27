@@ -20,9 +20,15 @@ rebrew match --diff-only --mm src/<target>/<file>.c --json   # structural diffs 
 
 - `==` identical bytes
 - `~~` relocation difference (acceptable — counts as RELOC)
+- `RR` register encoding difference (with `--rr` / `--register-aware`)
 - `**` structural difference (needs fixing)
 
 If the diff shows only `~~` lines, the function is already RELOC — promote it.
+Use `--register-aware` to see if remaining `**` diffs are actually just unfixable register allocation differences.
+
+### Auto-Classified Blockers
+
+`rebrew match --diff-only` will auto-classify systemic compiler differences from `**` / `RR` lines (e.g. "register allocation", "loop rotation / branch layout", "stack frame choice"). Use this to determine if a function is genuinely improvable.
 
 ## 2. Flag Sweep
 
@@ -30,12 +36,13 @@ When code logic is correct but bytes diverge, try different compiler flags:
 
 ```bash
 rebrew match --flag-sweep-only src/<target>/<file>.c              # default tier
-rebrew match --flag-sweep-only --tier quick src/<target>/<file>.c # fast, common flags
+rebrew match --flag-sweep-only --tier targeted src/<target>/<file>.c # codegen-altering flags
 ```
 
 | Tier | Combinations | Use Case |
 |------|-------------|----------|
 | `quick` | ~192 | Fast iteration |
+| `targeted` | ~6K | Codegen-altering flags only (`/Oy`, `/Op`) |
 | `normal` | ~21K | Default sweep |
 | `thorough` | ~1M | Deep search |
 | `full` | ~8.3M | Exhaustive |
