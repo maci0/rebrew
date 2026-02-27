@@ -11,7 +11,7 @@ Usage in a tool::
     app = typer.Typer()
 
     @app.command()
-    def main(target: str = TargetOption):
+    def main(target: str = TargetOption) -> None:
         cfg = get_config(target)
         ...
 """

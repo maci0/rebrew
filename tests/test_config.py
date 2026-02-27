@@ -255,6 +255,9 @@ binary = "test.exe"
         assert cfg.target_name == "main"
         assert cfg.binary_format == "pe"  # default
         assert cfg.arch == "x86_32"  # default
+        assert cfg.reversed_dir == root / "src" / "main"
+        assert cfg.function_list == root / "src" / "main" / "r2_functions.txt"
+        assert cfg.bin_dir == root / "bin" / "main"
 
     def test_unknown_arch_falls_back(self, tmp_path: Path) -> None:
         toml = """\
@@ -266,6 +269,32 @@ arch = "mips32"
         cfg = load_config(root)
         # Should fall back to x86_32 preset
         assert cfg.pointer_size == 4
+
+    def test_wrong_list_types_fall_back(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+origins = "GAME"
+iat_thunks = "0x1000"
+ignored_symbols = "_bad"
+library_origins = "MSVCRT"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.origins == []
+        assert cfg.iat_thunks == []
+        assert cfg.ignored_symbols == []
+        assert cfg.library_origins == set()
+
+    def test_wrong_mapping_type_falls_back(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+dll_exports = "not-a-dict"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.dll_exports == {}
 
 
 # ---------------------------------------------------------------------------

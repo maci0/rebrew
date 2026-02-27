@@ -60,7 +60,7 @@ def detect_unmatchable(
         return None
 
     raw = extract_bytes_at_va(binary_info, va, max(size, 8), padding_bytes=())
-    if raw is None or len(raw) == 0:
+    if not raw:
         return None
 
     # 3a. Tiny functions: single ret or int3/nop padding

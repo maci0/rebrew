@@ -38,15 +38,19 @@ Run 'rebrew init' to create a new project, or 'rebrew <cmd> --help' for details.
 # Single-command modules – registered as flat commands via app.command().
 _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("test", "rebrew.test", "Quick compile-and-compare for reversed functions."),
-    ("verify", "rebrew.verify", "Validate compiled bytes against original DLL."),
+    ("verify", "rebrew.verify", "Validate compiled bytes against target binary."),
     ("next", "rebrew.next", "Find the next best functions to work on."),
     ("skeleton", "rebrew.skeleton", "Generate skeleton C files for matching."),
-    ("catalog", "rebrew.catalog", "Build JSON coverage catalogs for the web UI."),
-    ("sync", "rebrew.sync", "Sync GHIDRA annotations with rebrew."),
+    (
+        "catalog",
+        "rebrew.catalog",
+        "Build coverage catalog, data JSON, and optional CSV/Ghidra exports.",
+    ),
+    ("sync", "rebrew.sync", "Sync annotations between decomp C files and Ghidra."),
     ("lint", "rebrew.lint", "Lint C annotations."),
     ("extract", "rebrew.extract", "Extract and disassemble functions from binary."),
     ("match", "rebrew.match", "GA engine for binary matching (diff, flag-sweep, GA)."),
-    ("ga", "rebrew.ga", "Batch GA runner for STUB functions."),
+    ("ga", "rebrew.ga", "Batch GA runner for STUB and near-miss MATCHING functions."),
     ("asm", "rebrew.asm", "Disassemble original bytes."),
     ("build-db", "rebrew.build_db", "Build SQLite coverage database."),
     ("init", "rebrew.init", "Initialize a new rebrew project."),

@@ -28,7 +28,7 @@ import tomllib
 import warnings as _warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 # ---------------------------------------------------------------------------
 # Architecture presets
@@ -143,7 +143,8 @@ class ProjectConfig:
         """Return capstone CS_ARCH_* constant."""
         import capstone
 
-        name = _ARCH_PRESETS.get(self.arch, {}).get("capstone_arch", "CS_ARCH_X86")
+        raw_name = _ARCH_PRESETS.get(self.arch, {}).get("capstone_arch", "CS_ARCH_X86")
+        name = raw_name if isinstance(raw_name, str) else "CS_ARCH_X86"
         return getattr(capstone, name)
 
     @property
@@ -151,7 +152,8 @@ class ProjectConfig:
         """Return capstone CS_MODE_* constant."""
         import capstone
 
-        name = _ARCH_PRESETS.get(self.arch, {}).get("capstone_mode", "CS_MODE_32")
+        raw_name = _ARCH_PRESETS.get(self.arch, {}).get("capstone_mode", "CS_MODE_32")
+        name = raw_name if isinstance(raw_name, str) else "CS_MODE_32"
         return getattr(capstone, name)
 
     def va_to_file_offset(self, va: int) -> int:
@@ -201,8 +203,16 @@ class ProjectConfig:
             return f.read(size)
 
 
-def _parse_int_list(values: list[Any], field_name: str) -> list[int]:
+def _parse_int_list(values: list[Any] | None, field_name: str) -> list[int]:
     """Parse a list of hex strings / ints, skipping invalid entries with a warning."""
+    if values is None:
+        return []
+    if not isinstance(values, list):
+        _warnings.warn(
+            f"Expected list for {field_name}, got {type(values).__name__}; using empty list",
+            stacklevel=2,
+        )
+        return []
     result: list[int] = []
     for v in values:
         try:
@@ -212,8 +222,16 @@ def _parse_int_list(values: list[Any], field_name: str) -> list[int]:
     return result
 
 
-def _parse_hex_dict(mapping: dict[str, Any]) -> dict[int, Any]:
+def _parse_hex_dict(mapping: dict[str, Any] | None) -> dict[int, Any]:
     """Parse a dict with hex-string keys to int keys, skipping invalid entries."""
+    if mapping is None:
+        return {}
+    if not isinstance(mapping, dict):
+        _warnings.warn(
+            f"Expected mapping for dll_exports, got {type(mapping).__name__}; using empty mapping",
+            stacklevel=2,
+        )
+        return {}
     result: dict[int, Any] = {}
     for k, v in mapping.items():
         try:
@@ -221,6 +239,24 @@ def _parse_hex_dict(mapping: dict[str, Any]) -> dict[int, Any]:
             result[key] = v
         except (ValueError, TypeError):
             _warnings.warn(f"Skipping invalid dll_exports key: {k!r}", stacklevel=2)
+    return result
+
+
+def _parse_str_list(values: list[Any] | None, field_name: str) -> list[str]:
+    if values is None:
+        return []
+    if not isinstance(values, list):
+        _warnings.warn(
+            f"Expected list for {field_name}, got {type(values).__name__}; using empty list",
+            stacklevel=2,
+        )
+        return []
+    result: list[str] = []
+    for v in values:
+        if isinstance(v, str):
+            result.append(v)
+        else:
+            _warnings.warn(f"Skipping non-string {field_name} value: {v!r}", stacklevel=2)
     return result
 
 
@@ -351,7 +387,7 @@ def load_config(
         "output_dir",
     }
 
-    unknown_top = set(raw.keys()) - _KNOWN_TOP_KEYS
+    unknown_top = set(raw) - _KNOWN_TOP_KEYS
     if unknown_top:
         _warnings.warn(
             f"rebrew.toml: unrecognized top-level keys: {unknown_top}",
@@ -363,7 +399,7 @@ def load_config(
     ):
         sec = raw.get(sec_name, {})
         if isinstance(sec, dict):
-            unknown_sec = set(sec.keys()) - known_keys
+            unknown_sec = set(sec) - known_keys
             if unknown_sec:
                 _warnings.warn(
                     f"rebrew.toml [{sec_name}]: unrecognized keys: {unknown_sec}",
@@ -371,7 +407,7 @@ def load_config(
                 )
     for tgt_name, tgt_data in raw.get("targets", {}).items():
         if isinstance(tgt_data, dict):
-            unknown_tgt = set(tgt_data.keys()) - _KNOWN_TARGET_KEYS
+            unknown_tgt = set(tgt_data) - _KNOWN_TARGET_KEYS
             if unknown_tgt:
                 _warnings.warn(
                     f"rebrew.toml [targets.{tgt_name}]: unrecognized keys: {unknown_tgt}",
@@ -380,7 +416,7 @@ def load_config(
 
     # --- Resolve target section (multi-target or legacy) ---
     targets_dict = raw.get("targets", {})
-    all_target_names = list(targets_dict.keys())
+    all_target_names = [k for k in targets_dict if isinstance(k, str)]
 
     # Global compiler defaults — support both flat [compiler] and nested [compiler.preset]
     global_compiler_raw = raw.get("compiler", {})
@@ -428,12 +464,43 @@ def load_config(
     else:
         raise KeyError("rebrew.toml has no [targets] or [target] section")
 
-    arch_name = tgt.get("arch", "x86_32")
+    arch_name = cast(str, tgt.get("arch", "x86_32"))
     arch_preset = _ARCH_PRESETS.get(arch_name, _ARCH_PRESETS["x86_32"])
     bin_rel = tgt.get("binary")
     if bin_rel is None:
         raise KeyError(f"Target '{target}' in rebrew.toml is missing 'binary' path")
-    bin_path = _resolve(root, bin_rel)
+    resolved_bin = _resolve(root, bin_rel)
+    if resolved_bin is None:
+        raise KeyError(f"Target '{target}' in rebrew.toml has invalid 'binary' path")
+    bin_path: Path = resolved_bin
+
+    project_raw = raw.get("project", {})
+
+    resolved_reversed_dir = _resolve(root, sources.get("reversed_dir", f"src/{target}"))
+    reversed_dir: Path = resolved_reversed_dir or (root / f"src/{target}")
+
+    resolved_function_list = _resolve(
+        root,
+        sources.get("function_list", f"src/{target}/r2_functions.txt"),
+    )
+    function_list: Path = resolved_function_list or (root / f"src/{target}/r2_functions.txt")
+
+    resolved_bin_dir = _resolve(root, sources.get("bin_dir", f"bin/{target}"))
+    bin_dir: Path = resolved_bin_dir or (root / f"bin/{target}")
+
+    resolved_db_dir = _resolve(root, project_raw.get("db_dir", "db"))
+    db_dir: Path = resolved_db_dir or (root / "db")
+
+    resolved_output_dir = _resolve(root, project_raw.get("output_dir", "output"))
+    output_dir: Path = resolved_output_dir or (root / "output")
+
+    resolved_compiler_includes = _resolve(
+        root, compiler.get("includes", "tools/MSVC600/VC98/Include")
+    )
+    compiler_includes: Path = resolved_compiler_includes or (root / "tools/MSVC600/VC98/Include")
+
+    resolved_compiler_libs = _resolve(root, compiler.get("libs", "tools/MSVC600/VC98/Lib"))
+    compiler_libs: Path = resolved_compiler_libs or (root / "tools/MSVC600/VC98/Lib")
 
     # Merge cflags_presets: global first, then per-target overrides
     merged_presets = {
@@ -441,56 +508,53 @@ def load_config(
         **tgt.get("cflags_presets", {}),
     }
 
-    # --- Parse [project] section ---
-    project_raw = raw.get("project", {})
-
     cfg = ProjectConfig(
         root=root,
-        target_name=target,
+        target_name=target or "",
         # target
         target_binary=bin_path,
         binary_format=tgt.get("format", "pe"),
         arch=arch_name,
         # sources (from target section in multi-target, or [sources] in legacy)
-        reversed_dir=_resolve(root, sources.get("reversed_dir")),
-        function_list=_resolve(root, sources.get("function_list")),
-        bin_dir=_resolve(root, sources.get("bin_dir")),
+        reversed_dir=reversed_dir,
+        function_list=function_list,
+        bin_dir=bin_dir,
         marker=tgt.get("marker", "SERVER"),
-        origins=tgt.get("origins", []),
+        origins=_parse_str_list(tgt.get("origins", []), "origins"),
         default_origin=tgt.get("default_origin", ""),
         origin_prefixes=tgt.get("origin_prefixes", {}),
         r2_bogus_vas=_parse_int_list(tgt.get("r2_bogus_vas", []), "r2_bogus_vas"),
         # project-level defaults
         project_name=project_raw.get("name", ""),
         default_jobs=project_raw.get("jobs", 4),
-        db_dir=_resolve(root, project_raw.get("db_dir", "db")),
-        output_dir=_resolve(root, project_raw.get("output_dir", "output")),
+        db_dir=db_dir,
+        output_dir=output_dir,
         # compiler
         compiler_profile=compiler.get("profile", "msvc6"),
         compiler_command=compiler.get("command", "wine CL.EXE"),
-        compiler_includes=_resolve(root, compiler.get("includes", "tools/MSVC600/VC98/Include")),
-        compiler_libs=_resolve(root, compiler.get("libs", "tools/MSVC600/VC98/Lib")),
+        compiler_includes=compiler_includes,
+        compiler_libs=compiler_libs,
         cflags=compiler.get("cflags", ""),
         base_cflags=compiler.get("base_cflags", "/nologo /c /MT"),
         compile_timeout=compiler.get("timeout", 60),
         # arch-derived
-        pointer_size=arch_preset["pointer_size"],
-        padding_bytes=arch_preset["padding_bytes"],
-        symbol_prefix=arch_preset["symbol_prefix"],
+        pointer_size=cast(int, arch_preset["pointer_size"]),
+        padding_bytes=cast(list[int], arch_preset["padding_bytes"]),
+        symbol_prefix=cast(str, arch_preset["symbol_prefix"]),
         # project-specific
         game_range_end=tgt.get("game_range_end"),
         iat_thunks=_parse_int_list(tgt.get("iat_thunks", []), "iat_thunks"),
         dll_exports=_parse_hex_dict(tgt.get("dll_exports", {})),
         cflags_presets=merged_presets,
         zlib_vas=_parse_int_list(tgt.get("zlib_vas", []), "zlib_vas"),
-        ignored_symbols=tgt.get("ignored_symbols", []),
+        ignored_symbols=_parse_str_list(tgt.get("ignored_symbols", []), "ignored_symbols"),
         compiler_profiles=compiler_profiles,
-        library_origins=set(tgt.get("library_origins", [])),
+        library_origins=set(_parse_str_list(tgt.get("library_origins", []), "library_origins")),
         origin_comments=tgt.get("origin_comments", {}),
         origin_todos=tgt.get("origin_todos", {}),
         source_ext=tgt.get("source_ext", ".c"),
         # all targets
-        all_targets=all_target_names,
+        all_targets=cast(list[str], all_target_names),
     )
 
     # Default library_origins: all origins except the first (primary/FUNCTION origin)
