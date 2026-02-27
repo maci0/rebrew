@@ -10,12 +10,16 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 - **Compile-and-compare** — `rebrew test` compiles your C and diffs it byte-by-byte against the original binary
 - **GA matching engine** — `rebrew match` uses a genetic algorithm to brute-force compiler flags and mutate source code to find exact byte matches
 - **Batch GA** — `rebrew ga` runs GA across all STUB functions unattended; `--near-miss` targets MATCHING functions with small byte deltas
-- **Annotation pipeline** — `rebrew lint` validates `// FUNCTION:`, `// STATUS:`, `// ORIGIN:` annotations across the codebase (E001–E017, W001–W015)
+- **Annotation pipeline** — `rebrew lint` validates `// FUNCTION:`, `// STATUS:`, `// ORIGIN:` annotations across the codebase (E001–E017, W001–W017)
 - **Verification** — `rebrew verify` bulk-compiles every reversed function and reports match status with a progress bar; `--json` emits timestamped structured reports to `db/verify_results.json`
 - **Smart prioritization** — `rebrew next` recommends functions to work on, auto-filters unmatchable stubs, and shows byte-delta for near-miss MATCHING functions
 - **Dependency graph** — `rebrew graph` builds call graphs from `extern` declarations in mermaid, DOT, or summary format with focus mode
 - **Global data scanner** — `rebrew data` inventories `.data`/`.rdata`/`.bss` globals, detects type conflicts, finds dispatch tables / vtables (`--dispatch`), verifies BSS layout (`--bss`), and supports `// DATA:` annotations for first-class data tracking
 - **Status tracking** — `rebrew status` gives a per-target breakdown of EXACT/RELOC/MATCHING/STUB counts
+- **Atomic promotion** — `rebrew promote` tests a function and atomically updates its STATUS annotation; `--dry-run` to preview
+- **Cold-start triage** — `rebrew triage` combines coverage stats, FLIRT scan, near-miss list, and recommendations into a single report for agent sessions
+- **FLIRT scanning** — `rebrew flirt` identifies known library functions via FLIRT signatures (`.sig`/`.pat`), no IDA required
+- **NASM extraction** — `rebrew nasm` extracts function bytes and produces NASM-reassembleable ASM with round-trip verification
 - **Multi-target** — all tools read from `rebrew.toml` with `--target` selection; supports PE, ELF, Mach-O across x86, x64, ARM32/64
 - **Rich CLI help** — every tool has detailed `--help` with usage examples, context, and prerequisites via Typer's `rich_markup_mode`
 - **Agent-friendly** — bundled `agent-skills/` copied to projects on `rebrew init`
@@ -100,7 +104,7 @@ rebrew cfg set compiler.cflags "/O1" # set a config value
 # Daily Workflow
 rebrew skeleton 0x10003DA0          # generate C skeleton from disassembly
 rebrew test src/target_name/f.c     # test implementation against target
-rebrew next --stats                 # show progress (equivalent to rebrew next)
+rebrew next --stats                 # show overall progress statistics
 rebrew next --improving             # list MATCHING functions sorted by byte delta
 rebrew lint                         # lint annotations in your source files
 rebrew status                       # show reversing status overview
@@ -122,10 +126,15 @@ rebrew ga --near-miss --threshold 5 # batch GA on MATCHING functions with ≤5B 
 rebrew verify                       # bulk compile and verify all reversed functions
 rebrew verify --json                # structured JSON report to stdout
 rebrew verify --output report.json  # write report to specific file
-rebrew extract                        # batch extract and disassemble functions
+rebrew extract list                   # list un-reversed candidates
+rebrew extract batch 20               # extract and disassemble first 20 smallest
 rebrew asm                          # quick offline disassembly
 rebrew sync --push                  # export annotations and push to Ghidra via ReVa MCP
+rebrew sync --push --dry-run        # preview push without applying
 rebrew sync --summary               # preview what would be synced
+rebrew sync --pull                  # fetch Ghidra renames/comments into local files
+rebrew sync --pull --dry-run        # preview pull without modifying files
+rebrew sync --pull --json           # pull with structured JSON output
 ```
 
 ## ⚙️ Supported Platforms
@@ -150,7 +159,7 @@ rebrew sync --summary               # preview what would be synced
 ```bash
 cd rebrew/
 uv sync --all-extras       # install dev dependencies
-uv run pytest tests/ -v    # run tests (1029 tests)
+uv run pytest tests/ -v    # run tests (~1100 tests)
 uv run ruff check .        # lint
 uv run ruff format .       # format
 python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me
