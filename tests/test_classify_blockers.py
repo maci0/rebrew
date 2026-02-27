@@ -30,3 +30,15 @@ def test_classify_blockers() -> None:
     assert "loop rotation / branch layout" in blockers
     assert "zero-extend pattern (xor vs mov)" in blockers
     assert "stack frame choice (push vs sub esp)" in blockers
+
+    # Test edge cases
+    summary_empty = {
+        "instructions": [
+            {
+                "match": "**",
+                "target": {"disasm": "   "},
+                "candidate": {"disasm": ""},
+            },
+        ]
+    }
+    assert classify_blockers(summary_empty) == []

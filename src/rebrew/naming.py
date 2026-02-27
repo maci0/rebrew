@@ -12,6 +12,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+import capstone
+
 from rebrew.annotation import _DEFAULT_ORIGIN_PREFIXES, parse_c_file_multi
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va
 from rebrew.config import ProjectConfig
@@ -86,14 +88,15 @@ def detect_unmatchable(
     if len(raw) >= 6 and raw[:6] == _SEH_FS:
         return "SEH handler (fs:[0] access)"
 
-    # 3d. ASM-origin CRT patterns
-    for i in range(len(raw) - 1):
-        pair = raw[i : i + 2]
-        if pair in (_ASM_BT, _ASM_BTS):
+    # 3d. ASM-origin CRT patterns (via disassembly to avoid false positives in immediates)
+    md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+    for insn in md.disasm(raw, va):
+        mnem = insn.mnemonic
+        if mnem in ("bt", "bts"):
             return "ASM-origin CRT (BT/BTS)"
-        if pair == _ASM_REPNE_SCASB:
+        if mnem == "repne scasb":
             return "ASM-origin CRT (repne scasb)"
-        if pair in _ASM_REP_MOVS:
+        if mnem in ("rep movsb", "rep movsw", "rep movsd"):
             return "ASM-origin CRT (rep movs)"
 
     return None
