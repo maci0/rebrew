@@ -8,6 +8,7 @@ behavior (register allocation, instruction selection, calling conventions).
 import random
 import re
 from collections.abc import Callable
+from typing import Literal, overload
 
 # ---------------------------------------------------------------------------
 # Pre-compiled regex patterns (module-level for performance)
@@ -1360,6 +1361,24 @@ ALL_MUTATIONS = [
     mut_toggle_char_signedness,
     mut_comparison_boundary,
 ]
+
+
+@overload
+def mutate_code(
+    source: str,
+    rng: random.Random,
+    track_mutation: Literal[False] = False,
+    mutation_weights: dict[str, float] | None = None,
+) -> str: ...
+
+
+@overload
+def mutate_code(
+    source: str,
+    rng: random.Random,
+    track_mutation: Literal[True],
+    mutation_weights: dict[str, float] | None = None,
+) -> tuple[str, str]: ...
 
 
 def mutate_code(
