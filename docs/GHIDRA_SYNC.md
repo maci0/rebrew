@@ -11,10 +11,12 @@
 | Status-based bookmark categories | Local → Ghidra | ✅ Done | automatic (`rebrew/exact`, `/reloc`, etc.) |
 | Custom MCP endpoint URL | — | ✅ Done | `--endpoint URL` |
 | Summary / dry-run preview | — | ✅ Done | `--summary` |
-| Pull function renames from Ghidra | Ghidra → Local | ❌ Not yet | — |
+| Pull function renames from Ghidra | Ghidra → Local | ✅ Done | `--pull` |
 | Pull struct/type definitions from Ghidra | Ghidra → Local | ❌ Not yet | — |
-| Push struct definitions to Ghidra DTM | Local → Ghidra | ❌ Not yet | — |
-| Push function signatures to Ghidra | Local → Ghidra | ❌ Not yet | — |
+| Pull comments from Ghidra | Ghidra → Local | ✅ Done | `--pull` |
+| Push struct definitions to Ghidra DTM | Local → Ghidra | ✅ Done | `--sync-structs` |
+| Push function signatures to Ghidra | Local → Ghidra | ✅ Done | `--sync-signatures` |
+| Push data segments (.bss, .data) to Ghidra | Local → Ghidra | ✅ Done | `--sync-data` |
 | Incremental / dirty-only sync | Both | ❌ Not yet | — |
 | Bidirectional conflict detection | Both | ❌ Not yet | — |
 | Watch mode (live file-change sync) | Local → Ghidra | ❌ Not yet | — |
@@ -71,12 +73,11 @@ struct ArrayItem {
 };
 ```
 
-`rebrew sync` should detect these and generate `parse-c-structure` commands to push them
-into Ghidra's Data Type Manager. This would make Ghidra's decompiler output use our
+`rebrew sync` detects these and generates `parse-c-structure` commands to push them
+into Ghidra's Data Type Manager under the `/rebrew` category. This makes Ghidra's decompiler output use our
 struct definitions, dramatically improving readability for the *next* function we pull.
 
-**Detection heuristic:** Any `typedef struct` or `struct` definition that appears before
-the function body in a reversed `.c` file.
+**Detection heuristic:** `tree-sitter-c` extracts any `typedef struct`, `struct`, or `enum` definition found anywhere in the `.c` file.
 
 ---
 
@@ -88,18 +89,7 @@ When we have a complete, verified function signature:
 int __cdecl func_10006c00(void)
 ```
 
-Push it to Ghidra as a proper function signature override. ReVa doesn't have a direct
-`set-function-signature` tool, but we could use `set-comment` with a structured format
-that a Ghidra script could parse, or use `parse-c-structure` for the function typedef.
-
-**Workaround:** Push as a plate comment in a parseable format:
-```
-[rebrew-sig] int __cdecl func_10006c00(void)
-```
-
-> [!IMPORTANT]
-> Feature request for ReVa: a `set-function-signature` tool that takes C prototype
-> syntax and applies it to a function in Ghidra.
+Push it to Ghidra as a proper function signature override. `rebrew sync --push` uses `tree-sitter-c` to parse the exact function prototype from the local C file and pushes it to Ghidra using the `set-function-prototype` tool via ReVa MCP.
 
 ---
 

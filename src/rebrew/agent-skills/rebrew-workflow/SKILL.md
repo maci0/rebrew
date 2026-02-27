@@ -25,9 +25,13 @@ Without `--json`, these produce rich terminal tables for human review.
 ```bash
 rebrew skeleton 0x<VA>                             # generate annotated .c stub
 rebrew skeleton 0x<VA> --decomp --decomp-backend r2dec  # include decompilation
+rebrew skeleton 0x<VA> --append existing_file.c    # add to multi-function file
+rebrew skeleton --list --origin GAME               # list uncovered functions
+rebrew skeleton --batch 10                         # generate 10 skeletons (smallest first)
 ```
 
 The file extension comes from `source_ext` in `rebrew.toml` (default: `.c`).
+Use `--json` for structured output in batch/list modes.
 
 ## 3. Review Disassembly
 
@@ -67,9 +71,10 @@ Automatically removes BLOCKER/BLOCKER_DELTA annotations on promotion.
 ```bash
 rebrew status --json                    # quick EXACT/RELOC/MATCHING/STUB counts
 rebrew verify --json                    # bulk compile + diff all reversed functions
-rebrew verify -o report.json            # save report to file
+rebrew verify -j 8 -o report.json      # parallel compile, save report to file
 rebrew lint --json                      # check annotation correctness
 rebrew lint --fix                       # auto-migrate old annotation formats
+rebrew lint --summary                   # status/origin breakdown table
 ```
 
 ## 8. Dependency Graph
@@ -82,15 +87,41 @@ rebrew graph                            # full mermaid call graph
 
 ## 9. Ghidra Sync
 
-Push annotations to a running Ghidra instance via ReVa MCP:
+Push annotations and structs to a running Ghidra instance via ReVa MCP, or pull renames/comments from it:
 
 ```bash
 rebrew sync --summary --json            # preview what would be synced
-rebrew sync --push                      # export + apply to Ghidra
+rebrew sync --push                      # export + apply labels/comments to Ghidra
+rebrew sync --push --dry-run            # preview push without applying
 rebrew sync --export                    # generate ghidra_commands.json only
+rebrew sync --pull                      # fetch Ghidra renames/comments and update local C files
+rebrew sync --pull --dry-run            # preview pull without modifying files
+rebrew sync --pull --json               # pull with structured JSON output
 ```
 
-Re-running sync is idempotent. Generic auto-names are skipped.
+### What gets synced
+
+**Push → Ghidra:**
+- Function labels (skips generic `func_XXXXXXXX` names)
+- Plate comments with `[rebrew]` metadata (status, origin, size, cflags)
+- Pre-comments from `// NOTE:` annotations
+- Bookmarks by status category (`rebrew/exact`, `rebrew/reloc`, etc.)
+- Struct definitions → Ghidra Data Type Manager under `/rebrew` category
+- Function prototypes (parsed from local C files)
+- DATA/GLOBAL labels and bookmarks (`rebrew/data` category)
+
+**Pull ← Ghidra:**
+- Function renames from Ghidra (updates `// SYMBOL:` and renames file if it matches)
+- Data label names from Ghidra
+- Plate and pre-comments from Ghidra (mapped to `// NOTE:` annotation)
+
+### Safety guarantees
+
+- **No accidental overwrites**: Generic auto-names (`FUN_`, `DAT_`, `func_`, `switchdata`) are never pulled
+- **Conflict detection**: When both local and Ghidra have meaningful (non-generic) names that differ, the pull reports a CONFLICT and skips the rename — resolve manually
+- **`[rebrew]` comments filtered**: Our own auto-generated plate comments are never pulled back
+- **Dry-run**: Use `--dry-run` with any operation to preview changes before applying
+- **Idempotent**: Re-running sync is safe — same result every time
 
 ## 10. Coverage Database
 

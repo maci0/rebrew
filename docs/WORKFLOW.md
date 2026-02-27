@@ -286,7 +286,7 @@ rebrew promote src/target_name/my_func.c --json   # agent-friendly output
 
 ### 10. Lint and Verify Annotation Health
 
-Before committing or finishing a batch of functions, ensure your C files have valid headers and annotations. Run the built-in annotation linter (`rebrew catalog`) periodically throughout the RE pipeline to catch formatting errors early, especially when collaborating or generating many templates:
+Before committing or finishing a batch of functions, ensure your C files have valid headers and annotations. Run the built-in annotation linter (`rebrew lint`) periodically throughout the RE pipeline to catch formatting errors early, especially when collaborating or generating many templates:
 
 ```bash
 rebrew lint              # Check for invalid headers, statuses, and origins

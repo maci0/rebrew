@@ -73,19 +73,31 @@ From the triage output, evaluate:
 - **Quick wins**: small functions, leaf functions, known library matches
 - **Blockers**: large functions, functions with many dependencies
 
-### 6. Generate First Skeletons
+### 6. Extract Disassembly (Optional)
+
+Batch-extract function bytes and disassembly for offline analysis:
+
+```bash
+rebrew extract list                     # list un-reversed candidates
+rebrew extract batch 20                 # extract first 20 smallest
+```
+
+### 7. Generate First Skeletons
 
 Start with the easiest functions identified by triage:
 
 ```bash
 rebrew next --json                      # get recommended functions
-rebrew skeleton 0x<VA>                  # generate skeleton for each
+rebrew skeleton --list --origin GAME    # list all uncovered GAME functions
+rebrew skeleton --batch 10              # generate 10 skeletons (smallest first)
+rebrew skeleton 0x<VA>                  # generate one skeleton by VA
+rebrew skeleton 0x<VA> --decomp         # include decompilation in skeleton
 ```
 
 For library functions identified by FLIRT, check if reference source is available
 (e.g. `tools/MSVC600/VC98/CRT/SRC/` for MSVCRT, `references/zlib-1.1.3/` for zlib).
 
-### 7. Sync to Ghidra (Optional)
+### 8. Sync to Ghidra (Optional)
 
 If a Ghidra instance is available with ReVa MCP:
 
