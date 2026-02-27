@@ -175,6 +175,10 @@ class BinaryMatchingGA:
                 src, self.cl_cmd, self.inc_dir, self.cflags, self.symbol, env=self.env
             )
         else:
+            if not self.link_cmd or not self.lib_dir or not self.ldflags:
+                raise ValueError(
+                    "LINK.EXE, lib dir, and ldflags must be set when compare_obj is False"
+                )
             res = build_candidate(
                 src,
                 self.cl_cmd,
