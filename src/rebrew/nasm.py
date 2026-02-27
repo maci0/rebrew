@@ -17,7 +17,6 @@ Usage:
     rebrew nasm --va 0x10003ca0 --size 77 --verify
 """
 
-import os
 import re
 import subprocess
 import sys
@@ -201,21 +200,20 @@ def _run_nasm(source: str) -> bytes | None:
     are cleaned up automatically — even if the process is killed mid-run.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
-        asm_path = os.path.join(tmpdir, "input.asm")
-        bin_path = os.path.join(tmpdir, "output.bin")
-        with open(asm_path, "w", encoding="utf-8") as f:
-            f.write(source)
+        tmp = Path(tmpdir)
+        asm_path = tmp / "input.asm"
+        bin_path = tmp / "output.bin"
+        asm_path.write_text(source, encoding="utf-8")
         try:
             r = subprocess.run(
-                ["nasm", "-f", "bin", "-o", bin_path, asm_path],
+                ["nasm", "-f", "bin", "-o", str(bin_path), str(asm_path)],
                 capture_output=True,
                 timeout=5,
             )
             if r.returncode != 0:
                 return None
-            if os.path.exists(bin_path):
-                with open(bin_path, "rb") as fout:
-                    return fout.read()
+            if bin_path.exists():
+                return bin_path.read_bytes()
             return None
         except (subprocess.TimeoutExpired, FileNotFoundError):
             return None

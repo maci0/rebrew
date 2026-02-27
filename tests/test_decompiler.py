@@ -1,8 +1,10 @@
 """Tests for rebrew.decompiler backend dispatch and helpers."""
 
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
+from rebrew.config import ProjectConfig
 from rebrew.decompiler import (
     _BACKEND_MAP,
     BACKENDS,
@@ -69,6 +71,27 @@ class TestBackendDispatch:
         captured = capsys.readouterr()
         assert "unknown backend" in captured.err
 
+    @patch("rebrew.decompiler.shutil.which", return_value="/usr/bin/r2")
+    @patch("rebrew.decompiler.subprocess.run")
+    def test_r2ghidra_uses_arg_list(self, mock_run, _mock_which, tmp_path: Path) -> None:
+        binary = tmp_path / "target.bin"
+        binary.write_bytes(b"MZ")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="int foo() {\n  return 1;\n}\n",
+            stderr="",
+        )
+
+        result = fetch_r2ghidra(binary, 0x1000, tmp_path)
+
+        assert result == "int foo() {\n  return 1;\n}"
+        args, kwargs = mock_run.call_args
+        assert args[0][:4] == ["r2", "-q", "-c", "aaa; s 0x00001000; af; pdg"]
+        assert args[0][4] == str(binary)
+        assert kwargs["cwd"] == tmp_path
+        assert kwargs["timeout"] == 120
+
 
 class TestAutoFallback:
     @patch.dict(
@@ -115,16 +138,11 @@ class TestGenerateSkeletonWithDecomp:
         """Without decomp_code, skeleton has TODO placeholder."""
         from rebrew.skeleton import generate_skeleton
 
-        class FakeCfg:
-            marker = "SERVER"
-            cflags_presets = {"GAME": "/O2 /Gd"}
-            root = Path("/fake")
-            target_binary = Path("/fake/bin")
-            library_origins = []
-            origin_todos = {}
-            origin_comments = {}
+        cfg = ProjectConfig(root=Path("/fake"))
+        cfg.cflags_presets = {"GAME": "/O2 /Gd"}
+        cfg.target_binary = Path("/fake/bin")
 
-        result = generate_skeleton(FakeCfg(), 0x10001000, 100, "FUN_10001000", "GAME")
+        result = generate_skeleton(cfg, 0x10001000, 100, "FUN_10001000", "GAME")
         assert "/* TODO:" in result
         assert "Decompilation" not in result
 
@@ -132,17 +150,12 @@ class TestGenerateSkeletonWithDecomp:
         """With decomp_code, skeleton embeds the decompilation block."""
         from rebrew.skeleton import generate_skeleton
 
-        class FakeCfg:
-            marker = "SERVER"
-            cflags_presets = {"GAME": "/O2 /Gd"}
-            root = Path("/fake")
-            target_binary = Path("/fake/bin")
-            library_origins = []
-            origin_todos = {}
-            origin_comments = {}
+        cfg = ProjectConfig(root=Path("/fake"))
+        cfg.cflags_presets = {"GAME": "/O2 /Gd"}
+        cfg.target_binary = Path("/fake/bin")
 
         result = generate_skeleton(
-            FakeCfg(),
+            cfg,
             0x10001000,
             100,
             "FUN_10001000",
@@ -160,17 +173,12 @@ class TestGenerateSkeletonWithDecomp:
         """MSVCRT origin also embeds decompilation."""
         from rebrew.skeleton import generate_skeleton
 
-        class FakeCfg:
-            marker = "SERVER"
-            cflags_presets = {"MSVCRT": "/O1"}
-            root = Path("/fake")
-            target_binary = Path("/fake/bin")
-            library_origins = []
-            origin_todos = {}
-            origin_comments = {}
+        cfg = ProjectConfig(root=Path("/fake"))
+        cfg.cflags_presets = {"MSVCRT": "/O1"}
+        cfg.target_binary = Path("/fake/bin")
 
         result = generate_skeleton(
-            FakeCfg(),
+            cfg,
             0x1001E000,
             50,
             "crt_init",

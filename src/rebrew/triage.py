@@ -9,6 +9,7 @@ Usage:
 
 import contextlib
 import json
+from importlib import import_module
 from typing import Any
 
 import typer
@@ -51,6 +52,7 @@ def main(
 ) -> None:
     """Generate a cold-start triage report."""
     from rebrew.binary_loader import BinaryInfo, load_binary
+    from rebrew.flirt import iter_match_offsets
     from rebrew.naming import find_neighbor_file, make_filename
 
     cfg = get_config(target=target)
@@ -91,7 +93,7 @@ def main(
         if detect_unmatchable(fva, fsize, binary_info, iat_set, ignored, name):
             unmatchable_count += 1
 
-    actionable = total - covered - unmatchable_count
+    actionable = max(0, total - covered - unmatchable_count)
 
     # --- Near-miss MATCHING functions ---
     size_by_va: dict[int, int] = {f["va"]: f["size"] for f in ghidra_funcs}
@@ -159,9 +161,10 @@ def main(
 
     # --- FLIRT scan (best-effort, requires binary) ---
     flirt_count: int | None = None
+    flirt_error: str | None = None
     if binary_info is not None:
         try:
-            import flirt as flirt_mod
+            flirt_mod: Any = import_module("flirt")
 
             from rebrew.flirt import find_func_size, load_signatures
 
@@ -177,7 +180,7 @@ def main(
                             text_sec.file_offset : text_sec.file_offset + text_sec.raw_size
                         ]
                         flirt_count = 0
-                        for offset in range(0, len(code) - 32, 16):
+                        for offset in iter_match_offsets(len(code), stride=16, min_window=32):
                             func_size = find_func_size(code, offset)
                             if func_size < 16:
                                 continue
@@ -191,11 +194,12 @@ def main(
                                             names.append(label)
                                 if names and len(names) <= 3:
                                     flirt_count += 1
-        except (ImportError, OSError, KeyError, ValueError):
-            pass
+        except (ImportError, OSError, KeyError, ValueError) as exc:
+            flirt_error = str(exc)
 
     # --- Output ---
-    pct = 100 * covered / total if total else 0.0
+    bounded_covered = min(max(covered, 0), total)
+    pct = 100 * bounded_covered / total if total else 0.0
 
     if json_output:
         report: dict[str, Any] = {
@@ -216,6 +220,8 @@ def main(
         }
         if flirt_count is not None:
             report["flirt_matches"] = flirt_count
+        if flirt_error:
+            report["flirt_error"] = flirt_error
         print(json.dumps(report, indent=2))
     else:
         print("=" * 60)

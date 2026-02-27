@@ -42,9 +42,15 @@ from rebrew.config import ProjectConfig
 
 out_console = Console()
 
+_HEADER_MARKER_RE = re.compile(r"//\s*(\w+):\s*(\S+)\s+(0x[0-9a-fA-F]+)")
+_SIZE_ANNOTATION_RE = re.compile(r"//\s*SIZE\s+0x[0-9a-fA-F]+")
+_MARKER_TYPE_RE = re.compile(r"//\s*(\w+):")
+
 
 @dataclass
 class LintResult:
+    """Accumulated lint errors and warnings for a single source file."""
+
     filepath: Path
     errors: list[tuple[int, str, str]] = field(default_factory=list)
     warnings: list[tuple[int, str, str]] = field(default_factory=list)
@@ -95,7 +101,7 @@ def _parse_header(lines: list[str]) -> tuple[dict[str, str], dict[str, bool]]:
 
         if NEW_FUNC_RE.match(stripped):
             flags["has_new"] = True
-            m = re.match(r"//\s*(\w+):\s*(\S+)\s+(0x[0-9a-fA-F]+)", stripped)
+            m = _HEADER_MARKER_RE.match(stripped)
             if m:
                 found_keys["MARKER"] = m.group(1)
                 found_keys["MODULE"] = m.group(2)
@@ -413,6 +419,26 @@ def _check_config_rules(
             )
 
 
+def _check_W016_section(result: LintResult, marker: str, found_keys: dict[str, str]) -> None:
+    if marker in ("DATA", "GLOBAL") and "SECTION" not in found_keys:
+        result.warning(
+            1,
+            "W016",
+            f"{marker} annotation missing // SECTION: (.data, .rdata, .bss)",
+        )
+
+
+def _check_W017_note_rebrew(result: LintResult, found_keys: dict[str, str]) -> None:
+    note = found_keys.get("NOTE", "")
+    if note.startswith("[rebrew]"):
+        result.warning(
+            1,
+            "W017",
+            "NOTE starts with '[rebrew]' — this looks like auto-generated sync metadata, "
+            "not a human note (likely from a bad pull)",
+        )
+
+
 def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> None:
     """Check struct SIZE comments and code presence (W003, W007)."""
     has_code = False
@@ -429,7 +455,7 @@ def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> No
             has_code = True
         if "typedef struct" in stripped or "struct " in stripped:
             has_struct = True
-        if re.match(r"//\s*SIZE\s+0x[0-9a-fA-F]+", stripped):
+        if _SIZE_ANNOTATION_RE.match(stripped):
             struct_has_size = True
 
     if not has_code and has_new:
@@ -501,6 +527,8 @@ def lint_file(
         _check_E016_filename(result, filepath, found_keys.get("SYMBOL", ""), marker)
         _check_W014_origin_prefix(result, filepath, origin, cfg)
         _check_W015_va_case(result, found_keys.get("VA", ""))
+        _check_W016_section(result, marker, found_keys)
+        _check_W017_note_rebrew(result, found_keys)
 
     _check_body_rules(result, lines, flags["has_new"])
 
@@ -682,7 +710,7 @@ def _print_summary(results: list[LintResult]) -> None:
                 elif key == "ORIGIN":
                     origin_counts[val] += 1
             elif NEW_FUNC_RE.match(stripped):
-                m2 = re.match(r"//\s*(\w+):", stripped)
+                m2 = _MARKER_TYPE_RE.match(stripped)
                 if m2:
                     marker_counts[m2.group(1)] += 1
 
@@ -722,6 +750,8 @@ app = typer.Typer(
   E016   Filename doesn't match SYMBOL
   W001   Missing SYMBOL (recommended)
   W005   STUB without BLOCKER explanation
+  W016   DATA/GLOBAL missing SECTION annotation
+  W017   NOTE contains [rebrew] sync metadata
 
 [dim]Checks for reccmp-style annotations in the first 20 lines of each .c file.
 Supports old-format, block-comment, and javadoc annotation styles (--fix migrates them).[/dim]""",

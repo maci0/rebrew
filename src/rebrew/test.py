@@ -22,6 +22,8 @@ from rebrew.matcher.parsers import list_obj_symbols, parse_coff_symbol_bytes
 
 # Regex for detecting FUNCTION/LIBRARY/STUB marker lines (used by update_source_status)
 _MARKER_RE = re.compile(r"^(//|/\*)\s*(?:FUNCTION|LIBRARY|STUB):\s*\S+\s+(0x[0-9a-fA-F]+)")
+_STATUS_RE = re.compile(r"^(//|/\*)\s*STATUS:")
+_BLOCKER_RE = re.compile(r"^(//|/\*)\s*BLOCKER:")
 
 
 def compile_obj(
@@ -75,7 +77,7 @@ def smart_reloc_compare(
         else:
             mismatches.append(i)
 
-    masked_match = len(mismatches) == 0 and len(obj_bytes) == len(target_bytes)
+    masked_match = not mismatches and len(obj_bytes) == len(target_bytes)
     return masked_match, match_count, max_len, relocs
 
 
@@ -119,12 +121,12 @@ def update_source_status(
                     line_va = int(marker_m.group(2), 16)
                     in_target_block = line_va == target_va
 
-            if in_target_block and re.match(r"^(//|/\*)\s*STATUS:", line):
+            if in_target_block and _STATUS_RE.match(line):
                 if line.startswith("//"):
                     f.write(f"// STATUS: {new_status}\n")
                 else:
                     f.write(f"/* STATUS: {new_status} */\n")
-            elif in_target_block and blockers_to_remove and re.match(r"^(//|/\*)\s*BLOCKER:", line):
+            elif in_target_block and blockers_to_remove and _BLOCKER_RE.match(line):
                 continue
             else:
                 f.write(line)
@@ -241,10 +243,9 @@ def main(
         va_int = int(va_str, 16)
         target_bytes = cfg.extract_dll_bytes(va_int, size_val)
     elif target_bin:
-        with open(target_bin, "rb") as f:
-            target_bytes = f.read()
-            if size_val:
-                target_bytes = target_bytes[:size_val]
+        target_bytes = Path(target_bin).read_bytes()
+        if size_val:
+            target_bytes = target_bytes[:size_val]
     else:
         if json_output:
             print(

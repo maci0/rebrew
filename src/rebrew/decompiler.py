@@ -45,10 +45,8 @@ def _clean_output(text: str) -> str | None:
 def _run_r2(binary: Path, va: int, cmd: str, root: Path) -> str | None:
     """Run an r2 command and return cleaned output."""
     try:
-        full_cmd = f'r2 -q -c "aaa; s 0x{va:08x}; af; {cmd}" "{binary}"'
         result = subprocess.run(
-            full_cmd,
-            shell=True,
+            ["r2", "-q", "-c", f"aaa; s 0x{va:08x}; af; {cmd}", str(binary)],
             capture_output=True,
             text=True,
             cwd=root,
@@ -135,8 +133,7 @@ def fetch_decompilation(
     fn = _BACKEND_MAP.get(backend)
     if fn is None:
         print(
-            f"decompiler: unknown backend '{backend}'. "
-            f"Available: {', '.join(_BACKEND_MAP.keys())}, auto",
+            f"decompiler: unknown backend '{backend}'. Available: {', '.join(_BACKEND_MAP)}, auto",
             file=sys.stderr,
         )
         return None, backend

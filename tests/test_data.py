@@ -3,6 +3,9 @@
 from pathlib import Path
 
 from rebrew.data import (
+    BssGap,
+    BssReport,
+    _generate_bss_fix,
     classify_section,
     enrich_with_sections,
     scan_globals,
@@ -223,3 +226,40 @@ class TestToDict:
         assert "summary" in d
         assert d["summary"]["annotated"] == 2
         assert d["summary"]["total"] >= 2
+
+
+# ---------------------------------------------------------------------------
+# BSS Layout and Fix
+# ---------------------------------------------------------------------------
+
+
+class TestBssFix:
+    def test_generate_bss_fix_no_gaps(self, tmp_path: Path) -> None:
+        report = BssReport(bss_va=0x1000, bss_size=0x100)
+        _generate_bss_fix(report, tmp_path, "TEST")
+        assert not (tmp_path / "bss_padding.c").exists()
+
+    def test_generate_bss_fix_with_gaps(self, tmp_path: Path) -> None:
+        report = BssReport(
+            bss_va=0x1000,
+            bss_size=0x100,
+            gaps=[
+                BssGap(offset=0x1010, size=16, before="g_var1", after="g_var2"),
+                BssGap(offset=0x1030, size=32, before="g_var2", after="g_var3"),
+            ],
+        )
+        _generate_bss_fix(report, tmp_path, "GAME")
+
+        fix_file = tmp_path / "bss_padding.c"
+        assert fix_file.exists()
+
+        content = fix_file.read_text(encoding="utf-8")
+        assert "// DATA: GAME 0x00001010" in content
+        assert "// STATUS: EXACT" in content
+        assert "// ORIGIN: GAME" in content
+        assert "// SECTION: .bss" in content
+        assert "char gap_00001010[16];" in content
+        assert "// NOTE: gap between g_var1 and g_var2" in content
+
+        assert "// DATA: GAME 0x00001030" in content
+        assert "char gap_00001030[32];" in content

@@ -171,15 +171,13 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew extract                            Extract all annotated functions
-  rebrew extract --extract                  Extract .bin files for each function
-  rebrew extract --disasm                   Disassemble all extracted functions
-  rebrew extract --origin GAME              Filter by origin
-  rebrew extract --status STUB              Only STUB functions
-  rebrew extract -j 8                       Parallel extraction with 8 jobs
+  rebrew extract list                       List un-reversed candidates
+  rebrew extract extract 0x10001860         Extract + disassemble one VA
+  rebrew extract batch 20                   Extract first 20 smallest
+  rebrew extract batch 20 --start 10        Offset into sorted list
 
-[dim]Reads function list from reversed .c file annotations.
-Outputs .bin and .asm files to the configured bin_dir.[/dim]""",
+[dim]Reads function list from r2_functions.txt or .json and auto-detects
+already-reversed VAs. Outputs .bin and .asm files to the configured bin_dir.[/dim]""",
 )
 
 

@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from rebrew.flirt import _make_progress_printer, find_func_size, load_signatures
+from rebrew.flirt import _make_progress_printer, find_func_size, iter_match_offsets, load_signatures
 
 # ---------------------------------------------------------------------------
 # find_func_size
@@ -53,6 +53,17 @@ class TestFindFuncSize:
         code = b"\xc3"
         size = find_func_size(code, 1)
         assert size == 0
+
+
+class TestIterMatchOffsets:
+    def test_too_small_returns_empty(self) -> None:
+        assert list(iter_match_offsets(31, stride=16, min_window=32)) == []
+
+    def test_exact_window_includes_zero(self) -> None:
+        assert list(iter_match_offsets(32, stride=16, min_window=32)) == [0]
+
+    def test_includes_final_valid_offset(self) -> None:
+        assert list(iter_match_offsets(64, stride=16, min_window=32)) == [0, 16, 32]
 
 
 # ---------------------------------------------------------------------------
