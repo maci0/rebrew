@@ -12,6 +12,10 @@ from typing import Any
 from rebrew.binary_loader import load_binary
 from rebrew.config import ProjectConfig
 
+_GLOBAL_COMMENT_RE = re.compile(r"(?://|/\*)\s*GLOBAL:\s*(?P<target>[A-Z0-9_]+)\s+(0x[0-9a-fA-F]+)")
+_DECL_NAME_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\[.*\])?\s*;")
+_ARRAY_SIZE_RE = re.compile(r"\[(\d+)\]")
+
 
 def get_sections(bin_path: Path) -> dict[str, dict[str, int]]:
     try:
@@ -45,12 +49,11 @@ def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, di
     globals_dict: dict[int, dict[str, Any]] = {}
     from rebrew.cli import iter_sources
 
-    pattern = re.compile(r"(?://|/\*)\s*GLOBAL:\s*(?P<target>[A-Z0-9_]+)\s+(0x[0-9a-fA-F]+)")
     for p in iter_sources(src_dir, cfg):
         try:
             lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()
             for i, line in enumerate(lines):
-                m = pattern.search(line)
+                m = _GLOBAL_COMMENT_RE.search(line)
                 if m:
                     va = int(m.group(2), 16)
                     decl = ""
@@ -58,7 +61,7 @@ def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, di
                         decl = lines[i + 1].strip()
 
                     name = "unknown"
-                    name_m = re.search(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\[.*\])?\s*;", decl)
+                    name_m = _DECL_NAME_RE.search(decl)
                     if name_m:
                         name = name_m.group(1)
 
@@ -68,8 +71,7 @@ def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, di
                     size = 4  # default pointer-sized
                     if decl:
                         if "char" in decl and "[" in decl:
-                            # char array — try to extract size from [N]
-                            arr_m = re.search(r"\[(\d+)\]", decl)
+                            arr_m = _ARRAY_SIZE_RE.search(decl)
                             if arr_m:
                                 size = int(arr_m.group(1))
                         elif "short" in decl:

@@ -22,7 +22,7 @@ def generate_catalog(
             continue
         by_va.setdefault(e["va"], []).append(e)
 
-    unique_vas = set(by_va.keys())
+    unique_vas = set(by_va)
     exact_count = sum(1 for vas in by_va.values() if any(e["status"] == "EXACT" for e in vas))
     reloc_count = sum(
         1
@@ -142,9 +142,9 @@ def generate_reccmp_csv(
     # Collect all known VAs from registry + annotations
     all_vas: set[int] = set()
     if registry:
-        all_vas.update(registry.keys())
-    all_vas.update(by_va.keys())
-    all_vas.update(r2_by_va.keys())
+        all_vas.update(registry)
+    all_vas.update(by_va)
+    all_vas.update(r2_by_va)
 
     for va in sorted(all_vas):
         va_hex = f"0x{va:08x}"

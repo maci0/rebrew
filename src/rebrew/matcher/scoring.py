@@ -84,7 +84,7 @@ def _normalize_reloc_x86_32(
 def score_candidate(
     target_bytes: bytes,
     candidate_bytes: bytes,
-    reloc_offsets: list[int] | None = None,
+    reloc_offsets: dict[int, str] | list[int] | None = None,
     cs_arch: int = _DEFAULT_CS_ARCH,
     cs_mode: int = _DEFAULT_CS_MODE,
 ) -> Score:
@@ -162,7 +162,7 @@ def score_candidate(
 def diff_functions(
     target_bytes: bytes,
     candidate_bytes: bytes,
-    reloc_offsets: list[int] | None = None,
+    reloc_offsets: dict[int, str] | list[int] | None = None,
     mismatches_only: bool = False,
     as_dict: bool = False,
     cs_arch: int = _DEFAULT_CS_ARCH,
@@ -225,7 +225,7 @@ def diff_functions(
                 else:
                     t_norm = norm_target[ti.address : ti.address + ti.size]
                     c_norm = norm_cand[ci.address : ci.address + ci.size]
-                    match_char = "~~" if t_norm == c_norm and len(t_norm) > 0 else "**"
+                    match_char = "~~" if t_norm == c_norm and t_norm else "**"
 
         # Classify unpaired instructions (one side exhausted) as structural diffs
         if match_char == "  " and (t_bytes_hex or c_bytes_hex):
