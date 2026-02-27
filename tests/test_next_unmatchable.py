@@ -108,6 +108,32 @@ class TestDetectUnmatchable:
         assert result is not None
         assert "SEH" in result
 
+    def test_asm_origin_bt_bts(self) -> None:
+        """0F A3 (BT) or 0F AB (BTS) -> ASM-origin CRT"""
+        info = _make_binary_info(bytes([0x55, 0x8B, 0xEC, 0x0F, 0xA3, 0xC1, 0xC3]))
+        result = detect_unmatchable(0x10001000, 10, info)
+        assert result is not None
+        assert "ASM-origin CRT (BT/BTS)" in result
+
+        info = _make_binary_info(bytes([0x55, 0x0F, 0xAB, 0xD0, 0xC3]))
+        result = detect_unmatchable(0x10001000, 10, info)
+        assert result is not None
+        assert "ASM-origin CRT (BT/BTS)" in result
+
+    def test_asm_origin_repne_scasb(self) -> None:
+        """F2 AE (repne scasb) -> ASM-origin CRT"""
+        info = _make_binary_info(bytes([0x55, 0xF2, 0xAE, 0xC3]))
+        result = detect_unmatchable(0x10001000, 10, info)
+        assert result is not None
+        assert "ASM-origin CRT (repne scasb)" in result
+
+    def test_asm_origin_rep_movs(self) -> None:
+        """F3 A4 or F3 A5 (rep movs) -> ASM-origin CRT"""
+        info = _make_binary_info(bytes([0x55, 0xF3, 0xA4, 0xC3]))
+        result = detect_unmatchable(0x10001000, 10, info)
+        assert result is not None
+        assert "ASM-origin CRT (rep movs)" in result
+
     def test_normal_function(self) -> None:
         """A normal function prologue should not be flagged."""
         # push ebp; mov ebp, esp; sub esp, 0x10

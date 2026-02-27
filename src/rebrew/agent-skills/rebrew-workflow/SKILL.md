@@ -70,6 +70,7 @@ Automatically removes BLOCKER/BLOCKER_DELTA annotations on promotion.
 
 ```bash
 rebrew status --json                    # quick EXACT/RELOC/MATCHING/STUB counts
+rebrew verify --summary                 # summary table with match %
 rebrew verify --json                    # bulk compile + diff all reversed functions
 rebrew verify -j 8 -o report.json      # parallel compile, save report to file
 rebrew lint --json                      # check annotation correctness

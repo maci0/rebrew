@@ -42,8 +42,9 @@ Run any tool with `--help` to see usage examples and context
 |------|-------------|
 | `--diff-only` | Side-by-side disassembly diff (no GA) |
 | `--mm` / `--mismatches-only` | With `--diff-only`, show only structural (`**`) lines + summary |
+| `--rr` / `--register-aware` | With `--diff-only`, normalize register encodings and mark as `RR` |
 | `--flag-sweep-only` | Sweep compiler flags without GA mutations |
-| `--tier TIER` | Flag sweep tier: `quick` (192), `normal` (21K), `thorough` (1M), `full` (8.3M) |
+| `--tier TIER` | Flag sweep tier: `quick` (192), `targeted` (6k), `normal` (21K), `thorough` (1M), `full` (8.3M) |
 | `--seed N` | Seed RNG for reproducible GA runs |
 | `--force` | Continue even if annotation linter finds errors |
 | `--generations N` | Number of GA generations (default 100) |
@@ -82,6 +83,7 @@ Run any tool with `--help` to see usage examples and context
 
 | Flag | Description |
 |------|-------------|
+| `--summary` | Show EXACT/RELOC/MATCHING summary table with match percentages |
 | `--json` | Structured JSON report to stdout |
 | `-o FILE` / `--output FILE` | Write report to specific file |
 

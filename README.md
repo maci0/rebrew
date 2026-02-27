@@ -11,7 +11,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 - **GA matching engine** — `rebrew match` uses a genetic algorithm to brute-force compiler flags and mutate source code to find exact byte matches
 - **Batch GA** — `rebrew ga` runs GA across all STUB functions unattended; `--near-miss` targets MATCHING functions with small byte deltas
 - **Annotation pipeline** — `rebrew lint` validates `// FUNCTION:`, `// STATUS:`, `// ORIGIN:` annotations across the codebase (E001–E017, W001–W017)
-- **Verification** — `rebrew verify` bulk-compiles every reversed function and reports match status with a progress bar; `--json` emits timestamped structured reports to `db/verify_results.json`
+- **Verification** — `rebrew verify` bulk-compiles every reversed function and reports match status with a progress bar; `--summary` shows a table with EXACT/RELOC/MATCHING breakdown and match percentages; `--json` emits timestamped structured reports to `db/verify_results.json`
 - **Smart prioritization** — `rebrew next` recommends functions to work on, auto-filters unmatchable stubs, and shows byte-delta for near-miss MATCHING functions
 - **Dependency graph** — `rebrew graph` builds call graphs from `extern` declarations in mermaid, DOT, or summary format with focus mode
 - **Global data scanner** — `rebrew data` inventories `.data`/`.rdata`/`.bss` globals, detects type conflicts, finds dispatch tables / vtables (`--dispatch`), verifies BSS layout (`--bss`), and supports `// DATA:` annotations for first-class data tracking

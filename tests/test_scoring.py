@@ -2,10 +2,38 @@
 
 from rebrew.matcher.core import Score
 from rebrew.matcher.scoring import (
+    _mask_registers_x86_32,
     _normalize_reloc_x86_32,
     diff_functions,
     score_candidate,
 )
+
+# -------------------------------------------------------------------------
+# _mask_registers_x86_32
+# -------------------------------------------------------------------------
+
+
+class TestMaskRegisters:
+    def test_modrm_masking(self) -> None:
+        # mov eax, ebx (8b c3) vs mov edx, ecx (8b d1)
+        res1 = _mask_registers_x86_32(b"\x8b\xc3")
+        res2 = _mask_registers_x86_32(b"\x8b\xd1")
+        assert res1 == b"\x8b\xc0"
+        assert res1 == res2
+
+    def test_opcode_masking(self) -> None:
+        # push eax (50) vs push ebx (53)
+        res1 = _mask_registers_x86_32(b"\x50")
+        res2 = _mask_registers_x86_32(b"\x53")
+        assert res1 == b"\x50"
+        assert res1 == res2
+
+        # mov eax, 0 (b8 00 00 00 00) vs mov ecx, 0 (b9 00 00 00 00)
+        res3 = _mask_registers_x86_32(b"\xb8\x00\x00\x00\x00")
+        res4 = _mask_registers_x86_32(b"\xb9\x00\x00\x00\x00")
+        assert res3 == b"\xb8\x00\x00\x00\x00"
+        assert res3 == res4
+
 
 # -------------------------------------------------------------------------
 # _normalize_reloc_x86_32
@@ -31,6 +59,13 @@ class TestNormalizeReloc:
         result = _normalize_reloc_x86_32(code)
         assert result[0] == 0xE9
         assert result[1:5] == b"\x00\x00\x00\x00"
+
+    def test_sib_disp32_zeroed(self) -> None:
+        # lea ecx, [eax*4 + 0x100358a0] -> 8d 0c 85 a0 58 03 10
+        code = b"\x8d\x0c\x85\xa0\x58\x03\x10"
+        result = _normalize_reloc_x86_32(code)
+        assert result[0:3] == code[0:3]
+        assert result[3:7] == b"\x00\x00\x00\x00"
 
     def test_non_reloc_unchanged(self) -> None:
         # push ebp; mov ebp, esp; sub esp, 10h
