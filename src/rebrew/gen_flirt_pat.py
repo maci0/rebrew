@@ -16,8 +16,7 @@ from pathlib import Path
 
 def parse_archive(lib_path: str) -> Iterator[tuple[str, bytes]]:
     """Parse a COFF archive (.lib) and yield (member_name, obj_data) tuples."""
-    with open(lib_path, "rb") as f:
-        data = f.read()
+    data = Path(lib_path).read_bytes()
 
     if not data.startswith(b"!<arch>\n"):
         raise ValueError(f"{lib_path} is not a valid archive")

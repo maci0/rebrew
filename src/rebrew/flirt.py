@@ -5,6 +5,7 @@ Usage: rebrew flirt [sig_dir]
 import json
 import sys
 from collections.abc import Callable
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
@@ -14,12 +15,13 @@ from rebrew.binary_loader import load_binary
 from rebrew.cli import TargetOption, get_config
 
 try:
-    import flirt
+    flirt: Any | None = import_module("flirt")
 except ImportError:
-    flirt = None  # type: ignore[assignment]
+    flirt = None
 
 
 def load_signatures(sig_dir: str, json_output: bool = False) -> list[Any]:
+    """Load all ``.sig`` and ``.pat`` FLIRT signature files from *sig_dir*."""
     if flirt is None:
         return []
 
@@ -61,6 +63,14 @@ def find_func_size(code_data: bytes, offset: int) -> int:
         if b == 0xC2 and i + 2 < scan_end:
             return i - offset + 3
     return max_scan
+
+
+def iter_match_offsets(code_size: int, *, stride: int = 16, min_window: int = 32) -> range:
+    """Return a range of byte offsets to probe for FLIRT matches."""
+    if code_size < min_window:
+        return range(0)
+    last_start = code_size - min_window
+    return range(0, last_start + 1, stride)
 
 
 def _make_progress_printer(json_output: bool) -> Callable[..., None]:
@@ -174,7 +184,7 @@ def main(
             )
         return
 
-    for offset in range(0, len(code_data) - 32, stride):
+    for offset in iter_match_offsets(len(code_data), stride=stride, min_window=32):
         # Estimate the function size at this offset
         func_size = find_func_size(code_data, offset)
         if func_size < min_size:

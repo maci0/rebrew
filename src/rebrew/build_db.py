@@ -8,6 +8,7 @@ import contextlib
 import json
 import sqlite3
 import sys
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
@@ -16,12 +17,13 @@ import typer
 from rebrew.cli import TargetOption
 
 try:
-    import yaml
+    yaml: Any | None = import_module("yaml")
 except ImportError:
-    yaml = None  # type: ignore[assignment]
+    yaml = None
 
 
 def build_db(project_root: Path | None = None, target: str | None = None) -> None:
+    """Aggregate ``data_*.json`` files into ``db/coverage.db``."""
     root_dir = Path(project_root).resolve() if project_root else Path.cwd().resolve()
     db_dir = root_dir / "db"
     db_dir.mkdir(parents=True, exist_ok=True)
@@ -171,17 +173,22 @@ def build_db(project_root: Path | None = None, target: str | None = None) -> Non
 
             fn_rows = []
             for va, fn in data.get("functions", {}).items():
-                # Ensure va is an integer
-                va_int = (
-                    int(va, 16)
-                    if isinstance(va, str) and va.startswith("0x")
-                    else int(va)
-                    if str(va).isdigit()
-                    else None
-                )
-                if va_int is None:
-                    # Fallback if va is a name (like adler32)
-                    va_int = int(fn.get("vaStart", "0"), 16) if fn.get("vaStart") else 0
+                va_int = 0
+                if isinstance(va, str):
+                    try:
+                        va_int = int(va, 0)
+                    except ValueError:
+                        va_int = 0
+                elif isinstance(va, int):
+                    va_int = va
+
+                if va_int == 0:
+                    va_start = fn.get("vaStart")
+                    if isinstance(va_start, str):
+                        try:
+                            va_int = int(va_start, 0)
+                        except ValueError:
+                            va_int = 0
 
                 fn_rows.append(
                     (
@@ -259,7 +266,9 @@ def build_db(project_root: Path | None = None, target: str | None = None) -> Non
                     for cell in sec.get("cells", []):
                         state = cell.get("state")
                         if state != "none":
-                            size = cell.get("end", 0) - cell.get("start", 0)
+                            start = int(cell.get("start", 0) or 0)
+                            end = int(cell.get("end", 0) or 0)
+                            size = max(0, end - start)
                             covered_bytes += size
                             funcs = cell.get("functions", [])
                             total_items += len(funcs) if funcs else 0
@@ -404,7 +413,10 @@ def _generate_catalogs(conn: sqlite3.Connection, root_dir: Path) -> None:
             (target_name,),
         )
         row = c.fetchone()
-        summary = json.loads(row[0]) if row else {}
+        try:
+            summary = json.loads(row[0]) if row else {}
+        except (json.JSONDecodeError, TypeError):
+            summary = {}
 
         # Get all functions
         c.execute(
@@ -447,7 +459,7 @@ def _generate_catalogs(conn: sqlite3.Connection, root_dir: Path) -> None:
         )
 
         # Table by origin
-        for origin in sorted(by_origin.keys()):
+        for origin in sorted(by_origin):
             fns = by_origin[origin]
             lines.append(f"\n## {origin} ({len(fns)} functions)\n")
             lines.append("| VA | Symbol | Size | Status | Files |")

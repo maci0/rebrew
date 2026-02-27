@@ -725,6 +725,99 @@ int foo(void) { return 0; }
 
 
 # ---------------------------------------------------------------------------
+# W016: DATA/GLOBAL missing SECTION
+# ---------------------------------------------------------------------------
+
+
+class TestW016Section:
+    def test_w016_global_missing_section(self, tmp_path: Path) -> None:
+        content = """\
+// GLOBAL: SERVER 0x10050000
+// SIZE: 4
+int g_foo;
+"""
+        f = _write_c(tmp_path, "g_foo.c", content)
+        result = lint_file(f)
+        assert any(c == "W016" for _, c, _ in result.warnings)
+
+    def test_w016_data_missing_section(self, tmp_path: Path) -> None:
+        content = """\
+// DATA: SERVER 0x10050000
+// SIZE: 10
+char s_hello[] = "hello";
+"""
+        f = _write_c(tmp_path, "s_hello.c", content)
+        result = lint_file(f)
+        assert any(c == "W016" for _, c, _ in result.warnings)
+
+    def test_w016_global_with_section_no_warning(self, tmp_path: Path) -> None:
+        content = """\
+// GLOBAL: SERVER 0x10050000
+// SIZE: 4
+// SECTION: .bss
+int g_foo;
+"""
+        f = _write_c(tmp_path, "g_foo.c", content)
+        result = lint_file(f)
+        assert not any(c == "W016" for _, c, _ in result.warnings)
+
+    def test_w016_function_no_warning(self, tmp_path: Path) -> None:
+        f = _write_c(tmp_path, "bit_reverse.c", VALID_HEADER)
+        result = lint_file(f)
+        assert not any(c == "W016" for _, c, _ in result.warnings)
+
+
+# ---------------------------------------------------------------------------
+# W017: NOTE starts with [rebrew]
+# ---------------------------------------------------------------------------
+
+
+class TestW017NoteRebrew:
+    def test_w017_rebrew_prefix_in_note(self, tmp_path: Path) -> None:
+        content = """\
+// FUNCTION: SERVER 0x10008880
+// STATUS: EXACT
+// ORIGIN: GAME
+// SIZE: 31
+// CFLAGS: /O2 /Gd
+// SYMBOL: _bit_reverse
+// NOTE: [rebrew] FUNCTION: EXACT
+
+int __cdecl bit_reverse(int x)
+{
+    return x;
+}
+"""
+        f = _write_c(tmp_path, "bit_reverse.c", content)
+        result = lint_file(f)
+        assert any(c == "W017" for _, c, _ in result.warnings)
+
+    def test_w017_normal_note_no_warning(self, tmp_path: Path) -> None:
+        content = """\
+// FUNCTION: SERVER 0x10008880
+// STATUS: EXACT
+// ORIGIN: GAME
+// SIZE: 31
+// CFLAGS: /O2 /Gd
+// SYMBOL: _bit_reverse
+// NOTE: This handles player initialization
+
+int __cdecl bit_reverse(int x)
+{
+    return x;
+}
+"""
+        f = _write_c(tmp_path, "bit_reverse.c", content)
+        result = lint_file(f)
+        assert not any(c == "W017" for _, c, _ in result.warnings)
+
+    def test_w017_no_note_no_warning(self, tmp_path: Path) -> None:
+        f = _write_c(tmp_path, "bit_reverse.c", VALID_HEADER)
+        result = lint_file(f)
+        assert not any(c == "W017" for _, c, _ in result.warnings)
+
+
+# ---------------------------------------------------------------------------
 # fix_file: block-comment and javadoc
 # ---------------------------------------------------------------------------
 
