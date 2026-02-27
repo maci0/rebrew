@@ -45,13 +45,15 @@ rebrew match --flag-sweep-only --tier quick src/<target>/<file>.c # fast, common
 For automated matching when manual tuning is insufficient:
 
 ```bash
-rebrew match src/<target>/<file>.c --generations 200 --pop-size 64 -j 16 --json
+rebrew match src/<target>/<file>.c --generations 200 --pop-size 64 -j 16
 ```
 
 - `--generations N` — GA generations (default: 100)
 - `--pop-size N` — population size (default: 32)
-- `-j N` — parallel compilation jobs (default: 8)
+- `-j N` — parallel compilation jobs (default: 4)
 - `--seed N` — RNG seed for reproducibility
+- `--out-dir DIR` — output directory for GA results (default: `output/ga_run`)
+- `--force` — continue even if annotation linter finds errors
 
 The GA mutates C source (variable types, casts, loop structures) and scores
 each variant against the target bytes. Best source is written to the file.
