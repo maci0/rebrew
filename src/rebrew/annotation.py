@@ -780,3 +780,66 @@ def parse_source_metadata(source_path: str | Path) -> dict[str, str]:
     if anno.note:
         meta["NOTE"] = anno.note
     return meta
+
+
+def update_annotation_key(filepath: Path, va: int, key: str, new_value: str) -> bool:
+    """Update or add an annotation key like ``// SYMBOL: <value>`` for a specific VA.
+
+    Returns True if the file was modified, False otherwise.
+    """
+    try:
+        text = filepath.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+
+    lines = text.splitlines(keepends=True)
+    in_target_block = False
+    last_annotation_idx = -1
+    modified = False
+
+    for i, line in enumerate(lines):
+        # Check for marker: // FUNCTION: GAME 0x1000 or STUB or DATA etc.
+        marker_match = re.search(
+            r"(?://|/\*)\s*(FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*[A-Z0-9_]+\s+(0x[0-9a-fA-F]+)",
+            line,
+        )
+        if marker_match:
+            found_va = int(marker_match.group(2), 16)
+            in_target_block = found_va == va
+
+        if in_target_block:
+            if line.strip().startswith("//") or line.strip().startswith("/*"):
+                last_annotation_idx = i
+
+            sym_match = re.search(r"((?://|/\*)\s*" + key + r":\s*)(.*?)(?=\s*(?:\*/|\n|$))", line)
+            if sym_match:
+                old_val = sym_match.group(2).strip()
+                if old_val == new_value:
+                    return False
+                lines[i] = (
+                    line[: sym_match.start()]
+                    + sym_match.group(1)
+                    + new_value
+                    + line[sym_match.end() :]
+                )
+                modified = True
+                break
+
+            if not (
+                line.strip().startswith("//") or line.strip().startswith("/*") or line.strip() == ""
+            ):
+                if last_annotation_idx != -1:
+                    lines.insert(last_annotation_idx + 1, f"// {key}: {new_value}\n")
+                    modified = True
+                break
+
+    # If the file ends with the annotation block and we didn't insert
+    if in_target_block and not modified and last_annotation_idx != -1:
+        lines.insert(last_annotation_idx + 1, f"// {key}: {new_value}\n")
+        modified = True
+
+    if modified:
+        filepath.write_text("".join(lines), encoding="utf-8")
+        return True
+
+    return False
