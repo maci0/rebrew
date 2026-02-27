@@ -48,7 +48,9 @@ def _detect_obj_format(obj_path: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _parse_coff_symbol_bytes(obj_path: str, symbol: str) -> tuple[bytes | None, list[int] | None]:
+def _parse_coff_symbol_bytes(
+    obj_path: str, symbol: str
+) -> tuple[bytes | None, dict[int, str] | None]:
     """Extract code bytes + relocation offsets for a symbol from COFF .obj using LIEF."""
     import lief
 
@@ -88,11 +90,17 @@ def _parse_coff_symbol_bytes(obj_path: str, symbol: str) -> tuple[bytes | None, 
     code = code.rstrip(bytes(_PADDING_BYTES))
 
     # Collect relocation offsets within this function
-    reloc_offsets = []
+    reloc_offsets: dict[int, str] = {}
     for reloc in section.relocations:
         rva = reloc.address
         if func_start <= rva < func_end:
-            reloc_offsets.append(rva - func_start)
+            target_name = ""
+            if hasattr(reloc, "symbol") and reloc.symbol is not None:
+                name = getattr(reloc.symbol, "name", "")
+                if isinstance(name, bytes):
+                    name = name.decode("utf-8", errors="replace")
+                target_name = name
+            reloc_offsets[rva - func_start] = target_name or ""
 
     return code, reloc_offsets
 
@@ -121,7 +129,9 @@ def _list_coff_symbols(obj_path: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _parse_elf_symbol_bytes(obj_path: str, symbol: str) -> tuple[bytes | None, list[int] | None]:
+def _parse_elf_symbol_bytes(
+    obj_path: str, symbol: str
+) -> tuple[bytes | None, dict[int, str] | None]:
     """Extract code bytes + relocation offsets for a symbol from ELF .o using LIEF."""
     import lief
 
@@ -172,7 +182,7 @@ def _parse_elf_symbol_bytes(obj_path: str, symbol: str) -> tuple[bytes | None, l
     code = code.rstrip(bytes(_PADDING_BYTES))
 
     # Collect relocation offsets
-    reloc_offsets = []
+    reloc_offsets: dict[int, str] = {}
     for reloc in elf.relocations:
         if (
             hasattr(reloc, "section")
@@ -181,7 +191,13 @@ def _parse_elf_symbol_bytes(obj_path: str, symbol: str) -> tuple[bytes | None, l
         ):
             rva = reloc.address
             if func_start <= rva < func_end:
-                reloc_offsets.append(rva - func_start)
+                target_name = ""
+                # Safely access symbol name, handling different LIEF versions/structures
+                if hasattr(reloc, "symbol") and reloc.symbol is not None:
+                    target_name = getattr(reloc.symbol, "name", "")
+                    if isinstance(target_name, bytes):
+                        target_name = target_name.decode("utf-8", errors="replace")
+                reloc_offsets[rva - func_start] = target_name or ""
 
     return code, reloc_offsets
 
@@ -211,7 +227,9 @@ def _list_elf_symbols(obj_path: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _parse_macho_symbol_bytes(obj_path: str, symbol: str) -> tuple[bytes | None, list[int] | None]:
+def _parse_macho_symbol_bytes(
+    obj_path: str, symbol: str
+) -> tuple[bytes | None, dict[int, str] | None]:
     """Extract code bytes + relocation offsets for a symbol from Mach-O .o using LIEF."""
     import lief
 
@@ -267,11 +285,16 @@ def _parse_macho_symbol_bytes(obj_path: str, symbol: str) -> tuple[bytes | None,
     code = code.rstrip(bytes(_PADDING_BYTES))
 
     # Collect relocation offsets
-    reloc_offsets = []
+    reloc_offsets: dict[int, str] = {}
     for reloc in section.relocations:
         rva = reloc.address
         if func_start <= rva < func_end:
-            reloc_offsets.append(rva - func_start)
+            target_name = ""
+            if hasattr(reloc, "symbol") and reloc.symbol is not None:
+                target_name = getattr(reloc.symbol, "name", "")
+                if isinstance(target_name, bytes):
+                    target_name = target_name.decode("utf-8", errors="replace")
+            reloc_offsets[rva - func_start] = target_name or ""
 
     return code, reloc_offsets
 
@@ -301,7 +324,9 @@ def _list_macho_symbols(obj_path: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def parse_obj_symbol_bytes(obj_path: str, symbol: str) -> tuple[bytes | None, list[int] | None]:
+def parse_obj_symbol_bytes(
+    obj_path: str, symbol: str
+) -> tuple[bytes | None, dict[int, str] | None]:
     """Extract code bytes + relocation offsets for a symbol from an object file.
 
     Supports COFF ``.obj``, ELF ``.o``, and Mach-O ``.o`` files.

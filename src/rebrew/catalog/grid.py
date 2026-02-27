@@ -53,7 +53,7 @@ def generate_data_json(
     for e in entries:
         by_va.setdefault(e["va"], []).append(e)
 
-    unique_vas = set(by_va.keys())
+    unique_vas = set(by_va)
     r2_by_va: dict[int, dict[str, Any]] = {f["va"]: f for f in r2_funcs}
 
     fn_vas = [
@@ -224,7 +224,7 @@ def generate_data_json(
                         "name": gdata["name"],
                     }  # Default size 4 for globals
 
-        item_starts = sorted(items_by_off.keys())
+        item_starts = sorted(items_by_off)
         segments: list[tuple[int, int, str, list[str], str | None, str | None]] = []
         off = 0
         idx = 0
@@ -247,7 +247,7 @@ def generate_data_json(
                     end_off = item_off + item_data["size"]
                     func_end_to_name[end_off] = item_data["name"]
 
-                for func_end_off in sorted(func_end_to_name.keys()):
+                for func_end_off in sorted(func_end_to_name):
                     if func_end_off >= sec_size:
                         continue
                     # Find next function start after this end
@@ -375,7 +375,7 @@ def generate_data_json(
                                 break
 
                 if absorbed_any:
-                    item_starts = sorted(items_by_off.keys())
+                    item_starts = sorted(items_by_off)
 
         # Rebuild func_end_to_name after absorption
         func_end_to_name.clear()
