@@ -18,8 +18,10 @@ Ideas collected during hands-on workflow testing, prioritized by impact.
 | 8 | [Auto-detect ASM-origin CRT functions](#8-auto-detect-asm-origin-crt-functions) | Medium | Low | **P2** |
 | 9 | [Structural similarity metric](#9-structural-similarity-metric) | Low | Medium | **P3** |
 | 10 | [Targeted flag sweep tier](#10-targeted-flag-sweep-tier) | Low | Low | **P3** |
-| 11 | [Similarity-based prioritization in rebrew next](#11-similarity-based-prioritization-in-rebrew next) | Low | Medium | **P3** |
+| 11 | [Similarity-based prioritization in rebrew next](#11-similarity-based-prioritization-in-rebrew-next) | Low | Medium | **P3** |
 | 12 | [Callee-save register injection](#12-callee-save-register-injection) | High | High | **P3** |
+| 13 | [Data Sync and XREF Pipeline](#13-data-sync-and-xref-pipeline) | High | Medium | **P1** |
+| 14 | [Relocation Target Validation](#14-relocation-target-validation) | High | High | **P1** |
 
 ---
 
@@ -161,3 +163,22 @@ These form a "dependency ceiling" that limits what can be matched regardless of 
 - Dead assignments in STUBs are common — Ghidra generates reads for values the target code never uses.
 - Entity records are 65 bytes — MSVC6 decomposes `*65` as `shl eax, 6; add eax, base; add eax, index`.
 - CRT `_mbctype` access: `_mbctype[(unsigned char)c + 1] & 4` compiles to `test byte ptr [reg + 0x11766321], 4` — the +1 offset is baked into the immediate address.
+
+### 13. Data Sync and XREF Pipeline
+
+**Pain**: Global variables (`.data`, `.rdata`, `.bss`) are defined manually in Ghidra and must be re-typed manually in Rebrew as `extern` with `// GLOBAL:` or `// DATA:` annotations. `rebrew skeleton` gives an empty file, requiring manual inspection of Ghidra to find which globals the function references.
+
+**Proposed**:
+1. **Data Pull**: `rebrew sync --pull-data` queries ReVa MCP for all labeled data and auto-generates a master `rebrew_globals.h`.
+2. **Data Push**: `rebrew sync --push` handles `// DATA:` markers, pushing label and size to Ghidra.
+3. **XREF Injection**: `rebrew skeleton 0xVA` queries Ghidra for data XREFs and auto-injects `extern` declarations for every global the function touches.
+
+**Impact**: Eliminates manual synchronization of the data section. Massively speeds up skeleton implementation by providing immediate context (especially string literals from `.rdata`).
+
+### 14. Relocation Target Validation
+
+**Pain**: Currently, `score_candidate` (and the diff tool) zeroes out relocation fields in both the target and the compiled `.obj` (e.g. `mov eax, [0x10025000]` becomes `A1 00 00 00 00`). If a candidate references `g_var1` instead of `g_var2`, Rebrew incorrectly reports a `RELOC MATCH`.
+
+**Proposed**: Parse the COFF relocation and symbol tables from the `.obj`. For every relocation, resolve the symbol name to its target VA using the Rebrew data catalog. Compare that resolved VA against the hardcoded absolute address in the target binary. If they mismatch, mark as `XX` (wrong reference) instead of `~~` (acceptable relocation).
+
+**Impact**: Guarantees that a `RELOC MATCH` is perfectly accurate in logic AND data references. Eliminates silent bugs where the game compiles but crashes due to wrong global access.
