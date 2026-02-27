@@ -6,9 +6,9 @@ for persisting GA state across runs.
 
 import hashlib
 import json
-import os
 import sys
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 import diskcache
@@ -16,6 +16,8 @@ import diskcache
 
 @dataclass
 class Score:
+    """Multi-metric fitness score for a compiled candidate."""
+
     length_diff: int
     byte_score: float
     reloc_score: float
@@ -26,20 +28,25 @@ class Score:
 
 @dataclass
 class BuildResult:
+    """Result of compiling and scoring a single candidate source."""
+
     ok: bool
     score: Score | None = None
     obj_bytes: bytes | None = None
-    reloc_offsets: list[int] | None = None
+    reloc_offsets: list[int] | dict[int, str] | None = None
     error_msg: str = ""
 
 
 class BuildCache:
+    """Disk-backed cache mapping source hashes to build results."""
+
     def __init__(self, db_path: str = "build_cache.db") -> None:
         cache_dir = db_path.removesuffix(".db") + "_cache"
         self._cache = diskcache.Cache(cache_dir)
 
     def get(self, key: str) -> BuildResult | None:
-        return self._cache.get(key, default=None)
+        res = self._cache.get(key, default=None)
+        return res if isinstance(res, BuildResult) else None
 
     def put(self, key: str, result: BuildResult) -> None:
         self._cache.set(key, result)
@@ -47,6 +54,8 @@ class BuildCache:
 
 @dataclass
 class GACheckpoint:
+    """Serializable snapshot of GA state for resuming interrupted runs."""
+
     generation: int
     best_score: float
     best_source: str | None
@@ -58,18 +67,19 @@ class GACheckpoint:
 
 
 def save_checkpoint(path: str, ckpt: GACheckpoint) -> None:
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(asdict(ckpt), f, indent=2)
-    os.replace(tmp, path)
+    """Atomically write *ckpt* as JSON to *path* via a temporary file."""
+    tmp = Path(path + ".tmp")
+    tmp.write_text(json.dumps(asdict(ckpt), indent=2), encoding="utf-8")
+    tmp.replace(path)
 
 
 def load_checkpoint(path: str, expected_hash: str) -> GACheckpoint | None:
-    if not os.path.exists(path):
+    """Load a checkpoint from *path*, returning ``None`` on hash mismatch or errors."""
+    ckpt_path = Path(path)
+    if not ckpt_path.exists():
         return None
     try:
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
+        data = json.loads(ckpt_path.read_text(encoding="utf-8"))
         if data.get("args_hash") != expected_hash:
             print("Checkpoint args hash mismatch, ignoring checkpoint.", file=sys.stderr)
             return None

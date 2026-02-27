@@ -1,3 +1,9 @@
+"""matcher – Core GA engine for binary matching.
+
+Re-exports the public API: compilation backend, scoring, mutation operators,
+flag sweep, build cache, checkpointing, and COFF/PE parsers.
+"""
+
 from .compiler import (
     MSVC6_FLAG_AXES as MSVC6_FLAG_AXES,
 )
