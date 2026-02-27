@@ -136,7 +136,7 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E001-E0
 
 ```bash
 # Disassembly
-rebrew asm 0x100011f0 64                         # Disassemble 64 bytes at VA
+rebrew asm 0x100011f0 --size 64                   # Disassemble 64 bytes at VA
 rebrew asm 0x100011f0 --target server.dll         # Use alternate target
 
 # Skeleton generation
