@@ -69,10 +69,10 @@ def _resolve_target(doc: tomlkit.TOMLDocument, target: str | None) -> str:
         typer.secho("Error: No [targets] section in rebrew.toml.", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
     if target is None:
-        target = list(targets.keys())[0]
+        target = next(iter(targets))
     if target not in targets:
         typer.secho(
-            f"Error: Target '{target}' not found. Available: {list(targets.keys())}",
+            f"Error: Target '{target}' not found. Available: {list(targets)}",
             fg=typer.colors.RED,
             err=True,
         )
@@ -208,7 +208,7 @@ def list_targets() -> None:
     if not targets:
         typer.echo("No targets defined.")
         return
-    for i, name in enumerate(targets.keys()):
+    for i, name in enumerate(targets):
         tgt = targets[name]
         binary = tgt.get("binary", "?")
         arch = tgt.get("arch", "?")
