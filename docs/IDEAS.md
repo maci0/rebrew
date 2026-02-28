@@ -9,19 +9,17 @@ Ideas collected during hands-on workflow testing, prioritized by impact.
 | # | Idea | Impact | Effort | Priority |
 |---|------|--------|--------|----------|
 | 1 | [CRT source cross-reference tool](#1-crt-source-cross-reference-tool) | High | Medium | **P0** |
-| 2 | ~~[Register-aware diff mode](#2-register-aware-diff-mode)~~ | High | Medium | **DONE** |
-| 3 | ~~[Auto-classify MATCHING blockers](#3-auto-classify-matching-blockers)~~ | High | Medium | **DONE** |
-| 4 | ~~[Verify summary with STATUS breakdown](#4-verify-summary-with-status-breakdown)~~ | High | Low | **DONE** |
 | 5 | [GA code layout mutations](#5-ga-code-layout-mutations) | Medium | High | **P2** |
-| 6 | ~~[Fix diff relocation marking](#6-fix-diff-relocation-marking)~~ | Medium | Low | **DONE** |
 | 7 | [Batch flag sweep mode](#7-batch-flag-sweep-mode) | Medium | Medium | **P2** |
-| 8 | ~~[Auto-detect ASM-origin CRT functions](#8-auto-detect-asm-origin-crt-functions)~~ | Medium | Low | **DONE** |
-| 9 | [Structural similarity metric](#9-structural-similarity-metric) | Low | Medium | **P3** |
-| 10 | ~~[Targeted flag sweep tier](#10-targeted-flag-sweep-tier)~~ | Low | Low | **DONE** |
 | 11 | [Similarity-based prioritization in rebrew next](#11-similarity-based-prioritization-in-rebrew-next) | Low | Medium | **P3** |
 | 12 | [Callee-save register injection](#12-callee-save-register-injection) | High | High | **P3** |
 | 13 | [Data Sync and XREF Pipeline](#13-data-sync-and-xref-pipeline) | High | Medium | **P1** |
 | 14 | [Relocation Target Validation](#14-relocation-target-validation) | High | High | **P1** |
+| 16 | [Incremental verify](#16-incremental-verify) | Medium | Medium | **P2** |
+| 17 | [rebrew doctor](#17-rebrew-doctor) | Medium | Low | ~~**P2**~~ **DONE** |
+| 18 | [Config validation layer](#18-config-validation-layer) | Medium | Low | ~~**P2**~~ **DONE** |
+| 19 | [Annotation round-trip fidelity tests](#19-annotation-round-trip-fidelity-tests) | Medium | Low | ~~**P2**~~ **DONE** |
+| 20 | [Diff export formats](#20-diff-export-formats) | Low | Low | ~~**P3**~~ **DONE** |
 
 ---
 
@@ -35,30 +33,6 @@ Ideas collected during hands-on workflow testing, prioritized by impact.
 
 **Impact**: Automating the lookup saves significant manual research time on ~100 MSVCRT-origin functions.
 
-### 2. Register-aware diff mode
-
-**Pain**: Register allocation is the dominant systemic blocker for all remaining GAME functions. MSVC6's register allocator assigns callee-save registers differently, and no C source transformation or GA mutation can fix this. The current diff conflates register encoding differences with real structural differences.
-
-**Proposed**: A diff mode that ignores register encoding (treating `[edx+0xc]` the same as `[ecx+0xc]`) to show "semantic" structural diffs separate from register allocation diffs.
-
-**Impact**: Helps identify which remaining diffs are actually fixable from C source vs permanently stuck on register allocation.
-
-### 3. Auto-classify MATCHING blockers
-
-**Pain**: Categorizing blockers manually is tedious. Common categories include: register allocation (ebx/edi swaps), loop rotation, instruction folding (lea+mov to single mov with SIB), zero-extend patterns (xor+mov dl vs bare mov dl), stack frame choice (push ecx vs sub esp,8), and comparison direction swaps.
-
-**Proposed**: `rebrew-blocker-report` — reads diffs and auto-tags the blocker type per function. Batch-identifies which functions are genuinely improvable vs permanently stuck.
-
-**Impact**: Enables data-driven decisions about where to spend effort.
-
-### 4. Verify summary with STATUS breakdown
-
-**Pain**: `rebrew verify` output doesn't show STATUS per function or byte match percentages, making progress tracking difficult at a glance.
-
-**Proposed**: `rebrew verify --summary` showing a table with EXACT/RELOC/MATCHING (by delta range: 0B, 1-5B, 6-20B, 21+B)/STUB counts, plus byte match percentage per function (e.g., "MATCHING 274/297B (92%)").
-
-**Impact**: Single-command progress overview.
-
 ### 5. GA code layout mutations
 
 **Pain**: GA mutations focus on C source mutations, but most close MATCHING blockers are register allocation issues that C changes can't fix. The mutations that actually affect codegen are structural.
@@ -67,14 +41,6 @@ Ideas collected during hands-on workflow testing, prioritized by impact.
 
 **Impact**: Targets the mutations that actually affect codegen structure.
 
-### 6. Fix diff relocation marking
-
-**Pain**: The diff tool marks some relocation-only differences as `**` (structural) when the only difference is an immediate address value (e.g., `lea ecx, [eax*4 + 0x100358a0]` vs `lea ecx, [eax*4]`). These should be marked `~~` instead.
-
-**Proposed**: Improve the relocation normalizer to handle SIB+disp32 addressing modes and other indirect address patterns.
-
-**Impact**: Reduces noise in diff output, fewer false "structural" differences.
-
 ### 7. Batch flag sweep mode
 
 **Pain**: Running `rebrew match --flag-sweep-only` on all MATCHING functions sequentially is slow. The GA is CPU-intensive but embarrassingly parallel.
@@ -82,30 +48,6 @@ Ideas collected during hands-on workflow testing, prioritized by impact.
 **Proposed**: A batch flag sweep mode that parallelizes across functions with priority queuing (smallest delta first).
 
 **Impact**: Faster turnaround on systematic flag exploration.
-
-### 8. Auto-detect ASM-origin CRT functions
-
-**Pain**: Many CRT STUB functions use hand-written assembly (`strpbrk`, `strcspn`, `strlen` use BTS/BT, `repne scasb`, etc.) that C can never produce. Time is wasted attempting to match these.
-
-**Proposed**: Auto-detect and mark as `ASM_ORIGIN` based on instruction pattern analysis. Note: `rebrew next` already filters IAT thunks, single-byte stubs, and SEH handlers — this extends that to ASM-origin CRT.
-
-**Impact**: Prevents wasted effort on inherently unmatchable functions.
-
-### 9. Structural similarity metric
-
-**Pain**: Flag sweep shows identical scores across all combinations for most functions, suggesting differences are structural rather than flag-related, but there's no metric to confirm this.
-
-**Proposed**: Add a "structural similarity" metric alongside the score to distinguish when flags won't help vs when they might.
-
-**Impact**: Saves time by quickly ruling out flag-based solutions.
-
-### 10. Targeted flag sweep tier
-
-**Pain**: The "quick" tier (192 combos) is fast but never finds anything different from default flags.
-
-**Proposed**: A "targeted" tier that only varies flags known to affect codegen structure (`/Oy`, `/Op`, frame pointer flags).
-
-**Impact**: More focused flag exploration between "quick" and "normal" tiers.
 
 ### 11. Similarity-based prioritization in rebrew next
 
@@ -122,6 +64,33 @@ Ideas collected during hands-on workflow testing, prioritized by impact.
 **Proposed**: Inject specific callee-save register patterns (e.g., force ebp allocation via inline assembly prologue/epilogue) to match the target's register usage.
 
 **Impact**: Could unlock many MATCHING to RELOC transitions, but highly experimental.
+
+### 13. Data Sync and XREF Pipeline
+
+**Pain**: Global variables (`.data`, `.rdata`, `.bss`) are defined manually in Ghidra and must be re-typed manually in Rebrew as `extern` with `// GLOBAL:` or `// DATA:` annotations. `rebrew skeleton` gives an empty file, requiring manual inspection of Ghidra to find which globals the function references.
+
+**Proposed**:
+1. **Data Pull**: `rebrew sync --pull-data` queries ReVa MCP for all labeled data and auto-generates a master `rebrew_globals.h`.
+2. **Data Push**: `rebrew sync --push` handles `// DATA:` markers, pushing label and size to Ghidra.
+3. **XREF Injection**: `rebrew skeleton 0xVA` queries Ghidra for data XREFs and auto-injects `extern` declarations for every global the function touches.
+
+**Impact**: Eliminates manual synchronization of the data section. Massively speeds up skeleton implementation by providing immediate context (especially string literals from `.rdata`).
+
+### 14. Relocation Target Validation
+
+**Pain**: Currently, `score_candidate` (and the diff tool) zeroes out relocation fields in both the target and the compiled `.obj` (e.g. `mov eax, [0x10025000]` becomes `A1 00 00 00 00`). If a candidate references `g_var1` instead of `g_var2`, Rebrew incorrectly reports a `RELOC MATCH`.
+
+**Proposed**: Parse the COFF relocation and symbol tables from the `.obj`. For every relocation, resolve the symbol name to its target VA using the Rebrew data catalog. Compare that resolved VA against the hardcoded absolute address in the target binary. If they mismatch, mark as `XX` (wrong reference) instead of `~~` (acceptable relocation).
+
+**Impact**: Guarantees that a `RELOC MATCH` is perfectly accurate in logic AND data references. Eliminates silent bugs where the game compiles but crashes due to wrong global access.
+
+### 16. Incremental verify
+
+**Pain**: `rebrew verify` recompiles every reversed function from scratch on every run. For projects with 200+ functions, a full verify takes minutes. During active development, you only changed one or two files — recompiling everything else is wasted work.
+
+**Proposed**: Track file modification times (or content hashes) in a lightweight cache file (e.g. `.rebrew/verify_cache.json`). On subsequent runs, only recompile files whose source or config changed since the last verify. A `--full` flag forces a clean rebuild. The cache is invalidated when `rebrew.toml` compiler settings change.
+
+**Impact**: Cuts typical verify iteration time from minutes to seconds during active development.
 
 ---
 
@@ -164,21 +133,10 @@ These form a "dependency ceiling" that limits what can be matched regardless of 
 - Entity records are 65 bytes — MSVC6 decomposes `*65` as `shl eax, 6; add eax, base; add eax, index`.
 - CRT `_mbctype` access: `_mbctype[(unsigned char)c + 1] & 4` compiles to `test byte ptr [reg + 0x11766321], 4` — the +1 offset is baked into the immediate address.
 
-### 13. Data Sync and XREF Pipeline
+### 21. Surgical Semantic Equivalence with `angr`
 
-**Pain**: Global variables (`.data`, `.rdata`, `.bss`) are defined manually in Ghidra and must be re-typed manually in Rebrew as `extern` with `// GLOBAL:` or `// DATA:` annotations. `rebrew skeleton` gives an empty file, requiring manual inspection of Ghidra to find which globals the function references.
+**Pain**: `MATCHING` functions that are functionally identical but structurally different (due to register allocation, instruction folding, etc.) cannot reach `EXACT`/`RELOC` status through byte diffing alone. This leaves them permanently stuck as "almost complete".
 
-**Proposed**:
-1. **Data Pull**: `rebrew sync --pull-data` queries ReVa MCP for all labeled data and auto-generates a master `rebrew_globals.h`.
-2. **Data Push**: `rebrew sync --push` handles `// DATA:` markers, pushing label and size to Ghidra.
-3. **XREF Injection**: `rebrew skeleton 0xVA` queries Ghidra for data XREFs and auto-injects `extern` declarations for every global the function touches.
+**Proposed**: `rebrew prove <target_ident>` — a tool that compiles the target `.c` to a `.obj`, extracts the raw bytes of both the `.obj` function and the target executable function, loads them both via `angr.Project` (using the CLE blob backend), stubs external calls with symbolic procedures, and runs symbolic execution to the end of the function. It then uses the Z3 constraint solver to mathematically prove that the final symbolic state of the return registers and memory are logically equivalent. If proven, updates annotation to `STATUS: PROVEN`.
 
-**Impact**: Eliminates manual synchronization of the data section. Massively speeds up skeleton implementation by providing immediate context (especially string literals from `.rdata`).
-
-### 14. Relocation Target Validation
-
-**Pain**: Currently, `score_candidate` (and the diff tool) zeroes out relocation fields in both the target and the compiled `.obj` (e.g. `mov eax, [0x10025000]` becomes `A1 00 00 00 00`). If a candidate references `g_var1` instead of `g_var2`, Rebrew incorrectly reports a `RELOC MATCH`.
-
-**Proposed**: Parse the COFF relocation and symbol tables from the `.obj`. For every relocation, resolve the symbol name to its target VA using the Rebrew data catalog. Compare that resolved VA against the hardcoded absolute address in the target binary. If they mismatch, mark as `XX` (wrong reference) instead of `~~` (acceptable relocation).
-
-**Impact**: Guarantees that a `RELOC MATCH` is perfectly accurate in logic AND data references. Eliminates silent bugs where the game compiles but crashes due to wrong global access.
+**Impact**: Closes the final 1% gap on complex functions where the modern compiler refuses to generate byte-for-byte identical code to the original legacy compiler, providing mathematical certainty without resorting to inline assembly hacks.
