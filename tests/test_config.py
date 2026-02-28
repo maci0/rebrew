@@ -16,13 +16,13 @@ from rebrew.config import (
 )
 
 # ---------------------------------------------------------------------------
-# Helper: create a temp rebrew.toml and return the root dir
+# Helper: create a temp rebrew-project.toml and return the root dir
 # ---------------------------------------------------------------------------
 
 
 def _make_project(tmp_path: Path, toml_content: str) -> Path:
-    """Write a rebrew.toml and return the directory."""
-    (tmp_path / "rebrew.toml").write_text(toml_content, encoding="utf-8")
+    """Write a rebrew-project.toml and return the directory."""
+    (tmp_path / "rebrew-project.toml").write_text(toml_content, encoding="utf-8")
     return tmp_path
 
 
@@ -59,15 +59,15 @@ class TestFindRoot:
         assert _find_root(tmp_path) == tmp_path
 
     def test_auto_detect_from_cwd(self, tmp_path: Path) -> None:
-        """Test that _find_root can find rebrew.toml from cwd."""
-        (tmp_path / "rebrew.toml").write_text(
+        """Test that _find_root can find rebrew-project.toml from cwd."""
+        (tmp_path / "rebrew-project.toml").write_text(
             "[targets.main]\nbinary = 'test.exe'\n", encoding="utf-8"
         )
         old_cwd = os.getcwd()
         try:
             os.chdir(tmp_path)
             root = _find_root()
-            assert (root / "rebrew.toml").exists()
+            assert (root / "rebrew-project.toml").exists()
         finally:
             os.chdir(old_cwd)
 
@@ -121,7 +121,7 @@ binary = "original/Server/server.dll"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src/server_dll"
-function_list = "src/server_dll/r2_functions.txt"
+ function_list = "src/server_dll/functions.txt"
 bin_dir = "bin/server_dll"
 
 [targets.client_exe]
@@ -190,47 +190,6 @@ libs = "/usr/lib"
 
 
 # ---------------------------------------------------------------------------
-# load_config() — legacy single-target format
-# ---------------------------------------------------------------------------
-
-
-class TestLoadConfigLegacy:
-    LEGACY_TOML = """\
-[target]
-binary = "original/Server/server.dll"
-format = "pe"
-arch = "x86_32"
-
-[sources]
-reversed_dir = "src/server_dll"
-function_list = "src/server_dll/r2_functions.txt"
-
-[compiler]
-profile = "msvc6"
-command = "wine CL.EXE"
-includes = "tools/MSVC600/VC98/Include"
-"""
-
-    def test_legacy_loads(self, tmp_path: Path) -> None:
-        root = _make_project(tmp_path, self.LEGACY_TOML)
-        cfg = load_config(root)
-        assert cfg.binary_format == "pe"
-        assert cfg.arch == "x86_32"
-
-    def test_legacy_target_name_derived(self, tmp_path: Path) -> None:
-        root = _make_project(tmp_path, self.LEGACY_TOML)
-        cfg = load_config(root)
-        # target_name derived from binary path
-        assert cfg.target_name is not None
-        assert len(cfg.target_name) > 0
-
-    def test_legacy_sources_section(self, tmp_path: Path) -> None:
-        root = _make_project(tmp_path, self.LEGACY_TOML)
-        cfg = load_config(root)
-        assert "server_dll" in str(cfg.reversed_dir)
-
-
-# ---------------------------------------------------------------------------
 # load_config() — edge cases
 # ---------------------------------------------------------------------------
 
@@ -256,7 +215,7 @@ binary = "test.exe"
         assert cfg.binary_format == "pe"  # default
         assert cfg.arch == "x86_32"  # default
         assert cfg.reversed_dir == root / "src" / "main"
-        assert cfg.function_list == root / "src" / "main" / "r2_functions.txt"
+        assert cfg.function_list == root / "src" / "main" / "functions.txt"
         assert cfg.bin_dir == root / "bin" / "main"
 
     def test_unknown_arch_falls_back(self, tmp_path: Path) -> None:
@@ -372,6 +331,370 @@ binary = "test.exe"
 
 
 # ---------------------------------------------------------------------------
+# Per-origin compiler overrides
+# ---------------------------------------------------------------------------
+
+
+class TestOriginCompiler:
+    def test_global_origins_parsed(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[compiler]
+profile = "msvc6"
+
+[compiler.origins.ZLIB]
+cflags = "/O3"
+command = "wine MSVC7/CL.EXE"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert "ZLIB" in cfg.origin_compiler
+        assert cfg.origin_compiler["ZLIB"]["cflags"] == "/O3"
+        assert cfg.origin_compiler["ZLIB"]["command"] == "wine MSVC7/CL.EXE"
+
+    def test_per_target_origins_parsed(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[targets.main.compiler.origins.ZLIB]
+cflags = "/O2"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.origin_compiler["ZLIB"]["cflags"] == "/O2"
+
+    def test_per_target_origins_override_global(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[compiler.origins.ZLIB]
+cflags = "/O3"
+command = "wine MSVC7/CL.EXE"
+
+[targets.main.compiler.origins.ZLIB]
+cflags = "/O2"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.origin_compiler["ZLIB"]["cflags"] == "/O2"
+        assert cfg.origin_compiler["ZLIB"]["command"] == "wine MSVC7/CL.EXE"
+
+    def test_multiple_origins(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[compiler.origins.ZLIB]
+cflags = "/O3"
+
+[compiler.origins.MSVCRT]
+cflags = "/O1"
+profile = "msvc7"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.origin_compiler["ZLIB"]["cflags"] == "/O3"
+        assert cfg.origin_compiler["MSVCRT"]["cflags"] == "/O1"
+        assert cfg.origin_compiler["MSVCRT"]["profile"] == "msvc7"
+
+    def test_empty_origins(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.origin_compiler == {}
+
+    def test_unknown_origin_compiler_key_warns(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[compiler.origins.ZLIB]
+cflags = "/O3"
+bogus_key = "oops"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match=r"unrecognized keys.*bogus_key"):
+            load_config(root)
+
+    def test_for_origin_returns_self_when_no_overrides(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.for_origin("GAME") is cfg
+
+    def test_for_origin_overrides_command(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[compiler]
+command = "wine CL.EXE"
+
+[compiler.origins.ZLIB]
+command = "wine MSVC7/CL.EXE"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        zcfg = cfg.for_origin("ZLIB")
+        assert zcfg.compiler_command == "wine MSVC7/CL.EXE"
+        assert cfg.compiler_command == "wine CL.EXE"
+
+    def test_for_origin_overrides_profile(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[compiler]
+profile = "msvc6"
+
+[compiler.origins.MSVCRT]
+profile = "msvc7"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.for_origin("MSVCRT").compiler_profile == "msvc7"
+        assert cfg.compiler_profile == "msvc6"
+
+    def test_for_origin_overrides_cflags(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[compiler]
+cflags = "/O2 /Gd"
+
+[compiler.origins.ZLIB]
+cflags = "/O3"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.for_origin("ZLIB").cflags == "/O3"
+        assert cfg.cflags == "/O2 /Gd"
+
+    def test_for_origin_overrides_base_cflags(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[compiler.origins.ZLIB]
+base_cflags = "/nologo /c /MD"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.for_origin("ZLIB").base_cflags == "/nologo /c /MD"
+        assert cfg.base_cflags == "/nologo /c /MT"
+
+    def test_for_origin_resolves_includes_path(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[compiler.origins.ZLIB]
+includes = "references/zlib"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.for_origin("ZLIB").compiler_includes == root / "references" / "zlib"
+
+    def test_for_origin_does_not_mutate_original(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[compiler]
+cflags = "/O2 /Gd"
+profile = "msvc6"
+
+[compiler.origins.ZLIB]
+cflags = "/O3"
+profile = "msvc7"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        zcfg = cfg.for_origin("ZLIB")
+        assert zcfg.cflags == "/O3"
+        assert zcfg.compiler_profile == "msvc7"
+        assert cfg.cflags == "/O2 /Gd"
+        assert cfg.compiler_profile == "msvc6"
+
+    def test_resolve_origin_cflags_from_origin_compiler(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[compiler.cflags_presets]
+ZLIB = "/O2"
+
+[compiler.origins.ZLIB]
+cflags = "/O3"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.resolve_origin_cflags("ZLIB") == "/O3"
+
+    def test_resolve_origin_cflags_falls_back_to_presets(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[compiler.cflags_presets]
+GAME = "/O2 /Gd"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.resolve_origin_cflags("GAME") == "/O2 /Gd"
+
+    def test_resolve_origin_cflags_falls_back_to_default(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.resolve_origin_cflags("UNKNOWN") == "/O2 /Gd"
+
+    def test_full_merge_hierarchy(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[compiler]
+profile = "msvc6"
+command = "wine CL.EXE"
+cflags = "/O2 /Gd"
+
+[targets.main.compiler]
+cflags = "/O1"
+
+[compiler.origins.ZLIB]
+cflags = "/O3"
+command = "wine MSVC7/CL.EXE"
+
+[targets.main.compiler.origins.ZLIB]
+cflags = "/Ox"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.cflags == "/O1"
+        assert cfg.compiler_command == "wine CL.EXE"
+        zcfg = cfg.for_origin("ZLIB")
+        assert zcfg.cflags == "/Ox"
+        assert zcfg.compiler_command == "wine MSVC7/CL.EXE"
+        assert zcfg.compiler_profile == "msvc6"
+
+
+class TestRunnerField:
+    def test_runner_from_toml(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[compiler]
+runner = "wibo"
+command = "tools/MSVC600/VC98/Bin/CL.EXE"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.compiler_runner == "wibo"
+        assert cfg.compiler_command == "tools/MSVC600/VC98/Bin/CL.EXE"
+
+    def test_runner_auto_detect_wine(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[compiler]
+command = "wine CL.EXE"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.compiler_runner == "wine"
+        assert cfg.compiler_command == "wine CL.EXE"
+
+    def test_runner_auto_detect_wibo(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[compiler]
+command = "wibo CL.EXE"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.compiler_runner == "wibo"
+        assert cfg.compiler_command == "wibo CL.EXE"
+
+    def test_runner_empty_for_native(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[compiler]
+runner = ""
+command = "cl"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.compiler_runner == ""
+        assert cfg.compiler_command == "cl"
+
+    def test_runner_default_no_runner_no_wine(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[compiler]
+command = "CL.EXE"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.compiler_runner == ""
+        assert cfg.compiler_command == "CL.EXE"
+
+    def test_runner_origin_override(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[compiler]
+runner = "wine"
+command = "CL.EXE"
+
+[compiler.origins.ZLIB]
+runner = "wibo"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.origin_compiler["ZLIB"]["runner"] == "wibo"
+
+    def test_for_origin_overrides_runner(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[compiler]
+runner = "wine"
+command = "CL.EXE"
+
+[compiler.origins.ZLIB]
+runner = "wibo"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.for_origin("ZLIB").compiler_runner == "wibo"
+
+
+# ---------------------------------------------------------------------------
 # ProjectConfig methods
 # ---------------------------------------------------------------------------
 
@@ -447,9 +770,9 @@ class TestToolImports:
         assert "candidate_bytes" in sig.parameters
 
     def test_import_matcher_parsers(self) -> None:
-        from rebrew.matcher.parsers import parse_coff_obj_symbol_bytes
+        from rebrew.matcher.parsers import parse_obj_symbol_bytes
 
-        assert callable(parse_coff_obj_symbol_bytes)
+        assert callable(parse_obj_symbol_bytes)
 
     def test_import_matcher_compiler(self) -> None:
         from rebrew.matcher.compiler import build_candidate_obj_only
@@ -497,3 +820,125 @@ class TestToolImports:
         from rebrew.config import _detect_binary_layout
 
         assert callable(_detect_binary_layout)
+
+
+# ---------------------------------------------------------------------------
+# Config validation layer (Idea 18)
+# ---------------------------------------------------------------------------
+
+
+class TestConfigValidation:
+    """Tests for unknown-key warnings and value-type validation."""
+
+    def test_unknown_top_level_key_warns(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[bogus_section]
+foo = "bar"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match="unrecognized top-level keys.*bogus_section"):
+            load_config(root)
+
+    def test_unknown_target_key_warns(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+typo_field = "oops"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match=r"unrecognized keys.*typo_field"):
+            load_config(root)
+
+    def test_unknown_compiler_key_warns(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[compiler]
+profile = "msvc6"
+misspelled_option = "bad"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match=r"unrecognized keys.*misspelled_option"):
+            load_config(root)
+
+    def test_unknown_project_key_warns(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[project]
+name = "test"
+bogus = "oops"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match=r"unrecognized keys.*bogus"):
+            load_config(root)
+
+    def test_unknown_arch_warns(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+arch = "sparc64"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match=r"unknown arch 'sparc64'"):
+            cfg = load_config(root)
+        assert cfg.pointer_size == 4  # falls back to x86_32
+
+    def test_unknown_format_warns(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+format = "coff"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match=r"unknown format 'coff'"):
+            load_config(root)
+
+    def test_unknown_profile_warns(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[compiler]
+profile = "turbo_c"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match=r"unknown profile 'turbo_c'"):
+            load_config(root)
+
+    def test_valid_config_no_warnings(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+format = "pe"
+arch = "x86_32"
+marker = "MAIN"
+origins = ["GAME"]
+
+[compiler]
+profile = "msvc6"
+command = "wine CL.EXE"
+"""
+        root = _make_project(tmp_path, toml)
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            cfg = load_config(root)
+        assert cfg.target_name == "main"
+
+    def test_multiple_typos_warn_separately(self, tmp_path: Path) -> None:
+        toml = """\
+[targets.main]
+binary = "test.exe"
+binaryx = "typo"
+formatx = "typo"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match=r"unrecognized keys"):
+            load_config(root)

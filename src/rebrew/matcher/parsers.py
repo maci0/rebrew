@@ -9,11 +9,43 @@ All format parsing is backed by LIEF.
 
 import struct
 import sys
+from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 # x86 padding bytes used to trim trailing filler from compiled functions.
 # 0xCC = int3 (breakpoint), 0x90 = nop
 _PADDING_BYTES = (0xCC, 0x90)
+_PADDING_STRIP = bytes(_PADDING_BYTES)
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers for format-specific parsers
+# ---------------------------------------------------------------------------
+
+
+def _extract_reloc_name(reloc: Any) -> str:
+    """Extract target symbol name from a relocation entry."""
+    if hasattr(reloc, "symbol") and reloc.symbol is not None:
+        name = getattr(reloc.symbol, "name", "")
+        if isinstance(name, bytes):
+            name = name.decode("utf-8", errors="replace")
+        return name
+    return ""
+
+
+def _collect_reloc_offsets(
+    relocations: Iterable[Any],
+    func_start: int,
+    func_end: int,
+) -> dict[int, str]:
+    """Collect relocation offsets within a function's byte range."""
+    offsets: dict[int, str] = {}
+    for reloc in relocations:
+        rva = reloc.address
+        if func_start <= rva < func_end:
+            offsets[rva - func_start] = _extract_reloc_name(reloc) or ""
+    return offsets
 
 
 # ---------------------------------------------------------------------------
@@ -80,28 +112,12 @@ def _parse_coff_symbol_bytes(
             and sym.section.name == section.name
             and sym.value > func_start
             and sym.value < func_end
-            and not sym.name.startswith("$")
+            and not str(sym.name).startswith("$")
         ):
             func_end = sym.value
 
-    code = content[func_start:func_end]
-
-    # Trim trailing padding (O(1) via rstrip)
-    code = code.rstrip(bytes(_PADDING_BYTES))
-
-    # Collect relocation offsets within this function
-    reloc_offsets: dict[int, str] = {}
-    for reloc in section.relocations:
-        rva = reloc.address
-        if func_start <= rva < func_end:
-            target_name = ""
-            if hasattr(reloc, "symbol") and reloc.symbol is not None:
-                name = getattr(reloc.symbol, "name", "")
-                if isinstance(name, bytes):
-                    name = name.decode("utf-8", errors="replace")
-                target_name = name
-            reloc_offsets[rva - func_start] = target_name or ""
-
+    code = content[func_start:func_end].rstrip(_PADDING_STRIP)
+    reloc_offsets = _collect_reloc_offsets(section.relocations, func_start, func_end)
     return code, reloc_offsets
 
 
@@ -117,7 +133,7 @@ def _list_coff_symbols(obj_path: str) -> list[str]:
     for sym in coff.symbols:
         if (
             sym.section is not None
-            and not sym.name.startswith("$")
+            and not str(sym.name).startswith("$")
             and sym.storage_class == lief.COFF.Symbol.STORAGE_CLASS.EXTERNAL
         ):
             symbols.append(sym.name)
@@ -176,29 +192,15 @@ def _parse_elf_symbol_bytes(
             ):
                 func_end = sym.value
 
-    code = content[func_start:func_end]
+    code = content[func_start:func_end].rstrip(_PADDING_STRIP)
 
-    # Trim trailing padding (O(1) via rstrip)
-    code = code.rstrip(bytes(_PADDING_BYTES))
-
-    # Collect relocation offsets
-    reloc_offsets: dict[int, str] = {}
-    for reloc in elf.relocations:
-        if (
-            hasattr(reloc, "section")
-            and reloc.section is not None
-            and reloc.section.name == section.name
-        ):
-            rva = reloc.address
-            if func_start <= rva < func_end:
-                target_name = ""
-                # Safely access symbol name, handling different LIEF versions/structures
-                if hasattr(reloc, "symbol") and reloc.symbol is not None:
-                    target_name = getattr(reloc.symbol, "name", "")
-                    if isinstance(target_name, bytes):
-                        target_name = target_name.decode("utf-8", errors="replace")
-                reloc_offsets[rva - func_start] = target_name or ""
-
+    # ELF relocations are global — filter to our section before collecting
+    section_relocs = (
+        r
+        for r in elf.relocations
+        if hasattr(r, "section") and r.section is not None and r.section.name == section.name
+    )
+    reloc_offsets = _collect_reloc_offsets(section_relocs, func_start, func_end)
     return code, reloc_offsets
 
 
@@ -274,28 +276,17 @@ def _parse_macho_symbol_bytes(
     # Determine function end by finding the next symbol after func_start
     func_end = len(content)
     for sym in binary.symbols:
-        if hasattr(sym, "section") and sym.section is not None and sym.section.name == section.name:
+        if (
+            hasattr(sym, "section")
+            and sym.section is not None
+            and getattr(sym.section, "name", None) == getattr(section, "name", None)
+        ):
             sym_off = sym.value - section.virtual_address
             if sym_off > func_start and sym_off < func_end:
                 func_end = sym_off
 
-    code = content[func_start:func_end]
-
-    # Trim trailing padding (O(1) via rstrip)
-    code = code.rstrip(bytes(_PADDING_BYTES))
-
-    # Collect relocation offsets
-    reloc_offsets: dict[int, str] = {}
-    for reloc in section.relocations:
-        rva = reloc.address
-        if func_start <= rva < func_end:
-            target_name = ""
-            if hasattr(reloc, "symbol") and reloc.symbol is not None:
-                target_name = getattr(reloc.symbol, "name", "")
-                if isinstance(target_name, bytes):
-                    target_name = target_name.decode("utf-8", errors="replace")
-            reloc_offsets[rva - func_start] = target_name or ""
-
+    code = content[func_start:func_end].rstrip(_PADDING_STRIP)
+    reloc_offsets = _collect_reloc_offsets(section.relocations, func_start, func_end)
     return code, reloc_offsets
 
 
@@ -312,9 +303,9 @@ def _list_macho_symbols(obj_path: str) -> list[str]:
 
     symbols = []
     for sym in binary.symbols:
-        if sym.name and sym.type > 0:
+        if sym.name and getattr(sym, "type", 0) > 0:
             # Strip leading underscore (Mach-O convention) — exactly one
-            name = sym.name[1:] if sym.name.startswith("_") else sym.name
+            name = sym.name[1:] if str(sym.name).startswith("_") else sym.name
             symbols.append(name)
     return symbols
 
@@ -362,12 +353,6 @@ def list_obj_symbols(obj_path: str) -> list[str]:
         return []
 
 
-# Backward-compatible aliases
-parse_coff_obj_symbol_bytes = parse_obj_symbol_bytes
-parse_coff_symbol_bytes = parse_obj_symbol_bytes
-list_coff_obj_symbols = list_obj_symbols
-
-
 # ---------------------------------------------------------------------------
 # Binary extraction (linked executables)
 # ---------------------------------------------------------------------------
@@ -386,7 +371,3 @@ def extract_function_from_binary(bin_path: Path, va: int, size: int) -> bytes | 
     except (ImportError, OSError, KeyError, ValueError) as e:
         print(f"Error extracting from binary: {e}", file=sys.stderr)
     return None
-
-
-# Backward-compatible alias
-extract_function_from_pe = extract_function_from_binary

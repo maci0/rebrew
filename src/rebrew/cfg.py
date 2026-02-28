@@ -1,4 +1,4 @@
-"""rebrew cfg: Programmatic editor for rebrew.toml.
+"""rebrew cfg: Programmatic editor for rebrew-project.toml.
 
 Uses tomlkit for format-preserving round-trip editing (comments,
 ordering, and whitespace are retained).
@@ -17,12 +17,15 @@ Usage::
 
 import contextlib
 import shutil
-import struct
-import sys
 from pathlib import Path
 
 import tomlkit
 import typer
+
+from rebrew.binary_loader import detect_format_and_arch as _bl_detect_format_and_arch
+from rebrew.cli import error_exit
+from rebrew.config import _find_root as _config_find_root
+from rebrew.utils import atomic_write_text
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -30,58 +33,49 @@ import typer
 
 
 def _find_root() -> Path:
-    """Walk up from cwd to find rebrew.toml."""
-    candidate = Path.cwd().resolve()
-    while candidate != candidate.parent:
-        if (candidate / "rebrew.toml").exists():
-            return candidate
-        candidate = candidate.parent
-    typer.secho(
-        "Error: Could not find rebrew.toml in any parent directory.\n"
-        "Run this command from within a rebrew project, or use 'rebrew init' first.",
-        fg=typer.colors.RED,
-        err=True,
-    )
-    raise typer.Exit(code=1)
+    """Walk up from cwd to find rebrew-project.toml; exit with message on failure."""
+    try:
+        return _config_find_root()
+    except FileNotFoundError:
+        error_exit(
+            "Could not find rebrew-project.toml in any parent directory.\n"
+            "Run this command from within a rebrew project, or use 'rebrew init' first.",
+        )
 
 
 def _load_toml(root: Path | None = None) -> tuple[tomlkit.TOMLDocument, Path]:
-    """Load rebrew.toml as a tomlkit document, preserving formatting."""
+    """Load rebrew-project.toml as a tomlkit document, preserving formatting."""
     if root is None:
         root = _find_root()
-    toml_path = root / "rebrew.toml"
+    toml_path = root / "rebrew-project.toml"
     if not toml_path.exists():
-        typer.secho(f"Error: {toml_path} not found.", fg=typer.colors.RED, err=True)
-        raise typer.Exit(code=1)
+        error_exit(f"{toml_path} not found.")
     doc = tomlkit.parse(toml_path.read_text(encoding="utf-8"))
     return doc, toml_path
 
 
 def _save_toml(doc: tomlkit.TOMLDocument, path: Path) -> None:
     """Write tomlkit document back, preserving formatting."""
-    path.write_text(tomlkit.dumps(doc), encoding="utf-8")
+    atomic_write_text(path, tomlkit.dumps(doc), encoding="utf-8")
 
 
 def _resolve_target(doc: tomlkit.TOMLDocument, target: str | None) -> str:
     """Resolve a target name: use given name, or default to first target."""
     targets = doc.get("targets", {})
     if not targets:
-        typer.secho("Error: No [targets] section in rebrew.toml.", fg=typer.colors.RED, err=True)
-        raise typer.Exit(code=1)
+        error_exit("No [targets] section in rebrew-project.toml.")
     if target is None:
         target = next(iter(targets))
     if target not in targets:
-        typer.secho(
-            f"Error: Target '{target}' not found. Available: {list(targets)}",
-            fg=typer.colors.RED,
-            err=True,
-        )
-        raise typer.Exit(code=1)
+        error_exit(f"Target '{target}' not found. Available: {list(targets)}")
     return target
 
 
 def _detect_format(path: Path) -> str:
-    """Detect binary format from file header magic bytes."""
+    """Detect binary format from file header magic bytes.
+
+    CLI-friendly wrapper: defaults to ``"pe"`` on errors instead of raising.
+    """
     fmt, _ = _detect_format_and_arch(path)
     return fmt
 
@@ -89,95 +83,24 @@ def _detect_format(path: Path) -> str:
 def _detect_format_and_arch(path: Path) -> tuple[str, str | None]:
     """Detect binary format and architecture from file header.
 
-    Returns (format, arch) where arch may be None if detection fails.
+    CLI-friendly wrapper around :func:`rebrew.binary_loader.detect_format_and_arch`.
+    Returns ``(format, arch)``; on ``OSError`` or ``ValueError`` prints a warning
+    to stderr and defaults to ``("pe", None)`` instead of raising.
     """
     try:
-        with path.open("rb") as f:
-            header = f.read(64)  # enough for PE/ELF/Mach-O headers
+        return _bl_detect_format_and_arch(path)
     except OSError:
-        # Cannot read file — warn rather than silently assuming PE
-        print(
+        typer.echo(
             f"Warning: cannot read '{path}' for format detection, defaulting to PE",
-            file=sys.stderr,
+            err=True,
         )
         return "pe", None
-
-    magic = header[:4]
-
-    if magic[:2] == b"MZ":
-        # PE: check optional header machine type
-        arch = None
-        if len(header) >= 64:
-            pe_offset_loc = 60
-            if len(header) >= pe_offset_loc + 4:
-                pe_off = struct.unpack_from("<I", header, pe_offset_loc)[0]
-                # Read COFF header machine field (need to re-read if pe_off is far)
-                try:
-                    with path.open("rb") as f:
-                        f.seek(pe_off)
-                        pe_sig = f.read(4)
-                        if pe_sig == b"PE\x00\x00":
-                            machine = struct.unpack("<H", f.read(2))[0]
-                            if machine == 0x14C:  # IMAGE_FILE_MACHINE_I386
-                                arch = "x86_32"
-                            elif machine == 0x8664:  # IMAGE_FILE_MACHINE_AMD64
-                                arch = "x86_64"
-                            elif machine == 0x1C0:  # IMAGE_FILE_MACHINE_ARM
-                                arch = "arm32"
-                            elif machine == 0xAA64:  # IMAGE_FILE_MACHINE_ARM64
-                                arch = "arm64"
-                except OSError:
-                    pass
-        return "pe", arch
-
-    elif magic[:4] == b"\x7fELF":
-        # ELF: byte 5 is data encoding (1=LE, 2=BE), byte 4 is class
-        arch = None
-        if len(header) >= 20:
-            ei_class = header[4]  # 1=32, 2=64
-            ei_data = header[5]  # 1=ELFDATA2LSB, 2=ELFDATA2MSB
-            # Machine is at offset 18 in both 32/64 ELF headers;
-            # endianness must match the ELF encoding to parse correctly.
-            elf_endian = "<H" if ei_data != 2 else ">H"
-            machine = struct.unpack_from(elf_endian, header, 18)[0]
-            if machine == 3:  # EM_386
-                arch = "x86_32"
-            elif machine == 62:  # EM_X86_64
-                arch = "x86_64"
-            elif machine == 40:  # EM_ARM
-                arch = "arm32"
-            elif machine == 183:  # EM_AARCH64
-                arch = "arm64"
-            elif ei_class == 1:
-                arch = "x86_32"  # 32-bit fallback
-            elif ei_class == 2:
-                arch = "x86_64"  # 64-bit fallback
-        return "elf", arch
-
-    elif magic[:4] in (
-        b"\xfe\xed\xfa\xce",  # Mach-O 32-bit
-        b"\xfe\xed\xfa\xcf",  # Mach-O 64-bit
-        b"\xce\xfa\xed\xfe",  # Mach-O 32-bit LE
-        b"\xcf\xfa\xed\xfe",  # Mach-O 64-bit LE
-    ):
-        arch = "x86_64" if magic in (b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe") else "x86_32"
-        return "macho", arch
-
-    elif magic[:4] in (
-        b"\xca\xfe\xba\xbe",  # Fat binary (big-endian)
-        b"\xbe\xba\xfe\xca",  # Fat binary (little-endian)
-    ):
-        # Universal (fat) binary — contains multiple architectures.
-        # Default to x86_32; actual slice selection would need LIEF.
-        return "macho", None
-
-    # Unrecognized format — warn rather than silently assuming PE
-    print(
-        f"Warning: unrecognized binary format for '{path}' (magic: {magic[:4]!r}), defaulting to PE",
-        file=sys.stderr,
-    )
-
-    return "pe", None
+    except ValueError:
+        typer.echo(
+            f"Warning: unrecognized binary format for '{path}', defaulting to PE",
+            err=True,
+        )
+        return "pe", None
 
 
 # ---------------------------------------------------------------------------
@@ -185,15 +108,20 @@ def _detect_format_and_arch(path: Path) -> tuple[str, str | None]:
 # ---------------------------------------------------------------------------
 
 app = typer.Typer(
-    help="Read and edit rebrew.toml programmatically.",
+    help="Read and edit rebrew-project.toml programmatically.",
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew cfg get compiler.command            Read a config value
-  rebrew cfg set compiler.timeout 120        Set a config value
-  rebrew cfg get targets.main.binary         Read target-specific setting
-  rebrew cfg dump                            Dump entire rebrew.toml as JSON
-  rebrew cfg path                            Print path to rebrew.toml
+
+rebrew cfg get compiler.command            Read a config value
+
+rebrew cfg set compiler.timeout 120        Set a config value
+
+rebrew cfg get targets.main.binary         Read target-specific setting
+
+rebrew cfg dump                            Dump entire rebrew-project.toml as JSON
+
+rebrew cfg path                            Print path to rebrew-project.toml
 
 [dim]Useful for scripting and automation. Supports dotted key paths
 for nested TOML tables (e.g. 'targets.main.binary').[/dim]""",
@@ -202,7 +130,7 @@ for nested TOML tables (e.g. 'targets.main.binary').[/dim]""",
 
 @app.command("list-targets")
 def list_targets() -> None:
-    """List all targets defined in rebrew.toml."""
+    """List all targets defined in rebrew-project.toml."""
     doc, _ = _load_toml()
     targets = doc.get("targets", {})
     if not targets:
@@ -241,8 +169,7 @@ def show(
         if isinstance(current, dict) and part in current:
             current = current[part]
         else:
-            typer.secho(f"Key '{key}' not found.", fg=typer.colors.RED, err=True)
-            raise typer.Exit(code=1)
+            error_exit(f"Key '{key}' not found.")
 
     if isinstance(current, (dict, list)):
         typer.echo(tomlkit.dumps(current) if isinstance(current, dict) else str(current))
@@ -275,7 +202,7 @@ def add_target(
     ),
     copy_binary: bool = typer.Option(True, "--copy/--no-copy", help="Copy binary into original/."),
 ) -> None:
-    """Add a new target section to rebrew.toml (idempotent).
+    """Add a new target section to rebrew-project.toml (idempotent).
 
     Auto-detects binary format and architecture from file headers when not
     specified.  Origins and other defaults are inherited from the first
@@ -371,7 +298,7 @@ def add_target(
     targets[name] = tgt
     _save_toml(doc, toml_path)
 
-    typer.secho(f'Added [targets."{name}"] to rebrew.toml', fg=typer.colors.GREEN)
+    typer.secho(f'Added [targets."{name}"] to rebrew-project.toml', fg=typer.colors.GREEN)
     typer.secho(f"  Format: {fmt}, Arch: {arch} (auto-detected)", fg=typer.colors.GREEN)
     typer.secho(f"  Language: {detected_lang} ({source_ext})", fg=typer.colors.GREEN)
     typer.secho(f"  Created src/{name}/ and bin/{name}/", fg=typer.colors.GREEN)
@@ -382,7 +309,7 @@ def add_target(
 def remove_target(
     name: str = typer.Argument(..., help="Target name to remove."),
 ) -> None:
-    """Remove a target section from rebrew.toml (idempotent)."""
+    """Remove a target section from rebrew-project.toml (idempotent)."""
     doc, toml_path = _load_toml()
     targets = doc.get("targets", {})
     if name not in targets:
@@ -391,7 +318,7 @@ def remove_target(
 
     del targets[name]
     _save_toml(doc, toml_path)
-    typer.secho(f'Removed [targets."{name}"] from rebrew.toml', fg=typer.colors.GREEN)
+    typer.secho(f'Removed [targets."{name}"] from rebrew-project.toml', fg=typer.colors.GREEN)
     typer.secho("  Note: src/ and bin/ directories were NOT deleted.", dim=True)
 
 
@@ -530,6 +457,7 @@ def set_cflags(
 
 
 def main_entry() -> None:
+    """Run the Typer CLI application."""
     app()
 
 

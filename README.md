@@ -6,21 +6,23 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 
 ## ✨ Features
 
+- **Global rename** — `rebrew rename` renames a function, updates its `// SYMBOL:`, renames the file if applicable, and updates cross-references across the entire codebase.
 - **Skeleton generation** — `rebrew skeleton` creates annotated `.c` stubs from VAs with optional inline decompilation (`--decomp`) via r2ghidra, r2dec, or Ghidra
 - **Compile-and-compare** — `rebrew test` compiles your C and diffs it byte-by-byte against the original binary
-- **GA matching engine** — `rebrew match` uses a genetic algorithm to brute-force compiler flags and mutate source code to find exact byte matches
-- **Batch GA** — `rebrew ga` runs GA across all STUB functions unattended; `--near-miss` targets MATCHING functions with small byte deltas
-- **Annotation pipeline** — `rebrew lint` validates `// FUNCTION:`, `// STATUS:`, `// ORIGIN:` annotations across the codebase (E001–E017, W001–W017)
-- **Verification** — `rebrew verify` bulk-compiles every reversed function and reports match status with a progress bar; `--summary` shows a table with EXACT/RELOC/MATCHING breakdown and match percentages; `--json` emits timestamped structured reports to `db/verify_results.json`
+- **GA matching engine** — `rebrew match` uses a genetic algorithm to brute-force compiler flags and mutate source code to find exact byte matches; structural similarity metric distinguishes flag-fixable vs structural differences
+- **Batch GA** — `rebrew ga` runs GA across all STUB functions unattended; `--near-miss` targets MATCHING functions with small byte deltas; `--flag-sweep` sweeps compiler flags across all MATCHING functions with priority queuing
+- **Annotation pipeline** — `rebrew lint` validates `// FUNCTION:`, `// STATUS:`, `// ORIGIN:` annotations across the codebase (E000–E017, W001–W017)
+- **Verification** — `rebrew verify` bulk-compiles every reversed function and reports match status with a progress bar; `--fix-status` auto-updates `// STATUS:` and `// BLOCKER:` annotations; `--summary` shows a table with EXACT/RELOC/MATCHING breakdown and match percentages; `--json` emits timestamped structured reports to `db/verify_results.json`
 - **Smart prioritization** — `rebrew next` recommends functions to work on, auto-filters unmatchable stubs, and shows byte-delta for near-miss MATCHING functions
 - **Dependency graph** — `rebrew graph` builds call graphs from `extern` declarations in mermaid, DOT, or summary format with focus mode
 - **Global data scanner** — `rebrew data` inventories `.data`/`.rdata`/`.bss` globals, detects type conflicts, finds dispatch tables / vtables (`--dispatch`), verifies BSS layout (`--bss`), and supports `// DATA:` annotations for first-class data tracking
 - **Status tracking** — `rebrew status` gives a per-target breakdown of EXACT/RELOC/MATCHING/STUB counts
 - **Atomic promotion** — `rebrew promote` tests a function and atomically updates its STATUS annotation; `--dry-run` to preview
 - **Cold-start triage** — `rebrew triage` combines coverage stats, FLIRT scan, near-miss list, and recommendations into a single report for agent sessions
+- **Diagnostic check** — `rebrew doctor` validates project health (config, compiler, includes/libs, binary)
 - **FLIRT scanning** — `rebrew flirt` identifies known library functions via FLIRT signatures (`.sig`/`.pat`), no IDA required
 - **NASM extraction** — `rebrew nasm` extracts function bytes and produces NASM-reassembleable ASM with round-trip verification
-- **Multi-target** — all tools read from `rebrew.toml` with `--target` selection; supports PE, ELF, Mach-O across x86, x64, ARM32/64
+- **Multi-target** — all tools read from `rebrew-project.toml` with `--target` selection; supports maintaining multi-target `// FUNCTION:` blocks (e.g. LEGO1 vs BETA10) in the exact same C file by auto-filtering inactive targets; supports PE, ELF, Mach-O across x86, x64, ARM32/64
 - **Rich CLI help** — every tool has detailed `--help` with usage examples, context, and prerequisites via Typer's `rich_markup_mode`
 - **Agent-friendly** — bundled `agent-skills/` copied to projects on `rebrew init`
 
@@ -43,7 +45,7 @@ Rebrew is the engine behind binary-matching game decompilation. When you are wri
 ### 🎯 Core Principles
 
 - **Idempotent**: Every tool can be run repeatedly with the same result. `rebrew catalog`, `rebrew verify`, `rebrew cfg`, `rebrew init` — running them twice changes nothing the second time. No destructive side effects.
-- **Config-driven**: All tools read from `rebrew.toml` — zero manual path arguments needed.
+- **Config-driven**: All tools read from `rebrew-project.toml` — zero manual path arguments needed.
 - **Composable**: Tools are small, single-purpose, and designed to be chained by scripts or AI agents.
 - **Genetic Algorithm (GA) Search Engine**: Brute-forcing compiler flags and mutating source code AST to discover the exact code changes needed to fix compiler discrepancies.
 
@@ -68,9 +70,9 @@ Then from within the project directory:
 uv sync
 ```
 
-### 2. Project Configuration (`rebrew.toml`)
+### 2. Project Configuration (`rebrew-project.toml`)
 
-Each decomp project provides a `rebrew.toml` in its root. Rebrew finds it by searching upward from the current working directory (similar to how `git` finds `.git/`).
+Each decomp project provides a `rebrew-project.toml` in its root. Rebrew finds it by searching upward from the current working directory (similar to how `git` finds `.git/`).
 
 ```toml
 [targets.target_name]
@@ -78,7 +80,7 @@ binary = "original/target.dll"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src/target_name"
-function_list = "src/target_name/r2_functions.txt"
+function_list = "src/target_name/functions.txt"
 bin_dir = "bin/target_name"
 
 [compiler]
@@ -90,10 +92,10 @@ libs = "tools/MSVC600/VC98/Lib"
 
 ## 💻 Usage & Workflow
 
-All CLI tools must be run **from within a project directory** that contains a `rebrew.toml` config file.
+All CLI tools must be run **from within a project directory** that contains a `rebrew-project.toml` config file.
 
 ```bash
-cd /path/to/your-decomp-project    # must contain rebrew.toml
+cd /path/to/your-decomp-project    # must contain rebrew-project.toml
 
 # Initialization & Configuration
 rebrew init --target mygame --binary mygame.exe --compiler msvc6 # initialize project
@@ -121,20 +123,25 @@ rebrew match --diff-only --mm src/target_name/f.c  # show only structural diffs 
 rebrew match src/target_name/f.c    # run the Genetic Algorithm Engine to resolve diffs
 rebrew ga                           # batch GA runner to solve all stubs
 rebrew ga --near-miss --threshold 5 # batch GA on MATCHING functions with ≤5B delta
+rebrew ga --flag-sweep              # batch flag sweep on all MATCHING functions
+rebrew ga --flag-sweep --tier targeted --fix-cflags  # targeted sweep, auto-update CFLAGS
 
 # Advanced & Sync
-rebrew verify                       # bulk compile and verify all reversed functions
+rebrew rename old_func new_func     # completely rename a function across the codebase
+rebrew verify --fix-status          # bulk compile and auto-update STATUS/BLOCKER annotations
 rebrew verify --json                # structured JSON report to stdout
-rebrew verify --output report.json  # write report to specific file
-rebrew extract list                   # list un-reversed candidates
-rebrew extract batch 20               # extract and disassemble first 20 smallest
+rebrew extract list                 # list un-reversed candidates
+rebrew extract batch 20             # extract and disassemble first 20 smallest
 rebrew asm                          # quick offline disassembly
-rebrew sync --push                  # export annotations and push to Ghidra via ReVa MCP
-rebrew sync --push --dry-run        # preview push without applying
-rebrew sync --summary               # preview what would be synced
-rebrew sync --pull                  # fetch Ghidra renames/comments into local files
+
+# Ghidra Sync via ReVa MCP
+rebrew sync --push                  # export annotations and push to Ghidra
+rebrew sync --pull                  # fetch Ghidra renames into local files
+rebrew sync --pull --accept-ghidra  # fetch renames and automatically update cross-references
+rebrew sync --pull-signatures       # fetch Ghidra decompilation to update extern prototypes
+rebrew sync --pull-structs          # export Ghidra structs into types.h
+rebrew sync --pull-comments         # fetch Ghidra EOL/post analysis comments into source
 rebrew sync --pull --dry-run        # preview pull without modifying files
-rebrew sync --pull --json           # pull with structured JSON output
 ```
 
 ## ⚙️ Supported Platforms
@@ -159,7 +166,7 @@ rebrew sync --pull --json           # pull with structured JSON output
 ```bash
 cd rebrew/
 uv sync --all-extras       # install dev dependencies
-uv run pytest tests/ -v    # run tests (~1100 tests)
+uv run pytest tests/ -v    # run tests (~1200 tests)
 uv run ruff check .        # lint
 uv run ruff format .       # format
 python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me
@@ -168,6 +175,31 @@ python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me
 ### Flag Sweep Tiers
 
 The flag sweep uses compiler flag definitions synced from [decomp.me](https://github.com/decompme/decomp.me). The `generate_flag_combinations(tier)` function supports five effort levels: `quick` (~192 combos), `targeted` (~1.1K combos), `normal` (~21K combos), `thorough` (~1M combos), and `full` (~8.3M combos). The `msvc6` compiler profile automatically excludes incompatible MSVC 7.x+ flags.
+
+## 🌐 Ecosystem & Related Tools
+
+Rebrew is part of a broader decompilation ecosystem. These are the notable projects it integrates with or draws from:
+
+### Integrated
+
+| Tool | Role | Integration |
+|------|------|-------------|
+| [decomp.me](https://github.com/decompme/decomp.me) | Collaborative decompilation platform | Flag axes synced via `tools/sync_decomp_flags.py`; powers `rebrew match --flag-sweep` |
+| [reccmp](https://github.com/isledecomp/reccmp) | Binary recompilation comparison framework | Annotation format compatibility; `rebrew catalog --csv` exports reccmp-compatible CSV |
+| [LIEF](https://github.com/lief-project/LIEF) | Binary format parsing (PE/ELF/Mach-O) | Used for binary loading, format detection, and PE section analysis |
+| [Capstone](https://github.com/capstone-engine/capstone) | Disassembly engine | Powers `rebrew asm`, byte-diff scoring, relocation masking, and mnemonic comparison |
+| [ReVa](https://github.com/cyberkaida/reverse-engineering-assistant) | Ghidra MCP bridge | `rebrew sync` pushes/pulls annotations, labels, structs, and comments to Ghidra |
+
+### Adjacent Tools
+
+| Tool | What it does | Relevance |
+|------|-------------|-----------|
+| [asm-differ](https://github.com/simonlindholm/asm-differ) | Assembly diff with levenshtein alignment | Used by decomp.me for all diffs; rebrew has its own capstone-based differ |
+| [objdiff](https://github.com/encounter/objdiff) | Rust GUI for object file diffing (COFF/ELF/Mach-O) | Visual companion for inspecting match differences |
+| [decomp-toolkit](https://github.com/encounter/decomp-toolkit) | GameCube/Wii decompilation toolkit | DOL/REL focused; similar split/link/diff workflow concepts |
+| [wibo](https://github.com/decompals/wibo) | Lightweight Win32 PE loader | Faster alternative to Wine for running MSVC CL.EXE |
+| [Ghidra](https://github.com/NationalSecurityAgency/ghidra) | NSA's reverse engineering suite | Primary disassembler/decompiler; connected via ReVa MCP |
+| [FLIRTDB](https://github.com/Maktm/FLIRTDB) | FLIRT signature database | Signatures for MSVC, Borland, MinGW used by `rebrew flirt` |
 
 ## License
 

@@ -9,9 +9,9 @@ from rebrew.matcher import (
     compute_args_hash,
     diff_functions,
     generate_flag_combinations,
-    list_coff_obj_symbols,
+    list_obj_symbols,
     load_checkpoint,
-    parse_coff_obj_symbol_bytes,
+    parse_obj_symbol_bytes,
     save_checkpoint,
     score_candidate,
 )
@@ -96,7 +96,7 @@ def test_parse_coff_obj_basic() -> None:
         obj_path = Path(f.name)
 
     try:
-        code_result, relocs = parse_coff_obj_symbol_bytes(obj_path, "_myfunc")
+        code_result, relocs = parse_obj_symbol_bytes(obj_path, "_myfunc")
         assert code_result is not None
         assert code_result == code
         assert relocs is not None
@@ -115,7 +115,7 @@ def test_parse_coff_obj_long_name() -> None:
         obj_path = Path(f.name)
 
     try:
-        code_result, relocs = parse_coff_obj_symbol_bytes(obj_path, "_DllMainCRTStartup@12")
+        code_result, relocs = parse_obj_symbol_bytes(obj_path, "_DllMainCRTStartup@12")
         assert code_result is not None
         assert code_result == code
     finally:
@@ -133,13 +133,13 @@ def test_parse_coff_obj_symbol_not_found() -> None:
         obj_path = Path(f.name)
 
     try:
-        code_result, relocs = parse_coff_obj_symbol_bytes(obj_path, "_nothere")
+        code_result, relocs = parse_obj_symbol_bytes(obj_path, "_nothere")
         assert code_result is None
     finally:
         obj_path.unlink()
 
 
-def test_list_coff_obj_symbols() -> None:
+def test_list_obj_symbols() -> None:
     """Test listing symbols from a synthetic .obj."""
     code = b"\xc3"
     obj_data = _make_minimal_coff_obj("_myfunc", code)
@@ -150,7 +150,7 @@ def test_list_coff_obj_symbols() -> None:
         obj_path = Path(f.name)
 
     try:
-        names = list_coff_obj_symbols(obj_path)
+        names = list_obj_symbols(obj_path)
         assert "_myfunc" in names
     finally:
         obj_path.unlink()
@@ -167,7 +167,7 @@ def test_parse_coff_obj_trims_padding() -> None:
         obj_path = Path(f.name)
 
     try:
-        code_result, relocs = parse_coff_obj_symbol_bytes(obj_path, "_func")
+        code_result, relocs = parse_obj_symbol_bytes(obj_path, "_func")
         assert code_result is not None
         # Should keep 0x00 (part of ret 0xC) but trim 0xCC and 0x90
         assert code_result == b"\x55\x8b\xec\xc2\x0c\x00"
@@ -183,7 +183,7 @@ def test_parse_coff_obj_too_small() -> None:
         obj_path = Path(f.name)
 
     try:
-        code, relocs = parse_coff_obj_symbol_bytes(obj_path, "_func")
+        code, relocs = parse_obj_symbol_bytes(obj_path, "_func")
         assert code is None
         assert relocs is None
     finally:

@@ -17,7 +17,6 @@ Usage::
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
 
 import lief
 
@@ -81,7 +80,13 @@ def _load_pe(binary: lief.PE.Binary, path: Path) -> BinaryInfo:
     text_raw_offset = 0
 
     for section in binary.sections:
-        name = section.name.rstrip("\x00")
+        raw_name = section.name
+        name = (
+            raw_name.decode("utf-8", errors="replace")
+            if isinstance(raw_name, bytes)
+            else str(raw_name)
+        )
+        name = name.rstrip("\x00")
         va = image_base + section.virtual_address
         vsize = section.virtual_size
         raw_offset = section.pointerto_raw_data
@@ -123,9 +128,14 @@ def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
     text_raw_offset = 0
 
     for section in binary.sections:
-        name = section.name
-        if not name:
+        raw_name = section.name
+        if not raw_name:
             continue
+        name = (
+            raw_name.decode("utf-8", errors="replace")
+            if isinstance(raw_name, bytes)
+            else str(raw_name)
+        )
         va = section.virtual_address
         vsize = section.size
         raw_offset = section.offset
@@ -155,7 +165,7 @@ def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
     )
 
 
-def _load_macho(fat_or_binary: Any, path: Path) -> BinaryInfo:
+def _load_macho(fat_or_binary: object, path: Path) -> BinaryInfo:
     """Extract layout information from a Mach-O binary.
 
     LIEF's ``lief.MachO.parse()`` returns a ``FatBinary`` even for thin
@@ -179,8 +189,21 @@ def _load_macho(fat_or_binary: Any, path: Path) -> BinaryInfo:
     text_raw_offset = 0
 
     for section in binary.sections:
-        # Mach-O section full name: "__TEXT,__text" → we use segment_name.section_name
-        name = section.name
+        raw_seg_name = section.segment_name if hasattr(section, "segment_name") else ""
+        raw_sec_name = section.name
+
+        seg_name = (
+            raw_seg_name.decode("utf-8", errors="replace")
+            if isinstance(raw_seg_name, bytes)
+            else str(raw_seg_name)
+        )
+        sec_name = (
+            raw_sec_name.decode("utf-8", errors="replace")
+            if isinstance(raw_sec_name, bytes)
+            else str(raw_sec_name)
+        )
+
+        name = f"{seg_name}.{sec_name}" if seg_name else sec_name
         va = section.virtual_address
         vsize = section.size
         raw_offset = section.offset
@@ -195,7 +218,7 @@ def _load_macho(fat_or_binary: Any, path: Path) -> BinaryInfo:
         )
 
         # __text is the Mach-O equivalent of .text
-        if name == "__text":
+        if section.name == "__text":
             text_va = va
             text_size = vsize
             text_raw_offset = raw_offset
@@ -223,39 +246,49 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     Args:
         path: Path to the binary file.
         fmt: Format hint — ``"pe"``, ``"elf"``, ``"macho"``, or ``"auto"``
-             (detect from magic bytes).
+             (LIEF auto-detects from file headers).
 
     Raises:
         FileNotFoundError: If the file does not exist.
-        ValueError: If the format cannot be determined.
+        ValueError: If the format cannot be determined or parsing fails.
     """
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Binary not found: {path}")
 
+    spath = str(path)
+
     if fmt == "auto":
-        fmt = _detect_format(path)
+        binary = lief.parse(spath)
+        if binary is None:
+            raise ValueError(f"Failed to parse binary (unknown format): {path}")
+        if isinstance(binary, lief.PE.Binary):
+            return _load_pe(binary, path)
+        if isinstance(binary, lief.ELF.Binary):
+            return _load_elf(binary, path)
+        if isinstance(binary, (lief.MachO.FatBinary, lief.MachO.Binary)):
+            return _load_macho(binary, path)
+        raise ValueError(f"Unsupported binary format: {path}")
 
     if fmt == "pe":
-        binary = lief.PE.parse(str(path))
+        binary = lief.PE.parse(spath)
         if binary is None:
             raise ValueError(f"Failed to parse PE: {path}")
         return _load_pe(binary, path)
 
-    elif fmt == "elf":
-        binary = lief.ELF.parse(str(path))
+    if fmt == "elf":
+        binary = lief.ELF.parse(spath)
         if binary is None:
             raise ValueError(f"Failed to parse ELF: {path}")
         return _load_elf(binary, path)
 
-    elif fmt == "macho":
-        binary = lief.MachO.parse(str(path))
+    if fmt == "macho":
+        binary = lief.MachO.parse(spath)
         if binary is None:
             raise ValueError(f"Failed to parse Mach-O: {path}")
         return _load_macho(binary, path)
 
-    else:
-        raise ValueError(f"Unknown binary format: {fmt!r}")
+    raise ValueError(f"Unknown binary format: {fmt!r}")
 
 
 def extract_bytes_at_va(
@@ -352,7 +385,15 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
     section_names: list[str] = []
     try:
         for sec in parsed.sections:
-            name = sec.name.rstrip("\x00") if hasattr(sec, "name") else ""
+            if not hasattr(sec, "name"):
+                continue
+            raw_name = sec.name
+            sec_name = (
+                raw_name.decode("utf-8", errors="replace")
+                if isinstance(raw_name, bytes)
+                else str(raw_name)
+            )
+            name = sec_name.rstrip("\x00")
             if name:
                 section_names.append(name)
     except (AttributeError, TypeError):
@@ -371,14 +412,24 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
         if hasattr(parsed, "symbols"):
             for sym in parsed.symbols:
                 if sym.name:
-                    symbols.append(sym.name)
+                    sym_name = (
+                        sym.name.decode("utf-8", errors="replace")
+                        if isinstance(sym.name, bytes)
+                        else str(sym.name)
+                    )
+                    symbols.append(sym_name)
     except (AttributeError, TypeError):
         pass
     try:
         if hasattr(parsed, "exported_functions"):
-            for func in parsed.exported_functions:
+            for func in parsed.exported_functions:  # type: ignore
                 if hasattr(func, "name") and func.name:
-                    symbols.append(func.name)
+                    func_name = (
+                        func.name.decode("utf-8", errors="replace")
+                        if isinstance(func.name, bytes)
+                        else str(func.name)
+                    )
+                    symbols.append(func_name)
     except (AttributeError, TypeError):
         pass
 
@@ -414,22 +465,61 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
     return ("C", ".c")
 
 
-def _detect_format(path: Path) -> str:
-    """Detect binary format from magic bytes."""
-    with path.open("rb") as f:
-        magic = f.read(4)
+_PE_MACHINE_TO_ARCH: dict[lief.PE.Header.MACHINE_TYPES, str] = {
+    lief.PE.Header.MACHINE_TYPES.I386: "x86_32",
+    lief.PE.Header.MACHINE_TYPES.AMD64: "x86_64",
+    lief.PE.Header.MACHINE_TYPES.ARM: "arm32",
+    lief.PE.Header.MACHINE_TYPES.ARM64: "arm64",
+}
 
-    if magic[:2] == b"MZ":
+_ELF_MACHINE_TO_ARCH: dict[lief.ELF.ARCH, str] = {
+    lief.ELF.ARCH.I386: "x86_32",
+    lief.ELF.ARCH.X86_64: "x86_64",
+    lief.ELF.ARCH.ARM: "arm32",
+    lief.ELF.ARCH.AARCH64: "arm64",
+}
+
+_MACHO_CPU_TO_ARCH: dict[lief.MachO.Header.CPU_TYPE, str] = {
+    lief.MachO.Header.CPU_TYPE.X86: "x86_32",
+    lief.MachO.Header.CPU_TYPE.X86_64: "x86_64",
+    lief.MachO.Header.CPU_TYPE.ARM: "arm32",
+    lief.MachO.Header.CPU_TYPE.ARM64: "arm64",
+}
+
+
+def detect_format_and_arch(path: Path) -> tuple[str, str | None]:
+    """Detect binary format and architecture using LIEF.
+
+    Raises ``FileNotFoundError`` if *path* does not exist, or ``ValueError``
+    if the format cannot be identified.
+    """
+    if not path.exists():
+        raise FileNotFoundError(path)
+    spath = str(path)
+    if lief.is_pe(spath):
+        binary = lief.PE.parse(spath)
+        arch = _PE_MACHINE_TO_ARCH.get(binary.header.machine) if binary else None
+        return "pe", arch
+    if lief.is_elf(spath):
+        binary = lief.ELF.parse(spath)
+        arch = _ELF_MACHINE_TO_ARCH.get(binary.header.machine_type) if binary else None
+        return "elf", arch
+    if lief.is_macho(spath):
+        fat = lief.MachO.parse(spath)
+        if fat is not None:
+            b = fat.at(0) if isinstance(fat, lief.MachO.FatBinary) else fat
+            return "macho", _MACHO_CPU_TO_ARCH.get(b.header.cpu_type)
+        return "macho", None
+    raise ValueError(f"Cannot detect binary format: {path}")
+
+
+def _detect_format(path: Path) -> str:
+    """Detect binary format only (no arch), using LIEF."""
+    spath = str(path)
+    if lief.is_pe(spath):
         return "pe"
-    elif magic[:4] == b"\x7fELF":
+    if lief.is_elf(spath):
         return "elf"
-    elif magic[:4] in (
-        b"\xfe\xed\xfa\xce",
-        b"\xfe\xed\xfa\xcf",
-        b"\xce\xfa\xed\xfe",
-        b"\xcf\xfa\xed\xfe",
-        b"\xca\xfe\xba\xbe",
-    ):
+    if lief.is_macho(spath):
         return "macho"
-    else:
-        raise ValueError(f"Cannot detect binary format from magic bytes: {magic.hex()!r} in {path}")
+    raise ValueError(f"Cannot detect binary format: {path}")

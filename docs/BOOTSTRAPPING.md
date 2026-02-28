@@ -13,7 +13,7 @@ target name, original executable filename, and compiler profile.
 rebrew init --target mygame --binary mygame.exe --compiler msvc6
 ```
 
-This will automatically create your `rebrew.toml` as well as the
+This will automatically create your `rebrew-project.toml` as well as the
 `original/`, `src/mygame/`, and `bin/mygame/` folders.
 
 ## 2. Place the binary
@@ -47,14 +47,18 @@ function list that `rebrew skeleton` and `rebrew next` consume.
 > VAs must be **integers** (not hex strings). The `ghidra_name` field is used
 > for origin detection and filename generation.
 
-**Option B — radare2 (headless):**
+**Option B — radare2 / rizin (headless):**
 
 ```bash
-r2 -q -c 'aaa; aflj' original/MyGame/mygame.exe > /tmp/r2_funcs.json
+# radare2:
+r2 -q -c 'aaa; aflj' original/MyGame/mygame.exe > /tmp/funcs.json
+# rizin:
+rz -q -c 'aaa; aflj' original/MyGame/mygame.exe > /tmp/funcs.json
+
 # Convert to rebrew schema:
 python3 -c "
 import json, sys
-funcs = json.load(open('/tmp/r2_funcs.json'))
+funcs = json.load(open('/tmp/funcs.json'))
 out = [{'va': f['offset'], 'size': f['size'], 'ghidra_name': f['name']} for f in funcs]
 json.dump(out, open('src/mygame/ghidra_functions.json', 'w'), indent=2)
 print(f'Exported {len(out)} functions')
@@ -138,7 +142,7 @@ Each successful match becomes context for harder functions — creating a
 
 ## 8. Set up annotation conventions
 
-Decide on the origin categories for your binary and configure them in `rebrew.toml`.
+Decide on the origin categories for your binary and configure them in `rebrew-project.toml`.
 For a typical game DLL, the origins might be `GAME`, `MSVCRT`, and `ZLIB`. Define
 your own via the `origins`, `library_origins`, `origin_comments`, and
 `origin_todos` config keys. Example annotation:
@@ -158,7 +162,7 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full annotation format reference.
 
 The core tools (`rebrew skeleton`, `rebrew next`, `rebrew test`, `rebrew match`)
 are fully target-aware. They automatically read the target configuration from
-`rebrew.toml` and operate on the selected target's binary and source directory.
+`rebrew-project.toml` and operate on the selected target's binary and source directory.
 
 If you have multiple targets, switch between them using the `--target` flag:
 
@@ -171,7 +175,7 @@ rebrew next --target mygame --stats
 
 ```text
 [ ] Binary placed in original/
-[ ] Target added to rebrew.toml under [targets.<name>]
+[ ] Target added to rebrew-project.toml under [targets.<name>]
 [ ] Source directory created: src/<target>/
 [ ] Function list exported: src/<target>/ghidra_functions.json
 [ ] Compiler identified and toolchain verified

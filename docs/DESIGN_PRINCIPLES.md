@@ -6,7 +6,7 @@ This document outlines the core architectural and operational philosophies that 
 Every tool in the Rebrew suite (`rebrew catalog`, `rebrew verify`, `rebrew init`, etc.) must be safely repeatable. Running a command twice should not yield a different outcome than running it once. There must be no destructive side-effects when re-running workflows, ensuring that humans and AI agents can safely retry operations.
 
 ## 2. Config-Driven Execution
-Global and project-specific settings live in `rebrew.toml`. Tools must rely on this central configuration rather than requiring complex, manual CLI path arguments. This creates a unified entry point and guarantees that any agent or contributor is working with the exact same context (paths, compiler flags, target binaries).
+Global and project-specific settings live in `rebrew-project.toml`. Tools must rely on this central configuration rather than requiring complex, manual CLI path arguments. This creates a unified entry point and guarantees that any agent or contributor is working with the exact same context (paths, compiler flags, target binaries).
 
 ## 3. Composability and Modularity
 Rebrew is built as a collection of small, single-purpose CLI utilities following the Unix philosophy. Complex workflows—like autonomous batch reversing—are achieved by chaining these tools together. This makes the system extremely friendly to AI orchestration and custom batch scripting.
@@ -53,3 +53,7 @@ A faithful decompilation requires coverage of the *entire* binary, not just exec
 
 ## 16. Automated Near-Miss Promotion
 Many `MATCHING` functions differ from the target by only a handful of bytes — an operand swap, branch inversion, or register allocation jitter. The system must be able to batch-process these near-miss cases unattended (`rebrew ga --near-miss --threshold N`), sorted by byte delta so the easiest wins come first. This ensures that trivial MATCHING→RELOC promotions are never left on the table, and that human attention is reserved for functions that genuinely require it.
+
+## Atomicity
+
+All tools that modify the source file system (like `rebrew lint --fix`, `rebrew skeleton`, and `rebrew promote`) use atomic file replacement (`atomic_write_text`). This ensures that if the process is killed midway or a power failure occurs, the source files are never left in an incomplete or corrupted state.

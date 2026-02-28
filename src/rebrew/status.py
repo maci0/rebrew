@@ -5,11 +5,9 @@ Rich-formatted summary of reversing progress: STATUS, ORIGIN, and MARKER
 breakdowns, byte coverage, and identified libraries.
 """
 
-import json
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 import typer
 from rich.console import Console
@@ -17,8 +15,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from rebrew.catalog import get_text_section_size, scan_reversed_dir
-from rebrew.cli import TargetOption
+from rebrew.catalog import get_text_section_size, merge_ranges, scan_reversed_dir
+from rebrew.cli import TargetOption, error_exit, json_print
 from rebrew.config import ProjectConfig, load_config
 
 # ---------------------------------------------------------------------------
@@ -44,19 +42,23 @@ class TargetStats:
     # Derived
     @property
     def done_count(self) -> int:
+        """Number of functions with a done status (EXACT, RELOC, MATCHING, MATCHING_RELOC)."""
         return sum(self.status_counts.get(s, 0) for s in _DONE_STATUSES)
 
     @property
     def stub_count(self) -> int:
+        """Number of functions still in STUB status."""
         return self.status_counts.get("STUB", 0)
 
     @property
     def coverage_pct(self) -> float:
+        """Byte coverage as a percentage of the .text section."""
         if self.text_section_size == 0:
             return 0.0
         return self.total_bytes_reversed / self.text_section_size * 100.0
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
+        """Serialize to a plain dict for JSON output."""
         return {
             "target": self.name,
             "files": self.file_count,
@@ -89,27 +91,28 @@ def collect_target_stats(
     status_ctr: Counter[str] = Counter()
     origin_ctr: Counter[str] = Counter()
     marker_ctr: Counter[str] = Counter()
-    total_size = 0
-
-    func_extents: list[tuple[int, int]] = []
+    func_ranges: list[tuple[int, int]] = []
     for entry in entries:
         status_ctr[entry["status"]] += 1
         origin_ctr[entry["origin"]] += 1
         marker_ctr[entry["marker_type"]] += 1
         if entry["marker_type"] not in ("GLOBAL", "DATA") and entry["status"] != "STUB":
-            total_size += entry["size"]
-            func_extents.append((entry["va"], entry["size"]))
+            start = entry["va"]
+            end = start + max(entry["size"], 0)
+            func_ranges.append((start, end))
+
+    merged_ranges = merge_ranges(func_ranges)
+    total_size = sum(end - start for start, end in merged_ranges)
 
     # Approximate implicit padding between functions (NOP/INT3 alignment).
     # Gaps of <=15 bytes between consecutive functions are likely linker padding.
     # Negative gaps (overlapping functions) are clamped to zero to avoid
     # inflating the byte count.
     padding_size = 0
-    if func_extents:
-        func_extents.sort()
-        for i in range(len(func_extents) - 1):
-            prev_end = func_extents[i][0] + func_extents[i][1]
-            next_start = func_extents[i + 1][0]
+    if merged_ranges:
+        for i in range(len(merged_ranges) - 1):
+            prev_end = merged_ranges[i][1]
+            next_start = merged_ranges[i + 1][0]
             gap = next_start - prev_end
             if gap < 0:
                 # Overlapping functions — skip, don't add negative padding
@@ -233,31 +236,33 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew status                          Rich dashboard with progress bars
-  rebrew status --json                   Machine-readable JSON output
-  rebrew status --compact                One-line summary
-  rebrew status --origin GAME            Filter by function origin
+
+rebrew status                          Rich dashboard with progress bars
+
+rebrew status --json                   Machine-readable JSON output
+
+rebrew status -t server.dll            Status for a specific target
 
 [bold]What it shows:[/bold]
-  Total functions, bytes matched, status breakdown (EXACT / RELOC / MATCHING /
-  STUB / NONE), per-origin coverage, and recent activity.
 
-[dim]Reads from data_*.json or db/coverage.db.
-Run 'rebrew catalog --json' first to generate the data.[/dim]""",
+Total functions, bytes matched, status breakdown (EXACT / RELOC / MATCHING /
+STUB), per-origin coverage, and byte coverage percentage.
+
+[dim]Scans reversed_dir for annotation headers.
+Run 'rebrew catalog --json' first to generate coverage data.[/dim]""",
 )
 
 
 @app.callback(invoke_without_command=True)
 def main(
     target: str | None = TargetOption,
-    output_json: bool = typer.Option(False, "--json", help="Machine-readable JSON output"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Print an overview of reversing progress for the project."""
     try:
         cfg = load_config(target=target)
     except (FileNotFoundError, KeyError) as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1) from None
+        error_exit(str(exc))
 
     # Determine which targets to report on
     targets_to_show = [target] if target is not None else list(cfg.all_targets)
@@ -274,12 +279,12 @@ def main(
         all_stats.append(stats)
 
     # --- JSON output ---
-    if output_json:
+    if json_output:
         data = {
             "project": cfg.project_name,
             "targets": [s.to_dict() for s in all_stats],
         }
-        typer.echo(json.dumps(data, indent=2))
+        json_print(data)
         return
 
     # --- Rich output ---
@@ -296,6 +301,7 @@ def main(
 
 
 def main_entry() -> None:
+    """Run the status CLI app."""
     app()
 
 

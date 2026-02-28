@@ -85,14 +85,18 @@ SAMPLE_DATA = {
             "symbol": "_func_a",
             "markerType": "FUNCTION",
             "ghidra_name": "FUN_10001000",
-            "r2_name": "fcn.10001000",
+            "list_name": "fcn.10001000",
             "is_thunk": False,
             "is_export": True,
             "sha256": "abcd1234",
             "files": ["func_a.c"],
-            "detected_by": ["ghidra", "r2"],
-            "size_by_tool": {"ghidra": 64, "r2": 64},
+            "detected_by": ["ghidra", "list"],
+            "size_by_tool": {"ghidra": 64, "list": 64},
             "textOffset": 0,
+            "blocker": "",
+            "blockerDelta": None,
+            "size_reason": "ghidra",
+            "similarity": 1.0,
         },
         "func_b": {
             "name": "func_b",
@@ -105,14 +109,18 @@ SAMPLE_DATA = {
             "symbol": "_func_b",
             "markerType": "STUB",
             "ghidra_name": "",
-            "r2_name": "fcn.10001080",
+            "list_name": "fcn.10001080",
             "is_thunk": False,
             "is_export": False,
             "sha256": "",
             "files": ["func_b.c"],
-            "detected_by": ["r2"],
-            "size_by_tool": {"r2": 128},
+            "detected_by": ["list"],
+            "size_by_tool": {"list": 128},
             "textOffset": 0x80,
+            "blocker": "needs vtable",
+            "blockerDelta": 12,
+            "size_reason": "list",
+            "similarity": 0.85,
         },
     },
     "paths": {"originalDll": "/original/Server/server.dll"},
@@ -164,11 +172,11 @@ class TestBuildDbRoundTrip:
         # New columns
         detected = json.loads(row["detected_by"])
         assert "ghidra" in detected
-        assert "r2" in detected
+        assert "list" in detected
 
         sizes = json.loads(row["size_by_tool"])
         assert sizes["ghidra"] == 64
-        assert sizes["r2"] == 64
+        assert sizes["list"] == 64
 
         assert row["textOffset"] == 0
         conn.close()
@@ -187,7 +195,7 @@ class TestBuildDbRoundTrip:
         assert row["textOffset"] == 0x80
 
         detected = json.loads(row["detected_by"])
-        assert detected == ["r2"]
+        assert detected == ["list"]
         conn.close()
 
     def test_globals_columns(self, project_root: Path) -> None:
@@ -267,7 +275,98 @@ class TestBuildDbRoundTrip:
         row = c.fetchone()
         assert row is not None
         version = json.loads(row[0])
-        assert version == "2"
+        assert version == "3"
+        conn.close()
+
+    def test_new_columns(self, project_root: Path) -> None:
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        c.execute(
+            "SELECT size_reason, similarity, blocker, blockerDelta "
+            "FROM functions WHERE target = 'testbin' AND name = 'func_a'"
+        )
+        func_a = c.fetchone()
+        assert func_a is not None
+        assert func_a["size_reason"] == "ghidra"
+        assert func_a["similarity"] == 1.0
+        assert func_a["blocker"] == ""
+        assert func_a["blockerDelta"] is None
+
+        c.execute(
+            "SELECT size_reason, similarity, blocker, blockerDelta "
+            "FROM functions WHERE target = 'testbin' AND name = 'func_b'"
+        )
+        func_b = c.fetchone()
+        assert func_b is not None
+        assert func_b["size_reason"] == "list"
+        assert func_b["similarity"] == 0.85
+        assert func_b["blocker"] == "needs vtable"
+        assert func_b["blockerDelta"] == 12
+        conn.close()
+
+    def test_history_table_exists(self, project_root: Path) -> None:
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        c.execute("PRAGMA table_info(history)")
+        columns = [row["name"] for row in c.fetchall()]
+        assert columns == ["id", "target", "va", "old_status", "new_status", "changed_at"]
+        conn.close()
+
+    def test_history_tracks_changes(self, project_root: Path) -> None:
+        db_dir = project_root / "db"
+        json_path = db_dir / "data_testbin.json"
+
+        build_db(project_root)
+
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+        data["functions"]["func_a"]["status"] = "RELOC"
+        json_path.write_text(json.dumps(data), encoding="utf-8")
+
+        build_db(project_root)
+
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute(
+            "SELECT old_status, new_status FROM history "
+            "WHERE target = 'testbin' AND va = ? ORDER BY id DESC LIMIT 1",
+            (0x10001000,),
+        )
+        row = c.fetchone()
+        assert row is not None
+        assert row["old_status"] == "EXACT"
+        assert row["new_status"] == "RELOC"
+        conn.close()
+
+    def test_verify_results_table_exists(self, project_root: Path) -> None:
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='verify_results'")
+        row = c.fetchone()
+        assert row is not None
+        assert row[0] == "verify_results"
+        conn.close()
+
+    def test_history_persists_across_rebuilds(self, project_root: Path) -> None:
+        build_db(project_root)
+        build_db(project_root)
+
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='history'")
+        row = c.fetchone()
+        assert row is not None
+        assert row[0] == "history"
+
+        c.execute("SELECT COUNT(*) FROM history WHERE target = 'testbin'")
+        assert c.fetchone()[0] == 0
         conn.close()
 
     def test_summary_metadata(self, project_root: Path) -> None:

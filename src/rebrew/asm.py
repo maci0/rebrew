@@ -5,29 +5,33 @@ Usage:
     rebrew asm --va 0x10003ca0 --size 77
 """
 
-import json
-import sys
 from pathlib import Path
 
 import typer
 
-from rebrew.annotation import parse_c_file
+from rebrew.annotation import parse_c_file_multi
 from rebrew.catalog import load_ghidra_functions
-from rebrew.cli import TargetOption, get_config, iter_sources
+from rebrew.cli import TargetOption, error_exit, get_config, iter_sources, json_print, parse_va
 from rebrew.config import ProjectConfig
 
 _EPILOG = """\
 [bold]Examples:[/bold]
-  rebrew asm 0x10003ca0                     Disassemble 32 bytes (default)
-  rebrew asm 0x10003ca0 --size 77           Disassemble 77 bytes
-  rebrew asm --va 0x10003ca0 --size 128     Using named option
-  rebrew asm 0x10003ca0 --no-annotate       Skip call/jmp name annotations
-  rebrew asm 0x10003ca0 -t server.dll       Use alternate target
-  rebrew asm 0x10003ca0 --size 77 --json    Machine-readable JSON output
+
+rebrew asm 0x10003ca0                     Disassemble 32 bytes (default)
+
+rebrew asm 0x10003ca0 --size 77           Disassemble 77 bytes
+
+rebrew asm --va 0x10003ca0 --size 128     Using named option
+
+rebrew asm 0x10003ca0 --no-annotate       Skip call/jmp name annotations
+
+rebrew asm 0x10003ca0 -t server.dll       Use alternate target
+
+rebrew asm 0x10003ca0 --size 77 --json    Machine-readable JSON output
 
 [dim]Uses capstone for x86 disassembly with call/jmp annotation.
 Falls back to hex dump if capstone is not installed.
-Reads binary path and architecture from rebrew.toml.[/dim]"""
+Reads binary path and architecture from rebrew-project.toml.[/dim]"""
 
 app = typer.Typer(
     help="Dump hex/asm for a function from the target binary.",
@@ -50,7 +54,7 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
     for func in ghidra_funcs:
         va = func.get("va")
         name = func.get("ghidra_name", "")
-        if va is not None and name:
+        if isinstance(va, int) and isinstance(name, str) and name:
             lookup[va] = (name, "")
 
     # Override with names from existing source files (more accurate)
@@ -58,16 +62,16 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
     if src_dir.is_dir():
         for cfile in iter_sources(src_dir, cfg):
             try:
-                entry = parse_c_file(cfile)
-                if not entry:
+                entries = parse_c_file_multi(cfile, target_name=cfg.marker if cfg else None)
+                if not entries:
                     continue
 
-                va = entry.va
-                status = entry.status
-                symbol = entry.symbol.lstrip("_")
-
-                display = symbol or cfile.stem
-                lookup[va] = (display, status)
+                for entry in entries:
+                    va = entry.va
+                    status = entry.status
+                    symbol = (entry.symbol or "").lstrip("_")
+                    display = symbol or cfile.stem
+                    lookup[va] = (display, status)
             except (OSError, KeyError, ValueError, TypeError):
                 continue
 
@@ -85,36 +89,36 @@ def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Dump hex/asm for a function from the target binary."""
+    """Disassemble bytes at a VA and optionally annotate known branch targets.
+
+    The command extracts raw bytes from the configured target binary, attempts
+    capstone disassembly, and prints either readable assembly or structured JSON.
+    In text mode, call/jump targets can be annotated with names/statuses from
+    ``ghidra_functions.json`` and source annotations for faster triage.
+
+    Args:
+        va_hex: Optional positional VA in hexadecimal form.
+        va: Optional named VA in hexadecimal form (same as ``va_hex``).
+        size: Byte length to extract and disassemble.
+        annotate: Include call/jmp name/status comments in text output.
+        json_output: Emit machine-readable JSON output.
+        target: Optional target profile name from ``rebrew-project.toml``.
+    """
     va_str = va or va_hex
     if not va_str:
-        if json_output:
-            print(
-                json.dumps({"error": "Specify VA as a positional argument or via --va"}, indent=2)
-            )
-        else:
-            print("Error: Specify VA as a positional argument or via --va", file=sys.stderr)
-        raise typer.Exit(code=1)
+        error_exit("Specify VA as a positional argument or via --va", json_mode=json_output)
 
     cfg = get_config(target=target)
     bin_path = cfg.target_binary
 
-    if not bin_path.exists():
-        if json_output:
-            print(json.dumps({"error": f"Binary not found at {bin_path}"}, indent=2))
-        else:
-            print(f"Error: Binary not found at {bin_path}", file=sys.stderr)
-        raise typer.Exit(code=1)
+    if size <= 0:
+        msg = f"Size must be > 0 (got {size})"
+        error_exit(msg, json_mode=json_output)
 
-    try:
-        va_int = int(va_str, 16)
-    except ValueError:
-        msg = f"Invalid hex VA: {va_str}"
-        if json_output:
-            print(json.dumps({"error": msg}, indent=2))
-        else:
-            print(f"Error: {msg}", file=sys.stderr)
-        raise typer.Exit(code=1)
+    if not bin_path.exists():
+        error_exit(f"Binary not found at {bin_path}", json_mode=json_output)
+
+    va_int = parse_va(va_str, json_mode=json_output)
 
     # Build function name lookup for call annotation (skip in JSON mode)
     func_lookup: dict[int, tuple[str, str]] = {}
@@ -144,16 +148,13 @@ def main(
                             "operands": insn.op_str,
                         }
                     )
-                print(
-                    json.dumps(
-                        {
-                            "va": f"0x{va_int:08x}",
-                            "size": len(data),
-                            "instruction_count": len(insn_list),
-                            "instructions": instructions,
-                        },
-                        indent=2,
-                    )
+                json_print(
+                    {
+                        "va": f"0x{va_int:08x}",
+                        "size": len(data),
+                        "instruction_count": len(insn_list),
+                        "instructions": instructions,
+                    }
                 )
                 return
 
@@ -179,8 +180,7 @@ def main(
                 print(line)
         except ImportError:
             if json_output:
-                print(json.dumps({"error": "capstone not installed"}, indent=2))
-                raise typer.Exit(code=1)
+                error_exit("capstone not installed", json_mode=True)
             # Fallback to hex dump if capstone not available
             print("(capstone not installed, showing hex dump)")
             for i in range(0, len(data), 16):
@@ -189,14 +189,11 @@ def main(
                 ascii_str = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
                 print(f"  0x{va_int + i:08x}:  {hex_str:<48s}  {ascii_str}")
     except (OSError, KeyError, ValueError, TypeError) as e:
-        if json_output:
-            print(json.dumps({"error": str(e)}, indent=2))
-        else:
-            print(f"Error: {e}", file=sys.stderr)
-        raise typer.Exit(code=1)
+        error_exit(str(e), json_mode=json_output)
 
 
 def main_entry() -> None:
+    """Run the Typer CLI application."""
     app()
 
 

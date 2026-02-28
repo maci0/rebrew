@@ -24,7 +24,8 @@ import contextlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+
+from rebrew.utils import atomic_write_text
 
 # ---------------------------------------------------------------------------
 # Valid sets
@@ -33,7 +34,7 @@ from typing import Any
 VALID_MARKERS = {"FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"}
 VALID_STATUSES = {"EXACT", "RELOC", "MATCHING", "MATCHING_RELOC", "STUB"}
 # Default origins — used as fallback when config is not available.
-# Projects should define their own origins in rebrew.toml.
+# Projects should define their own origins in rebrew-project.toml.
 _DEFAULT_ORIGINS = {"GAME", "MSVCRT", "ZLIB"}
 
 # Backward-compatible alias (deprecated, prefer config origins).
@@ -41,7 +42,16 @@ VALID_ORIGINS = _DEFAULT_ORIGINS
 
 REQUIRED_KEYS = {"STATUS", "ORIGIN", "SIZE", "CFLAGS"}
 RECOMMENDED_KEYS = {"SYMBOL"}
-OPTIONAL_KEYS = {"SOURCE", "BLOCKER", "BLOCKER_DELTA", "NOTE", "GLOBALS", "SKIP", "SECTION"}
+OPTIONAL_KEYS = {
+    "SOURCE",
+    "BLOCKER",
+    "BLOCKER_DELTA",
+    "NOTE",
+    "GLOBALS",
+    "SKIP",
+    "SECTION",
+    "GHIDRA",
+}
 ALL_KNOWN_KEYS = REQUIRED_KEYS | RECOMMENDED_KEYS | OPTIONAL_KEYS | {"MARKER", "VA"}
 
 # ---------------------------------------------------------------------------
@@ -76,10 +86,10 @@ OLD_RE = re.compile(
 NEW_FUNC_RE = re.compile(r"//\s*(?:FUNCTION|LIBRARY|STUB|GLOBAL|DATA):\s*\S+\s+0x[0-9a-fA-F]+")
 # Full capture: extracts the marker type and VA.
 NEW_FUNC_CAPTURE_RE = re.compile(
-    r"//\s*(?P<type>FUNCTION|LIBRARY|STUB|GLOBAL|DATA):\s*\S+\s+(?P<va>0x[0-9a-fA-F]+)"
+    r"//\s*(?P<type>FUNCTION|LIBRARY|STUB|GLOBAL|DATA):\s*(?P<module>\S+)\s+(?P<va>0x[0-9a-fA-F]+)"
 )
 # Key-value pairs: ``// STATUS: EXACT``, ``// SIZE: 31``, etc.
-NEW_KV_RE = re.compile(r"//\s*(?P<key>[A-Z]+):\s*(?P<value>.*)")
+NEW_KV_RE = re.compile(r"//\s*(?P<key>[A-Z_]+):\s*(?P<value>.*)")
 
 # Block-comment format — same semantics, different delimiters.
 # Used by some auto-migrated files: /* FUNCTION: SERVER 0x10003260 */
@@ -89,7 +99,7 @@ BLOCK_FUNC_RE = re.compile(
 BLOCK_FUNC_CAPTURE_RE = re.compile(
     r"/\*\s*(?P<type>FUNCTION|LIBRARY|STUB|GLOBAL|DATA):\s*(?P<module>\S+)\s+(?P<va>0x[0-9a-fA-F]+)\s*\*/"
 )
-BLOCK_KV_RE = re.compile(r"/\*\s*(?P<key>[A-Z]+):\s*(?P<value>.*?)\s*\*/")
+BLOCK_KV_RE = re.compile(r"/\*\s*(?P<key>[A-Z_]+):\s*(?P<value>.*?)\s*\*/")
 
 # Javadoc format — rare, from early experiments:
 #   /** @address 0x10003640  @origin GAME */
@@ -97,7 +107,7 @@ JAVADOC_ADDR_RE = re.compile(r"@address\s+(?P<va>0x[0-9a-fA-F]+)")
 JAVADOC_KV_RE = re.compile(r"@(?P<key>\w+)\s+(?P<value>.+)")
 
 # Default filename prefix → expected ORIGIN mapping.
-# Projects can override via origin_prefixes in rebrew.toml.
+# Projects can override via origin_prefixes in rebrew-project.toml.
 _DEFAULT_ORIGIN_PREFIXES = {
     "crt_": "MSVCRT",
     "zlib_": "ZLIB",
@@ -214,6 +224,7 @@ class Annotation:
     size: int = 0
     name: str = ""
     symbol: str = ""
+    module: str = ""
     status: str = ""
     origin: str = ""
     cflags: str = ""
@@ -223,20 +234,24 @@ class Annotation:
     blocker: str = ""
     blocker_delta: int | None = None
     note: str = ""
+    ghidra: str = ""
+    prototype: str = ""
+    struct: str = ""
+    callers: str = ""
     inline_error: str = ""
     globals_list: list[str] = field(default_factory=list)
     section: str = ""  # .data, .rdata, .bss — used by DATA annotations
 
     # -- Dict-like access for backward compat --
 
-    def __getitem__(self, key: str) -> Any:
+    def __getitem__(self, key: str) -> object:
         attr = _FIELD_ALIASES.get(key, key)
         try:
             return getattr(self, attr)
         except AttributeError:
             raise KeyError(key)
 
-    def __setitem__(self, key: str, value: Any) -> None:
+    def __setitem__(self, key: str, value: object) -> None:
         attr = _FIELD_ALIASES.get(key, key)
         if hasattr(self, attr):
             object.__setattr__(self, attr, value)
@@ -247,19 +262,21 @@ class Annotation:
         attr = _FIELD_ALIASES.get(key, key)
         return hasattr(self, attr)
 
-    def get(self, key: str, default: Any = None) -> Any:
+    def get(self, key: str, default: object = None) -> object:
+        """Return the value for *key*, or *default* if not present."""
         try:
             return self[key]
         except KeyError:
             return default
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """Serialize to a plain dict (for JSON output or legacy code)."""
         d = {
             "va": self.va,
             "size": self.size,
             "name": self.name,
             "symbol": self.symbol,
+            "module": self.module,
             "status": self.status,
             "origin": self.origin,
             "cflags": self.cflags,
@@ -269,6 +286,10 @@ class Annotation:
             "blocker": self.blocker,
             "blocker_delta": self.blocker_delta,
             "note": self.note,
+            "ghidra": self.ghidra,
+            "prototype": self.prototype,
+            "struct": self.struct,
+            "callers": self.callers,
             "globals": self.globals_list,
         }
         if self.section:
@@ -384,6 +405,7 @@ def make_func_entry(
     cflags: str,
     marker_type: str,
     filepath: str,
+    module: str = "",
     source: str = "",
     blocker: str = "",
     note: str = "",
@@ -396,6 +418,7 @@ def make_func_entry(
         size=size,
         name=name,
         symbol=symbol,
+        module=module,
         status=status,
         origin=origin,
         cflags=cflags,
@@ -435,7 +458,7 @@ def update_size_annotation(filepath: Path, new_size: int) -> bool:
         return False
 
     new_text = text[: match.start()] + match.group(1) + str(new_size) + text[match.end() :]
-    filepath.write_text(new_text, encoding="utf-8")
+    atomic_write_text(filepath, new_text, encoding="utf-8")
     return True
 
 
@@ -448,6 +471,7 @@ def parse_old_format(line: str) -> Annotation | None:
     origin = m.group("origin").strip().upper()
     cflags = normalize_cflags(m.group("cflags"))
     name = m.group("name")
+    module = m.groupdict().get("module", "") or ""
 
     mt = marker_for_origin(origin, status)
 
@@ -456,6 +480,7 @@ def parse_old_format(line: str) -> Annotation | None:
         size=int(m.group("size")),
         name=name,
         symbol="_" + name,
+        module=module,
         status=status,
         origin=origin,
         cflags=cflags,
@@ -464,17 +489,69 @@ def parse_old_format(line: str) -> Annotation | None:
     )
 
 
+def _kv_to_annotation(
+    kv: dict[str, str],
+    marker_type: str,
+    va: int,
+    module: str,
+) -> Annotation:
+    """Convert a parsed key-value dict into an Annotation instance."""
+    symbol = kv.get("SYMBOL", "")
+    size_str = kv.get("SIZE", "0")
+    try:
+        size = int(size_str)
+    except ValueError:
+        size = 0
+
+    blocker_delta: int | None = None
+    raw_delta = kv.get("BLOCKER_DELTA", "")
+    if raw_delta:
+        with contextlib.suppress(ValueError):
+            blocker_delta = int(raw_delta)
+
+    raw_globals = kv.get("GLOBALS", "")
+    globals_list = [g.strip() for g in raw_globals.split(",") if g.strip()] if raw_globals else []
+
+    ann = make_func_entry(
+        va=va,
+        size=size,
+        name=symbol.lstrip("_") if symbol else "",
+        symbol=symbol,
+        module=module,
+        status=kv.get("STATUS", "RELOC"),
+        origin=kv.get("ORIGIN", "GAME"),
+        cflags=kv.get("CFLAGS", ""),
+        marker_type=marker_type,
+        filepath="",
+        source=kv.get("SOURCE", ""),
+        blocker=kv.get("BLOCKER", ""),
+        note=kv.get("NOTE", ""),
+        inline_error=kv.get("_INLINE_ERROR", ""),
+        globals_list=globals_list,
+    )
+    ann.section = kv.get("SECTION", "")
+    ann.blocker_delta = blocker_delta
+    ann.ghidra = kv.get("GHIDRA", "")
+    ann.prototype = kv.get("PROTOTYPE", "")
+    ann.struct = kv.get("STRUCT", "")
+    ann.callers = kv.get("CALLERS", "")
+    return ann
+
+
 def parse_new_format(lines: list[str]) -> Annotation | None:
     """Try to parse new reccmp-style annotations from first lines.
 
     State machine: scans up to 20 lines looking for a marker line
     (``// FUNCTION: SERVER 0x...``), then collects subsequent key-value
-    comment lines until a non-annotation line is hit. Returns None if
+    comment lines until a non-annotation line is hit. Non-annotation
+    preamble lines before the marker are tolerated. Returns None if
     no valid marker line is found.
     """
     marker_type = None
     va = None
+    module = ""
     kv: dict[str, str] = {}
+    in_annotation_block = False
 
     for line in lines:
         stripped = line.strip()
@@ -486,6 +563,8 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
         if m:
             marker_type = m.group("type")
             va = int(m.group("va"), 16)
+            module = m.group("module")
+            in_annotation_block = True
 
             # If there's inline stuff after the VA, stash it in a special internal field to lint later
             if stripped.count("//") > 1:
@@ -497,74 +576,21 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
         if m2:
             key = m2.group("key").upper()
             val = m2.group("value").strip()
-
-            # Stash the full line if there are multiple slashes
-            if stripped.count("//") > 1:
-                kv["_INLINE_ERROR"] = stripped
-
-                # Try to extract just the first value before the next //
-                if "//" in val:
-                    val = val.split("//")[0].strip()
-
             kv[key] = val
             continue
 
-        # Non-annotation line => stop
+        if not in_annotation_block:
+            continue
+
         break
 
     if marker_type is None or va is None:
         return None
 
-    status = kv.get("STATUS", "RELOC")
-    origin = kv.get("ORIGIN", "GAME")
-    size_str = kv.get("SIZE", "0")
-    cflags = kv.get("CFLAGS", "")
-    symbol = kv.get("SYMBOL", "")
-    name = symbol.lstrip("_") if symbol else ""
-
-    try:
-        size = int(size_str)
-    except ValueError:
-        size = 0
-
-    source = kv.get("SOURCE", "")
-    blocker = kv.get("BLOCKER", "")
-    note = kv.get("NOTE", "")
-    section = kv.get("SECTION", "")
-
-    blocker_delta: int | None = None
-    raw_delta = kv.get("BLOCKER_DELTA", "")
-    if raw_delta:
-        with contextlib.suppress(ValueError):
-            blocker_delta = int(raw_delta)
-
-    globals_list: list[str] = []
-    raw_globals = kv.get("GLOBALS", "")
-    if raw_globals:
-        globals_list = [g.strip() for g in raw_globals.split(",") if g.strip()]
-
-    ann = make_func_entry(
-        va=va,
-        size=size,
-        name=name,
-        symbol=symbol,
-        status=status,
-        origin=origin,
-        cflags=cflags,
-        marker_type=marker_type,
-        filepath="",
-        source=source,
-        blocker=blocker,
-        note=note,
-        inline_error=kv.get("_INLINE_ERROR", ""),
-        globals_list=globals_list,
-    )
-    ann.section = section
-    ann.blocker_delta = blocker_delta
-    return ann
+    return _kv_to_annotation(kv, marker_type, va, module)
 
 
-def parse_c_file(filepath: Path) -> Annotation | None:
+def parse_c_file(filepath: Path, target_name: str | None = None) -> Annotation | None:
     """Parse a decomp .c file for annotations.
 
     Format disambiguation: tries the new (multi-line ``// KEY: value``)
@@ -585,12 +611,16 @@ def parse_c_file(filepath: Path) -> Annotation | None:
     # Try new format first (multi-line) — preferred, canonical output
     entry = parse_new_format(lines[:20])
     if entry is not None:
+        if target_name and entry.module and entry.module.lower() != target_name.lower():
+            return None
         entry["filepath"] = filepath.name
         return entry
 
     # Fallback: try old format (first line only)
     entry = parse_old_format(lines[0])
     if entry is not None:
+        if target_name and entry.module and entry.module.lower() != target_name.lower():
+            return None
         entry["filepath"] = filepath.name
         return entry
 
@@ -610,61 +640,16 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
     results: list[Annotation] = []
     current_marker_type: str | None = None
     current_va: int | None = None
+    current_module = ""
     current_kv: dict[str, str] = {}
 
     def _flush() -> None:
-        """Emit the current block (if any) into *results*."""
-        nonlocal current_marker_type, current_va, current_kv
+        nonlocal current_marker_type, current_va, current_module, current_kv
         if current_marker_type is None or current_va is None:
             return
-
-        status = current_kv.get("STATUS", "RELOC")
-        origin = current_kv.get("ORIGIN", "GAME")
-        size_str = current_kv.get("SIZE", "0")
-        cflags = current_kv.get("CFLAGS", "")
-        symbol = current_kv.get("SYMBOL", "")
-        name = symbol.lstrip("_") if symbol else ""
-
-        try:
-            size = int(size_str)
-        except ValueError:
-            size = 0
-
-        source = current_kv.get("SOURCE", "")
-        blocker = current_kv.get("BLOCKER", "")
-        note = current_kv.get("NOTE", "")
-        section = current_kv.get("SECTION", "")
-
-        blocker_delta: int | None = None
-        raw_delta = current_kv.get("BLOCKER_DELTA", "")
-        if raw_delta:
-            with contextlib.suppress(ValueError):
-                blocker_delta = int(raw_delta)
-
-        globals_list: list[str] = []
-        raw_globals = current_kv.get("GLOBALS", "")
-        if raw_globals:
-            globals_list = [g.strip() for g in raw_globals.split(",") if g.strip()]
-
-        ann = make_func_entry(
-            va=current_va,
-            size=size,
-            name=name,
-            symbol=symbol,
-            status=status,
-            origin=origin,
-            cflags=cflags,
-            marker_type=current_marker_type,
-            filepath="",
-            source=source,
-            blocker=blocker,
-            note=note,
-            inline_error=current_kv.get("_INLINE_ERROR", ""),
-            globals_list=globals_list,
+        results.append(
+            _kv_to_annotation(current_kv, current_marker_type, current_va, current_module)
         )
-        ann.section = section
-        ann.blocker_delta = blocker_delta
-        results.append(ann)
 
     for line in lines:
         stripped = line.strip()
@@ -678,6 +663,7 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
             _flush()
             current_marker_type = m.group("type")
             current_va = int(m.group("va"), 16)
+            current_module = m.group("module")
             current_kv = {}
 
             if stripped.count("//") > 1:
@@ -690,12 +676,6 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
             if m2:
                 key = m2.group("key").upper()
                 val = m2.group("value").strip()
-
-                if stripped.count("//") > 1:
-                    current_kv["_INLINE_ERROR"] = stripped
-                    if "//" in val:
-                        val = val.split("//")[0].strip()
-
                 current_kv[key] = val
                 continue
 
@@ -707,7 +687,7 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
     return results
 
 
-def parse_c_file_multi(filepath: Path) -> list[Annotation]:
+def parse_c_file_multi(filepath: Path, target_name: str | None = None) -> list[Annotation]:
     """Parse ALL annotation blocks from a decomp .c file.
 
     Returns a list of Annotations, one per ``// FUNCTION:`` marker found
@@ -728,13 +708,20 @@ def parse_c_file_multi(filepath: Path) -> list[Annotation]:
     # Try multi-block new format (scans entire file)
     entries = parse_new_format_multi(lines)
     if entries:
-        for entry in entries:
+        filtered_entries = [
+            entry
+            for entry in entries
+            if not (target_name and entry.module and entry.module.lower() != target_name.lower())
+        ]
+        for entry in filtered_entries:
             entry.filepath = filepath.name
-        return entries
+        return filtered_entries
 
     # Fallback: try old format (first line only) — returns at most one
     entry = parse_old_format(lines[0])
     if entry is not None:
+        if target_name and entry.module and entry.module.lower() != target_name.lower():
+            return []
         entry.filepath = filepath.name
         return [entry]
 
@@ -751,7 +738,8 @@ def parse_source_metadata(source_path: str | Path) -> dict[str, str]:
 
     Delegates to the canonical ``parse_c_file`` parser so that every tool
     agrees on what the annotations say, then reshapes the result into the
-    ``{KEY: value}`` dict format that callers expect.
+    ``{KEY: value}`` dict format that callers expect. Marker entries map to
+    the VA string only (for example ``{"FUNCTION": "0x10001a60"}``).
     """
     anno = parse_c_file(Path(source_path))
     if anno is None:
@@ -779,6 +767,14 @@ def parse_source_metadata(source_path: str | Path) -> dict[str, str]:
         meta["SOURCE"] = anno.source
     if anno.note:
         meta["NOTE"] = anno.note
+    if anno.ghidra:
+        meta["GHIDRA"] = anno.ghidra
+    if anno.prototype:
+        meta["PROTOTYPE"] = anno.prototype
+    if anno.struct:
+        meta["STRUCT"] = anno.struct
+    if anno.callers:
+        meta["CALLERS"] = anno.callers
     return meta
 
 
@@ -796,6 +792,7 @@ def update_annotation_key(filepath: Path, va: int, key: str, new_value: str) -> 
     in_target_block = False
     last_annotation_idx = -1
     modified = False
+    escaped_key = re.escape(key)
 
     for i, line in enumerate(lines):
         # Check for marker: // FUNCTION: GAME 0x1000 or STUB or DATA etc.
@@ -811,7 +808,9 @@ def update_annotation_key(filepath: Path, va: int, key: str, new_value: str) -> 
             if line.strip().startswith("//") or line.strip().startswith("/*"):
                 last_annotation_idx = i
 
-            sym_match = re.search(r"((?://|/\*)\s*" + key + r":\s*)(.*?)(?=\s*(?:\*/|\n|$))", line)
+            sym_match = re.search(
+                r"((?://|/\*)\s*" + escaped_key + r":\s*)(.*?)(?=\s*(?:\*/|\n|$))", line
+            )
             if sym_match:
                 old_val = sym_match.group(2).strip()
                 if old_val == new_value:
@@ -839,7 +838,51 @@ def update_annotation_key(filepath: Path, va: int, key: str, new_value: str) -> 
         modified = True
 
     if modified:
-        filepath.write_text("".join(lines), encoding="utf-8")
+        atomic_write_text(filepath, "".join(lines), encoding="utf-8")
+        return True
+
+    return False
+
+
+def remove_annotation_key(filepath: Path, va: int, key: str) -> bool:
+    """Remove an annotation key like ``// BLOCKER: <value>`` for a specific VA.
+
+    Returns True if the file was modified, False otherwise.
+    """
+    try:
+        text = filepath.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+
+    lines = text.splitlines(keepends=True)
+    in_target_block = False
+    modified = False
+    escaped_key = re.escape(key)
+
+    new_lines = []
+    for line in lines:
+        marker_match = re.search(
+            r"(?://|/\*)\s*(FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*[A-Z0-9_]+\s+(0x[0-9a-fA-F]+)",
+            line,
+        )
+        if marker_match:
+            found_va = int(marker_match.group(2), 16)
+            in_target_block = found_va == va
+
+        if in_target_block:
+            sym_match = re.search(
+                r"((?://|/\*)\s*" + escaped_key + r":\s*)(.*?)(?=\s*(?:\*/|\n|$))", line
+            )
+            if sym_match:
+                modified = True
+                continue  # Skip this line
+
+        new_lines.append(line)
+
+    if modified:
+        from rebrew.utils import atomic_write_text
+
+        atomic_write_text(filepath, "".join(new_lines), encoding="utf-8")
         return True
 
     return False

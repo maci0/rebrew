@@ -18,7 +18,7 @@ from rebrew.config import ProjectConfig
 
 def _make_pe_binary(tmp_path: Path, symbols: list[str] | None = None) -> Path:
     """Create a minimal PE binary with optional export names."""
-    pe_path = tmp_path / "test.dll"
+    pe_path = tmp_path / "SERVER"
     # Minimal MZ + PE stub — enough for LIEF to parse
     # We rely on LIEF being forgiving about incomplete PE files
     pe_path.write_bytes(
@@ -218,7 +218,7 @@ def test_load_existing_vas_with_cfg(tmp_path: Path) -> None:
     # Create a .cpp file with annotation
     cpp_file = tmp_path / "my_func.cpp"
     cpp_file.write_text(
-        "// FUNCTION: server.dll 0x10001000\n"
+        "// FUNCTION: SERVER 0x10001000\n"
         "// STATUS: STUB\n"
         "// ORIGIN: GAME\n"
         "// SIZE: 100\n"
@@ -230,7 +230,7 @@ def test_load_existing_vas_with_cfg(tmp_path: Path) -> None:
     # Also create a .c file that should NOT be found with .cpp config
     c_file = tmp_path / "other.c"
     c_file.write_text(
-        "// FUNCTION: server.dll 0x10002000\n"
+        "// FUNCTION: SERVER 0x10002000\n"
         "// STATUS: STUB\n"
         "// ORIGIN: GAME\n"
         "// SIZE: 50\n"

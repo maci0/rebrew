@@ -13,27 +13,47 @@ import typer
 from rebrew.annotation import Annotation, parse_c_file_multi
 from rebrew.catalog.export import generate_catalog, generate_reccmp_csv
 from rebrew.catalog.grid import generate_data_json
-from rebrew.catalog.loaders import parse_r2_functions, scan_reversed_dir
+from rebrew.catalog.loaders import parse_function_list, scan_reversed_dir
 from rebrew.catalog.registry import build_function_registry
 from rebrew.catalog.sections import get_text_section_size
+from rebrew.cli import (
+    TargetOption,
+    get_config,
+)
+from rebrew.cli import (
+    error_exit as _error_exit,
+)
+from rebrew.cli import (
+    json_print as _json_print,
+)
 
 app = typer.Typer(
     help="Rebrew validation pipeline: parse annotations, generate catalog and coverage data.",
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew catalog                              Validate annotations (default)
-  rebrew catalog --json                       Generate db/data_<target>.json
-  rebrew catalog --catalog                    Generate CATALOG.md in reversed_dir
-  rebrew catalog --json --catalog             Generate both JSON and CATALOG.md
-  rebrew catalog -t server.dll                Catalog a specific target
+
+rebrew catalog                              Validate annotations (default)
+
+rebrew catalog --json                       Generate db/data_<target>.json
+
+rebrew catalog --catalog                    Generate CATALOG.md in reversed_dir
+
+rebrew catalog --json --catalog             Generate both JSON and CATALOG.md
+
+rebrew catalog -t server.dll                Catalog a specific target
 
 [bold]What it does:[/bold]
-  1. Scans reversed_dir for .c files with reccmp-style annotations
-  2. Cross-references with ghidra_functions.json and r2_functions.txt
-  3. Builds function registry merging all detection sources
-  4. Generates cell-level coverage data for the .text section
-  5. Outputs structured JSON and/or CATALOG.md
+
+1. Scans reversed_dir for .c files with reccmp-style annotations
+
+2. Cross-references with ghidra_functions.json and function list
+
+3. Builds function registry merging all detection sources
+
+4. Generates cell-level coverage data for the .text section
+
+5. Outputs structured JSON and/or CATALOG.md
 
 [dim]The JSON output feeds into 'rebrew build-db' to create the SQLite database
 used by the recoverage dashboard.[/dim]""",
@@ -61,16 +81,15 @@ def main(
     ),
     root: Path | None = typer.Option(
         None,
-        help="Project root directory (auto-detected from rebrew.toml if omitted)",
+        help="Project root directory (auto-detected from rebrew-project.toml if omitted)",
     ),
-    target: str | None = typer.Option(None, "--target", "-t", help="Target name from rebrew.toml"),
+    target: str | None = TargetOption,
 ) -> None:
     """Rebrew validation pipeline: parse annotations, generate catalog and coverage data."""
+    _ = (_error_exit, _json_print)
     cfg = None
     try:
-        from rebrew.config import load_config
-
-        cfg = load_config(root, target=target)
+        cfg = get_config(target=target)
         bin_path = cfg.target_binary
         reversed_dir = cfg.reversed_dir
         root = cfg.root
@@ -82,7 +101,7 @@ def main(
         reversed_dir = root / "src"
         target = target or "default"
 
-    r2_path = reversed_dir / "r2_functions.txt"
+    func_list_path = cfg.function_list if cfg else (reversed_dir / "functions.txt")
     ghidra_json_path = reversed_dir / "ghidra_functions.json"
 
     if not any(
@@ -118,23 +137,23 @@ def main(
 
     print(f"Scanning {reversed_dir}...", file=sys.stderr)
     entries = scan_reversed_dir(reversed_dir, cfg=cfg)
-    r2_funcs = parse_r2_functions(r2_path)
+    funcs = parse_function_list(func_list_path)
 
     text_size = get_text_section_size(bin_path) if bin_path and bin_path.exists() else 0x24000
 
-    registry = build_function_registry(r2_funcs, cfg, ghidra_json_path, bin_path)
+    registry = build_function_registry(funcs, cfg, ghidra_json_path, bin_path)
 
     unique_vas = {e["va"] for e in entries}
     ghidra_count = sum(1 for r in registry.values() if "ghidra" in r["detected_by"])
-    r2_count = sum(1 for r in registry.values() if "r2" in r["detected_by"])
+    list_count = sum(1 for r in registry.values() if "list" in r["detected_by"])
     both_count = sum(
-        1 for r in registry.values() if "ghidra" in r["detected_by"] and "r2" in r["detected_by"]
+        1 for r in registry.values() if "ghidra" in r["detected_by"] and "list" in r["detected_by"]
     )
     thunk_count = sum(1 for r in registry.values() if r["is_thunk"])
     print(
         f"Found {len(entries)} annotations ({len(unique_vas)} unique VAs) "
         f"from {len(registry)} total functions "
-        f"(r2: {r2_count}, ghidra: {ghidra_count}, both: {both_count}, "
+        f"(list: {list_count}, ghidra: {ghidra_count}, both: {both_count}, "
         f"thunks: {thunk_count})",
         file=sys.stderr,
     )
@@ -198,7 +217,9 @@ def main(
         print(f"Coverage: {pct:.1f}% ({covered}/{text_size} bytes)")
 
         print("\n=== Tool Detection ===")
-        print(f"  radare2 only: {sum(1 for r in registry.values() if r['detected_by'] == ['r2'])}")
+        print(
+            f"  func list only: {sum(1 for r in registry.values() if r['detected_by'] == ['list'])}"
+        )
         print(
             f"  Ghidra only:  {sum(1 for r in registry.values() if r['detected_by'] == ['ghidra'])}"
         )
@@ -208,22 +229,20 @@ def main(
             1
             for r in registry.values()
             if "ghidra" in r["size_by_tool"]
-            and "r2" in r["size_by_tool"]
-            and r["size_by_tool"]["ghidra"] != r["size_by_tool"]["r2"]
+            and "list" in r["size_by_tool"]
+            and r["size_by_tool"]["ghidra"] != r["size_by_tool"]["list"]
         )
         print(f"  Size disagree: {size_mismatches}")
 
     if catalog:
-        catalog_text = generate_catalog(entries, r2_funcs, text_size)
+        catalog_text = generate_catalog(entries, funcs, text_size)
         catalog_path = reversed_dir / "CATALOG.md"
         catalog_path.parent.mkdir(parents=True, exist_ok=True)
         catalog_path.write_text(catalog_text, encoding="utf-8")
         print(f"Wrote {catalog_path}", file=sys.stderr)
 
     if gen_json or export_ghidra_labels:
-        data = generate_data_json(
-            entries, r2_funcs, text_size, bin_path, registry, reversed_dir, root
-        )
+        data = generate_data_json(entries, funcs, text_size, bin_path, registry, reversed_dir, root)
         if gen_json:
             coverage_dir = root / "db"
             coverage_dir.mkdir(parents=True, exist_ok=True)
@@ -250,7 +269,7 @@ def main(
             print(f"Wrote {labels_path} ({len(labels)} labels)", file=sys.stderr)
 
     if csv:
-        csv_text = generate_reccmp_csv(entries, r2_funcs, registry, target, cfg)
+        csv_text = generate_reccmp_csv(entries, funcs, registry, target, cfg)
         csv_path = root / "db" / f"{target.lower()}_functions.csv"
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         csv_path.write_text(csv_text, encoding="utf-8")
@@ -266,7 +285,7 @@ def main(
         updated = 0
         skipped = 0
         for cfile in iter_sources(reversed_dir, cfg):
-            parsed = parse_c_file_multi(cfile)
+            parsed = parse_c_file_multi(cfile, target_name=cfg.marker if cfg else None)
             for ann in parsed:
                 va = ann.va
                 if va not in registry:
@@ -279,7 +298,7 @@ def main(
                     diff = canonical - ann.size
                     from rebrew.cli import rel_display_path
 
-                    display = rel_display_path(cfile, cfg.reversed_dir)
+                    display = rel_display_path(cfile, reversed_dir)
                     print(f"  {display}: SIZE {ann.size} → {canonical} (+{diff}B, {reason})")
                     updated += 1
                 else:
@@ -288,6 +307,7 @@ def main(
 
 
 def main_entry() -> None:
+    """Run the catalog Typer application entrypoint."""
     app()
 
 

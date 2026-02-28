@@ -2,32 +2,30 @@
 Usage: rebrew flirt [sig_dir]
 """
 
-import json
 import sys
 from collections.abc import Callable
 from importlib import import_module
 from pathlib import Path
-from typing import Any
 
 import typer
 
 from rebrew.binary_loader import load_binary
-from rebrew.cli import TargetOption, get_config
+from rebrew.cli import TargetOption, error_exit, get_config, json_print
 
 try:
-    flirt: Any | None = import_module("flirt")
+    flirt: object | None = import_module("flirt")
 except ImportError:
     flirt = None
 
 
-def load_signatures(sig_dir: str, json_output: bool = False) -> list[Any]:
+def load_signatures(sig_dir: str, json_output: bool = False) -> list[object]:
     """Load all ``.sig`` and ``.pat`` FLIRT signature files from *sig_dir*."""
     if flirt is None:
         return []
 
     _print = _make_progress_printer(json_output)
     _print(f"Loading signatures from {sig_dir}...")
-    sigs: list[Any] = []
+    sigs: list[object] = []
 
     sig_path = Path(sig_dir)
     if not sig_path.exists():
@@ -77,7 +75,7 @@ def _make_progress_printer(json_output: bool) -> Callable[..., None]:
     """Return a print function that goes to stderr when json_output is True."""
     if json_output:
 
-        def _print(*args: object, **kwargs: Any) -> None:
+        def _print(*args: object, **kwargs: object) -> None:
             kwargs["file"] = sys.stderr
             print(*args, **kwargs)
 
@@ -90,18 +88,23 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew flirt                                  Scan with default .sig files
-  rebrew flirt --sig-dir sigs/                  Use custom signature directory
-  rebrew flirt --json                           Output matches as JSON
-  rebrew flirt --verbose                        Show detailed match information
+
+rebrew flirt                                  Scan with default .sig files
+
+rebrew flirt sigs/                            Use custom signature directory
+
+rebrew flirt --json                           Output matches as JSON
+
+rebrew flirt --min-size 32                    Only report functions ≥32 bytes
 
 [bold]How it works:[/bold]
-  Scans the target binary using FLIRT (Fast Library Identification and
-  Recognition Technology) signatures to identify known library functions
-  (MSVCRT, DirectX, Zlib, etc.).
+
+Scans the target binary using FLIRT (Fast Library Identification and
+Recognition Technology) signatures to identify known library functions
+(MSVCRT, DirectX, Zlib, etc.).
 
 [dim]Requires .sig/.pat signature files in the project or passed via --sig-dir.
-Reads target binary path from rebrew.toml.[/dim]""",
+Reads target binary path from rebrew-project.toml.[/dim]""",
 )
 
 
@@ -115,10 +118,7 @@ def main(
 ) -> None:
     """FLIRT signature scanner for binaries"""
     if flirt is None:
-        print(
-            "ERROR: flirt module not found. Run 'uv sync' to install dependencies.", file=sys.stderr
-        )
-        raise typer.Exit(code=1)
+        error_exit("flirt module not found. Run 'uv sync' to install dependencies.")
     cfg = get_config(target=target)
     _print = _make_progress_printer(json_output)
 
@@ -128,11 +128,7 @@ def main(
     # 1. Load FLIRT signatures
     sigs = load_signatures(str(final_sig_dir), json_output=json_output)
     if not sigs:
-        if json_output:
-            print(json.dumps({"error": "No signatures loaded", "sig_dir": str(final_sig_dir)}))
-        else:
-            print("No signatures loaded. Please provide a directory containing .sig or .pat files.")
-        raise typer.Exit(code=1)
+        error_exit("No signatures loaded", json_mode=json_output)
 
     _print("Compiling FLIRT matching engine...")
     matcher = flirt.compile(sigs)
@@ -144,11 +140,7 @@ def main(
     # Find the text section (PE: .text, Mach-O: __text)
     text_name = ".text" if ".text" in info.sections else "__text"
     if text_name not in info.sections:
-        if json_output:
-            print(json.dumps({"error": "Could not find .text section", "binary": str(final_exe)}))
-        else:
-            print("Could not find .text section.")
-        raise typer.Exit(code=1)
+        error_exit("Could not find .text section", json_mode=json_output)
 
     text_sec = info.sections[text_name]
     code_data = info.data[text_sec.file_offset : text_sec.file_offset + text_sec.raw_size]
@@ -162,7 +154,7 @@ def main(
 
     found = 0
     skipped = 0
-    matches_list: list[dict[str, Any]] = []
+    matches_list: list[dict[str, object]] = []
     stride = 16  # standard function alignment
     max_ambiguous = 3  # if more unique names match, it's noise
 
@@ -170,17 +162,15 @@ def main(
     if len(code_data) < 32:
         _print(f"Warning: .text section too small ({len(code_data)} bytes) for FLIRT matching")
         if json_output:
-            print(
-                json.dumps(
-                    {
-                        "binary": str(final_exe),
-                        "signatures_loaded": sig_count,
-                        "matches": [],
-                        "found": 0,
-                        "skipped": 0,
-                        "warning": f".text section too small ({len(code_data)} bytes)",
-                    }
-                )
+            json_print(
+                {
+                    "binary": str(final_exe),
+                    "signatures_loaded": sig_count,
+                    "matches": [],
+                    "found": 0,
+                    "skipped": 0,
+                    "warning": f".text section too small ({len(code_data)} bytes)",
+                }
             )
         return
 
@@ -218,7 +208,7 @@ def main(
             found += 1
 
     if json_output:
-        output: dict[str, Any] = {
+        output: dict[str, object] = {
             "binary": str(final_exe),
             "sig_dir": str(final_sig_dir),
             "signature_count": sig_count,
@@ -228,7 +218,7 @@ def main(
             "skipped_ambiguous": skipped,
             "matches": matches_list,
         }
-        print(json.dumps(output, indent=2))
+        json_print(output)
     else:
         print(f"\nTotal matches found: {found}")
         if skipped:
@@ -236,6 +226,7 @@ def main(
 
 
 def main_entry() -> None:
+    """Run the Typer CLI application."""
     app()
 
 

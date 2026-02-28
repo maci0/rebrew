@@ -1,8 +1,10 @@
 """Tests for rebrew.depgraph graph building and rendering."""
 
 from rebrew.depgraph import (
+    NodeInfo,
     _extract_callees,
     _focus_graph,
+    _sanitize_id,
     build_graph,
     render_dot,
     render_mermaid,
@@ -129,39 +131,42 @@ class TestBuildGraph:
         assert nodes["SecondFunc"]["status"] == "STUB"
 
 
+def test_sanitize_id_avoids_collisions() -> None:
+    assert _sanitize_id("foo-bar") != _sanitize_id("foo bar")
+
+
 class TestFocusGraph:
     def test_focus(self) -> None:
-        nodes = {
+        nodes: dict[str, NodeInfo] = {
             "A": {"status": "RELOC", "origin": "GAME", "va": 1, "file": "a.c"},
             "B": {"status": "STUB", "origin": "GAME", "va": 2, "file": "b.c"},
             "C": {"status": "EXACT", "origin": "GAME", "va": 3, "file": "c.c"},
         }
         edges = [("A", "B"), ("B", "C")]
-        # Focus on B, depth 1: should include A and C
-        fn, fe = _focus_graph(nodes, edges, "B", depth=1)
+        fn, _ = _focus_graph(nodes, edges, "B", depth=1)
         assert "A" in fn
         assert "B" in fn
         assert "C" in fn
 
     def test_focus_depth_0(self) -> None:
-        nodes = {
+        nodes: dict[str, NodeInfo] = {
             "A": {"status": "RELOC", "origin": "GAME", "va": 1, "file": "a.c"},
             "B": {"status": "STUB", "origin": "GAME", "va": 2, "file": "b.c"},
         }
         edges = [("A", "B")]
-        fn, fe = _focus_graph(nodes, edges, "A", depth=0)
+        fn, _ = _focus_graph(nodes, edges, "A", depth=0)
         assert "A" in fn
         assert "B" not in fn
 
     def test_focus_not_found(self) -> None:
-        nodes = {"A": {"status": "RELOC", "origin": "", "va": 1, "file": ""}}
-        fn, fe = _focus_graph(nodes, [], "NONEXISTENT")
+        nodes: dict[str, NodeInfo] = {"A": {"status": "RELOC", "origin": "", "va": 1, "file": ""}}
+        fn, _ = _focus_graph(nodes, [], "NONEXISTENT")
         assert fn == {}
 
 
 class TestRenderers:
-    def _sample(self) -> tuple[dict[str, dict[str, str | int]], list[tuple[str, str]]]:
-        nodes = {
+    def _sample(self) -> tuple[dict[str, NodeInfo], list[tuple[str, str]]]:
+        nodes: dict[str, NodeInfo] = {
             "FuncA": {"status": "RELOC", "origin": "GAME", "va": 1, "file": "a.c"},
             "FuncB": {"status": "STUB", "origin": "GAME", "va": 2, "file": "b.c"},
             "Unknown": {"status": "UNKNOWN", "origin": "", "va": 0, "file": ""},
@@ -176,7 +181,8 @@ class TestRenderers:
         assert "FuncA" in result
         assert "FuncB" in result
         # Verify edge structure
-        assert "FuncA --> FuncB" in result or "FuncA -->" in result
+        assert "n_FuncA_" in result
+        assert "n_FuncB_" in result
         assert "classDef exact" in result
 
     def test_dot_output(self) -> None:
@@ -185,6 +191,13 @@ class TestRenderers:
         assert "digraph G" in result
         assert "FuncA" in result
         assert "->" in result
+
+    def test_dot_matching_reloc_color(self) -> None:
+        nodes: dict[str, NodeInfo] = {
+            "FuncM": {"status": "MATCHING_RELOC", "origin": "GAME", "va": 1, "file": "m.c"}
+        }
+        result = render_dot(nodes, [])
+        assert "#f39c12" in result
 
     def test_summary_output(self) -> None:
         nodes, edges = self._sample()

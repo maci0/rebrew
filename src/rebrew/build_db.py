@@ -8,18 +8,12 @@ import contextlib
 import json
 import sqlite3
 import sys
-from importlib import import_module
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 import typer
 
-from rebrew.cli import TargetOption
-
-try:
-    yaml: Any | None = import_module("yaml")
-except ImportError:
-    yaml = None
+from rebrew.cli import TargetOption, error_exit
 
 
 def build_db(project_root: Path | None = None, target: str | None = None) -> None:
@@ -29,20 +23,19 @@ def build_db(project_root: Path | None = None, target: str | None = None) -> Non
     db_dir.mkdir(parents=True, exist_ok=True)
     db_path = db_dir / "coverage.db"
 
-    # Load project config (optional, requires PyYAML)
-    project_config = {}
-    yml_path = root_dir / "reccmp-project.yml"
-    if yaml and yml_path.exists():
-        with yml_path.open(encoding="utf-8") as f:
-            project_config = yaml.safe_load(f)
-    targets_info = project_config.get("targets", {})
-
     conn: sqlite3.Connection | None = None
     try:
         conn = sqlite3.connect(db_path)
         c = conn.cursor()
         # Enable WAL mode for better concurrency during regen
         c.execute("PRAGMA journal_mode=WAL")
+
+        # Snapshot existing function statuses for history tracking
+        old_statuses: dict[tuple[str, int], str] = {}
+        with contextlib.suppress(sqlite3.OperationalError):
+            c.execute("SELECT target, va, status FROM functions")
+            for row in c.fetchall():
+                old_statuses[(row[0], row[1])] = row[2]
 
         # Start an exclusive transaction
         c.execute("BEGIN IMMEDIATE")
@@ -62,7 +55,7 @@ def build_db(project_root: Path | None = None, target: str | None = None) -> Non
                 symbol TEXT,
                 markerType TEXT,
                 ghidra_name TEXT,
-                r2_name TEXT,
+                list_name TEXT,
                 is_thunk BOOLEAN,
                 is_export BOOLEAN,
                 sha256 TEXT,
@@ -70,6 +63,10 @@ def build_db(project_root: Path | None = None, target: str | None = None) -> Non
                 detected_by TEXT,
                 size_by_tool TEXT,
                 textOffset INTEGER,
+                blocker TEXT,
+                blockerDelta INTEGER,
+                size_reason TEXT,
+                similarity REAL,
                 PRIMARY KEY (target, va)
             )
         """)
@@ -128,10 +125,37 @@ def build_db(project_root: Path | None = None, target: str | None = None) -> Non
             )
         """)
 
-        # Create indexes for fast lookups
         c.execute("CREATE INDEX IF NOT EXISTS idx_functions_name ON functions(target, name)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_functions_status ON functions(target, status)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_functions_origin ON functions(target, origin)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_globals_name ON globals(target, name)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_cells_section ON cells(target, section_name)")
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cells_state ON cells(target, section_name, state)"
+        )
+
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target TEXT,
+                va INTEGER,
+                old_status TEXT,
+                new_status TEXT,
+                changed_at TEXT
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_history_target_va ON history(target, va)")
+
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS verify_results (
+                target TEXT,
+                va INTEGER,
+                verified_at TEXT,
+                byte_delta INTEGER,
+                diff_lines INTEGER,
+                PRIMARY KEY (target, va)
+            )
+        """)
 
         # Create views for pre-computed aggregate stats (used by both UIs)
         c.execute("DROP VIEW IF EXISTS section_cell_stats")
@@ -158,11 +182,7 @@ def build_db(project_root: Path | None = None, target: str | None = None) -> Non
         if target:
             json_files = [f for f in json_files if f.stem.removeprefix("data_") == target]
         if not json_files:
-            print(
-                "Error: No data_*.json files found in db/. Run 'rebrew catalog --json' first.",
-                file=sys.stderr,
-            )
-            raise typer.Exit(code=1)
+            error_exit("No data_*.json files found in db/. Run 'rebrew catalog --json' first.")
 
         for json_path in json_files:
             target_name = json_path.stem.removeprefix("data_")
@@ -204,7 +224,7 @@ def build_db(project_root: Path | None = None, target: str | None = None) -> Non
                         fn.get("symbol"),
                         fn.get("markerType"),
                         fn.get("ghidra_name"),
-                        fn.get("r2_name"),
+                        fn.get("list_name"),
                         fn.get("is_thunk", False),
                         fn.get("is_export", False),
                         fn.get("sha256"),
@@ -212,13 +232,16 @@ def build_db(project_root: Path | None = None, target: str | None = None) -> Non
                         json.dumps(fn.get("detected_by", [])),
                         json.dumps(fn.get("size_by_tool", {})),
                         fn.get("textOffset"),
+                        fn.get("blocker", ""),
+                        fn.get("blockerDelta"),
+                        fn.get("size_reason", ""),
+                        fn.get("similarity"),
                     )
                 )
 
             c.executemany(
-                """
-                INSERT INTO functions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+                "INSERT INTO functions VALUES "
+                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 fn_rows,
             )
 
@@ -251,9 +274,6 @@ def build_db(project_root: Path | None = None, target: str | None = None) -> Non
             summary_data = data.get("summary", {})
 
             for sec_name, sec in data.get("sections", {}).items():
-                if sec_name not in [".text", ".rdata", ".data", ".bss"]:
-                    continue
-
                 # Calculate stats for data sections
                 if sec_name != ".text":
                     exact_count = reloc_count = matching_count = stub_count = 0
@@ -349,24 +369,37 @@ def build_db(project_root: Path | None = None, target: str | None = None) -> Non
                 (target_name, "summary", json.dumps(summary_data)),
             )
 
-            # Store paths
+            # Store paths (from JSON data produced by grid.py)
             paths_data = data.get("paths", {})
-            if target_name in targets_info:
-                target_info = targets_info[target_name]
-                if "filename" in target_info:
-                    paths_data["originalDll"] = "/" + target_info["filename"]
-                if "source-root" in target_info:
-                    paths_data["sourceRoot"] = "/" + target_info["source-root"]
-
             c.execute(
                 "INSERT INTO metadata VALUES (?, ?, ?)",
                 (target_name, "paths", json.dumps(paths_data)),
             )
 
+            # Populate history: record any status changes since last build
+            now_iso = datetime.now(UTC).isoformat()
+            c.execute(
+                "SELECT va, status FROM functions WHERE target = ?",
+                (target_name,),
+            )
+            history_rows = []
+            for row in c.fetchall():
+                new_va, new_status = row
+                key = (target_name, new_va)
+                old_status = old_statuses.get(key)
+                if old_status is not None and old_status != new_status:
+                    history_rows.append((target_name, new_va, old_status, new_status, now_iso))
+            if history_rows:
+                c.executemany(
+                    "INSERT INTO history (target, va, old_status, new_status, changed_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    history_rows,
+                )
+
             # Schema version stamp
             c.execute(
                 "INSERT OR REPLACE INTO metadata VALUES (?, ?, ?)",
-                (target_name, "db_version", json.dumps("2")),
+                (target_name, "db_version", json.dumps("3")),
             )
 
         c.execute("COMMIT")
@@ -374,9 +407,9 @@ def build_db(project_root: Path | None = None, target: str | None = None) -> Non
 
         # Generate CATALOG.md from DB for each target
         _generate_catalogs(conn, root_dir)
-    except Exception:
+    except BaseException:
         if conn is not None:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(sqlite3.Error):
                 conn.rollback()
         raise
     finally:
@@ -390,8 +423,8 @@ def _generate_catalogs(conn: sqlite3.Connection, root_dir: Path) -> None:
     c.execute("SELECT DISTINCT target FROM functions")
     targets = [row[0] for row in c.fetchall()]
 
-    # Try to read reversed_dir from rebrew.toml
-    toml_path = root_dir / "rebrew.toml"
+    # Try to read reversed_dir from rebrew-project.toml
+    toml_path = root_dir / "rebrew-project.toml"
     target_dirs: dict[str, Path] = {}
     if toml_path.exists():
         try:
@@ -429,7 +462,7 @@ def _generate_catalogs(conn: sqlite3.Connection, root_dir: Path) -> None:
         # Compute stats
         total = len(functions)
         by_status: dict[str, int] = {}
-        by_origin: dict[str, list[Any]] = {}
+        by_origin: dict[str, list[object]] = {}
         covered_bytes = 0
         for fn in functions:
             st = fn[3] or "UNKNOWN"
@@ -491,15 +524,20 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew build-db                          Build db/coverage.db from db/data_*.json
-  rebrew build-db --root /path/to/project  Specify project root explicitly
+
+rebrew build-db                          Build db/coverage.db from db/data_*.json
+
+rebrew build-db --root /path/to/project  Specify project root explicitly
 
 [bold]Prerequisites:[/bold]
-  Run 'rebrew catalog --json' first to generate db/data_*.json files.
+
+Run 'rebrew catalog --json' first to generate db/data_*.json files.
 
 [bold]What it creates:[/bold]
-  db/coverage.db          SQLite database with functions, globals, sections, cells
-  src/<target>/CATALOG.md  Markdown catalog of all reversed functions
+
+db/coverage.db          SQLite database with functions, globals, sections, cells
+
+src/<target>/CATALOG.md  Markdown catalog of all reversed functions
 
 [dim]The database is used by recoverage (coverage dashboard) and can be queried
 directly for reports. Schema version is stamped in the metadata table.[/dim]""",
@@ -520,6 +558,7 @@ def main(
 
 
 def main_entry() -> None:
+    """Run the Typer CLI application."""
     app()
 
 
