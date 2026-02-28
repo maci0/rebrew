@@ -8,7 +8,6 @@ import hashlib
 import math
 import struct
 from pathlib import Path
-from typing import Any
 
 from rebrew.catalog.loaders import extract_dll_bytes, load_ghidra_data_labels
 from rebrew.catalog.registry import _is_jump_table
@@ -16,6 +15,7 @@ from rebrew.catalog.sections import get_globals, get_sections
 
 
 def merge_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Merge overlapping half-open ranges into sorted non-overlapping ranges."""
     if not ranges:
         return []
     ranges = sorted(ranges)
@@ -30,8 +30,8 @@ def merge_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
 
 
 def _find_ghidra_data_label(
-    va: int, data_labels: dict[int, dict[str, Any]]
-) -> tuple[int, dict[str, Any]] | None:
+    va: int, data_labels: dict[int, dict[str, object]]
+) -> tuple[int, dict[str, object]] | None:
     """Return (label_va, label_dict) if *va* falls inside a known Ghidra data label region."""
     for dl_va, dl_info in data_labels.items():
         if dl_va <= va < dl_va + dl_info["size"]:
@@ -40,21 +40,21 @@ def _find_ghidra_data_label(
 
 
 def generate_data_json(
-    entries: list[Any],
-    r2_funcs: list[dict[str, Any]],
+    entries: list[object],
+    funcs: list[dict[str, object]],
     text_size: int,
     bin_path: Path | None = None,
-    registry: dict[int, dict[str, Any]] | None = None,
+    registry: dict[int, dict[str, object]] | None = None,
     src_dir: Path | None = None,
     root_dir: Path | None = None,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """Generate db/data.json structure."""
-    by_va: dict[int, list[dict[str, Any]]] = {}
+    by_va: dict[int, list[dict[str, object]]] = {}
     for e in entries:
         by_va.setdefault(e["va"], []).append(e)
 
     unique_vas = set(by_va)
-    r2_by_va: dict[int, dict[str, Any]] = {f["va"]: f for f in r2_funcs}
+    funcs_by_va: dict[int, dict[str, object]] = {f["va"]: f for f in funcs}
 
     fn_vas = [
         vas
@@ -88,12 +88,12 @@ def generate_data_json(
         if any(e.get("marker_type") not in ("GLOBAL", "DATA") for e in vas):
             if registry and va in registry:
                 covered_bytes += registry[va]["canonical_size"]
-            elif va in r2_by_va:
-                covered_bytes += r2_by_va[va]["size"]
+            elif va in funcs_by_va:
+                covered_bytes += funcs_by_va[va]["size"]
             elif vas:
                 covered_bytes += vas[0]["size"]
 
-    sections: dict[str, Any] = {}
+    sections: dict[str, object] = {}
     if bin_path:
         for k, v in get_sections(bin_path).items():
             sections[k] = dict(v)
@@ -105,7 +105,7 @@ def generate_data_json(
     if registry:
         for va, reg_entry in registry.items():
             if reg_entry.get("is_thunk"):
-                name = reg_entry.get("ghidra_name") or reg_entry.get("r2_name") or ""
+                name = reg_entry.get("ghidra_name") or reg_entry.get("list_name") or ""
                 thunk_offsets[va] = name
 
     # Detect binary layout for fallback section computation
@@ -160,7 +160,7 @@ def generate_data_json(
         reg = registry.get(va, {}) if registry else {}
         canonical_size = reg.get("canonical_size", 0)
         if not canonical_size:
-            canonical_size = r2_by_va[va]["size"] if va in r2_by_va else e["size"]
+            canonical_size = funcs_by_va[va]["size"] if va in funcs_by_va else e["size"]
 
         fn_hash = ""
         if bin_path and bin_path.exists():
@@ -184,16 +184,16 @@ def generate_data_json(
             "detected_by": reg.get("detected_by", []),
             "size_by_tool": reg.get("size_by_tool", {}),
             "ghidra_name": reg.get("ghidra_name", ""),
-            "r2_name": reg.get("r2_name", ""),
+            "list_name": reg.get("list_name", ""),
             "is_thunk": reg.get("is_thunk", False),
             "is_export": reg.get("is_export", False),
+            "blocker": e.get("blocker", ""),
+            "blockerDelta": e.get("blocker_delta"),
+            "size_reason": reg.get("size_reason", ""),
         }
 
     # Generate cells for each section
     for sec_name, sec_data in sections.items():
-        if sec_name not in [".text", ".rdata", ".data", ".bss"]:
-            continue
-
         sec_va = sec_data["va"]
         sec_size = sec_data["size"]
         if sec_name == ".text":
@@ -485,7 +485,7 @@ def generate_data_json(
                 take_bytes = min(seg_end - cur, take_cols * unit_bytes)
                 span = max(1, int(math.ceil(take_bytes / unit_bytes)))
                 cell_end = cur + take_bytes
-                cell_dict: dict[str, Any] = {
+                cell_dict: dict[str, object] = {
                     "start": cur,
                     "end": cell_end,
                     "span": span,
@@ -527,11 +527,18 @@ def generate_data_json(
     adjusted_covered = func_cell_bytes + padding_bytes + data_bytes + thunk_bytes
     adjusted_pct = (adjusted_covered / text_size * 100.0) if text_size else 0.0
 
+    original_dll_path = ""
+    if bin_path and root_dir:
+        try:
+            original_dll_path = f"/{bin_path.relative_to(root_dir)}"
+        except ValueError:
+            original_dll_path = f"/{bin_path.name}"
+
     return {
         "sections": sections,
         "globals": globals_dict,
         "paths": {
-            "originalDll": f"/{bin_path.relative_to(root_dir)}" if bin_path and root_dir else "",
+            "originalDll": original_dll_path,
         },
         "summary": {
             "totalFunctions": len(fn_vas),

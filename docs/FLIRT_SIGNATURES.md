@@ -202,16 +202,16 @@ The file must end with a line containing only `---`.
 
 ```bash
 # Scan using the default flirt_sigs/ directory
-uv run python -m rebrew.flirt
+rebrew flirt
 
 # Scan with a custom signature directory
-uv run python -m rebrew.flirt /path/to/my/signatures/
+rebrew flirt /path/to/my/signatures/
 
 # Scan a different target binary
-uv run python -m rebrew.flirt flirt_sigs/ --exe original/MyGame/mygame.exe
+rebrew flirt --exe original/MyGame/mygame.exe
 
 # Only report functions larger than 32 bytes
-uv run python -m rebrew.flirt flirt_sigs/ --min-size 32
+rebrew flirt --min-size 32
 ```
 
 ### Interpreting Results
@@ -243,7 +243,7 @@ your-project/
 │   └── custom_engine.pat    # hand-crafted patterns
 ├── original/
 ├── src/
-└── rebrew.toml
+└── rebrew-project.toml
 ```
 
 ## Troubleshooting

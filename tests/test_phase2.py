@@ -134,7 +134,7 @@ class TestConfigKeyValidation:
     def test_warns_on_unknown_target_key(self, tmp_path: Path) -> None:
         import warnings
 
-        toml_path = tmp_path / "rebrew.toml"
+        toml_path = tmp_path / "rebrew-project.toml"
         toml_path.write_text(
             '[targets.main]\nbinary = "original/server.dll"\ntypo_key = "bad"\n',
             encoding="utf-8",
@@ -151,7 +151,7 @@ class TestConfigKeyValidation:
             assert "typo_key" in str(key_warnings[0].message)
 
     def test_warns_on_unknown_top_level_key(self, tmp_path: Path) -> None:
-        toml_path = tmp_path / "rebrew.toml"
+        toml_path = tmp_path / "rebrew-project.toml"
         toml_path.write_text(
             '[target]\nbinary = "original/server.dll"\n\n[sources]\nreversed_dir = "src/server.dll"\n\n'
             '[typo_section]\nfoo = "bar"\n',

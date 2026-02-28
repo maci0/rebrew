@@ -1,7 +1,7 @@
 # CLI Reference
 
-All 22 CLI tools are installed as entry points via `pyproject.toml`.
-Every tool supports `--target / -t` to select a target from `rebrew.toml` and
+All 24 CLI tools are installed as entry points via `pyproject.toml`.
+Every tool supports `--target / -t` to select a target from `rebrew-project.toml` and
 reads defaults (binary path, reversed_dir, compiler settings) from the project config.
 
 Run any tool with `--help` to see usage examples and context
@@ -12,7 +12,8 @@ Run any tool with `--help` to see usage examples and context
 | Entry Point | Script | Description |
 |-------------|--------|-------------|
 | `rebrew` | `main.py` | Unified CLI entry point for all subcommands |
-| `rebrew-init` | `init.py` | Scaffold a new project directory and `rebrew.toml` |
+| `rebrew-rename` | `rename.py` | Rename a function and update all cross-references |
+| `rebrew-init` | `init.py` | Scaffold a new project directory and `rebrew-project.toml` |
 | `rebrew-test` | `test.py` | Quick compile-and-compare (single or multi-function files); `--json` structured output |
 | `rebrew-asm` | `asm.py` | Dump disassembly from target binary at a VA; `--json` structured output |
 | `rebrew-next` | `next.py` | Prioritize uncovered functions by difficulty; auto-filters unmatchable; `--json` for all modes |
@@ -22,10 +23,10 @@ Run any tool with `--help` to see usage examples and context
 | `rebrew-lint` | `lint.py` | Lint annotation standards in decomp C files |
 | `rebrew-extract` | `extract.py` | Batch extract and disassemble functions from binary |
 | `rebrew-match` | `match.py` / `matcher/` | GA matching engine (diff with `--mm`, flag-sweep with `--tier`, GA); `--diff-only --json` structured diff |
-| `rebrew-ga` | `ga.py` | Batch GA runner for STUB functions and near-miss MATCHING functions |
+| `rebrew-ga` | `ga.py` | Batch GA runner and flag sweep for STUB and MATCHING functions |
 | `rebrew-verify` | `verify.py` | Compile all `.c` files and verify byte match against target binary; `--json` structured reports |
 | `rebrew-build-db` | `build_db.py` | Build SQLite `db/coverage.db` from `data_*.json` ([schema docs](DB_FORMAT.md)) |
-| `rebrew-cfg` | `cfg.py` | Read and edit `rebrew.toml` programmatically (see [CONFIG.md](CONFIG.md)) |
+| `rebrew-cfg` | `cfg.py` | Read and edit `rebrew-project.toml` programmatically (see [CONFIG.md](CONFIG.md)) |
 | `rebrew-nasm` | `nasm.py` | NASM assembly extraction |
 | `rebrew-flirt` | `flirt.py` | FLIRT signature scanning (see [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md)) |
 | `rebrew-status` | `status.py` | Project reversing status overview (per-target breakdowns) |
@@ -33,6 +34,7 @@ Run any tool with `--help` to see usage examples and context
 | `rebrew-graph` | `depgraph.py` | Function dependency graph (mermaid, DOT, summary) |
 | `rebrew-promote` | `promote.py` | Test + atomically update STATUS annotation; `--json` structured output; `--dry-run` preview |
 | `rebrew-triage` | `triage.py` | Cold-start triage: coverage stats, FLIRT scan, near-miss list, recommendations; `--json` |
+| `rebrew-doctor` | `doctor.py` | Diagnostic checks for project health (config, compiler, binary, paths); `--json` |
 
 ## Tool Flags
 
@@ -40,9 +42,16 @@ Run any tool with `--help` to see usage examples and context
 
 | Flag | Description |
 |------|-------------|
+| `--cl COMMAND` | CL.EXE command (auto from config) |
+| `--inc DIR` | Include dir (auto from config) |
+| `--cflags FLAGS` | Compiler flags (auto from source) |
+| `--symbol NAME` | Symbol to match (auto from source) |
+| `--target-va HEX` | Target VA hex (auto from source) |
+| `--target-size N` | Target size (auto from source) |
 | `--diff-only` | Side-by-side disassembly diff (no GA) |
 | `--mm` / `--mismatches-only` | With `--diff-only`, show only structural (`**`) lines + summary |
 | `--rr` / `--register-aware` | With `--diff-only`, normalize register encodings and mark as `RR` |
+| `--diff-format FORMAT` | Output format for diff: `terminal` (default), `json`, `csv` |
 | `--flag-sweep-only` | Sweep compiler flags without GA mutations |
 | `--tier TIER` | Flag sweep tier: `quick` (192), `targeted` (1.1K), `normal` (21K), `thorough` (1M), `full` (8.3M) |
 | `--seed N` | Seed RNG for reproducible GA runs |
@@ -51,13 +60,34 @@ Run any tool with `--help` to see usage examples and context
 | `--pop-size N` | GA population size (default 32) |
 | `-j N` | Parallel compilation workers |
 | `--out-dir DIR` | Output directory for GA results |
-| `--json` | JSON structured output (with `--diff-only`) |
+| `--compare-obj` / `--no-compare-obj` | Use object comparison instead of full link (default: true) |
+| `--link COMMAND` | LINK.EXE command (for non-obj comparison) |
+| `--lib DIR` | Lib dir (for non-obj comparison) |
+| `--ldflags FLAGS` | Linker flags (for non-obj comparison) |
 
 ### `rebrew test`
 
 | Flag | Description |
 |------|-------------|
 | `--json` | JSON structured output |
+
+### `rebrew rename`
+
+`rebrew rename <old_ident> <new_name>`
+
+Atomically renames a function across the entire project.
+
+| Flag | Description |
+|------|-------------|
+| `--symbol NAME` | New `// SYMBOL:` annotation value (default: `_<new_name>`) |
+| `--file NAME` | New filename (default: auto-rename if stem matches old name) |
+
+Behavior:
+
+- Updates the `// SYMBOL:` annotation
+- Updates the C function definition name
+- Replaces `extern` cross-references across all `.c` files
+- Renames the file itself if the stem matches the old name
 
 ### `rebrew next`
 
@@ -74,15 +104,25 @@ Run any tool with `--help` to see usage examples and context
 
 | Flag | Description |
 |------|-------------|
+| `--va HEX` | Function VA in hex |
 | `--decomp` | Embed inline decompilation from r2ghidra/r2dec |
 | `--decomp-backend BACKEND` | Decompiler backend: `r2ghidra`, `r2dec`, `auto` |
 | `--append FILE` | Append to existing multi-function file |
 | `--name NAME` | Override function name |
+| `--origin TYPE` | Force origin type (GAME, MSVCRT, ZLIB) |
+| `-o FILE` / `--output FILE` | Output file path |
+| `--force` | Overwrite existing files |
+| `--list` | List uncovered functions (no file generation) |
+| `--batch N` | Generate N skeletons (smallest first) |
+| `--min-size N` | Minimum function size (default 10) |
+| `--max-size N` | Maximum function size (default 9999) |
+| `--json` | Output results as JSON (for batch/list modes) |
 
 ### `rebrew verify`
 
 | Flag | Description |
 |------|-------------|
+| `--fix-status` | Auto-update `// STATUS:` and `// BLOCKER:` annotations based on compile results |
 | `--summary` | Show EXACT/RELOC/MATCHING summary table with match percentages |
 | `--json` | Structured JSON report to stdout |
 | `-o FILE` / `--output FILE` | Write report to specific file |
@@ -100,15 +140,34 @@ Output prefixes for unambiguous parsing:
 
 | Flag | Description |
 |------|-------------|
+| `--max-stubs N` | Max functions to process, 0=all (default 0) |
+| `--generations N` | GA generations per function (default 200) |
+| `--pop-size N` | GA population size (default 48) |
+| `-j N` / `--jobs N` | Parallel jobs (default: from `[project].jobs`) |
+| `--timeout-min N` | Per-function GA timeout in minutes (default 30) |
+| `--min-size N` | Min target size to attempt |
+| `--max-size N` | Max target size to attempt |
+| `--filter STR` | Only process functions matching this substring |
 | `--near-miss` | Target MATCHING functions instead of STUBs |
-| `--threshold N` | Only attempt functions with byte delta <= N (default 10) |
-| `--dry-run` | List candidates without running GA |
+| `--threshold N` | Max byte delta for `--near-miss` mode (default 10) |
+| `--flag-sweep` | Batch flag sweep on all MATCHING functions (no GA mutations) |
+| `--tier TIER` | Flag sweep tier: `quick` (~192), `targeted` (~1.1K), `normal` (~21K), `thorough` (~1M), `full` (~8.3M) |
+| `--fix-cflags` | Auto-update `// CFLAGS:` annotation when flag sweep finds exact match |
+| `--dry-run` | List candidates without running GA/sweep |
+| `--json` | Output results as JSON |
+
+### `rebrew doctor`
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Output results as JSON |
 
 ### `rebrew data`
 
 | Flag | Description |
 |------|-------------|
 | `--conflicts` | Show only type-conflict globals |
+| `--summary` | Show section-level summary only |
 | `--bss` | Verify .bss layout and detect gaps |
 | `--dispatch` | Detect dispatch tables / vtables |
 | `--fix-bss` | Auto-generate `bss_padding.c` with dummy arrays for detected gaps |
@@ -118,10 +177,11 @@ Output prefixes for unambiguous parsing:
 
 | Flag | Description |
 |------|-------------|
-| `--format FORMAT` | Output format: `mermaid` (default), `dot`, `summary` |
+| `-f FORMAT` / `--format FORMAT` | Output format: `mermaid` (default), `dot`, `summary` |
 | `--origin ORIGIN` | Filter to specific origin |
 | `--focus NAME` | Neighbourhood of a specific function |
 | `--depth N` | Depth for focus mode |
+| `-o FILE` / `--output FILE` | Output file (default: stdout) |
 
 ### `rebrew lint`
 
@@ -133,7 +193,7 @@ Output prefixes for unambiguous parsing:
 | `--summary` | Print status/origin breakdown table |
 | `--files FILE...` | Check specific files instead of full scan |
 
-See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E001-E017, W001-W015).
+See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–E017, W001–W017).
 
 ### `rebrew promote`
 
@@ -178,6 +238,12 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E001-E0
 | `--sync-signatures` / `--no-sync-signatures` | Push function prototypes (default: sync) |
 | `--sync-data` / `--no-sync-data` | Push data segment labels (default: sync) |
 | `--pull` | Fetch Ghidra renames and comments and update local `.c` files |
+| `--accept-ghidra` | With `--pull`, accept Ghidra renames for all conflicts (updates cross-references) |
+| `--accept-local` | With `--pull`, keep local names for all conflicts (adds `// GHIDRA:`) |
+| `--pull-signatures` | Pull function prototypes from Ghidra and update extern declarations |
+| `--pull-structs` | Pull struct definitions from Ghidra into `types.h` |
+| `--pull-comments` | Pull Ghidra analysis comments into source files |
+| `--dry-run` | Preview any sync operation without applying changes |
 | `--endpoint URL` | ReVa MCP endpoint URL |
 | `--json` | Output results as JSON |
 
@@ -196,19 +262,27 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E001-E0
 | `--min-size N` | Minimum function size in bytes to report (default 16) |
 | `--json` | Output results as JSON |
 
+### `rebrew extract`
+
+| Flag / Arg | Description |
+|------------|-------------|
+| `COMMAND` | `list`, `extract`, or `batch N` (positional argument) |
+| `--min-size N` | Minimum function size to extract (default 8) |
+| `--max-size N` | Maximum function size to extract (default 50000) |
+| `--json` | Output results as JSON |
+
 ### `rebrew nasm`
 
 | Flag | Description |
 |------|-------------|
-| `--exe FILE` | PE executable (default: from config) |
 | `--va HEX` | Virtual address (hex) |
 | `--size N` | Function size in bytes |
 | `--bin FILE` | Raw `.bin` file input |
 | `--label NAME` | Label name for the function |
-| `-o FILE` / `--out FILE` | Output `.asm` file (default: stdout) |
+| `-o FILE` / `--output FILE` | Output `.asm` file (default: stdout) |
 | `--verify` | Assemble output and verify byte-identical round-trip |
 | `--stats` | Print stats only (no ASM output) |
-| `--batch` | Batch mode: extract all functions from `reversed_dir` |
+| `--all` | Batch mode: extract all functions from `reversed_dir` |
 | `--batch-stubs` | Batch mode: extract only STUB functions |
 | `--out-dir DIR` | Output directory for batch mode |
 | `--base-va HEX` | Base VA for `.bin` files (default: 0) |
@@ -248,6 +322,9 @@ rebrew match --diff-only --json src/target_name/f.c # JSON diff
 rebrew ga                                          # Batch GA on all STUBs
 rebrew ga --near-miss --threshold 5                # GA on MATCHING with <=5B delta
 rebrew ga --dry-run                                # List candidates only
+rebrew ga --flag-sweep                             # Batch flag sweep on all MATCHING
+rebrew ga --flag-sweep --tier targeted             # Use targeted tier (~1.1K combos)
+rebrew ga --flag-sweep --fix-cflags                # Auto-update CFLAGS on exact match
 
 # Verification & status
 rebrew verify                                      # Verify all reversed functions
@@ -298,7 +375,7 @@ rebrew sync --pull                                 # Pull renames/comments from 
 
 | Module | Purpose |
 |--------|---------|
-| `matcher/scoring.py` | Multi-metric fitness scoring (byte, reloc, mnemonic) |
+| `matcher/scoring.py` | Multi-metric fitness scoring (byte, reloc, mnemonic, structural similarity) |
 | `matcher/compiler.py` | Compilation backend + `flag_sweep(tier=)` + `generate_flag_combinations(tier=)` |
 | `matcher/flags.py` | `FlagSet`/`Checkbox` primitives (compatible with decomp.me) |
 | `matcher/flag_data.py` | Auto-generated MSVC flags + sweep tiers (from `tools/sync_decomp_flags.py`) |
@@ -311,7 +388,7 @@ rebrew sync --pull                                 # Pull renames/comments from 
 | Module | Purpose |
 |--------|---------|
 | `annotation.py` | Canonical annotation parser (`parse_c_file`, `parse_c_file_multi`, `normalize_status`) |
-| `lint.py` | Annotation linter (E001-E017 / W001-W015); `--fix` auto-migrates old formats |
+| `lint.py` | Annotation linter (E000–E017 / W001–W017); `--fix` auto-migrates old formats |
 | `sync.py` | Sync annotations to Ghidra via ReVa MCP; skips generic `func_` labels by default |
 
 ### Library Identification

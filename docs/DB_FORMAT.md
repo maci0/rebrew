@@ -12,7 +12,7 @@ The `rebrew` tooling ecosystem uses SQLite databases to power its reverse-engine
 ```mermaid
 flowchart LR
     A["*.c annotations"] -->|rebrew catalog| B["db/data_*.json"]
-    R2["r2_functions.txt"] -->|rebrew catalog| B
+    FL["functions.txt"] -->|rebrew catalog| B
     GH["ghidra_functions.json"] -->|rebrew catalog| B
     BIN["target binary"] -->|rebrew catalog| B
     B -->|rebrew build-db| C["db/coverage.db"]
@@ -24,7 +24,7 @@ flowchart LR
 
 | Step | Tool | Input | Output |
 |------|------|-------|--------|
-| 1. Catalog | `rebrew catalog --json` | `*.c` annotations, `r2_functions.txt`, `ghidra_functions.json`, target binary | `db/data_<target>.json` |
+| 1. Catalog | `rebrew catalog --json` | `*.c` annotations, `functions.txt`, `ghidra_functions.json`, target binary | `db/data_<target>.json` |
 | 1b. Export Labels | `rebrew catalog --export-ghidra-labels` | (same as above) | `ghidra_data_labels.json` (detected data labels/thunks for Ghidra round-trip) |
 | 2. Build DB | `rebrew build-db` | `db/data_*.json` | `db/coverage.db` |
 | 3. Serve | `recoverage serve` | `db/coverage.db` | HTTP dashboard at `localhost:8001` |
@@ -56,17 +56,24 @@ Stores details regarding decompiled and original functions.
 | `symbol` | `TEXT` | The raw mangled or internal symbol name. |
 | `markerType` | `TEXT` | Annotation marker type: `FUNCTION`, `STUB`, `GLOBAL`, `DATA`. |
 | `ghidra_name` | `TEXT` | Function name as defined in Ghidra. |
-| `r2_name` | `TEXT` | Function name as defined in radare2. |
+| `list_name` | `TEXT` | Function name from the function list. |
 | `is_thunk` | `BOOLEAN` | True if the function is an IAT thunk (`jmp [IAT]` stub). |
 | `is_export` | `BOOLEAN` | True if the function is exported from the binary. |
 | `sha256` | `TEXT` | SHA-256 hash of the function's raw bytes from the original binary. |
 | `files` | `TEXT` | JSON array of associated source file paths. |
-| `detected_by` | `TEXT` | JSON array of tools that detected this function (e.g., `["ghidra", "r2"]`). |
-| `size_by_tool` | `TEXT` | JSON object mapping tool names to their reported sizes (e.g., `{"ghidra": 302, "r2": 302}`). |
+| `detected_by` | `TEXT` | JSON array of sources that detected this function (e.g., `["ghidra", "list"]`). |
+| `size_by_tool` | `TEXT` | JSON object mapping tool names to their reported sizes (e.g., `{"ghidra": 302, "list": 302}`). |
 | `textOffset` | `INTEGER` | Offset of the function within its containing section. |
+| `blocker` | `TEXT` | Blocker description (e.g. "needs vtable", "missing struct"). Empty string if none. |
+| `blockerDelta` | `INTEGER` | Byte difference from target when blocker is set. NULL if no blocker. |
+| `size_reason` | `TEXT` | Explanation of how canonical size was determined (e.g. "ghidra", "list", "annotation"). Empty string if unknown. |
+| `similarity` | `REAL` | Structural similarity score (0.0–1.0). NULL if not computed. |
 
 **Primary Key**: `(target, va)`
-**Indexes**: `idx_functions_name` on `(target, name)`
+**Indexes**:
+- `idx_functions_name` on `(target, name)`
+- `idx_functions_status` on `(target, status)`
+- `idx_functions_origin` on `(target, origin)`
 
 ### `globals` Table
 Tracks global variables mapped during the decompilation effort.
@@ -113,6 +120,10 @@ Represents chunks (cells) of memory to be rendered in the UI coverage map.
 | `label` | `TEXT` | Optional display label (e.g., Ghidra data label name like `switchdataD_10002e9c`). |
 | `parent_function` | `TEXT` | Optional name of the parent function (for data / thunk cells that immediately follow a function). |
 
+**Indexes**:
+- `idx_cells_section` on `(target, section_name)`
+- `idx_cells_state` on `(target, section_name, state)`
+
 #### Cell States
 
 | State | Description | Color in UI |
@@ -134,7 +145,40 @@ Stores arbitrary target-specific key-value pairs. Primary Key is `(target, key)`
 |-----|-------------|
 | `summary` | JSON object with coverage statistics (totalFunctions, matchedFunctions, exactMatches, etc.) |
 | `paths` | JSON object with file paths (originalDll, sourceRoot) |
-| `db_version` | Schema version string (current: `"2"`) |
+| `db_version` | Schema version string (current: `"3"`) |
+
+### `verify_results` Table
+Stores the results of the `rebrew verify` command.
+
+| Column | Type | Description |
+|---|---|---|
+| `target` | `TEXT` | Binary target. Part of primary key. |
+| `va` | `INTEGER` | Function VA. Part of primary key. |
+| `verified_at` | `TEXT` | ISO 8601 timestamp of verification. |
+| `byte_delta` | `INTEGER` | Number of differing bytes. |
+| `diff_lines` | `INTEGER` | Number of differing disassembly lines. |
+
+**Primary Key**: `(target, va)`
+
+> [!NOTE]
+> This table is persistent (`IF NOT EXISTS`) — never dropped on rebuild.
+
+### `history` Table
+Tracks function status changes over time.
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | `INTEGER` | Auto-increment primary key. |
+| `target` | `TEXT` | Binary target. |
+| `va` | `INTEGER` | Function virtual address. |
+| `old_status` | `TEXT` | Previous status before change. |
+| `new_status` | `TEXT` | New status after change. |
+| `changed_at` | `TEXT` | ISO 8601 timestamp of the change. |
+
+**Index**: `idx_history_target_va` on `(target, va)`
+
+> [!NOTE]
+> This table is persistent (`IF NOT EXISTS`) — never dropped on rebuild.
 
 ### `section_cell_stats` (View)
 A SQLite view aggregating matching metrics to quickly pull total/exact/stub cells per section.
@@ -182,15 +226,18 @@ Each `data_<target>.json` file is the output of `rebrew catalog --json`. It cont
       "symbol": "_func_name", "markerType": "FUNCTION",
       "fileOffset": 4096, "textOffset": 0, "sha256": "abcd...",
       "files": ["func_name.c"],
-      "detected_by": ["ghidra", "r2"],
-      "size_by_tool": {"ghidra": 302, "r2": 302},
-      "ghidra_name": "FUN_10001000", "r2_name": "fcn.10001000",
-      "is_thunk": false, "is_export": false
+      "detected_by": ["ghidra", "list"],
+      "size_by_tool": {"ghidra": 302, "list": 302},
+      "ghidra_name": "FUN_10001000", "list_name": "fcn.10001000",
+      "is_thunk": false, "is_export": false,
+      "blocker": "", "blockerDelta": null, "size_reason": "ghidra", "similarity": 1.0
     }
   },
   "paths": { "originalDll": "/original/Server/server.dll" }
 }
-```
+
+> [!NOTE]
+> All PE sections are now included dynamically in the catalog and database (not just the standard `.text`, `.rdata`, `.data`, and `.bss`).
 
 > [!NOTE]
 > Functions in the JSON are keyed by **name**, but in the DB they are keyed by `(target, va)`. The `build_db.py` tool extracts the VA from the `vaStart` hex string during import.

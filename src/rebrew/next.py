@@ -15,14 +15,11 @@ Usage:
 """
 
 import contextlib
-import json
-import sys
-from typing import Any
 
 import typer
 
 from rebrew.binary_loader import BinaryInfo, load_binary
-from rebrew.cli import TargetOption, get_config
+from rebrew.cli import TargetOption, error_exit, get_config, json_print
 from rebrew.naming import (
     UncoveredItem,
     detect_origin,
@@ -38,26 +35,44 @@ from rebrew.naming import (
 
 _EPILOG = """\
 [bold]Examples:[/bold]
-  rebrew next                          Top 20 recommendations (easiest first)
-  rebrew next --count 50               Show top 50
-  rebrew next --origin GAME            Only GAME-origin functions
-  rebrew next --improving              Show MATCHING functions to improve
-  rebrew next --stats                  Overall progress statistics
-  rebrew next --commands               Include rebrew test commands for each
-  rebrew next --unmatchable            Show detected unmatchable functions
-  rebrew next --min-size 50 --max-size 200   Filter by function size
-  rebrew next --group                  Group adjacent functions by proximity
-  rebrew next --group --group-gap 8192 Custom grouping distance (bytes)
-  rebrew next --group --commands       Show batch skeleton commands per group
-  rebrew next --json                  Machine-readable JSON output
-  rebrew next --stats --json          JSON progress statistics
+
+rebrew next                          Top 20 recommendations (easiest first)
+
+rebrew next --count 50               Show top 50
+
+rebrew next --origin GAME            Only GAME-origin functions
+
+rebrew next --improving              Show MATCHING functions to improve
+
+rebrew next --stats                  Overall progress statistics
+
+rebrew next --commands               Include rebrew test commands for each
+
+rebrew next --unmatchable            Show detected unmatchable functions
+
+rebrew next --min-size 50 --max-size 200   Filter by function size
+
+rebrew next --group                  Group adjacent functions by proximity
+
+rebrew next --group --group-gap 8192 Custom grouping distance (bytes)
+
+rebrew next --group --commands       Show batch skeleton commands per group
+
+rebrew next --json                  Machine-readable JSON output
+
+rebrew next --stats --json          JSON progress statistics
 
 [bold]Difficulty ratings:[/bold]
-  *      Tiny function (< 80B), likely getter/setter
-  **     Small function (< 150B), straightforward
-  ***    Medium function (< 250B), branches/loops
-  ****   Large function (< 400B), complex control flow
-  *****  Very large function, significant effort
+
+*      Tiny function (< 80B), likely getter/setter
+
+**     Small function (< 150B), straightforward
+
+***    Medium function (< 250B), branches/loops
+
+****   Large function (< 400B), complex control flow
+
+*****  Very large function, significant effort
 
 [dim]Reads function list from ghidra_functions.json and existing .c files.
 Auto-skips IAT thunks, single-byte stubs, and ignored symbols.[/dim]"""
@@ -92,8 +107,7 @@ def main(
     try:
         cfg = get_config(target=target)
     except (FileNotFoundError, KeyError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        raise typer.Exit(code=1) from None
+        error_exit(str(exc))
     ghidra_funcs, existing, covered_vas = load_data(cfg)
     ignored = ignored_symbols(cfg)
     iat_thunks = cfg.iat_thunks
@@ -146,20 +160,17 @@ def main(
         pct = 100 * covered / total if total else 0.0
 
         if json_output:
-            print(
-                json.dumps(
-                    {
-                        "mode": "stats",
-                        "total": total,
-                        "covered": covered,
-                        "coverage_pct": round(pct, 1),
-                        "by_status": by_status,
-                        "by_origin": by_origin,
-                        "unmatchable": unmatchable_count,
-                        "actionable": actionable,
-                    },
-                    indent=2,
-                )
+            json_print(
+                {
+                    "mode": "stats",
+                    "total": total,
+                    "covered": covered,
+                    "coverage_pct": round(pct, 1),
+                    "by_status": by_status,
+                    "by_origin": by_origin,
+                    "unmatchable": unmatchable_count,
+                    "actionable": actionable,
+                }
             )
             return
 
@@ -205,9 +216,7 @@ def main(
 
         if not matching_items:
             if json_output:
-                print(
-                    json.dumps({"mode": "improving", "total": 0, "count": 0, "items": []}, indent=2)
-                )
+                json_print({"mode": "improving", "total": 0, "count": 0, "items": []})
             else:
                 print("No MATCHING functions found.")
             return
@@ -228,16 +237,13 @@ def main(
                         "blocker": info.get("blocker", ""),
                     }
                 )
-            print(
-                json.dumps(
-                    {
-                        "mode": "improving",
-                        "total": len(matching_items),
-                        "count": len(items),
-                        "items": items,
-                    },
-                    indent=2,
-                )
+            json_print(
+                {
+                    "mode": "improving",
+                    "total": len(matching_items),
+                    "count": len(items),
+                    "items": items,
+                }
             )
             return
 
@@ -254,7 +260,7 @@ def main(
 
             if commands:
                 symbol = info.get("symbol") or f"_func_{imp_va:08x}"
-                imp_cflags = (cfg.cflags_presets or {}).get(info["origin"], "/O2 /Gd")
+                imp_cflags = cfg.resolve_origin_cflags(info["origin"])
                 rel_path = f"{cfg.reversed_dir.name}/{info['filename']}"
                 print(
                     f'    TEST: rebrew test {rel_path} {symbol} --va 0x{imp_va:08x} --size {imp_size} --cflags "{imp_cflags}"'
@@ -279,16 +285,13 @@ def main(
                 {"va": f"0x{uva:08x}", "size": usz, "name": un, "reason": ur}
                 for uva, usz, un, ur in unmatchable_list[:count]
             ]
-            print(
-                json.dumps(
-                    {
-                        "mode": "unmatchable",
-                        "total": len(unmatchable_list),
-                        "count": len(items),
-                        "items": items,
-                    },
-                    indent=2,
-                )
+            json_print(
+                {
+                    "mode": "unmatchable",
+                    "total": len(unmatchable_list),
+                    "count": len(items),
+                    "items": items,
+                }
             )
             return
 
@@ -304,6 +307,31 @@ def main(
         return
 
     # Default: recommend next functions to work on
+    # Build index of already matched (EXACT/RELOC) function bytes for similarity comparison
+    matched_funcs: list[tuple[int, bytes]] = []
+    if binary_info:
+        from rebrew.binary_loader import extract_bytes_at_va
+
+        for m_va, info in existing.items():
+            if info.get("status") in ("EXACT", "RELOC"):
+                m_size = info.get("size")
+                if not m_size:
+                    # try to find size in ghidra_funcs
+                    for f in ghidra_funcs:
+                        if f["va"] == m_va:
+                            m_size = f["size"]
+                            break
+                if m_size and m_size > 0:
+                    try:
+                        m_bytes = extract_bytes_at_va(binary_info, m_va, m_size)
+                        if m_bytes:
+                            matched_funcs.append((m_size, m_bytes))
+                    except (OSError, ValueError, KeyError):
+                        pass
+
+    # Sort by size to quickly filter out wildly different sizes
+    matched_funcs.sort(key=lambda x: x[0])
+
     sorted_covered = sorted(covered_vas)  # pre-sort for O(log n) neighbor lookups
     uncovered: list[UncoveredItem] = []
     for func in ghidra_funcs:
@@ -333,19 +361,51 @@ def main(
             continue  # Skip ignored symbols
 
         neighbor = find_neighbor_file(va, covered_vas, _sorted_keys=sorted_covered)
-        uncovered.append((difficulty, size, va, name, origin, reason, neighbor))
 
-    # Sort by difficulty then size
-    uncovered.sort(key=lambda x: (x[0], x[1]))
+        # Compute similarity to already-matched functions
+        similarity = 0.0
+        if matched_funcs and binary_info and size > 20:
+            try:
+                import difflib
+
+                from rebrew.binary_loader import extract_bytes_at_va
+
+                u_bytes = extract_bytes_at_va(binary_info, va, size)
+                if u_bytes:
+                    best_sim = 0.0
+                    # Only compare with functions of roughly similar size (within 20%)
+                    min_s = int(size * 0.8)
+                    max_s = int(size * 1.2)
+
+                    import bisect
+
+                    start_idx = bisect.bisect_left(matched_funcs, (min_s, b""))
+                    end_idx = bisect.bisect_right(matched_funcs, (max_s, b"\xff"))
+
+                    for m_size, m_bytes in matched_funcs[start_idx:end_idx]:
+                        # Quick prefix check: if first 4 bytes match, it's worth checking deeper
+                        # If sizes match exactly, worth checking
+                        if u_bytes[:4] == m_bytes[:4] or size == m_size:
+                            # Use simple difflib ratio on bytes
+                            sm = difflib.SequenceMatcher(None, u_bytes, m_bytes)
+                            # Quick ratio first
+                            if sm.quick_ratio() > best_sim:
+                                r = sm.ratio()
+                                if r > best_sim:
+                                    best_sim = r
+
+                    similarity = best_sim
+            except (OSError, ValueError, KeyError, MemoryError):
+                pass
+
+        uncovered.append((difficulty, size, va, name, origin, reason, neighbor, similarity))
+
+    # Sort by similarity (descending), then difficulty (ascending), then size (ascending)
+    uncovered.sort(key=lambda x: (-x[7], x[0], x[1]))
 
     if not uncovered:
         if json_output:
-            print(
-                json.dumps(
-                    {"mode": "recommendations", "total_uncovered": 0, "count": 0, "items": []},
-                    indent=2,
-                )
-            )
+            json_print({"mode": "recommendations", "total_uncovered": 0, "count": 0, "items": []})
         else:
             print("No uncovered functions found matching criteria. Great progress!")
         return
@@ -357,7 +417,7 @@ def main(
         single_count = sum(1 for g in groups if len(g) == 1)
 
         if json_output:
-            json_groups: list[dict[str, Any]] = []
+            json_groups: list[dict[str, object]] = []
             for gi, grp in enumerate(multi_groups[:count], 1):
                 grp_total = sum(item[1] for item in grp)
                 grp_va_lo = min(item[2] for item in grp)
@@ -374,8 +434,9 @@ def main(
                         "difficulty": fdiff,
                         "origin": forg,
                         "name": fname,
+                        "similarity": fsim,
                     }
-                    for fdiff, fsz, fva, fname, forg, _, _ in grp
+                    for fdiff, fsz, fva, fname, forg, _, _, fsim in grp
                 ]
                 json_groups.append(
                     {
@@ -387,16 +448,13 @@ def main(
                         "functions": funcs,
                     }
                 )
-            print(
-                json.dumps(
-                    {
-                        "mode": "groups",
-                        "group_count": len(multi_groups),
-                        "singleton_count": single_count,
-                        "groups": json_groups,
-                    },
-                    indent=2,
-                )
+            json_print(
+                {
+                    "mode": "groups",
+                    "group_count": len(multi_groups),
+                    "singleton_count": single_count,
+                    "groups": json_groups,
+                }
             )
             return
 
@@ -422,7 +480,7 @@ def main(
                 header += f"  [\u2192 {neighbor}]"
             print(header)
 
-            for diff, grp_size, grp_va, grp_name, grp_origin, _reason, _ in grp:
+            for diff, grp_size, grp_va, grp_name, grp_origin, _reason, _, _sim in grp:
                 stars = "*" * diff
                 print(
                     f"    0x{grp_va:08x}  {grp_size:4d}B  {stars:4s}  {grp_origin:>6s}  {grp_name}"
@@ -444,9 +502,16 @@ def main(
 
     if json_output:
         items = []
-        for i, (diff, rec_size, rec_va, rec_name, rec_origin, rec_reason, neighbor) in enumerate(
-            uncovered[:count], 1
-        ):
+        for i, (
+            diff,
+            rec_size,
+            rec_va,
+            rec_name,
+            rec_origin,
+            rec_reason,
+            neighbor,
+            sim,
+        ) in enumerate(uncovered[:count], 1):
             if neighbor:
                 suggested_file = f"{cfg.reversed_dir.name}/{neighbor}"
                 suggested_action = "append"
@@ -460,6 +525,7 @@ def main(
                     "va": f"0x{rec_va:08x}",
                     "size": rec_size,
                     "difficulty": diff,
+                    "similarity": sim,
                     "origin": rec_origin,
                     "name": rec_name,
                     "reason": rec_reason,
@@ -468,37 +534,37 @@ def main(
                     "suggested_action": suggested_action,
                 }
             )
-        print(
-            json.dumps(
-                {
-                    "mode": "recommendations",
-                    "total_uncovered": len(uncovered),
-                    "count": count,
-                    "items": items,
-                },
-                indent=2,
-            )
+        json_print(
+            {
+                "mode": "recommendations",
+                "total_uncovered": len(uncovered),
+                "count": count,
+                "items": items,
+            }
         )
         return
 
     print(f"Next {count} functions to work on (of {len(uncovered)} remaining):")
     print()
     print(
-        f"{'#':>3s}  {'VA':>12s}  {'Size':>5s}  {'Diff':>4s}  {'Origin':>6s}  {'Name':30s}  {'Reason'}"
+        f"{'#':>3s}  {'VA':>12s}  {'Size':>5s}  {'Diff':>4s}  {'Sim':>4s}  {'Origin':>6s}  {'Name':30s}  {'Reason'}"
     )
-    print(f"{'---':>3s}  {'---':>12s}  {'---':>5s}  {'---':>4s}  {'---':>6s}  {'---':30s}  {'---'}")
+    print(
+        f"{'---':>3s}  {'---':>12s}  {'---':>5s}  {'---':>4s}  {'---':>4s}  {'---':>6s}  {'---':30s}  {'---'}"
+    )
 
-    for i, (diff, rec_size, rec_va, rec_name, rec_origin, rec_reason, neighbor) in enumerate(
+    for i, (diff, rec_size, rec_va, rec_name, rec_origin, rec_reason, neighbor, sim) in enumerate(
         uncovered[:count], 1
     ):
         stars = "*" * diff
-        line = f"{i:3d}  0x{rec_va:08x}  {rec_size:4d}B  {stars:4s}  {rec_origin:>6s}  {rec_name:30s}  {rec_reason}"
+        sim_str = f"{int(sim * 100):3d}%" if sim > 0 else "    "
+        line = f"{i:3d}  0x{rec_va:08x}  {rec_size:4d}B  {stars:4s}  {sim_str:4s}  {rec_origin:>6s}  {rec_name:30s}  {rec_reason}"
         if neighbor:
             line += f"  [\u2192 {neighbor}]"
         print(line)
 
         if commands:
-            rec_cflags = (cfg.cflags_presets or {}).get(rec_origin, "/O2 /Gd")
+            rec_cflags = cfg.resolve_origin_cflags(rec_origin)
             if neighbor:
                 print(f"     GEN: rebrew skeleton 0x{rec_va:08x} --append {neighbor}")
             else:
@@ -513,6 +579,7 @@ def main(
 
 
 def main_entry() -> None:
+    """Run the Typer CLI application."""
     app()
 
 

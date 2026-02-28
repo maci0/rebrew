@@ -7,12 +7,9 @@ Inspired by reccmp's decomplint tool.
 """
 
 import contextlib
-import json as _json
 import re
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 import typer
 from rich.console import Console
@@ -37,8 +34,9 @@ from rebrew.annotation import (
     normalize_status,
     origin_from_filename,
 )
-from rebrew.cli import TargetOption, get_config
+from rebrew.cli import TargetOption, error_exit, get_config, json_print
 from rebrew.config import ProjectConfig
+from rebrew.utils import atomic_write_text
 
 out_console = Console()
 
@@ -49,23 +47,33 @@ _MARKER_TYPE_RE = re.compile(r"//\s*(\w+):")
 
 @dataclass
 class LintResult:
-    """Accumulated lint errors and warnings for a single source file."""
+    """Accumulated lint errors and warnings for a single source file.
+
+    Why a custom linter? Standard C linters don't understand our `// STATUS:` and
+    `// ORIGIN:` annotations. We need strict validation of these metadata fields
+    to ensure the CI pipeline and other tools (like `rebrew test`) can parse them.
+    """
 
     filepath: Path
     errors: list[tuple[int, str, str]] = field(default_factory=list)
     warnings: list[tuple[int, str, str]] = field(default_factory=list)
+    context_prefix: str = ""
 
     def error(self, line: int, code: str, msg: str) -> None:
-        self.errors.append((line, code, msg))
+        """Record an error diagnostic at *line*."""
+        self.errors.append((line, code, self.context_prefix + msg))
 
     def warning(self, line: int, code: str, msg: str) -> None:
-        self.warnings.append((line, code, msg))
+        """Record a warning diagnostic at *line*."""
+        self.warnings.append((line, code, self.context_prefix + msg))
 
     @property
     def passed(self) -> bool:
+        """True if no errors were recorded."""
         return len(self.errors) == 0
 
     def display(self, quiet: bool = False) -> None:
+        """Print errors (and optionally warnings) to the console."""
         rel = self.filepath.name
         for line, code, msg in self.errors:
             out_console.print(f"  [bold]{rel}[/bold]:{line}: [red]{code}[/red]: {msg}")
@@ -73,7 +81,7 @@ class LintResult:
             for line, code, msg in self.warnings:
                 out_console.print(f"  [bold]{rel}[/bold]:{line}: [yellow]{code}[/yellow]: {msg}")
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """Serialize for JSON output."""
         return {
             "file": str(self.filepath.name),
@@ -82,6 +90,87 @@ class LintResult:
             "warnings": [{"line": ln, "code": c, "message": m} for ln, c, m in self.warnings],
             "passed": self.passed,
         }
+
+
+def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[str, bool]]]:
+    """Parse ALL annotation headers from the file.
+
+    Returns a list of tuples: (found_keys, format_flags).
+    """
+    results = []
+
+    current_keys = {}
+    current_flags = {"has_new": False, "has_old": False, "has_block": False, "has_javadoc": False}
+    in_block = False
+
+    # Check for legacy formats in the first 20 lines (for compatibility with single-block legacy fixes)
+    legacy_flags = {"has_new": False, "has_old": False, "has_block": False, "has_javadoc": False}
+    legacy_keys = {}
+
+    for line in lines[:20]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if NEW_FUNC_RE.match(stripped):
+            legacy_flags["has_new"] = True
+        if OLD_RE.search(stripped):
+            legacy_flags["has_old"] = True
+        if BLOCK_FUNC_RE.match(stripped):
+            legacy_flags["has_block"] = True
+            bm = BLOCK_FUNC_CAPTURE_RE.match(stripped)
+            if bm:
+                legacy_keys["MARKER"] = bm.group("type")
+                legacy_keys["MODULE"] = bm.group("module")
+                legacy_keys["VA"] = bm.group("va")
+        bm = BLOCK_KV_RE.match(stripped)
+        if bm and legacy_flags["has_block"]:
+            legacy_keys[bm.group("key").upper()] = bm.group("value").strip()
+        if JAVADOC_ADDR_RE.match(stripped) or JAVADOC_KV_RE.match(stripped):
+            legacy_flags["has_javadoc"] = True
+
+    # If it is legacy format, just return the first block we found so `fix` can handle it
+    if not legacy_flags["has_new"] and (
+        legacy_flags["has_old"] or legacy_flags["has_block"] or legacy_flags["has_javadoc"]
+    ):
+        return [(legacy_keys, legacy_flags)]
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        if NEW_FUNC_RE.match(stripped):
+            if in_block:
+                results.append((current_keys, current_flags))
+
+            current_keys = {}
+            current_flags = {
+                "has_new": True,
+                "has_old": False,
+                "has_block": False,
+                "has_javadoc": False,
+            }
+            in_block = True
+
+            m = _HEADER_MARKER_RE.match(stripped)
+            if m:
+                current_keys["MARKER"] = m.group(1)
+                current_keys["MODULE"] = m.group(2)
+                current_keys["VA"] = m.group(3)
+            continue
+
+        m = NEW_KV_RE.match(stripped)
+        if m and in_block:
+            current_keys[m.group("key").upper()] = m.group("value").strip()
+            continue
+
+        # If we hit non-comment code while in_block, we could stop collecting keys for this block
+        # But NEW_KV_RE already strictly requires `// ` or `/* ` prefix.
+
+    if in_block:
+        results.append((current_keys, current_flags))
+
+    return results
 
 
 def _parse_header(lines: list[str]) -> tuple[dict[str, str], dict[str, bool]]:
@@ -306,7 +395,11 @@ def _check_E015_marker_consistency(
 def _check_E016_filename(result: LintResult, filepath: Path, symbol: str, marker: str) -> None:
     if symbol and marker not in ("GLOBAL", "DATA") and not filepath.stem.startswith("data_"):
         expected_stem = symbol.lstrip("_")
+        if "@" in expected_stem:
+            expected_stem = expected_stem.split("@")[0]
         actual_stem = filepath.stem
+        if "@" in actual_stem:
+            actual_stem = actual_stem.split("@")[0]
         if expected_stem and actual_stem != expected_stem:
             prefix_match = False
             for prefix in FILENAME_ORIGIN_PREFIXES:
@@ -403,20 +496,31 @@ def _check_config_rules(
             f"Module '{module}' doesn't match configured marker '{cfg.marker}'",
         )
 
-    if (
-        "CFLAGS" in found_keys
-        and hasattr(cfg, "cflags_presets")
-        and cfg.cflags_presets
-        and origin in cfg.cflags_presets
-    ):
-        expected_cflags = cfg.cflags_presets[origin]
-        actual_cflags = found_keys["CFLAGS"]
-        if actual_cflags != expected_cflags:
-            result.warning(
-                1,
-                "W008",
-                f"CFLAGS '{actual_cflags}' differ from {origin} preset '{expected_cflags}'",
-            )
+    if "CFLAGS" in found_keys:
+        expected_cflags = None
+        if (
+            hasattr(cfg, "origin_compiler")
+            and cfg.origin_compiler
+            and origin in cfg.origin_compiler
+            and "cflags" in cfg.origin_compiler[origin]
+        ):
+            expected_cflags = cfg.origin_compiler[origin]["cflags"]
+        if (
+            expected_cflags is None
+            and hasattr(cfg, "cflags_presets")
+            and cfg.cflags_presets
+            and origin in cfg.cflags_presets
+        ):
+            expected_cflags = cfg.cflags_presets[origin]
+
+        if expected_cflags is not None:
+            actual_cflags = found_keys["CFLAGS"]
+            if actual_cflags != expected_cflags:
+                result.warning(
+                    1,
+                    "W008",
+                    f"CFLAGS '{actual_cflags}' differ from {origin} preset '{expected_cflags}'",
+                )
 
 
 def _check_W016_section(result: LintResult, marker: str, found_keys: dict[str, str]) -> None:
@@ -495,42 +599,66 @@ def lint_file(
         result.error(1, "E001", "Empty file, missing FUNCTION/LIBRARY/STUB annotation")
         return result
 
-    found_keys, flags = _parse_header(lines)
+    all_headers = _parse_multi_headers(lines)
+    if not all_headers:
+        # Fallback to standard for totally broken files
+        found_keys, flags = _parse_header(lines)
+        all_headers = [(found_keys, flags)]
 
-    if not _check_format_warnings(result, found_keys, flags):
-        return result
-
-    if flags["has_new"]:
-        marker = found_keys.get("MARKER", "")
-        _check_E001_marker(result, marker)
-
+    for i, (found_keys, flags) in enumerate(all_headers):
+        # We need a context string for errors in multi-block files to know WHICH block failed.
+        mod = found_keys.get("MODULE", "")
         va_str = found_keys.get("VA", "")
-        va_int = _check_E002_va(result, va_str)
-        _check_E013_duplicate_va(result, va_int, va_str, filepath, seen_vas)
+        ctx = f"[{mod} {va_str}] " if mod and va_str else ""
 
-        if marker not in ("GLOBAL", "DATA"):
-            _check_E003_E004_status(result, found_keys)
-            _check_E005_E006_origin(result, found_keys, cfg)
-            _check_E009_cflags(result, found_keys)
-            _check_W001_symbol(result, found_keys)
-        _check_E007_E008_size(result, found_keys)
+        if len(all_headers) > 1:
+            result.context_prefix = ctx
+        else:
+            result.context_prefix = ""
 
-        origin = found_keys.get("ORIGIN", "GAME")
-        status = found_keys.get("STATUS", "")
+        if not _check_format_warnings(result, found_keys, flags):
+            continue
 
-        _check_E015_marker_consistency(result, marker, origin, status, cfg)
-        _check_W005_blocker(result, status, found_keys)
-        _check_W006_source(result, origin, found_keys, cfg)
-        _check_E010_unknown_keys(result, found_keys)
-        _check_E017_contradictory(result, status, marker)
-        _check_config_rules(result, found_keys, cfg, origin)
-        _check_E016_filename(result, filepath, found_keys.get("SYMBOL", ""), marker)
-        _check_W014_origin_prefix(result, filepath, origin, cfg)
-        _check_W015_va_case(result, found_keys.get("VA", ""))
-        _check_W016_section(result, marker, found_keys)
-        _check_W017_note_rebrew(result, found_keys)
+        if flags["has_new"]:
+            marker = found_keys.get("MARKER", "")
+            _check_E001_marker(result, marker)
 
-    _check_body_rules(result, lines, flags["has_new"])
+            va_int = _check_E002_va(result, va_str)
+
+            # Use module + va to prevent duplicate within the same target.
+            # `seen_vas` maps VA -> filepath. We just use the first block's VA for file-level dupe check,
+            # otherwise a file with 2 different modules pointing to the same VA might complain.
+            if i == 0 or (va_int and va_int not in (seen_vas or {})):
+                _check_E013_duplicate_va(result, va_int, va_str, filepath, seen_vas)
+
+            if marker not in ("GLOBAL", "DATA"):
+                _check_E003_E004_status(result, found_keys)
+                _check_E005_E006_origin(result, found_keys, cfg)
+                _check_E009_cflags(result, found_keys)
+                _check_W001_symbol(result, found_keys)
+            _check_E007_E008_size(result, found_keys)
+
+            origin = found_keys.get("ORIGIN", "GAME")
+            status = found_keys.get("STATUS", "")
+
+            _check_E015_marker_consistency(result, marker, origin, status, cfg)
+            _check_W005_blocker(result, status, found_keys)
+            _check_W006_source(result, origin, found_keys, cfg)
+            _check_E010_unknown_keys(result, found_keys)
+            _check_E017_contradictory(result, status, marker)
+            _check_config_rules(result, found_keys, cfg, origin)
+
+            # W014 and E016 shouldn't really complain for secondary blocks
+            if i == 0:
+                _check_E016_filename(result, filepath, found_keys.get("SYMBOL", ""), marker)
+                _check_W014_origin_prefix(result, filepath, origin, cfg)
+
+            _check_W015_va_case(result, va_str)
+            _check_W016_section(result, marker, found_keys)
+            _check_W017_note_rebrew(result, found_keys)
+
+    result.context_prefix = ""
+    _check_body_rules(result, lines, all_headers[0][1]["has_new"] if all_headers else False)
 
     return result
 
@@ -582,7 +710,7 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
             f"// SYMBOL: {symbol}\n"
         )
         new_text = annotation + "".join(lines[1:])
-        filepath.write_text(new_text, encoding="utf-8")
+        atomic_write_text(filepath, new_text, encoding="utf-8")
         return True
 
     # --- Try block-comment format: /* FUNCTION: SERVER 0x... */ ---
@@ -631,7 +759,7 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
                 annotation += f"// {extra_key}: {found_keys[extra_key]}\n"
 
         new_text = annotation + "".join(lines[header_end:])
-        filepath.write_text(new_text, encoding="utf-8")
+        atomic_write_text(filepath, new_text, encoding="utf-8")
         return True
 
     # --- Try javadoc format: /** ... @address 0x... */ ---
@@ -679,7 +807,7 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
                 annotation += f"// SYMBOL: {symbol}\n"
 
             new_text = annotation + "".join(lines[header_end:])
-            filepath.write_text(new_text, encoding="utf-8")
+            atomic_write_text(filepath, new_text, encoding="utf-8")
             return True
 
     return False
@@ -735,23 +863,38 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew lint                                  Lint all .c files in reversed_dir
-  rebrew lint --fix                            Auto-migrate old-format annotations
-  rebrew lint --quiet                          Errors only, suppress warnings
-  rebrew lint --json                           Machine-readable JSON output
-  rebrew lint --summary                        Show status/origin breakdown table
-  rebrew lint --files src/game/foo.c           Lint specific files only
+
+rebrew lint                                  Lint all .c files in reversed_dir
+
+rebrew lint --fix                            Auto-migrate old-format annotations
+
+rebrew lint --quiet                          Errors only, suppress warnings
+
+rebrew lint --json                           Machine-readable JSON output
+
+rebrew lint --summary                        Show status/origin breakdown table
+
+rebrew lint --files src/game/foo.c           Lint specific files only
 
 [bold]Error codes:[/bold]
-  E001   Missing FUNCTION/LIBRARY/STUB annotation
-  E002   Invalid VA format or range
-  E003   Missing STATUS annotation
-  E013   Duplicate VA across files
-  E016   Filename doesn't match SYMBOL
-  W001   Missing SYMBOL (recommended)
-  W005   STUB without BLOCKER explanation
-  W016   DATA/GLOBAL missing SECTION annotation
-  W017   NOTE contains [rebrew] sync metadata
+
+E001   Missing FUNCTION/LIBRARY/STUB annotation
+
+E002   Invalid VA format or range
+
+E003   Missing STATUS annotation
+
+E013   Duplicate VA across files
+
+E016   Filename doesn't match SYMBOL
+
+W001   Missing SYMBOL (recommended)
+
+W005   STUB without BLOCKER explanation
+
+W016   DATA/GLOBAL missing SECTION annotation
+
+W017   NOTE contains [rebrew] sync metadata
 
 [dim]Checks for reccmp-style annotations in the first 20 lines of each .c file.
 Supports old-format, block-comment, and javadoc annotation styles (--fix migrates them).[/dim]""",
@@ -786,8 +929,7 @@ def main(
 
     if fix:
         if cfg is None:
-            print("Error: --fix requires a valid rebrew.toml config", file=sys.stderr)
-            raise typer.Exit(code=1)
+            error_exit("--fix requires a valid rebrew-project.toml config")
         fixed = 0
         already_ok = 0
         for cfile in c_files:
@@ -831,7 +973,7 @@ def main(
             "warnings": warning_count,
             "files": [r.to_dict() for r in all_results if not r.passed or r.warnings],
         }
-        print(_json.dumps(output, indent=2))
+        json_print(output)
     else:
         pass_style = "green" if error_count == 0 else "red"
         err_style = "red" if error_count > 0 else ""
@@ -851,6 +993,7 @@ def main(
 
 
 def main_entry() -> None:
+    """Package entry point for ``rebrew-lint``."""
     app()
 
 

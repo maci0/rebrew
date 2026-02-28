@@ -1,12 +1,12 @@
 """Centralised project configuration loader for rebrew.
 
-Reads ``rebrew.toml`` from the project root and exposes every setting as
+Reads ``rebrew-project.toml`` from the project root and exposes every setting as
 simple attributes so that tool scripts no longer need to hardcode paths,
 image-base addresses, or compiler flags.
 
-The configuration supports **multiple targets** (similar to reccmp-project.yml).
-Each target has its own binary, source directory, and function list.  Compiler
-settings are shared across all targets.
+The configuration supports **multiple targets**.  Each target has its own
+binary, source directory, and function list.  Compiler settings are shared
+across all targets.
 
 Usage in any tool::
 
@@ -24,11 +24,13 @@ To load a specific target::
 """
 
 import os
+import shlex
 import tomllib
 import warnings as _warnings
+from copy import copy
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 # ---------------------------------------------------------------------------
 # Architecture presets
@@ -70,7 +72,7 @@ _ARCH_PRESETS: dict[str, dict[str, str | int | list[int]]] = {
 class ProjectConfig:
     """Parsed project configuration with computed paths."""
 
-    # Root directory (where rebrew.toml lives)
+    # Root directory (where rebrew-project.toml lives)
     root: Path
 
     # Target name (key under [targets])
@@ -85,7 +87,7 @@ class ProjectConfig:
     reversed_dir: Path = field(default_factory=lambda: Path())
     function_list: Path = field(default_factory=lambda: Path())
     bin_dir: Path = field(default_factory=lambda: Path())
-    marker: str = "SERVER"  # Prefix used in annotations, e.g. // FUNCTION: SERVER 0x...
+    marker: str = ""  # Prefix used in annotations, e.g. // FUNCTION: SERVER 0x... (default: target_name.upper())
     origins: list[str] = field(default_factory=list)  # Valid ORIGIN values, e.g. ["GAME", "ZLIB"]
     default_origin: str = ""  # Default ORIGIN when not specified (first origin if empty)
     origin_prefixes: dict[str, str] = field(default_factory=dict)  # origin -> filename prefix
@@ -100,6 +102,7 @@ class ProjectConfig:
     # --- compiler ---
     compiler_profile: str = "msvc6"
     compiler_command: str = "wine CL.EXE"
+    compiler_runner: str = ""
     compiler_includes: Path = field(default_factory=lambda: Path())
     compiler_libs: Path = field(default_factory=lambda: Path())
     cflags: str = ""  # Default compiler flags (from [compiler] or per-target override)
@@ -123,9 +126,12 @@ class ProjectConfig:
     cflags_presets: dict[str, str] = field(default_factory=dict)
     zlib_vas: list[int] = field(default_factory=list)
     ignored_symbols: list[str] = field(default_factory=list)
-    compiler_profiles: dict[str, dict[str, Any]] = field(
+    compiler_profiles: dict[str, dict[str, str]] = field(
         default_factory=dict
     )  # e.g. {"clang": {...}}
+    origin_compiler: dict[str, dict[str, str]] = field(
+        default_factory=dict
+    )  # Per-origin compiler overrides, e.g. {"ZLIB": {"command": "...", "cflags": "/O3"}}
     library_origins: set[str] = field(
         default_factory=set
     )  # Origins using LIBRARY marker (e.g. {"ZLIB", "MSVCRT"})
@@ -160,6 +166,52 @@ class ProjectConfig:
         """Convert VA to raw file offset using .text section constants."""
         return va - self.text_va + self.text_raw_offset
 
+    def for_origin(self, origin: str) -> "ProjectConfig":
+        """Return config with per-origin compiler overrides applied.
+
+        Looks up *origin* in ``origin_compiler`` and returns a shallow copy
+        with the matching compiler fields overridden.  Returns ``self``
+        unchanged if no overrides exist for the given origin.
+        """
+        overrides = self.origin_compiler.get(origin, {})
+        if not overrides:
+            return self
+        cfg = copy(self)
+        if "command" in overrides:
+            cfg.compiler_command = overrides["command"]
+        if "runner" in overrides:
+            cfg.compiler_runner = overrides["runner"]
+        if "includes" in overrides:
+            cfg.compiler_includes = (
+                _resolve(self.root, overrides["includes"]) or self.compiler_includes
+            )
+        if "libs" in overrides:
+            cfg.compiler_libs = _resolve(self.root, overrides["libs"]) or self.compiler_libs
+        if "cflags" in overrides:
+            cfg.cflags = overrides["cflags"]
+        if "base_cflags" in overrides:
+            cfg.base_cflags = overrides["base_cflags"]
+        if "profile" in overrides:
+            cfg.compiler_profile = overrides["profile"]
+        if "timeout" in overrides:
+            cfg.compile_timeout = int(overrides["timeout"])
+        return cfg
+
+    def resolve_origin_cflags(self, origin: str, fallback: str = "/O2 /Gd") -> str:
+        """Return effective default cflags for a given origin.
+
+        Resolution order (first non-empty wins):
+        1. ``origin_compiler[origin]["cflags"]``
+        2. ``cflags_presets[origin]``
+        3. *fallback*
+        """
+        oc = self.origin_compiler.get(origin, {})
+        if "cflags" in oc:
+            return oc["cflags"]
+        if origin in self.cflags_presets:
+            return self.cflags_presets[origin]
+        return fallback
+
     def msvc_env(self) -> dict[str, str]:
         """Return a subprocess env dict with MSVC6 VCVARS-equivalent variables.
 
@@ -167,7 +219,19 @@ class ProjectConfig:
         This is the equivalent of running ``BIN/VCVARS32.BAT x86`` before
         invoking CL.EXE under Wine.
         """
-        env = {**os.environ, "WINEDEBUG": "-all"}
+        env = {**os.environ}
+        runner = self.compiler_runner
+        if not runner:
+            try:
+                parts = shlex.split(self.compiler_command)
+            except ValueError:
+                parts = self.compiler_command.split()
+            if parts and parts[0] in {"wine", "wibo"}:
+                runner = parts[0]
+        if runner.lower() in {"wine", "wibo"}:
+            env["WINEDEBUG"] = "-all"
+        if runner:
+            env["REBREW_COMPILER_RUNNER"] = runner
 
         # Resolve paths relative to project root
         bin_dir = str(self.root / "tools" / "MSVC600" / "VC98" / "Bin")
@@ -203,46 +267,53 @@ class ProjectConfig:
             return f.read(size)
 
 
-def _parse_int_list(values: list[Any] | None, field_name: str) -> list[int]:
-    """Parse a list of hex strings / ints, skipping invalid entries with a warning."""
-    if values is None:
-        return []
+def _parse_int_list(values: object | None, field_name: str) -> list[int]:
+    """Parse a list of integers from a toml array, allowing hex strings."""
     if not isinstance(values, list):
-        _warnings.warn(
-            f"Expected list for {field_name}, got {type(values).__name__}; using empty list",
-            stacklevel=2,
-        )
+        if values is not None:
+            _warnings.warn(
+                f"Expected list for {field_name}, got {type(values).__name__}; ignoring",
+                stacklevel=2,
+            )
         return []
-    result: list[int] = []
+
+    parsed: list[int] = []
     for v in values:
-        try:
-            result.append(int(v, 16) if isinstance(v, str) else int(v))
-        except (ValueError, TypeError):
-            _warnings.warn(f"Skipping invalid {field_name} value: {v!r}", stacklevel=2)
-    return result
+        if isinstance(v, int):
+            parsed.append(v)
+        elif isinstance(v, str):
+            try:
+                parsed.append(int(v, 16) if v.startswith("0x") else int(v))
+            except ValueError:
+                _warnings.warn(f"Invalid integer '{v}' in {field_name}; ignoring", stacklevel=2)
+        else:
+            _warnings.warn(
+                f"Unexpected type {type(v).__name__} in {field_name}; ignoring", stacklevel=2
+            )
+    return parsed
 
 
-def _parse_hex_dict(mapping: dict[str, Any] | None) -> dict[int, Any]:
-    """Parse a dict with hex-string keys to int keys, skipping invalid entries."""
-    if mapping is None:
-        return {}
+def _parse_hex_dict(mapping: object | None) -> dict[int, str]:
+    """Parse a dict where keys are hex strings and values are strings."""
     if not isinstance(mapping, dict):
-        _warnings.warn(
-            f"Expected mapping for dll_exports, got {type(mapping).__name__}; using empty mapping",
-            stacklevel=2,
-        )
+        if mapping is not None:
+            _warnings.warn(
+                f"Expected mapping for hex dict, got {type(mapping).__name__}; ignoring",
+                stacklevel=2,
+            )
         return {}
-    result: dict[int, Any] = {}
+
+    result: dict[int, str] = {}
     for k, v in mapping.items():
         try:
-            key = int(k, 16) if isinstance(k, str) and k.startswith("0x") else int(k)
-            result[key] = v
-        except (ValueError, TypeError):
-            _warnings.warn(f"Skipping invalid dll_exports key: {k!r}", stacklevel=2)
+            addr = int(str(k), 16) if str(k).startswith("0x") else int(str(k))
+            result[addr] = str(v)
+        except ValueError:
+            _warnings.warn(f"Invalid hex key '{k}' in mapping; ignoring", stacklevel=2)
     return result
 
 
-def _parse_str_list(values: list[Any] | None, field_name: str) -> list[str]:
+def _parse_str_list(values: object | None, field_name: str) -> list[str]:
     if values is None:
         return []
     if not isinstance(values, list):
@@ -270,6 +341,23 @@ def _resolve(root: Path, rel: str | None) -> Path | None:
     return root / p
 
 
+def _split_compiler_runner(compiler: dict[str, object]) -> tuple[str, str]:
+    command_raw = str(compiler.get("command", "wine CL.EXE"))
+    if "runner" in compiler:
+        return str(compiler.get("runner", "")), command_raw
+
+    try:
+        parts = shlex.split(command_raw)
+    except ValueError:
+        parts = command_raw.split()
+
+    if parts and parts[0] in {"wine", "wibo"}:
+        runner = parts[0]
+        return runner, command_raw
+
+    return "", command_raw
+
+
 def _detect_binary_layout(bin_path: Path, fmt: str = "auto") -> dict[str, int]:
     """Read image base and .text section from binary headers.
 
@@ -290,7 +378,7 @@ def _detect_binary_layout(bin_path: Path, fmt: str = "auto") -> dict[str, int]:
 
 
 def _find_root(start: Path | None = None) -> Path:
-    """Walk up from *start* (or cwd) to find rebrew.toml.
+    """Walk up from *start* (or cwd) to find rebrew-project.toml.
 
     Since rebrew is an installable package, __file__ may point into
     site-packages rather than the project directory.  We therefore
@@ -301,12 +389,12 @@ def _find_root(start: Path | None = None) -> Path:
         return start
     candidate = Path.cwd().resolve()
     while candidate != candidate.parent:
-        if (candidate / "rebrew.toml").exists():
+        if (candidate / "rebrew-project.toml").exists():
             return candidate
         candidate = candidate.parent
     raise FileNotFoundError(
-        "Could not find rebrew.toml in any parent of the current directory. "
-        "Run rebrew commands from within a project that contains rebrew.toml."
+        "Could not find rebrew-project.toml in any parent of the current directory. "
+        "Run rebrew commands from within a project that contains rebrew-project.toml."
     )
 
 
@@ -314,17 +402,15 @@ def load_config(
     root: Path | None = None,
     target: str | None = None,
 ) -> ProjectConfig:
-    """Load rebrew.toml.
+    """Load rebrew-project.toml.
 
     Args:
         root: Project root directory.  Auto-detected if ``None``.
         target: Name of the target to load (key under ``[targets]``).
                 Defaults to the first target defined in the file.
-                For backward compatibility, a single ``[target]`` section
-                is also recognised as a legacy format.
     """
     root = _find_root(root)
-    toml_path = root / "rebrew.toml"
+    toml_path = root / "rebrew-project.toml"
     if not toml_path.exists():
         raise FileNotFoundError(f"Config not found: {toml_path}")
 
@@ -332,9 +418,7 @@ def load_config(
         raw = tomllib.load(f)
 
     # --- Validate known keys to catch typos ---
-    # Top-level sections: "targets" (multi-target), "target" (legacy single),
-    # "compiler" (global defaults), "sources" (legacy layout), "project" (meta).
-    _KNOWN_TOP_KEYS = {"targets", "target", "compiler", "sources", "project"}
+    _KNOWN_TOP_KEYS = {"targets", "compiler", "project"}
 
     # Per-target keys: binary location, architecture, format, annotation marker,
     # per-origin compile flags, known symbol sets for filtering, and the
@@ -364,22 +448,20 @@ def load_config(
         "source_ext",
     }
 
-    # Global compiler keys: profile selection, invocation command, include/lib
-    # paths, default flags, always-on base_cflags, and subprocess timeout.
     _KNOWN_COMPILER_KEYS = {
         "command",
+        "runner",
         "includes",
         "libs",
         "cflags",
         "profile",
-        "preset",
         "cflags_presets",
         "profiles",
+        "origins",
         "base_cflags",
         "timeout",
     }
 
-    # Project-level keys: project name, default parallelism, output dirs.
     _KNOWN_PROJECT_KEYS = {
         "name",
         "jobs",
@@ -390,7 +472,7 @@ def load_config(
     unknown_top = set(raw) - _KNOWN_TOP_KEYS
     if unknown_top:
         _warnings.warn(
-            f"rebrew.toml: unrecognized top-level keys: {unknown_top}",
+            f"rebrew-project.toml: unrecognized top-level keys: {unknown_top}",
             stacklevel=2,
         )
     for sec_name, known_keys in (
@@ -402,76 +484,127 @@ def load_config(
             unknown_sec = set(sec) - known_keys
             if unknown_sec:
                 _warnings.warn(
-                    f"rebrew.toml [{sec_name}]: unrecognized keys: {unknown_sec}",
+                    f"rebrew-project.toml [{sec_name}]: unrecognized keys: {unknown_sec}",
                     stacklevel=2,
                 )
+    _KNOWN_ORIGIN_COMPILER_KEYS = {
+        "command",
+        "runner",
+        "includes",
+        "libs",
+        "cflags",
+        "profile",
+        "base_cflags",
+        "timeout",
+    }
+
     for tgt_name, tgt_data in raw.get("targets", {}).items():
         if isinstance(tgt_data, dict):
             unknown_tgt = set(tgt_data) - _KNOWN_TARGET_KEYS
             if unknown_tgt:
                 _warnings.warn(
-                    f"rebrew.toml [targets.{tgt_name}]: unrecognized keys: {unknown_tgt}",
+                    f"rebrew-project.toml [targets.{tgt_name}]: unrecognized keys: {unknown_tgt}",
                     stacklevel=2,
                 )
 
-    # --- Resolve target section (multi-target or legacy) ---
+    for scope, origins_dict in (
+        ("compiler", raw.get("compiler", {}).get("origins", {})),
+        *(
+            (
+                f"targets.{tn}.compiler",
+                raw.get("targets", {}).get(tn, {}).get("compiler", {}).get("origins", {}),
+            )
+            for tn in raw.get("targets", {})
+        ),
+    ):
+        if isinstance(origins_dict, dict):
+            for origin_name, origin_vals in origins_dict.items():
+                if isinstance(origin_vals, dict):
+                    unknown_origin = set(origin_vals) - _KNOWN_ORIGIN_COMPILER_KEYS
+                    if unknown_origin:
+                        _warnings.warn(
+                            f"rebrew-project.toml [{scope}.origins.{origin_name}]: "
+                            f"unrecognized keys: {unknown_origin}",
+                            stacklevel=2,
+                        )
+
     targets_dict = raw.get("targets", {})
+    if not targets_dict:
+        raise KeyError("rebrew-project.toml has no [targets] section")
     all_target_names = [k for k in targets_dict if isinstance(k, str)]
 
-    # Global compiler defaults — support both flat [compiler] and nested [compiler.preset]
     global_compiler_raw = raw.get("compiler", {})
     global_compiler = {
         k: v
         for k, v in global_compiler_raw.items()
-        if k not in ("cflags_presets", "profiles", "preset")
+        if k not in ("cflags_presets", "profiles", "origins")
     }
-    # Backward compat: merge [compiler.preset] into top-level
-    if "preset" in global_compiler_raw:
-        global_compiler = {**global_compiler, **global_compiler_raw["preset"]}
 
-    # Compiler profiles (e.g. [compiler.profiles.clang])
     compiler_profiles = global_compiler_raw.get("profiles", {})
-    # Backward compat: [compiler.profile."clang"] (old key)
-    if not compiler_profiles:
-        compiler_profiles = global_compiler_raw.get("profile", {})
-        # Filter out string values (the "profile" key may hold the profile name)
-        if isinstance(compiler_profiles, str):
-            compiler_profiles = {}
+    global_origins = global_compiler_raw.get("origins", {})
 
-    if targets_dict:
-        # Multi-target format: [targets.<name>]
-        if target is None:
-            target = all_target_names[0]
-        if target not in targets_dict:
-            raise KeyError(
-                f"Target '{target}' not found in rebrew.toml.  "
-                f"Available targets: {all_target_names}"
-            )
-        tgt = targets_dict[target]
-        # Merge target compiler overrides — support both flat and nested .preset
-        target_compiler = tgt.get("compiler", {})
-        if "preset" in target_compiler:
-            target_compiler = {**target_compiler, **target_compiler["preset"]}
-        compiler = {**global_compiler, **target_compiler}
-        sources = tgt
-    elif "target" in raw:
-        # Legacy single-target format: [target] + [sources]
-        tgt = raw["target"]
-        sources = raw.get("sources", {})
-        target = tgt.get("binary", "default").replace("/", "_").replace(".", "_")
-        all_target_names = [target]
-        compiler = global_compiler
-    else:
-        raise KeyError("rebrew.toml has no [targets] or [target] section")
+    if target is None:
+        target = all_target_names[0]
+    if target not in targets_dict:
+        raise KeyError(
+            f"Target '{target}' not found in rebrew-project.toml.  Available targets: {all_target_names}"
+        )
+    tgt = targets_dict[target]
+    target_compiler_raw = tgt.get("compiler", {})
+    target_compiler = {k: v for k, v in target_compiler_raw.items() if k not in ("origins",)}
+    target_origins = target_compiler_raw.get("origins", {})
+    compiler = {**global_compiler, **target_compiler}
+    compiler_runner, compiler_command = _split_compiler_runner(compiler)
+
+    # Merge per-origin compiler overrides: global → per-target
+    merged_origin_compiler: dict[str, dict[str, str]] = {}
+    for origin_key in set(global_origins) | set(target_origins):
+        merged_values = {
+            **global_origins.get(origin_key, {}),
+            **target_origins.get(origin_key, {}),
+        }
+        origin_runner, origin_command = _split_compiler_runner(merged_values)
+        if "runner" not in merged_values and origin_runner:
+            merged_values["runner"] = origin_runner
+            merged_values["command"] = origin_command
+        merged_origin_compiler[origin_key] = {str(k): str(v) for k, v in merged_values.items()}
+    sources = tgt
+
+    # --- Validate value types for known fields ---
+    _KNOWN_FORMATS = {"pe", "elf", "macho"}
+    _KNOWN_PROFILES = {"msvc6", "msvc7", "gcc", "clang"}
+
+    fmt_val = tgt.get("format", "pe")
+    if fmt_val not in _KNOWN_FORMATS:
+        _warnings.warn(
+            f"rebrew-project.toml [targets.{target}]: unknown format '{fmt_val}' "
+            f"(known: {', '.join(sorted(_KNOWN_FORMATS))})",
+            stacklevel=2,
+        )
 
     arch_name = cast(str, tgt.get("arch", "x86_32"))
+    if arch_name not in _ARCH_PRESETS:
+        _warnings.warn(
+            f"rebrew-project.toml [targets.{target}]: unknown arch '{arch_name}' "
+            f"(known: {', '.join(sorted(_ARCH_PRESETS))}); falling back to x86_32",
+            stacklevel=2,
+        )
+
+    profile_val = compiler.get("profile", "msvc6")
+    if profile_val not in _KNOWN_PROFILES:
+        _warnings.warn(
+            f"rebrew-project.toml [compiler]: unknown profile '{profile_val}' "
+            f"(known: {', '.join(sorted(_KNOWN_PROFILES))})",
+            stacklevel=2,
+        )
+
     arch_preset = _ARCH_PRESETS.get(arch_name, _ARCH_PRESETS["x86_32"])
     bin_rel = tgt.get("binary")
     if bin_rel is None:
-        raise KeyError(f"Target '{target}' in rebrew.toml is missing 'binary' path")
+        raise KeyError(f"Target '{target}' in rebrew-project.toml is missing 'binary' path")
     resolved_bin = _resolve(root, bin_rel)
     if resolved_bin is None:
-        raise KeyError(f"Target '{target}' in rebrew.toml has invalid 'binary' path")
+        raise KeyError(f"Target '{target}' in rebrew-project.toml has invalid 'binary' path")
     bin_path: Path = resolved_bin
 
     project_raw = raw.get("project", {})
@@ -481,9 +614,9 @@ def load_config(
 
     resolved_function_list = _resolve(
         root,
-        sources.get("function_list", f"src/{target}/r2_functions.txt"),
+        sources.get("function_list", f"src/{target}/functions.txt"),
     )
-    function_list: Path = resolved_function_list or (root / f"src/{target}/r2_functions.txt")
+    function_list: Path = resolved_function_list or (root / f"src/{target}/functions.txt")
 
     resolved_bin_dir = _resolve(root, sources.get("bin_dir", f"bin/{target}"))
     bin_dir: Path = resolved_bin_dir or (root / f"bin/{target}")
@@ -515,11 +648,11 @@ def load_config(
         target_binary=bin_path,
         binary_format=tgt.get("format", "pe"),
         arch=arch_name,
-        # sources (from target section in multi-target, or [sources] in legacy)
+        # sources
         reversed_dir=reversed_dir,
         function_list=function_list,
         bin_dir=bin_dir,
-        marker=tgt.get("marker", "SERVER"),
+        marker=tgt.get("marker", target.upper()),
         origins=_parse_str_list(tgt.get("origins", []), "origins"),
         default_origin=tgt.get("default_origin", ""),
         origin_prefixes=tgt.get("origin_prefixes", {}),
@@ -531,7 +664,8 @@ def load_config(
         output_dir=output_dir,
         # compiler
         compiler_profile=compiler.get("profile", "msvc6"),
-        compiler_command=compiler.get("command", "wine CL.EXE"),
+        compiler_command=compiler_command,
+        compiler_runner=compiler_runner,
         compiler_includes=compiler_includes,
         compiler_libs=compiler_libs,
         cflags=compiler.get("cflags", ""),
@@ -549,6 +683,7 @@ def load_config(
         zlib_vas=_parse_int_list(tgt.get("zlib_vas", []), "zlib_vas"),
         ignored_symbols=_parse_str_list(tgt.get("ignored_symbols", []), "ignored_symbols"),
         compiler_profiles=compiler_profiles,
+        origin_compiler=merged_origin_compiler,
         library_origins=set(_parse_str_list(tgt.get("library_origins", []), "library_origins")),
         origin_comments=tgt.get("origin_comments", {}),
         origin_todos=tgt.get("origin_todos", {}),

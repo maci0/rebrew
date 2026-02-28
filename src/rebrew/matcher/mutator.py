@@ -285,15 +285,19 @@ def _sub_once(
 
 
 def mut_commute_simple_add(s: str, rng: random.Random) -> str | None:
+    """Swap operands of simple identifier addition expressions."""
     # x + y  -> y + x  (identifiers only)
     return _sub_once(_RE_COMMUTE_ADD, lambda m: f"{m.group(2)} + {m.group(1)}", s, rng)
 
 
 def mut_commute_simple_mul(s: str, rng: random.Random) -> str | None:
+    """Swap operands of simple identifier multiplication expressions."""
     return _sub_once(_RE_COMMUTE_MUL, lambda m: f"{m.group(2)} * {m.group(1)}", s, rng)
 
 
 def mut_flip_eq_zero(s: str, rng: random.Random) -> str | None:
+    """Rewrite ``x == 0``/``x != 0`` into boolean-not forms."""
+
     # x == 0 -> !x , x != 0 -> !!x
     def repl(m: re.Match[str]) -> str:
         x, op = m.group(1), m.group(2)
@@ -303,11 +307,13 @@ def mut_flip_eq_zero(s: str, rng: random.Random) -> str | None:
 
 
 def mut_flip_lt_ge(s: str, rng: random.Random) -> str | None:
+    """Rewrite ``a < b`` into the equivalent negated ``>=`` form."""
     # a < b -> !(a >= b)
     return _sub_once(_RE_FLIP_LT_GE, lambda m: f"!({m.group(1)} >= {m.group(2)})", s, rng)
 
 
 def mut_add_redundant_parens(s: str, rng: random.Random) -> str | None:
+    """Wrap a random non-keyword identifier in redundant parentheses."""
     matches = [m for m in _RE_ADD_PARENS.finditer(s) if m.group(1) not in _C_KEYWORDS]
     if not matches:
         return None
@@ -316,6 +322,7 @@ def mut_add_redundant_parens(s: str, rng: random.Random) -> str | None:
 
 
 def mut_reassociate_add(s: str, rng: random.Random) -> str | None:
+    """Reassociate ``(a + b) + c`` into ``a + (b + c)``."""
     # (a + b) + c -> a + (b + c)
     return _sub_once(
         _RE_REASSOCIATE, lambda m: f"{m.group(1)} + ({m.group(2)} + {m.group(3)})", s, rng
@@ -323,6 +330,7 @@ def mut_reassociate_add(s: str, rng: random.Random) -> str | None:
 
 
 def mut_insert_noop_block(s: str, rng: random.Random) -> str | None:
+    """Insert a no-op volatile block at a random line boundary."""
     # Insert a no-op volatile read, tends to affect optimization, use sparingly.
     insertion = "\n    { volatile int __noop = 0; (void)__noop; }\n"
     lines = s.splitlines(True)
@@ -333,6 +341,7 @@ def mut_insert_noop_block(s: str, rng: random.Random) -> str | None:
 
 
 def mut_toggle_bool_not(s: str, rng: random.Random) -> str | None:
+    """Remove one ``!!identifier`` sequence."""
     # !!x -> x, and x -> !!x for identifiers in boolean contexts is unsafe.
     # Here only remove !! on identifiers.
     return _sub_once(_RE_DOUBLE_NOT, lambda m: f"{m.group(1)}", s, rng)
@@ -1396,6 +1405,7 @@ def mutate_code(
     preamble, body = _split_preamble_body(source)
 
     # Build weighted selection list
+    weights: list[float] | None = None
     if mutation_weights:
         weights = [mutation_weights.get(m.__name__, 1.0) for m in ALL_MUTATIONS]
         # Fall back to uniform if all weights are zero

@@ -7,6 +7,7 @@ struct definitions to Ghidra's Data Type Manager.
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 
 def extract_structs_from_file(filepath: Path) -> Iterator[str]:
@@ -27,7 +28,7 @@ def extract_structs_from_file(filepath: Path) -> Iterator[str]:
 
     tree = parser.parse(code_bytes)
 
-    def walk(node):
+    def walk(node: Any) -> Iterator[str]:
         if node.type == "type_definition":
             text = code_bytes[node.start_byte : node.end_byte]
             if b"struct" in text and b"{" in text:

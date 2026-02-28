@@ -2,11 +2,17 @@
 
 Reads annotations from decomp C source files and generates Ghidra script
 commands to rename functions, add comments, and set bookmarks via ReVa MCP.
+Also provides pull operations for fetching prototypes, structs, and comments
+from Ghidra back into local source files.
 
 Usage:
     rebrew sync --export    Export annotations to ghidra_commands.json
     rebrew sync --summary   Show what would be synced
     rebrew sync --apply     Apply ghidra_commands.json to Ghidra via ReVa MCP
+    rebrew sync --pull      Pull function names from Ghidra
+    rebrew sync --pull-signatures  Pull prototypes from Ghidra
+    rebrew sync --pull-structs     Pull struct definitions into types.h
+    rebrew sync --pull-comments    Pull analysis comments into source files
 
 The exported JSON can be consumed by automation that calls ReVa MCP tools:
   - create-function: define functions at annotated VAs (before labeling)
@@ -15,21 +21,25 @@ The exported JSON can be consumed by automation that calls ReVa MCP tools:
   - set-bookmark: bookmark matched functions for tracking
 """
 
+import contextlib
 import json
 import re
 import sys
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import typer
+from rich.console import Console
 
+from rebrew.annotation import update_annotation_key
 from rebrew.catalog import (
     build_function_registry,
-    parse_r2_functions,
+    parse_function_list,
     scan_reversed_dir,
 )
-from rebrew.cli import TargetOption, get_config
+from rebrew.cli import TargetOption, error_exit, get_config, iter_sources, json_print
 
 # Pattern matching generic auto-names that shouldn't overwrite Ghidra renames
 _GENERIC_NAME_RE = re.compile(r"^(func_|FUN_)[0-9a-fA-F]+$")
@@ -326,12 +336,37 @@ def _parse_va(va_raw: Any) -> int | None:
         return None
 
 
+def _parse_sse_response(text: str) -> Any:
+    """Extract JSON-RPC result from an SSE (text/event-stream) response body."""
+    for line in text.splitlines():
+        if line.startswith("data: "):
+            try:
+                return json.loads(line[6:])
+            except json.JSONDecodeError:
+                continue
+        elif line.startswith("data:"):
+            try:
+                return json.loads(line[5:])
+            except json.JSONDecodeError:
+                continue
+    return None
+
+
+_MCP_HEADERS = {
+    "Content-Type": "application/json",
+    "Accept": "application/json, text/event-stream",
+}
+
+console = Console()
+
+
 def _fetch_mcp_tool(
     client: Any,
     endpoint: str,
     tool_name: str,
     arguments: dict[str, Any],
     request_id: int,
+    session_id: str = "",
 ) -> list[Any]:
     """Call a ReVa MCP tool and return parsed JSON list from text content."""
     payload = {
@@ -340,18 +375,123 @@ def _fetch_mcp_tool(
         "method": "tools/call",
         "params": {"name": tool_name, "arguments": arguments},
     }
-    resp = client.post(endpoint, json=payload)
+    headers = dict(_MCP_HEADERS)
+    if session_id:
+        headers["Mcp-Session-Id"] = session_id
+    resp = client.post(endpoint, json=payload, headers=headers)
     if resp.status_code != 200:
         return []
-    data = resp.json()
+    ct = resp.headers.get("content-type", "")
+    if "text/event-stream" in ct:
+        data = _parse_sse_response(resp.text)
+    else:
+        text = resp.text.strip()
+        if not text:
+            return []
+        try:
+            data = resp.json()
+        except (ValueError, UnicodeDecodeError):
+            return []
+    if not data:
+        return []
     if "result" in data and "content" in data["result"]:
-        for item in data["result"]["content"]:
-            if item.get("type") == "text":
-                try:
-                    return json.loads(item["text"])
-                except json.JSONDecodeError:
-                    pass
+        items = data["result"]["content"]
+        text_items = [it for it in items if it.get("type") == "text"]
+        if not text_items:
+            return []
+        # Multiple text items: each is a separate JSON object
+        if len(text_items) > 1:
+            objects = []
+            for it in text_items:
+                with contextlib.suppress(json.JSONDecodeError):
+                    objects.append(json.loads(it["text"]))
+            return objects
+        # Single text item
+        raw = text_items[0]["text"]
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return parsed
+            return [parsed]
+        except json.JSONDecodeError:
+            pass
     return []
+
+
+def _fetch_mcp_tool_raw(
+    client: Any,
+    endpoint: str,
+    tool_name: str,
+    arguments: dict[str, Any],
+    request_id: int,
+    session_id: str = "",
+) -> Any:
+    """Call a ReVa MCP tool and return parsed JSON result (raw, not list-wrapped).
+
+    Unlike ``_fetch_mcp_tool`` which always returns ``list[Any]``, this returns
+    the parsed value directly — dict, list, str, or None on failure.  Used by
+    the extended pull operations (prototypes, structs, comments).
+    """
+    payload = {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": "tools/call",
+        "params": {"name": tool_name, "arguments": arguments},
+    }
+    headers = dict(_MCP_HEADERS)
+    if session_id:
+        headers["Mcp-Session-Id"] = session_id
+    resp = client.post(endpoint, json=payload, headers=headers)
+    if resp.status_code != 200:
+        return None
+    ct = resp.headers.get("content-type", "")
+    if "text/event-stream" in ct:
+        data = _parse_sse_response(resp.text)
+    else:
+        text = resp.text.strip()
+        if not text:
+            return None
+        try:
+            data = resp.json()
+        except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
+            return None
+    if not data:
+        return None
+    if "result" in data and "content" in data["result"]:
+        items = data["result"]["content"]
+        text_items = [it for it in items if it.get("type") == "text"]
+        if not text_items:
+            return None
+        # Single text item: return parsed JSON directly
+        if len(text_items) == 1:
+            raw = text_items[0]["text"]
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError:
+                return raw
+        # Multiple text items: parse each as JSON, collect into list
+        objects = []
+        for it in text_items:
+            with contextlib.suppress(json.JSONDecodeError):
+                objects.append(json.loads(it["text"]))
+        return objects if objects else None
+    return None
+
+
+def _init_mcp_session(client: Any, endpoint: str) -> str:
+    """Initialize an MCP session and return the session ID."""
+    init_payload = {
+        "jsonrpc": "2.0",
+        "id": 0,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-03-26",
+            "capabilities": {},
+            "clientInfo": {"name": "rebrew sync", "version": "1.0.0"},
+        },
+    }
+    resp = client.post(endpoint, json=init_payload, headers=_MCP_HEADERS)
+    return resp.headers.get("Mcp-Session-Id", "")
 
 
 @dataclass
@@ -367,6 +507,7 @@ class PullChange:
     reason: str = ""
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize to a plain dict for JSON output."""
         d: dict[str, Any] = {
             "va": f"0x{self.va:08x}",
             "field": self.field,
@@ -390,6 +531,7 @@ class PullResult:
     conflicts: int = 0
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize to a plain dict for JSON output."""
         return {
             "updated": self.updated,
             "skipped": self.skipped,
@@ -405,7 +547,36 @@ def _is_meaningful_name(name: str) -> bool:
         or name.startswith("FUN_")
         or name.startswith("DAT_")
         or name.startswith("switchdata")
+        or name.startswith("thunk_")
     )
+
+
+def _ghidra_name_to_symbol(ghidra_name: str, entry: object, cfg: object = None) -> str:
+    """Convert a Ghidra function name to a C symbol name based on calling convention and config."""
+    if not ghidra_name:
+        return ""
+    if ghidra_name.startswith("_"):
+        return ghidra_name
+
+    if cfg is not None and getattr(cfg, "symbol_prefix", None) == "_":
+        return "_" + ghidra_name
+
+    # Try attribute access first, then dict access
+    symbol = getattr(entry, "symbol", None) if hasattr(entry, "symbol") else None
+    if symbol is None and isinstance(entry, dict):
+        symbol = entry.get("symbol")
+
+    cflags = getattr(entry, "cflags", None) if hasattr(entry, "cflags") else None
+    if cflags is None and isinstance(entry, dict):
+        cflags = entry.get("cflags")
+
+    if symbol and str(symbol).startswith("_") and not str(symbol).startswith("_thunk"):
+        return "_" + ghidra_name
+
+    if cflags and "/Gz" in str(cflags):
+        return ghidra_name
+
+    return "_" + ghidra_name
 
 
 def pull_ghidra_renames(
@@ -415,6 +586,9 @@ def pull_ghidra_renames(
     program_path: str = "",
     dry_run: bool = False,
     json_output: bool = False,
+    accept_ghidra: bool = False,
+    accept_local: bool = False,
+    filter_origin: str | None = None,
 ) -> PullResult:
     """Pull function and data names from Ghidra and update local .c files.
 
@@ -426,11 +600,9 @@ def pull_ghidra_renames(
     try:
         import httpx
     except ImportError:
-        print(
-            "ERROR: httpx is required for --pull. Install with: uv pip install httpx",
-            file=sys.stderr,
+        error_exit(
+            "httpx is required for --pull. Install with: uv pip install httpx",
         )
-        raise typer.Exit(code=1)
 
     if not dry_run:
         print("Fetching function, data, and comment lists from Ghidra via ReVa MCP...")
@@ -450,8 +622,10 @@ def pull_ghidra_renames(
                 "clientInfo": {"name": "rebrew sync", "version": "1.0.0"},
             },
         }
+        session_id = ""
         try:
-            client.post(endpoint, json=init_payload)
+            init_resp = client.post(endpoint, json=init_payload, headers=_MCP_HEADERS)
+            session_id = init_resp.headers.get("Mcp-Session-Id", "")
 
             functions = _fetch_mcp_tool(
                 client,
@@ -459,6 +633,7 @@ def pull_ghidra_renames(
                 "get-functions",
                 {"programPath": program_path, "filterDefaultNames": False},
                 1,
+                session_id=session_id,
             )
             data_labels = _fetch_mcp_tool(
                 client,
@@ -466,6 +641,7 @@ def pull_ghidra_renames(
                 "get-labels",
                 {"programPath": program_path, "filterDefaultNames": False},
                 2,
+                session_id=session_id,
             )
             plate_comments = _fetch_mcp_tool(
                 client,
@@ -473,6 +649,7 @@ def pull_ghidra_renames(
                 "get-comments",
                 {"programPath": program_path, "commentType": "plate"},
                 3,
+                session_id=session_id,
             )
             pre_comments = _fetch_mcp_tool(
                 client,
@@ -480,6 +657,7 @@ def pull_ghidra_renames(
                 "get-comments",
                 {"programPath": program_path, "commentType": "pre"},
                 4,
+                session_id=session_id,
             )
         except httpx.RequestError as e:
             print(f"Warning: Could not connect to ReVa MCP ({e}).", file=sys.stderr)
@@ -539,20 +717,17 @@ def pull_ghidra_renames(
         if va is not None and comment and not comment.startswith("[rebrew]"):
             ghidra_comments_by_va.setdefault(va, comment.strip())
 
-    from pathlib import Path
-
-    from rebrew.annotation import update_annotation_key
     from rebrew.data import scan_data_annotations
 
     all_entries = list(entries)
     all_entries.extend(scan_data_annotations(cfg.reversed_dir, cfg=cfg))
 
-    for e in all_entries:
-        va = _parse_va(e["va"])
+    for entry in all_entries:
+        va = _parse_va(entry["va"])
         if va is None:
             continue
 
-        filepath = Path(e["filepath"])
+        filepath = Path(entry["filepath"])
         if not filepath.exists() and not filepath.is_absolute():
             filepath = cfg.reversed_dir / filepath
         if not filepath.exists():
@@ -560,42 +735,109 @@ def pull_ghidra_renames(
 
         ghidra_name = ghidra_names_by_va.get(va)
         if ghidra_name and _is_meaningful_name(ghidra_name):
-            local_name = e.get("symbol") or e.get("name") or f"func_{va:08x}"
-            if local_name != ghidra_name:
+            local_name = entry.get("symbol") or entry.get("name") or f"func_{va:08x}"
+            ghidra_as_symbol = _ghidra_name_to_symbol(ghidra_name, entry, cfg)
+            if local_name != ghidra_as_symbol:
                 local_is_meaningful = _is_meaningful_name(local_name)
-                if local_is_meaningful and local_name.lstrip("_") != ghidra_name.lstrip("_"):
-                    change = PullChange(
-                        va=va,
-                        field="SYMBOL",
-                        local_value=local_name,
-                        ghidra_value=ghidra_name,
-                        filepath=str(filepath.name),
-                        action="conflict",
-                        reason="both local and Ghidra have meaningful names",
-                    )
-                    result.changes.append(change)
-                    result.conflicts += 1
-                    if not json_output:
-                        print(f"  CONFLICT 0x{va:08x}: local={local_name} vs ghidra={ghidra_name}")
-                    continue
+                skip_name_update = False
 
-                if dry_run:
-                    change = PullChange(
-                        va=va,
-                        field="SYMBOL",
-                        local_value=local_name,
-                        ghidra_value=ghidra_name,
-                        filepath=str(filepath.name),
-                        action="update",
-                    )
-                    result.changes.append(change)
-                    result.updated += 1
-                    if not json_output:
-                        print(f"  Would update 0x{va:08x}: {local_name} -> {ghidra_name}")
-                else:
-                    if not json_output:
-                        print(f"  Updating VA 0x{va:08x}: {local_name} -> {ghidra_name}")
-                    if update_annotation_key(filepath, va, "SYMBOL", ghidra_name):
+                if local_name.lstrip("_") == ghidra_name.lstrip("_"):
+                    skip_name_update = True
+
+                if filter_origin and entry.get("origin") != filter_origin:
+                    skip_name_update = True
+
+                if (
+                    not skip_name_update
+                    and local_is_meaningful
+                    and local_name.lstrip("_") != ghidra_name.lstrip("_")
+                ):
+                    if accept_ghidra:
+                        pass  # proceed with updating to ghidra_name
+                    elif accept_local:
+                        if not dry_run:
+                            update_annotation_key(filepath, va, "GHIDRA", ghidra_name)
+                        change = PullChange(
+                            va=va,
+                            field="GHIDRA",
+                            local_value=local_name,
+                            ghidra_value=ghidra_name,
+                            filepath=str(filepath.name),
+                            action="update (keep local)",
+                            reason="user chose --accept-local",
+                        )
+                        result.changes.append(change)
+                        result.updated += 1
+                        if not json_output:
+                            print(
+                                f"  Added GHIDRA: {ghidra_name} for 0x{va:08x} (kept {local_name})"
+                            )
+                        skip_name_update = True
+                    else:
+                        # Existing GHIDRA annotation?
+                        existing_ghidra = entry.get("ghidra", "")
+                        if existing_ghidra == ghidra_name:
+                            skip_name_update = True  # we already tracked this conflict
+                        else:
+                            change = PullChange(
+                                va=va,
+                                field="SYMBOL",
+                                local_value=local_name,
+                                ghidra_value=ghidra_name,
+                                filepath=str(filepath.name),
+                                action="conflict",
+                                reason="both local and Ghidra have meaningful names",
+                            )
+                            result.changes.append(change)
+                            result.conflicts += 1
+                            if not json_output:
+                                print(
+                                    f"  CONFLICT 0x{va:08x}: local={local_name} vs ghidra={ghidra_name}"
+                                )
+                            skip_name_update = True
+
+                if not skip_name_update:
+                    if dry_run:
+                        change = PullChange(
+                            va=va,
+                            field="SYMBOL",
+                            local_value=local_name,
+                            ghidra_value=ghidra_name,
+                            filepath=str(filepath.name),
+                            action="update",
+                        )
+                        result.changes.append(change)
+                        result.updated += 1
+                        if not json_output:
+                            print(f"  Would update 0x{va:08x}: {local_name} -> {ghidra_name}")
+                    else:
+                        if not json_output:
+                            print(f"  Updating VA 0x{va:08x}: {local_name} -> {ghidra_name}")
+
+                        if entry.get("marker_type", "FUNCTION") == "FUNCTION":
+                            from rebrew.rename import rename_function_everywhere
+
+                            old_name = entry.get("name", "")
+                            old_sym = entry.get("symbol", "")
+                            if not old_sym:
+                                old_sym = old_name
+                            target_func = ghidra_name.lstrip("_")
+                            target_sym = ghidra_as_symbol
+
+                            rename_function_everywhere(
+                                cfg=cfg,
+                                filepath=filepath,
+                                va=va,
+                                old_name=old_name,
+                                old_sym=old_sym,
+                                target_func=target_func,
+                                target_sym=target_sym,
+                                rename_file=True,
+                                dry_run=dry_run,
+                            )
+                        else:
+                            update_annotation_key(filepath, va, "SYMBOL", ghidra_name)
+
                         change = PullChange(
                             va=va,
                             field="SYMBOL",
@@ -607,21 +849,9 @@ def pull_ghidra_renames(
                         result.changes.append(change)
                         result.updated += 1
 
-                        if e.get("marker_type", "FUNCTION") == "FUNCTION":
-                            old_stem = filepath.stem
-                            if old_stem in (local_name, f"func_{va:08x}"):
-                                new_filepath = filepath.with_name(f"{ghidra_name}{filepath.suffix}")
-                                if not new_filepath.exists():
-                                    filepath.rename(new_filepath)
-                                    if not json_output:
-                                        print(
-                                            f"    Renamed: {old_stem}{filepath.suffix}"
-                                            f" -> {new_filepath.name}"
-                                        )
-
         ghidra_comment = ghidra_comments_by_va.get(va)
         if ghidra_comment:
-            local_note = e.get("note", "")
+            local_note = entry.get("note", "")
             if local_note != ghidra_comment:
                 sanitized = ghidra_comment.replace("\n", " ")
                 if dry_run:
@@ -653,7 +883,7 @@ def pull_ghidra_renames(
                             print(f"  Updated NOTE at 0x{va:08x}")
 
     if json_output:
-        print(json.dumps(result.to_dict(), indent=2))
+        json_print(result.to_dict())
     elif result.updated == 0 and result.conflicts == 0:
         print("No new data to pull from Ghidra.")
     else:
@@ -679,11 +909,9 @@ def apply_commands_via_mcp(
     try:
         import httpx
     except ImportError:
-        print(
-            "ERROR: httpx is required for --apply. Install with: uv pip install httpx",
-            file=sys.stderr,
+        error_exit(
+            "httpx is required for --apply. Install with: uv pip install httpx",
         )
-        raise typer.Exit(code=1)
 
     success = 0
     errors = 0
@@ -712,8 +940,7 @@ def apply_commands_via_mcp(
             )
             resp.raise_for_status()
         except httpx.HTTPError as exc:
-            print(f"ERROR: Failed to initialize MCP session: {exc}", file=sys.stderr)
-            raise typer.Exit(code=1)
+            error_exit(f"Failed to initialize MCP session: {exc}")
 
         # Extract session ID from response header
         session_id = resp.headers.get("mcp-session-id", "")
@@ -773,7 +1000,22 @@ def apply_commands_via_mcp(
             try:
                 resp = client.post(endpoint, json=payload, headers=headers)
                 resp.raise_for_status()
-                data = resp.json()
+                body = resp.text.strip()
+                if not body:
+                    success += 1
+                    continue
+                ct = resp.headers.get("content-type", "")
+                if "text/event-stream" in ct:
+                    data = _parse_sse_response(body)
+                else:
+                    try:
+                        data = resp.json()
+                    except (ValueError, UnicodeDecodeError):
+                        success += 1
+                        continue
+                if not data:
+                    success += 1
+                    continue
                 if "error" in data:
                     errors += 1
                     va = cmd["args"].get("addressOrSymbol", cmd["args"].get("address", "?"))
@@ -809,7 +1051,7 @@ def build_size_sync_commands(
     program_path: str,
     iat_thunks: set[int] | None = None,
 ) -> list[dict[str, Any]]:
-    """Generate commands to expand function boundaries in Ghidra where r2 > ghidra."""
+    """Generate commands to expand function boundaries in Ghidra where list > ghidra."""
     commands: list[dict[str, Any]] = []
     thunk_set = iat_thunks or set()
 
@@ -849,7 +1091,7 @@ def build_new_function_commands(
     program_path: str,
     iat_thunks: set[int] | None = None,
 ) -> list[dict[str, Any]]:
-    """Generate create-function commands for functions r2 found but Ghidra missed."""
+    """Generate create-function commands for functions list found but Ghidra missed."""
     commands: list[dict[str, Any]] = []
     thunk_set = iat_thunks or set()
 
@@ -857,7 +1099,7 @@ def build_new_function_commands(
         if va in thunk_set:
             continue
         detected = entry.get("detected_by", [])
-        if "r2" in detected and "ghidra" not in detected:
+        if "list" in detected and "ghidra" not in detected:
             canonical = entry.get("canonical_size", 0)
             if canonical <= 0:
                 continue
@@ -870,8 +1112,8 @@ def build_new_function_commands(
                         "address": va_hex,
                     },
                     "_meta": {
-                        "reason": "r2 only (not in Ghidra)",
-                        "r2_size": entry.get("size_by_tool", {}).get("r2", 0),
+                        "reason": "list only (not in Ghidra)",
+                        "list_size": entry.get("size_by_tool", {}).get("list", 0),
                     },
                 }
             )
@@ -879,37 +1121,446 @@ def build_new_function_commands(
     return commands
 
 
+def _pull_prototypes(
+    entries: list[Any],
+    cfg: Any,
+    endpoint: str,
+    program_path: str,
+    dry_run: bool,
+    replace_externs: bool = False,
+) -> None:
+    """Pull function prototypes from Ghidra and update local files.
+
+    When replace_externs is False (default), only writes // PROTOTYPE: annotations.
+    When True, also replaces extern declarations across the project (WARNING: Ghidra
+    types like uint/byte/undefined are not valid C89/MSVC6 — use with caution).
+    """
+    import httpx
+
+    console.print("Pulling function prototypes from Ghidra...")
+
+    with httpx.Client(timeout=30.0) as client:
+        try:
+            session_id = _init_mcp_session(client, endpoint)
+        except httpx.RequestError as e:
+            console.print(f"[red]Error connecting to MCP: {e}[/red]")
+            return
+
+        updated_count = 0
+
+        # Paginate through all functions (default page size is 100)
+        all_funcs: list[Any] = []
+        start_index = 0
+        page_size = 200
+        request_id = 1
+        while True:
+            page = _fetch_mcp_tool_raw(
+                client,
+                endpoint,
+                "get-functions",
+                {
+                    "programPath": program_path,
+                    "filterDefaultNames": False,
+                    "verbose": True,
+                    "maxCount": page_size,
+                    "startIndex": start_index,
+                },
+                request_id,
+                session_id=session_id,
+            )
+            if not isinstance(page, list) or not page:
+                break
+            # First item is the header with pagination metadata
+            header = (
+                page[0] if page and isinstance(page[0], dict) and "totalCount" in page[0] else None
+            )
+            func_items = page[1:] if header else page
+            all_funcs.extend(func_items)
+            if header:
+                total = header.get("totalCount", 0)
+                next_idx = header.get("nextStartIndex", 0)
+                if next_idx <= start_index or len(all_funcs) >= total:
+                    break
+                start_index = next_idx
+                request_id += 1
+            else:
+                break
+
+        console.print(f"  Fetched {len(all_funcs)} functions from Ghidra")
+
+        ghidra_sigs: dict[int, str] = {}
+        for f in all_funcs:
+            va_str = f.get("address") or f.get("va")
+            if va_str:
+                try:
+                    va = int(va_str, 16) if isinstance(va_str, str) else int(va_str)
+                    if "signature" in f:
+                        ghidra_sigs[va] = f["signature"]
+                except ValueError:
+                    pass
+
+        for entry in entries:
+            marker = entry.get("marker_type", "FUNCTION")
+            if marker != "FUNCTION":
+                continue
+            va = entry.get("va")
+            if not va:
+                continue
+
+            sig = ghidra_sigs.get(va)
+            if not sig:
+                # Fallback to get-decompilation if signature isn't in get-functions
+                res = _fetch_mcp_tool_raw(
+                    client,
+                    endpoint,
+                    "get-decompilation",
+                    {
+                        "programPath": program_path,
+                        "functionNameOrAddress": f"0x{va:x}",
+                        "signatureOnly": True,
+                    },
+                    va,
+                    session_id=session_id,
+                )
+                if isinstance(res, str):
+                    sig = res.strip()
+                elif isinstance(res, dict) and "signature" in res:
+                    sig = res["signature"]
+                elif isinstance(res, dict) and "decompilation" in res:
+                    sig = res["decompilation"]
+
+            if sig:
+                # Clean up the signature string
+                sig = sig.replace("\n", " ").strip()
+                if sig.endswith(";"):
+                    sig = sig[:-1].strip()
+
+                local_proto = entry.get("prototype", "")
+                if local_proto != sig:
+                    fp = cfg.reversed_dir / entry.get("filepath", "")
+                    if not fp.exists():
+                        continue
+
+                    if not dry_run:
+                        update_annotation_key(fp, va, "PROTOTYPE", sig)
+
+                        if replace_externs:
+                            # Replace externs across the project
+                            # WARNING: Ghidra types (uint, byte, undefined) are not valid C89
+                            sym = entry.get("symbol") or entry.get("name")
+                            actual_name = sym.lstrip("_") if sym.startswith("_") else sym
+
+                            # Build the new extern statement
+                            extern_str = f"extern {sig};"
+
+                            for src_file in iter_sources(cfg.reversed_dir, cfg):
+                                try:
+                                    content = src_file.read_text(encoding="utf-8")
+                                    # Regex to match existing extern for this function
+                                    # extern <type> <name>(...);
+                                    pattern = (
+                                        r"extern\s+[^;]+?\b"
+                                        + re.escape(actual_name)
+                                        + r"\s*\([^;]*\)\s*;"
+                                    )
+                                    new_content = re.sub(pattern, extern_str, content)
+                                    if new_content != content:
+                                        src_file.write_text(new_content, encoding="utf-8")
+                                except OSError:
+                                    pass
+
+                    console.print(f"  [green]Updated prototype[/green] 0x{va:x}: {sig}")
+                    updated_count += 1
+
+        console.print(f"Successfully pulled {updated_count} prototypes.")
+
+
+def _pull_structs(cfg: Any, endpoint: str, program_path: str, dry_run: bool) -> None:
+    """Pull struct definitions from Ghidra into types.h using list-structures + get-structure-info."""
+    import httpx
+
+    console.print("Pulling struct definitions from Ghidra...")
+
+    with httpx.Client(timeout=30.0) as client:
+        try:
+            session_id = _init_mcp_session(client, endpoint)
+        except httpx.RequestError as e:
+            console.print(f"[red]Error connecting to MCP: {e}[/red]")
+            return
+
+        structs_list = _fetch_mcp_tool_raw(
+            client,
+            endpoint,
+            "list-structures",
+            {"programPath": program_path},
+            1,
+            session_id=session_id,
+        )
+        if not isinstance(structs_list, (list, dict)):
+            console.print("[yellow]No structures found in Ghidra.[/yellow]")
+            return
+
+        struct_names: list[str] = []
+        if isinstance(structs_list, list):
+            for s in structs_list:
+                name = s.get("name") if isinstance(s, dict) else str(s)
+                if name:
+                    struct_names.append(name)
+        elif isinstance(structs_list, dict):
+            for name in structs_list.get("structures", structs_list.get("names", [])):
+                if isinstance(name, dict):
+                    struct_names.append(name.get("name", ""))
+                else:
+                    struct_names.append(str(name))
+
+        if not struct_names:
+            text = str(structs_list)
+            console.print(
+                f"[yellow]list-structures returned data but no names extracted: {text[:200]}[/yellow]"
+            )
+            return
+
+        header_lines = [
+            "/* Auto-generated from Ghidra via rebrew sync --pull-structs */",
+            f"/* {len(struct_names)} structures exported */",
+            "",
+            "#ifndef TYPES_H",
+            "#define TYPES_H",
+            "",
+            "typedef unsigned char uint8_t;",
+            "typedef unsigned short uint16_t;",
+            "typedef unsigned int uint32_t;",
+            "",
+        ]
+
+        exported = 0
+        for i, name in enumerate(struct_names):
+            if not name or name.startswith("_") and name.count("_") > 2:
+                continue
+
+            info = _fetch_mcp_tool_raw(
+                client,
+                endpoint,
+                "get-structure-info",
+                {"programPath": program_path, "structureName": name},
+                100 + i,
+                session_id=session_id,
+            )
+            if not info:
+                continue
+
+            c_def = None
+            if isinstance(info, dict):
+                c_def = (
+                    info.get("cDefinition") or info.get("c_definition") or info.get("definition")
+                )
+                if not c_def:
+                    fields = info.get("fields", [])
+                    if fields:
+                        size = info.get("size", "?")
+                        header_lines.append(f"/* size: {size} */")
+                        header_lines.append(f"typedef struct {name} {{")
+                        for field_info in fields:
+                            if isinstance(field_info, dict):
+                                fname = field_info.get(
+                                    "name", field_info.get("fieldName", "unknown")
+                                )
+                                ftype = field_info.get("dataType", field_info.get("type", "int"))
+                                foffset = field_info.get("offset", "")
+                                offset_comment = (
+                                    f"  /* offset 0x{foffset:x} */"
+                                    if isinstance(foffset, int)
+                                    else ""
+                                )
+                                header_lines.append(f"    {ftype} {fname};{offset_comment}")
+                            else:
+                                header_lines.append(f"    /* {field_info} */")
+                        header_lines.append(f"}} {name};")
+                        header_lines.append("")
+                        exported += 1
+                        continue
+            elif isinstance(info, str):
+                c_def = info
+
+            if c_def:
+                header_lines.append(c_def.rstrip())
+                header_lines.append("")
+                exported += 1
+
+        header_lines.append("#endif /* TYPES_H */")
+        header_lines.append("")
+
+        if exported > 0:
+            out_file = cfg.reversed_dir / "types.h"
+            header_text = "\n".join(header_lines)
+            if not dry_run:
+                out_file.write_text(header_text, encoding="utf-8")
+            console.print(f"[green]Exported {exported} structures to {out_file}[/green]")
+        else:
+            console.print("[yellow]No exportable structures found.[/yellow]")
+
+
+def _pull_comments(
+    entries: list[Any], cfg: Any, endpoint: str, program_path: str, dry_run: bool
+) -> None:
+    """Pull Ghidra analysis comments into source files."""
+    import httpx
+
+    console.print("Pulling comments from Ghidra...")
+
+    # Determine address range from entries
+    vas = [e.get("va") for e in entries if e.get("va")]
+    if not vas:
+        console.print("[yellow]No entries with VAs to pull comments for.[/yellow]")
+        return
+    min_va = min(vas)
+    max_va = max(vas)
+    # Extend range slightly to capture end-of-function comments
+    addr_range = {"start": f"0x{min_va:x}", "end": f"0x{max_va + 0x10000:x}"}
+
+    with httpx.Client(timeout=60.0) as client:
+        try:
+            session_id = _init_mcp_session(client, endpoint)
+        except httpx.RequestError as e:
+            console.print(f"[red]Error connecting to MCP: {e}[/red]")
+            return
+
+        result = _fetch_mcp_tool_raw(
+            client,
+            endpoint,
+            "get-comments",
+            {
+                "programPath": program_path,
+                "addressRange": addr_range,
+                "commentTypes": ["eol", "pre", "post"],
+            },
+            1,
+            session_id=session_id,
+        )
+
+        # Response is {"comments": [...]} dict or a list
+        all_comments: list[Any] = []
+        if isinstance(result, dict):
+            all_comments = result.get("comments", [])
+        elif isinstance(result, list):
+            for item in result:
+                if isinstance(item, dict) and "comments" in item:
+                    all_comments.extend(item["comments"])
+                elif isinstance(item, dict) and "address" in item:
+                    all_comments.append(item)
+
+        if not all_comments:
+            console.print("[yellow]No comments found in Ghidra.[/yellow]")
+            return
+
+        # Group comments by VA, skip rebrew-generated ones
+        comments_by_va: dict[int, list[str]] = {}
+        for c in all_comments:
+            va_raw = c.get("address")
+            comment = c.get("comment", "")
+            if not va_raw or not comment:
+                continue
+            if comment.startswith("[rebrew]"):
+                continue
+            try:
+                va = int(va_raw, 16) if isinstance(va_raw, str) else int(va_raw)
+                comments_by_va.setdefault(va, []).append(comment)
+            except ValueError:
+                pass
+
+        # Build VA→entry lookup for matching comments to functions
+        # A comment belongs to a function if its VA falls within [func_va, func_va + size)
+        entry_ranges = []
+        for entry in entries:
+            va = entry.get("va")
+            size = entry.get("size", 0)
+            if va and size:
+                entry_ranges.append((va, va + size, entry))
+        entry_ranges.sort(key=lambda x: x[0])
+
+        updated_count = 0
+        matched_entries: dict[int, list[str]] = {}
+
+        for comment_va, comment_list in comments_by_va.items():
+            # Find which function this comment belongs to
+            for start, end, entry in entry_ranges:
+                if start <= comment_va < end:
+                    entry_va = entry.get("va")
+                    matched_entries.setdefault(entry_va, []).extend(comment_list)
+                    break
+
+        for entry_va, comment_list in matched_entries.items():
+            entry = next((e for e in entries if e.get("va") == entry_va), None)
+            if not entry:
+                continue
+
+            fp = cfg.reversed_dir / entry.get("filepath", "")
+            if not fp.exists():
+                continue
+
+            combined_comments = " | ".join(c.replace("\n", " ") for c in comment_list if c)
+            if not combined_comments:
+                continue
+
+            if not dry_run:
+                update_annotation_key(fp, entry_va, "ANALYSIS", combined_comments)
+            console.print(
+                f"  [green]Pulled comment[/green] for 0x{entry_va:x}: {combined_comments[:80]}..."
+            )
+            updated_count += 1
+
+        console.print(f"Successfully pulled comments for {updated_count} functions.")
+
+
 app = typer.Typer(
     help="Sync annotations between decomp C files and Ghidra.",
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew sync --summary                  Show what would be synced (dry run)
-  rebrew sync --push                     Export + apply labels/comments to Ghidra
-  rebrew sync --push --dry-run           Preview push without applying
-  rebrew sync --pull                     Fetch Ghidra renames/comments into local files
-  rebrew sync --pull --dry-run           Preview pull without modifying files
-  rebrew sync --pull --json              Pull with structured JSON output
-  rebrew sync --export                   Generate ghidra_commands.json only
-  rebrew sync --apply                    Apply ghidra_commands.json via ReVa MCP
+
+rebrew sync --summary                  Show what would be synced (dry run)
+
+rebrew sync --push                     Export + apply labels/comments to Ghidra
+
+rebrew sync --push --dry-run           Preview push without applying
+
+rebrew sync --pull                     Fetch Ghidra renames/comments into local files
+
+rebrew sync --pull --dry-run           Preview pull without modifying files
+
+rebrew sync --pull --json              Pull with structured JSON output
+
+rebrew sync --export                   Generate ghidra_commands.json only
+
+rebrew sync --apply                    Apply ghidra_commands.json via ReVa MCP
 
 [bold]Typical workflow:[/bold]
-  1. rebrew sync --pull --dry-run         Preview incoming changes from Ghidra
-  2. rebrew sync --pull                   Apply Ghidra renames/comments locally
-  3. rebrew sync --summary               Preview outgoing changes to Ghidra
-  4. rebrew sync --push                   Push annotations to Ghidra
+
+1. rebrew sync --pull --dry-run         Preview incoming changes from Ghidra
+
+2. rebrew sync --pull                   Apply Ghidra renames/comments locally
+
+3. rebrew sync --summary               Preview outgoing changes to Ghidra
+
+4. rebrew sync --push                   Push annotations to Ghidra
 
 [bold]What it syncs:[/bold]
-  [bold]Push →[/bold] labels, plate comments, pre-comments (NOTE), bookmarks,
-         struct definitions (/rebrew DTM category), function prototypes,
-         DATA/GLOBAL labels, function sizes, new functions
-  [bold]Pull ←[/bold] function renames, data label names, plate/pre comments (as NOTE)
+
+[bold]Push →[/bold] labels, plate comments, pre-comments (NOTE), bookmarks,
+struct definitions (/rebrew DTM category), function prototypes,
+DATA/GLOBAL labels, function sizes, new functions
+
+[bold]Pull ←[/bold] function renames, data label names, plate/pre comments (as NOTE)
 
 [bold]Safety:[/bold]
-  - Generic names (FUN_/DAT_/func_/switchdata) are never overwritten
-  - Conflicts (both sides have meaningful names) are reported, not overwritten
-  - [rebrew] plate comments are never pulled back (our own metadata)
-  - Use --dry-run to preview any operation before applying
+
+- Generic names (FUN_/DAT_/func_/switchdata) are never overwritten
+
+- Conflicts (both sides have meaningful names) are reported, not overwritten
+
+- [rebrew] plate comments are never pulled back (our own metadata)
+
+- Use --dry-run to preview any operation before applying
 
 [dim]Requires Ghidra + ReVa extension running for MCP operations.
 Falls back to local JSON caches (ghidra_functions.json, ghidra_data_labels.json) when offline.[/dim]""",
@@ -954,6 +1605,26 @@ def main(
     pull: bool = typer.Option(
         False, "--pull", help="Pull function names from Ghidra and update local files"
     ),
+    accept_ghidra: bool = typer.Option(
+        False,
+        "--accept-ghidra",
+        help="Accept Ghidra names for all conflicts (with cross-ref updates)",
+    ),
+    accept_local: bool = typer.Option(
+        False, "--accept-local", help="Keep local names for all conflicts (adds // GHIDRA:)"
+    ),
+    filter_origin: str = typer.Option(
+        None, "--origin", help="Only apply pull updates to this origin (e.g. MSVCRT)"
+    ),
+    pull_signatures: bool = typer.Option(
+        False, "--pull-signatures", help="Pull function prototypes from Ghidra and update externs"
+    ),
+    pull_structs: bool = typer.Option(
+        False, "--pull-structs", help="Pull struct definitions from Ghidra into types.h"
+    ),
+    pull_comments: bool = typer.Option(
+        False, "--pull-comments", help="Pull Ghidra analysis comments into source files"
+    ),
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
@@ -964,9 +1635,19 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Sync annotation data between decomp C files and Ghidra."""
-    if not (summary or export or apply or push or pull or sync_sizes or sync_new_functions):
-        print("No action specified. Use --summary, --export, --apply, --push, or --pull.")
-        raise typer.Exit(code=1)
+    if not (
+        summary
+        or export
+        or apply
+        or push
+        or pull
+        or sync_sizes
+        or sync_new_functions
+        or pull_signatures
+        or pull_structs
+        or pull_comments
+    ):
+        error_exit("No action specified. Use --summary, --export, --apply, --push, or --pull.")
 
     cfg = get_config(target=target)
     reversed_dir = cfg.reversed_dir
@@ -975,17 +1656,32 @@ def main(
     entries_raw = scan_reversed_dir(reversed_dir, cfg=cfg)
     entries: list[dict[str, Any]] = [e if isinstance(e, dict) else e.to_dict() for e in entries_raw]
 
-    if pull:
-        pull_result = pull_ghidra_renames(
-            entries,
-            cfg,
-            endpoint,
-            program_path,
-            dry_run=dry_run,
-            json_output=json_output,
-        )
-        if pull_result.conflicts > 0 and not dry_run:
-            raise typer.Exit(code=1)
+    if pull or pull_signatures or pull_structs or pull_comments:
+        if pull:
+            pull_result = pull_ghidra_renames(
+                entries,
+                cfg,
+                endpoint,
+                program_path,
+                dry_run=dry_run,
+                json_output=json_output,
+                accept_ghidra=accept_ghidra,
+                accept_local=accept_local,
+                filter_origin=filter_origin,
+            )
+            if pull_result.conflicts > 0 and not dry_run:
+                print(
+                    "Conflicts detected during name pull. Continuing with other pull operations if any."
+                )
+
+        if pull_signatures or pull_structs or pull_comments:
+            if pull_signatures:
+                _pull_prototypes(entries, cfg, endpoint, program_path, dry_run)
+            if pull_structs:
+                _pull_structs(cfg, endpoint, program_path, dry_run)
+            if pull_comments:
+                _pull_comments(entries, cfg, endpoint, program_path, dry_run)
+
         return
 
     by_va: dict[int, list[dict[str, Any]]] = {}
@@ -1005,8 +1701,6 @@ def main(
     signatures: list[dict[str, str]] | None = None
 
     if sync_structs or sync_signatures:
-        from rebrew.cli import iter_sources
-
         if sync_structs and (summary or export or push):
             from rebrew.struct_parser import extract_structs_from_file
 
@@ -1069,24 +1763,21 @@ def main(
         sigs_op = [o for o in ops if o["tool"] == "set-function-prototype"]
 
         if json_output:
-            print(
-                json.dumps(
-                    {
-                        "entries": len(entries),
-                        "unique_vas": len(by_va),
-                        "by_origin": {k: len(v) for k, v in sorted(by_origin.items())},
-                        "operations": {
-                            "create_function": len(create_fns),
-                            "create_label": len(labels),
-                            "set_comment": len(comments),
-                            "set_bookmark": len(bookmarks),
-                            "parse_c_structure": len(structs_op),
-                            "set_function_prototype": len(sigs_op),
-                            "total": len(ops),
-                        },
+            json_print(
+                {
+                    "entries": len(entries),
+                    "unique_vas": len(by_va),
+                    "by_origin": {k: len(v) for k, v in sorted(by_origin.items())},
+                    "operations": {
+                        "create_function": len(create_fns),
+                        "create_label": len(labels),
+                        "set_comment": len(comments),
+                        "set_bookmark": len(bookmarks),
+                        "parse_c_structure": len(structs_op),
+                        "set_function_prototype": len(sigs_op),
+                        "total": len(ops),
                     },
-                    indent=2,
-                )
+                }
             )
         else:
             print(f"Annotations: {len(entries)} entries, {len(by_va)} unique VAs")
@@ -1119,14 +1810,12 @@ def main(
             return
         cmds_path = cfg.root / "ghidra_commands.json"
         if not cmds_path.exists():
-            print(f"ERROR: {cmds_path} not found. Run --export first.", file=sys.stderr)
-            raise typer.Exit(code=1)
+            error_exit(f"{cmds_path} not found. Run --export first.")
         try:
             with cmds_path.open(encoding="utf-8") as f:
                 commands = json.load(f)
         except (json.JSONDecodeError, OSError) as exc:
-            print(f"ERROR: Failed to read {cmds_path}: {exc}", file=sys.stderr)
-            raise typer.Exit(code=1)
+            error_exit(f"Failed to read {cmds_path}: {exc}")
         print(f"Applying {len(commands)} operations to Ghidra via {endpoint}...")
         ok, errs = apply_commands_via_mcp(commands, endpoint=endpoint)
         print(f"Done: {ok} succeeded, {errs} failed")
@@ -1134,13 +1823,13 @@ def main(
             raise typer.Exit(code=1)
 
     if sync_sizes or sync_new_functions:
-        # Build registry to compare r2 vs ghidra sizes
-        r2_path = reversed_dir / "r2_functions.txt"
+        # Build registry to compare function list vs ghidra sizes
+        func_list_path = cfg.function_list
         ghidra_json_path = reversed_dir / "ghidra_functions.json"
         bin_path = cfg.target_binary
 
-        r2_funcs = parse_r2_functions(r2_path)
-        registry = build_function_registry(r2_funcs, cfg, ghidra_json_path, bin_path)
+        funcs = parse_function_list(func_list_path)
+        registry = build_function_registry(funcs, cfg, ghidra_json_path, bin_path)
 
         all_cmds: list[dict[str, Any]] = []
 
@@ -1158,10 +1847,10 @@ def main(
 
         if sync_new_functions:
             new_cmds = build_new_function_commands(registry, program_path, iat_thunk_set)
-            print(f"New functions: {len(new_cmds)} r2-only functions to create in Ghidra")
+            print(f"New functions: {len(new_cmds)} list-only functions to create in Ghidra")
             for cmd in new_cmds:
                 meta = cmd.pop("_meta", {})
-                print(f"  {cmd['args']['address']}: r2 size {meta.get('r2_size', '?')}")
+                print(f"  {cmd['args']['address']}: list size {meta.get('list_size', '?')}")
             all_cmds.extend(new_cmds)
 
         if all_cmds:
@@ -1179,6 +1868,7 @@ def main(
 
 
 def main_entry() -> None:
+    """Package entry point for ``rebrew-sync``."""
     app()
 
 

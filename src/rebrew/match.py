@@ -9,23 +9,24 @@ Usage:
 """
 
 import hashlib
-import json
 import random
+import shlex
 import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any
 
 import rich
 import typer
 
 from rebrew.annotation import parse_c_file, parse_source_metadata
-from rebrew.cli import TargetOption, get_config
+from rebrew.cli import TargetOption, error_exit, get_config, json_print, parse_va
+from rebrew.compile import resolve_cl_command
 from rebrew.matcher import (
     BuildCache,
     BuildResult,
+    StructuralSimilarity,
     build_candidate,
     build_candidate_obj_only,
     compute_population_diversity,
@@ -34,26 +35,47 @@ from rebrew.matcher import (
     flag_sweep,
     mutate_code,
     score_candidate,
+    structural_similarity,
 )
 from rebrew.matcher.mutator import quick_validate
+from rebrew.utils import atomic_write_text
 
 
-def classify_blockers(diff_summary: dict[str, Any]) -> list[str]:
+def _print_structural_similarity(sim: StructuralSimilarity) -> None:
+    verdict = "flag sweep MAY help" if sim.flag_sensitive else "flags unlikely to help"
+    print(f"\nStructural similarity ({verdict}):")
+    print(
+        f"  Instructions: {sim.exact} exact, {sim.reloc_only} reloc, "
+        f"{sim.register_only} register, {sim.structural} structural "
+        f"(of {sim.total_insns} total)"
+    )
+    print(
+        f"  Mnemonic match: {sim.mnemonic_match_ratio:.1%}  |  "
+        f"Structural ratio: {sim.structural_ratio:.1%}"
+    )
+
+
+def classify_blockers(diff_summary: dict[str, object]) -> list[str]:
     """Auto-classify MATCHING blockers from structural diffs.
 
     Looks for patterns in mismatched (** / RR) lines to identify systemic
     compiler differences like register allocation, loop rotation, etc.
     """
     blockers = set()
-    insns = diff_summary.get("instructions", [])
+    insns_raw = diff_summary.get("instructions", [])
+    insns = insns_raw if isinstance(insns_raw, list) else []
 
     for row in insns:
+        if not isinstance(row, dict):
+            continue
         match_char = row.get("match")
         if match_char not in ("**", "RR"):
             continue
 
-        t = row.get("target") or {}
-        c = row.get("candidate") or {}
+        t_obj = row.get("target") or {}
+        c_obj = row.get("candidate") or {}
+        t = t_obj if isinstance(t_obj, dict) else {}
+        c = c_obj if isinstance(c_obj, dict) else {}
         t_asm = t.get("disasm", "")
         c_asm = c.get("disasm", "")
 
@@ -121,6 +143,7 @@ class BinaryMatchingGA:
         ldflags: str | None = None,
         env: dict[str, str] | None = None,
     ) -> None:
+        """Initialize the GA engine with seed source, target bytes, and compiler settings."""
         self.seed_source = seed_source
         self.target_bytes = target_bytes
         self.cl_cmd = cl_cmd
@@ -175,14 +198,11 @@ class BinaryMatchingGA:
                 src, self.cl_cmd, self.inc_dir, self.cflags, self.symbol, env=self.env
             )
         else:
-            if not self.link_cmd or not self.lib_dir or not self.ldflags:
-                raise ValueError(
-                    "LINK.EXE, lib dir, and ldflags must be set when compare_obj is False"
-                )
+            if not self.lib_dir or not self.ldflags:
+                raise ValueError("lib dir and ldflags must be set when compare_obj is False")
             res = build_candidate(
                 src,
                 self.cl_cmd,
-                self.link_cmd,
                 self.inc_dir,
                 self.lib_dir,
                 self.cflags,
@@ -241,7 +261,7 @@ class BinaryMatchingGA:
                 self.best_score = best_score
                 self.best_source = best_src
                 self.stagnant_gens = 0
-                (self.out_dir / "best.c").write_text(best_src, encoding="utf-8")
+                atomic_write_text(self.out_dir / "best.c", best_src, encoding="utf-8")
             else:
                 self.stagnant_gens += 1
 
@@ -284,27 +304,41 @@ class BinaryMatchingGA:
 
 _EPILOG = """\
 [bold]Modes:[/bold]
-  rebrew match src/f.c --diff-only               Show byte diff vs target
-  rebrew match src/f.c --diff-only --mm          Show only structural diffs (**)
-  rebrew match src/f.c --flag-sweep-only          Find best compiler flags
-  rebrew match src/f.c                            Full GA matching run
+
+rebrew match src/f.c --diff-only               Show byte diff vs target
+
+rebrew match src/f.c --diff-only --mm          Show only structural diffs (**)
+
+rebrew match src/f.c --flag-sweep-only          Find best compiler flags
+
+rebrew match src/f.c                            Full GA matching run
 
 [bold]Examples:[/bold]
-  rebrew match src/game/my_func.c --diff-only
-  rebrew match src/game/my_func.c --flag-sweep-only --tier quick
-  rebrew match src/game/my_func.c --generations 200 --pop-size 48 -j 8
-  rebrew match src/game/my_func.c --seed 42       Reproducible GA run
-  rebrew match src/f.c --diff-only --json          JSON structured diff
+
+rebrew match src/game/my_func.c --diff-only
+
+rebrew match src/game/my_func.c --flag-sweep-only --tier quick
+
+rebrew match src/game/my_func.c --generations 200 --pop-size 48 -j 8
+
+rebrew match src/game/my_func.c --seed 42       Reproducible GA run
+
+rebrew match src/f.c --diff-only --json          JSON structured diff
 
 [bold]Flag sweep tiers:[/bold]
-  quick      ~192 combos     Fast iteration
-  targeted   ~1.1K combos    Codegen-altering flags only (/Oy, /Op)
-  normal     ~21K combos     Default sweep
-  thorough   ~1M combos      Deep search
-  full       ~8.3M combos    Exhaustive (needs sampling)
+
+quick      ~192 combos     Fast iteration
+
+targeted   ~1.1K combos    Codegen-altering flags only (/Oy, /Op)
+
+normal     ~21K combos     Default sweep
+
+thorough   ~1M combos      Deep search
+
+full       ~8.3M combos    Exhaustive (needs sampling)
 
 [dim]Auto-reads VA, SIZE, SYMBOL, and CFLAGS from source annotations.
-Requires rebrew.toml with valid compiler paths.[/dim]"""
+Requires rebrew-project.toml with valid compiler paths.[/dim]"""
 
 app = typer.Typer(
     help="GA engine for binary matching (diff, flag-sweep, GA).",
@@ -316,8 +350,8 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def main(
     seed_c: str = typer.Argument(..., help="Seed source file (.c)"),
-    cl: str | None = typer.Option(None, help="CL.EXE command (auto from rebrew.toml)"),
-    inc: str | None = typer.Option(None, help="Include dir (auto from rebrew.toml)"),
+    cl: str | None = typer.Option(None, help="CL.EXE command (auto from rebrew-project.toml)"),
+    inc: str | None = typer.Option(None, help="Include dir (auto from rebrew-project.toml)"),
     cflags: str | None = typer.Option(None, help="Compiler flags (auto from source)"),
     symbol: str | None = typer.Option(None, help="Symbol to match (auto from source)"),
     target_va: str | None = typer.Option(None, help="Target VA hex (auto from source)"),
@@ -354,21 +388,68 @@ def main(
     force: bool = typer.Option(
         False, "--force", help="Continue even if annotation lint errors exist"
     ),
-    json_output: bool = typer.Option(
-        False, "--json", help="Output results as JSON (only with --diff-only)"
+    diff_format: str = typer.Option(
+        "terminal",
+        "--diff-format",
+        help="Output format for --diff-only: terminal, json, csv",
     ),
     seed: int | None = typer.Option(None, "--seed", help="RNG seed for reproducible GA runs"),
 ) -> None:
     """Genetic Algorithm engine for binary matching."""
-    # Auto-fill from rebrew.toml config
-    cfg = get_config(target=target)
-    msvc_env = cfg.msvc_env()
-    cl = cl or cfg.compiler_command
-    inc = inc or str(cfg.compiler_includes)
+    if diff_format not in ("terminal", "json", "csv"):
+        error_exit("--diff-format must be 'terminal', 'json', or 'csv'")
 
-    # Resolve relative paths to absolute using project root so they work
-    # from temp directories used by build_candidate_obj_only
-    cl_parts = cl.split()
+    json_output = diff_format == "json"
+    csv_output = diff_format == "csv"
+
+    # Auto-fill from rebrew-project.toml config
+    cfg = get_config(target=target)
+
+    # Build name -> VA map for relocation validation
+    name_to_va: dict[str, int] = {}
+    try:
+        from rebrew.data import scan_globals
+
+        scan = scan_globals(cfg.reversed_dir, cfg)
+        for entry in scan.data_annotations:
+            name = entry.get("name", "")
+            va_int = entry.get("va")
+            if isinstance(name, str) and isinstance(va_int, int) and name:
+                name_to_va[name] = va_int
+        for name, glob in scan.globals.items():
+            if glob.va:
+                name_to_va[name] = glob.va
+    except (OSError, AttributeError, KeyError, ValueError):
+        pass
+    anno = parse_c_file(Path(seed_c), target_name=cfg.marker if cfg else None)
+    if anno:
+        eval_errs, eval_warns = anno.validate()
+        if not json_output:
+            for e in eval_errs:
+                rich.print(f"[bold red]LINT ERROR:[/bold red] {e}")
+            for w in eval_warns:
+                rich.print(f"[bold yellow]LINT WARNING:[/bold yellow] {w}")
+        if eval_errs and not force:
+            if json_output:
+                error_exit("Annotation lint errors", json_mode=True)
+            else:
+                error_exit(
+                    "Aborting due to annotation errors. Fix them or use --force to override."
+                )
+
+    meta = parse_source_metadata(seed_c)
+
+    origin = meta.get("ORIGIN", "")
+    compile_cfg = cfg.for_origin(origin)
+    msvc_env = compile_cfg.msvc_env()
+    if cl is None or (compile_cfg.compiler_runner and cl == compile_cfg.compiler_command):
+        cl = " ".join(resolve_cl_command(compile_cfg))
+    inc = inc or str(compile_cfg.compiler_includes)
+
+    try:
+        cl_parts = shlex.split(cl)
+    except ValueError:
+        cl_parts = cl.split()
     cl_resolved = []
     for part in cl_parts:
         p = cfg.root / part
@@ -379,42 +460,10 @@ def main(
     if inc_path.exists():
         inc = str(inc_path)
 
-    # Lint gate: validate annotations before proceeding
-    anno = parse_c_file(Path(seed_c))
-    if anno:
-        eval_errs, eval_warns = anno.validate()
-        if not json_output:
-            for e in eval_errs:
-                rich.print(f"[bold red]LINT ERROR:[/bold red] {e}")
-            for w in eval_warns:
-                rich.print(f"[bold yellow]LINT WARNING:[/bold yellow] {w}")
-        if eval_errs and not force:
-            if json_output:
-                print(
-                    json.dumps({"error": "Annotation lint errors", "details": eval_errs}, indent=2)
-                )
-            else:
-                rich.print(
-                    "\n[bold red]Aborting due to annotation errors. "
-                    "Fix them or use --force to override.[/bold red]"
-                )
-            raise typer.Exit(code=1)
-
-    # Auto-fill from source file metadata
-    meta = parse_source_metadata(seed_c)
-
     if not symbol:
         symbol = meta.get("SYMBOL")
     if not symbol:
-        if json_output:
-            print(
-                json.dumps(
-                    {"error": "--symbol required (not found in source annotations)"}, indent=2
-                )
-            )
-        else:
-            print("ERROR: --symbol required (not found in source annotations)", file=sys.stderr)
-        raise typer.Exit(code=1)
+        error_exit("--symbol required (not found in source annotations)", json_mode=json_output)
 
     if not cflags:
         # Fallback default — should be set via annotation or config cflags_presets.
@@ -434,28 +483,17 @@ def main(
         try:
             target_size = int(meta["SIZE"])
         except ValueError:
-            print(f"ERROR: Invalid SIZE annotation: {meta['SIZE']!r}", file=sys.stderr)
-            raise typer.Exit(code=1)
+            error_exit(f"Invalid SIZE annotation: {meta['SIZE']!r}")
 
     # Extract target bytes from offset in the configured binary
     if target_va and target_size:
-        va_int = int(target_va, 16)
+        va_int = parse_va(target_va, json_mode=json_output)
         target_bytes = cfg.extract_dll_bytes(va_int, target_size)
     else:
-        if json_output:
-            print(
-                json.dumps({"error": "Need VA and SIZE (from source annotations or CLI)"}, indent=2)
-            )
-        else:
-            print("ERROR: Need VA and SIZE (from source annotations or CLI)", file=sys.stderr)
-        raise typer.Exit(code=1)
+        error_exit("Need VA and SIZE (from source annotations or CLI)", json_mode=json_output)
 
     if not target_bytes:
-        if json_output:
-            print(json.dumps({"error": "Could not extract target bytes"}, indent=2))
-        else:
-            print("Error: Could not extract target bytes", file=sys.stderr)
-        raise typer.Exit(code=1)
+        error_exit("Could not extract target bytes", json_mode=json_output)
 
     seed_src = Path(seed_c).read_text(encoding="utf-8")
     out_dir_path = Path(out_dir)
@@ -475,10 +513,7 @@ def main(
                 register_aware=register_aware,
                 as_dict=True,
             )
-            if json_output:
-                print(json.dumps(summary, indent=2))
-            else:
-                # Print human-readable diff
+            if not json_output and not csv_output:
                 diff_functions(
                     target_bytes,
                     obj_bytes,
@@ -490,21 +525,77 @@ def main(
             has_structural = False
             if summary:
                 blockers = classify_blockers(summary)
-                if not json_output and blockers:
-                    print("\nAuto-classified blockers:")
-                    for b in blockers:
-                        print(f"  - {b}")
-                elif json_output:
-                    pass
-                has_structural = summary["summary"]["structural"] > 0
+                sim = structural_similarity(target_bytes, obj_bytes, res.reloc_offsets)
+
+                if json_output:
+                    summary["structural_similarity"] = {
+                        "total_insns": sim.total_insns,
+                        "exact": sim.exact,
+                        "reloc_only": sim.reloc_only,
+                        "register_only": sim.register_only,
+                        "structural": sim.structural,
+                        "mnemonic_match_ratio": sim.mnemonic_match_ratio,
+                        "structural_ratio": sim.structural_ratio,
+                        "flag_sensitive": sim.flag_sensitive,
+                    }
+                    if blockers:
+                        summary["blockers"] = blockers
+                    json_print(summary)
+                elif csv_output:
+                    import csv
+
+                    writer = csv.writer(sys.stdout)
+                    writer.writerow(
+                        [
+                            "Index",
+                            "Match",
+                            "Target_Bytes",
+                            "Target_Disasm",
+                            "Cand_Bytes",
+                            "Cand_Disasm",
+                        ]
+                    )
+                    instructions_obj = summary.get("instructions", [])
+                    instructions = instructions_obj if isinstance(instructions_obj, list) else []
+                    for row in instructions:
+                        if not isinstance(row, dict):
+                            continue
+                        m_char = row.get("match") or ""
+                        if mismatches_only and m_char != "**":
+                            continue
+                        t_obj = row.get("target") or {}
+                        c_obj = row.get("candidate") or {}
+                        t_data = t_obj if isinstance(t_obj, dict) else {}
+                        c_data = c_obj if isinstance(c_obj, dict) else {}
+                        writer.writerow(
+                            [
+                                row.get("index", ""),
+                                m_char,
+                                t_data.get("bytes", ""),
+                                t_data.get("disasm", ""),
+                                c_data.get("bytes", ""),
+                                c_data.get("disasm", ""),
+                            ]
+                        )
+                else:
+                    if blockers:
+                        print("\nAuto-classified blockers:")
+                        for b in blockers:
+                            print(f"  - {b}")
+                    _print_structural_similarity(sim)
+
+                summary_obj = summary.get("summary", {})
+                structural_obj = (
+                    summary_obj.get("structural", 0) if isinstance(summary_obj, dict) else 0
+                )
+                has_structural = isinstance(structural_obj, int | float) and structural_obj > 0
             if has_structural:
                 raise typer.Exit(code=1)
             return
         else:
             if json_output:
-                print(json.dumps({"error": f"Build failed: {res.error_msg}"}, indent=2))
-            else:
-                print(f"Build failed: {res.error_msg}")
+                error_exit(f"Build failed: {res.error_msg}", json_mode=True)
+            print(f"Build failed: {res.error_msg}")
             raise typer.Exit(code=2)
 
     if flag_sweep_only:
@@ -513,6 +604,15 @@ def main(
         )
         for score, flags in results[:10]:
             print(f"{score:.2f}: {flags}")
+
+        res = build_candidate_obj_only(seed_src, cl, inc, cflags, symbol, env=msvc_env)
+        if res.ok and res.obj_bytes:
+            obj_bytes = res.obj_bytes
+            if len(obj_bytes) > len(target_bytes):
+                obj_bytes = obj_bytes[: len(target_bytes)]
+            sim = structural_similarity(target_bytes, obj_bytes, res.reloc_offsets)
+            _print_structural_similarity(sim)
+
         best_score = results[0][0] if results else float("inf")
         if best_score < 0.1:
             return
@@ -543,6 +643,7 @@ def main(
 
 
 def main_entry() -> None:
+    """Run the Typer CLI application."""
     app()
 
 

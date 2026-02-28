@@ -9,6 +9,7 @@ from rebrew.decompiler import (
     _BACKEND_MAP,
     BACKENDS,
     _clean_output,
+    _find_re_tool,
     _strip_ansi,
     fetch_decompilation,
     fetch_ghidra,
@@ -49,12 +50,12 @@ class TestBackendDispatch:
         assert "ghidra" in _BACKEND_MAP  # still registered for explicit use
 
     @patch("rebrew.decompiler.shutil.which", return_value=None)
-    def test_r2ghidra_no_r2(self, mock_which) -> None:
+    def test_r2ghidra_no_tool(self, mock_which) -> None:
         result = fetch_r2ghidra(Path("/fake/binary"), 0x1000, Path("/fake"))
         assert result is None
 
     @patch("rebrew.decompiler.shutil.which", return_value=None)
-    def test_r2dec_no_r2(self, mock_which) -> None:
+    def test_r2dec_no_tool(self, mock_which) -> None:
         result = fetch_r2dec(Path("/fake/binary"), 0x1000, Path("/fake"))
         assert result is None
 
@@ -71,9 +72,11 @@ class TestBackendDispatch:
         captured = capsys.readouterr()
         assert "unknown backend" in captured.err
 
-    @patch("rebrew.decompiler.shutil.which", return_value="/usr/bin/r2")
+    @patch(
+        "rebrew.decompiler.shutil.which", side_effect=lambda x: "/usr/bin/r2" if x == "r2" else None
+    )
     @patch("rebrew.decompiler.subprocess.run")
-    def test_r2ghidra_uses_arg_list(self, mock_run, _mock_which, tmp_path: Path) -> None:
+    def test_r2ghidra_uses_r2(self, mock_run, _mock_which, tmp_path: Path) -> None:
         binary = tmp_path / "target.bin"
         binary.write_bytes(b"MZ")
         mock_run.return_value = subprocess.CompletedProcess(
@@ -91,6 +94,51 @@ class TestBackendDispatch:
         assert args[0][4] == str(binary)
         assert kwargs["cwd"] == tmp_path
         assert kwargs["timeout"] == 120
+
+    @patch(
+        "rebrew.decompiler.shutil.which", side_effect=lambda x: "/usr/bin/rz" if x == "rz" else None
+    )
+    @patch("rebrew.decompiler.subprocess.run")
+    def test_r2ghidra_uses_rz(self, mock_run, _mock_which, tmp_path: Path) -> None:
+        binary = tmp_path / "target.bin"
+        binary.write_bytes(b"MZ")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="int bar() {\n  return 2;\n}\n",
+            stderr="",
+        )
+
+        result = fetch_r2ghidra(binary, 0x1000, tmp_path)
+
+        assert result == "int bar() {\n  return 2;\n}"
+        args, _kwargs = mock_run.call_args
+        assert args[0][0] == "rz"
+
+
+class TestFindReTool:
+    @patch("rebrew.decompiler.shutil.which", return_value=None)
+    def test_neither_installed(self, _mock_which) -> None:
+        assert _find_re_tool() is None
+
+    @patch(
+        "rebrew.decompiler.shutil.which", side_effect=lambda x: "/usr/bin/r2" if x == "r2" else None
+    )
+    def test_only_r2(self, _mock_which) -> None:
+        assert _find_re_tool() == "r2"
+
+    @patch(
+        "rebrew.decompiler.shutil.which", side_effect=lambda x: "/usr/bin/rz" if x == "rz" else None
+    )
+    def test_only_rz(self, _mock_which) -> None:
+        assert _find_re_tool() == "rz"
+
+    @patch(
+        "rebrew.decompiler.shutil.which",
+        side_effect=lambda x: f"/usr/bin/{x}" if x in ("rz", "r2") else None,
+    )
+    def test_both_prefers_rz(self, _mock_which) -> None:
+        assert _find_re_tool() == "rz"
 
 
 class TestAutoFallback:

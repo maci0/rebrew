@@ -20,14 +20,20 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog="""\
 [bold]Typical workflow:[/bold]
-  rebrew next                  Pick the next function to reverse
-  rebrew skeleton 0x<VA>       Generate a .c skeleton from address
-  rebrew test src/<func>.c     Compile and byte-compare against target
-  rebrew match --diff-only f   Show byte diff for near-misses
-  rebrew verify                Bulk-verify all reversed functions
-  rebrew catalog               Regenerate coverage catalog + JSON
 
-[dim]All subcommands read project settings from rebrew.toml.
+rebrew next                  Pick the next function to reverse
+
+rebrew skeleton 0x<VA>       Generate a .c skeleton from address
+
+rebrew test src/<func>.c     Compile and byte-compare against target
+
+rebrew match --diff-only f   Show byte diff for near-misses
+
+rebrew verify                Bulk-verify all reversed functions
+
+rebrew catalog               Regenerate coverage catalog + JSON
+
+[dim]All subcommands read project settings from rebrew-project.toml.
 Run 'rebrew init' to create a new project, or 'rebrew <cmd> --help' for details.[/dim]""",
 )
 
@@ -37,6 +43,7 @@ Run 'rebrew init' to create a new project, or 'rebrew <cmd> --help' for details.
 
 # Single-command modules – registered as flat commands via app.command().
 _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
+    ("rename", "rebrew.rename", "Rename a function and update all cross-references."),
     ("test", "rebrew.test", "Quick compile-and-compare for reversed functions."),
     ("verify", "rebrew.verify", "Validate compiled bytes against target binary."),
     ("next", "rebrew.next", "Find the next best functions to work on."),
@@ -50,7 +57,7 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("lint", "rebrew.lint", "Lint C annotations."),
     ("extract", "rebrew.extract", "Extract and disassemble functions from binary."),
     ("match", "rebrew.match", "GA engine for binary matching (diff, flag-sweep, GA)."),
-    ("ga", "rebrew.ga", "Batch GA runner for STUB and near-miss MATCHING functions."),
+    ("ga", "rebrew.ga", "Batch GA runner and flag sweep for STUB and MATCHING functions."),
     ("asm", "rebrew.asm", "Disassemble original bytes."),
     ("build-db", "rebrew.build_db", "Build SQLite coverage database."),
     ("init", "rebrew.init", "Initialize a new rebrew project."),
@@ -61,12 +68,13 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("triage", "rebrew.triage", "Cold-start triage: FLIRT scan + coverage summary."),
     ("flirt", "rebrew.flirt", "FLIRT signature scanning."),
     ("nasm", "rebrew.nasm", "NASM assembly extraction."),
+    ("doctor", "rebrew.doctor", "Diagnostic checks for project health."),
 ]
 
 # Multi-command modules – registered as groups via app.add_typer().
 # Only modules with multiple @app.command() subcommands belong here.
 _MULTI_COMMANDS: list[tuple[str, str, str]] = [
-    ("cfg", "rebrew.cfg", "Read and edit rebrew.toml programmatically."),
+    ("cfg", "rebrew.cfg", "Read and edit rebrew-project.toml programmatically."),
 ]
 
 
@@ -93,26 +101,34 @@ def _make_stub_app(mod_name: str, err: ImportError) -> typer.Typer:
 
 
 # Register single-command modules as flat commands.
+# Help text and epilog are pulled from each module's own Typer app so there is
+# a single source of truth.  The _help string in the registry is only used as a
+# fallback when the module cannot be imported (stub commands).
 for _name, _module, _help in _SINGLE_COMMANDS:
     try:
         _mod = importlib.import_module(_module)
+        _mod_help = getattr(_mod.app.info, "help", None) or _help
         _epilog = getattr(_mod.app.info, "epilog", None)
         if not isinstance(_epilog, str):
             _epilog = None
-        app.command(name=_name, help=_help, epilog=_epilog)(_mod.main)
+        app.command(name=_name, help=_mod_help, epilog=_epilog)(_mod.main)
     except ImportError as _exc:
         app.command(name=_name, help=f"[unavailable] {_help}")(_make_stub_cmd(_module, _exc))
 
 # Register multi-command modules as groups (Typer sub-apps).
+# help= is intentionally passed here because add_typer() does not inherit the
+# child app's help attribute automatically.
 for _name, _module, _help in _MULTI_COMMANDS:
     try:
         _mod = importlib.import_module(_module)
-        app.add_typer(_mod.app, name=_name, help=_help)
+        _mod_help = getattr(_mod.app.info, "help", None) or _help
+        app.add_typer(_mod.app, name=_name, help=_mod_help)
     except ImportError as _exc:
         app.add_typer(_make_stub_app(_module, _exc), name=_name, help=f"[unavailable] {_help}")
 
 
 def main() -> None:
+    """Package entry point for the ``rebrew`` umbrella CLI."""
     app()
 
 

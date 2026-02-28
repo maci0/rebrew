@@ -18,7 +18,7 @@ from pathlib import Path
 from .core import BuildResult
 from .flag_data import COMMON_MSVC_FLAGS, MSVC6_FLAGS, MSVC_SWEEP_TIERS
 from .flags import Checkbox, Flags, FlagSet
-from .parsers import extract_function_from_pe, parse_coff_obj_symbol_bytes
+from .parsers import extract_function_from_binary, parse_obj_symbol_bytes
 
 # Compiler flag axes (default to MSVC6, override via function params)
 _COMPILER_PROFILE = "msvc6"
@@ -51,6 +51,22 @@ _FLAGS_MAP: dict[str, Flags] = {
 _FLAG_AXES_MAP: dict[str, dict[str, list[str]]] = {
     "msvc6": MSVC6_FLAG_AXES,
 }
+
+
+def _filter_stderr(text: str) -> str:
+    from rebrew.compile import filter_wine_stderr
+
+    return filter_wine_stderr(text)
+
+
+def _compiler_cmd_parts(cl_cmd: str, env: dict[str, str] | None) -> list[str]:
+    parts = shlex.split(cl_cmd)
+    runner = ""
+    if env is not None:
+        runner = env.get("REBREW_COMPILER_RUNNER", "").strip()
+    if runner and (not parts or parts[0].lower() != runner.lower()):
+        parts = [runner, *parts]
+    return parts
 
 
 def _flags_to_axes(flags: Flags, tier_ids: list[str] | None = None) -> list[list[str]]:
@@ -95,12 +111,14 @@ def _get_pe_symbol_size(exe_path: Path, symbol: str) -> int | None:
             return None
 
         # Find next symbol in the same section with a higher offset
-        section_number = target_sym.section_number
+        section_number = getattr(target_sym, "section_number", None)
         sym_value = target_sym.value
+        if section_number is None:
+            return None
         next_offset = None
         for sym in pe.symbols:
             if (
-                sym.section_number == section_number
+                getattr(sym, "section_number", None) == section_number
                 and sym.value > sym_value
                 and (next_offset is None or sym.value < next_offset)
             ):
@@ -162,23 +180,22 @@ def build_candidate_obj_only(
     source_ext: str = ".c",
 ) -> BuildResult:
     """Compile source to .obj and extract symbol bytes (no linking)."""
-    workdir = tempfile.mkdtemp(prefix="matcher_")
-    try:
+    with tempfile.TemporaryDirectory(prefix="matcher_") as _td:
+        workdir = Path(_td)
         src_name = f"cand{source_ext}"
         obj_name = "cand.obj"
-        src_path = os.path.join(workdir, src_name)
-        with open(src_path, "w", encoding="utf-8") as f:
-            f.write(source_code)
+        (workdir / src_name).write_text(source_code, encoding="utf-8")
 
-        # MSVC6 under Wine sometimes dislikes absolute Unix paths for source files
-        # We use relative paths since we are running in workdir
         cmd = (
-            shlex.split(cl_cmd)
+            _compiler_cmd_parts(cl_cmd, env)
             + shlex.split(cflags)
             + ["/c", f"/I{inc_dir}", f"/Fo{obj_name}", src_name]
         )
         if env is None:
-            env = {**os.environ, "WINEDEBUG": "-all"}
+            env = {**os.environ}
+            cmd_head = cmd[0].lower() if cmd else ""
+            if cmd_head in {"wine", "wibo"}:
+                env["WINEDEBUG"] = "-all"
 
         try:
             r = subprocess.run(cmd, capture_output=True, cwd=workdir, env=env, timeout=60)
@@ -189,26 +206,23 @@ def build_candidate_obj_only(
         except OSError as e:
             return BuildResult(ok=False, error_msg=f"Failed to run compiler: {e}")
 
-        obj_path = os.path.join(workdir, obj_name)
+        obj_path = workdir / obj_name
 
-        if r.returncode != 0 or not os.path.exists(obj_path):
-            err_output = (r.stdout + r.stderr).decode(errors="replace")[:400]
-            detailed_err = f"Command: {' '.join(cmd)}\nReturn code: {r.returncode}\nObj Exists: {os.path.exists(obj_path)}\nOutput: {err_output}"
+        if r.returncode != 0 or not obj_path.exists():
+            err_output = _filter_stderr((r.stdout + r.stderr).decode(errors="replace"))[:400]
+            detailed_err = f"Command: {' '.join(cmd)}\nReturn code: {r.returncode}\nObj Exists: {obj_path.exists()}\nOutput: {err_output}"
             return BuildResult(ok=False, error_msg=detailed_err)
 
-        code, relocs = parse_coff_obj_symbol_bytes(obj_path, symbol)
+        code, relocs = parse_obj_symbol_bytes(str(obj_path), symbol)
         if code is None:
             return BuildResult(ok=False, error_msg=f"Symbol {symbol} not found in .obj")
 
         return BuildResult(ok=True, obj_bytes=code, reloc_offsets=relocs)
-    finally:
-        shutil.rmtree(workdir, ignore_errors=True)
 
 
 def build_candidate(
     source_code: str,
     cl_cmd: str,
-    link_cmd: str,
     inc_dir: str,
     lib_dir: str,
     cflags: str,
@@ -219,20 +233,18 @@ def build_candidate(
     source_ext: str = ".c",
 ) -> BuildResult:
     """Compile and link source to .exe, then extract symbol bytes."""
-    workdir = tempfile.mkdtemp(prefix="matcher_")
-    try:
+    with tempfile.TemporaryDirectory(prefix="matcher_") as _td:
+        workdir = Path(_td)
         src_name = f"cand{source_ext}"
         exe_name = "cand.exe"
         map_name = "cand.map"
-        src_path = os.path.join(workdir, src_name)
-        with open(src_path, "w", encoding="utf-8") as f:
-            f.write(source_code)
+        (workdir / src_name).write_text(source_code, encoding="utf-8")
 
-        cmd = shlex.split(cl_cmd) + shlex.split(cflags) + [f"/I{inc_dir}", src_name]
+        cmd = _compiler_cmd_parts(cl_cmd, env) + shlex.split(cflags) + [f"/I{inc_dir}", src_name]
         if extra_sources:
             for es in extra_sources:
                 shutil.copy2(es, workdir)
-                cmd.append(os.path.basename(es))
+                cmd.append(Path(es).name)
 
         cmd += (
             ["/link"]
@@ -241,7 +253,10 @@ def build_candidate(
         )
 
         if env is None:
-            env = {**os.environ, "WINEDEBUG": "-all"}
+            env = {**os.environ}
+            cmd_head = cmd[0].lower() if cmd else ""
+            if cmd_head in {"wine", "wibo"}:
+                env["WINEDEBUG"] = "-all"
         try:
             r = subprocess.run(cmd, capture_output=True, cwd=workdir, env=env, timeout=120)
         except subprocess.TimeoutExpired:
@@ -251,19 +266,16 @@ def build_candidate(
         except OSError as e:
             return BuildResult(ok=False, error_msg=f"Failed to run compiler: {e}")
 
-        exe_path = os.path.join(workdir, exe_name)
-        map_path = os.path.join(workdir, map_name)
+        exe_path = workdir / exe_name
+        map_path = workdir / map_name
 
-        if r.returncode != 0 or not os.path.exists(exe_path) or not os.path.exists(map_path):
-            return BuildResult(
-                ok=False, error_msg=(r.stdout + r.stderr).decode(errors="replace")[:400]
-            )
+        if r.returncode != 0 or not exe_path.exists() or not map_path.exists():
+            err_output = _filter_stderr((r.stdout + r.stderr).decode(errors="replace"))[:400]
+            return BuildResult(ok=False, error_msg=err_output)
 
-        with open(map_path, encoding="utf-8") as f:
-            map_text = f.read()
+        map_text = map_path.read_text(encoding="utf-8")
 
         # MSVC MAP format: "  SSSS:OOOOOOOO  _symbol  VVVVVVVV  f  obj"
-        # Match segment:offset, then symbol name, then capture the Rva+Base hex VA.
         sym_re = re.compile(
             r"^\s*\d+:[0-9a-fA-F]+\s+" + re.escape(symbol) + r"\s+([0-9a-fA-F]+)",
             re.MULTILINE,
@@ -274,10 +286,8 @@ def build_candidate(
 
         va = int(m.group(1), 16)
 
-        # Try to get symbol size from LIEF (more reliable than MAP adjacency)
-        size = _get_pe_symbol_size(Path(exe_path), symbol)
+        size = _get_pe_symbol_size(exe_path, symbol)
         if size is None:
-            # Fall back to MAP file: find the next symbol's VA after ours
             size = 1000
             for m_next in _MAP_SYM_RE.finditer(map_text, m.end()):
                 next_va = int(m_next.group(1), 16)
@@ -286,13 +296,11 @@ def build_candidate(
                     size = estimated
                     break
 
-        code = extract_function_from_pe(Path(exe_path), va, size)
+        code = extract_function_from_binary(exe_path, va, size)
         if code is None:
             return BuildResult(ok=False, error_msg="Failed to extract from PE")
 
         return BuildResult(ok=True, obj_bytes=code)
-    finally:
-        shutil.rmtree(workdir, ignore_errors=True)
 
 
 def flag_sweep(

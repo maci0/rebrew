@@ -3,7 +3,7 @@
 ## Overview
 
 **Rebrew** is a compiler-in-the-loop decompilation workbench for binary-matching
-game reversing. Python package (`src/rebrew/`) with 22 CLI tools for compiling,
+game reversing. Python package (`src/rebrew/`) with 23 CLI tools for compiling,
 comparing, and matching C source against target binary functions (MSVC6 under Wine).
 
 Installed as an editable package (`uv pip install -e .`) into a workspace project
@@ -16,7 +16,7 @@ that contains the actual binaries, source files, and toolchains.
 uv pip install -e .
 uv sync --all-extras            # with dev deps
 
-# Run ALL tests (~1100 tests)
+# Run ALL tests (~1200 tests)
 uv run pytest tests/ -v
 
 # Run a SINGLE test file
@@ -60,13 +60,14 @@ No conftest.py — tests use `tmp_path` fixture and inline helpers.
 - `UPPER_CASE` for module-level constants
 - `_private` prefix for internal functions/constants (e.g. `_ARCH_PRESETS`, `_find_root`)
 - `mut_` prefix for mutation functions in `matcher/mutator.py`
+- **One canonical name per function** — no backward-compat aliases, no shims, no legacy names
 
 ### Type Annotations (strict)
 
 - **Every function signature** must have parameter and return type annotations
 - **PEP 604 unions**: `T | None` not `Optional[T]`; `str | Path` not `Union[str, Path]`
 - **Specific generics**: `dict[int, str]` not bare `dict`; `list[tuple[int, str]]` not `list[tuple]`
-- **Named aliases** for complex types: `UncoveredItem = tuple[int, int, int, str, str, str, str | None]`
+- **Named aliases** for complex types: `UncoveredItem = tuple[int, int, int, str, str, str, str | None, float]`
 - **Config params**: Type as `ProjectConfig` (from `rebrew.config`), use `getattr(cfg, "field", default)` for defensive access
 - **`Any` over `object`**: `object` is too restrictive (no attribute access)
 
@@ -82,10 +83,11 @@ Blank line between each group. Specific imports preferred over star imports.
 
 ### Error Handling
 
-- **CLI tools**: Use `raise typer.Exit(code=1)` for user-facing errors. Print message with `rich.Console` first.
+- **CLI tools**: Use `error_exit(msg)` from `rebrew.cli` (prints + raises `typer.Exit(code=1)`)
 - **Library code**: Raise specific exceptions (`ValueError`, `FileNotFoundError`, `KeyError`, `RuntimeError`)
 - **No bare `except:`** or `except Exception` without re-raise
-- Pattern: print error → `raise typer.Exit(code=1)`
+- **JSON output**: Use `json_print(data)` from `rebrew.cli` for `--json` mode
+- **VA parsing**: Use `parse_va(s)` from `rebrew.cli` for hex/int address strings
 
 ### Docstrings
 
@@ -93,22 +95,45 @@ Blank line between each group. Specific imports preferred over star imports.
 - Class/function docstrings use reStructuredText-ish style (see `compile.py`, `config.py`)
 - Section separators: `# ---------------------------------------------------------------------------`
 
+### Dependencies — Use What We Import
+
+If a library is already imported, use its built-in capabilities. Never hand-roll
+functionality that exists in an imported dependency.
+
+Key libraries and what they provide:
+
+- **LIEF** (`lief`): Binary format detection (`lief.is_pe()`, `lief.is_elf()`, `lief.is_macho()`),
+  format/arch identification via parsed headers (`header.machine`, `header.machine_type`,
+  `header.cpu_type`), PE/ELF/Mach-O parsing. Never use manual `struct.unpack` on binary
+  headers when LIEF can do it.
+- **Typer** (`typer`): CLI framework. Use `typer.echo(msg, err=True)` for stderr warnings
+  in CLI code (not `print(..., file=sys.stderr)` inside Typer commands).
+- **pathlib** (`Path`): Path manipulation. Use `Path` methods over `os.path.*`.
+- **tempfile** (`TemporaryDirectory`): Use context-managed `TemporaryDirectory` over
+  `tempfile.mkdtemp()` + manual `shutil.rmtree()`.
+
 ## Project Structure
 
 ```
 src/rebrew/
 ├── main.py              # Umbrella CLI (`rebrew` command)
-├── cli.py               # Shared: TargetOption, get_config(), iter_sources()
-├── config.py            # ProjectConfig dataclass, rebrew.toml loader
+├── cli.py               # Shared: TargetOption, get_config(), iter_sources(),
+│                        #   error_exit(), json_print(), parse_va()
+├── config.py            # ProjectConfig dataclass, rebrew-project.toml loader
 ├── annotation.py        # Annotation parsing (dataclass + regex parsers)
 ├── compile.py           # Shared compile helpers (compile_to_obj)
 ├── naming.py            # Shared naming/difficulty/origin helpers (next, skeleton, triage, ga)
-├── binary_loader.py     # PE/COFF/ELF/Mach-O binary loading
+├── binary_loader.py     # PE/COFF/ELF/Mach-O binary loading + format detection (via LIEF)
 ├── extract.py           # Batch extract and disassemble functions
+├── decompiler.py        # Pluggable decompiler backend (r2ghidra, r2dec, Ghidra headless)
+├── gen_flirt_pat.py     # Generate FLIRT .pat files from MSVC6 COFF .lib archives
+├── signature_parser.py  # Extract function signatures from C source via tree-sitter
+├── struct_parser.py     # Extract struct/typedef definitions from C source via tree-sitter
+├── utils.py             # Shared utilities (Wine stderr filtering, path helpers)
 ├── [tool].py            # Each CLI tool (test, verify, match, lint, etc.)
 ├── catalog/             # Function catalog package
 │   ├── __init__.py      # Re-exports all public names
-│   ├── loaders.py       # Ghidra/r2 function list parsers, DLL byte extraction
+│   ├── loaders.py       # Ghidra JSON + text function list parsers, DLL byte extraction
 │   ├── registry.py      # build_function_registry, canonical size resolution
 │   ├── grid.py          # Coverage grid / data JSON generation
 │   ├── export.py        # Catalog + reccmp CSV generation
@@ -157,7 +182,9 @@ def main_entry() -> None:
 
 ### Key Architectural Rules
 
-- **Config-driven**: All tools read `rebrew.toml` — never hardcode paths
+- **Config-driven**: All tools read `rebrew-project.toml` — never hardcode paths
 - **Idempotent**: Every tool safe to re-run without side effects
 - **Source discovery**: Always use `iter_sources(directory, cfg)` from `cli.py`
 - **Source glob**: Use `source_glob(cfg)` — respects `cfg.source_ext` (`.c`, `.cpp`)
+- **No wheel reinvention**: If an imported library provides the functionality, use it
+- **No backward compat**: One canonical name per function — no aliases, no shims, no legacy wrappers

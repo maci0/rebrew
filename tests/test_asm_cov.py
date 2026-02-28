@@ -48,7 +48,7 @@ class TestBuildFunctionLookup:
         )
         src = tmp_path / "game_func.c"
         src.write_text(
-            "// FUNCTION: test.dll 0x10001000\n"
+            "// FUNCTION: SERVER 0x10001000\n"
             "// STATUS: RELOC\n"
             "// ORIGIN: GAME\n"
             "// SIZE: 64\n"
@@ -68,7 +68,7 @@ class TestBuildFunctionLookup:
         ghidra_json.write_text(json.dumps([]), encoding="utf-8")
         src = tmp_path / "stub_func.c"
         src.write_text(
-            "// STUB: test.dll 0x10003000\n"
+            "// STUB: SERVER 0x10003000\n"
             "// STATUS: STUB\n"
             "// ORIGIN: GAME\n"
             "// SIZE: 32\n"
@@ -88,7 +88,7 @@ class TestBuildFunctionLookup:
         ghidra_json.write_text(json.dumps([]), encoding="utf-8")
         src = tmp_path / "my_func.c"
         src.write_text(
-            "// FUNCTION: test.dll 0x10001000\n"
+            "// FUNCTION: SERVER 0x10001000\n"
             "// STATUS: EXACT\n"
             "// ORIGIN: GAME\n"
             "// SIZE: 16\n"
@@ -150,7 +150,7 @@ class TestBuildFunctionLookup:
         for i, va in enumerate([0x10001000, 0x10002000, 0x10003000]):
             src = tmp_path / f"func_{i}.c"
             src.write_text(
-                f"// FUNCTION: test.dll 0x{va:08x}\n"
+                f"// FUNCTION: SERVER 0x{va:08x}\n"
                 f"// STATUS: RELOC\n"
                 f"// ORIGIN: GAME\n"
                 f"// SIZE: 32\n"

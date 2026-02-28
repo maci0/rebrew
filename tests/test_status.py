@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import rebrew.catalog.sections as sections_mod
+from rebrew.catalog.sections import get_text_section_size
 from rebrew.status import collect_target_stats
 
 # ---------------------------------------------------------------------------
@@ -146,6 +148,14 @@ class TestTargetStatsToDict:
         assert d["by_status"] == {}
 
 
+def test_get_text_section_size_returns_zero_on_loader_error(monkeypatch) -> None:
+    def _boom(_path: Path) -> int:
+        raise RuntimeError("bad binary")
+
+    monkeypatch.setattr(sections_mod, "load_binary", _boom)
+    assert get_text_section_size(Path("dummy.exe")) == 0
+
+
 # ---------------------------------------------------------------------------
 # Overlapping function guard (Phase 1 fix)
 # ---------------------------------------------------------------------------
@@ -202,20 +212,18 @@ int __cdecl func_d(void) { return 0; }
 
 
 class TestOverlappingFunctions:
-    """Verify that overlapping functions don't produce negative padding.
+    """Verify that overlapping functions do not double count coverage.
 
-    Regression test for Phase 1 fix: negative gaps between functions
-    were being added to total_bytes_reversed, inflating the count.
+    Regression test: overlapping VA ranges should be merged before byte coverage
+    is computed, while small positive gaps still count as alignment padding.
     """
 
     def test_overlapping_no_negative_padding(self, tmp_path: Path) -> None:
-        """Overlapping functions should not inflate total_bytes_reversed."""
+        """Overlapping functions should count only the merged byte extent."""
         _write_c(tmp_path, "func_a.c", OVERLAP_FUNC_A)
         _write_c(tmp_path, "func_b.c", OVERLAP_FUNC_B)
         stats = collect_target_stats("test", tmp_path)
-        # Total should be exactly the sum of sizes (200 + 100 = 300)
-        # with zero padding, NOT 300 + negative gap
-        assert stats.total_bytes_reversed == 300
+        assert stats.total_bytes_reversed == 200
 
     def test_small_gap_adds_padding(self, tmp_path: Path) -> None:
         """Gaps of <=15 bytes between functions should count as padding."""

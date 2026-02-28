@@ -12,9 +12,9 @@
 
 | Document | Description |
 |----------|-------------|
-| [CLI.md](CLI.md) | All 22 CLI tools — flags, examples, internal modules |
-| [CONFIG.md](CONFIG.md) | `rebrew.toml` format, config loader, arch presets, compiler profiles |
-| [ANNOTATIONS.md](ANNOTATIONS.md) | Annotation format (`// FUNCTION:`, `// STATUS:`), linter codes E001–E017 / W001–W015 |
+| [CLI.md](CLI.md) | All 23 CLI tools — flags, examples, internal modules |
+| [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, config loader, arch presets, compiler profiles |
+| [ANNOTATIONS.md](ANNOTATIONS.md) | Annotation format (`// FUNCTION:`, `// STATUS:`), linter codes E000–E017 / W001–W017 |
 | [MATCH_TYPES.md](MATCH_TYPES.md) | EXACT / RELOC / MATCHING explained with byte-level examples |
 | [DB_FORMAT.md](DB_FORMAT.md) | SQLite schema for `coverage.db`, JSON intermediate format, REST API |
 | [NAME_NORMALIZATION.md](NAME_NORMALIZATION.md) | Cross-tool function name normalization (Ghidra/r2/IDA → canonical `func_` form) |
@@ -24,7 +24,7 @@
 
 | Document | Description |
 |----------|-------------|
-| [GHIDRA_SYNC.md](GHIDRA_SYNC.md) | Ghidra ↔ Rebrew sync feature matrix and roadmap |
+| [GHIDRA_SYNC.md](GHIDRA_SYNC.md) | Ghidra ↔ Rebrew sync feature matrix and known issues |
 
 ## Project
 
@@ -33,3 +33,4 @@
 | [DESIGN_PRINCIPLES.md](DESIGN_PRINCIPLES.md) | Core architectural philosophy (idempotency, score monotonicity, snowball effect) |
 | [USER_STORIES.md](USER_STORIES.md) | Personas, acceptance criteria, and mermaid workflow diagrams |
 | [IDEAS.md](IDEAS.md) | Prioritized improvement ideas |
+| [ANGR_PROPOSAL.md](ANGR_PROPOSAL.md) | Proposal for angr-based semantic equivalence checking |

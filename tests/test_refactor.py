@@ -15,7 +15,7 @@ from rebrew.naming import estimate_difficulty, ignored_symbols
 
 
 def _make_project(tmp_path: Path, toml_content: str) -> Path:
-    (tmp_path / "rebrew.toml").write_text(toml_content, encoding="utf-8")
+    (tmp_path / "rebrew-project.toml").write_text(toml_content, encoding="utf-8")
     return tmp_path
 
 
@@ -134,7 +134,7 @@ class TestMarkerField:
     def test_default_marker(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path, TOML_WITHOUT_PROJECT)
         cfg = load_config(root)
-        assert cfg.marker == "SERVER"
+        assert cfg.marker == "MAIN"
 
 
 # ---------------------------------------------------------------------------

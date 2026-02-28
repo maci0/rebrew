@@ -227,34 +227,52 @@ class TestVaToFileOffset:
 # -------------------------------------------------------------------------
 
 
+def _make_pe_stub(path: Path, machine: int = 0x14C) -> Path:
+    """Build a minimal PE file that LIEF recognises (MZ + PE signature)."""
+    import struct
+
+    buf = bytearray(256)
+    buf[0:2] = b"MZ"
+    struct.pack_into("<I", buf, 60, 128)  # e_lfanew
+    buf[128:132] = b"PE\x00\x00"
+    struct.pack_into("<H", buf, 132, machine)
+    struct.pack_into("<H", buf, 148, 96)  # SizeOfOptionalHeader
+    struct.pack_into("<H", buf, 152, 0x10B)  # PE32
+    path.write_bytes(bytes(buf))
+    return path
+
+
 class TestDetectFormat:
-    def test_pe(self, tmp_path) -> None:
-        f = tmp_path / "test.exe"
-        # PE starts with MZ
-        f.write_bytes(b"MZ" + b"\x00" * 100)
+    def test_pe(self, tmp_path: Path) -> None:
+        f = _make_pe_stub(tmp_path / "test.exe")
         assert _detect_format(f) == "pe"
 
-    def test_elf(self, tmp_path) -> None:
+    def test_elf(self, tmp_path: Path) -> None:
         f = tmp_path / "test.elf"
         f.write_bytes(b"\x7fELF" + b"\x00" * 100)
         assert _detect_format(f) == "elf"
 
-    def test_macho_32(self, tmp_path) -> None:
+    def test_macho_32(self, tmp_path: Path) -> None:
         f = tmp_path / "test.macho"
         f.write_bytes(b"\xfe\xed\xfa\xce" + b"\x00" * 100)
         assert _detect_format(f) == "macho"
 
-    def test_macho_64(self, tmp_path) -> None:
+    def test_macho_64(self, tmp_path: Path) -> None:
         f = tmp_path / "test.macho"
         f.write_bytes(b"\xfe\xed\xfa\xcf" + b"\x00" * 100)
         assert _detect_format(f) == "macho"
 
-    def test_macho_fat(self, tmp_path) -> None:
+    def test_macho_fat(self, tmp_path: Path) -> None:
         f = tmp_path / "test.macho"
         f.write_bytes(b"\xca\xfe\xba\xbe" + b"\x00" * 100)
         assert _detect_format(f) == "macho"
 
-    def test_unknown(self, tmp_path) -> None:
+    def test_macho_fat_cigam(self, tmp_path: Path) -> None:
+        f = tmp_path / "test.macho"
+        f.write_bytes(b"\xbe\xba\xfe\xca" + b"\x00" * 100)
+        assert _detect_format(f) == "macho"
+
+    def test_unknown(self, tmp_path: Path) -> None:
         f = tmp_path / "test.bin"
         f.write_bytes(b"\x00" * 100)
         with pytest.raises(ValueError):

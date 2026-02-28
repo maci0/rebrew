@@ -4,19 +4,17 @@ Generates CATALOG.md markdown reports and reccmp-compatible CSV files
 from parsed annotations and function registries.
 """
 
-from typing import Any
-
 from rebrew.config import ProjectConfig
 
 
 def generate_catalog(
-    entries: list[Any],
-    r2_funcs: list[dict[str, Any]],
+    entries: list[object],
+    funcs: list[dict[str, object]],
     text_size: int,
 ) -> str:
     """Generate CATALOG.md content."""
     # Deduplicate by VA (keep first occurrence per VA)
-    by_va: dict[int, list[dict[str, Any]]] = {}
+    by_va: dict[int, list[dict[str, object]]] = {}
     for e in entries:
         if e.get("marker_type") in ("GLOBAL", "DATA"):
             continue
@@ -38,22 +36,22 @@ def generate_catalog(
     )
 
     # Coverage bytes
-    r2_by_va = {f["va"]: f for f in r2_funcs}
+    funcs_by_va = {f["va"]: f for f in funcs}
     covered_bytes = 0
     for va in unique_vas:
-        if va in r2_by_va:
-            covered_bytes += r2_by_va[va]["size"]
+        if va in funcs_by_va:
+            covered_bytes += funcs_by_va[va]["size"]
         elif by_va[va]:
             covered_bytes += by_va[va][0]["size"]
 
-    total_funcs = len(r2_funcs)
+    total_funcs = len(funcs)
     matched_count = len(unique_vas)
     coverage_pct = (covered_bytes / text_size * 100.0) if text_size else 0.0
 
     lines = []
     lines.append("# Reversed Functions Catalog\n")
     lines.append(
-        f"Total: {matched_count}/{total_funcs} functions matched "
+        f"Total: {matched_count}/{total_funcs} functions cataloged "
         f"({exact_count} exact, {reloc_count} reloc-normalized, {stub_count} stubs)  "
     )
     lines.append(
@@ -61,7 +59,7 @@ def generate_catalog(
     )
 
     # Group by origin (discovered dynamically from data, excluding GLOBAL/DATA)
-    by_origin: dict[str, list[dict[str, Any]]] = {}
+    by_origin: dict[str, list[dict[str, object]]] = {}
     for e in entries:
         if e.get("marker_type") in ("GLOBAL", "DATA"):
             continue
@@ -82,13 +80,13 @@ def generate_catalog(
             )
 
     # Unmatched functions
-    unmatched = [f for f in r2_funcs if f["va"] not in unique_vas]
+    unmatched = [f for f in funcs if f["va"] not in unique_vas]
     unmatched.sort(key=lambda x: x["va"])
     lines.append(f"\n## Unmatched Functions ({len(unmatched)} remaining)\n")
-    lines.append("| VA | Size | r2 Name |")
+    lines.append("| VA | Size | Name |")
     lines.append("|-----|------|---------|")
     for f in unmatched:
-        lines.append(f"| 0x{f['va']:08X} | {f['size']}B | {f['r2_name']} |")
+        lines.append(f"| 0x{f['va']:08X} | {f['size']}B | {f['name']} |")
 
     lines.append("")
     return "\n".join(lines)
@@ -99,7 +97,7 @@ def generate_catalog(
 # ---------------------------------------------------------------------------
 
 
-def _reccmp_type(entry: Any) -> str:
+def _reccmp_type(entry: object) -> str:
     """Map our marker_type + origin to reccmp entity type."""
     if entry["marker_type"] == "STUB":
         return "stub"
@@ -109,9 +107,9 @@ def _reccmp_type(entry: Any) -> str:
 
 
 def generate_reccmp_csv(
-    entries: list[Any],
-    r2_funcs: list[dict[str, Any]],
-    registry: dict[int, dict[str, Any]] | None = None,
+    entries: list[object],
+    funcs: list[dict[str, object]],
+    registry: dict[int, dict[str, object]] | None = None,
     target_name: str = "TARGET",
     cfg: ProjectConfig | None = None,
 ) -> str:
@@ -124,12 +122,12 @@ def generate_reccmp_csv(
     a complete function catalog for the binary.  Comments and blank lines are
     allowed by the reccmp spec.
     """
-    by_va: dict[int, dict[str, Any]] = {}
+    by_va: dict[int, dict[str, object]] = {}
     for e in entries:
         if e["va"] not in by_va:
             by_va[e["va"]] = e
 
-    r2_by_va = {f["va"]: f for f in r2_funcs}
+    funcs_by_va = {f["va"]: f for f in funcs}
 
     lines: list[str] = []
     lines.append(f"# reccmp-compatible function catalog for {target_name}")
@@ -144,7 +142,7 @@ def generate_reccmp_csv(
     if registry:
         all_vas.update(registry)
     all_vas.update(by_va)
-    all_vas.update(r2_by_va)
+    all_vas.update(funcs_by_va)
 
     for va in sorted(all_vas):
         va_hex = f"0x{va:08x}"
@@ -162,17 +160,17 @@ def generate_reccmp_csv(
                     size = cs
             lines.append(f"{va_hex}|{name}|{symbol}|{etype}|{size}")
         else:
-            # Unmatched function — pull name from Ghidra/r2
+            # Unmatched function — pull name from Ghidra/function list
             reg = registry.get(va, {}) if registry else {}
             name = ""
             if reg.get("ghidra_name", ""):
                 gn = reg["ghidra_name"]
                 if not gn.startswith("FUN_"):
                     name = gn
-            if not name and va in r2_by_va:
-                rn = r2_by_va[va]["r2_name"]
-                if not rn.startswith("fcn.") and not rn.startswith("sym."):
-                    name = rn
+            if not name and va in funcs_by_va:
+                list_name = funcs_by_va[va]["name"]
+                if not list_name.startswith("fcn.") and not list_name.startswith("sym."):
+                    name = list_name
 
             # Determine type
             is_thunk = reg.get("is_thunk", False)
@@ -184,8 +182,8 @@ def generate_reccmp_csv(
 
             # Size
             size = reg.get("canonical_size", 0) if reg else 0
-            if not size and va in r2_by_va:
-                size = r2_by_va[va]["size"]
+            if not size and va in funcs_by_va:
+                size = funcs_by_va[va]["size"]
 
             symbol = f"_{name}" if name else ""
             size_str = str(size) if size > 0 else ""

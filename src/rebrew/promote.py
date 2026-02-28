@@ -8,18 +8,15 @@ Usage:
     rebrew promote src/server.dll/my_func.c --json
 """
 
-import json
-import shutil
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
 
 import typer
 
 from rebrew.annotation import parse_c_file_multi
-from rebrew.cli import TargetOption, get_config
-from rebrew.matcher.parsers import parse_coff_symbol_bytes
+from rebrew.cli import TargetOption, error_exit, get_config, json_print
+from rebrew.matcher.parsers import parse_obj_symbol_bytes
 from rebrew.test import (
     build_result_dict,
     compile_obj,
@@ -29,16 +26,24 @@ from rebrew.test import (
 
 _EPILOG = """\
 [bold]Examples:[/bold]
-  rebrew promote src/game_dll/my_func.c             Test + update STATUS
-  rebrew promote src/game_dll/my_func.c --json       JSON output for agents
-  rebrew promote src/game_dll/my_func.c --dry-run    Show what would change
+
+rebrew promote src/game_dll/my_func.c             Test + update STATUS
+
+rebrew promote src/game_dll/my_func.c --json       JSON output for agents
+
+rebrew promote src/game_dll/my_func.c --dry-run    Show what would change
 
 [bold]How it works:[/bold]
-  1. Compiles the source file
-  2. Compares compiled bytes against the target binary
-  3. Updates STATUS to EXACT/RELOC/MATCHING based on result
-  4. Removes BLOCKER annotation if the function matches (EXACT/RELOC)
-  5. Reports the result as structured JSON
+
+1. Compiles the source file
+
+2. Compares compiled bytes against the target binary
+
+3. Updates STATUS to EXACT/RELOC/MATCHING based on result
+
+4. Removes BLOCKER annotation if the function matches (EXACT/RELOC)
+
+5. Reports the result as structured JSON
 
 [dim]This is the atomic version of 'rebrew test + manual STATUS edit'.
 Safe for agent use — idempotent, validates before writing.[/dim]"""
@@ -61,23 +66,21 @@ def main(
     cfg = get_config(target=target)
     source_path = Path(source)
 
-    annotations = parse_c_file_multi(source_path)
+    annotations = parse_c_file_multi(source_path, target_name=cfg.marker if cfg else None)
     if not annotations:
-        _error("No annotations found in source file", json_output, source=source)
-        raise typer.Exit(code=1)
+        error_exit("No annotations found in source file", json_mode=json_output)
 
-    # Use first annotation's cflags for compilation
     cflags_str = annotations[0].cflags or "/O2 /Gd"
     cflags_parts = cflags_str.split()
+    origin = annotations[0].origin if annotations else ""
+    compile_cfg = cfg.for_origin(origin)
 
-    results: list[dict[str, Any]] = []
+    results: list[dict[str, object]] = []
 
-    workdir = tempfile.mkdtemp(prefix="promote_")
-    try:
-        obj_path, err = compile_obj(cfg, source, cflags_parts, workdir)
+    with tempfile.TemporaryDirectory(prefix="promote_") as workdir:
+        obj_path, err = compile_obj(compile_cfg, source, cflags_parts, workdir)
         if obj_path is None:
-            _error(f"Compile error: {err}", json_output, source=source)
-            raise typer.Exit(code=1)
+            error_exit(f"Compile error: {err}", json_mode=json_output)
 
         for ann in annotations:
             sym = ann.symbol
@@ -107,7 +110,7 @@ def main(
                     }
                 )
                 continue
-            obj_bytes, coff_relocs = parse_coff_symbol_bytes(obj_path, sym)
+            obj_bytes, coff_relocs = parse_obj_symbol_bytes(obj_path, sym)
 
             if obj_bytes is None:
                 results.append(
@@ -125,7 +128,7 @@ def main(
             if len(obj_bytes) > len(target_bytes):
                 obj_bytes = obj_bytes[: len(target_bytes)]
 
-            matched, match_count, total, relocs = smart_reloc_compare(
+            matched, match_count, total, relocs, _ = smart_reloc_compare(
                 obj_bytes, target_bytes, coff_relocs
             )
 
@@ -167,11 +170,8 @@ def main(
             result_dict["action"] = action
             results.append(result_dict)
 
-    finally:
-        shutil.rmtree(workdir, ignore_errors=True)
-
     if json_output:
-        print(json.dumps({"source": source, "results": results}, indent=2))
+        json_print({"source": source, "results": results})
     else:
         for r in results:
             sym = r.get("symbol", "?")
@@ -188,25 +188,18 @@ def main(
             else:
                 print(f"{sym}: {status} (no change)", file=sys.stderr)
 
-    # Exit 1 if any function has structural mismatches
+    has_errors = any(r.get("status") == "ERROR" for r in results)
     has_mismatches = any(
         r.get("status") == "MISMATCH" or r.get("new_status") not in ("EXACT", "RELOC")
         for r in results
         if r.get("status") != "SKIPPED" and r.get("status") != "ERROR"
     )
-    if has_mismatches:
+    if has_errors or has_mismatches:
         raise typer.Exit(code=1)
 
 
-def _error(msg: str, json_output: bool, source: str = "") -> None:
-    """Print error in appropriate format."""
-    if json_output:
-        print(json.dumps({"source": source, "error": msg}, indent=2))
-    else:
-        print(f"ERROR: {msg}", file=sys.stderr)
-
-
 def main_entry() -> None:
+    """Run the promote CLI app."""
     app()
 
 

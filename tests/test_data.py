@@ -6,9 +6,11 @@ from rebrew.data import (
     BssGap,
     BssReport,
     _generate_bss_fix,
+    _is_function_decl,
     classify_section,
     enrich_with_sections,
     scan_globals,
+    verify_bss_layout,
 )
 
 # ---------------------------------------------------------------------------
@@ -98,6 +100,33 @@ extern char *g_shared;
 int __cdecl b(void) { return 0; }
 """
 
+DOUBLE_POINTER_GLOBAL = """\
+// FUNCTION: SERVER 0x10003000
+// STATUS: EXACT
+// ORIGIN: GAME
+// SIZE: 10
+// CFLAGS: /O2 /Gd
+// SYMBOL: _ptrs
+
+extern char **g_double_ptr;
+
+int __cdecl ptrs(void) { return 0; }
+"""
+
+BSS_LARGE_ENTRY = """\
+// FUNCTION: SERVER 0x10004000
+// STATUS: EXACT
+// ORIGIN: GAME
+// SIZE: 10
+// CFLAGS: /O2 /Gd
+// SYMBOL: _bss_large
+
+// GLOBAL: SERVER 0x20000000
+extern char g_bss_blob[200];
+
+int __cdecl bss_large(void) { return 0; }
+"""
+
 
 # ---------------------------------------------------------------------------
 # scan_globals
@@ -170,6 +199,17 @@ class TestScanGlobals:
         result = scan_globals(tmp_path)
         assert "g_shared" in result.globals
         assert len(result.globals["g_shared"].declared_in) == 2
+
+    def test_double_pointer_type_is_preserved(self, tmp_path: Path) -> None:
+        _write_c(tmp_path, "ptrs.c", DOUBLE_POINTER_GLOBAL)
+        result = scan_globals(tmp_path)
+        assert "g_double_ptr" in result.globals
+        assert result.globals["g_double_ptr"].type_str == "char **"
+
+
+def test_function_pointer_declaration_not_treated_as_function() -> None:
+    line = "extern int (__cdecl *g_callback)(int, int);"
+    assert _is_function_decl("int __cdecl", line) is False
 
 
 # ---------------------------------------------------------------------------
@@ -263,3 +303,10 @@ class TestBssFix:
 
         assert "// DATA: GAME 0x00001030" in content
         assert "char gap_00001030[32];" in content
+
+
+def test_verify_bss_layout_clamps_coverage(tmp_path: Path) -> None:
+    _write_c(tmp_path, "bss_large.c", BSS_LARGE_ENTRY)
+    scan = scan_globals(tmp_path)
+    report = verify_bss_layout(scan, {".bss": {"va": 0x20000000, "size": 64}})
+    assert report.coverage_bytes == 64

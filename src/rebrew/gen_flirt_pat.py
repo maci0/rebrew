@@ -4,12 +4,11 @@ This reads the object files inside a .lib archive, extracts every
 public function symbol with its COFF relocations, and emits a
 .pat-format line for each one with relocation bytes masked as '..'.
 
-Usage: uv run python tools/gen_flirt_pat.py tools/MSVC600/VC98/Lib/LIBCMT.LIB -o flirt_sigs/libcmt_vc6.pat
+Usage: uv run python -m rebrew.gen_flirt_pat tools/MSVC600/VC98/Lib/LIBCMT.LIB -o flirt_sigs/libcmt_vc6.pat
 """
 
 import argparse
 import struct
-import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -151,6 +150,7 @@ def bytes_to_pat_line(
 
 
 def main() -> None:
+    """CLI entry point for generating FLIRT .pat files from COFF .lib archives."""
     parser = argparse.ArgumentParser(description="Generate FLIRT .pat from COFF .lib")
     parser.add_argument("lib_path", help="Path to .lib file")
     parser.add_argument("-o", "--output", help="Output .pat file path")
@@ -158,8 +158,9 @@ def main() -> None:
 
     lib_path = Path(args.lib_path)
     if not lib_path.exists():
-        print(f"ERROR: {lib_path} not found", file=sys.stderr)
-        sys.exit(1)
+        from rebrew.cli import error_exit
+
+        error_exit(f"ERROR: {lib_path} not found")
 
     lib_name = lib_path.stem.lower()
     out_path = Path(args.output) if args.output else Path(f"flirt_sigs/{lib_name}_vc6.pat")

@@ -58,23 +58,23 @@ Rebrew stores tool-specific names as **parallel metadata columns**, keyed by VA:
 VA (integer)  ←  canonical join key
   ├── name          "func_10001000"  (canonical display name)
   ├── ghidra_name   "FUN_10001000"   (Ghidra's name at export time)
-  ├── r2_name       "fcn.10001000"   (radare2's name at export time)
+  ├── list_name     "fcn.10001000"   (name from function list file)
   ├── ida_name      "sub_10001000"   (IDA's name — future)
   ├── binja_name    "sub_10001000"   (Binary Ninja's name — future)
-  └── detected_by   ["ghidra", "r2"] (which tools found this function)
+  └── detected_by   ["ghidra", "list"] (which sources found this function)
 ```
 
 This design allows:
 
-- **Lookup in any direction**: given `FUN_10001000` from a Ghidra script, find the matching r2 or IDA name instantly via the shared VA.
+- **Lookup in any direction**: given `FUN_10001000` from a Ghidra script, find the matching function list or IDA name instantly via the shared VA.
 - **Name precedence**: user-assigned names from *any* tool override auto-generated names. The first non-generic name wins.
-- **Size arbitration**: when tools disagree on function size, `size_by_tool` records each tool's opinion and `canonical_size` picks the best (currently: Ghidra > r2, but configurable).
+- **Size arbitration**: when tools disagree on function size, `size_by_tool` records each tool's opinion and `canonical_size` picks the best (currently: Ghidra > function list, but configurable).
 
 ### Where This Lives
 
 | Layer | File | Key fields |
 |-------|------|------------|
-| Intermediate JSON | `db/data_<target>.json` | `ghidra_name`, `r2_name`, `detected_by`, `size_by_tool` |
+| Intermediate JSON | `db/data_<target>.json` | `ghidra_name`, `list_name`, `detected_by`, `size_by_tool` |
 | SQLite DB | `db/coverage.db` → `functions` table | Same columns, queryable via SQL |
 | REST API | `GET /api/targets/<t>/functions/<va>` | Returns all tool names in response JSON |
 | reccmp CSV | `db/<target>_functions.csv` | Only emits user-assigned names; auto-names are left blank |

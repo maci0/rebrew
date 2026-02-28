@@ -20,7 +20,7 @@ from typing import TypedDict
 import typer
 
 from rebrew.annotation import parse_c_file_multi
-from rebrew.cli import TargetOption, get_config, iter_sources
+from rebrew.cli import TargetOption, error_exit, get_config, iter_sources
 from rebrew.config import ProjectConfig
 
 
@@ -35,7 +35,11 @@ class NodeInfo(TypedDict):
 
 def _sanitize_id(name: str) -> str:
     """Sanitize a function name for use as a graph node ID."""
-    return re.sub(r"[^a-zA-Z0-9_]", "_", name)
+    base = re.sub(r"[^a-zA-Z0-9_]", "_", name).strip("_")
+    if not base:
+        base = "node"
+    checksum = f"{sum((i + 1) * ord(ch) for i, ch in enumerate(name)) & 0xFFFFFFFF:08x}"
+    return f"n_{base}_{checksum}"
 
 
 # Pattern matching "extern <type> [<cc>] FuncName(...)"
@@ -119,7 +123,7 @@ def build_graph(
 
     for cfile in iter_sources(reversed_dir, cfg):
         rel_name = rel_display_path(cfile, reversed_dir)
-        for entry in parse_c_file_multi(cfile):
+        for entry in parse_c_file_multi(cfile, target_name=cfg.marker if cfg else None):
             if entry.marker_type in ("GLOBAL", "DATA"):
                 continue
             if origin_filter and entry.origin != origin_filter:
@@ -263,6 +267,7 @@ def render_dot(
         "EXACT": "#2ecc71",
         "RELOC": "#3498db",
         "MATCHING": "#f39c12",
+        "MATCHING_RELOC": "#f39c12",
         "STUB": "#e74c3c",
         "UNKNOWN": "#95a5a6",
     }
@@ -271,7 +276,7 @@ def render_dot(
         nid = _sanitize_id(name)
         status = info["status"]
         color = color_map.get(status, "#95a5a6")
-        font_color = "white" if status != "MATCHING" else "black"
+        font_color = "black" if status in ("MATCHING", "MATCHING_RELOC") else "white"
         label = f"{name}\\n[{status}]" if status != "UNKNOWN" else name
         lines.append(f'    {nid} [label="{label}", fillcolor="{color}", fontcolor="{font_color}"];')
 
@@ -337,17 +342,26 @@ def render_summary(nodes: dict[str, NodeInfo], edges: list[tuple[str, str]]) -> 
 
 _EPILOG = """\
 [bold]Examples:[/bold]
-  rebrew graph                                  Mermaid diagram of all functions
-  rebrew graph --format dot                     Graphviz DOT format
-  rebrew graph --format summary                 Text summary only
-  rebrew graph --origin GAME                    Only GAME-origin functions
-  rebrew graph --focus _my_func --depth 2       Neighbourhood around one function
-  rebrew graph -o graph.md                      Write output to file
+
+rebrew graph                                  Mermaid diagram of all functions
+
+rebrew graph --format dot                     Graphviz DOT format
+
+rebrew graph --format summary                 Text summary only
+
+rebrew graph --origin GAME                    Only GAME-origin functions
+
+rebrew graph --focus _my_func --depth 2       Neighbourhood around one function
+
+rebrew graph -o graph.md                      Write output to file
 
 [bold]Output formats:[/bold]
-  mermaid    Mermaid flowchart (default; paste into docs)
-  dot        Graphviz DOT (pipe to 'dot -Tpng')
-  summary    Text breakdown by component
+
+mermaid    Mermaid flowchart (default; paste into docs)
+
+dot        Graphviz DOT (pipe to 'dot -Tpng')
+
+summary    Text breakdown by component
 
 [dim]Scans reversed .c files for call targets to build the dependency graph.
 Uses annotations to determine function origins and status.[/dim]"""
@@ -381,14 +395,12 @@ def main(
     nodes, edges = build_graph(reversed_dir, origin_filter, cfg=cfg)
 
     if not nodes:
-        print("No functions found.", file=sys.stderr)
-        raise typer.Exit(code=1)
+        error_exit("No functions found.")
 
     if focus:
         nodes, edges = _focus_graph(nodes, edges, focus, depth)
         if not nodes:
-            print(f"No function matching '{focus}' found.", file=sys.stderr)
-            raise typer.Exit(code=1)
+            error_exit(f"No function matching '{focus}' found.")
 
     if fmt == "mermaid":
         result = render_mermaid(nodes, edges)
@@ -397,8 +409,7 @@ def main(
     elif fmt == "summary":
         result = render_summary(nodes, edges)
     else:
-        print(f"Unknown format: {fmt}. Use mermaid, dot, or summary.", file=sys.stderr)
-        raise typer.Exit(code=1)
+        error_exit(f"Unknown format: {fmt}. Use mermaid, dot, or summary.")
 
     if output:
         Path(output).write_text(result + "\n", encoding="utf-8")
@@ -408,6 +419,7 @@ def main(
 
 
 def main_entry() -> None:
+    """Run the Typer CLI application."""
     app()
 
 

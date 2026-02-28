@@ -9,6 +9,7 @@ from rebrew.sync import (
     PullChange,
     PullResult,
     _fetch_mcp_tool,
+    _ghidra_name_to_symbol,
     _is_generic_name,
     _is_meaningful_name,
     _parse_va,
@@ -207,9 +208,9 @@ class TestBuildSizeSyncCommands:
         """Generates command when canonical_size > ghidra_size."""
         registry = {
             0x1000: {
-                "size_by_tool": {"ghidra": 50, "r2": 80},
+                "size_by_tool": {"ghidra": 50, "list": 80},
                 "canonical_size": 80,
-                "size_reason": "r2 larger",
+                "size_reason": "list larger",
             }
         }
         cmds = build_size_sync_commands(registry, "/server.dll")
@@ -221,7 +222,7 @@ class TestBuildSizeSyncCommands:
         """No command when canonical_size == ghidra_size."""
         registry = {
             0x1000: {
-                "size_by_tool": {"ghidra": 80, "r2": 80},
+                "size_by_tool": {"ghidra": 80, "list": 80},
                 "canonical_size": 80,
                 "size_reason": "",
             }
@@ -278,13 +279,13 @@ class TestBuildSizeSyncCommands:
 class TestBuildNewFunctionCommands:
     """Tests for build_new_function_commands()."""
 
-    def test_r2_only_function(self) -> None:
-        """Generates command for function detected by r2 but not ghidra."""
+    def test_list_only_function(self) -> None:
+        """Generates command for function detected by list but not ghidra."""
         registry = {
             0x2000: {
-                "detected_by": ["r2"],
+                "detected_by": ["list"],
                 "canonical_size": 64,
-                "size_by_tool": {"r2": 64},
+                "size_by_tool": {"list": 64},
             }
         }
         cmds = build_new_function_commands(registry, "/server.dll")
@@ -292,12 +293,12 @@ class TestBuildNewFunctionCommands:
         assert cmds[0]["tool"] == "create-function"
 
     def test_both_detected_no_command(self) -> None:
-        """No command when both r2 and ghidra detected the function."""
+        """No command when both list and ghidra detected the function."""
         registry = {
             0x2000: {
-                "detected_by": ["r2", "ghidra"],
+                "detected_by": ["list", "ghidra"],
                 "canonical_size": 64,
-                "size_by_tool": {"r2": 64, "ghidra": 64},
+                "size_by_tool": {"list": 64, "ghidra": 64},
             }
         }
         cmds = build_new_function_commands(registry, "/server.dll")
@@ -319,9 +320,9 @@ class TestBuildNewFunctionCommands:
         """Entries with zero canonical size are skipped."""
         registry = {
             0x2000: {
-                "detected_by": ["r2"],
+                "detected_by": ["list"],
                 "canonical_size": 0,
-                "size_by_tool": {"r2": 0},
+                "size_by_tool": {"list": 0},
             }
         }
         cmds = build_new_function_commands(registry, "/server.dll")
@@ -331,9 +332,9 @@ class TestBuildNewFunctionCommands:
         """IAT thunk VAs are skipped."""
         registry = {
             0x2000: {
-                "detected_by": ["r2"],
+                "detected_by": ["list"],
                 "canonical_size": 64,
-                "size_by_tool": {"r2": 64},
+                "size_by_tool": {"list": 64},
             }
         }
         cmds = build_new_function_commands(registry, "/server.dll", iat_thunks={0x2000})
@@ -722,8 +723,12 @@ class _FakeMCPResponse:
     """Fake HTTP response for _fetch_mcp_tool tests."""
 
     def __init__(self, status_code: int, body: dict[str, Any]) -> None:
+        import json as _json
+
         self.status_code = status_code
         self._body = body
+        self.headers: dict[str, str] = {"content-type": "application/json"}
+        self.text = _json.dumps(body) if body else ""
 
     def json(self) -> dict[str, Any]:
         return self._body
@@ -735,8 +740,10 @@ class _FakeMCPClient:
     def __init__(self, response: _FakeMCPResponse) -> None:
         self._response = response
 
-    def post(self, endpoint: str, json: dict) -> _FakeMCPResponse:
-        _ = endpoint, json
+    def post(
+        self, endpoint: str, json: dict, headers: dict[str, str] | None = None
+    ) -> _FakeMCPResponse:
+        _ = endpoint, json, headers
         return self._response
 
 
@@ -817,3 +824,73 @@ class TestBuildSyncCommandsNote:
         ]
         assert len(plate_comments) == 1
         assert "[rebrew]" in plate_comments[0]["args"]["comment"]
+
+
+# ---------------------------------------------------------------------------
+# _ghidra_name_to_symbol
+# ---------------------------------------------------------------------------
+
+
+class TestGhidraNameToSymbol:
+    """Tests for the _ghidra_name_to_symbol() helper."""
+
+    def test_already_has_underscore(self) -> None:
+        """Name already starting with _ is returned unchanged."""
+        assert _ghidra_name_to_symbol("_AllocGameObject", {}) == "_AllocGameObject"
+
+    def test_empty_string(self) -> None:
+        assert _ghidra_name_to_symbol("", {}) == ""
+
+    def test_adds_underscore_for_cdecl_entry(self) -> None:
+        """When entry has symbol with _ prefix, adds _ to Ghidra name."""
+        entry = {"symbol": "_old_func", "cflags": "/O2 /Gd"}
+        assert _ghidra_name_to_symbol("AllocGameObject", entry) == "_AllocGameObject"
+
+    def test_no_underscore_for_stdcall(self) -> None:
+        """When CFLAGS contain /Gz (stdcall), no underscore is added."""
+        entry = {"symbol": "", "cflags": "/O2 /Gz"}
+        assert _ghidra_name_to_symbol("WinMainCRTStartup", entry) == "WinMainCRTStartup"
+
+    def test_default_adds_underscore(self) -> None:
+        """When no hints are available, default to adding _ (cdecl is most common)."""
+        assert _ghidra_name_to_symbol("AllocGameObject", {}) == "_AllocGameObject"
+
+    def test_cfg_symbol_prefix_takes_priority(self) -> None:
+        """cfg.symbol_prefix overrides entry-level heuristics."""
+        cfg = SimpleNamespace(symbol_prefix="_")
+        assert _ghidra_name_to_symbol("AllocGameObject", {}, cfg=cfg) == "_AllocGameObject"
+
+    def test_cfg_empty_symbol_prefix(self) -> None:
+        """cfg.symbol_prefix='' (e.g. x86_64) means no prefix added from config."""
+        cfg = SimpleNamespace(symbol_prefix="")
+        # Falls through to entry-level heuristic — default adds _
+        assert _ghidra_name_to_symbol("AllocGameObject", {}, cfg=cfg) == "_AllocGameObject"
+
+    def test_annotation_object_entry(self) -> None:
+        """Works with Annotation-like objects (attribute access, not dict)."""
+        entry = SimpleNamespace(symbol="_my_func", cflags="/O2 /Gd")
+        assert _ghidra_name_to_symbol("NewName", entry) == "_NewName"
+
+    def test_generic_local_symbol_no_underscore(self) -> None:
+        """When local symbol is generic (no _), still default-adds _ for cdecl."""
+        entry = {"symbol": "func_10001000", "cflags": "/O2 /Gd"}
+        assert _ghidra_name_to_symbol("GameInit", entry) == "_GameInit"
+
+
+# ---------------------------------------------------------------------------
+# _is_meaningful_name — thunk_ prefix
+# ---------------------------------------------------------------------------
+
+
+class TestIsMeaningfulNameThunk:
+    """Tests for thunk_ prefix filtering in _is_meaningful_name()."""
+
+    def test_thunk_prefix(self) -> None:
+        assert _is_meaningful_name("thunk_FUN_10001000") is False
+
+    def test_thunk_bare(self) -> None:
+        assert _is_meaningful_name("thunk_") is False
+
+    def test_not_thunk(self) -> None:
+        """Names that happen to contain 'thunk' elsewhere are meaningful."""
+        assert _is_meaningful_name("setup_thunk_handler") is True

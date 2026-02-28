@@ -10,7 +10,6 @@ Usage:
 import contextlib
 import json
 from importlib import import_module
-from typing import Any
 
 import typer
 
@@ -29,15 +28,22 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew triage               Human-readable summary
-  rebrew triage --json        Full JSON report for agents
+
+rebrew triage               Human-readable summary
+
+rebrew triage --json        Full JSON report for agents
 
 [bold]What it includes:[/bold]
-  - Coverage statistics (total, covered, by status)
-  - Unmatchable function count
-  - MATCHING near-miss functions (sorted by byte delta)
-  - Top recommendations for new functions
-  - FLIRT library match count (if signatures available)
+
+- Coverage statistics (total, covered, by status)
+
+- Unmatchable function count
+
+- MATCHING near-miss functions (sorted by byte delta)
+
+- Top recommendations for new functions
+
+- FLIRT library match count (if signatures available)
 
 [dim]Combines rebrew next --stats, --improving, and rebrew flirt
 into a single command for cold-start agent sessions.[/dim]""",
@@ -74,8 +80,10 @@ def main(
     by_status: dict[str, int] = {}
     by_origin: dict[str, int] = {}
     for info in existing.values():
-        by_status[info["status"]] = by_status.get(info["status"], 0) + 1
-        by_origin[info["origin"]] = by_origin.get(info["origin"], 0) + 1
+        status = info.get("status", "")
+        origin = info.get("origin", "")
+        by_status[status] = by_status.get(status, 0) + 1
+        by_origin[origin] = by_origin.get(origin, 0) + 1
 
     exact = by_status.get("EXACT", 0)
     reloc = by_status.get("RELOC", 0)
@@ -97,9 +105,9 @@ def main(
 
     # --- Near-miss MATCHING functions ---
     size_by_va: dict[int, int] = {f["va"]: f["size"] for f in ghidra_funcs}
-    near_miss: list[dict[str, Any]] = []
+    near_miss: list[dict[str, object]] = []
     for imp_va, info in sorted(existing.items()):
-        if info["status"] in ("MATCHING", "MATCHING_RELOC"):
+        if info.get("status", "") in ("MATCHING", "MATCHING_RELOC"):
             imp_size = size_by_va.get(imp_va, 0)
             raw_bd = info.get("blocker_delta", "")
             try:
@@ -111,7 +119,7 @@ def main(
                     "va": f"0x{imp_va:08x}",
                     "size": imp_size,
                     "byte_delta": delta,
-                    "filename": info["filename"],
+                    "filename": info.get("filename", ""),
                     "blocker": info.get("blocker", ""),
                 }
             )
@@ -121,7 +129,7 @@ def main(
 
     # --- Recommendations ---
     sorted_covered = sorted(covered_vas)
-    recommendations: list[dict[str, Any]] = []
+    recommendations: list[dict[str, object]] = []
     for func in ghidra_funcs:
         va = func["va"]
         size = func["size"]
@@ -164,7 +172,7 @@ def main(
     flirt_error: str | None = None
     if binary_info is not None:
         try:
-            flirt_mod: Any = import_module("flirt")
+            flirt_mod: object = import_module("flirt")
 
             from rebrew.flirt import find_func_size, load_signatures
 
@@ -202,7 +210,7 @@ def main(
     pct = 100 * bounded_covered / total if total else 0.0
 
     if json_output:
-        report: dict[str, Any] = {
+        report: dict[str, object] = {
             "coverage": {
                 "total": total,
                 "covered": covered,
@@ -253,6 +261,7 @@ def main(
 
 
 def main_entry() -> None:
+    """Run the triage CLI app."""
     app()
 
 

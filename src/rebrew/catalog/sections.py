@@ -7,7 +7,6 @@ scanning from annotated source files.
 import re
 import sys
 from pathlib import Path
-from typing import Any
 
 from rebrew.binary_loader import load_binary
 from rebrew.config import ProjectConfig
@@ -18,6 +17,7 @@ _ARRAY_SIZE_RE = re.compile(r"\[(\d+)\]")
 
 
 def get_sections(bin_path: Path) -> dict[str, dict[str, int]]:
+    """Return section metadata keyed by section name."""
     try:
         info = load_binary(bin_path)
         sections = {}
@@ -45,8 +45,9 @@ def get_sections(bin_path: Path) -> dict[str, dict[str, int]]:
         return {}
 
 
-def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, dict[str, Any]]:
-    globals_dict: dict[int, dict[str, Any]] = {}
+def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, dict[str, object]]:
+    """Scan annotated sources and return globals keyed by VA."""
+    globals_dict: dict[int, dict[str, object]] = {}
     from rebrew.cli import iter_sources
 
     for p in iter_sources(src_dir, cfg):
@@ -102,7 +103,5 @@ def get_text_section_size(bin_path: Path) -> int:
     try:
         info = load_binary(bin_path)
         return info.text_size
-    except (OSError, KeyError, ValueError):
-        pass
-    # Fallback: estimate from r2_functions.txt last function
-    return 0x24000  # rough estimate
+    except (ImportError, OSError, KeyError, ValueError, RuntimeError):
+        return 0

@@ -1,12 +1,13 @@
 """Shared CLI utilities for rebrew tools.
 
-Provides common Typer options and config-loading helpers so that every
-tool gets ``--target`` support without boilerplate.
+Provides common Typer options, config-loading helpers, and standardised
+output / error helpers so that every tool gets consistent ``--target``
+support, error reporting, VA parsing, and JSON output without boilerplate.
 
 Usage in a tool::
 
     import typer
-    from rebrew.cli import TargetOption, get_config
+    from rebrew.cli import TargetOption, get_config, error_exit, json_print, parse_va
 
     app = typer.Typer()
 
@@ -16,9 +17,14 @@ Usage in a tool::
         ...
 """
 
+from __future__ import annotations
+
+import json
 from pathlib import Path
+from typing import NoReturn
 
 import typer
+from rich.console import Console
 
 from rebrew.config import ProjectConfig, load_config
 
@@ -27,13 +33,45 @@ TargetOption: str | None = typer.Option(
     None,
     "--target",
     "-t",
-    help="Target name from rebrew.toml (default: first target).",
+    help="Target name from rebrew-project.toml (default: first target).",
 )
 
 
 def get_config(target: str | None = None) -> ProjectConfig:
     """Load the project config for the given target."""
     return load_config(target=target)
+
+
+# ---------------------------------------------------------------------------
+# Standardised output helpers
+# ---------------------------------------------------------------------------
+
+_err_console = Console(stderr=True)
+
+
+def error_exit(msg: str, *, json_mode: bool = False, code: int = 1) -> NoReturn:
+    """Print *msg* as an error and ``raise typer.Exit(code)``."""
+    if json_mode:
+        print(json.dumps({"error": msg}, indent=2))
+    else:
+        _err_console.print(f"[red bold]error:[/red bold] {msg}")
+    raise typer.Exit(code=code)
+
+
+def json_print(data: dict[str, object] | list[object]) -> None:
+    """Print *data* as pretty-printed JSON to stdout."""
+    print(json.dumps(data, indent=2))
+
+
+def parse_va(va_str: str, *, json_mode: bool = False) -> int:
+    """Parse a hex virtual-address string, exiting on invalid input.
+
+    Accepts ``0x``-prefixed or bare hex strings.
+    """
+    try:
+        return int(va_str.strip(), 16)
+    except ValueError:
+        error_exit(f"Invalid hex VA: {va_str!r}", json_mode=json_mode)
 
 
 def source_glob(cfg: ProjectConfig | None) -> str:

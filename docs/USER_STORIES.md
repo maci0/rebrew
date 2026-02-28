@@ -25,7 +25,7 @@ User stories for the Rebrew decompilation workbench, organized by persona and wo
 > **As a Project Lead**, I want to initialize a new rebrew project for a binary so that my team has a standardized workspace with config, directories, and toolchain ready.
 
 ### Acceptance Criteria
-- `rebrew.toml` created with target binary, format, arch, and compiler settings
+- `rebrew-project.toml` created with target binary, format, arch, and compiler settings
 - Source, bin, and output directories scaffolded
 - Compiler detected from PE Rich Header or CRT prologue patterns
 - Running `rebrew init` a second time changes nothing (idempotent)
@@ -33,7 +33,7 @@ User stories for the Rebrew decompilation workbench, organized by persona and wo
 ```mermaid
 graph TD
     A["Obtain target binary<br/>(e.g. game.dll)"] --> B["rebrew init --target game<br/>--binary game.dll --compiler msvc6"]
-    B --> C["rebrew.toml created"]
+    B --> C["rebrew-project.toml created"]
     B --> D["src/game/ directory created"]
     B --> E["bin/game/ directory created"]
     C --> F["rebrew cfg show"]
@@ -50,7 +50,7 @@ graph TD
 > **As a Project Lead**, I want to add a second binary (e.g. client.exe) to an existing project so that shared code between DLL and EXE can be tracked together.
 
 ### Acceptance Criteria
-- New `[targets.client_exe]` section added to `rebrew.toml`
+- New `[targets.client_exe]` section added to `rebrew-project.toml`
 - Existing target config untouched
 - Origins and cflags presets configurable per-target
 - Shared source directory pattern (`src/shared/`) documented
@@ -60,7 +60,7 @@ graph TD
     A["Existing project with<br/>server.dll target"] --> B["rebrew cfg add-target client.exe<br/>--binary original/client.exe"]
     B --> C["rebrew cfg add-origin ZLIB<br/>--target client.exe"]
     C --> D["rebrew cfg set-cflags GAME<br/>'/O2 /Gd' --target client.exe"]
-    D --> E["Both targets in rebrew.toml"]
+    D --> E["Both targets in rebrew-project.toml"]
     E --> F["rebrew next --target client.exe"]
 
     style A fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
@@ -397,7 +397,7 @@ graph TD
 
 ### Acceptance Criteria
 - `rebrew lint` checks all annotation fields (FUNCTION, STATUS, ORIGIN, SIZE, CFLAGS)
-- Error codes E001–E017 for hard errors, W001–W015 for warnings
+- Error codes E000–E017 for hard errors, W001–W017 for warnings
 - `rebrew lint --fix` auto-migrates old annotation formats
 - Running lint twice changes nothing (idempotent)
 
@@ -406,7 +406,7 @@ graph TD
     A["Write or edit a .c file"] --> B["rebrew lint"]
     B --> C{"Annotations valid?"}
     C -->|Yes| D["✅ Clean"]
-    C -->|No| E["Report errors<br/>(E001-E017, W001-W015)"]
+    C -->|No| E["Report errors<br/>(E000-E017, W001-W017)"]
     E --> F{"Auto-fixable?"}
     F -->|Yes| G["rebrew lint --fix"]
     G --> B
@@ -546,3 +546,12 @@ graph LR
     style J fill:#fee2e2,stroke:#dc2626,color:#991b1b
     style E fill:#fef3c7,stroke:#d97706,color:#92400e
 ```
+
+## US14: Global Source Rename
+> **As an RE Dev**, I want to rename a function and have the system automatically update annotations, C code, and all cross-references across the codebase so that I don't have to manually execute 16 greps and find-and-replaces.
+
+### Acceptance Criteria
+- `$ rebrew rename old_func new_func` renames the C definition.
+- `// SYMBOL:` annotation is updated automatically.
+- All files importing `old_func` via `extern` statements are rewritten to use `new_func`.
+- The filename is changed if the stem matched `old_func`.
