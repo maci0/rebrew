@@ -1,11 +1,12 @@
 """Tests for rebrew.matcher.scoring — score_candidate, diff_functions."""
 
-from rebrew.matcher.core import Score
+from rebrew.matcher.core import Score, StructuralSimilarity
 from rebrew.matcher.scoring import (
     _mask_registers_x86_32,
     _normalize_reloc_x86_32,
     diff_functions,
     score_candidate,
+    structural_similarity,
 )
 
 # -------------------------------------------------------------------------
@@ -201,3 +202,65 @@ class TestDiffFunctions:
         # Should be caught by 8B check:
         assert result[0:2] == code[0:2]
         assert result[2:6] == b"\x00\x00\x00\x00"
+
+
+# -------------------------------------------------------------------------
+# structural_similarity
+# -------------------------------------------------------------------------
+
+
+class TestStructuralSimilarity:
+    def test_identical_code(self) -> None:
+        code = b"\x55\x8b\xec\x83\xec\x10\xc3"
+        sim = structural_similarity(code, code)
+        assert isinstance(sim, StructuralSimilarity)
+        assert sim.structural == 0
+        assert sim.register_only == 0
+        assert sim.structural_ratio == 0.0
+        assert sim.mnemonic_match_ratio == 1.0
+        assert sim.flag_sensitive is False
+
+    def test_structural_diff_detected(self) -> None:
+        # sub esp, 0x10 vs sub esp, 0x20 — structural difference
+        target = b"\x55\x8b\xec\x83\xec\x10\xc3"
+        cand = b"\x55\x8b\xec\x83\xec\x20\xc3"
+        sim = structural_similarity(target, cand)
+        assert sim.structural > 0
+        assert sim.structural_ratio > 0.0
+        assert sim.total_insns > 0
+
+    def test_reloc_only_not_structural(self) -> None:
+        # call near with different displacement — reloc only
+        target = b"\x55\x8b\xec\xe8\x01\x02\x03\x04\xc3"
+        cand = b"\x55\x8b\xec\xe8\xff\xfe\xfd\xfc\xc3"
+        sim = structural_similarity(target, cand)
+        assert sim.reloc_only > 0
+        assert sim.structural == 0
+        assert sim.flag_sensitive is False
+
+    def test_register_diff_not_structural(self) -> None:
+        # push eax; pop eax vs push ebx; pop ebx — register-only difference
+        target = b"\x50\x58"
+        cand = b"\x53\x5b"
+        sim = structural_similarity(target, cand)
+        assert sim.register_only > 0
+        assert sim.structural == 0
+        assert sim.flag_sensitive is False
+
+    def test_empty_inputs(self) -> None:
+        sim = structural_similarity(b"", b"")
+        assert sim.total_insns == 0
+        assert sim.structural_ratio == 0.0
+        assert sim.flag_sensitive is False
+
+    def test_flag_sensitive_moderate_structural(self) -> None:
+        # 7 identical nops + 3 structurally different: inc eax (40) vs dec eax (48)
+        # These have different opcodes AND the register mask groups them differently
+        # (0x40-0x47 = inc, 0x48-0x4F = dec), so after masking 0xF8 they differ.
+        # inc eax = 40, masked = 40; dec eax = 48, masked = 48 → structural
+        target = b"\x90" * 7 + b"\x40\x40\x40"
+        cand = b"\x90" * 7 + b"\x48\x48\x48"
+        sim = structural_similarity(target, cand)
+        assert sim.exact >= 7
+        assert sim.structural > 0
+        assert sim.total_insns > 0

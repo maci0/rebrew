@@ -35,6 +35,10 @@ Rebrew extends the reccmp baseline with:
 | `GLOBALS` key | Comma-separated globals referenced by a function |
 | `SKIP` key | Known acceptable byte differences |
 | `SECTION` key | Section name for data annotations (`.data`, `.rdata`, `.bss`) |
+| `GHIDRA` key | Tracks the Ghidra name to prevent conflict loops |
+| `PROTOTYPE` key | Real typed signature pulled from Ghidra decompilation |
+| `STRUCT` key | Reference to a shared struct definition pulled from Ghidra |
+| `CALLERS` key | Comma-separated callers (optional, auto-generated from xrefs) |
 
 All rebrew-specific keys use unique names that reccmp's parser safely ignores, so files remain compatible with both toolchains.
 
@@ -79,7 +83,7 @@ int __cdecl bit_reverse(int x)
 
 Format: `// MARKER: MODULE 0xVA`
 
-- **MODULE** — the target identifier from `rebrew.toml` (e.g. `SERVER`, `CLIENT`)
+- **MODULE** — the target identifier from `rebrew-project.toml` (e.g. `SERVER`, `CLIENT`)
 - **VA** — virtual address in the original binary, hex with `0x` prefix
 
 ---
@@ -97,6 +101,10 @@ Format: `// MARKER: MODULE 0xVA`
 | `SOURCE` | Conditional | W006 | **Required for library origins** — reference file (e.g. `SBHEAP.C:195`, `deflate.c`) |
 | `BLOCKER` | Conditional | W005 | **Required for STUB** — explain why the function doesn't match yet |
 | `NOTE` | Optional | — | Freeform notes (e.g. `NOTE: uses SSE2 intrinsics`) |
+| `GHIDRA` | Optional | — | The Ghidra name, added by `rebrew sync --pull --accept-local` to prevent conflict loops |
+| `PROTOTYPE` | Optional | — | Added by `rebrew sync --pull-signatures` |
+| `STRUCT` | Optional | — | Linked structs for this file |
+| `CALLERS` | Optional | — | Incoming cross-references |
 | `GLOBALS` | Optional | — | Comma-separated list of globals referenced (e.g. `g_counter, g_state`) |
 | `SKIP` | Optional | — | Known acceptable byte differences (e.g. `SKIP: xor edi,edi after call`) |
 
@@ -115,7 +123,7 @@ Format: `// MARKER: MODULE 0xVA`
 
 ### ORIGIN Values
 
-Origins are **config-driven** — each project defines its own in `rebrew.toml`. Example defaults:
+Origins are **config-driven** — each project defines its own in `rebrew-project.toml`. Example defaults:
 
 | Origin | Meaning | Default CFLAGS |
 |--------|---------|----------------|
@@ -123,7 +131,7 @@ Origins are **config-driven** — each project defines its own in `rebrew.toml`.
 | `MSVCRT` | Microsoft Visual C++ runtime library | `/O1` |
 | `ZLIB` | zlib compression library | `/O2` |
 
-Configure in `rebrew.toml`:
+Configure in `rebrew-project.toml`:
 
 ```toml
 [targets."server.dll"]
@@ -261,7 +269,7 @@ Errors indicate broken annotations that will cause `rebrew test`, `rebrew verify
 | E003 | Missing `STATUS` | No `// STATUS:` line in header |
 | E004 | Invalid STATUS value | `STATUS: DONE` or other non-standard value (valid: EXACT, RELOC, MATCHING, MATCHING_RELOC, STUB) |
 | E005 | Missing `ORIGIN` | No `// ORIGIN:` line in header |
-| E006 | Invalid ORIGIN value | `ORIGIN: UNKNOWN` — must be in `origins` list from `rebrew.toml` (falls back to GAME, MSVCRT, ZLIB) |
+| E006 | Invalid ORIGIN value | `ORIGIN: UNKNOWN` — must be in `origins` list from `rebrew-project.toml` (falls back to GAME, MSVCRT, ZLIB) |
 | E007 | Missing `SIZE` | No `// SIZE:` line in header |
 | E008 | Invalid SIZE value | `SIZE: -1`, `SIZE: 0`, `SIZE: abc` |
 | E009 | Missing `CFLAGS` | No `// CFLAGS:` line in header |
@@ -271,11 +279,11 @@ Errors indicate broken annotations that will cause `rebrew test`, `rebrew verify
 | E016 | Filename/SYMBOL mismatch | File `func_10003da0.c` with `SYMBOL: _alloc_game_object`. Allows origin prefixes: `crt_foo.c` matches `_foo` |
 | E017 | Contradictory status/marker | `STATUS: MATCHING` on a `// STUB:` marker |
 
-#### Config-Aware Errors (require `rebrew.toml`)
+#### Config-Aware Errors (require `rebrew-project.toml`)
 
 | Code | Description | Triggered by |
 |------|-------------|--------------|
-| E012 | Module name mismatch | `// FUNCTION: CLIENT 0x...` when `rebrew.toml` says `marker = "SERVER"` |
+| E012 | Module name mismatch | `// FUNCTION: CLIENT 0x...` when `rebrew-project.toml` says `marker = "SERVER"` |
 
 #### Cross-File Errors
 
@@ -312,9 +320,15 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | Code | Description | Triggered by |
 |------|-------------|--------------|
 | W008 | CFLAGS differ from preset | `CFLAGS: /O2 /Gd` on a `MSVCRT` function when preset says `/O1` |
-| W011 | ORIGIN not in config | `ORIGIN: LUA` when `rebrew.toml` `origins` list doesn't include it |
 | W014 | Filename prefix mismatch | File named `crt_malloc.c` with `ORIGIN: GAME` (prefix `crt_` implies MSVCRT) |
 | W015 | Mixed-case VA hex digits | `0x10003Da0` — prefer consistent `0x10003da0` or `0x10003DA0` |
+
+#### Data Annotation Warnings
+
+| Code | Description | Triggered by |
+|------|-------------|--------------|
+| W016 | DATA/GLOBAL missing `SECTION` | `// DATA:` or `// GLOBAL:` marker without `// SECTION:` (.data, .rdata, .bss) |
+| W017 | NOTE contains sync metadata | `NOTE: [rebrew] ...` — looks like auto-generated sync metadata, not a human note |
 
 ---
 
@@ -327,7 +341,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | `--json` | Machine-readable JSON output (schema below) |
 | `--summary` | Print status × origin breakdown table after results |
 | `--files FILE [FILE...]` | Check specific files instead of scanning the entire directory |
-| `--target NAME` | Select a target from `rebrew.toml` (for config-aware checks) |
+| `--target NAME` | Select a target from `rebrew-project.toml` (for config-aware checks) |
 
 ### Example Usage
 
@@ -469,6 +483,26 @@ Run `rebrew lint --fix` to auto-migrate to the new multi-line format.
 All legacy formats are auto-migrated by `rebrew lint --fix`.
 
 ---
+
+
+### Multi-Target Support
+
+Rebrew supports maintaining code for multiple targets (e.g., `LEGO1` and `BETA10`) in the exact same `.c` file.
+When parsing annotations, Rebrew extracts the module name from the `// FUNCTION: <MODULE> 0x...` marker.
+If you pass `--target BETA10` to a CLI tool, Rebrew will **automatically ignore** any annotation blocks that belong to `LEGO1`.
+
+```c
+// FUNCTION: LEGO1 0x1009a8c0
+// STATUS: EXACT
+// SYMBOL: my_func
+
+// FUNCTION: BETA10 0x101832f7
+// STATUS: MATCHING
+// SYMBOL: my_func
+void my_func() {}
+```
+
+This allows you to test the identical C function against different binaries at different virtual addresses without duplicating source files.
 
 ## Multi-Function Files
 

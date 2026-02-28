@@ -32,6 +32,9 @@ from .core import (
     Score as Score,
 )
 from .core import (
+    StructuralSimilarity as StructuralSimilarity,
+)
+from .core import (
     compute_args_hash as compute_args_hash,
 )
 from .core import (
@@ -215,16 +218,14 @@ from .mutator import (
     mutate_code as mutate_code,
 )
 from .parsers import (
-    extract_function_from_pe as extract_function_from_pe,
+    extract_function_from_binary as extract_function_from_binary,
 )
 from .parsers import (
-    list_coff_obj_symbols as list_coff_obj_symbols,
+    list_obj_symbols as list_obj_symbols,
 )
 from .parsers import (
-    parse_coff_obj_symbol_bytes as parse_coff_obj_symbol_bytes,
-)
-from .parsers import (
-    parse_coff_symbol_bytes as parse_coff_symbol_bytes,
+    parse_obj_symbol_bytes as parse_obj_symbol_bytes,
 )
 from .scoring import diff_functions as diff_functions
 from .scoring import score_candidate as score_candidate
+from .scoring import structural_similarity as structural_similarity

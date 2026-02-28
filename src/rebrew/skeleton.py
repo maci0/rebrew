@@ -14,10 +14,8 @@ Usage:
     rebrew skeleton --list --origin GAME          # List uncovered GAME functions
 """
 
-import json
 import sys
 from pathlib import Path
-from typing import Any
 
 import jinja2
 import typer
@@ -26,7 +24,7 @@ from rebrew.annotation import (
     marker_for_origin,
 )
 from rebrew.catalog import load_ghidra_functions
-from rebrew.cli import TargetOption, get_config
+from rebrew.cli import TargetOption, error_exit, get_config, json_print, parse_va
 from rebrew.config import ProjectConfig
 from rebrew.decompiler import fetch_decompilation
 from rebrew.naming import (
@@ -35,6 +33,7 @@ from rebrew.naming import (
     make_filename,
     sanitize_name,
 )
+from rebrew.utils import atomic_write_text
 
 # Default skeleton TODO text per origin (used when cfg.origin_todos is empty)
 _DEFAULT_ORIGIN_TODOS: dict[str, str] = {
@@ -129,7 +128,7 @@ def generate_skeleton(
     # writes STATUS: STUB on its own annotation line.
     lib_origins = cfg.library_origins or None
     marker = marker_for_origin(origin, "MATCHED", lib_origins)
-    cflags = cfg.cflags_presets.get(origin, "/O2 /Gd")
+    cflags = cfg.resolve_origin_cflags(origin)
 
     # Determine symbol name
     symbol = "_" + custom_name if custom_name else "_" + sanitize_name(ghidra_name)
@@ -181,7 +180,7 @@ def generate_annotation_block(
     """
     lib_origins = cfg.library_origins or None
     marker = marker_for_origin(origin, "MATCHED", lib_origins)
-    cflags = cfg.cflags_presets.get(origin, "/O2 /Gd")
+    cflags = cfg.resolve_origin_cflags(origin)
 
     symbol = "_" + custom_name if custom_name else "_" + sanitize_name(ghidra_name)
     func_name = symbol.lstrip("_")
@@ -214,7 +213,7 @@ def generate_diff_command(
 
 
 def list_uncovered(
-    ghidra_funcs: list[dict[str, Any]],
+    ghidra_funcs: list[dict[str, object]],
     existing_vas: dict[int, str],
     cfg: ProjectConfig,
     origin_filter: str | None = None,
@@ -225,9 +224,14 @@ def list_uncovered(
     uncovered: list[tuple[int, int, str, str]] = []
     ignored_symbols = set(cfg.ignored_symbols or [])
     for func in ghidra_funcs:
-        va = func["va"]
-        size = func["size"]
-        name = func.get("ghidra_name", f"FUN_{va:08x}")
+        va_obj = func.get("va")
+        size_obj = func.get("size")
+        if not isinstance(va_obj, int) or not isinstance(size_obj, int):
+            continue
+        va = va_obj
+        size = size_obj
+        name_obj = func.get("ghidra_name")
+        name = name_obj if isinstance(name_obj, str) and name_obj else f"FUN_{va:08x}"
 
         if va in existing_vas:
             continue
@@ -246,27 +250,43 @@ def list_uncovered(
     return uncovered
 
 
+def _display_path(path: Path, root: Path) -> str:
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path if path.is_absolute() else path.name)
+
+
 _EPILOG = """\
 [bold]Examples:[/bold]
-  rebrew skeleton 0x10003da0                     Generate skeleton for one function
-  rebrew skeleton 0x10003da0 --name my_func      Custom function name
-  rebrew skeleton 0x10003da0 --origin MSVCRT      Set origin (default: auto-detect)
-  rebrew skeleton 0x10003da0 --append crt_env.c  Append to existing multi-function file
-  rebrew skeleton --batch 10                     Generate 10 skeletons at once
-  rebrew skeleton --batch 10 --origin GAME       Batch, filtered by origin
-  rebrew skeleton --list                         List uncovered functions
-  rebrew skeleton --list --origin ZLIB           List uncovered ZLIB functions
+
+rebrew skeleton 0x10003da0                     Generate skeleton for one function
+
+rebrew skeleton 0x10003da0 --name my_func      Custom function name
+
+rebrew skeleton 0x10003da0 --origin MSVCRT      Set origin (default: auto-detect)
+
+rebrew skeleton 0x10003da0 --append crt_env.c  Append to existing multi-function file
+
+rebrew skeleton --batch 10                     Generate 10 skeletons at once
+
+rebrew skeleton --batch 10 --origin GAME       Batch, filtered by origin
+
+rebrew skeleton --list                         List uncovered functions
+
+rebrew skeleton --list --origin ZLIB           List uncovered ZLIB functions
 
 [bold]What it creates:[/bold]
-  A .c file with reccmp-style annotations (FUNCTION, STATUS, ORIGIN, SIZE,
-  CFLAGS, SYMBOL) and a placeholder function body. The file is placed in the
-  configured reversed_dir with the function name as filename.
 
-  With --append, the annotation block is appended to an existing .c file,
-  enabling multi-function compilation units where related functions share a file.
+A .c file with reccmp-style annotations (FUNCTION, STATUS, ORIGIN, SIZE,
+CFLAGS, SYMBOL) and a placeholder function body. The file is placed in the
+configured reversed_dir with the function name as filename.
+
+With --append, the annotation block is appended to an existing .c file,
+enabling multi-function compilation units where related functions share a file.
 
 [dim]Reads ghidra_functions.json and existing .c files to determine what's uncovered.
-Uses rebrew.toml for compiler flags and origin presets.[/dim]"""
+Uses rebrew-project.toml for compiler flags and origin presets.[/dim]"""
 
 app = typer.Typer(
     help="Generate .c skeleton files for uncovered functions in the target binary.",
@@ -292,9 +312,7 @@ def main(
         "--append",
         help="Append function to an existing .c file (multi-function file)",
     ),
-    decomp: bool = typer.Option(
-        False, "--decomp", "--decompile", help="Embed decompilation in skeleton"
-    ),
+    decomp: bool = typer.Option(False, "--decomp", help="Embed decompilation in skeleton"),
     decomp_backend: str = typer.Option(
         "auto",
         "--decomp-backend",
@@ -345,7 +363,7 @@ def main(
         for va_val, size_val, name_val, origin_val in uncovered[:count]:
             filename = make_filename(va_val, name_val, origin_val, cfg=cfg)
             filepath = src_dir / filename
-            rel_path = filepath.relative_to(root)
+            rel_path = _display_path(filepath, root)
 
             if filepath.exists() and not force:
                 print(f"SKIP: {rel_path} (already exists)", file=sys.stderr)
@@ -366,13 +384,11 @@ def main(
                 decomp_code=d_code,
                 decomp_backend=d_backend,
             )
-            filepath.write_text(content, encoding="utf-8")
+            atomic_write_text(filepath, content, encoding="utf-8")
 
             symbol_val = "_" + sanitize_name(name_val)
-            cflags_val = cfg.cflags_presets.get(origin_val, "/O2 /Gd")
-            test_cmd = generate_test_command(
-                str(rel_path), symbol_val, va_val, size_val, cflags_val
-            )
+            cflags_val = cfg.resolve_origin_cflags(origin_val)
+            test_cmd = generate_test_command(rel_path, symbol_val, va_val, size_val, cflags_val)
 
             print(f"CREATED: {rel_path} ({size_val}B, {origin_val})", file=sys.stderr)
             print(f"  TEST: {test_cmd}", file=sys.stderr)
@@ -388,21 +404,16 @@ def main(
             )
 
         if json_output:
-            print(json.dumps({"created": created, "count": len(created)}, indent=2))
+            json_print({"created": created, "count": len(created)})
         else:
             print(f"\nCreated {len(created)} skeleton files.", file=sys.stderr)
         return
 
     # Single VA mode
     if not va_str:
-        print("Error: VA required for single mode.", file=sys.stderr)
-        raise typer.Exit(code=1)
+        error_exit("VA required for single mode.", json_mode=json_output)
 
-    try:
-        va_int = int(va_str, 16)
-    except ValueError:
-        print(f"Error: Invalid hex VA: {va_str}", file=sys.stderr)
-        raise typer.Exit(code=1)
+    va_int = parse_va(va_str, json_mode=json_output)
 
     # Find in Ghidra functions
     ghidra_entry = None
@@ -412,11 +423,20 @@ def main(
             break
 
     if not ghidra_entry:
-        print(f"ERROR: VA 0x{va_int:08x} not found in ghidra_functions.json", file=sys.stderr)
-        raise typer.Exit(code=1)
+        error_exit(f"VA 0x{va_int:08x} not found in ghidra_functions.json", json_mode=json_output)
 
-    size = ghidra_entry["size"]
-    ghidra_name = ghidra_entry.get("ghidra_name", f"FUN_{va_int:08x}")
+    size_obj = ghidra_entry.get("size")
+    if not isinstance(size_obj, int):
+        error_exit(
+            f"Invalid size for VA 0x{va_int:08x} in ghidra_functions.json", json_mode=json_output
+        )
+    size = size_obj
+    ghidra_name_obj = ghidra_entry.get("ghidra_name")
+    ghidra_name = (
+        ghidra_name_obj
+        if isinstance(ghidra_name_obj, str) and ghidra_name_obj
+        else f"FUN_{va_int:08x}"
+    )
 
     # Check if already covered
     if va_int in existing_vas and not force and not append:
@@ -432,8 +452,7 @@ def main(
         if not append_path.is_absolute():
             append_path = src_dir / append_path
         if not append_path.exists():
-            print(f"ERROR: --append target does not exist: {append_path}", file=sys.stderr)
-            raise typer.Exit(code=1)
+            error_exit(f"--append target does not exist: {append_path}", json_mode=json_output)
 
         decomp_code_val = None
         decomp_backend_name = ""
@@ -462,9 +481,9 @@ def main(
             if existing_text.endswith("\n")
             else "\n\n"
         )
-        append_path.write_text(existing_text + separator + block, encoding="utf-8")
+        atomic_write_text(append_path, existing_text + separator + block, encoding="utf-8")
 
-        rel_path_val = append_path.relative_to(root)
+        rel_path_val = _display_path(append_path, root)
         symbol_val = "_" + name if name else "_" + sanitize_name(ghidra_name)
         print(f"APPENDED to {rel_path_val}:", file=sys.stderr)
         print(f"  VA:     0x{va_int:08x}", file=sys.stderr)
@@ -474,25 +493,22 @@ def main(
         print("Test all functions in this file:", file=sys.stderr)
         print(f"  rebrew test {rel_path_val}", file=sys.stderr)
         if json_output:
-            print(
-                json.dumps(
-                    {
-                        "action": "appended",
-                        "file": str(rel_path_val),
-                        "va": f"0x{va_int:08x}",
-                        "size": size,
-                        "origin": origin_val,
-                        "symbol": symbol_val,
-                        "test_command": f"rebrew test {rel_path_val}",
-                    },
-                    indent=2,
-                )
+            json_print(
+                {
+                    "action": "appended",
+                    "file": str(rel_path_val),
+                    "va": f"0x{va_int:08x}",
+                    "size": size,
+                    "origin": origin_val,
+                    "symbol": symbol_val,
+                    "test_command": f"rebrew test {rel_path_val}",
+                }
             )
         return
 
     filename_val = make_filename(va_int, ghidra_name, origin_val, name, cfg=cfg)
     filepath_val = Path(output) if output else src_dir / filename_val
-    rel_path_val = filepath_val.relative_to(root)
+    rel_path_val = _display_path(filepath_val, root)
 
     decomp_code_val = None
     decomp_backend_name = ""
@@ -519,26 +535,23 @@ def main(
 
     # Compute test commands
     symbol_val = "_" + name if name else "_" + sanitize_name(ghidra_name)
-    cflags_val = cfg.cflags_presets.get(origin_val, "/O2 /Gd")
+    cflags_val = cfg.resolve_origin_cflags(origin_val)
 
     test_cmd = generate_test_command(str(rel_path_val), symbol_val, va_int, size, cflags_val)
     diff_cmd = generate_diff_command(cfg, str(rel_path_val), symbol_val, va_int, size, cflags_val)
 
     if json_output:
-        print(
-            json.dumps(
-                {
-                    "action": "created",
-                    "file": str(rel_path_val),
-                    "va": f"0x{va_int:08x}",
-                    "size": size,
-                    "origin": origin_val,
-                    "symbol": symbol_val,
-                    "test_command": test_cmd,
-                    "diff_command": diff_cmd,
-                },
-                indent=2,
-            )
+        json_print(
+            {
+                "action": "created",
+                "file": str(rel_path_val),
+                "va": f"0x{va_int:08x}",
+                "size": size,
+                "origin": origin_val,
+                "symbol": symbol_val,
+                "test_command": test_cmd,
+                "diff_command": diff_cmd,
+            }
         )
     else:
         print(f"Created: {rel_path_val}", file=sys.stderr)
@@ -568,6 +581,7 @@ def main(
 
 
 def main_entry() -> None:
+    """Run the Typer CLI application."""
     app()
 
 

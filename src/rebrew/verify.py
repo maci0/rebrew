@@ -8,7 +8,6 @@ import concurrent.futures
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 import typer
 from rich.console import Console
@@ -19,10 +18,10 @@ from rich.text import Text
 from rebrew.annotation import Annotation
 from rebrew.catalog import (
     build_function_registry,
-    parse_r2_functions,
+    parse_function_list,
     scan_reversed_dir,
 )
-from rebrew.cli import TargetOption, get_config
+from rebrew.cli import TargetOption, error_exit, get_config, json_print
 from rebrew.config import ProjectConfig
 
 # ---------------------------------------------------------------------------
@@ -57,7 +56,7 @@ def verify_entry(
         return False, "Cannot extract DLL bytes", None, None, None
 
     matched, msg, obj_bytes, reloc_offsets = compile_and_compare(
-        cfg,
+        cfg.for_origin(entry.origin),
         cfile,
         symbol,
         target_bytes,
@@ -79,18 +78,24 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew verify                             Verify all .c files (rich progress bar)
-  rebrew verify --json                      Emit structured JSON report to stdout
-  rebrew verify -o db/verify_results.json   Write JSON report to file
-  rebrew verify -j 8                        Use 8 parallel compile jobs
-  rebrew verify -t server.dll               Verify a specific target
+
+rebrew verify                             Verify all .c files (rich progress bar)
+
+rebrew verify --json                      Emit structured JSON report to stdout
+
+rebrew verify -o db/verify_results.json   Write JSON report to file
+
+rebrew verify -j 8                        Use 8 parallel compile jobs
+
+rebrew verify -t server.dll               Verify a specific target
 
 [bold]How it works:[/bold]
-  For each .c file in reversed_dir, compiles it, extracts the COFF symbol,
-  and compares the output bytes against the original DLL. Reports EXACT,
-  RELOC (match after relocation masking), MISMATCH, or COMPILE_ERROR.
 
-[dim]Requires rebrew.toml with valid compiler and target binary paths.
+For each .c file in reversed_dir, compiles it, extracts the COFF symbol,
+and compares the output bytes against the original DLL. Reports EXACT,
+RELOC (match after relocation masking), MISMATCH, or COMPILE_ERROR.
+
+[dim]Requires rebrew-project.toml with valid compiler and target binary paths.
 Run 'rebrew catalog' first to generate coverage data.[/dim]""",
 )
 
@@ -100,7 +105,7 @@ def main(
     root: Path = typer.Option(
         None,
         "--root",
-        help="Project root directory (auto-detected from rebrew.toml if omitted)",
+        help="Project root directory (auto-detected from rebrew-project.toml if omitted)",
     ),
     target: str | None = TargetOption,
     jobs: int | None = typer.Option(
@@ -109,11 +114,12 @@ def main(
         "--jobs",
         help="Number of parallel compile jobs (default: from [project].jobs or 4)",
     ),
-    output_json: bool = typer.Option(
-        False, "--json", help="Emit structured JSON report instead of rich output"
-    ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     output_path: str | None = typer.Option(
         None, "--output", "-o", help="Write JSON report to file (default: db/verify_results.json)"
+    ),
+    fix_status: bool = typer.Option(
+        False, "--fix-status", help="Auto-update STATUS annotations and BLOCKERs"
     ),
     summary: bool = typer.Option(
         False, "--summary", help="Show summary table with STATUS breakdown and match percentages"
@@ -123,40 +129,38 @@ def main(
     try:
         cfg = get_config(target=target)
     except (FileNotFoundError, KeyError) as exc:
-        console.print(f"[red bold]ERROR:[/] {exc}")
-        raise typer.Exit(code=1) from None
+        error_exit(str(exc))
     bin_path = cfg.target_binary
     reversed_dir = cfg.reversed_dir
     if jobs is None:
         jobs = cfg.default_jobs
-    r2_path = reversed_dir / "r2_functions.txt"
+    func_list_path = cfg.function_list
     ghidra_json_path = reversed_dir / "ghidra_functions.json"
 
     console.print(f"Scanning {reversed_dir}...")
     entries = scan_reversed_dir(reversed_dir, cfg=cfg)
-    r2_funcs = parse_r2_functions(r2_path)
+    funcs = parse_function_list(func_list_path)
 
-    registry = build_function_registry(r2_funcs, cfg, ghidra_json_path)
+    registry = build_function_registry(funcs, cfg, ghidra_json_path)
 
     unique_vas = {e["va"] for e in entries}
     ghidra_count = sum(1 for r in registry.values() if "ghidra" in r["detected_by"])
-    r2_count = sum(1 for r in registry.values() if "r2" in r["detected_by"])
+    list_count = sum(1 for r in registry.values() if "list" in r["detected_by"])
     both_count = sum(
-        1 for r in registry.values() if "ghidra" in r["detected_by"] and "r2" in r["detected_by"]
+        1 for r in registry.values() if "ghidra" in r["detected_by"] and "list" in r["detected_by"]
     )
     thunk_count = sum(1 for r in registry.values() if r["is_thunk"])
     console.print(
         f"Found {len(entries)} annotations ({len(unique_vas)} unique VAs) "
         f"from {len(registry)} total functions "
-        f"(r2: {r2_count}, ghidra: {ghidra_count}, both: {both_count}, "
+        f"(list: {list_count}, ghidra: {ghidra_count}, both: {both_count}, "
         f"thunks: {thunk_count})"
     )
 
     # Verify
 
     if not bin_path.exists():
-        console.print(f"[red bold]ERROR:[/] {bin_path} not found")
-        raise typer.Exit(code=1)
+        error_exit(f"{bin_path} not found")
 
     # Deduplicate: only verify once per VA
     seen_vas: set[int] = set()
@@ -169,7 +173,7 @@ def main(
     passed = 0
     failed = 0
     fail_details: list[tuple[Annotation, str]] = []
-    results: list[dict[str, Any]] = []  # per-function structured results
+    results: list[dict[str, object]] = []  # per-function structured results
     total = len(unique_entries)
     effective_jobs = min(jobs, total) if total else 1
 
@@ -186,7 +190,7 @@ def main(
         MofNCompleteColumn(),
         TextColumn("[dim]{task.description}"),
         console=console,
-        disable=output_json,
+        disable=json_output,
     ) as progress:
         task = progress.add_task("functions", total=total)
         with concurrent.futures.ThreadPoolExecutor(max_workers=effective_jobs) as pool:
@@ -235,6 +239,24 @@ def main(
                     else:
                         status = "FAIL"
 
+                if fix_status:
+                    from rebrew.annotation import remove_annotation_key, update_annotation_key
+
+                    fp = cfg.reversed_dir / entry.get("filepath", "")
+                    if fp.exists():
+                        current_status = entry.get("status")
+                        if status in ("EXACT", "RELOC") and current_status != status:
+                            update_annotation_key(fp, entry["va"], "STATUS", status)
+                            remove_annotation_key(fp, entry["va"], "BLOCKER")
+                            remove_annotation_key(fp, entry["va"], "BLOCKER_DELTA")
+                        elif status == "MISMATCH" and current_status in ("EXACT", "RELOC"):
+                            update_annotation_key(fp, entry["va"], "STATUS", "MATCHING")
+                            if delta > 0:
+                                update_annotation_key(
+                                    fp, entry["va"], "BLOCKER", f"Mismatch {delta} bytes"
+                                )
+                                update_annotation_key(fp, entry["va"], "BLOCKER_DELTA", str(delta))
+
                 results.append(
                     {
                         "va": f"0x{entry['va']:08x}",
@@ -272,7 +294,7 @@ def main(
     }
 
     # JSON output mode
-    if output_json or output_path:
+    if json_output or output_path:
         report_json = json.dumps(report, indent=2)
 
         if output_path:
@@ -283,11 +305,11 @@ def main(
         if out_file:
             out_file.parent.mkdir(parents=True, exist_ok=True)
             out_file.write_text(report_json, encoding="utf-8")
-            if not output_json:
+            if not json_output:
                 console.print(f"Report written to {out_file}")
 
-        if output_json:
-            print(report_json)
+        if json_output:
+            json_print(report)
             if failed > 0:
                 raise typer.Exit(code=1)
             return
@@ -323,7 +345,6 @@ def main(
 
         exact = sum(1 for r in results if r["status"] == "EXACT")
         reloc = sum(1 for r in results if r["status"] == "RELOC")
-        sum(1 for r in results if r["status"] == "MISMATCH")
         mismatch_0b = sum(
             1 for r in results if r["status"] == "MISMATCH" and r.get("delta", 0) == 0
         )
@@ -370,6 +391,7 @@ def main(
 
 
 def main_entry() -> None:
+    """Run the Typer CLI application."""
     app()
 
 

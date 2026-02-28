@@ -16,6 +16,9 @@ Aimed at AI agents and new contributors.
 # Initialize a new project
 rebrew init --target target_name --binary target.dll --compiler msvc6
 
+# Verify toolchain health
+rebrew doctor
+
 # See what needs work
 rebrew next --stats
 rebrew next --origin GAME -n 30
@@ -43,6 +46,9 @@ rebrew catalog --summary
 
 # Bulk compile and verify all reversed functions
 rebrew verify
+
+# Auto-update STATUS annotations if they drift
+rebrew verify --fix-status
 
 # Lint and verify Python health
 uv run ruff check .
@@ -94,6 +100,9 @@ rebrew asm 0x10003da0 --size 160 --json | jq '.instructions[] | .mnemonic'
 | `rebrew ga` | Batch GA results |
 | `rebrew extract` | Batch extraction results |
 | `rebrew catalog` | Catalog JSON generation (`--json`) |
+| `rebrew doctor` | Project health check results |
+| `rebrew sync` | Ghidra sync operations (`--pull`, `--push`) |
+| `rebrew skeleton` | Generated skeleton output |
 
 ## Step-by-Step Process
 
@@ -155,12 +164,12 @@ rebrew skeleton 0x<VA> --append existing_file.c
 
 ### 3. Get the decompilation
 
-If you have Ghidra + ReVa MCP:
+If you have Ghidra + ReVa MCP, use the `get-decompilation` tool:
 ```
 get-decompilation programPath="/target.dll" functionNameOrAddress="0x<VA>"
 ```
 
-the function at the given VA in `original/target.dll`.
+This will fetch the decompiled C pseudo-code for the function at the given VA in `original/target.dll`.
 
 Alternatively, use the built-in offline disassembler script:
 ```bash
@@ -426,7 +435,7 @@ its own binary path, source directory, function list, and optional overrides.
 Global compiler settings under `[compiler]` are inherited by all targets
 unless overridden.
 
-See [CONFIG.md](CONFIG.md) for the full `rebrew.toml` key reference and architecture presets.
+See [CONFIG.md](CONFIG.md) for the full `rebrew-project.toml` key reference and architecture presets.
 
 Tools default to the **first** target. Use `--target` to select another:
 
@@ -496,9 +505,9 @@ both targets benefit automatically.
 |----------|---------|
 | [BOOTSTRAPPING.md](BOOTSTRAPPING.md) | Adding a new binary to a project from scratch |
 | [MATCH_TYPES.md](MATCH_TYPES.md) | EXACT / RELOC / MATCHING explained with byte-level examples and relocation masking details |
-| [ANNOTATIONS.md](ANNOTATIONS.md) | Full annotation format reference and linter codes (E001-E017, W001-W015) |
-| [GHIDRA_SYNC.md](GHIDRA_SYNC.md) | Ghidra ↔ Rebrew sync feature matrix and roadmap |
+| [ANNOTATIONS.md](ANNOTATIONS.md) | Full annotation format reference and linter codes (E000–E017, W001–W017) |
+| [GHIDRA_SYNC.md](GHIDRA_SYNC.md) | Ghidra ↔ Rebrew sync feature matrix and known issues |
 | [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md) | Obtaining, creating, and using FLIRT signatures |
-| [CLI.md](CLI.md) | All 22 CLI tools, flags, and examples |
-| [CONFIG.md](CONFIG.md) | `rebrew.toml` format, arch presets, compiler profiles |
+| [CLI.md](CLI.md) | All 23 CLI tools, flags, and examples |
+| [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, arch presets, compiler profiles |
 | [TOOLCHAIN.md](TOOLCHAIN.md) | External tools, MSVC6 toolchain, Python dependencies |

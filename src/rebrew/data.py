@@ -10,21 +10,19 @@ Also provides:
 - BSS layout verification via ``--bss``
 """
 
-import json
 import re
 import struct
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from rebrew.cli import TargetOption, get_config
+from rebrew.cli import TargetOption, error_exit, get_config, json_print
 from rebrew.config import ProjectConfig
 
 # ---------------------------------------------------------------------------
@@ -46,7 +44,7 @@ _DATA_RE = re.compile(r"(?://|/\*)\s*DATA:\s*(?P<module>[A-Z0-9_]+)\s+(?P<va>0x[
 _EXTERN_RE = re.compile(
     r"^\s*extern\s+"
     r"(?P<type>.+?)\s*"  # type (non-greedy, allow trailing whitespace)
-    r"(?P<ptr>\*\s*)?"  # optional pointer asterisk(s)
+    r"(?P<ptr>(?:\*\s*)*)"  # optional pointer asterisk(s)
     r"(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)"  # identifier
     r"(?P<array>\[.*\])?"  # optional array suffix
     r"\s*;"
@@ -73,8 +71,9 @@ class GlobalEntry:
     declared_in: list[str] = field(default_factory=list)
     annotated: bool = False  # True if has a // GLOBAL: annotation
 
-    def to_dict(self) -> dict[str, Any]:
-        d: dict[str, Any] = {"name": self.name, "type": self.type_str}
+    def to_dict(self) -> dict[str, object]:
+        """Serialize to a plain dict for JSON output."""
+        d: dict[str, object] = {"name": self.name, "type": self.type_str}
         if self.va:
             d["va"] = f"0x{self.va:08x}"
         if self.section:
@@ -89,10 +88,11 @@ class ScanResult:
     """Aggregated global scan results."""
 
     globals: dict[str, GlobalEntry] = field(default_factory=dict)
-    data_annotations: list[dict[str, Any]] = field(default_factory=list)  # // DATA: entries
-    type_conflicts: list[dict[str, Any]] = field(default_factory=list)
+    data_annotations: list[dict[str, object]] = field(default_factory=list)  # // DATA: entries
+    type_conflicts: list[dict[str, object]] = field(default_factory=list)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
+        """Serialize scan results to a plain dict for JSON output."""
         return {
             "globals": {k: v.to_dict() for k, v in sorted(self.globals.items())},
             "data_annotations": self.data_annotations,
@@ -126,17 +126,21 @@ class DispatchTable:
 
     @property
     def num_entries(self) -> int:
+        """Total number of entries in this dispatch table."""
         return len(self.entries)
 
     @property
     def resolved(self) -> int:
+        """Number of entries with a resolved function name."""
         return sum(1 for e in self.entries if e.name)
 
     @property
     def coverage(self) -> float:
+        """Fraction of entries that have been resolved (0.0–1.0)."""
         return self.resolved / self.num_entries if self.num_entries else 0.0
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
+        """Serialize to a plain dict for JSON output."""
         return {
             "va": f"0x{self.va:08x}",
             "section": self.section,
@@ -159,7 +163,7 @@ class DispatchTable:
 # ---------------------------------------------------------------------------
 
 
-def classify_section(va: int, sections: dict[str, dict[str, Any]]) -> str:
+def classify_section(va: int, sections: dict[str, dict[str, object]]) -> str:
     """Determine which binary section a VA belongs to."""
     for sec_name, sec in sections.items():
         sec_va = sec.get("va", 0)
@@ -176,7 +180,13 @@ def classify_section(va: int, sections: dict[str, dict[str, Any]]) -> str:
 
 def _is_function_decl(type_str: str, rest_of_line: str) -> bool:
     """Heuristic: return True if a line looks like a function decl, not a data global."""
-    # Function forward declarations always have parentheses
+    if "typedef" in type_str:
+        return False
+    if re.search(
+        r"\(\s*(?:__cdecl\s+|__stdcall\s+|__fastcall\s+|__thiscall\s+)?\*\s*[a-zA-Z_][a-zA-Z0-9_]*(?:\s*\[[^\]]+\])?\s*\)",
+        rest_of_line,
+    ):
+        return False
     if "(" in rest_of_line:
         return True
     # Calling convention keywords imply a function
@@ -230,10 +240,11 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                 if em:
                     name = em.group("name")
                     arr = em.group("array") or ""
-                    ptr = em.group("ptr").strip() if em.group("ptr") else ""
+                    ptr_raw = em.group("ptr") or ""
+                    ptr_depth = ptr_raw.count("*")
                     type_str = em.group("type").strip()
-                    if ptr:
-                        type_str += " *"
+                    if ptr_depth:
+                        type_str += f" {'*' * ptr_depth}"
                     if arr:
                         type_str += arr
                 else:
@@ -272,10 +283,11 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
 
                 name = em.group("name")
                 arr = em.group("array") or ""
-                ptr = em.group("ptr").strip() if em.group("ptr") else ""
+                ptr_raw = em.group("ptr") or ""
+                ptr_depth = ptr_raw.count("*")
                 type_str = type_str_raw
-                if ptr:
-                    type_str += " *"
+                if ptr_depth:
+                    type_str += f" {'*' * ptr_depth}"
                 if arr:
                     type_str += arr
 
@@ -308,7 +320,9 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
     return result
 
 
-def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> list[dict[str, Any]]:
+def scan_data_annotations(
+    src_dir: Path, cfg: ProjectConfig | None = None
+) -> list[dict[str, object]]:
     """Scan for ``// DATA: MODULE 0xVA`` annotations in source files.
 
     These mark standalone global data objects for tracking in the catalog.
@@ -317,13 +331,13 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
     from rebrew.annotation import parse_c_file_multi
     from rebrew.cli import iter_sources, rel_display_path
 
-    entries: list[dict[str, Any]] = []
+    entries: list[dict[str, object]] = []
     if not src_dir.exists():
         return entries
 
     for cfile in iter_sources(src_dir, cfg):
         rel_name = rel_display_path(cfile, src_dir)
-        for ann in parse_c_file_multi(cfile):
+        for ann in parse_c_file_multi(cfile, target_name=cfg.marker if cfg else None):
             if ann.marker_type == "DATA":
                 entries.append(
                     {
@@ -339,7 +353,7 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
     return entries
 
 
-def enrich_with_sections(scan: ScanResult, sections: dict[str, dict[str, Any]]) -> None:
+def enrich_with_sections(scan: ScanResult, sections: dict[str, dict[str, object]]) -> None:
     """Classify each annotated global into its binary section."""
     for entry in scan.globals.values():
         if entry.va:
@@ -354,7 +368,7 @@ def enrich_with_sections(scan: ScanResult, sections: dict[str, dict[str, Any]]) 
 def find_dispatch_tables(
     binary_data: bytes,
     image_base: int,
-    sections: dict[str, dict[str, Any]],
+    sections: dict[str, dict[str, object]],
     known_functions: dict[int, dict[str, str]],
     ptr_size: int = 4,
     min_entries: int = 3,
@@ -458,7 +472,8 @@ class BssEntry:
     size_hint: int = 0  # from type heuristic
     source_file: str = ""
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
+        """Serialize to a plain dict for JSON output."""
         return {
             "name": self.name,
             "va": f"0x{self.va:08x}",
@@ -476,7 +491,8 @@ class BssGap:
     before: str  # name of global before the gap
     after: str  # name of global after the gap
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
+        """Serialize to a plain dict for JSON output."""
         return {
             "offset": f"0x{self.offset:08x}",
             "size": self.size,
@@ -496,9 +512,11 @@ class BssReport:
 
     @property
     def coverage_pct(self) -> float:
+        """BSS coverage as a percentage."""
         return self.coverage_bytes / self.bss_size * 100 if self.bss_size else 0.0
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
+        """Serialize to a plain dict for JSON output."""
         return {
             "bss_va": f"0x{self.bss_va:08x}",
             "bss_size": self.bss_size,
@@ -559,7 +577,7 @@ def _estimate_type_size(type_str: str) -> int:
 
 def verify_bss_layout(
     scan: ScanResult,
-    sections: dict[str, dict[str, Any]],
+    sections: dict[str, dict[str, object]],
 ) -> BssReport:
     """Verify BSS layout by checking globals placement and detecting gaps.
 
@@ -628,7 +646,7 @@ def verify_bss_layout(
                 )
 
     # Calculate coverage
-    report.coverage_bytes = sum(e.size_hint for e in bss_entries)
+    report.coverage_bytes = min(sum(e.size_hint for e in bss_entries), bss_size)
 
     return report
 
@@ -803,7 +821,7 @@ def _render_globals(console: Console, scan: ScanResult, conflicts_only: bool = F
 
 
 def _render_summary(
-    console: Console, scan: ScanResult, sections: dict[str, dict[str, Any]]
+    console: Console, scan: ScanResult, sections: dict[str, dict[str, object]]
 ) -> None:
     """Print section-level summary."""
     section_counts: Counter[str] = Counter()
@@ -845,13 +863,20 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew data                                Scan all data sections
-  rebrew data --section .rdata               Scan only .rdata section
-  rebrew data --section .data                Scan only .data section
-  rebrew data --section .bss                 Scan only .bss section
-  rebrew data --json                         Output as JSON
-  rebrew data --annotate                     Generate .c annotation stubs for globals
-  rebrew data 0x10008000                     Show details for specific address
+
+rebrew data                                Scan all data sections
+
+rebrew data --section .rdata               Scan only .rdata section
+
+rebrew data --section .data                Scan only .data section
+
+rebrew data --section .bss                 Scan only .bss section
+
+rebrew data --json                         Output as JSON
+
+rebrew data --annotate                     Generate .c annotation stubs for globals
+
+rebrew data 0x10008000                     Show details for specific address
 
 [dim]Analyzes PE data sections to find global variables, string tables,
 vtables, and other data structures. Cross-references with existing
@@ -875,14 +900,13 @@ def main(
     fix_bss: bool = typer.Option(
         False, "--fix-bss", help="Auto-generate bss_padding.c with dummy arrays for detected gaps"
     ),
-    output_json: bool = typer.Option(False, "--json", help="Machine-readable JSON output"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Scan reversed source files for global data declarations."""
     try:
         cfg = get_config(target=target)
     except (FileNotFoundError, KeyError) as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1) from None
+        error_exit(str(exc))
 
     src_dir = cfg.reversed_dir
     bin_path = cfg.target_binary
@@ -891,7 +915,7 @@ def main(
     scan = scan_globals(src_dir, cfg=cfg)
 
     # Enrich with binary section info
-    sections: dict[str, dict[str, Any]] = {}
+    sections: dict[str, dict[str, object]] = {}
     if bin_path and bin_path.exists():
         try:
             from rebrew.catalog import get_sections
@@ -912,8 +936,8 @@ def main(
             _generate_bss_fix(bss_report, src_dir, cfg.default_origin)
             return
 
-        if output_json:
-            typer.echo(json.dumps(bss_report.to_dict(), indent=2))
+        if json_output:
+            json_print(bss_report.to_dict())
         else:
             console = Console(stderr=True)
             console.print()
@@ -923,8 +947,7 @@ def main(
     # Dispatch table mode
     if dispatch:
         if not bin_path or not bin_path.exists():
-            typer.echo("Error: target binary not found (needed for --dispatch)", err=True)
-            raise typer.Exit(code=1)
+            error_exit("target binary not found (needed for --dispatch)")
 
         from rebrew.annotation import parse_c_file_multi
         from rebrew.binary_loader import load_binary
@@ -946,7 +969,7 @@ def main(
 
         known_functions: dict[int, dict[str, str]] = {}
         for cfile in iter_sources(src_dir, cfg):
-            for entry in parse_c_file_multi(cfile):
+            for entry in parse_c_file_multi(cfile, target_name=cfg.marker if cfg else None):
                 if entry.va:
                     known_functions[entry.va] = {
                         "name": entry.name or rel_display_path(cfile, src_dir),
@@ -955,8 +978,8 @@ def main(
 
         tables = find_dispatch_tables(binary_data, info.image_base, sec_dict, known_functions)
 
-        if output_json:
-            typer.echo(json.dumps([t.to_dict() for t in tables], indent=2))
+        if json_output:
+            json_print([t.to_dict() for t in tables])
         else:
             console = Console(stderr=True)
             console.print()
@@ -964,12 +987,12 @@ def main(
         return
 
     # JSON output
-    if output_json:
+    if json_output:
         data = scan.to_dict()
         data["sections"] = {
             name: {"va": f"0x{s['va']:08x}", "size": s["size"]} for name, s in sections.items()
         }
-        typer.echo(json.dumps(data, indent=2))
+        json_print(data)
         return
 
     # Rich output
@@ -997,6 +1020,7 @@ def main(
 
 
 def main_entry() -> None:
+    """Run the Typer CLI application."""
     app()
 
 

@@ -10,19 +10,24 @@ Onboard a new binary into a rebrew project and produce an initial assessment.
 
 ## Prerequisites
 
-A `rebrew.toml` must exist with the new target configured. If starting from scratch:
+A `rebrew-project.toml` must exist with the new target configured. If starting from scratch:
 
 ```bash
 rebrew init --target <name> --binary <filename> --compiler msvc6
 ```
 
-Then place the binary at the path specified in `rebrew.toml` (default: `original/<filename>`).
+Then place the binary at the path specified in `rebrew-project.toml` (default: `original/<filename>`).
+
+
+### Multi-Target File Layout
+When adding a new target that shares substantial codebase with an existing target (e.g., adding `BETA10` to a `LEGO1` project), you do not need to duplicate `.c` files. Add a second `// FUNCTION: BETA10 0x...` or `// STUB: BETA10 0x...` annotation block above the same function body.
 
 ## Intake Procedure
 
 ### 1. Verify Configuration
 
 ```bash
+rebrew doctor                           # check toolchain and project health
 rebrew cfg list-targets                 # confirm target is configured
 rebrew status --json                    # should show the target with 0 functions
 ```

@@ -159,10 +159,10 @@ class TestInit:
     """Tests for the init() function using tmp_path."""
 
     def test_creates_rebrew_toml(self, tmp_path, monkeypatch) -> None:
-        """init() creates rebrew.toml in cwd."""
+        """init() creates rebrew-project.toml in cwd."""
         monkeypatch.chdir(tmp_path)
         init(target_name="server", binary_name="server.dll", compiler_profile="msvc6")
-        toml_path = tmp_path / "rebrew.toml"
+        toml_path = tmp_path / "rebrew-project.toml"
         assert toml_path.exists()
         content = toml_path.read_text()
         assert "server" in content
@@ -193,9 +193,9 @@ class TestInit:
         assert func_list.exists()
 
     def test_idempotency_guard(self, tmp_path, monkeypatch) -> None:
-        """init() exits with code 1 if rebrew.toml already exists."""
+        """init() exits with code 1 if rebrew-project.toml already exists."""
         monkeypatch.chdir(tmp_path)
-        (tmp_path / "rebrew.toml").write_text("existing", encoding="utf-8")
+        (tmp_path / "rebrew-project.toml").write_text("existing", encoding="utf-8")
         with pytest.raises(Exit):
             init(target_name="t", binary_name="t.exe", compiler_profile="msvc6")
 

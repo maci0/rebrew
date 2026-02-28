@@ -6,15 +6,22 @@ When NASM encodes an instruction differently from the original binary
 (e.g., mov ebp, esp as 89 E5 vs 8B EC), the tool falls back to raw
 `db` directives to preserve exact bytes.
 
+The ``--inline-c`` flag produces a C file with compiler-specific inline
+assembly (MSVC ``__asm`` or GCC ``__asm__``) and rebrew annotations,
+suitable for use with ``rebrew test`` to verify the build pipeline.
+
 Usage:
     # Single function from PE
     rebrew nasm --va 0x10003ca0 --size 77
 
     # Batch: all matched functions from reversed_dir
-    rebrew nasm --batch --out-dir output/nasm/
+    rebrew nasm --all --out-dir output/nasm/
 
     # Verify round-trip (assemble and compare)
     rebrew nasm --va 0x10003ca0 --size 77 --verify
+
+    # Generate C file with inline assembly for testing
+    rebrew nasm --va 0x10003ca0 --size 77 --inline-c -o func.c
 """
 
 import re
@@ -22,23 +29,37 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
 
 import typer
 
 from rebrew.annotation import parse_c_file
-from rebrew.cli import TargetOption, get_config
+from rebrew.cli import TargetOption, error_exit, get_config, parse_va
 from rebrew.config import ProjectConfig
-
-try:
-    from capstone import CS_ARCH_X86, CS_MODE_32, CS_OPT_SYNTAX_INTEL, Cs
-except ImportError:
-    print("ERROR: capstone required. Install: pip install capstone", file=sys.stderr)
-    raise typer.Exit(code=1) from None
 
 
 def extract_from_bin(bin_path: Path) -> bytes:
+    """Load raw bytes from a binary blob file.
+
+    Args:
+        bin_path: Path to a raw binary file to disassemble.
+
+    Returns:
+        Entire file contents as ``bytes``.
+    """
     return bin_path.read_bytes()
+
+
+def _get_capstone_x86() -> tuple[int, int, int, object]:
+    """Import capstone x86 constants/classes lazily.
+
+    Raises:
+        RuntimeError: If capstone is not installed.
+    """
+    try:
+        from capstone import CS_ARCH_X86, CS_MODE_32, CS_OPT_SYNTAX_INTEL, Cs
+    except ImportError as e:
+        raise RuntimeError("capstone required. Install: pip install capstone") from e
+    return CS_ARCH_X86, CS_MODE_32, CS_OPT_SYNTAX_INTEL, Cs
 
 
 def capstone_to_nasm(mnemonic: str, op_str: str) -> str:
@@ -54,7 +75,7 @@ def disassemble_to_nasm(
     code: bytes,
     base_va: int,
     label: str | None = None,
-) -> tuple[str, dict[str, Any]]:
+) -> tuple[str, dict[str, object]]:
     """Disassemble bytes to NASM source with round-trip verification.
 
     Two-pass approach:
@@ -63,8 +84,9 @@ def disassemble_to_nasm(
     3. Replace only mismatching instructions with db directives
     4. Verify final output assembles to identical bytes
     """
-    md = Cs(CS_ARCH_X86, CS_MODE_32)
-    md.syntax = CS_OPT_SYNTAX_INTEL
+    cs_arch_x86, cs_mode_32, cs_opt_syntax_intel, cs_cls = _get_capstone_x86()
+    md = cs_cls(cs_arch_x86, cs_mode_32)
+    md.syntax = cs_opt_syntax_intel
     md.detail = False
 
     instructions = list(md.disasm(code, base_va))
@@ -133,7 +155,7 @@ def disassemble_to_nasm(
 
 
 def _find_bad_instructions_individually(
-    insn_data: list[dict[str, Any]],
+    insn_data: list[dict[str, object]],
     base_va: int,
     code: bytes,
 ) -> set[int]:
@@ -165,7 +187,7 @@ def _find_bad_instructions_individually(
 
 
 def _build_nasm_lines(
-    insn_data: list[dict[str, Any]],
+    insn_data: list[dict[str, object]],
     base_va: int,
     safe_label: str | None,
     trailing: bytes,
@@ -182,15 +204,82 @@ def _build_nasm_lines(
         raw = entry["raw"]
         nasm_text = entry["nasm"]
         if idx in db_indices:
-            db_hex = ", ".join(f"0x{b:02X}" for b in raw)
-            lines.append(f"    db {db_hex:40s} ; {addr:08X}  {nasm_text}")
+            db_hex = ", ".join(f"0x{b:02X}" for b in raw)  # type: ignore
+            lines.append(f"    db {db_hex:40s} ; {addr:08X}  {nasm_text}")  # type: ignore
         else:
-            lines.append(f"    {nasm_text:40s} ; {addr:08X}  {raw.hex()}")
+            lines.append(f"    {nasm_text:40s} ; {addr:08X}  {raw.hex()}")  # type: ignore
     if trailing:
         db_hex = ", ".join(f"0x{b:02X}" for b in trailing)
         lines.append(f"    db {db_hex}  ; trailing data")
     lines.append("")
     return lines
+
+
+def generate_inline_c(
+    nasm_src: str,
+    cfg: ProjectConfig,
+    va: int,
+    size: int,
+    symbol: str | None,
+) -> str:
+    """Generate a C file with inline assembly using rebrew annotations."""
+    cflags = cfg.resolve_origin_cflags(cfg.default_origin)
+    marker = cfg.marker if cfg.marker else "TARGET"
+    sym = symbol or f"_func_{va:08x}"
+    func_name = sym.lstrip("_")
+
+    lines = []
+    lines.append(f"// FUNCTION: {marker} 0x{va:08x}")
+    lines.append("// STATUS: STUB")
+    lines.append(f"// ORIGIN: {cfg.default_origin}")
+    lines.append(f"// SIZE: {size}")
+    lines.append(f"// CFLAGS: {cflags}")
+    lines.append(f"// SYMBOL: {sym}")
+    lines.append("")
+    lines.append(f"void __declspec(naked) {func_name}(void)")
+    lines.append("{")
+
+    is_gcc = "clang" in cfg.compiler_profile.lower() or "gcc" in cfg.compiler_profile.lower()
+
+    if is_gcc:
+        lines.append("    __asm__(")
+        for line in nasm_src.splitlines():
+            line = line.strip()
+            if (
+                not line
+                or line.startswith("bits 32")
+                or line.startswith("org")
+                or line.endswith(":")
+            ):
+                continue
+            lines.append(f'        "{line}\\n"')
+        lines.append("    );")
+    else:
+        lines.append("    __asm {")
+        for line in nasm_src.splitlines():
+            line = line.strip()
+            if (
+                not line
+                or line.startswith("bits 32")
+                or line.startswith("org")
+                or line.endswith(":")
+            ):
+                continue
+            if ";" in line:
+                line = line.split(";", 1)[0].strip()
+            if line.startswith("db "):
+                bytes_str = line[3:].strip()
+                for b in bytes_str.split(","):
+                    b = b.strip()
+                    if b:
+                        lines.append(f"        _emit {b}")
+            else:
+                lines.append(f"        {line}")
+        lines.append("    }")
+
+    lines.append("}")
+    lines.append("")
+    return "\n".join(lines)
 
 
 def _run_nasm(source: str) -> bytes | None:
@@ -235,7 +324,7 @@ def verify_roundtrip(nasm_source: str, original_bytes: bytes) -> tuple[bool, str
     return False, (f"FAIL: {len(diffs)} byte diffs at offsets {diffs[:10]}")
 
 
-def _parse_annotations(filepath: Path) -> dict[str, Any] | None:
+def _parse_annotations(filepath: Path) -> dict[str, object] | None:
     """Parse reccmp-style annotations from a reversed .c file.
 
     Uses the canonical parser from rebrew.annotation.parse_c_file,
@@ -295,7 +384,7 @@ def batch_extract(
         va = entry["va"]
         size = entry["size"]
         symbol = entry["symbol"] or f"func_{va:08x}"
-        stem = entry["filepath"].stem
+        stem = entry["filepath"].name
 
         try:
             code = cfg.extract_dll_bytes(va, size)
@@ -336,34 +425,48 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew nasm 0x10003da0                         Extract and disassemble one function
-  rebrew nasm 0x10003da0 --size 128              Specify function size
-  rebrew nasm 0x10003da0 -o func.asm             Write NASM output to file
-  rebrew nasm 0x10003da0 --raw                   Output raw bytes only
+
+rebrew nasm --va 0x10003da0 --size 128         Extract and disassemble one function
+
+rebrew nasm --va 0x10003da0 --size 77 -o f.asm Write NASM output to file
+
+rebrew nasm --va 0x10003da0 --size 77 --verify Round-trip verification
+
+rebrew nasm --all --out-dir output/nasm/       Batch extract all matched functions
+
+rebrew nasm --stats --va 0x10003da0 --size 77  Print stats only (no ASM)
 
 [bold]How it works:[/bold]
-  Extracts raw bytes at the given VA from the PE binary, disassembles
-  them with capstone, and emits NASM-syntax assembly with relocations
-  annotated so the output can be reassembled with 'nasm'.
+
+Extracts raw bytes at the given VA from the PE binary, disassembles
+them with capstone, and emits NASM-syntax assembly. Instructions that
+NASM encodes differently are replaced with db directives to preserve
+exact bytes for round-trip reassembly.
 
 [dim]Useful for understanding compiler output and verifying relocation
-patterns. Requires capstone and rebrew.toml.[/dim]""",
+patterns. Requires capstone and rebrew-project.toml.[/dim]""",
 )
 
 
 @app.callback(invoke_without_command=True)
 def main(
-    exe: Path | None = typer.Option(None, help="PE executable (default: from config)"),
     va: str | None = typer.Option(None, help="Virtual address (hex)"),
     size: int | None = typer.Option(None, help="Function size in bytes"),
     bin: Path | None = typer.Option(None, help="Raw .bin file"),
     label: str | None = typer.Option(None, help="Label name for the function"),
-    out: Path | None = typer.Option(None, "--out", "-o", help="Output .asm file (default: stdout)"),
+    output: Path | None = typer.Option(
+        None, "--output", "-o", help="Output .asm file (default: stdout)"
+    ),
     verify: bool = typer.Option(
         False, help="Verify round-trip: assemble output and compare to original"
     ),
     stats: bool = typer.Option(False, help="Print stats only (no ASM output)"),
-    batch: bool = typer.Option(False, help="Batch mode: extract all functions from reversed_dir"),
+    inline_c: bool = typer.Option(
+        False, "--inline-c", help="Output a C file with compiler-specific inline assembly"
+    ),
+    extract_all: bool = typer.Option(
+        False, "--all", help="Extract all functions from reversed_dir"
+    ),
     batch_stubs: bool = typer.Option(False, help="Batch mode: extract only STUB functions"),
     out_dir: Path | None = typer.Option(
         None, help="Output directory for batch mode (default: output/nasm/)"
@@ -371,38 +474,68 @@ def main(
     base_va: str = typer.Option("0", help="Base VA for .bin files (default: 0)"),
     target: str | None = TargetOption,
 ) -> None:
-    """Extract function bytes from PE and produce NASM-reassembleable ASM."""
+    """Extract bytes and emit NASM assembly with optional round-trip verification.
+
+    Supports two single-target modes:
+    - ``--bin`` for raw binary blobs (with optional ``--base-va``)
+    - ``--va`` + ``--size`` for configured target binary extraction
+
+    Also supports batch extraction across annotated source files. All emitted
+    assembly is generated to preserve byte identity, using ``db`` fallback on
+    instructions NASM cannot re-encode identically.
+
+    Args:
+        va: Function virtual address in hex for configured-target extraction.
+        size: Function size in bytes for configured-target extraction.
+        bin: Path to raw ``.bin`` input file.
+        label: Optional label override for the emitted function symbol.
+        output: Optional output ``.asm`` path (stdout when omitted).
+        verify: Assemble output and compare bytes against original.
+        stats: Print extraction/disassembly stats without ASM body.
+        extract_all: Process all eligible annotated functions.
+        batch_stubs: Batch mode restricted to STUB functions.
+        out_dir: Output directory for batch mode.
+        base_va: Base VA (hex) used with ``--bin`` mode.
+        target: Optional target profile from ``rebrew-project.toml``.
+    """
     cfg = get_config(target=target)
 
-    if batch or batch_stubs:
+    if extract_all or batch_stubs:
         batch_out_dir = out_dir or Path("output/nasm")
-        batch_extract(
-            cfg,
-            batch_out_dir,
-            verify_flag=verify,
-            stubs_only=batch_stubs,
-        )
+        try:
+            batch_extract(
+                cfg,
+                batch_out_dir,
+                verify_flag=verify,
+                stubs_only=batch_stubs,
+            )
+        except RuntimeError as e:
+            error_exit(str(e))
         return
 
     if bin:
         code = extract_from_bin(bin)
-        computed_base_va = int(base_va, 16)
+        computed_base_va = parse_va(base_va)
         computed_label = label or bin.stem
     elif va and size:
-        computed_va = int(va, 16)
+        computed_va = parse_va(va)
         code = cfg.extract_dll_bytes(computed_va, size)
         if code is None:
-            print(
-                f"Error: could not extract {size} bytes at VA 0x{computed_va:08X}", file=sys.stderr
-            )
-            raise typer.Exit(code=1)
+            error_exit(f"Error: could not extract {size} bytes at VA 0x{computed_va:08X}")
         computed_base_va = computed_va
         computed_label = label or f"func_{computed_va:08X}"
     else:
-        print("ERROR: Specify either --bin FILE or --va HEX --size N", file=sys.stderr)
-        raise typer.Exit(code=1)
+        error_exit("Specify either --bin FILE or --va HEX --size N")
 
-    nasm_src, run_stats = disassemble_to_nasm(code, computed_base_va, computed_label)
+    try:
+        nasm_src, run_stats = disassemble_to_nasm(code, computed_base_va, computed_label)
+    except RuntimeError as e:
+        error_exit(str(e))
+
+    if inline_c:
+        out_src = generate_inline_c(nasm_src, cfg, computed_base_va, len(code), computed_label)
+    else:
+        out_src = nasm_src
 
     if stats:
         print(f"Function: {computed_label}")
@@ -413,11 +546,11 @@ def main(
         print(f"  db fallbacks: {run_stats['db_fallbacks']}")
         return
 
-    if out:
-        out.write_text(nasm_src, encoding="utf-8")
-        print(f"Written to {out}")
+    if output:
+        output.write_text(out_src, encoding="utf-8")
+        print(f"Written to {output}")
     else:
-        print(nasm_src)
+        print(out_src)
 
     if verify:
         _, msg = verify_roundtrip(nasm_src, code)
@@ -425,6 +558,7 @@ def main(
 
 
 def main_entry() -> None:
+    """Run the Typer CLI application."""
     app()
 
 

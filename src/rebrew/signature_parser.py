@@ -8,6 +8,7 @@ so it can be passed directly to Ghidra's ``set-function-prototype`` command.
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 
 def extract_function_signatures(filepath: Path) -> Iterator[tuple[str, str]]:
@@ -28,7 +29,7 @@ def extract_function_signatures(filepath: Path) -> Iterator[tuple[str, str]]:
 
     tree = parser.parse(code_bytes)
 
-    def get_function_name(node) -> str | None:
+    def get_function_name(node: Any) -> str | None:
         if node.type == "function_declarator":
             for child in node.children:
                 if child.type == "identifier":
@@ -45,7 +46,7 @@ def extract_function_signatures(filepath: Path) -> Iterator[tuple[str, str]]:
                     return res
         return None
 
-    def walk(node):
+    def walk(node: Any) -> Iterator[tuple[str, str]]:
         if node.type == "function_definition":
             compound_stmt = None
             decl_node = None

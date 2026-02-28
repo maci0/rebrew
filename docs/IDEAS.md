@@ -9,17 +9,24 @@ Ideas collected during hands-on workflow testing, prioritized by impact.
 | # | Idea | Impact | Effort | Priority |
 |---|------|--------|--------|----------|
 | 1 | [CRT source cross-reference tool](#1-crt-source-cross-reference-tool) | High | Medium | **P0** |
-| 5 | [GA code layout mutations](#5-ga-code-layout-mutations) | Medium | High | **P2** |
-| 7 | [Batch flag sweep mode](#7-batch-flag-sweep-mode) | Medium | Medium | **P2** |
-| 11 | [Similarity-based prioritization in rebrew next](#11-similarity-based-prioritization-in-rebrew-next) | Low | Medium | **P3** |
-| 12 | [Callee-save register injection](#12-callee-save-register-injection) | High | High | **P3** |
-| 13 | [Data Sync and XREF Pipeline](#13-data-sync-and-xref-pipeline) | High | Medium | **P1** |
-| 14 | [Relocation Target Validation](#14-relocation-target-validation) | High | High | **P1** |
-| 16 | [Incremental verify](#16-incremental-verify) | Medium | Medium | **P2** |
-| 17 | [rebrew doctor](#17-rebrew-doctor) | Medium | Low | ~~**P2**~~ **DONE** |
-| 18 | [Config validation layer](#18-config-validation-layer) | Medium | Low | ~~**P2**~~ **DONE** |
-| 19 | [Annotation round-trip fidelity tests](#19-annotation-round-trip-fidelity-tests) | Medium | Low | ~~**P2**~~ **DONE** |
-| 20 | [Diff export formats](#20-diff-export-formats) | Low | Low | ~~**P3**~~ **DONE** |
+| 2 | [Data Sync and XREF Pipeline](#2-data-sync-and-xref-pipeline) | High | Medium | **P1** |
+| 3 | [Incremental verify](#3-incremental-verify) | Medium | Medium | **P2** |
+| 4 | [GA code layout mutations](#4-ga-code-layout-mutations) | Medium | High | **P2** |
+| 5 | [Incremental / dirty-only Ghidra sync](#5-incremental--dirty-only-ghidra-sync) | Medium | Medium | **P2** |
+| 6 | [XREF context in skeleton generation](#6-xref-context-in-skeleton-generation) | Medium | Low | **P2** |
+| 7 | [Ghidra decompilation backend for skeleton](#7-ghidra-decompilation-backend-for-skeleton) | Medium | Low | **P2** |
+| 8 | [Sync deduplication / idempotency tracking](#8-sync-deduplication--idempotency-tracking) | Medium | Medium | **P2** |
+| 9 | [Validate programPath against Ghidra project](#9-validate-programpath-against-ghidra-project) | Medium | Low | **P2** |
+| 10 | [Callee-save register injection](#10-callee-save-register-injection) | High | High | **P3** |
+| 11 | [Watch mode for live Ghidra sync](#11-watch-mode-for-live-ghidra-sync) | Low | High | **P3** |
+| 12 | [Auto-BLOCKER classification from diffs](#12-auto-blocker-classification-from-diffs) | Medium | Low | **P3** |
+| 13 | [Multi-function file splitting tool](#13-multi-function-file-splitting-tool) | Low | Low | **P3** |
+| 14 | [Surgical Semantic Equivalence with angr](#14-surgical-semantic-equivalence-with-angr) | Medium | High | **P4** |
+| 15 | [Compile result cache](#15-compile-result-cache) | High | Medium | **P1** |
+| 16 | [Auto-download wibo](#16-auto-download-wibo) | Medium | Low | **P1** |
+| 17 | [Match regression detection](#17-match-regression-detection) | Medium | Low | **P2** |
+| 18 | [Batch promote](#18-batch-promote) | Medium | Low | **P2** |
+| 19 | [Cross-function solution transfer](#19-cross-function-solution-transfer) | High | High | **P3** |
 
 ---
 
@@ -33,39 +40,7 @@ Ideas collected during hands-on workflow testing, prioritized by impact.
 
 **Impact**: Automating the lookup saves significant manual research time on ~100 MSVCRT-origin functions.
 
-### 5. GA code layout mutations
-
-**Pain**: GA mutations focus on C source mutations, but most close MATCHING blockers are register allocation issues that C changes can't fix. The mutations that actually affect codegen are structural.
-
-**Proposed**: A "code layout" mutation type that tries different if/else orderings, goto vs inline returns, nested vs flat conditionals, and do-while vs while loops.
-
-**Impact**: Targets the mutations that actually affect codegen structure.
-
-### 7. Batch flag sweep mode
-
-**Pain**: Running `rebrew match --flag-sweep-only` on all MATCHING functions sequentially is slow. The GA is CPU-intensive but embarrassingly parallel.
-
-**Proposed**: A batch flag sweep mode that parallelizes across functions with priority queuing (smallest delta first).
-
-**Impact**: Faster turnaround on systematic flag exploration.
-
-### 11. Similarity-based prioritization in rebrew next
-
-**Pain**: Functions that share code patterns with already-matched functions would be easier to reverse, but `rebrew next` doesn't account for this.
-
-**Proposed**: Prioritize by similarity to already-matched functions (shared call targets, similar size/structure).
-
-**Impact**: Better work ordering for snowball effect.
-
-### 12. Callee-save register injection
-
-**Pain**: The target binary often pushes 4 callee-saves (ebx, ebp, esi, edi) and uses ebp=0 throughout the function. The compiler never generates this pattern because it doesn't see enough register pressure.
-
-**Proposed**: Inject specific callee-save register patterns (e.g., force ebp allocation via inline assembly prologue/epilogue) to match the target's register usage.
-
-**Impact**: Could unlock many MATCHING to RELOC transitions, but highly experimental.
-
-### 13. Data Sync and XREF Pipeline
+### 2. Data Sync and XREF Pipeline
 
 **Pain**: Global variables (`.data`, `.rdata`, `.bss`) are defined manually in Ghidra and must be re-typed manually in Rebrew as `extern` with `// GLOBAL:` or `// DATA:` annotations. `rebrew skeleton` gives an empty file, requiring manual inspection of Ghidra to find which globals the function references.
 
@@ -76,21 +51,218 @@ Ideas collected during hands-on workflow testing, prioritized by impact.
 
 **Impact**: Eliminates manual synchronization of the data section. Massively speeds up skeleton implementation by providing immediate context (especially string literals from `.rdata`).
 
-### 14. Relocation Target Validation
-
-**Pain**: Currently, `score_candidate` (and the diff tool) zeroes out relocation fields in both the target and the compiled `.obj` (e.g. `mov eax, [0x10025000]` becomes `A1 00 00 00 00`). If a candidate references `g_var1` instead of `g_var2`, Rebrew incorrectly reports a `RELOC MATCH`.
-
-**Proposed**: Parse the COFF relocation and symbol tables from the `.obj`. For every relocation, resolve the symbol name to its target VA using the Rebrew data catalog. Compare that resolved VA against the hardcoded absolute address in the target binary. If they mismatch, mark as `XX` (wrong reference) instead of `~~` (acceptable relocation).
-
-**Impact**: Guarantees that a `RELOC MATCH` is perfectly accurate in logic AND data references. Eliminates silent bugs where the game compiles but crashes due to wrong global access.
-
-### 16. Incremental verify
+### 3. Incremental verify
 
 **Pain**: `rebrew verify` recompiles every reversed function from scratch on every run. For projects with 200+ functions, a full verify takes minutes. During active development, you only changed one or two files — recompiling everything else is wasted work.
 
-**Proposed**: Track file modification times (or content hashes) in a lightweight cache file (e.g. `.rebrew/verify_cache.json`). On subsequent runs, only recompile files whose source or config changed since the last verify. A `--full` flag forces a clean rebuild. The cache is invalidated when `rebrew.toml` compiler settings change.
+**Proposed**: Track file modification times (or content hashes) in a lightweight cache file (e.g. `.rebrew/verify_cache.json`). On subsequent runs, only recompile files whose source or config changed since the last verify. A `--full` flag forces a clean rebuild. The cache is invalidated when `rebrew-project.toml` compiler settings change.
 
 **Impact**: Cuts typical verify iteration time from minutes to seconds during active development.
+
+### 4. GA code layout mutations
+
+**Pain**: GA mutations focus on C source mutations, but most close MATCHING blockers are register allocation issues that C changes can't fix. The mutations that actually affect codegen are structural.
+
+**Proposed**: A "code layout" mutation type that tries different if/else orderings, goto vs inline returns, nested vs flat conditionals, and do-while vs while loops.
+
+**Impact**: Targets the mutations that actually affect codegen structure.
+
+### 5. Incremental / dirty-only Ghidra sync
+
+**Pain**: `rebrew sync --export` regenerates all operations every time. Applying hundreds of MCP calls takes time.
+
+**Proposed**:
+- Track a sync state file (e.g. `ghidra_sync_state.json`) with timestamps or hashes
+- Only emit operations for files that changed since the last sync
+- Add a `--force` flag to override and re-sync everything
+
+**Impact**: Cuts sync time from minutes to seconds for small changes.
+
+### 6. XREF context in skeleton generation
+
+**Pain**: When reversing a function, the developer must manually look up callers and callees in Ghidra. This context is critical for understanding parameter types and data flow.
+
+**Proposed**: `rebrew skeleton 0x10006c00 --xrefs` would:
+- Call `find-cross-references` to get all XREFs
+- Call `get-decompilation` on the top 3 callers
+- Embed the caller context as comments in the skeleton
+
+**Impact**: Saves a round-trip to Ghidra for every new function, providing immediate calling context.
+
+### 7. Ghidra decompilation backend for skeleton
+
+**Pain**: `rebrew skeleton --decomp` currently uses radare2 backends (`r2ghidra`, `r2dec`), which produce lower quality output than Ghidra's decompiler.
+
+**Proposed**: Add a `--decomp-backend ghidra` option that calls ReVa's `get-decompilation` and caches the result:
+
+```bash
+rebrew skeleton 0x10006c00 --decomp --decomp-backend ghidra
+```
+
+The cached Ghidra decompilation would be stored alongside the skeleton as a `.ghidra.c` file for reference.
+
+**Impact**: Significantly better decompilation quality for initial skeleton generation.
+
+### 8. Sync deduplication / idempotency tracking
+
+**Pain**: Running `--export` + `--apply` twice re-applies all operations. While ReVa probably handles this idempotently, it wastes time and network round-trips.
+
+**Proposed**: Track what has already been pushed in a sync state file. Skip operations whose source data hasn't changed since the last successful push.
+
+**Impact**: Pairs with incremental sync (#5) to make repeated syncs near-instant.
+
+### 9. Validate programPath against Ghidra project
+
+**Pain**: The `program_path` is derived from `cfg.target_binary.name` which gives `/server.dll`. But Ghidra may have imported the binary under a different path (e.g. `/Server/server.dll` or just `server.dll` without leading slash).
+
+**Proposed**:
+1. Query ReVa for `get-current-program` to validate the path
+2. Or make the program path configurable in `rebrew-project.toml` (e.g. `ghidra_program_path`)
+
+**Impact**: Prevents silent sync failures when Ghidra's program path doesn't match the derived one.
+
+### 10. Callee-save register injection
+
+**Pain**: The target binary often pushes 4 callee-saves (ebx, ebp, esi, edi) and uses ebp=0 throughout the function. The compiler never generates this pattern because it doesn't see enough register pressure.
+
+**Proposed**: Inject specific callee-save register patterns (e.g., force ebp allocation via inline assembly prologue/epilogue) to match the target's register usage.
+
+**Impact**: Could unlock many MATCHING to RELOC transitions, but highly experimental.
+
+### 11. Watch mode for live Ghidra sync
+
+**Pain**: Developers must manually run `rebrew sync --push` after every file change. This interrupts the edit-test-sync cycle.
+
+**Proposed**: `rebrew sync --watch` monitors `.c` file changes and automatically pushes updates to Ghidra in near-real-time:
+
+```bash
+rebrew sync --watch
+# Watching src/server.dll/*.c for changes...
+# [12:30:01] func_10006c00.c changed → pushed label + comment
+# [12:30:45] zlib_adler32.c status MATCHING→RELOC → updated bookmark
+```
+
+Uses `watchdog` or `inotify` to detect file saves and push only the changed annotations.
+
+**Impact**: Nice quality-of-life improvement, but high effort and low urgency.
+
+### 12. Auto-BLOCKER classification from diffs
+
+**Pain**: After `rebrew match --diff-only` shows structural diffs (`**` markers), the developer must manually classify the blocker type (register allocation, loop rotation, etc.) and write a `// BLOCKER:` annotation.
+
+**Proposed**: `rebrew match --diff-only` already auto-classifies some systemic blockers. Extend this to auto-write `// BLOCKER:` and `// BLOCKER_DELTA:` annotations when the function is MATCHING. Could be a `--fix-blocker` flag on `rebrew match` or `rebrew verify`.
+
+**Impact**: Saves manual annotation work and ensures BLOCKER annotations are always up to date.
+
+### 13. Multi-function file splitting tool
+
+**Pain**: Some multi-function files grow unwieldy or contain functions that would be better tracked individually (different CFLAGS, different origins). Splitting them requires manually duplicating headers and moving code.
+
+**Proposed**: `rebrew split src/target/multi.c` — splits a multi-function file into individual files, preserving all annotations and generating correct filenames from `SYMBOL` annotations.
+
+**Impact**: Small quality-of-life improvement for codebase organization.
+
+### 14. Surgical Semantic Equivalence with angr
+
+**Pain**: `MATCHING` functions that are functionally identical but structurally different (due to register allocation, instruction folding, etc.) cannot reach `EXACT`/`RELOC` status through byte diffing alone. This leaves them permanently stuck as "almost complete".
+
+**Proposed**: `rebrew prove <target_ident>` — a tool that compiles the target `.c` to a `.obj`, extracts the raw bytes of both the `.obj` function and the target executable function, loads them both via `angr.Project` (using the CLE blob backend), stubs external calls with symbolic procedures, and runs symbolic execution to the end of the function. It then uses the Z3 constraint solver to mathematically prove that the final symbolic state of the return registers and memory are logically equivalent. If proven, updates annotation to `STATUS: PROVEN`.
+
+See [ANGR_PROPOSAL.md](ANGR_PROPOSAL.md) for the full technical proposal.
+
+**Impact**: Closes the final 1% gap on complex functions where the modern compiler refuses to generate byte-for-byte identical code to the original legacy compiler, providing mathematical certainty without resorting to inline assembly hacks.
+
+### 15. Compile result cache
+
+**Pain**: Every Wine/wibo invocation takes 200-500ms of startup overhead. During `rebrew ga` (100 generations × 30 population × N functions) and `rebrew match --flag-sweep` (192-8.3M flag combinations), the same `(source + flags)` combination is frequently compiled multiple times — identical source with identical flags producing identical `.obj` output. This is pure waste.
+
+**Proposed**: Hash-based `.obj` caching that skips the Wine/wibo subprocess entirely on cache hit.
+
+- **Cache key**: SHA-256 of `(runner + command + base_cflags + cflags + source_content + include_dir_hash)`. The include dir hash covers `compiler_includes` contents so header changes invalidate correctly.
+- **Cache location**: `.rebrew/compile_cache/` (gitignored), keyed by hex digest. Each entry stores the `.obj` bytes.
+- **Integration points**: `compile_to_obj()` in `compile.py` and `build_candidate_obj_only()` in `matcher/compiler.py` — the two hot paths where all compilation funnels through.
+- **Cache hit**: Read `.obj` from disk, skip subprocess entirely. Return immediately.
+- **Cache miss**: Compile normally, store `.obj` bytes before returning.
+- **Invalidation**: Automatic via content hash. No explicit invalidation needed. Optional `rebrew cache clear` command for manual cleanup.
+- **Size management**: LRU eviction when cache exceeds a configurable limit (default 500MB). Most `.obj` files are 1-10KB, so this holds 50K+ entries.
+
+**Impact**: The single biggest performance win for GA and flag sweep. For a typical `--flag-sweep --tier targeted` run (1,152 combos × N functions), cache hits on unchanged functions eliminate ~90% of Wine invocations on subsequent runs. GA benefits when mutations produce previously-seen source text.
+
+### 16. Auto-download wibo
+
+**Pain**: [wibo](https://github.com/decompals/wibo) is a lightweight Win32 PE loader that's 5-10x faster than Wine for running MSVC `CL.EXE`. It's a single static binary with no dependencies. But setting it up requires manually downloading the release, placing it on `PATH`, and marking it executable. This friction means most users stick with Wine.
+
+**Proposed**: When `runner = "wibo"` is configured (or selected during `rebrew init`) and the `wibo` binary is not found on `PATH` or at a project-local path:
+
+1. Query the GitHub Releases API: `GET https://api.github.com/repos/decompals/wibo/releases/latest`
+2. Download the appropriate binary for the current platform (Linux x86_64)
+3. Place it at `tools/wibo` (project-local) or `~/.local/bin/wibo` (user-global)
+4. `chmod +x` the binary
+5. Update the config's runner path if needed
+
+**Integration points**:
+- `rebrew init` — offer wibo as the default runner choice, auto-download if selected
+- `rebrew doctor` — detect missing wibo, offer to download
+- `compile.py` — on first compile failure with "wibo: command not found", suggest `rebrew doctor` or auto-download with user confirmation
+
+**Impact**: Zero-friction wibo adoption. Combined with the compile cache (#15), this makes the compile pipeline dramatically faster with no manual setup. The `rebrew init` flow becomes: pick a profile → wibo auto-downloads → first compile just works.
+
+### 17. Match regression detection
+
+**Pain**: When you modify a shared header, fix a struct layout, or update `base_cflags`, previously EXACT/RELOC functions can silently regress to MATCHING or worse. You only discover this by running a full `rebrew verify`, scanning the output, and mentally diffing it against what you remember. On a project with 200+ functions, regressions hide in noise.
+
+**Proposed**: `rebrew verify --diff` (or `--regression`) that compares the current verify results against the last saved report in `db/verify_results.json`.
+
+```
+$ rebrew verify --diff
+3 regressions detected:
+  func_10003da0  EXACT → MATCHING  (delta: 4B)   ← struct change in types.h
+  func_10006c00  RELOC → MATCHING  (delta: 12B)  ← base_cflags changed
+  zlib_adler32   EXACT → COMPILE_ERROR            ← missing include
+
+2 improvements:
+  func_10008880  MATCHING → EXACT   ← flag sweep found /O2 /Gy
+  func_1000a200  STUB → MATCHING    ← new implementation
+```
+
+Exit code 1 if any regressions exist (useful for CI/pre-commit hooks). `--json` for structured output. Optionally `--fail-on-regression` for strict mode.
+
+**Impact**: Catches regressions immediately instead of discovering them days later. Low implementation effort — `verify.py` already saves JSON results, this just diffs two reports.
+
+### 18. Batch promote
+
+**Pain**: After `rebrew ga --flag-sweep --fix-cflags` updates CFLAGS annotations on several functions, or after a header fix resolves multiple compile errors, you need to promote each function individually: `rebrew promote src/target/func_a.c`, `rebrew promote src/target/func_b.c`, etc. Tedious and error-prone when 10+ functions changed.
+
+**Proposed**: `rebrew promote --all` (or `--batch`) that discovers all promotable functions and promotes them in one pass.
+
+```bash
+rebrew promote --all                    # promote everything that verifies
+rebrew promote --all --dry-run          # preview what would change
+rebrew promote --dir src/server.dll/    # promote all in a directory
+rebrew promote --origin ZLIB            # promote all ZLIB-origin functions
+```
+
+Under the hood: run `verify_entry()` on each candidate, compare result against current `// STATUS:`, update if improved (STUB→MATCHING, MATCHING→RELOC, RELOC→EXACT). Never demote — if a function regresses, skip it and warn (use `rebrew verify --diff` for regression tracking).
+
+**Impact**: Turns a 10-minute manual promotion session into a single command. Pairs naturally with `rebrew ga --flag-sweep --fix-cflags` for a fully automated improve→promote pipeline.
+
+### 19. Cross-function solution transfer
+
+**Pain**: Many functions in the same binary share similar structure — same calling convention, same register pressure patterns, same optimization level. When GA solves one function (finds the exact flags + mutations), that knowledge is thrown away. The next similar function starts GA from scratch, re-discovering the same solution space.
+
+**Proposed**: After GA matches a function, extract its "solution fingerprint" — the winning cflags, any source mutations applied, and structural characteristics (size, call count, local count). Store these in a solution database (`.rebrew/solutions.json`). When GA starts on a new function:
+
+1. Find the K nearest solved functions by structural similarity (size, origin, call pattern)
+2. Seed the initial GA population with their winning cflags and mutation patterns
+3. Prioritize flag combinations that worked for similar functions in the sweep ordering
+
+```bash
+rebrew match src/target/func_b.c              # auto-seeds from similar solved functions
+rebrew match src/target/func_b.c --no-seed    # disable seeding, start fresh
+rebrew ga --seed-from-solved                  # batch mode uses solution DB
+```
+
+**Impact**: Reduces GA convergence time by starting near known-good solutions instead of random. Most impactful on projects with many same-origin functions (e.g. 50 GAME-origin functions all compiled with similar flags). Experimental, but the payoff compounds as more functions are solved.
 
 ---
 
@@ -132,11 +304,3 @@ These form a "dependency ceiling" that limits what can be matched regardless of 
 - Dead assignments in STUBs are common — Ghidra generates reads for values the target code never uses.
 - Entity records are 65 bytes — MSVC6 decomposes `*65` as `shl eax, 6; add eax, base; add eax, index`.
 - CRT `_mbctype` access: `_mbctype[(unsigned char)c + 1] & 4` compiles to `test byte ptr [reg + 0x11766321], 4` — the +1 offset is baked into the immediate address.
-
-### 21. Surgical Semantic Equivalence with `angr`
-
-**Pain**: `MATCHING` functions that are functionally identical but structurally different (due to register allocation, instruction folding, etc.) cannot reach `EXACT`/`RELOC` status through byte diffing alone. This leaves them permanently stuck as "almost complete".
-
-**Proposed**: `rebrew prove <target_ident>` — a tool that compiles the target `.c` to a `.obj`, extracts the raw bytes of both the `.obj` function and the target executable function, loads them both via `angr.Project` (using the CLE blob backend), stubs external calls with symbolic procedures, and runs symbolic execution to the end of the function. It then uses the Z3 constraint solver to mathematically prove that the final symbolic state of the return registers and memory are logically equivalent. If proven, updates annotation to `STATUS: PROVEN`.
-
-**Impact**: Closes the final 1% gap on complex functions where the modern compiler refuses to generate byte-for-byte identical code to the original legacy compiler, providing mathematical certainty without resorting to inline assembly hacks.

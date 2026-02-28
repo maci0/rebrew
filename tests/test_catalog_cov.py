@@ -7,10 +7,10 @@ from rebrew.catalog import (
     build_function_registry,
     generate_catalog,
     generate_data_json,
+    make_func_entry,
     make_ghidra_func,
-    make_r2_func,
     merge_ranges,
-    parse_r2_functions,
+    parse_function_list,
     scan_reversed_dir,
 )
 from rebrew.config import ProjectConfig
@@ -21,11 +21,11 @@ from rebrew.config import ProjectConfig
 
 
 class TestMakeFactories:
-    def test_make_r2_func(self) -> None:
-        f = make_r2_func(0x10001000, 64, "_my_func")
+    def test_make_func_entry(self) -> None:
+        f = make_func_entry(0x10001000, 64, "_my_func")
         assert f["va"] == 0x10001000
         assert f["size"] == 64
-        assert f["r2_name"] == "_my_func"
+        assert f["name"] == "_my_func"
 
     def test_make_ghidra_func(self) -> None:
         f = make_ghidra_func(0x10001000, 64, "my_func")
@@ -79,58 +79,58 @@ class TestBuildFunctionRegistry:
         )
 
     def test_basic(self) -> None:
-        r2_funcs = [
-            make_r2_func(0x10001000, 64, "_func_a"),
-            make_r2_func(0x10002000, 128, "_func_b"),
+        funcs = [
+            make_func_entry(0x10001000, 64, "_func_a"),
+            make_func_entry(0x10002000, 128, "_func_b"),
         ]
-        reg = build_function_registry(r2_funcs, self.cfg)
+        reg = build_function_registry(funcs, self.cfg)
         assert 0x10001000 in reg
         assert 0x10002000 in reg
-        assert "r2" in reg[0x10001000]["detected_by"]
+        assert "list" in reg[0x10001000]["detected_by"]
 
     def test_bogus_sizes_filtered(self) -> None:
         """Functions with VAs in cfg.r2_bogus_vas should still be in registry but size excluded."""
         bogus_va = 0xDEAD0000
         self.cfg.r2_bogus_vas = [bogus_va]
-        r2_funcs = [make_r2_func(bogus_va, 999999, "_bogus")]
-        reg = build_function_registry(r2_funcs, self.cfg)
+        funcs = [make_func_entry(bogus_va, 999999, "_bogus")]
+        reg = build_function_registry(funcs, self.cfg)
         assert bogus_va in reg
         # Size should NOT be recorded for bogus VAs
-        assert "r2" not in reg[bogus_va]["size_by_tool"]
+        assert "list" not in reg[bogus_va]["size_by_tool"]
 
     def test_with_ghidra(self, tmp_path) -> None:
-        r2_funcs = [make_r2_func(0x10001000, 64, "_func_a")]
+        funcs = [make_func_entry(0x10001000, 64, "_func_a")]
         ghidra_json = tmp_path / "ghidra_functions.json"
         ghidra_data = [
             make_ghidra_func(0x10001000, 64, "func_a"),
             make_ghidra_func(0x10003000, 32, "func_c"),
         ]
         ghidra_json.write_text(json.dumps(ghidra_data), encoding="utf-8")
-        reg = build_function_registry(r2_funcs, self.cfg, ghidra_path=ghidra_json)
+        reg = build_function_registry(funcs, self.cfg, ghidra_path=ghidra_json)
         assert 0x10001000 in reg
         assert 0x10003000 in reg
         assert "ghidra" in reg[0x10003000]["detected_by"]
 
     def test_iat_thunks(self) -> None:
-        r2_funcs = [make_r2_func(0x10001000, 6, "_thunk_func")]
+        funcs = [make_func_entry(0x10001000, 6, "_thunk_func")]
         cfg = ProjectConfig(
             root=Path("/tmp"),
             iat_thunks=[0x10001000],
             dll_exports={},
             ignored_symbols=[],
         )
-        reg = build_function_registry(r2_funcs, cfg)
+        reg = build_function_registry(funcs, cfg)
         assert reg[0x10001000].get("is_thunk") is True
 
     def test_exports(self) -> None:
-        r2_funcs = [make_r2_func(0x10001000, 64, "_my_export")]
+        funcs = [make_func_entry(0x10001000, 64, "_my_export")]
         cfg = ProjectConfig(
             root=Path("/tmp"),
             iat_thunks=[],
             dll_exports={0x10001000: "MyExport"},
             ignored_symbols=[],
         )
-        reg = build_function_registry(r2_funcs, cfg)
+        reg = build_function_registry(funcs, cfg)
         assert reg[0x10001000].get("is_export") is True
 
 
@@ -156,8 +156,8 @@ class TestGenerateCatalog:
                 "marker_type": "FUNCTION",
             },
         ]
-        r2_funcs = [make_r2_func(0x10001000, 64, "_func_a")]
-        md = generate_catalog(entries, r2_funcs, text_size=1000)
+        funcs = [make_func_entry(0x10001000, 64, "_func_a")]
+        md = generate_catalog(entries, funcs, text_size=1000)
         assert isinstance(md, str)
         assert "func_a" in md
 
@@ -187,8 +187,8 @@ class TestGenerateDataJson:
                 "marker_type": "FUNCTION",
             },
         ]
-        r2_funcs = [make_r2_func(0x10001000, 64, "_func_a")]
-        data = generate_data_json(entries, r2_funcs, text_size=1000)
+        funcs = [make_func_entry(0x10001000, 64, "_func_a")]
+        data = generate_data_json(entries, funcs, text_size=1000)
         assert isinstance(data, dict)
         assert "sections" in data
         assert "summary" in data
@@ -202,26 +202,26 @@ class TestGenerateDataJson:
 
 
 # -------------------------------------------------------------------------
-# parse_r2_functions (already tested in phase4, additional cases)
+# parse_function_list (already tested in phase4, additional cases)
 # -------------------------------------------------------------------------
 
 
-class TestParseR2FunctionsExtended:
+class TestParseFunctionListExtended:
     def test_empty_file(self, tmp_path) -> None:
         f = tmp_path / "empty.txt"
         f.write_text("", encoding="utf-8")
-        result = parse_r2_functions(f)
+        result = parse_function_list(f)
         assert result == []
 
     def test_missing_file(self, tmp_path) -> None:
         f = tmp_path / "nonexistent.txt"
-        result = parse_r2_functions(f)
+        result = parse_function_list(f)
         assert result == []
 
     def test_malformed_lines(self, tmp_path) -> None:
         f = tmp_path / "bad.txt"
         f.write_text("not a valid line\n0x10001000\nfoo bar baz\n", encoding="utf-8")
-        result = parse_r2_functions(f)
+        result = parse_function_list(f)
         assert result == []
 
 

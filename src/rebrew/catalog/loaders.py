@@ -1,6 +1,6 @@
 """catalog/loaders.py - File loaders and parsers for function/data sources.
 
-Loads Ghidra function JSON, r2 function lists, Ghidra data labels,
+Loads Ghidra function JSON, function lists, Ghidra data labels,
 and scans reversed directories for annotated source files.
 """
 
@@ -8,10 +8,9 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any
 
 from rebrew.annotation import Annotation, parse_c_file_multi
-from rebrew.catalog.registry import make_r2_func
+from rebrew.catalog.registry import make_func_entry
 from rebrew.config import ProjectConfig
 
 # ---------------------------------------------------------------------------
@@ -19,7 +18,7 @@ from rebrew.config import ProjectConfig
 # ---------------------------------------------------------------------------
 
 
-def load_ghidra_functions(path: Path) -> list[dict[str, Any]]:
+def load_ghidra_functions(path: Path) -> list[dict[str, object]]:
     """Load cached ghidra_functions.json."""
     if not path.exists():
         return []
@@ -42,7 +41,7 @@ def _classify_ghidra_label(label: str) -> str:
     return "data"
 
 
-def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, dict[str, Any]]:
+def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, dict[str, object]]:
     """Load Ghidra data labels → {va: {"size": int, "label": str, "state": str}}.
 
     Tries ghidra_data_labels.json first, falls back to ghidra_switchdata.json
@@ -70,7 +69,7 @@ def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, dict[str, Any]]:
     except (json.JSONDecodeError, OSError):
         return {}
 
-    result: dict[int, dict[str, Any]] = {}
+    result: dict[int, dict[str, object]] = {}
     for entry in entries:
         va = entry.get("va", 0)
         size = entry.get("size", 0)
@@ -82,14 +81,14 @@ def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# r2_functions.txt parser
+# Function list parser
 # ---------------------------------------------------------------------------
 
-_R2_LINE_RE = re.compile(r"\s*(0x[0-9a-fA-F]+)\s+(\d+)\s+(\S+)")
+_FUNC_LINE_RE = re.compile(r"\s*(0x[0-9a-fA-F]+)\s+(\d+)\s+(\S+)")
 
 
-def parse_r2_functions(path: Path) -> list[dict[str, Any]]:
-    """Parse r2_functions.txt into list of {va, size, r2_name}."""
+def parse_function_list(path: Path) -> list[dict[str, object]]:
+    """Parse function list into list of {va, size, name}."""
     funcs = []
     try:
         text = path.read_text(encoding="utf-8")
@@ -98,13 +97,13 @@ def parse_r2_functions(path: Path) -> list[dict[str, Any]]:
         return funcs
 
     for line in text.splitlines():
-        m = _R2_LINE_RE.match(line)
+        m = _FUNC_LINE_RE.match(line)
         if m:
             funcs.append(
-                make_r2_func(
+                make_func_entry(
                     va=int(m.group(1), 16),
                     size=int(m.group(2)),
-                    r2_name=m.group(3),
+                    name=m.group(3),
                 )
             )
     return funcs
@@ -145,6 +144,6 @@ def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> l
 
     entries: list[Annotation] = []
     for cfile in iter_sources(reversed_dir, cfg):
-        parsed = parse_c_file_multi(cfile)
+        parsed = parse_c_file_multi(cfile, target_name=cfg.marker if cfg else None)
         entries.extend(parsed)
     return entries

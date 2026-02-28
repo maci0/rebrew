@@ -9,28 +9,43 @@ from pathlib import Path
 
 import typer
 
+from rebrew.cli import error_exit
+
 app = typer.Typer(
     help="Initialize a new rebrew project directory.",
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
-  rebrew init                                        Defaults (msvc6, program.exe)
-  rebrew init --target server --binary server.dll    Name the target and binary
-  rebrew init --compiler msvc7                       Use MSVC 7.x compiler profile
-  rebrew init --compiler gcc                         Use GCC (ELF targets)
+
+rebrew init                                        Defaults (msvc6, program.exe)
+
+rebrew init --target server --binary server.dll    Name the target and binary
+
+rebrew init --compiler msvc7                       Use MSVC 7.x compiler profile
+
+rebrew init --compiler gcc                         Use GCC (ELF targets)
 
 [bold]What it creates:[/bold]
-  rebrew.toml            Project configuration (compiler, paths, targets)
-  AGENTS.md              AI agent instructions for the project
-  original/              Place your original binaries here
-  src/<target>/           Directory for reversed .c files
-  bin/<target>/           Directory for extracted .bin files
+
+rebrew-project.toml            Project configuration (compiler, paths, targets)
+
+AGENTS.md              AI agent instructions for the project
+
+original/              Place your original binaries here
+
+src/<target>/           Directory for reversed .c files
+
+bin/<target>/           Directory for extracted .bin files
 
 [bold]Compiler profiles:[/bold]
-  msvc6    MSVC 6.0 (C89, PE/x86_32) — via Wine
-  msvc7    MSVC 7.x (C99 subset, PE/x86_32) — via Wine
-  gcc      GCC (C99, ELF/x86_64)
-  clang    Clang (C99, ELF/x86_64)
+
+msvc6    MSVC 6.0 (C89, PE/x86_32) — via Wine (or wibo)
+
+msvc7    MSVC 7.x (C99 subset, PE/x86_32) — via Wine (or wibo)
+
+gcc      GCC (C99, ELF/x86_64)
+
+clang    Clang (C99, ELF/x86_64)
 
 [dim]Run this once in an empty directory, then place your binary in original/.[/dim]""",
 )
@@ -81,6 +96,7 @@ origins = ["GAME"]                   # valid ORIGIN values for annotations
 
 [compiler]
 profile = "{compiler_profile}"
+runner = "__COMPILER_RUNNER__"
 command = "{compiler_command}"
 includes = "{compiler_includes}"
 libs = "{compiler_libs}"
@@ -101,6 +117,7 @@ GAME = "{cflags}"
 
 COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
     "msvc6": {
+        "runner": "wine",
         "command": "wine tools/MSVC600/VC98/Bin/CL.EXE",
         "includes": "tools/MSVC600/VC98/Include",
         "libs": "tools/MSVC600/VC98/Lib",
@@ -110,6 +127,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "lang": "C89",
     },
     "msvc7": {
+        "runner": "wine",
         "command": "wine tools/MSVC7/Bin/CL.EXE",
         "includes": "tools/MSVC7/Include",
         "libs": "tools/MSVC7/Lib",
@@ -119,6 +137,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "lang": "C99",
     },
     "clang": {
+        "runner": "",
         "command": "clang",
         "includes": "/usr/include",
         "libs": "/usr/lib",
@@ -128,6 +147,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "lang": "C99",
     },
     "gcc": {
+        "runner": "",
         "command": "gcc",
         "includes": "/usr/include",
         "libs": "/usr/lib",
@@ -147,7 +167,7 @@ DEFAULT_AGENTS_MD = """# AGENTS.md — {project_name}
 - **Target**: `{binary_name}` ({binary_format}, {arch})
 - **Compiler**: {compiler_profile} (`{compiler_command}`)
 - **Language**: {lang} — follow compiler constraints below
-- **Config**: `rebrew.toml` (all tools read from here)
+- **Config**: `rebrew-project.toml` (all tools read from here)
 
 ## Quick Start
 
@@ -167,18 +187,27 @@ Use `--json` for structured output (preferred for agents).
 | Command | Use |
 |---------|-----|
 | `rebrew triage --json` | Combined overview: coverage, near-misses, recommendations |
-| `rebrew next --json` | Find next function to reverse |
+| `rebrew doctor` | Check toolchain and project health |
+| `rebrew next --json` | Find next function to reverse (sorted by similarity) |
+| `rebrew next --improving --json` | List MATCHING functions sorted by byte delta |
 | `rebrew skeleton 0x<VA>` | Generate C skeleton from address |
 | `rebrew test <file> --json` | Compile and byte-compare against target |
 | `rebrew match --diff-only <file> --json` | Structured byte diff |
-| `rebrew match --flag-sweep-only <file>` | Find best compiler flags |
+| `rebrew match --flag-sweep-only <file>` | Find best compiler flags for a single function |
 | `rebrew match <file> --json` | Run GA matching engine |
+| `rebrew ga --flag-sweep --json` | Batch flag sweep on all MATCHING functions |
+| `rebrew ga --near-miss --threshold 5` | Batch GA on MATCHING functions with small deltas |
 | `rebrew promote <file> --json` | Test + atomically update STATUS |
+| `rebrew rename <old> <new>` | Rename function and update cross-references |
 | `rebrew status --json` | Coverage progress |
 | `rebrew verify --json` | Bulk verify all reversed files |
 | `rebrew lint --json` | Validate annotations |
+| `rebrew data --json` | Inventory globals in .data/.rdata/.bss |
+| `rebrew graph --format summary` | Dependency graph stats and blockers |
+| `rebrew catalog --json` | Generate coverage catalog |
+| `rebrew flirt --json` | FLIRT scan for known library functions |
 | `rebrew extract --json` | Batch extract and disassemble functions |
-| `rebrew asm 0x<VA> 128 --json` | Quick offline disassembly |
+| `rebrew asm 0x<VA> --size 128 --json` | Quick offline disassembly |
 | `rebrew sync --push` | Push annotations to Ghidra |
 | `rebrew sync --summary --json` | Preview what would be synced |
 
@@ -270,28 +299,22 @@ def main(
     """
     Initialize a new rebrew project in the current directory.
 
-    Creates a rebrew.toml configuration, an AGENTS.md for AI agents,
+    Creates a rebrew-project.toml configuration, an AGENTS.md for AI agents,
     and the necessary directory structure for decompilation.
     """
     cwd = Path.cwd()
-    toml_path = cwd / "rebrew.toml"
+    toml_path = cwd / "rebrew-project.toml"
 
     if toml_path.exists():
-        typer.secho(f"Error: A rebrew.toml already exists in {cwd}", fg=typer.colors.RED, err=True)
-        raise typer.Exit(code=1)
+        error_exit(f"A rebrew-project.toml already exists in {cwd}")
 
     # Look up compiler defaults for the profile
     if compiler_profile not in COMPILER_DEFAULTS:
         known = ", ".join(sorted(COMPILER_DEFAULTS))
-        typer.secho(
-            f"Error: Unknown compiler profile '{compiler_profile}'. Known profiles: {known}",
-            fg=typer.colors.RED,
-            err=True,
-        )
-        raise typer.Exit(code=1)
+        error_exit(f"Unknown compiler profile '{compiler_profile}'. Known profiles: {known}")
     profile = COMPILER_DEFAULTS[compiler_profile]
 
-    # 1. Write rebrew.toml
+    # 1. Write rebrew-project.toml
     toml_content = DEFAULT_REBREW_TOML.format(
         project_name=cwd.name,
         target_name=target_name,
@@ -302,6 +325,7 @@ def main(
         compiler_libs=profile["libs"],
         cflags=profile["cflags"],
     )
+    toml_content = toml_content.replace("__COMPILER_RUNNER__", profile["runner"])
     toml_path.write_text(toml_content, encoding="utf-8")
     typer.secho(f"Created {toml_path.name}", fg=typer.colors.GREEN)
 
@@ -354,7 +378,7 @@ def main(
 
     typer.secho("\nInitialization complete! Next steps:", fg=typer.colors.CYAN, bold=True)
     typer.echo(f"1. Copy your original binary to original/{binary_name}")
-    typer.echo("2. Verify your compiler paths in rebrew.toml")
+    typer.echo("2. Verify your compiler paths in rebrew-project.toml")
     typer.echo("3. Run 'rebrew next --stats' to get started!")
 
 
@@ -362,6 +386,7 @@ init = main
 
 
 def main_entry() -> None:
+    """Run the Typer CLI application."""
     app()
 
 

@@ -4,21 +4,18 @@ Usage:
     rebrew test <source.c> [symbol] [--va 0xHEX --size N] [--cflags ...]
 """
 
-import json
 import re
 import shutil
-import sys
 import tempfile
 from pathlib import Path
-from typing import Any
 
 import rich
 import typer
 
 from rebrew.annotation import Annotation, parse_c_file, parse_c_file_multi, parse_source_metadata
-from rebrew.cli import TargetOption, get_config
+from rebrew.cli import TargetOption, error_exit, get_config, json_print, parse_va
 from rebrew.config import ProjectConfig
-from rebrew.matcher.parsers import list_obj_symbols, parse_coff_symbol_bytes
+from rebrew.matcher.parsers import list_obj_symbols, parse_obj_symbol_bytes
 
 # Regex for detecting FUNCTION/LIBRARY/STUB marker lines (used by update_source_status)
 _MARKER_RE = re.compile(r"^(//|/\*)\s*(?:FUNCTION|LIBRARY|STUB):\s*\S+\s+(0x[0-9a-fA-F]+)")
@@ -39,18 +36,59 @@ def compile_obj(
 
 
 def smart_reloc_compare(
-    obj_bytes: bytes, target_bytes: bytes, coff_relocs: list[int] | None = None
-) -> tuple[bool, int, int, list[int]]:
-    """Compare bytes with relocation masking.
+    obj_bytes: bytes,
+    target_bytes: bytes,
+    coff_relocs: list[int] | dict[int, str] | None = None,
+    name_to_va: dict[str, int] | None = None,
+) -> tuple[bool, int, int, list[int], list[int]]:
+    """Compare bytes with relocation masking and target validation.
 
     Uses COFF relocation records if available, falls back to zero-span detection.
+    If name_to_va is provided and coff_relocs is a dict, it will resolve the
+    symbol name and compare the absolute address against the target bytes.
+    If the target address doesn't match the hardcoded address in the binary,
+    it marks those bytes as a mismatch.
+
+    Returns:
+        (matched, match_count, total_bytes, valid_relocs, invalid_relocs)
     """
+    import struct
+
     min_len = min(len(obj_bytes), len(target_bytes))
     max_len = max(len(obj_bytes), len(target_bytes))
 
-    relocs = []
+    valid_relocs = []
+    invalid_relocs = []
+
     if coff_relocs is not None:
-        relocs = [r for r in coff_relocs if r + 4 <= min_len]
+        is_dict = isinstance(coff_relocs, dict)
+        reloc_iter = list(coff_relocs.keys()) if is_dict else coff_relocs
+
+        for r in reloc_iter:
+            if r + 4 <= min_len:
+                valid = True
+
+                # Check absolute address if we have name mapping
+                if is_dict and name_to_va:
+                    sym_name = coff_relocs[r]  # type: ignore
+
+                    # Remove underscore prefix for C names if present
+                    clean_sym = sym_name.lstrip("_") if sym_name.startswith("_") else sym_name
+
+                    target_va = name_to_va.get(clean_sym) or name_to_va.get(sym_name)
+                    if target_va:
+                        try:
+                            # Read absolute address from target bytes (little endian 32-bit)
+                            actual_target_va = struct.unpack("<I", target_bytes[r : r + 4])[0]
+                            if actual_target_va != target_va:
+                                valid = False
+                        except struct.error:
+                            valid = False
+
+                if valid:
+                    valid_relocs.append(r)
+                else:
+                    invalid_relocs.append(r)
     else:
         i = 0
         while i <= min_len - 4:
@@ -58,13 +96,13 @@ def smart_reloc_compare(
                 obj_bytes[i : i + 4] == b"\x00\x00\x00\x00"
                 and obj_bytes[i : i + 4] != target_bytes[i : i + 4]
             ):
-                relocs.append(i)
+                valid_relocs.append(i)
                 i += 4
             else:
                 i += 1
 
     reloc_set = set()
-    for r in relocs:
+    for r in valid_relocs:
         for j in range(4):
             if r + j < min_len:
                 reloc_set.add(r + j)
@@ -78,7 +116,7 @@ def smart_reloc_compare(
             mismatches.append(i)
 
     masked_match = not mismatches and len(obj_bytes) == len(target_bytes)
-    return masked_match, match_count, max_len, relocs
+    return masked_match, match_count, max_len, valid_relocs, invalid_relocs
 
 
 def update_source_status(
@@ -149,17 +187,26 @@ def update_source_status(
 
 _EPILOG = """\
 [bold]Examples:[/bold]
-  rebrew test src/game_dll/my_func.c                  Auto-detect symbol, VA, size from annotations
-  rebrew test src/game_dll/my_func.c _my_func         Explicit symbol name
-  rebrew test f.c _sym --va 0x10009310 --size 42      Override VA and size from CLI
-  rebrew test f.c _sym --cflags "/O1 /Gd"             Override compiler flags
-  rebrew test src/game_dll/my_func.c --json            Machine-readable JSON output
+
+rebrew test src/game_dll/my_func.c                  Auto-detect symbol, VA, size from annotations
+
+rebrew test src/game_dll/my_func.c _my_func         Explicit symbol name
+
+rebrew test f.c _sym --va 0x10009310 --size 42      Override VA and size from CLI
+
+rebrew test f.c _sym --cflags "/O1 /Gd"             Override compiler flags
+
+rebrew test src/game_dll/my_func.c --json            Machine-readable JSON output
 
 [bold]How it works:[/bold]
-  1. Compiles the .c file with MSVC6 (via Wine) using annotation CFLAGS
-  2. Extracts the named COFF symbol from the .obj
-  3. Compares compiled bytes against the original DLL bytes at the given VA
-  4. Reports EXACT, RELOC (match after masking relocations), or MISMATCH
+
+1. Compiles the .c file with MSVC6 (via Wine) using annotation CFLAGS
+
+2. Extracts the named COFF symbol from the .obj
+
+3. Compares compiled bytes against the original DLL bytes at the given VA
+
+4. Reports EXACT, RELOC (match after masking relocations), or MISMATCH
 
 [dim]All parameters can be auto-detected from // FUNCTION, // STATUS, // SIZE,
 // CFLAGS, and // SYMBOL annotations in the source file header.[/dim]"""
@@ -182,11 +229,49 @@ def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Quick compile-and-compare for reversed functions."""
+    """Compile a source file and compare one function against target bytes.
+
+    This command supports both single-function and multi-function source files.
+    In single-function mode it resolves ``symbol``, ``va``, and ``size`` from
+    CLI arguments first, then falls back to source annotations. In multi-function
+    mode (when no explicit symbol/va/size is provided), it compiles once and
+    evaluates each annotated function independently.
+
+    Comparison is relocation-aware: COFF relocation records are used to mask
+    relocation-dependent byte spans before scoring exactness. Output status is
+    reported as EXACT, RELOC, MISMATCH, or an error state.
+
+    Args:
+        source: Path to the C source file to compile.
+        symbol: Optional COFF symbol name to extract from the produced object.
+        target_bin: Optional path to a raw target byte blob for direct compare.
+        va: Optional hex VA used with ``size`` to extract target bytes.
+        size: Optional byte count for the target function.
+        cflags: Optional compiler flags string overriding annotation/config defaults.
+        json_output: Emit machine-readable JSON responses.
+        target: Optional target profile name from ``rebrew-project.toml``.
+    """
     cfg = get_config(target=target)
 
+    # Build name -> VA map for relocation validation
+    name_to_va: dict[str, int] = {}
+    try:
+        from rebrew.data import scan_globals
+
+        scan = scan_globals(cfg.reversed_dir, cfg)
+        for entry in scan.data_annotations:
+            name = entry.get("name", "")
+            va_int = entry.get("va")
+            if isinstance(name, str) and isinstance(va_int, int) and name:
+                name_to_va[name] = va_int
+        for name, glob in scan.globals.items():
+            if glob.va:
+                name_to_va[name] = glob.va
+    except (ImportError, OSError, ValueError, KeyError, AttributeError):
+        pass  # Data scanner might fail if reversed_dir doesnt exist yet
+
     # Optional: lint the file first to catch basic annotation errors
-    anno = parse_c_file(Path(source))
+    anno = parse_c_file(Path(source), target_name=cfg.marker if cfg else None)
     if anno:
         eval_errs, eval_warns = anno.validate()
         if not json_output:
@@ -197,9 +282,17 @@ def main(
 
     # Multi-function support: if no explicit symbol/va/size, test all annotations
     if symbol is None and va is None and size is None:
-        annotations = parse_c_file_multi(Path(source))
+        annotations = parse_c_file_multi(Path(source), target_name=cfg.marker if cfg else None)
         if len(annotations) > 1:
-            _test_multi(cfg, source, annotations, cflags, json_output=json_output)
+            origin = annotations[0].origin if annotations else ""
+            _test_multi(
+                cfg.for_origin(origin),
+                source,
+                annotations,
+                cflags,
+                name_to_va=name_to_va,
+                json_output=json_output,
+            )
             return
 
     meta = parse_source_metadata(source)
@@ -207,16 +300,8 @@ def main(
     symbol = symbol or meta.get("SYMBOL")
     if not symbol:
         if json_output:
-            print(
-                json.dumps(
-                    {"source": source, "status": "ERROR", "error": "Symbol not provided"}, indent=2
-                )
-            )
-            raise typer.Exit(code=1)
-        print(
-            "ERROR: Symbol not provided in args and not found in source metadata", file=sys.stderr
-        )
-        raise typer.Exit(code=1)
+            error_exit("Symbol not provided", json_mode=True)
+        error_exit("Symbol not provided in args and not found in source metadata")
 
     va_str = va
     if not va_str:
@@ -232,66 +317,35 @@ def main(
         try:
             size_val = int(meta["SIZE"])
         except ValueError:
-            print(f"ERROR: Invalid SIZE annotation: {meta['SIZE']!r}", file=sys.stderr)
-            raise typer.Exit(code=1)
+            error_exit(f"Invalid SIZE annotation: {meta['SIZE']!r}")
 
-    # Fallback default — should be set via annotation or config cflags_presets.
     cflags_str = cflags or meta.get("CFLAGS", "/O2 /Gd")
     cflags_parts = cflags_str.split()
 
-    if va_str and size_val:
-        va_int = int(va_str, 16)
+    origin = meta.get("ORIGIN", "")
+    compile_cfg = cfg.for_origin(origin)
+
+    if va_str is not None and size_val is not None:
+        va_int = parse_va(va_str, json_mode=json_output)
         target_bytes = cfg.extract_dll_bytes(va_int, size_val)
     elif target_bin:
         target_bytes = Path(target_bin).read_bytes()
-        if size_val:
+        if size_val is not None:
             target_bytes = target_bytes[:size_val]
     else:
         if json_output:
-            print(
-                json.dumps(
-                    {"source": source, "status": "ERROR", "error": "No VA/SIZE or target_bin"},
-                    indent=2,
-                )
-            )
-            raise typer.Exit(code=1)
-        print(
-            "ERROR: Specify either target_bin or (VA and SIZE) via args or source metadata",
-            file=sys.stderr,
-        )
-        raise typer.Exit(code=1)
+            error_exit("No VA/SIZE or target_bin", json_mode=True)
+        error_exit("Specify either target_bin or (VA and SIZE) via args or source metadata")
 
-    workdir = tempfile.mkdtemp(prefix="test_func_")
-    try:
-        obj_path, err = compile_obj(cfg, source, cflags_parts, workdir)
+    with tempfile.TemporaryDirectory(prefix="test_func_") as workdir:
+        obj_path, err = compile_obj(compile_cfg, source, cflags_parts, workdir)
         if obj_path is None:
-            if json_output:
-                err_dict = {
-                    "source": source,
-                    "symbol": symbol,
-                    "va": va_str or "",
-                    "size": size_val or 0,
-                    "status": "COMPILE_ERROR",
-                    "error": err,
-                }
-                print(json.dumps(err_dict, indent=2))
-                raise typer.Exit(code=1)
-            print(f"COMPILE ERROR:\n{err}")
-            raise typer.Exit(code=1)
+            error_exit(f"COMPILE ERROR:\n{err}", json_mode=json_output)
 
-        obj_bytes, coff_relocs = parse_coff_symbol_bytes(obj_path, symbol)
+        obj_bytes, coff_relocs = parse_obj_symbol_bytes(obj_path, symbol)
         if obj_bytes is None:
             if json_output:
-                err_dict = {
-                    "source": source,
-                    "symbol": symbol,
-                    "va": va_str or "",
-                    "size": size_val or 0,
-                    "status": "ERROR",
-                    "error": f"Symbol '{symbol}' not found in .obj",
-                }
-                print(json.dumps(err_dict, indent=2))
-                raise typer.Exit(code=1)
+                error_exit(f"Symbol '{symbol}' not found in .obj", json_mode=True)
             print(f"Symbol '{symbol}' not found in .obj")
             available = list_obj_symbols(obj_path)
             if available:
@@ -303,8 +357,8 @@ def main(
         if len(obj_bytes) > len(target_bytes):
             obj_bytes = obj_bytes[: len(target_bytes)]
 
-        matched, match_count, total, relocs = smart_reloc_compare(
-            obj_bytes, target_bytes, coff_relocs
+        matched, match_count, total, relocs, inv_relocs = smart_reloc_compare(
+            obj_bytes, target_bytes, coff_relocs, name_to_va=name_to_va
         )
 
         if json_output:
@@ -319,8 +373,9 @@ def main(
                 relocs,
                 obj_bytes,
                 target_bytes,
+                inv_relocs,
             )
-            print(json.dumps(result_dict, indent=2))
+            json_print(result_dict)
         elif matched:
             if relocs:
                 print(f"RELOC-NORMALIZED MATCH: {total}/{total} bytes ({len(relocs)} relocations)")
@@ -336,9 +391,16 @@ def main(
                     for j in range(4):
                         if r + j < len(target_bytes):
                             reloc_set.add(r + j)
+                inv_reloc_set: set[int] = set()
+                for r in inv_relocs:
+                    for j in range(4):
+                        if r + j < len(target_bytes):
+                            inv_reloc_set.add(r + j)
                 diff: list[str] = []
                 for i in range(len(target_bytes)):
-                    if target_bytes[i] != obj_bytes[i] and i not in reloc_set:
+                    if (
+                        target_bytes[i] != obj_bytes[i] or i in inv_reloc_set
+                    ) and i not in reloc_set:
                         diff.append(
                             f"  [{i:3d}] target={target_bytes[i]:02x} got={obj_bytes[i]:02x}"
                         )
@@ -346,8 +408,6 @@ def main(
                     print("Diffs (non-reloc):")
                     for d in diff[:20]:
                         print(d)
-    finally:
-        shutil.rmtree(workdir, ignore_errors=True)
 
 
 def build_result_dict(
@@ -361,11 +421,38 @@ def build_result_dict(
     relocs: list[int],
     obj_bytes: bytes,
     target_bytes: bytes,
-) -> dict[str, Any]:
-    """Build a JSON-serializable result dict for a single function test."""
+    invalid_relocs: list[int] | None = None,
+) -> dict[str, object]:
+    """Build structured JSON output for one compile-and-compare result.
+
+    The resulting payload is stable and machine-friendly for downstream tools,
+    CI aggregation, and scripting. It includes a normalized status, aggregate
+    match counts, relocation metadata, object size, and byte-level mismatch
+    details (excluding relocation-masked offsets).
+
+    Args:
+        source: Source file path used for compilation.
+        symbol: COFF symbol name tested.
+        va_str: Function VA string (hex) used for extraction.
+        size_val: Target size requested for extraction/comparison.
+        matched: Whether the relocation-aware comparison fully matched.
+        match_count: Number of bytes considered matching.
+        total: Total bytes considered for score denominator.
+        relocs: Relocation start offsets (4-byte spans each).
+        obj_bytes: Compiled symbol bytes extracted from object output.
+        target_bytes: Ground-truth target bytes.
+
+    Returns:
+        JSON-serializable dictionary with status, metrics, and mismatches.
+    """
     status = ("RELOC" if relocs else "EXACT") if matched else "MISMATCH"
 
     mismatches: list[dict[str, str | int]] = []
+    invalid_relocs = invalid_relocs or []
+    inv_reloc_set = set()
+    for r in invalid_relocs:
+        for j in range(4):
+            inv_reloc_set.add(r + j)
     if not matched:
         min_len = min(len(obj_bytes), len(target_bytes))
         reloc_set: set[int] = set()
@@ -374,7 +461,7 @@ def build_result_dict(
                 if r + j < min_len:
                     reloc_set.add(r + j)
         for i in range(min_len):
-            if i not in reloc_set and obj_bytes[i] != target_bytes[i]:
+            if i not in reloc_set and (i in inv_reloc_set or obj_bytes[i] != target_bytes[i]):
                 mismatches.append(
                     {
                         "offset": i,
@@ -403,6 +490,7 @@ def _test_multi(
     annotations: list[Annotation],
     cflags_override: str | None,
     *,
+    name_to_va: dict[str, int] | None = None,
     json_output: bool = False,
 ) -> None:
     """Test all functions in a multi-function .c file.
@@ -414,21 +502,12 @@ def _test_multi(
     cflags_str = cflags_override or annotations[0].cflags or "/O2 /Gd"
     cflags_parts = cflags_str.split()
 
-    results_list: list[dict[str, Any]] = []
+    results_list: list[dict[str, object]] = []
 
-    workdir = tempfile.mkdtemp(prefix="test_multi_")
-    try:
+    with tempfile.TemporaryDirectory(prefix="test_multi_") as workdir:
         obj_path, err = compile_obj(cfg, source, cflags_parts, workdir)
         if obj_path is None:
-            if json_output:
-                print(
-                    json.dumps(
-                        {"source": source, "status": "COMPILE_ERROR", "error": err}, indent=2
-                    )
-                )
-                raise typer.Exit(code=1)
-            print(f"COMPILE ERROR:\n{err}")
-            raise typer.Exit(code=1)
+            error_exit(f"COMPILE ERROR:\n{err}", json_mode=json_output)
 
         for ann in annotations:
             sym = ann.symbol
@@ -463,7 +542,7 @@ def _test_multi(
                 continue
 
             target_bytes = cfg.extract_dll_bytes(ann.va, ann.size)
-            obj_bytes, coff_relocs = parse_coff_symbol_bytes(obj_path, sym)
+            obj_bytes, coff_relocs = parse_obj_symbol_bytes(obj_path, sym)
 
             if obj_bytes is None:
                 if json_output:
@@ -483,8 +562,8 @@ def _test_multi(
             if len(obj_bytes) > len(target_bytes):
                 obj_bytes = obj_bytes[: len(target_bytes)]
 
-            matched, match_count, total, relocs = smart_reloc_compare(
-                obj_bytes, target_bytes, coff_relocs
+            matched, match_count, total, relocs, inv_relocs = smart_reloc_compare(
+                obj_bytes, target_bytes, coff_relocs, name_to_va=name_to_va
             )
 
             if json_output:
@@ -500,6 +579,7 @@ def _test_multi(
                         relocs,
                         obj_bytes,
                         target_bytes,
+                        inv_relocs,
                     )
                 )
             elif matched:
@@ -513,12 +593,11 @@ def _test_multi(
                 rich.print(f"[red]MISMATCH[/red] {sym} — {match_count}/{total}B")
 
         if json_output:
-            print(json.dumps({"source": source, "results": results_list}, indent=2))
-    finally:
-        shutil.rmtree(workdir, ignore_errors=True)
+            json_print({"source": source, "results": results_list})
 
 
 def main_entry() -> None:
+    """Run the Typer CLI application."""
     app()
 
 

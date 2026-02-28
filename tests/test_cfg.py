@@ -25,7 +25,7 @@ binary = "original/Server/server.dll"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src/server.dll"
-function_list = "src/server.dll/r2_functions.txt"
+function_list = "src/server.dll/functions.txt"
 bin_dir = "bin/server.dll"
 origins = ["GAME", "ZLIB"]
 
@@ -45,7 +45,7 @@ MSVCRT = "/O1"
 
 
 def _make_project(tmp_path: Path, toml_content: str = SAMPLE_TOML) -> Path:
-    (tmp_path / "rebrew.toml").write_text(toml_content, encoding="utf-8")
+    (tmp_path / "rebrew-project.toml").write_text(toml_content, encoding="utf-8")
     return tmp_path
 
 
@@ -222,10 +222,24 @@ class TestCommentsPreserved:
         assert "# Per-target cflags" in text
 
 
+def _make_pe_stub(path: Path, machine: int = 0x14C) -> Path:
+    """Build a minimal PE file that LIEF recognises (MZ + PE signature)."""
+    import struct
+
+    buf = bytearray(256)
+    buf[0:2] = b"MZ"
+    struct.pack_into("<I", buf, 60, 128)  # e_lfanew
+    buf[128:132] = b"PE\x00\x00"
+    struct.pack_into("<H", buf, 132, machine)
+    struct.pack_into("<H", buf, 148, 96)  # SizeOfOptionalHeader
+    struct.pack_into("<H", buf, 152, 0x10B)  # PE32
+    path.write_bytes(bytes(buf))
+    return path
+
+
 class TestDetectFormat:
     def test_pe(self, tmp_path: Path) -> None:
-        f = tmp_path / "test.dll"
-        f.write_bytes(b"MZ" + b"\x00" * 100)
+        f = _make_pe_stub(tmp_path / "test.dll")
         assert _detect_format(f) == "pe"
 
     def test_elf(self, tmp_path: Path) -> None:
@@ -249,10 +263,6 @@ class TestDetectFormat:
     def test_unrecognized_format_warns(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """Unrecognized magic bytes should emit a warning to stderr and default to PE.
-
-        Regression test for Phase 1 fix: previously returned 'pe' silently.
-        """
         f = tmp_path / "test.bin"
         f.write_bytes(b"\x00\x00\x00\x00" + b"\x00" * 100)
         result = _detect_format(f)
@@ -264,10 +274,6 @@ class TestDetectFormat:
     def test_nonexistent_file_warns(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """Non-existent file should emit a warning to stderr and default to PE.
-
-        Regression test for Phase 1 fix: previously returned 'pe' silently.
-        """
         result = _detect_format(tmp_path / "nonexistent.dll")
         assert result == "pe"
         captured = capsys.readouterr()
@@ -276,20 +282,13 @@ class TestDetectFormat:
 
 
 class TestDetectFormatAndArch:
-    """Tests for _detect_format_and_arch, including ELF endianness handling.
-
-    Regression test for Phase 1 fix: ELF machine field was always parsed
-    as little-endian; now respects ei_data byte for big-endian ELFs.
-    """
-
     def test_elf_little_endian_x86(self, tmp_path: Path) -> None:
-        """Little-endian ELF with EM_386 (machine=3) should detect x86_32."""
         import struct
 
         header = bytearray(64)
         header[0:4] = b"\x7fELF"
         header[4] = 1  # ei_class = 32-bit
-        header[5] = 1  # ei_data = ELFDATA2LSB (little-endian)
+        header[5] = 1  # ei_data = ELFDATA2LSB
         struct.pack_into("<H", header, 18, 3)  # EM_386
         f = tmp_path / "le32.elf"
         f.write_bytes(bytes(header))
@@ -298,7 +297,6 @@ class TestDetectFormatAndArch:
         assert arch == "x86_32"
 
     def test_elf_little_endian_x86_64(self, tmp_path: Path) -> None:
-        """Little-endian ELF with EM_X86_64 (machine=62) should detect x86_64."""
         import struct
 
         header = bytearray(64)
@@ -312,19 +310,14 @@ class TestDetectFormatAndArch:
         assert fmt == "elf"
         assert arch == "x86_64"
 
-    def test_elf_big_endian_sparc(self, tmp_path: Path) -> None:
-        """Big-endian ELF should parse machine field with big-endian byte order.
-
-        Regression: previously always used little-endian, which would
-        mis-parse EM_SPARC (2) as 0x0200 on a big-endian ELF.
-        """
+    def test_elf_big_endian_arm32(self, tmp_path: Path) -> None:
         import struct
 
         header = bytearray(64)
         header[0:4] = b"\x7fELF"
         header[4] = 1  # ei_class = 32-bit
-        header[5] = 2  # ei_data = ELFDATA2MSB (big-endian)
-        struct.pack_into(">H", header, 18, 40)  # EM_ARM in big-endian
+        header[5] = 2  # ei_data = ELFDATA2MSB
+        struct.pack_into(">H", header, 18, 40)  # EM_ARM
         f = tmp_path / "be32.elf"
         f.write_bytes(bytes(header))
         fmt, arch = _detect_format_and_arch(f)
@@ -332,7 +325,6 @@ class TestDetectFormatAndArch:
         assert arch == "arm32"
 
     def test_elf_big_endian_aarch64(self, tmp_path: Path) -> None:
-        """Big-endian 64-bit ELF with EM_AARCH64 should detect arm64."""
         import struct
 
         header = bytearray(64)
@@ -346,27 +338,17 @@ class TestDetectFormatAndArch:
         assert fmt == "elf"
         assert arch == "arm64"
 
-    def test_elf_big_endian_would_fail_without_fix(self, tmp_path: Path) -> None:
-        """Verify that big-endian machine bytes differ from little-endian parse.
+    def test_pe_x86(self, tmp_path: Path) -> None:
+        f = _make_pe_stub(tmp_path / "test.exe", machine=0x14C)
+        fmt, arch = _detect_format_and_arch(f)
+        assert fmt == "pe"
+        assert arch == "x86_32"
 
-        This test proves the fix is necessary: EM_ARM (40 = 0x0028) stored
-        big-endian is bytes 00 28, which little-endian would read as 0x2800
-        (10240) — an unknown machine type that falls through to the class-based
-        fallback instead of detecting arm32.
-        """
-        import struct
-
-        header = bytearray(64)
-        header[0:4] = b"\x7fELF"
-        header[4] = 1  # 32-bit
-        header[5] = 2  # big-endian
-        struct.pack_into(">H", header, 18, 40)  # EM_ARM big-endian
-
-        # If we misread as little-endian, we'd get 0x2800 instead of 40
-        wrong_machine = struct.unpack_from("<H", header, 18)[0]
-        correct_machine = struct.unpack_from(">H", header, 18)[0]
-        assert wrong_machine == 0x2800  # wrong parse
-        assert correct_machine == 40  # correct parse (EM_ARM)
+    def test_pe_amd64(self, tmp_path: Path) -> None:
+        f = _make_pe_stub(tmp_path / "test.exe", machine=0x8664)
+        fmt, arch = _detect_format_and_arch(f)
+        assert fmt == "pe"
+        assert arch == "x86_64"
 
 
 # ---------------------------------------------------------------------------
@@ -389,7 +371,9 @@ class TestCLIListTargets:
         assert "server.dll" in result.output
 
     def test_list_targets_no_targets(self, tmp_path: Path, monkeypatch) -> None:
-        (tmp_path / "rebrew.toml").write_text("[compiler]\nprofile = 'msvc6'\n", encoding="utf-8")
+        (tmp_path / "rebrew-project.toml").write_text(
+            "[compiler]\nprofile = 'msvc6'\n", encoding="utf-8"
+        )
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["list-targets"])
         assert result.exit_code == 0

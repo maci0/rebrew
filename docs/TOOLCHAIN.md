@@ -37,19 +37,19 @@ Connected via ReVa MCP (Model Context Protocol). Rebrew uses the following MCP t
 | Call graph | `get-call-graph`, `get-call-tree` |
 | Vtable analysis | `analyze-vtable` |
 
-See [GHIDRA_SYNC.md](GHIDRA_SYNC.md) for the sync feature matrix and roadmap.
+See [GHIDRA_SYNC.md](GHIDRA_SYNC.md) for the sync feature matrix and known issues.
 
-### radare2
+### radare2 / rizin
 
-Used for function boundary detection and as an alternative analysis perspective.
+Used for decompilation backends (r2ghidra, r2dec) and as an alternative analysis
+perspective. Rebrew auto-detects whichever is installed (`rz` preferred over `r2`).
 
 **Data files consumed by rebrew:**
-- `r2_functions.txt` — Human-readable function list (VA, size, name)
-- `r2_functions.json` — Full r2 analysis output with metadata
+- `functions.txt` — Human-readable function list (VA, size, name) — tool-agnostic format
 - `ghidra_functions.json` — Ghidra function list (consumed by `rebrew skeleton`, `rebrew next`)
 
 **Known issues:**
-- r2 occasionally reports bogus sizes for some functions
+- r2/rz occasionally report bogus sizes for some functions
 - r2 names use `fcn.XXXXXXXX` and `sub.DLL_funcname` conventions
 
 ### IDA / Binary Ninja
@@ -107,11 +107,19 @@ yara /tmp/test.yar target.dll
 | Library | Use in Project |
 |---------|----------------|
 | **capstone** | x86 disassembly in matcher scoring |
+| **diskcache** | Persistent caching for GA compilation results (`matcher/core.py`) |
+| **jinja2** | Template rendering for skeleton generation (`skeleton.py`) |
 | **lief** | PE/ELF/Mach-O parsing — core dependency for `binary_loader.py`, `matcher/parsers.py`, `test.py` |
-| **pycparser** | C AST parser for AST-aware GA mutations |
 | **numpy** | Numeric computation |
-| **typer** | CLI framework with rich help |
+| **pycparser** | C AST parser for AST-aware GA mutations |
+| **python-flirt** | FLIRT signature matching for library identification (`flirt.py`) |
+| **pyyaml** | YAML parsing (for `reccmp-project.yml`) |
+| **reccmp** | Decomp project compatibility — annotation format, CSV export |
 | **rich** | Terminal formatting |
+| **tomlkit** | Comment-preserving TOML editing (`cfg.py`) |
+| **tree-sitter** | C source AST parsing for signature and struct extraction |
+| **tree-sitter-c** | Tree-sitter C language grammar (used with `tree-sitter`) |
+| **typer** | CLI framework with rich help |
 
 ### Available (not core)
 
@@ -119,7 +127,6 @@ yara /tmp/test.yar target.dll
 |---------|----------------|
 | **pyelftools** | ELF parsing (not needed for PE32) |
 | **matplotlib** | Plotting / visualization |
-| **pyyaml** | YAML parsing (for reccmp-project.yml) |
 
 ### Not Installed (could be added)
 

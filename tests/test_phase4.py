@@ -13,18 +13,18 @@ def test_scan_reversed_dir_importable_from_catalog() -> None:
     assert callable(scan_reversed_dir)
 
 
-def test_parse_r2_functions_importable_from_catalog() -> None:
-    """parse_r2_functions is importable from its canonical home."""
-    from rebrew.catalog import parse_r2_functions
+def test_parse_function_list_importable_from_catalog() -> None:
+    """parse_function_list is importable from its canonical home."""
+    from rebrew.catalog import parse_function_list
 
-    assert callable(parse_r2_functions)
+    assert callable(parse_function_list)
 
 
 def test_r2_bogus_vas_config_driven() -> None:
     """r2_bogus_vas are now config-driven, not hardcoded in catalog."""
     from rebrew.catalog import _DEFAULT_R2_BOGUS_SIZES
 
-    # Default is empty — projects set their own via rebrew.toml
+    # Default is empty — projects set their own via rebrew-project.toml
     assert isinstance(_DEFAULT_R2_BOGUS_SIZES, set)
     assert len(_DEFAULT_R2_BOGUS_SIZES) == 0
 
@@ -41,26 +41,26 @@ def test_scan_reversed_dir_reexported_from_verify() -> None:
     assert callable(scan_reversed_dir)
 
 
-def test_parse_r2_functions_reexported_from_verify() -> None:
-    """parse_r2_functions is still importable from verify."""
-    from rebrew.verify import parse_r2_functions
+def test_parse_function_list_reexported_from_verify() -> None:
+    """parse_function_list is still importable from verify."""
+    from rebrew.verify import parse_function_list
 
-    assert callable(parse_r2_functions)
+    assert callable(parse_function_list)
 
 
 def test_r2_bogus_vas_via_config() -> None:
     """verify uses cfg.r2_bogus_vas instead of module-level constant."""
     from pathlib import Path
 
-    from rebrew.catalog import build_function_registry, make_r2_func
+    from rebrew.catalog import build_function_registry, make_func_entry
     from rebrew.config import ProjectConfig
 
     bogus_va = 0xBEEF0000
     cfg = ProjectConfig(root=Path("/tmp"), iat_thunks=[], dll_exports={}, r2_bogus_vas=[bogus_va])
-    r2_funcs = [make_r2_func(bogus_va, 12345, "_bogus")]
-    reg = build_function_registry(r2_funcs, cfg)
+    funcs = [make_func_entry(bogus_va, 12345, "_bogus")]
+    reg = build_function_registry(funcs, cfg)
     assert bogus_va in reg
-    assert "r2" not in reg[bogus_va]["size_by_tool"]
+    assert "list" not in reg[bogus_va]["size_by_tool"]
 
 
 # ---------------------------------------------------------------------------
@@ -76,10 +76,10 @@ def test_scan_reversed_dir_is_same_object() -> None:
     assert cat_fn is ver_fn
 
 
-def test_parse_r2_functions_is_same_object() -> None:
-    """catalog.parse_r2_functions is verify.parse_r2_functions."""
-    from rebrew.catalog import parse_r2_functions as cat_fn
-    from rebrew.verify import parse_r2_functions as ver_fn
+def test_parse_function_list_is_same_object() -> None:
+    """catalog.parse_function_list is verify.parse_function_list."""
+    from rebrew.catalog import parse_function_list as cat_fn
+    from rebrew.verify import parse_function_list as ver_fn
 
     assert cat_fn is ver_fn
 
@@ -103,50 +103,50 @@ def test_no_private_normalize_aliases() -> None:
 
 
 def test_init_template_has_project_section() -> None:
-    """The generated rebrew.toml template includes a [project] section."""
+    """The generated rebrew-project.toml template includes a [project] section."""
     from rebrew.init import DEFAULT_REBREW_TOML
 
     assert "[project]" in DEFAULT_REBREW_TOML
 
 
 def test_init_template_has_base_cflags() -> None:
-    """The generated rebrew.toml template includes base_cflags."""
+    """The generated rebrew-project.toml template includes base_cflags."""
     from rebrew.init import DEFAULT_REBREW_TOML
 
     assert "base_cflags" in DEFAULT_REBREW_TOML
 
 
 def test_init_template_has_timeout() -> None:
-    """The generated rebrew.toml template includes compile timeout."""
+    """The generated rebrew-project.toml template includes compile timeout."""
     from rebrew.init import DEFAULT_REBREW_TOML
 
     assert "timeout" in DEFAULT_REBREW_TOML
 
 
 def test_init_template_has_ignored_symbols() -> None:
-    """The generated rebrew.toml template includes ignored_symbols."""
+    """The generated rebrew-project.toml template includes ignored_symbols."""
     from rebrew.init import DEFAULT_REBREW_TOML
 
     assert "ignored_symbols" in DEFAULT_REBREW_TOML
 
 
 def test_init_template_has_jobs() -> None:
-    """The generated rebrew.toml template includes jobs."""
+    """The generated rebrew-project.toml template includes jobs."""
     from rebrew.init import DEFAULT_REBREW_TOML
 
     assert "jobs" in DEFAULT_REBREW_TOML
 
 
 # ---------------------------------------------------------------------------
-# 6. parse_r2_functions works correctly (functional test)
+# 6. parse_function_list works correctly (functional test)
 # ---------------------------------------------------------------------------
 
 
-def test_parse_r2_functions_parses_correctly(tmp_path) -> None:
-    """parse_r2_functions correctly parses a function list file."""
-    from rebrew.catalog import parse_r2_functions
+def test_parse_function_list_parses_correctly(tmp_path) -> None:
+    """parse_function_list correctly parses a function list file."""
+    from rebrew.catalog import parse_function_list
 
-    func_list = tmp_path / "r2_functions.txt"
+    func_list = tmp_path / "functions.txt"
     func_list.write_text(
         "0x10001000 64 _my_func\n"
         "0x10002000 128 _other_func\n"
@@ -155,13 +155,13 @@ def test_parse_r2_functions_parses_correctly(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    funcs = parse_r2_functions(func_list)
+    funcs = parse_function_list(func_list)
     assert len(funcs) == 3
     assert funcs[0]["va"] == 0x10001000
     assert funcs[0]["size"] == 64
-    assert funcs[0]["r2_name"] == "_my_func"
+    assert funcs[0]["name"] == "_my_func"
     assert funcs[1]["va"] == 0x10002000
-    assert funcs[2]["r2_name"] == "_third_func"
+    assert funcs[2]["name"] == "_third_func"
 
 
 # ---------------------------------------------------------------------------

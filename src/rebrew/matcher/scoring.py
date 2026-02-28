@@ -6,17 +6,31 @@ Uses capstone for x86 disassembly and numpy for vectorized byte comparison.
 """
 
 import difflib
-from typing import Any
 
 import capstone
 import numpy as np
 
-from .core import Score
+from .core import Score, StructuralSimilarity
 
 # Default architecture (x86-32).  Functions accept optional arch/mode
 # parameters so callers can override without circular config imports.
 _DEFAULT_CS_ARCH = capstone.CS_ARCH_X86
 _DEFAULT_CS_MODE = capstone.CS_MODE_32
+
+
+def _normalize_with_reloc_offsets(
+    code: bytes, reloc_offsets: dict[int, str] | list[int] | None
+) -> bytes:
+    """Zero relocation slots described by explicit relocation offsets."""
+    if reloc_offsets is None:
+        return code
+    out = bytearray(code)
+    for ro in reloc_offsets:
+        for j in range(4):
+            idx = ro + j
+            if 0 <= idx < len(out):
+                out[idx] = 0
+    return bytes(out)
 
 
 def _normalize_reloc_x86_32(
@@ -206,12 +220,13 @@ def diff_functions(
     target_bytes: bytes,
     candidate_bytes: bytes,
     reloc_offsets: dict[int, str] | list[int] | None = None,
+    invalid_relocs: list[int] | None = None,
     mismatches_only: bool = False,
     register_aware: bool = False,
     as_dict: bool = False,
     cs_arch: int = _DEFAULT_CS_ARCH,
     cs_mode: int = _DEFAULT_CS_MODE,
-) -> dict[str, Any] | None:
+) -> dict[str, object] | None:
     """Print a side-by-side diff of target and candidate disassembly.
 
     Args:
@@ -229,8 +244,12 @@ def diff_functions(
     target_insns = list(md.disasm(target_bytes, 0))
     cand_insns = list(md.disasm(candidate_bytes, 0))
 
-    norm_target = _normalize_reloc_x86_32(target_bytes, cs_arch, cs_mode)
-    norm_cand = _normalize_reloc_x86_32(candidate_bytes, cs_arch, cs_mode)
+    if reloc_offsets is not None:
+        norm_target = _normalize_with_reloc_offsets(target_bytes, reloc_offsets)
+        norm_cand = _normalize_with_reloc_offsets(candidate_bytes, reloc_offsets)
+    else:
+        norm_target = _normalize_reloc_x86_32(target_bytes, cs_arch, cs_mode)
+        norm_cand = _normalize_reloc_x86_32(candidate_bytes, cs_arch, cs_mode)
     reg_norm_target = (
         _mask_registers_x86_32(norm_target, cs_arch, cs_mode) if register_aware else None
     )
@@ -239,9 +258,10 @@ def diff_functions(
     # Build rows with match markers.  When as_dict is True we collect
     # structured dicts and simple counters instead of formatted lines.
     rows: list[tuple[str, str]] = []  # (match_char, formatted_line) — print mode only
-    insn_data: list[dict[str, Any]] = []  # populated only when as_dict=True
+    insn_data: list[dict[str, object]] = []  # populated only when as_dict=True
     exact_count = 0
     reloc_count = 0
+    invalid_reloc_count = 0
     reg_count = 0
     mismatch_count = 0
     max_insns = max(len(target_insns), len(cand_insns))
@@ -275,7 +295,15 @@ def diff_functions(
                     t_norm = norm_target[ti.address : ti.address + ti.size]
                     c_norm = norm_cand[ci.address : ci.address + ci.size]
                     if t_norm == c_norm and t_norm:
-                        match_char = "~~"
+                        # Check if any byte in this instruction is an invalid reloc
+                        is_invalid = False
+                        if invalid_relocs:
+                            for offset in invalid_relocs:
+                                # A reloc spans 4 bytes, so check if any part of it overlaps with this instruction
+                                if max(ti.address, offset) < min(ti.address + ti.size, offset + 4):
+                                    is_invalid = True
+                                    break
+                        match_char = "XX" if is_invalid else "~~"
                     elif (
                         register_aware and reg_norm_target is not None and reg_norm_cand is not None
                     ):
@@ -294,6 +322,9 @@ def diff_functions(
             exact_count += 1
         elif match_char == "~~":
             reloc_count += 1
+        elif match_char == "XX":
+            invalid_reloc_count += 1
+            mismatch_count += 1
         elif match_char == "RR":
             reg_count += 1
         elif match_char == "**":
@@ -354,7 +385,61 @@ def diff_functions(
     print(
         f"Summary: {mismatch_count} structural diff(s), "
         f"{reg_count} register diff(s), "
-        f"{reloc_count} reloc diff(s), "
+        f"{reloc_count} reloc diff(s), {invalid_reloc_count} invalid reloc(s), "
         f"{exact_count} exact match(es)"
     )
     return None
+
+
+def structural_similarity(
+    target_bytes: bytes,
+    candidate_bytes: bytes,
+    reloc_offsets: dict[int, str] | list[int] | None = None,
+    cs_arch: int = _DEFAULT_CS_ARCH,
+    cs_mode: int = _DEFAULT_CS_MODE,
+) -> StructuralSimilarity:
+    """Compute structural similarity to distinguish flag-fixable vs structural diffs."""
+    summary = diff_functions(
+        target_bytes,
+        candidate_bytes,
+        reloc_offsets,
+        register_aware=True,
+        as_dict=True,
+        cs_arch=cs_arch,
+        cs_mode=cs_mode,
+    )
+    assert summary is not None
+
+    s = summary["summary"]
+    total = s["total"]
+    exact = s["exact"]
+    reloc = s["reloc"]
+    reg = s["reg"]
+    structural = s["structural"]
+
+    md = capstone.Cs(cs_arch, cs_mode)
+    target_mnems = [i.mnemonic for i in md.disasm(target_bytes, 0)]
+    cand_mnems = [i.mnemonic for i in md.disasm(candidate_bytes, 0)]
+    sm = difflib.SequenceMatcher(None, target_mnems, cand_mnems)
+    mnemonic_ratio = sm.ratio()
+
+    structural_ratio = structural / total if total > 0 else 0.0
+
+    # Flag-sensitive heuristic: Why do we care about flag sensitivity?
+    # We want to avoid running a full 20-minute GA flag sweep if the issue is a
+    # genuine source code structural mismatch (like a missing 'if' statement).
+    # If the only differences are register allocation choices (RR), flags won't help.
+    # If the code is wildly different (low mnemonic ratio), flags won't help.
+    # We only run sweeps when the structure is close, but has small fixable differences.
+    flag_sensitive = structural > 0 and structural_ratio < 0.5 and mnemonic_ratio < 0.98
+
+    return StructuralSimilarity(
+        total_insns=total,
+        exact=exact,
+        reloc_only=reloc,
+        register_only=reg,
+        structural=structural,
+        mnemonic_match_ratio=round(mnemonic_ratio, 4),
+        structural_ratio=round(structural_ratio, 4),
+        flag_sensitive=flag_sensitive,
+    )

@@ -10,7 +10,6 @@ Extracted from skeleton.py and next.py to eliminate circular dependencies.
 import bisect
 import re
 from pathlib import Path
-from typing import Any
 
 import capstone
 
@@ -18,8 +17,8 @@ from rebrew.annotation import _DEFAULT_ORIGIN_PREFIXES, parse_c_file_multi
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va
 from rebrew.config import ProjectConfig
 
-# 7-tuple: (difficulty, size, va, name, origin, reason, neighbor_file)
-UncoveredItem = tuple[int, int, int, str, str, str, str | None]
+# 8-tuple: (difficulty, size, va, name, origin, reason, neighbor_file, similarity)
+UncoveredItem = tuple[int, int, int, str, str, str, str | None, float]
 
 # ---------------------------------------------------------------------------
 # Unmatchable function detection
@@ -105,7 +104,7 @@ def detect_unmatchable(
 def ignored_symbols(cfg: ProjectConfig) -> set[str]:
     """Return the set of symbols to skip (ASM builtins, etc.).
 
-    Reads from ``cfg.ignored_symbols`` (populated from ``rebrew.toml``).
+    Reads from ``cfg.ignored_symbols`` (populated from ``rebrew-project.toml``).
     """
     syms = cfg.ignored_symbols
     return set(syms) if syms else set()
@@ -212,7 +211,7 @@ def estimate_difficulty(
 
 def load_data(
     cfg: ProjectConfig,
-) -> tuple[list[dict[str, Any]], dict[int, dict[str, str]], dict[int, str]]:
+) -> tuple[list[dict[str, object]], dict[int, dict[str, str]], dict[int, str]]:
     """Load all project data.
 
     Returns (ghidra_funcs, existing, covered_vas) where:
@@ -234,7 +233,7 @@ def load_data(
     existing: dict[int, dict[str, str]] = {}
     covered_vas: dict[int, str] = {}
     for cfile in iter_sources(src_dir, cfg):
-        entries = parse_c_file_multi(cfile)
+        entries = parse_c_file_multi(cfile, target_name=cfg.marker if cfg else None)
         rel_name = rel_display_path(cfile, src_dir)
         for entry in entries:
             if entry.marker_type in ("GLOBAL", "DATA"):
@@ -329,8 +328,10 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
     existing: dict[int, str] = {}
     for cfile in iter_sources(src_path, cfg):
         rel_name = rel_display_path(cfile, src_path)
-        entries = parse_c_file_multi(cfile)
+        entries = parse_c_file_multi(cfile, target_name=cfg.marker if cfg else None)
         for entry in entries:
+            if entry.marker_type in ("GLOBAL", "DATA"):
+                continue
             existing[entry.va] = rel_name
     return existing
 

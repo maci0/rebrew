@@ -1,8 +1,10 @@
 """Tests for rebrew.compile — resolve_cl_command and compile_and_compare helpers."""
 
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
 
-from rebrew.compile import resolve_cl_command
+from rebrew.compile import compile_to_obj, filter_wine_stderr, resolve_cl_command
 from rebrew.config import ProjectConfig
 
 # ---------------------------------------------------------------------------
@@ -79,6 +81,14 @@ class TestResolveClCommand:
         assert isinstance(result, list)
         assert all(isinstance(x, str) for x in result)
 
+    def test_keeps_extra_tokens_after_compiler(self, tmp_path: Path) -> None:
+        cfg = ProjectConfig(
+            root=tmp_path,
+            compiler_command="wine tools/CL.EXE --wrapper-arg",
+        )
+        result = resolve_cl_command(cfg)
+        assert result == ["wine", str(tmp_path / "tools/CL.EXE"), "--wrapper-arg"]
+
 
 # ---------------------------------------------------------------------------
 # compile_and_compare — unit-level logic tests (no real compiler)
@@ -142,3 +152,75 @@ class TestCompileAndCompareEdgeCases:
         target = b"\x55\x8b\xec\xc3"
         candidate = b"\x55\x8b\xec"
         assert len(candidate) != len(target)
+
+
+class TestCompileToObj:
+    def test_returns_copy_error_when_source_copy_fails(self, tmp_path: Path, monkeypatch) -> None:
+        def _boom(*_args: object, **_kwargs: object) -> None:
+            raise PermissionError("no write access")
+
+        monkeypatch.setattr("rebrew.compile.shutil.copy2", _boom)
+        cfg: Any = SimpleNamespace(
+            compiler_includes=tmp_path,
+            base_cflags="/nologo",
+            compile_timeout=3,
+            msvc_env=lambda: {},
+            compiler_command="CL.EXE",
+            root=tmp_path,
+        )
+        source = tmp_path / "f.c"
+        source.write_text("int f(void){return 1;}\n", encoding="utf-8")
+
+        obj_path, err = compile_to_obj(cast(ProjectConfig, cfg), source, ["/O2"], tmp_path)
+        assert obj_path is None
+        assert "Failed to copy source into workdir" in err
+
+    def test_base_cflags_uses_shlex_split(self, tmp_path: Path, monkeypatch) -> None:
+        captured: dict[str, list[str]] = {}
+
+        def _fake_run(cmd: list[str], **_kwargs: object) -> SimpleNamespace:
+            captured["cmd"] = cmd
+            (tmp_path / "work" / "f.obj").write_bytes(b"\x00")
+            return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+
+        monkeypatch.setattr("rebrew.compile.subprocess.run", _fake_run)
+        monkeypatch.setattr("rebrew.compile.resolve_cl_command", lambda _cfg: ["CL.EXE"])
+
+        cfg: Any = SimpleNamespace(
+            compiler_includes=tmp_path,
+            base_cflags='/FI"my forced.h" /nologo',
+            compile_timeout=3,
+            msvc_env=lambda: {},
+        )
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        source = src_dir / "f.c"
+        source.write_text("int f(void){return 1;}\n", encoding="utf-8")
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+
+        obj_path, err = compile_to_obj(cast(ProjectConfig, cfg), source, ["/O2"], workdir)
+        assert err == ""
+        assert obj_path is not None
+        assert "/FImy forced.h" in captured["cmd"]
+
+
+class TestFilterWineStderr:
+    def test_filter_strips_wine_err(self) -> None:
+        text = "wine: created the configuration directory\n1234:err:module:foo boom\n"
+        assert filter_wine_stderr(text) == ""
+
+    def test_filter_strips_fontconfig(self) -> None:
+        text = "Fontconfig warning: line 5\n"
+        assert filter_wine_stderr(text) == ""
+
+    def test_filter_keeps_compiler_errors(self) -> None:
+        text = "foo.c(7) : error C2143: syntax error : missing ';' before '}'\n"
+        assert "C2143" in filter_wine_stderr(text)
+
+    def test_filter_empty_input(self) -> None:
+        assert filter_wine_stderr("") == ""
+
+    def test_filter_no_noise(self) -> None:
+        text = "CL : Command line warning D9002 : ignoring unknown option '/bad'"
+        assert filter_wine_stderr(text) == text

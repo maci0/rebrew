@@ -258,7 +258,7 @@ class TestSmartRelocCompare:
 
     def test_identical_bytes(self) -> None:
         data = b"\x55\x8b\xec\x83\xec\x10"
-        match, count, maxlen, relocs = smart_reloc_compare(data, data)
+        match, count, maxlen, relocs, _ = smart_reloc_compare(data, data)
         assert match is True
         assert count == len(data)
         assert maxlen == len(data)
@@ -267,7 +267,7 @@ class TestSmartRelocCompare:
     def test_different_bytes_no_reloc(self) -> None:
         obj = b"\x55\x8b\xec\x83\xec\x10"
         tgt = b"\x55\x8b\xec\x83\xec\x20"
-        match, count, maxlen, mismatches = smart_reloc_compare(obj, tgt)
+        match, count, maxlen, mismatches, _ = smart_reloc_compare(obj, tgt)
         assert match is False
         assert count == 5  # 5 matching, 1 mismatch
 
@@ -275,7 +275,7 @@ class TestSmartRelocCompare:
         """Fallback: 4-byte zero span in obj that differs in target → reloc."""
         obj = b"\x55\x00\x00\x00\x00\xc3"
         tgt = b"\x55\x78\x56\x34\x12\xc3"
-        match, count, maxlen, relocs = smart_reloc_compare(obj, tgt)
+        match, count, maxlen, relocs, _ = smart_reloc_compare(obj, tgt)
         assert match is True  # relocs mask the difference
         assert len(relocs) == 1
         assert relocs[0] == 1
@@ -284,14 +284,14 @@ class TestSmartRelocCompare:
         """When COFF relocs are provided, use them instead of zero-span."""
         obj = b"\xe8\xab\xcd\xef\x01\xc3"
         tgt = b"\xe8\x12\x34\x56\x78\xc3"
-        match, count, maxlen, relocs = smart_reloc_compare(obj, tgt, coff_relocs=[1])
+        match, count, maxlen, relocs, _ = smart_reloc_compare(obj, tgt, coff_relocs=[1])
         assert match is True
         assert 1 in relocs
 
     def test_length_mismatch(self) -> None:
         obj = b"\x55\x8b\xec"
         tgt = b"\x55\x8b\xec\x83"
-        match, count, maxlen, _ = smart_reloc_compare(obj, tgt)
+        match, count, maxlen, _, _ = smart_reloc_compare(obj, tgt)
         assert match is False  # different lengths
         assert maxlen == 4
 
@@ -299,7 +299,7 @@ class TestSmartRelocCompare:
         """COFF relocs past the shorter buffer should be filtered out."""
         obj = b"\x55\x8b"
         tgt = b"\x55\x8b\xec\x83"
-        _, _, _, relocs = smart_reloc_compare(obj, tgt, coff_relocs=[10])
+        _, _, _, relocs, _ = smart_reloc_compare(obj, tgt, coff_relocs=[10])
         assert relocs == []
 
 

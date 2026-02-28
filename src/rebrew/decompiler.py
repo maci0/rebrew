@@ -1,8 +1,11 @@
 """decompiler.py - Pluggable decompiler backend for skeleton generation.
 
 Provides a unified interface to fetch pseudo-C decompilation from multiple
-backends (r2ghidra, r2dec, Ghidra headless). Used by rebrew skeleton when
-the ``--decomp`` flag is set.
+backends (r2ghidra/rz-ghidra, r2dec/rz-dec, Ghidra headless).  Used by
+rebrew skeleton when the ``--decomp`` flag is set.
+
+Both radare2 (``r2``) and rizin (``rz``) are supported transparently —
+the first one found on PATH is used.
 
 Usage (internal)::
 
@@ -42,11 +45,30 @@ def _clean_output(text: str) -> str | None:
     return "\n".join(lines) if lines else None
 
 
-def _run_r2(binary: Path, va: int, cmd: str, root: Path) -> str | None:
-    """Run an r2 command and return cleaned output."""
+def _find_re_tool() -> str | None:
+    """Return the radare2/rizin binary name available on PATH.
+
+    Prefers rizin (``rz``) over radare2 (``r2``).  Returns ``None`` if
+    neither is installed.
+    """
+    if shutil.which("rz"):
+        return "rz"
+    if shutil.which("r2"):
+        return "r2"
+    return None
+
+
+def _run_re(binary: Path, va: int, cmd: str, root: Path) -> str | None:
+    """Run a radare2/rizin command and return cleaned output.
+
+    Automatically detects whether ``rz`` or ``r2`` is on PATH.
+    """
+    tool = _find_re_tool()
+    if tool is None:
+        return None
     try:
         result = subprocess.run(
-            ["r2", "-q", "-c", f"aaa; s 0x{va:08x}; af; {cmd}", str(binary)],
+            [tool, "-q", "-c", f"aaa; s 0x{va:08x}; af; {cmd}", str(binary)],
             capture_output=True,
             text=True,
             cwd=root,
@@ -60,27 +82,25 @@ def _run_r2(binary: Path, va: int, cmd: str, root: Path) -> str | None:
 
 
 def fetch_r2ghidra(binary: Path, va: int, root: Path) -> str | None:
-    """Fetch decompilation using r2ghidra (``pdg`` command).
+    """Fetch decompilation using the ghidra decompiler plugin (``pdg``).
 
-    Requires: ``r2`` on PATH with the r2ghidra plugin installed.
+    Works with both r2ghidra (radare2) and rz-ghidra (rizin).
+    Requires ``r2`` or ``rz`` on PATH with the ghidra plugin installed.
     """
-    if not shutil.which("r2"):
-        return None
     if not binary.exists():
         return None
-    return _run_r2(binary, va, "pdg", root)
+    return _run_re(binary, va, "pdg", root)
 
 
 def fetch_r2dec(binary: Path, va: int, root: Path) -> str | None:
-    """Fetch decompilation using r2dec (``pdd`` command).
+    """Fetch decompilation using the jsdec plugin (``pdd``).
 
-    Requires: ``r2`` on PATH with r2dec plugin (often bundled by default).
+    Works with both r2dec (radare2) and rz-dec (rizin).
+    Requires ``r2`` or ``rz`` on PATH with the jsdec/dec plugin installed.
     """
-    if not shutil.which("r2"):
-        return None
     if not binary.exists():
         return None
-    return _run_r2(binary, va, "pdd", root)
+    return _run_re(binary, va, "pdd", root)
 
 
 def fetch_ghidra(binary: Path, va: int, root: Path) -> str | None:

@@ -36,6 +36,7 @@ ghidra = [
 
 [project.scripts]
 rebrew = "rebrew.main:main"
+rebrew-rename = "rebrew.rename:main_entry"
 rebrew-test = "rebrew.test:main_entry"
 rebrew-verify = "rebrew.verify:main_entry"
 rebrew-next = "rebrew.next:main_entry"
@@ -58,6 +59,7 @@ rebrew-data = "rebrew.data:main_entry"
 rebrew-graph = "rebrew.depgraph:main_entry"
 rebrew-promote = "rebrew.promote:main_entry"
 rebrew-triage = "rebrew.triage:main_entry"
+rebrew-doctor = "rebrew.doctor:main_entry"
 
 [tool.setuptools.package-data]
 rebrew = ["agent-skills/**/*.md"]
