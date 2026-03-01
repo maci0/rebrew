@@ -17,6 +17,8 @@ rebrew next --json                      # find easiest functions to tackle (sort
 rebrew next --stats --json              # matching progress
 rebrew next --improving --json          # MATCHING functions sorted by byte delta (closest first)
 rebrew flirt --json                     # FLIRT scan: identify known library functions (fast wins)
+rebrew crt-match --all --origin MSVCRT --json # find matching CRT source files for library-origin functions
+rebrew next --stats --json              # matching progress
 ```
 
 Without `--json`, these produce rich terminal tables for human review.

@@ -56,6 +56,9 @@ uv run ruff format .
 
 # Scan DLL against FLIRT signatures
 rebrew flirt flirt_sigs/
+
+# Match against CRT source
+rebrew crt-match --all --origin MSVCRT
 ```
 
 ## JSON Output for Automation
@@ -94,6 +97,7 @@ rebrew asm 0x10003da0 --size 160 --json | jq '.instructions[] | .mnemonic'
 | `rebrew lint` | Lint results |
 | `rebrew flirt` | FLIRT scan results |
 | `rebrew status` | Status overview |
+| `rebrew crt-match` | CRT source matching results |
 | `rebrew data` | Data scan results |
 | `rebrew promote` | Promotion results |
 | `rebrew triage` | Triage report |
@@ -183,6 +187,12 @@ rebrew asm --va 0x<VA> --size <SIZE>
 Or you can try to automatically identify it against known FLIRT signatures (**experimental**):
 ```bash
 rebrew flirt [path_to_sig_directory]
+```
+
+For library-origin functions (MSVCRT, ZLIB), use `rebrew crt-match` to find the reference source file:
+```bash
+rebrew crt-match 0x<VA>
+rebrew crt-match --all --origin MSVCRT --fix-source  # auto-annotate all MSVCRT functions
 ```
 
 ### 4. Write C89 source
@@ -519,6 +529,6 @@ both targets benefit automatically.
 | [ANNOTATIONS.md](ANNOTATIONS.md) | Full annotation format reference and linter codes (E000–E017, W001–W017) |
 | [GHIDRA_SYNC.md](GHIDRA_SYNC.md) | Ghidra ↔ Rebrew sync feature matrix and known issues |
 | [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md) | Obtaining, creating, and using FLIRT signatures |
-| [CLI.md](CLI.md) | All 26 CLI tools, flags, and examples |
+| [CLI.md](CLI.md) | All 27 CLI tools, flags, and examples |
 | [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, arch presets, compiler profiles |
 | [TOOLCHAIN.md](TOOLCHAIN.md) | External tools, MSVC6 toolchain, Python dependencies |

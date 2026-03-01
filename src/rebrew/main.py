@@ -64,6 +64,7 @@ _COMMAND_PANELS: dict[str, str] = {
     "data": "Analysis",
     "graph": "Analysis",
     "flirt": "Analysis",
+    "crt-match": "Analysis",
     # Matching — solving byte-level differences
     "match": "Matching",
     "ga": "Matching",
@@ -101,6 +102,7 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("graph", "rebrew.depgraph", "Function dependency graph visualization."),
     ("promote", "rebrew.promote", "Test + atomically update STATUS annotation."),
     ("triage", "rebrew.triage", "Cold-start triage: FLIRT scan + coverage summary."),
+    ("crt-match", "rebrew.crt_match", "CRT source cross-reference matcher."),
     ("flirt", "rebrew.flirt", "FLIRT signature scanning."),
     ("nasm", "rebrew.nasm", "NASM assembly extraction."),
     ("doctor", "rebrew.doctor", "Diagnostic checks for project health."),

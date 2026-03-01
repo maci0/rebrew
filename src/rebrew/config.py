@@ -139,6 +139,7 @@ class ProjectConfig:
         default_factory=dict
     )  # Origin → skeleton preamble comment
     origin_todos: dict[str, str] = field(default_factory=dict)  # Origin → TODO text for skeleton
+    crt_sources: dict[str, str] = field(default_factory=dict)
     source_ext: str = ".c"  # Source file extension (e.g. ".c", ".cpp")
     ghidra_program_path: str = ""
 
@@ -446,6 +447,7 @@ def load_config(
         "library_origins",
         "origin_comments",
         "origin_todos",
+        "crt_sources",
         "source_ext",
         "ghidra_program_path",
     }
@@ -689,6 +691,7 @@ def load_config(
         library_origins=set(_parse_str_list(tgt.get("library_origins", []), "library_origins")),
         origin_comments=tgt.get("origin_comments", {}),
         origin_todos=tgt.get("origin_todos", {}),
+        crt_sources=tgt.get("crt_sources", {}),
         source_ext=tgt.get("source_ext", ".c"),
         ghidra_program_path=tgt.get("ghidra_program_path", ""),
         # all targets

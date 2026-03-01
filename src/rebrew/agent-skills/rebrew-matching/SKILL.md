@@ -153,5 +153,6 @@ the sweep finds an exact match (score < 0.1).
 ## Tips
 
 - Always start with `--diff-only` before running the GA.
+- For library-origin functions (MSVCRT, ZLIB), use `rebrew crt-match` to identify the reference source file before starting the matching process.
 - Flag sweep is fast and often sufficient without the GA.
 - Common CFLAGS presets: `/O2 /Gd` (GAME), `/O1 /Gd` (MSVCRT).

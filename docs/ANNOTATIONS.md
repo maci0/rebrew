@@ -98,7 +98,7 @@ Format: `// MARKER: MODULE 0xVA`
 | `SIZE` | **Mandatory** | E007, E008 | Function size in bytes from the original binary |
 | `CFLAGS` | **Mandatory** | E009 | Compiler flags to reproduce original compilation (e.g. `/O2 /Gd`) |
 | `SYMBOL` | **Recommended** | W001 | Decorated symbol name (e.g. `_bit_reverse`). Used by verifier to locate function in `.obj` |
-| `SOURCE` | Conditional | W006 | **Required for library origins** — reference file (e.g. `SBHEAP.C:195`, `deflate.c`) |
+| `SOURCE` | Conditional | W006 | **Required for library origins** — reference file (e.g. `SBHEAP.C:195`, `deflate.c`). Use `rebrew crt-match --fix-source` to auto-populate. |
 | `BLOCKER` | Conditional | W005 | **Required for STUB** — explain why the function doesn't match yet |
 | `NOTE` | Optional | — | Freeform notes (e.g. `NOTE: uses SSE2 intrinsics`) |
 | `GHIDRA` | Optional | — | The Ghidra name, added by `rebrew sync --pull --accept-local` to prevent conflict loops |

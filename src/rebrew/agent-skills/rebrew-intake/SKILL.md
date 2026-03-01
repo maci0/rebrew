@@ -49,6 +49,8 @@ library code from game code:
 
 ```bash
 rebrew flirt --json                     # scan binary against FLIRT signatures
+rebrew crt-match --index --json         # verify CRT source directories are configured
+rebrew crt-match --all --fix-source --json # auto-annotate SOURCE references for library functions
 ```
 
 Library matches are fast wins — they can be skeletonized and matched quickly

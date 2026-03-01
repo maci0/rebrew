@@ -46,6 +46,7 @@ libs = "tools/MSVC600/VC98/Lib"
 | `capstone_arch` / `capstone_mode` | Derived from `arch` | Capstone disassembly constants |
 | `padding_bytes` | Derived from `arch` | `(0xCC, 0x90)` for x86 |
 | `symbol_prefix` | Derived from compiler profile | `_` for MSVC, empty for GCC |
+| `crt_sources` | `[targets.<name>].crt_sources` | Maps origin names to reference source directories for CRT cross-matching |
 | `compiler_profile` | `[compiler].profile` | Drives flag sweep axes |
 | `compiler_includes` | `[compiler].includes` | Resolved path to include dir |
 
@@ -279,7 +280,7 @@ For a full toolchain health check, run `rebrew doctor`.
 
 ## Which Tools Use What Config
 
-All 26 tools read from `rebrew-project.toml`. Each uses `try/except` with hardcoded fallbacks:
+All 27 tools read from `rebrew-project.toml`. Each uses `try/except` with hardcoded fallbacks:
 
 | Tool | Config Values Used |
 |------|--------------------|
@@ -308,6 +309,7 @@ All 26 tools read from `rebrew-project.toml`. Each uses `try/except` with hardco
 | `triage.py` | `reversed_dir`, `target_binary`, `iat_thunks`, `root` |
 | `doctor.py` | `target_binary`, `reversed_dir`, `bin_dir`, `function_list`, compiler paths, `arch`, `binary_format` |
 | `flirt.py` | `target_binary`, `root` |
+| `crt_match.py` | `crt_sources`, `reversed_dir`, `target_binary` |
 | `build_db.py` | `project_root` (via CLI arg, reads `data_*.json` from `db/`) |
 | `cfg.py` | `rebrew-project.toml` (tomlkit read/write) |
 | `split.py` | `marker`, `source_ext`, `reversed_dir` |
