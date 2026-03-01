@@ -117,7 +117,7 @@ GAME = "{cflags}"
 
 COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
     "msvc6": {
-        "runner": "wine",
+        "runner": "wine",  # Alternative: "wibo" (faster, auto-downloadable via rebrew doctor)
         "command": "wine tools/MSVC600/VC98/Bin/CL.EXE",
         "includes": "tools/MSVC600/VC98/Include",
         "libs": "tools/MSVC600/VC98/Lib",
@@ -127,7 +127,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "lang": "C89",
     },
     "msvc7": {
-        "runner": "wine",
+        "runner": "wine",  # Alternative: "wibo" (faster, auto-downloadable via rebrew doctor)
         "command": "wine tools/MSVC7/Bin/CL.EXE",
         "includes": "tools/MSVC7/Include",
         "libs": "tools/MSVC7/Lib",

@@ -1511,6 +1511,275 @@ def _pull_comments(
         console.print(f"Successfully pulled comments for {updated_count} functions.")
 
 
+def _pull_data(
+    cfg: Any,
+    endpoint: str,
+    program_path: str,
+    dry_run: bool,
+) -> None:
+    """Pull data labels from Ghidra and generate rebrew_globals.h.
+
+    Fetches all non-function symbols from Ghidra via ReVa MCP (get-symbols),
+    then queries data type info for each (get-data), and writes a header file
+    with extern declarations.
+    """
+    try:
+        httpx = __import__("httpx")
+    except ImportError:
+        error_exit("httpx is required for --pull-data. Install with: uv pip install httpx")
+
+    def _canonical_section_name(section_name: str) -> str:
+        name = section_name.lower()
+        if ".data" in name:
+            return ".data"
+        if ".rdata" in name or "__const" in name:
+            return ".rdata"
+        if ".bss" in name or "zerofill" in name:
+            return ".bss"
+        return section_name
+
+    def _find_section(va: int, sections: list[Any]) -> str:
+        for section in sections:
+            sec_va = int(getattr(section, "va", 0))
+            sec_size = int(getattr(section, "size", 0))
+            sec_raw_size = int(getattr(section, "raw_size", 0))
+            span = max(sec_size, sec_raw_size)
+            if span <= 0:
+                continue
+            if sec_va <= va < sec_va + span:
+                return _canonical_section_name(str(getattr(section, "name", "")))
+        return ""
+
+    def _normalize_name(raw_name: str, fallback_addr: str) -> str:
+        candidate = raw_name or f"g_{fallback_addr.lower().replace('0x', '')}"
+        candidate = re.sub(r"[^A-Za-z0-9_]", "_", candidate)
+        if not candidate:
+            candidate = f"g_{fallback_addr.lower().replace('0x', '')}"
+        if candidate[0].isdigit():
+            candidate = f"g_{candidate}"
+        return candidate
+
+    def _build_extern_decl(data_type: str, symbol_name: str, length: int) -> tuple[str, str]:
+        dtype = data_type.strip()
+        lower = dtype.lower()
+
+        if lower in {"pointer", "pointer32"}:
+            return f"extern void* {symbol_name};", ""
+
+        undef_match = re.fullmatch(r"undefined(\d+)?", lower)
+        if undef_match:
+            arr_len = max(length, int(undef_match.group(1) or "0"))
+            if arr_len > 0:
+                return f"extern unsigned char {symbol_name}[{arr_len}];", ""
+            return f"extern unsigned char {symbol_name}[];", "unknown size"
+
+        arr_match = re.fullmatch(r"(.+?)\[(.+)\]", dtype)
+        if arr_match:
+            base = arr_match.group(1).strip()
+            dim = arr_match.group(2).strip()
+            return f"extern {base} {symbol_name}[{dim}];", ""
+
+        if dtype:
+            return f"extern {dtype} {symbol_name};", ""
+
+        if length > 0:
+            return f"extern unsigned char {symbol_name}[{length}];", "unknown type"
+        return f"extern unsigned char {symbol_name}[];", "unknown type/size"
+
+    console.print("Pulling data labels from Ghidra...")
+
+    sections: list[Any] = []
+    with contextlib.suppress(Exception):
+        from rebrew.binary_loader import load_binary
+
+        binary_info = load_binary(cfg.target_binary, getattr(cfg, "format", "auto"))
+        sections = list(binary_info.sections.values())
+
+    with httpx.Client(timeout=30.0) as client:
+        try:
+            session_id = _init_mcp_session(client, endpoint)
+        except httpx.RequestError as e:
+            console.print(f"[yellow]Warning: Could not connect to MCP endpoint: {e}[/yellow]")
+            return
+
+        try:
+            count_result = _fetch_mcp_tool_raw(
+                client,
+                endpoint,
+                "get-symbols-count",
+                {
+                    "programPath": program_path,
+                    "filterDefaultNames": True,
+                },
+                1,
+                session_id=session_id,
+            )
+        except httpx.RequestError as e:
+            console.print(f"[yellow]Warning: Could not fetch symbols count: {e}[/yellow]")
+            return
+
+        total_count = 0
+        if isinstance(count_result, dict):
+            raw_count = count_result.get("count", 0)
+            if isinstance(raw_count, int):
+                total_count = raw_count
+
+        page_size = 200
+        request_id = 2
+        all_symbols: list[dict[str, Any]] = []
+        start = 0
+
+        while True:
+            try:
+                page = _fetch_mcp_tool_raw(
+                    client,
+                    endpoint,
+                    "get-symbols",
+                    {
+                        "programPath": program_path,
+                        "startIndex": start,
+                        "maxCount": page_size,
+                        "filterDefaultNames": True,
+                    },
+                    request_id,
+                    session_id=session_id,
+                )
+            except httpx.RequestError as e:
+                console.print(f"[yellow]Warning: Could not fetch symbols page: {e}[/yellow]")
+                return
+
+            request_id += 1
+            if not isinstance(page, list) or not page:
+                break
+
+            for sym in page:
+                if isinstance(sym, dict):
+                    all_symbols.append(sym)
+
+            start += page_size
+            if total_count > 0 and start >= total_count:
+                break
+            if len(page) < page_size:
+                break
+
+        data_symbols = [s for s in all_symbols if not s.get("isFunction", False)]
+        if not data_symbols:
+            console.print("[yellow]No non-function data symbols found in Ghidra.[/yellow]")
+            return
+
+        rows: list[dict[str, Any]] = []
+        for sym in data_symbols:
+            sym_addr = str(sym.get("address", "")).strip()
+            if not sym_addr:
+                continue
+
+            try:
+                data_info = _fetch_mcp_tool_raw(
+                    client,
+                    endpoint,
+                    "get-data",
+                    {
+                        "programPath": program_path,
+                        "addressOrSymbol": sym_addr,
+                    },
+                    request_id,
+                    session_id=session_id,
+                )
+            except httpx.RequestError as e:
+                console.print(f"[yellow]Warning: get-data failed at {sym_addr}: {e}[/yellow]")
+                continue
+
+            request_id += 1
+            if not isinstance(data_info, dict):
+                continue
+
+            address = str(data_info.get("address") or sym_addr)
+            va = _parse_va(address)
+            if va is None:
+                continue
+
+            symbol_name = _normalize_name(
+                str(data_info.get("symbolName") or sym.get("name") or ""),
+                address,
+            )
+
+            length_raw = data_info.get("length", 0)
+            length = int(length_raw) if isinstance(length_raw, int | float) else 0
+            data_type = str(data_info.get("dataType") or "")
+            decl, type_note = _build_extern_decl(data_type, symbol_name, length)
+            section_name = _find_section(va, sections)
+
+            note_parts = [f"0x{va:08X}", f"{length} bytes"]
+            if type_note:
+                note_parts.append(type_note)
+            rows.append(
+                {
+                    "va": va,
+                    "section": section_name,
+                    "decl": decl,
+                    "note": ", ".join(note_parts),
+                }
+            )
+
+    if not rows:
+        console.print("[yellow]No data declarations generated from Ghidra symbols.[/yellow]")
+        return
+
+    rows.sort(key=lambda x: int(x["va"]))
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        sec = str(row.get("section") or "")
+        grouped.setdefault(sec, []).append(row)
+
+    out_file = cfg.reversed_dir / "rebrew_globals.h"
+    generated = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    header_lines = [
+        "/* Auto-generated by rebrew sync --pull-data. DO NOT EDIT.",
+        " * Source: Ghidra via ReVa MCP",
+        f" * Generated: {generated}",
+        " */",
+        "",
+        "#ifndef REBREW_GLOBALS_H",
+        "#define REBREW_GLOBALS_H",
+        "",
+    ]
+
+    section_order = [".data", ".rdata", ".bss"]
+    emitted_sections: set[str] = set()
+    for section_name in section_order:
+        items = grouped.get(section_name, [])
+        if not items:
+            continue
+        header_lines.append(f"/* {section_name} section globals */")
+        for row in items:
+            header_lines.append(f"{row['decl']} /* {row['note']} */")
+        header_lines.append("")
+        emitted_sections.add(section_name)
+
+    for section_name in sorted(grouped):
+        if section_name in emitted_sections:
+            continue
+        items = grouped[section_name]
+        label = section_name or "(unknown)"
+        header_lines.append(f"/* {label} section globals */")
+        for row in items:
+            header_lines.append(f"{row['decl']} /* {row['note']} */")
+        header_lines.append("")
+
+    header_lines.append("#endif /* REBREW_GLOBALS_H */")
+    header_lines.append("")
+    header_text = "\n".join(header_lines)
+
+    if dry_run:
+        console.print(f"[yellow]Dry run: would write {out_file} with {len(rows)} globals[/yellow]")
+        console.print(header_text)
+        return
+
+    out_file.write_text(header_text, encoding="utf-8")
+    console.print(f"Pulled {len(rows)} data labels from Ghidra, wrote {out_file.name}")
+
+
 app = typer.Typer(
     help="Sync annotations between decomp C files and Ghidra.",
     rich_markup_mode="rich",
@@ -1624,6 +1893,9 @@ def main(
     pull_comments: bool = typer.Option(
         False, "--pull-comments", help="Pull Ghidra analysis comments into source files"
     ),
+    pull_data: bool = typer.Option(
+        False, "--pull-data", help="Pull data labels from Ghidra and generate rebrew_globals.h"
+    ),
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
@@ -1645,6 +1917,7 @@ def main(
         or pull_signatures
         or pull_structs
         or pull_comments
+        or pull_data
     ):
         error_exit("No action specified. Use --summary, --export, --apply, --push, or --pull.")
 
@@ -1655,7 +1928,7 @@ def main(
     entries_raw = scan_reversed_dir(reversed_dir, cfg=cfg)
     entries: list[dict[str, Any]] = [e if isinstance(e, dict) else e.to_dict() for e in entries_raw]
 
-    if pull or pull_signatures or pull_structs or pull_comments:
+    if pull or pull_signatures or pull_structs or pull_comments or pull_data:
         if pull:
             pull_result = pull_ghidra_renames(
                 entries,
@@ -1673,13 +1946,15 @@ def main(
                     "Conflicts detected during name pull. Continuing with other pull operations if any."
                 )
 
-        if pull_signatures or pull_structs or pull_comments:
+        if pull_signatures or pull_structs or pull_comments or pull_data:
             if pull_signatures:
                 _pull_prototypes(entries, cfg, endpoint, program_path, dry_run)
             if pull_structs:
                 _pull_structs(cfg, endpoint, program_path, dry_run)
             if pull_comments:
                 _pull_comments(entries, cfg, endpoint, program_path, dry_run)
+            if pull_data:
+                _pull_data(cfg, endpoint, program_path, dry_run)
 
         return
 
