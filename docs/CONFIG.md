@@ -279,7 +279,7 @@ For a full toolchain health check, run `rebrew doctor`.
 
 ## Which Tools Use What Config
 
-All 24 tools read from `rebrew-project.toml`. Each uses `try/except` with hardcoded fallbacks:
+All 26 tools read from `rebrew-project.toml`. Each uses `try/except` with hardcoded fallbacks:
 
 | Tool | Config Values Used |
 |------|--------------------|
@@ -310,6 +310,8 @@ All 24 tools read from `rebrew-project.toml`. Each uses `try/except` with hardco
 | `flirt.py` | `target_binary`, `root` |
 | `build_db.py` | `project_root` (via CLI arg, reads `data_*.json` from `db/`) |
 | `cfg.py` | `rebrew-project.toml` (tomlkit read/write) |
+| `split.py` | `marker`, `source_ext`, `reversed_dir` |
+| `merge.py` | `marker`, `source_ext`, `reversed_dir` |
 
 ## Config Editor (`rebrew cfg`)
 

@@ -1,6 +1,6 @@
 ---
 name: rebrew-data-analysis
-description: Analyzes global variables, structs, and arrays in binary data sections (.data, .rdata, .bss). Detects type conflicts across translation units, finds dispatch tables and vtables, and verifies BSS layout. Use when working with globals, data annotations, or debugging relocation mismatches.
+description: Analyzes global variables, structs, and arrays in binary data sections (.data, .rdata, .bss). Detects type conflicts across translation units, finds dispatch tables and vtables, and verifies BSS layout. Use this skill when working with globals, data annotations, debugging relocation mismatches, fixing BSS gaps, finding dispatch tables, or dealing with '// DATA:' and '// GLOBAL:' annotations. Triggers on 'global', 'data section', 'BSS', 'vtable', 'dispatch table', 'relocation', 'extern', or 'type conflict'.
 license: MIT
 ---
 

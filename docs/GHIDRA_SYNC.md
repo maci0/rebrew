@@ -21,10 +21,11 @@
 | Push function sizes to Ghidra | Local → Ghidra | ✅ Done | `--sync-sizes` |
 | Push data segments (.bss, .data) to Ghidra | Local → Ghidra | ✅ Done | `--sync-data` |
 | Bidirectional conflict detection | Both | ✅ Done | Warns on conflict, `--accept-ghidra`/`--accept-local` |
+| Pull data labels from Ghidra | Ghidra → Local | ✅ Done | `--pull-data` (generates `rebrew_globals.h`) |
+| XREF context in skeleton generation | Ghidra → Local | ✅ Done | `skeleton --xrefs` |
+| Ghidra decompilation backend for skeleton | Ghidra → Local | ✅ Done | `skeleton --decomp --decomp-backend ghidra` |
 | Incremental / dirty-only sync | Both | ❌ Not yet | — |
 | Watch mode (live file-change sync) | Local → Ghidra | ❌ Not yet | — |
-| XREF context in skeleton generation | Ghidra → Local | ❌ Not yet | — |
-| Ghidra decompilation backend for skeleton | Ghidra → Local | ❌ Not yet | — |
 | Validate `programPath` against Ghidra project | — | ❌ Not yet | — |
 | Deduplication / idempotency tracking | — | ❌ Not yet | — |
 
