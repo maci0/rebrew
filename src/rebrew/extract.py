@@ -12,7 +12,6 @@ Usage:
 """
 
 import json
-import sys
 from pathlib import Path
 from typing import Any, cast
 
@@ -139,7 +138,7 @@ def cmd_extract(
                 if json_output:
                     json_print({"status": "ERROR", "error": msg})
                 else:
-                    print(msg, file=sys.stderr)
+                    typer.echo(msg, err=True)
                 return
             try:
                 asm_text = disasm(code, va, cfg=cfg)
@@ -147,7 +146,7 @@ def cmd_extract(
                 if json_output:
                     json_print({"status": "ERROR", "error": str(e)})
                 else:
-                    print(f"ERROR: {e}", file=sys.stderr)
+                    typer.echo(f"ERROR: {e}", err=True)
                 return
 
             # Save .bin
@@ -211,7 +210,7 @@ def cmd_batch(
                     }
                 )
                 continue
-            print(f"ERROR: Failed to extract bytes at VA 0x{va:08X}", file=sys.stderr)
+            typer.echo(f"ERROR: Failed to extract bytes at VA 0x{va:08X}", err=True)
             continue
 
         try:
@@ -228,7 +227,7 @@ def cmd_batch(
                     }
                 )
                 continue
-            print(f"ERROR: {e}", file=sys.stderr)
+            typer.echo(f"ERROR: {e}", err=True)
             return
 
         bin_path = bin_dir / f"func_0x{va:08X}.bin"
@@ -334,7 +333,7 @@ def main(
     # Auto-detect already-reversed VAs
     reversed_vas = detect_reversed_vas(src_dir, cfg=cfg)
     if not json_output:
-        print(f"Found {len(reversed_vas)} already-reversed functions", file=sys.stderr)
+        typer.echo(f"Found {len(reversed_vas)} already-reversed functions", err=True)
 
     # Filter candidates — cast dict values to expected types for type safety
     candidates: list[tuple[int, int, str]] = []

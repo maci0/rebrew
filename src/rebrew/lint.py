@@ -10,6 +10,7 @@ import contextlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -21,14 +22,14 @@ from rebrew.annotation import (
     BLOCK_FUNC_CAPTURE_RE,
     BLOCK_FUNC_RE,
     BLOCK_KV_RE,
-    FILENAME_ORIGIN_PREFIXES,
+    DEFAULT_ORIGIN_PREFIXES,
+    DEFAULT_ORIGINS,
     JAVADOC_ADDR_RE,
     JAVADOC_KV_RE,
     NEW_FUNC_RE,
     NEW_KV_RE,
     OLD_RE,
     VALID_MARKERS,
-    VALID_ORIGINS,
     VALID_STATUSES,
     marker_for_origin,
     normalize_status,
@@ -81,7 +82,7 @@ class LintResult:
             for line, code, msg in self.warnings:
                 out_console.print(f"  [bold]{rel}[/bold]:{line}: [yellow]{code}[/yellow]: {msg}")
 
-    def to_dict(self) -> dict[str, object]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize for JSON output."""
         return {
             "file": str(self.filepath.name),
@@ -349,7 +350,7 @@ def _check_E005_E006_origin(
     if "ORIGIN" not in found_keys:
         result.error(1, "E005", "Missing // ORIGIN: annotation")
     else:
-        valid = set(cfg.origins) if cfg and cfg.origins else VALID_ORIGINS
+        valid = set(cfg.origins) if cfg and cfg.origins else DEFAULT_ORIGINS
         if valid and found_keys["ORIGIN"] not in valid:
             result.error(1, "E006", f"Invalid ORIGIN: {found_keys['ORIGIN']}")
 
@@ -402,7 +403,7 @@ def _check_E016_filename(result: LintResult, filepath: Path, symbol: str, marker
             actual_stem = actual_stem.split("@")[0]
         if expected_stem and actual_stem != expected_stem:
             prefix_match = False
-            for prefix in FILENAME_ORIGIN_PREFIXES:
+            for prefix in DEFAULT_ORIGIN_PREFIXES:
                 if actual_stem.startswith(prefix):
                     unprefixed = actual_stem[len(prefix) :]
                     if unprefixed == expected_stem:

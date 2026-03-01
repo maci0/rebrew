@@ -8,7 +8,7 @@ import contextlib
 import json
 import struct
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from rebrew.binary_loader import load_binary
 from rebrew.config import ProjectConfig
@@ -175,11 +175,11 @@ def _resolve_canonical_size(
 
 
 def build_function_registry(
-    funcs: list[dict[str, object]],
+    funcs: list[dict[str, Any]],
     cfg: ProjectConfig | None,
     ghidra_path: Path | None = None,
     bin_path: Path | None = None,
-) -> dict[int, dict[str, object]]:
+) -> dict[int, dict[str, Any]]:
     """Build a unified function registry merging function list + ghidra + exports.
 
     Returns dict keyed by VA with:
@@ -190,7 +190,7 @@ def build_function_registry(
         is_export: bool
         canonical_size: best-known size
     """
-    registry: dict[int, dict[str, object]] = {}
+    registry: dict[int, dict[str, Any]] = {}
 
     # --- Function list ---
     r2_bogus = (
@@ -220,11 +220,11 @@ def build_function_registry(
         entry["list_name"] = str(func["name"])
 
     # --- Ghidra functions (from cached JSON) ---
-    ghidra_funcs: list[dict[str, object]] = []
+    ghidra_funcs: list[dict[str, Any]] = []
     if ghidra_path and ghidra_path.exists():
         with contextlib.suppress(json.JSONDecodeError, OSError):
             ghidra_funcs = cast(
-                list[dict[str, object]],
+                list[dict[str, Any]],
                 json.loads(ghidra_path.read_text(encoding="utf-8")),
             )
 

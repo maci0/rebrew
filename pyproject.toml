@@ -53,6 +53,7 @@ rebrew-init = "rebrew.init:main_entry"
 rebrew-nasm = "rebrew.nasm:main_entry"
 rebrew-flirt = "rebrew.flirt:main_entry"
 
+rebrew-cache = "rebrew.cache_cli:main_entry"
 rebrew-cfg = "rebrew.cfg:main_entry"
 rebrew-status = "rebrew.status:main_entry"
 rebrew-data = "rebrew.data:main_entry"

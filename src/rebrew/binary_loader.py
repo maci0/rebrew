@@ -17,6 +17,7 @@ Usage::
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 import lief
 
@@ -165,7 +166,7 @@ def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
     )
 
 
-def _load_macho(fat_or_binary: object, path: Path) -> BinaryInfo:
+def _load_macho(fat_or_binary: Any, path: Path) -> BinaryInfo:
     """Extract layout information from a Mach-O binary.
 
     LIEF's ``lief.MachO.parse()`` returns a ``FatBinary`` even for thin

@@ -5,7 +5,6 @@ Orchestrates annotation scanning, registry building, and output generation
 """
 
 import json
-import sys
 from pathlib import Path
 
 import typer
@@ -19,12 +18,6 @@ from rebrew.catalog.sections import get_text_section_size
 from rebrew.cli import (
     TargetOption,
     get_config,
-)
-from rebrew.cli import (
-    error_exit as _error_exit,
-)
-from rebrew.cli import (
-    json_print as _json_print,
 )
 
 app = typer.Typer(
@@ -86,7 +79,6 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Rebrew validation pipeline: parse annotations, generate catalog and coverage data."""
-    _ = (_error_exit, _json_print)
     cfg = None
     try:
         cfg = get_config(target=target)
@@ -121,7 +113,7 @@ def main(
         summary = True
 
     if export_ghidra:
-        print(
+        typer.echo(
             "To export Ghidra functions, run this in the MCP console:\n"
             f"  get-functions programPath=/{bin_path.name} filterDefaultNames=false\n"
             f"Then save the output as {reversed_dir.name}/ghidra_functions.json with format:\n"
@@ -131,11 +123,11 @@ def main(
             f"labels in Ghidra and save as {reversed_dir.name}/ghidra_data_labels.json:\n"
             '  [{"va": 0x10002E9C, "size": 20, "label": "switchdataD_10002e9c"}, ...]\n'
             f"(Legacy ghidra_switchdata.json format is still supported for compat.)",
-            file=sys.stderr,
+            err=True,
         )
         return
 
-    print(f"Scanning {reversed_dir}...", file=sys.stderr)
+    typer.echo(f"Scanning {reversed_dir}...", err=True)
     entries = scan_reversed_dir(reversed_dir, cfg=cfg)
     funcs = parse_function_list(func_list_path)
 
@@ -150,12 +142,12 @@ def main(
         1 for r in registry.values() if "ghidra" in r["detected_by"] and "list" in r["detected_by"]
     )
     thunk_count = sum(1 for r in registry.values() if r["is_thunk"])
-    print(
+    typer.echo(
         f"Found {len(entries)} annotations ({len(unique_vas)} unique VAs) "
         f"from {len(registry)} total functions "
         f"(list: {list_count}, ghidra: {ghidra_count}, both: {both_count}, "
         f"thunks: {thunk_count})",
-        file=sys.stderr,
+        err=True,
     )
 
     if summary:
@@ -239,7 +231,7 @@ def main(
         catalog_path = reversed_dir / "CATALOG.md"
         catalog_path.parent.mkdir(parents=True, exist_ok=True)
         catalog_path.write_text(catalog_text, encoding="utf-8")
-        print(f"Wrote {catalog_path}", file=sys.stderr)
+        typer.echo(f"Wrote {catalog_path}", err=True)
 
     if gen_json or export_ghidra_labels:
         data = generate_data_json(entries, funcs, text_size, bin_path, registry, reversed_dir, root)
@@ -248,7 +240,7 @@ def main(
             coverage_dir.mkdir(parents=True, exist_ok=True)
             json_path = coverage_dir / f"data_{target}.json"
             json_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-            print(f"Wrote {json_path}", file=sys.stderr)
+            typer.echo(f"Wrote {json_path}", err=True)
 
         if export_ghidra_labels:
             text_sec = data.get("sections", {}).get(".text", {})
@@ -266,17 +258,14 @@ def main(
                     )
             labels_path = reversed_dir / "ghidra_data_labels.json"
             labels_path.write_text(json.dumps(labels, indent=2) + "\n", encoding="utf-8")
-            print(f"Wrote {labels_path} ({len(labels)} labels)", file=sys.stderr)
+            typer.echo(f"Wrote {labels_path} ({len(labels)} labels)", err=True)
 
     if csv:
         csv_text = generate_reccmp_csv(entries, funcs, registry, target, cfg)
         csv_path = root / "db" / f"{target.lower()}_functions.csv"
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         csv_path.write_text(csv_text, encoding="utf-8")
-        print(
-            f"Wrote {csv_path} ({len(csv_text.splitlines()) - 6} functions)",
-            file=sys.stderr,
-        )
+        typer.echo(f"Wrote {csv_path} ({len(csv_text.splitlines()) - 6} functions)", err=True)
 
     if fix_sizes:
         from rebrew.annotation import update_size_annotation
@@ -303,7 +292,7 @@ def main(
                     updated += 1
                 else:
                     skipped += 1
-        print(f"Updated {updated} SIZE annotations ({skipped} skipped)", file=sys.stderr)
+        typer.echo(f"Updated {updated} SIZE annotations ({skipped} skipped)", err=True)
 
 
 def main_entry() -> None:

@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import NoReturn
+from typing import Any, NoReturn
 
 import typer
 from rich.console import Console
@@ -58,7 +58,7 @@ def error_exit(msg: str, *, json_mode: bool = False, code: int = 1) -> NoReturn:
     raise typer.Exit(code=code)
 
 
-def json_print(data: dict[str, object] | list[object]) -> None:
+def json_print(data: dict[str, Any] | list[Any]) -> None:
     """Print *data* as pretty-printed JSON to stdout."""
     print(json.dumps(data, indent=2))
 

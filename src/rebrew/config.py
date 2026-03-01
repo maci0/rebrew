@@ -30,7 +30,7 @@ import warnings as _warnings
 from copy import copy
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 # ---------------------------------------------------------------------------
 # Architecture presets
@@ -267,7 +267,7 @@ class ProjectConfig:
             return f.read(size)
 
 
-def _parse_int_list(values: object | None, field_name: str) -> list[int]:
+def _parse_int_list(values: list[Any] | None, field_name: str) -> list[int]:
     """Parse a list of integers from a toml array, allowing hex strings."""
     if not isinstance(values, list):
         if values is not None:
@@ -293,7 +293,7 @@ def _parse_int_list(values: object | None, field_name: str) -> list[int]:
     return parsed
 
 
-def _parse_hex_dict(mapping: object | None) -> dict[int, str]:
+def _parse_hex_dict(mapping: dict[str, Any] | None) -> dict[int, str]:
     """Parse a dict where keys are hex strings and values are strings."""
     if not isinstance(mapping, dict):
         if mapping is not None:
@@ -313,7 +313,7 @@ def _parse_hex_dict(mapping: object | None) -> dict[int, str]:
     return result
 
 
-def _parse_str_list(values: object | None, field_name: str) -> list[str]:
+def _parse_str_list(values: list[Any] | None, field_name: str) -> list[str]:
     if values is None:
         return []
     if not isinstance(values, list):
@@ -341,7 +341,7 @@ def _resolve(root: Path, rel: str | None) -> Path | None:
     return root / p
 
 
-def _split_compiler_runner(compiler: dict[str, object]) -> tuple[str, str]:
+def _split_compiler_runner(compiler: dict[str, Any]) -> tuple[str, str]:
     command_raw = str(compiler.get("command", "wine CL.EXE"))
     if "runner" in compiler:
         return str(compiler.get("runner", "")), command_raw

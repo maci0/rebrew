@@ -6,7 +6,7 @@ and scans reversed directories for annotated source files.
 
 import json
 import re
-import sys
+import warnings
 from pathlib import Path
 
 from rebrew.annotation import Annotation, parse_c_file_multi
@@ -93,7 +93,7 @@ def parse_function_list(path: Path) -> list[dict[str, object]]:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
-        print(f"WARNING: Cannot read {path}", file=sys.stderr)
+        warnings.warn(f"Cannot read {path}", stacklevel=2)
         return funcs
 
     for line in text.splitlines():

@@ -8,6 +8,7 @@ breakdowns, byte coverage, and identified libraries.
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -57,7 +58,7 @@ class TargetStats:
             return 0.0
         return self.total_bytes_reversed / self.text_section_size * 100.0
 
-    def to_dict(self) -> dict[str, object]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict for JSON output."""
         return {
             "target": self.name,

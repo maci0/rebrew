@@ -380,7 +380,7 @@ rebrew sync --pull                                 # Pull renames/comments from 
 | `matcher/flags.py` | `FlagSet`/`Checkbox` primitives (compatible with decomp.me) |
 | `matcher/flag_data.py` | Auto-generated MSVC flags + sweep tiers (from `tools/sync_decomp_flags.py`) |
 | `matcher/parsers.py` | COFF `.obj` and PE byte extraction (LIEF-based) |
-| `matcher/mutator.py` | 40+ C mutation operators for GA |
+| `matcher/mutator.py` | 51 C mutation operators for GA |
 | `matcher/core.py` | SQLite `BuildCache` + GA checkpointing |
 
 ### Annotation & Sync

@@ -5,9 +5,6 @@ flag sweep, build cache, checkpointing, and COFF/PE parsers.
 """
 
 from .compiler import (
-    MSVC6_FLAG_AXES as MSVC6_FLAG_AXES,
-)
-from .compiler import (
     build_candidate as build_candidate,
 )
 from .compiler import (

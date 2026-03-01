@@ -8,6 +8,7 @@ import hashlib
 import math
 import struct
 from pathlib import Path
+from typing import Any
 
 from rebrew.catalog.loaders import extract_dll_bytes, load_ghidra_data_labels
 from rebrew.catalog.registry import _is_jump_table
@@ -30,8 +31,8 @@ def merge_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
 
 
 def _find_ghidra_data_label(
-    va: int, data_labels: dict[int, dict[str, object]]
-) -> tuple[int, dict[str, object]] | None:
+    va: int, data_labels: dict[int, dict[str, Any]]
+) -> tuple[int, dict[str, Any]] | None:
     """Return (label_va, label_dict) if *va* falls inside a known Ghidra data label region."""
     for dl_va, dl_info in data_labels.items():
         if dl_va <= va < dl_va + dl_info["size"]:
@@ -40,21 +41,21 @@ def _find_ghidra_data_label(
 
 
 def generate_data_json(
-    entries: list[object],
-    funcs: list[dict[str, object]],
+    entries: list[Any],
+    funcs: list[dict[str, Any]],
     text_size: int,
     bin_path: Path | None = None,
-    registry: dict[int, dict[str, object]] | None = None,
+    registry: dict[int, dict[str, Any]] | None = None,
     src_dir: Path | None = None,
     root_dir: Path | None = None,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Generate db/data.json structure."""
-    by_va: dict[int, list[dict[str, object]]] = {}
+    by_va: dict[int, list[dict[str, Any]]] = {}
     for e in entries:
         by_va.setdefault(e["va"], []).append(e)
 
     unique_vas = set(by_va)
-    funcs_by_va: dict[int, dict[str, object]] = {f["va"]: f for f in funcs}
+    funcs_by_va: dict[int, dict[str, Any]] = {f["va"]: f for f in funcs}
 
     fn_vas = [
         vas
@@ -93,7 +94,7 @@ def generate_data_json(
             elif vas:
                 covered_bytes += vas[0]["size"]
 
-    sections: dict[str, object] = {}
+    sections: dict[str, Any] = {}
     if bin_path:
         for k, v in get_sections(bin_path).items():
             sections[k] = dict(v)
@@ -485,7 +486,7 @@ def generate_data_json(
                 take_bytes = min(seg_end - cur, take_cols * unit_bytes)
                 span = max(1, int(math.ceil(take_bytes / unit_bytes)))
                 cell_end = cur + take_bytes
-                cell_dict: dict[str, object] = {
+                cell_dict: dict[str, Any] = {
                     "start": cur,
                     "end": cell_end,
                     "span": span,
