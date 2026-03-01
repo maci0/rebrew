@@ -61,6 +61,8 @@ rebrew-graph = "rebrew.depgraph:main_entry"
 rebrew-promote = "rebrew.promote:main_entry"
 rebrew-triage = "rebrew.triage:main_entry"
 rebrew-doctor = "rebrew.doctor:main_entry"
+rebrew-split = "rebrew.split:main_entry"
+rebrew-merge = "rebrew.merge:main_entry"
 
 [tool.setuptools.package-data]
 rebrew = ["agent-skills/**/*.md"]
