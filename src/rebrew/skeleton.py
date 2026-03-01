@@ -18,6 +18,7 @@ import importlib
 from pathlib import Path
 from typing import Any
 
+import httpx
 import jinja2
 import typer
 
@@ -226,18 +227,12 @@ def fetch_xref_context(
 
     Returns a formatted comment block string, or None if MCP is unavailable.
     """
-    try:
-        httpx_mod = importlib.import_module("httpx")
-    except ModuleNotFoundError:
-        typer.echo("httpx required for --xrefs. Install: uv pip install httpx", err=True)
-        return None
-
     _sync_mod = importlib.import_module("rebrew.sync")
     _fetch_mcp_tool_raw = _sync_mod._fetch_mcp_tool_raw
     _init_mcp_session = _sync_mod._init_mcp_session
 
     try:
-        with httpx_mod.Client(timeout=30.0) as client:
+        with httpx.Client(timeout=30.0) as client:
             session_id = _init_mcp_session(client, endpoint)
             xrefs = _fetch_mcp_tool_raw(
                 client,
@@ -364,7 +359,7 @@ def fetch_xref_context(
             lines.append(" * === End cross-references ===")
             lines.append(" */")
             return "\n".join(lines)
-    except Exception:
+    except (httpx.HTTPError, OSError, RuntimeError, ValueError):
         return None
 
 
@@ -778,7 +773,7 @@ def main(
         decomp_code=decomp_code_val,
         decomp_backend=decomp_backend_name,
     )
-    filepath_val.write_text(content_val, encoding="utf-8")
+    atomic_write_text(filepath_val, content_val, encoding="utf-8")
 
     # Compute test commands
     symbol_val = "_" + name if name else "_" + sanitize_name(ghidra_name)

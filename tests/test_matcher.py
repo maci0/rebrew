@@ -4,6 +4,8 @@ import struct
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from rebrew.matcher import (
     GACheckpoint,
     compute_args_hash,
@@ -278,7 +280,8 @@ def test_checkpoint_wrong_hash() -> None:
             args_hash="hash_a",
         )
         save_checkpoint(ckpt_path, ckpt)
-        loaded = load_checkpoint(ckpt_path, "hash_b")
+        with pytest.warns(UserWarning, match="args hash mismatch"):
+            loaded = load_checkpoint(ckpt_path, "hash_b")
         assert loaded is None
 
 
@@ -294,7 +297,8 @@ def test_checkpoint_corrupt_json() -> None:
         ckpt_path = os.path.join(td, "ckpt.json")
         with open(ckpt_path, "w", encoding="utf-8") as f:
             f.write("not valid json{{{")
-        loaded = load_checkpoint(ckpt_path, "hash")
+        with pytest.warns(UserWarning, match="Failed to load checkpoint"):
+            loaded = load_checkpoint(ckpt_path, "hash")
         assert loaded is None
 
 

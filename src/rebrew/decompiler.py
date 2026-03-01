@@ -24,6 +24,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import httpx
+
 # ANSI escape code stripper
 _ANSI_RE = re.compile(r"\x1B\[[0-9;]*[a-zA-Z]")
 
@@ -121,15 +123,6 @@ def fetch_ghidra(
     """
     endpoint = endpoint or _DEFAULT_MCP_ENDPOINT
 
-    try:
-        httpx_mod = importlib.import_module("httpx")
-    except ModuleNotFoundError:
-        print(
-            "decompiler: ghidra backend requires httpx. Install: uv pip install httpx",
-            file=sys.stderr,
-        )
-        return None
-
     _sync_mod = importlib.import_module("rebrew.sync")
     _fetch_raw = _sync_mod._fetch_mcp_tool_raw
     _init_session = _sync_mod._init_mcp_session
@@ -138,7 +131,7 @@ def fetch_ghidra(
         program_path = f"/{binary.name}"
 
     try:
-        with httpx_mod.Client(timeout=30.0) as client:
+        with httpx.Client(timeout=30.0) as client:
             session_id = _init_session(client, endpoint)
             result = _fetch_raw(
                 client,
@@ -160,7 +153,7 @@ def fetch_ghidra(
                     if isinstance(candidate, str) and candidate.strip():
                         return _clean_output(candidate)
             return None
-    except Exception:
+    except (OSError, ValueError, KeyError, TypeError):
         return None
 
 

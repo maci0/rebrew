@@ -1,6 +1,5 @@
 """Tests for the rebrew sync module -- pure-function helpers."""
 
-import sys
 from types import SimpleNamespace
 from typing import Any
 
@@ -389,11 +388,10 @@ class TestApplyCommandsViaMcp:
             _FakeResponse('{"jsonrpc":"2.0","result":{}}'),
             _FakeResponse('{"jsonrpc":"2.0","id":1,"result":{}}'),
         ]
-        fake_httpx = SimpleNamespace(
-            Client=lambda timeout: _FakeClient(responses, timeout),
-            HTTPError=_FakeHTTPError,
+        monkeypatch.setattr(
+            "rebrew.sync.httpx.Client", lambda timeout: _FakeClient(responses, timeout)
         )
-        monkeypatch.setitem(sys.modules, "httpx", fake_httpx)
+        monkeypatch.setattr("rebrew.sync.httpx.HTTPError", _FakeHTTPError)
 
         commands = [
             {
@@ -415,11 +413,10 @@ class TestApplyCommandsViaMcp:
             _FakeResponse('{"jsonrpc":"2.0","result":{}}'),
             _FakeResponse('{"jsonrpc":"2.0","id":1,"error":{"message":"boom"}}'),
         ]
-        fake_httpx = SimpleNamespace(
-            Client=lambda timeout: _FakeClient(responses, timeout),
-            HTTPError=_FakeHTTPError,
+        monkeypatch.setattr(
+            "rebrew.sync.httpx.Client", lambda timeout: _FakeClient(responses, timeout)
         )
-        monkeypatch.setitem(sys.modules, "httpx", fake_httpx)
+        monkeypatch.setattr("rebrew.sync.httpx.HTTPError", _FakeHTTPError)
 
         commands = [
             {

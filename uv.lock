@@ -670,6 +670,7 @@ source = { editable = "." }
 dependencies = [
     { name = "capstone" },
     { name = "diskcache" },
+    { name = "httpx" },
     { name = "jinja2" },
     { name = "lief" },
     { name = "numpy" },
@@ -690,9 +691,6 @@ dev = [
     { name = "ruff" },
     { name = "slipcover" },
 ]
-ghidra = [
-    { name = "httpx" },
-]
 
 [package.dev-dependencies]
 dev = [
@@ -706,7 +704,7 @@ dev = [
 requires-dist = [
     { name = "capstone", specifier = ">=5.0.0" },
     { name = "diskcache", specifier = ">=5.6" },
-    { name = "httpx", marker = "extra == 'ghidra'", specifier = ">=0.28" },
+    { name = "httpx", specifier = ">=0.28" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "lief", specifier = ">=0.17.4" },
     { name = "numpy", specifier = ">=1.26" },
@@ -723,7 +721,7 @@ requires-dist = [
     { name = "tree-sitter-c", specifier = ">=0.24.1" },
     { name = "typer", specifier = ">=0.9" },
 ]
-provides-extras = ["dev", "ghidra"]
+provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [

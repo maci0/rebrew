@@ -409,7 +409,10 @@ def structural_similarity(
         cs_arch=cs_arch,
         cs_mode=cs_mode,
     )
-    assert summary is not None
+    if summary is None:
+        raise RuntimeError(
+            "diff_functions(as_dict=True) returned None — indicates a bug in the scoring pipeline"
+        )
 
     s = summary["summary"]
     total = s["total"]

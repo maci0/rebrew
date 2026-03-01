@@ -11,6 +11,7 @@ Usage::
     rebrew doctor --json
 """
 
+import os
 import shlex
 import shutil
 import subprocess
@@ -21,6 +22,7 @@ from typing import Any
 import typer
 
 from rebrew.cli import TargetOption, get_config, json_print
+from rebrew.config import ProjectConfig
 
 # ---------------------------------------------------------------------------
 # Check result data
@@ -102,7 +104,9 @@ _KNOWN_FORMATS = {"pe", "elf", "macho"}
 _KNOWN_ARCHES = {"x86_32", "x86_64", "arm32", "arm64"}
 
 
-def check_config_parse(root: Path | None, target: str | None) -> tuple[CheckResult, Any]:
+def check_config_parse(
+    root: Path | None, target: str | None
+) -> tuple[CheckResult, ProjectConfig | None]:
     """Check that rebrew-project.toml exists and parses without errors."""
     try:
         cfg = get_config(target=target)
@@ -146,7 +150,7 @@ def check_config_parse(root: Path | None, target: str | None) -> tuple[CheckResu
         )
 
 
-def check_target_binary(cfg: Any) -> CheckResult:
+def check_target_binary(cfg: ProjectConfig) -> CheckResult:
     """Check that the target binary exists and is loadable."""
     bin_path: Path = cfg.target_binary
     if not bin_path.exists():
@@ -181,7 +185,7 @@ def check_target_binary(cfg: Any) -> CheckResult:
         )
 
 
-def check_arch_format(cfg: Any) -> CheckResult:
+def check_arch_format(cfg: ProjectConfig) -> CheckResult:
     """Validate arch and format values are known."""
     issues: list[str] = []
     if cfg.arch not in _KNOWN_ARCHES:
@@ -205,7 +209,7 @@ def check_arch_format(cfg: Any) -> CheckResult:
     )
 
 
-def check_compiler(cfg: Any) -> CheckResult:
+def check_compiler(cfg: ProjectConfig) -> CheckResult:
     """Check that the compiler command is executable."""
     cmd_str = cfg.compiler_command
     if not cmd_str:
@@ -261,7 +265,7 @@ def check_compiler(cfg: Any) -> CheckResult:
                     ["wine", str(cl_path)],
                     capture_output=True,
                     timeout=10,
-                    env={**__import__("os").environ, "WINEDEBUG": "-all"},
+                    env={**os.environ, "WINEDEBUG": "-all"},
                 )
                 return CheckResult(
                     name="Compiler",
@@ -295,7 +299,7 @@ def check_compiler(cfg: Any) -> CheckResult:
     )
 
 
-def check_runner(cfg: Any) -> CheckResult:
+def check_runner(cfg: ProjectConfig) -> CheckResult:
     """Check that the configured runner (wine/wibo) is available."""
     runner = str(getattr(cfg, "compiler_runner", "")).strip()
     if not runner:
@@ -328,7 +332,7 @@ def check_runner(cfg: Any) -> CheckResult:
     return CheckResult(name="Runner", status=_WARN, message=f"Unknown runner '{runner}'")
 
 
-def check_includes(cfg: Any) -> CheckResult:
+def check_includes(cfg: ProjectConfig) -> CheckResult:
     """Check that the compiler include directory exists."""
     inc_path: Path = cfg.compiler_includes
     if not inc_path.exists():
@@ -347,7 +351,7 @@ def check_includes(cfg: Any) -> CheckResult:
     )
 
 
-def check_libs(cfg: Any) -> CheckResult:
+def check_libs(cfg: ProjectConfig) -> CheckResult:
     """Check that the compiler lib directory exists."""
     lib_path: Path = cfg.compiler_libs
     if not lib_path.exists():
@@ -365,7 +369,7 @@ def check_libs(cfg: Any) -> CheckResult:
     )
 
 
-def check_function_list(cfg: Any) -> CheckResult:
+def check_function_list(cfg: ProjectConfig) -> CheckResult:
     """Check that the function list file exists and has valid content."""
     func_list: Path = cfg.function_list
     if not func_list.exists():
@@ -396,7 +400,7 @@ def check_function_list(cfg: Any) -> CheckResult:
         )
 
 
-def check_source_files(cfg: Any) -> CheckResult:
+def check_source_files(cfg: ProjectConfig) -> CheckResult:
     """Check that at least one source file exists in reversed_dir."""
     reversed_dir: Path = cfg.reversed_dir
     if not reversed_dir.exists():
@@ -426,7 +430,7 @@ def check_source_files(cfg: Any) -> CheckResult:
     )
 
 
-def check_bin_dir(cfg: Any) -> CheckResult:
+def check_bin_dir(cfg: ProjectConfig) -> CheckResult:
     """Check that the output bin directory exists or can be created."""
     bin_dir: Path = cfg.bin_dir
     if bin_dir.exists():

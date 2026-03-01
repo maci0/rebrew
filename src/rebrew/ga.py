@@ -408,6 +408,7 @@ def run_flag_sweep(
             tier=tier,
             env=msvc_env,
             cache=cc,
+            timeout=cfg.compile_timeout,
         )
 
     if not results:

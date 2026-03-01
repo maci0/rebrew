@@ -145,6 +145,7 @@ class BinaryMatchingGA:
         ldflags: str | None = None,
         env: dict[str, str] | None = None,
         compile_cache: CompileCache | None = None,
+        compile_timeout: int = 60,
     ) -> None:
         self.seed_source = seed_source
         self.target_bytes = target_bytes
@@ -167,6 +168,7 @@ class BinaryMatchingGA:
         self.lib_dir = lib_dir
         self.ldflags = ldflags
         self.env = env
+        self.compile_timeout = compile_timeout
 
         self.rng = random.Random(rng_seed)
         self.mutation_weights = mutation_weights or {}
@@ -205,6 +207,7 @@ class BinaryMatchingGA:
                 self.symbol,
                 env=self.env,
                 cache=self.compile_cache,
+                timeout=self.compile_timeout,
             )
         else:
             if not self.lib_dir or not self.ldflags:
@@ -218,6 +221,7 @@ class BinaryMatchingGA:
                 self.ldflags,
                 self.symbol,
                 env=self.env,
+                timeout=self.compile_timeout * 2,
             )
 
         self.cache.put(src_hash, res)
@@ -520,7 +524,16 @@ def main(
     out_dir_path.mkdir(parents=True, exist_ok=True)
 
     if diff_only:
-        res = build_candidate_obj_only(seed_src, cl, inc, cflags, symbol, env=msvc_env, cache=cc)
+        res = build_candidate_obj_only(
+            seed_src,
+            cl,
+            inc,
+            cflags,
+            symbol,
+            env=msvc_env,
+            cache=cc,
+            timeout=cfg.compile_timeout,
+        )
         if res.ok and res.obj_bytes:
             obj_bytes = res.obj_bytes
             if len(obj_bytes) > len(target_bytes):
@@ -653,11 +666,21 @@ def main(
             tier=tier,
             env=msvc_env,
             cache=cc,
+            timeout=cfg.compile_timeout,
         )
         for score, flags in results[:10]:
             print(f"{score:.2f}: {flags}")
 
-        res = build_candidate_obj_only(seed_src, cl, inc, cflags, symbol, env=msvc_env, cache=cc)
+        res = build_candidate_obj_only(
+            seed_src,
+            cl,
+            inc,
+            cflags,
+            symbol,
+            env=msvc_env,
+            cache=cc,
+            timeout=cfg.compile_timeout,
+        )
         if res.ok and res.obj_bytes:
             obj_bytes = res.obj_bytes
             if len(obj_bytes) > len(target_bytes):
@@ -688,6 +711,7 @@ def main(
         env=msvc_env,
         rng_seed=seed,
         compile_cache=cc,
+        compile_timeout=cfg.compile_timeout,
     )
     _, best_score = ga.run()
     typer.echo(f"\nDone. Best score: {best_score:.2f}", err=True)

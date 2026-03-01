@@ -171,6 +171,7 @@ def main() -> None:
     pat_lines = []
     seen = set()
 
+    skipped = 0
     for _member_name, obj_data in parse_archive(str(lib_path)):
         try:
             for sym_name, code, relocs in parse_coff_obj(obj_data):
@@ -179,14 +180,17 @@ def main() -> None:
                     line = bytes_to_pat_line(sym_name, code, relocs)
                     pat_lines.append(line)
         except (OSError, KeyError, ValueError, struct.error):
-            pass
+            skipped += 1
 
     out_path.write_text(
         "".join(line + "\n" for line in pat_lines) + "---\n",
         encoding="utf-8",
     )
 
-    print(f"Generated {out_path}: {len(pat_lines)} signatures from {lib_path}")
+    msg = f"Generated {out_path}: {len(pat_lines)} signatures from {lib_path}"
+    if skipped:
+        msg += f" ({skipped} corrupt members skipped)"
+    print(msg)
 
 
 if __name__ == "__main__":

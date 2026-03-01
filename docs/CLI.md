@@ -1,6 +1,6 @@
 # CLI Reference
 
-All 27 CLI tools are installed as entry points via `pyproject.toml`.
+All 28 CLI tools are installed as entry points via `pyproject.toml`.
 Every tool supports `--target / -t` to select a target from `rebrew-project.toml` and
 reads defaults (binary path, reversed_dir, compiler settings) from the project config.
 
@@ -26,6 +26,7 @@ Run any tool with `--help` to see usage examples and context
 | `rebrew-ga` | `ga.py` | Batch GA runner and flag sweep for STUB and MATCHING functions |
 | `rebrew-verify` | `verify.py` | Compile all `.c` files and verify byte match against target binary; `--diff` regression detection; `--json` structured reports |
 | `rebrew-build-db` | `build_db.py` | Build SQLite `db/coverage.db` from `data_*.json` ([schema docs](DB_FORMAT.md)) |
+| `rebrew-cache` | `cache_cli.py` | Compile cache management (`stats`, `clear` subcommands) |
 | `rebrew-cfg` | `cfg.py` | Read and edit `rebrew-project.toml` programmatically (see [CONFIG.md](CONFIG.md)) |
 | `rebrew-nasm` | `nasm.py` | NASM assembly extraction |
 | `rebrew-split` | `split.py` | Split multi-function C files into individual files |
