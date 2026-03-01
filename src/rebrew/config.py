@@ -140,6 +140,7 @@ class ProjectConfig:
     )  # Origin → skeleton preamble comment
     origin_todos: dict[str, str] = field(default_factory=dict)  # Origin → TODO text for skeleton
     source_ext: str = ".c"  # Source file extension (e.g. ".c", ".cpp")
+    ghidra_program_path: str = ""
 
     # --- All known target names ---
     all_targets: list[str] = field(default_factory=list)
@@ -446,6 +447,7 @@ def load_config(
         "origin_comments",
         "origin_todos",
         "source_ext",
+        "ghidra_program_path",
     }
 
     _KNOWN_COMPILER_KEYS = {
@@ -688,6 +690,7 @@ def load_config(
         origin_comments=tgt.get("origin_comments", {}),
         origin_todos=tgt.get("origin_todos", {}),
         source_ext=tgt.get("source_ext", ".c"),
+        ghidra_program_path=tgt.get("ghidra_program_path", ""),
         # all targets
         all_targets=cast(list[str], all_target_names),
     )

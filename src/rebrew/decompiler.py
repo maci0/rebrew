@@ -1,21 +1,23 @@
 """decompiler.py - Pluggable decompiler backend for skeleton generation.
 
 Provides a unified interface to fetch pseudo-C decompilation from multiple
-backends (r2ghidra/rz-ghidra, r2dec/rz-dec, Ghidra headless).  Used by
+backends (r2ghidra/rz-ghidra, r2dec/rz-dec, Ghidra via ReVa MCP).  Used by
 rebrew skeleton when the ``--decomp`` flag is set.
 
 Both radare2 (``r2``) and rizin (``rz``) are supported transparently —
-the first one found on PATH is used.
+the first one found on PATH is used.  The ``ghidra`` backend connects to a
+running Ghidra instance through the ReVa MCP bridge (requires ``httpx``).
 
 Usage (internal)::
 
     from rebrew.decompiler import fetch_decompilation
 
-    code = fetch_decompilation("auto", binary_path, va, root)
+    code, backend = fetch_decompilation("auto", binary_path, va, root)
     if code:
         print(code)
 """
 
+import importlib
 import re
 import shutil
 import subprocess
@@ -25,8 +27,10 @@ from pathlib import Path
 # ANSI escape code stripper
 _ANSI_RE = re.compile(r"\x1B\[[0-9;]*[a-zA-Z]")
 
-# Known backends in auto-probe order (ghidra excluded — not yet implemented)
+# Known backends in auto-probe order (ghidra excluded — requires MCP server)
 BACKENDS = ("r2ghidra", "r2dec")
+
+_DEFAULT_MCP_ENDPOINT = "http://localhost:8080/mcp/message"
 
 
 def _strip_ansi(text: str) -> str:
@@ -103,17 +107,61 @@ def fetch_r2dec(binary: Path, va: int, root: Path) -> str | None:
     return _run_re(binary, va, "pdd", root)
 
 
-def fetch_ghidra(binary: Path, va: int, root: Path) -> str | None:
-    """Fetch decompilation using Ghidra's analyzeHeadless.
+def fetch_ghidra(
+    binary: Path,
+    va: int,
+    root: Path,
+    *,
+    endpoint: str | None = None,
+    program_path: str | None = None,
+) -> str | None:
+    """Fetch decompilation from Ghidra via ReVa MCP ``get-decompilation`` tool.
 
-    Not yet implemented — requires analyzeHeadless + a Ghidra script.
-    Returns None with a stderr hint.
+    Requires ``httpx`` and a running ReVa MCP server connected to Ghidra.
     """
-    print(
-        "decompiler: ghidra backend not yet implemented (requires analyzeHeadless + export script)",
-        file=sys.stderr,
-    )
-    return None
+    endpoint = endpoint or _DEFAULT_MCP_ENDPOINT
+
+    try:
+        httpx_mod = importlib.import_module("httpx")
+    except ModuleNotFoundError:
+        print(
+            "decompiler: ghidra backend requires httpx. Install: uv pip install httpx",
+            file=sys.stderr,
+        )
+        return None
+
+    _sync_mod = importlib.import_module("rebrew.sync")
+    _fetch_raw = _sync_mod._fetch_mcp_tool_raw
+    _init_session = _sync_mod._init_mcp_session
+
+    if program_path is None:
+        program_path = f"/{binary.name}"
+
+    try:
+        with httpx_mod.Client(timeout=30.0) as client:
+            session_id = _init_session(client, endpoint)
+            result = _fetch_raw(
+                client,
+                endpoint,
+                "get-decompilation",
+                {
+                    "programPath": program_path,
+                    "functionNameOrAddress": f"0x{va:08X}",
+                },
+                request_id=1,
+                session_id=session_id,
+            )
+
+            if isinstance(result, str):
+                return _clean_output(result)
+            if isinstance(result, dict):
+                for key in ("decompilation", "text", "code"):
+                    candidate = result.get(key)
+                    if isinstance(candidate, str) and candidate.strip():
+                        return _clean_output(candidate)
+            return None
+    except Exception:
+        return None
 
 
 _BACKEND_MAP = {
@@ -128,6 +176,9 @@ def fetch_decompilation(
     binary_path: Path,
     va: int,
     root: Path,
+    *,
+    endpoint: str | None = None,
+    program_path: str | None = None,
 ) -> tuple[str | None, str]:
     """Fetch pseudo-C decompilation from the specified backend.
 
@@ -136,6 +187,7 @@ def fetch_decompilation(
         binary_path: Absolute path to the target binary.
         va: Virtual address of the function.
         root: Project root directory.
+        endpoint: ReVa MCP endpoint URL (used by ``ghidra`` backend only).
 
     Returns:
         A tuple of ``(decompiled_code, backend_name)`` where backend_name is
@@ -158,4 +210,8 @@ def fetch_decompilation(
         )
         return None, backend
 
+    if backend == "ghidra":
+        if program_path is None:
+            return fn(binary_path, va, root, endpoint=endpoint), backend
+        return fn(binary_path, va, root, endpoint=endpoint, program_path=program_path), backend
     return fn(binary_path, va, root), backend

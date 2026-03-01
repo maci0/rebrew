@@ -551,12 +551,19 @@ def main(
             xref_context_val = None
             if decomp:
                 d_code, d_backend = fetch_decompilation(
-                    decomp_backend, cfg.target_binary, va_val, cfg.root
+                    decomp_backend,
+                    cfg.target_binary,
+                    va_val,
+                    cfg.root,
+                    endpoint=endpoint,
                 )
             if xrefs:
+                _sync_mod = importlib.import_module("rebrew.sync")
+                _resolve = _sync_mod._resolve_program_path
+                resolved_path = _resolve(cfg)
                 xref_context_val = fetch_xref_context(
                     endpoint,
-                    f"/{cfg.target_binary.name}",
+                    resolved_path,
                     va_val,
                 )
                 if xref_context_val:
@@ -661,12 +668,19 @@ def main(
         xref_context_val = None
         if decomp:
             decomp_code_val, decomp_backend_name = fetch_decompilation(
-                decomp_backend, cfg.target_binary, va_int, cfg.root
+                decomp_backend,
+                cfg.target_binary,
+                va_int,
+                cfg.root,
+                endpoint=endpoint,
             )
         if xrefs:
+            _sync_mod = importlib.import_module("rebrew.sync")
+            _resolve = _sync_mod._resolve_program_path
+            resolved_path = _resolve(cfg)
             xref_context_val = fetch_xref_context(
                 endpoint,
-                f"/{cfg.target_binary.name}",
+                resolved_path,
                 va_int,
             )
             if xref_context_val:
@@ -729,16 +743,23 @@ def main(
     xref_context_val = None
     if decomp:
         decomp_code_val, decomp_backend_name = fetch_decompilation(
-            decomp_backend, cfg.target_binary, va_int, cfg.root
+            decomp_backend,
+            cfg.target_binary,
+            va_int,
+            cfg.root,
+            endpoint=endpoint,
         )
         if decomp_code_val:
             typer.echo(f"  Decompiler: {decomp_backend_name}", err=True)
         else:
             typer.echo("  Decompiler: no output (backend unavailable or failed)", err=True)
     if xrefs:
+        _sync_mod = importlib.import_module("rebrew.sync")
+        _resolve = _sync_mod._resolve_program_path
+        resolved_path = _resolve(cfg)
         xref_context_val = fetch_xref_context(
             endpoint,
-            f"/{cfg.target_binary.name}",
+            resolved_path,
             va_int,
         )
         if xref_context_val:
