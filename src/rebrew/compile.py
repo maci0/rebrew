@@ -27,6 +27,7 @@ All functions read from ``cfg`` (a ``ProjectConfig`` instance):
 - ``cfg.msvc_env()`` — environment dict with ``LIB`` / ``INCLUDE`` etc.
 """
 
+import contextlib
 import re
 import shlex
 import shutil
@@ -34,6 +35,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from rebrew.compile_cache import CompileCache, compile_cache_key, get_compile_cache
 from rebrew.config import ProjectConfig
 from rebrew.matcher.parsers import parse_obj_symbol_bytes
 
@@ -99,6 +101,9 @@ def compile_to_obj(
     source_path: str | Path,
     cflags: list[str],
     workdir: str | Path,
+    *,
+    cache: CompileCache | None = None,
+    use_cache: bool = True,
 ) -> tuple[str | None, str]:
     """Compile a .c file to .obj using the project compiler.
 
@@ -108,11 +113,20 @@ def compile_to_obj(
 
     The timeout is taken from ``cfg.compile_timeout``.
 
+    When *use_cache* is ``True`` (the default), a persistent disk cache is
+    consulted before invoking the compiler subprocess.  On cache hit the
+    ``.obj`` bytes are written directly to *workdir*, skipping the 200-500 ms
+    Wine/wibo startup overhead entirely.
+
     Args:
         cfg: ProjectConfig with compiler settings.
         source_path: Path to the .c source file.
         cflags: List of compiler flag strings (e.g. ["/O2", "/Gd"]).
         workdir: Working directory for compilation.
+        cache: Explicit ``CompileCache`` instance to use.  When ``None``
+            and *use_cache* is True, a shared instance is obtained
+            automatically from the project root.
+        use_cache: Set to ``False`` to bypass the cache entirely.
 
     Returns:
         (obj_path, error_msg) — obj_path is None on failure.
@@ -166,6 +180,38 @@ def compile_to_obj(
         else:
             resolved_cflags.append(flag)
 
+    # --- Compile cache lookup ---
+    cc = cache
+    if cc is None and use_cache:
+        try:
+            cc = get_compile_cache(cfg.root)
+        except OSError:
+            cc = None
+
+    cache_key: str | None = None
+    if cc is not None:
+        source_content = local_src.read_text(encoding="utf-8", errors="replace")
+        cl_parts = resolve_cl_command(cfg)
+        toolchain_id = " ".join(cl_parts)
+        include_dirs = [inc_path, str(src_parent)]
+        source_ext = source_path.suffix or ".c"
+
+        cache_key = compile_cache_key(
+            source_content=source_content,
+            source_filename=src_name,
+            cflags=base_flags + resolved_cflags,
+            include_dirs=include_dirs,
+            toolchain_id=toolchain_id,
+            source_ext=source_ext,
+        )
+        cached_obj = cc.get(cache_key)
+        if cached_obj is not None:
+            obj_file = workdir / obj_name
+            obj_file.write_bytes(cached_obj)
+            return str(obj_file), ""
+
+    # --- Cache miss: compile via subprocess ---
+
     # Build full command: [wine, cl.exe] + base + user flags + includes + output + source
     # Include the source file's original parent dir so that relative
     # #include "../../..." paths still resolve after the copy.
@@ -201,6 +247,10 @@ def compile_to_obj(
         err = filter_wine_stderr((r.stdout + r.stderr).decode("utf-8", errors="replace"))[:400]
         return None, err
 
+    if cc is not None and cache_key is not None:
+        with contextlib.suppress(OSError):
+            cc.put(cache_key, obj_file.read_bytes())
+
     return str(obj_file), ""
 
 
@@ -215,6 +265,9 @@ def compile_and_compare(
     symbol: str,
     target_bytes: bytes,
     cflags: str | list[str],
+    *,
+    cache: CompileCache | None = None,
+    use_cache: bool = True,
 ) -> tuple[bool, str, bytes | None, dict[int, str] | None]:
     """Compile source, extract COFF symbol, compare against target bytes with reloc masking.
 
@@ -241,6 +294,8 @@ def compile_and_compare(
                 source_path,
                 cflags_list,
                 workdir,
+                cache=cache,
+                use_cache=use_cache,
             )
             if obj_path is None:
                 return False, f"COMPILE_ERROR: {filter_wine_stderr(err)[:200]}", None, None

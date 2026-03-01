@@ -3,9 +3,11 @@ Usage: rebrew flirt [sig_dir]
 """
 
 import sys
+import warnings
 from collections.abc import Callable
 from importlib import import_module
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -13,19 +15,19 @@ from rebrew.binary_loader import load_binary
 from rebrew.cli import TargetOption, error_exit, get_config, json_print
 
 try:
-    flirt: object | None = import_module("flirt")
+    flirt: Any | None = import_module("flirt")
 except ImportError:
     flirt = None
 
 
-def load_signatures(sig_dir: str, json_output: bool = False) -> list[object]:
+def load_signatures(sig_dir: str, json_output: bool = False) -> list[Any]:
     """Load all ``.sig`` and ``.pat`` FLIRT signature files from *sig_dir*."""
     if flirt is None:
         return []
 
     _print = _make_progress_printer(json_output)
     _print(f"Loading signatures from {sig_dir}...")
-    sigs: list[object] = []
+    sigs: list[Any] = []
 
     sig_path = Path(sig_dir)
     if not sig_path.exists():
@@ -43,7 +45,7 @@ def load_signatures(sig_dir: str, json_output: bool = False) -> list[object]:
             sigs.extend(parsed)
             _print(f"Loaded {len(parsed)} signatures from {filepath.name}")
         except (OSError, ValueError, TypeError) as e:
-            print(f"Error loading {filepath}: {e}", file=sys.stderr)
+            warnings.warn(f"Error loading {filepath}: {e}", stacklevel=2)
 
     return sigs
 
@@ -75,7 +77,7 @@ def _make_progress_printer(json_output: bool) -> Callable[..., None]:
     """Return a print function that goes to stderr when json_output is True."""
     if json_output:
 
-        def _print(*args: object, **kwargs: object) -> None:
+        def _print(*args: Any, **kwargs: Any) -> None:
             kwargs["file"] = sys.stderr
             print(*args, **kwargs)
 
@@ -154,7 +156,7 @@ def main(
 
     found = 0
     skipped = 0
-    matches_list: list[dict[str, object]] = []
+    matches_list: list[dict[str, Any]] = []
     stride = 16  # standard function alignment
     max_ambiguous = 3  # if more unique names match, it's noise
 
@@ -208,7 +210,7 @@ def main(
             found += 1
 
     if json_output:
-        output: dict[str, object] = {
+        output: dict[str, Any] = {
             "binary": str(final_exe),
             "sig_dir": str(final_sig_dir),
             "signature_count": sig_count,

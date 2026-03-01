@@ -56,18 +56,7 @@ Rebrew is designed to be consumed as a dependency by a project-specific decomp r
 ### 1. Installation
 
 ```bash
-# In your decomp project's pyproject.toml:
-[project]
-dependencies = ["rebrew"]
-
-[tool.uv.sources]
-rebrew = { path = "../rebrew", editable = true }
-```
-
-Then from within the project directory:
-
-```bash
-uv sync
+uv tool install git+https://github.com/maci0/rebrew.git
 ```
 
 ### 2. Project Configuration (`rebrew-project.toml`)
@@ -166,7 +155,7 @@ rebrew sync --pull --dry-run        # preview pull without modifying files
 ```bash
 cd rebrew/
 uv sync --all-extras       # install dev dependencies
-uv run pytest tests/ -v    # run tests (~1200 tests)
+uv run pytest tests/ -v    # run tests (~1257 tests)
 uv run ruff check .        # lint
 uv run ruff format .       # format
 python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me

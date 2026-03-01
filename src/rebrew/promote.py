@@ -8,9 +8,9 @@ Usage:
     rebrew promote src/server.dll/my_func.c --json
 """
 
-import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -75,7 +75,7 @@ def main(
     origin = annotations[0].origin if annotations else ""
     compile_cfg = cfg.for_origin(origin)
 
-    results: list[dict[str, object]] = []
+    results: list[dict[str, Any]] = []
 
     with tempfile.TemporaryDirectory(prefix="promote_") as workdir:
         obj_path, err = compile_obj(compile_cfg, source, cflags_parts, workdir)
@@ -180,13 +180,13 @@ def main(
             action = r.get("action", "none")
             if action in ("updated", "would_update"):
                 verb = "Updated" if action == "updated" else "Would update"
-                print(f"{sym}: {prev} -> {status} ({verb})", file=sys.stderr)
+                typer.echo(f"{sym}: {prev} -> {status} ({verb})", err=True)
             elif r.get("status") == "SKIPPED":
-                print(f"{sym}: SKIPPED ({r.get('reason', '')})", file=sys.stderr)
+                typer.echo(f"{sym}: SKIPPED ({r.get('reason', '')})", err=True)
             elif r.get("status") == "ERROR":
-                print(f"{sym}: ERROR ({r.get('reason', '')})", file=sys.stderr)
+                typer.echo(f"{sym}: ERROR ({r.get('reason', '')})", err=True)
             else:
-                print(f"{sym}: {status} (no change)", file=sys.stderr)
+                typer.echo(f"{sym}: {status} (no change)", err=True)
 
     has_errors = any(r.get("status") == "ERROR" for r in results)
     has_mismatches = any(

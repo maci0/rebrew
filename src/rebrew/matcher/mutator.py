@@ -1,6 +1,6 @@
 """mutator.py – C source mutation engine for GA-based binary matching.
 
-Provides 48+ mutation functions that transform C89 source code to explore
+Provides 51 mutation functions that transform C89 source code to explore
 the MSVC6 code generation space. Each mutation targets a specific compiler
 behavior (register allocation, instruction selection, calling conventions).
 """

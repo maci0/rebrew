@@ -13,7 +13,6 @@ Usage:
 """
 
 import re
-import sys
 from pathlib import Path
 from typing import TypedDict
 
@@ -413,7 +412,7 @@ def main(
 
     if output:
         Path(output).write_text(result + "\n", encoding="utf-8")
-        print(f"Written to {output}", file=sys.stderr)
+        typer.echo(f"Written to {output}", err=True)
     else:
         print(result)
 

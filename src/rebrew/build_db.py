@@ -7,7 +7,6 @@ into a single SQLite database for querying and reporting.
 import contextlib
 import json
 import sqlite3
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -186,7 +185,7 @@ def build_db(project_root: Path | None = None, target: str | None = None) -> Non
 
         for json_path in json_files:
             target_name = json_path.stem.removeprefix("data_")
-            print(f"Processing {target_name}...", file=sys.stderr)
+            typer.echo(f"Processing {target_name}...", err=True)
 
             with json_path.open(encoding="utf-8") as f:
                 data = json.load(f)

@@ -24,6 +24,7 @@ import contextlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from rebrew.utils import atomic_write_text
 
@@ -35,10 +36,7 @@ VALID_MARKERS = {"FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"}
 VALID_STATUSES = {"EXACT", "RELOC", "MATCHING", "MATCHING_RELOC", "STUB"}
 # Default origins — used as fallback when config is not available.
 # Projects should define their own origins in rebrew-project.toml.
-_DEFAULT_ORIGINS = {"GAME", "MSVCRT", "ZLIB"}
-
-# Backward-compatible alias (deprecated, prefer config origins).
-VALID_ORIGINS = _DEFAULT_ORIGINS
+DEFAULT_ORIGINS = {"GAME", "MSVCRT", "ZLIB"}
 
 REQUIRED_KEYS = {"STATUS", "ORIGIN", "SIZE", "CFLAGS"}
 RECOMMENDED_KEYS = {"SYMBOL"}
@@ -108,14 +106,11 @@ JAVADOC_KV_RE = re.compile(r"@(?P<key>\w+)\s+(?P<value>.+)")
 
 # Default filename prefix → expected ORIGIN mapping.
 # Projects can override via origin_prefixes in rebrew-project.toml.
-_DEFAULT_ORIGIN_PREFIXES = {
+DEFAULT_ORIGIN_PREFIXES = {
     "crt_": "MSVCRT",
     "zlib_": "ZLIB",
     "game_": "GAME",
 }
-
-# Backward-compatible alias.
-FILENAME_ORIGIN_PREFIXES = _DEFAULT_ORIGIN_PREFIXES
 
 
 # ---------------------------------------------------------------------------
@@ -173,10 +168,10 @@ def origin_from_filename(stem: str, prefixes: dict[str, str] | None = None) -> s
     Args:
         stem: Filename stem (without extension).
         prefixes: Mapping of filename prefix to origin.
-                  Defaults to _DEFAULT_ORIGIN_PREFIXES.
+                   Defaults to DEFAULT_ORIGIN_PREFIXES.
     """
     if prefixes is None:
-        prefixes = _DEFAULT_ORIGIN_PREFIXES
+        prefixes = DEFAULT_ORIGIN_PREFIXES
     for prefix, origin in prefixes.items():
         if stem.startswith(prefix):
             return origin
@@ -244,14 +239,14 @@ class Annotation:
 
     # -- Dict-like access for backward compat --
 
-    def __getitem__(self, key: str) -> object:
+    def __getitem__(self, key: str) -> Any:
         attr = _FIELD_ALIASES.get(key, key)
         try:
             return getattr(self, attr)
         except AttributeError:
             raise KeyError(key)
 
-    def __setitem__(self, key: str, value: object) -> None:
+    def __setitem__(self, key: str, value: Any) -> None:
         attr = _FIELD_ALIASES.get(key, key)
         if hasattr(self, attr):
             object.__setattr__(self, attr, value)
@@ -262,14 +257,14 @@ class Annotation:
         attr = _FIELD_ALIASES.get(key, key)
         return hasattr(self, attr)
 
-    def get(self, key: str, default: object = None) -> object:
+    def get(self, key: str, default: Any = None) -> Any:
         """Return the value for *key*, or *default* if not present."""
         try:
             return self[key]
         except KeyError:
             return default
 
-    def to_dict(self) -> dict[str, object]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict (for JSON output or legacy code)."""
         d = {
             "va": self.va,
@@ -321,7 +316,7 @@ class Annotation:
         if self.status and self.status not in VALID_STATUSES:
             errors.append(f"Invalid STATUS: {self.status}")
 
-        if self.origin and self.origin not in (valid_origins or _DEFAULT_ORIGINS):
+        if self.origin and self.origin not in (valid_origins or DEFAULT_ORIGINS):
             errors.append(f"Invalid ORIGIN: {self.origin}")
 
         if self.size <= 0:

@@ -8,6 +8,7 @@ import re
 import shutil
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import rich
 import typer
@@ -309,8 +310,10 @@ def main(
         for marker_key in ("FUNCTION", "LIBRARY", "STUB"):
             func_meta = meta.get(marker_key)
             if func_meta and "0x" in func_meta:
-                va_str = "0x" + func_meta.split("0x")[1].split()[0]
-                break
+                after_hex = func_meta.split("0x")[1].split()
+                if after_hex:
+                    va_str = "0x" + after_hex[0]
+                    break
 
     size_val = size
     if size_val is None and "SIZE" in meta:
@@ -422,7 +425,7 @@ def build_result_dict(
     obj_bytes: bytes,
     target_bytes: bytes,
     invalid_relocs: list[int] | None = None,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Build structured JSON output for one compile-and-compare result.
 
     The resulting payload is stable and machine-friendly for downstream tools,
@@ -502,7 +505,7 @@ def _test_multi(
     cflags_str = cflags_override or annotations[0].cflags or "/O2 /Gd"
     cflags_parts = cflags_str.split()
 
-    results_list: list[dict[str, object]] = []
+    results_list: list[dict[str, Any]] = []
 
     with tempfile.TemporaryDirectory(prefix="test_multi_") as workdir:
         obj_path, err = compile_obj(cfg, source, cflags_parts, workdir)

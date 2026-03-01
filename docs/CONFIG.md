@@ -279,7 +279,7 @@ For a full toolchain health check, run `rebrew doctor`.
 
 ## Which Tools Use What Config
 
-All 23 tools read from `rebrew-project.toml`. Each uses `try/except` with hardcoded fallbacks:
+All 24 tools read from `rebrew-project.toml`. Each uses `try/except` with hardcoded fallbacks:
 
 | Tool | Config Values Used |
 |------|--------------------|

@@ -8,7 +8,7 @@ All format parsing is backed by LIEF.
 """
 
 import struct
-import sys
+import warnings
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -369,5 +369,5 @@ def extract_function_from_binary(bin_path: Path, va: int, size: int) -> bytes | 
         info = load_binary(bin_path)
         return extract_bytes_at_va(info, va, size, padding_bytes=tuple(_PADDING_BYTES))
     except (ImportError, OSError, KeyError, ValueError) as e:
-        print(f"Error extracting from binary: {e}", file=sys.stderr)
+        warnings.warn(f"Error extracting from binary: {e}", stacklevel=2)
     return None

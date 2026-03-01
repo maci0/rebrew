@@ -10,7 +10,6 @@ multi-command modules (currently only ``cfg``) use ``add_typer()``.
 """
 
 import importlib
-import sys
 from collections.abc import Callable
 
 import typer
@@ -75,6 +74,7 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
 # Only modules with multiple @app.command() subcommands belong here.
 _MULTI_COMMANDS: list[tuple[str, str, str]] = [
     ("cfg", "rebrew.cfg", "Read and edit rebrew-project.toml programmatically."),
+    ("cache", "rebrew.cache_cli", "Manage the compile result cache."),
 ]
 
 
@@ -82,7 +82,7 @@ def _make_stub_cmd(mod_name: str, err: ImportError) -> Callable[[], None]:
     """Create a stub command function that reports a missing dependency."""
 
     def _stub() -> None:
-        print(f"Error: could not load '{mod_name}': {err}", file=sys.stderr)
+        typer.echo(f"Error: could not load '{mod_name}': {err}", err=True)
         raise typer.Exit(code=1)
 
     return _stub
@@ -94,7 +94,7 @@ def _make_stub_app(mod_name: str, err: ImportError) -> typer.Typer:
 
     @stub.callback(invoke_without_command=True)
     def _stub_main() -> None:
-        print(f"Error: could not load '{mod_name}': {err}", file=sys.stderr)
+        typer.echo(f"Error: could not load '{mod_name}': {err}", err=True)
         raise typer.Exit(code=1)
 
     return stub

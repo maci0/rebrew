@@ -1,32 +1,40 @@
 # Rebrew Tooling Improvement Ideas
 
-Ideas collected during hands-on workflow testing, prioritized by impact.
+Ideas collected during hands-on workflow testing, sorted by impact-to-effort ratio.
 
 ---
 
 ## Prioritized Ideas
 
-| # | Idea | Impact | Effort | Priority |
-|---|------|--------|--------|----------|
-| 1 | [CRT source cross-reference tool](#1-crt-source-cross-reference-tool) | High | Medium | **P0** |
-| 2 | [Data Sync and XREF Pipeline](#2-data-sync-and-xref-pipeline) | High | Medium | **P1** |
-| 3 | [Incremental verify](#3-incremental-verify) | Medium | Medium | **P2** |
-| 4 | [GA code layout mutations](#4-ga-code-layout-mutations) | Medium | High | **P2** |
-| 5 | [Incremental / dirty-only Ghidra sync](#5-incremental--dirty-only-ghidra-sync) | Medium | Medium | **P2** |
-| 6 | [XREF context in skeleton generation](#6-xref-context-in-skeleton-generation) | Medium | Low | **P2** |
-| 7 | [Ghidra decompilation backend for skeleton](#7-ghidra-decompilation-backend-for-skeleton) | Medium | Low | **P2** |
-| 8 | [Sync deduplication / idempotency tracking](#8-sync-deduplication--idempotency-tracking) | Medium | Medium | **P2** |
-| 9 | [Validate programPath against Ghidra project](#9-validate-programpath-against-ghidra-project) | Medium | Low | **P2** |
-| 10 | [Callee-save register injection](#10-callee-save-register-injection) | High | High | **P3** |
-| 11 | [Watch mode for live Ghidra sync](#11-watch-mode-for-live-ghidra-sync) | Low | High | **P3** |
-| 12 | [Auto-BLOCKER classification from diffs](#12-auto-blocker-classification-from-diffs) | Medium | Low | **P3** |
-| 13 | [Multi-function file splitting tool](#13-multi-function-file-splitting-tool) | Low | Low | **P3** |
-| 14 | [Surgical Semantic Equivalence with angr](#14-surgical-semantic-equivalence-with-angr) | Medium | High | **P4** |
-| 15 | [Compile result cache](#15-compile-result-cache) | High | Medium | **P1** |
-| 16 | [Auto-download wibo](#16-auto-download-wibo) | Medium | Low | **P1** |
-| 17 | [Match regression detection](#17-match-regression-detection) | Medium | Low | **P2** |
-| 18 | [Batch promote](#18-batch-promote) | Medium | Low | **P2** |
-| 19 | [Cross-function solution transfer](#19-cross-function-solution-transfer) | High | High | **P3** |
+| # | Idea | Impact | Effort | Priority | Status |
+|---|------|--------|--------|----------|--------|
+| 15 | [Compile result cache (test/verify)](#15-compile-result-cache) | **Critical** | Medium | **P0** | **Done** |
+| 17 | [Match regression detection](#17-match-regression-detection) | High | Low | **P0** | — |
+| 18 | [Batch promote](#18-batch-promote) | High | Low | **P0** | — |
+| 1 | [CRT source cross-reference tool](#1-crt-source-cross-reference-tool) | High | Medium | **P1** | — |
+| 2 | [Data Sync and XREF Pipeline](#2-data-sync-and-xref-pipeline) | High | Medium | **P1** | Partial |
+| 16 | [Auto-download wibo](#16-auto-download-wibo) | Medium | Low | **P1** | — |
+| 3 | [Incremental verify](#3-incremental-verify) | Medium | Medium | **P2** | — |
+| 6 | [XREF context in skeleton generation](#6-xref-context-in-skeleton-generation) | Medium | Low | **P2** | — |
+| 7 | [Ghidra decompilation backend for skeleton](#7-ghidra-decompilation-backend-for-skeleton) | Medium | Low | **P2** | Stub |
+| 9 | [Validate programPath against Ghidra project](#9-validate-programpath-against-ghidra-project) | Medium | Low | **P2** | — |
+| 20 | [Test watch mode](#20-test-watch-mode) | Medium | Medium | **P2** | — |
+| 4 | [GA code layout mutations](#4-ga-code-layout-mutations) | Medium | High | **P2** | Partial |
+| 5 | [Incremental / dirty-only Ghidra sync](#5-incremental--dirty-only-ghidra-sync) | Medium | Medium | **P2** | — |
+| 8 | [Sync deduplication / idempotency tracking](#8-sync-deduplication--idempotency-tracking) | Medium | Medium | **P2** | — |
+| 13 | [Multi-function file splitting tool](#13-multi-function-file-splitting-tool) | Low | Low | **P3** | — |
+| 21 | [Binary similarity search](#21-binary-similarity-search) | Medium | High | **P3** | — |
+| 19 | [Cross-function solution transfer](#19-cross-function-solution-transfer) | High | High | **P3** | — |
+| 10 | [Callee-save register injection](#10-callee-save-register-injection) | High | High | **P3** | — |
+| 11 | [Watch mode for live Ghidra sync](#11-watch-mode-for-live-ghidra-sync) | Low | High | **P4** | — |
+| 14 | [Surgical Semantic Equivalence with angr](#14-surgical-semantic-equivalence-with-angr) | Medium | High | **P4** | — |
+
+### Done
+
+| # | Idea | Notes |
+|---|------|-------|
+| 12 | Auto-BLOCKER classification from diffs | `classify_blockers()` in match.py + `verify --fix-status` auto-updates BLOCKER/BLOCKER_DELTA |
+| — | Coverage dashboard (HTML) | Implemented as sibling project `recoverage` — consumes `data_{target}.json` |
 
 ---
 
@@ -172,19 +180,22 @@ See [ANGR_PROPOSAL.md](ANGR_PROPOSAL.md) for the full technical proposal.
 
 **Impact**: Closes the final 1% gap on complex functions where the modern compiler refuses to generate byte-for-byte identical code to the original legacy compiler, providing mathematical certainty without resorting to inline assembly hacks.
 
-### 15. Compile result cache
+### 15. Compile result cache ✅
+
+> **Status: Done.** Implemented in `compile_cache.py`, integrated into `compile.py`, `matcher/compiler.py`, `match.py`, and `ga.py`. CLI via `rebrew cache stats` / `rebrew cache clear`. 23 tests in `test_compile_cache.py`.
 
 **Pain**: Every Wine/wibo invocation takes 200-500ms of startup overhead. During `rebrew ga` (100 generations × 30 population × N functions) and `rebrew match --flag-sweep` (192-8.3M flag combinations), the same `(source + flags)` combination is frequently compiled multiple times — identical source with identical flags producing identical `.obj` output. This is pure waste.
 
-**Proposed**: Hash-based `.obj` caching that skips the Wine/wibo subprocess entirely on cache hit.
+**Implemented**: Hash-based `.obj` caching via `diskcache` (SQLite-backed, thread-safe) that skips the Wine/wibo subprocess entirely on cache hit.
 
-- **Cache key**: SHA-256 of `(runner + command + base_cflags + cflags + source_content + include_dir_hash)`. The include dir hash covers `compiler_includes` contents so header changes invalidate correctly.
-- **Cache location**: `.rebrew/compile_cache/` (gitignored), keyed by hex digest. Each entry stores the `.obj` bytes.
-- **Integration points**: `compile_to_obj()` in `compile.py` and `build_candidate_obj_only()` in `matcher/compiler.py` — the two hot paths where all compilation funnels through.
-- **Cache hit**: Read `.obj` from disk, skip subprocess entirely. Return immediately.
-- **Cache miss**: Compile normally, store `.obj` bytes before returning.
-- **Invalidation**: Automatic via content hash. No explicit invalidation needed. Optional `rebrew cache clear` command for manual cleanup.
-- **Size management**: LRU eviction when cache exceeds a configurable limit (default 500MB). Most `.obj` files are 1-10KB, so this holds 50K+ entries.
+- **Cache key**: SHA-256 of `(CACHE_SCHEMA_VERSION, source_content, source_filename, source_ext, ordered_cflags, ordered_include_dirs, toolchain_id)`. Flag order is preserved (matters for `/I` search paths, `/D` redefinitions).
+- **Cache location**: `{project_root}/.rebrew/compile_cache/` (gitignored), managed by `diskcache.Cache`.
+- **Integration points**: `compile_to_obj()` in `compile.py` and `build_candidate_obj_only()` in `matcher/compiler.py` — the two hot paths where all compilation funnels through. `match.py` and `ga.py` create and pass cache instances.
+- **Cache hit**: Read `.obj` bytes from cache, write to workdir, skip subprocess entirely.
+- **Cache miss**: Compile normally, store `.obj` bytes after successful compile.
+- **Only successes cached**: Failed compiles are never cached (transient errors).
+- **Size management**: LRU eviction at 500MB default via `diskcache.Cache(size_limit=...)`.
+- **CLI**: `rebrew cache stats` (entry count, disk usage) and `rebrew cache clear` (purge all entries).
 
 **Impact**: The single biggest performance win for GA and flag sweep. For a typical `--flag-sweep --tier targeted` run (1,152 combos × N functions), cache hits on unchanged functions eliminate ~90% of Wine invocations on subsequent runs. GA benefits when mutations produce previously-seen source text.
 
