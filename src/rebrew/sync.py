@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import httpx
 import typer
 from rich.console import Console
 
@@ -39,6 +40,7 @@ from rebrew.catalog import (
     scan_reversed_dir,
 )
 from rebrew.cli import TargetOption, error_exit, get_config, iter_sources, json_print
+from rebrew.config import ProjectConfig
 
 # Pattern matching generic auto-names that shouldn't overwrite Ghidra renames
 _GENERIC_NAME_RE = re.compile(r"^(func_|FUN_)[0-9a-fA-F]+$")
@@ -58,7 +60,7 @@ def _is_generic_name(name: str) -> bool:
     return bool(_GENERIC_NAME_RE.match(name))
 
 
-def _resolve_program_path(cfg: Any) -> str:
+def _resolve_program_path(cfg: ProjectConfig) -> str:
     """Return the Ghidra program path from config or derive from binary name."""
     configured = getattr(cfg, "ghidra_program_path", "")
     if configured:
@@ -82,7 +84,7 @@ def _validate_program_path(
             request_id=1,
             session_id=session_id,
         )
-    except Exception:
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError):
         return program_path
 
     if not isinstance(result, dict):
@@ -594,7 +596,7 @@ def _is_meaningful_name(name: str) -> bool:
     )
 
 
-def _ghidra_name_to_symbol(ghidra_name: str, entry: Any, cfg: Any = None) -> str:
+def _ghidra_name_to_symbol(ghidra_name: str, entry: Any, cfg: ProjectConfig | None = None) -> str:
     """Convert a Ghidra function name to a C symbol name based on calling convention and config."""
     if not ghidra_name:
         return ""
@@ -624,7 +626,7 @@ def _ghidra_name_to_symbol(ghidra_name: str, entry: Any, cfg: Any = None) -> str
 
 def pull_ghidra_renames(
     entries: list[dict[str, Any]],
-    cfg: Any,
+    cfg: ProjectConfig,
     endpoint: str = "http://localhost:8080/mcp/message",
     program_path: str = "",
     dry_run: bool = False,
@@ -639,13 +641,6 @@ def pull_ghidra_renames(
     Returns a PullResult with all proposed/applied changes.
     """
     result = PullResult()
-
-    try:
-        import httpx
-    except ImportError:
-        error_exit(
-            "httpx is required for --pull. Install with: uv pip install httpx",
-        )
 
     if not dry_run:
         print("Fetching function, data, and comment lists from Ghidra via ReVa MCP...")
@@ -774,6 +769,11 @@ def pull_ghidra_renames(
         if not filepath.exists() and not filepath.is_absolute():
             filepath = cfg.reversed_dir / filepath
         if not filepath.exists():
+            continue
+        # Guard against path traversal: resolved path must stay within reversed_dir
+        try:
+            filepath.resolve().relative_to(cfg.reversed_dir.resolve())
+        except ValueError:
             continue
 
         ghidra_name = ghidra_names_by_va.get(va)
@@ -949,13 +949,6 @@ def apply_commands_via_mcp(
 
     Returns (success_count, error_count).
     """
-    try:
-        import httpx
-    except ImportError:
-        error_exit(
-            "httpx is required for --apply. Install with: uv pip install httpx",
-        )
-
     success = 0
     errors = 0
     total = len(commands)
@@ -1166,7 +1159,7 @@ def build_new_function_commands(
 
 def _pull_prototypes(
     entries: list[Any],
-    cfg: Any,
+    cfg: ProjectConfig,
     endpoint: str,
     program_path: str,
     dry_run: bool,
@@ -1178,8 +1171,6 @@ def _pull_prototypes(
     When True, also replaces extern declarations across the project (WARNING: Ghidra
     types like uint/byte/undefined are not valid C89/MSVC6 — use with caution).
     """
-    import httpx
-
     console.print("Pulling function prototypes from Ghidra...")
 
     with httpx.Client(timeout=30.0) as client:
@@ -1318,10 +1309,8 @@ def _pull_prototypes(
         console.print(f"Successfully pulled {updated_count} prototypes.")
 
 
-def _pull_structs(cfg: Any, endpoint: str, program_path: str, dry_run: bool) -> None:
+def _pull_structs(cfg: ProjectConfig, endpoint: str, program_path: str, dry_run: bool) -> None:
     """Pull struct definitions from Ghidra into types.h using list-structures + get-structure-info."""
-    import httpx
-
     console.print("Pulling struct definitions from Ghidra...")
 
     with httpx.Client(timeout=30.0) as client:
@@ -1444,11 +1433,9 @@ def _pull_structs(cfg: Any, endpoint: str, program_path: str, dry_run: bool) -> 
 
 
 def _pull_comments(
-    entries: list[Any], cfg: Any, endpoint: str, program_path: str, dry_run: bool
+    entries: list[Any], cfg: ProjectConfig, endpoint: str, program_path: str, dry_run: bool
 ) -> None:
     """Pull Ghidra analysis comments into source files."""
-    import httpx
-
     console.print("Pulling comments from Ghidra...")
 
     # Determine address range from entries
@@ -1556,7 +1543,7 @@ def _pull_comments(
 
 
 def _pull_data(
-    cfg: Any,
+    cfg: ProjectConfig,
     endpoint: str,
     program_path: str,
     dry_run: bool,
@@ -1974,8 +1961,6 @@ def main(
 
     if push or pull or pull_signatures or pull_structs or pull_comments or pull_data or apply:
         try:
-            import httpx
-
             with httpx.Client(timeout=10.0) as probe_client:
                 probe_session = _init_mcp_session(probe_client, endpoint)
                 program_path = _validate_program_path(
@@ -1984,7 +1969,7 @@ def main(
                     program_path,
                     probe_session,
                 )
-        except Exception:
+        except (httpx.HTTPError, OSError, RuntimeError, ValueError):
             pass
 
     if pull or pull_signatures or pull_structs or pull_comments or pull_data:

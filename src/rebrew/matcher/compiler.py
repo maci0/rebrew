@@ -161,6 +161,7 @@ def build_candidate_obj_only(
     env: dict[str, str] | None = None,
     source_ext: str = ".c",
     cache: CompileCache | None = None,
+    timeout: int = 60,
 ) -> BuildResult:
     """Compile source to .obj and extract symbol bytes (no linking).
 
@@ -211,9 +212,9 @@ def build_candidate_obj_only(
                 env["WINEDEBUG"] = "-all"
 
         try:
-            r = subprocess.run(cmd, capture_output=True, cwd=workdir, env=env, timeout=60)
+            r = subprocess.run(cmd, capture_output=True, cwd=workdir, env=env, timeout=timeout)
         except subprocess.TimeoutExpired:
-            return BuildResult(ok=False, error_msg="Compile timed out after 60s")
+            return BuildResult(ok=False, error_msg=f"Compile timed out after {timeout}s")
         except FileNotFoundError as e:
             return BuildResult(ok=False, error_msg=f"Compiler not found: {e}")
         except OSError as e:
@@ -248,6 +249,7 @@ def build_candidate(
     extra_sources: list[str] | None = None,
     env: dict[str, str] | None = None,
     source_ext: str = ".c",
+    timeout: int = 120,
 ) -> BuildResult:
     """Compile and link source to .exe, then extract symbol bytes."""
     with tempfile.TemporaryDirectory(prefix="matcher_") as _td:
@@ -275,9 +277,9 @@ def build_candidate(
             if cmd_head in {"wine", "wibo"}:
                 env["WINEDEBUG"] = "-all"
         try:
-            r = subprocess.run(cmd, capture_output=True, cwd=workdir, env=env, timeout=120)
+            r = subprocess.run(cmd, capture_output=True, cwd=workdir, env=env, timeout=timeout)
         except subprocess.TimeoutExpired:
-            return BuildResult(ok=False, error_msg="Compile+link timed out after 120s")
+            return BuildResult(ok=False, error_msg=f"Compile+link timed out after {timeout}s")
         except FileNotFoundError as e:
             return BuildResult(ok=False, error_msg=f"Compiler not found: {e}")
         except OSError as e:
@@ -332,6 +334,7 @@ def flag_sweep(
     env: dict[str, str] | None = None,
     source_ext: str = ".c",
     cache: CompileCache | None = None,
+    timeout: int = 60,
 ) -> list[tuple[float, str]]:
     """Sweep compiler flags to find the best match.
 
@@ -359,6 +362,7 @@ def flag_sweep(
             env=env,
             source_ext=source_ext,
             cache=cache,
+            timeout=timeout,
         )
         if res.ok and res.obj_bytes:
             score = score_candidate(target_bytes, res.obj_bytes, res.reloc_offsets)

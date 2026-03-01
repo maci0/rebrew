@@ -225,8 +225,8 @@ binary = "test.exe"
 arch = "mips32"
 """
         root = _make_project(tmp_path, toml)
-        cfg = load_config(root)
-        # Should fall back to x86_32 preset
+        with pytest.warns(UserWarning, match="unknown arch"):
+            cfg = load_config(root)
         assert cfg.pointer_size == 4
 
     def test_wrong_list_types_fall_back(self, tmp_path: Path) -> None:
@@ -239,7 +239,8 @@ ignored_symbols = "_bad"
 library_origins = "MSVCRT"
 """
         root = _make_project(tmp_path, toml)
-        cfg = load_config(root)
+        with pytest.warns(UserWarning):
+            cfg = load_config(root)
         assert cfg.origins == []
         assert cfg.iat_thunks == []
         assert cfg.ignored_symbols == []
@@ -252,7 +253,8 @@ binary = "test.exe"
 dll_exports = "not-a-dict"
 """
         root = _make_project(tmp_path, toml)
-        cfg = load_config(root)
+        with pytest.warns(UserWarning, match="Expected mapping"):
+            cfg = load_config(root)
         assert cfg.dll_exports == {}
 
 
@@ -725,7 +727,8 @@ class TestProjectConfig:
 
 class TestPEDetection:
     def test_nonexistent_file_returns_zeros(self) -> None:
-        result = _detect_binary_layout(Path("/nonexistent/file.dll"))
+        with pytest.warns(UserWarning, match="Could not detect binary layout"):
+            result = _detect_binary_layout(Path("/nonexistent/file.dll"))
         assert result["image_base"] == 0
         assert result["text_va"] == 0
         assert result["text_raw_offset"] == 0
@@ -733,7 +736,8 @@ class TestPEDetection:
     def test_non_pe_file_returns_zeros(self, tmp_path: Path) -> None:
         fake = tmp_path / "not_a_pe.dll"
         fake.write_bytes(b"this is not a PE file")
-        result = _detect_binary_layout(fake)
+        with pytest.warns(UserWarning, match="Could not detect binary layout"):
+            result = _detect_binary_layout(fake)
         assert result["image_base"] == 0
 
 

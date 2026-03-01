@@ -30,6 +30,7 @@ Use ``rebrew cache clear`` for manual invalidation after header edits.
 from __future__ import annotations
 
 import hashlib
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -135,6 +136,7 @@ def compile_cache_key(
 # ---------------------------------------------------------------------------
 
 _caches: dict[str, CompileCache] = {}
+_caches_lock = threading.Lock()
 
 
 def get_compile_cache(project_root: Path) -> CompileCache:
@@ -144,13 +146,15 @@ def get_compile_cache(project_root: Path) -> CompileCache:
     Multiple calls with the same root return the same instance.
     """
     cache_dir = str(project_root / ".rebrew" / "compile_cache")
-    if cache_dir not in _caches:
-        _caches[cache_dir] = CompileCache(cache_dir)
-    return _caches[cache_dir]
+    with _caches_lock:
+        if cache_dir not in _caches:
+            _caches[cache_dir] = CompileCache(cache_dir)
+        return _caches[cache_dir]
 
 
 def close_all_caches() -> None:
     """Close all open cache instances (for clean shutdown in tests)."""
-    for cache in _caches.values():
-        cache.close()
-    _caches.clear()
+    with _caches_lock:
+        for cache in _caches.values():
+            cache.close()
+        _caches.clear()
