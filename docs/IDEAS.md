@@ -11,7 +11,7 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 | 15 | [Compile result cache (test/verify)](#15-compile-result-cache) | **Critical** | Medium | **P0** | **Done** |
 | 17 | [Match regression detection](#17-match-regression-detection) | High | Low | **P0** | **Done** |
 | 18 | [Batch promote](#18-batch-promote) | High | Low | **P0** | **Done** |
-| 1 | [CRT source cross-reference tool](#1-crt-source-cross-reference-tool) | High | Medium | **P1** | — |
+| 1 | [CRT source cross-reference tool](#1-crt-source-cross-reference-tool) | High | Medium | **P1** | **Done** |
 | 2 | [Data Sync and XREF Pipeline](#2-data-sync-and-xref-pipeline) | High | Medium | **P1** | **Done** |
 | 16 | [Auto-download wibo](#16-auto-download-wibo) | Medium | Low | **P1** | **Done** |
 | 3 | [Incremental verify](#3-incremental-verify) | Medium | Medium | **P2** | **Done** |
@@ -36,6 +36,7 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 | 7 | Ghidra decompilation backend for skeleton | `fetch_ghidra()` in decompiler.py calls ReVa MCP `get-decompilation`. 12 tests in `test_decompiler.py::TestGhidraBackend` |
 | 12 | Auto-BLOCKER classification from diffs | `classify_blockers()` in match.py + `--fix-blocker` auto-writes BLOCKER/BLOCKER_DELTA annotations. 20 tests in `test_match_fix_blocker.py` |
 | 13 | Multi-function file splitting tool | Implemented as `rebrew split` (split.py) and `rebrew merge` (merge.py). Split breaks multi-function files into individual files preserving shared preamble. Merge combines files with preamble deduplication and VA-sorted blocks. 20 tests in test_split.py and test_merge.py. |
+| 1 | CRT source cross-reference tool | `rebrew crt-match` indexes configured reference source directories, matches by function name with confidence scoring, detects ASM-only CRT functions, auto-writes `// SOURCE:` annotations. 19 tests in `test_crt_match.py`. |
 | — | Coverage dashboard (HTML) | Implemented as sibling project `recoverage` — consumes `data_{target}.json` |
 
 ---
@@ -43,6 +44,8 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 ## Idea Details
 
 ### 1. CRT source cross-reference tool
+
+> **Status: Done.** Implemented as `rebrew crt-match` in `crt_match.py`. Indexes configured CRT source directories (`crt_sources` in rebrew-project.toml), matches binary functions by name with confidence tiers (0.95 exact, 0.90 normalized, 0.85 filename-based), detects 35+ known MSVC6 ASM-only functions, and auto-writes `// SOURCE:` annotations via `--fix-source`. Supports `--all`, `--origin` filter, `--index`, and `--json`. 19 tests in `test_crt_match.py`.
 
 **Pain**: Identifying which CRT source file a function came from requires manual search through `tools/MSVC600/VC98/CRT/SRC/`. Many MSVCRT STUBs (85-200B) are verbatim copies of reference source.
 

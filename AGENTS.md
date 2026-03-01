@@ -3,7 +3,7 @@
 ## Overview
 
 **Rebrew** is a compiler-in-the-loop decompilation workbench for binary-matching
-game reversing. Python package (`src/rebrew/`) with 26 CLI tools for compiling,
+game reversing. Python package (`src/rebrew/`) with 27 CLI tools for compiling,
 comparing, and matching C source against target binary functions (MSVC6 under Wine).
 
 Installed as an editable package (`uv pip install -e .`) into a workspace project
@@ -134,6 +134,7 @@ src/rebrew/
 ├── utils.py             # Shared utilities (Wine stderr filtering, path helpers)
 ├── wibo.py              # Auto-download + verify wibo (lightweight Wine alternative)
 ├── compile_cache.py     # Disk-backed compile result cache (diskcache, SHA-256 keyed)
+├── crt_match.py         # CRT source cross-reference matcher (index, match, ASM detection)
 ├── cache_cli.py         # `rebrew cache stats` / `rebrew cache clear` CLI
 ├── [tool].py            # Each CLI tool (test, verify, match, lint, etc.)
 ├── catalog/             # Function catalog package (see catalog/AGENTS.md)
