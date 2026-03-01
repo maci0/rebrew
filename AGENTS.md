@@ -3,7 +3,7 @@
 ## Overview
 
 **Rebrew** is a compiler-in-the-loop decompilation workbench for binary-matching
-game reversing. Python package (`src/rebrew/`) with 24 CLI tools for compiling,
+game reversing. Python package (`src/rebrew/`) with 26 CLI tools for compiling,
 comparing, and matching C source against target binary functions (MSVC6 under Wine).
 
 Installed as an editable package (`uv pip install -e .`) into a workspace project
@@ -16,7 +16,7 @@ that contains the actual binaries, source files, and toolchains.
 uv pip install -e .
 uv sync --all-extras            # with dev deps
 
-# Run ALL tests (~1257 tests)
+# Run ALL tests (~1367 tests)
 uv run pytest tests/ -v
 
 # Run a SINGLE test file
@@ -117,6 +117,7 @@ Key libraries and what they provide:
 ```
 src/rebrew/
 ├── main.py              # Umbrella CLI (`rebrew` command)
+├── merge.py             # Merge single-function C files into multi-function file
 ├── cli.py               # Shared: TargetOption, get_config(), iter_sources(),
 │                        #   error_exit(), json_print(), parse_va()
 ├── config.py            # ProjectConfig dataclass, rebrew-project.toml loader
@@ -128,8 +129,12 @@ src/rebrew/
 ├── decompiler.py        # Pluggable decompiler backend (r2ghidra, r2dec, Ghidra headless)
 ├── gen_flirt_pat.py     # Generate FLIRT .pat files from MSVC6 COFF .lib archives
 ├── signature_parser.py  # Extract function signatures from C source via tree-sitter
+├── split.py             # Split multi-function C files into individual files
 ├── struct_parser.py     # Extract struct/typedef definitions from C source via tree-sitter
 ├── utils.py             # Shared utilities (Wine stderr filtering, path helpers)
+├── wibo.py              # Auto-download + verify wibo (lightweight Wine alternative)
+├── compile_cache.py     # Disk-backed compile result cache (diskcache, SHA-256 keyed)
+├── cache_cli.py         # `rebrew cache stats` / `rebrew cache clear` CLI
 ├── [tool].py            # Each CLI tool (test, verify, match, lint, etc.)
 ├── catalog/             # Function catalog package (see catalog/AGENTS.md)
 │   ├── __init__.py      # Re-exports all public names
@@ -152,7 +157,8 @@ src/rebrew/
     ├── rebrew-intake/   # Binary onboarding, FLIRT scan, catalog, triage
     ├── rebrew-workflow/  # End-to-end reversing loop
     ├── rebrew-matching/ # Deep binary matching, GA engine, flag sweeps
-    └── rebrew-data-analysis/  # Global data, BSS layout, dispatch tables
+    ├── rebrew-data-analysis/  # Global data, BSS layout, dispatch tables
+    └── rebrew-ghidra-sync/ # Ghidra ↔ Rebrew sync via ReVa MCP
 tests/
 ├── test_[module].py     # Unit tests, one file per module
 ```
@@ -182,7 +188,7 @@ def main_entry() -> None:
 - `TargetOption` + `get_config()` from `rebrew.cli` — never build config manually.
 - `main_entry()` registered in `pyproject.toml` `[project.scripts]`.
 - Most tools support `--json` for machine-readable output. Always use `--json` when executing these CLI tools yourself to receive structured output.
-- The only multi-command module is `cfg.py`, which uses multiple `@app.command()` decorators and is registered via `add_typer()` in `main.py`.
+- The multi-command modules are `cfg.py` (subcommands: `list-targets`, `show`, `add-target`, `remove-target`, `set`, `add-origin`, `remove-origin`, `set-cflags`) and `cache_cli.py` (subcommands: `stats`, `clear`), both registered via `add_typer()` in `main.py`.
 
 ### Test Patterns
 

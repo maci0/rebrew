@@ -9,20 +9,20 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 | # | Idea | Impact | Effort | Priority | Status |
 |---|------|--------|--------|----------|--------|
 | 15 | [Compile result cache (test/verify)](#15-compile-result-cache) | **Critical** | Medium | **P0** | **Done** |
-| 17 | [Match regression detection](#17-match-regression-detection) | High | Low | **P0** | — |
-| 18 | [Batch promote](#18-batch-promote) | High | Low | **P0** | — |
+| 17 | [Match regression detection](#17-match-regression-detection) | High | Low | **P0** | **Done** |
+| 18 | [Batch promote](#18-batch-promote) | High | Low | **P0** | **Done** |
 | 1 | [CRT source cross-reference tool](#1-crt-source-cross-reference-tool) | High | Medium | **P1** | — |
 | 2 | [Data Sync and XREF Pipeline](#2-data-sync-and-xref-pipeline) | High | Medium | **P1** | **Done** |
 | 16 | [Auto-download wibo](#16-auto-download-wibo) | Medium | Low | **P1** | **Done** |
-| 3 | [Incremental verify](#3-incremental-verify) | Medium | Medium | **P2** | — |
+| 3 | [Incremental verify](#3-incremental-verify) | Medium | Medium | **P2** | **Done** |
 | 6 | [XREF context in skeleton generation](#6-xref-context-in-skeleton-generation) | Medium | Low | **P2** | **Done** |
-| 7 | [Ghidra decompilation backend for skeleton](#7-ghidra-decompilation-backend-for-skeleton) | Medium | Low | **P2** | Stub |
-| 9 | [Validate programPath against Ghidra project](#9-validate-programpath-against-ghidra-project) | Medium | Low | **P2** | — |
+| 7 | [Ghidra decompilation backend for skeleton](#7-ghidra-decompilation-backend-for-skeleton) | Medium | Low | **P2** | **Done** |
+| 9 | [Validate programPath against Ghidra project](#9-validate-programpath-against-ghidra-project) | Medium | Low | **P2** | **Done** |
 | 20 | [Test watch mode](#20-test-watch-mode) | Medium | Medium | **P2** | — |
 | 4 | [GA code layout mutations](#4-ga-code-layout-mutations) | Medium | High | **P2** | Partial |
 | 5 | [Incremental / dirty-only Ghidra sync](#5-incremental--dirty-only-ghidra-sync) | Medium | Medium | **P2** | — |
 | 8 | [Sync deduplication / idempotency tracking](#8-sync-deduplication--idempotency-tracking) | Medium | Medium | **P2** | — |
-| 13 | [Multi-function file splitting tool](#13-multi-function-file-splitting-tool) | Low | Low | **P3** | — |
+| 13 | [Multi-function file splitting tool](#13-multi-function-file-splitting-tool) | Low | Low | **P3** | **Done** |
 | 21 | [Binary similarity search](#21-binary-similarity-search) | Medium | High | **P3** | — |
 | 19 | [Cross-function solution transfer](#19-cross-function-solution-transfer) | High | High | **P3** | — |
 | 10 | [Callee-save register injection](#10-callee-save-register-injection) | High | High | **P3** | — |
@@ -33,7 +33,9 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 
 | # | Idea | Notes |
 |---|------|-------|
-| 12 | Auto-BLOCKER classification from diffs | `classify_blockers()` in match.py + `verify --fix-status` auto-updates BLOCKER/BLOCKER_DELTA |
+| 7 | Ghidra decompilation backend for skeleton | `fetch_ghidra()` in decompiler.py calls ReVa MCP `get-decompilation`. 12 tests in `test_decompiler.py::TestGhidraBackend` |
+| 12 | Auto-BLOCKER classification from diffs | `classify_blockers()` in match.py + `--fix-blocker` auto-writes BLOCKER/BLOCKER_DELTA annotations. 20 tests in `test_match_fix_blocker.py` |
+| 13 | Multi-function file splitting tool | Implemented as `rebrew split` (split.py) and `rebrew merge` (merge.py). Split breaks multi-function files into individual files preserving shared preamble. Merge combines files with preamble deduplication and VA-sorted blocks. 20 tests in test_split.py and test_merge.py. |
 | — | Coverage dashboard (HTML) | Implemented as sibling project `recoverage` — consumes `data_{target}.json` |
 
 ---
@@ -62,6 +64,10 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 **Impact**: Eliminates manual synchronization of the data section. Massively speeds up skeleton implementation by providing immediate context (especially string literals from `.rdata`).
 
 ### 3. Incremental verify
+
+> **Status: Done.** `rebrew verify` now uses `.rebrew/verify_cache.json` to skip unchanged
+> files, supports `--full` to force a full rebuild, and auto-invalidates cache when compiler
+> settings or source content changes. Covered by `test_verify_incremental.py`.
 
 **Pain**: `rebrew verify` recompiles every reversed function from scratch on every run. For projects with 200+ functions, a full verify takes minutes. During active development, you only changed one or two files — recompiling everything else is wasted work.
 
@@ -103,17 +109,17 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 
 **Impact**: Saves a round-trip to Ghidra for every new function, providing immediate calling context.
 
-### 7. Ghidra decompilation backend for skeleton
+### 7. Ghidra decompilation backend for skeleton ✅
+
+> **Status: Done.** `fetch_ghidra()` in `decompiler.py` connects to a running Ghidra instance via ReVa MCP `get-decompilation` tool. Uses lazy `httpx` import and the existing `_fetch_mcp_tool_raw`/`_init_mcp_session` helpers from `sync.py`. The `endpoint` parameter threads through `fetch_decompilation()` to all 3 skeleton.py call sites (batch, append, single-VA). 12 tests in `test_decompiler.py::TestGhidraBackend`.
 
 **Pain**: `rebrew skeleton --decomp` currently uses radare2 backends (`r2ghidra`, `r2dec`), which produce lower quality output than Ghidra's decompiler.
 
-**Proposed**: Add a `--decomp-backend ghidra` option that calls ReVa's `get-decompilation` and caches the result:
+**Proposed**: Add a `--decomp-backend ghidra` option that calls ReVa's `get-decompilation`:
 
 ```bash
 rebrew skeleton 0x10006c00 --decomp --decomp-backend ghidra
 ```
-
-The cached Ghidra decompilation would be stored alongside the skeleton as a `.ghidra.c` file for reference.
 
 **Impact**: Significantly better decompilation quality for initial skeleton generation.
 
@@ -126,6 +132,11 @@ The cached Ghidra decompilation would be stored alongside the skeleton as a `.gh
 **Impact**: Pairs with incremental sync (#5) to make repeated syncs near-instant.
 
 ### 9. Validate programPath against Ghidra project
+
+> **Status: Done.** Added `ghidra_program_path` target config override, centralized
+> path resolution in `sync.py::_resolve_program_path()`, best-effort runtime
+> validation against ReVa `get-current-program`, and wired this through
+> `sync.py`, `skeleton.py`, and the Ghidra decompiler path plumbing.
 
 **Pain**: The `program_path` is derived from `cfg.target_binary.name` which gives `/server.dll`. But Ghidra may have imported the binary under a different path (e.g. `/Server/server.dll` or just `server.dll` without leading slash).
 
@@ -160,15 +171,17 @@ Uses `watchdog` or `inotify` to detect file saves and push only the changed anno
 
 **Impact**: Nice quality-of-life improvement, but high effort and low urgency.
 
-### 12. Auto-BLOCKER classification from diffs
+### 12. Auto-BLOCKER classification from diffs ✅
+
+> **Status: Done.** `rebrew match --diff-only --fix-blocker` auto-writes `// BLOCKER:` and `// BLOCKER_DELTA:` annotations from `classify_blockers()` output. Uses `update_annotation_key()`/`remove_annotation_key()` from `annotation.py`. Clears BLOCKER when no structural diffs remain. 20 tests in `test_match_fix_blocker.py`.
 
 **Pain**: After `rebrew match --diff-only` shows structural diffs (`**` markers), the developer must manually classify the blocker type (register allocation, loop rotation, etc.) and write a `// BLOCKER:` annotation.
-
-**Proposed**: `rebrew match --diff-only` already auto-classifies some systemic blockers. Extend this to auto-write `// BLOCKER:` and `// BLOCKER_DELTA:` annotations when the function is MATCHING. Could be a `--fix-blocker` flag on `rebrew match` or `rebrew verify`.
 
 **Impact**: Saves manual annotation work and ensures BLOCKER annotations are always up to date.
 
 ### 13. Multi-function file splitting tool
+
+> **Status: Done.** Implemented as `rebrew split` (split.py) and `rebrew merge` (merge.py). Split breaks multi-function files into individual files preserving shared preamble. Merge combines files with preamble deduplication and VA-sorted blocks. 20 tests in test_split.py and test_merge.py.
 
 **Pain**: Some multi-function files grow unwieldy or contain functions that would be better tracked individually (different CFLAGS, different origins). Splitting them requires manually duplicating headers and moving code.
 

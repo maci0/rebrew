@@ -7,34 +7,38 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 ## ✨ Features
 
 - **Global rename** — `rebrew rename` renames a function, updates its `// SYMBOL:`, renames the file if applicable, and updates cross-references across the entire codebase.
-- **Skeleton generation** — `rebrew skeleton` creates annotated `.c` stubs from VAs with optional inline decompilation (`--decomp`) via r2ghidra, r2dec, or Ghidra
+- **Skeleton generation** — `rebrew skeleton` creates annotated `.c` stubs from VAs with optional inline decompilation (`--decomp`) via r2ghidra, r2dec, or Ghidra; `--xrefs` embeds caller context from Ghidra cross-references
 - **Compile-and-compare** — `rebrew test` compiles your C and diffs it byte-by-byte against the original binary
 - **GA matching engine** — `rebrew match` uses a genetic algorithm to brute-force compiler flags and mutate source code to find exact byte matches; structural similarity metric distinguishes flag-fixable vs structural differences
 - **Batch GA** — `rebrew ga` runs GA across all STUB functions unattended; `--near-miss` targets MATCHING functions with small byte deltas; `--flag-sweep` sweeps compiler flags across all MATCHING functions with priority queuing
 - **Annotation pipeline** — `rebrew lint` validates `// FUNCTION:`, `// STATUS:`, `// ORIGIN:` annotations across the codebase (E000–E017, W001–W017)
-- **Verification** — `rebrew verify` bulk-compiles every reversed function and reports match status with a progress bar; `--fix-status` auto-updates `// STATUS:` and `// BLOCKER:` annotations; `--summary` shows a table with EXACT/RELOC/MATCHING breakdown and match percentages; `--json` emits timestamped structured reports to `db/verify_results.json`
+- **Verification** — `rebrew verify` bulk-compiles every reversed function and reports match status with a progress bar; `--fix-status` auto-updates `// STATUS:` and `// BLOCKER:` annotations; `--summary` shows a table with EXACT/RELOC/MATCHING breakdown and match percentages; `--json` emits timestamped structured reports to `db/verify_results.json`; `--diff` detects regressions against the last saved report (exit code 1 for CI)
 - **Smart prioritization** — `rebrew next` recommends functions to work on, auto-filters unmatchable stubs, and shows byte-delta for near-miss MATCHING functions
 - **Dependency graph** — `rebrew graph` builds call graphs from `extern` declarations in mermaid, DOT, or summary format with focus mode
 - **Global data scanner** — `rebrew data` inventories `.data`/`.rdata`/`.bss` globals, detects type conflicts, finds dispatch tables / vtables (`--dispatch`), verifies BSS layout (`--bss`), and supports `// DATA:` annotations for first-class data tracking
 - **Status tracking** — `rebrew status` gives a per-target breakdown of EXACT/RELOC/MATCHING/STUB counts
-- **Atomic promotion** — `rebrew promote` tests a function and atomically updates its STATUS annotation; `--dry-run` to preview
+- **Atomic promotion** — `rebrew promote` tests a function and atomically updates its STATUS annotation; `--all` for batch promotion with `--dir` and `--origin` filters; `--dry-run` to preview
 - **Cold-start triage** — `rebrew triage` combines coverage stats, FLIRT scan, near-miss list, and recommendations into a single report for agent sessions
-- **Diagnostic check** — `rebrew doctor` validates project health (config, compiler, includes/libs, binary)
+- **Diagnostic check** — `rebrew doctor` validates project health (config, compiler, includes/libs, binary); `--install-wibo` auto-downloads wibo as a lightweight Wine alternative
 - **FLIRT scanning** — `rebrew flirt` identifies known library functions via FLIRT signatures (`.sig`/`.pat`), no IDA required
 - **NASM extraction** — `rebrew nasm` extracts function bytes and produces NASM-reassembleable ASM with round-trip verification
+- **File splitting** — `rebrew split` breaks multi-function `.c` files into individual single-function files, preserving shared preamble (includes, defines) and generating filenames from `SYMBOL` annotations
+- **File merging** — `rebrew merge` combines multiple single-function files into one multi-function file with preamble deduplication and VA-sorted function blocks
 - **Multi-target** — all tools read from `rebrew-project.toml` with `--target` selection; supports maintaining multi-target `// FUNCTION:` blocks (e.g. LEGO1 vs BETA10) in the exact same C file by auto-filtering inactive targets; supports PE, ELF, Mach-O across x86, x64, ARM32/64
 - **Rich CLI help** — every tool has detailed `--help` with usage examples, context, and prerequisites via Typer's `rich_markup_mode`
+- **Compile cache** — disk-backed SHA-256 keyed cache avoids redundant recompilations across `rebrew match`, `rebrew ga`, and `rebrew test`; `rebrew cache stats` / `rebrew cache clear` for management
 - **Agent-friendly** — bundled `agent-skills/` copied to projects on `rebrew init`
 
 ## Agent Skills
-The project includes four `agent-skills` for AI coding agent integration:
+The project includes five `agent-skills` for AI coding agent integration:
 
 | Skill | Purpose |
 |-------|---------|
-| `rebrew-workflow` | End-to-end reversing workflow, status tracking, Ghidra sync |
+| `rebrew-workflow` | End-to-end reversing workflow and status tracking |
 | `rebrew-matching` | GA matching engine, flag sweeps, diff analysis |
 | `rebrew-data-analysis` | Global data scanning, BSS layout, dispatch tables |
 | `rebrew-intake` | Binary onboarding, triage, and initial FLIRT scanning |
+| `rebrew-ghidra-sync` | Ghidra ↔ Rebrew sync via ReVa MCP |
 
 See the `src/rebrew/agent-skills/` directory for the SKILL.md files.
 
@@ -86,27 +90,33 @@ All CLI tools must be run **from within a project directory** that contains a `r
 ```bash
 cd /path/to/your-decomp-project    # must contain rebrew-project.toml
 
-# Initialization & Configuration
+# Project Setup
 rebrew init --target mygame --binary mygame.exe --compiler msvc6 # initialize project
 rebrew cfg list-targets              # list configured targets
 rebrew cfg add-origin ZLIB           # add origin to default target
 rebrew cfg set compiler.cflags "/O1" # set a config value
 
-# Daily Workflow
+# Development
 rebrew skeleton 0x10003DA0          # generate C skeleton from disassembly
+rebrew skeleton 0x10003DA0 --xrefs  # skeleton with Ghidra cross-reference context
 rebrew test src/target_name/f.c     # test implementation against target
 rebrew next --stats                 # show overall progress statistics
 rebrew next --improving             # list MATCHING functions sorted by byte delta
+rebrew triage --json                # combined coverage, near-miss, and recommendations report
+rebrew flirt --json                 # FLIRT scan: identify known library functions
 rebrew lint                         # lint annotations in your source files
+rebrew split src/target_name/multi.c           # split multi-function file into individual files
+rebrew merge a.c b.c --output merged.c         # merge files into one multi-function file
 rebrew status                       # show reversing status overview
 rebrew data                         # inventory globals in .data/.rdata/.bss
 rebrew data --dispatch              # detect dispatch tables / vtables
 rebrew graph --format summary       # call graph stats and blockers
+rebrew nasm 0x10003DA0              # extract NASM-reassembleable ASM with round-trip verify
 rebrew catalog                      # regenerate the function catalog and coverage JSON
 rebrew catalog --export-ghidra-labels  # generate ghidra_data_labels.json from detected tables
 rebrew build-db                     # build SQLite coverage database from catalog
 
-# Solving the Matching Puzzle
+# Matching
 rebrew match --diff-only src/target_name/f.c       # side-by-side disassembly diff
 rebrew match --diff-only --mm src/target_name/f.c  # show only structural diffs (**)
 rebrew match src/target_name/f.c    # run the Genetic Algorithm Engine to resolve diffs
@@ -115,13 +125,19 @@ rebrew ga --near-miss --threshold 5 # batch GA on MATCHING functions with ≤5B 
 rebrew ga --flag-sweep              # batch flag sweep on all MATCHING functions
 rebrew ga --flag-sweep --tier targeted --fix-cflags  # targeted sweep, auto-update CFLAGS
 
-# Advanced & Sync
+# Export & Sync
 rebrew rename old_func new_func     # completely rename a function across the codebase
 rebrew verify --fix-status          # bulk compile and auto-update STATUS/BLOCKER annotations
 rebrew verify --json                # structured JSON report to stdout
+rebrew verify --diff                # detect regressions against last saved report
+rebrew promote --all --origin GAME  # batch promote all promotable GAME functions
+rebrew split src/target_name/multi.c --dry-run  # preview split without writing
+rebrew merge a.c b.c -o merged.c --delete       # merge and delete originals
 rebrew extract list                 # list un-reversed candidates
 rebrew extract batch 20             # extract and disassemble first 20 smallest
 rebrew asm                          # quick offline disassembly
+rebrew cache stats                  # show compile cache hit rate and size
+rebrew doctor --install-wibo        # auto-download wibo (lightweight Wine alternative)
 
 # Ghidra Sync via ReVa MCP
 rebrew sync --push                  # export annotations and push to Ghidra
@@ -130,6 +146,7 @@ rebrew sync --pull --accept-ghidra  # fetch renames and automatically update cro
 rebrew sync --pull-signatures       # fetch Ghidra decompilation to update extern prototypes
 rebrew sync --pull-structs          # export Ghidra structs into types.h
 rebrew sync --pull-comments         # fetch Ghidra EOL/post analysis comments into source
+rebrew sync --pull-data             # fetch Ghidra data labels into rebrew_globals.h
 rebrew sync --pull --dry-run        # preview pull without modifying files
 ```
 
@@ -155,7 +172,7 @@ rebrew sync --pull --dry-run        # preview pull without modifying files
 ```bash
 cd rebrew/
 uv sync --all-extras       # install dev dependencies
-uv run pytest tests/ -v    # run tests (~1257 tests)
+uv run pytest tests/ -v    # run tests (~1367 tests)
 uv run ruff check .        # lint
 uv run ruff format .       # format
 python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me

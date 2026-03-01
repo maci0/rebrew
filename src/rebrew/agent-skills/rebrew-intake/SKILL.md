@@ -1,6 +1,6 @@
 ---
 name: rebrew-intake
-description: Onboards a new binary into an existing rebrew project. Runs initial reconnaissance (FLIRT signatures, function catalog, coverage database, triage) and produces an actionable summary of the binary's reversing landscape. Use when adding a new target binary, starting a new reversing campaign, or performing initial binary analysis.
+description: Onboards a new binary into an existing rebrew project. Runs initial reconnaissance (FLIRT signatures, function catalog, coverage database, triage) and produces an actionable summary of the binary's reversing landscape. Use this skill whenever adding a new target binary, starting a new reversing campaign, performing initial binary analysis, running FLIRT scans, building the function catalog, or triaging a binary for the first time. Also use when the user mentions 'intake', 'onboard', 'new binary', 'new target', 'catalog', 'triage', or 'FLIRT scan'.
 license: MIT
 ---
 
@@ -28,9 +28,13 @@ When adding a new target that shares substantial codebase with an existing targe
 
 ```bash
 rebrew doctor                           # check toolchain and project health
+rebrew doctor --install-wibo            # auto-download wibo if Wine is unavailable
 rebrew cfg list-targets                 # confirm target is configured
 rebrew status --json                    # should show the target with 0 functions
 ```
+
+On Linux, `--install-wibo` downloads wibo (a lightweight Win32 PE loader) as
+a faster alternative to Wine for running MSVC CL.EXE. SHA256-verified from GitHub.
 
 If the target is missing, add it:
 
@@ -97,10 +101,16 @@ rebrew skeleton --list --origin GAME    # list all uncovered GAME functions
 rebrew skeleton --batch 10              # generate 10 skeletons (smallest first)
 rebrew skeleton 0x<VA>                  # generate one skeleton by VA
 rebrew skeleton 0x<VA> --decomp         # include decompilation in skeleton
+rebrew skeleton 0x<VA> --decomp --decomp-backend ghidra  # Ghidra via MCP
+rebrew skeleton 0x<VA> --xrefs          # with caller context from Ghidra
 ```
 
 For library functions identified by FLIRT, check if reference source is available
 (e.g. `tools/MSVC600/VC98/CRT/SRC/` for MSVCRT, `references/zlib-1.1.3/` for zlib).
+
+For functions that share a translation unit, use `rebrew merge` to combine them
+or `rebrew skeleton 0x<VA> --append existing_file.c` to add to an existing file.
+Use `rebrew split` later if functions need to be separated for independent tracking.
 
 ### 8. Sync to Ghidra (Optional)
 

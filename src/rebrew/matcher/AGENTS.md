@@ -9,11 +9,11 @@ target binaries, and mutates source code to converge on exact matches.
 | Module | Role | Key Exports |
 |--------|------|-------------|
 | `core.py` | Data types (pure, no logic) | `Score`, `BuildResult`, `BuildCache`, `GACheckpoint`, `StructuralSimilarity` |
-| `compiler.py` | Compilation backend | `build_candidate()`, `build_candidate_obj_only()`, `flag_sweep()`, `generate_flag_combinations()` |
+| `compiler.py` | Compilation backend | `build_candidate()`, `build_candidate_obj_only(cache=)`, `flag_sweep(cache=)`, `generate_flag_combinations()` |
 | `scoring.py` | Binary comparison (pure, no I/O) | `score_candidate()`, `diff_functions()`, `structural_similarity()` |
 | `mutator.py` | C source mutations (pure, no I/O) | `mutate_code()`, `crossover()`, `compute_population_diversity()`, 51 `mut_*` operators |
 | `parsers.py` | Object file parsing (read-only) | `parse_obj_symbol_bytes()`, `list_obj_symbols()`, `extract_function_from_binary()` |
-| `flags.py` | Flag primitives | `FlagSet`, `Checkbox` (frozen dataclasses) |
+| `flags.py` | Flag primitives | `FlagSet`, `Checkbox` (frozen dataclasses), `Flags` (type alias) |
 | `flag_data.py` | MSVC flag definitions | `MSVC6_FLAGS`, `COMMON_MSVC_FLAGS`, `MSVC_SWEEP_TIERS` |
 
 ## Dependency Graph
@@ -24,7 +24,8 @@ compiler.py
 ├── flag_data.MSVC6_FLAGS, COMMON_MSVC_FLAGS, MSVC_SWEEP_TIERS
 ├── flags.Checkbox, FlagSet
 ├── parsers.extract_function_from_binary, parse_obj_symbol_bytes
-└── compile.filter_wine_stderr (external, from rebrew.compile)
+├── compile.filter_wine_stderr (external, from rebrew.compile)
+└── compile_cache.CompileCache (external, optional — passed via cache= param)
 
 scoring.py
 ├── core.Score, StructuralSimilarity
@@ -45,9 +46,11 @@ flag_data.py → flags.Checkbox, FlagSet
 
 ```
 Source (.c) ──→ compiler.build_candidate()
-                  ├─ Write to temp dir
+                  ├─ Check compile cache (if cache= provided, SHA-256 keyed)
+                  ├─ Write to temp dir (on cache miss)
                   ├─ Run CL.EXE via Wine/wibo (60s timeout)
                   ├─ parsers.parse_obj_symbol_bytes() → bytes + relocs
+                  ├─ Store result in cache (on cache miss)
                   └─ Return BuildResult {ok, obj_bytes, reloc_offsets, error_msg}
                         │
                         ▼
