@@ -2,11 +2,13 @@
 
 import subprocess
 from pathlib import Path
-from unittest.mock import patch
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 from rebrew.config import ProjectConfig
 from rebrew.decompiler import (
     _BACKEND_MAP,
+    _DEFAULT_MCP_ENDPOINT,
     BACKENDS,
     _clean_output,
     _find_re_tool,
@@ -59,11 +61,12 @@ class TestBackendDispatch:
         result = fetch_r2dec(Path("/fake/binary"), 0x1000, Path("/fake"))
         assert result is None
 
-    def test_ghidra_stub(self, capsys) -> None:
+    @patch("rebrew.decompiler.importlib.import_module", side_effect=ModuleNotFoundError("httpx"))
+    def test_ghidra_no_httpx(self, _mock_import, capsys) -> None:
         result = fetch_ghidra(Path("/fake/binary"), 0x1000, Path("/fake"))
         assert result is None
         captured = capsys.readouterr()
-        assert "not yet implemented" in captured.err
+        assert "httpx" in captured.err
 
     def test_unknown_backend(self, capsys) -> None:
         code, name = fetch_decompilation("nonexistent", Path("/f"), 0x1000, Path("/f"))
@@ -237,3 +240,212 @@ class TestGenerateSkeletonWithDecomp:
         assert "CRT function" in result
         assert "/* === Decompilation (r2dec) === */" in result
         assert "void crt_init() {}" in result
+
+
+def _make_import_side_effect(mock_httpx: MagicMock) -> Any:
+    """Build an importlib.import_module side_effect that returns mock httpx + real sync."""
+    from rebrew import sync as _sync_mod
+
+    def _side_effect(name: str) -> Any:
+        if name == "httpx":
+            return mock_httpx
+        if name == "rebrew.sync":
+            return _sync_mod
+        raise ModuleNotFoundError(name)
+
+    return _side_effect
+
+
+def _mock_httpx_client(response_json: dict | None, status_code: int = 200) -> MagicMock:
+    """Build a mock httpx.Client context manager returning *response_json*."""
+    mock_resp = MagicMock()
+    mock_resp.status_code = status_code
+    mock_resp.headers = {"Mcp-Session-Id": "test-session", "content-type": "application/json"}
+    if response_json is not None:
+        mock_resp.json.return_value = response_json
+        mock_resp.text = "{}"
+    else:
+        mock_resp.json.side_effect = ValueError
+        mock_resp.text = ""
+    mock_client = MagicMock()
+    mock_client.post.return_value = mock_resp
+    mock_client.__enter__ = lambda self: mock_client
+    mock_client.__exit__ = lambda self, *a: None
+    return mock_client
+
+
+def _mcp_result(text_content: str) -> dict:
+    """Wrap *text_content* in the MCP JSON-RPC result envelope."""
+    return {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "content": [{"type": "text", "text": text_content}],
+        },
+    }
+
+
+class TestGhidraBackend:
+    def test_returns_string_result(self) -> None:
+        import json
+
+        mock_client = _mock_httpx_client(_mcp_result(json.dumps("int foo() {\n  return 42;\n}")))
+        mock_httpx = MagicMock()
+        mock_httpx.Client.return_value = mock_client
+
+        with patch(
+            "rebrew.decompiler.importlib.import_module",
+            side_effect=_make_import_side_effect(mock_httpx),
+        ):
+            result = fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"))
+
+        assert result == "int foo() {\n  return 42;\n}"
+
+    def test_returns_dict_with_decompilation_key(self) -> None:
+        import json
+
+        mock_client = _mock_httpx_client(
+            _mcp_result(json.dumps({"decompilation": "void bar() {}"}))
+        )
+        mock_httpx = MagicMock()
+        mock_httpx.Client.return_value = mock_client
+
+        with patch(
+            "rebrew.decompiler.importlib.import_module",
+            side_effect=_make_import_side_effect(mock_httpx),
+        ):
+            result = fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"))
+
+        assert result == "void bar() {}"
+
+    def test_returns_dict_with_text_key(self) -> None:
+        import json
+
+        mock_client = _mock_httpx_client(_mcp_result(json.dumps({"text": "int baz();"})))
+        mock_httpx = MagicMock()
+        mock_httpx.Client.return_value = mock_client
+
+        with patch(
+            "rebrew.decompiler.importlib.import_module",
+            side_effect=_make_import_side_effect(mock_httpx),
+        ):
+            result = fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"))
+
+        assert result == "int baz();"
+
+    def test_returns_none_on_empty_response(self) -> None:
+        mock_client = _mock_httpx_client(None, status_code=200)
+        mock_httpx = MagicMock()
+        mock_httpx.Client.return_value = mock_client
+
+        with patch(
+            "rebrew.decompiler.importlib.import_module",
+            side_effect=_make_import_side_effect(mock_httpx),
+        ):
+            result = fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"))
+
+        assert result is None
+
+    def test_returns_none_on_connection_error(self) -> None:
+        mock_httpx = MagicMock()
+        mock_httpx.Client.return_value.__enter__ = MagicMock(side_effect=ConnectionError)
+        mock_httpx.Client.return_value.__exit__ = lambda *a: None
+
+        with patch(
+            "rebrew.decompiler.importlib.import_module",
+            side_effect=_make_import_side_effect(mock_httpx),
+        ):
+            result = fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"))
+
+        assert result is None
+
+    def test_uses_custom_endpoint(self) -> None:
+        import json
+
+        mock_client = _mock_httpx_client(_mcp_result(json.dumps("int x;")))
+        mock_httpx = MagicMock()
+        mock_httpx.Client.return_value = mock_client
+
+        custom_ep = "http://myhost:9999/mcp/message"
+        with patch(
+            "rebrew.decompiler.importlib.import_module",
+            side_effect=_make_import_side_effect(mock_httpx),
+        ):
+            fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"), endpoint=custom_ep)
+
+        post_calls = mock_client.post.call_args_list
+        assert any(custom_ep in str(call) for call in post_calls)
+
+    def test_uses_default_endpoint(self) -> None:
+        import json
+
+        mock_client = _mock_httpx_client(_mcp_result(json.dumps("int x;")))
+        mock_httpx = MagicMock()
+        mock_httpx.Client.return_value = mock_client
+
+        with patch(
+            "rebrew.decompiler.importlib.import_module",
+            side_effect=_make_import_side_effect(mock_httpx),
+        ):
+            fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"))
+
+        post_calls = mock_client.post.call_args_list
+        assert any(_DEFAULT_MCP_ENDPOINT in str(call) for call in post_calls)
+
+    def test_sends_correct_program_path(self) -> None:
+        import json
+
+        mock_client = _mock_httpx_client(_mcp_result(json.dumps("int x;")))
+        mock_httpx = MagicMock()
+        mock_httpx.Client.return_value = mock_client
+
+        with patch(
+            "rebrew.decompiler.importlib.import_module",
+            side_effect=_make_import_side_effect(mock_httpx),
+        ):
+            fetch_ghidra(Path("/some/dir/LEGO1.DLL"), 0xABCD, Path("/some/dir"))
+
+        post_calls = mock_client.post.call_args_list
+        tool_call = [c for c in post_calls if "get-decompilation" in str(c)]
+        assert len(tool_call) >= 1
+        payload = tool_call[0][1]["json"] if "json" in tool_call[0][1] else tool_call[0][0][1]
+        assert payload["params"]["arguments"]["programPath"] == "/LEGO1.DLL"
+        assert payload["params"]["arguments"]["functionNameOrAddress"] == "0x0000ABCD"
+
+    def test_dispatch_passes_endpoint_for_ghidra(self) -> None:
+        mock_fn = MagicMock(return_value="int x;")
+        with patch.dict("rebrew.decompiler._BACKEND_MAP", {"ghidra": mock_fn}):
+            code, name = fetch_decompilation(
+                "ghidra", Path("/f"), 0x1000, Path("/f"), endpoint="http://custom:8080/mcp"
+            )
+        assert code == "int x;"
+        assert name == "ghidra"
+        mock_fn.assert_called_once_with(
+            Path("/f"), 0x1000, Path("/f"), endpoint="http://custom:8080/mcp"
+        )
+
+    def test_dispatch_does_not_pass_endpoint_for_r2(self) -> None:
+        mock_fn = MagicMock(return_value="int y;")
+        with patch.dict("rebrew.decompiler._BACKEND_MAP", {"r2ghidra": mock_fn}):
+            code, name = fetch_decompilation(
+                "r2ghidra", Path("/f"), 0x1000, Path("/f"), endpoint="http://unused"
+            )
+        assert code == "int y;"
+        assert name == "r2ghidra"
+        mock_fn.assert_called_once_with(Path("/f"), 0x1000, Path("/f"))
+
+    def test_cleans_ansi_from_mcp_response(self) -> None:
+        import json
+
+        raw = "\x1b[32mint foo() {\x1b[0m\n  return 1;\n}\n"
+        mock_client = _mock_httpx_client(_mcp_result(json.dumps(raw)))
+        mock_httpx = MagicMock()
+        mock_httpx.Client.return_value = mock_client
+
+        with patch(
+            "rebrew.decompiler.importlib.import_module",
+            side_effect=_make_import_side_effect(mock_httpx),
+        ):
+            result = fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"))
+
+        assert result == "int foo() {\n  return 1;\n}"

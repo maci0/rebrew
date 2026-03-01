@@ -58,6 +58,50 @@ def _is_generic_name(name: str) -> bool:
     return bool(_GENERIC_NAME_RE.match(name))
 
 
+def _resolve_program_path(cfg: Any) -> str:
+    """Return the Ghidra program path from config or derive from binary name."""
+    configured = getattr(cfg, "ghidra_program_path", "")
+    if configured:
+        return configured
+    return f"/{cfg.target_binary.name}"
+
+
+def _validate_program_path(
+    client: Any,
+    endpoint: str,
+    program_path: str,
+    session_id: str,
+) -> str:
+    """Best-effort validation of derived programPath against current Ghidra project."""
+    try:
+        result = _fetch_mcp_tool_raw(
+            client,
+            endpoint,
+            "get-current-program",
+            {},
+            request_id=1,
+            session_id=session_id,
+        )
+    except Exception:
+        return program_path
+
+    if not isinstance(result, dict):
+        return program_path
+
+    ghidra_path = result.get("programPath")
+    if not isinstance(ghidra_path, str) or not ghidra_path:
+        return program_path
+
+    if ghidra_path != program_path:
+        typer.echo(
+            f"Ghidra has '{ghidra_path}' open, but rebrew derived '{program_path}'. "
+            f'Add ghidra_program_path = "{ghidra_path}" to [targets.X] in '
+            "rebrew-project.toml to fix.",
+            err=True,
+        )
+    return ghidra_path
+
+
 def build_sync_commands(
     entries: list[dict[str, Any]],
     program_path: str,
@@ -1923,10 +1967,25 @@ def main(
 
     cfg = get_config(target=target)
     reversed_dir = cfg.reversed_dir
-    program_path = f"/{cfg.target_binary.name}"
+    program_path = _resolve_program_path(cfg)
 
     entries_raw = scan_reversed_dir(reversed_dir, cfg=cfg)
     entries: list[dict[str, Any]] = [e if isinstance(e, dict) else e.to_dict() for e in entries_raw]
+
+    if push or pull or pull_signatures or pull_structs or pull_comments or pull_data or apply:
+        try:
+            import httpx
+
+            with httpx.Client(timeout=10.0) as probe_client:
+                probe_session = _init_mcp_session(probe_client, endpoint)
+                program_path = _validate_program_path(
+                    probe_client,
+                    endpoint,
+                    program_path,
+                    probe_session,
+                )
+        except Exception:
+            pass
 
     if pull or pull_signatures or pull_structs or pull_comments or pull_data:
         if pull:
