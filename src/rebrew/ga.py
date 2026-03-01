@@ -20,7 +20,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import NotRequired, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 import typer
 
@@ -195,9 +195,10 @@ def find_near_miss(
             rel_name = rel_display_path(cfile, reversed_dir)
             if va_str in seen_vas:
                 if warn_duplicates:
-                    print(
+                    typer.echo(
                         f"  WARNING: Duplicate VA {va_str} found in {rel_name} "
-                        f"(already in {seen_vas[va_str]}), skipping"
+                        f"(already in {seen_vas[va_str]}), skipping",
+                        err=True,
                     )
                 continue
             seen_vas[va_str] = rel_name
@@ -238,9 +239,10 @@ def find_all_stubs(
             rel_name = rel_display_path(cfile, reversed_dir)
             if va_str in seen_vas:
                 if warn_duplicates:
-                    print(
+                    typer.echo(
                         f"  WARNING: Duplicate VA {va_str} found in {rel_name} "
-                        f"(already in {seen_vas[va_str]}), skipping"
+                        f"(already in {seen_vas[va_str]}), skipping",
+                        err=True,
                     )
                 continue
             seen_vas[va_str] = rel_name
@@ -328,9 +330,10 @@ def find_all_matching(
             rel_name = rel_display_path(cfile, reversed_dir)
             if va_str in seen_vas:
                 if warn_duplicates:
-                    print(
+                    typer.echo(
                         f"  WARNING: Duplicate VA {va_str} found in {rel_name} "
-                        f"(already in {seen_vas[va_str]}), skipping"
+                        f"(already in {seen_vas[va_str]}), skipping",
+                        err=True,
                     )
                 continue
             seen_vas[va_str] = rel_name
@@ -352,6 +355,7 @@ def run_flag_sweep(
     Reads source and target bytes, then calls ``flag_sweep()`` from the
     matcher engine.  Returns ``(best_score, best_flags, all_results)``.
     """
+    from rebrew.compile_cache import get_compile_cache
     from rebrew.matcher import flag_sweep
 
     filepath = stub["filepath"]
@@ -386,7 +390,11 @@ def run_flag_sweep(
     if "/c" not in cflags:
         cflags = "/nologo /c " + cflags
 
-    # Suppress flag_sweep's built-in print() to avoid noise in batch mode
+    try:
+        cc = get_compile_cache(cfg.root)
+    except OSError:
+        cc = None
+
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         results = flag_sweep(
@@ -399,6 +407,7 @@ def run_flag_sweep(
             n_jobs=jobs,
             tier=tier,
             env=msvc_env,
+            cache=cc,
         )
 
     if not results:
@@ -537,7 +546,7 @@ def run_ga(
             try:
                 update_stub_to_matched(filepath, best_src, stub)
             except (RuntimeError, OSError) as e:
-                print(f"  WARNING: GA matched but failed to update source: {e}")
+                typer.echo(f"  WARNING: GA matched but failed to update source: {e}", err=True)
 
     return matched, output
 
@@ -728,7 +737,7 @@ def main(
         if json_output:
             items = []
             for stub in stubs:
-                item: dict[str, object] = {
+                item: dict[str, Any] = {
                     "file": str(stub["filepath"]),
                     "va": stub["va"],
                     "size": stub["size"],
@@ -761,7 +770,7 @@ def main(
 
     matched_count = 0
     failed_count = 0
-    ga_results: list[dict[str, object]] = []
+    ga_results: list[dict[str, Any]] = []
 
     for i, stub in enumerate(stubs, 1):
         display = rel_display_path(stub["filepath"], reversed_dir)
@@ -787,7 +796,7 @@ def main(
             timeout_min=timeout_min,
         )
 
-        result_entry: dict[str, object] = {
+        result_entry: dict[str, Any] = {
             "file": str(stub["filepath"]),
             "va": stub["va"],
             "size": stub["size"],
@@ -845,7 +854,7 @@ def _run_batch_flag_sweep(
     reversed_dir = cfg.reversed_dir
     improved_count = 0
     exact_count = 0
-    sweep_results: list[dict[str, object]] = []
+    sweep_results: list[dict[str, Any]] = []
 
     for i, stub in enumerate(stubs, 1):
         display = rel_display_path(stub["filepath"], reversed_dir)
@@ -868,7 +877,7 @@ def _run_batch_flag_sweep(
         )
 
         is_exact = best_score < 0.1
-        result_entry: dict[str, object] = {
+        result_entry: dict[str, Any] = {
             "file": str(stub["filepath"]),
             "va": stub["va"],
             "size": stub["size"],

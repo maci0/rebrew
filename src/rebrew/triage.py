@@ -10,6 +10,7 @@ Usage:
 import contextlib
 import json
 from importlib import import_module
+from typing import Any
 
 import typer
 
@@ -105,7 +106,7 @@ def main(
 
     # --- Near-miss MATCHING functions ---
     size_by_va: dict[int, int] = {f["va"]: f["size"] for f in ghidra_funcs}
-    near_miss: list[dict[str, object]] = []
+    near_miss: list[dict[str, Any]] = []
     for imp_va, info in sorted(existing.items()):
         if info.get("status", "") in ("MATCHING", "MATCHING_RELOC"):
             imp_size = size_by_va.get(imp_va, 0)
@@ -129,7 +130,7 @@ def main(
 
     # --- Recommendations ---
     sorted_covered = sorted(covered_vas)
-    recommendations: list[dict[str, object]] = []
+    recommendations: list[dict[str, Any]] = []
     for func in ghidra_funcs:
         va = func["va"]
         size = func["size"]
@@ -172,7 +173,7 @@ def main(
     flirt_error: str | None = None
     if binary_info is not None:
         try:
-            flirt_mod: object = import_module("flirt")
+            flirt_mod: Any = import_module("flirt")
 
             from rebrew.flirt import find_func_size, load_signatures
 
@@ -210,7 +211,7 @@ def main(
     pct = 100 * bounded_covered / total if total else 0.0
 
     if json_output:
-        report: dict[str, object] = {
+        report: dict[str, Any] = {
             "coverage": {
                 "total": total,
                 "covered": covered,

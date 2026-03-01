@@ -15,6 +15,7 @@ Usage:
 """
 
 import contextlib
+from typing import Any
 
 import typer
 
@@ -417,7 +418,7 @@ def main(
         single_count = sum(1 for g in groups if len(g) == 1)
 
         if json_output:
-            json_groups: list[dict[str, object]] = []
+            json_groups: list[dict[str, Any]] = []
             for gi, grp in enumerate(multi_groups[:count], 1):
                 grp_total = sum(item[1] for item in grp)
                 grp_va_lo = min(item[2] for item in grp)

@@ -16,6 +16,7 @@ import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -71,9 +72,9 @@ class GlobalEntry:
     declared_in: list[str] = field(default_factory=list)
     annotated: bool = False  # True if has a // GLOBAL: annotation
 
-    def to_dict(self) -> dict[str, object]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict for JSON output."""
-        d: dict[str, object] = {"name": self.name, "type": self.type_str}
+        d: dict[str, Any] = {"name": self.name, "type": self.type_str}
         if self.va:
             d["va"] = f"0x{self.va:08x}"
         if self.section:
@@ -88,10 +89,10 @@ class ScanResult:
     """Aggregated global scan results."""
 
     globals: dict[str, GlobalEntry] = field(default_factory=dict)
-    data_annotations: list[dict[str, object]] = field(default_factory=list)  # // DATA: entries
-    type_conflicts: list[dict[str, object]] = field(default_factory=list)
+    data_annotations: list[dict[str, Any]] = field(default_factory=list)  # // DATA: entries
+    type_conflicts: list[dict[str, Any]] = field(default_factory=list)
 
-    def to_dict(self) -> dict[str, object]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize scan results to a plain dict for JSON output."""
         return {
             "globals": {k: v.to_dict() for k, v in sorted(self.globals.items())},
@@ -139,7 +140,7 @@ class DispatchTable:
         """Fraction of entries that have been resolved (0.0–1.0)."""
         return self.resolved / self.num_entries if self.num_entries else 0.0
 
-    def to_dict(self) -> dict[str, object]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict for JSON output."""
         return {
             "va": f"0x{self.va:08x}",
@@ -163,7 +164,7 @@ class DispatchTable:
 # ---------------------------------------------------------------------------
 
 
-def classify_section(va: int, sections: dict[str, dict[str, object]]) -> str:
+def classify_section(va: int, sections: dict[str, dict[str, Any]]) -> str:
     """Determine which binary section a VA belongs to."""
     for sec_name, sec in sections.items():
         sec_va = sec.get("va", 0)
@@ -320,9 +321,7 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
     return result
 
 
-def scan_data_annotations(
-    src_dir: Path, cfg: ProjectConfig | None = None
-) -> list[dict[str, object]]:
+def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> list[dict[str, Any]]:
     """Scan for ``// DATA: MODULE 0xVA`` annotations in source files.
 
     These mark standalone global data objects for tracking in the catalog.
@@ -331,7 +330,7 @@ def scan_data_annotations(
     from rebrew.annotation import parse_c_file_multi
     from rebrew.cli import iter_sources, rel_display_path
 
-    entries: list[dict[str, object]] = []
+    entries: list[dict[str, Any]] = []
     if not src_dir.exists():
         return entries
 
@@ -353,7 +352,7 @@ def scan_data_annotations(
     return entries
 
 
-def enrich_with_sections(scan: ScanResult, sections: dict[str, dict[str, object]]) -> None:
+def enrich_with_sections(scan: ScanResult, sections: dict[str, dict[str, Any]]) -> None:
     """Classify each annotated global into its binary section."""
     for entry in scan.globals.values():
         if entry.va:
@@ -368,7 +367,7 @@ def enrich_with_sections(scan: ScanResult, sections: dict[str, dict[str, object]
 def find_dispatch_tables(
     binary_data: bytes,
     image_base: int,
-    sections: dict[str, dict[str, object]],
+    sections: dict[str, dict[str, Any]],
     known_functions: dict[int, dict[str, str]],
     ptr_size: int = 4,
     min_entries: int = 3,
@@ -472,7 +471,7 @@ class BssEntry:
     size_hint: int = 0  # from type heuristic
     source_file: str = ""
 
-    def to_dict(self) -> dict[str, object]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict for JSON output."""
         return {
             "name": self.name,
@@ -491,7 +490,7 @@ class BssGap:
     before: str  # name of global before the gap
     after: str  # name of global after the gap
 
-    def to_dict(self) -> dict[str, object]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict for JSON output."""
         return {
             "offset": f"0x{self.offset:08x}",
@@ -515,7 +514,7 @@ class BssReport:
         """BSS coverage as a percentage."""
         return self.coverage_bytes / self.bss_size * 100 if self.bss_size else 0.0
 
-    def to_dict(self) -> dict[str, object]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict for JSON output."""
         return {
             "bss_va": f"0x{self.bss_va:08x}",
@@ -577,7 +576,7 @@ def _estimate_type_size(type_str: str) -> int:
 
 def verify_bss_layout(
     scan: ScanResult,
-    sections: dict[str, dict[str, object]],
+    sections: dict[str, dict[str, Any]],
 ) -> BssReport:
     """Verify BSS layout by checking globals placement and detecting gaps.
 
@@ -821,7 +820,7 @@ def _render_globals(console: Console, scan: ScanResult, conflicts_only: bool = F
 
 
 def _render_summary(
-    console: Console, scan: ScanResult, sections: dict[str, dict[str, object]]
+    console: Console, scan: ScanResult, sections: dict[str, dict[str, Any]]
 ) -> None:
     """Print section-level summary."""
     section_counts: Counter[str] = Counter()
@@ -915,7 +914,7 @@ def main(
     scan = scan_globals(src_dir, cfg=cfg)
 
     # Enrich with binary section info
-    sections: dict[str, dict[str, object]] = {}
+    sections: dict[str, dict[str, Any]] = {}
     if bin_path and bin_path.exists():
         try:
             from rebrew.catalog import get_sections

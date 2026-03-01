@@ -16,6 +16,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Any
 
 import rich
 import typer
@@ -23,6 +24,7 @@ import typer
 from rebrew.annotation import parse_c_file, parse_source_metadata
 from rebrew.cli import TargetOption, error_exit, get_config, json_print, parse_va
 from rebrew.compile import resolve_cl_command
+from rebrew.compile_cache import CompileCache, get_compile_cache
 from rebrew.matcher import (
     BuildCache,
     BuildResult,
@@ -55,7 +57,7 @@ def _print_structural_similarity(sim: StructuralSimilarity) -> None:
     )
 
 
-def classify_blockers(diff_summary: dict[str, object]) -> list[str]:
+def classify_blockers(diff_summary: dict[str, Any]) -> list[str]:
     """Auto-classify MATCHING blockers from structural diffs.
 
     Looks for patterns in mismatched (** / RR) lines to identify systemic
@@ -142,8 +144,8 @@ class BinaryMatchingGA:
         lib_dir: str | None = None,
         ldflags: str | None = None,
         env: dict[str, str] | None = None,
+        compile_cache: CompileCache | None = None,
     ) -> None:
-        """Initialize the GA engine with seed source, target bytes, and compiler settings."""
         self.seed_source = seed_source
         self.target_bytes = target_bytes
         self.cl_cmd = cl_cmd
@@ -176,6 +178,7 @@ class BinaryMatchingGA:
         self.elapsed_sec: float = 0.0
 
         self.cache = BuildCache(str(self.out_dir / "build_cache.db"))
+        self.compile_cache = compile_cache
 
         self._init_population()
 
@@ -195,7 +198,13 @@ class BinaryMatchingGA:
 
         if self.compare_obj:
             res = build_candidate_obj_only(
-                src, self.cl_cmd, self.inc_dir, self.cflags, self.symbol, env=self.env
+                src,
+                self.cl_cmd,
+                self.inc_dir,
+                self.cflags,
+                self.symbol,
+                env=self.env,
+                cache=self.compile_cache,
             )
         else:
             if not self.lib_dir or not self.ldflags:
@@ -402,8 +411,12 @@ def main(
     json_output = diff_format == "json"
     csv_output = diff_format == "csv"
 
-    # Auto-fill from rebrew-project.toml config
     cfg = get_config(target=target)
+
+    try:
+        cc = get_compile_cache(cfg.root)
+    except OSError:
+        cc = None
 
     # Build name -> VA map for relocation validation
     name_to_va: dict[str, int] = {}
@@ -476,8 +489,10 @@ def main(
         for marker_key in ("FUNCTION", "LIBRARY", "STUB"):
             func_meta = meta.get(marker_key)
             if func_meta and "0x" in func_meta:
-                target_va = "0x" + func_meta.split("0x")[1].split()[0]
-                break
+                after_hex = func_meta.split("0x")[1].split()
+                if after_hex:
+                    target_va = "0x" + after_hex[0]
+                    break
 
     if target_size is None and "SIZE" in meta:
         try:
@@ -500,7 +515,7 @@ def main(
     out_dir_path.mkdir(parents=True, exist_ok=True)
 
     if diff_only:
-        res = build_candidate_obj_only(seed_src, cl, inc, cflags, symbol, env=msvc_env)
+        res = build_candidate_obj_only(seed_src, cl, inc, cflags, symbol, env=msvc_env, cache=cc)
         if res.ok and res.obj_bytes:
             obj_bytes = res.obj_bytes
             if len(obj_bytes) > len(target_bytes):
@@ -600,12 +615,21 @@ def main(
 
     if flag_sweep_only:
         results = flag_sweep(
-            seed_src, target_bytes, cl, inc, cflags, symbol, jobs, tier=tier, env=msvc_env
+            seed_src,
+            target_bytes,
+            cl,
+            inc,
+            cflags,
+            symbol,
+            jobs,
+            tier=tier,
+            env=msvc_env,
+            cache=cc,
         )
         for score, flags in results[:10]:
             print(f"{score:.2f}: {flags}")
 
-        res = build_candidate_obj_only(seed_src, cl, inc, cflags, symbol, env=msvc_env)
+        res = build_candidate_obj_only(seed_src, cl, inc, cflags, symbol, env=msvc_env, cache=cc)
         if res.ok and res.obj_bytes:
             obj_bytes = res.obj_bytes
             if len(obj_bytes) > len(target_bytes):
@@ -635,11 +659,12 @@ def main(
         ldflags=ldflags,
         env=msvc_env,
         rng_seed=seed,
+        compile_cache=cc,
     )
     _, best_score = ga.run()
-    print(f"\nDone. Best score: {best_score:.2f}", file=sys.stderr)
+    typer.echo(f"\nDone. Best score: {best_score:.2f}", err=True)
     if best_score < 0.1:
-        print("EXACT MATCH", file=sys.stderr)
+        typer.echo("EXACT MATCH", err=True)
 
 
 def main_entry() -> None:

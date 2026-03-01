@@ -26,9 +26,9 @@ Usage:
 
 import re
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -49,7 +49,7 @@ def extract_from_bin(bin_path: Path) -> bytes:
     return bin_path.read_bytes()
 
 
-def _get_capstone_x86() -> tuple[int, int, int, object]:
+def _get_capstone_x86() -> tuple[int, int, int, Any]:
     """Import capstone x86 constants/classes lazily.
 
     Raises:
@@ -75,7 +75,7 @@ def disassemble_to_nasm(
     code: bytes,
     base_va: int,
     label: str | None = None,
-) -> tuple[str, dict[str, object]]:
+) -> tuple[str, dict[str, Any]]:
     """Disassemble bytes to NASM source with round-trip verification.
 
     Two-pass approach:
@@ -155,7 +155,7 @@ def disassemble_to_nasm(
 
 
 def _find_bad_instructions_individually(
-    insn_data: list[dict[str, object]],
+    insn_data: list[dict[str, Any]],
     base_va: int,
     code: bytes,
 ) -> set[int]:
@@ -187,7 +187,7 @@ def _find_bad_instructions_individually(
 
 
 def _build_nasm_lines(
-    insn_data: list[dict[str, object]],
+    insn_data: list[dict[str, Any]],
     base_va: int,
     safe_label: str | None,
     trailing: bytes,
@@ -324,7 +324,7 @@ def verify_roundtrip(nasm_source: str, original_bytes: bytes) -> tuple[bool, str
     return False, (f"FAIL: {len(diffs)} byte diffs at offsets {diffs[:10]}")
 
 
-def _parse_annotations(filepath: Path) -> dict[str, object] | None:
+def _parse_annotations(filepath: Path) -> dict[str, Any] | None:
     """Parse reccmp-style annotations from a reversed .c file.
 
     Uses the canonical parser from rebrew.annotation.parse_c_file,
@@ -391,7 +391,7 @@ def batch_extract(
             if code is None:
                 raise ValueError("VA not in any section")
         except (OSError, KeyError, ValueError) as e:
-            print(f"  [{i}/{total}] {stem}: SKIP (extraction error: {e})", file=sys.stderr)
+            typer.echo(f"  [{i}/{total}] {stem}: SKIP (extraction error: {e})", err=True)
             continue
 
         nasm_src, stats = disassemble_to_nasm(code, va, symbol)
@@ -412,12 +412,12 @@ def batch_extract(
 
         pct = stats["pct_nasm"]
         db = stats["db_fallbacks"]
-        print(
+        typer.echo(
             f"  [{i}/{total}] {stem:40s} {size:4d}B  nasm={pct:5.1f}% db={db:2d}  {status}",
-            file=sys.stderr,
+            err=True,
         )
 
-    print(f"\nDone: {ok} ok, {fail} failed, {total} total", file=sys.stderr)
+    typer.echo(f"\nDone: {ok} ok, {fail} failed, {total} total", err=True)
 
 
 app = typer.Typer(

@@ -4,17 +4,19 @@ Generates CATALOG.md markdown reports and reccmp-compatible CSV files
 from parsed annotations and function registries.
 """
 
+from typing import Any
+
 from rebrew.config import ProjectConfig
 
 
 def generate_catalog(
-    entries: list[object],
-    funcs: list[dict[str, object]],
+    entries: list[Any],
+    funcs: list[dict[str, Any]],
     text_size: int,
 ) -> str:
     """Generate CATALOG.md content."""
     # Deduplicate by VA (keep first occurrence per VA)
-    by_va: dict[int, list[dict[str, object]]] = {}
+    by_va: dict[int, list[dict[str, Any]]] = {}
     for e in entries:
         if e.get("marker_type") in ("GLOBAL", "DATA"):
             continue
@@ -59,7 +61,7 @@ def generate_catalog(
     )
 
     # Group by origin (discovered dynamically from data, excluding GLOBAL/DATA)
-    by_origin: dict[str, list[dict[str, object]]] = {}
+    by_origin: dict[str, list[dict[str, Any]]] = {}
     for e in entries:
         if e.get("marker_type") in ("GLOBAL", "DATA"):
             continue
@@ -97,7 +99,7 @@ def generate_catalog(
 # ---------------------------------------------------------------------------
 
 
-def _reccmp_type(entry: object) -> str:
+def _reccmp_type(entry: dict[str, Any]) -> str:
     """Map our marker_type + origin to reccmp entity type."""
     if entry["marker_type"] == "STUB":
         return "stub"
@@ -107,9 +109,9 @@ def _reccmp_type(entry: object) -> str:
 
 
 def generate_reccmp_csv(
-    entries: list[object],
-    funcs: list[dict[str, object]],
-    registry: dict[int, dict[str, object]] | None = None,
+    entries: list[Any],
+    funcs: list[dict[str, Any]],
+    registry: dict[int, dict[str, Any]] | None = None,
     target_name: str = "TARGET",
     cfg: ProjectConfig | None = None,
 ) -> str:
@@ -122,7 +124,7 @@ def generate_reccmp_csv(
     a complete function catalog for the binary.  Comments and blank lines are
     allowed by the reccmp spec.
     """
-    by_va: dict[int, dict[str, object]] = {}
+    by_va: dict[int, dict[str, Any]] = {}
     for e in entries:
         if e["va"] not in by_va:
             by_va[e["va"]] = e

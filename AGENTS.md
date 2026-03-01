@@ -3,7 +3,7 @@
 ## Overview
 
 **Rebrew** is a compiler-in-the-loop decompilation workbench for binary-matching
-game reversing. Python package (`src/rebrew/`) with 23 CLI tools for compiling,
+game reversing. Python package (`src/rebrew/`) with 24 CLI tools for compiling,
 comparing, and matching C source against target binary functions (MSVC6 under Wine).
 
 Installed as an editable package (`uv pip install -e .`) into a workspace project
@@ -16,7 +16,7 @@ that contains the actual binaries, source files, and toolchains.
 uv pip install -e .
 uv sync --all-extras            # with dev deps
 
-# Run ALL tests (~1200 tests)
+# Run ALL tests (~1257 tests)
 uv run pytest tests/ -v
 
 # Run a SINGLE test file
@@ -131,7 +131,7 @@ src/rebrew/
 ├── struct_parser.py     # Extract struct/typedef definitions from C source via tree-sitter
 ├── utils.py             # Shared utilities (Wine stderr filtering, path helpers)
 ├── [tool].py            # Each CLI tool (test, verify, match, lint, etc.)
-├── catalog/             # Function catalog package
+├── catalog/             # Function catalog package (see catalog/AGENTS.md)
 │   ├── __init__.py      # Re-exports all public names
 │   ├── loaders.py       # Ghidra JSON + text function list parsers, DLL byte extraction
 │   ├── registry.py      # build_function_registry, canonical size resolution
@@ -139,7 +139,20 @@ src/rebrew/
 │   ├── export.py        # Catalog + reccmp CSV generation
 │   ├── sections.py      # PE section helpers (text size, globals)
 │   └── cli.py           # Typer CLI app
-└── matcher/             # Core GA engine (compiler, scoring, mutation, flags)
+├── matcher/             # Core GA engine (see matcher/AGENTS.md)
+│   ├── __init__.py      # Re-exports: build_candidate, score_candidate, mutate_code, ...
+│   ├── core.py          # Data types: Score, BuildResult, BuildCache, GACheckpoint
+│   ├── compiler.py      # MSVC6 compilation + flag sweep (Wine/wibo subprocess)
+│   ├── scoring.py       # Byte-level scoring, structural similarity (capstone + numpy)
+│   ├── mutator.py       # 51 C source mutation operators for GA exploration
+│   ├── parsers.py       # Object file parsing (COFF/ELF/Mach-O via LIEF)
+│   ├── flags.py         # FlagSet/Checkbox primitives (decomp.me compatible)
+│   └── flag_data.py     # Auto-synced MSVC flag definitions
+└── agent-skills/        # AI agent workflow skills (SKILL.md per skill)
+    ├── rebrew-intake/   # Binary onboarding, FLIRT scan, catalog, triage
+    ├── rebrew-workflow/  # End-to-end reversing loop
+    ├── rebrew-matching/ # Deep binary matching, GA engine, flag sweeps
+    └── rebrew-data-analysis/  # Global data, BSS layout, dispatch tables
 tests/
 ├── test_[module].py     # Unit tests, one file per module
 ```

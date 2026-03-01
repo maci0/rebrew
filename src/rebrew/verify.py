@@ -8,6 +8,7 @@ import concurrent.futures
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -173,7 +174,7 @@ def main(
     passed = 0
     failed = 0
     fail_details: list[tuple[Annotation, str]] = []
-    results: list[dict[str, object]] = []  # per-function structured results
+    results: list[dict[str, Any]] = []  # per-function structured results
     total = len(unique_entries)
     effective_jobs = min(jobs, total) if total else 1
 

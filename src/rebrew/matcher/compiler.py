@@ -5,6 +5,7 @@ and generate_flag_combinations() for compiling C source with MSVC6 under Wine
 and extracting function bytes from the resulting object/executable.
 """
 
+import contextlib
 import itertools
 import os
 import re
@@ -14,6 +15,8 @@ import subprocess
 import tempfile
 import warnings
 from pathlib import Path
+
+from rebrew.compile_cache import CompileCache, compile_cache_key
 
 from .core import BuildResult
 from .flag_data import COMMON_MSVC_FLAGS, MSVC6_FLAGS, MSVC_SWEEP_TIERS
@@ -29,27 +32,11 @@ _MAP_SYM_RE = re.compile(
     re.MULTILINE,
 )
 
-# Legacy dict-based axes (kept for backward compatibility)
-MSVC6_FLAG_AXES = {
-    "opt": ["/O1", "/O2", "/Os", "/Ot", "/Ox", "/Od", ""],
-    "fp": ["/Oy", "/Oy-", ""],
-    "cpu": ["/G5", "/G6", ""],
-    "call": ["/Gd", "/Gr", "/Gz", ""],
-    "link": ["/Gy", ""],
-    "intrinsics": ["/Oi", ""],
-}
-
-
 # Map of profiles → synced Flags lists
 _FLAGS_MAP: dict[str, Flags] = {
     "msvc": COMMON_MSVC_FLAGS,
     "msvc7": COMMON_MSVC_FLAGS,
     "msvc6": MSVC6_FLAGS,  # excludes MSVC 7.x+ only flags (/fp:*, /GS-)
-}
-
-# Legacy dict-based map (for backward compat with generate_flag_combinations fallback)
-_FLAG_AXES_MAP: dict[str, dict[str, list[str]]] = {
-    "msvc6": MSVC6_FLAG_AXES,
 }
 
 
@@ -143,17 +130,12 @@ def generate_flag_combinations(tier: str = "quick") -> list[str]:
     """
     profile = _COMPILER_PROFILE
 
-    # Use synced Flags if available for this profile
-    if profile in _FLAGS_MAP:
-        flags = _FLAGS_MAP[profile]
-        if tier not in MSVC_SWEEP_TIERS:
-            raise ValueError(f"Unknown sweep tier {tier!r}, valid: {list(MSVC_SWEEP_TIERS)}")
-        tier_ids = MSVC_SWEEP_TIERS[tier]  # None = all axes
-        axes = _flags_to_axes(flags, tier_ids)
-    else:
-        # Fall back to legacy dict-based axes
-        axes_dict = _FLAG_AXES_MAP.get(profile, MSVC6_FLAG_AXES)
-        axes = list(axes_dict.values())
+    # Use synced Flags for this profile
+    flags = _FLAGS_MAP[profile]
+    if tier not in MSVC_SWEEP_TIERS:
+        raise ValueError(f"Unknown sweep tier {tier!r}, valid: {list(MSVC_SWEEP_TIERS)}")
+    tier_ids = MSVC_SWEEP_TIERS[tier]  # None = all axes
+    axes = _flags_to_axes(flags, tier_ids)
 
     combos = set()
     for combo in itertools.product(*axes):
@@ -178,17 +160,48 @@ def build_candidate_obj_only(
     symbol: str,
     env: dict[str, str] | None = None,
     source_ext: str = ".c",
+    cache: CompileCache | None = None,
 ) -> BuildResult:
-    """Compile source to .obj and extract symbol bytes (no linking)."""
+    """Compile source to .obj and extract symbol bytes (no linking).
+
+    When *cache* is provided, the raw ``.obj`` bytes are cached on disk
+    keyed by ``(source_code, cflags, cl_cmd, inc_dir)``.  On cache hit
+    only the fast LIEF symbol extraction runs, skipping the 200-500 ms
+    Wine/wibo subprocess entirely.
+    """
+    src_name = f"cand{source_ext}"
+    all_flags = shlex.split(cflags)
+
+    cache_key: str | None = None
+    if cache is not None:
+        cmd_parts = _compiler_cmd_parts(cl_cmd, env)
+        toolchain_id = " ".join(cmd_parts)
+        cache_key = compile_cache_key(
+            source_content=source_code,
+            source_filename=src_name,
+            cflags=all_flags + ["/c"],
+            include_dirs=[inc_dir],
+            toolchain_id=toolchain_id,
+            source_ext=source_ext,
+        )
+        cached_obj = cache.get(cache_key)
+        if cached_obj is not None:
+            with tempfile.TemporaryDirectory(prefix="matcher_hit_") as _td:
+                obj_path = Path(_td) / "cand.obj"
+                obj_path.write_bytes(cached_obj)
+                code, relocs = parse_obj_symbol_bytes(str(obj_path), symbol)
+                if code is None:
+                    return BuildResult(ok=False, error_msg=f"Symbol {symbol} not found in .obj")
+                return BuildResult(ok=True, obj_bytes=code, reloc_offsets=relocs)
+
     with tempfile.TemporaryDirectory(prefix="matcher_") as _td:
         workdir = Path(_td)
-        src_name = f"cand{source_ext}"
         obj_name = "cand.obj"
         (workdir / src_name).write_text(source_code, encoding="utf-8")
 
         cmd = (
             _compiler_cmd_parts(cl_cmd, env)
-            + shlex.split(cflags)
+            + all_flags
             + ["/c", f"/I{inc_dir}", f"/Fo{obj_name}", src_name]
         )
         if env is None:
@@ -212,6 +225,10 @@ def build_candidate_obj_only(
             err_output = _filter_stderr((r.stdout + r.stderr).decode(errors="replace"))[:400]
             detailed_err = f"Command: {' '.join(cmd)}\nReturn code: {r.returncode}\nObj Exists: {obj_path.exists()}\nOutput: {err_output}"
             return BuildResult(ok=False, error_msg=detailed_err)
+
+        if cache is not None and cache_key is not None:
+            with contextlib.suppress(OSError):
+                cache.put(cache_key, obj_path.read_bytes())
 
         code, relocs = parse_obj_symbol_bytes(str(obj_path), symbol)
         if code is None:
@@ -314,11 +331,13 @@ def flag_sweep(
     tier: str = "quick",
     env: dict[str, str] | None = None,
     source_ext: str = ".c",
+    cache: CompileCache | None = None,
 ) -> list[tuple[float, str]]:
     """Sweep compiler flags to find the best match.
 
     Args:
         tier: Sweep effort level — "quick", "normal", "thorough", or "full".
+        cache: Optional ``CompileCache`` for cross-run persistence.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -332,7 +351,14 @@ def flag_sweep(
     def _eval_flags(flags: str) -> tuple[float, str]:
         full_flags = f"{base_cflags} {flags}"
         res = build_candidate_obj_only(
-            source_code, cl_cmd, inc_dir, full_flags, symbol, env=env, source_ext=source_ext
+            source_code,
+            cl_cmd,
+            inc_dir,
+            full_flags,
+            symbol,
+            env=env,
+            source_ext=source_ext,
+            cache=cache,
         )
         if res.ok and res.obj_bytes:
             score = score_candidate(target_bytes, res.obj_bytes, res.reloc_offsets)

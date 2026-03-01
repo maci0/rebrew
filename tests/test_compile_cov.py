@@ -187,6 +187,7 @@ class TestCompileToObj:
         monkeypatch.setattr("rebrew.compile.resolve_cl_command", lambda _cfg: ["CL.EXE"])
 
         cfg: Any = SimpleNamespace(
+            root=tmp_path,
             compiler_includes=tmp_path,
             base_cflags='/FI"my forced.h" /nologo',
             compile_timeout=3,

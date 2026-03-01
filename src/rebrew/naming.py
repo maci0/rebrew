@@ -10,10 +10,11 @@ Extracted from skeleton.py and next.py to eliminate circular dependencies.
 import bisect
 import re
 from pathlib import Path
+from typing import Any
 
 import capstone
 
-from rebrew.annotation import _DEFAULT_ORIGIN_PREFIXES, parse_c_file_multi
+from rebrew.annotation import DEFAULT_ORIGIN_PREFIXES, parse_c_file_multi
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va
 from rebrew.config import ProjectConfig
 
@@ -211,7 +212,7 @@ def estimate_difficulty(
 
 def load_data(
     cfg: ProjectConfig,
-) -> tuple[list[dict[str, object]], dict[int, dict[str, str]], dict[int, str]]:
+) -> tuple[list[dict[str, Any]], dict[int, dict[str, str]], dict[int, str]]:
     """Load all project data.
 
     Returns (ghidra_funcs, existing, covered_vas) where:
@@ -306,7 +307,7 @@ def group_uncovered(
 # ---------------------------------------------------------------------------
 
 # Reverse mapping: origin → filename prefix (derived from annotation defaults)
-_ORIGIN_TO_PREFIX: dict[str, str] = {v: k for k, v in _DEFAULT_ORIGIN_PREFIXES.items()}
+_ORIGIN_TO_PREFIX: dict[str, str] = {v: k for k, v in DEFAULT_ORIGIN_PREFIXES.items()}
 
 
 def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> dict[int, str]:

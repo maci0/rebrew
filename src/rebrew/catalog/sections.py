@@ -5,7 +5,7 @@ scanning from annotated source files.
 """
 
 import re
-import sys
+import warnings
 from pathlib import Path
 
 from rebrew.binary_loader import load_binary
@@ -41,7 +41,7 @@ def get_sections(bin_path: Path) -> dict[str, dict[str, int]]:
                 }
         return sections
     except (ImportError, OSError, KeyError, ValueError) as e:
-        print(f"Warning: Failed to parse binary sections: {e}", file=sys.stderr)
+        warnings.warn(f"Failed to parse binary sections: {e}", stacklevel=2)
         return {}
 
 

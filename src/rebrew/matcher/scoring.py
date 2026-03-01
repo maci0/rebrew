@@ -6,6 +6,7 @@ Uses capstone for x86 disassembly and numpy for vectorized byte comparison.
 """
 
 import difflib
+from typing import Any
 
 import capstone
 import numpy as np
@@ -226,7 +227,7 @@ def diff_functions(
     as_dict: bool = False,
     cs_arch: int = _DEFAULT_CS_ARCH,
     cs_mode: int = _DEFAULT_CS_MODE,
-) -> dict[str, object] | None:
+) -> dict[str, Any] | None:
     """Print a side-by-side diff of target and candidate disassembly.
 
     Args:
@@ -258,7 +259,7 @@ def diff_functions(
     # Build rows with match markers.  When as_dict is True we collect
     # structured dicts and simple counters instead of formatted lines.
     rows: list[tuple[str, str]] = []  # (match_char, formatted_line) — print mode only
-    insn_data: list[dict[str, object]] = []  # populated only when as_dict=True
+    insn_data: list[dict[str, Any]] = []  # populated only when as_dict=True
     exact_count = 0
     reloc_count = 0
     invalid_reloc_count = 0

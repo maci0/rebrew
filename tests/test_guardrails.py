@@ -356,7 +356,7 @@ class TestDuplicateVADetection:
         assert len(stubs) == 1
 
         captured = capsys.readouterr()
-        assert "Duplicate VA" in captured.out
+        assert "Duplicate VA" in captured.err
 
     def test_different_vas_both_kept(self, tmp_path: Path) -> None:
         header_a = STUB_HEADER

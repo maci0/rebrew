@@ -24,7 +24,6 @@ The exported JSON can be consumed by automation that calls ReVa MCP tools:
 import contextlib
 import json
 import re
-import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -319,7 +318,7 @@ def build_sync_commands(
     return commands
 
 
-def _parse_va(va_raw: Any) -> int | None:
+def _parse_va(va_raw: str | int | None) -> int | None:
     """Normalize a VA value (hex string or int) to int, or None if invalid."""
     if va_raw is None:
         return None
@@ -551,7 +550,7 @@ def _is_meaningful_name(name: str) -> bool:
     )
 
 
-def _ghidra_name_to_symbol(ghidra_name: str, entry: object, cfg: object = None) -> str:
+def _ghidra_name_to_symbol(ghidra_name: str, entry: Any, cfg: Any = None) -> str:
     """Convert a Ghidra function name to a C symbol name based on calling convention and config."""
     if not ghidra_name:
         return ""
@@ -660,8 +659,8 @@ def pull_ghidra_renames(
                 session_id=session_id,
             )
         except httpx.RequestError as e:
-            print(f"Warning: Could not connect to ReVa MCP ({e}).", file=sys.stderr)
-            print("Falling back to local caches...", file=sys.stderr)
+            typer.echo(f"Warning: Could not connect to ReVa MCP ({e}).", err=True)
+            typer.echo("Falling back to local caches...", err=True)
 
     if not functions:
         ghidra_json_path = cfg.reversed_dir / "ghidra_functions.json"
@@ -671,11 +670,11 @@ def pull_ghidra_renames(
                 if not dry_run:
                     print(f"Loaded {len(functions)} functions from {ghidra_json_path.name}")
             except (json.JSONDecodeError, OSError) as e:
-                print(f"Error reading cache: {e}", file=sys.stderr)
+                typer.echo(f"Error reading cache: {e}", err=True)
         else:
-            print(
+            typer.echo(
                 f"Could not fetch functions from MCP and {ghidra_json_path.name} not found.",
-                file=sys.stderr,
+                err=True,
             )
 
     if not data_labels:
@@ -955,7 +954,7 @@ def apply_commands_via_mcp(
                 pass
 
         if not session_id:
-            print("WARNING: No session ID received, proceeding without one")
+            typer.echo("WARNING: No session ID received, proceeding without one", err=True)
 
         headers = {
             "Accept": "application/json, text/event-stream",

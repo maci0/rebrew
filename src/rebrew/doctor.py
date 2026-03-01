@@ -16,6 +16,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -79,7 +80,7 @@ class DoctorReport:
         """Number of checks with warnings."""
         return sum(1 for c in self.checks if c.status == _WARN)
 
-    def to_dict(self) -> dict[str, object]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict for JSON output."""
         return {
             "target": self.target,
@@ -101,7 +102,7 @@ _KNOWN_FORMATS = {"pe", "elf", "macho"}
 _KNOWN_ARCHES = {"x86_32", "x86_64", "arm32", "arm64"}
 
 
-def check_config_parse(root: Path | None, target: str | None) -> tuple[CheckResult, object]:
+def check_config_parse(root: Path | None, target: str | None) -> tuple[CheckResult, Any]:
     """Check that rebrew-project.toml exists and parses without errors."""
     try:
         cfg = get_config(target=target)
@@ -145,7 +146,7 @@ def check_config_parse(root: Path | None, target: str | None) -> tuple[CheckResu
         )
 
 
-def check_target_binary(cfg: object) -> CheckResult:
+def check_target_binary(cfg: Any) -> CheckResult:
     """Check that the target binary exists and is loadable."""
     bin_path: Path = cfg.target_binary
     if not bin_path.exists():
@@ -180,7 +181,7 @@ def check_target_binary(cfg: object) -> CheckResult:
         )
 
 
-def check_arch_format(cfg: object) -> CheckResult:
+def check_arch_format(cfg: Any) -> CheckResult:
     """Validate arch and format values are known."""
     issues: list[str] = []
     if cfg.arch not in _KNOWN_ARCHES:
@@ -204,7 +205,7 @@ def check_arch_format(cfg: object) -> CheckResult:
     )
 
 
-def check_compiler(cfg: object) -> CheckResult:
+def check_compiler(cfg: Any) -> CheckResult:
     """Check that the compiler command is executable."""
     cmd_str = cfg.compiler_command
     if not cmd_str:
@@ -294,7 +295,7 @@ def check_compiler(cfg: object) -> CheckResult:
     )
 
 
-def check_includes(cfg: object) -> CheckResult:
+def check_includes(cfg: Any) -> CheckResult:
     """Check that the compiler include directory exists."""
     inc_path: Path = cfg.compiler_includes
     if not inc_path.exists():
@@ -313,7 +314,7 @@ def check_includes(cfg: object) -> CheckResult:
     )
 
 
-def check_libs(cfg: object) -> CheckResult:
+def check_libs(cfg: Any) -> CheckResult:
     """Check that the compiler lib directory exists."""
     lib_path: Path = cfg.compiler_libs
     if not lib_path.exists():
@@ -331,7 +332,7 @@ def check_libs(cfg: object) -> CheckResult:
     )
 
 
-def check_function_list(cfg: object) -> CheckResult:
+def check_function_list(cfg: Any) -> CheckResult:
     """Check that the function list file exists and has valid content."""
     func_list: Path = cfg.function_list
     if not func_list.exists():
@@ -362,7 +363,7 @@ def check_function_list(cfg: object) -> CheckResult:
         )
 
 
-def check_source_files(cfg: object) -> CheckResult:
+def check_source_files(cfg: Any) -> CheckResult:
     """Check that at least one source file exists in reversed_dir."""
     reversed_dir: Path = cfg.reversed_dir
     if not reversed_dir.exists():
@@ -392,7 +393,7 @@ def check_source_files(cfg: object) -> CheckResult:
     )
 
 
-def check_bin_dir(cfg: object) -> CheckResult:
+def check_bin_dir(cfg: Any) -> CheckResult:
     """Check that the output bin directory exists or can be created."""
     bin_dir: Path = cfg.bin_dir
     if bin_dir.exists():

@@ -14,14 +14,15 @@ Usage:
     rebrew skeleton --list --origin GAME          # List uncovered GAME functions
 """
 
-import sys
 from pathlib import Path
+from typing import Any
 
 import jinja2
 import typer
 
 from rebrew.annotation import (
     marker_for_origin,
+    parse_c_file_multi,
 )
 from rebrew.catalog import load_ghidra_functions
 from rebrew.cli import TargetOption, error_exit, get_config, json_print, parse_va
@@ -213,7 +214,7 @@ def generate_diff_command(
 
 
 def list_uncovered(
-    ghidra_funcs: list[dict[str, object]],
+    ghidra_funcs: list[dict[str, Any]],
     existing_vas: dict[int, str],
     cfg: ProjectConfig,
     origin_filter: str | None = None,
@@ -366,7 +367,7 @@ def main(
             rel_path = _display_path(filepath, root)
 
             if filepath.exists() and not force:
-                print(f"SKIP: {rel_path} (already exists)", file=sys.stderr)
+                typer.echo(f"SKIP: {rel_path} (already exists)", err=True)
                 continue
 
             d_code = None
@@ -390,8 +391,8 @@ def main(
             cflags_val = cfg.resolve_origin_cflags(origin_val)
             test_cmd = generate_test_command(rel_path, symbol_val, va_val, size_val, cflags_val)
 
-            print(f"CREATED: {rel_path} ({size_val}B, {origin_val})", file=sys.stderr)
-            print(f"  TEST: {test_cmd}", file=sys.stderr)
+            typer.echo(f"CREATED: {rel_path} ({size_val}B, {origin_val})", err=True)
+            typer.echo(f"  TEST: {test_cmd}", err=True)
             created.append(
                 {
                     "file": str(rel_path),
@@ -406,7 +407,7 @@ def main(
         if json_output:
             json_print({"created": created, "count": len(created)})
         else:
-            print(f"\nCreated {len(created)} skeleton files.", file=sys.stderr)
+            typer.echo(f"\nCreated {len(created)} skeleton files.", err=True)
         return
 
     # Single VA mode
@@ -454,6 +455,19 @@ def main(
         if not append_path.exists():
             error_exit(f"--append target does not exist: {append_path}", json_mode=json_output)
 
+        if not force:
+            existing_in_file = parse_c_file_multi(
+                append_path, target_name=cfg.marker if cfg else None
+            )
+            for entry in existing_in_file:
+                if entry.va == va_int:
+                    typer.echo(
+                        f"VA 0x{va_int:08x} already in {append_path.name}. "
+                        f"Use --force to append anyway.",
+                        err=True,
+                    )
+                    raise typer.Exit(code=0)
+
         decomp_code_val = None
         decomp_backend_name = ""
         if decomp:
@@ -485,13 +499,13 @@ def main(
 
         rel_path_val = _display_path(append_path, root)
         symbol_val = "_" + name if name else "_" + sanitize_name(ghidra_name)
-        print(f"APPENDED to {rel_path_val}:", file=sys.stderr)
-        print(f"  VA:     0x{va_int:08x}", file=sys.stderr)
-        print(f"  Size:   {size}B", file=sys.stderr)
-        print(f"  Symbol: {symbol_val}", file=sys.stderr)
-        print(file=sys.stderr)
-        print("Test all functions in this file:", file=sys.stderr)
-        print(f"  rebrew test {rel_path_val}", file=sys.stderr)
+        typer.echo(f"APPENDED to {rel_path_val}:", err=True)
+        typer.echo(f"  VA:     0x{va_int:08x}", err=True)
+        typer.echo(f"  Size:   {size}B", err=True)
+        typer.echo(f"  Symbol: {symbol_val}", err=True)
+        typer.echo("", err=True)
+        typer.echo("Test all functions in this file:", err=True)
+        typer.echo(f"  rebrew test {rel_path_val}", err=True)
         if json_output:
             json_print(
                 {
@@ -517,9 +531,9 @@ def main(
             decomp_backend, cfg.target_binary, va_int, cfg.root
         )
         if decomp_code_val:
-            print(f"  Decompiler: {decomp_backend_name}", file=sys.stderr)
+            typer.echo(f"  Decompiler: {decomp_backend_name}", err=True)
         else:
-            print("  Decompiler: no output (backend unavailable or failed)", file=sys.stderr)
+            typer.echo("  Decompiler: no output (backend unavailable or failed)", err=True)
 
     content_val = generate_skeleton(
         cfg,
@@ -554,30 +568,28 @@ def main(
             }
         )
     else:
-        print(f"Created: {rel_path_val}", file=sys.stderr)
-        print(f"  VA:     0x{va_int:08x}", file=sys.stderr)
-        print(f"  Size:   {size}B", file=sys.stderr)
-        print(f"  Origin: {origin_val}", file=sys.stderr)
-        print(f"  Symbol: {symbol_val}", file=sys.stderr)
-        print(file=sys.stderr)
-        print("Test command:", file=sys.stderr)
-        print(f"  {test_cmd}", file=sys.stderr)
-        print(file=sys.stderr)
-        print("Diff command:", file=sys.stderr)
-        print(f"  {diff_cmd}", file=sys.stderr)
-        print(file=sys.stderr)
-        print("Next steps:", file=sys.stderr)
-        print(f"  1. Get Ghidra decompilation for 0x{va_int:08x}", file=sys.stderr)
-        print("  2. Replace the TODO placeholder with actual C89 code", file=sys.stderr)
-        print(
+        typer.echo(f"Created: {rel_path_val}", err=True)
+        typer.echo(f"  VA:     0x{va_int:08x}", err=True)
+        typer.echo(f"  Size:   {size}B", err=True)
+        typer.echo(f"  Origin: {origin_val}", err=True)
+        typer.echo(f"  Symbol: {symbol_val}", err=True)
+        typer.echo("", err=True)
+        typer.echo("Test command:", err=True)
+        typer.echo(f"  {test_cmd}", err=True)
+        typer.echo("", err=True)
+        typer.echo("Diff command:", err=True)
+        typer.echo(f"  {diff_cmd}", err=True)
+        typer.echo("", err=True)
+        typer.echo("Next steps:", err=True)
+        typer.echo(f"  1. Get Ghidra decompilation for 0x{va_int:08x}", err=True)
+        typer.echo("  2. Replace the TODO placeholder with actual C89 code", err=True)
+        typer.echo(
             "  3. Ensure C89 compliance: vars at block top, no // comments in body, no for(int ...)",
-            file=sys.stderr,
+            err=True,
         )
-        print("  4. Run the test command above to check match", file=sys.stderr)
-        print(
-            "  5. Update STATUS from STUB to EXACT/RELOC/MATCHING based on result", file=sys.stderr
-        )
-        print("  6. If MATCHING, add BLOCKER annotation explaining the difference", file=sys.stderr)
+        typer.echo("  4. Run the test command above to check match", err=True)
+        typer.echo("  5. Update STATUS from STUB to EXACT/RELOC/MATCHING based on result", err=True)
+        typer.echo("  6. If MATCHING, add BLOCKER annotation explaining the difference", err=True)
 
 
 def main_entry() -> None:

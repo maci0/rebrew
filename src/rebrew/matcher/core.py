@@ -7,9 +7,10 @@ for persisting GA state across runs.
 import contextlib
 import hashlib
 import json
-import sys
+import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 import diskcache
 
@@ -82,7 +83,7 @@ class GACheckpoint:
     best_score: float
     best_source: str | None
     population: list[str]
-    rng_state: tuple[object, ...]
+    rng_state: tuple[Any, ...]
     stagnant_gens: int
     elapsed_sec: float
     args_hash: str
@@ -115,24 +116,24 @@ def load_checkpoint(path: str, expected_hash: str) -> GACheckpoint | None:
     try:
         data = json.loads(ckpt_path.read_text(encoding="utf-8"))
         if data.get("args_hash") != expected_hash:
-            print("Checkpoint args hash mismatch, ignoring checkpoint.", file=sys.stderr)
+            warnings.warn("Checkpoint args hash mismatch, ignoring checkpoint.", stacklevel=2)
             return None
         # JSON deserializes arrays as lists; rng_state needs tuple nesting
         # Random.getstate() returns (version, internalstate_tuple, gauss_next)
         if "rng_state" in data and isinstance(data["rng_state"], list):
             rs = data["rng_state"]
-            converted: list[object] = [rs[0]] if rs else []
+            converted: list[Any] = [rs[0]] if rs else []
             if len(rs) > 1:
                 converted.append(tuple(rs[1]) if isinstance(rs[1], list) else rs[1])
             converted.extend(rs[2:])
             data["rng_state"] = tuple(converted)
         return GACheckpoint(**data)
     except (json.JSONDecodeError, KeyError, TypeError, ValueError, OSError) as e:
-        print(f"Failed to load checkpoint: {e}", file=sys.stderr)
+        warnings.warn(f"Failed to load checkpoint: {e}", stacklevel=2)
         return None
 
 
-def compute_args_hash(args_dict: dict[str, object]) -> str:
+def compute_args_hash(args_dict: dict[str, Any]) -> str:
     """Compute a hash of configuration arguments to validate checkpoints."""
     # Only include keys that affect the GA run logic
     keys = ["target_exe", "target_va", "target_size", "symbol", "cflags", "pop_size", "generations"]
