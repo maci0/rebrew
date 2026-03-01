@@ -14,6 +14,7 @@ Usage:
     rebrew skeleton --list --origin GAME          # List uncovered GAME functions
 """
 
+import importlib
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +67,9 @@ _SKELETON_TEMPLATE = jinja2.Template(
 {% if origin_comment -%}
 /* {{ origin_comment }} */
 {% endif %}
+{% if xref_context -%}
+{{ xref_context }}
+{% endif %}
 {% if decomp_code -%}
 /* === Decompilation ({{ decomp_backend }}) === */
 {{ decomp_code }}
@@ -92,6 +96,9 @@ _ANNOTATION_BLOCK_TEMPLATE = jinja2.Template(
 // CFLAGS: {{ cflags }}
 // SYMBOL: {{ symbol }}
 
+{% if xref_context -%}
+{{ xref_context }}
+{% endif %}
 {% if decomp_code -%}
 /* === Decompilation ({{ decomp_backend }}) === */
 {{ decomp_code }}
@@ -115,6 +122,7 @@ def generate_skeleton(
     ghidra_name: str,
     origin: str,
     custom_name: str | None = None,
+    xref_context: str | None = None,
     decomp_code: str | None = None,
     decomp_backend: str = "",
 ) -> str:
@@ -157,6 +165,7 @@ def generate_skeleton(
         symbol=symbol,
         func_name=func_name,
         ghidra_name=ghidra_name,
+        xref_context=xref_context,
         decomp_code=decomp_code,
         decomp_backend=decomp_backend or "decompiler",
         todo=todo,
@@ -171,6 +180,7 @@ def generate_annotation_block(
     ghidra_name: str,
     origin: str,
     custom_name: str | None = None,
+    xref_context: str | None = None,
     decomp_code: str | None = None,
     decomp_backend: str = "",
 ) -> str:
@@ -196,9 +206,166 @@ def generate_annotation_block(
         symbol=symbol,
         func_name=func_name,
         ghidra_name=ghidra_name,
+        xref_context=xref_context,
         decomp_code=decomp_code,
         decomp_backend=decomp_backend or "decompiler",
     )
+
+
+def fetch_xref_context(
+    endpoint: str,
+    program_path: str,
+    va: int,
+    *,
+    max_callers: int = 5,
+) -> str | None:
+    """Fetch cross-reference context from Ghidra via ReVa MCP.
+
+    Calls find-cross-references to get callers, then get-decompilation
+    on the top callers to provide calling context.
+
+    Returns a formatted comment block string, or None if MCP is unavailable.
+    """
+    try:
+        httpx_mod = importlib.import_module("httpx")
+    except ModuleNotFoundError:
+        typer.echo("httpx required for --xrefs. Install: uv pip install httpx", err=True)
+        return None
+
+    _sync_mod = importlib.import_module("rebrew.sync")
+    _fetch_mcp_tool_raw = _sync_mod._fetch_mcp_tool_raw
+    _init_mcp_session = _sync_mod._init_mcp_session
+
+    try:
+        with httpx_mod.Client(timeout=30.0) as client:
+            session_id = _init_mcp_session(client, endpoint)
+            xrefs = _fetch_mcp_tool_raw(
+                client,
+                endpoint,
+                "find-cross-references",
+                {
+                    "programPath": program_path,
+                    "location": f"0x{va:08X}",
+                    "direction": "to",
+                    "includeFlow": True,
+                    "includeData": True,
+                    "includeContext": True,
+                    "contextLines": 3,
+                    "limit": max_callers * 2,
+                },
+                request_id=1,
+                session_id=session_id,
+            )
+
+            if not isinstance(xrefs, dict):
+                return None
+            refs_raw = xrefs.get("referencesTo")
+            if not isinstance(refs_raw, list) or not refs_raw:
+                return None
+
+            caller_rows: list[tuple[str, str, str]] = []
+            seen_callers: set[tuple[str, str]] = set()
+            data_rows: list[tuple[str, str, str]] = []
+            for ref in refs_raw:
+                if not isinstance(ref, dict):
+                    continue
+                from_address = ref.get("fromAddress")
+                if not isinstance(from_address, str) or not from_address:
+                    continue
+
+                from_function = ref.get("fromFunction")
+                from_symbol = ref.get("fromSymbol")
+                function_name = "unknown"
+                context = ""
+                if isinstance(from_function, dict):
+                    name_raw = from_function.get("name")
+                    if isinstance(name_raw, str) and name_raw:
+                        function_name = name_raw
+                    context_raw = from_function.get("context")
+                    if isinstance(context_raw, str):
+                        context = context_raw.strip()
+                if function_name == "unknown" and isinstance(from_symbol, dict):
+                    name_raw = from_symbol.get("name")
+                    if isinstance(name_raw, str) and name_raw:
+                        function_name = name_raw
+
+                if ref.get("isCall") is True:
+                    key = (function_name, from_address)
+                    if key in seen_callers:
+                        continue
+                    seen_callers.add(key)
+                    caller_rows.append((function_name, from_address, context))
+                    continue
+
+                if ref.get("isData") is True:
+                    ref_kind = ref.get("referenceType")
+                    ref_type = ref_kind if isinstance(ref_kind, str) and ref_kind else "DATA"
+                    data_rows.append((function_name, from_address, ref_type))
+
+            if not caller_rows and not data_rows:
+                return None
+
+            callers = caller_rows[:max_callers]
+            decomp_by_address: dict[str, str] = {}
+            request_id = 2
+            for _, caller_addr, _ in callers:
+                decomp = _fetch_mcp_tool_raw(
+                    client,
+                    endpoint,
+                    "get-decompilation",
+                    {
+                        "programPath": program_path,
+                        "functionNameOrAddress": caller_addr,
+                        "limit": 30,
+                    },
+                    request_id=request_id,
+                    session_id=session_id,
+                )
+                request_id += 1
+
+                decomp_text = ""
+                if isinstance(decomp, str):
+                    decomp_text = decomp.strip()
+                elif isinstance(decomp, dict):
+                    for key in ("decompilation", "text", "code"):
+                        candidate = decomp.get(key)
+                        if isinstance(candidate, str) and candidate.strip():
+                            decomp_text = candidate.strip()
+                            break
+                if decomp_text:
+                    decomp_by_address[caller_addr] = decomp_text
+
+            lines: list[str] = [f"/* === Cross-references ({len(callers)} callers) ===", " *"]
+            for idx, (caller_name, caller_addr, caller_context) in enumerate(callers, start=1):
+                lines.append(f" * Caller {idx}: {caller_name} ({caller_addr})")
+                if caller_context:
+                    for ctx_line in caller_context.splitlines():
+                        if ctx_line.strip():
+                            lines.append(f" *   {ctx_line.strip()}")
+                else:
+                    lines.append(" *   (no call-site context)")
+                lines.append(" *")
+
+            if data_rows:
+                lines.append(f" * Data references: {len(data_rows)}")
+                for data_name, data_addr, data_type in data_rows:
+                    lines.append(f" *   {data_name} ({data_addr}) [{data_type}]")
+                lines.append(" *")
+
+            for caller_name, caller_addr, _ in callers:
+                decomp_text = decomp_by_address.get(caller_addr)
+                if not decomp_text:
+                    continue
+                lines.append(f" * === Caller: {caller_name} ({caller_addr}) - decompilation ===")
+                for dec_line in decomp_text.splitlines():
+                    lines.append(f" * {dec_line}")
+                lines.append(" *")
+
+            lines.append(" * === End cross-references ===")
+            lines.append(" */")
+            return "\n".join(lines)
+    except Exception:
+        return None
 
 
 def generate_test_command(filepath: str, symbol: str, va: int, size: int, cflags: str) -> str:
@@ -319,6 +486,15 @@ def main(
         "--decomp-backend",
         help="Decompiler backend: auto, r2ghidra, r2dec, ghidra",
     ),
+    xrefs: bool = typer.Option(
+        False,
+        "--xrefs",
+        help="Fetch cross-references from Ghidra and embed in skeleton",
+    ),
+    endpoint: str = typer.Option(
+        "http://localhost:8080/mcp/message",
+        help="ReVa MCP endpoint URL",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -372,16 +548,28 @@ def main(
 
             d_code = None
             d_backend = ""
+            xref_context_val = None
             if decomp:
                 d_code, d_backend = fetch_decompilation(
                     decomp_backend, cfg.target_binary, va_val, cfg.root
                 )
+            if xrefs:
+                xref_context_val = fetch_xref_context(
+                    endpoint,
+                    f"/{cfg.target_binary.name}",
+                    va_val,
+                )
+                if xref_context_val:
+                    typer.echo("  XREFs: fetched caller context", err=True)
+                else:
+                    typer.echo("  XREFs: unavailable (MCP unreachable or no callers)", err=True)
             content = generate_skeleton(
                 cfg,
                 va_val,
                 size_val,
                 name_val,
                 origin_val,
+                xref_context=xref_context_val,
                 decomp_code=d_code,
                 decomp_backend=d_backend,
             )
@@ -470,10 +658,21 @@ def main(
 
         decomp_code_val = None
         decomp_backend_name = ""
+        xref_context_val = None
         if decomp:
             decomp_code_val, decomp_backend_name = fetch_decompilation(
                 decomp_backend, cfg.target_binary, va_int, cfg.root
             )
+        if xrefs:
+            xref_context_val = fetch_xref_context(
+                endpoint,
+                f"/{cfg.target_binary.name}",
+                va_int,
+            )
+            if xref_context_val:
+                typer.echo("  XREFs: fetched caller context", err=True)
+            else:
+                typer.echo("  XREFs: unavailable (MCP unreachable or no callers)", err=True)
 
         block = generate_annotation_block(
             cfg,
@@ -482,6 +681,7 @@ def main(
             ghidra_name,
             origin_val,
             name,
+            xref_context=xref_context_val,
             decomp_code=decomp_code_val,
             decomp_backend=decomp_backend_name,
         )
@@ -526,6 +726,7 @@ def main(
 
     decomp_code_val = None
     decomp_backend_name = ""
+    xref_context_val = None
     if decomp:
         decomp_code_val, decomp_backend_name = fetch_decompilation(
             decomp_backend, cfg.target_binary, va_int, cfg.root
@@ -534,6 +735,16 @@ def main(
             typer.echo(f"  Decompiler: {decomp_backend_name}", err=True)
         else:
             typer.echo("  Decompiler: no output (backend unavailable or failed)", err=True)
+    if xrefs:
+        xref_context_val = fetch_xref_context(
+            endpoint,
+            f"/{cfg.target_binary.name}",
+            va_int,
+        )
+        if xref_context_val:
+            typer.echo("  XREFs: fetched caller context", err=True)
+        else:
+            typer.echo("  XREFs: unavailable (MCP unreachable or no callers)", err=True)
 
     content_val = generate_skeleton(
         cfg,
@@ -542,6 +753,7 @@ def main(
         ghidra_name,
         origin_val,
         name,
+        xref_context=xref_context_val,
         decomp_code=decomp_code_val,
         decomp_backend=decomp_backend_name,
     )

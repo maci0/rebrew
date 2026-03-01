@@ -295,6 +295,39 @@ def check_compiler(cfg: Any) -> CheckResult:
     )
 
 
+def check_runner(cfg: Any) -> CheckResult:
+    """Check that the configured runner (wine/wibo) is available."""
+    runner = str(getattr(cfg, "compiler_runner", "")).strip()
+    if not runner:
+        return CheckResult(
+            name="Runner", status=_PASS, message="No runner configured (native compiler)"
+        )
+
+    if shutil.which(runner):
+        return CheckResult(name="Runner", status=_PASS, message=f"{runner} found in PATH")
+
+    if runner == "wibo":
+        from rebrew.wibo import find_wibo
+
+        found = find_wibo(cfg.root)
+        if found:
+            return CheckResult(name="Runner", status=_PASS, message=f"wibo found at {found}")
+        return CheckResult(
+            name="Runner",
+            status=_WARN,
+            message="wibo not found",
+            fix=(
+                "Run 'rebrew doctor --install-wibo' or download manually from "
+                "https://github.com/decompals/wibo"
+            ),
+        )
+
+    if runner == "wine":
+        return CheckResult(name="Runner", status=_PASS, message="Wine (checked by compiler check)")
+
+    return CheckResult(name="Runner", status=_WARN, message=f"Unknown runner '{runner}'")
+
+
 def check_includes(cfg: Any) -> CheckResult:
     """Check that the compiler include directory exists."""
     inc_path: Path = cfg.compiler_includes
@@ -437,6 +470,9 @@ def run_doctor(target: str | None = None) -> DoctorReport:
     # 4. Compiler
     report.checks.append(check_compiler(cfg))
 
+    # 4b. Runner
+    report.checks.append(check_runner(cfg))
+
     # 5. Include path
     report.checks.append(check_includes(cfg))
 
@@ -489,8 +525,17 @@ app = typer.Typer(
 def main(
     target: str | None = TargetOption,
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    install_wibo: bool = typer.Option(False, "--install-wibo", help="Download wibo to tools/wibo"),
 ) -> None:
     """Run diagnostic checks on the rebrew project."""
+    if install_wibo:
+        from rebrew.wibo import download_wibo
+
+        cfg = get_config(target=target)
+        wibo_path = cfg.root / "tools" / "wibo"
+        tag_name = download_wibo(wibo_path)
+        print(f"Downloaded wibo {tag_name} to {wibo_path}")
+
     report = run_doctor(target=target)
 
     if json_output:
