@@ -403,6 +403,11 @@ def main(
         help="Output format for --diff-only: terminal, json, csv",
     ),
     seed: int | None = typer.Option(None, "--seed", help="RNG seed for reproducible GA runs"),
+    fix_blocker: bool = typer.Option(
+        False,
+        "--fix-blocker",
+        help="With --diff-only, auto-write BLOCKER/BLOCKER_DELTA annotations from diff classification",
+    ),
 ) -> None:
     """Genetic Algorithm engine for binary matching."""
     if diff_format not in ("terminal", "json", "csv"):
@@ -598,6 +603,29 @@ def main(
                         for b in blockers:
                             print(f"  - {b}")
                     _print_structural_similarity(sim)
+
+                if fix_blocker:
+                    from rebrew.annotation import remove_annotation_key, update_annotation_key
+
+                    seed_path = Path(seed_c)
+                    if blockers:
+                        blocker_text = ", ".join(blockers)
+                        delta = sum(
+                            1 for a, b in zip(target_bytes, obj_bytes, strict=False) if a != b
+                        ) + abs(len(target_bytes) - len(obj_bytes))
+                        updated = update_annotation_key(seed_path, va_int, "BLOCKER", blocker_text)
+                        if delta > 0:
+                            update_annotation_key(seed_path, va_int, "BLOCKER_DELTA", str(delta))
+                        if updated and not json_output:
+                            typer.echo(
+                                f"  Updated BLOCKER: {blocker_text} ({delta}B delta)",
+                                err=True,
+                            )
+                    else:
+                        removed_b = remove_annotation_key(seed_path, va_int, "BLOCKER")
+                        removed_d = remove_annotation_key(seed_path, va_int, "BLOCKER_DELTA")
+                        if (removed_b or removed_d) and not json_output:
+                            typer.echo("  Cleared BLOCKER (no structural diffs)", err=True)
 
                 summary_obj = summary.get("summary", {})
                 structural_obj = (

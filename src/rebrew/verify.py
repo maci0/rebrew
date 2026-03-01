@@ -5,6 +5,7 @@ and reports status (EXACT, RELOC, MATCHING, etc.).
 """
 
 import concurrent.futures
+import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -100,6 +101,168 @@ RELOC (match after relocation masking), MISMATCH, or COMPILE_ERROR.
 Run 'rebrew catalog' first to generate coverage data.[/dim]""",
 )
 
+_STATUS_RANK: dict[str, int] = {
+    "EXACT": 0,
+    "RELOC": 1,
+    "MISMATCH": 2,
+    "MATCHING": 2,
+    "COMPILE_ERROR": 3,
+    "MISSING_FILE": 4,
+    "FAIL": 5,
+}
+
+
+def _compiler_config_hash(cfg: ProjectConfig) -> str:
+    parts = [
+        cfg.compiler_command,
+        cfg.base_cflags,
+        str(cfg.compiler_includes),
+        str(cfg.compiler_libs),
+        json.dumps(cfg.origin_compiler, sort_keys=True),
+    ]
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
+
+
+def _source_hash(filepath: Path) -> str:
+    return hashlib.sha256(filepath.read_bytes()).hexdigest()
+
+
+def _load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> dict[str, Any] | None:
+    if not cache_path.exists():
+        return None
+    try:
+        data = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    if data.get("version") != 1:
+        return None
+    if data.get("target") != cfg.target_name:
+        return None
+    if data.get("compiler_hash") != _compiler_config_hash(cfg):
+        return None
+    return data
+
+
+def _save_verify_cache(
+    cache_path: Path,
+    cfg: ProjectConfig,
+    results: list[dict[str, Any]],
+    entries: list[Annotation],
+) -> None:
+    filepath_info: dict[str, tuple[float, str]] = {}
+    for entry in entries:
+        relative_path = entry.get("filepath", "")
+        if not relative_path:
+            continue
+        filepath = cfg.reversed_dir / relative_path
+        if filepath.exists():
+            filepath_info[relative_path] = (filepath.stat().st_mtime, _source_hash(filepath))
+
+    cache_entries: dict[str, dict[str, Any]] = {}
+    for result in results:
+        va_key = result["va"]
+        filepath = result.get("filepath", "")
+        file_info = filepath_info.get(filepath)
+        if file_info is None:
+            continue
+        mtime, source_hash = file_info
+        cache_entries[va_key] = {
+            "source_hash": source_hash,
+            "filepath": filepath,
+            "mtime": mtime,
+            "result": result,
+        }
+
+    cache_data = {
+        "version": 1,
+        "compiler_hash": _compiler_config_hash(cfg),
+        "target": cfg.target_name,
+        "entries": cache_entries,
+    }
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(cache_data, indent=2), encoding="utf-8")
+
+
+def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    previous_results = {
+        str(r["va"]): r for r in previous.get("results", []) if isinstance(r, dict) and "va" in r
+    }
+    current_results = {
+        str(r["va"]): r for r in current.get("results", []) if isinstance(r, dict) and "va" in r
+    }
+
+    regressions: list[dict[str, Any]] = []
+    improvements: list[dict[str, Any]] = []
+    new_items: list[dict[str, Any]] = []
+    removed: list[dict[str, Any]] = []
+    unchanged_count = 0
+
+    fail_rank = _STATUS_RANK["FAIL"]
+
+    for va in sorted(current_results):
+        current_item = current_results[va]
+        current_status = str(current_item.get("status", "FAIL"))
+        current_rank = _STATUS_RANK.get(current_status, fail_rank)
+
+        if va not in previous_results:
+            new_items.append(
+                {
+                    "va": va,
+                    "name": str(current_item.get("name", "")),
+                    "status": current_status,
+                }
+            )
+            continue
+
+        previous_item = previous_results[va]
+        previous_status = str(previous_item.get("status", "FAIL"))
+        previous_rank = _STATUS_RANK.get(previous_status, fail_rank)
+
+        if current_rank < previous_rank:
+            improvements.append(
+                {
+                    "va": va,
+                    "name": str(current_item.get("name") or previous_item.get("name", "")),
+                    "previous_status": previous_status,
+                    "current_status": current_status,
+                    "delta": int(current_item.get("delta", 0)),
+                }
+            )
+        elif current_rank > previous_rank:
+            regressions.append(
+                {
+                    "va": va,
+                    "name": str(current_item.get("name") or previous_item.get("name", "")),
+                    "previous_status": previous_status,
+                    "current_status": current_status,
+                    "delta": int(current_item.get("delta", 0)),
+                }
+            )
+        else:
+            unchanged_count += 1
+
+    for va in sorted(previous_results):
+        if va in current_results:
+            continue
+        previous_item = previous_results[va]
+        removed.append(
+            {
+                "va": va,
+                "name": str(previous_item.get("name", "")),
+                "status": str(previous_item.get("status", "FAIL")),
+            }
+        )
+
+    return {
+        "regressions": regressions,
+        "improvements": improvements,
+        "new": new_items,
+        "removed": removed,
+        "unchanged_count": unchanged_count,
+    }
+
 
 @app.callback(invoke_without_command=True)
 def main(
@@ -125,6 +288,19 @@ def main(
     summary: bool = typer.Option(
         False, "--summary", help="Show summary table with STATUS breakdown and match percentages"
     ),
+    diff_mode: bool = typer.Option(
+        False,
+        "--diff",
+        help="Compare against last saved report and detect regressions",
+    ),
+    full: bool = typer.Option(
+        False,
+        "--full",
+        help=(
+            "Force full verification, ignoring cached results "
+            "(also required after header/include changes)"
+        ),
+    ),
 ) -> None:
     """Rebrew verification pipeline: compile each .c and verify bytes match."""
     try:
@@ -137,6 +313,25 @@ def main(
         jobs = cfg.default_jobs
     func_list_path = cfg.function_list
     ghidra_json_path = reversed_dir / "ghidra_functions.json"
+
+    out_file = Path(output_path) if output_path else cfg.root / "db" / "verify_results.json"
+    previous_report: dict[str, Any] | None = None
+    diff_warning: str | None = None
+    if diff_mode:
+        if not out_file.exists():
+            diff_warning = f"No previous verify report at {out_file}; skipping diff"
+        else:
+            try:
+                loaded = json.loads(out_file.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    previous_report = loaded
+                else:
+                    diff_warning = f"Previous verify report at {out_file} is invalid JSON object"
+            except (OSError, json.JSONDecodeError) as exc:
+                diff_warning = f"Could not read previous verify report at {out_file}: {exc}"
+
+        if diff_warning and not json_output:
+            console.print(f"[yellow]Warning:[/] {diff_warning}")
 
     console.print(f"Scanning {reversed_dir}...")
     entries = scan_reversed_dir(reversed_dir, cfg=cfg)
@@ -175,8 +370,62 @@ def main(
     failed = 0
     fail_details: list[tuple[Annotation, str]] = []
     results: list[dict[str, Any]] = []  # per-function structured results
+
+    cache_path = cfg.root / ".rebrew" / "verify_cache.json"
+    verify_cache = None if full else _load_verify_cache(cache_path, cfg)
+    cache_entries = verify_cache.get("entries", {}) if verify_cache else {}
+    entries_to_verify: list[Annotation] = []
+    cached_count = 0
+
+    for entry in unique_entries:
+        va_key = f"0x{entry['va']:08x}"
+        cached_entry = cache_entries.get(va_key)
+        if not isinstance(cached_entry, dict):
+            entries_to_verify.append(entry)
+            continue
+
+        if cached_entry.get("filepath") != entry.get("filepath"):
+            entries_to_verify.append(entry)
+            continue
+
+        filepath = cfg.reversed_dir / entry.get("filepath", "")
+        if not filepath.exists():
+            entries_to_verify.append(entry)
+            continue
+
+        current_mtime = filepath.stat().st_mtime
+        cached_mtime = cached_entry.get("mtime")
+        if current_mtime != cached_mtime:
+            try:
+                current_hash = _source_hash(filepath)
+            except OSError:
+                entries_to_verify.append(entry)
+                continue
+            if current_hash != cached_entry.get("source_hash"):
+                entries_to_verify.append(entry)
+                continue
+
+        cached_result = cached_entry.get("result")
+        if not isinstance(cached_result, dict):
+            entries_to_verify.append(entry)
+            continue
+
+        results.append(cached_result)
+        if bool(cached_result.get("passed")):
+            passed += 1
+        else:
+            failed += 1
+            fail_details.append((entry, str(cached_result.get("message", ""))))
+        cached_count += 1
+
     total = len(unique_entries)
-    effective_jobs = min(jobs, total) if total else 1
+    fresh_count = len(entries_to_verify)
+    effective_jobs = min(jobs, fresh_count) if fresh_count else 1
+
+    if verify_cache is not None and not json_output:
+        console.print(
+            f"Incremental: {cached_count} cached, {fresh_count} to verify (use --full to force all)"
+        )
 
     def _verify(
         e: Annotation,
@@ -194,8 +443,11 @@ def main(
         disable=json_output,
     ) as progress:
         task = progress.add_task("functions", total=total)
+        if cached_count > 0:
+            progress.update(task, advance=cached_count, description="cached")
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=effective_jobs) as pool:
-            futures = {pool.submit(_verify, e): e for e in unique_entries}
+            futures = {pool.submit(_verify, e): e for e in entries_to_verify}
             for future in concurrent.futures.as_completed(futures):
                 try:
                     entry, ok, msg, target_bytes, obj_bytes, reloc_offsets = future.result()
@@ -294,26 +546,76 @@ def main(
         "results": results,
     }
 
+    try:
+        _save_verify_cache(cache_path, cfg, results, unique_entries)
+    except (OSError, TypeError):
+        if not json_output:
+            console.print(f"[yellow]Warning:[/] Could not write verify cache to {cache_path}")
+
+    diff_result: dict[str, Any] | None = None
+    if diff_mode and previous_report is not None:
+        diff_result = diff_reports(previous_report, report)
+
     # JSON output mode
-    if json_output or output_path:
+    if json_output or output_path or diff_mode:
         report_json = json.dumps(report, indent=2)
 
-        if output_path:
-            out_file = Path(output_path)
-        else:
-            out_file = cfg.root / "db" / "verify_results.json" if hasattr(cfg, "root") else None
-
-        if out_file:
-            out_file.parent.mkdir(parents=True, exist_ok=True)
-            out_file.write_text(report_json, encoding="utf-8")
-            if not json_output:
-                console.print(f"Report written to {out_file}")
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_text(report_json, encoding="utf-8")
+        if not json_output:
+            console.print(f"Report written to {out_file}")
 
         if json_output:
-            json_print(report)
-            if failed > 0:
+            if diff_mode:
+                payload: dict[str, Any] = {"report": report, "diff": diff_result}
+                if diff_warning:
+                    payload["warning"] = diff_warning
+                json_print(payload)
+            else:
+                json_print(report)
+
+            has_regressions = bool(diff_result and diff_result["regressions"])
+            if failed > 0 or has_regressions:
                 raise typer.Exit(code=1)
             return
+
+    if diff_mode and diff_result is not None:
+        regressions = diff_result["regressions"]
+        improvements = diff_result["improvements"]
+        new_items = diff_result["new"]
+        removed = diff_result["removed"]
+
+        out_console.print()
+        out_console.print(f"{len(regressions)} regressions detected:")
+        for item in regressions:
+            out_console.print(
+                "  "
+                f"{item['name']}  {item['previous_status']} -> {item['current_status']}  "
+                f"(delta: {item['delta']}B)"
+            )
+
+        out_console.print()
+        out_console.print(f"{len(improvements)} improvements:")
+        for item in improvements:
+            out_console.print(
+                f"  {item['name']}  {item['previous_status']} -> {item['current_status']}"
+            )
+
+        if new_items:
+            out_console.print()
+            out_console.print(f"{len(new_items)} new:")
+            for item in new_items:
+                out_console.print(f"  {item['name']}  {item['status']}")
+
+        if removed:
+            out_console.print()
+            out_console.print(f"{len(removed)} removed:")
+            for item in removed:
+                out_console.print(f"  {item['name']}  {item['status']}")
+
+        if diff_warning:
+            out_console.print()
+            out_console.print(f"Warning: {diff_warning}")
 
     if summary:
         out_console.print()
@@ -387,7 +689,8 @@ def main(
         result_text.append(f"{failed} failed", style="red")
     out_console.print(result_text)
 
-    if failed > 0:
+    has_regressions = bool(diff_result and diff_result["regressions"])
+    if failed > 0 or has_regressions:
         raise typer.Exit(code=1)
 
 
