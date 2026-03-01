@@ -260,9 +260,9 @@ def test_init_copies_agent_skills(tmp_path) -> None:
     skills_dir = tmp_path / "agent-skills"
     assert skills_dir.is_dir()
 
-    # All 4 skill subdirectories present
+    # All 5 skill subdirectories present
     subdirs = sorted(d.name for d in skills_dir.iterdir() if d.is_dir())
-    assert len(subdirs) == 4
+    assert len(subdirs) == 5
 
     # Each has a SKILL.md
     for subdir in skills_dir.iterdir():

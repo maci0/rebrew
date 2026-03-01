@@ -21,6 +21,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 - **Cold-start triage** — `rebrew triage` combines coverage stats, FLIRT scan, near-miss list, and recommendations into a single report for agent sessions
 - **Diagnostic check** — `rebrew doctor` validates project health (config, compiler, includes/libs, binary); `--install-wibo` auto-downloads wibo as a lightweight Wine alternative
 - **FLIRT scanning** — `rebrew flirt` identifies known library functions via FLIRT signatures (`.sig`/`.pat`), no IDA required
+- **CRT source matching** — `rebrew crt-match` cross-references binary functions against configured CRT/library source directories (MSVC6 CRT, zlib, etc.); auto-detects ASM-only functions; `--fix-source` writes `// SOURCE:` annotations; supports `--all` batch mode with `--origin` filter
 - **NASM extraction** — `rebrew nasm` extracts function bytes and produces NASM-reassembleable ASM with round-trip verification
 - **File splitting** — `rebrew split` breaks multi-function `.c` files into individual single-function files, preserving shared preamble (includes, defines) and generating filenames from `SYMBOL` annotations
 - **File merging** — `rebrew merge` combines multiple single-function files into one multi-function file with preamble deduplication and VA-sorted function blocks
@@ -104,6 +105,10 @@ rebrew next --stats                 # show overall progress statistics
 rebrew next --improving             # list MATCHING functions sorted by byte delta
 rebrew triage --json                # combined coverage, near-miss, and recommendations report
 rebrew flirt --json                 # FLIRT scan: identify known library functions
+rebrew crt-match 0x10006c00         # match a single VA against CRT source
+rebrew crt-match --all --origin MSVCRT # match all MSVCRT functions
+rebrew crt-match --fix-source --all  # auto-write // SOURCE: annotations
+rebrew crt-match --index            # show CRT source index
 rebrew lint                         # lint annotations in your source files
 rebrew split src/target_name/multi.c           # split multi-function file into individual files
 rebrew merge a.c b.c --output merged.c         # merge files into one multi-function file

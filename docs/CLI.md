@@ -1,6 +1,6 @@
 # CLI Reference
 
-All 26 CLI tools are installed as entry points via `pyproject.toml`.
+All 27 CLI tools are installed as entry points via `pyproject.toml`.
 Every tool supports `--target / -t` to select a target from `rebrew-project.toml` and
 reads defaults (binary path, reversed_dir, compiler settings) from the project config.
 
@@ -31,6 +31,7 @@ Run any tool with `--help` to see usage examples and context
 | `rebrew-split` | `split.py` | Split multi-function C files into individual files |
 | `rebrew-merge` | `merge.py` | Merge single-function C files into multi-function file |
 | `rebrew-flirt` | `flirt.py` | FLIRT signature scanning (see [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md)) |
+| `rebrew-crt-match` | `crt_match.py` | CRT source cross-reference matcher (index, match, ASM detection) |
 | `rebrew-status` | `status.py` | Project reversing status overview (per-target breakdowns) |
 | `rebrew-data` | `data.py` | Global data scanner for .data/.rdata/.bss; `--bss` layout verification; `--dispatch` vtable detection |
 | `rebrew-graph` | `depgraph.py` | Function dependency graph (mermaid, DOT, summary) |
@@ -276,6 +277,18 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 | `--min-size N` | Minimum function size in bytes to report (default 16) |
 | `--json` | Output results as JSON |
 
+### `rebrew crt-match`
+
+| Flag | Description |
+|------|-------------|
+| `VA` | Virtual address to match (positional, optional) |
+| `--all` | Match all functions with library origins (MSVCRT, ZLIB, etc.) |
+| `--origin ORIGIN` | Filter by specific origin (e.g. MSVCRT) |
+| `--fix-source` | Auto-write `// SOURCE:` annotations for matches |
+| `--index` | Show the CRT source index (files and functions) |
+| `--target NAME` | Select a target from `rebrew-project.toml` |
+| `--json` | Output results as JSON |
+
 ### `rebrew extract`
 
 | Flag / Arg | Description |
@@ -415,6 +428,12 @@ rebrew flirt                                       # Scan with default sigs
 rebrew flirt sigs/ --min-size 32                   # Custom dir, skip tiny funcs
 rebrew flirt --json                                # JSON output
 
+# CRT source matching
+rebrew crt-match 0x10006c00                     # match a single VA against CRT source
+rebrew crt-match --all --origin MSVCRT           # match all MSVCRT functions
+rebrew crt-match --fix-source --all              # auto-write // SOURCE: annotations
+rebrew crt-match --index                         # show CRT source index
+
 # Sync to/from Ghidra
 rebrew sync --summary                              # Preview what would sync
 rebrew sync --push                                 # Export + apply to Ghidra
@@ -450,6 +469,7 @@ rebrew sync --pull-data                            # Fetch data labels into rebr
 | Module | Purpose |
 |--------|---------|
 | `flirt.py` | FLIRT signature matching (no IDA required) |
+| `crt_match.py` | CRT source cross-reference matcher (index, match, ASM detection) |
 | `gen_flirt_pat.py` | Generate `.pat` files from COFF `.lib` archives |
 
 ### Unified Compilation
