@@ -12,10 +12,10 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 | 17 | [Match regression detection](#17-match-regression-detection) | High | Low | **P0** | — |
 | 18 | [Batch promote](#18-batch-promote) | High | Low | **P0** | — |
 | 1 | [CRT source cross-reference tool](#1-crt-source-cross-reference-tool) | High | Medium | **P1** | — |
-| 2 | [Data Sync and XREF Pipeline](#2-data-sync-and-xref-pipeline) | High | Medium | **P1** | Partial |
-| 16 | [Auto-download wibo](#16-auto-download-wibo) | Medium | Low | **P1** | — |
+| 2 | [Data Sync and XREF Pipeline](#2-data-sync-and-xref-pipeline) | High | Medium | **P1** | **Done** |
+| 16 | [Auto-download wibo](#16-auto-download-wibo) | Medium | Low | **P1** | **Done** |
 | 3 | [Incremental verify](#3-incremental-verify) | Medium | Medium | **P2** | — |
-| 6 | [XREF context in skeleton generation](#6-xref-context-in-skeleton-generation) | Medium | Low | **P2** | — |
+| 6 | [XREF context in skeleton generation](#6-xref-context-in-skeleton-generation) | Medium | Low | **P2** | **Done** |
 | 7 | [Ghidra decompilation backend for skeleton](#7-ghidra-decompilation-backend-for-skeleton) | Medium | Low | **P2** | Stub |
 | 9 | [Validate programPath against Ghidra project](#9-validate-programpath-against-ghidra-project) | Medium | Low | **P2** | — |
 | 20 | [Test watch mode](#20-test-watch-mode) | Medium | Medium | **P2** | — |
@@ -48,14 +48,16 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 
 **Impact**: Automating the lookup saves significant manual research time on ~100 MSVCRT-origin functions.
 
-### 2. Data Sync and XREF Pipeline
+### 2. Data Sync and XREF Pipeline ✅
+
+> **Status: Done.** `rebrew sync --pull-data` implemented in `sync.py`. Fetches data labels from Ghidra via `get-symbols` + `get-data` MCP tools, generates `rebrew_globals.h` with extern declarations grouped by section. 11 tests in `test_sync_pull_data.py`. Data push via `--push` was already implemented (Phase 3 of `build_sync_commands`).
 
 **Pain**: Global variables (`.data`, `.rdata`, `.bss`) are defined manually in Ghidra and must be re-typed manually in Rebrew as `extern` with `// GLOBAL:` or `// DATA:` annotations. `rebrew skeleton` gives an empty file, requiring manual inspection of Ghidra to find which globals the function references.
 
-**Proposed**:
-1. **Data Pull**: `rebrew sync --pull-data` queries ReVa MCP for all labeled data and auto-generates a master `rebrew_globals.h`.
-2. **Data Push**: `rebrew sync --push` handles `// DATA:` markers, pushing label and size to Ghidra.
-3. **XREF Injection**: `rebrew skeleton 0xVA` queries Ghidra for data XREFs and auto-injects `extern` declarations for every global the function touches.
+**Implemented**:
+1. **Data Pull**: `rebrew sync --pull-data` queries ReVa MCP for all non-function symbols via paginated `get-symbols`, queries `get-data` for each to get type info, and generates `rebrew_globals.h` with extern declarations. Type mapping handles int/pointer/undefined/array/float types. Globals grouped by PE section.
+2. **Data Push**: `rebrew sync --push` handles `// DATA:` and `// GLOBAL:` markers (pre-existing).
+3. **XREF Injection**: See #6 — `rebrew skeleton --xrefs` fetches cross-references from Ghidra.
 
 **Impact**: Eliminates manual synchronization of the data section. Massively speeds up skeleton implementation by providing immediate context (especially string literals from `.rdata`).
 
@@ -86,14 +88,18 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 
 **Impact**: Cuts sync time from minutes to seconds for small changes.
 
-### 6. XREF context in skeleton generation
+### 6. XREF context in skeleton generation ✅
+
+> **Status: Done.** `rebrew skeleton --xrefs` implemented in `skeleton.py`. Fetches cross-references via `find-cross-references` MCP tool, decompiles top callers via `get-decompilation`, and embeds formatted context as C block comments in the skeleton. Works with single-VA, batch, and append modes. 9 tests in `test_skeleton_xrefs.py`.
 
 **Pain**: When reversing a function, the developer must manually look up callers and callees in Ghidra. This context is critical for understanding parameter types and data flow.
 
-**Proposed**: `rebrew skeleton 0x10006c00 --xrefs` would:
-- Call `find-cross-references` to get all XREFs
-- Call `get-decompilation` on the top 3 callers
-- Embed the caller context as comments in the skeleton
+**Implemented**: `rebrew skeleton 0x10006c00 --xrefs` (with `--endpoint` for MCP URL):
+- Calls `find-cross-references` via ReVa MCP to get incoming callers and data references
+- Calls `get-decompilation` on the top N callers (default 5, configurable)
+- Embeds caller context as a `/* === Cross-references === */` C block comment before the function body
+- Supports both call and data references
+- Gracefully degrades when MCP is unavailable (returns None, prints warning)
 
 **Impact**: Saves a round-trip to Ghidra for every new function, providing immediate calling context.
 
@@ -199,24 +205,20 @@ See [ANGR_PROPOSAL.md](ANGR_PROPOSAL.md) for the full technical proposal.
 
 **Impact**: The single biggest performance win for GA and flag sweep. For a typical `--flag-sweep --tier targeted` run (1,152 combos × N functions), cache hits on unchanged functions eliminate ~90% of Wine invocations on subsequent runs. GA benefits when mutations produce previously-seen source text.
 
-### 16. Auto-download wibo
+### 16. Auto-download wibo ✅
+
+> **Status: Done.** Implemented in `wibo.py` with `download_wibo()`, `find_wibo()`, `ensure_wibo()`. Integrated into `doctor.py` (`check_runner()` + `--install-wibo` flag). Platform detection for Linux x86_64/i686 and macOS. SHA256 verification from GitHub API `digest` field. 15 tests in `test_wibo.py`.
 
 **Pain**: [wibo](https://github.com/decompals/wibo) is a lightweight Win32 PE loader that's 5-10x faster than Wine for running MSVC `CL.EXE`. It's a single static binary with no dependencies. But setting it up requires manually downloading the release, placing it on `PATH`, and marking it executable. This friction means most users stick with Wine.
 
-**Proposed**: When `runner = "wibo"` is configured (or selected during `rebrew init`) and the `wibo` binary is not found on `PATH` or at a project-local path:
+**Implemented**:
+- `wibo.py` module: `download_wibo(dest)` fetches latest release from GitHub API, selects platform-appropriate asset (`wibo-x86_64`, `wibo-i686`, `wibo-macos`), verifies SHA256 digest, `chmod +x`. Uses stdlib `urllib.request` (no extra deps).
+- `find_wibo(project_root)`: checks PATH via `shutil.which`, then `project_root/tools/wibo`
+- `ensure_wibo(project_root)`: find-or-download to `project_root/tools/wibo`
+- `rebrew doctor`: new `check_runner()` validates wibo/wine availability
+- `rebrew doctor --install-wibo`: downloads wibo to `tools/wibo` in one command
 
-1. Query the GitHub Releases API: `GET https://api.github.com/repos/decompals/wibo/releases/latest`
-2. Download the appropriate binary for the current platform (Linux x86_64)
-3. Place it at `tools/wibo` (project-local) or `~/.local/bin/wibo` (user-global)
-4. `chmod +x` the binary
-5. Update the config's runner path if needed
-
-**Integration points**:
-- `rebrew init` — offer wibo as the default runner choice, auto-download if selected
-- `rebrew doctor` — detect missing wibo, offer to download
-- `compile.py` — on first compile failure with "wibo: command not found", suggest `rebrew doctor` or auto-download with user confirmation
-
-**Impact**: Zero-friction wibo adoption. Combined with the compile cache (#15), this makes the compile pipeline dramatically faster with no manual setup. The `rebrew init` flow becomes: pick a profile → wibo auto-downloads → first compile just works.
+**Impact**: Zero-friction wibo adoption. Combined with the compile cache (#15), this makes the compile pipeline dramatically faster with no manual setup.
 
 ### 17. Match regression detection
 
