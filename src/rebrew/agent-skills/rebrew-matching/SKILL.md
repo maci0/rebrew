@@ -1,6 +1,6 @@
 ---
 name: rebrew-matching
-description: Performs byte-level binary matching using diff analysis, compiler flag sweeping, and the genetic algorithm engine. Use when a function needs flag tuning, structural diff analysis, or automated GA matching to achieve EXACT/RELOC status.
+description: Performs byte-level binary matching using diff analysis, compiler flag sweeping, and the genetic algorithm engine. Use this skill when a function needs flag tuning, structural diff analysis, automated GA matching, or batch flag sweeping to achieve EXACT/RELOC status. Triggers on 'match', 'diff', 'flag sweep', 'GA', 'genetic algorithm', 'byte diff', 'MATCHING status', 'near-miss', 'BLOCKER', 'structural similarity', 'compiler flags', or 'CFLAGS'.
 license: MIT
 ---
 
@@ -35,7 +35,14 @@ Use `--register-aware` to see if remaining `**` diffs are actually just unfixabl
 
 ### Auto-Classified Blockers
 
-`rebrew match --diff-only` will auto-classify systemic compiler differences from `**` / `RR` lines (e.g. "register allocation", "loop rotation / branch layout", "stack frame choice"). Use this to determine if a function is genuinely improvable.
+`rebrew match --diff-only` auto-classifies systemic compiler differences from `**` / `RR` lines (e.g. "register allocation", "loop rotation / branch layout", "stack frame choice"). Use `--fix-blocker` to auto-write these as `// BLOCKER:` and `// BLOCKER_DELTA:` annotations:
+
+```bash
+rebrew match --diff-only --fix-blocker src/<target>/<file>.c       # auto-write BLOCKER annotations
+rebrew match --diff-only --fix-blocker --json src/<target>/<file>.c # with JSON output
+```
+
+When no structural diffs remain, `--fix-blocker` clears existing BLOCKER/BLOCKER_DELTA annotations.
 
 ## 2. Flag Sweep
 
@@ -105,14 +112,16 @@ Use this to quickly rule out flag-based solutions before spending time on sweeps
 
 ## 6. Blocker Tracking
 
-When a function is MATCHING but not byte-perfect, track the blocker in annotations:
+When a function is MATCHING but not byte-perfect, track the blocker in annotations.
+Use `--fix-blocker` to auto-generate these from diff classification, or write manually:
 
 ```c
-// BLOCKER: register allocation differs in loop body
+// BLOCKER: register allocation, jump condition swap
 // BLOCKER_DELTA: 3
 ```
 
 Used by `rebrew next --improving` to sort by proximity to a match.
+`rebrew promote` automatically removes BLOCKER/BLOCKER_DELTA on promotion to EXACT/RELOC.
 
 ## 7. Batch Flag Sweep
 

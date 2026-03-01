@@ -40,6 +40,42 @@ Run 'rebrew init' to create a new project, or 'rebrew <cmd> --help' for details.
 # Subcommand registry
 # ---------------------------------------------------------------------------
 
+# Command panel groupings for rich help output.
+# Style: short descriptive nouns, 5 balanced groups.
+_COMMAND_PANELS: dict[str, str] = {
+    # Project Setup — one-time / infrequent management tasks
+    "init": "Project Setup",
+    "doctor": "Project Setup",
+    "cfg": "Project Setup",
+    "cache": "Project Setup",
+    # Development — the daily reversing loop
+    "skeleton": "Development",
+    "test": "Development",
+    "verify": "Development",
+    "promote": "Development",
+    "lint": "Development",
+    "rename": "Development",
+    "split": "Development",
+    "merge": "Development",
+    # Analysis — understanding the binary and progress
+    "next": "Analysis",
+    "status": "Analysis",
+    "triage": "Analysis",
+    "data": "Analysis",
+    "graph": "Analysis",
+    "flirt": "Analysis",
+    # Matching — solving byte-level differences
+    "match": "Matching",
+    "ga": "Matching",
+    "extract": "Matching",
+    "asm": "Matching",
+    "nasm": "Matching",
+    # Export & Sync — generating data and syncing with external tools
+    "catalog": "Export & Sync",
+    "build-db": "Export & Sync",
+    "sync": "Export & Sync",
+}
+
 # Single-command modules – registered as flat commands via app.command().
 _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("rename", "rebrew.rename", "Rename a function and update all cross-references."),
@@ -68,6 +104,8 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("flirt", "rebrew.flirt", "FLIRT signature scanning."),
     ("nasm", "rebrew.nasm", "NASM assembly extraction."),
     ("doctor", "rebrew.doctor", "Diagnostic checks for project health."),
+    ("split", "rebrew.split", "Split multi-function C files into single-function files."),
+    ("merge", "rebrew.merge", "Merge single-function C files into one multi-function file."),
 ]
 
 # Multi-command modules – registered as groups via app.add_typer().
@@ -111,9 +149,13 @@ for _name, _module, _help in _SINGLE_COMMANDS:
         _epilog = getattr(_mod.app.info, "epilog", None)
         if not isinstance(_epilog, str):
             _epilog = None
-        app.command(name=_name, help=_mod_help, epilog=_epilog)(_mod.main)
+        _panel = _COMMAND_PANELS.get(_name)
+        app.command(name=_name, help=_mod_help, epilog=_epilog, rich_help_panel=_panel)(_mod.main)
     except ImportError as _exc:
-        app.command(name=_name, help=f"[unavailable] {_help}")(_make_stub_cmd(_module, _exc))
+        _panel = _COMMAND_PANELS.get(_name)
+        app.command(name=_name, help=f"[unavailable] {_help}", rich_help_panel=_panel)(
+            _make_stub_cmd(_module, _exc)
+        )
 
 # Register multi-command modules as groups (Typer sub-apps).
 # help= is intentionally passed here because add_typer() does not inherit the
@@ -122,9 +164,16 @@ for _name, _module, _help in _MULTI_COMMANDS:
     try:
         _mod = importlib.import_module(_module)
         _mod_help = getattr(_mod.app.info, "help", None) or _help
-        app.add_typer(_mod.app, name=_name, help=_mod_help)
+        _panel = _COMMAND_PANELS.get(_name)
+        app.add_typer(_mod.app, name=_name, help=_mod_help, rich_help_panel=_panel)
     except ImportError as _exc:
-        app.add_typer(_make_stub_app(_module, _exc), name=_name, help=f"[unavailable] {_help}")
+        _panel = _COMMAND_PANELS.get(_name)
+        app.add_typer(
+            _make_stub_app(_module, _exc),
+            name=_name,
+            help=f"[unavailable] {_help}",
+            rich_help_panel=_panel,
+        )
 
 
 def main() -> None:

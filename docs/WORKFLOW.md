@@ -98,6 +98,8 @@ rebrew asm 0x10003da0 --size 160 --json | jq '.instructions[] | .mnemonic'
 | `rebrew promote` | Promotion results |
 | `rebrew triage` | Triage report |
 | `rebrew ga` | Batch GA results |
+| `rebrew split` | Split results (files created, VAs, symbols) |
+| `rebrew merge` | Merge results (inputs, output, VA list) |
 | `rebrew extract` | Batch extraction results |
 | `rebrew catalog` | Catalog JSON generation (`--json`) |
 | `rebrew doctor` | Project health check results |
@@ -150,12 +152,14 @@ annotations). Smallest delta = highest ROI for improvement.
 ```bash
 rebrew skeleton 0x<VA>
 rebrew skeleton 0x<VA> --decomp                    # with inline decompilation
-rebrew skeleton 0x<VA> --decomp --decomp-backend r2dec  # specific backend
+rebrew skeleton 0x<VA> --decomp --decomp-backend ghidra  # Ghidra via MCP
+rebrew skeleton 0x<VA> --decomp --decomp-backend r2dec   # radare2 r2dec
+rebrew skeleton 0x<VA> --xrefs                     # with caller context from Ghidra
 ```
 
 This creates `src/target_name/<name>.c` with proper annotations and
 prints the exact test command. Use `--decomp` to embed pseudo-C from
-a decompiler backend (r2ghidra, r2dec, or auto).
+a decompiler backend (r2ghidra, r2dec, ghidra, or auto).
 
 To add a function to an existing multi-function file:
 ```bash
@@ -276,10 +280,14 @@ Based on test results, update the header:
 // SYMBOL: _my_func
 ```
 
-If STATUS is MATCHING, add a BLOCKER line:
+If STATUS is MATCHING, add a BLOCKER line (or auto-generate it):
+```bash
+rebrew match --diff-only --fix-blocker src/target_name/my_func.c  # auto-write BLOCKER
+```
 ```c
 // STATUS: MATCHING
-// BLOCKER: register allocation (esi/edi swap), 123B vs 130B
+// BLOCKER: register allocation, jump condition swap
+// BLOCKER_DELTA: 3
 ```
 
 ### 9. Promote on success
@@ -289,9 +297,12 @@ When a function reaches EXACT or RELOC, promote it:
 ```bash
 rebrew promote src/target_name/my_func.c
 rebrew promote src/target_name/my_func.c --json   # agent-friendly output
+rebrew promote --all                               # batch promote all promotable
+rebrew promote --all --origin GAME --dry-run       # preview batch by origin
 ```
 
 `rebrew promote` updates the STATUS annotation and verifies the match still holds.
+Batch mode (`--all`) discovers all promotable functions and updates each. Never demotes.
 
 ### 10. Lint and Verify Annotation Health
 
@@ -508,6 +519,6 @@ both targets benefit automatically.
 | [ANNOTATIONS.md](ANNOTATIONS.md) | Full annotation format reference and linter codes (E000–E017, W001–W017) |
 | [GHIDRA_SYNC.md](GHIDRA_SYNC.md) | Ghidra ↔ Rebrew sync feature matrix and known issues |
 | [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md) | Obtaining, creating, and using FLIRT signatures |
-| [CLI.md](CLI.md) | All 24 CLI tools, flags, and examples |
+| [CLI.md](CLI.md) | All 26 CLI tools, flags, and examples |
 | [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, arch presets, compiler profiles |
 | [TOOLCHAIN.md](TOOLCHAIN.md) | External tools, MSVC6 toolchain, Python dependencies |

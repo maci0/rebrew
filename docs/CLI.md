@@ -1,6 +1,6 @@
 # CLI Reference
 
-All 24 CLI tools are installed as entry points via `pyproject.toml`.
+All 26 CLI tools are installed as entry points via `pyproject.toml`.
 Every tool supports `--target / -t` to select a target from `rebrew-project.toml` and
 reads defaults (binary path, reversed_dir, compiler settings) from the project config.
 
@@ -17,24 +17,26 @@ Run any tool with `--help` to see usage examples and context
 | `rebrew-test` | `test.py` | Quick compile-and-compare (single or multi-function files); `--json` structured output |
 | `rebrew-asm` | `asm.py` | Dump disassembly from target binary at a VA; `--json` structured output |
 | `rebrew-next` | `next.py` | Prioritize uncovered functions by difficulty; auto-filters unmatchable; `--json` for all modes |
-| `rebrew-skeleton` | `skeleton.py` | Generate annotated `.c` skeleton from VA (with `--decomp` and `--append` for multi-function files) |
+| `rebrew-skeleton` | `skeleton.py` | Generate annotated `.c` skeleton from VA (with `--decomp`, `--xrefs`, `--append` for multi-function files) |
 | `rebrew-catalog` | `catalog/` | Parse annotations, generate catalog + coverage JSON |
 | `rebrew-sync` | `sync.py` | Sync annotations, structs, and signatures to/from Ghidra via ReVa MCP (`--push`, `--pull`, `--apply`, `--export`) |
 | `rebrew-lint` | `lint.py` | Lint annotation standards in decomp C files |
 | `rebrew-extract` | `extract.py` | Batch extract and disassemble functions from binary |
-| `rebrew-match` | `match.py` / `matcher/` | GA matching engine (diff with `--mm`, flag-sweep with `--tier`, GA); `--diff-only --json` structured diff |
+| `rebrew-match` | `match.py` / `matcher/` | GA matching engine (diff with `--mm`, flag-sweep with `--tier`, `--fix-blocker`); `--diff-only --json` structured diff |
 | `rebrew-ga` | `ga.py` | Batch GA runner and flag sweep for STUB and MATCHING functions |
-| `rebrew-verify` | `verify.py` | Compile all `.c` files and verify byte match against target binary; `--json` structured reports |
+| `rebrew-verify` | `verify.py` | Compile all `.c` files and verify byte match against target binary; `--diff` regression detection; `--json` structured reports |
 | `rebrew-build-db` | `build_db.py` | Build SQLite `db/coverage.db` from `data_*.json` ([schema docs](DB_FORMAT.md)) |
 | `rebrew-cfg` | `cfg.py` | Read and edit `rebrew-project.toml` programmatically (see [CONFIG.md](CONFIG.md)) |
 | `rebrew-nasm` | `nasm.py` | NASM assembly extraction |
+| `rebrew-split` | `split.py` | Split multi-function C files into individual files |
+| `rebrew-merge` | `merge.py` | Merge single-function C files into multi-function file |
 | `rebrew-flirt` | `flirt.py` | FLIRT signature scanning (see [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md)) |
 | `rebrew-status` | `status.py` | Project reversing status overview (per-target breakdowns) |
 | `rebrew-data` | `data.py` | Global data scanner for .data/.rdata/.bss; `--bss` layout verification; `--dispatch` vtable detection |
 | `rebrew-graph` | `depgraph.py` | Function dependency graph (mermaid, DOT, summary) |
-| `rebrew-promote` | `promote.py` | Test + atomically update STATUS annotation; `--json` structured output; `--dry-run` preview |
+| `rebrew-promote` | `promote.py` | Test + atomically update STATUS annotation; `--all` batch mode with `--dir`/`--origin` filters; `--json` structured output |
 | `rebrew-triage` | `triage.py` | Cold-start triage: coverage stats, FLIRT scan, near-miss list, recommendations; `--json` |
-| `rebrew-doctor` | `doctor.py` | Diagnostic checks for project health (config, compiler, binary, paths); `--json` |
+| `rebrew-doctor` | `doctor.py` | Diagnostic checks for project health (config, compiler, binary, paths); `--install-wibo`; `--json` |
 
 ## Tool Flags
 
@@ -54,6 +56,7 @@ Run any tool with `--help` to see usage examples and context
 | `--diff-format FORMAT` | Output format for diff: `terminal` (default), `json`, `csv` |
 | `--flag-sweep-only` | Sweep compiler flags without GA mutations |
 | `--tier TIER` | Flag sweep tier: `quick` (192), `targeted` (1.1K), `normal` (21K), `thorough` (1M), `full` (8.3M) |
+| `--fix-blocker` | With `--diff-only`, auto-write `BLOCKER`/`BLOCKER_DELTA` annotations from diff classification |
 | `--seed N` | Seed RNG for reproducible GA runs |
 | `--force` | Continue even if annotation linter finds errors |
 | `--generations N` | Number of GA generations (default 100) |
@@ -98,6 +101,9 @@ Behavior:
 | `--unmatchable` | Show auto-detected unmatchable functions |
 | `--origin ORIGIN` | Filter by origin (e.g. `GAME`, `MSVCRT`) |
 | `-n N` | Number of recommendations |
+| `--commands` | Print test commands for each function |
+| `--group` | Group adjacent uncovered functions by address proximity |
+| `--group-gap N` | Max address gap for grouping (default 0x1000) |
 | `--json` | JSON output for all modes |
 
 ### `rebrew skeleton`
@@ -105,8 +111,10 @@ Behavior:
 | Flag | Description |
 |------|-------------|
 | `--va HEX` | Function VA in hex |
-| `--decomp` | Embed inline decompilation from r2ghidra/r2dec |
-| `--decomp-backend BACKEND` | Decompiler backend: `r2ghidra`, `r2dec`, `auto` |
+| `--decomp` | Embed inline decompilation |
+| `--decomp-backend BACKEND` | Decompiler backend: `r2ghidra`, `r2dec`, `ghidra`, `auto` |
+| `--xrefs` | Fetch cross-references and caller decompilation from Ghidra via ReVa MCP |
+| `--endpoint URL` | ReVa MCP endpoint URL (for `--xrefs` and `--decomp-backend ghidra`) |
 | `--append FILE` | Append to existing multi-function file |
 | `--name NAME` | Override function name |
 | `--origin TYPE` | Force origin type (GAME, MSVCRT, ZLIB) |
@@ -123,6 +131,7 @@ Behavior:
 | Flag | Description |
 |------|-------------|
 | `--fix-status` | Auto-update `// STATUS:` and `// BLOCKER:` annotations based on compile results |
+| `--diff` | Compare against last saved `db/verify_results.json`, detect regressions/improvements; exit code 1 on regression |
 | `--summary` | Show EXACT/RELOC/MATCHING summary table with match percentages |
 | `--json` | Structured JSON report to stdout |
 | `-o FILE` / `--output FILE` | Write report to specific file |
@@ -160,6 +169,7 @@ Output prefixes for unambiguous parsing:
 
 | Flag | Description |
 |------|-------------|
+| `--install-wibo` | Auto-download wibo (lightweight Wine alternative for Linux) |
 | `--json` | Output results as JSON |
 
 ### `rebrew data`
@@ -199,6 +209,9 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 
 | Flag | Description |
 |------|-------------|
+| `--all` | Batch promote all promotable functions (discovers via `iter_sources`) |
+| `--dir DIR` | With `--all`, restrict batch to a subdirectory |
+| `--origin ORIGIN` | With `--all`, filter by origin (GAME, MSVCRT, ZLIB) |
 | `--json` | Output results as JSON |
 | `--dry-run` | Show what would change without writing |
 
@@ -243,6 +256,7 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 | `--pull-signatures` | Pull function prototypes from Ghidra and update extern declarations |
 | `--pull-structs` | Pull struct definitions from Ghidra into `types.h` |
 | `--pull-comments` | Pull Ghidra analysis comments into source files |
+| `--pull-data` | Fetch Ghidra data labels via MCP, generate `rebrew_globals.h` with typed extern declarations |
 | `--dry-run` | Preview any sync operation without applying changes |
 | `--endpoint URL` | ReVa MCP endpoint URL |
 | `--json` | Output results as JSON |
@@ -286,6 +300,34 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 | `--batch-stubs` | Batch mode: extract only STUB functions |
 | `--out-dir DIR` | Output directory for batch mode |
 | `--base-va HEX` | Base VA for `.bin` files (default: 0) |
+| `--inline-c` | Output C file with inline assembly instead of NASM |
+
+### `rebrew split`
+
+`rebrew split <source_file> [--output-dir DIR] [--dry-run] [--force] [--json]`
+
+Split a multi-function `.c` file into individual single-function files. Each output file gets the shared preamble (includes, defines, extern declarations) plus its own annotation block and function body. Filenames are derived from `// SYMBOL:` annotations; falls back to `func_<VA>.c` when no symbol is present.
+
+| Flag | Effect |
+|------|--------|
+| `--output-dir DIR` | Write output files to DIR (default: same directory as input) |
+| `--dry-run` | Preview files that would be created without writing |
+| `--force` | Overwrite existing output files |
+| `--json` | Structured JSON output |
+
+### `rebrew merge`
+
+`rebrew merge <file1> <file2> ... --output FILE [--dry-run] [--force] [--delete] [--json]`
+
+Merge multiple single-function `.c` files into one multi-function file. Preamble lines (`#include`, `extern`, `#define`) are deduplicated. Function blocks are sorted by virtual address ascending.
+
+| Flag | Effect |
+|------|--------|
+| `--output FILE` | Output merged file (required) |
+| `--dry-run` | Preview merge without writing |
+| `--force` | Overwrite output if it already exists |
+| `--delete` | Delete input files after successful merge |
+| `--json` | Structured JSON output |
 
 ### `rebrew build-db`
 
@@ -302,7 +344,9 @@ rebrew asm 0x100011f0 --target server.dll         # Use alternate target
 
 # Skeleton generation
 rebrew skeleton 0x10003da0 --decomp               # Skeleton with inline decompilation
-rebrew skeleton 0x10003da0 --decomp --decomp-backend r2dec
+rebrew skeleton 0x10003da0 --decomp --decomp-backend ghidra  # Ghidra via MCP
+rebrew skeleton 0x10003da0 --decomp --decomp-backend r2dec   # Radare2 r2dec
+rebrew skeleton 0x10003da0 --xrefs                # With caller context from Ghidra
 rebrew skeleton 0x10003da0 --append crt_env.c     # Append to multi-function file
 
 # Testing
@@ -318,6 +362,7 @@ rebrew next --origin GAME -n 20                    # Top 20 GAME functions
 # Matching & GA
 rebrew match --diff-only src/target_name/f.c       # Side-by-side diff
 rebrew match --diff-only --mm src/target_name/f.c  # Only structural diffs
+rebrew match --diff-only --fix-blocker src/target_name/f.c  # Auto-write BLOCKER annotations
 rebrew match --diff-only --json src/target_name/f.c # JSON diff
 rebrew ga                                          # Batch GA on all STUBs
 rebrew ga --near-miss --threshold 5                # GA on MATCHING with <=5B delta
@@ -328,6 +373,7 @@ rebrew ga --flag-sweep --fix-cflags                # Auto-update CFLAGS on exact
 
 # Verification & status
 rebrew verify                                      # Verify all reversed functions
+rebrew verify --diff                               # Compare against last report, detect regressions
 rebrew verify --json                               # Structured JSON report
 rebrew verify -o db/verify_results.json            # Write report to file
 rebrew lint --fix && rebrew lint                   # Fix then re-lint
@@ -347,8 +393,9 @@ rebrew graph --focus FuncName --depth 2            # Neighbourhood of a function
 
 # Promote & triage
 rebrew promote src/target_name/my_func.c           # Test + update STATUS
+rebrew promote --all                               # Batch promote all promotable
+rebrew promote --all --origin GAME --dry-run       # Preview batch by origin
 rebrew promote src/target_name/my_func.c --json    # JSON output for agents
-rebrew promote src/target_name/my_func.c --dry-run # Preview changes
 rebrew triage                                      # Cold-start triage summary
 rebrew triage --json -n 20                         # JSON report, top 20
 
@@ -356,6 +403,12 @@ rebrew triage --json -n 20                         # JSON report, top 20
 rebrew nasm --va 0x10003ca0 --size 77              # Extract single function
 rebrew nasm --va 0x10003ca0 --size 77 --verify     # With round-trip verification
 rebrew nasm --batch --out-dir output/nasm/         # Batch extract all matched
+
+# Splitting & Merging
+rebrew split src/target_name/multi.c               # split multi-function file
+rebrew split src/target_name/multi.c --dry-run      # preview split
+rebrew merge a.c b.c -o merged.c                    # merge into one file
+rebrew merge a.c b.c -o merged.c --delete           # merge and remove originals
 
 # FLIRT scanning
 rebrew flirt                                       # Scan with default sigs
@@ -367,6 +420,7 @@ rebrew sync --summary                              # Preview what would sync
 rebrew sync --push                                 # Export + apply to Ghidra
 rebrew sync --export                               # Export ghidra_commands.json only
 rebrew sync --pull                                 # Pull renames/comments from Ghidra
+rebrew sync --pull-data                            # Fetch data labels into rebrew_globals.h
 ```
 
 ## Internal Modules
