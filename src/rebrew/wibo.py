@@ -37,9 +37,12 @@ def _wibo_asset_name() -> str:
     )
 
 
+_NETWORK_TIMEOUT_S = 30  # Fail fast rather than hang indefinitely in CI/automation
+
+
 def _read_release_metadata() -> dict[str, object]:
     """Fetch and parse latest release metadata from GitHub."""
-    with urllib.request.urlopen(_WIBO_API_URL) as response:
+    with urllib.request.urlopen(_WIBO_API_URL, timeout=_NETWORK_TIMEOUT_S) as response:
         payload = response.read().decode("utf-8")
     data = json.loads(payload)
     if not isinstance(data, dict):
@@ -76,7 +79,8 @@ def download_wibo(dest: Path, *, quiet: bool = False) -> str:
     expected_sha256 = digest.removeprefix("sha256:")
 
     dest.parent.mkdir(parents=True, exist_ok=True)
-    urllib.request.urlretrieve(download_url, dest)
+    with urllib.request.urlopen(download_url, timeout=_NETWORK_TIMEOUT_S) as resp:
+        dest.write_bytes(resp.read())
 
     actual_sha256 = hashlib.sha256(dest.read_bytes()).hexdigest()
     if actual_sha256 != expected_sha256:
@@ -85,8 +89,8 @@ def download_wibo(dest: Path, *, quiet: bool = False) -> str:
             f"SHA256 mismatch for downloaded wibo: expected {expected_sha256}, got {actual_sha256}"
         )
 
-    current_mode = dest.stat().st_mode
-    dest.chmod(current_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    # Owner read+execute only — wibo is a static binary, never needs modification
+    dest.chmod(stat.S_IRUSR | stat.S_IXUSR)
     return tag_name
 
 

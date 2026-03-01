@@ -19,6 +19,7 @@ from rebrew.cli import (
     rel_display_path,
     source_glob,
 )
+from rebrew.config import ProjectConfig
 from rebrew.utils import atomic_write_text
 
 app = typer.Typer(
@@ -83,7 +84,7 @@ def _merge_preambles(preambles: list[str]) -> str:
     return "\n".join(merged_lines) + "\n\n"
 
 
-def _collect_input_files(paths: list[str], cfg: Any) -> list[Path]:
+def _collect_input_files(paths: list[str], cfg: ProjectConfig) -> list[Path]:
     """Resolve input arguments into unique source-file paths."""
     expected_ext = source_glob(cfg).removeprefix("*")
     files: list[Path] = []

@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from rebrew.catalog import (
     build_function_registry,
     generate_catalog,
@@ -215,7 +217,8 @@ class TestParseFunctionListExtended:
 
     def test_missing_file(self, tmp_path) -> None:
         f = tmp_path / "nonexistent.txt"
-        result = parse_function_list(f)
+        with pytest.warns(UserWarning, match="Cannot read"):
+            result = parse_function_list(f)
         assert result == []
 
     def test_malformed_lines(self, tmp_path) -> None:

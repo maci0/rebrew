@@ -25,6 +25,7 @@ from rebrew.catalog import (
 )
 from rebrew.cli import TargetOption, error_exit, get_config, json_print
 from rebrew.config import ProjectConfig
+from rebrew.utils import atomic_write_text
 
 # ---------------------------------------------------------------------------
 # Verification (--verify)
@@ -182,7 +183,7 @@ def _save_verify_cache(
         "entries": cache_entries,
     }
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    cache_path.write_text(json.dumps(cache_data, indent=2), encoding="utf-8")
+    atomic_write_text(cache_path, json.dumps(cache_data, indent=2), encoding="utf-8")
 
 
 def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
@@ -453,6 +454,10 @@ def main(
                     entry, ok, msg, target_bytes, obj_bytes, reloc_offsets = future.result()
                 except Exception as exc:
                     entry = futures[future]
+                    typer.echo(
+                        f"WARNING: internal error verifying {entry.get('name', '?')}: {exc}",
+                        err=True,
+                    )
                     ok, msg, target_bytes, obj_bytes, _reloc_offsets = (
                         False,
                         f"INTERNAL_ERROR: {exc}",
@@ -561,7 +566,7 @@ def main(
         report_json = json.dumps(report, indent=2)
 
         out_file.parent.mkdir(parents=True, exist_ok=True)
-        out_file.write_text(report_json, encoding="utf-8")
+        atomic_write_text(out_file, report_json, encoding="utf-8")
         if not json_output:
             console.print(f"Report written to {out_file}")
 

@@ -5,9 +5,9 @@ Renames a function across the entire codebase: updates ``// FUNCTION:``,
 and any other references discovered by scanning the reversed directory.
 """
 
+import logging
 import re
 from pathlib import Path
-from typing import Any
 
 import typer
 from rich.console import Console
@@ -15,6 +15,10 @@ from rich.console import Console
 from rebrew.annotation import update_annotation_key
 from rebrew.catalog import scan_reversed_dir
 from rebrew.cli import TargetOption, error_exit, get_config, iter_sources
+from rebrew.config import ProjectConfig
+from rebrew.utils import atomic_write_text
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(
     help="Rename a function and update cross-references.",
@@ -39,7 +43,7 @@ console = Console()
 
 
 def rename_function_everywhere(
-    cfg: Any,
+    cfg: ProjectConfig,
     filepath: Path,
     va: int,
     old_name: str,
@@ -65,14 +69,12 @@ def rename_function_everywhere(
     # 2. Update function definition & calls in file
     try:
         content = filepath.read_text(encoding="utf-8")
-        # Replace occurrences of actual_old_name
-        # Match whole words to avoid partial matches
         new_content = re.sub(r"\b" + re.escape(actual_old_name) + r"\b", target_func, content)
         if new_content != content:
-            filepath.write_text(new_content, encoding="utf-8")
+            atomic_write_text(filepath, new_content, encoding="utf-8")
             updated_files += 1
-    except OSError:
-        pass
+    except OSError as exc:
+        logger.warning("Failed to update primary file %s: %s", filepath, exc)
 
     # 3. Find and update externs across all files
     for src_file in iter_sources(cfg.reversed_dir, cfg):
@@ -83,10 +85,14 @@ def rename_function_everywhere(
             content = src_file.read_text(encoding="utf-8")
             new_content = re.sub(r"\b" + re.escape(actual_old_name) + r"\b", target_func, content)
             if new_content != content:
-                src_file.write_text(new_content, encoding="utf-8")
+                atomic_write_text(src_file, new_content, encoding="utf-8")
                 updated_files += 1
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.warning(
+                "Failed to update cross-reference in %s: %s — manual update required",
+                src_file,
+                exc,
+            )
 
     # 4. Rename file if needed
     if rename_file:

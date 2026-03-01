@@ -2,6 +2,8 @@
 
 import os
 
+import pytest
+
 from rebrew.matcher.core import (
     BuildCache,
     BuildResult,
@@ -129,7 +131,8 @@ class TestGACheckpoint:
             args_hash="correct",
         )
         save_checkpoint(path, ckpt)
-        loaded = load_checkpoint(path, "wrong_hash")
+        with pytest.warns(UserWarning, match="args hash mismatch"):
+            loaded = load_checkpoint(path, "wrong_hash")
         assert loaded is None
 
     def test_load_nonexistent(self, tmp_path) -> None:

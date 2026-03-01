@@ -10,6 +10,7 @@ requires-python = ">=3.12"
 dependencies = [
     "capstone>=5.0.0",
     "diskcache>=5.6",
+    "httpx>=0.28",
     "jinja2>=3.1",
     "lief>=0.17.4",
     "numpy>=1.26",
@@ -29,9 +30,6 @@ dev = [
     "ruff>=0.3",
     "pytest>=8.0",
     "slipcover>=1.0.17",
-]
-ghidra = [
-    "httpx>=0.28",
 ]
 
 [project.scripts]
@@ -74,6 +72,10 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+filterwarnings = [
+    # LIEF C extension emits this when parsing minimal Mach-O stubs with zeroed headers
+    "ignore:0 is not a valid CPU_TYPE:RuntimeWarning",
+]
 
 [tool.slipcover]
 source = ["src/rebrew"]

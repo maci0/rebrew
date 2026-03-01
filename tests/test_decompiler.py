@@ -61,13 +61,6 @@ class TestBackendDispatch:
         result = fetch_r2dec(Path("/fake/binary"), 0x1000, Path("/fake"))
         assert result is None
 
-    @patch("rebrew.decompiler.importlib.import_module", side_effect=ModuleNotFoundError("httpx"))
-    def test_ghidra_no_httpx(self, _mock_import, capsys) -> None:
-        result = fetch_ghidra(Path("/fake/binary"), 0x1000, Path("/fake"))
-        assert result is None
-        captured = capsys.readouterr()
-        assert "httpx" in captured.err
-
     def test_unknown_backend(self, capsys) -> None:
         code, name = fetch_decompilation("nonexistent", Path("/f"), 0x1000, Path("/f"))
         assert code is None
@@ -242,16 +235,17 @@ class TestGenerateSkeletonWithDecomp:
         assert "void crt_init() {}" in result
 
 
-def _make_import_side_effect(mock_httpx: MagicMock) -> Any:
-    """Build an importlib.import_module side_effect that returns mock httpx + real sync."""
+_real_import_module = __import__("importlib").import_module
+
+
+def _make_sync_import_mock() -> Any:
+    """Build an importlib.import_module side_effect that returns real sync module."""
     from rebrew import sync as _sync_mod
 
     def _side_effect(name: str) -> Any:
-        if name == "httpx":
-            return mock_httpx
         if name == "rebrew.sync":
             return _sync_mod
-        raise ModuleNotFoundError(name)
+        return _real_import_module(name)
 
     return _side_effect
 
@@ -290,12 +284,13 @@ class TestGhidraBackend:
         import json
 
         mock_client = _mock_httpx_client(_mcp_result(json.dumps("int foo() {\n  return 42;\n}")))
-        mock_httpx = MagicMock()
-        mock_httpx.Client.return_value = mock_client
 
-        with patch(
-            "rebrew.decompiler.importlib.import_module",
-            side_effect=_make_import_side_effect(mock_httpx),
+        with (
+            patch(
+                "rebrew.decompiler.importlib.import_module",
+                side_effect=_make_sync_import_mock(),
+            ),
+            patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
         ):
             result = fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"))
 
@@ -307,12 +302,13 @@ class TestGhidraBackend:
         mock_client = _mock_httpx_client(
             _mcp_result(json.dumps({"decompilation": "void bar() {}"}))
         )
-        mock_httpx = MagicMock()
-        mock_httpx.Client.return_value = mock_client
 
-        with patch(
-            "rebrew.decompiler.importlib.import_module",
-            side_effect=_make_import_side_effect(mock_httpx),
+        with (
+            patch(
+                "rebrew.decompiler.importlib.import_module",
+                side_effect=_make_sync_import_mock(),
+            ),
+            patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
         ):
             result = fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"))
 
@@ -322,12 +318,13 @@ class TestGhidraBackend:
         import json
 
         mock_client = _mock_httpx_client(_mcp_result(json.dumps({"text": "int baz();"})))
-        mock_httpx = MagicMock()
-        mock_httpx.Client.return_value = mock_client
 
-        with patch(
-            "rebrew.decompiler.importlib.import_module",
-            side_effect=_make_import_side_effect(mock_httpx),
+        with (
+            patch(
+                "rebrew.decompiler.importlib.import_module",
+                side_effect=_make_sync_import_mock(),
+            ),
+            patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
         ):
             result = fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"))
 
@@ -335,25 +332,29 @@ class TestGhidraBackend:
 
     def test_returns_none_on_empty_response(self) -> None:
         mock_client = _mock_httpx_client(None, status_code=200)
-        mock_httpx = MagicMock()
-        mock_httpx.Client.return_value = mock_client
 
-        with patch(
-            "rebrew.decompiler.importlib.import_module",
-            side_effect=_make_import_side_effect(mock_httpx),
+        with (
+            patch(
+                "rebrew.decompiler.importlib.import_module",
+                side_effect=_make_sync_import_mock(),
+            ),
+            patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
         ):
             result = fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"))
 
         assert result is None
 
     def test_returns_none_on_connection_error(self) -> None:
-        mock_httpx = MagicMock()
-        mock_httpx.Client.return_value.__enter__ = MagicMock(side_effect=ConnectionError)
-        mock_httpx.Client.return_value.__exit__ = lambda *a: None
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(side_effect=ConnectionError)
+        mock_client.__exit__ = lambda *a: None
 
-        with patch(
-            "rebrew.decompiler.importlib.import_module",
-            side_effect=_make_import_side_effect(mock_httpx),
+        with (
+            patch(
+                "rebrew.decompiler.importlib.import_module",
+                side_effect=_make_sync_import_mock(),
+            ),
+            patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
         ):
             result = fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"))
 
@@ -363,13 +364,14 @@ class TestGhidraBackend:
         import json
 
         mock_client = _mock_httpx_client(_mcp_result(json.dumps("int x;")))
-        mock_httpx = MagicMock()
-        mock_httpx.Client.return_value = mock_client
 
         custom_ep = "http://myhost:9999/mcp/message"
-        with patch(
-            "rebrew.decompiler.importlib.import_module",
-            side_effect=_make_import_side_effect(mock_httpx),
+        with (
+            patch(
+                "rebrew.decompiler.importlib.import_module",
+                side_effect=_make_sync_import_mock(),
+            ),
+            patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
         ):
             fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"), endpoint=custom_ep)
 
@@ -380,12 +382,13 @@ class TestGhidraBackend:
         import json
 
         mock_client = _mock_httpx_client(_mcp_result(json.dumps("int x;")))
-        mock_httpx = MagicMock()
-        mock_httpx.Client.return_value = mock_client
 
-        with patch(
-            "rebrew.decompiler.importlib.import_module",
-            side_effect=_make_import_side_effect(mock_httpx),
+        with (
+            patch(
+                "rebrew.decompiler.importlib.import_module",
+                side_effect=_make_sync_import_mock(),
+            ),
+            patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
         ):
             fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"))
 
@@ -396,12 +399,13 @@ class TestGhidraBackend:
         import json
 
         mock_client = _mock_httpx_client(_mcp_result(json.dumps("int x;")))
-        mock_httpx = MagicMock()
-        mock_httpx.Client.return_value = mock_client
 
-        with patch(
-            "rebrew.decompiler.importlib.import_module",
-            side_effect=_make_import_side_effect(mock_httpx),
+        with (
+            patch(
+                "rebrew.decompiler.importlib.import_module",
+                side_effect=_make_sync_import_mock(),
+            ),
+            patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
         ):
             fetch_ghidra(Path("/some/dir/LEGO1.DLL"), 0xABCD, Path("/some/dir"))
 
@@ -439,12 +443,13 @@ class TestGhidraBackend:
 
         raw = "\x1b[32mint foo() {\x1b[0m\n  return 1;\n}\n"
         mock_client = _mock_httpx_client(_mcp_result(json.dumps(raw)))
-        mock_httpx = MagicMock()
-        mock_httpx.Client.return_value = mock_client
 
-        with patch(
-            "rebrew.decompiler.importlib.import_module",
-            side_effect=_make_import_side_effect(mock_httpx),
+        with (
+            patch(
+                "rebrew.decompiler.importlib.import_module",
+                side_effect=_make_sync_import_mock(),
+            ),
+            patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
         ):
             result = fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"))
 

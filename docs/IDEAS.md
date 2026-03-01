@@ -114,7 +114,7 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 
 ### 7. Ghidra decompilation backend for skeleton ✅
 
-> **Status: Done.** `fetch_ghidra()` in `decompiler.py` connects to a running Ghidra instance via ReVa MCP `get-decompilation` tool. Uses lazy `httpx` import and the existing `_fetch_mcp_tool_raw`/`_init_mcp_session` helpers from `sync.py`. The `endpoint` parameter threads through `fetch_decompilation()` to all 3 skeleton.py call sites (batch, append, single-VA). 12 tests in `test_decompiler.py::TestGhidraBackend`.
+> **Status: Done.** `fetch_ghidra()` in `decompiler.py` connects to a running Ghidra instance via ReVa MCP `get-decompilation` tool. Uses `httpx.Client` and the existing `_fetch_mcp_tool_raw`/`_init_mcp_session` helpers from `sync.py`. The `endpoint` parameter threads through `fetch_decompilation()` to all 3 skeleton.py call sites (batch, append, single-VA). Tests in `test_decompiler.py::TestGhidraBackend`.
 
 **Pain**: `rebrew skeleton --decomp` currently uses radare2 backends (`r2ghidra`, `r2dec`), which produce lower quality output than Ghidra's decompiler.
 

@@ -562,7 +562,7 @@ def load_config(
 
     # Merge per-origin compiler overrides: global → per-target
     merged_origin_compiler: dict[str, dict[str, str]] = {}
-    for origin_key in set(global_origins) | set(target_origins):
+    for origin_key in sorted(set(global_origins) | set(target_origins)):
         merged_values = {
             **global_origins.get(origin_key, {}),
             **target_origins.get(origin_key, {}),

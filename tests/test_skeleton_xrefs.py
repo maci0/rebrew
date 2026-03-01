@@ -1,6 +1,8 @@
 import importlib
 from pathlib import Path
 
+import httpx
+
 from rebrew.config import ProjectConfig
 from rebrew.skeleton import fetch_xref_context, generate_skeleton
 
@@ -16,17 +18,13 @@ class _DummyClient:
         return None
 
 
-class _DummyHttpx:
-    Client = _DummyClient
-
-
 def _make_import_mock(sync_mod: object) -> object:
-    """Return an import_module replacement that dispatches httpx vs rebrew.sync."""
+    """Return an import_module replacement that returns sync_mod for rebrew.sync."""
 
     def _import(name: str) -> object:
         if name == "rebrew.sync":
             return sync_mod
-        return _DummyHttpx
+        return importlib.import_module(name)
 
     return _import
 
@@ -36,6 +34,7 @@ class TestFetchXrefContext:
         import rebrew.sync as sync_mod
 
         monkeypatch.setattr(importlib, "import_module", _make_import_mock(sync_mod))
+        monkeypatch.setattr(httpx, "Client", _DummyClient)
         monkeypatch.setattr(sync_mod, "_init_mcp_session", lambda client, endpoint: "sid")
 
         def _mock_fetch(client, endpoint, tool_name, arguments, request_id, session_id=""):
@@ -75,6 +74,7 @@ class TestFetchXrefContext:
         import rebrew.sync as sync_mod
 
         monkeypatch.setattr(importlib, "import_module", _make_import_mock(sync_mod))
+        monkeypatch.setattr(httpx, "Client", _DummyClient)
         monkeypatch.setattr(sync_mod, "_init_mcp_session", lambda client, endpoint: "sid")
         monkeypatch.setattr(
             sync_mod, "_fetch_mcp_tool_raw", lambda *args, **kwargs: {"referencesTo": []}
@@ -87,6 +87,7 @@ class TestFetchXrefContext:
         import rebrew.sync as sync_mod
 
         monkeypatch.setattr(importlib, "import_module", _make_import_mock(sync_mod))
+        monkeypatch.setattr(httpx, "Client", _DummyClient)
 
         def _raise(*args, **kwargs):
             raise RuntimeError("mcp down")
@@ -96,21 +97,11 @@ class TestFetchXrefContext:
         result = fetch_xref_context("http://localhost:8080/mcp/message", "/server.dll", 0x00401000)
         assert result is None
 
-    def test_httpx_not_installed_returns_none(self, monkeypatch, capsys) -> None:
-        def _missing(name: str):
-            raise ModuleNotFoundError("no module named httpx")
-
-        monkeypatch.setattr(importlib, "import_module", _missing)
-
-        result = fetch_xref_context("http://localhost:8080/mcp/message", "/server.dll", 0x00401000)
-        captured = capsys.readouterr()
-        assert result is None
-        assert "httpx required for --xrefs" in captured.err
-
     def test_max_callers_limit(self, monkeypatch) -> None:
         import rebrew.sync as sync_mod
 
         monkeypatch.setattr(importlib, "import_module", _make_import_mock(sync_mod))
+        monkeypatch.setattr(httpx, "Client", _DummyClient)
         monkeypatch.setattr(sync_mod, "_init_mcp_session", lambda client, endpoint: "sid")
 
         calls: list[str] = []
@@ -159,6 +150,7 @@ class TestFetchXrefContext:
         import rebrew.sync as sync_mod
 
         monkeypatch.setattr(importlib, "import_module", _make_import_mock(sync_mod))
+        monkeypatch.setattr(httpx, "Client", _DummyClient)
         monkeypatch.setattr(sync_mod, "_init_mcp_session", lambda client, endpoint: "sid")
 
         def _mock_fetch(client, endpoint, tool_name, arguments, request_id, session_id=""):
