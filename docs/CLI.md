@@ -1,6 +1,6 @@
 # CLI Reference
 
-All 28 CLI tools are installed as entry points via `pyproject.toml`.
+All 29 CLI tools are installed as entry points via `pyproject.toml`.
 Every tool supports `--target / -t` to select a target from `rebrew-project.toml` and
 reads defaults (binary path, reversed_dir, compiler settings) from the project config.
 
@@ -31,6 +31,7 @@ Run any tool with `--help` to see usage examples and context
 | `rebrew-nasm` | `nasm.py` | NASM assembly extraction |
 | `rebrew-split` | `split.py` | Split multi-function C files into individual files |
 | `rebrew-merge` | `merge.py` | Merge single-function C files into multi-function file |
+| `rebrew-prove` | `prove.py` | Prove semantic equivalence via angr symbolic execution (optional dep) |
 | `rebrew-flirt` | `flirt.py` | FLIRT signature scanning (see [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md)) |
 | `rebrew-crt-match` | `crt_match.py` | CRT source cross-reference matcher (index, match, ASM detection) |
 | `rebrew-status` | `status.py` | Project reversing status overview (per-target breakdowns) |
@@ -86,6 +87,7 @@ Atomically renames a function across the entire project.
 |------|-------------|
 | `--symbol NAME` | New `// SYMBOL:` annotation value (default: `_<new_name>`) |
 | `--file NAME` | New filename (default: auto-rename if stem matches old name) |
+| `--json` | Output results as JSON |
 
 Behavior:
 
@@ -194,6 +196,7 @@ Output prefixes for unambiguous parsing:
 | `--focus NAME` | Neighbourhood of a specific function |
 | `--depth N` | Depth for focus mode |
 | `-o FILE` / `--output FILE` | Output file (default: stdout) |
+| `--json` | Output results as JSON |
 
 ### `rebrew lint`
 
@@ -215,7 +218,7 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 | `--dir DIR` | With `--all`, restrict batch to a subdirectory |
 | `--origin ORIGIN` | With `--all`, filter by origin (GAME, MSVCRT, ZLIB) |
 | `--json` | Output results as JSON |
-| `--dry-run` | Show what would change without writing |
+| `--dry-run` | Preview changes without writing |
 
 ### `rebrew triage`
 
@@ -315,6 +318,7 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 | `--out-dir DIR` | Output directory for batch mode |
 | `--base-va HEX` | Base VA for `.bin` files (default: 0) |
 | `--inline-c` | Output C file with inline assembly instead of NASM |
+| `--json` | Output results as JSON |
 
 ### `rebrew split`
 
@@ -325,9 +329,26 @@ Split a multi-function `.c` file into individual single-function files. Each out
 | Flag | Effect |
 |------|--------|
 | `--output-dir DIR` | Write output files to DIR (default: same directory as input) |
-| `--dry-run` | Preview files that would be created without writing |
+| `--dry-run` | Preview changes without writing |
 | `--force` | Overwrite existing output files |
 | `--json` | Structured JSON output |
+
+### `rebrew prove`
+
+`rebrew prove <source> [--target NAME] [--json] [--timeout N] [--loop-bound N] [--dry-run]`
+
+Prove semantic equivalence of a MATCHING function via angr symbolic execution + Z3 constraint solving. Requires the optional `angr` dependency (`uv pip install -e ".[prove]"`).
+
+| Flag | Description |
+|------|-------------|
+| `SOURCE` | C source file path or symbol name (positional, required) |
+| `--target NAME` | Select a target from `rebrew-project.toml` |
+| `--json` | JSON structured output |
+| `--timeout N` | Seconds before giving up (default: 60) |
+| `--loop-bound N` | Max loop iterations for angr's LoopSeer (default: 10) |
+| `--dry-run` | Preview changes without writing |
+
+On success, updates `STATUS` from `MATCHING` → `PROVEN`. On failure (timeout, path explosion, or Z3 finds a distinguishing input), status remains unchanged.
 
 ### `rebrew merge`
 
@@ -338,7 +359,7 @@ Merge multiple single-function `.c` files into one multi-function file. Preamble
 | Flag | Effect |
 |------|--------|
 | `--output FILE` | Output merged file (required) |
-| `--dry-run` | Preview merge without writing |
+| `--dry-run` | Preview changes without writing |
 | `--force` | Overwrite output if it already exists |
 | `--delete` | Delete input files after successful merge |
 | `--json` | Structured JSON output |
@@ -348,6 +369,16 @@ Merge multiple single-function `.c` files into one multi-function file. Preamble
 | Flag | Description |
 |------|-------------|
 | `--root DIR` | Project root directory (auto-detected if omitted) |
+| `--json` | Output results as JSON |
+
+### `rebrew init`
+
+| Flag | Description |
+|------|-------------|
+| `--target NAME` / `-t NAME` | Name of the initial target (default: `main`) |
+| `--binary NAME` | Binary filename (default: `target.dll`) |
+| `--compiler PROFILE` | Compiler profile (default: `msvc6`) |
+| `--json` | Output results as JSON |
 
 ## Examples
 
@@ -423,6 +454,12 @@ rebrew split src/target_name/multi.c               # split multi-function file
 rebrew split src/target_name/multi.c --dry-run      # preview split
 rebrew merge a.c b.c -o merged.c                    # merge into one file
 rebrew merge a.c b.c -o merged.c --delete           # merge and remove originals
+
+# Semantic equivalence proving
+rebrew prove src/target_name/calculate_physics.c     # prove MATCHING → PROVEN
+rebrew prove src/target_name/calculate_physics.c --json  # JSON output
+rebrew prove my_func --dry-run                        # find by symbol, preview only
+rebrew prove src/target_name/func.c --timeout 120     # allow 2 min for complex functions
 
 # FLIRT scanning
 rebrew flirt                                       # Scan with default sigs

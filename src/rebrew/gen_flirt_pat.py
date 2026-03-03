@@ -58,14 +58,15 @@ def parse_coff_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
         return
 
     # LIEF needs a file path, so write to a temp file
-    with tempfile.NamedTemporaryFile(suffix=".obj", delete=False) as f:
-        f.write(obj_data)
-        tmp_path = Path(f.name)
-
+    tmp_path: Path | None = None
     try:
+        with tempfile.NamedTemporaryFile(suffix=".obj", delete=False) as f:
+            f.write(obj_data)
+            tmp_path = Path(f.name)
         coff = lief.COFF.parse(str(tmp_path))
     finally:
-        tmp_path.unlink(missing_ok=True)
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
 
     if coff is None:
         return

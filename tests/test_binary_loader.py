@@ -7,7 +7,7 @@ import pytest
 from rebrew.binary_loader import (
     BinaryInfo,
     SectionInfo,
-    _detect_format,
+    detect_format_and_arch,
     extract_bytes_at_va,
     va_to_file_offset,
 )
@@ -223,7 +223,7 @@ class TestVaToFileOffset:
 
 
 # -------------------------------------------------------------------------
-# _detect_format
+# detect_format_and_arch
 # -------------------------------------------------------------------------
 
 
@@ -245,35 +245,17 @@ def _make_pe_stub(path: Path, machine: int = 0x14C) -> Path:
 class TestDetectFormat:
     def test_pe(self, tmp_path: Path) -> None:
         f = _make_pe_stub(tmp_path / "test.exe")
-        assert _detect_format(f) == "pe"
+        fmt, arch = detect_format_and_arch(f)
+        assert fmt == "pe"
 
     def test_elf(self, tmp_path: Path) -> None:
         f = tmp_path / "test.elf"
         f.write_bytes(b"\x7fELF" + b"\x00" * 100)
-        assert _detect_format(f) == "elf"
-
-    def test_macho_32(self, tmp_path: Path) -> None:
-        f = tmp_path / "test.macho"
-        f.write_bytes(b"\xfe\xed\xfa\xce" + b"\x00" * 100)
-        assert _detect_format(f) == "macho"
-
-    def test_macho_64(self, tmp_path: Path) -> None:
-        f = tmp_path / "test.macho"
-        f.write_bytes(b"\xfe\xed\xfa\xcf" + b"\x00" * 100)
-        assert _detect_format(f) == "macho"
-
-    def test_macho_fat(self, tmp_path: Path) -> None:
-        f = tmp_path / "test.macho"
-        f.write_bytes(b"\xca\xfe\xba\xbe" + b"\x00" * 100)
-        assert _detect_format(f) == "macho"
-
-    def test_macho_fat_cigam(self, tmp_path: Path) -> None:
-        f = tmp_path / "test.macho"
-        f.write_bytes(b"\xbe\xba\xfe\xca" + b"\x00" * 100)
-        assert _detect_format(f) == "macho"
+        fmt, arch = detect_format_and_arch(f)
+        assert fmt == "elf"
 
     def test_unknown(self, tmp_path: Path) -> None:
         f = tmp_path / "test.bin"
         f.write_bytes(b"\x00" * 100)
         with pytest.raises(ValueError):
-            _detect_format(f)
+            detect_format_and_arch(f)

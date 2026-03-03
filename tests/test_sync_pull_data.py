@@ -260,7 +260,7 @@ class TestPullDataGlobalsHeader:
         _run_pull_data(monkeypatch, tmp_path, symbols, data_by_addr, dry_run=True)
 
         assert not (tmp_path / "rebrew_globals.h").exists()
-        out = capsys.readouterr().out
+        out = capsys.readouterr().err
         assert "Dry run: would write" in out
 
     def test_empty_symbols_no_file(self, tmp_path: Any, monkeypatch: Any) -> None:

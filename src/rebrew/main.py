@@ -14,6 +14,8 @@ from collections.abc import Callable
 
 import typer
 
+from rebrew import cli
+
 app = typer.Typer(
     help="Compiler-in-the-loop decompilation workbench for binary-matching reversing.",
     rich_markup_mode="rich",
@@ -26,15 +28,44 @@ rebrew skeleton 0x<VA>       Generate a .c skeleton from address
 
 rebrew test src/<func>.c     Compile and byte-compare against target
 
-rebrew match --diff-only f   Show byte diff for near-misses
+rebrew match -d src/f.c      Show byte diff for near-misses
+
+rebrew promote src/f.c       Test and auto-update STATUS annotation
 
 rebrew verify                Bulk-verify all reversed functions
 
-rebrew catalog               Regenerate coverage catalog + JSON
+rebrew status                Project-wide progress overview
+
+[bold]Exit codes:[/bold]
+
+0   Success (all functions matched / no errors)
+
+1   Mismatch or test failure (actionable — fix your code)
+
+2   Build error or config error (something is broken)
 
 [dim]All subcommands read project settings from rebrew-project.toml.
 Run 'rebrew init' to create a new project, or 'rebrew <cmd> --help' for details.[/dim]""",
 )
+
+# ---------------------------------------------------------------------------
+# Global options callback
+# ---------------------------------------------------------------------------
+
+
+@app.callback()
+def _global_options(
+    verbose: int = typer.Option(
+        0, "--verbose", "-v", count=True, help="Increase output verbosity."
+    ),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress non-essential output."),
+) -> None:
+    """Compiler-in-the-loop decompilation workbench."""
+    if quiet:
+        cli.verbosity = -1
+    elif verbose:
+        cli.verbosity = verbose
+
 
 # ---------------------------------------------------------------------------
 # Subcommand registry
@@ -71,6 +102,7 @@ _COMMAND_PANELS: dict[str, str] = {
     "extract": "Matching",
     "asm": "Matching",
     "nasm": "Matching",
+    "prove": "Matching",
     # Export & Sync — generating data and syncing with external tools
     "catalog": "Export & Sync",
     "build-db": "Export & Sync",
@@ -92,8 +124,8 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("sync", "rebrew.sync", "Sync annotations between decomp C files and Ghidra."),
     ("lint", "rebrew.lint", "Lint C annotations."),
     ("extract", "rebrew.extract", "Extract and disassemble functions from binary."),
-    ("match", "rebrew.match", "GA engine for binary matching (diff, flag-sweep, GA)."),
-    ("ga", "rebrew.ga", "Batch GA runner and flag sweep for STUB and MATCHING functions."),
+    ("match", "rebrew.match", "Single-function matching: byte diff, flag sweep, or GA."),
+    ("ga", "rebrew.ga", "Batch GA runner across all STUB/MATCHING functions."),
     ("asm", "rebrew.asm", "Disassemble original bytes."),
     ("build-db", "rebrew.build_db", "Build SQLite coverage database."),
     ("init", "rebrew.init", "Initialize a new rebrew project."),
@@ -108,6 +140,7 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("doctor", "rebrew.doctor", "Diagnostic checks for project health."),
     ("split", "rebrew.split", "Split multi-function C files into single-function files."),
     ("merge", "rebrew.merge", "Merge single-function C files into one multi-function file."),
+    ("prove", "rebrew.prove", "Prove semantic equivalence via symbolic execution."),
 ]
 
 # Multi-command modules – registered as groups via app.add_typer().

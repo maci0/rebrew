@@ -119,6 +119,7 @@ Format: `// MARKER: MODULE 0xVA`
 | `RELOC` | Matches after masking relocation addresses |
 | `MATCHING` | Functionally equivalent but bytes differ |
 | `MATCHING_RELOC` | Functionally equivalent with reloc masking |
+| `PROVEN` | Semantically equivalent, proven via symbolic execution (angr + Z3) |
 | `STUB` | Placeholder, doesn't match yet |
 
 ### ORIGIN Values
@@ -267,7 +268,7 @@ Errors indicate broken annotations that will cause `rebrew test`, `rebrew verify
 | Code | Description | Triggered by |
 |------|-------------|--------------|
 | E003 | Missing `STATUS` | No `// STATUS:` line in header |
-| E004 | Invalid STATUS value | `STATUS: DONE` or other non-standard value (valid: EXACT, RELOC, MATCHING, MATCHING_RELOC, STUB) |
+| E004 | Invalid STATUS value | `STATUS: DONE` or other non-standard value (valid: EXACT, RELOC, MATCHING, MATCHING_RELOC, PROVEN, STUB) |
 | E005 | Missing `ORIGIN` | No `// ORIGIN:` line in header |
 | E006 | Invalid ORIGIN value | `ORIGIN: UNKNOWN` — must be in `origins` list from `rebrew-project.toml` (falls back to GAME, MSVCRT, ZLIB) |
 | E007 | Missing `SIZE` | No `// SIZE:` line in header |

@@ -48,7 +48,9 @@ def _multi_two() -> str:
 class TestSplitBasic:
     def test_splits_two_functions(self, tmp_path: Path, monkeypatch: Any) -> None:
         src = _write(tmp_path / "multi.c", _multi_two())
-        monkeypatch.setattr("rebrew.split.get_config", lambda target=None: _make_cfg(tmp_path))
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
 
         result = runner.invoke(app, [str(src)])
         assert result.exit_code == 0
@@ -81,7 +83,9 @@ class TestSplitBasic:
             "int b(void) { return MAGIC; }\n"
         )
         src = _write(tmp_path / "multi.c", content)
-        monkeypatch.setattr("rebrew.split.get_config", lambda target=None: _make_cfg(tmp_path))
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
 
         result = runner.invoke(app, [str(src)])
         assert result.exit_code == 0
@@ -90,7 +94,9 @@ class TestSplitBasic:
 
     def test_uses_symbol_for_filename(self, tmp_path: Path, monkeypatch: Any) -> None:
         src = _write(tmp_path / "multi.c", _multi_two())
-        monkeypatch.setattr("rebrew.split.get_config", lambda target=None: _make_cfg(tmp_path))
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
 
         result = runner.invoke(app, [str(src)])
         assert result.exit_code == 0
@@ -119,7 +125,9 @@ class TestSplitBasic:
             "int named(void) { return 0; }\n"
         )
         src = _write(tmp_path / "multi.c", content)
-        monkeypatch.setattr("rebrew.split.get_config", lambda target=None: _make_cfg(tmp_path))
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
 
         result = runner.invoke(app, [str(src)])
         assert result.exit_code == 0
@@ -128,7 +136,9 @@ class TestSplitBasic:
 
     def test_dry_run_does_not_create_files(self, tmp_path: Path, monkeypatch: Any) -> None:
         src = _write(tmp_path / "multi.c", _multi_two())
-        monkeypatch.setattr("rebrew.split.get_config", lambda target=None: _make_cfg(tmp_path))
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
 
         result = runner.invoke(app, ["--dry-run", str(src)])
         assert result.exit_code == 0
@@ -149,7 +159,9 @@ class TestSplitBasic:
             "int only(void) { return 0; }\n"
         )
         src = _write(tmp_path / "single.c", content)
-        monkeypatch.setattr("rebrew.split.get_config", lambda target=None: _make_cfg(tmp_path))
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
 
         result = runner.invoke(app, [str(src)])
         assert result.exit_code != 0
@@ -160,7 +172,9 @@ class TestSplitBasic:
     ) -> None:
         src = _write(tmp_path / "multi.c", _multi_two())
         _write(tmp_path / "func_a.c", "stale\n")
-        monkeypatch.setattr("rebrew.split.get_config", lambda target=None: _make_cfg(tmp_path))
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
 
         result = runner.invoke(app, [str(src)])
         assert result.exit_code != 0
@@ -169,7 +183,9 @@ class TestSplitBasic:
     def test_force_overwrites_existing_files(self, tmp_path: Path, monkeypatch: Any) -> None:
         src = _write(tmp_path / "multi.c", _multi_two())
         existing = _write(tmp_path / "func_a.c", "stale\n")
-        monkeypatch.setattr("rebrew.split.get_config", lambda target=None: _make_cfg(tmp_path))
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
 
         result = runner.invoke(app, ["--force", str(src)])
         assert result.exit_code == 0
@@ -178,7 +194,9 @@ class TestSplitBasic:
     def test_json_output_structure(self, tmp_path: Path, monkeypatch: Any) -> None:
         src = _write(tmp_path / "multi.c", _multi_two())
         payloads: list[dict[str, Any]] = []
-        monkeypatch.setattr("rebrew.split.get_config", lambda target=None: _make_cfg(tmp_path))
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
         monkeypatch.setattr("rebrew.split.json_print", lambda data: payloads.append(data))
 
         result = runner.invoke(app, ["--json", str(src)])
@@ -221,8 +239,8 @@ class TestSplitBasic:
         )
         src = _write(tmp_path / "multi.c", content)
         monkeypatch.setattr(
-            "rebrew.split.get_config",
-            lambda target=None: _make_cfg(tmp_path, marker="SERVER"),
+            "rebrew.split.require_config",
+            lambda target=None, json_mode=False: _make_cfg(tmp_path, marker="SERVER"),
         )
 
         result = runner.invoke(app, [str(src)])

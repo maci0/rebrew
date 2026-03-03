@@ -230,7 +230,9 @@ class TestBatchPromote:
             seen.append(str(source_path.relative_to(tmp_path)))
             return []
 
-        monkeypatch.setattr("rebrew.promote.get_config", lambda target=None: cfg)
+        monkeypatch.setattr(
+            "rebrew.promote.require_config", lambda target=None, json_mode=False: cfg
+        )
         monkeypatch.setattr("rebrew.promote._promote_file", _fake_promote)
 
         result = runner.invoke(app, ["--all"])
@@ -253,7 +255,9 @@ class TestBatchPromote:
             seen.append(str(source_path.relative_to(tmp_path)))
             return []
 
-        monkeypatch.setattr("rebrew.promote.get_config", lambda target=None: cfg)
+        monkeypatch.setattr(
+            "rebrew.promote.require_config", lambda target=None, json_mode=False: cfg
+        )
         monkeypatch.setattr("rebrew.promote._promote_file", _fake_promote)
 
         result = runner.invoke(app, ["--all", "--dir", str(tmp_path / "sub")])
@@ -282,7 +286,9 @@ class TestBatchPromote:
                 }
             ]
 
-        monkeypatch.setattr("rebrew.promote.get_config", lambda target=None: cfg)
+        monkeypatch.setattr(
+            "rebrew.promote.require_config", lambda target=None, json_mode=False: cfg
+        )
         monkeypatch.setattr("rebrew.promote._promote_file", _fake_promote)
         monkeypatch.setattr("rebrew.promote.json_print", lambda data: payloads.append(data))
 

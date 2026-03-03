@@ -144,7 +144,7 @@ _STATUS_COLORS = {
     "STUB": "red",
 }
 
-_STATUS_ORDER = ["EXACT", "RELOC", "MATCHING", "MATCHING_RELOC", "STUB"]
+_STATUS_ORDER = ["EXACT", "RELOC", "PROVEN", "MATCHING", "MATCHING_RELOC", "STUB"]
 
 
 def _render_target(console: Console, stats: TargetStats) -> None:
@@ -256,14 +256,14 @@ Run 'rebrew catalog --json' first to generate coverage data.[/dim]""",
 
 @app.callback(invoke_without_command=True)
 def main(
-    target: str | None = TargetOption,
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
 ) -> None:
     """Print an overview of reversing progress for the project."""
     try:
         cfg = load_config(target=target)
     except (FileNotFoundError, KeyError) as exc:
-        error_exit(str(exc))
+        error_exit(str(exc), json_mode=json_output)
 
     # Determine which targets to report on
     targets_to_show = [target] if target is not None else list(cfg.all_targets)
@@ -302,7 +302,7 @@ def main(
 
 
 def main_entry() -> None:
-    """Run the status CLI app."""
+    """Run the Typer CLI application."""
     app()
 
 

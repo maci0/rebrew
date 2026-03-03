@@ -20,14 +20,14 @@ _DEFAULT_CS_MODE = capstone.CS_MODE_32
 
 
 def _normalize_with_reloc_offsets(
-    code: bytes, reloc_offsets: dict[int, str] | list[int] | None
+    code: bytes, reloc_offsets: dict[int, str] | list[int] | None, pointer_size: int = 4
 ) -> bytes:
     """Zero relocation slots described by explicit relocation offsets."""
     if reloc_offsets is None:
         return code
     out = bytearray(code)
     for ro in reloc_offsets:
-        for j in range(4):
+        for j in range(pointer_size):
             idx = ro + j
             if 0 <= idx < len(out):
                 out[idx] = 0
@@ -145,6 +145,7 @@ def score_candidate(
     reloc_offsets: dict[int, str] | list[int] | None = None,
     cs_arch: int = _DEFAULT_CS_ARCH,
     cs_mode: int = _DEFAULT_CS_MODE,
+    pointer_size: int = 4,
 ) -> Score:
     """Score a candidate against the target bytes."""
     len_diff = abs(len(target_bytes) - len(candidate_bytes))
@@ -172,7 +173,7 @@ def score_candidate(
         if min_len > 0:
             reloc_mask = np.zeros(min_len, dtype=bool)
             for ro in reloc_offsets:
-                for j in range(4):
+                for j in range(pointer_size):
                     idx = ro + j
                     if 0 <= idx < min_len:
                         reloc_mask[idx] = True
@@ -227,6 +228,7 @@ def diff_functions(
     as_dict: bool = False,
     cs_arch: int = _DEFAULT_CS_ARCH,
     cs_mode: int = _DEFAULT_CS_MODE,
+    pointer_size: int = 4,
 ) -> dict[str, Any] | None:
     """Print a side-by-side diff of target and candidate disassembly.
 
@@ -246,8 +248,8 @@ def diff_functions(
     cand_insns = list(md.disasm(candidate_bytes, 0))
 
     if reloc_offsets is not None:
-        norm_target = _normalize_with_reloc_offsets(target_bytes, reloc_offsets)
-        norm_cand = _normalize_with_reloc_offsets(candidate_bytes, reloc_offsets)
+        norm_target = _normalize_with_reloc_offsets(target_bytes, reloc_offsets, pointer_size)
+        norm_cand = _normalize_with_reloc_offsets(candidate_bytes, reloc_offsets, pointer_size)
     else:
         norm_target = _normalize_reloc_x86_32(target_bytes, cs_arch, cs_mode)
         norm_cand = _normalize_reloc_x86_32(candidate_bytes, cs_arch, cs_mode)
@@ -300,8 +302,10 @@ def diff_functions(
                         is_invalid = False
                         if invalid_relocs:
                             for offset in invalid_relocs:
-                                # A reloc spans 4 bytes, so check if any part of it overlaps with this instruction
-                                if max(ti.address, offset) < min(ti.address + ti.size, offset + 4):
+                                # A reloc spans pointer_size bytes, check overlap with this instruction
+                                if max(ti.address, offset) < min(
+                                    ti.address + ti.size, offset + pointer_size
+                                ):
                                     is_invalid = True
                                     break
                         match_char = "XX" if is_invalid else "~~"
@@ -398,6 +402,7 @@ def structural_similarity(
     reloc_offsets: dict[int, str] | list[int] | None = None,
     cs_arch: int = _DEFAULT_CS_ARCH,
     cs_mode: int = _DEFAULT_CS_MODE,
+    pointer_size: int = 4,
 ) -> StructuralSimilarity:
     """Compute structural similarity to distinguish flag-fixable vs structural diffs."""
     summary = diff_functions(
@@ -408,6 +413,7 @@ def structural_similarity(
         as_dict=True,
         cs_arch=cs_arch,
         cs_mode=cs_mode,
+        pointer_size=pointer_size,
     )
     if summary is None:
         raise RuntimeError(

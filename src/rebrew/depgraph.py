@@ -19,7 +19,7 @@ from typing import TypedDict
 import typer
 
 from rebrew.annotation import parse_c_file_multi
-from rebrew.cli import TargetOption, error_exit, get_config, iter_sources
+from rebrew.cli import TargetOption, error_exit, iter_sources, json_print, require_config
 from rebrew.config import ProjectConfig
 
 
@@ -208,6 +208,7 @@ def _status_style(status: str) -> str:
     return {
         "EXACT": "exact",
         "RELOC": "reloc",
+        "PROVEN": "exact",
         "MATCHING": "matching",
         "MATCHING_RELOC": "matching",
         "STUB": "stub",
@@ -265,6 +266,7 @@ def render_dot(
     color_map = {
         "EXACT": "#2ecc71",
         "RELOC": "#3498db",
+        "PROVEN": "#2ecc71",
         "MATCHING": "#f39c12",
         "MATCHING_RELOC": "#f39c12",
         "STUB": "#e74c3c",
@@ -307,7 +309,7 @@ def render_summary(nodes: dict[str, NodeInfo], edges: list[tuple[str, str]]) -> 
         f"Edges: {len(edges)}",
         "By status:",
     ]
-    for status in ("EXACT", "RELOC", "MATCHING", "MATCHING_RELOC", "STUB", "UNKNOWN"):
+    for status in ("EXACT", "RELOC", "PROVEN", "MATCHING", "MATCHING_RELOC", "STUB", "UNKNOWN"):
         count = by_status.get(status, 0)
         if count:
             lines.append(f"  {status}: {count}")
@@ -384,22 +386,47 @@ def main(
         None, "--focus", help="Focus on a specific function and its neighbours"
     ),
     depth: int = typer.Option(1, "--depth", help="Neighbourhood depth for --focus"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     output: str | None = typer.Option(None, "--output", "-o", help="Output file (default: stdout)"),
     target: str | None = TargetOption,
 ) -> None:
     """Generate function dependency graph from reversed .c files."""
-    cfg = get_config(target=target)
+    cfg = require_config(target=target, json_mode=json_output)
     reversed_dir = cfg.reversed_dir
 
     nodes, edges = build_graph(reversed_dir, origin_filter, cfg=cfg)
 
     if not nodes:
-        error_exit("No functions found.")
+        error_exit("No functions found.", json_mode=json_output)
 
     if focus:
         nodes, edges = _focus_graph(nodes, edges, focus, depth)
         if not nodes:
-            error_exit(f"No function matching '{focus}' found.")
+            error_exit(f"No function matching '{focus}' found.", json_mode=json_output)
+
+    if json_output:
+        by_status: dict[str, int] = {}
+        for info in nodes.values():
+            s = info["status"]
+            by_status[s] = by_status.get(s, 0) + 1
+        json_print(
+            {
+                "total_nodes": len(nodes),
+                "total_edges": len(edges),
+                "by_status": by_status,
+                "nodes": {
+                    name: {
+                        "status": info["status"],
+                        "origin": info["origin"],
+                        "va": f"0x{info['va']:08x}" if info["va"] else "0x0",
+                        "file": info["file"],
+                    }
+                    for name, info in sorted(nodes.items())
+                },
+                "edges": [{"caller": a, "callee": b} for a, b in edges],
+            }
+        )
+        return
 
     if fmt == "mermaid":
         result = render_mermaid(nodes, edges)
@@ -408,7 +435,7 @@ def main(
     elif fmt == "summary":
         result = render_summary(nodes, edges)
     else:
-        error_exit(f"Unknown format: {fmt}. Use mermaid, dot, or summary.")
+        error_exit(f"Unknown format: {fmt}. Use mermaid, dot, or summary.", json_mode=json_output)
 
     if output:
         Path(output).write_text(result + "\n", encoding="utf-8")

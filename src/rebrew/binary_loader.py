@@ -14,10 +14,9 @@ Usage::
     code = extract_bytes_at_va(info, va=0x10001000, size=64)
 """
 
+import threading
 from dataclasses import dataclass, field
-from functools import lru_cache
 from pathlib import Path
-from typing import Any
 
 import lief
 
@@ -166,7 +165,7 @@ def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
     )
 
 
-def _load_macho(fat_or_binary: Any, path: Path) -> BinaryInfo:
+def _load_macho(fat_or_binary: lief.MachO.FatBinary | lief.MachO.Binary, path: Path) -> BinaryInfo:
     """Extract layout information from a Mach-O binary.
 
     LIEF's ``lief.MachO.parse()`` returns a ``FatBinary`` even for thin
@@ -240,7 +239,11 @@ def _load_macho(fat_or_binary: Any, path: Path) -> BinaryInfo:
 # ---------------------------------------------------------------------------
 
 
-@lru_cache(maxsize=16)
+_load_binary_cache: dict[tuple[str, str], BinaryInfo] = {}
+_LOAD_BINARY_CACHE_MAX = 16
+_load_binary_lock = threading.Lock()
+
+
 def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     """Parse a binary file and return a ``BinaryInfo``.
 
@@ -257,39 +260,59 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     if not path.exists():
         raise FileNotFoundError(f"Binary not found: {path}")
 
+    # Bounded cache keyed on resolved path + format to avoid re-parsing.
+    # Lock protects concurrent reads/writes from ThreadPoolExecutor workers
+    # in verify.py and matcher/compiler.py flag_sweep.
+    cache_key = (str(path.resolve()), fmt)
+    with _load_binary_lock:
+        cached = _load_binary_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+    # Parsing happens outside the lock (expensive I/O, no shared state)
     spath = str(path)
+    result: BinaryInfo
 
     if fmt == "auto":
         binary = lief.parse(spath)
         if binary is None:
             raise ValueError(f"Failed to parse binary (unknown format): {path}")
         if isinstance(binary, lief.PE.Binary):
-            return _load_pe(binary, path)
-        if isinstance(binary, lief.ELF.Binary):
-            return _load_elf(binary, path)
-        if isinstance(binary, (lief.MachO.FatBinary, lief.MachO.Binary)):
-            return _load_macho(binary, path)
-        raise ValueError(f"Unsupported binary format: {path}")
-
-    if fmt == "pe":
+            result = _load_pe(binary, path)
+        elif isinstance(binary, lief.ELF.Binary):
+            result = _load_elf(binary, path)
+        elif isinstance(binary, (lief.MachO.FatBinary, lief.MachO.Binary)):
+            result = _load_macho(binary, path)
+        else:
+            raise ValueError(f"Unsupported binary format: {path}")
+    elif fmt == "pe":
         binary = lief.PE.parse(spath)
         if binary is None:
             raise ValueError(f"Failed to parse PE: {path}")
-        return _load_pe(binary, path)
-
-    if fmt == "elf":
+        result = _load_pe(binary, path)
+    elif fmt == "elf":
         binary = lief.ELF.parse(spath)
         if binary is None:
             raise ValueError(f"Failed to parse ELF: {path}")
-        return _load_elf(binary, path)
-
-    if fmt == "macho":
+        result = _load_elf(binary, path)
+    elif fmt == "macho":
         binary = lief.MachO.parse(spath)
         if binary is None:
             raise ValueError(f"Failed to parse Mach-O: {path}")
-        return _load_macho(binary, path)
+        result = _load_macho(binary, path)
+    else:
+        raise ValueError(f"Unknown binary format: {fmt!r}")
 
-    raise ValueError(f"Unknown binary format: {fmt!r}")
+    with _load_binary_lock:
+        # Double-check: another thread may have parsed the same binary
+        if cache_key in _load_binary_cache:
+            return _load_binary_cache[cache_key]
+        # Evict oldest entry when cache is full
+        if len(_load_binary_cache) >= _LOAD_BINARY_CACHE_MAX:
+            oldest_key = next(iter(_load_binary_cache))
+            del _load_binary_cache[oldest_key]
+        _load_binary_cache[cache_key] = result
+    return result
 
 
 def extract_bytes_at_va(
@@ -511,16 +534,4 @@ def detect_format_and_arch(path: Path) -> tuple[str, str | None]:
             b = fat.at(0) if isinstance(fat, lief.MachO.FatBinary) else fat
             return "macho", _MACHO_CPU_TO_ARCH.get(b.header.cpu_type)
         return "macho", None
-    raise ValueError(f"Cannot detect binary format: {path}")
-
-
-def _detect_format(path: Path) -> str:
-    """Detect binary format only (no arch), using LIEF."""
-    spath = str(path)
-    if lief.is_pe(spath):
-        return "pe"
-    if lief.is_elf(spath):
-        return "elf"
-    if lief.is_macho(spath):
-        return "macho"
     raise ValueError(f"Cannot detect binary format: {path}")

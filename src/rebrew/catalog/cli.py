@@ -226,11 +226,13 @@ def main(
         )
         print(f"  Size disagree: {size_mismatches}")
 
+    from rebrew.utils import atomic_write_text
+
     if catalog:
         catalog_text = generate_catalog(entries, funcs, text_size)
         catalog_path = reversed_dir / "CATALOG.md"
         catalog_path.parent.mkdir(parents=True, exist_ok=True)
-        catalog_path.write_text(catalog_text, encoding="utf-8")
+        atomic_write_text(catalog_path, catalog_text, encoding="utf-8")
         typer.echo(f"Wrote {catalog_path}", err=True)
 
     if gen_json or export_ghidra_labels:
@@ -239,7 +241,7 @@ def main(
             coverage_dir = root / "db"
             coverage_dir.mkdir(parents=True, exist_ok=True)
             json_path = coverage_dir / f"data_{target}.json"
-            json_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+            atomic_write_text(json_path, json.dumps(data, indent=2) + "\n", encoding="utf-8")
             typer.echo(f"Wrote {json_path}", err=True)
 
         if export_ghidra_labels:
@@ -257,14 +259,14 @@ def main(
                         }
                     )
             labels_path = reversed_dir / "ghidra_data_labels.json"
-            labels_path.write_text(json.dumps(labels, indent=2) + "\n", encoding="utf-8")
+            atomic_write_text(labels_path, json.dumps(labels, indent=2) + "\n", encoding="utf-8")
             typer.echo(f"Wrote {labels_path} ({len(labels)} labels)", err=True)
 
     if csv:
         csv_text = generate_reccmp_csv(entries, funcs, registry, target, cfg)
         csv_path = root / "db" / f"{target.lower()}_functions.csv"
         csv_path.parent.mkdir(parents=True, exist_ok=True)
-        csv_path.write_text(csv_text, encoding="utf-8")
+        atomic_write_text(csv_path, csv_text, encoding="utf-8")
         typer.echo(f"Wrote {csv_path} ({len(csv_text.splitlines()) - 6} functions)", err=True)
 
     if fix_sizes:
@@ -296,7 +298,7 @@ def main(
 
 
 def main_entry() -> None:
-    """Run the catalog Typer application entrypoint."""
+    """Run the Typer CLI application."""
     app()
 
 

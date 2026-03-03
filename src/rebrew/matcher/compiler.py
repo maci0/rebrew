@@ -12,6 +12,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import warnings
 from pathlib import Path
@@ -23,8 +24,13 @@ from .flag_data import COMMON_MSVC_FLAGS, MSVC6_FLAGS, MSVC_SWEEP_TIERS
 from .flags import Checkbox, Flags, FlagSet
 from .parsers import extract_function_from_binary, parse_obj_symbol_bytes
 
-# Compiler flag axes (default to MSVC6, override via function params)
-_COMPILER_PROFILE = "msvc6"
+
+def _filter_wine_stderr(text: str) -> str:
+    """Lazy-import wrapper to avoid circular import with rebrew.compile."""
+    from rebrew.compile import filter_wine_stderr
+
+    return filter_wine_stderr(text)
+
 
 # Pre-compiled regex for MAP file symbol parsing
 _MAP_SYM_RE = re.compile(
@@ -38,12 +44,6 @@ _FLAGS_MAP: dict[str, Flags] = {
     "msvc7": COMMON_MSVC_FLAGS,
     "msvc6": MSVC6_FLAGS,  # excludes MSVC 7.x+ only flags (/fp:*, /GS-)
 }
-
-
-def _filter_stderr(text: str) -> str:
-    from rebrew.compile import filter_wine_stderr
-
-    return filter_wine_stderr(text)
 
 
 def _compiler_cmd_parts(cl_cmd: str, env: dict[str, str] | None) -> list[str]:
@@ -121,17 +121,16 @@ def _get_pe_symbol_size(exe_path: Path, symbol: str) -> int | None:
         return None
 
 
-def generate_flag_combinations(tier: str = "quick") -> list[str]:
-    """Generate flag combinations for the active compiler profile.
+def generate_flag_combinations(tier: str = "targeted", profile: str = "msvc6") -> list[str]:
+    """Generate flag combinations for the given compiler profile.
 
     Args:
         tier: Sweep effort level — "quick", "normal", "thorough", or "full".
               Controls how many flag axes are included.
+        profile: Compiler profile name — "msvc6", "msvc7", or "msvc".
     """
-    profile = _COMPILER_PROFILE
-
-    # Use synced Flags for this profile
-    flags = _FLAGS_MAP[profile]
+    # Use synced Flags for this profile, falling back to msvc6
+    flags = _FLAGS_MAP.get(profile, _FLAGS_MAP["msvc6"])
     if tier not in MSVC_SWEEP_TIERS:
         raise ValueError(f"Unknown sweep tier {tier!r}, valid: {list(MSVC_SWEEP_TIERS)}")
     tier_ids = MSVC_SWEEP_TIERS[tier]  # None = all axes
@@ -223,7 +222,7 @@ def build_candidate_obj_only(
         obj_path = workdir / obj_name
 
         if r.returncode != 0 or not obj_path.exists():
-            err_output = _filter_stderr((r.stdout + r.stderr).decode(errors="replace"))[:400]
+            err_output = _filter_wine_stderr((r.stdout + r.stderr).decode(errors="replace"))[:400]
             detailed_err = f"Command: {' '.join(cmd)}\nReturn code: {r.returncode}\nObj Exists: {obj_path.exists()}\nOutput: {err_output}"
             return BuildResult(ok=False, error_msg=detailed_err)
 
@@ -289,7 +288,7 @@ def build_candidate(
         map_path = workdir / map_name
 
         if r.returncode != 0 or not exe_path.exists() or not map_path.exists():
-            err_output = _filter_stderr((r.stdout + r.stderr).decode(errors="replace"))[:400]
+            err_output = _filter_wine_stderr((r.stdout + r.stderr).decode(errors="replace"))[:400]
             return BuildResult(ok=False, error_msg=err_output)
 
         map_text = map_path.read_text(encoding="utf-8")
@@ -330,7 +329,7 @@ def flag_sweep(
     base_cflags: str,
     symbol: str,
     n_jobs: int = 4,
-    tier: str = "quick",
+    tier: str = "targeted",
     env: dict[str, str] | None = None,
     source_ext: str = ".c",
     cache: CompileCache | None = None,
@@ -347,7 +346,7 @@ def flag_sweep(
     from .scoring import score_candidate
 
     combos = generate_flag_combinations(tier=tier)
-    print(f"Sweeping {len(combos)} flag combinations (tier={tier})...")
+    print(f"Sweeping {len(combos)} flag combinations (tier={tier})...", file=sys.stderr)
 
     results = []
 

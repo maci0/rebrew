@@ -33,7 +33,7 @@ from rebrew.utils import atomic_write_text
 # ---------------------------------------------------------------------------
 
 VALID_MARKERS = {"FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"}
-VALID_STATUSES = {"EXACT", "RELOC", "MATCHING", "MATCHING_RELOC", "STUB"}
+VALID_STATUSES = {"EXACT", "RELOC", "MATCHING", "MATCHING_RELOC", "STUB", "PROVEN"}
 # Default origins — used as fallback when config is not available.
 # Projects should define their own origins in rebrew-project.toml.
 DEFAULT_ORIGINS = {"GAME", "MSVCRT", "ZLIB"}
@@ -103,6 +103,36 @@ BLOCK_KV_RE = re.compile(r"/\*\s*(?P<key>[A-Z_]+):\s*(?P<value>.*?)\s*\*/")
 #   /** @address 0x10003640  @origin GAME */
 JAVADOC_ADDR_RE = re.compile(r"@address\s+(?P<va>0x[0-9a-fA-F]+)")
 JAVADOC_KV_RE = re.compile(r"@(?P<key>\w+)\s+(?P<value>.+)")
+
+# ---------------------------------------------------------------------------
+# Section splitting helper (shared by split.py and merge.py)
+# ---------------------------------------------------------------------------
+
+
+def split_annotation_sections(text: str) -> tuple[str, list[str]]:
+    """Split annotated source into (preamble, function_blocks).
+
+    Splits on ``// FUNCTION:`` (or LIBRARY/STUB/GLOBAL/DATA) marker lines,
+    returning the text before the first marker as the preamble and each
+    marker-delimited section as a block string.
+    """
+    lines = text.splitlines(keepends=True)
+    marker_indexes: list[int] = []
+    for idx, line in enumerate(lines):
+        if NEW_FUNC_CAPTURE_RE.match(line.strip()):
+            marker_indexes.append(idx)
+
+    if not marker_indexes:
+        return text, []
+
+    preamble = "".join(lines[: marker_indexes[0]])
+    blocks: list[str] = []
+    for i, start in enumerate(marker_indexes):
+        end = marker_indexes[i + 1] if i + 1 < len(marker_indexes) else len(lines)
+        blocks.append("".join(lines[start:end]))
+
+    return preamble, blocks
+
 
 # Default filename prefix → expected ORIGIN mapping.
 # Projects can override via origin_prefixes in rebrew-project.toml.
@@ -556,7 +586,15 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
         # Check for marker
         m = NEW_FUNC_CAPTURE_RE.match(stripped) or BLOCK_FUNC_CAPTURE_RE.match(stripped)
         if m:
-            marker_type = m.group("type")
+            new_type = m.group("type")
+            # If we already found a code-bearing marker (FUNCTION/LIBRARY/STUB),
+            # don't let a GLOBAL/DATA marker overwrite it — treat it as a
+            # non-annotation line instead.
+            if marker_type in ("FUNCTION", "LIBRARY", "STUB") and new_type in ("GLOBAL", "DATA"):
+                if in_annotation_block:
+                    break
+                continue
+            marker_type = new_type
             va = int(m.group("va"), 16)
             module = m.group("module")
             in_annotation_block = True
@@ -585,7 +623,21 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
     return _kv_to_annotation(kv, marker_type, va, module)
 
 
-def parse_c_file(filepath: Path, target_name: str | None = None) -> Annotation | None:
+def _relative_filepath(filepath: Path, base_dir: Path | None) -> str:
+    """Return the filepath relative to *base_dir*, or just the filename."""
+    if base_dir is not None:
+        try:
+            return str(filepath.relative_to(base_dir))
+        except ValueError:
+            pass
+    return filepath.name
+
+
+def parse_c_file(
+    filepath: Path,
+    target_name: str | None = None,
+    base_dir: Path | None = None,
+) -> Annotation | None:
     """Parse a decomp .c file for annotations.
 
     Format disambiguation: tries the new (multi-line ``// KEY: value``)
@@ -593,6 +645,8 @@ def parse_c_file(filepath: Path, target_name: str | None = None) -> Annotation |
     old single-line legacy format on line 1 only.
 
     Sets ``filepath`` on the returned Annotation for downstream use.
+    When *base_dir* is given the stored path is relative to it (e.g.
+    ``"zlib/zlib_adler32.c"``); otherwise only the bare filename is kept.
     """
     try:
         text = filepath.read_text(encoding="utf-8", errors="replace")
@@ -603,12 +657,14 @@ def parse_c_file(filepath: Path, target_name: str | None = None) -> Annotation |
     if not lines:
         return None
 
+    rel = _relative_filepath(filepath, base_dir)
+
     # Try new format first (multi-line) — preferred, canonical output
     entry = parse_new_format(lines[:20])
     if entry is not None:
         if target_name and entry.module and entry.module.lower() != target_name.lower():
             return None
-        entry["filepath"] = filepath.name
+        entry["filepath"] = rel
         return entry
 
     # Fallback: try old format (first line only)
@@ -616,7 +672,7 @@ def parse_c_file(filepath: Path, target_name: str | None = None) -> Annotation |
     if entry is not None:
         if target_name and entry.module and entry.module.lower() != target_name.lower():
             return None
-        entry["filepath"] = filepath.name
+        entry["filepath"] = rel
         return entry
 
     return None
@@ -682,14 +738,19 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
     return results
 
 
-def parse_c_file_multi(filepath: Path, target_name: str | None = None) -> list[Annotation]:
+def parse_c_file_multi(
+    filepath: Path,
+    target_name: str | None = None,
+    base_dir: Path | None = None,
+) -> list[Annotation]:
     """Parse ALL annotation blocks from a decomp .c file.
 
     Returns a list of Annotations, one per ``// FUNCTION:`` marker found
     in the file.  For single-function files this returns a one-element list.
     Returns an empty list if no annotations are found.
 
-    Sets ``filepath`` on each returned Annotation.
+    Sets ``filepath`` on each returned Annotation.  When *base_dir* is
+    given the stored path is relative to it; otherwise the bare filename.
     """
     try:
         text = filepath.read_text(encoding="utf-8", errors="replace")
@@ -700,6 +761,8 @@ def parse_c_file_multi(filepath: Path, target_name: str | None = None) -> list[A
     if not lines:
         return []
 
+    rel = _relative_filepath(filepath, base_dir)
+
     # Try multi-block new format (scans entire file)
     entries = parse_new_format_multi(lines)
     if entries:
@@ -709,7 +772,7 @@ def parse_c_file_multi(filepath: Path, target_name: str | None = None) -> list[A
             if not (target_name and entry.module and entry.module.lower() != target_name.lower())
         ]
         for entry in filtered_entries:
-            entry.filepath = filepath.name
+            entry.filepath = rel
         return filtered_entries
 
     # Fallback: try old format (first line only) — returns at most one
@@ -717,7 +780,7 @@ def parse_c_file_multi(filepath: Path, target_name: str | None = None) -> list[A
     if entry is not None:
         if target_name and entry.module and entry.module.lower() != target_name.lower():
             return []
-        entry.filepath = filepath.name
+        entry.filepath = rel
         return [entry]
 
     return []
@@ -875,8 +938,6 @@ def remove_annotation_key(filepath: Path, va: int, key: str) -> bool:
         new_lines.append(line)
 
     if modified:
-        from rebrew.utils import atomic_write_text
-
         atomic_write_text(filepath, "".join(new_lines), encoding="utf-8")
         return True
 

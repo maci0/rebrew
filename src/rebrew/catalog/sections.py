@@ -7,6 +7,7 @@ scanning from annotated source files.
 import re
 import warnings
 from pathlib import Path
+from typing import Any
 
 from rebrew.binary_loader import load_binary
 from rebrew.config import ProjectConfig
@@ -45,9 +46,9 @@ def get_sections(bin_path: Path) -> dict[str, dict[str, int]]:
         return {}
 
 
-def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, dict[str, object]]:
+def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, dict[str, Any]]:
     """Scan annotated sources and return globals keyed by VA."""
-    globals_dict: dict[int, dict[str, object]] = {}
+    globals_dict: dict[int, dict[str, Any]] = {}
     from rebrew.cli import iter_sources
 
     for p in iter_sources(src_dir, cfg):

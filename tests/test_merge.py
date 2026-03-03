@@ -53,7 +53,9 @@ class TestMergeBasic:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_func_a"))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_func_b"))
         out = tmp_path / "merged.c"
-        monkeypatch.setattr("rebrew.merge.get_config", lambda target=None: _make_cfg(tmp_path))
+        monkeypatch.setattr(
+            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
 
         result = runner.invoke(app, ["--output", str(out), str(a), str(b)])
         assert result.exit_code == 0
@@ -66,7 +68,9 @@ class TestMergeBasic:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a", preamble=include))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b", preamble=include))
         out = tmp_path / "merged.c"
-        monkeypatch.setattr("rebrew.merge.get_config", lambda target=None: _make_cfg(tmp_path))
+        monkeypatch.setattr(
+            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
 
         result = runner.invoke(app, ["--output", str(out), str(a), str(b)])
         assert result.exit_code == 0
@@ -78,7 +82,9 @@ class TestMergeBasic:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a", preamble=ext))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b", preamble=ext))
         out = tmp_path / "merged.c"
-        monkeypatch.setattr("rebrew.merge.get_config", lambda target=None: _make_cfg(tmp_path))
+        monkeypatch.setattr(
+            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
 
         result = runner.invoke(app, ["--output", str(out), str(a), str(b)])
         assert result.exit_code == 0
@@ -89,7 +95,9 @@ class TestMergeBasic:
         high = _write(tmp_path / "high.c", _single(0x10003000, "_high"))
         low = _write(tmp_path / "low.c", _single(0x10001000, "_low"))
         out = tmp_path / "merged.c"
-        monkeypatch.setattr("rebrew.merge.get_config", lambda target=None: _make_cfg(tmp_path))
+        monkeypatch.setattr(
+            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
 
         result = runner.invoke(app, ["--output", str(out), str(high), str(low)])
         assert result.exit_code == 0
@@ -100,7 +108,9 @@ class TestMergeBasic:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a"))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b"))
         out = tmp_path / "merged.c"
-        monkeypatch.setattr("rebrew.merge.get_config", lambda target=None: _make_cfg(tmp_path))
+        monkeypatch.setattr(
+            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
 
         result = runner.invoke(app, ["--output", str(out), "--dry-run", str(a), str(b)])
         assert result.exit_code == 0
@@ -109,7 +119,9 @@ class TestMergeBasic:
     def test_errors_with_fewer_than_two_files(self, tmp_path: Path, monkeypatch: Any) -> None:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a"))
         out = tmp_path / "merged.c"
-        monkeypatch.setattr("rebrew.merge.get_config", lambda target=None: _make_cfg(tmp_path))
+        monkeypatch.setattr(
+            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
 
         result = runner.invoke(app, ["--output", str(out), str(a)])
         assert result.exit_code != 0
@@ -121,7 +133,9 @@ class TestMergeBasic:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a"))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b"))
         out = _write(tmp_path / "merged.c", "stale\n")
-        monkeypatch.setattr("rebrew.merge.get_config", lambda target=None: _make_cfg(tmp_path))
+        monkeypatch.setattr(
+            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
 
         result = runner.invoke(app, ["--output", str(out), str(a), str(b)])
         assert result.exit_code != 0
@@ -131,7 +145,9 @@ class TestMergeBasic:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a"))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b"))
         out = tmp_path / "merged.c"
-        monkeypatch.setattr("rebrew.merge.get_config", lambda target=None: _make_cfg(tmp_path))
+        monkeypatch.setattr(
+            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
 
         result = runner.invoke(app, ["--output", str(out), "--delete", str(a), str(b)])
         assert result.exit_code == 0
@@ -144,7 +160,9 @@ class TestMergeBasic:
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b"))
         out = tmp_path / "merged.c"
         payloads: list[dict[str, Any]] = []
-        monkeypatch.setattr("rebrew.merge.get_config", lambda target=None: _make_cfg(tmp_path))
+        monkeypatch.setattr(
+            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
         monkeypatch.setattr("rebrew.merge.json_print", lambda data: payloads.append(data))
 
         result = runner.invoke(app, ["--output", str(out), "--json", str(a), str(b)])
@@ -170,7 +188,9 @@ class TestMergeBasic:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a", extra=extra, status="MATCHING"))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b", status="EXACT"))
         out = tmp_path / "merged.c"
-        monkeypatch.setattr("rebrew.merge.get_config", lambda target=None: _make_cfg(tmp_path))
+        monkeypatch.setattr(
+            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
 
         result = runner.invoke(app, ["--output", str(out), str(a), str(b)])
         assert result.exit_code == 0

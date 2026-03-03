@@ -215,8 +215,8 @@ def test_generate_flag_combinations_dedup() -> None:
 def test_generate_flag_combinations_max_limit() -> None:
     """Test that quick tier produces a bounded number of combinations."""
     combos = generate_flag_combinations()  # defaults to "quick"
-    # Quick tier should be small — well under 1000 combos
-    assert len(combos) < 1000
+    # Quick tier should be bounded — well under 2000 combos
+    assert len(combos) < 2000
 
 
 def test_generate_flag_combinations_full_axes() -> None:

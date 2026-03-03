@@ -14,7 +14,7 @@ from rich.console import Console
 
 from rebrew.annotation import update_annotation_key
 from rebrew.catalog import scan_reversed_dir
-from rebrew.cli import TargetOption, error_exit, get_config, iter_sources
+from rebrew.cli import TargetOption, error_exit, iter_sources, json_print, require_config
 from rebrew.config import ProjectConfig
 from rebrew.utils import atomic_write_text
 
@@ -39,7 +39,7 @@ rebrew rename old_func new_func --file new.c     Custom filename
 [dim]Updates FUNCTION/SYMBOL annotations, function definitions, extern
 declarations, and optionally renames the source file.[/dim]""",
 )
-console = Console()
+console = Console(stderr=True)
 
 
 def rename_function_everywhere(
@@ -127,10 +127,11 @@ def main(
         None, "--symbol", help="New SYMBOL annotation (default: _new_name)"
     ),
     new_file: str | None = typer.Option(None, "--file", help="New filename"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Rename a function and update all cross-references."""
-    cfg = get_config(target=target)
+    cfg = require_config(target=target, json_mode=json_output)
 
     entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
     matches = []
@@ -146,10 +147,13 @@ def main(
             matches.append(e)
 
     if not matches:
-        error_exit(f"Could not find function matching '{target_ident}'")
+        error_exit(f"Could not find function matching '{target_ident}'", json_mode=json_output)
 
     if len(matches) > 1:
-        error_exit(f"Found {len(matches)} matches for '{target_ident}'. Be more specific.")
+        error_exit(
+            f"Found {len(matches)} matches for '{target_ident}'. Be more specific.",
+            json_mode=json_output,
+        )
 
     match = matches[0]
     old_name = getattr(match, "name", "")
@@ -167,7 +171,8 @@ def main(
 
     filepath = cfg.reversed_dir / old_fp
 
-    console.print(f"Renaming {actual_old_name} to {target_func}...")
+    if not json_output:
+        console.print(f"Renaming {actual_old_name} to {target_func}...")
 
     try:
         updated = rename_function_everywhere(
@@ -182,12 +187,27 @@ def main(
             new_filename=new_file,
         )
     except FileExistsError as exc:
-        error_exit(str(exc))
+        error_exit(str(exc), json_mode=json_output)
 
-    console.print(f"Updated cross-references in {updated} files.")
-    console.print("[green]Done![/green]")
+    if json_output:
+        json_print(
+            {
+                "old_name": actual_old_name,
+                "new_name": target_func,
+                "new_symbol": target_sym,
+                "va": f"0x{va:08x}",
+                "files_updated": updated,
+            }
+        )
+    else:
+        console.print(f"Updated cross-references in {updated} files.")
+        console.print("[green]Done![/green]")
 
 
 def main_entry() -> None:
-    """Package entry point for ``rebrew-rename``."""
+    """Run the Typer CLI application."""
     app()
+
+
+if __name__ == "__main__":
+    main_entry()

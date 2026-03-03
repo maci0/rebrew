@@ -14,13 +14,16 @@ Usage:
     rebrew next --group             # Group adjacent uncovered functions
 """
 
+import bisect
 import contextlib
+import difflib
 from typing import Any
 
 import typer
+from rich.console import Console
 
 from rebrew.binary_loader import BinaryInfo, load_binary
-from rebrew.cli import TargetOption, error_exit, get_config, json_print
+from rebrew.cli import TargetOption, json_print, require_config
 from rebrew.naming import (
     UncoveredItem,
     detect_origin,
@@ -33,6 +36,8 @@ from rebrew.naming import (
     make_filename,
     parse_byte_delta,
 )
+
+console = Console(stderr=True)
 
 _EPILOG = """\
 [bold]Examples:[/bold]
@@ -89,13 +94,17 @@ app = typer.Typer(
 def main(
     count: int = typer.Option(20, "--count", "-n", help="Number of recommendations"),
     origin_filter: str | None = typer.Option(
-        None, "--origin", help="Filter by origin (GAME, MSVCRT, ZLIB)"
+        None, "--origin", "-o", help="Filter by origin (GAME, MSVCRT, ZLIB)"
     ),
-    improving: bool = typer.Option(False, help="Show MATCHING functions to improve"),
-    stats: bool = typer.Option(False, help="Show overall progress statistics"),
+    improving: bool = typer.Option(
+        False, "--improving", "-i", help="Show MATCHING functions to improve"
+    ),
+    stats: bool = typer.Option(
+        False, "--stats", "-s", help="Show overall progress statistics (see also: rebrew status)"
+    ),
     max_size: int = typer.Option(9999, help="Max function size"),
     min_size: int = typer.Option(10, help="Min function size"),
-    commands: bool = typer.Option(False, help="Print test commands for each"),
+    commands: bool = typer.Option(False, "--commands", "-c", help="Print test commands for each"),
     show_unmatchable: bool = typer.Option(
         False, "--unmatchable", help="Show detected unmatchable functions"
     ),
@@ -105,10 +114,7 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Show what to work on next in the rebrew RE project."""
-    try:
-        cfg = get_config(target=target)
-    except (FileNotFoundError, KeyError) as exc:
-        error_exit(str(exc))
+    cfg = require_config(target=target, json_mode=json_output)
     ghidra_funcs, existing, covered_vas = load_data(cfg)
     ignored = ignored_symbols(cfg)
     iat_thunks = cfg.iat_thunks
@@ -175,29 +181,29 @@ def main(
             )
             return
 
-        print("=" * 60)
-        print("REBREW REVERSE ENGINEERING PROGRESS")
-        print("=" * 60)
-        print()
-        print(f"Total functions (Ghidra):  {total}")
-        print(f"Covered (.c files):        {covered} ({pct:.1f}%)")
-        print(f"  EXACT match:             {exact}")
-        print(f"  RELOC match:             {reloc}")
-        print(f"  MATCHING (near-miss):    {matching}")
-        print(f"  STUB (placeholder):      {stub}")
+        console.print("=" * 60)
+        console.print("REBREW REVERSE ENGINEERING PROGRESS")
+        console.print("=" * 60)
+        console.print()
+        console.print(f"Total functions (Ghidra):  {total}")
+        console.print(f"Covered (.c files):        {covered} ({pct:.1f}%)")
+        console.print(f"  EXACT match:             {exact}")
+        console.print(f"  RELOC match:             {reloc}")
+        console.print(f"  MATCHING (near-miss):    {matching}")
+        console.print(f"  STUB (placeholder):      {stub}")
         perfect_pct = 100 * perfect / total if total else 0.0
-        print(f"  Perfect (EXACT+RELOC):   {perfect} ({perfect_pct:.1f}%)")
-        print()
-        print(f"Uncovered (no .c file):    {uncovered_count}")
-        print(f"  Auto-detected unmatchable: {unmatchable_count}")
+        console.print(f"  Perfect (EXACT+RELOC):   {perfect} ({perfect_pct:.1f}%)")
+        console.print()
+        console.print(f"Uncovered (no .c file):    {uncovered_count}")
+        console.print(f"  Auto-detected unmatchable: {unmatchable_count}")
         for r, c in sorted(unmatchable_reasons.items(), key=lambda x: -x[1]):
-            print(f"    {r}: {c}")
-        print(f"  Actionable remaining:    ~{actionable}")
-        print()
+            console.print(f"    {r}: {c}")
+        console.print(f"  Actionable remaining:    ~{actionable}")
+        console.print()
 
         if matching > 0:
-            print(f"MATCHING functions that could be improved to EXACT/RELOC: {matching}")
-            print("  Run: rebrew next --improving")
+            console.print(f"MATCHING functions that could be improved to EXACT/RELOC: {matching}")
+            console.print("  Run: rebrew next --improving")
         return
 
     # --improving mode
@@ -219,7 +225,7 @@ def main(
             if json_output:
                 json_print({"mode": "improving", "total": 0, "count": 0, "items": []})
             else:
-                print("No MATCHING functions found.")
+                console.print("No MATCHING functions found.")
             return
 
         # Sort by delta ascending (smallest diff = easiest to fix), then by size
@@ -248,14 +254,14 @@ def main(
             )
             return
 
-        print(f"MATCHING functions to improve ({len(matching_items)} total):")
-        print(
+        console.print(f"MATCHING functions to improve ({len(matching_items)} total):")
+        console.print(
             f"{'VA':>12s}  {'Size':>5s}  {'Delta':>5s}  {'Origin':>6s}  {'File':30s}  {'Blocker'}"
         )
-        print(f"{'---':>12s}  {'---':>5s}  {'---':>5s}  {'---':>6s}  {'---':30s}  {'---'}")
+        console.print(f"{'---':>12s}  {'---':>5s}  {'---':>5s}  {'---':>6s}  {'---':30s}  {'---'}")
         for imp_va, imp_size, delta, info in matching_items[:count]:
             delta_str = f"{delta}B" if delta is not None else "?"
-            print(
+            console.print(
                 f"  0x{imp_va:08x}  {imp_size:4d}B  {delta_str:>5s}  {info['origin']:>6s}  {info['filename']:30s}  {info.get('blocker', '')}"
             )
 
@@ -263,7 +269,7 @@ def main(
                 symbol = info.get("symbol") or f"_func_{imp_va:08x}"
                 imp_cflags = cfg.resolve_origin_cflags(info["origin"])
                 rel_path = f"{cfg.reversed_dir.name}/{info['filename']}"
-                print(
+                console.print(
                     f'    TEST: rebrew test {rel_path} {symbol} --va 0x{imp_va:08x} --size {imp_size} --cflags "{imp_cflags}"'
                 )
         return
@@ -297,14 +303,14 @@ def main(
             return
 
         if not unmatchable_list:
-            print("No unmatchable functions detected.")
+            console.print("No unmatchable functions detected.")
             return
 
-        print(f"Detected unmatchable functions ({len(unmatchable_list)} total):")
-        print(f"{'VA':>12s}  {'Size':>5s}  {'Name':30s}  {'Reason'}")
-        print(f"{'---':>12s}  {'---':>5s}  {'---':30s}  {'---'}")
+        console.print(f"Detected unmatchable functions ({len(unmatchable_list)} total):")
+        console.print(f"{'VA':>12s}  {'Size':>5s}  {'Name':30s}  {'Reason'}")
+        console.print(f"{'---':>12s}  {'---':>5s}  {'---':30s}  {'---'}")
         for um_va, um_size, um_name, reason in unmatchable_list[:count]:
-            print(f"  0x{um_va:08x}  {um_size:4d}B  {um_name:30s}  {reason}")
+            console.print(f"  0x{um_va:08x}  {um_size:4d}B  {um_name:30s}  {reason}")
         return
 
     # Default: recommend next functions to work on
@@ -367,8 +373,6 @@ def main(
         similarity = 0.0
         if matched_funcs and binary_info and size > 20:
             try:
-                import difflib
-
                 from rebrew.binary_loader import extract_bytes_at_va
 
                 u_bytes = extract_bytes_at_va(binary_info, va, size)
@@ -377,9 +381,6 @@ def main(
                     # Only compare with functions of roughly similar size (within 20%)
                     min_s = int(size * 0.8)
                     max_s = int(size * 1.2)
-
-                    import bisect
-
                     start_idx = bisect.bisect_left(matched_funcs, (min_s, b""))
                     end_idx = bisect.bisect_right(matched_funcs, (max_s, b"\xff"))
 
@@ -408,7 +409,7 @@ def main(
         if json_output:
             json_print({"mode": "recommendations", "total_uncovered": 0, "count": 0, "items": []})
         else:
-            print("No uncovered functions found matching criteria. Great progress!")
+            console.print("No uncovered functions found matching criteria. Great progress!")
         return
 
     # --group mode: cluster adjacent uncovered functions
@@ -459,8 +460,8 @@ def main(
             )
             return
 
-        print(f"Function groups ({len(multi_groups)} groups, {single_count} singletons):")
-        print()
+        console.print(f"Function groups ({len(multi_groups)} groups, {single_count} singletons):")
+        console.print()
 
         for gi, grp in enumerate(multi_groups[:count], 1):
             total_size = sum(item[1] for item in grp)
@@ -479,25 +480,27 @@ def main(
             )
             if neighbor:
                 header += f"  [\u2192 {neighbor}]"
-            print(header)
+            console.print(header)
 
             for diff, grp_size, grp_va, grp_name, grp_origin, _reason, _, _sim in grp:
                 stars = "*" * diff
-                print(
+                console.print(
                     f"    0x{grp_va:08x}  {grp_size:4d}B  {stars:4s}  {grp_origin:>6s}  {grp_name}"
                 )
 
             if commands:
                 if neighbor:
                     for item in grp:
-                        print(f"    GEN: rebrew skeleton 0x{item[2]:08x} --append {neighbor}")
+                        console.print(
+                            f"    GEN: rebrew skeleton 0x{item[2]:08x} --append {neighbor}"
+                        )
                 else:
                     first = grp[0]
-                    print(f"    GEN: rebrew skeleton 0x{first[2]:08x}")
+                    console.print(f"    GEN: rebrew skeleton 0x{first[2]:08x}")
                     fname = make_filename(first[2], first[3], first[4])
                     for item in grp[1:]:
-                        print(f"    GEN: rebrew skeleton 0x{item[2]:08x} --append {fname}")
-            print()
+                        console.print(f"    GEN: rebrew skeleton 0x{item[2]:08x} --append {fname}")
+            console.print()
 
         return
 
@@ -545,12 +548,12 @@ def main(
         )
         return
 
-    print(f"Next {count} functions to work on (of {len(uncovered)} remaining):")
-    print()
-    print(
+    console.print(f"Next {count} functions to work on (of {len(uncovered)} remaining):")
+    console.print()
+    console.print(
         f"{'#':>3s}  {'VA':>12s}  {'Size':>5s}  {'Diff':>4s}  {'Sim':>4s}  {'Origin':>6s}  {'Name':30s}  {'Reason'}"
     )
-    print(
+    console.print(
         f"{'---':>3s}  {'---':>12s}  {'---':>5s}  {'---':>4s}  {'---':>4s}  {'---':>6s}  {'---':30s}  {'---'}"
     )
 
@@ -562,21 +565,21 @@ def main(
         line = f"{i:3d}  0x{rec_va:08x}  {rec_size:4d}B  {stars:4s}  {sim_str:4s}  {rec_origin:>6s}  {rec_name:30s}  {rec_reason}"
         if neighbor:
             line += f"  [\u2192 {neighbor}]"
-        print(line)
+        console.print(line)
 
         if commands:
             rec_cflags = cfg.resolve_origin_cflags(rec_origin)
             if neighbor:
-                print(f"     GEN: rebrew skeleton 0x{rec_va:08x} --append {neighbor}")
+                console.print(f"     GEN: rebrew skeleton 0x{rec_va:08x} --append {neighbor}")
             else:
-                print(f"     GEN: rebrew skeleton 0x{rec_va:08x}")
-            print(
+                console.print(f"     GEN: rebrew skeleton 0x{rec_va:08x}")
+            console.print(
                 f'     TEST: rebrew test {cfg.reversed_dir.name}/... _... --va 0x{rec_va:08x} --size {rec_size} --cflags "{rec_cflags}"'
             )
 
-    print()
-    print("To generate a skeleton: rebrew skeleton 0x<VA>")
-    print("To generate a batch:    rebrew skeleton --batch 10 --origin GAME")
+    console.print()
+    console.print("To generate a skeleton: rebrew skeleton 0x<VA>")
+    console.print("To generate a batch:    rebrew skeleton --batch 10 --origin GAME")
 
 
 def main_entry() -> None:

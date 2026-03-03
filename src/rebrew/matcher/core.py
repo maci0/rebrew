@@ -4,7 +4,6 @@ Defines Score, BuildResult, BuildCache (SQLite-backed), and GACheckpoint
 for persisting GA state across runs.
 """
 
-import contextlib
 import hashlib
 import json
 import warnings
@@ -13,6 +12,8 @@ from pathlib import Path
 from typing import Any
 
 import diskcache
+
+from rebrew.utils import atomic_write_text
 
 
 @dataclass
@@ -60,9 +61,9 @@ class BuildResult:
 class BuildCache:
     """Disk-backed cache mapping source hashes to build results."""
 
-    def __init__(self, db_path: str = "build_cache.db") -> None:
+    def __init__(self, db_path: str | Path = "build_cache.db") -> None:
         """Open (or create) the disk-backed build cache at *db_path*."""
-        cache_dir = db_path.removesuffix(".db") + "_cache"
+        cache_dir = str(db_path).removesuffix(".db") + "_cache"
         self._cache = diskcache.Cache(cache_dir)
 
     def get(self, key: str) -> BuildResult | None:
@@ -89,26 +90,14 @@ class GACheckpoint:
     args_hash: str
 
 
-def save_checkpoint(path: str, ckpt: GACheckpoint) -> None:
+def save_checkpoint(path: str | Path, ckpt: GACheckpoint) -> None:
     """Atomically write *ckpt* as JSON to *path* via a temporary file."""
-    import os
-    import tempfile
-
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-
-    fd, tmp_path = tempfile.mkstemp(dir=p.parent, prefix=p.name + ".", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(json.dumps(asdict(ckpt), indent=2))
-        os.replace(tmp_path, path)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp_path)
-        raise
+    atomic_write_text(p, json.dumps(asdict(ckpt), indent=2))
 
 
-def load_checkpoint(path: str, expected_hash: str) -> GACheckpoint | None:
+def load_checkpoint(path: str | Path, expected_hash: str) -> GACheckpoint | None:
     """Load a checkpoint from *path*, returning ``None`` on hash mismatch or errors."""
     ckpt_path = Path(path)
     if not ckpt_path.exists():
@@ -118,15 +107,15 @@ def load_checkpoint(path: str, expected_hash: str) -> GACheckpoint | None:
         if data.get("args_hash") != expected_hash:
             warnings.warn("Checkpoint args hash mismatch, ignoring checkpoint.", stacklevel=2)
             return None
-        # JSON deserializes arrays as lists; rng_state needs tuple nesting
-        # Random.getstate() returns (version, internalstate_tuple, gauss_next)
+        # JSON deserializes all tuples as lists; Random.getstate() returns
+        # (version, tuple_of_625_ints, gauss_next) — recursively restore tuples
         if "rng_state" in data and isinstance(data["rng_state"], list):
             rs = data["rng_state"]
-            converted: list[Any] = [rs[0]] if rs else []
-            if len(rs) > 1:
-                converted.append(tuple(rs[1]) if isinstance(rs[1], list) else rs[1])
-            converted.extend(rs[2:])
-            data["rng_state"] = tuple(converted)
+            if len(rs) >= 3:
+                internalstate = tuple(rs[1]) if isinstance(rs[1], list) else rs[1]
+                data["rng_state"] = (rs[0], internalstate, rs[2])
+            else:
+                data["rng_state"] = tuple(rs)
         return GACheckpoint(**data)
     except (json.JSONDecodeError, KeyError, TypeError, ValueError, OSError) as e:
         warnings.warn(f"Failed to load checkpoint: {e}", stacklevel=2)

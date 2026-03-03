@@ -187,6 +187,7 @@ class TestIncrementalVerify:
                 "origin": "GAME",
                 "cflags": "",
                 "symbol": "",
+                "marker_type": "FUNCTION",
             },
             {
                 "va": 0x10002000,
@@ -196,6 +197,7 @@ class TestIncrementalVerify:
                 "origin": "GAME",
                 "cflags": "",
                 "symbol": "",
+                "marker_type": "FUNCTION",
             },
         ]
 

@@ -39,7 +39,7 @@ from rebrew.cli import TargetOption, error_exit, get_config, json_print
 from rebrew.config import ProjectConfig
 from rebrew.utils import atomic_write_text
 
-out_console = Console()
+out_console = Console(stderr=True)
 
 _HEADER_MARKER_RE = re.compile(r"//\s*(\w+):\s*(\S+)\s+(0x[0-9a-fA-F]+)")
 _SIZE_ANNOTATION_RE = re.compile(r"//\s*SIZE\s+0x[0-9a-fA-F]+")
@@ -490,29 +490,22 @@ def _check_config_rules(
     # cfg.origins when available, so W011 would be a duplicate diagnostic.
 
     module = found_keys.get("MODULE", "")
-    if module and hasattr(cfg, "marker") and cfg.marker and module != cfg.marker:
+    marker = getattr(cfg, "marker", None)
+    if module and marker and module != marker:
         result.error(
             1,
             "E012",
-            f"Module '{module}' doesn't match configured marker '{cfg.marker}'",
+            f"Module '{module}' doesn't match configured marker '{marker}'",
         )
 
     if "CFLAGS" in found_keys:
         expected_cflags = None
-        if (
-            hasattr(cfg, "origin_compiler")
-            and cfg.origin_compiler
-            and origin in cfg.origin_compiler
-            and "cflags" in cfg.origin_compiler[origin]
-        ):
-            expected_cflags = cfg.origin_compiler[origin]["cflags"]
-        if (
-            expected_cflags is None
-            and hasattr(cfg, "cflags_presets")
-            and cfg.cflags_presets
-            and origin in cfg.cflags_presets
-        ):
-            expected_cflags = cfg.cflags_presets[origin]
+        origin_compiler = getattr(cfg, "origin_compiler", None)
+        if origin_compiler and origin in origin_compiler and "cflags" in origin_compiler[origin]:
+            expected_cflags = origin_compiler[origin]["cflags"]
+        cflags_presets = getattr(cfg, "cflags_presets", None)
+        if expected_cflags is None and cflags_presets and origin in cflags_presets:
+            expected_cflags = cflags_presets[origin]
 
         if expected_cflags is not None:
             actual_cflags = found_keys["CFLAGS"]
@@ -907,8 +900,8 @@ def main(
     fix: bool = typer.Option(False, help="Auto-migrate old-format headers to new annotations"),
     quiet: bool = typer.Option(False, help="Only show errors, suppress warnings"),
     files: list[Path] = typer.Option(None, help="Check specific files instead of all *.c"),
-    target: str | None = TargetOption,
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
     summary: bool = typer.Option(False, "--summary", help="Print status/origin breakdown"),
 ) -> None:
     """Lint annotation standards in decomp C source files."""
@@ -994,7 +987,7 @@ def main(
 
 
 def main_entry() -> None:
-    """Package entry point for ``rebrew-lint``."""
+    """Run the Typer CLI application."""
     app()
 
 

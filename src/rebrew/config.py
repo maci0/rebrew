@@ -23,14 +23,28 @@ To load a specific target::
     cfg = load_config(target="client_exe")
 """
 
+import copy as _copy_mod
 import os
 import shlex
+import sys
 import tomllib
-import warnings as _warnings
-from copy import copy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
+
+
+def _config_warn(msg: str) -> None:
+    """Emit a UserWarning and print a user-facing config warning to stderr."""
+    import warnings
+
+    warnings.warn(msg, UserWarning, stacklevel=2)
+    try:
+        from rich.console import Console
+
+        Console(stderr=True).print(f"[yellow]warning:[/yellow] {msg}")
+    except ImportError:
+        print(f"warning: {msg}", file=sys.stderr)
+
 
 # ---------------------------------------------------------------------------
 # Architecture presets
@@ -174,11 +188,15 @@ class ProjectConfig:
         Looks up *origin* in ``origin_compiler`` and returns a shallow copy
         with the matching compiler fields overridden.  Returns ``self``
         unchanged if no overrides exist for the given origin.
+
+        Uses ``copy.copy`` (shallow) rather than ``copy.deepcopy`` because
+        only scalar fields are modified.  Mutable container fields (lists,
+        dicts, sets) are shared but never mutated through the returned copy.
         """
         overrides = self.origin_compiler.get(origin, {})
         if not overrides:
             return self
-        cfg = copy(self)
+        cfg = _copy_mod.copy(self)
         if "command" in overrides:
             cfg.compiler_command = overrides["command"]
         if "runner" in overrides:
@@ -196,7 +214,11 @@ class ProjectConfig:
         if "profile" in overrides:
             cfg.compiler_profile = overrides["profile"]
         if "timeout" in overrides:
-            cfg.compile_timeout = int(overrides["timeout"])
+            try:
+                timeout_val = int(overrides["timeout"])
+            except (ValueError, TypeError):
+                timeout_val = self.compile_timeout
+            cfg.compile_timeout = max(timeout_val, 1)
         return cfg
 
     def resolve_origin_cflags(self, origin: str, fallback: str = "/O2 /Gd") -> str:
@@ -273,9 +295,8 @@ def _parse_int_list(values: list[Any] | None, field_name: str) -> list[int]:
     """Parse a list of integers from a toml array, allowing hex strings."""
     if not isinstance(values, list):
         if values is not None:
-            _warnings.warn(
+            _config_warn(
                 f"Expected list for {field_name}, got {type(values).__name__}; ignoring",
-                stacklevel=2,
             )
         return []
 
@@ -287,11 +308,9 @@ def _parse_int_list(values: list[Any] | None, field_name: str) -> list[int]:
             try:
                 parsed.append(int(v, 16) if v.startswith("0x") else int(v))
             except ValueError:
-                _warnings.warn(f"Invalid integer '{v}' in {field_name}; ignoring", stacklevel=2)
+                _config_warn(f"Invalid integer '{v}' in {field_name}; ignoring")
         else:
-            _warnings.warn(
-                f"Unexpected type {type(v).__name__} in {field_name}; ignoring", stacklevel=2
-            )
+            _config_warn(f"Unexpected type {type(v).__name__} in {field_name}; ignoring")
     return parsed
 
 
@@ -299,9 +318,8 @@ def _parse_hex_dict(mapping: dict[str, Any] | None) -> dict[int, str]:
     """Parse a dict where keys are hex strings and values are strings."""
     if not isinstance(mapping, dict):
         if mapping is not None:
-            _warnings.warn(
+            _config_warn(
                 f"Expected mapping for hex dict, got {type(mapping).__name__}; ignoring",
-                stacklevel=2,
             )
         return {}
 
@@ -311,7 +329,7 @@ def _parse_hex_dict(mapping: dict[str, Any] | None) -> dict[int, str]:
             addr = int(str(k), 16) if str(k).startswith("0x") else int(str(k))
             result[addr] = str(v)
         except ValueError:
-            _warnings.warn(f"Invalid hex key '{k}' in mapping; ignoring", stacklevel=2)
+            _config_warn(f"Invalid hex key '{k}' in mapping; ignoring")
     return result
 
 
@@ -319,9 +337,8 @@ def _parse_str_list(values: list[Any] | None, field_name: str) -> list[str]:
     if values is None:
         return []
     if not isinstance(values, list):
-        _warnings.warn(
+        _config_warn(
             f"Expected list for {field_name}, got {type(values).__name__}; using empty list",
-            stacklevel=2,
         )
         return []
     result: list[str] = []
@@ -329,7 +346,7 @@ def _parse_str_list(values: list[Any] | None, field_name: str) -> list[str]:
         if isinstance(v, str):
             result.append(v)
         else:
-            _warnings.warn(f"Skipping non-string {field_name} value: {v!r}", stacklevel=2)
+            _config_warn(f"Skipping non-string {field_name} value: {v!r}")
     return result
 
 
@@ -375,7 +392,7 @@ def _detect_binary_layout(bin_path: Path, fmt: str = "auto") -> dict[str, int]:
             "text_raw_offset": info.text_raw_offset,
         }
     except (ImportError, OSError, ValueError, AttributeError) as e:
-        _warnings.warn(f"Could not detect binary layout for {bin_path}: {e}", stacklevel=2)
+        _config_warn(f"Could not detect binary layout for {bin_path}: {e}")
         return {"image_base": 0, "text_va": 0, "text_raw_offset": 0}
 
 
@@ -475,9 +492,8 @@ def load_config(
 
     unknown_top = set(raw) - _KNOWN_TOP_KEYS
     if unknown_top:
-        _warnings.warn(
+        _config_warn(
             f"rebrew-project.toml: unrecognized top-level keys: {unknown_top}",
-            stacklevel=2,
         )
     for sec_name, known_keys in (
         ("compiler", _KNOWN_COMPILER_KEYS),
@@ -487,9 +503,8 @@ def load_config(
         if isinstance(sec, dict):
             unknown_sec = set(sec) - known_keys
             if unknown_sec:
-                _warnings.warn(
+                _config_warn(
                     f"rebrew-project.toml [{sec_name}]: unrecognized keys: {unknown_sec}",
-                    stacklevel=2,
                 )
     _KNOWN_ORIGIN_COMPILER_KEYS = {
         "command",
@@ -506,9 +521,8 @@ def load_config(
         if isinstance(tgt_data, dict):
             unknown_tgt = set(tgt_data) - _KNOWN_TARGET_KEYS
             if unknown_tgt:
-                _warnings.warn(
+                _config_warn(
                     f"rebrew-project.toml [targets.{tgt_name}]: unrecognized keys: {unknown_tgt}",
-                    stacklevel=2,
                 )
 
     for scope, origins_dict in (
@@ -526,16 +540,17 @@ def load_config(
                 if isinstance(origin_vals, dict):
                     unknown_origin = set(origin_vals) - _KNOWN_ORIGIN_COMPILER_KEYS
                     if unknown_origin:
-                        _warnings.warn(
+                        _config_warn(
                             f"rebrew-project.toml [{scope}.origins.{origin_name}]: "
                             f"unrecognized keys: {unknown_origin}",
-                            stacklevel=2,
                         )
 
     targets_dict = raw.get("targets", {})
     if not targets_dict:
         raise KeyError("rebrew-project.toml has no [targets] section")
     all_target_names = [k for k in targets_dict if isinstance(k, str)]
+    if not all_target_names:
+        raise KeyError("rebrew-project.toml [targets] section has no valid target names")
 
     global_compiler_raw = raw.get("compiler", {})
     global_compiler = {
@@ -580,26 +595,23 @@ def load_config(
 
     fmt_val = tgt.get("format", "pe")
     if fmt_val not in _KNOWN_FORMATS:
-        _warnings.warn(
+        _config_warn(
             f"rebrew-project.toml [targets.{target}]: unknown format '{fmt_val}' "
             f"(known: {', '.join(sorted(_KNOWN_FORMATS))})",
-            stacklevel=2,
         )
 
     arch_name = cast(str, tgt.get("arch", "x86_32"))
     if arch_name not in _ARCH_PRESETS:
-        _warnings.warn(
+        _config_warn(
             f"rebrew-project.toml [targets.{target}]: unknown arch '{arch_name}' "
             f"(known: {', '.join(sorted(_ARCH_PRESETS))}); falling back to x86_32",
-            stacklevel=2,
         )
 
     profile_val = compiler.get("profile", "msvc6")
     if profile_val not in _KNOWN_PROFILES:
-        _warnings.warn(
+        _config_warn(
             f"rebrew-project.toml [compiler]: unknown profile '{profile_val}' "
             f"(known: {', '.join(sorted(_KNOWN_PROFILES))})",
-            stacklevel=2,
         )
 
     arch_preset = _ARCH_PRESETS.get(arch_name, _ARCH_PRESETS["x86_32"])
@@ -674,7 +686,7 @@ def load_config(
         compiler_libs=compiler_libs,
         cflags=compiler.get("cflags", ""),
         base_cflags=compiler.get("base_cflags", "/nologo /c /MT"),
-        compile_timeout=compiler.get("timeout", 60),
+        compile_timeout=int(compiler.get("timeout", 60)),
         # arch-derived
         pointer_size=cast(int, arch_preset["pointer_size"]),
         padding_bytes=cast(list[int], arch_preset["padding_bytes"]),

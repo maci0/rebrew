@@ -6,9 +6,26 @@ type, calling convention, name, and parameter list, terminated with a semicolon
 so it can be passed directly to Ghidra's ``set-function-prototype`` command.
 """
 
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+
+_PTR_NOSPACE_RE = re.compile(r"([a-zA-Z0-9_])\*")
+_CALLING_CONV_RE = re.compile(r"\b__(?:cdecl|stdcall|fastcall)\b\s*")
+_MULTI_SPACE_RE = re.compile(r"  +")
+
+
+def _normalize_signature(sig: str) -> str:
+    """Normalize C signatures for Ghidra's set-function-prototype parser.
+
+    Ghidra's CParser rejects MSVC calling conventions and trailing semicolons.
+    """
+    sig = _CALLING_CONV_RE.sub("", sig)
+    sig = _PTR_NOSPACE_RE.sub(r"\1 *", sig)
+    sig = sig.rstrip("; ")
+    sig = _MULTI_SPACE_RE.sub(" ", sig)
+    return sig
 
 
 def extract_function_signatures(filepath: Path) -> Iterator[tuple[str, str]]:
@@ -62,12 +79,11 @@ def extract_function_signatures(filepath: Path) -> Iterator[tuple[str, str]]:
 
             if compound_stmt:
                 sig_bytes = code_bytes[node.start_byte : compound_stmt.start_byte].strip()
-                # Ghidra's parser expects a trailing semicolon for set-function-prototype
-                sig_str = sig_bytes.decode("utf-8", errors="replace") + ";"
+                sig_str = sig_bytes.decode("utf-8", errors="replace")
 
                 name = get_function_name(decl_node)
                 if name:
-                    yield name, sig_str
+                    yield name, _normalize_signature(sig_str)
         else:
             for child in node.children:
                 yield from walk(child)

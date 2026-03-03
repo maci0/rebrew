@@ -104,11 +104,17 @@ rebrew asm 0x10003da0 --size 160 --json | jq '.instructions[] | .mnemonic'
 | `rebrew ga` | Batch GA results |
 | `rebrew split` | Split results (files created, VAs, symbols) |
 | `rebrew merge` | Merge results (inputs, output, VA list) |
+| `rebrew prove` | Prove results (proven/not, state counts, status update) |
 | `rebrew extract` | Batch extraction results |
 | `rebrew catalog` | Catalog JSON generation (`--json`) |
 | `rebrew doctor` | Project health check results |
 | `rebrew sync` | Ghidra sync operations (`--pull`, `--push`) |
 | `rebrew skeleton` | Generated skeleton output |
+| `rebrew rename` | Rename results (old/new names, files updated) |
+| `rebrew nasm` | NASM extraction stats |
+| `rebrew graph` | Dependency graph (nodes, edges, by-status) |
+| `rebrew build-db` | Build database results (paths, targets) |
+| `rebrew init` | Project initialization results |
 
 ## Step-by-Step Process
 
@@ -125,7 +131,11 @@ graph TD
     Diff --> Flags{Unsure about flags?}
     Flags -->|Yes| Sweep[Sweep flags<br/>rebrew match --flag-sweep-only]
     Sweep --> Write
-    Flags -->|No| Write
+    Flags -->|No| Prove{Still MATCHING?}
+    Prove -->|Yes| Symbolic[Prove equivalence<br/>rebrew prove]
+    Symbolic -->|PROVEN| Lint
+    Symbolic -->|Not proven| Write
+    Prove -->|No| Write
 ```
 
 ### 1. Pick a function
@@ -300,7 +310,28 @@ rebrew match --diff-only --fix-blocker src/target_name/my_func.c  # auto-write B
 // BLOCKER_DELTA: 3
 ```
 
-### 9. Promote on success
+### 9. If still MATCHING — prove semantic equivalence
+
+If a function remains `MATCHING` after flag sweeping and source adjustments, and the
+blockers are purely structural (register allocation, instruction reordering), use
+`rebrew prove` to mathematically verify equivalence:
+
+```bash
+rebrew prove src/target_name/my_func.c                # prove and update STATUS → PROVEN
+rebrew prove src/target_name/my_func.c --json         # JSON output
+rebrew prove src/target_name/my_func.c --dry-run      # preview without updating
+rebrew prove my_func --timeout 120                    # allow 2 minutes for complex functions
+```
+
+This uses angr's symbolic execution engine and Z3 constraint solving to compare the
+return register (`EAX`) values for all possible inputs. If no input can distinguish
+the two implementations, STATUS is updated to `PROVEN`.
+
+> [!NOTE]
+> `angr` is an optional dependency (~500 MB). Install with `uv pip install -e ".[prove]"`.
+> Functions with heavy floating-point math or complex loops may time out.
+
+### 10. Promote on success
 
 When a function reaches EXACT or RELOC, promote it:
 
@@ -314,7 +345,7 @@ rebrew promote --all --origin GAME --dry-run       # preview batch by origin
 `rebrew promote` updates the STATUS annotation and verifies the match still holds.
 Batch mode (`--all`) discovers all promotable functions and updates each. Never demotes.
 
-### 10. Lint and Verify Annotation Health
+### 11. Lint and Verify Annotation Health
 
 Before committing or finishing a batch of functions, ensure your C files have valid headers and annotations. Run the built-in annotation linter (`rebrew lint`) periodically throughout the RE pipeline to catch formatting errors early, especially when collaborating or generating many templates:
 
@@ -529,6 +560,6 @@ both targets benefit automatically.
 | [ANNOTATIONS.md](ANNOTATIONS.md) | Full annotation format reference and linter codes (E000–E017, W001–W017) |
 | [GHIDRA_SYNC.md](GHIDRA_SYNC.md) | Ghidra ↔ Rebrew sync feature matrix and known issues |
 | [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md) | Obtaining, creating, and using FLIRT signatures |
-| [CLI.md](CLI.md) | All 28 CLI tools, flags, and examples |
+| [CLI.md](CLI.md) | All 29 CLI tools, flags, and examples |
 | [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, arch presets, compiler profiles |
 | [TOOLCHAIN.md](TOOLCHAIN.md) | External tools, MSVC6 toolchain, Python dependencies |

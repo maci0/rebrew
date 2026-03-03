@@ -3,7 +3,7 @@
 ## Overview
 
 **Rebrew** is a compiler-in-the-loop decompilation workbench for binary-matching
-game reversing. Python package (`src/rebrew/`) with 28 CLI tools for compiling,
+game reversing. Python package (`src/rebrew/`) with 29 CLI tools for compiling,
 comparing, and matching C source against target binary functions (MSVC6 under Wine).
 
 Installed as an editable package (`uv pip install -e .`) into a workspace project
@@ -114,6 +114,9 @@ Key libraries and what they provide:
 - **pathlib** (`Path`): Path manipulation. Use `Path` methods over `os.path.*`.
 - **tempfile** (`TemporaryDirectory`): Use context-managed `TemporaryDirectory` over
   `tempfile.mkdtemp()` + manual `shutil.rmtree()`.
+- **angr** (`angr`, optional): Symbolic execution engine for `prove.py`. Optional
+  dependency (`[project.optional-dependencies].prove`). Import guarded with a clear
+  error message. Uses `claripy` for Z3 constraint solving.
 
 ## Project Structure
 
@@ -139,6 +142,7 @@ src/rebrew/
 ├── compile_cache.py     # Disk-backed compile result cache (diskcache, SHA-256 keyed)
 ├── crt_match.py         # CRT source cross-reference matcher (index, match, ASM detection)
 ├── cache_cli.py         # `rebrew cache stats` / `rebrew cache clear` CLI
+├── prove.py             # Symbolic equivalence prover via angr (optional dep)
 ├── [tool].py            # Each CLI tool (test, verify, match, lint, etc.)
 ├── catalog/             # Function catalog package (see catalog/AGENTS.md)
 │   ├── __init__.py      # Re-exports all public names
@@ -183,7 +187,11 @@ def main(target: str | None = TargetOption) -> None:
     # ... implementation
 
 def main_entry() -> None:
+    """Run the Typer CLI application."""
     app()
+
+if __name__ == "__main__":
+    main_entry()
 ```
 
 - Uses `@app.callback(invoke_without_command=True)` so the function works both
@@ -193,6 +201,18 @@ def main_entry() -> None:
 - `main_entry()` registered in `pyproject.toml` `[project.scripts]`.
 - Most tools support `--json` for machine-readable output. Always use `--json` when executing these CLI tools yourself to receive structured output.
 - The multi-command modules are `cfg.py` (subcommands: `list-targets`, `show`, `add-target`, `remove-target`, `set`, `add-origin`, `remove-origin`, `set-cflags`) and `cache_cli.py` (subcommands: `stats`, `clear`), both registered via `add_typer()` in `main.py`.
+
+### CLI Conventions
+
+All CLI tools follow these conventions for a consistent user experience:
+
+- **Parameter ordering**: `--json` always comes before `--target`, both as the last two options
+- **`--json` help text**: Always `"Output results as JSON"` (exact string)
+- **`--dry-run` help text**: Always `"Preview changes without writing"` for file-modifying tools
+- **Rich output to stderr**: Use `Console(stderr=True)` so Rich tables/progress bars don't mix with JSON stdout
+- **`main_entry()` docstring**: Always `"""Run the Typer CLI application."""`
+- **`if __name__` guard**: Every CLI module ends with `if __name__ == "__main__": main_entry()`
+- **Error handling in JSON mode**: Pass `json_mode=json_output` to `error_exit()` so errors are JSON-formatted when `--json` is active
 
 ### Test Patterns
 

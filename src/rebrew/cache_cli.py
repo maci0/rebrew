@@ -79,4 +79,9 @@ def clear(
 
 
 def main_entry() -> None:
+    """Run the Typer CLI application."""
     app()
+
+
+if __name__ == "__main__":
+    main_entry()

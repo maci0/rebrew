@@ -101,10 +101,11 @@ def _resolve_canonical_size(
     if text_data is None:
         return ghidra_size, "ghidra (no binary data to verify)"
 
-    ghidra_end = va - text_va + ghidra_size
-    list_end = va - text_va + list_size
+    func_offset = va - text_va
+    ghidra_end = func_offset + ghidra_size
+    list_end = func_offset + list_size
 
-    if ghidra_end < 0 or list_end > len(text_data):
+    if func_offset < 0 or ghidra_end < 0 or list_end > len(text_data):
         return ghidra_size, "ghidra (extra bytes out of range)"
 
     extra = text_data[ghidra_end:list_end]

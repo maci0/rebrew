@@ -18,11 +18,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
-import rich
 import typer
+from rich.console import Console
 
 from rebrew.annotation import parse_c_file, parse_source_metadata
-from rebrew.cli import TargetOption, error_exit, get_config, json_print, parse_va
+from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
 from rebrew.compile import resolve_cl_command
 from rebrew.compile_cache import CompileCache, get_compile_cache
 from rebrew.matcher import (
@@ -42,16 +42,18 @@ from rebrew.matcher import (
 from rebrew.matcher.mutator import quick_validate
 from rebrew.utils import atomic_write_text
 
+console = Console(stderr=True)
+
 
 def _print_structural_similarity(sim: StructuralSimilarity) -> None:
     verdict = "flag sweep MAY help" if sim.flag_sensitive else "flags unlikely to help"
-    print(f"\nStructural similarity ({verdict}):")
-    print(
+    console.print(f"\nStructural similarity ({verdict}):")
+    console.print(
         f"  Instructions: {sim.exact} exact, {sim.reloc_only} reloc, "
         f"{sim.register_only} register, {sim.structural} structural "
         f"(of {sim.total_insns} total)"
     )
-    print(
+    console.print(
         f"  Mnemonic match: {sim.mnemonic_match_ratio:.1%}  |  "
         f"Structural ratio: {sim.structural_ratio:.1%}"
     )
@@ -229,16 +231,16 @@ class BinaryMatchingGA:
 
     def _compute_fitness(self, res: BuildResult, src_hash: str) -> float:
         if not res.ok or res.obj_bytes is None:
-            print(f"[{src_hash}] Error during compilation/parsing: {res.error_msg}")
+            console.print(f"[{src_hash}] Error during compilation/parsing: {res.error_msg}")
             return 10000000.0
         obj_bytes = res.obj_bytes
         if len(obj_bytes) > len(self.target_bytes):
-            print(
+            console.print(
                 f"[{src_hash}] Candidate {len(obj_bytes)}B > target {len(self.target_bytes)}B, truncating"
             )
             obj_bytes = obj_bytes[: len(self.target_bytes)]
         sc = score_candidate(self.target_bytes, obj_bytes, res.reloc_offsets)
-        print(f"[{src_hash}] SUCCESS. Score={sc.total} (len_bytes={len(obj_bytes)})")
+        console.print(f"[{src_hash}] SUCCESS. Score={sc.total} (len_bytes={len(obj_bytes)})")
         return sc.total
 
     def run(self) -> tuple[str | None, float]:
@@ -280,7 +282,7 @@ class BinaryMatchingGA:
 
             self.elapsed_sec += time.time() - gen_start
             if self.verbose:
-                print(
+                console.print(
                     f"gen={gen:03d} best={best_score:.2f} div={diversity:.2f} stag={self.stagnant_gens}"
                 )
 
@@ -330,13 +332,17 @@ rebrew match src/f.c                            Full GA matching run
 
 rebrew match src/game/my_func.c --diff-only
 
-rebrew match src/game/my_func.c --flag-sweep-only --tier quick
+rebrew match src/game/my_func.c --flag-sweep-only --tier targeted
 
 rebrew match src/game/my_func.c --generations 200 --pop-size 48 -j 8
 
 rebrew match src/game/my_func.c --seed 42       Reproducible GA run
 
 rebrew match src/f.c --diff-only --json          JSON structured diff
+
+rebrew match src/f.c --flag-sweep-only --json   JSON flag sweep results
+
+rebrew match src/f.c --json                     JSON GA results
 
 [bold]Flag sweep tiers:[/bold]
 
@@ -366,20 +372,19 @@ def main(
     cl: str | None = typer.Option(None, help="CL.EXE command (auto from rebrew-project.toml)"),
     inc: str | None = typer.Option(None, help="Include dir (auto from rebrew-project.toml)"),
     cflags: str | None = typer.Option(None, help="Compiler flags (auto from source)"),
-    symbol: str | None = typer.Option(None, help="Symbol to match (auto from source)"),
+    symbol: str | None = typer.Option(None, "-s", help="Symbol to match (auto from source)"),
     target_va: str | None = typer.Option(None, help="Target VA hex (auto from source)"),
     target_size: int | None = typer.Option(None, help="Target size (auto from source)"),
-    target: str | None = TargetOption,
     out_dir: str = typer.Option("output/ga_run", help="Output dir"),
-    generations: int = typer.Option(100),
-    pop_size: int = typer.Option(32),
-    jobs: int = typer.Option(4, "-j"),
+    generations: int = typer.Option(100, "-g", help="Number of GA generations"),
+    pop_size: int = typer.Option(32, "-p", help="Population size per generation"),
+    jobs: int = typer.Option(4, "-j", help="Number of parallel compile jobs"),
     compare_obj: bool = typer.Option(True, help="Use object comparison instead of full link"),
     link: str | None = typer.Option(None, help="LINK.EXE command"),
     lib: str | None = typer.Option(None, help="Lib dir"),
     ldflags: str | None = typer.Option(None, help="Linker flags"),
     diff_only: bool = typer.Option(
-        False, "--diff-only", help="Show diff for seed file, don't run GA"
+        False, "--diff-only", "-d", help="Show diff for seed file, don't run GA"
     ),
     mismatches_only: bool = typer.Option(
         False,
@@ -393,34 +398,42 @@ def main(
         "--rr",
         help="With --diff-only, normalize register encodings and mark differences as RR",
     ),
-    flag_sweep_only: bool = typer.Option(False),
+    flag_sweep_only: bool = typer.Option(
+        False, "--flag-sweep-only", "-S", help="Run compiler flag sweep instead of GA"
+    ),
     tier: str = typer.Option(
-        "quick",
-        help="Flag sweep tier: quick, normal, thorough, full. Note: 'thorough' produces 258k+ combinations. Consider using 'quick' or 'normal' tier, or use sampling.",
+        "targeted",
+        help="Flag sweep tier: quick (~192), targeted (~1.1K), normal (~21K), thorough (~258K), full.",
     ),
     force: bool = typer.Option(
         False, "--force", help="Continue even if annotation lint errors exist"
     ),
-    diff_format: str = typer.Option(
-        "terminal",
-        "--diff-format",
-        help="Output format for --diff-only: terminal, json, csv",
-    ),
-    seed: int | None = typer.Option(None, "--seed", help="RNG seed for reproducible GA runs"),
     fix_blocker: bool = typer.Option(
         False,
         "--fix-blocker",
         help="With --diff-only, auto-write BLOCKER/BLOCKER_DELTA annotations from diff classification",
     ),
+    diff_format: str = typer.Option(
+        "terminal",
+        "--diff-format",
+        help="Output format for --diff-only: terminal, csv (use --json for JSON)",
+    ),
+    seed: int | None = typer.Option(None, "--seed", help="RNG seed for reproducible GA runs"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
 ) -> None:
     """Genetic Algorithm engine for binary matching."""
     if diff_format not in ("terminal", "json", "csv"):
         error_exit("--diff-format must be 'terminal', 'json', or 'csv'")
 
-    json_output = diff_format == "json"
+    # --json takes precedence over --diff-format
+    if json_output:
+        diff_format = "json"
+    elif diff_format == "json":
+        json_output = True
     csv_output = diff_format == "csv"
 
-    cfg = get_config(target=target)
+    cfg = require_config(target=target, json_mode=json_output)
 
     try:
         cc = get_compile_cache(cfg.root)
@@ -448,9 +461,9 @@ def main(
         eval_errs, eval_warns = anno.validate()
         if not json_output:
             for e in eval_errs:
-                rich.print(f"[bold red]LINT ERROR:[/bold red] {e}")
+                console.print(f"[bold red]LINT ERROR:[/bold red] {e}")
             for w in eval_warns:
-                rich.print(f"[bold yellow]LINT WARNING:[/bold yellow] {w}")
+                console.print(f"[bold yellow]LINT WARNING:[/bold yellow] {w}")
         if eval_errs and not force:
             if json_output:
                 error_exit("Annotation lint errors", json_mode=True)
@@ -612,9 +625,9 @@ def main(
                         )
                 else:
                     if blockers:
-                        print("\nAuto-classified blockers:")
+                        console.print("\nAuto-classified blockers:")
                         for b in blockers:
-                            print(f"  - {b}")
+                            console.print(f"  - {b}")
                     _print_structural_similarity(sim)
 
                 if fix_blocker:
@@ -651,7 +664,7 @@ def main(
         else:
             if json_output:
                 error_exit(f"Build failed: {res.error_msg}", json_mode=True)
-            print(f"Build failed: {res.error_msg}")
+            console.print(f"Build failed: {res.error_msg}")
             raise typer.Exit(code=2)
 
     if flag_sweep_only:
@@ -668,9 +681,8 @@ def main(
             cache=cc,
             timeout=cfg.compile_timeout,
         )
-        for score, flags in results[:10]:
-            print(f"{score:.2f}: {flags}")
 
+        sim: StructuralSimilarity | None = None
         res = build_candidate_obj_only(
             seed_src,
             cl,
@@ -686,9 +698,39 @@ def main(
             if len(obj_bytes) > len(target_bytes):
                 obj_bytes = obj_bytes[: len(target_bytes)]
             sim = structural_similarity(target_bytes, obj_bytes, res.reloc_offsets)
-            _print_structural_similarity(sim)
 
         best_score = results[0][0] if results else float("inf")
+
+        if json_output:
+            sweep_items = [{"score": round(s, 2), "flags": f} for s, f in results[:20]]
+            payload: dict[str, Any] = {
+                "source": seed_c,
+                "symbol": symbol,
+                "mode": "flag_sweep",
+                "tier": tier,
+                "best_score": round(best_score, 2) if best_score < float("inf") else None,
+                "best_flags": results[0][1] if results else None,
+                "exact": best_score < 0.1,
+                "results": sweep_items,
+            }
+            if sim is not None:
+                payload["structural_similarity"] = {
+                    "total_insns": sim.total_insns,
+                    "exact": sim.exact,
+                    "reloc_only": sim.reloc_only,
+                    "register_only": sim.register_only,
+                    "structural": sim.structural,
+                    "mnemonic_match_ratio": sim.mnemonic_match_ratio,
+                    "structural_ratio": sim.structural_ratio,
+                    "flag_sensitive": sim.flag_sensitive,
+                }
+            json_print(payload)
+        else:
+            for score, flags in results[:10]:
+                console.print(f"{score:.2f}: {flags}")
+            if sim is not None:
+                _print_structural_similarity(sim)
+
         if best_score < 0.1:
             return
         raise typer.Exit(code=1)
@@ -712,11 +754,30 @@ def main(
         rng_seed=seed,
         compile_cache=cc,
         compile_timeout=cfg.compile_timeout,
+        verbose=0 if json_output else 1,
     )
-    _, best_score = ga.run()
-    typer.echo(f"\nDone. Best score: {best_score:.2f}", err=True)
-    if best_score < 0.1:
-        typer.echo("EXACT MATCH", err=True)
+    best_src, best_score = ga.run()
+
+    if json_output:
+        ga_payload: dict[str, Any] = {
+            "source": seed_c,
+            "symbol": symbol,
+            "mode": "ga",
+            "generations": generations,
+            "pop_size": pop_size,
+            "best_score": round(best_score, 2),
+            "exact": best_score < 0.1,
+            "elapsed_sec": round(ga.elapsed_sec, 2),
+            "stagnant_gens": ga.stagnant_gens,
+        }
+        if best_src is not None:
+            best_path = out_dir_path / "best.c"
+            ga_payload["best_source_path"] = str(best_path)
+        json_print(ga_payload)
+    else:
+        typer.echo(f"\nDone. Best score: {best_score:.2f}", err=True)
+        if best_score < 0.1:
+            typer.echo("EXACT MATCH", err=True)
 
 
 def main_entry() -> None:

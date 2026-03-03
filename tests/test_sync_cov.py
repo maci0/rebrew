@@ -374,8 +374,10 @@ class _FakeClient:
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         return None
 
-    def post(self, endpoint: str, json: dict, headers: dict[str, str]) -> _FakeResponse:
-        _ = endpoint, json, headers
+    def post(
+        self, endpoint: str, json: dict, headers: dict[str, str], **kwargs: Any
+    ) -> _FakeResponse:
+        _ = endpoint, json, headers, kwargs
         response = self._responses[self._index]
         self._index += 1
         return response
@@ -503,8 +505,8 @@ class TestBuildSyncCommandsData:
         struct_ops = [c for c in cmds if c["tool"] == "parse-c-structure"]
 
         assert len(struct_ops) == 2
-        assert struct_ops[0]["args"]["cCode"] == "struct Foo { int x; };"
-        assert struct_ops[1]["args"]["cCode"] == "typedef struct { int y; } Bar;"
+        assert struct_ops[0]["args"]["cDefinition"] == "struct Foo { int x; };"
+        assert struct_ops[1]["args"]["cDefinition"] == "typedef struct { int y; } Bar;"
 
 
 class TestBuildSyncCommandsSignatures:
@@ -528,8 +530,8 @@ class TestBuildSyncCommandsSignatures:
         sig_ops = [c for c in cmds if c["tool"] == "set-function-prototype"]
 
         assert len(sig_ops) == 1
-        assert sig_ops[0]["args"]["addressOrSymbol"] == "0x00001000"
-        assert sig_ops[0]["args"]["prototype"] == "int __cdecl my_func(int a, char *b);"
+        assert sig_ops[0]["args"]["location"] == "0x00001000"
+        assert sig_ops[0]["args"]["signature"] == "int __cdecl my_func(int a, char *b);"
 
 
 # ---------------------------------------------------------------------------
@@ -738,9 +740,9 @@ class _FakeMCPClient:
         self._response = response
 
     def post(
-        self, endpoint: str, json: dict, headers: dict[str, str] | None = None
+        self, endpoint: str, json: dict, headers: dict[str, str] | None = None, **kwargs: Any
     ) -> _FakeMCPResponse:
-        _ = endpoint, json, headers
+        _ = endpoint, json, headers, kwargs
         return self._response
 
 

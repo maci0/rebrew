@@ -25,6 +25,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 - **NASM extraction** — `rebrew nasm` extracts function bytes and produces NASM-reassembleable ASM with round-trip verification
 - **File splitting** — `rebrew split` breaks multi-function `.c` files into individual single-function files, preserving shared preamble (includes, defines) and generating filenames from `SYMBOL` annotations
 - **File merging** — `rebrew merge` combines multiple single-function files into one multi-function file with preamble deduplication and VA-sorted function blocks
+- **Semantic equivalence proving** — `rebrew prove` uses angr symbolic execution + Z3 constraint solving to mathematically prove MATCHING functions are semantically equivalent; updates STATUS to PROVEN; optional dependency (`uv pip install -e ".[prove]"`)
 - **Multi-target** — all tools read from `rebrew-project.toml` with `--target` selection; supports maintaining multi-target `// FUNCTION:` blocks (e.g. LEGO1 vs BETA10) in the exact same C file by auto-filtering inactive targets; supports PE, ELF, Mach-O across x86, x64, ARM32/64
 - **Rich CLI help** — every tool has detailed `--help` with usage examples, context, and prerequisites via Typer's `rich_markup_mode`
 - **Compile cache** — disk-backed SHA-256 keyed cache avoids redundant recompilations across `rebrew match`, `rebrew ga`, and `rebrew test`; `rebrew cache stats` / `rebrew cache clear` for management
@@ -130,6 +131,11 @@ rebrew ga --near-miss --threshold 5 # batch GA on MATCHING functions with ≤5B 
 rebrew ga --flag-sweep              # batch flag sweep on all MATCHING functions
 rebrew ga --flag-sweep --tier targeted --fix-cflags  # targeted sweep, auto-update CFLAGS
 
+# Semantic Equivalence (requires angr: uv pip install -e ".[prove]")
+rebrew prove src/server.dll/calculate_physics.c      # prove MATCHING function equivalent
+rebrew prove src/server.dll/calculate_physics.c --json  # JSON output
+rebrew prove my_func --dry-run                        # find by symbol, preview only
+
 # Export & Sync
 rebrew rename old_func new_func     # completely rename a function across the codebase
 rebrew verify --fix-status          # bulk compile and auto-update STATUS/BLOCKER annotations
@@ -199,6 +205,7 @@ Rebrew is part of a broader decompilation ecosystem. These are the notable proje
 | [reccmp](https://github.com/isledecomp/reccmp) | Binary recompilation comparison framework | Annotation format compatibility; `rebrew catalog --csv` exports reccmp-compatible CSV |
 | [LIEF](https://github.com/lief-project/LIEF) | Binary format parsing (PE/ELF/Mach-O) | Used for binary loading, format detection, and PE section analysis |
 | [Capstone](https://github.com/capstone-engine/capstone) | Disassembly engine | Powers `rebrew asm`, byte-diff scoring, relocation masking, and mnemonic comparison |
+| [angr](https://github.com/angr/angr) | Binary analysis + symbolic execution | Powers `rebrew prove` for Z3-based semantic equivalence proving (optional dep) |
 | [ReVa](https://github.com/cyberkaida/reverse-engineering-assistant) | Ghidra MCP bridge | `rebrew sync` pushes/pulls annotations, labels, structs, and comments to Ghidra |
 
 ### Adjacent Tools

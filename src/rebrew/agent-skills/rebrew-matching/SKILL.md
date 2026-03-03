@@ -1,6 +1,6 @@
 ---
 name: rebrew-matching
-description: Performs byte-level binary matching using diff analysis, compiler flag sweeping, and the genetic algorithm engine. Use this skill when a function needs flag tuning, structural diff analysis, automated GA matching, or batch flag sweeping to achieve EXACT/RELOC status. Triggers on 'match', 'diff', 'flag sweep', 'GA', 'genetic algorithm', 'byte diff', 'MATCHING status', 'near-miss', 'BLOCKER', 'structural similarity', 'compiler flags', or 'CFLAGS'.
+description: Performs byte-level binary matching using diff analysis, compiler flag sweeping, and the genetic algorithm engine. Use this skill when a function needs flag tuning, structural diff analysis, automated GA matching, batch flag sweeping, or symbolic equivalence proving to achieve EXACT/RELOC/PROVEN status. Triggers on 'match', 'diff', 'flag sweep', 'GA', 'genetic algorithm', 'byte diff', 'MATCHING status', 'near-miss', 'BLOCKER', 'structural similarity', 'compiler flags', 'CFLAGS', 'prove', 'symbolic execution', 'angr', or 'semantic equivalence'.
 license: MIT
 ---
 
@@ -156,3 +156,36 @@ the sweep finds an exact match (score < 0.1).
 - For library-origin functions (MSVCRT, ZLIB), use `rebrew crt-match` to identify the reference source file before starting the matching process.
 - Flag sweep is fast and often sufficient without the GA.
 - Common CFLAGS presets: `/O2 /Gd` (GAME), `/O1 /Gd` (MSVCRT).
+- If a function remains MATCHING after flag sweeping and the blockers are structural (register allocation, instruction reordering), use `rebrew prove` to mathematically verify equivalence.
+
+## 8. Symbolic Equivalence Proving
+
+When a function is stuck at MATCHING due to structural differences that C source
+mutations and flag sweeps cannot fix (register allocation, instruction reordering,
+loop unrolling), use `rebrew prove` to mathematically prove semantic equivalence:
+
+```bash
+rebrew prove src/<target>/<file>.c --json               # prove and update STATUS → PROVEN
+rebrew prove src/<target>/<file>.c --dry-run --json      # preview without updating
+rebrew prove src/<target>/<file>.c --timeout 120 --json  # allow 2 min for complex funcs
+rebrew prove my_func --json                              # find by symbol name
+```
+
+How it works:
+1. Extracts target bytes from the DLL and compiles the C source to an .obj
+2. Loads both byte blobs into angr's symbolic execution engine (blob backend)
+3. Parses the `// PROTOTYPE:` annotation for calling convention and argument setup
+4. Hooks external call relocations with `ReturnUnconstrained`
+5. Runs LoopSeer-bounded symbolic execution on both
+6. Compares EAX (return register) via Z3 — if no input can distinguish them, PROVEN
+
+Requirements:
+- angr must be installed: `uv pip install -e ".[prove]"`
+- Function must have STATUS: MATCHING or MATCHING_RELOC
+- `// PROTOTYPE:` annotation improves accuracy (argument count + calling convention)
+
+Limitations:
+- Floating-point heavy functions may not prove (Z3 struggles with x87/SSE)
+- Complex loops may cause timeout (increase with `--timeout N`)
+- Path explosion on deeply branching code (increase `--loop-bound N`)
+- Never produces false positives — if it can't prove, STATUS stays MATCHING
