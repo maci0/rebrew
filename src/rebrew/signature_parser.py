@@ -13,19 +13,24 @@ from typing import Any
 
 _PTR_NOSPACE_RE = re.compile(r"([a-zA-Z0-9_])\*")
 _CALLING_CONV_RE = re.compile(r"\b__(?:cdecl|stdcall|fastcall)\b\s*")
+_DECLSPEC_RE = re.compile(r"__declspec\s*\(\s*\w+\s*\)\s*")
 _MULTI_SPACE_RE = re.compile(r"  +")
 
 
 def _normalize_signature(sig: str) -> str:
-    """Normalize C signatures for Ghidra's set-function-prototype parser.
-
-    Ghidra's CParser rejects MSVC calling conventions and trailing semicolons.
-    """
+    """Strip MSVC-specific syntax that Ghidra's CParser does not accept."""
+    sig = _DECLSPEC_RE.sub("", sig)
     sig = _CALLING_CONV_RE.sub("", sig)
+    sig = re.sub(r"\bRBW_\w+\b\s*", "", sig)
+    sig = re.sub(r"\bconst\b\s*", "", sig)
+    sig = re.sub(r"\bvolatile\b\s*", "", sig)
+    # Inline function-pointer params -> void * (CParser doesn't handle them)
+    sig = re.sub(r"\w[\w\s\*]*\(\*\s*(\w+)\)\s*\([^)]*\)", r"void * \1", sig)
     sig = _PTR_NOSPACE_RE.sub(r"\1 *", sig)
     sig = sig.rstrip("; ")
+    sig = sig.replace("\n", " ").replace("\r", "")
     sig = _MULTI_SPACE_RE.sub(" ", sig)
-    return sig
+    return sig.strip()
 
 
 def extract_function_signatures(filepath: Path) -> Iterator[tuple[str, str]]:

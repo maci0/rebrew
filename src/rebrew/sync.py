@@ -132,6 +132,26 @@ def build_sync_commands(
     skipped_labels = 0
     thunk_set = iat_thunks or set()
 
+    # Phase 0: Push type definitions (typedefs + structs) BEFORE prototypes
+    # so Ghidra's CParser can resolve custom types in function signatures.
+    # Simple typedefs (no '{') are pushed first so structs can reference them.
+    if structs:
+        typedefs_first = sorted(structs, key=lambda s: ("{" in s, s))
+        for struct_str in typedefs_first:
+            bare = struct_str.strip().rstrip(";").strip()
+            if bare.startswith("struct {") and bare.endswith("}"):
+                continue
+            commands.append(
+                {
+                    "tool": "parse-c-structure",
+                    "args": {
+                        "programPath": program_path,
+                        "cDefinition": struct_str,
+                        "category": "/rebrew",
+                    },
+                }
+            )
+
     # Phase 1: create-function for all annotated VAs (before labels/comments)
     if create_functions:
         for va in sorted(by_va):
@@ -354,20 +374,6 @@ def build_sync_commands(
                         "type": "Note",
                         "category": "rebrew/data",
                         "comment": f"Data: {name} ({d_entry['size']}B)",
-                    },
-                }
-            )
-
-    # Phase 5: Push Structs
-    if structs:
-        for struct_str in structs:
-            commands.append(
-                {
-                    "tool": "parse-c-structure",
-                    "args": {
-                        "programPath": program_path,
-                        "cDefinition": struct_str,
-                        "category": "/rebrew",
                     },
                 }
             )
@@ -1130,8 +1136,54 @@ def apply_commands_via_mcp(
             timeout=_MCP_REQUEST_TIMEOUT_S,
         )
 
+        def _send_cmd(
+            cmd: dict[str, Any],
+            cmd_id: int,
+        ) -> tuple[bool, str]:
+            """Send a single MCP command. Returns (ok, error_msg)."""
+            payload = {
+                "jsonrpc": "2.0",
+                "id": cmd_id,
+                "method": "tools/call",
+                "params": {"name": cmd["tool"], "arguments": cmd["args"]},
+            }
+            resp = client.post(
+                endpoint, json=payload, headers=headers, timeout=_MCP_REQUEST_TIMEOUT_S
+            )
+            resp.raise_for_status()
+            body = resp.text.strip()
+            if not body:
+                return True, ""
+            ct = resp.headers.get("content-type", "")
+            if "text/event-stream" in ct:
+                data = _parse_sse_response(body)
+            else:
+                try:
+                    data = resp.json()
+                except (ValueError, UnicodeDecodeError):
+                    return True, ""
+            if not data:
+                return True, ""
+            is_error = "error" in data
+            error_msg = data.get("error", "")
+            if not is_error:
+                result = data.get("result", {})
+                if isinstance(result, dict) and result.get("isError"):
+                    is_error = True
+                    content = result.get("content", [])
+                    if content and isinstance(content[0], dict):
+                        error_msg = content[0].get("text", str(result))
+                    else:
+                        error_msg = str(result)
+            if is_error:
+                if "already exists" in str(error_msg).lower():
+                    return True, ""
+                return False, str(error_msg)
+            return True, ""
+
         # Apply each command
         current_phase = ""
+        struct_failures: list[dict[str, Any]] = []
         for i, cmd in enumerate(commands):
             # Show phase transitions
             tool = cmd["tool"]
@@ -1149,63 +1201,27 @@ def apply_commands_via_mcp(
                 print(f"  {phase_labels.get(tool, tool)}...")
                 current_phase = tool
 
-            payload = {
-                "jsonrpc": "2.0",
-                "id": i + 1,
-                "method": "tools/call",
-                "params": {"name": cmd["tool"], "arguments": cmd["args"]},
-            }
-
             try:
-                resp = client.post(
-                    endpoint, json=payload, headers=headers, timeout=_MCP_REQUEST_TIMEOUT_S
-                )
-                resp.raise_for_status()
-                body = resp.text.strip()
-                if not body:
+                ok, error_msg = _send_cmd(cmd, i + 1)
+                if ok:
                     success += 1
-                    continue
-                ct = resp.headers.get("content-type", "")
-                if "text/event-stream" in ct:
-                    data = _parse_sse_response(body)
                 else:
-                    try:
-                        data = resp.json()
-                    except (ValueError, UnicodeDecodeError):
-                        success += 1
-                        continue
-                if not data:
-                    success += 1
-                    continue
-                is_error = "error" in data
-                error_msg = data.get("error", "")
-                if not is_error:
-                    result = data.get("result", {})
-                    if isinstance(result, dict) and result.get("isError"):
-                        is_error = True
-                        content = result.get("content", [])
-                        if content and isinstance(content[0], dict):
-                            error_msg = content[0].get("text", str(result))
-                        else:
-                            error_msg = str(result)
-                if is_error:
-                    if "already exists" in str(error_msg).lower():
-                        success += 1
-                    else:
-                        errors += 1
-                        va = cmd["args"].get("addressOrSymbol", cmd["args"].get("address", "?"))
-                        if errors <= 5:
-                            print(f"  ERROR at {va} ({cmd['tool']}): {error_msg}")
-                        elif errors == 6:
-                            print("  ... suppressing further errors")
-                else:
-                    success += 1
+                    if tool == "parse-c-structure":
+                        struct_failures.append(cmd)
+                    errors += 1
+                    va = cmd["args"].get("addressOrSymbol", cmd["args"].get("address", "?"))
+                    if errors <= 30:
+                        print(f"  ERROR at {va} ({cmd['tool']}): {error_msg}")
+                    elif errors == 31:
+                        print("  ... suppressing further errors")
             except httpx.HTTPError as exc:
+                if tool == "parse-c-structure":
+                    struct_failures.append(cmd)
                 errors += 1
                 va = cmd["args"].get("addressOrSymbol", cmd["args"].get("address", "?"))
-                if errors <= 5:
+                if errors <= 30:
                     print(f"  ERROR at {va} ({cmd['tool']}): {exc}")
-                elif errors == 6:
+                elif errors == 31:
                     print("  ... suppressing further errors")
 
             # Progress indicator
@@ -1216,6 +1232,33 @@ def apply_commands_via_mcp(
             # Rate limiting — don't overwhelm the server
             if (i + 1) % 100 == 0:
                 time.sleep(0.1)
+
+        # Retry failed parse-c-structure ops (dependency ordering)
+        max_retries = 3
+        for retry in range(max_retries):
+            if not struct_failures:
+                break
+            print(f"\n  Retrying {len(struct_failures)} struct definitions (pass {retry + 2})...")
+            still_failing: list[dict[str, Any]] = []
+            for cmd in struct_failures:
+                try:
+                    ok, error_msg = _send_cmd(cmd, total + retry * 1000)
+                    if ok:
+                        success += 1
+                        errors -= 1
+                    else:
+                        still_failing.append(cmd)
+                        if retry == max_retries - 1:
+                            defn = cmd["args"].get("cDefinition", "")[:80]
+                            print(f"  PERMANENT FAIL: {error_msg} | {defn}")
+                except httpx.HTTPError:
+                    still_failing.append(cmd)
+            resolved = len(struct_failures) - len(still_failing)
+            if resolved > 0:
+                print(f"  Resolved {resolved} definitions on retry pass {retry + 2}")
+            struct_failures = still_failing
+            if struct_failures and not resolved:
+                break
 
     print()  # newline after progress
     return success, errors
@@ -2159,12 +2202,22 @@ def main(
 
     if sync_structs or sync_signatures:
         if sync_structs and (summary or export or push):
-            from rebrew.struct_parser import extract_structs_from_file
+            from rebrew.struct_parser import extract_structs_from_file, extract_type_definitions
 
-            struct_set = set()
+            struct_set: set[str] = set()
+
+            for hfile in sorted(reversed_dir.rglob("*.h")):
+                # Skip auto-generated Ghidra files (types.h from --pull-structs)
+                # — they use Ghidra notation that CParser rejects on push.
+                if hfile.name == "types.h":
+                    continue
+                for typedef_str in extract_type_definitions(hfile):
+                    struct_set.add(typedef_str)
+
             for cfile in iter_sources(reversed_dir, cfg):
                 for struct_str in extract_structs_from_file(cfile):
                     struct_set.add(struct_str)
+
             structs = list(struct_set)
 
         if sync_signatures and (summary or export or push):

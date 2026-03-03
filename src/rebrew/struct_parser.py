@@ -48,3 +48,46 @@ def extract_structs_from_file(filepath: Path) -> Iterator[str]:
                 yield from walk(child)
 
     yield from walk(tree.root_node)
+
+
+def extract_type_definitions(filepath: Path) -> Iterator[str]:
+    """Parse a C file and yield all type definitions (typedefs AND structs).
+
+    Extends extract_structs_from_file to also capture standalone typedefs
+    like ``typedef unsigned int uint32_t;`` that don't contain struct bodies.
+    """
+    try:
+        import tree_sitter_c
+        from tree_sitter import Language, Parser
+    except ImportError:
+        return
+
+    C_LANGUAGE = Language(tree_sitter_c.language())
+    parser = Parser(C_LANGUAGE)
+
+    try:
+        code_bytes = filepath.read_bytes()
+    except OSError:
+        return
+
+    tree = parser.parse(code_bytes)
+
+    def walk(node: Any) -> Iterator[str]:
+        if node.type == "type_definition":
+            text = code_bytes[node.start_byte : node.end_byte].decode("utf-8", errors="replace")
+            yield text
+        elif node.type == "struct_specifier":
+            if node.parent and node.parent.type != "type_definition":
+                text = code_bytes[node.start_byte : node.end_byte]
+                if b"{" in text:
+                    end_byte = node.end_byte
+                    next_sibling = node.next_sibling
+                    if next_sibling and next_sibling.type == ";":
+                        end_byte = next_sibling.end_byte
+                    full_text = code_bytes[node.start_byte : end_byte]
+                    yield full_text.decode("utf-8", errors="replace")
+        else:
+            for child in node.children:
+                yield from walk(child)
+
+    yield from walk(tree.root_node)

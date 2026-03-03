@@ -564,6 +564,12 @@ def main(
                 r'\1"tools/wibo"',
                 content,
             )
+            if new_content == content:
+                new_content = re.sub(
+                    r"(?m)^(\[compiler\]\s*\n)",
+                    r'\1runner = "tools/wibo"\n',
+                    content,
+                )
             if new_content != content:
                 atomic_write_text(toml_path, new_content, encoding="utf-8")
                 console.print("Auto-enabled wibo in rebrew-project.toml")
