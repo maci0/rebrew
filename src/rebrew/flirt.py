@@ -12,7 +12,7 @@ from typing import Any
 import typer
 
 from rebrew.binary_loader import load_binary
-from rebrew.cli import TargetOption, error_exit, get_config, json_print
+from rebrew.cli import TargetOption, error_exit, json_print, require_config
 
 try:
     flirt: Any | None = import_module("flirt")
@@ -121,7 +121,7 @@ def main(
     """FLIRT signature scanner for binaries"""
     if flirt is None:
         error_exit("flirt module not found. Run 'uv sync' to install dependencies.")
-    cfg = get_config(target=target)
+    cfg = require_config(target=target, json_mode=json_output)
     _print = _make_progress_printer(json_output)
 
     final_sig_dir = sig_dir or (cfg.root / "flirt_sigs")

@@ -33,7 +33,7 @@ from typing import Any
 import typer
 
 from rebrew.annotation import parse_c_file
-from rebrew.cli import TargetOption, error_exit, get_config, parse_va
+from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
 from rebrew.config import ProjectConfig
 
 
@@ -335,7 +335,7 @@ def _parse_annotations(filepath: Path) -> dict[str, Any] | None:
         return None
 
     status = entry["status"]
-    if status not in ("EXACT", "RELOC", "MATCHING", "MATCHING_RELOC", "STUB"):
+    if status not in ("EXACT", "RELOC", "MATCHING", "MATCHING_RELOC", "PROVEN", "STUB"):
         return None
 
     size = entry["size"]
@@ -472,6 +472,7 @@ def main(
         None, help="Output directory for batch mode (default: output/nasm/)"
     ),
     base_va: str = typer.Option("0", help="Base VA for .bin files (default: 0)"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Extract bytes and emit NASM assembly with optional round-trip verification.
@@ -498,7 +499,7 @@ def main(
         base_va: Base VA (hex) used with ``--bin`` mode.
         target: Optional target profile from ``rebrew-project.toml``.
     """
-    cfg = get_config(target=target)
+    cfg = require_config(target=target, json_mode=json_output)
 
     if extract_all or batch_stubs:
         batch_out_dir = out_dir or Path("output/nasm")
@@ -537,13 +538,29 @@ def main(
     else:
         out_src = nasm_src
 
-    if stats:
-        print(f"Function: {computed_label}")
-        print(f"  Base VA: 0x{run_stats['base_va']:08X}")
-        print(f"  Size: {run_stats['total_bytes']} bytes")
-        print(f"  Instructions: {run_stats['total_instructions']}")
-        print(f"  NASM-compatible: {run_stats['nasm_ok']} ({run_stats['pct_nasm']:.1f}%)")
-        print(f"  db fallbacks: {run_stats['db_fallbacks']}")
+    if stats or json_output:
+        result: dict[str, Any] = {
+            "function": computed_label,
+            "base_va": f"0x{run_stats['base_va']:08X}",
+            "total_bytes": run_stats["total_bytes"],
+            "total_instructions": run_stats["total_instructions"],
+            "nasm_ok": run_stats["nasm_ok"],
+            "pct_nasm": round(run_stats["pct_nasm"], 1),
+            "db_fallbacks": run_stats["db_fallbacks"],
+        }
+        if verify:
+            passed, msg = verify_roundtrip(nasm_src, code)
+            result["roundtrip_pass"] = passed
+            result["roundtrip_message"] = msg
+        if json_output:
+            json_print(result)
+        else:
+            print(f"Function: {computed_label}")
+            print(f"  Base VA: 0x{run_stats['base_va']:08X}")
+            print(f"  Size: {run_stats['total_bytes']} bytes")
+            print(f"  Instructions: {run_stats['total_instructions']}")
+            print(f"  NASM-compatible: {run_stats['nasm_ok']} ({run_stats['pct_nasm']:.1f}%)")
+            print(f"  db fallbacks: {run_stats['db_fallbacks']}")
         return
 
     if output:

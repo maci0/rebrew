@@ -257,7 +257,7 @@ def test_init_copies_agent_skills(tmp_path) -> None:
 
     _copy_agent_skills(tmp_path, "server.dll")
 
-    skills_dir = tmp_path / "agent-skills"
+    skills_dir = tmp_path / ".agents" / "skills"
     assert skills_dir.is_dir()
 
     # All 5 skill subdirectories present
@@ -282,4 +282,4 @@ def test_init_copies_agent_skills_idempotent(tmp_path) -> None:
     _copy_agent_skills(tmp_path, "test")
     _copy_agent_skills(tmp_path, "test")  # should not raise
 
-    assert (tmp_path / "agent-skills").is_dir()
+    assert (tmp_path / ".agents" / "skills").is_dir()

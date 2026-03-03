@@ -4,7 +4,7 @@
 
 ```c
 // FUNCTION: MODULE 0xVA
-// STATUS: STUB | MATCHING | RELOC | EXACT
+// STATUS: STUB | MATCHING | RELOC | EXACT | PROVEN
 // ORIGIN: GAME | MSVCRT | ZLIB | DIRECTX | ...
 // SIZE: <bytes>
 // CFLAGS: /O2 /Gd
@@ -19,6 +19,7 @@
 ## Status Progression
 
 STUB -> MATCHING -> RELOC -> EXACT
+                 \-> PROVEN (via rebrew prove)
 
 ## Multi-Target
 

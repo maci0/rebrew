@@ -31,37 +31,12 @@ dev = [
     "pytest>=8.0",
     "slipcover>=1.0.17",
 ]
+prove = [
+    "angr>=9.2",
+]
 
 [project.scripts]
 rebrew = "rebrew.main:main"
-rebrew-rename = "rebrew.rename:main_entry"
-rebrew-test = "rebrew.test:main_entry"
-rebrew-verify = "rebrew.verify:main_entry"
-rebrew-next = "rebrew.next:main_entry"
-rebrew-skeleton = "rebrew.skeleton:main_entry"
-rebrew-catalog = "rebrew.catalog:main_entry"
-rebrew-sync = "rebrew.sync:main_entry"
-rebrew-lint = "rebrew.lint:main_entry"
-rebrew-extract = "rebrew.extract:main_entry"
-rebrew-match = "rebrew.match:main_entry"
-rebrew-ga = "rebrew.ga:main_entry"
-rebrew-asm = "rebrew.asm:main_entry"
-rebrew-build-db = "rebrew.build_db:main_entry"
-rebrew-init = "rebrew.init:main_entry"
-rebrew-nasm = "rebrew.nasm:main_entry"
-rebrew-flirt = "rebrew.flirt:main_entry"
-
-rebrew-cache = "rebrew.cache_cli:main_entry"
-rebrew-cfg = "rebrew.cfg:main_entry"
-rebrew-status = "rebrew.status:main_entry"
-rebrew-data = "rebrew.data:main_entry"
-rebrew-graph = "rebrew.depgraph:main_entry"
-rebrew-promote = "rebrew.promote:main_entry"
-rebrew-triage = "rebrew.triage:main_entry"
-rebrew-crt-match = "rebrew.crt_match:main_entry"
-rebrew-doctor = "rebrew.doctor:main_entry"
-rebrew-split = "rebrew.split:main_entry"
-rebrew-merge = "rebrew.merge:main_entry"
 
 [tool.setuptools.package-data]
 rebrew = ["agent-skills/**/*.md"]

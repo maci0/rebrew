@@ -10,13 +10,15 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-import rich
 import typer
+from rich.console import Console
 
 from rebrew.annotation import Annotation, parse_c_file, parse_c_file_multi, parse_source_metadata
-from rebrew.cli import TargetOption, error_exit, get_config, json_print, parse_va
+from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
 from rebrew.config import ProjectConfig
 from rebrew.matcher.parsers import list_obj_symbols, parse_obj_symbol_bytes
+
+console = Console(stderr=True)
 
 # Regex for detecting FUNCTION/LIBRARY/STUB marker lines (used by update_source_status)
 _MARKER_RE = re.compile(r"^(//|/\*)\s*(?:FUNCTION|LIBRARY|STUB):\s*\S+\s+(0x[0-9a-fA-F]+)")
@@ -183,7 +185,15 @@ def update_source_status(
     # Atomic swap: backup original, rename tmp to source
     if source_path.exists():
         shutil.copy2(source_path, bak_path)
-    tmp_path.rename(source_path)
+
+    import os
+
+    try:
+        os.replace(tmp_path, source_path)
+    except BaseException:
+        if bak_path.exists() and source_path.exists():
+            shutil.copy2(bak_path, source_path)
+        raise
 
 
 _EPILOG = """\
@@ -252,7 +262,7 @@ def main(
         json_output: Emit machine-readable JSON responses.
         target: Optional target profile name from ``rebrew-project.toml``.
     """
-    cfg = get_config(target=target)
+    cfg = require_config(target=target, json_mode=json_output)
 
     # Build name -> VA map for relocation validation
     name_to_va: dict[str, int] = {}
@@ -277,9 +287,9 @@ def main(
         eval_errs, eval_warns = anno.validate()
         if not json_output:
             for e in eval_errs:
-                rich.print(f"[bold red]LINT ERROR:[/bold red] {e}")
+                console.print(f"[bold red]LINT ERROR:[/bold red] {e}")
             for w in eval_warns:
-                rich.print(f"[bold yellow]LINT WARNING:[/bold yellow] {w}")
+                console.print(f"[bold yellow]LINT WARNING:[/bold yellow] {w}")
 
     # Multi-function support: if no explicit symbol/va/size, test all annotations
     if symbol is None and va is None and size is None:
@@ -349,12 +359,12 @@ def main(
         if obj_bytes is None:
             if json_output:
                 error_exit(f"Symbol '{symbol}' not found in .obj", json_mode=True)
-            print(f"Symbol '{symbol}' not found in .obj")
+            console.print(f"Symbol '{symbol}' not found in .obj")
             available = list_obj_symbols(obj_path)
             if available:
-                print("Available symbols:")
+                console.print("Available symbols:")
                 for s in available:
-                    print(f"  {s}")
+                    console.print(f"  {s}")
             raise typer.Exit(code=1)
 
         if len(obj_bytes) > len(target_bytes):
@@ -381,13 +391,15 @@ def main(
             json_print(result_dict)
         elif matched:
             if relocs:
-                print(f"RELOC-NORMALIZED MATCH: {total}/{total} bytes ({len(relocs)} relocations)")
+                console.print(
+                    f"RELOC-NORMALIZED MATCH: {total}/{total} bytes ({len(relocs)} relocations)"
+                )
             else:
-                print(f"EXACT MATCH: {total}/{total} bytes")
+                console.print(f"EXACT MATCH: {total}/{total} bytes")
         else:
-            print(f"MISMATCH: {match_count}/{total} bytes")
-            print(f"\nTarget ({len(target_bytes)}B): {target_bytes.hex()}")
-            print(f"Output ({len(obj_bytes)}B): {obj_bytes.hex()}")
+            console.print(f"MISMATCH: {match_count}/{total} bytes")
+            console.print(f"\nTarget ({len(target_bytes)}B): {target_bytes.hex()}")
+            console.print(f"Output ({len(obj_bytes)}B): {obj_bytes.hex()}")
             if len(obj_bytes) == len(target_bytes):
                 reloc_set: set[int] = set()
                 for r in relocs:
@@ -408,9 +420,9 @@ def main(
                             f"  [{i:3d}] target={target_bytes[i]:02x} got={obj_bytes[i]:02x}"
                         )
                 if diff:
-                    print("Diffs (non-reloc):")
+                    console.print("Diffs (non-reloc):")
                     for d in diff[:20]:
-                        print(d)
+                        console.print(d)
 
 
 def build_result_dict(
@@ -526,7 +538,7 @@ def _test_multi(
                         }
                     )
                 else:
-                    rich.print(f"[yellow]SKIP[/yellow] 0x{ann.va:08X} — no SYMBOL")
+                    console.print(f"[yellow]SKIP[/yellow] 0x{ann.va:08X} — no SYMBOL")
                 continue
 
             if not ann.size:
@@ -541,7 +553,7 @@ def _test_multi(
                         }
                     )
                 else:
-                    rich.print(f"[yellow]SKIP[/yellow] {sym} — no SIZE")
+                    console.print(f"[yellow]SKIP[/yellow] {sym} — no SIZE")
                 continue
 
             target_bytes = cfg.extract_dll_bytes(ann.va, ann.size)
@@ -559,7 +571,7 @@ def _test_multi(
                         }
                     )
                 else:
-                    rich.print(f"[red]MISSING[/red] {sym} — not found in .obj")
+                    console.print(f"[red]MISSING[/red] {sym} — not found in .obj")
                 continue
 
             if len(obj_bytes) > len(target_bytes):
@@ -587,13 +599,13 @@ def _test_multi(
                 )
             elif matched:
                 if relocs:
-                    rich.print(
+                    console.print(
                         f"[green]RELOC[/green] {sym} — {total}/{total}B ({len(relocs)} relocs)"
                     )
                 else:
-                    rich.print(f"[bold green]EXACT[/bold green] {sym} — {total}/{total}B")
+                    console.print(f"[bold green]EXACT[/bold green] {sym} — {total}/{total}B")
             else:
-                rich.print(f"[red]MISMATCH[/red] {sym} — {match_count}/{total}B")
+                console.print(f"[red]MISMATCH[/red] {sym} — {match_count}/{total}B")
 
         if json_output:
             json_print({"source": source, "results": results_list})

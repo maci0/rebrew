@@ -7,13 +7,13 @@ support, error reporting, VA parsing, and JSON output without boilerplate.
 Usage in a tool::
 
     import typer
-    from rebrew.cli import TargetOption, get_config, error_exit, json_print, parse_va
+    from rebrew.cli import TargetOption, require_config, error_exit, json_print, parse_va
 
     app = typer.Typer()
 
     @app.command()
     def main(target: str = TargetOption) -> None:
-        cfg = get_config(target)
+        cfg = require_config(target)
         ...
 """
 
@@ -28,6 +28,13 @@ from rich.console import Console
 
 from rebrew.config import ProjectConfig, load_config
 
+# ---------------------------------------------------------------------------
+# Global verbosity state — set by the top-level app callback in main.py.
+# ---------------------------------------------------------------------------
+
+verbosity: int = 0  # -1 = quiet, 0 = normal, 1+ = verbose
+
+
 # Re-usable Typer option for --target
 TargetOption: str | None = typer.Option(
     None,
@@ -40,6 +47,18 @@ TargetOption: str | None = typer.Option(
 def get_config(target: str | None = None) -> ProjectConfig:
     """Load the project config for the given target."""
     return load_config(target=target)
+
+
+def require_config(target: str | None = None, *, json_mode: bool = False) -> ProjectConfig:
+    """Load the project config, exiting with a user-friendly error on failure."""
+    try:
+        return load_config(target=target)
+    except FileNotFoundError as exc:
+        error_exit(str(exc), json_mode=json_mode)
+    except KeyError as exc:
+        error_exit(f"Config error: {exc}", json_mode=json_mode)
+    except ValueError as exc:
+        error_exit(f"Config error: {exc}", json_mode=json_mode)
 
 
 # ---------------------------------------------------------------------------

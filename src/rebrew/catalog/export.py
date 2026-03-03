@@ -6,11 +6,12 @@ from parsed annotations and function registries.
 
 from typing import Any
 
+from rebrew.annotation import Annotation
 from rebrew.config import ProjectConfig
 
 
 def generate_catalog(
-    entries: list[Any],
+    entries: list[Annotation],
     funcs: list[dict[str, Any]],
     text_size: int,
 ) -> str:
@@ -109,7 +110,7 @@ def _reccmp_type(entry: dict[str, Any]) -> str:
 
 
 def generate_reccmp_csv(
-    entries: list[Any],
+    entries: list[Annotation],
     funcs: list[dict[str, Any]],
     registry: dict[int, dict[str, Any]] | None = None,
     target_name: str = "TARGET",

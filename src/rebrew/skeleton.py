@@ -27,7 +27,14 @@ from rebrew.annotation import (
     parse_c_file_multi,
 )
 from rebrew.catalog import load_ghidra_functions
-from rebrew.cli import TargetOption, error_exit, get_config, json_print, parse_va
+from rebrew.cli import (
+    TargetOption,
+    error_exit,
+    json_print,
+    parse_va,
+    rel_display_path,
+    require_config,
+)
 from rebrew.config import ProjectConfig
 from rebrew.decompiler import fetch_decompilation
 from rebrew.naming import (
@@ -385,7 +392,7 @@ def list_uncovered(
 ) -> list[tuple[int, int, str, str]]:
     """List uncovered functions. Returns [(va, size, ghidra_name, origin)]."""
     uncovered: list[tuple[int, int, str, str]] = []
-    ignored_symbols = set(cfg.ignored_symbols or [])
+    ignored_syms = set(cfg.ignored_symbols or [])
     for func in ghidra_funcs:
         va_obj = func.get("va")
         size_obj = func.get("size")
@@ -400,7 +407,7 @@ def list_uncovered(
             continue
         if size < min_size or size > max_size:
             continue
-        if name in ignored_symbols:
+        if name in ignored_syms:
             continue
 
         origin = detect_origin(va, name, cfg)
@@ -411,13 +418,6 @@ def list_uncovered(
 
     uncovered.sort(key=lambda x: x[1])  # Sort by size
     return uncovered
-
-
-def _display_path(path: Path, root: Path) -> str:
-    try:
-        return str(path.relative_to(root))
-    except ValueError:
-        return str(path if path.is_absolute() else path.name)
 
 
 _EPILOG = """\
@@ -495,7 +495,7 @@ def main(
 ) -> None:
     """Generate .c skeleton files for uncovered target binary functions."""
     va_str = va or va_arg
-    cfg = get_config(target=target)
+    cfg = require_config(target=target, json_mode=json_output)
     src_dir = cfg.reversed_dir
     root = cfg.root
 
@@ -535,7 +535,7 @@ def main(
         for va_val, size_val, name_val, origin_val in uncovered[:count]:
             filename = make_filename(va_val, name_val, origin_val, cfg=cfg)
             filepath = src_dir / filename
-            rel_path = _display_path(filepath, root)
+            rel_path = rel_display_path(filepath, root)
 
             if filepath.exists() and not force:
                 typer.echo(f"SKIP: {rel_path} (already exists)", err=True)
@@ -706,7 +706,7 @@ def main(
         )
         atomic_write_text(append_path, existing_text + separator + block, encoding="utf-8")
 
-        rel_path_val = _display_path(append_path, root)
+        rel_path_val = rel_display_path(append_path, root)
         symbol_val = "_" + name if name else "_" + sanitize_name(ghidra_name)
         typer.echo(f"APPENDED to {rel_path_val}:", err=True)
         typer.echo(f"  VA:     0x{va_int:08x}", err=True)
@@ -731,7 +731,7 @@ def main(
 
     filename_val = make_filename(va_int, ghidra_name, origin_val, name, cfg=cfg)
     filepath_val = Path(output) if output else src_dir / filename_val
-    rel_path_val = _display_path(filepath_val, root)
+    rel_path_val = rel_display_path(filepath_val, root)
 
     decomp_code_val = None
     decomp_backend_name = ""

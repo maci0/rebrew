@@ -20,9 +20,12 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from rich.console import Console
 
 from rebrew.cli import TargetOption, get_config, json_print
 from rebrew.config import ProjectConfig
+
+console = Console(stderr=True)
 
 # ---------------------------------------------------------------------------
 # Check result data
@@ -252,11 +255,20 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
             if not cl_path.is_absolute():
                 cl_path = cfg.root / cl_path
             if not cl_path.exists():
+                fix_msg = "Place MSVC toolchain at the configured path or update compiler.command."
+                cl_path_str = str(cl_path).lower()
+                if "msvc6" in cl_path_str:
+                    fix_msg += " Download: https://github.com/itsmattkc/MSVC600"
+                elif "msvc400" in cl_path_str:
+                    fix_msg += " Download: https://github.com/itsmattkc/MSVC400"
+                elif "msvc420" in cl_path_str:
+                    fix_msg += " Download: https://github.com/itsmattkc/MSVC420"
+
                 return CheckResult(
                     name="Compiler",
                     status=_FAIL,
                     message=f"CL.EXE not found at: {cl_path}",
-                    fix="Place MSVC toolchain at the configured path or update compiler.command.",
+                    fix=fix_msg,
                 )
 
             # Quick smoke test: try running cl.exe with no args
@@ -321,7 +333,7 @@ def check_runner(cfg: ProjectConfig) -> CheckResult:
             status=_WARN,
             message="wibo not found",
             fix=(
-                "Run 'rebrew doctor --install-wibo' or download manually from "
+                "Run 'rebrew init --install-wibo' or download manually from "
                 "https://github.com/decompals/wibo"
             ),
         )
@@ -527,9 +539,9 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    target: str | None = TargetOption,
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
-    install_wibo: bool = typer.Option(False, "--install-wibo", help="Download wibo to tools/wibo"),
+    target: str | None = TargetOption,
+    install_wibo: bool = typer.Option(False, "--install-wibo", help="Download wibo to tools/wibo."),
 ) -> None:
     """Run diagnostic checks on the rebrew project."""
     if install_wibo:
@@ -538,23 +550,39 @@ def main(
         cfg = get_config(target=target)
         wibo_path = cfg.root / "tools" / "wibo"
         tag_name = download_wibo(wibo_path)
-        print(f"Downloaded wibo {tag_name} to {wibo_path}")
+        console.print(f"Downloaded wibo {tag_name} to {wibo_path}")
+
+        toml_path = cfg.root / "rebrew-project.toml"
+        if toml_path.exists():
+            import re
+
+            from rebrew.utils import atomic_write_text
+
+            content = toml_path.read_text(encoding="utf-8")
+            new_content = re.sub(
+                r'(?m)^(\s*runner\s*=\s*)"[^"]*"',
+                r'\1"tools/wibo"',
+                content,
+            )
+            if new_content != content:
+                atomic_write_text(toml_path, new_content, encoding="utf-8")
+                console.print("Auto-enabled wibo in rebrew-project.toml")
 
     report = run_doctor(target=target)
 
     if json_output:
         json_print(report.to_dict())
     else:
-        print(f"\nRebrew Doctor — target: {report.target}")
-        print("=" * 60)
+        console.print(f"\nRebrew Doctor — target: {report.target}")
+        console.print("=" * 60)
 
         for check in report.checks:
             icon = _STATUS_ICONS.get(check.status, "?")
-            print(f"  {icon}  {check.name}: {check.message}")
+            console.print(f"  {icon}  {check.name}: {check.message}")
             if check.fix:
-                print(f"       Fix: {check.fix}")
+                console.print(f"       Fix: {check.fix}")
 
-        print("=" * 60)
+        console.print("=" * 60)
         parts = []
         if report.pass_count:
             parts.append(f"{report.pass_count} passed")
@@ -562,12 +590,12 @@ def main(
             parts.append(f"{report.fail_count} failed")
         if report.warn_count:
             parts.append(f"{report.warn_count} warnings")
-        print(f"  {', '.join(parts)}")
+        console.print(f"  {', '.join(parts)}")
 
         if report.passed:
-            print("\n  Project looks healthy!\n")
+            console.print("\n  Project looks healthy!\n")
         else:
-            print("\n  Issues found. Fix the failures above and re-run.\n")
+            console.print("\n  Issues found. Fix the failures above and re-run.\n")
 
     if not report.passed:
         raise typer.Exit(code=1)

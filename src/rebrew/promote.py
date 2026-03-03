@@ -17,7 +17,7 @@ from rich.console import Console
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
 
 from rebrew.annotation import parse_c_file_multi
-from rebrew.cli import TargetOption, error_exit, get_config, iter_sources, json_print
+from rebrew.cli import TargetOption, error_exit, iter_sources, json_print, require_config
 from rebrew.config import ProjectConfig
 from rebrew.matcher.parsers import parse_obj_symbol_bytes
 from rebrew.test import (
@@ -247,7 +247,7 @@ def _promote_file(
 def main(
     source: str | None = typer.Argument(None, help="C source file (required in single-file mode)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would change without writing"),
+    dry_run: bool = typer.Option(False, "--dry-run", "-n", help="Preview changes without writing"),
     batch_all: bool = typer.Option(False, "--all", help="Batch promote all promotable functions"),
     dir_filter: str | None = typer.Option(
         None, "--dir", help="Restrict batch to this subdirectory"
@@ -260,7 +260,7 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Test a function and atomically update its STATUS annotation."""
-    cfg = get_config(target=target)
+    cfg = require_config(target=target, json_mode=json_output)
     if batch_all:
         scan_dir = Path(dir_filter) if dir_filter else cfg.reversed_dir
         if not scan_dir.exists() or not scan_dir.is_dir():
@@ -282,7 +282,7 @@ def main(
                 progress.update(task, description=source_path.name)
                 try:
                     file_results = _promote_file(source_path, cfg, dry_run, origin_filter)
-                except Exception as exc:
+                except (OSError, ValueError, RuntimeError) as exc:
                     file_results = [
                         {
                             "source": str(source_path),
@@ -364,7 +364,7 @@ def main(
 
 
 def main_entry() -> None:
-    """Run the promote CLI app."""
+    """Run the Typer CLI application."""
     app()
 
 

@@ -15,6 +15,7 @@ import stat
 import sys
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 _WIBO_API_URL = "https://api.github.com/repos/decompals/wibo/releases/latest"
 _WIBO_DEFAULT_PATH = Path("tools/wibo")
@@ -40,7 +41,7 @@ def _wibo_asset_name() -> str:
 _NETWORK_TIMEOUT_S = 30  # Fail fast rather than hang indefinitely in CI/automation
 
 
-def _read_release_metadata() -> dict[str, object]:
+def _read_release_metadata() -> dict[str, Any]:
     """Fetch and parse latest release metadata from GitHub."""
     with urllib.request.urlopen(_WIBO_API_URL, timeout=_NETWORK_TIMEOUT_S) as response:
         payload = response.read().decode("utf-8")
@@ -61,7 +62,7 @@ def download_wibo(dest: Path, *, quiet: bool = False) -> str:
     if not isinstance(assets_raw, list):
         raise RuntimeError("Invalid wibo release metadata: assets is not a list")
 
-    selected_asset: dict[str, object] | None = None
+    selected_asset: dict[str, Any] | None = None
     for asset in assets_raw:
         if isinstance(asset, dict) and asset.get("name") == asset_name:
             selected_asset = asset

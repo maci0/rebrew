@@ -32,7 +32,6 @@ from __future__ import annotations
 import hashlib
 import threading
 from pathlib import Path
-from typing import Any
 
 import diskcache
 
@@ -81,7 +80,7 @@ class CompileCache:
         """Close the underlying diskcache store."""
         self._cache.close()
 
-    def stats(self) -> dict[str, Any]:
+    def stats(self) -> dict[str, int | float]:
         """Return cache statistics as a dict."""
         return {
             "entries": self.count,

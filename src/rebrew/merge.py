@@ -9,14 +9,14 @@ from typing import Any
 
 import typer
 
-from rebrew.annotation import NEW_FUNC_CAPTURE_RE, parse_c_file_multi
+from rebrew.annotation import NEW_FUNC_CAPTURE_RE, parse_c_file_multi, split_annotation_sections
 from rebrew.cli import (
     TargetOption,
     error_exit,
-    get_config,
     iter_sources,
     json_print,
     rel_display_path,
+    require_config,
     source_glob,
 )
 from rebrew.config import ProjectConfig
@@ -26,26 +26,6 @@ app = typer.Typer(
     help="Merge single-function C files into one multi-function file.",
     rich_markup_mode="rich",
 )
-
-
-def _split_sections(text: str) -> tuple[str, list[str]]:
-    """Return (preamble, function blocks) split by marker lines."""
-    lines = text.splitlines(keepends=True)
-    marker_indexes: list[int] = []
-    for idx, line in enumerate(lines):
-        if NEW_FUNC_CAPTURE_RE.match(line.strip()):
-            marker_indexes.append(idx)
-
-    if not marker_indexes:
-        return text, []
-
-    preamble = "".join(lines[: marker_indexes[0]])
-    blocks: list[str] = []
-    for i, start in enumerate(marker_indexes):
-        end = marker_indexes[i + 1] if i + 1 < len(marker_indexes) else len(lines)
-        blocks.append("".join(lines[start:end]))
-
-    return preamble, blocks
 
 
 def _block_metadata(block: str) -> dict[str, Any] | None:
@@ -114,19 +94,19 @@ def _collect_input_files(paths: list[str], cfg: ProjectConfig) -> list[Path]:
 def main(
     sources: list[str] | None = typer.Argument(None, help="Input source files (or directories)"),
     output: str = typer.Option(..., "--output", "-o", help="Output merged source file"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Preview output without writing"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     force: bool = typer.Option(False, "--force", help="Overwrite output if it exists"),
     delete: bool = typer.Option(
         False, "--delete", help="Delete input files after successful merge"
     ),
-    json_output: bool = typer.Option(False, "--json", help="Output structured JSON"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Merge multiple single-function files into one multi-function file."""
     if not sources:
         error_exit("Merge requires at least two source files", json_mode=json_output)
 
-    cfg = get_config(target=target)
+    cfg = require_config(target=target, json_mode=json_output)
     input_files = _collect_input_files(sources, cfg)
     if len(input_files) < 2:
         error_exit("Merge requires at least two source files", json_mode=json_output)
@@ -149,7 +129,7 @@ def main(
         except OSError as exc:
             error_exit(f"Failed to read {file_path}: {exc}", json_mode=json_output)
 
-        preamble, blocks = _split_sections(text)
+        preamble, blocks = split_annotation_sections(text)
         preambles.append(preamble)
         included_inputs.append(file_path)
 
@@ -205,5 +185,9 @@ def main(
 
 
 def main_entry() -> None:
-    """Package entry point for ``rebrew-merge``."""
+    """Run the Typer CLI application."""
     app()
+
+
+if __name__ == "__main__":
+    main_entry()

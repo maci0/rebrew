@@ -78,6 +78,28 @@ A STUB should always have a `BLOCKER` annotation:
 // BLOCKER: needs complete rewrite, 199B vs 163B
 ```
 
+## PROVEN
+
+Semantically equivalent, mathematically verified via `rebrew prove`. The compiled output
+produces different bytes (different register allocation, instruction reordering, loop
+unrolling), but angr's symbolic execution engine and Z3 constraint solver have proven
+that for ALL possible inputs, the return value (`EAX`) is identical.
+
+```c
+// STATUS: PROVEN
+```
+
+A `PROVEN` status holds the same weight as `EXACT` or `RELOC` in project completion
+metrics. It represents the strongest guarantee possible for functions where the compiler
+stubbornly refuses to generate byte-identical code.
+
+To prove a MATCHING function:
+```bash
+rebrew prove src/target_name/my_func.c
+```
+
+See [ANGR_PROPOSAL.md](ANGR_PROPOSAL.md) for the full technical design.
+
 ## How rebrew test Classifies Results
 
 ```mermaid

@@ -22,7 +22,7 @@ from rich.console import Console
 from rich.table import Table
 
 from rebrew.annotation import Annotation, parse_c_file_multi, update_annotation_key
-from rebrew.cli import TargetOption, error_exit, get_config, iter_sources, json_print, parse_va
+from rebrew.cli import TargetOption, error_exit, iter_sources, json_print, parse_va, require_config
 from rebrew.config import ProjectConfig
 
 
@@ -356,7 +356,7 @@ def _render_index_table(entries: list[CrtSourceEntry]) -> None:
             "yes" if entry.is_asm else "no",
         )
 
-    Console().print(table)
+    Console(stderr=True).print(table)
 
 
 def _render_match_table(matches: list[CrtMatch]) -> None:
@@ -379,7 +379,7 @@ def _render_match_table(matches: list[CrtMatch]) -> None:
             match.reason,
         )
 
-    Console().print(table)
+    Console(stderr=True).print(table)
 
 
 _EPILOG = """\
@@ -422,7 +422,7 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """CRT source cross-reference matcher."""
-    cfg = get_config(target=target)
+    cfg = require_config(target=target, json_mode=json_output)
 
     if not cfg.crt_sources:
         error_exit(
@@ -537,4 +537,9 @@ def main(
 
 
 def main_entry() -> None:
+    """Run the Typer CLI application."""
     app()
+
+
+if __name__ == "__main__":
+    main_entry()

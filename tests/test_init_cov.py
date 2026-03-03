@@ -21,13 +21,20 @@ from rebrew.init import (
 class TestCompilerDefaults:
     """Tests for the COMPILER_DEFAULTS constant."""
 
-    def test_has_four_profiles(self) -> None:
-        assert len(COMPILER_DEFAULTS) == 4
+    def test_has_six_profiles(self) -> None:
+        assert len(COMPILER_DEFAULTS) == 6
 
     def test_known_profiles(self) -> None:
-        assert set(COMPILER_DEFAULTS.keys()) == {"msvc6", "msvc7", "clang", "gcc"}
+        assert set(COMPILER_DEFAULTS.keys()) == {
+            "msvc400",
+            "msvc420",
+            "msvc6",
+            "msvc7",
+            "clang",
+            "gcc",
+        }
 
-    @pytest.mark.parametrize("profile", ["msvc6", "msvc7", "clang", "gcc"])
+    @pytest.mark.parametrize("profile", ["msvc400", "msvc420", "msvc6", "msvc7", "clang", "gcc"])
     def test_required_keys(self, profile: str) -> None:
         """Every profile has command, includes, libs, cflags."""
         data = COMPILER_DEFAULTS[profile]

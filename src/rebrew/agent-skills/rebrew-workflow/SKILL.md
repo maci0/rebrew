@@ -104,7 +104,21 @@ unit (static locals, file-scoped globals) and must be compiled together.
 If the function references globals, use the `rebrew-data-analysis` skill for
 `// GLOBAL:` / `// DATA:` annotations and the `rebrew data` tool.
 
-## 7. Promote Matched Functions
+## 7. Prove Stubborn MATCHING Functions
+
+If a function remains MATCHING after flag sweeping and source adjustments (structural
+blockers like register allocation), use `rebrew prove` for symbolic equivalence:
+
+```bash
+rebrew prove src/<target>/<file>.c --json               # prove MATCHING → PROVEN
+rebrew prove src/<target>/<file>.c --dry-run --json      # preview without updating
+rebrew prove my_func --timeout 120 --json                # find by symbol, 2 min timeout
+```
+
+Requires optional dep: `uv pip install -e ".[prove]"`.
+For details, see the `rebrew-matching` skill.
+
+## 8. Promote Matched Functions
 
 When EXACT or RELOC is achieved, atomically update STATUS:
 
@@ -121,7 +135,7 @@ Single-file mode tests and atomically updates STATUS. Batch mode (`--all`) disco
 all promotable functions, verifies each, and updates annotations. Never demotes.
 Automatically removes BLOCKER/BLOCKER_DELTA annotations on promotion.
 
-## 8. Verify and Track Progress
+## 9. Verify and Track Progress
 
 ```bash
 rebrew doctor                           # check toolchain/config health
@@ -161,7 +175,7 @@ Exit code 1 if any regressions are detected — suitable for CI/pre-commit hooks
   func_1000a200  STUB → MATCHING
 ```
 
-## 9. Dependency Graph
+## 10. Dependency Graph
 
 ```bash
 rebrew graph --format summary           # stats, leaf functions, top blockers

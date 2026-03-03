@@ -11,7 +11,7 @@ import typer
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.catalog import load_ghidra_functions
-from rebrew.cli import TargetOption, error_exit, get_config, iter_sources, json_print, parse_va
+from rebrew.cli import TargetOption, error_exit, iter_sources, json_print, parse_va, require_config
 from rebrew.config import ProjectConfig
 
 _EPILOG = """\
@@ -108,7 +108,7 @@ def main(
     if not va_str:
         error_exit("Specify VA as a positional argument or via --va", json_mode=json_output)
 
-    cfg = get_config(target=target)
+    cfg = require_config(target=target, json_mode=json_output)
     bin_path = cfg.target_binary
 
     if size <= 0:

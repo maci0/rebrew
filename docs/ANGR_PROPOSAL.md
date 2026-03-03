@@ -1,5 +1,7 @@
 # Proposal: Surgical Semantic Equivalence with `angr`
 
+> **Status: Implemented.** See `src/rebrew/prove.py` for the implementation. Install with `uv pip install -e ".[prove]"`. Usage: `rebrew prove <source> [--json] [--timeout N] [--loop-bound N] [--dry-run]`.
+
 ## Problem Statement
 The `rebrew` project currently relies on byte-for-byte matching (or relocation-masked matching) to prove that decompiled C code is functionally equivalent to the original binary.
 While this works for the vast majority of the codebase, compilers often generate assembly that is functionally identical but structurally different (e.g., swapping independent instructions, allocating different registers, or unrolling loops differently).

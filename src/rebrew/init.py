@@ -9,7 +9,7 @@ from pathlib import Path
 
 import typer
 
-from rebrew.cli import error_exit
+from rebrew.cli import error_exit, json_print
 
 app = typer.Typer(
     help="Initialize a new rebrew project directory.",
@@ -38,6 +38,10 @@ src/<target>/           Directory for reversed .c files
 bin/<target>/           Directory for extracted .bin files
 
 [bold]Compiler profiles:[/bold]
+
+msvc400  MSVC 4.0 (C89, PE/x86_32) — via Wine (or wibo)
+
+msvc420  MSVC 4.2 (C89, PE/x86_32) — via Wine (or wibo)
 
 msvc6    MSVC 6.0 (C89, PE/x86_32) — via Wine (or wibo)
 
@@ -116,6 +120,26 @@ GAME = "{cflags}"
 """
 
 COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
+    "msvc400": {
+        "runner": "wine",
+        "command": "wine tools/MSVC400/bin/cl.exe",
+        "includes": "tools/MSVC400/include",
+        "libs": "tools/MSVC400/lib",
+        "cflags": "/O2 /Gd",
+        "format": "pe",
+        "arch": "x86_32",
+        "lang": "C89",
+    },
+    "msvc420": {
+        "runner": "wine",
+        "command": "wine tools/MSVC420/bin/cl.exe",
+        "includes": "tools/MSVC420/include",
+        "libs": "tools/MSVC420/lib",
+        "cflags": "/O2 /Gd",
+        "format": "pe",
+        "arch": "x86_32",
+        "lang": "C89",
+    },
     "msvc6": {
         "runner": "wine",  # Alternative: "wibo" (faster, auto-downloadable via rebrew doctor)
         "command": "wine tools/MSVC600/VC98/Bin/CL.EXE",
@@ -233,7 +257,7 @@ Every reversed `.c` file starts with:
 
 ## Agent Skills
 
-Detailed workflow instructions are in `agent-skills/`:
+Detailed workflow instructions are in `.agents/skills/`:
 
 | Skill | Use When |
 |-------|----------|
@@ -241,6 +265,7 @@ Detailed workflow instructions are in `agent-skills/`:
 | `rebrew-workflow` | End-to-end function reversing workflow |
 | `rebrew-matching` | Flag sweeping, GA engine, diff analysis |
 | `rebrew-data-analysis` | Globals, dispatch tables, BSS debugging |
+| `rebrew-ghidra-sync` | Ghidra push/pull sync via ReVa MCP |
 
 Read the `SKILL.md` in each directory for step-by-step instructions.
 """
@@ -265,7 +290,7 @@ _AGENT_SKILLS_SRC = Path(__file__).parent / "agent-skills"
 
 
 def _copy_agent_skills(dest: Path, target_name: str) -> None:
-    """Copy bundled agent-skills/ into the project, substituting <target>."""
+    """Copy bundled agent-skills/ into the project under .agents/skills, substituting <target>."""
     if not _AGENT_SKILLS_SRC.is_dir():
         typer.secho(
             "Warning: agent-skills not found in package; skipping.",
@@ -274,7 +299,7 @@ def _copy_agent_skills(dest: Path, target_name: str) -> None:
         )
         return
 
-    dest_skills = dest / "agent-skills"
+    dest_skills = dest / ".agents" / "skills"
     shutil.copytree(_AGENT_SKILLS_SRC, dest_skills, dirs_exist_ok=True)
 
     # Replace <target> placeholder with the actual target name
@@ -283,7 +308,7 @@ def _copy_agent_skills(dest: Path, target_name: str) -> None:
         if "<target>" in content:
             md_file.write_text(content.replace("<target>", target_name), encoding="utf-8")
 
-    typer.secho("Created agent-skills/ (AI workflow instructions)", fg=typer.colors.GREEN)
+    typer.secho("Created .agents/skills/ (AI workflow instructions)", fg=typer.colors.GREEN)
 
 
 @app.callback(invoke_without_command=True)
@@ -294,6 +319,10 @@ def main(
     ),
     compiler_profile: str = typer.Option(
         "msvc6", "--compiler", "-c", help="Compiler profile to use."
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    install_wibo: bool = typer.Option(
+        False, "--install-wibo", help="Download wibo runner to tools/wibo."
     ),
 ) -> None:
     """
@@ -306,12 +335,15 @@ def main(
     toml_path = cwd / "rebrew-project.toml"
 
     if toml_path.exists():
-        error_exit(f"A rebrew-project.toml already exists in {cwd}")
+        error_exit(f"A rebrew-project.toml already exists in {cwd}", json_mode=json_output)
 
     # Look up compiler defaults for the profile
     if compiler_profile not in COMPILER_DEFAULTS:
         known = ", ".join(sorted(COMPILER_DEFAULTS))
-        error_exit(f"Unknown compiler profile '{compiler_profile}'. Known profiles: {known}")
+        error_exit(
+            f"Unknown compiler profile '{compiler_profile}'. Known profiles: {known}",
+            json_mode=json_output,
+        )
     profile = COMPILER_DEFAULTS[compiler_profile]
 
     # 1. Write rebrew-project.toml
@@ -325,7 +357,8 @@ def main(
         compiler_libs=profile["libs"],
         cflags=profile["cflags"],
     )
-    toml_content = toml_content.replace("__COMPILER_RUNNER__", profile["runner"])
+    runner = "tools/wibo" if install_wibo else profile["runner"]
+    toml_content = toml_content.replace("__COMPILER_RUNNER__", runner)
     toml_path.write_text(toml_content, encoding="utf-8")
     typer.secho(f"Created {toml_path.name}", fg=typer.colors.GREEN)
 
@@ -376,10 +409,34 @@ def main(
     # 5. Copy agent-skills directory (bundled with the package)
     _copy_agent_skills(cwd, target_name)
 
-    typer.secho("\nInitialization complete! Next steps:", fg=typer.colors.CYAN, bold=True)
-    typer.echo(f"1. Copy your original binary to original/{binary_name}")
-    typer.echo("2. Verify your compiler paths in rebrew-project.toml")
-    typer.echo("3. Run 'rebrew next --stats' to get started!")
+    # 6. Optionally download wibo runner
+    if install_wibo:
+        from rebrew.wibo import download_wibo
+
+        wibo_path = cwd / "tools" / "wibo"
+        tag_name = download_wibo(wibo_path)
+        typer.secho(f"Downloaded wibo {tag_name} to {wibo_path}", fg=typer.colors.GREEN)
+
+    if json_output:
+        json_print(
+            {
+                "project_root": str(cwd),
+                "toml": str(toml_path),
+                "target": target_name,
+                "binary": binary_name,
+                "compiler": compiler_profile,
+                "directories": [
+                    str(original_dir),
+                    str(src_dir),
+                    str(bin_dir),
+                ],
+            }
+        )
+    else:
+        typer.secho("\nInitialization complete! Next steps:", fg=typer.colors.CYAN, bold=True)
+        typer.echo(f"1. Copy your original binary to original/{binary_name}")
+        typer.echo("2. Verify your compiler paths in rebrew-project.toml")
+        typer.echo("3. Run 'rebrew next --stats' to get started!")
 
 
 init = main

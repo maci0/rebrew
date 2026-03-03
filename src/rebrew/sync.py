@@ -39,11 +39,12 @@ from rebrew.catalog import (
     parse_function_list,
     scan_reversed_dir,
 )
-from rebrew.cli import TargetOption, error_exit, get_config, iter_sources, json_print
+from rebrew.cli import TargetOption, error_exit, iter_sources, json_print, require_config
 from rebrew.config import ProjectConfig
+from rebrew.utils import atomic_write_text
 
 # Pattern matching generic auto-names that shouldn't overwrite Ghidra renames
-_GENERIC_NAME_RE = re.compile(r"^(func_|FUN_)[0-9a-fA-F]+$")
+_GENERIC_NAME_RE = re.compile(r"^_?(func_|FUN_)[0-9a-fA-F]+(@\d+)?$")
 
 # Status → bookmark category prefix for visual distinction
 _STATUS_BOOKMARK_CATEGORY = {
@@ -147,7 +148,27 @@ def build_sync_commands(
                 }
             )
 
-    # Phase 2: labels, comments, bookmarks for functions
+    # Phase 2: set-function-prototype for functions with parsed C signatures.
+    # Must run BEFORE create-label — Ghidra's createLabel() produces a
+    # secondary LABEL-type symbol that blocks function.setName() with a
+    # DuplicateNameException.
+    sig_vas: set[int] = set()
+    if signatures:
+        for sig_info in signatures:
+            va_int = int(sig_info["va_hex"], 16)
+            sig_vas.add(va_int)
+            commands.append(
+                {
+                    "tool": "set-function-prototype",
+                    "args": {
+                        "programPath": program_path,
+                        "location": sig_info["va_hex"],
+                        "signature": sig_info["signature"],
+                    },
+                }
+            )
+
+    # Phase 3: labels, comments, bookmarks for functions
     for va in sorted(by_va):
         elist = by_va[va]
         primary = elist[0]
@@ -155,8 +176,9 @@ def build_sync_commands(
         name = primary.get("name") or primary.get("symbol") or f"func_{va:08x}"
         status = primary.get("status", "UNKNOWN")
 
-        # Only push labels that carry actual information
-        if skip_generic_labels and _is_generic_name(name):
+        # Skip labels for VAs where set-function-prototype already set the name
+        # (avoids creating secondary LABEL symbols that trigger DuplicateNameException).
+        if va in sig_vas or skip_generic_labels and _is_generic_name(name):
             skipped_labels += 1
         else:
             commands.append(
@@ -166,6 +188,7 @@ def build_sync_commands(
                         "programPath": program_path,
                         "addressOrSymbol": va_hex,
                         "labelName": name,
+                        "setAsPrimary": True,
                     },
                 }
             )
@@ -199,7 +222,8 @@ def build_sync_commands(
                 "tool": "set-bookmark",
                 "args": {
                     "programPath": program_path,
-                    "address": va_hex,
+                    "addressOrSymbol": va_hex,
+                    "type": "Note",
                     "category": bm_category,
                     "comment": bm_comment,
                 },
@@ -221,7 +245,7 @@ def build_sync_commands(
                 }
             )
 
-    # Phase 3: Push Data / Globals
+    # Phase 4: Push Data / Globals
     if data_scan is not None:
         # Push variables identified by data_scan.globals
         for name, g_entry in sorted(data_scan.globals.items()):
@@ -238,6 +262,7 @@ def build_sync_commands(
                             "programPath": program_path,
                             "addressOrSymbol": va_hex,
                             "labelName": name,
+                            "setAsPrimary": True,
                         },
                     }
                 )
@@ -270,7 +295,8 @@ def build_sync_commands(
                     "tool": "set-bookmark",
                     "args": {
                         "programPath": program_path,
-                        "address": va_hex,
+                        "addressOrSymbol": va_hex,
+                        "type": "Note",
                         "category": "rebrew/data",
                         "comment": f"Global: {g_entry.type_str} {name}",
                     },
@@ -291,6 +317,7 @@ def build_sync_commands(
                             "programPath": program_path,
                             "addressOrSymbol": va_hex,
                             "labelName": name,
+                            "setAsPrimary": True,
                         },
                     }
                 )
@@ -323,14 +350,15 @@ def build_sync_commands(
                     "tool": "set-bookmark",
                     "args": {
                         "programPath": program_path,
-                        "address": va_hex,
+                        "addressOrSymbol": va_hex,
+                        "type": "Note",
                         "category": "rebrew/data",
                         "comment": f"Data: {name} ({d_entry['size']}B)",
                     },
                 }
             )
 
-    # Phase 4: Push Structs
+    # Phase 5: Push Structs
     if structs:
         for struct_str in structs:
             commands.append(
@@ -338,22 +366,8 @@ def build_sync_commands(
                     "tool": "parse-c-structure",
                     "args": {
                         "programPath": program_path,
-                        "cCode": struct_str,
-                        "categoryPath": "/rebrew",
-                    },
-                }
-            )
-
-    # Phase 5: Push Function Signatures
-    if signatures:
-        for sig_info in signatures:
-            commands.append(
-                {
-                    "tool": "set-function-prototype",
-                    "args": {
-                        "programPath": program_path,
-                        "addressOrSymbol": sig_info["va_hex"],
-                        "prototype": sig_info["signature"],
+                        "cDefinition": struct_str,
+                        "category": "/rebrew",
                     },
                 }
             )
@@ -401,8 +415,9 @@ _MCP_HEADERS = {
     "Content-Type": "application/json",
     "Accept": "application/json, text/event-stream",
 }
+_MCP_REQUEST_TIMEOUT_S = 30
 
-console = Console()
+console = Console(stderr=True)
 
 
 def _fetch_mcp_tool(
@@ -423,7 +438,7 @@ def _fetch_mcp_tool(
     headers = dict(_MCP_HEADERS)
     if session_id:
         headers["Mcp-Session-Id"] = session_id
-    resp = client.post(endpoint, json=payload, headers=headers)
+    resp = client.post(endpoint, json=payload, headers=headers, timeout=_MCP_REQUEST_TIMEOUT_S)
     if resp.status_code != 200:
         return []
     ct = resp.headers.get("content-type", "")
@@ -486,7 +501,7 @@ def _fetch_mcp_tool_raw(
     headers = dict(_MCP_HEADERS)
     if session_id:
         headers["Mcp-Session-Id"] = session_id
-    resp = client.post(endpoint, json=payload, headers=headers)
+    resp = client.post(endpoint, json=payload, headers=headers, timeout=_MCP_REQUEST_TIMEOUT_S)
     if resp.status_code != 200:
         return None
     ct = resp.headers.get("content-type", "")
@@ -535,7 +550,9 @@ def _init_mcp_session(client: Any, endpoint: str) -> str:
             "clientInfo": {"name": "rebrew sync", "version": "1.0.0"},
         },
     }
-    resp = client.post(endpoint, json=init_payload, headers=_MCP_HEADERS)
+    resp = client.post(
+        endpoint, json=init_payload, headers=_MCP_HEADERS, timeout=_MCP_REQUEST_TIMEOUT_S
+    )
     return resp.headers.get("Mcp-Session-Id", "")
 
 
@@ -624,6 +641,122 @@ def _ghidra_name_to_symbol(ghidra_name: str, entry: Any, cfg: ProjectConfig | No
     return "_" + ghidra_name
 
 
+def _fetch_all_symbols(
+    client: Any,
+    endpoint: str,
+    program_path: str,
+    session_id: str,
+    batch_size: int = 200,
+) -> list[dict[str, Any]]:
+    """Fetch all non-default symbols from ReVa MCP with pagination.
+
+    Similar to ``_fetch_all_functions`` but uses ``get-symbols``.
+    Returns dicts with ``address`` and ``name`` keys.
+    """
+    all_syms: list[dict[str, Any]] = []
+    start = 0
+    request_id = 200
+
+    while True:
+        raw = _fetch_mcp_tool(
+            client,
+            endpoint,
+            "get-symbols",
+            {
+                "programPath": program_path,
+                "filterDefaultNames": True,
+                "maxCount": batch_size,
+                "startIndex": start,
+            },
+            request_id,
+            session_id=session_id,
+        )
+        request_id += 1
+
+        metadata = None
+        page_syms: list[dict[str, Any]] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            if "totalCount" in item:
+                metadata = item
+            elif "address" in item or "name" in item:
+                page_syms.append(item)
+
+        all_syms.extend(page_syms)
+
+        if metadata is None or len(page_syms) == 0:
+            break
+        total = metadata.get("totalCount", 0)
+        start = metadata.get("nextStartIndex", start + batch_size)
+        if start >= total:
+            break
+
+    return all_syms
+
+
+def _fetch_all_functions(
+    client: Any,
+    endpoint: str,
+    program_path: str,
+    session_id: str,
+    batch_size: int = 200,
+) -> list[dict[str, Any]]:
+    """Fetch all functions from ReVa MCP with pagination.
+
+    ReVa's ``get-functions`` returns at most *maxCount* entries per call.
+    This helper pages through the full list and normalises the field names
+    to the format expected by ``pull_ghidra_renames`` (``va``, ``ghidra_name``).
+    """
+    all_funcs: list[dict[str, Any]] = []
+    start = 0
+    request_id = 100
+
+    while True:
+        raw = _fetch_mcp_tool(
+            client,
+            endpoint,
+            "get-functions",
+            {
+                "programPath": program_path,
+                "filterDefaultNames": False,
+                "maxCount": batch_size,
+                "startIndex": start,
+            },
+            request_id,
+            session_id=session_id,
+        )
+        request_id += 1
+
+        metadata = None
+        page_funcs: list[dict[str, Any]] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            if "totalCount" in item:
+                metadata = item
+            elif "address" in item or "name" in item:
+                page_funcs.append(item)
+
+        for f in page_funcs:
+            all_funcs.append(
+                {
+                    "va": f.get("address", f.get("va")),
+                    "ghidra_name": f.get("name", f.get("ghidra_name", "")),
+                    "size": f.get("sizeInBytes", f.get("size", 0)),
+                }
+            )
+
+        if metadata is None or len(page_funcs) == 0:
+            break
+        total = metadata.get("totalCount", 0)
+        start = metadata.get("nextStartIndex", start + batch_size)
+        if start >= total:
+            break
+
+    return all_funcs
+
+
 def pull_ghidra_renames(
     entries: list[dict[str, Any]],
     cfg: ProjectConfig,
@@ -662,30 +795,18 @@ def pull_ghidra_renames(
         }
         session_id = ""
         try:
-            init_resp = client.post(endpoint, json=init_payload, headers=_MCP_HEADERS)
+            init_resp = client.post(
+                endpoint, json=init_payload, headers=_MCP_HEADERS, timeout=_MCP_REQUEST_TIMEOUT_S
+            )
             session_id = init_resp.headers.get("Mcp-Session-Id", "")
 
-            functions = _fetch_mcp_tool(
-                client,
-                endpoint,
-                "get-functions",
-                {"programPath": program_path, "filterDefaultNames": False},
-                1,
-                session_id=session_id,
-            )
-            data_labels = _fetch_mcp_tool(
-                client,
-                endpoint,
-                "get-labels",
-                {"programPath": program_path, "filterDefaultNames": False},
-                2,
-                session_id=session_id,
-            )
+            functions = _fetch_all_functions(client, endpoint, program_path, session_id)
+            data_labels = _fetch_all_symbols(client, endpoint, program_path, session_id)
             plate_comments = _fetch_mcp_tool(
                 client,
                 endpoint,
                 "get-comments",
-                {"programPath": program_path, "commentType": "plate"},
+                {"programPath": program_path, "commentTypes": ["plate"]},
                 3,
                 session_id=session_id,
             )
@@ -693,7 +814,7 @@ def pull_ghidra_renames(
                 client,
                 endpoint,
                 "get-comments",
-                {"programPath": program_path, "commentType": "pre"},
+                {"programPath": program_path, "commentTypes": ["pre"]},
                 4,
                 session_id=session_id,
             )
@@ -731,13 +852,13 @@ def pull_ghidra_renames(
 
     ghidra_names_by_va: dict[int, str] = {}
     for f in functions:
-        va = _parse_va(f.get("va"))
-        gname = f.get("ghidra_name")
+        va = _parse_va(f.get("va") or f.get("address"))
+        gname = f.get("ghidra_name") or f.get("name")
         if va is not None and gname:
             ghidra_names_by_va[va] = gname
 
     for d in data_labels:
-        va = _parse_va(d.get("va"))
+        va = _parse_va(d.get("va") or d.get("address"))
         name = d.get("name") or d.get("label") or d.get("ghidra_name")
         if va is not None and name:
             ghidra_names_by_va[va] = name
@@ -973,6 +1094,7 @@ def apply_commands_via_mcp(
                     "Accept": "application/json, text/event-stream",
                     "Content-Type": "application/json",
                 },
+                timeout=_MCP_REQUEST_TIMEOUT_S,
             )
             resp.raise_for_status()
         except httpx.HTTPError as exc:
@@ -1005,6 +1127,7 @@ def apply_commands_via_mcp(
             endpoint,
             json={"jsonrpc": "2.0", "method": "notifications/initialized"},
             headers=headers,
+            timeout=_MCP_REQUEST_TIMEOUT_S,
         )
 
         # Apply each command
@@ -1034,7 +1157,9 @@ def apply_commands_via_mcp(
             }
 
             try:
-                resp = client.post(endpoint, json=payload, headers=headers)
+                resp = client.post(
+                    endpoint, json=payload, headers=headers, timeout=_MCP_REQUEST_TIMEOUT_S
+                )
                 resp.raise_for_status()
                 body = resp.text.strip()
                 if not body:
@@ -1052,13 +1177,27 @@ def apply_commands_via_mcp(
                 if not data:
                     success += 1
                     continue
-                if "error" in data:
-                    errors += 1
-                    va = cmd["args"].get("addressOrSymbol", cmd["args"].get("address", "?"))
-                    if errors <= 5:
-                        print(f"  ERROR at {va} ({cmd['tool']}): {data['error']}")
-                    elif errors == 6:
-                        print("  ... suppressing further errors")
+                is_error = "error" in data
+                error_msg = data.get("error", "")
+                if not is_error:
+                    result = data.get("result", {})
+                    if isinstance(result, dict) and result.get("isError"):
+                        is_error = True
+                        content = result.get("content", [])
+                        if content and isinstance(content[0], dict):
+                            error_msg = content[0].get("text", str(result))
+                        else:
+                            error_msg = str(result)
+                if is_error:
+                    if "already exists" in str(error_msg).lower():
+                        success += 1
+                    else:
+                        errors += 1
+                        va = cmd["args"].get("addressOrSymbol", cmd["args"].get("address", "?"))
+                        if errors <= 5:
+                            print(f"  ERROR at {va} ({cmd['tool']}): {error_msg}")
+                        elif errors == 6:
+                            print("  ... suppressing further errors")
                 else:
                     success += 1
             except httpx.HTTPError as exc:
@@ -1299,7 +1438,7 @@ def _pull_prototypes(
                                     )
                                     new_content = re.sub(pattern, extern_str, content)
                                     if new_content != content:
-                                        src_file.write_text(new_content, encoding="utf-8")
+                                        atomic_write_text(src_file, new_content, encoding="utf-8")
                                 except OSError:
                                     pass
 
@@ -1952,7 +2091,7 @@ def main(
     ):
         error_exit("No action specified. Use --summary, --export, --apply, --push, or --pull.")
 
-    cfg = get_config(target=target)
+    cfg = require_config(target=target)
     reversed_dir = cfg.reversed_dir
     program_path = _resolve_program_path(cfg)
 
@@ -2031,14 +2170,21 @@ def main(
         if sync_signatures and (summary or export or push):
             from rebrew.signature_parser import extract_function_signatures
 
-            # Map from function name (symbol) to VA, ignoring generic names
-            name_to_va = {}
+            # Map from function name (symbol) to VA, ignoring generic names.
+            # Symbols use cdecl convention with leading underscore (e.g.
+            # _AcceptConnections) while the C parser yields the bare name
+            # (AcceptConnections).  Index both the raw symbol and the
+            # stripped version so either form matches.
+            name_to_va: dict[str, str] = {}
             for e in entries:
-                if e.get("marker_type", "FUNCTION") != "FUNCTION":
+                if e.get("marker_type") in ("DATA", "GLOBAL"):
                     continue
                 name = e.get("symbol") or e.get("name")
                 if name and not _is_generic_name(name):
-                    name_to_va[name] = f"0x{e['va']:08X}"
+                    va_hex = f"0x{e['va']:08X}"
+                    name_to_va[name] = va_hex
+                    if name.startswith("_"):
+                        name_to_va[name[1:]] = va_hex
 
             signatures = []
             for cfile in iter_sources(reversed_dir, cfg):
@@ -2186,7 +2332,7 @@ def main(
 
 
 def main_entry() -> None:
-    """Package entry point for ``rebrew-sync``."""
+    """Run the Typer CLI application."""
     app()
 
 

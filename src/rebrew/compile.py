@@ -39,6 +39,15 @@ from rebrew.compile_cache import CompileCache, compile_cache_key, get_compile_ca
 from rebrew.config import ProjectConfig
 from rebrew.matcher.parsers import parse_obj_symbol_bytes
 
+
+def _safe_shlex_split(s: str) -> list[str]:
+    """Split a shell command string, falling back to whitespace split on parse errors."""
+    try:
+        return shlex.split(s)
+    except ValueError:
+        return s.split()
+
+
 # ---------------------------------------------------------------------------
 # Command resolution
 # ---------------------------------------------------------------------------
@@ -71,10 +80,7 @@ def resolve_cl_command(cfg: ProjectConfig) -> list[str]:
     Returns:
         List of command parts, e.g. ``["wine", "/abs/path/CL.EXE"]``.
     """
-    try:
-        cmd_parts = shlex.split(cfg.compiler_command)
-    except ValueError:
-        cmd_parts = cfg.compiler_command.split()
+    cmd_parts = _safe_shlex_split(cfg.compiler_command)
 
     runner = str(getattr(cfg, "compiler_runner", "")).strip()
     if runner and cmd_parts and cmd_parts[0].lower() == runner.lower() and len(cmd_parts) > 1:
@@ -148,10 +154,7 @@ def compile_to_obj(
     # Prepend base_cflags from config (e.g. /nologo /c /MT).
     # This ensures every compile invocation has consistent core flags
     # without requiring callers to remember them.
-    try:
-        base_flags = shlex.split(cfg.base_cflags)
-    except ValueError:
-        base_flags = cfg.base_cflags.split()
+    base_flags = _safe_shlex_split(cfg.base_cflags)
     use_timeout = cfg.compile_timeout
 
     # Resolve relative /I paths in user cflags.  The source file is copied

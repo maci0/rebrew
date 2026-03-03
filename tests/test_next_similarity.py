@@ -44,7 +44,7 @@ def _patch_next(
     def fake_extract_bytes(info, va, size, **kwargs):  # type: ignore[no-untyped-def]
         return byte_map.get(va, b"")
 
-    monkeypatch.setattr("rebrew.next.get_config", fake_get_config)
+    monkeypatch.setattr("rebrew.next.require_config", fake_get_config)
     monkeypatch.setattr("rebrew.next.load_data", fake_load_data)
     monkeypatch.setattr("rebrew.next.load_binary", fake_load_binary)
 

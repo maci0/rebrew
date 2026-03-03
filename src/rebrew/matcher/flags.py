@@ -26,4 +26,4 @@ class Checkbox:
     flag: str
 
 
-Flags = list[FlagSet | Checkbox]
+type Flags = list[FlagSet | Checkbox]

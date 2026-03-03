@@ -43,7 +43,7 @@ class TestExtractFunctionSignatures:
         name, sig = result[0]
         assert name == "add"
         assert "int" in sig
-        assert sig.endswith(";")
+        assert sig.endswith(")")  # no trailing semicolon (Ghidra CParser rejects them)
 
     @_SKIP_NO_TS
     def test_void_function(self, tmp_path: Path) -> None:

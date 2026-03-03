@@ -19,17 +19,12 @@ import typer
 
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va, load_binary
 from rebrew.catalog import parse_function_list, scan_reversed_dir
-from rebrew.cli import TargetOption, error_exit, get_config, json_print, parse_va
+from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
 from rebrew.config import ProjectConfig
 
 # ---------------------------------------------------------------------------
 # Binary helpers
 # ---------------------------------------------------------------------------
-
-
-def load_target_binary(bin_path: Path) -> BinaryInfo:
-    """Load binary and return BinaryInfo."""
-    return load_binary(bin_path)
 
 
 def extract_bytes(binary_info: BinaryInfo, va: int, size: int) -> bytes:
@@ -321,7 +316,7 @@ def main(
         json_output: Emit machine-readable JSON output.
         target: Optional target profile from ``rebrew-project.toml``.
     """
-    cfg = get_config(target=target)
+    cfg = require_config(target=target, json_mode=json_output)
 
     exe_path = exe or cfg.target_binary
     src_dir = cfg.reversed_dir
@@ -361,7 +356,7 @@ def main(
         if not batch_target:
             msg = "extract requires a VA argument (e.g. 0x10001860)"
             error_exit(msg, json_mode=json_output)
-        binary_info = load_target_binary(exe_path)
+        binary_info = load_binary(exe_path)
         target_va = parse_va(batch_target, json_mode=json_output)
         cmd_extract(binary_info, candidates, target_va, bin_dir, cfg=cfg, json_output=json_output)
     elif command == "batch":
@@ -370,7 +365,7 @@ def main(
         except ValueError:
             msg = f"Invalid count '{batch_target}'"
             error_exit(msg, json_mode=json_output)
-        binary_info = load_target_binary(exe_path)
+        binary_info = load_binary(exe_path)
         cmd_batch(binary_info, candidates, count, start, bin_dir, cfg=cfg, json_output=json_output)
     else:
         msg = f"Unknown command '{command}'. Use list, extract, or batch."

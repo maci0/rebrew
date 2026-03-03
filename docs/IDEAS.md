@@ -27,7 +27,7 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 | 19 | [Cross-function solution transfer](#19-cross-function-solution-transfer) | High | High | **P3** | — |
 | 10 | [Callee-save register injection](#10-callee-save-register-injection) | High | High | **P3** | — |
 | 11 | [Watch mode for live Ghidra sync](#11-watch-mode-for-live-ghidra-sync) | Low | High | **P4** | — |
-| 14 | [Surgical Semantic Equivalence with angr](#14-surgical-semantic-equivalence-with-angr) | Medium | High | **P4** | — |
+| 14 | [Surgical Semantic Equivalence with angr](#14-surgical-semantic-equivalence-with-angr) | Medium | High | **P4** | **Done** |
 
 ### Done
 
@@ -37,6 +37,7 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 | 12 | Auto-BLOCKER classification from diffs | `classify_blockers()` in match.py + `--fix-blocker` auto-writes BLOCKER/BLOCKER_DELTA annotations. 20 tests in `test_match_fix_blocker.py` |
 | 13 | Multi-function file splitting tool | Implemented as `rebrew split` (split.py) and `rebrew merge` (merge.py). Split breaks multi-function files into individual files preserving shared preamble. Merge combines files with preamble deduplication and VA-sorted blocks. 20 tests in test_split.py and test_merge.py. |
 | 1 | CRT source cross-reference tool | `rebrew crt-match` indexes configured reference source directories, matches by function name with confidence scoring, detects ASM-only CRT functions, auto-writes `// SOURCE:` annotations. 19 tests in `test_crt_match.py`. |
+| 14 | Surgical Semantic Equivalence with angr | `rebrew prove` in `prove.py`. angr symbolic execution + Z3 constraint solving proves MATCHING functions semantically equivalent. Optional dependency (`[project.optional-dependencies].prove`). |
 | — | Coverage dashboard (HTML) | Implemented as sibling project `recoverage` — consumes `data_{target}.json` |
 
 ---
@@ -193,6 +194,8 @@ Uses `watchdog` or `inotify` to detect file saves and push only the changed anno
 **Impact**: Small quality-of-life improvement for codebase organization.
 
 ### 14. Surgical Semantic Equivalence with angr
+
+> **Status: Done.** Implemented as `rebrew prove` in `prove.py`. Uses angr's symbolic execution engine with the `blob` backend to load function byte blobs, sets up symbolic arguments per calling convention (`__cdecl`, `__thiscall`, `__fastcall`), hooks relocation offsets with `ReturnUnconstrained`, runs LoopSeer-bounded symbolic execution, and compares EAX via Z3 constraint solving. Updates STATUS from MATCHING → PROVEN on success. angr is an optional dependency in `[project.optional-dependencies].prove`. Supports `--json`, `--dry-run`, `--timeout`, and `--loop-bound`. See [ANGR_PROPOSAL.md](ANGR_PROPOSAL.md) for the original proposal.
 
 **Pain**: `MATCHING` functions that are functionally identical but structurally different (due to register allocation, instruction folding, etc.) cannot reach `EXACT`/`RELOC` status through byte diffing alone. This leaves them permanently stuck as "almost complete".
 

@@ -7,6 +7,7 @@ and reports status (EXACT, RELOC, MATCHING, etc.).
 import concurrent.futures
 import hashlib
 import json
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -74,7 +75,7 @@ def verify_entry(
 
 
 console = Console(stderr=True)
-out_console = Console()
+out_console = Console(stderr=True)
 
 app = typer.Typer(
     help="Rebrew verification pipeline: compile each .c and verify bytes match.",
@@ -272,7 +273,6 @@ def main(
         "--root",
         help="Project root directory (auto-detected from rebrew-project.toml if omitted)",
     ),
-    target: str | None = TargetOption,
     jobs: int | None = typer.Option(
         None,
         "-j",
@@ -280,6 +280,7 @@ def main(
         help="Number of parallel compile jobs (default: from [project].jobs or 4)",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
     output_path: str | None = typer.Option(
         None, "--output", "-o", help="Write JSON report to file (default: db/verify_results.json)"
     ),
@@ -287,7 +288,10 @@ def main(
         False, "--fix-status", help="Auto-update STATUS annotations and BLOCKERs"
     ),
     summary: bool = typer.Option(
-        False, "--summary", help="Show summary table with STATUS breakdown and match percentages"
+        False,
+        "--summary",
+        "-s",
+        help="Show summary table with STATUS breakdown and match percentages",
     ),
     diff_mode: bool = typer.Option(
         False,
@@ -297,6 +301,7 @@ def main(
     full: bool = typer.Option(
         False,
         "--full",
+        "-f",
         help=(
             "Force full verification, ignoring cached results "
             "(also required after header/include changes)"
@@ -307,7 +312,7 @@ def main(
     try:
         cfg = get_config(target=target)
     except (FileNotFoundError, KeyError) as exc:
-        error_exit(str(exc))
+        error_exit(str(exc), json_mode=json_output)
     bin_path = cfg.target_binary
     reversed_dir = cfg.reversed_dir
     if jobs is None:
@@ -357,15 +362,21 @@ def main(
     # Verify
 
     if not bin_path.exists():
-        error_exit(f"{bin_path} not found")
+        error_exit(f"{bin_path} not found", json_mode=json_output)
 
-    # Deduplicate: only verify once per VA
+    # Filter out DATA/GLOBAL annotations (not compilable) and deduplicate by VA
     seen_vas: set[int] = set()
     unique_entries: list[Annotation] = []
+    data_count = 0
     for entry in sorted(entries, key=lambda x: x["va"]):
+        if entry.get("marker_type", "FUNCTION") in ("DATA", "GLOBAL"):
+            data_count += 1
+            continue
         if entry["va"] not in seen_vas:
             seen_vas.add(entry["va"])
             unique_entries.append(entry)
+    if data_count and not json_output:
+        console.print(f"Skipped {data_count} DATA/GLOBAL annotations (not compilable)")
 
     passed = 0
     failed = 0
@@ -452,7 +463,7 @@ def main(
             for future in concurrent.futures.as_completed(futures):
                 try:
                     entry, ok, msg, target_bytes, obj_bytes, reloc_offsets = future.result()
-                except Exception as exc:
+                except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
                     entry = futures[future]
                     typer.echo(
                         f"WARNING: internal error verifying {entry.get('name', '?')}: {exc}",

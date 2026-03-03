@@ -8,6 +8,7 @@ import json
 import re
 import warnings
 from pathlib import Path
+from typing import Any
 
 from rebrew.annotation import Annotation, parse_c_file_multi
 from rebrew.catalog.registry import make_func_entry
@@ -18,7 +19,7 @@ from rebrew.config import ProjectConfig
 # ---------------------------------------------------------------------------
 
 
-def load_ghidra_functions(path: Path) -> list[dict[str, object]]:
+def load_ghidra_functions(path: Path) -> list[dict[str, Any]]:
     """Load cached ghidra_functions.json."""
     if not path.exists():
         return []
@@ -41,7 +42,7 @@ def _classify_ghidra_label(label: str) -> str:
     return "data"
 
 
-def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, dict[str, object]]:
+def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, dict[str, Any]]:
     """Load Ghidra data labels → {va: {"size": int, "label": str, "state": str}}.
 
     Tries ghidra_data_labels.json first, falls back to ghidra_switchdata.json
@@ -69,7 +70,7 @@ def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, dict[str, object]
     except (json.JSONDecodeError, OSError):
         return {}
 
-    result: dict[int, dict[str, object]] = {}
+    result: dict[int, dict[str, Any]] = {}
     for entry in entries:
         va = entry.get("va", 0)
         size = entry.get("size", 0)
@@ -87,7 +88,7 @@ def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, dict[str, object]
 _FUNC_LINE_RE = re.compile(r"\s*(0x[0-9a-fA-F]+)\s+(\d+)\s+(\S+)")
 
 
-def parse_function_list(path: Path) -> list[dict[str, object]]:
+def parse_function_list(path: Path) -> list[dict[str, Any]]:
     """Parse function list into list of {va, size, name}."""
     funcs = []
     try:
@@ -144,6 +145,8 @@ def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> l
 
     entries: list[Annotation] = []
     for cfile in iter_sources(reversed_dir, cfg):
-        parsed = parse_c_file_multi(cfile, target_name=cfg.marker if cfg else None)
+        parsed = parse_c_file_multi(
+            cfile, target_name=cfg.marker if cfg else None, base_dir=reversed_dir
+        )
         entries.extend(parsed)
     return entries

@@ -57,9 +57,9 @@ def _detect_obj_format(obj_path: str) -> str:
     """Detect object file format from magic bytes."""
     with open(obj_path, "rb") as f:
         magic = f.read(4)
-    if magic[:4] == b"\x7fELF":
+    if magic == b"\x7fELF":
         return "elf"
-    if magic[:4] in (
+    if magic in (
         b"\xfe\xed\xfa\xce",
         b"\xfe\xed\xfa\xcf",
         b"\xce\xfa\xed\xfe",
@@ -316,41 +316,39 @@ def _list_macho_symbols(obj_path: str) -> list[str]:
 
 
 def parse_obj_symbol_bytes(
-    obj_path: str, symbol: str
+    obj_path: str | Path, symbol: str
 ) -> tuple[bytes | None, dict[int, str] | None]:
     """Extract code bytes + relocation offsets for a symbol from an object file.
 
     Supports COFF ``.obj``, ELF ``.o``, and Mach-O ``.o`` files.
     """
-    obj_path = str(obj_path)
-    fmt = _detect_obj_format(obj_path)
+    path_str = str(obj_path)
+    fmt = _detect_obj_format(path_str)
 
     if fmt == "coff":
-        return _parse_coff_symbol_bytes(obj_path, symbol)
-    elif fmt == "elf":
-        return _parse_elf_symbol_bytes(obj_path, symbol)
-    elif fmt == "macho":
-        return _parse_macho_symbol_bytes(obj_path, symbol)
-    else:
-        return None, None
+        return _parse_coff_symbol_bytes(path_str, symbol)
+    if fmt == "elf":
+        return _parse_elf_symbol_bytes(path_str, symbol)
+    if fmt == "macho":
+        return _parse_macho_symbol_bytes(path_str, symbol)
+    return None, None
 
 
-def list_obj_symbols(obj_path: str) -> list[str]:
+def list_obj_symbols(obj_path: str | Path) -> list[str]:
     """List all public symbols in an object file.
 
     Supports COFF ``.obj``, ELF ``.o``, and Mach-O ``.o`` files.
     """
-    obj_path = str(obj_path)
-    fmt = _detect_obj_format(obj_path)
+    path_str = str(obj_path)
+    fmt = _detect_obj_format(path_str)
 
     if fmt == "coff":
-        return _list_coff_symbols(obj_path)
-    elif fmt == "elf":
-        return _list_elf_symbols(obj_path)
-    elif fmt == "macho":
-        return _list_macho_symbols(obj_path)
-    else:
-        return []
+        return _list_coff_symbols(path_str)
+    if fmt == "elf":
+        return _list_elf_symbols(path_str)
+    if fmt == "macho":
+        return _list_macho_symbols(path_str)
+    return []
 
 
 # ---------------------------------------------------------------------------

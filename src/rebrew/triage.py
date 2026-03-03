@@ -8,13 +8,12 @@ Usage:
 """
 
 import contextlib
-import json
 from importlib import import_module
 from typing import Any
 
 import typer
 
-from rebrew.cli import TargetOption, get_config
+from rebrew.cli import TargetOption, json_print, require_config
 from rebrew.naming import (
     detect_origin,
     detect_unmatchable,
@@ -54,7 +53,7 @@ into a single command for cold-start agent sessions.[/dim]""",
 @app.callback(invoke_without_command=True)
 def main(
     count: int = typer.Option(10, "-n", help="Number of recommendations to include"),
-    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Generate a cold-start triage report."""
@@ -62,7 +61,7 @@ def main(
     from rebrew.flirt import iter_match_offsets
     from rebrew.naming import find_neighbor_file, make_filename
 
-    cfg = get_config(target=target)
+    cfg = require_config(target=target, json_mode=json_output)
     ghidra_funcs, existing, covered_vas = load_data(cfg)
     ignored = ignored_symbols(cfg)
     iat_thunks = cfg.iat_thunks
@@ -231,7 +230,7 @@ def main(
             report["flirt_matches"] = flirt_count
         if flirt_error:
             report["flirt_error"] = flirt_error
-        print(json.dumps(report, indent=2))
+        json_print(report)
     else:
         print("=" * 60)
         print("REBREW TRIAGE REPORT")
@@ -262,7 +261,7 @@ def main(
 
 
 def main_entry() -> None:
-    """Run the triage CLI app."""
+    """Run the Typer CLI application."""
     app()
 
 

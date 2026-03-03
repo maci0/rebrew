@@ -25,7 +25,7 @@ from typing import Any, NotRequired, TypedDict
 import typer
 
 from rebrew.annotation import has_skip_annotation, parse_c_file, resolve_symbol
-from rebrew.cli import TargetOption, get_config
+from rebrew.cli import TargetOption, require_config
 from rebrew.config import ProjectConfig
 from rebrew.utils import atomic_write_text
 
@@ -347,7 +347,7 @@ def find_all_matching(
 def run_flag_sweep(
     stub: StubInfo,
     cfg: ProjectConfig,
-    tier: str = "quick",
+    tier: str = "targeted",
     jobs: int = 4,
 ) -> tuple[float, str, list[tuple[float, str]]]:
     """Run a compiler flag sweep on a single function in-process.
@@ -666,9 +666,9 @@ def main(
         False, "--flag-sweep", help="Batch flag sweep on all MATCHING functions (no GA mutations)"
     ),
     tier: str = typer.Option(
-        "quick",
+        "targeted",
         "--tier",
-        help="Flag sweep tier: quick (~192), targeted (~1.1K), normal (~21K), thorough (~1M)",
+        help="Flag sweep tier: quick (~192), targeted (~1.1K), normal (~21K), thorough (~1M). Default: targeted.",
     ),
     fix_cflags: bool = typer.Option(
         False,
@@ -679,7 +679,7 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Run GA or batch flag sweep across STUB/MATCHING functions."""
-    cfg = get_config(target=target)
+    cfg = require_config(target=target)
     if jobs is None:
         jobs = int(cfg.default_jobs)
 

@@ -12,10 +12,13 @@ from pathlib import Path
 
 import typer
 
-from rebrew.cli import TargetOption, error_exit
+from rebrew.cli import TargetOption, error_exit, json_print
+from rebrew.utils import atomic_write_text
 
 
-def build_db(project_root: Path | None = None, target: str | None = None) -> None:
+def build_db(
+    project_root: Path | None = None, target: str | None = None, json_output: bool = False
+) -> None:
     """Aggregate ``data_*.json`` files into ``db/coverage.db``."""
     root_dir = Path(project_root).resolve() if project_root else Path.cwd().resolve()
     db_dir = root_dir / "db"
@@ -181,7 +184,10 @@ def build_db(project_root: Path | None = None, target: str | None = None) -> Non
         if target:
             json_files = [f for f in json_files if f.stem.removeprefix("data_") == target]
         if not json_files:
-            error_exit("No data_*.json files found in db/. Run 'rebrew catalog --json' first.")
+            error_exit(
+                "No data_*.json files found in db/. Run 'rebrew catalog --json' first.",
+                json_mode=json_output,
+            )
 
         for json_path in json_files:
             target_name = json_path.stem.removeprefix("data_")
@@ -402,10 +408,20 @@ def build_db(project_root: Path | None = None, target: str | None = None) -> Non
             )
 
         c.execute("COMMIT")
-        print(f"Database built successfully at {db_path}")
 
         # Generate CATALOG.md from DB for each target
-        _generate_catalogs(conn, root_dir)
+        catalog_paths = _generate_catalogs(conn, root_dir, json_output=json_output)
+
+        if json_output:
+            json_print(
+                {
+                    "db_path": str(db_path),
+                    "targets_processed": [f.stem.removeprefix("data_") for f in json_files],
+                    "catalog_paths": [str(p) for p in catalog_paths],
+                }
+            )
+        else:
+            print(f"Database built successfully at {db_path}")
     except BaseException:
         if conn is not None:
             with contextlib.suppress(sqlite3.Error):
@@ -416,8 +432,11 @@ def build_db(project_root: Path | None = None, target: str | None = None) -> Non
             conn.close()
 
 
-def _generate_catalogs(conn: sqlite3.Connection, root_dir: Path) -> None:
+def _generate_catalogs(
+    conn: sqlite3.Connection, root_dir: Path, *, json_output: bool = False
+) -> list[Path]:
     """Generate CATALOG.md files from DB data (DB is single source of truth)."""
+    catalog_paths: list[Path] = []
     c = conn.cursor()
     c.execute("SELECT DISTINCT target FROM functions")
     targets = [row[0] for row in c.fetchall()]
@@ -514,8 +533,12 @@ def _generate_catalogs(conn: sqlite3.Connection, root_dir: Path) -> None:
         out_dir = target_dirs.get(target_name, root_dir / "db")
         out_dir.mkdir(parents=True, exist_ok=True)
         catalog_path = out_dir / "CATALOG.md"
-        catalog_path.write_text(catalog_text, encoding="utf-8")
-        print(f"Generated {catalog_path}")
+        atomic_write_text(catalog_path, catalog_text, encoding="utf-8")
+        catalog_paths.append(catalog_path)
+        if not json_output:
+            print(f"Generated {catalog_path}")
+
+    return catalog_paths
 
 
 app = typer.Typer(
@@ -550,10 +573,11 @@ def main(
         "--root",
         help="Project root directory",
     ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """CLI entry point for rebrew build-db."""
-    build_db(root, target=target)
+    build_db(root, target=target, json_output=json_output)
 
 
 def main_entry() -> None:

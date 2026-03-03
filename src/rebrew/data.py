@@ -12,7 +12,7 @@ Also provides:
 
 import re
 import struct
-import sys
+import warnings
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -228,10 +228,10 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                 # Next line should be the declaration
                 decl = lines[i + 1].strip() if i + 1 < len(lines) else ""
                 if not decl:
-                    print(
-                        f"Warning: {fname}:{i + 1}: // GLOBAL: annotation at 0x{va:08x} "
+                    warnings.warn(
+                        f"{fname}:{i + 1}: // GLOBAL: annotation at 0x{va:08x} "
                         f"has no declaration on the following line",
-                        file=sys.stderr,
+                        stacklevel=2,
                     )
                 name = "unknown"
                 type_str = ""
@@ -721,7 +721,9 @@ def _generate_bss_fix(report: BssReport, src_dir: Path, origin: str) -> None:
         lines.append(f"// NOTE: gap between {gap.before} and {gap.after}")
         lines.append(f"char gap_{gap.offset:08x}[{gap.size}];\n")
 
-    out_file.write_text("\n".join(lines), encoding="utf-8")
+    from rebrew.utils import atomic_write_text
+
+    atomic_write_text(out_file, "\n".join(lines), encoding="utf-8")
     print(f"Generated {out_file.name} with {len(report.gaps)} padding array(s).")
     print("Compile this file to perfectly align your .bss segment.")
 
@@ -885,7 +887,6 @@ annotations to track data-section coverage.[/dim]""",
 
 @app.callback(invoke_without_command=True)
 def main(
-    target: str | None = TargetOption,
     conflicts: bool = typer.Option(
         False, "--conflicts", help="Show only globals with type conflicts"
     ),
@@ -900,12 +901,13 @@ def main(
         False, "--fix-bss", help="Auto-generate bss_padding.c with dummy arrays for detected gaps"
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
 ) -> None:
     """Scan reversed source files for global data declarations."""
     try:
         cfg = get_config(target=target)
     except (FileNotFoundError, KeyError) as exc:
-        error_exit(str(exc))
+        error_exit(str(exc), json_mode=json_output)
 
     src_dir = cfg.reversed_dir
     bin_path = cfg.target_binary
@@ -946,7 +948,7 @@ def main(
     # Dispatch table mode
     if dispatch:
         if not bin_path or not bin_path.exists():
-            error_exit("target binary not found (needed for --dispatch)")
+            error_exit("target binary not found (needed for --dispatch)", json_mode=json_output)
 
         from rebrew.annotation import parse_c_file_multi
         from rebrew.binary_loader import load_binary
