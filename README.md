@@ -6,34 +6,67 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 
 ## ✨ Features
 
-- **Global rename** — `rebrew rename` renames a function, updates its `// SYMBOL:`, renames the file if applicable, and updates cross-references across the entire codebase.
-- **Skeleton generation** — `rebrew skeleton` creates annotated `.c` stubs from VAs with optional inline decompilation (`--decomp`) via r2ghidra, r2dec, or Ghidra; `--xrefs` embeds caller context from Ghidra cross-references
-- **Compile-and-compare** — `rebrew test` compiles your C and diffs it byte-by-byte against the original binary
-- **GA matching engine** — `rebrew match` uses a genetic algorithm to brute-force compiler flags and mutate source code to find exact byte matches; structural similarity metric distinguishes flag-fixable vs structural differences
-- **Batch GA** — `rebrew ga` runs GA across all STUB functions unattended; `--near-miss` targets MATCHING functions with small byte deltas; `--flag-sweep` sweeps compiler flags across all MATCHING functions with priority queuing
-- **Annotation pipeline** — `rebrew lint` validates `// FUNCTION:`, `// STATUS:`, `// ORIGIN:` annotations across the codebase (E000–E017, W001–W017)
-- **Verification** — `rebrew verify` bulk-compiles every reversed function and reports match status with a progress bar; `--fix-status` auto-updates `// STATUS:` and `// BLOCKER:` annotations; `--summary` shows a table with EXACT/RELOC/MATCHING breakdown and match percentages; `--json` emits timestamped structured reports to `db/verify_results.json`; `--diff` detects regressions against the last saved report (exit code 1 for CI)
-- **Smart prioritization** — `rebrew next` recommends functions to work on, auto-filters unmatchable stubs, and shows byte-delta for near-miss MATCHING functions
-- **Dependency graph** — `rebrew graph` builds call graphs from `extern` declarations in mermaid, DOT, or summary format with focus mode
-- **Global data scanner** — `rebrew data` inventories `.data`/`.rdata`/`.bss` globals, detects type conflicts, finds dispatch tables / vtables (`--dispatch`), verifies BSS layout (`--bss`), and supports `// DATA:` annotations for first-class data tracking
-- **Status tracking** — `rebrew status` gives a per-target breakdown of EXACT/RELOC/MATCHING/STUB counts
-- **Atomic promotion** — `rebrew promote` tests a function and atomically updates its STATUS annotation; `--all` for batch promotion with `--dir` and `--origin` filters; `--dry-run` to preview
-- **Cold-start triage** — `rebrew triage` combines coverage stats, FLIRT scan, near-miss list, and recommendations into a single report for agent sessions
-- **Diagnostic check** — `rebrew doctor` validates project health (config, compiler, includes/libs, binary); `--install-wibo` auto-downloads wibo as a lightweight Wine alternative
-- **FLIRT scanning** — `rebrew flirt` identifies known library functions via FLIRT signatures (`.sig`/`.pat`), no IDA required
-- **CRT source matching** — `rebrew crt-match` cross-references binary functions against configured CRT/library source directories (MSVC6 CRT, zlib, etc.); auto-detects ASM-only functions; `--fix-source` writes `// SOURCE:` annotations; supports `--all` batch mode with `--origin` filter
-- **NASM extraction** — `rebrew nasm` extracts function bytes and produces NASM-reassembleable ASM with round-trip verification
-- **File splitting** — `rebrew split` breaks multi-function `.c` files into individual single-function files, preserving shared preamble (includes, defines) and generating filenames from `SYMBOL` annotations
-- **File merging** — `rebrew merge` combines multiple single-function files into one multi-function file with preamble deduplication and VA-sorted function blocks
-- **Compilation unit inference** — `rebrew cu-map` infers translation unit boundaries from .text layout contiguity and call-graph analysis; clusters functions that were likely compiled from the same source file
-- **Semantic equivalence proving** — `rebrew prove` uses angr symbolic execution + Z3 constraint solving to mathematically prove MATCHING functions are semantically equivalent; updates STATUS to PROVEN; optional dependency (`uv pip install -e ".[prove]"`)
-- **Multi-target** — all tools read from `rebrew-project.toml` with `--target` selection; supports maintaining multi-target `// FUNCTION:` blocks (e.g. LEGO1 vs BETA10) in the exact same C file by auto-filtering inactive targets; supports PE, ELF, Mach-O across x86, x64, ARM32/64
-- **Rich CLI help** — every tool has detailed `--help` with usage examples, context, and prerequisites via Typer's `rich_markup_mode`
-- **Compile cache** — disk-backed SHA-256 keyed cache avoids redundant recompilations across `rebrew match`, `rebrew ga`, and `rebrew test`; `rebrew cache stats` / `rebrew cache clear` for management
+### Core Loop
+
+| Tool | What it does |
+|------|-------------|
+| `rebrew test` | Compile your C and diff it byte-by-byte against the original binary |
+| `rebrew match` | GA engine — brute-force compiler flags and mutate source to find exact byte matches |
+| `rebrew ga` | Batch GA across all STUBs; `--near-miss` for close matches; `--flag-sweep` for flag search |
+| `rebrew verify` | Bulk compile + report match status; `--fix-status` auto-updates annotations; `--diff` for CI regression checks |
+| `rebrew prove` | Symbolic equivalence via angr + Z3 — mathematically prove MATCHING functions are equivalent |
+
+### Authoring
+
+| Tool | What it does |
+|------|-------------|
+| `rebrew skeleton` | Generate annotated `.c` stubs from VAs; `--decomp` for inline decompilation; `--xrefs` for caller context |
+| `rebrew rename` | Rename a function across the entire codebase (symbol, filename, cross-references) |
+| `rebrew split` | Break multi-function `.c` files into individual single-function files |
+| `rebrew merge` | Combine single-function files into one multi-function file |
+| `rebrew lint` | Validate annotation correctness (E000–E017, W001–W017) |
+| `rebrew promote` | Test + atomically update STATUS; `--all` for batch promotion |
+
+### Analysis
+
+| Tool | What it does |
+|------|-------------|
+| `rebrew next` | Smart prioritization — recommends what to work on next |
+| `rebrew triage` | Cold-start report: coverage stats, FLIRT scan, near-miss list, recommendations |
+| `rebrew status` | Per-target breakdown of EXACT / RELOC / MATCHING / STUB counts |
+| `rebrew graph` | Call graph from `extern` declarations (mermaid, DOT, summary) |
+| `rebrew data` | Inventory `.data`/`.rdata`/`.bss` globals; detect dispatch tables and vtables |
+| `rebrew cu-map` | Infer compilation unit boundaries from .text layout and call graph |
+| `rebrew flirt` | Identify known library functions via FLIRT signatures — no IDA required |
+| `rebrew crt-match` | Cross-reference functions against CRT/library source directories |
+
+### Infrastructure
+
+| Tool | What it does |
+|------|-------------|
+| `rebrew init` | Scaffold a new project with config, directories, and agent skills |
+| `rebrew doctor` | Validate project health (config, compiler, binary); `--install-wibo` |
+| `rebrew catalog` | Build function catalog and coverage JSON |
+| `rebrew build-db` | Build SQLite coverage database from catalog |
+| `rebrew cache` | Compile cache management (`stats`, `clear`) |
+| `rebrew cfg` | Read/write `rebrew-project.toml` settings |
+| `rebrew extract` | Batch extract function bytes and disassembly |
+| `rebrew nasm` | Extract NASM-reassembleable ASM with round-trip verification |
+| `rebrew asm` | Quick offline disassembly |
+| `rebrew sync` | Push/pull annotations, labels, structs, and comments to Ghidra via ReVa MCP |
+
+### Design
+
+- **Config-driven** — all tools read from `rebrew-project.toml`, zero manual path arguments
+- **Multi-target** — PE, ELF, Mach-O across x86, x64, ARM32/64 with `--target` selection
+- **Idempotent** — every tool safe to re-run without side effects
+- **Composable** — small single-purpose tools designed for scripting and AI agent chaining
+- **Compile cache** — disk-backed SHA-256 cache avoids redundant recompilations
 - **Agent-friendly** — bundled `agent-skills/` copied to projects on `rebrew init`
 
-## Agent Skills
-The project includes five `agent-skills` for AI coding agent integration:
+### Agent Skills
+
+Five bundled skills for AI coding agent integration:
 
 | Skill | Purpose |
 |-------|---------|
@@ -43,48 +76,28 @@ The project includes five `agent-skills` for AI coding agent integration:
 | `rebrew-intake` | Binary onboarding, triage, and initial FLIRT scanning |
 | `rebrew-ghidra-sync` | Ghidra ↔ Rebrew sync via ReVa MCP |
 
-See the `src/rebrew/agent-skills/` directory for the SKILL.md files.
-
-### ❓ What is Rebrew?
-
-Rebrew is the engine behind binary-matching game decompilation. When you are writing C arrays, structs, and logic to perfectly match a 25-year-old compiled game binary, Rebrew orchestrates the constant cycle of compiling your C code and diffing it against the original binary to tell you how close you are to an exact match.
-
-### 🎯 Core Principles
-
-- **Idempotent**: Every tool can be run repeatedly with the same result. `rebrew catalog`, `rebrew verify`, `rebrew cfg`, `rebrew init` — running them twice changes nothing the second time. No destructive side effects.
-- **Config-driven**: All tools read from `rebrew-project.toml` — zero manual path arguments needed.
-- **Composable**: Tools are small, single-purpose, and designed to be chained by scripts or AI agents.
-- **Genetic Algorithm (GA) Search Engine**: Brute-forcing compiler flags and mutating source code AST to discover the exact code changes needed to fix compiler discrepancies.
-
-## 🚀 Quick Start & Setup
-
-Rebrew is designed to be consumed as a dependency by a project-specific decomp repo (e.g., [guild-rebrew](../guild-rebrew/)).
-
-### 1. Installation
+## 🚀 Quick Start
 
 ```bash
+# 1. Install
 uv tool install git+https://github.com/maci0/rebrew.git
+
+# 2. Create a project
+mkdir my-decomp && cd my-decomp
+rebrew init --target server --binary server.dll
+
+# 3. Place your binary
+cp /path/to/server.dll original/
+
+# 4. Start reversing
+rebrew doctor                       # verify setup
+rebrew triage                       # assess scope
+rebrew skeleton 0x10003DA0          # generate first stub
+rebrew test src/server/func_10003da0.c  # compile and compare
 ```
 
-### 2. Project Configuration (`rebrew-project.toml`)
-
-Each decomp project provides a `rebrew-project.toml` in its root. Rebrew finds it by searching upward from the current working directory (similar to how `git` finds `.git/`).
-
-```toml
-[targets.target_name]
-binary = "original/target.dll"
-format = "pe"
-arch = "x86_32"
-reversed_dir = "src/target_name"
-function_list = "src/target_name/functions.txt"
-bin_dir = "bin/target_name"
-
-[compiler]
-profile = "msvc6"
-command = "wine tools/MSVC600/VC98/Bin/CL.EXE"
-includes = "tools/MSVC600/VC98/Include"
-libs = "tools/MSVC600/VC98/Lib"
-```
+`rebrew init` creates `rebrew-project.toml`, source/bin directories, and agent skills.
+All tools find the config by searching upward from the current directory (like `git` finds `.git/`).
 
 ## 💻 Usage & Workflow
 
