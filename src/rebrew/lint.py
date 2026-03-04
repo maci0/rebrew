@@ -6,7 +6,6 @@ Supports --fix mode to auto-migrate from old format to new format.
 Inspired by reccmp's decomplint tool.
 """
 
-import contextlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -195,7 +194,7 @@ def _parse_header(lines: list[str]) -> tuple[dict[str, str], dict[str, bool]]:
 
     pending_kv: dict[str, str] = {}
 
-    for _i, line in enumerate(lines[:20], 1):
+    for line in lines[:20]:
         stripped = line.strip()
         if not stripped:
             continue
@@ -389,7 +388,9 @@ def _check_E007_E008_size(result: LintResult, found_keys: dict[str, str]) -> Non
             result.error(result.marker_line, "E008", f"Invalid SIZE: {found_keys['SIZE']}")
 
 
-def _check_W018_cflags(result: LintResult, found_keys: dict[str, str], cfg: Any) -> None:
+def _check_W018_cflags(
+    result: LintResult, found_keys: dict[str, str], cfg: ProjectConfig | None
+) -> None:
     has_annotation = "CFLAGS" in found_keys and found_keys["CFLAGS"].strip()
     if has_annotation:
         return
@@ -895,8 +896,12 @@ def main(
 ) -> None:
     """Lint annotation standards in decomp C source files."""
     cfg = None
-    with contextlib.suppress(FileNotFoundError, KeyError, ValueError):
+    try:
         cfg = get_config(target=target)
+    except FileNotFoundError:
+        pass  # No config file — lint without config-aware rules
+    except (KeyError, ValueError) as exc:
+        out_console.print(f"[yellow]Warning: config error ({exc}); config-aware rules disabled[/]")
 
     reversed_dir = cfg.reversed_dir if cfg else None
 

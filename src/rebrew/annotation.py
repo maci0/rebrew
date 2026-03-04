@@ -22,7 +22,8 @@ from __future__ import annotations
 
 import contextlib
 import re
-from dataclasses import dataclass, field
+import warnings
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -190,11 +191,11 @@ def normalize_status(raw: str) -> str:
     ``MATCHING`` and ``RELOC`` because it contains both as substrings.
     """
     s = raw.strip().upper()
-    if "EXACT" in s:
-        return "EXACT"
-    # MATCHING_RELOC must precede MATCHING and RELOC (substring containment)
+    # MATCHING_RELOC must precede both MATCHING and RELOC (substring containment)
     if "MATCHING_RELOC" in s:
         return "MATCHING_RELOC"
+    if "EXACT" in s:
+        return "EXACT"
     if "MATCHING" in s:
         return "MATCHING"
     if "RELOC" in s:
@@ -304,7 +305,7 @@ class Annotation:
 
     def __contains__(self, key: str) -> bool:
         attr = _FIELD_ALIASES.get(key, key)
-        return hasattr(self, attr)
+        return attr in {f.name for f in fields(self)}
 
     def get(self, key: str, default: Any = None) -> Any:
         """Return the value for *key*, or *default* if not present."""
@@ -371,7 +372,7 @@ class Annotation:
             errors.append(f"Invalid SIZE: {self.size}")
 
         # Validate CFLAGS format if present (not required — falls back to target default)
-        if self.cflags and self.cflags.strip():
+        if self.cflags.strip():
             flags = self.cflags.strip().split()
             for flag in flags:
                 if not flag.startswith("/") and not flag.startswith("-"):
@@ -463,7 +464,8 @@ def update_size_annotation(filepath: Path, new_size: int) -> bool:
     """
     try:
         text = filepath.read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    except OSError as e:
+        warnings.warn(f"Cannot read {filepath} for size update: {e}", stacklevel=2)
         return False
 
     size_re = re.compile(r"(//\s*SIZE:\s*)(\d+)")
@@ -489,7 +491,7 @@ def parse_old_format(line: str) -> Annotation | None:
     origin = m.group("origin").strip().upper()
     cflags = normalize_cflags(m.group("cflags"))
     name = m.group("name")
-    module = m.groupdict().get("module", "") or ""
+    module = ""  # OLD_RE has no module group; always empty for legacy format
 
     mt = marker_for_origin(origin, status)
 
@@ -709,7 +711,7 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
 
         # Check for a new marker line (starts a new block)
         m = NEW_FUNC_CAPTURE_RE.match(stripped) or BLOCK_FUNC_CAPTURE_RE.match(stripped)
-        if m and m.group("type") in ("FUNCTION", "LIBRARY", "STUB"):
+        if m and m.group("type") in ("FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"):
             # Save pending KV before flush (flush clears pending_kv)
             saved_pending = dict(pending_kv)
             # Flush the previous block before starting a new one
@@ -820,7 +822,7 @@ def parse_source_metadata(source_path: str | Path) -> dict[str, str]:
     # Map Annotation fields → the uppercase keys callers look up
     if anno.marker_type:
         # e.g. meta["FUNCTION"] = "SERVER 0x10001a60"
-        va_hex = f"0x{anno.va:08x}" if anno.va is not None else ""
+        va_hex = f"0x{anno.va:08x}"
         meta[anno.marker_type] = va_hex
     if anno.status:
         meta["STATUS"] = anno.status
@@ -856,7 +858,8 @@ def update_annotation_key(filepath: Path, va: int, key: str, new_value: str) -> 
     """
     try:
         text = filepath.read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    except OSError as e:
+        warnings.warn(f"Cannot read {filepath} for annotation update: {e}", stacklevel=2)
         return False
 
     lines = text.splitlines(keepends=True)
@@ -1060,7 +1063,8 @@ def remove_annotation_key(filepath: Path, va: int, key: str) -> bool:
     """
     try:
         text = filepath.read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    except OSError as e:
+        warnings.warn(f"Cannot read {filepath} for annotation removal: {e}", stacklevel=2)
         return False
 
     lines = text.splitlines(keepends=True)

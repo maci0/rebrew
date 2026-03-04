@@ -32,6 +32,9 @@ def _filter_wine_stderr(text: str) -> str:
     return filter_wine_stderr(text)
 
 
+# Fallback function size when neither LIEF nor MAP heuristics produce a result
+_DEFAULT_SYMBOL_SIZE = 1000
+
 # Pre-compiled regex for MAP file symbol parsing
 _MAP_SYM_RE = re.compile(
     r"^\s*\d+:[0-9a-fA-F]+\s+\S+\s+([0-9a-fA-F]+)",
@@ -222,7 +225,7 @@ def build_candidate_obj_only(
         obj_path = workdir / obj_name
 
         if r.returncode != 0 or not obj_path.exists():
-            err_output = _filter_wine_stderr((r.stdout + r.stderr).decode(errors="replace"))[:4000]
+            err_output = _filter_wine_stderr((r.stdout + r.stderr).decode(errors="replace"))
             detailed_err = f"Command: {' '.join(cmd)}\nReturn code: {r.returncode}\nObj Exists: {obj_path.exists()}\nOutput: {err_output}"
             return BuildResult(ok=False, error_msg=detailed_err)
 
@@ -306,7 +309,7 @@ def build_candidate(
 
         size = _get_pe_symbol_size(exe_path, symbol)
         if size is None:
-            size = 1000
+            size = _DEFAULT_SYMBOL_SIZE
             for m_next in _MAP_SYM_RE.finditer(map_text, m.end()):
                 next_va = int(m_next.group(1), 16)
                 estimated = next_va - va

@@ -1772,12 +1772,50 @@ def _pull_data(
             candidate = f"g_{candidate}"
         return candidate
 
+    _GHIDRA_TYPE_MAP: dict[str, str] = {
+        "string": "char",
+        "terminatedcstring": "char",
+        "dword": "unsigned int",
+        "byte": "unsigned char",
+        "uchar": "unsigned char",
+        "ushort": "unsigned short",
+        "word": "unsigned short",
+        "wchar16": "unsigned short",
+        "unicode": "unsigned short",
+        "sbyte": "signed char",
+        "short": "short",
+        "uint": "unsigned int",
+        "ulong": "unsigned long",
+        "long": "long",
+        "longlong": "long long",
+        "ulonglong": "unsigned long long",
+        "float": "float",
+        "double": "double",
+        "bool": "int",
+    }
+
+    def _normalize_ghidra_type(dtype: str) -> str:
+        """Map Ghidra-specific type names to valid C89 types."""
+        lower = dtype.strip().lower()
+        mapped = _GHIDRA_TYPE_MAP.get(lower)
+        if mapped:
+            return mapped
+        return dtype.strip()
+
     def _build_extern_decl(data_type: str, symbol_name: str, length: int) -> tuple[str, str]:
         dtype = data_type.strip()
         lower = dtype.lower()
 
         if lower in {"pointer", "pointer32"}:
             return f"extern void* {symbol_name};", ""
+
+        ptr_match = re.fullmatch(r"(.+?)\s*\*", dtype)
+        if ptr_match:
+            base = ptr_match.group(1).strip()
+            base_lower = base.lower()
+            if re.fullmatch(r"undefined(\d+)?", base_lower):
+                return f"extern void* {symbol_name};", ""
+            return f"extern {_normalize_ghidra_type(base)}* {symbol_name};", ""
 
         undef_match = re.fullmatch(r"undefined(\d+)?", lower)
         if undef_match:
@@ -1788,12 +1826,18 @@ def _pull_data(
 
         arr_match = re.fullmatch(r"(.+?)\[(.+)\]", dtype)
         if arr_match:
-            base = arr_match.group(1).strip()
+            base = _normalize_ghidra_type(arr_match.group(1).strip())
             dim = arr_match.group(2).strip()
             return f"extern {base} {symbol_name}[{dim}];", ""
 
         if dtype:
-            return f"extern {dtype} {symbol_name};", ""
+            c_type = _normalize_ghidra_type(dtype)
+            is_string_type = lower in {"string", "terminatedcstring"}
+            if is_string_type and length > 0:
+                return f"extern {c_type} {symbol_name}[{length}];", ""
+            elif is_string_type:
+                return f"extern {c_type} {symbol_name}[];", ""
+            return f"extern {c_type} {symbol_name};", ""
 
         if length > 0:
             return f"extern unsigned char {symbol_name}[{length}];", "unknown type"
@@ -1802,11 +1846,13 @@ def _pull_data(
     console.print("Pulling data labels from Ghidra...")
 
     sections: list[Any] = []
-    with contextlib.suppress(Exception):
+    try:
         from rebrew.binary_loader import load_binary
 
         binary_info = load_binary(cfg.target_binary, getattr(cfg, "format", "auto"))
         sections = list(binary_info.sections.values())
+    except (ImportError, OSError, ValueError, AttributeError) as e:
+        console.print(f"[yellow]Warning: Could not load binary sections: {e}[/yellow]")
 
     with httpx.Client(timeout=30.0) as client:
         try:
@@ -1939,6 +1985,21 @@ def _pull_data(
         return
 
     rows.sort(key=lambda x: int(x["va"]))
+
+    seen_va: set[int] = set()
+    deduped: list[dict[str, Any]] = []
+    for row in rows:
+        va = int(row["va"])
+        if va in seen_va:
+            continue
+        seen_va.add(va)
+        deduped.append(row)
+
+    dup_count = len(rows) - len(deduped)
+    if dup_count:
+        console.print(f"  Deduplicated {dup_count} duplicate address(es)")
+    rows = deduped
+
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         sec = str(row.get("section") or "")

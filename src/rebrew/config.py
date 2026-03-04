@@ -30,7 +30,7 @@ import sys
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypedDict
 
 
 def _config_warn(msg: str) -> None:
@@ -50,7 +50,16 @@ def _config_warn(msg: str) -> None:
 # Architecture presets
 # ---------------------------------------------------------------------------
 
-_ARCH_PRESETS: dict[str, dict[str, str | int | list[int]]] = {
+
+class _ArchPreset(TypedDict):
+    capstone_arch: str
+    capstone_mode: str
+    pointer_size: int
+    padding_bytes: list[int]
+    symbol_prefix: str
+
+
+_ARCH_PRESETS: dict[str, _ArchPreset] = {
     "x86_32": {
         "capstone_arch": "CS_ARCH_X86",
         "capstone_mode": "CS_MODE_32",
@@ -350,6 +359,15 @@ def _parse_str_list(values: list[Any] | None, field_name: str) -> list[str]:
     return result
 
 
+def _safe_int(value: Any, default: int) -> int:
+    """Convert *value* to int, returning *default* on failure."""
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        _config_warn(f"Expected integer, got {value!r}; using default {default}")
+        return default
+
+
 def _resolve(root: Path, rel: str | None) -> Path | None:
     """Resolve a path relative to project root.  Returns *None* if *rel* is ``None``."""
     if rel is None:
@@ -417,6 +435,75 @@ def _find_root(start: Path | None = None) -> Path:
     )
 
 
+# ---------------------------------------------------------------------------
+# Known TOML keys — validated at load time to catch typos
+# ---------------------------------------------------------------------------
+
+_KNOWN_TOP_KEYS = {"targets", "compiler", "project"}
+
+_KNOWN_TARGET_KEYS = {
+    "binary",
+    "arch",
+    "format",
+    "marker",
+    "origins",
+    "reversed_dir",
+    "function_list",
+    "bin_dir",
+    "compiler",
+    "cflags_presets",
+    "default_origin",
+    "origin_prefixes",
+    "r2_bogus_vas",
+    "game_range_end",
+    "iat_thunks",
+    "dll_exports",
+    "zlib_vas",
+    "ignored_symbols",
+    "library_origins",
+    "origin_comments",
+    "origin_todos",
+    "crt_sources",
+    "source_ext",
+    "ghidra_program_path",
+}
+
+_KNOWN_COMPILER_KEYS = {
+    "command",
+    "runner",
+    "includes",
+    "libs",
+    "cflags",
+    "profile",
+    "cflags_presets",
+    "profiles",
+    "origins",
+    "base_cflags",
+    "timeout",
+}
+
+_KNOWN_PROJECT_KEYS = {
+    "name",
+    "jobs",
+    "db_dir",
+    "output_dir",
+}
+
+_KNOWN_ORIGIN_COMPILER_KEYS = {
+    "command",
+    "runner",
+    "includes",
+    "libs",
+    "cflags",
+    "profile",
+    "base_cflags",
+    "timeout",
+}
+
+_KNOWN_FORMATS = {"pe", "elf", "macho"}
+_KNOWN_PROFILES = {"msvc6", "msvc7", "gcc", "clang"}
+
+
 def load_config(
     root: Path | None = None,
     target: str | None = None,
@@ -437,59 +524,6 @@ def load_config(
         raw = tomllib.load(f)
 
     # --- Validate known keys to catch typos ---
-    _KNOWN_TOP_KEYS = {"targets", "compiler", "project"}
-
-    # Per-target keys: binary location, architecture, format, annotation marker,
-    # per-origin compile flags, known symbol sets for filtering, and the
-    # ignored_symbols list used by ga.py to skip non-matchable functions.
-    _KNOWN_TARGET_KEYS = {
-        "binary",
-        "arch",
-        "format",
-        "marker",
-        "origins",
-        "reversed_dir",
-        "function_list",
-        "bin_dir",
-        "compiler",
-        "cflags_presets",
-        "default_origin",
-        "origin_prefixes",
-        "r2_bogus_vas",
-        "game_range_end",
-        "iat_thunks",
-        "dll_exports",
-        "zlib_vas",
-        "ignored_symbols",
-        "library_origins",
-        "origin_comments",
-        "origin_todos",
-        "crt_sources",
-        "source_ext",
-        "ghidra_program_path",
-    }
-
-    _KNOWN_COMPILER_KEYS = {
-        "command",
-        "runner",
-        "includes",
-        "libs",
-        "cflags",
-        "profile",
-        "cflags_presets",
-        "profiles",
-        "origins",
-        "base_cflags",
-        "timeout",
-    }
-
-    _KNOWN_PROJECT_KEYS = {
-        "name",
-        "jobs",
-        "db_dir",
-        "output_dir",
-    }
-
     unknown_top = set(raw) - _KNOWN_TOP_KEYS
     if unknown_top:
         _config_warn(
@@ -506,17 +540,6 @@ def load_config(
                 _config_warn(
                     f"rebrew-project.toml [{sec_name}]: unrecognized keys: {unknown_sec}",
                 )
-    _KNOWN_ORIGIN_COMPILER_KEYS = {
-        "command",
-        "runner",
-        "includes",
-        "libs",
-        "cflags",
-        "profile",
-        "base_cflags",
-        "timeout",
-    }
-
     for tgt_name, tgt_data in raw.get("targets", {}).items():
         if isinstance(tgt_data, dict):
             unknown_tgt = set(tgt_data) - _KNOWN_TARGET_KEYS
@@ -590,9 +613,6 @@ def load_config(
     sources = tgt
 
     # --- Validate value types for known fields ---
-    _KNOWN_FORMATS = {"pe", "elf", "macho"}
-    _KNOWN_PROFILES = {"msvc6", "msvc7", "gcc", "clang"}
-
     fmt_val = tgt.get("format", "pe")
     if fmt_val not in _KNOWN_FORMATS:
         _config_warn(
@@ -600,7 +620,7 @@ def load_config(
             f"(known: {', '.join(sorted(_KNOWN_FORMATS))})",
         )
 
-    arch_name = cast(str, tgt.get("arch", "x86_32"))
+    arch_name = str(tgt.get("arch", "x86_32"))
     if arch_name not in _ARCH_PRESETS:
         _config_warn(
             f"rebrew-project.toml [targets.{target}]: unknown arch '{arch_name}' "
@@ -625,31 +645,21 @@ def load_config(
 
     project_raw = raw.get("project", {})
 
-    resolved_reversed_dir = _resolve(root, sources.get("reversed_dir", f"src/{target}"))
-    reversed_dir: Path = resolved_reversed_dir or (root / f"src/{target}")
-
-    resolved_function_list = _resolve(
-        root,
-        sources.get("function_list", f"src/{target}/functions.txt"),
-    )
-    function_list: Path = resolved_function_list or (root / f"src/{target}/functions.txt")
-
-    resolved_bin_dir = _resolve(root, sources.get("bin_dir", f"bin/{target}"))
-    bin_dir: Path = resolved_bin_dir or (root / f"bin/{target}")
-
-    resolved_db_dir = _resolve(root, project_raw.get("db_dir", "db"))
-    db_dir: Path = resolved_db_dir or (root / "db")
-
-    resolved_output_dir = _resolve(root, project_raw.get("output_dir", "output"))
-    output_dir: Path = resolved_output_dir or (root / "output")
-
-    resolved_compiler_includes = _resolve(
-        root, compiler.get("includes", "tools/MSVC600/VC98/Include")
-    )
-    compiler_includes: Path = resolved_compiler_includes or (root / "tools/MSVC600/VC98/Include")
-
-    resolved_compiler_libs = _resolve(root, compiler.get("libs", "tools/MSVC600/VC98/Lib"))
-    compiler_libs: Path = resolved_compiler_libs or (root / "tools/MSVC600/VC98/Lib")
+    # _resolve() never returns None here: .get() always supplies a non-None default.
+    reversed_dir = _resolve(root, sources.get("reversed_dir", f"src/{target}"))
+    assert reversed_dir is not None  # guaranteed by non-None default
+    function_list = _resolve(root, sources.get("function_list", f"src/{target}/functions.txt"))
+    assert function_list is not None
+    bin_dir = _resolve(root, sources.get("bin_dir", f"bin/{target}"))
+    assert bin_dir is not None
+    db_dir = _resolve(root, project_raw.get("db_dir", "db"))
+    assert db_dir is not None
+    output_dir = _resolve(root, project_raw.get("output_dir", "output"))
+    assert output_dir is not None
+    compiler_includes = _resolve(root, compiler.get("includes", "tools/MSVC600/VC98/Include"))
+    assert compiler_includes is not None
+    compiler_libs = _resolve(root, compiler.get("libs", "tools/MSVC600/VC98/Lib"))
+    assert compiler_libs is not None
 
     # Merge cflags_presets: global first, then per-target overrides
     merged_presets = {
@@ -686,11 +696,11 @@ def load_config(
         compiler_libs=compiler_libs,
         cflags=compiler.get("cflags", ""),
         base_cflags=compiler.get("base_cflags", "/nologo /c /MT"),
-        compile_timeout=int(compiler.get("timeout", 60)),
+        compile_timeout=_safe_int(compiler.get("timeout", 60), 60),
         # arch-derived
-        pointer_size=cast(int, arch_preset["pointer_size"]),
-        padding_bytes=cast(list[int], arch_preset["padding_bytes"]),
-        symbol_prefix=cast(str, arch_preset["symbol_prefix"]),
+        pointer_size=arch_preset["pointer_size"],
+        padding_bytes=arch_preset["padding_bytes"],
+        symbol_prefix=arch_preset["symbol_prefix"],
         # project-specific
         game_range_end=tgt.get("game_range_end"),
         iat_thunks=_parse_int_list(tgt.get("iat_thunks", []), "iat_thunks"),
@@ -707,7 +717,7 @@ def load_config(
         source_ext=tgt.get("source_ext", ".c"),
         ghidra_program_path=tgt.get("ghidra_program_path", ""),
         # all targets
-        all_targets=cast(list[str], all_target_names),
+        all_targets=all_target_names,
     )
 
     # Default library_origins: all origins except the first (primary/FUNCTION origin)
