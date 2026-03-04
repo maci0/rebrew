@@ -196,5 +196,5 @@ class TestLintFile:
             ),
         )
         result = lint_file(f)
-        # Empty CFLAGS value still parses; file fails for other reasons (E015, E016)
+        # Empty CFLAGS value still parses; file fails for other reasons (E015)
         assert not result.passed

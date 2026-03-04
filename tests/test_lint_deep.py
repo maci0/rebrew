@@ -189,7 +189,8 @@ class TestLintFileEdgeCases:
             "void _f() {}\n",
         )
         result = lint_file(f)
-        assert any(code == "E009" for _, code, _ in result.errors)
+        # CFLAGS is optional — W018 only warns when config has no defaults
+        assert any(code == "W018" for _, code, _ in result.warnings)
 
     def test_unknown_annotation_key(self, tmp_path) -> None:
         f = _write(
@@ -205,8 +206,8 @@ class TestLintFileEdgeCases:
             "void _f() {}\n",
         )
         result = lint_file(f)
-        # Unknown annotation key should produce E010
-        assert any(code == "E010" for _, code, _ in result.errors)
+        # Unknown annotation key should produce W010 warning
+        assert any(code == "W010" for _, code, _ in result.warnings)
 
     def test_duplicate_va_tracking(self, tmp_path) -> None:
         seen_vas: dict[int, str] = {}
