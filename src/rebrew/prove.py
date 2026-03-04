@@ -34,6 +34,7 @@ from rich.console import Console
 from rebrew.annotation import parse_c_file, resolve_symbol, update_annotation_key
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.compile import compile_to_obj
+from rebrew.config import ProjectConfig
 from rebrew.matcher.parsers import parse_obj_symbol_bytes
 
 # ---------------------------------------------------------------------------
@@ -301,7 +302,7 @@ app = typer.Typer(
 console = Console(stderr=True)
 
 
-def _resolve_source(source_arg: str, cfg: Any) -> Path:
+def _resolve_source(source_arg: str, cfg: ProjectConfig) -> Path:
     """Resolve a source argument to a Path.
 
     Accepts either a direct file path or a symbol name to search for.
