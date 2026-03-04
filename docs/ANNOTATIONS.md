@@ -277,7 +277,7 @@ Errors indicate broken annotations that will cause `rebrew test`, `rebrew verify
 | E010 | Unknown annotation key | `// FOOBAR: value` — key not in the known set |
 | E014 | Corrupted annotation value | Literal `\n` inside a field value (typically from a line-wrapping bug) |
 | E015 | Marker/ORIGIN mismatch | `// FUNCTION:` with a library origin (expected `LIBRARY`). Library origins defined by `library_origins` config |
-| E016 | Filename/SYMBOL mismatch | File `func_10003da0.c` with `SYMBOL: _alloc_game_object`. Allows origin prefixes: `crt_foo.c` matches `_foo` |
+| E016 | Filename/SYMBOL mismatch | File `func_10003da0.c` with `SYMBOL: _alloc_game_object` |
 | E017 | Contradictory status/marker | `STATUS: MATCHING` on a `// STUB:` marker |
 
 #### Config-Aware Errors (require `rebrew-project.toml`)
@@ -321,7 +321,6 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | Code | Description | Triggered by |
 |------|-------------|--------------|
 | W008 | CFLAGS differ from preset | `CFLAGS: /O2 /Gd` on a `MSVCRT` function when preset says `/O1` |
-| W014 | Filename prefix mismatch | File named `crt_malloc.c` with `ORIGIN: GAME` (prefix `crt_` implies MSVCRT) |
 | W015 | Mixed-case VA hex digits | `0x10003Da0` — prefer consistent `0x10003da0` or `0x10003DA0` |
 
 #### Data Annotation Warnings
@@ -434,15 +433,16 @@ MARKER    FUNCTION    207
 
 ## Filename Conventions
 
-| Prefix | ORIGIN | Example |
-|--------|--------|---------|
-| `crt_` | MSVCRT | `crt_malloc.c`, `crt_sbh_alloc_new_group.c` |
-| `zlib_` | ZLIB | `zlib_deflateReset.c`, `zlib_inflate_blocks_new.c` |
-| `game_` | GAME | `game_allocate_entity_slot.c` |
-| `data_` | (any) | `data_dispatch_table.c`, `data_sprite_lut.c` |
-| `func_` | (any) | `func_10008880.c` — unnamed, address-based (pre-reversal) |
+Filenames are derived from the function's symbol name — no origin-based prefixes are added.
+Users control the directory structure freely (e.g. `rendering/draw.c`, `crt/malloc.c`).
 
-The linter accepts both `crt_foo.c` and `foo.c` for SYMBOL `_foo` when ORIGIN is MSVCRT. It will warn (W014) if a `crt_*` file has `ORIGIN: GAME`.
+| Pattern | Example |
+|---------|---------|
+| Symbol-based | `malloc.c`, `ParsePacket.c`, `deflateReset.c` |
+| `data_` prefix | `data_dispatch_table.c`, `data_sprite_lut.c` |
+| `func_` prefix | `func_10008880.c` — unnamed, address-based (pre-reversal) |
+
+The linter checks that the filename stem matches the `SYMBOL` annotation (E016).
 
 ---
 
@@ -560,7 +560,7 @@ Use `rebrew skeleton --append` to add a function to an existing file:
 rebrew skeleton 0x10022340 --name getenv
 
 # Append a related function to the same file
-rebrew skeleton 0x10022f83 --append crt_getenv.c
+rebrew skeleton 0x10022f83 --append getenv.c
 ```
 
 ### Testing Multi-Function Files
@@ -569,7 +569,7 @@ rebrew skeleton 0x10022f83 --append crt_getenv.c
 
 ```bash
 # Tests all annotated functions in the file (compiles once, tests each symbol)
-rebrew test src/server.dll/crt_getenv.c
+rebrew test src/server.dll/getenv.c
 ```
 
 ### When to Use Multi-Function Files

@@ -22,7 +22,6 @@ from rebrew.annotation import (
     BLOCK_FUNC_CAPTURE_RE,
     BLOCK_FUNC_RE,
     BLOCK_KV_RE,
-    DEFAULT_ORIGIN_PREFIXES,
     DEFAULT_ORIGINS,
     JAVADOC_ADDR_RE,
     JAVADOC_KV_RE,
@@ -33,7 +32,6 @@ from rebrew.annotation import (
     VALID_STATUSES,
     marker_for_origin,
     normalize_status,
-    origin_from_filename,
 )
 from rebrew.cli import TargetOption, error_exit, get_config, json_print
 from rebrew.config import ProjectConfig
@@ -136,6 +134,7 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
         return [(legacy_keys, legacy_flags)]
 
     pending_kv: dict[str, str] = {}
+    seen_code_after_marker: bool = False
 
     for line in lines:
         stripped = line.strip()
@@ -155,6 +154,7 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
                 "has_javadoc": False,
             }
             in_block = True
+            seen_code_after_marker = False
 
             m = _HEADER_MARKER_RE.match(stripped)
             if m:
@@ -165,12 +165,14 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
 
         m = NEW_KV_RE.match(stripped)
         if m:
-            if in_block:
+            if in_block and not seen_code_after_marker:
                 current_keys[m.group("key").upper()] = m.group("value").strip()
             else:
                 pending_kv[m.group("key").upper()] = m.group("value").strip()
             continue
 
+        if in_block:
+            seen_code_after_marker = True
         pending_kv = {}
 
     if in_block:
@@ -414,20 +416,12 @@ def _check_E016_filename(result: LintResult, filepath: Path, symbol: str, marker
         if "@" in actual_stem:
             actual_stem = actual_stem.split("@")[0]
         if expected_stem and actual_stem != expected_stem:
-            prefix_match = False
-            for prefix in DEFAULT_ORIGIN_PREFIXES:
-                if actual_stem.startswith(prefix):
-                    unprefixed = actual_stem[len(prefix) :]
-                    if unprefixed == expected_stem:
-                        prefix_match = True
-                        break
-            if not prefix_match:
-                result.error(
-                    1,
-                    "E016",
-                    f"Filename '{filepath.name}' doesn't match SYMBOL "
-                    f"'{symbol}' (expected '{expected_stem}{filepath.suffix}')",
-                )
+            result.error(
+                1,
+                "E016",
+                f"Filename '{filepath.name}' doesn't match SYMBOL "
+                f"'{symbol}' (expected '{expected_stem}{filepath.suffix}')",
+            )
 
 
 def _check_E017_contradictory(result: LintResult, status: str, marker: str) -> None:
@@ -461,22 +455,6 @@ def _check_W006_source(
             "W006",
             f"{origin} function missing // SOURCE: annotation "
             "(reference file, e.g. SBHEAP.C:195 or deflate.c)",
-        )
-
-
-def _check_W014_origin_prefix(
-    result: LintResult, filepath: Path, origin: str, cfg: ProjectConfig | None = None
-) -> None:
-    # Use config origin_prefixes if available (reversed: origin→prefix to prefix→origin)
-    prefixes = None
-    if cfg and cfg.origin_prefixes:
-        prefixes = {v: k for k, v in cfg.origin_prefixes.items()}
-    expected_origin = origin_from_filename(filepath.stem, prefixes)
-    if expected_origin and origin and expected_origin != origin:
-        result.warning(
-            1,
-            "W014",
-            f"Filename prefix suggests ORIGIN '{expected_origin}' but annotation says '{origin}'",
         )
 
 
@@ -654,10 +632,9 @@ def lint_file(
             _check_E017_contradictory(result, status, marker)
             _check_config_rules(result, found_keys, cfg, origin)
 
-            # W014 and E016 shouldn't really complain for secondary blocks
+            # E016 shouldn't complain for secondary blocks
             if i == 0:
                 _check_E016_filename(result, filepath, found_keys.get("SYMBOL", ""), marker)
-                _check_W014_origin_prefix(result, filepath, origin, cfg)
 
             _check_W015_va_case(result, va_str)
             _check_W016_section(result, marker, found_keys)

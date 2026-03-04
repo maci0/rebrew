@@ -95,13 +95,13 @@ class TestMakeFilename:
         assert result.endswith(".c")
         assert "my_func" in result
 
-    def test_game_prefix(self) -> None:
-        assert make_filename(0x10001000, "ParsePacket", "GAME").startswith("game_")
+    def test_no_origin_prefix(self) -> None:
+        assert make_filename(0x10001000, "ParsePacket", "GAME") == "ParsePacket.c"
 
-    def test_msvcrt_prefix(self) -> None:
-        assert make_filename(0x10001000, "memset", "MSVCRT").startswith("crt_")
+    def test_no_origin_prefix_msvcrt(self) -> None:
+        assert make_filename(0x10001000, "memset", "MSVCRT") == "memset.c"
 
-    def test_no_double_prefix(self) -> None:
+    def test_name_with_prefix_unchanged(self) -> None:
         assert make_filename(0x10001000, "game_something", "GAME") == "game_something.c"
 
     def test_func_no_prefix(self) -> None:

@@ -75,7 +75,20 @@ rebrew next --stats --json              # detailed progress statistics
 rebrew data --dispatch --json           # detect dispatch tables / vtables
 ```
 
-### 5. Assess Scope
+### 5. Infer Compilation Units
+
+Identify which functions were likely compiled from the same source file:
+
+```bash
+rebrew cu-map --json                    # cluster functions into inferred translation units
+```
+
+This uses inter-function gap analysis (padding vs non-padding) and call-graph
+signals (static-function detection) to group contiguous functions. High-confidence
+clusters suggest functions that should be merged into the same `.c` file via
+`rebrew merge` or `rebrew skeleton --append`.
+
+### 6. Assess Scope
 
 From the triage output, evaluate:
 
@@ -84,7 +97,7 @@ From the triage output, evaluate:
 - **Quick wins**: small functions, leaf functions, known library matches
 - **Blockers**: large functions, functions with many dependencies
 
-### 6. Extract Disassembly (Optional)
+### 7. Extract Disassembly (Optional)
 
 Batch-extract function bytes and disassembly for offline analysis:
 
@@ -93,7 +106,7 @@ rebrew extract list                     # list un-reversed candidates
 rebrew extract batch 20                 # extract first 20 smallest
 ```
 
-### 7. Generate First Skeletons
+### 8. Generate First Skeletons
 
 Start with the easiest functions identified by triage:
 
@@ -114,7 +127,7 @@ For functions that share a translation unit, use `rebrew merge` to combine them
 or `rebrew skeleton 0x<VA> --append existing_file.c` to add to an existing file.
 Use `rebrew split` later if functions need to be separated for independent tracking.
 
-### 8. Sync to Ghidra (Optional)
+### 9. Sync to Ghidra (Optional)
 
 If a Ghidra instance is available with ReVa MCP:
 
@@ -131,6 +144,7 @@ Intake Progress:
 - [ ] FLIRT scan complete
 - [ ] Catalog and coverage DB built
 - [ ] Triage report reviewed
+- [ ] Compilation units inferred (cu-map)
 - [ ] First skeletons generated
 - [ ] Ghidra synced (if available)
 ```

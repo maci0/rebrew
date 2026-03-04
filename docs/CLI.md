@@ -1,6 +1,6 @@
 # CLI Reference
 
-All 29 CLI tools are installed as entry points via `pyproject.toml`.
+All 30 CLI tools are installed as entry points via `pyproject.toml`.
 Every tool supports `--target / -t` to select a target from `rebrew-project.toml` and
 reads defaults (binary path, reversed_dir, compiler settings) from the project config.
 
@@ -39,6 +39,7 @@ Run any tool with `--help` to see usage examples and context
 | `rebrew-graph` | `depgraph.py` | Function dependency graph (mermaid, DOT, summary) |
 | `rebrew-promote` | `promote.py` | Test + atomically update STATUS annotation; `--all` batch mode with `--dir`/`--origin` filters; `--json` structured output |
 | `rebrew-triage` | `triage.py` | Cold-start triage: coverage stats, FLIRT scan, near-miss list, recommendations; `--json` |
+| `rebrew-cu-map` | `cu_map.py` | Infer compilation unit boundaries from .text layout and call graph; `--json` |
 | `rebrew-doctor` | `doctor.py` | Diagnostic checks for project health (config, compiler, binary, paths); `--install-wibo`; `--json` |
 
 ## Tool Flags
@@ -364,6 +365,19 @@ Merge multiple single-function `.c` files into one multi-function file. Preamble
 | `--delete` | Delete input files after successful merge |
 | `--json` | Structured JSON output |
 
+### `rebrew cu-map`
+
+`rebrew cu-map [--json] [--target NAME]`
+
+Infer compilation unit (translation unit) boundaries from the .text section layout
+and call graph. MSVC6 linker places functions from the same `.obj` contiguously
+with only padding between them — this tool exploits that to cluster functions.
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Output results as JSON |
+| `--target NAME` | Select a target from `rebrew-project.toml` |
+
 ### `rebrew build-db`
 
 | Flag | Description |
@@ -392,7 +406,7 @@ rebrew skeleton 0x10003da0 --decomp               # Skeleton with inline decompi
 rebrew skeleton 0x10003da0 --decomp --decomp-backend ghidra  # Ghidra via MCP
 rebrew skeleton 0x10003da0 --decomp --decomp-backend r2dec   # Radare2 r2dec
 rebrew skeleton 0x10003da0 --xrefs                # With caller context from Ghidra
-rebrew skeleton 0x10003da0 --append crt_env.c     # Append to multi-function file
+rebrew skeleton 0x10003da0 --append getenv.c      # Append to multi-function file
 
 # Testing
 rebrew test src/target_name/my_func.c --json      # JSON test result
@@ -466,6 +480,11 @@ rebrew flirt                                       # Scan with default sigs
 rebrew flirt sigs/ --min-size 32                   # Custom dir, skip tiny funcs
 rebrew flirt --json                                # JSON output
 
+# Compilation unit inference
+rebrew cu-map                                      # Rich table of inferred TU clusters
+rebrew cu-map --json                               # JSON output for scripting
+rebrew cu-map --json | jq '.clusters | length'     # count clusters
+
 # CRT source matching
 rebrew crt-match 0x10006c00                     # match a single VA against CRT source
 rebrew crt-match --all --origin MSVCRT           # match all MSVCRT functions
@@ -501,6 +520,12 @@ rebrew sync --pull-data                            # Fetch data labels into rebr
 | `annotation.py` | Canonical annotation parser (`parse_c_file`, `parse_c_file_multi`, `normalize_status`) |
 | `lint.py` | Annotation linter (E000–E017 / W001–W017); `--fix` auto-migrates old formats |
 | `sync.py` | Sync annotations to Ghidra via ReVa MCP; skips generic `func_` labels by default |
+
+### Binary Analysis
+
+| Module | Purpose |
+|--------|---------|
+| `cu_map.py` | Compilation unit boundary inference (contiguity clustering + call-graph refinement) |
 
 ### Library Identification
 

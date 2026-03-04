@@ -134,15 +134,6 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
     return preamble, blocks
 
 
-# Default filename prefix → expected ORIGIN mapping.
-# Projects can override via origin_prefixes in rebrew-project.toml.
-DEFAULT_ORIGIN_PREFIXES = {
-    "crt_": "MSVCRT",
-    "zlib_": "ZLIB",
-    "game_": "GAME",
-}
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -190,22 +181,6 @@ def marker_for_origin(origin: str, status: str, library_origins: set[str] | None
     if origin in library_origins:
         return "LIBRARY"
     return "FUNCTION"
-
-
-def origin_from_filename(stem: str, prefixes: dict[str, str] | None = None) -> str | None:
-    """Guess expected ORIGIN from filename prefix.
-
-    Args:
-        stem: Filename stem (without extension).
-        prefixes: Mapping of filename prefix to origin.
-                   Defaults to DEFAULT_ORIGIN_PREFIXES.
-    """
-    if prefixes is None:
-        prefixes = DEFAULT_ORIGIN_PREFIXES
-    for prefix, origin in prefixes.items():
-        if stem.startswith(prefix):
-            return origin
-    return None
 
 
 def has_skip_annotation(filepath: Path) -> bool:
@@ -326,7 +301,6 @@ class Annotation:
         filepath: Path | None = None,
         valid_origins: set[str] | None = None,
         library_origins: set[str] | None = None,
-        origin_prefixes: dict[str, str] | None = None,
     ) -> tuple[list[str], list[str]]:
         """Validate annotation fields. Returns (errors, warnings)."""
         errors: list[str] = []
@@ -403,18 +377,6 @@ class Annotation:
                 warnings.append(
                     f"Filename '{filepath.name}' doesn't match SYMBOL "
                     f"'{self.symbol}' (expected '{expected_stem}{filepath.suffix}')"
-                )
-
-        if filepath:
-            # Reverse origin_prefixes (origin→prefix) to prefix→origin for lookup
-            _prefixes = None
-            if origin_prefixes:
-                _prefixes = {v: k for k, v in origin_prefixes.items()}
-            expected_origin = origin_from_filename(filepath.stem, _prefixes)
-            if expected_origin and self.origin and expected_origin != self.origin:
-                warnings.append(
-                    f"Filename prefix suggests ORIGIN '{expected_origin}' "
-                    f"but annotation says '{self.origin}'"
                 )
 
         return errors, warnings
@@ -698,6 +660,7 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
     current_module = ""
     current_kv: dict[str, str] = {}
     pending_kv: dict[str, str] = {}
+    seen_code_after_marker: bool = False
 
     def _flush() -> None:
         nonlocal current_marker_type, current_va, current_module, current_kv, pending_kv
@@ -715,15 +678,18 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
 
         # Check for a new marker line (starts a new block)
         m = NEW_FUNC_CAPTURE_RE.match(stripped) or BLOCK_FUNC_CAPTURE_RE.match(stripped)
-        if m:
+        if m and m.group("type") in ("FUNCTION", "LIBRARY", "STUB"):
+            # Save pending KV before flush (flush clears pending_kv)
+            saved_pending = dict(pending_kv)
             # Flush the previous block before starting a new one
             _flush()
             current_marker_type = m.group("type")
             current_va = int(m.group("va"), 16)
             current_module = m.group("module")
             # Merge any pending key-value lines that appeared before this marker
-            current_kv = dict(pending_kv)
+            current_kv = saved_pending
             pending_kv = {}
+            seen_code_after_marker = False
 
             if stripped.count("//") > 1:
                 current_kv["_INLINE_ERROR"] = stripped
@@ -734,17 +700,19 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
         if m2:
             key = m2.group("key").upper()
             val = m2.group("value").strip()
-            if current_marker_type is not None:
-                # Inside a block — attach to current marker
+            if current_marker_type is not None and not seen_code_after_marker:
+                # KV immediately after marker — attach to current block
                 current_kv[key] = val
             else:
-                # Before any marker — buffer for the next marker
+                # Before any marker, or after code — buffer for the next block
                 pending_kv[key] = val
             continue
 
         # Non-annotation line — DON'T break scanning (code between blocks)
         # Just skip it and keep looking for the next marker
-        # But discard any orphaned pending KV (they belonged to no marker)
+        if current_marker_type is not None:
+            seen_code_after_marker = True
+        # Discard any orphaned pending KV (they belonged to no marker)
         pending_kv = {}
 
     # Flush the last block

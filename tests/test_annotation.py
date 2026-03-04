@@ -267,27 +267,6 @@ class TestNormalizeHelpers:
         assert marker_for_origin("MSVCRT", "EXACT", library_origins=set()) == "FUNCTION"
 
 
-class TestOriginFromFilename:
-    def test_default_prefixes(self) -> None:
-        from rebrew.annotation import origin_from_filename
-
-        # zlib_ prefix → ZLIB
-        result = origin_from_filename("zlib_inflate")
-        assert result == "ZLIB"
-
-    def test_custom_prefixes(self) -> None:
-        from rebrew.annotation import origin_from_filename
-
-        result = origin_from_filename("dx_init_device", {"dx_": "DIRECTX", "game_": "GAME"})
-        assert result == "DIRECTX"
-
-    def test_no_match(self) -> None:
-        from rebrew.annotation import origin_from_filename
-
-        result = origin_from_filename("my_custom_func")
-        assert result is None
-
-
 class TestParseOldFormat:
     def test_parse_valid(self) -> None:
         line = "/* bit_reverse @ 0x10008880 (31B) - /O2 /Gd - EXACT MATCH [GAME] */"
