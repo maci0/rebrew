@@ -176,7 +176,8 @@ class TestAnnotationValidation:
         errors, _ = ann.validate()
         assert any("SIZE" in e for e in errors)
 
-    def test_missing_cflags(self) -> None:
+    def test_missing_cflags_no_error(self) -> None:
+        """CFLAGS is optional — missing cflags should not produce a validation error."""
         ann = Annotation(
             va=0x10001000,
             size=42,
@@ -186,7 +187,7 @@ class TestAnnotationValidation:
             marker_type="FUNCTION",
         )
         errors, _ = ann.validate()
-        assert any("CFLAGS" in e for e in errors)
+        assert not any("CFLAGS" in e for e in errors)
 
     def test_missing_symbol_warning(self) -> None:
         ann = Annotation(
@@ -665,3 +666,46 @@ class TestParseLibraryHeader:
         results = parse_library_header(hfile)
         assert len(results) == 1
         assert results[0].origin == "OPENSSL"
+
+    def test_extended_kv_annotations(self, tmp_path) -> None:
+        """KV lines after symbol are captured (rebrew extension, invisible to reccmp)."""
+        hfile = tmp_path / "library_zlib.h"
+        hfile.write_text(
+            "// LIBRARY: SERVER 0x10050000\n"
+            "// _deflate\n"
+            "// STATUS: MATCHING\n"
+            "// SIZE: 120\n"
+            "// CFLAGS: /O2 /Gd\n"
+            "// SOURCE: deflate.c\n"
+            "// BLOCKER: 2B diff\n"
+            "\n"
+            "// LIBRARY: SERVER 0x10050100\n"
+            "// _inflate\n"
+        )
+        results = parse_library_header(hfile)
+        assert len(results) == 2
+
+        # Extended entry
+        assert results[0].va == 0x10050000
+        assert results[0].symbol == "_deflate"
+        assert results[0].status == "MATCHING"
+        assert results[0].size == 120
+        assert results[0].cflags == "/O2 /Gd"
+        assert results[0].source == "deflate.c"
+        assert results[0].blocker == "2B diff"
+        assert results[0].origin == "ZLIB"
+
+        # Minimal entry — defaults still work
+        assert results[1].va == 0x10050100
+        assert results[1].symbol == "_inflate"
+        assert results[1].status == "EXACT"
+        assert results[1].size == 0
+        assert results[1].cflags == ""
+
+    def test_kv_origin_override(self, tmp_path) -> None:
+        """Explicit ORIGIN in KV overrides filename-inferred origin."""
+        hfile = tmp_path / "library_msvc.h"
+        hfile.write_text("// LIBRARY: SERVER 0x10060000\n// _custom_alloc\n// ORIGIN: SMARTHEAP\n")
+        results = parse_library_header(hfile)
+        assert len(results) == 1
+        assert results[0].origin == "SMARTHEAP"
