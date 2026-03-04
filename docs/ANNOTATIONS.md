@@ -96,7 +96,7 @@ Format: `// MARKER: MODULE 0xVA`
 | `STATUS` | **Mandatory** | E003, E004 | Match quality (see below) |
 | `ORIGIN` | **Mandatory** | E005, E006 | Code provenance (see below) |
 | `SIZE` | **Mandatory** | E007, E008 | Function size in bytes from the original binary |
-| `CFLAGS` | **Mandatory** | E009 | Compiler flags to reproduce original compilation (e.g. `/O2 /Gd`) |
+| `CFLAGS` | Optional | W018 | Compiler flags to reproduce original compilation (e.g. `/O2 /Gd`). Falls back to `base_cflags` from project config. Only warns if both annotation and config are missing. |
 | `SYMBOL` | **Recommended** | W001 | Decorated symbol name (e.g. `_bit_reverse`). Used by verifier to locate function in `.obj` |
 | `SOURCE` | Conditional | W006 | **Required for library origins** — reference file (e.g. `SBHEAP.C:195`, `deflate.c`). Use `rebrew crt-match --fix-source` to auto-populate. |
 | `BLOCKER` | Conditional | W005 | **Required for STUB** — explain why the function doesn't match yet |
@@ -107,9 +107,10 @@ Format: `// MARKER: MODULE 0xVA`
 | `CALLERS` | Optional | — | Incoming cross-references |
 | `GLOBALS` | Optional | — | Comma-separated list of globals referenced (e.g. `g_counter, g_state`) |
 | `SKIP` | Optional | — | Known acceptable byte differences (e.g. `SKIP: xor edi,edi after call`) |
+| `ANALYSIS` | Optional | — | Freeform analysis notes from decompiler or reverse engineer (e.g. `ANALYSIS: vtable dispatch, 3 virtual calls`) |
 
 > [!TIP]
-> **Rule of thumb**: The first 5 keys (marker through CFLAGS) are enforced as errors — missing any of them will fail CI. `SYMBOL` is strongly recommended. `SOURCE` and `BLOCKER` are enforced as warnings only for specific origins/statuses.
+> **Rule of thumb**: Marker, STATUS, ORIGIN, and SIZE are enforced as errors — missing any of them will fail CI. `CFLAGS` is optional (falls back to the target default from config). `SYMBOL` is strongly recommended. `SOURCE` and `BLOCKER` are enforced as warnings only for specific origins/statuses.
 
 ### STATUS Values
 
@@ -273,11 +274,8 @@ Errors indicate broken annotations that will cause `rebrew test`, `rebrew verify
 | E006 | Invalid ORIGIN value | `ORIGIN: UNKNOWN` — must be in `origins` list from `rebrew-project.toml` (falls back to GAME, MSVCRT, ZLIB) |
 | E007 | Missing `SIZE` | No `// SIZE:` line in header |
 | E008 | Invalid SIZE value | `SIZE: -1`, `SIZE: 0`, `SIZE: abc` |
-| E009 | Missing `CFLAGS` | No `// CFLAGS:` line in header |
-| E010 | Unknown annotation key | `// FOOBAR: value` — key not in the known set |
 | E014 | Corrupted annotation value | Literal `\n` inside a field value (typically from a line-wrapping bug) |
 | E015 | Marker/ORIGIN mismatch | `// FUNCTION:` with a library origin (expected `LIBRARY`). Library origins defined by `library_origins` config |
-| E016 | Filename/SYMBOL mismatch | File `func_10003da0.c` with `SYMBOL: _alloc_game_object` |
 | E017 | Contradictory status/marker | `STATUS: MATCHING` on a `// STUB:` marker |
 
 #### Config-Aware Errors (require `rebrew-project.toml`)
@@ -321,6 +319,8 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | Code | Description | Triggered by |
 |------|-------------|--------------|
 | W008 | CFLAGS differ from preset | `CFLAGS: /O2 /Gd` on a `MSVCRT` function when preset says `/O1` |
+| W018 | Missing CFLAGS with no config fallback | No `// CFLAGS:` line **and** no `base_cflags` in project config — compile may use wrong flags |
+| W010 | Unknown annotation key | `// FOOBAR: value` — key not in the known set |
 | W015 | Mixed-case VA hex digits | `0x10003Da0` — prefer consistent `0x10003da0` or `0x10003DA0` |
 
 #### Data Annotation Warnings
@@ -442,7 +442,8 @@ Users control the directory structure freely (e.g. `rendering/draw.c`, `crt/mall
 | `data_` prefix | `data_dispatch_table.c`, `data_sprite_lut.c` |
 | `func_` prefix | `func_10008880.c` — unnamed, address-based (pre-reversal) |
 
-The linter checks that the filename stem matches the `SYMBOL` annotation (E016).
+Filenames do not need to match the `SYMBOL` annotation — multi-function files
+and grouped files (e.g. `command.c` with multiple functions) are common.
 
 ---
 
@@ -584,3 +585,73 @@ rebrew test src/server.dll/getenv.c
 > [!IMPORTANT]
 > All functions in a multi-function file are compiled together with the **same CFLAGS**.
 > Only group functions that use identical compiler flags.
+
+---
+
+## Library Header Files (`library_*.h`)
+
+Library header files provide a lightweight way to register known library functions
+(CRT, zlib, etc.) in the catalog without creating individual `.c` files. These are
+functions you've **identified** — they show up in coverage stats as covered, and
+`rebrew next` / `rebrew skeleton` won't suggest them as work items.
+
+### Filename Convention
+
+Files must be named `library_<suffix>.h`. The suffix determines the default ORIGIN:
+
+| Filename | Inferred ORIGIN |
+|----------|----------------|
+| `library_msvc.h` | MSVCRT |
+| `library_msvcrt.h` | MSVCRT |
+| `library_crt.h` | MSVCRT |
+| `library_zlib.h` | ZLIB |
+| `library_<other>.h` | `<OTHER>` (uppercased) |
+
+### Minimal Format (reccmp-compatible)
+
+For functions you've identified but don't intend to recompile (pure CRT stubs, etc.):
+
+```c
+#ifdef 0
+// LIBRARY: SERVER 0x1001A18A
+// _fflush
+
+// LIBRARY: SERVER 0x1001A1BB
+// __fclose_lk
+#endif
+```
+
+Each entry is two lines: the `// LIBRARY:` marker and a `// _symbol` comment.
+This format is fully compatible with [reccmp](https://github.com/isledecomp/reccmp).
+
+### Extended Format (rebrew-only)
+
+For library functions you actively compile and match from reference source (e.g. zlib),
+add key-value annotation lines **after** the symbol line:
+
+```c
+// LIBRARY: SERVER 0x10050000
+// _deflate
+// STATUS: MATCHING
+// SIZE: 120
+// CFLAGS: /O2 /Gd
+// SOURCE: deflate.c
+// BLOCKER: 2B diff in loop epilogue
+```
+
+reccmp's parser reads the marker + symbol, calls `_function_done()`, and resets to
+search state. The KV lines are invisible to reccmp but captured by rebrew.
+
+Supported KV keys: `STATUS`, `SIZE`, `CFLAGS`, `SOURCE`, `BLOCKER`, `NOTE`, `ORIGIN`, `SYMBOL`.
+
+Entries without explicit `STATUS` default to `EXACT`. Entries without `SIZE` default to 0
+(resolved from the function registry at catalog time).
+
+### When to Use
+
+| Scenario | Use |
+|----------|-----|
+| Identified CRT stub, no source matching | Minimal `library_*.h` entry |
+| Library function compiled from reference source | Extended `library_*.h` entry with KV lines |
+| Game function (primary origin) | Regular `.c` file with full annotations |
+| Library function needing inline C code | Regular `.c` file with `LIBRARY` marker |
