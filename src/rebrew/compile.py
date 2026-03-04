@@ -252,7 +252,7 @@ def compile_to_obj(
 
     obj_file = workdir / obj_name
     if r.returncode != 0 or not obj_file.exists():
-        err = filter_wine_stderr((r.stdout + r.stderr).decode("utf-8", errors="replace"))
+        err = filter_wine_stderr((r.stdout + b"\n" + r.stderr).decode("utf-8", errors="replace"))
         return None, err
 
     if cc is not None and cache_key is not None:

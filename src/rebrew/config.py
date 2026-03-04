@@ -647,19 +647,26 @@ def load_config(
 
     # _resolve() never returns None here: .get() always supplies a non-None default.
     reversed_dir = _resolve(root, sources.get("reversed_dir", f"src/{target}"))
-    assert reversed_dir is not None  # guaranteed by non-None default
+    if reversed_dir is None:  # pragma: no cover — always has non-None default
+        raise ValueError(f"Failed to resolve reversed_dir for target '{target}'")
     function_list = _resolve(root, sources.get("function_list", f"src/{target}/functions.txt"))
-    assert function_list is not None
+    if function_list is None:  # pragma: no cover
+        raise ValueError(f"Failed to resolve function_list for target '{target}'")
     bin_dir = _resolve(root, sources.get("bin_dir", f"bin/{target}"))
-    assert bin_dir is not None
+    if bin_dir is None:  # pragma: no cover
+        raise ValueError(f"Failed to resolve bin_dir for target '{target}'")
     db_dir = _resolve(root, project_raw.get("db_dir", "db"))
-    assert db_dir is not None
+    if db_dir is None:  # pragma: no cover
+        raise ValueError("Failed to resolve db_dir")
     output_dir = _resolve(root, project_raw.get("output_dir", "output"))
-    assert output_dir is not None
+    if output_dir is None:  # pragma: no cover
+        raise ValueError("Failed to resolve output_dir")
     compiler_includes = _resolve(root, compiler.get("includes", "tools/MSVC600/VC98/Include"))
-    assert compiler_includes is not None
+    if compiler_includes is None:  # pragma: no cover
+        raise ValueError("Failed to resolve compiler includes path")
     compiler_libs = _resolve(root, compiler.get("libs", "tools/MSVC600/VC98/Lib"))
-    assert compiler_libs is not None
+    if compiler_libs is None:  # pragma: no cover
+        raise ValueError("Failed to resolve compiler libs path")
 
     # Merge cflags_presets: global first, then per-target overrides
     merged_presets = {

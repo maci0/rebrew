@@ -144,10 +144,10 @@ def generate_flag_combinations(tier: str = "targeted", profile: str = "msvc6") -
         flags_str = " ".join(f for f in combo if f)
         combos.add(flags_str)
 
-    if len(combos) > 50_000:
+    if len(combos) > 100_000:
         warnings.warn(
             f"Flag sweep tier '{tier}' produces {len(combos):,} combinations. "
-            f"Consider using 'quick' or 'normal' tier, or use sampling.",
+            f"This may use significant memory. Consider 'quick' or 'targeted' tier.",
             stacklevel=2,
         )
 
@@ -225,7 +225,7 @@ def build_candidate_obj_only(
         obj_path = workdir / obj_name
 
         if r.returncode != 0 or not obj_path.exists():
-            err_output = _filter_wine_stderr((r.stdout + r.stderr).decode(errors="replace"))
+            err_output = _filter_wine_stderr((r.stdout + b"\n" + r.stderr).decode(errors="replace"))
             detailed_err = f"Command: {' '.join(cmd)}\nReturn code: {r.returncode}\nObj Exists: {obj_path.exists()}\nOutput: {err_output}"
             return BuildResult(ok=False, error_msg=detailed_err)
 
@@ -291,7 +291,9 @@ def build_candidate(
         map_path = workdir / map_name
 
         if r.returncode != 0 or not exe_path.exists() or not map_path.exists():
-            err_output = _filter_wine_stderr((r.stdout + r.stderr).decode(errors="replace"))[:400]
+            err_output = _filter_wine_stderr(
+                (r.stdout + b"\n" + r.stderr).decode(errors="replace")
+            )[:400]
             return BuildResult(ok=False, error_msg=err_output)
 
         map_text = map_path.read_text(encoding="utf-8")
