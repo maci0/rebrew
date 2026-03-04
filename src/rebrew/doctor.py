@@ -302,8 +302,9 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
                 )
         return CheckResult(
             name="Compiler",
-            status=_PASS,
-            message=f"Wine found at {wine_path}",
+            status=_WARN,
+            message=f"Wine found at {wine_path}, but no CL.EXE path specified in compiler.command",
+            fix="Set compiler.command to 'wine /path/to/CL.EXE' in rebrew-project.toml.",
         )
 
     return CheckResult(

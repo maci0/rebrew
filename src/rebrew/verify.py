@@ -7,7 +7,6 @@ and reports status (EXACT, RELOC, MATCHING, etc.).
 import concurrent.futures
 import hashlib
 import json
-import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -35,7 +34,7 @@ from rebrew.utils import atomic_write_text
 
 def verify_entry(
     entry: Annotation, cfg: ProjectConfig
-) -> tuple[bool, str, bytes | None, bytes | None, list[int] | dict[int, str] | None]:
+) -> tuple[bool, str, bytes | None, bytes | None, dict[int, str] | None]:
     """Compile a .c file and compare output bytes against DLL.
 
     Delegates to ``compile_and_compare`` for the compile→extract→compare flow.
@@ -153,14 +152,14 @@ def _save_verify_cache(
     results: list[dict[str, Any]],
     entries: list[Annotation],
 ) -> None:
-    filepath_info: dict[str, tuple[float, str]] = {}
+    filepath_info: dict[str, tuple[int, str]] = {}
     for entry in entries:
         relative_path = entry.get("filepath", "")
         if not relative_path:
             continue
         filepath = cfg.reversed_dir / relative_path
         if filepath.exists():
-            filepath_info[relative_path] = (filepath.stat().st_mtime, _source_hash(filepath))
+            filepath_info[relative_path] = (filepath.stat().st_mtime_ns, _source_hash(filepath))
 
     cache_entries: dict[str, dict[str, Any]] = {}
     for result in results:
@@ -173,7 +172,7 @@ def _save_verify_cache(
         cache_entries[va_key] = {
             "source_hash": source_hash,
             "filepath": filepath,
-            "mtime": mtime,
+            "mtime_ns": mtime,
             "result": result,
         }
 
@@ -415,8 +414,8 @@ def main(
             entries_to_verify.append(entry)
             continue
 
-        current_mtime = filepath.stat().st_mtime
-        cached_mtime = cached_entry.get("mtime")
+        current_mtime = filepath.stat().st_mtime_ns
+        cached_mtime = cached_entry.get("mtime_ns", cached_entry.get("mtime"))
         if current_mtime != cached_mtime:
             try:
                 current_hash = _source_hash(filepath)
@@ -456,6 +455,7 @@ def main(
     ]:
         return (e, *verify_entry(e, cfg))
 
+    deferred_fixes: list[tuple[Annotation, str, int]] = []
     with Progress(
         TextColumn("[bold blue]Verifying"),
         BarColumn(),
@@ -473,7 +473,7 @@ def main(
             for future in concurrent.futures.as_completed(futures):
                 try:
                     entry, ok, msg, target_bytes, obj_bytes, reloc_offsets = future.result()
-                except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+                except Exception as exc:
                     entry = futures[future]
                     typer.echo(
                         f"WARNING: internal error verifying {entry.get('name', '?')}: {exc}",
@@ -519,22 +519,7 @@ def main(
                         status = "FAIL"
 
                 if fix_status:
-                    from rebrew.annotation import remove_annotation_key, update_annotation_key
-
-                    fp = cfg.reversed_dir / entry.get("filepath", "")
-                    if fp.exists():
-                        current_status = entry.get("status")
-                        if status in ("EXACT", "RELOC") and current_status != status:
-                            update_annotation_key(fp, entry["va"], "STATUS", status)
-                            remove_annotation_key(fp, entry["va"], "BLOCKER")
-                            remove_annotation_key(fp, entry["va"], "BLOCKER_DELTA")
-                        elif status == "MISMATCH" and current_status in ("EXACT", "RELOC"):
-                            update_annotation_key(fp, entry["va"], "STATUS", "MATCHING")
-                            if delta > 0:
-                                update_annotation_key(
-                                    fp, entry["va"], "BLOCKER", f"Mismatch {delta} bytes"
-                                )
-                                update_annotation_key(fp, entry["va"], "BLOCKER_DELTA", str(delta))
+                    deferred_fixes.append((entry, status, delta))
 
                 results.append(
                     {
@@ -549,6 +534,24 @@ def main(
                         "delta": delta,
                     }
                 )
+
+    # Apply deferred --fix-status writes after all compilation is complete
+    if deferred_fixes:
+        from rebrew.annotation import remove_annotation_key, update_annotation_key
+
+        for entry, status, delta in deferred_fixes:
+            fp = cfg.reversed_dir / entry.get("filepath", "")
+            if fp.exists():
+                current_status = entry.get("status")
+                if status in ("EXACT", "RELOC") and current_status != status:
+                    update_annotation_key(fp, entry["va"], "STATUS", status)
+                    remove_annotation_key(fp, entry["va"], "BLOCKER")
+                    remove_annotation_key(fp, entry["va"], "BLOCKER_DELTA")
+                elif status == "MISMATCH" and current_status in ("EXACT", "RELOC"):
+                    update_annotation_key(fp, entry["va"], "STATUS", "MATCHING")
+                    if delta > 0:
+                        update_annotation_key(fp, entry["va"], "BLOCKER", f"Mismatch {delta} bytes")
+                        update_annotation_key(fp, entry["va"], "BLOCKER_DELTA", str(delta))
 
     # Sort results by VA
     results.sort(key=lambda r: r["va"])

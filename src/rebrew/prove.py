@@ -21,10 +21,10 @@ error message directing users to ``uv pip install -e ".[prove]"``.
 
 from __future__ import annotations
 
-import contextlib
 import re
 import signal
 import tempfile
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -173,11 +173,16 @@ def prove_equivalence(
     if reloc_offsets:
         for offset, _sym_name in reloc_offsets.items():
             if 0 <= offset < len(compiled_bytes):
-                with contextlib.suppress(Exception):
+                try:
                     proj_comp.hook(
                         offset,
                         angr.SIM_PROCEDURES["stubs"]["ReturnUnconstrained"](),
                         length=4,
+                    )
+                except (KeyError, TypeError, ValueError) as e:
+                    warnings.warn(
+                        f"Failed to hook reloc at offset 0x{offset:x}: {e}",
+                        stacklevel=2,
                     )
 
     state_orig = _setup_state(proj_orig, "original")

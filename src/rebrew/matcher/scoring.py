@@ -441,7 +441,7 @@ def structural_similarity(
     # If the only differences are register allocation choices (RR), flags won't help.
     # If the code is wildly different (low mnemonic ratio), flags won't help.
     # We only run sweeps when the structure is close, but has small fixable differences.
-    flag_sensitive = structural > 0 and structural_ratio < 0.5 and mnemonic_ratio < 0.98
+    flag_sensitive = structural > 0 and structural_ratio < 0.5 and mnemonic_ratio > 0.80
 
     return StructuralSimilarity(
         total_insns=total,

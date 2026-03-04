@@ -66,6 +66,11 @@ _WINE_NOISE_PATTERNS: list[re.Pattern[str]] = [
 
 
 def filter_wine_stderr(text: str) -> str:
+    """Strip Wine/wibo diagnostic noise from compiler stderr output.
+
+    Removes ``wine:``, ``err:``, ``fixme:``, ``warn:``, ``wineserver:``,
+    Fontconfig, and Gecko warning lines that obscure actual compiler errors.
+    """
     for pat in _WINE_NOISE_PATTERNS:
         text = pat.sub("", text)
     return text.strip()
@@ -247,7 +252,7 @@ def compile_to_obj(
 
     obj_file = workdir / obj_name
     if r.returncode != 0 or not obj_file.exists():
-        err = filter_wine_stderr((r.stdout + r.stderr).decode("utf-8", errors="replace"))[:16000]
+        err = filter_wine_stderr((r.stdout + r.stderr).decode("utf-8", errors="replace"))
         return None, err
 
     if cc is not None and cache_key is not None:
@@ -288,7 +293,7 @@ def compile_and_compare(
         (matched, message, obj_bytes, reloc_offsets)
         matched is True if bytes match after reloc masking.
     """
-    cflags_list = cflags.split() if isinstance(cflags, str) else list(cflags)
+    cflags_list = _safe_shlex_split(cflags) if isinstance(cflags, str) else list(cflags)
 
     try:
         with tempfile.TemporaryDirectory(prefix="rebrew_cmp_") as workdir:

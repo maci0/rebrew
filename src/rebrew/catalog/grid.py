@@ -14,6 +14,9 @@ from rebrew.catalog.loaders import extract_dll_bytes, load_ghidra_data_labels
 from rebrew.catalog.registry import _is_jump_table
 from rebrew.catalog.sections import get_globals, get_sections
 
+# Maximum trailing gap (in bytes) that can be absorbed into the preceding function
+_MAX_TAIL_ABSORB = 64
+
 
 def merge_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
     """Merge overlapping half-open ranges into sorted non-overlapping ranges."""
@@ -350,11 +353,10 @@ def generate_data_json(
                                 ):
                                     absorb_size -= 1
 
-                    # Catch-all: small non-padding gaps (≤ 64B) that follow a
-                    # function and weren't detected as separate functions by any
-                    # tool.  These are typically out-of-line epilogues, IAT thunk
-                    # tails, small helper snippets, or switch index tables.
-                    _MAX_TAIL_ABSORB = 64
+                    # Catch-all: small non-padding gaps that follow a function
+                    # and weren't detected as separate functions by any tool.
+                    # These are typically out-of-line epilogues, IAT thunk tails,
+                    # small helper snippets, or switch index tables.
                     if (
                         absorb_size == 0
                         and len(gap_bytes) <= _MAX_TAIL_ABSORB
