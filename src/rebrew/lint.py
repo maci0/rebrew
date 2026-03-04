@@ -57,6 +57,7 @@ class LintResult:
     errors: list[tuple[int, str, str]] = field(default_factory=list)
     warnings: list[tuple[int, str, str]] = field(default_factory=list)
     context_prefix: str = ""
+    marker_line: int = 1
 
     def error(self, line: int, code: str, msg: str) -> None:
         """Record an error diagnostic at *line*."""
@@ -136,7 +137,7 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
     pending_kv: dict[str, str] = {}
     seen_code_after_marker: bool = False
 
-    for line in lines:
+    for line_idx, line in enumerate(lines):
         stripped = line.strip()
         if not stripped:
             continue
@@ -155,6 +156,7 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
             }
             in_block = True
             seen_code_after_marker = False
+            current_keys["_LINE"] = str(line_idx + 1)
 
             m = _HEADER_MARKER_RE.match(stripped)
             if m:
@@ -291,7 +293,7 @@ def _check_format_warnings(
 
     if has_javadoc and not flags["has_new"]:
         result.warning(
-            1,
+            result.marker_line,
             "W013",
             "Javadoc-style annotation format detected (@address — run with --fix to migrate)",
         )
@@ -302,11 +304,13 @@ def _check_format_warnings(
         flags["has_new"] = True
 
     if has_old and not flags["has_new"]:
-        result.warning(1, "W002", "Old-format header detected (run with --fix to migrate)")
+        result.warning(
+            result.marker_line, "W002", "Old-format header detected (run with --fix to migrate)"
+        )
         return False
 
     if not flags["has_new"] and not has_old:
-        result.error(1, "E001", "Missing FUNCTION/LIBRARY/STUB annotation")
+        result.error(result.marker_line, "E001", "Missing FUNCTION/LIBRARY/STUB annotation")
         return False
 
     return True
@@ -314,17 +318,19 @@ def _check_format_warnings(
 
 def _check_E001_marker(result: LintResult, marker: str) -> None:
     if marker not in VALID_MARKERS:
-        result.error(1, "E001", f"Invalid marker type: {marker}")
+        result.error(result.marker_line, "E001", f"Invalid marker type: {marker}")
 
 
 def _check_E002_va(result: LintResult, va_str: str) -> int | None:
     try:
         va_int = int(va_str, 16)
         if not (0x1000 <= va_int <= 0xFFFFFFFF):
-            result.error(1, "E002", f"VA {va_str} is suspicious (outside 32-bit range)")
+            result.error(
+                result.marker_line, "E002", f"VA {va_str} is suspicious (outside 32-bit range)"
+            )
         return va_int
     except ValueError:
-        result.error(1, "E002", f"Invalid VA format: {va_str}")
+        result.error(result.marker_line, "E002", f"Invalid VA format: {va_str}")
         return None
 
 
@@ -337,7 +343,9 @@ def _check_E013_duplicate_va(
 ) -> None:
     if va_int is not None and seen_vas is not None:
         if va_int in seen_vas:
-            result.error(1, "E013", f"Duplicate VA {va_str} — also in {seen_vas[va_int]}")
+            result.error(
+                result.marker_line, "E013", f"Duplicate VA {va_str} — also in {seen_vas[va_int]}"
+            )
         else:
             from rebrew.cli import rel_display_path
 
@@ -346,52 +354,57 @@ def _check_E013_duplicate_va(
 
 def _check_E003_E004_status(result: LintResult, found_keys: dict[str, str]) -> None:
     if "STATUS" not in found_keys:
-        result.error(1, "E003", "Missing // STATUS: annotation")
+        result.error(result.marker_line, "E003", "Missing // STATUS: annotation")
     elif found_keys["STATUS"] not in VALID_STATUSES:
         if "\\n" in found_keys["STATUS"]:
             result.error(
-                1,
+                result.marker_line,
                 "E014",
                 f"Corrupted STATUS value contains literal '\\n': {found_keys['STATUS']!r}",
             )
         else:
-            result.error(1, "E004", f"Invalid STATUS: {found_keys['STATUS']}")
+            result.error(result.marker_line, "E004", f"Invalid STATUS: {found_keys['STATUS']}")
 
 
 def _check_E005_E006_origin(
     result: LintResult, found_keys: dict[str, str], cfg: ProjectConfig | None = None
 ) -> None:
     if "ORIGIN" not in found_keys:
-        result.error(1, "E005", "Missing // ORIGIN: annotation")
+        result.error(result.marker_line, "E005", "Missing // ORIGIN: annotation")
     else:
         valid = set(cfg.origins) if cfg and cfg.origins else DEFAULT_ORIGINS
         if valid and found_keys["ORIGIN"] not in valid:
-            result.error(1, "E006", f"Invalid ORIGIN: {found_keys['ORIGIN']}")
+            result.error(result.marker_line, "E006", f"Invalid ORIGIN: {found_keys['ORIGIN']}")
 
 
 def _check_E007_E008_size(result: LintResult, found_keys: dict[str, str]) -> None:
     if "SIZE" not in found_keys:
-        result.error(1, "E007", "Missing // SIZE: annotation")
+        result.error(result.marker_line, "E007", "Missing // SIZE: annotation")
     else:
         try:
             sz = int(found_keys["SIZE"])
             if sz <= 0:
-                result.error(1, "E008", f"Invalid SIZE: {found_keys['SIZE']}")
+                result.error(result.marker_line, "E008", f"Invalid SIZE: {found_keys['SIZE']}")
         except ValueError:
-            result.error(1, "E008", f"Invalid SIZE: {found_keys['SIZE']}")
+            result.error(result.marker_line, "E008", f"Invalid SIZE: {found_keys['SIZE']}")
 
 
-def _check_E009_cflags(result: LintResult, found_keys: dict[str, str]) -> None:
-    if "CFLAGS" not in found_keys:
-        result.error(1, "E009", "Missing // CFLAGS: annotation")
-    elif not found_keys["CFLAGS"].strip():
-        result.error(1, "E009", "Empty // CFLAGS: value")
+def _check_W018_cflags(result: LintResult, found_keys: dict[str, str], cfg: Any) -> None:
+    has_annotation = "CFLAGS" in found_keys and found_keys["CFLAGS"].strip()
+    if has_annotation:
+        return
+    # Only warn if the target config also has no default cflags
+    has_config_default = bool(getattr(cfg, "base_cflags", "") if cfg else "")
+    if not has_config_default:
+        result.warning(
+            result.marker_line, "W018", "Missing // CFLAGS: and no default cflags in project config"
+        )
 
 
-def _check_E010_unknown_keys(result: LintResult, found_keys: dict[str, str]) -> None:
+def _check_W010_unknown_keys(result: LintResult, found_keys: dict[str, str]) -> None:
     for key in found_keys:
-        if key not in ALL_KNOWN_KEYS and key != "MODULE":
-            result.warning(1, "W010", f"Unknown annotation key: {key}")
+        if key not in ALL_KNOWN_KEYS and key not in ("MODULE", "_LINE"):
+            result.warning(result.marker_line, "W010", f"Unknown annotation key: {key}")
 
 
 def _check_E015_marker_consistency(
@@ -401,43 +414,28 @@ def _check_E015_marker_consistency(
     expected_marker = marker_for_origin(origin, status, lib_origins)
     if marker != expected_marker and marker in VALID_MARKERS and marker not in ("GLOBAL", "DATA"):
         result.error(
-            1,
+            result.marker_line,
             "E015",
             f"Marker {marker} inconsistent with ORIGIN {origin} (expected {expected_marker})",
         )
 
 
-def _check_E016_filename(result: LintResult, filepath: Path, symbol: str, marker: str) -> None:
-    if symbol and marker not in ("GLOBAL", "DATA") and not filepath.stem.startswith("data_"):
-        expected_stem = symbol.lstrip("_")
-        if "@" in expected_stem:
-            expected_stem = expected_stem.split("@")[0]
-        actual_stem = filepath.stem
-        if "@" in actual_stem:
-            actual_stem = actual_stem.split("@")[0]
-        if expected_stem and actual_stem != expected_stem:
-            result.error(
-                1,
-                "E016",
-                f"Filename '{filepath.name}' doesn't match SYMBOL "
-                f"'{symbol}' (expected '{expected_stem}{filepath.suffix}')",
-            )
-
-
 def _check_E017_contradictory(result: LintResult, status: str, marker: str) -> None:
     if status in ("MATCHING", "MATCHING_RELOC") and marker == "STUB":
-        result.error(1, "E017", f"Contradictory: status is {status} but marker is STUB")
+        result.error(
+            result.marker_line, "E017", f"Contradictory: status is {status} but marker is STUB"
+        )
 
 
 def _check_W001_symbol(result: LintResult, found_keys: dict[str, str]) -> None:
     if "SYMBOL" not in found_keys:
-        result.warning(1, "W001", "Missing // SYMBOL: annotation (recommended)")
+        result.warning(result.marker_line, "W001", "Missing // SYMBOL: annotation (recommended)")
 
 
 def _check_W005_blocker(result: LintResult, status: str, found_keys: dict[str, str]) -> None:
     if status == "STUB" and "BLOCKER" not in found_keys:
         result.warning(
-            1,
+            result.marker_line,
             "W005",
             "STUB function missing // BLOCKER: annotation (explain why it doesn't match)",
         )
@@ -451,7 +449,7 @@ def _check_W006_source(
     )
     if origin in lib_origins and "SOURCE" not in found_keys:
         result.warning(
-            1,
+            result.marker_line,
             "W006",
             f"{origin} function missing // SOURCE: annotation "
             "(reference file, e.g. SBHEAP.C:195 or deflate.c)",
@@ -463,7 +461,7 @@ def _check_W015_va_case(result: LintResult, va_str: str) -> None:
         hex_digits = va_str[2:]
         if hex_digits != hex_digits.lower() and hex_digits != hex_digits.upper():
             result.warning(
-                1,
+                result.marker_line,
                 "W015",
                 f"VA '{va_str}' has mixed-case hex digits (prefer consistent case)",
             )
@@ -483,7 +481,7 @@ def _check_config_rules(
     marker = getattr(cfg, "marker", None)
     if module and marker and module != marker:
         result.error(
-            1,
+            result.marker_line,
             "E012",
             f"Module '{module}' doesn't match configured marker '{marker}'",
         )
@@ -501,7 +499,7 @@ def _check_config_rules(
             actual_cflags = found_keys["CFLAGS"]
             if actual_cflags != expected_cflags:
                 result.warning(
-                    1,
+                    result.marker_line,
                     "W008",
                     f"CFLAGS '{actual_cflags}' differ from {origin} preset '{expected_cflags}'",
                 )
@@ -510,7 +508,7 @@ def _check_config_rules(
 def _check_W016_section(result: LintResult, marker: str, found_keys: dict[str, str]) -> None:
     if marker in ("DATA", "GLOBAL") and "SECTION" not in found_keys:
         result.warning(
-            1,
+            result.marker_line,
             "W016",
             f"{marker} annotation missing // SECTION: (.data, .rdata, .bss)",
         )
@@ -520,7 +518,7 @@ def _check_W017_note_rebrew(result: LintResult, found_keys: dict[str, str]) -> N
     note = found_keys.get("NOTE", "")
     if note.startswith("[rebrew]"):
         result.warning(
-            1,
+            result.marker_line,
             "W017",
             "NOTE starts with '[rebrew]' — this looks like auto-generated sync metadata, "
             "not a human note (likely from a bad pull)",
@@ -531,8 +529,9 @@ def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> No
     """Check struct SIZE comments and code presence (W003, W007)."""
     has_code = False
     has_struct = False
+    first_struct_line = 1
     struct_has_size = False
-    for line in lines[1:]:
+    for i, line in enumerate(lines[1:], start=2):
         stripped = line.strip()
         if (
             stripped
@@ -542,6 +541,8 @@ def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> No
         ):
             has_code = True
         if "typedef struct" in stripped or "struct " in stripped:
+            if not has_struct:
+                first_struct_line = i
             has_struct = True
         if _SIZE_ANNOTATION_RE.match(stripped):
             struct_has_size = True
@@ -551,7 +552,7 @@ def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> No
 
     if has_struct and not struct_has_size:
         result.warning(
-            1,
+            first_struct_line,
             "W007",
             "File defines struct(s) without // SIZE 0xNN annotation (reccmp recommendation)",
         )
@@ -590,7 +591,8 @@ def lint_file(
         all_headers = [(found_keys, flags)]
 
     for i, (found_keys, flags) in enumerate(all_headers):
-        # We need a context string for errors in multi-block files to know WHICH block failed.
+        result.marker_line = int(found_keys.get("_LINE", "1"))
+
         mod = found_keys.get("MODULE", "")
         va_str = found_keys.get("VA", "")
         ctx = f"[{mod} {va_str}] " if mod and va_str else ""
@@ -618,7 +620,7 @@ def lint_file(
             if marker not in ("GLOBAL", "DATA"):
                 _check_E003_E004_status(result, found_keys)
                 _check_E005_E006_origin(result, found_keys, cfg)
-                _check_E009_cflags(result, found_keys)
+                _check_W018_cflags(result, found_keys, cfg)
                 _check_W001_symbol(result, found_keys)
             _check_E007_E008_size(result, found_keys)
 
@@ -628,13 +630,9 @@ def lint_file(
             _check_E015_marker_consistency(result, marker, origin, status, cfg)
             _check_W005_blocker(result, status, found_keys)
             _check_W006_source(result, origin, found_keys, cfg)
-            _check_E010_unknown_keys(result, found_keys)
+            _check_W010_unknown_keys(result, found_keys)
             _check_E017_contradictory(result, status, marker)
             _check_config_rules(result, found_keys, cfg, origin)
-
-            # E016 shouldn't complain for secondary blocks
-            if i == 0:
-                _check_E016_filename(result, filepath, found_keys.get("SYMBOL", ""), marker)
 
             _check_W015_va_case(result, va_str)
             _check_W016_section(result, marker, found_keys)
@@ -869,8 +867,6 @@ E003   Missing STATUS annotation
 
 E013   Duplicate VA across files
 
-E016   Filename doesn't match SYMBOL
-
 W001   Missing SYMBOL (recommended)
 
 W005   STUB without BLOCKER explanation
@@ -878,6 +874,10 @@ W005   STUB without BLOCKER explanation
 W016   DATA/GLOBAL missing SECTION annotation
 
 W017   NOTE contains [rebrew] sync metadata
+
+W010   Unknown annotation key
+
+W018   Missing CFLAGS with no config fallback
 
 [dim]Checks for reccmp-style annotations in the first 20 lines of each .c file.
 Supports old-format, block-comment, and javadoc annotation styles (--fix migrates them).[/dim]""",
