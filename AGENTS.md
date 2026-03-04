@@ -125,9 +125,9 @@ src/rebrew/
 ├── main.py              # Umbrella CLI (`rebrew` command)
 ├── merge.py             # Merge single-function C files into multi-function file
 ├── cli.py               # Shared: TargetOption, get_config(), iter_sources(),
-│                        #   error_exit(), json_print(), parse_va()
+│                        #   iter_library_headers(), error_exit(), json_print(), parse_va()
 ├── config.py            # ProjectConfig dataclass, rebrew-project.toml loader
-├── annotation.py        # Annotation parsing (dataclass + regex parsers)
+├── annotation.py        # Annotation parsing (dataclass + regex parsers + library header parser)
 ├── compile.py           # Shared compile helpers (compile_to_obj)
 ├── naming.py            # Shared naming/difficulty/origin helpers (next, skeleton, triage, ga)
 ├── binary_loader.py     # PE/COFF/ELF/Mach-O binary loading + format detection (via LIEF)
@@ -147,7 +147,7 @@ src/rebrew/
 ├── [tool].py            # Each CLI tool (test, verify, match, lint, etc.)
 ├── catalog/             # Function catalog package (see catalog/AGENTS.md)
 │   ├── __init__.py      # Re-exports all public names
-│   ├── loaders.py       # Ghidra JSON + text function list parsers, DLL byte extraction
+│   ├── loaders.py       # Ghidra JSON + text function list parsers, DLL bytes, library header scanning
 │   ├── registry.py      # build_function_registry, canonical size resolution
 │   ├── grid.py          # Coverage grid / data JSON generation
 │   ├── export.py        # Catalog + reccmp CSV generation
@@ -228,7 +228,7 @@ All CLI tools follow these conventions for a consistent user experience:
 
 - **Config-driven**: All tools read `rebrew-project.toml` — never hardcode paths
 - **Idempotent**: Every tool safe to re-run without side effects
-- **Source discovery**: Always use `iter_sources(directory, cfg)` from `cli.py`
+- **Source discovery**: Always use `iter_sources(directory, cfg)` from `cli.py`; use `iter_library_headers(directory)` for `library_*.h` files
 - **Source glob**: Use `source_glob(cfg)` — respects `cfg.source_ext` (`.c`, `.cpp`)
 - **No wheel reinvention**: If an imported library provides the functionality, use it
 - **No backward compat**: One canonical name per function — no aliases, no shims, no legacy wrappers

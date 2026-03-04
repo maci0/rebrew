@@ -8,7 +8,7 @@ generates cell-level coverage grids, and exports CATALOG.md / reccmp CSV.
 
 | Module | Role | Key Exports |
 |--------|------|-------------|
-| `loaders.py` | File I/O (Ghidra JSON, function lists, DLL bytes, source scanning) | `load_ghidra_functions()`, `load_ghidra_data_labels()`, `parse_function_list()`, `scan_reversed_dir()`, `extract_dll_bytes()` |
+| `loaders.py` | File I/O (Ghidra JSON, function lists, DLL bytes, source + library header scanning) | `load_ghidra_functions()`, `load_ghidra_data_labels()`, `parse_function_list()`, `scan_reversed_dir()`, `extract_dll_bytes()` |
 | `registry.py` | Merges function sources, resolves canonical sizes | `build_function_registry()`, `make_func_entry()`, `make_ghidra_func()` |
 | `grid.py` | Cell-level coverage grid generation | `generate_data_json()` |
 | `export.py` | Output generation (CATALOG.md, reccmp CSV) | `generate_catalog()`, `generate_reccmp_csv()` |
@@ -28,8 +28,8 @@ cli.py (orchestrator — calls all other modules)
 
 loaders.py
 ├── registry.py (make_func_entry)
-├── annotation.py (external — parse_c_file_multi)
-└── cli.py (external — iter_sources)
+├── annotation.py (external — parse_c_file_multi, parse_library_header)
+└── cli.py (external — iter_sources, iter_library_headers)
 
 registry.py
 ├── binary_loader.py (external — load_binary)
@@ -49,7 +49,7 @@ sections.py → binary_loader.py, config.py, cli.py (all external)
 
 ```
 [Input Sources]
-  ├─ Reversed .c files → loaders.scan_reversed_dir() → list[Annotation]
+  ├─ Reversed .c files + library_*.h → loaders.scan_reversed_dir() → list[Annotation]
   ├─ functions.txt     → loaders.parse_function_list() → list[dict]
   ├─ ghidra JSON       → loaders.load_ghidra_functions() → list[dict]
   └─ PE binary         → binary_loader.load_binary() → BinaryInfo
@@ -103,6 +103,9 @@ Each cell tracks: function ownership, match status, gap classification.
   the binary file independently. No cross-module caching.
 - **Multi-function files**: `scan_reversed_dir()` supports multiple `// FUNCTION:`
   blocks per `.c` file. Both appear in the entries list.
+- **Library headers**: `scan_reversed_dir()` also scans `library_*.h` files for
+  `// LIBRARY:` markers (CRT/zlib identifications). Origin is inferred from the
+  filename stem (e.g. `library_msvc.h` → MSVCRT, `library_zlib.h` → ZLIB).
 - **Ghidra label classification**: Only `thunk_*` prefix → "thunk"; everything
   else → "data". No other classification logic.
 - **No global mutable state**: All modules are stateless; data flows through

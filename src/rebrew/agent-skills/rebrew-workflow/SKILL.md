@@ -162,7 +162,7 @@ rebrew lint --summary                   # status/origin breakdown table
 ### Coverage Database
 
 ```bash
-rebrew catalog --json                   # generate catalog JSON from annotations + binary
+rebrew catalog --json                   # generate catalog JSON from annotations + binary + library headers
 rebrew build-db                         # build SQLite coverage database from catalog
 ```
 
