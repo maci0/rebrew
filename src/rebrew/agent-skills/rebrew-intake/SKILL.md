@@ -58,7 +58,9 @@ since the original source is often available.
 
 ### 3. Build Function Catalog
 
-Generate the function catalog from the binary's symbol table and any existing annotations:
+Generate the function catalog from the binary's symbol table, source annotations,
+and library header identifications (`library_*.h` files with `// LIBRARY:` markers
+for known CRT/zlib functions):
 
 ```bash
 rebrew catalog --json                   # build catalog + data JSON
