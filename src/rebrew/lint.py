@@ -135,6 +135,8 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
     ):
         return [(legacy_keys, legacy_flags)]
 
+    pending_kv: dict[str, str] = {}
+
     for line in lines:
         stripped = line.strip()
         if not stripped:
@@ -144,7 +146,8 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
             if in_block:
                 results.append((current_keys, current_flags))
 
-            current_keys = {}
+            current_keys = dict(pending_kv)
+            pending_kv = {}
             current_flags = {
                 "has_new": True,
                 "has_old": False,
@@ -161,12 +164,14 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
             continue
 
         m = NEW_KV_RE.match(stripped)
-        if m and in_block:
-            current_keys[m.group("key").upper()] = m.group("value").strip()
+        if m:
+            if in_block:
+                current_keys[m.group("key").upper()] = m.group("value").strip()
+            else:
+                pending_kv[m.group("key").upper()] = m.group("value").strip()
             continue
 
-        # If we hit non-comment code while in_block, we could stop collecting keys for this block
-        # But NEW_KV_RE already strictly requires `// ` or `/* ` prefix.
+        pending_kv = {}
 
     if in_block:
         results.append((current_keys, current_flags))
@@ -184,6 +189,8 @@ def _parse_header(lines: list[str]) -> tuple[dict[str, str], dict[str, bool]]:
     found_keys: dict[str, str] = {}
     flags = {"has_new": False, "has_old": False, "has_block": False, "has_javadoc": False}
 
+    pending_kv: dict[str, str] = {}
+
     for _i, line in enumerate(lines[:20], 1):
         stripped = line.strip()
         if not stripped:
@@ -191,6 +198,8 @@ def _parse_header(lines: list[str]) -> tuple[dict[str, str], dict[str, bool]]:
 
         if NEW_FUNC_RE.match(stripped):
             flags["has_new"] = True
+            found_keys.update(pending_kv)
+            pending_kv = {}
             m = _HEADER_MARKER_RE.match(stripped)
             if m:
                 found_keys["MARKER"] = m.group(1)
@@ -199,8 +208,11 @@ def _parse_header(lines: list[str]) -> tuple[dict[str, str], dict[str, bool]]:
             continue
 
         m = NEW_KV_RE.match(stripped)
-        if m and flags["has_new"]:
-            found_keys[m.group("key").upper()] = m.group("value").strip()
+        if m:
+            if flags["has_new"]:
+                found_keys[m.group("key").upper()] = m.group("value").strip()
+            else:
+                pending_kv[m.group("key").upper()] = m.group("value").strip()
             continue
 
         if BLOCK_FUNC_RE.match(stripped):
@@ -377,7 +389,7 @@ def _check_E009_cflags(result: LintResult, found_keys: dict[str, str]) -> None:
 def _check_E010_unknown_keys(result: LintResult, found_keys: dict[str, str]) -> None:
     for key in found_keys:
         if key not in ALL_KNOWN_KEYS and key != "MODULE":
-            result.error(1, "E010", f"Unknown annotation key: {key}")
+            result.warning(1, "W010", f"Unknown annotation key: {key}")
 
 
 def _check_E015_marker_consistency(

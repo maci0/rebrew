@@ -155,8 +155,10 @@ def prove_equivalence(
         return state
 
     def _make_project(blob: bytes) -> angr.Project:
+        import io
+
         return angr.Project(
-            angr.misc.idalike.IDALikeByteString(blob),
+            io.BytesIO(blob),
             main_opts={"backend": "blob", "arch": "x86", "base_addr": 0},
             auto_load_libs=False,
         )
@@ -182,7 +184,7 @@ def prove_equivalence(
     state_comp = _setup_state(proj_comp, "compiled")
 
     def _run_simulation(proj: angr.Project, state: angr.SimState) -> list[Any]:
-        """Run symbolic execution and return deadended states."""
+        """Run symbolic execution and return satisfiable states."""
         sm = proj.factory.simgr(state)
         sm.use_technique(angr.exploration_techniques.LoopSeer(bound=loop_bound))
 
@@ -204,9 +206,10 @@ def prove_equivalence(
             signal.alarm(0)
             signal.signal(signal.SIGALRM, old_handler)
 
-        if timed_out and not sm.deadended:
-            return []
-        return list(sm.deadended)
+        # Filter to only satisfiable states with meaningful EAX values
+        if timed_out:
+            return sm.satisfiable(unsat_core=False) or []
+        return sm.satisfiable(unsat_core=False)
 
     try:
         states_orig = _run_simulation(proj_orig, state_orig)
@@ -223,22 +226,26 @@ def prove_equivalence(
     # For equivalence: for ALL pairs of (orig, comp) states, EAX must be provably equal
     for s_orig in states_orig:
         eax_orig = s_orig.regs.eax
-        matched_any = False
+        can_differ = False  # True if we found at least one (orig, comp) pair that can differ
         for s_comp in states_comp:
             eax_comp = s_comp.regs.eax
 
             # Check if there exists an input that makes them differ
+            # Build constraint from both states' symbolic variables
             solver = claripy.Solver()
-            solver.add(s_orig.solver.constraints)
-            solver.add(s_comp.solver.constraints)
+            # Copy constraints from both states
+            for expr in s_orig.solver.constraints:
+                solver.add(expr)
+            for expr in s_comp.solver.constraints:
+                solver.add(expr)
             solver.add(eax_orig != eax_comp)
 
-            if not solver.satisfiable():
-                # No input can make them differ — proven equivalent for this pair
-                matched_any = True
+            if solver.satisfiable():
+                # Found an assignment where return values differ — not equivalent
+                can_differ = True
                 break
 
-        if not matched_any:
+        if can_differ:
             return False, (
                 "Z3 found a satisfying assignment where return values differ "
                 f"(checked {len(states_orig)} x {len(states_comp)} state pairs)"
