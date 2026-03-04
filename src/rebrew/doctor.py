@@ -21,6 +21,8 @@ from typing import Any
 
 import typer
 from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
 
 from rebrew.cli import TargetOption, get_config, json_print
 from rebrew.config import ProjectConfig
@@ -579,29 +581,50 @@ def main(
     if json_output:
         json_print(report.to_dict())
     else:
-        console.print(f"\nRebrew Doctor — target: {report.target}")
-        console.print("=" * 60)
+        _STATUS_STYLES = {
+            _PASS: "green",
+            _FAIL: "red",
+            _WARN: "yellow",
+            _SKIP: "dim",
+        }
+
+        table = Table(show_header=True, header_style="bold", pad_edge=False)
+        table.add_column("", width=2)
+        table.add_column("Check", width=20)
+        table.add_column("Message", no_wrap=False)
+        table.add_column("Fix", no_wrap=False, style="dim")
 
         for check in report.checks:
             icon = _STATUS_ICONS.get(check.status, "?")
-            console.print(f"  {icon}  {check.name}: {check.message}")
-            if check.fix:
-                console.print(f"       Fix: {check.fix}")
+            style = _STATUS_STYLES.get(check.status, "")
+            table.add_row(
+                icon,
+                f"[{style}]{check.name}[/{style}]",
+                f"[{style}]{check.message}[/{style}]",
+                check.fix or "",
+            )
 
-        console.print("=" * 60)
         parts = []
         if report.pass_count:
-            parts.append(f"{report.pass_count} passed")
+            parts.append(f"[green]{report.pass_count} passed[/green]")
         if report.fail_count:
-            parts.append(f"{report.fail_count} failed")
+            parts.append(f"[red]{report.fail_count} failed[/red]")
         if report.warn_count:
-            parts.append(f"{report.warn_count} warnings")
-        console.print(f"  {', '.join(parts)}")
+            parts.append(f"[yellow]{report.warn_count} warnings[/yellow]")
+
+        border = "green" if report.passed else "red"
+        panel = Panel(
+            table,
+            title=f"Rebrew Doctor — target: {report.target}",
+            subtitle="  ".join(parts),
+            border_style=border,
+        )
+        console.print(panel)
 
         if report.passed:
-            console.print("\n  Project looks healthy!\n")
+            console.print("[green]  Project looks healthy![/green]")
         else:
-            console.print("\n  Issues found. Fix the failures above and re-run.\n")
+            console.print("[red]  Issues found. Fix the failures above and re-run.[/red]")
 
     if not report.passed:
         raise typer.Exit(code=1)
