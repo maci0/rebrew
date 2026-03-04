@@ -22,6 +22,7 @@ import re
 import shutil
 import subprocess
 import sys
+import warnings
 from pathlib import Path
 
 import httpx
@@ -82,8 +83,10 @@ def _run_re(binary: Path, va: int, cmd: str, root: Path) -> str | None:
         )
         if result.returncode == 0 and result.stdout:
             return _clean_output(result.stdout)
-    except (subprocess.TimeoutExpired, OSError, subprocess.SubprocessError):
-        pass
+    except subprocess.TimeoutExpired:
+        warnings.warn(f"{tool} timed out decompiling 0x{va:08x}", stacklevel=2)
+    except (OSError, subprocess.SubprocessError) as e:
+        warnings.warn(f"{tool} failed decompiling 0x{va:08x}: {e}", stacklevel=2)
     return None
 
 
@@ -153,7 +156,8 @@ def fetch_ghidra(
                     if isinstance(candidate, str) and candidate.strip():
                         return _clean_output(candidate)
             return None
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        warnings.warn(f"Ghidra MCP decompilation failed for 0x{va:08x}: {e}", stacklevel=2)
         return None
 
 

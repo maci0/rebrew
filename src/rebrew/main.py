@@ -190,7 +190,7 @@ for _name, _module, _help in _SINGLE_COMMANDS:
             _epilog = None
         _panel = _COMMAND_PANELS.get(_name)
         app.command(name=_name, help=_mod_help, epilog=_epilog, rich_help_panel=_panel)(_mod.main)
-    except ImportError as _exc:
+    except Exception as _exc:
         _panel = _COMMAND_PANELS.get(_name)
         app.command(name=_name, help=f"[unavailable] {_help}", rich_help_panel=_panel)(
             _make_stub_cmd(_module, _exc)
@@ -205,7 +205,7 @@ for _name, _module, _help in _MULTI_COMMANDS:
         _mod_help = getattr(_mod.app.info, "help", None) or _help
         _panel = _COMMAND_PANELS.get(_name)
         app.add_typer(_mod.app, name=_name, help=_mod_help, rich_help_panel=_panel)
-    except ImportError as _exc:
+    except Exception as _exc:
         _panel = _COMMAND_PANELS.get(_name)
         app.add_typer(
             _make_stub_app(_module, _exc),

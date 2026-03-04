@@ -71,15 +71,6 @@ def _resolve_target(doc: tomlkit.TOMLDocument, target: str | None) -> str:
     return target
 
 
-def _detect_format(path: Path) -> str:
-    """Detect binary format from file header magic bytes.
-
-    CLI-friendly wrapper: defaults to ``"pe"`` on errors instead of raising.
-    """
-    fmt, _ = _detect_format_and_arch(path)
-    return fmt
-
-
 def _detect_format_and_arch(path: Path) -> tuple[str, str | None]:
     """Detect binary format and architecture from file header.
 

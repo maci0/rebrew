@@ -4,14 +4,50 @@ Merges function list and Ghidra function lists into a unified registry with
 smart size resolution (jump table detection, padding absorption, etc.).
 """
 
-import contextlib
 import json
 import struct
+import warnings
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypedDict, cast
 
 from rebrew.binary_loader import load_binary
 from rebrew.config import ProjectConfig
+
+
+class RegistryEntry(TypedDict, total=False):
+    """Type-safe schema for a single function in the registry.
+
+    Fields marked as required via the factory ``_new_registry_entry`` are always
+    present; ``size_reason`` is added during the canonical-size resolution pass.
+    """
+
+    detected_by: list[str]
+    size_by_tool: dict[str, int]
+    list_name: str
+    ghidra_name: str
+    is_thunk: bool
+    is_export: bool
+    canonical_size: int
+    size_reason: str
+
+
+def _new_registry_entry(
+    va: int,
+    cfg: ProjectConfig | None,
+    *,
+    is_export: bool = False,
+) -> RegistryEntry:
+    """Create a default registry entry for *va*."""
+    return RegistryEntry(
+        detected_by=[],
+        size_by_tool={},
+        list_name="",
+        ghidra_name="",
+        is_thunk=va in cfg.iat_thunks if cfg else False,
+        is_export=is_export or (va in cfg.dll_exports if cfg else False),
+        canonical_size=0,
+    )
+
 
 # ---------------------------------------------------------------------------
 # Factory helpers
@@ -180,7 +216,7 @@ def build_function_registry(
     cfg: ProjectConfig | None,
     ghidra_path: Path | None = None,
     bin_path: Path | None = None,
-) -> dict[int, dict[str, Any]]:
+) -> dict[int, RegistryEntry]:
     """Build a unified function registry merging function list + ghidra + exports.
 
     Returns dict keyed by VA with:
@@ -191,7 +227,7 @@ def build_function_registry(
         is_export: bool
         canonical_size: best-known size
     """
-    registry: dict[int, dict[str, Any]] = {}
+    registry: dict[int, RegistryEntry] = {}
 
     # --- Function list ---
     r2_bogus = (
@@ -199,75 +235,46 @@ def build_function_registry(
     )
     for func in funcs:
         va = int(func["va"])
-        entry = registry.setdefault(
-            va,
-            {
-                "detected_by": [],
-                "size_by_tool": {},
-                "list_name": "",
-                "ghidra_name": "",
-                "is_thunk": va in cfg.iat_thunks if cfg else False,
-                "is_export": va in cfg.dll_exports if cfg else False,
-                "canonical_size": 0,
-            },
-        )
-        detected_by = cast(list[str], entry["detected_by"])
-        if "list" not in detected_by:
-            detected_by.append("list")
-        size_by_tool = cast(dict[str, int], entry["size_by_tool"])
+        entry = registry.setdefault(va, _new_registry_entry(va, cfg))
+        if "list" not in entry["detected_by"]:
+            entry["detected_by"].append("list")
         list_size = int(func["size"])
         if va not in r2_bogus:
-            size_by_tool["list"] = list_size
+            entry["size_by_tool"]["list"] = list_size
         entry["list_name"] = str(func["name"])
 
     # --- Ghidra functions (from cached JSON) ---
     ghidra_funcs: list[dict[str, Any]] = []
     if ghidra_path and ghidra_path.exists():
-        with contextlib.suppress(json.JSONDecodeError, OSError):
+        try:
             ghidra_funcs = cast(
                 list[dict[str, Any]],
                 json.loads(ghidra_path.read_text(encoding="utf-8")),
             )
+        except json.JSONDecodeError as e:
+            warnings.warn(f"Corrupt Ghidra JSON at {ghidra_path}: {e}", stacklevel=2)
+        except OSError as e:
+            warnings.warn(f"Cannot read Ghidra JSON at {ghidra_path}: {e}", stacklevel=2)
 
     for func in ghidra_funcs:
-        va = int(func["va"])
-        entry = registry.setdefault(
-            va,
-            {
-                "detected_by": [],
-                "size_by_tool": {},
-                "list_name": "",
-                "ghidra_name": "",
-                "is_thunk": va in cfg.iat_thunks if cfg else False,
-                "is_export": va in cfg.dll_exports if cfg else False,
-                "canonical_size": 0,
-            },
-        )
-        detected_by = cast(list[str], entry["detected_by"])
-        if "ghidra" not in detected_by:
-            detected_by.append("ghidra")
-        size_by_tool = cast(dict[str, int], entry["size_by_tool"])
-        size_by_tool["ghidra"] = int(func["size"])
-        entry["ghidra_name"] = str(func["ghidra_name"])
+        try:
+            va = int(func["va"])
+            ghidra_size = int(func["size"])
+            ghidra_name = str(func.get("ghidra_name", func.get("name", "")))
+        except (KeyError, ValueError, TypeError):
+            continue
+        entry = registry.setdefault(va, _new_registry_entry(va, cfg))
+        if "ghidra" not in entry["detected_by"]:
+            entry["detected_by"].append("ghidra")
+        entry["size_by_tool"]["ghidra"] = ghidra_size
+        entry["ghidra_name"] = ghidra_name
 
     # --- Exports ---
     exports: dict[int, str] = cfg.dll_exports if cfg else {}
     for va, _name in exports.items():
-        entry = registry.setdefault(
-            va,
-            {
-                "detected_by": [],
-                "size_by_tool": {},
-                "list_name": "",
-                "ghidra_name": "",
-                "is_thunk": False,
-                "is_export": True,
-                "canonical_size": 0,
-            },
-        )
-        detected_by = cast(list[str], entry["detected_by"])
-        if "exports" not in detected_by:
-            detected_by.append("exports")
+        entry = registry.setdefault(va, _new_registry_entry(va, cfg, is_export=True))
+        if "exports" not in entry["detected_by"]:
+            entry["detected_by"].append("exports")
 
     # --- Load .text section data for smart size resolution ---
     text_data: bytes | None = None
@@ -286,7 +293,7 @@ def build_function_registry(
 
     # --- Resolve canonical size: smart resolution ---
     for va, entry in registry.items():
-        sizes = cast(dict[str, int], entry["size_by_tool"])
+        sizes = entry["size_by_tool"]
         canonical, reason = _resolve_canonical_size(sizes, va, text_data, text_va, text_size_val)
         entry["canonical_size"] = canonical
         entry["size_reason"] = reason

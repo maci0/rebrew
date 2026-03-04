@@ -24,7 +24,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from rebrew.cli import TargetOption, json_print, require_config
+from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
 from rebrew.naming import (
     detect_origin,
@@ -593,7 +593,7 @@ def _collect_new_functions(
 ) -> list[TodoItem]:
     """Collect uncovered functions as start-function candidates."""
     ignored = ignored_symbols(cfg)
-    iat_set: set[int] = set(cfg.iat_thunks) if cfg.iat_thunks else set()
+    iat_set: set[int] = set(getattr(cfg, "iat_thunks", None) or [])
     sorted_covered = sorted(covered_vas)
 
     # Load binary for unmatchable detection
@@ -749,7 +749,7 @@ def collect_all(
     items.extend(_collect_library_candidates(ghidra_funcs, existing, cfg))
 
     # Sort by ROI descending
-    items.sort(key=lambda x: -x.roi_score)
+    items.sort(key=lambda x: (-x.roi_score, x.va))
     return items
 
 
@@ -817,7 +817,10 @@ def main(
 ) -> None:
     """Show prioritized actions ranked by ROI."""
     cfg = require_config(target=target, json_mode=json_output)
-    ghidra_funcs, existing, covered_vas = load_data(cfg)
+    try:
+        ghidra_funcs, existing, covered_vas = load_data(cfg)
+    except (OSError, json.JSONDecodeError, KeyError) as exc:
+        error_exit(f"Failed to load project data: {exc}", json_mode=json_output)
     all_items = collect_all(cfg, ghidra_funcs, existing, covered_vas)
 
     if category:

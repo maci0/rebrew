@@ -7,7 +7,6 @@ import tomlkit
 from click.exceptions import Exit as ClickExit
 
 from rebrew.cfg import (
-    _detect_format,
     _detect_format_and_arch,
     _load_toml,
     _resolve_target,
@@ -238,35 +237,42 @@ def _make_pe_stub(path: Path, machine: int = 0x14C) -> Path:
 
 
 class TestDetectFormat:
+    """Test format detection via _detect_format_and_arch (format component)."""
+
     def test_pe(self, tmp_path: Path) -> None:
         f = _make_pe_stub(tmp_path / "test.dll")
-        assert _detect_format(f) == "pe"
+        fmt, _ = _detect_format_and_arch(f)
+        assert fmt == "pe"
 
     def test_elf(self, tmp_path: Path) -> None:
         f = tmp_path / "test.so"
         f.write_bytes(b"\x7fELF" + b"\x00" * 100)
-        assert _detect_format(f) == "elf"
+        fmt, _ = _detect_format_and_arch(f)
+        assert fmt == "elf"
 
     def test_macho(self, tmp_path: Path) -> None:
         f = tmp_path / "test.dylib"
         f.write_bytes(b"\xfe\xed\xfa\xce" + b"\x00" * 100)
-        assert _detect_format(f) == "macho"
+        fmt, _ = _detect_format_and_arch(f)
+        assert fmt == "macho"
 
     def test_unknown_defaults_pe(self, tmp_path: Path) -> None:
         f = tmp_path / "test.bin"
         f.write_bytes(b"\x00" * 100)
-        assert _detect_format(f) == "pe"
+        fmt, _ = _detect_format_and_arch(f)
+        assert fmt == "pe"
 
     def test_nonexistent_defaults_pe(self, tmp_path: Path) -> None:
-        assert _detect_format(tmp_path / "nope") == "pe"
+        fmt, _ = _detect_format_and_arch(tmp_path / "nope")
+        assert fmt == "pe"
 
     def test_unrecognized_format_warns(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         f = tmp_path / "test.bin"
         f.write_bytes(b"\x00\x00\x00\x00" + b"\x00" * 100)
-        result = _detect_format(f)
-        assert result == "pe"
+        fmt, _ = _detect_format_and_arch(f)
+        assert fmt == "pe"
         captured = capsys.readouterr()
         assert "Warning" in captured.err
         assert "unrecognized binary format" in captured.err
@@ -274,8 +280,8 @@ class TestDetectFormat:
     def test_nonexistent_file_warns(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        result = _detect_format(tmp_path / "nonexistent.dll")
-        assert result == "pe"
+        fmt, _ = _detect_format_and_arch(tmp_path / "nonexistent.dll")
+        assert fmt == "pe"
         captured = capsys.readouterr()
         assert "Warning" in captured.err
         assert "cannot read" in captured.err

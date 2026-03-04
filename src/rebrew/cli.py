@@ -55,9 +55,7 @@ def require_config(target: str | None = None, *, json_mode: bool = False) -> Pro
         return load_config(target=target)
     except FileNotFoundError as exc:
         error_exit(str(exc), json_mode=json_mode)
-    except KeyError as exc:
-        error_exit(f"Config error: {exc}", json_mode=json_mode)
-    except ValueError as exc:
+    except (KeyError, ValueError) as exc:
         error_exit(f"Config error: {exc}", json_mode=json_mode)
 
 
