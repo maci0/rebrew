@@ -404,12 +404,13 @@ These affect whether your code produces matching bytes:
 
 ## File Naming Conventions
 
-| Origin | Prefix | Example |
-|--------|--------|---------|
-| GAME | `game_` | `game_alloc_object.c` |
-| MSVCRT | `crt_` | `crt_sbh_heap_init.c` |
-| ZLIB | `zlib_` | `zlib_adler32.c` |
-| Unknown/Unnamed | `func_` | `func_10003da0.c` |
+Filenames are derived from the function's symbol name — no origin-based prefixes are added.
+Users control the directory structure freely (e.g. `rendering/draw.c`, `crt/malloc.c`).
+
+| Pattern | Example |
+|---------|---------|
+| Symbol-based | `alloc_object.c`, `sbh_heap_init.c`, `adler32.c` |
+| Unknown/Unnamed | `func_10003da0.c` |
 
 ## Reference Sources
 
@@ -510,11 +511,11 @@ src/
   shared/                          # shared implementations (no rebrew headers)
     my_shared_func.c
   server.dll/                      # target 1 wrappers + unique functions
-    game_my_shared_func.c          # wrapper with SERVER annotations
-    game_server_only_func.c        # unique to server.dll
+    my_shared_func.c               # wrapper with SERVER annotations
+    server_only_func.c             # unique to server.dll
   Europa1400Gold_TL.exe/           # target 2 wrappers + unique functions
-    game_my_shared_func.c          # wrapper with CLIENT annotations
-    game_client_only_func.c        # unique to client
+    my_shared_func.c               # wrapper with CLIENT annotations
+    client_only_func.c             # unique to client
 ```
 
 **`src/shared/my_shared_func.c`** — the single source of truth:
@@ -529,7 +530,7 @@ int __cdecl my_shared_func(int param)
 }
 ```
 
-**`src/server.dll/game_my_shared_func.c`** — target 1 wrapper:
+**`src/server.dll/my_shared_func.c`** — target 1 wrapper:
 
 ```c
 // FUNCTION: SERVER 0x10001000
@@ -560,6 +561,6 @@ both targets benefit automatically.
 | [ANNOTATIONS.md](ANNOTATIONS.md) | Full annotation format reference and linter codes (E000–E017, W001–W017) |
 | [GHIDRA_SYNC.md](GHIDRA_SYNC.md) | Ghidra ↔ Rebrew sync feature matrix and known issues |
 | [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md) | Obtaining, creating, and using FLIRT signatures |
-| [CLI.md](CLI.md) | All 29 CLI tools, flags, and examples |
+| [CLI.md](CLI.md) | All 30 CLI tools, flags, and examples |
 | [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, arch presets, compiler profiles |
 | [TOOLCHAIN.md](TOOLCHAIN.md) | External tools, MSVC6 toolchain, Python dependencies |

@@ -615,59 +615,6 @@ class TestCorruptedAnnotation:
 
 
 # ---------------------------------------------------------------------------
-# W014: Filename/ORIGIN prefix mismatch
-# ---------------------------------------------------------------------------
-
-
-class TestOriginPrefix:
-    def test_w014_crt_prefix_game_origin(self, tmp_path: Path) -> None:
-        """File named `crt_foo.c` with ORIGIN: GAME should warn."""
-        content = """\
-// FUNCTION: SERVER 0x10008880
-// STATUS: EXACT
-// ORIGIN: GAME
-// SIZE: 31
-// CFLAGS: /O2 /Gd
-// SYMBOL: _crt_foo
-int foo(void) { return 0; }
-"""
-        f = _write_c(tmp_path, "crt_foo.c", content)
-        result = lint_file(f)
-        assert any(c == "W014" for _, c, _ in result.warnings)
-
-    def test_w014_crt_prefix_msvcrt_ok(self, tmp_path: Path) -> None:
-        """File named `crt_foo.c` with ORIGIN: MSVCRT should not warn."""
-        content = """\
-// LIBRARY: SERVER 0x10008880
-// STATUS: EXACT
-// ORIGIN: MSVCRT
-// SIZE: 31
-// CFLAGS: /O1
-// SYMBOL: _crt_foo
-// SOURCE: foo.c
-int foo(void) { return 0; }
-"""
-        f = _write_c(tmp_path, "crt_foo.c", content)
-        result = lint_file(f)
-        assert not any(c == "W014" for _, c, _ in result.warnings)
-
-    def test_w014_zlib_prefix_game_origin(self, tmp_path: Path) -> None:
-        """File named `zlib_foo.c` with ORIGIN: GAME should warn."""
-        content = """\
-// FUNCTION: SERVER 0x10008880
-// STATUS: EXACT
-// ORIGIN: GAME
-// SIZE: 31
-// CFLAGS: /O2 /Gd
-// SYMBOL: _zlib_foo
-int foo(void) { return 0; }
-"""
-        f = _write_c(tmp_path, "zlib_foo.c", content)
-        result = lint_file(f)
-        assert any(c == "W014" for _, c, _ in result.warnings)
-
-
-# ---------------------------------------------------------------------------
 # W015: VA hex case
 # ---------------------------------------------------------------------------
 

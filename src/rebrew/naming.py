@@ -14,7 +14,7 @@ from typing import Any
 
 import capstone
 
-from rebrew.annotation import DEFAULT_ORIGIN_PREFIXES, parse_c_file_multi
+from rebrew.annotation import parse_c_file_multi
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va
 from rebrew.config import ProjectConfig
 
@@ -306,9 +306,6 @@ def group_uncovered(
 # Naming conventions (from skeleton.py)
 # ---------------------------------------------------------------------------
 
-# Reverse mapping: origin → filename prefix (derived from annotation defaults)
-_ORIGIN_TO_PREFIX: dict[str, str] = {v: k for k, v in DEFAULT_ORIGIN_PREFIXES.items()}
-
 
 def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> dict[int, str]:
     """Load VAs already covered by source files. Returns {va: rel_path}.
@@ -426,16 +423,6 @@ def make_filename(
         base = "func_" + ghidra_name[4:].lower()
     else:
         base = sanitize_name(ghidra_name)
-
-    # Apply origin prefix convention (config-driven or default)
-    if cfg is not None and cfg.origin_prefixes:
-        prefix = cfg.origin_prefixes.get(origin, "")
-    else:
-        prefix = _ORIGIN_TO_PREFIX.get(origin, "")
-
-    # Don't double-prefix
-    if prefix and not base.startswith(prefix) and not base.startswith("func_"):
-        base = prefix + base
 
     ext = cfg.source_ext if cfg is not None else ".c"
     return base + ext

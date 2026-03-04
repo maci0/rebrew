@@ -99,6 +99,15 @@ Split when: functions in a multi-function file need different CFLAGS, different
 origins, or independent tracking. Merge when: functions share the same translation
 unit (static locals, file-scoped globals) and must be compiled together.
 
+Use `rebrew cu-map` to identify which functions likely belong to the same
+compilation unit (contiguous in .text with only padding between them):
+
+```bash
+rebrew cu-map --json                                # infer TU boundaries
+```
+
+High-confidence clusters suggest functions that should share a `.c` file.
+
 ## 6. Global Data
 
 If the function references globals, use the `rebrew-data-analysis` skill for

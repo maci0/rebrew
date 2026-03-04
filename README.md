@@ -25,6 +25,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 - **NASM extraction** — `rebrew nasm` extracts function bytes and produces NASM-reassembleable ASM with round-trip verification
 - **File splitting** — `rebrew split` breaks multi-function `.c` files into individual single-function files, preserving shared preamble (includes, defines) and generating filenames from `SYMBOL` annotations
 - **File merging** — `rebrew merge` combines multiple single-function files into one multi-function file with preamble deduplication and VA-sorted function blocks
+- **Compilation unit inference** — `rebrew cu-map` infers translation unit boundaries from .text layout contiguity and call-graph analysis; clusters functions that were likely compiled from the same source file
 - **Semantic equivalence proving** — `rebrew prove` uses angr symbolic execution + Z3 constraint solving to mathematically prove MATCHING functions are semantically equivalent; updates STATUS to PROVEN; optional dependency (`uv pip install -e ".[prove]"`)
 - **Multi-target** — all tools read from `rebrew-project.toml` with `--target` selection; supports maintaining multi-target `// FUNCTION:` blocks (e.g. LEGO1 vs BETA10) in the exact same C file by auto-filtering inactive targets; supports PE, ELF, Mach-O across x86, x64, ARM32/64
 - **Rich CLI help** — every tool has detailed `--help` with usage examples, context, and prerequisites via Typer's `rich_markup_mode`
@@ -110,6 +111,8 @@ rebrew crt-match 0x10006c00         # match a single VA against CRT source
 rebrew crt-match --all --origin MSVCRT # match all MSVCRT functions
 rebrew crt-match --fix-source --all  # auto-write // SOURCE: annotations
 rebrew crt-match --index            # show CRT source index
+rebrew cu-map                       # infer compilation unit boundaries
+rebrew cu-map --json                # JSON output for scripting
 rebrew lint                         # lint annotations in your source files
 rebrew split src/target_name/multi.c           # split multi-function file into individual files
 rebrew merge a.c b.c --output merged.c         # merge files into one multi-function file

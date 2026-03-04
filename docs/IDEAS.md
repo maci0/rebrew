@@ -168,7 +168,7 @@ rebrew skeleton 0x10006c00 --decomp --decomp-backend ghidra
 rebrew sync --watch
 # Watching src/server.dll/*.c for changes...
 # [12:30:01] func_10006c00.c changed → pushed label + comment
-# [12:30:45] zlib_adler32.c status MATCHING→RELOC → updated bookmark
+# [12:30:45] adler32.c status MATCHING→RELOC → updated bookmark
 ```
 
 Uses `watchdog` or `inotify` to detect file saves and push only the changed annotations.
