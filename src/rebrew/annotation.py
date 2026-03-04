@@ -686,6 +686,10 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
     the current block.  Non-annotation lines (code) between blocks are
     skipped — they don't terminate scanning.
 
+    Supports both orderings:
+    - Marker first, then key-value lines (original rebrew format)
+    - Key-value lines first, then marker (reccmp-compatible format)
+
     Returns a list of Annotations (may be empty).
     """
     results: list[Annotation] = []
@@ -693,14 +697,16 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
     current_va: int | None = None
     current_module = ""
     current_kv: dict[str, str] = {}
+    pending_kv: dict[str, str] = {}
 
     def _flush() -> None:
-        nonlocal current_marker_type, current_va, current_module, current_kv
+        nonlocal current_marker_type, current_va, current_module, current_kv, pending_kv
         if current_marker_type is None or current_va is None:
             return
         results.append(
             _kv_to_annotation(current_kv, current_marker_type, current_va, current_module)
         )
+        pending_kv = {}
 
     for line in lines:
         stripped = line.strip()
@@ -715,23 +721,31 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
             current_marker_type = m.group("type")
             current_va = int(m.group("va"), 16)
             current_module = m.group("module")
-            current_kv = {}
+            # Merge any pending key-value lines that appeared before this marker
+            current_kv = dict(pending_kv)
+            pending_kv = {}
 
             if stripped.count("//") > 1:
                 current_kv["_INLINE_ERROR"] = stripped
             continue
 
-        # Only collect key-value lines if we're inside a block
-        if current_marker_type is not None:
-            m2 = NEW_KV_RE.match(stripped) or BLOCK_KV_RE.match(stripped)
-            if m2:
-                key = m2.group("key").upper()
-                val = m2.group("value").strip()
+        # Collect key-value lines
+        m2 = NEW_KV_RE.match(stripped) or BLOCK_KV_RE.match(stripped)
+        if m2:
+            key = m2.group("key").upper()
+            val = m2.group("value").strip()
+            if current_marker_type is not None:
+                # Inside a block — attach to current marker
                 current_kv[key] = val
-                continue
+            else:
+                # Before any marker — buffer for the next marker
+                pending_kv[key] = val
+            continue
 
         # Non-annotation line — DON'T break scanning (code between blocks)
         # Just skip it and keep looking for the next marker
+        # But discard any orphaned pending KV (they belonged to no marker)
+        pending_kv = {}
 
     # Flush the last block
     _flush()
