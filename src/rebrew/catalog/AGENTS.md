@@ -106,6 +106,9 @@ Each cell tracks: function ownership, match status, gap classification.
 - **Library headers**: `scan_reversed_dir()` also scans `library_*.h` files for
   `// LIBRARY:` markers (CRT/zlib identifications). Origin is inferred from the
   filename stem (e.g. `library_msvc.h` → MSVCRT, `library_zlib.h` → ZLIB).
+  Supports an extended format with optional KV annotations (STATUS, SIZE, CFLAGS,
+  SOURCE, BLOCKER) after the symbol line — reccmp ignores these, rebrew captures
+  them for library functions that are actively compiled from reference source.
 - **Ghidra label classification**: Only `thunk_*` prefix → "thunk"; everything
   else → "data". No other classification logic.
 - **No global mutable state**: All modules are stateless; data flows through
