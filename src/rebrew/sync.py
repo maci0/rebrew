@@ -33,7 +33,7 @@ import httpx
 import typer
 from rich.console import Console
 
-from rebrew.annotation import update_annotation_key
+from rebrew.annotation import Annotation, update_annotation_key
 from rebrew.catalog import (
     build_function_registry,
     parse_function_list,
@@ -70,7 +70,7 @@ def _resolve_program_path(cfg: ProjectConfig) -> str:
 
 
 def _validate_program_path(
-    client: Any,
+    client: httpx.Client,
     endpoint: str,
     program_path: str,
     session_id: str,
@@ -427,7 +427,7 @@ console = Console(stderr=True)
 
 
 def _fetch_mcp_tool(
-    client: Any,
+    client: httpx.Client,
     endpoint: str,
     tool_name: str,
     arguments: dict[str, Any],
@@ -485,7 +485,7 @@ def _fetch_mcp_tool(
 
 
 def _fetch_mcp_tool_raw(
-    client: Any,
+    client: httpx.Client,
     endpoint: str,
     tool_name: str,
     arguments: dict[str, Any],
@@ -619,7 +619,9 @@ def _is_meaningful_name(name: str) -> bool:
     )
 
 
-def _ghidra_name_to_symbol(ghidra_name: str, entry: Any, cfg: ProjectConfig | None = None) -> str:
+def _ghidra_name_to_symbol(
+    ghidra_name: str, entry: Annotation | dict[str, str], cfg: ProjectConfig | None = None
+) -> str:
     """Convert a Ghidra function name to a C symbol name based on calling convention and config."""
     if not ghidra_name:
         return ""
@@ -648,7 +650,7 @@ def _ghidra_name_to_symbol(ghidra_name: str, entry: Any, cfg: ProjectConfig | No
 
 
 def _fetch_all_symbols(
-    client: Any,
+    client: httpx.Client,
     endpoint: str,
     program_path: str,
     session_id: str,
@@ -702,7 +704,7 @@ def _fetch_all_symbols(
 
 
 def _fetch_all_functions(
-    client: Any,
+    client: httpx.Client,
     endpoint: str,
     program_path: str,
     session_id: str,

@@ -59,8 +59,17 @@ class BinaryInfo:
 
     @property
     def data(self) -> bytes:
-        """Raw file bytes, loaded lazily."""
+        """Raw file bytes, loaded lazily.
+
+        Not thread-safe: concurrent first-access may read the file twice.
+        This is benign (idempotent) and rare due to the module-level cache.
+        """
         if self._data is None:
+            file_size = self.path.stat().st_size
+            if file_size > 512 * 1024 * 1024:  # 512 MB safety limit
+                raise ValueError(
+                    f"Binary file too large ({file_size / 1024 / 1024:.0f} MB): {self.path}"
+                )
             self._data = self.path.read_bytes()
         return self._data
 
@@ -172,6 +181,9 @@ def _load_macho(fat_or_binary: lief.MachO.FatBinary | lief.MachO.Binary, path: P
     binaries.  We always take the first slice.
     """
     if isinstance(fat_or_binary, lief.MachO.FatBinary):
+        # Always use first slice — fat Mach-O architecture selection is not
+        # yet implemented.  For multi-arch fat binaries, only the first
+        # architecture slice is accessible.
         binary = fat_or_binary.at(0)
     else:
         binary = fat_or_binary
@@ -267,6 +279,8 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     with _load_binary_lock:
         cached = _load_binary_cache.get(cache_key)
         if cached is not None:
+            # Refresh: move to end so FIFO eviction keeps recently-accessed entries
+            _load_binary_cache[cache_key] = _load_binary_cache.pop(cache_key)
             return cached
 
     # Parsing happens outside the lock (expensive I/O, no shared state)
@@ -367,7 +381,7 @@ def va_to_file_offset(info: BinaryInfo, va: int) -> int:
     Falls back to the .text section shortcut if no section contains the VA.
     """
     for section in info.sections.values():
-        if section.va <= va < section.va + section.size:
+        if section.va <= va < section.va + section.raw_size:
             return section.file_offset + (va - section.va)
     # Fallback: use .text section constants
     return va - info.text_va + info.text_raw_offset

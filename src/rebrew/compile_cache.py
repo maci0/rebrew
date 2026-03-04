@@ -123,7 +123,10 @@ def compile_cache_key(
     h.update(source_content.encode("utf-8"))
     h.update(f"\0filename={source_filename}\0".encode())
     h.update(f"\0ext={source_ext}\0".encode())
-    # Flags in order — separated by \0 to avoid "flag1 flag2" == "flag1flag2"
+    # Flags and include dirs are separated by \0 to prevent collisions
+    # (e.g. "flag1 flag2" != "flag1flag2").  This assumes none of the inputs
+    # contain embedded NUL bytes, which is safe because MSVC flags, filenames,
+    # and C source are NUL-free text.
     h.update(f"\0cflags={chr(0).join(cflags)}\0".encode())
     h.update(f"\0includes={chr(0).join(include_dirs)}\0".encode())
     h.update(f"\0toolchain={toolchain_id}\0".encode())
