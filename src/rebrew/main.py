@@ -97,6 +97,7 @@ _COMMAND_PANELS: dict[str, str] = {
     "flirt": "Analysis",
     "crt-match": "Analysis",
     "cu-map": "Analysis",
+    "todo": "Analysis",
     # Matching — solving byte-level differences
     "match": "Matching",
     "ga": "Matching",
@@ -143,6 +144,7 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("merge", "rebrew.merge", "Merge single-function C files into one multi-function file."),
     ("prove", "rebrew.prove", "Prove semantic equivalence via symbolic execution."),
     ("cu-map", "rebrew.cu_map", "Infer compilation unit boundaries from .text layout."),
+    ("todo", "rebrew.todo", "Prioritized action list: what to work on next for highest ROI."),
 ]
 
 # Multi-command modules – registered as groups via app.add_typer().
