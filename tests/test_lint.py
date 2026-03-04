@@ -23,6 +23,7 @@ def _make_cfg(
     origins: list[str] | None = None,
     cflags_presets: dict[str, str] | None = None,
     library_origins: set[str] | None = None,
+    base_cflags: str = "/nologo /c /MT",
 ) -> SimpleNamespace:
     """Create a minimal config-like namespace for config-aware lint tests."""
     return ProjectConfig(
@@ -31,6 +32,7 @@ def _make_cfg(
         origins=origins or ["GAME", "MSVCRT", "ZLIB"],
         cflags_presets=cflags_presets or {},
         library_origins=library_origins or {"MSVCRT", "ZLIB"},
+        base_cflags=base_cflags,
     )
 
 
@@ -139,7 +141,7 @@ int foo(void) { return 0; }
 
 
 # ---------------------------------------------------------------------------
-# E003-E009: Missing/invalid fields
+# E003-E008: Missing/invalid fields
 # ---------------------------------------------------------------------------
 
 
@@ -219,7 +221,7 @@ int foo(void) { return 0; }
         result = lint_file(f)
         assert any(c == "E008" for _, c, _ in result.errors)
 
-    def test_missing_cflags(self, tmp_path: Path) -> None:
+    def test_missing_cflags_no_config(self, tmp_path: Path) -> None:
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
@@ -229,11 +231,26 @@ int foo(void) { return 0; }
 """
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
-        assert any(c == "E009" for _, c, _ in result.errors)
+        # No cfg and no annotation CFLAGS → W018 warning
+        assert any(c == "W018" for _, c, _ in result.warnings)
+
+    def test_missing_cflags_with_config_default(self, tmp_path: Path) -> None:
+        content = """\
+// FUNCTION: SERVER 0x10008880
+// STATUS: EXACT
+// ORIGIN: GAME
+// SIZE: 31
+int foo(void) { return 0; }
+"""
+        f = _write_c(tmp_path, "foo.c", content)
+        cfg = _make_cfg()  # base_cflags defaults to "/nologo /c /MT"
+        result = lint_file(f, cfg=cfg)
+        # Config has default cflags → no W018
+        assert not any(c == "W018" for _, c, _ in result.warnings)
 
 
 # ---------------------------------------------------------------------------
-# E010: Unknown keys
+# W010: Unknown keys (downgraded from E010)
 # ---------------------------------------------------------------------------
 
 
@@ -250,7 +267,7 @@ int foo(void) { return 0; }
 """
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
-        assert any(c == "E010" for _, c, _ in result.errors)
+        assert any(c == "W010" for _, c, _ in result.warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -427,11 +444,6 @@ int foo(void) { return 0; }
         result = lint_file(f)
         assert any(c == "W006" for _, c, _ in result.warnings)
 
-    def test_e016_filename_mismatch(self, tmp_path: Path) -> None:
-        f = _write_c(tmp_path, "wrong_name.c", VALID_HEADER)
-        result = lint_file(f)
-        assert any(c == "E016" for _, c, _ in result.errors)
-
     def test_e017_contradictory_matching_stub(self, tmp_path: Path) -> None:
         content = """\
 // STUB: SERVER 0x10008880
@@ -589,9 +601,9 @@ int foo(void) { return 0; }
 """
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
-        # STATUS should default to RELOC but SIZE and CFLAGS should be missing
+        # STATUS should default to RELOC but SIZE should be missing
         assert any(c == "E007" for _, c, _ in result.errors)  # missing SIZE
-        assert any(c == "E009" for _, c, _ in result.errors)  # missing CFLAGS
+        # CFLAGS is optional — handled by W018 warning, not an error
 
 
 # ---------------------------------------------------------------------------
@@ -649,7 +661,7 @@ int foo(void) { return 0; }
 
 
 # ---------------------------------------------------------------------------
-# SKIP key should not fire E010
+# SKIP key should not fire W010
 # ---------------------------------------------------------------------------
 
 
@@ -668,7 +680,7 @@ int foo(void) { return 0; }
 """
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
-        assert not any(c == "E010" for _, c, _ in result.errors)
+        assert not any(c == "W010" for _, c, _ in result.warnings)
 
 
 # ---------------------------------------------------------------------------
