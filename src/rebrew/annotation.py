@@ -41,6 +41,7 @@ DEFAULT_ORIGINS = {"GAME", "MSVCRT", "ZLIB"}
 REQUIRED_KEYS = {"STATUS", "ORIGIN", "SIZE", "CFLAGS"}
 RECOMMENDED_KEYS = {"SYMBOL"}
 OPTIONAL_KEYS = {
+    "ANALYSIS",
     "SOURCE",
     "BLOCKER",
     "BLOCKER_DELTA",
@@ -149,12 +150,31 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
                 break
         adjusted_starts.append(start)
 
-    preamble = "".join(lines[: adjusted_starts[0]])
+    preamble_lines = lines[: adjusted_starts[0]]
     blocks: list[str] = []
     for i, start in enumerate(adjusted_starts):
         end = adjusted_starts[i + 1] if i + 1 < len(adjusted_starts) else len(lines)
         blocks.append("".join(lines[start:end]))
 
+    # Post-process: rescue orphaned annotation KV lines from the preamble.
+    # This happens when a source file has annotations at the top separated
+    # from the FUNCTION marker by non-annotation lines (includes, externs).
+    # Without this fix, merge would discard those annotations during preamble
+    # deduplication.
+    if blocks and preamble_lines:
+        rescued: list[str] = []
+        kept: list[str] = []
+        for line in preamble_lines:
+            stripped = line.strip()
+            if stripped and (NEW_KV_RE.match(stripped) or BLOCK_KV_RE.match(stripped)):
+                rescued.append(line)
+            else:
+                kept.append(line)
+        if rescued:
+            preamble_lines = kept
+            blocks[0] = "".join(rescued) + blocks[0]
+
+    preamble = "".join(preamble_lines)
     return preamble, blocks
 
 
@@ -350,27 +370,22 @@ class Annotation:
         if self.size <= 0:
             errors.append(f"Invalid SIZE: {self.size}")
 
-        # DATA annotations don't require CFLAGS (they aren't compiled)
-        is_data = self.marker_type in ("DATA", "GLOBAL")
-        if not is_data:
-            if not self.cflags or not self.cflags.strip():
-                errors.append("Missing CFLAGS")
-            else:
-                # Validate CFLAGS look like MSVC-style flags
-                flags = self.cflags.strip().split()
-                for flag in flags:
-                    if not flag.startswith("/") and not flag.startswith("-"):
-                        warnings.append(
-                            f"CFLAGS token '{flag}' doesn't start with '/' or '-' "
-                            "(expected MSVC-style flags like /O2 /Gd)"
-                        )
-                # Detect common typo: flags glued together like "/O2/Gd"
-                for flag in flags:
-                    if re.match(r"^/\w+/\w+", flag):
-                        warnings.append(
-                            f"CFLAGS token '{flag}' looks like multiple flags "
-                            "glued together (missing space?)"
-                        )
+        # Validate CFLAGS format if present (not required — falls back to target default)
+        if self.cflags and self.cflags.strip():
+            flags = self.cflags.strip().split()
+            for flag in flags:
+                if not flag.startswith("/") and not flag.startswith("-"):
+                    warnings.append(
+                        f"CFLAGS token '{flag}' doesn't start with '/' or '-' "
+                        "(expected MSVC-style flags like /O2 /Gd)"
+                    )
+            # Detect common typo: flags glued together like "/O2/Gd"
+            for flag in flags:
+                if re.match(r"^/\w+/\w+", flag):
+                    warnings.append(
+                        f"CFLAGS token '{flag}' looks like multiple flags "
+                        "glued together (missing space?)"
+                    )
 
         if not self.symbol:
             warnings.append("Missing SYMBOL (recommended)")
@@ -394,14 +409,6 @@ class Annotation:
 
         if self.status in ("MATCHING", "MATCHING_RELOC") and self.marker_type == "STUB":
             warnings.append(f"Contradictory: status is {self.status} but marker is STUB")
-
-        if filepath and self.symbol:
-            expected_stem = self.symbol.lstrip("_")
-            if expected_stem and filepath.stem != expected_stem:
-                warnings.append(
-                    f"Filename '{filepath.name}' doesn't match SYMBOL "
-                    f"'{self.symbol}' (expected '{expected_stem}{filepath.suffix}')"
-                )
 
         return errors, warnings
 
@@ -935,16 +942,31 @@ def parse_library_header(
     filepath: Path,
     target_name: str | None = None,
 ) -> list[Annotation]:
-    """Parse a ``library_*.h`` file for minimal LIBRARY markers.
+    """Parse a ``library_*.h`` file for LIBRARY markers.
 
-    Expected format inside ``#ifdef 0`` guards::
+    Supports two formats per entry:
+
+    **Minimal** (reccmp-compatible, identified-only functions)::
 
         // LIBRARY: SERVER 0x1001A18A
         // _fflush
 
-    Each marker line is followed by a comment line with the symbol name.
-    Returns a list of Annotations with marker_type=LIBRARY, status=EXACT,
-    and origin inferred from the filename.
+    **Extended** (rebrew-only KV lines after the symbol — ignored by reccmp)::
+
+        // LIBRARY: SERVER 0x10050000
+        // _deflate
+        // STATUS: MATCHING
+        // SIZE: 120
+        // CFLAGS: /O2 /Gd
+        // SOURCE: deflate.c
+
+    reccmp's parser reads the marker + symbol, then moves on; the KV lines
+    are invisible to it.  Rebrew captures them to support library functions
+    that are actively compiled and matched from reference source.
+
+    Returns a list of Annotations with marker_type=LIBRARY and origin
+    inferred from the filename.  Entries without explicit STATUS default
+    to EXACT.
     """
     try:
         text = filepath.read_text(encoding="utf-8", errors="replace")
@@ -980,21 +1002,49 @@ def parse_library_header(
                     j += 1
                     continue
                 if next_line.startswith("//"):
-                    # Extract symbol: strip leading // and whitespace
-                    symbol = next_line.lstrip("/").strip()
+                    # Symbol line if it's NOT a KV annotation
+                    kv_match = NEW_KV_RE.match(next_line)
+                    if not kv_match:
+                        symbol = next_line.lstrip("/").strip()
+                        j += 1
                 break
+
+            # Collect optional KV lines after the symbol (rebrew extension)
+            kv: dict[str, str] = {}
+            while j < len(lines):
+                kv_line = lines[j].strip()
+                if not kv_line:
+                    j += 1
+                    continue
+                kv_match = NEW_KV_RE.match(kv_line)
+                if kv_match:
+                    kv[kv_match.group("key").upper()] = kv_match.group("value").strip()
+                    j += 1
+                else:
+                    break
+
+            # Build annotation — KV values override defaults
+            size = 0
+            size_str = kv.get("SIZE", "")
+            if size_str:
+                with contextlib.suppress(ValueError):
+                    size = int(size_str)
 
             results.append(
                 Annotation(
                     va=va,
-                    size=0,
+                    size=size,
                     name=symbol.lstrip("_") if symbol else "",
-                    symbol=symbol,
+                    symbol=kv.get("SYMBOL", symbol),
                     module=module,
-                    status="EXACT",
-                    origin=origin,
+                    status=kv.get("STATUS", "EXACT"),
+                    origin=kv.get("ORIGIN", origin),
+                    cflags=kv.get("CFLAGS", ""),
                     marker_type="LIBRARY",
                     filepath=filepath.name,
+                    source=kv.get("SOURCE", ""),
+                    blocker=kv.get("BLOCKER", ""),
+                    note=kv.get("NOTE", ""),
                 )
             )
 
