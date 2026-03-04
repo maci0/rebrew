@@ -364,19 +364,29 @@ def main(
     if not bin_path.exists():
         error_exit(f"{bin_path} not found", json_mode=json_output)
 
-    # Filter out DATA/GLOBAL annotations (not compilable) and deduplicate by VA
+    # Filter out non-compilable annotations and deduplicate by VA
     seen_vas: set[int] = set()
     unique_entries: list[Annotation] = []
     data_count = 0
+    library_header_count = 0
     for entry in sorted(entries, key=lambda x: x["va"]):
         if entry.get("marker_type", "FUNCTION") in ("DATA", "GLOBAL"):
             data_count += 1
+            continue
+        # Library header entries (from library_*.h) have no compilable source
+        fp = entry.get("filepath", "")
+        if fp and fp.endswith(".h"):
+            library_header_count += 1
             continue
         if entry["va"] not in seen_vas:
             seen_vas.add(entry["va"])
             unique_entries.append(entry)
     if data_count and not json_output:
         console.print(f"Skipped {data_count} DATA/GLOBAL annotations (not compilable)")
+    if library_header_count and not json_output:
+        console.print(
+            f"Skipped {library_header_count} library header entries (identified, not compiled)"
+        )
 
     passed = 0
     failed = 0

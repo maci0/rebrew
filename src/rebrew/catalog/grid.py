@@ -163,6 +163,11 @@ def generate_data_json(
         if not canonical_size:
             canonical_size = funcs_by_va[va]["size"] if va in funcs_by_va else e["size"]
 
+        # Skip entries with no resolvable size (e.g. library header markers
+        # not present in the function list or registry)
+        if canonical_size <= 0:
+            continue
+
         fn_hash = ""
         if bin_path and bin_path.exists():
             raw = extract_dll_bytes(bin_path, file_off, canonical_size)
