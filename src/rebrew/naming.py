@@ -14,7 +14,7 @@ from typing import Any
 
 import capstone
 
-from rebrew.annotation import parse_c_file_multi
+from rebrew.annotation import parse_c_file_multi, parse_library_header
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va
 from rebrew.config import ProjectConfig
 
@@ -221,7 +221,7 @@ def load_data(
     - covered_vas: dict mapping VA -> filename (for find_neighbor_file)
     """
     from rebrew.catalog import load_ghidra_functions
-    from rebrew.cli import iter_sources, rel_display_path
+    from rebrew.cli import iter_library_headers, iter_sources, rel_display_path
 
     src_dir = Path(cfg.reversed_dir)
     ghidra_json = src_dir / "ghidra_functions.json"
@@ -252,6 +252,22 @@ def load_data(
                 "symbol": entry.symbol,
             }
             covered_vas[entry.va] = rel_name
+
+    # Scan library_*.h files for identified CRT/zlib functions
+    for hfile in iter_library_headers(src_dir):
+        lib_entries = parse_library_header(hfile, target_name=cfg.marker if cfg else None)
+        for entry in lib_entries:
+            if entry.va < 0x1000:
+                continue
+            existing[entry.va] = {
+                "filename": hfile.name,
+                "status": entry.status,
+                "origin": entry.origin,
+                "blocker": "",
+                "blocker_delta": "",
+                "symbol": entry.symbol,
+            }
+            covered_vas[entry.va] = hfile.name
 
     return ghidra_funcs, existing, covered_vas
 
@@ -320,7 +336,7 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
         src_dir: Directory containing reversed source files.
         cfg: Optional config for source extension (defaults to ``".c"``).
     """
-    from rebrew.cli import iter_sources, rel_display_path
+    from rebrew.cli import iter_library_headers, iter_sources, rel_display_path
 
     src_path = Path(src_dir)
     existing: dict[int, str] = {}
@@ -331,6 +347,13 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
             if entry.marker_type in ("GLOBAL", "DATA"):
                 continue
             existing[entry.va] = rel_name
+
+    # Scan library_*.h files for identified CRT/zlib functions
+    for hfile in iter_library_headers(src_path):
+        lib_entries = parse_library_header(hfile, target_name=cfg.marker if cfg else None)
+        for entry in lib_entries:
+            existing[entry.va] = hfile.name
+
     return existing
 
 
