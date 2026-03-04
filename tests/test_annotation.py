@@ -9,6 +9,7 @@ from rebrew.annotation import (
     normalize_cflags,
     normalize_status,
     parse_c_file,
+    parse_library_header,
     parse_new_format,
     parse_old_format,
 )
@@ -596,3 +597,71 @@ class TestResolveSymbol:
 
         ann = Annotation(symbol="")
         assert resolve_symbol(ann, tmp_path / "game_pool_free.c") == "_game_pool_free"
+
+
+# ---------------------------------------------------------------------------
+# parse_library_header
+# ---------------------------------------------------------------------------
+
+
+class TestParseLibraryHeader:
+    """Verify parse_library_header() for library_*.h files."""
+
+    def test_parse_msvc_header(self, tmp_path) -> None:
+        hfile = tmp_path / "library_msvc.h"
+        hfile.write_text(
+            "#ifdef 0\n"
+            "// LIBRARY: SERVER 0x1001A18A\n"
+            "// _fflush\n"
+            "\n"
+            "// LIBRARY: SERVER 0x1001A1BB\n"
+            "// __fclose_lk\n"
+            "#endif\n"
+        )
+        results = parse_library_header(hfile)
+        assert len(results) == 2
+
+        assert results[0].va == 0x1001A18A
+        assert results[0].symbol == "_fflush"
+        assert results[0].origin == "MSVCRT"
+        assert results[0].marker_type == "LIBRARY"
+        assert results[0].status == "EXACT"
+        assert results[0].module == "SERVER"
+
+        assert results[1].va == 0x1001A1BB
+        assert results[1].symbol == "__fclose_lk"
+        assert results[1].origin == "MSVCRT"
+
+    def test_parse_zlib_header(self, tmp_path) -> None:
+        hfile = tmp_path / "library_zlib.h"
+        hfile.write_text("// LIBRARY: SERVER 0x10050000\n// _deflate\n")
+        results = parse_library_header(hfile)
+        assert len(results) == 1
+        assert results[0].va == 0x10050000
+        assert results[0].symbol == "_deflate"
+        assert results[0].origin == "ZLIB"
+
+    def test_target_filter(self, tmp_path) -> None:
+        hfile = tmp_path / "library_msvc.h"
+        hfile.write_text(
+            "// LIBRARY: SERVER 0x1001A18A\n"
+            "// _fflush\n"
+            "// LIBRARY: OTHER 0x1001A1BB\n"
+            "// __fclose_lk\n"
+        )
+        results = parse_library_header(hfile, target_name="SERVER")
+        assert len(results) == 1
+        assert results[0].va == 0x1001A18A
+
+    def test_empty_file(self, tmp_path) -> None:
+        hfile = tmp_path / "library_msvc.h"
+        hfile.write_text("")
+        results = parse_library_header(hfile)
+        assert results == []
+
+    def test_unknown_library_origin(self, tmp_path) -> None:
+        hfile = tmp_path / "library_openssl.h"
+        hfile.write_text("// LIBRARY: SERVER 0x10060000\n// _SSL_init\n")
+        results = parse_library_header(hfile)
+        assert len(results) == 1
+        assert results[0].origin == "OPENSSL"

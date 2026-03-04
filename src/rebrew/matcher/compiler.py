@@ -222,7 +222,7 @@ def build_candidate_obj_only(
         obj_path = workdir / obj_name
 
         if r.returncode != 0 or not obj_path.exists():
-            err_output = _filter_wine_stderr((r.stdout + r.stderr).decode(errors="replace"))[:400]
+            err_output = _filter_wine_stderr((r.stdout + r.stderr).decode(errors="replace"))[:4000]
             detailed_err = f"Command: {' '.join(cmd)}\nReturn code: {r.returncode}\nObj Exists: {obj_path.exists()}\nOutput: {err_output}"
             return BuildResult(ok=False, error_msg=detailed_err)
 

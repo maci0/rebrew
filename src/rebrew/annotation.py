@@ -115,6 +115,11 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
     Splits on ``// FUNCTION:`` (or LIBRARY/STUB/GLOBAL/DATA) marker lines,
     returning the text before the first marker as the preamble and each
     marker-delimited section as a block string.
+
+    Annotation key-value lines (``// STATUS: EXACT``, ``// SIZE: 160``, etc.)
+    immediately preceding a marker are included in that marker's block rather
+    than the preamble, so that annotations stay with their function during
+    merge/split operations.
     """
     lines = text.splitlines(keepends=True)
     marker_indexes: list[int] = []
@@ -125,10 +130,29 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
     if not marker_indexes:
         return text, []
 
-    preamble = "".join(lines[: marker_indexes[0]])
+    # For each marker, scan backwards to include preceding annotation
+    # key-value lines (// KEY: value) in the block.  Blank lines between
+    # annotations and marker are consumed too.  The scan never goes past
+    # the previous marker to avoid stealing from another block.
+    adjusted_starts: list[int] = []
+    for i, marker_idx in enumerate(marker_indexes):
+        start = marker_idx
+        lower_bound = marker_indexes[i - 1] if i > 0 else 0
+        while start > lower_bound:
+            prev_line = lines[start - 1].strip()
+            if not prev_line:
+                start -= 1
+                continue
+            if NEW_KV_RE.match(prev_line) or BLOCK_KV_RE.match(prev_line):
+                start -= 1
+            else:
+                break
+        adjusted_starts.append(start)
+
+    preamble = "".join(lines[: adjusted_starts[0]])
     blocks: list[str] = []
-    for i, start in enumerate(marker_indexes):
-        end = marker_indexes[i + 1] if i + 1 < len(marker_indexes) else len(lines)
+    for i, start in enumerate(adjusted_starts):
+        end = adjusted_starts[i + 1] if i + 1 < len(adjusted_starts) else len(lines)
         blocks.append("".join(lines[start:end]))
 
     return preamble, blocks
@@ -882,6 +906,101 @@ def update_annotation_key(filepath: Path, va: int, key: str, new_value: str) -> 
         return True
 
     return False
+
+
+# ---------------------------------------------------------------------------
+# Library header parser
+# ---------------------------------------------------------------------------
+
+# Origin inference from library_*.h filename stems
+_LIBRARY_ORIGIN_MAP: dict[str, str] = {
+    "msvc": "MSVCRT",
+    "msvcrt": "MSVCRT",
+    "crt": "MSVCRT",
+    "zlib": "ZLIB",
+}
+
+
+def _infer_library_origin(stem: str) -> str:
+    """Infer ORIGIN from a library_*.h filename stem.
+
+    Strips the ``library_`` prefix and maps known suffixes to canonical
+    origin names.  Unknown suffixes are uppercased as-is.
+    """
+    suffix = stem.removeprefix("library_").lower()
+    return _LIBRARY_ORIGIN_MAP.get(suffix, suffix.upper())
+
+
+def parse_library_header(
+    filepath: Path,
+    target_name: str | None = None,
+) -> list[Annotation]:
+    """Parse a ``library_*.h`` file for minimal LIBRARY markers.
+
+    Expected format inside ``#ifdef 0`` guards::
+
+        // LIBRARY: SERVER 0x1001A18A
+        // _fflush
+
+    Each marker line is followed by a comment line with the symbol name.
+    Returns a list of Annotations with marker_type=LIBRARY, status=EXACT,
+    and origin inferred from the filename.
+    """
+    try:
+        text = filepath.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+
+    lines = text.splitlines()
+    if not lines:
+        return []
+
+    origin = _infer_library_origin(filepath.stem)
+    results: list[Annotation] = []
+
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].strip()
+        m = NEW_FUNC_CAPTURE_RE.match(stripped)
+        if m and m.group("type") == "LIBRARY":
+            module = m.group("module")
+            va = int(m.group("va"), 16)
+
+            # Apply target filter
+            if target_name and module.lower() != target_name.lower():
+                i += 1
+                continue
+
+            # Look for symbol on next non-blank comment line
+            symbol = ""
+            j = i + 1
+            while j < len(lines):
+                next_line = lines[j].strip()
+                if not next_line:
+                    j += 1
+                    continue
+                if next_line.startswith("//"):
+                    # Extract symbol: strip leading // and whitespace
+                    symbol = next_line.lstrip("/").strip()
+                break
+
+            results.append(
+                Annotation(
+                    va=va,
+                    size=0,
+                    name=symbol.lstrip("_") if symbol else "",
+                    symbol=symbol,
+                    module=module,
+                    status="EXACT",
+                    origin=origin,
+                    marker_type="LIBRARY",
+                    filepath=filepath.name,
+                )
+            )
+
+        i += 1
+
+    return results
 
 
 def remove_annotation_key(filepath: Path, va: int, key: str) -> bool:

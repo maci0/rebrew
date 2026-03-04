@@ -120,6 +120,11 @@ def rel_display_path(filepath: Path, base_dir: Path | None = None) -> str:
     return filepath.name
 
 
+def iter_library_headers(directory: Path) -> list[Path]:
+    """Return all library_*.h files under *directory*, recursively."""
+    return sorted(directory.rglob("library_*.h"))
+
+
 def iter_sources(directory: Path, cfg: ProjectConfig | None = None) -> list[Path]:
     """Return all source files under *directory*, recursively, sorted by path.
 
