@@ -24,7 +24,7 @@ from typing import Any, NotRequired, TypedDict
 
 import typer
 
-from rebrew.annotation import has_skip_annotation, parse_c_file, resolve_symbol
+from rebrew.annotation import has_skip_annotation, parse_c_file_multi, resolve_symbol
 from rebrew.cli import TargetOption, require_config
 from rebrew.config import ProjectConfig
 from rebrew.utils import atomic_write_text
@@ -57,11 +57,12 @@ _FUNC_START_RE = re.compile(
 )
 
 
-def parse_stub_info(filepath: Path, ignored: set[str] | None = None) -> StubInfo | None:
+def parse_stub_info(filepath: Path, ignored: set[str] | None = None) -> list[StubInfo]:
     """Extract STUB annotation fields from a reversed .c file.
 
-    Uses the canonical parser from rebrew.annotation, then applies
-    STUB-specific filtering (SKIP, ignored symbols, min size).
+    Uses the canonical multi-function parser from rebrew.annotation, then
+    applies STUB-specific filtering (SKIP, ignored symbols, min size).
+    Returns a list of StubInfo dicts — one per qualifying annotation.
 
     Args:
         filepath: Path to the .c source file.
@@ -69,50 +70,57 @@ def parse_stub_info(filepath: Path, ignored: set[str] | None = None) -> StubInfo
     """
     if ignored is None:
         ignored = set()
-    entry = parse_c_file(filepath)
-    if entry is None:
-        return None
 
-    status = entry["status"]
-    if status != "STUB":
-        return None
+    entries = parse_c_file_multi(filepath)
+    if not entries:
+        return []
 
     if has_skip_annotation(filepath):
-        return None
+        return []
 
-    symbol = resolve_symbol(entry, filepath)
-    if symbol in ignored or symbol.lstrip("_") in ignored:
-        return None
+    results: list[StubInfo] = []
+    for entry in entries:
+        status = entry["status"]
+        if status != "STUB":
+            continue
 
-    if entry.va < 0x1000:
-        return None
+        symbol = resolve_symbol(entry, filepath)
+        if symbol in ignored or symbol.lstrip("_") in ignored:
+            continue
 
-    size = entry["size"]
-    if size < 10:
-        return None
+        if entry.va < 0x1000:
+            continue
 
-    # Fallback defaults — used only when annotation lacks CFLAGS/ORIGIN.
-    # Config-driven values should be set upstream in the annotation itself.
-    cflags = entry["cflags"] or "/O2 /Gd"
-    origin = entry["origin"] or "GAME"
+        size = entry["size"]
+        if size < 10:
+            continue
 
-    return {
-        "filepath": filepath,
-        "va": f"0x{entry['va']:08X}",
-        "size": size,
-        "symbol": symbol,
-        "cflags": cflags,
-        "origin": origin,
-    }
+        # Fallback defaults — used only when annotation lacks CFLAGS/ORIGIN.
+        # Config-driven values should be set upstream in the annotation itself.
+        cflags = entry["cflags"] or "/O2 /Gd"
+        origin = entry["origin"] or "GAME"
+
+        results.append(
+            {
+                "filepath": filepath,
+                "va": f"0x{entry['va']:08X}",
+                "size": size,
+                "symbol": symbol,
+                "cflags": cflags,
+                "origin": origin,
+            }
+        )
+    return results
 
 
 def parse_matching_info(
     filepath: Path, ignored: set[str] | None = None, max_delta: int = 10
-) -> StubInfo | None:
+) -> list[StubInfo]:
     """Extract MATCHING annotation fields from a reversed .c file.
 
     Like parse_stub_info but for MATCHING functions with small byte deltas.
     Only returns functions whose BLOCKER byte-delta is <= max_delta.
+    Returns a list of StubInfo dicts — one per qualifying annotation.
 
     Args:
         filepath: Path to the .c source file.
@@ -123,46 +131,52 @@ def parse_matching_info(
 
     if ignored is None:
         ignored = set()
-    entry = parse_c_file(filepath)
-    if entry is None:
-        return None
 
-    status = entry["status"]
-    if status != "MATCHING":
-        return None
-
-    if entry.va < 0x1000:
-        return None
+    entries = parse_c_file_multi(filepath)
+    if not entries:
+        return []
 
     if has_skip_annotation(filepath):
-        return None
+        return []
 
-    symbol = resolve_symbol(entry, filepath)
-    if symbol in ignored or symbol.lstrip("_") in ignored:
-        return None
+    results: list[StubInfo] = []
+    for entry in entries:
+        status = entry["status"]
+        if status != "MATCHING":
+            continue
 
-    size = entry["size"]
-    if size < 10:
-        return None
+        if entry.va < 0x1000:
+            continue
 
-    # Parse byte delta from BLOCKER annotation
-    blocker = entry.get("blocker") or ""
-    delta = parse_byte_delta(blocker) if blocker else None
-    if delta is None or delta > max_delta:
-        return None
+        symbol = resolve_symbol(entry, filepath)
+        if symbol in ignored or symbol.lstrip("_") in ignored:
+            continue
 
-    cflags = entry["cflags"] or "/O2 /Gd"
-    origin = entry["origin"] or "GAME"
+        size = entry["size"]
+        if size < 10:
+            continue
 
-    return {
-        "filepath": filepath,
-        "va": f"0x{entry['va']:08X}",
-        "size": size,
-        "symbol": symbol,
-        "cflags": cflags,
-        "origin": origin,
-        "delta": delta,
-    }
+        # Parse byte delta from BLOCKER annotation
+        blocker = entry.get("blocker") or ""
+        delta = parse_byte_delta(blocker) if blocker else None
+        if delta is None or delta > max_delta:
+            continue
+
+        cflags = entry["cflags"] or "/O2 /Gd"
+        origin = entry["origin"] or "GAME"
+
+        results.append(
+            {
+                "filepath": filepath,
+                "va": f"0x{entry['va']:08X}",
+                "size": size,
+                "symbol": symbol,
+                "cflags": cflags,
+                "origin": origin,
+                "delta": delta,
+            }
+        )
+    return results
 
 
 def find_near_miss(
@@ -189,10 +203,10 @@ def find_near_miss(
         return results
 
     for cfile in iter_sources(reversed_dir, cfg):
-        info = parse_matching_info(cfile, ignored=ignored, max_delta=max_delta)
-        if info is not None:
+        infos = parse_matching_info(cfile, ignored=ignored, max_delta=max_delta)
+        rel_name = rel_display_path(cfile, reversed_dir)
+        for info in infos:
             va_str = info["va"]
-            rel_name = rel_display_path(cfile, reversed_dir)
             if va_str in seen_vas:
                 if warn_duplicates:
                     typer.echo(
@@ -233,10 +247,10 @@ def find_all_stubs(
         return stubs
 
     for cfile in iter_sources(reversed_dir, cfg):
-        info = parse_stub_info(cfile, ignored=ignored)
-        if info is not None:
+        infos = parse_stub_info(cfile, ignored=ignored)
+        rel_name = rel_display_path(cfile, reversed_dir)
+        for info in infos:
             va_str = info["va"]
-            rel_name = rel_display_path(cfile, reversed_dir)
             if va_str in seen_vas:
                 if warn_duplicates:
                     typer.echo(
@@ -251,56 +265,61 @@ def find_all_stubs(
     return stubs
 
 
-def parse_matching_all(filepath: Path, ignored: set[str] | None = None) -> StubInfo | None:
+def parse_matching_all(filepath: Path, ignored: set[str] | None = None) -> list[StubInfo]:
     """Extract MATCHING annotation fields from a reversed .c file (no delta filter).
 
     Unlike ``parse_matching_info``, this accepts all MATCHING functions regardless
     of whether they have a BLOCKER annotation or byte delta.  Used by the batch
     flag sweep mode which targets every MATCHING function.
+    Returns a list of StubInfo dicts — one per qualifying annotation.
     """
     from rebrew.naming import parse_byte_delta
 
     if ignored is None:
         ignored = set()
-    entry = parse_c_file(filepath)
-    if entry is None:
-        return None
 
-    status = entry["status"]
-    if status != "MATCHING":
-        return None
-
-    if entry.va < 0x1000:
-        return None
+    entries = parse_c_file_multi(filepath)
+    if not entries:
+        return []
 
     if has_skip_annotation(filepath):
-        return None
+        return []
 
-    symbol = resolve_symbol(entry, filepath)
-    if symbol in ignored or symbol.lstrip("_") in ignored:
-        return None
+    results: list[StubInfo] = []
+    for entry in entries:
+        status = entry["status"]
+        if status != "MATCHING":
+            continue
 
-    size = entry["size"]
-    if size < 10:
-        return None
+        if entry.va < 0x1000:
+            continue
 
-    blocker = entry.get("blocker") or ""
-    delta = parse_byte_delta(blocker) if blocker else None
+        symbol = resolve_symbol(entry, filepath)
+        if symbol in ignored or symbol.lstrip("_") in ignored:
+            continue
 
-    cflags = entry["cflags"] or "/O2 /Gd"
-    origin = entry["origin"] or "GAME"
+        size = entry["size"]
+        if size < 10:
+            continue
 
-    info: StubInfo = {
-        "filepath": filepath,
-        "va": f"0x{entry['va']:08X}",
-        "size": size,
-        "symbol": symbol,
-        "cflags": cflags,
-        "origin": origin,
-    }
-    if delta is not None:
-        info["delta"] = delta
-    return info
+        blocker = entry.get("blocker") or ""
+        delta = parse_byte_delta(blocker) if blocker else None
+
+        cflags = entry["cflags"] or "/O2 /Gd"
+        origin = entry["origin"] or "GAME"
+
+        info: StubInfo = {
+            "filepath": filepath,
+            "va": f"0x{entry['va']:08X}",
+            "size": size,
+            "symbol": symbol,
+            "cflags": cflags,
+            "origin": origin,
+        }
+        if delta is not None:
+            info["delta"] = delta
+        results.append(info)
+    return results
 
 
 def find_all_matching(
@@ -324,10 +343,10 @@ def find_all_matching(
         return results
 
     for cfile in iter_sources(reversed_dir, cfg):
-        info = parse_matching_all(cfile, ignored=ignored)
-        if info is not None:
+        infos = parse_matching_all(cfile, ignored=ignored)
+        rel_name = rel_display_path(cfile, reversed_dir)
+        for info in infos:
             va_str = info["va"]
-            rel_name = rel_display_path(cfile, reversed_dir)
             if va_str in seen_vas:
                 if warn_duplicates:
                     typer.echo(
@@ -568,11 +587,12 @@ def update_stub_to_matched(filepath: Path, best_src: str, stub: StubInfo) -> Non
         r"^(//\s*)STATUS:\s*(STUB|MATCHING(?:_RELOC)?)",
         r"\1STATUS: RELOC",
         original,
+        count=1,
         flags=re.MULTILINE,
     )
     if "BLOCKER:" in updated:
-        updated = re.sub(r"//\s*BLOCKER:[^\n]*\n?", "", updated)
-        updated = re.sub(r"/\*\s*BLOCKER:.*?\*/[ \t]*\n?", "", updated)
+        updated = re.sub(r"//\s*BLOCKER:[^\n]*\n?", "", updated, count=1)
+        updated = re.sub(r"/\*\s*BLOCKER:.*?\*/[ \t]*\n?", "", updated, count=1)
 
     body_start = _FUNC_START_RE.search(updated)
     best_body = _FUNC_START_RE.search(best_src)
@@ -587,7 +607,8 @@ def update_stub_to_matched(filepath: Path, best_src: str, stub: StubInfo) -> Non
     tmp_path.write_text(updated, encoding="utf-8")
 
     # Validate the written file re-parses correctly
-    anno = parse_c_file(tmp_path)
+    annos = parse_c_file_multi(tmp_path)
+    anno = annos[0] if annos else None
     if anno is None:
         tmp_path.unlink(missing_ok=True)
         raise RuntimeError(

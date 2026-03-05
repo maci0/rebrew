@@ -32,7 +32,7 @@ from typing import Any
 
 import typer
 
-from rebrew.annotation import parse_c_file
+from rebrew.annotation import parse_c_file_multi
 from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
 from rebrew.config import ProjectConfig
 
@@ -324,31 +324,37 @@ def verify_roundtrip(nasm_source: str, original_bytes: bytes) -> tuple[bool, str
     return False, (f"FAIL: {len(diffs)} byte diffs at offsets {diffs[:10]}")
 
 
-def _parse_annotations(filepath: Path) -> dict[str, Any] | None:
+def _parse_annotations(filepath: Path) -> list[dict[str, Any]]:
     """Parse reccmp-style annotations from a reversed .c file.
 
-    Uses the canonical parser from rebrew.annotation.parse_c_file,
-    then slims the result to the fields batch_extract needs.
+    Uses the canonical multi-parser from rebrew.annotation.parse_c_file_multi,
+    then slims the results to the fields batch_extract needs.
+    Returns a list of annotation dicts — one per qualifying function.
     """
-    entry = parse_c_file(filepath)
-    if entry is None:
-        return None
+    entries = parse_c_file_multi(filepath)
+    if not entries:
+        return []
 
-    status = entry["status"]
-    if status not in ("EXACT", "RELOC", "MATCHING", "MATCHING_RELOC", "PROVEN", "STUB"):
-        return None
+    results: list[dict[str, Any]] = []
+    for entry in entries:
+        status = entry["status"]
+        if status not in ("EXACT", "RELOC", "MATCHING", "MATCHING_RELOC", "PROVEN", "STUB"):
+            continue
 
-    size = entry["size"]
-    if not size:
-        return None
+        size = entry["size"]
+        if not size:
+            continue
 
-    return {
-        "va": entry["va"],
-        "size": size,
-        "symbol": entry["symbol"],
-        "status": status,
-        "filepath": filepath,
-    }
+        results.append(
+            {
+                "va": entry["va"],
+                "size": size,
+                "symbol": entry["symbol"],
+                "status": status,
+                "filepath": filepath,
+            }
+        )
+    return results
 
 
 def batch_extract(
@@ -365,14 +371,13 @@ def batch_extract(
 
     entries = []
     for cfile in iter_sources(reversed_dir, cfg):
-        info = _parse_annotations(cfile)
-        if info is None:
-            continue
-        if info["size"] < 6:
-            continue
-        if stubs_only and info["status"] != "STUB":
-            continue
-        entries.append(info)
+        infos = _parse_annotations(cfile)
+        for info in infos:
+            if info["size"] < 6:
+                continue
+            if stubs_only and info["status"] != "STUB":
+                continue
+            entries.append(info)
 
     entries.sort(key=lambda x: x["va"])
 
