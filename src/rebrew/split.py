@@ -1,12 +1,15 @@
-"""split.py - Split a multi-function C file into single-function files.
+"""split.py – Split a multi-function C file into single-function files.
 
 Reads a C translation unit containing multiple ``// FUNCTION:`` annotation
 blocks and writes one output file per function, preserving the shared preamble
-in every output file.
+in every output file.  With ``--va``, a single function can be extracted into
+its own file while the block is removed from the original source.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Any
+from typing import TypedDict
 
 import typer
 
@@ -34,8 +37,20 @@ app = typer.Typer(
 )
 
 
-def _block_metadata(block: str) -> dict[str, Any] | None:
-    """Extract marker metadata and first annotation key-values for one block."""
+class _BlockMeta(TypedDict):
+    """Metadata extracted from a single ``// FUNCTION:`` annotation block."""
+
+    module: str
+    va: int
+    symbol: str
+
+
+def _block_metadata(block: str) -> _BlockMeta | None:
+    """Extract marker metadata and first annotation key-values for one block.
+
+    Returns ``None`` when the block contains no recognisable
+    ``// FUNCTION: <MODULE> 0x<VA>`` marker.
+    """
     lines = block.splitlines()
     marker_idx: int | None = None
     marker_match = None
@@ -61,7 +76,8 @@ def _block_metadata(block: str) -> dict[str, Any] | None:
             continue
         if stripped.startswith("//"):
             continue
-        # Try to extract function name from C definition (same regex as annotation.py)
+        # Try to extract function name from C definition (same regex as annotation.py).
+        # Skip forward declarations (ending with ';').
         if not c_func_name:
             m4 = _C_FUNC_IDENT_RE.match(stripped)
             if m4 and not stripped.rstrip().endswith(";"):
@@ -71,11 +87,11 @@ def _block_metadata(block: str) -> dict[str, Any] | None:
     # Prefer C function definition name, fall back to legacy // SYMBOL: annotation
     symbol = c_func_name or kv.get("SYMBOL", "")
 
-    return {
-        "module": marker_match.group("module"),
-        "va": int(marker_match.group("va"), 16),
-        "symbol": symbol,
-    }
+    return _BlockMeta(
+        module=marker_match.group("module"),
+        va=int(marker_match.group("va"), 16),
+        symbol=symbol,
+    )
 
 
 def _build_output_name(symbol: str, va: int, ext: str) -> str:
@@ -118,8 +134,7 @@ def main(
             json_mode=json_output,
         )
 
-    out_dir = Path(output_dir) if output_dir else source_path.parent
-    out_dir = out_dir.resolve() if out_dir.exists() else out_dir
+    out_dir = Path(output_dir).resolve() if output_dir else source_path.parent.resolve()
 
     try:
         text = source_path.read_text(encoding="utf-8", errors="replace")
@@ -130,28 +145,36 @@ def main(
 
     # --va mode: extract a single function block
     if va is not None:
-        target_va = int(va, 16) if va.startswith("0x") or va.startswith("0X") else int(va, 16)
+        va_cleaned = va.removeprefix("0x").removeprefix("0X")
+        try:
+            target_va = int(va_cleaned, 16)
+        except ValueError:
+            error_exit(f"Invalid VA (must be hex): {va}", json_mode=json_output)
+            return  # unreachable — makes type-checker happy
+
         matched_block: str | None = None
-        matched_meta: dict[str, Any] | None = None
-        for block in blocks:
+        matched_meta: _BlockMeta | None = None
+        matched_idx: int | None = None
+        for idx, block in enumerate(blocks):
             meta = _block_metadata(block)
             if meta is None:
                 continue
-            module = str(meta["module"])
-            if cfg.marker and module.lower() != cfg.marker.lower():
+            if cfg.marker and meta["module"].lower() != cfg.marker.lower():
                 continue
             if int(meta["va"]) == target_va:
                 matched_block = block
                 matched_meta = meta
+                matched_idx = idx
                 break
 
-        if matched_block is None or matched_meta is None:
+        if matched_block is None or matched_meta is None or matched_idx is None:
             error_exit(
                 f"No function block found for VA 0x{target_va:08x} in {source_path.name}",
                 json_mode=json_output,
             )
+            return  # unreachable — makes type-checker happy
 
-        symbol = str(matched_meta["symbol"])
+        symbol = matched_meta["symbol"]
         out_name = _build_output_name(symbol, target_va, cfg.source_ext)
         # Default to a subdirectory named after the source file: sim.c -> sim_c/
         if output_dir is None:
@@ -174,8 +197,8 @@ def main(
         if not dry_run:
             va_out_dir.mkdir(parents=True, exist_ok=True)
             atomic_write_text(out_path, preamble + matched_block, encoding="utf-8")
-            # Remove the extracted block from the source file
-            remaining = [b for b in blocks if b is not matched_block]
+            # Remove the extracted block from the source file (by index, not identity)
+            remaining = [b for i, b in enumerate(blocks) if i != matched_idx]
             if remaining:
                 atomic_write_text(source_path, preamble + "".join(remaining), encoding="utf-8")
             else:
@@ -185,7 +208,7 @@ def main(
             json_print(
                 {
                     "source": str(source_path),
-                    "output_dir": str(out_dir),
+                    "output_dir": str(va_out_dir),
                     "count": 1,
                     "dry_run": dry_run,
                     "files": [result_info],
@@ -219,12 +242,11 @@ def main(
         meta = _block_metadata(block)
         if meta is None:
             continue
-        module = str(meta["module"])
-        if cfg.marker and module.lower() != cfg.marker.lower():
+        if cfg.marker and meta["module"].lower() != cfg.marker.lower():
             continue
 
-        block_va = int(meta["va"])
-        symbol = str(meta["symbol"])
+        block_va = meta["va"]
+        symbol = meta["symbol"]
         out_name = _build_output_name(symbol, block_va, cfg.source_ext)
         out_path = out_dir / out_name
 
