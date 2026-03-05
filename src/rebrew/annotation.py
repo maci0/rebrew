@@ -131,7 +131,7 @@ FUNC_NAME_HINT_RE = re.compile(r"^//\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*$")
 # declspecs, and macros.
 _C_FUNC_IDENT_RE = re.compile(
     r"^\s*"  # leading whitespace
-    r"(?!extern\b|typedef\b)"  # NOT a forward declaration or typedef
+    r"(?!extern\b|typedef\b|__declspec\b)"  # NOT a forward declaration, typedef, or declspec
     r"(?:(?:static|inline|unsigned|signed|const|volatile|struct|enum|union|void|char|short|int|long|float|double|__int64|BOOL|DWORD|WORD|BYTE|LONG|UINT|ULONG|HRESULT)\s+)*"  # return type qualifiers
     r"(?:[A-Za-z_][A-Za-z0-9_*\s]*?\s+)?"  # return type (flexible)
     r"(?:(?:__cdecl|__stdcall|__fastcall|__thiscall|WINAPI|CALLBACK|APIENTRY|REBREW_NAKED)\s+)*"  # calling convention
@@ -299,7 +299,7 @@ _FIELD_ALIASES = {"globals": "globals_list"}
 class Annotation:
     """Parsed function annotation from a decomp .c file.
 
-    Supports dict-like access (``ann["va"]``, ``ann["status"] = "EXACT"``)
+    Supports dict-like access (``ann.va``, ``ann.status = "EXACT"``)
     for backward compatibility with code that operated on raw dicts.
     """
 
@@ -575,6 +575,67 @@ def parse_old_format(line: str) -> Annotation | None:
     )
 
 
+# __stdcall parameter types → stack size in bytes (MSVC6 x86 conventions).
+# Everything is promoted to at least 4 bytes on the stack; doubles and __int64 are 8.
+_STDCALL_TYPE_SIZES: dict[str, int] = {
+    "double": 8,
+    "__int64": 8,
+    "long long": 8,
+    "unsigned long long": 8,
+    "LONGLONG": 8,
+    "ULONGLONG": 8,
+}
+_STDCALL_DEFAULT_SIZE = 4  # int, char, short, pointers, etc. all push 4 bytes
+
+
+def _calc_stdcall_param_size(proto: str) -> int | None:
+    """Calculate the total parameter stack size for a __stdcall prototype.
+
+    Parses the parameter list from a C prototype string and sums the stack
+    sizes of each parameter.  Returns None if the prototype cannot be parsed
+    (e.g. variadic ``...`` or missing parens).
+
+    Examples::
+
+        >>> _calc_stdcall_param_size("int __stdcall handler(int a, int b, int c)")
+        12
+        >>> _calc_stdcall_param_size("int WINAPI func(EXCEPTION_POINTERS* p)")
+        4
+        >>> _calc_stdcall_param_size("void __stdcall noargs(void)")
+        0
+    """
+    # Extract the parameter list between parens
+    paren_start = proto.find("(")
+    paren_end = proto.rfind(")")
+    if paren_start < 0 or paren_end < 0 or paren_end <= paren_start:
+        return None
+
+    params_str = proto[paren_start + 1 : paren_end].strip()
+
+    # No parameters or void
+    if not params_str or params_str == "void":
+        return 0
+
+    # Variadic functions can't be __stdcall-decorated
+    if "..." in params_str:
+        return None
+
+    total = 0
+    for param in params_str.split(","):
+        param = param.strip()
+        if not param:
+            continue
+        # Check if any known large type is in the parameter declaration
+        matched_size = _STDCALL_DEFAULT_SIZE
+        for type_name, size in _STDCALL_TYPE_SIZES.items():
+            if type_name in param:
+                matched_size = size
+                break
+        total += matched_size
+
+    return total
+
+
 def _kv_to_annotation(
     kv: dict[str, str],
     marker_type: str,
@@ -607,8 +668,15 @@ def _kv_to_annotation(
     else:
         name = ""
 
-    # Derive symbol: always "_" + name (cdecl default)
+    # Derive symbol: "_" + name for __cdecl (default), "_" + name + "@N" for __stdcall/WINAPI
     symbol = "_" + name if name else ""
+    if name and c_func_proto:
+        _stdcall_re = re.compile(r"\b(?:__stdcall|WINAPI|CALLBACK|APIENTRY)\b")
+        if _stdcall_re.search(c_func_proto):
+            # Calculate parameter stack size from prototype for decorated name
+            param_size = _calc_stdcall_param_size(c_func_proto)
+            if param_size is not None:
+                symbol = f"_{name}@{param_size}"
 
     # Derive prototype from C definition
     prototype = c_func_proto
@@ -713,14 +781,20 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
         if not in_annotation_block:
             continue
 
-        # Try to extract function name from C definition line
+        # Try to extract function name from C definition line.
+        # Skip forward declarations (lines ending with ';') — only match
+        # actual function definitions (lines ending with '{' or just a signature
+        # without a semicolon).
         if "_C_FUNC_NAME" not in kv:
             m4 = _C_FUNC_IDENT_RE.match(stripped)
-            if m4:
+            if m4 and not stripped.rstrip().endswith(";"):
                 kv["_C_FUNC_NAME"] = m4.group("name")
                 # Extract full prototype: everything up to the closing paren
                 proto_line = stripped.rstrip("{;").strip()
                 kv["_C_FUNC_PROTO"] = proto_line
+            elif m4:
+                # Forward declaration — skip it, keep looking
+                continue
 
         break
 
@@ -771,7 +845,7 @@ def parse_c_file(
     if entry is not None:
         if target_name and entry.module and entry.module.lower() != target_name.lower():
             return None
-        entry["filepath"] = rel
+        entry.filepath = rel
         return entry
 
     # Fallback: try old format (first line only)
@@ -779,7 +853,7 @@ def parse_c_file(
     if entry is not None:
         if target_name and entry.module and entry.module.lower() != target_name.lower():
             return None
-        entry["filepath"] = rel
+        entry.filepath = rel
         return entry
 
     return None
@@ -860,10 +934,12 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
                 current_kv["_FUNC_NAME_HINT"] = m3.group("name")
                 continue
 
-        # Try to extract function name from C definition line
+        # Try to extract function name from C definition line.
+        # Skip forward declarations (lines ending with ';') — only match
+        # actual function definitions.
         if current_marker_type is not None and "_C_FUNC_NAME" not in current_kv:
             m4 = _C_FUNC_IDENT_RE.match(stripped)
-            if m4:
+            if m4 and not stripped.rstrip().endswith(";"):
                 current_kv["_C_FUNC_NAME"] = m4.group("name")
                 proto_line = stripped.rstrip("{;").strip()
                 current_kv["_C_FUNC_PROTO"] = proto_line

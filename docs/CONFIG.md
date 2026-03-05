@@ -91,14 +91,12 @@ A multi-target source file might look like:
 // ORIGIN: GAME
 // SIZE: 42
 // CFLAGS: /O2 /Gd
-// SYMBOL: _MyFunc
 
 // FUNCTION: CLIENT 0x00401000
 // STATUS: STUB
 // ORIGIN: GAME
 // SIZE: 42
 // CFLAGS: /O2 /Gd
-// SYMBOL: _MyFunc
 
 void __cdecl MyFunc(void) { ... }
 ```
@@ -280,7 +278,7 @@ For a full toolchain health check, run `rebrew doctor`.
 
 ## Which Tools Use What Config
 
-All 29 tools read from `rebrew-project.toml`. Each uses `try/except` with hardcoded fallbacks:
+All 32 tools read from `rebrew-project.toml`. Each uses `try/except` with hardcoded fallbacks:
 
 | Tool | Config Values Used |
 |------|--------------------|
@@ -288,7 +286,7 @@ All 29 tools read from `rebrew-project.toml`. Each uses `try/except` with hardco
 | `test.py` | `target_binary`, `text_va`, `text_raw_offset`, compiler paths |
 | `nasm.py` | `target_binary`, `reversed_dir` (uses `cfg.extract_dll_bytes()`) |
 | `ga.py` | `reversed_dir`, `target_binary`, `compiler_includes` |
-| `sync.py` | `reversed_dir` |
+| `ghidra/cli.py` | `reversed_dir` |
 | `next.py` | `reversed_dir` |
 | `skeleton.py` | `reversed_dir` |
 | `extract.py` | `reversed_dir`, `target_binary` |

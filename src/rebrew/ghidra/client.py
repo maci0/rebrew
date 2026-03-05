@@ -269,7 +269,7 @@ def _fetch_all_functions(
             all_funcs.append(
                 {
                     "va": f.get("address", f.get("va")),
-                    "ghidra_name": f.get("name", f.get("ghidra_name", "")),
+                    "tool_name": f.get("name", f.get("ghidra_name") or f.get("tool_name", "")),
                     "size": f.get("sizeInBytes", f.get("size", 0)),
                 }
             )

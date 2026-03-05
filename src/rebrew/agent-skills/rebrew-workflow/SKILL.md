@@ -103,13 +103,16 @@ Use `rebrew split` and `rebrew merge` to manage multi-function files:
 ```bash
 rebrew split src/<target>/multi.c                    # split into individual files
 rebrew split src/<target>/multi.c --dry-run           # preview without writing
+rebrew split --va 0x10003DA0 src/<target>/multi.c     # extract one function into multi_c/
 rebrew merge a.c b.c -o merged.c                     # merge into one file
-rebrew merge a.c b.c -o merged.c --delete            # merge and remove originals
+rebrew merge multi_c/ multi.c -o multi.c --force --delete  # merge extracted function back
 ```
 
 Split when: functions in a multi-function file need different CFLAGS, different
-origins, or independent tracking. Merge when: functions share the same translation
-unit (static locals, file-scoped globals) and must be compiled together.
+origins, or independent tracking. Use `--va` to isolate a single function for
+focused iteration while keeping the rest of the multi-function file intact.
+Merge when: functions share the same translation unit (static locals, file-scoped
+globals) and must be compiled together.
 
 Use `rebrew cu-map` to identify which functions likely belong to the same
 compilation unit (contiguous in .text with only padding between them):

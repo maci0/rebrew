@@ -27,7 +27,7 @@ from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va, load_binary
 from rebrew.catalog import _is_jump_table, build_function_registry, parse_function_list
 from rebrew.catalog.registry import RegistryEntry
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
-from rebrew.config import ProjectConfig
+from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -382,7 +382,7 @@ def main(
     funcs = parse_function_list(func_list_path)
 
     reversed_dir = cfg.reversed_dir
-    ghidra_path = reversed_dir / "ghidra_functions.json" if reversed_dir else None
+    ghidra_path = reversed_dir / FUNCTION_STRUCTURE_JSON if reversed_dir else None
 
     registry = build_function_registry(funcs, cfg, ghidra_path=ghidra_path, bin_path=bin_path)
 

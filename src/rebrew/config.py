@@ -46,6 +46,22 @@ def _config_warn(msg: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Canonical filename for the function structure cache
+# ---------------------------------------------------------------------------
+
+FUNCTION_STRUCTURE_JSON = "function_structure.json"
+"""Tool-agnostic structural cache: ``[{va, size, tool_name?}]``.
+
+This file stores function *boundaries* (VA + size) discovered by any RE
+tool (Ghidra, radare2, rizin).  Names are optional hints used only when
+no source annotation exists.  Source annotations are always authoritative
+for naming.
+"""
+
+_LEGACY_GHIDRA_JSON = "ghidra_functions.json"
+"""Legacy filename — kept for migration fallback."""
+
+# ---------------------------------------------------------------------------
 # Architecture presets
 # ---------------------------------------------------------------------------
 

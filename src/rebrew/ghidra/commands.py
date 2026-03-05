@@ -12,7 +12,7 @@ from rich.console import Console
 
 from rebrew.annotation import Annotation, update_annotation_key
 from rebrew.cli import error_exit, iter_sources, json_print
-from rebrew.config import ProjectConfig
+from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 from rebrew.ghidra.client import (
     _MCP_HEADERS,
     _MCP_REQUEST_TIMEOUT_S,
@@ -333,7 +333,7 @@ def build_sync_commands(
                 f"Section: {d_entry['section']}",
                 f"Origin: {d_entry['origin']}",
             ]
-            if d_entry["note"]:
+            if d_entry.get("note"):
                 comment_lines.append(f"Note: {d_entry['note']}")
             comment_lines.append(f"File: {d_entry['filepath']}")
 
@@ -492,7 +492,7 @@ def pull_ghidra_renames(
             typer.echo("Falling back to local caches...", err=True)
 
     if not functions:
-        ghidra_json_path = cfg.reversed_dir / "ghidra_functions.json"
+        ghidra_json_path = cfg.reversed_dir / FUNCTION_STRUCTURE_JSON
         if ghidra_json_path.exists():
             try:
                 functions = json.loads(ghidra_json_path.read_text(encoding="utf-8"))
@@ -522,7 +522,7 @@ def pull_ghidra_renames(
     ghidra_names_by_va: dict[int, str] = {}
     for f in functions:
         va = _parse_va(f.get("va") or f.get("address"))
-        gname = f.get("ghidra_name") or f.get("name")
+        gname = f.get("tool_name") or f.get("ghidra_name") or f.get("name")
         if va is not None and gname:
             ghidra_names_by_va[va] = gname
 
@@ -551,11 +551,11 @@ def pull_ghidra_renames(
     all_entries.extend(scan_data_annotations(cfg.reversed_dir, cfg=cfg))
 
     for entry in all_entries:
-        va = _parse_va(entry["va"])
+        va = _parse_va(entry.get("va"))
         if va is None:
             continue
 
-        filepath = Path(entry["filepath"])
+        filepath = Path(entry.get("filepath", ""))
         if not filepath.exists() and not filepath.is_absolute():
             filepath = cfg.reversed_dir / filepath
         if not filepath.exists():
