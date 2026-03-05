@@ -186,7 +186,7 @@ _AGENTS_MD_TEMPLATE = Path(__file__).parent / "AGENTS.md.template"
 
 
 MSVC_CONSTRAINTS = """- **C89 only**: no `for(int i=...)`, declare all variables at block top
-- **Comments**: use `/* */` (not `//` in strict mode)
+- **Comments in code**: use `/* */` only (C89). `//` is used exclusively for annotation headers
 - **Symbol decoration**: `_func` for `__cdecl`, `_func@N` for `__stdcall`
 - **No `/GS`** (buffer security), no `__declspec(noinline)`
 - **Execution**: all CL.EXE/LINK.EXE calls go through Wine"""
