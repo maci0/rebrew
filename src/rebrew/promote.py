@@ -221,7 +221,16 @@ def _promote_file(
                         blockers_to_remove=(new_status in ("EXACT", "RELOC")),
                         target_va=ann.va,
                     )
-                action = "updated" if not dry_run else "would_update"
+                    # Verify the status was actually written
+                    verify_annos = parse_c_file_multi(
+                        source_path, target_name=cfg.marker if cfg else None
+                    )
+                    for va_ann in verify_annos:
+                        if va_ann.va == ann.va and va_ann.status == new_status:
+                            action = "updated"
+                            break
+                else:
+                    action = "would_update"
 
             result_dict = build_result_dict(
                 source,

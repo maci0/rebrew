@@ -24,6 +24,8 @@ console = Console(stderr=True)
 _MARKER_RE = re.compile(r"^(//|/\*)\s*(?:FUNCTION|LIBRARY|STUB):\s*\S+\s+(0x[0-9a-fA-F]+)")
 _STATUS_RE = re.compile(r"^(//|/\*)\s*STATUS:")
 _BLOCKER_RE = re.compile(r"^(//|/\*)\s*BLOCKER:")
+# Matches any annotation key-value comment line (// KEY: ... or /* KEY: ... */)
+_ANY_KV_LINE_RE = re.compile(r"^(?://|/\*)\s*[A-Z][A-Z_0-9]*:")
 
 
 def compile_obj(
@@ -122,6 +124,60 @@ def smart_reloc_compare(
     return masked_match, match_count, max_len, valid_relocs, invalid_relocs
 
 
+def _find_block_lines(lines: list[str], target_va: int) -> set[int]:
+    """Return line indices belonging to the annotation block for *target_va*.
+
+    Handles both orderings:
+    - KV after marker (rebrew):  ``// FUNCTION: ...`` then ``// STATUS: ...``
+    - KV before marker (reccmp): ``// STATUS: ...`` then ``// FUNCTION: ...``
+    """
+    marker_positions: list[tuple[int, int]] = []
+    for i, line in enumerate(lines):
+        m = _MARKER_RE.match(line)
+        if m:
+            marker_positions.append((i, int(m.group(2), 16)))
+
+    target_mk_idx: int | None = None
+    for idx, (_, va) in enumerate(marker_positions):
+        if va == target_va:
+            target_mk_idx = idx
+            break
+
+    if target_mk_idx is None:
+        return set()
+
+    mk_line = marker_positions[target_mk_idx][0]
+    result: set[int] = {mk_line}
+
+    # Forward scan: include KV lines after the marker until code / next marker
+    next_mk = (
+        marker_positions[target_mk_idx + 1][0]
+        if target_mk_idx + 1 < len(marker_positions)
+        else len(lines)
+    )
+    for j in range(mk_line + 1, next_mk):
+        stripped = lines[j].strip()
+        if not stripped:
+            continue
+        if _ANY_KV_LINE_RE.match(lines[j]):
+            result.add(j)
+        else:
+            break
+
+    # Backward scan: include KV lines before the marker (reccmp ordering)
+    prev_boundary = marker_positions[target_mk_idx - 1][0] if target_mk_idx > 0 else -1
+    for j in range(mk_line - 1, prev_boundary, -1):
+        stripped = lines[j].strip()
+        if not stripped:
+            continue
+        if _ANY_KV_LINE_RE.match(lines[j]):
+            result.add(j)
+        else:
+            break
+
+    return result
+
+
 def update_source_status(
     source_path: str | Path,
     new_status: str,
@@ -132,6 +188,9 @@ def update_source_status(
 
     Uses atomic write (write to .tmp, validate, rename) with .bak backup
     to prevent data loss from crashes or invalid writes.
+
+    Handles both KV-after-marker and KV-before-marker (reccmp) orderings
+    by precomputing block membership before the write pass.
 
     Args:
         target_va: If set, only update the STATUS line belonging to the
@@ -158,26 +217,32 @@ def update_source_status(
     with source_path.open(encoding="utf-8") as f:
         lines = f.readlines()
 
-    in_target_block = target_va is None  # None → update all
+    # Precompute which lines belong to the target annotation block.
+    # This handles both KV-after-marker and KV-before-marker orderings.
+    target_lines = _find_block_lines(lines, target_va) if target_va is not None else None
 
+    changed = False
     with tmp_path.open("w", encoding="utf-8") as f:
-        for line in lines:
-            # Detect FUNCTION/LIBRARY/STUB markers to track annotation blocks
-            if target_va is not None:
-                marker_m = _MARKER_RE.match(line)
-                if marker_m:
-                    line_va = int(marker_m.group(2), 16)
-                    in_target_block = line_va == target_va
+        for i, line in enumerate(lines):
+            in_block = target_lines is None or i in target_lines
 
-            if in_target_block and _STATUS_RE.match(line):
+            if in_block and _STATUS_RE.match(line):
                 if line.startswith("//"):
-                    f.write(f"// STATUS: {new_status}\n")
+                    new_line = f"// STATUS: {new_status}\n"
                 else:
-                    f.write(f"/* STATUS: {new_status} */\n")
-            elif in_target_block and blockers_to_remove and _BLOCKER_RE.match(line):
+                    new_line = f"/* STATUS: {new_status} */\n"
+                f.write(new_line)
+                if new_line != line:
+                    changed = True
+            elif in_block and blockers_to_remove and _BLOCKER_RE.match(line):
+                changed = True
                 continue
             else:
                 f.write(line)
+
+    if not changed:
+        tmp_path.unlink(missing_ok=True)
+        return
 
     # Validate the written file re-parses correctly.
     # parse_c_file_multi only handles new-format annotations; fall back to
