@@ -388,3 +388,71 @@ class TestSplitExtractVA:
         assert result.exit_code == 0
         assert (custom_dir / "func_a.c").exists()
         assert not (tmp_path / "multi_c").exists()  # default dir not created
+
+    def test_va_adjusts_relative_includes(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """--va should rewrite relative #include paths when extracting to a subdirectory."""
+        content = (
+            '#include "../command_internal.h"\n'
+            '#include "../../Units/Error/error.h"\n'
+            "#include <stdio.h>\n"
+            "\n"
+            "// FUNCTION: SERVER 0x10001000\n"
+            "// STATUS: EXACT\n"
+            "// ORIGIN: GAME\n"
+            "// SIZE: 1\n"
+            "// CFLAGS: /O2\n"
+            "\n"
+            "int func_a(void) { return 0; }\n"
+            "\n"
+            "// FUNCTION: SERVER 0x10002000\n"
+            "// STATUS: MATCHING\n"
+            "// ORIGIN: GAME\n"
+            "// SIZE: 1\n"
+            "// CFLAGS: /O2\n"
+            "\n"
+            "int func_b(void) { return 1; }\n"
+        )
+        src = _write(tmp_path / "multi.c", content)
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
+
+        result = runner.invoke(app, ["--va", "0x10001000", str(src)])
+        assert result.exit_code == 0
+        extracted = (tmp_path / "multi_c" / "func_a.c").read_text(encoding="utf-8")
+        # Relative includes should have ../ prepended
+        assert '#include "../../command_internal.h"' in extracted
+        assert '#include "../../../Units/Error/error.h"' in extracted
+        # System includes unchanged
+        assert "#include <stdio.h>" in extracted
+
+
+class TestAdjustRelativeIncludes:
+    """Unit tests for the _adjust_relative_includes helper."""
+
+    def test_adjusts_relative_quoted_includes(self) -> None:
+        from rebrew.split import _adjust_relative_includes
+
+        text = '#include "../header.h"\n#include "sub/foo.h"\n'
+        result = _adjust_relative_includes(text)
+        assert '#include "../../header.h"' in result
+        assert '#include "../sub/foo.h"' in result
+
+    def test_leaves_system_includes_unchanged(self) -> None:
+        from rebrew.split import _adjust_relative_includes
+
+        text = "#include <stdio.h>\n#include <windows.h>\n"
+        result = _adjust_relative_includes(text)
+        assert result == text
+
+    def test_leaves_absolute_paths_unchanged(self) -> None:
+        from rebrew.split import _adjust_relative_includes
+
+        text = '#include "/usr/include/foo.h"\n#include "C:\\SDK\\bar.h"\n'
+        result = _adjust_relative_includes(text)
+        assert result == text
+
+    def test_handles_empty_preamble(self) -> None:
+        from rebrew.split import _adjust_relative_includes
+
+        assert _adjust_relative_includes("") == ""
