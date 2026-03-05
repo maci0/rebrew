@@ -19,10 +19,10 @@ class _DummyClient:
 
 
 def _make_import_mock(sync_mod: object) -> object:
-    """Return an import_module replacement that returns sync_mod for rebrew.sync."""
+    """Return an import_module replacement that returns sync_mod for rebrew.ghidra."""
 
     def _import(name: str) -> object:
-        if name == "rebrew.sync":
+        if name == "rebrew.ghidra":
             return sync_mod
         return importlib.import_module(name)
 
@@ -31,7 +31,7 @@ def _make_import_mock(sync_mod: object) -> object:
 
 class TestFetchXrefContext:
     def test_returns_formatted_comment(self, monkeypatch) -> None:
-        import rebrew.sync as sync_mod
+        import rebrew.ghidra as sync_mod
 
         monkeypatch.setattr(importlib, "import_module", _make_import_mock(sync_mod))
         monkeypatch.setattr(httpx, "Client", _DummyClient)
@@ -71,7 +71,7 @@ class TestFetchXrefContext:
         assert "Caller: caller_fn (0x00402abc) - decompilation" in result
 
     def test_no_callers_returns_none(self, monkeypatch) -> None:
-        import rebrew.sync as sync_mod
+        import rebrew.ghidra as sync_mod
 
         monkeypatch.setattr(importlib, "import_module", _make_import_mock(sync_mod))
         monkeypatch.setattr(httpx, "Client", _DummyClient)
@@ -84,7 +84,7 @@ class TestFetchXrefContext:
         assert result is None
 
     def test_mcp_unreachable_returns_none(self, monkeypatch) -> None:
-        import rebrew.sync as sync_mod
+        import rebrew.ghidra as sync_mod
 
         monkeypatch.setattr(importlib, "import_module", _make_import_mock(sync_mod))
         monkeypatch.setattr(httpx, "Client", _DummyClient)
@@ -98,7 +98,7 @@ class TestFetchXrefContext:
         assert result is None
 
     def test_max_callers_limit(self, monkeypatch) -> None:
-        import rebrew.sync as sync_mod
+        import rebrew.ghidra as sync_mod
 
         monkeypatch.setattr(importlib, "import_module", _make_import_mock(sync_mod))
         monkeypatch.setattr(httpx, "Client", _DummyClient)
@@ -147,7 +147,7 @@ class TestFetchXrefContext:
         assert calls == ["0x00402000", "0x00403000"]
 
     def test_data_refs_included(self, monkeypatch) -> None:
-        import rebrew.sync as sync_mod
+        import rebrew.ghidra as sync_mod
 
         monkeypatch.setattr(importlib, "import_module", _make_import_mock(sync_mod))
         monkeypatch.setattr(httpx, "Client", _DummyClient)

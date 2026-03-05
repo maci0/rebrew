@@ -72,8 +72,8 @@ class TestLoadVerifyCache:
         cache_path.write_text(json.dumps(data), encoding="utf-8")
 
         loaded = _load_verify_cache(cache_path, cfg)
-        assert isinstance(loaded, dict)
-        assert loaded["version"] == 1
+        assert loaded is not None
+        assert loaded.version == 1
 
     def test_reject_invalid_json(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
@@ -161,11 +161,11 @@ class TestSaveVerifyCache:
         _save_verify_cache(cache_path, cfg, results, entries)
         loaded = _load_verify_cache(cache_path, cfg)
 
-        assert isinstance(loaded, dict)
-        cache_entries = loaded.get("entries", {})
+        assert loaded is not None
+        cache_entries = loaded.entries
         assert "0x10001000" in cache_entries
-        assert cache_entries["0x10001000"]["filepath"] == "func_a.c"
-        assert cache_entries["0x10001000"]["result"]["status"] == "EXACT"
+        assert cache_entries["0x10001000"].filepath == "func_a.c"
+        assert cache_entries["0x10001000"].result.status == "EXACT"
 
 
 class TestIncrementalVerify:
@@ -218,6 +218,7 @@ class TestIncrementalVerify:
         def fake_verify_entry(
             entry: dict[str, object],
             _cfg: ProjectConfig,
+            cache: object = None,
         ) -> tuple[bool, str, bytes | None, bytes | None, list[int] | dict[int, str] | None]:
             calls.append(int(entry["va"]))
             return True, "EXACT MATCH", b"\x90", b"\x90", None
@@ -296,6 +297,7 @@ class TestIncrementalVerify:
         def fake_verify_entry(
             entry: dict[str, object],
             _cfg: ProjectConfig,
+            cache: object = None,
         ) -> tuple[bool, str, bytes | None, bytes | None, list[int] | dict[int, str] | None]:
             return True, "EXACT MATCH", b"\x90", b"\x90", None
 

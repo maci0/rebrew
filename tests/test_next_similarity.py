@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from rebrew.catalog.models import GhidraFunction
 from rebrew.config import ProjectConfig
 from rebrew.next import app
 
@@ -66,9 +67,9 @@ class TestSimilarityPrioritization:
             monkeypatch,
             tmp_path,
             ghidra_funcs=[
-                {"va": 0x1000, "size": 50, "ghidra_name": "func_1000"},
-                {"va": 0x2000, "size": 50, "ghidra_name": "func_2000"},
-                {"va": 0x3000, "size": 50, "ghidra_name": "func_3000"},
+                GhidraFunction(va=0x1000, size=50, name="func_1000"),
+                GhidraFunction(va=0x2000, size=50, name="func_2000"),
+                GhidraFunction(va=0x3000, size=50, name="func_3000"),
             ],
             existing={
                 0x1000: {"status": "EXACT", "size": 50, "origin": "GAME", "filename": "f.c"},
@@ -102,8 +103,8 @@ class TestSimilarityPrioritization:
             monkeypatch,
             tmp_path,
             ghidra_funcs=[
-                {"va": 0x2000, "size": 50, "ghidra_name": "func_2000"},
-                {"va": 0x3000, "size": 50, "ghidra_name": "func_3000"},
+                GhidraFunction(va=0x2000, size=50, name="func_2000"),
+                GhidraFunction(va=0x3000, size=50, name="func_3000"),
             ],
             existing={},
             covered_vas={},
@@ -129,8 +130,8 @@ class TestSimilarityPrioritization:
             monkeypatch,
             tmp_path,
             ghidra_funcs=[
-                {"va": 0x1000, "size": 50, "ghidra_name": "func_1000"},
-                {"va": 0x2000, "size": 15, "ghidra_name": "func_2000"},  # below 20B threshold
+                GhidraFunction(va=0x1000, size=50, name="func_1000"),
+                GhidraFunction(va=0x2000, size=15, name="func_2000"),  # below 20B threshold
             ],
             existing={
                 0x1000: {"status": "EXACT", "size": 50, "origin": "GAME", "filename": "f.c"},

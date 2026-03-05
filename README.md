@@ -31,7 +31,8 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 
 | Tool | What it does |
 |------|-------------|
-| `rebrew next` | Smart prioritization — recommends what to work on next |
+| `rebrew todo` | Prioritized action list: what to work on next |
+| `rebrew next` | Smart prioritization — recommends similar functions |
 | `rebrew triage` | Cold-start report: coverage stats, FLIRT scan, near-miss list, recommendations |
 | `rebrew status` | Per-target breakdown of EXACT / RELOC / MATCHING / STUB counts |
 | `rebrew graph` | Call graph from `extern` declarations (mermaid, DOT, summary) |
@@ -116,6 +117,7 @@ rebrew cfg set compiler.cflags "/O1" # set a config value
 rebrew skeleton 0x10003DA0          # generate C skeleton from disassembly
 rebrew skeleton 0x10003DA0 --xrefs  # skeleton with Ghidra cross-reference context
 rebrew test src/target_name/f.c     # test implementation against target
+rebrew todo                         # see highest ROI action items
 rebrew next --stats                 # show overall progress statistics
 rebrew next --improving             # list MATCHING functions sorted by byte delta
 rebrew triage --json                # combined coverage, near-miss, and recommendations report

@@ -1,7 +1,7 @@
 """skeleton.py - Generate .c skeleton file for an uncovered function.
 
 Given a VA address, generates a properly annotated .c file skeleton with:
-- reccmp-style annotations (FUNCTION/LIBRARY marker, STATUS, ORIGIN, SIZE, CFLAGS, SYMBOL)
+- reccmp-style annotations (FUNCTION/LIBRARY marker, STATUS, ORIGIN, SIZE, CFLAGS)
 - A placeholder function body
 - The exact rebrew test command to verify it
 
@@ -70,7 +70,6 @@ _SKELETON_TEMPLATE = jinja2.Template(
 // ORIGIN: {{ origin }}
 // SIZE: {{ size }}
 // CFLAGS: {{ cflags }}
-// SYMBOL: {{ symbol }}
 
 {% if origin_comment -%}
 /* {{ origin_comment }} */
@@ -102,7 +101,6 @@ _ANNOTATION_BLOCK_TEMPLATE = jinja2.Template(
 // ORIGIN: {{ origin }}
 // SIZE: {{ size }}
 // CFLAGS: {{ cflags }}
-// SYMBOL: {{ symbol }}
 
 {% if xref_context -%}
 {{ xref_context }}
@@ -234,7 +232,7 @@ def fetch_xref_context(
 
     Returns a formatted comment block string, or None if MCP is unavailable.
     """
-    _sync_mod = importlib.import_module("rebrew.sync")
+    _sync_mod = importlib.import_module("rebrew.ghidra")
     _fetch_mcp_tool_raw = _sync_mod._fetch_mcp_tool_raw
     _init_mcp_session = _sync_mod._init_mcp_session
 
@@ -329,8 +327,8 @@ def fetch_xref_context(
                 if isinstance(decomp, str):
                     decomp_text = decomp.strip()
                 elif isinstance(decomp, dict):
-                    for key in ("decompilation", "text", "code"):
-                        candidate = decomp.get(key)
+                    for d_key in ("decompilation", "text", "code"):
+                        candidate = decomp.get(d_key)
                         if isinstance(candidate, str) and candidate.strip():
                             decomp_text = candidate.strip()
                             break
@@ -355,11 +353,11 @@ def fetch_xref_context(
                 lines.append(" *")
 
             for caller_name, caller_addr, _ in callers:
-                decomp_text = decomp_by_address.get(caller_addr)
-                if not decomp_text:
+                ctext = decomp_by_address.get(caller_addr)
+                if not ctext:
                     continue
                 lines.append(f" * === Caller: {caller_name} ({caller_addr}) - decompilation ===")
-                for dec_line in decomp_text.splitlines():
+                for dec_line in ctext.splitlines():
                     lines.append(f" * {dec_line}")
                 lines.append(" *")
 
@@ -442,7 +440,7 @@ rebrew skeleton --list --origin ZLIB           List uncovered ZLIB functions
 [bold]What it creates:[/bold]
 
 A .c file with reccmp-style annotations (FUNCTION, STATUS, ORIGIN, SIZE,
-CFLAGS, SYMBOL) and a placeholder function body. The file is placed in the
+CFLAGS) and a placeholder function body. The file is placed in the
 configured reversed_dir with the function name as filename.
 
 With --append, the annotation block is appended to an existing .c file,
@@ -553,7 +551,7 @@ def main(
                     endpoint=endpoint,
                 )
             if xrefs:
-                _sync_mod = importlib.import_module("rebrew.sync")
+                _sync_mod = importlib.import_module("rebrew.ghidra")
                 _resolve = _sync_mod._resolve_program_path
                 resolved_path = _resolve(cfg)
                 xref_context_val = fetch_xref_context(
@@ -670,7 +668,7 @@ def main(
                 endpoint=endpoint,
             )
         if xrefs:
-            _sync_mod = importlib.import_module("rebrew.sync")
+            _sync_mod = importlib.import_module("rebrew.ghidra")
             _resolve = _sync_mod._resolve_program_path
             resolved_path = _resolve(cfg)
             xref_context_val = fetch_xref_context(
@@ -749,7 +747,7 @@ def main(
         else:
             typer.echo("  Decompiler: no output (backend unavailable or failed)", err=True)
     if xrefs:
-        _sync_mod = importlib.import_module("rebrew.sync")
+        _sync_mod = importlib.import_module("rebrew.ghidra")
         _resolve = _sync_mod._resolve_program_path
         resolved_path = _resolve(cfg)
         xref_context_val = fetch_xref_context(

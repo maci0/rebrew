@@ -330,7 +330,8 @@ def render_summary(nodes: dict[str, NodeInfo], edges: list[tuple[str, str]]) -> 
     # Find blocking unreversed (called by many)
     callee_counts: dict[str, int] = {}
     for _, callee in edges:
-        if nodes.get(callee, {}).get("status") == "UNKNOWN":
+        callee_info = nodes.get(callee)
+        if callee_info and callee_info["status"] == "UNKNOWN":
             callee_counts[callee] = callee_counts.get(callee, 0) + 1
     if callee_counts:
         top_blockers = sorted(callee_counts.items(), key=lambda x: -x[1])[:10]

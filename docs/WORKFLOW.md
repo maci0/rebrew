@@ -19,9 +19,12 @@ rebrew init --target target_name --binary target.dll --compiler msvc6
 # Verify toolchain health
 rebrew doctor
 
-# See what needs work
+# See what needs work (prioritized by ROI)
+rebrew todo
+rebrew todo -c start-function
+
+# See project-wide status and stats
 rebrew next --stats
-rebrew next --origin GAME -n 30
 
 # Generate a skeleton .c file
 rebrew skeleton --va 0x10003da0
@@ -73,8 +76,8 @@ rebrew test src/target_name/my_func.c --json | jq '.status'
 # Get progress stats as JSON
 rebrew next --stats --json | jq '.coverage_pct'
 
-# List recommendations as JSON
-rebrew next --json -n 10 | jq '.items[] | {va, size, difficulty}'
+# List prioritized action items as JSON
+rebrew todo --json -n 10 | jq '.items[] | {category, roi_score, name}'
 
 # List MATCHING functions sorted by byte delta
 rebrew next --improving --json | jq '.items[] | select(.byte_delta != null and .byte_delta <= 5)'
@@ -90,6 +93,7 @@ rebrew asm 0x10003da0 --size 160 --json | jq '.instructions[] | .mnemonic'
 | Tool | Modes |
 |------|-------|
 | `rebrew test` | Single and multi-function test results |
+| `rebrew todo` | Prioritized action items |
 | `rebrew next` | `--stats`, default recommendations, `--improving`, `--unmatchable`, `--group` |
 | `rebrew match` | `--diff-only` mode |
 | `rebrew asm` | Disassembly output |
@@ -138,8 +142,13 @@ graph TD
     Prove -->|No| Write
 ```
 
-### 1. Pick a function
+```bash
+rebrew todo
+```
 
+`rebrew todo` evaluates the entire project and suggests the highest Return-on-Investment (ROI) tasks. This includes fixing compile errors, build regressions, 1-4 byte near misses, and starting new, easy functions.
+
+You can also use `rebrew next` to pick functions based on similarity to already-matched code:
 ```bash
 rebrew next --origin GAME -n 10
 ```
@@ -343,7 +352,8 @@ rebrew promote --all --origin GAME --dry-run       # preview batch by origin
 ```
 
 `rebrew promote` updates the STATUS annotation and verifies the match still holds.
-Batch mode (`--all`) discovers all promotable functions and updates each. Never demotes.
+Batch mode (`--all`) discovers all functions and updates each. Supports both promotion
+(STUB→MATCHING→RELOC→EXACT) and demotion (EXACT→MATCHING if code regresses).
 
 ### 11. Lint and Verify Annotation Health
 

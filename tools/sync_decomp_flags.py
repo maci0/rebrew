@@ -61,9 +61,14 @@ def clone_decomp_me(tmp_dir: str) -> Path:
     repo_dir = Path(tmp_dir) / "decomp.me"
     subprocess.run(
         [
-            "git", "clone", "--depth", "1",
-            "--filter=blob:none", "--sparse",
-            REPO_URL, str(repo_dir),
+            "git",
+            "clone",
+            "--depth",
+            "1",
+            "--filter=blob:none",
+            "--sparse",
+            REPO_URL,
+            str(repo_dir),
         ],
         capture_output=True,
         check=True,
@@ -179,8 +184,10 @@ def main():
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parent.parent
-    output_path = Path(args.output) if args.output else (
-        project_root / "src" / "rebrew" / "matcher" / "flag_data.py"
+    output_path = (
+        Path(args.output)
+        if args.output
+        else (project_root / "src" / "rebrew" / "matcher" / "flag_data.py")
     )
 
     print("Cloning decomp.me (sparse, depth-1)...")
@@ -198,10 +205,7 @@ def main():
             sys.exit(1)
 
         # Filter out 7.x-only flags for MSVC6
-        msvc6_flags = [
-            item for item in msvc_flags
-            if item.id not in MSVC7_ONLY_IDS
-        ]
+        msvc6_flags = [item for item in msvc_flags if item.id not in MSVC7_ONLY_IDS]
 
         print(f"  → MSVC:  {len(msvc_flags)} flag entries")
         print(f"  → MSVC6: {len(msvc6_flags)} flag entries (excluding {MSVC7_ONLY_IDS})")

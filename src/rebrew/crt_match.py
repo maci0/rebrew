@@ -472,7 +472,7 @@ def main(
         _, ann = pair
         function_name = ann.symbol or ann.name
         if not function_name:
-            error_exit(f"Annotation at 0x{va_int:08x} has no SYMBOL/name", json_mode=json_output)
+            error_exit(f"Annotation at 0x{va_int:08x} has no symbol/name", json_mode=json_output)
 
         index = indexes.get(ann.origin.upper(), [])
         if not index:

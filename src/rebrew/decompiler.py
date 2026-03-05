@@ -126,7 +126,7 @@ def fetch_ghidra(
     """
     endpoint = endpoint or _DEFAULT_MCP_ENDPOINT
 
-    _sync_mod = importlib.import_module("rebrew.sync")
+    _sync_mod = importlib.import_module("rebrew.ghidra")
     _fetch_raw = _sync_mod._fetch_mcp_tool_raw
     _init_session = _sync_mod._init_mcp_session
 
@@ -194,13 +194,13 @@ def fetch_decompilation(
     if backend == "auto":
         for name in BACKENDS:
             fn = _BACKEND_MAP[name]
-            result = fn(binary_path, va, root)
+            result = fn(binary_path, va, root)  # type: ignore
             if result:
                 return result, name
         return None, "auto"
 
-    fn = _BACKEND_MAP.get(backend)
-    if fn is None:
+    backend_fn = _BACKEND_MAP.get(backend)
+    if backend_fn is None:
         print(
             f"decompiler: unknown backend '{backend}'. Available: {', '.join(_BACKEND_MAP)}, auto",
             file=sys.stderr,
@@ -209,6 +209,8 @@ def fetch_decompilation(
 
     if backend == "ghidra":
         if program_path is None:
-            return fn(binary_path, va, root, endpoint=endpoint), backend
-        return fn(binary_path, va, root, endpoint=endpoint, program_path=program_path), backend
-    return fn(binary_path, va, root), backend
+            return backend_fn(binary_path, va, root, endpoint=endpoint), backend  # type: ignore
+        return backend_fn(
+            binary_path, va, root, endpoint=endpoint, program_path=program_path
+        ), backend  # type: ignore
+    return backend_fn(binary_path, va, root), backend  # type: ignore

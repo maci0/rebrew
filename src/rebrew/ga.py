@@ -25,8 +25,10 @@ from typing import Any, NotRequired, TypedDict
 import typer
 
 from rebrew.annotation import has_skip_annotation, parse_c_file_multi, resolve_symbol
+from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import TargetOption, require_config
 from rebrew.config import ProjectConfig
+from rebrew.core.toolchain import msvc_env_from_config
 from rebrew.utils import atomic_write_text
 
 
@@ -196,7 +198,7 @@ def find_near_miss(
     """
     from rebrew.cli import iter_sources, rel_display_path
 
-    results = []
+    results: list[StubInfo] = []
     seen_vas: dict[str, str] = {}
 
     if not reversed_dir.exists():
@@ -240,7 +242,7 @@ def find_all_stubs(
     """
     from rebrew.cli import iter_sources, rel_display_path
 
-    stubs = []
+    stubs: list[StubInfo] = []
     seen_vas: dict[str, str] = {}  # va_str -> rel_path
 
     if not reversed_dir.exists():
@@ -384,12 +386,12 @@ def run_flag_sweep(
     cflags = stub["cflags"]
 
     source = filepath.read_text(encoding="utf-8")
-    target_bytes = cfg.extract_dll_bytes(va_int, size)
+    target_bytes = extract_raw_bytes(cfg.target_binary, va_int, size)
     if not target_bytes:
         return float("inf"), "", []
 
     compile_cfg = cfg.for_origin(stub.get("origin", ""))
-    msvc_env = compile_cfg.msvc_env()
+    msvc_env = msvc_env_from_config(compile_cfg)
     cl_cmd = compile_cfg.compiler_command
     inc_dir = str(compile_cfg.compiler_includes)
 

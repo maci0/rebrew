@@ -32,6 +32,7 @@ import typer
 from rich.console import Console
 
 from rebrew.annotation import parse_c_file_multi, resolve_symbol, update_annotation_key
+from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.compile import compile_to_obj
 from rebrew.config import ProjectConfig
@@ -371,7 +372,7 @@ def main(
         error_exit(f"SIZE annotation is missing or zero in {source_path}", json_mode=json_output)
 
     # Extract target bytes from DLL
-    target_bytes = cfg.extract_dll_bytes(va, size)
+    target_bytes = extract_raw_bytes(cfg.target_binary, va, size)
     if not target_bytes:
         error_exit(
             f"Failed to extract target bytes at VA 0x{va:08x} (size {size})",

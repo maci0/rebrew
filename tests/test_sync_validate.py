@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from rebrew.config import load_config
-from rebrew.sync import _resolve_program_path, _validate_program_path
+from rebrew.ghidra import _resolve_program_path, _validate_program_path
 
 
 class TestResolveProgramPath:
@@ -38,7 +38,7 @@ class TestValidateProgramPath:
                 "language": "x86:LE:32:default",
             }
 
-        monkeypatch.setattr("rebrew.sync._fetch_mcp_tool_raw", mock_fetch)
+        monkeypatch.setattr("rebrew.ghidra.commands._fetch_mcp_tool_raw", mock_fetch)
         result = _validate_program_path(
             None, "http://localhost:8080/mcp/message", "/server.dll", ""
         )
@@ -60,7 +60,7 @@ class TestValidateProgramPath:
                 "language": "x86:LE:32:default",
             }
 
-        monkeypatch.setattr("rebrew.sync._fetch_mcp_tool_raw", mock_fetch)
+        monkeypatch.setattr("rebrew.ghidra.commands._fetch_mcp_tool_raw", mock_fetch)
         result = _validate_program_path(
             None, "http://localhost:8080/mcp/message", "/server.dll", ""
         )
@@ -80,7 +80,7 @@ class TestValidateProgramPath:
         ) -> dict[str, Any]:
             raise RuntimeError("mcp unavailable")
 
-        monkeypatch.setattr("rebrew.sync._fetch_mcp_tool_raw", mock_fetch)
+        monkeypatch.setattr("rebrew.ghidra.commands._fetch_mcp_tool_raw", mock_fetch)
         result = _validate_program_path(
             None, "http://localhost:8080/mcp/message", "/server.dll", ""
         )
@@ -97,7 +97,7 @@ class TestValidateProgramPath:
         ) -> None:
             return None
 
-        monkeypatch.setattr("rebrew.sync._fetch_mcp_tool_raw", mock_fetch)
+        monkeypatch.setattr("rebrew.ghidra.commands._fetch_mcp_tool_raw", mock_fetch)
         result = _validate_program_path(
             None, "http://localhost:8080/mcp/message", "/server.dll", ""
         )

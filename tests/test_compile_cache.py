@@ -160,6 +160,9 @@ class TestCompileToObjCacheIntegration:
             base_cflags="/nologo /c",
             compile_timeout=3,
             msvc_env=lambda: {},
+            compiler_command="CL.EXE",
+            compiler_libs=tmp_path,
+            compiler_runner="",
             root=tmp_path,
         )
         src_dir = tmp_path / "src"
@@ -218,6 +221,9 @@ class TestCompileToObjCacheIntegration:
             base_cflags="/nologo /c",
             compile_timeout=3,
             msvc_env=lambda: {},
+            compiler_command="CL.EXE",
+            compiler_libs=tmp_path,
+            compiler_runner="",
             root=tmp_path,
         )
         src_dir = tmp_path / "src"
@@ -257,6 +263,9 @@ class TestCompileToObjCacheIntegration:
             base_cflags="/nologo /c",
             compile_timeout=3,
             msvc_env=lambda: {},
+            compiler_command="CL.EXE",
+            compiler_libs=tmp_path,
+            compiler_runner="",
             root=tmp_path,
         )
         src_dir = tmp_path / "src"
@@ -297,6 +306,9 @@ class TestCompileToObjCacheIntegration:
             base_cflags="/nologo /c",
             compile_timeout=3,
             msvc_env=lambda: {},
+            compiler_command="CL.EXE",
+            compiler_libs=tmp_path,
+            compiler_runner="",
             root=tmp_path,
         )
         src_dir = tmp_path / "src"

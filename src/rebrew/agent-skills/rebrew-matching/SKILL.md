@@ -174,7 +174,7 @@ rebrew prove my_func --json                              # find by symbol name
 How it works:
 1. Extracts target bytes from the DLL and compiles the C source to an .obj
 2. Loads both byte blobs into angr's symbolic execution engine (blob backend)
-3. Parses the `// PROTOTYPE:` annotation for calling convention and argument setup
+3. Parses the C function definition for calling convention and argument setup
 4. Hooks external call relocations with `ReturnUnconstrained`
 5. Runs LoopSeer-bounded symbolic execution on both
 6. Compares EAX (return register) via Z3 — if no input can distinguish them, PROVEN
@@ -182,7 +182,7 @@ How it works:
 Requirements:
 - angr must be installed: `uv pip install -e ".[prove]"`
 - Function must have STATUS: MATCHING or MATCHING_RELOC
-- `// PROTOTYPE:` annotation improves accuracy (argument count + calling convention)
+- A correct C function definition improves accuracy (argument count + calling convention)
 
 Limitations:
 - Floating-point heavy functions may not prove (Z3 struggles with x87/SSE)

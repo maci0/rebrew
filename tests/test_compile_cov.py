@@ -166,6 +166,7 @@ class TestCompileToObj:
             compile_timeout=3,
             msvc_env=lambda: {},
             compiler_command="CL.EXE",
+            compiler_runner="",
             root=tmp_path,
         )
         source = tmp_path / "f.c"
@@ -191,6 +192,9 @@ class TestCompileToObj:
             compiler_includes=tmp_path,
             base_cflags='/FI"my forced.h" /nologo',
             compile_timeout=3,
+            compiler_command="CL.EXE",
+            compiler_runner="",
+            compiler_libs=tmp_path,
             msvc_env=lambda: {},
         )
         src_dir = tmp_path / "src"

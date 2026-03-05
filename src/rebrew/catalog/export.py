@@ -4,10 +4,13 @@ Generates CATALOG.md markdown reports and reccmp-compatible CSV files
 from parsed annotations and function registries.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rebrew.annotation import Annotation
 from rebrew.config import ProjectConfig
+
+if TYPE_CHECKING:
+    from rebrew.catalog.registry import RegistryEntry
 
 
 def generate_catalog(
@@ -17,11 +20,11 @@ def generate_catalog(
 ) -> str:
     """Generate CATALOG.md content."""
     # Deduplicate by VA (keep first occurrence per VA)
-    by_va: dict[int, list[dict[str, Any]]] = {}
+    by_va: dict[int, list[Annotation]] = {}
     for e in entries:
         if e.get("marker_type") in ("GLOBAL", "DATA"):
             continue
-        by_va.setdefault(e["va"], []).append(e)
+        by_va.setdefault(e.va, []).append(e)
 
     unique_vas = set(by_va)
     exact_count = sum(1 for vas in by_va.values() if any(e["status"] == "EXACT" for e in vas))
@@ -62,11 +65,11 @@ def generate_catalog(
     )
 
     # Group by origin (discovered dynamically from data, excluding GLOBAL/DATA)
-    by_origin: dict[str, list[dict[str, Any]]] = {}
+    by_origin: dict[str, list[Annotation]] = {}
     for e in entries:
         if e.get("marker_type") in ("GLOBAL", "DATA"):
             continue
-        origin = e["origin"]
+        origin = e.origin
         by_origin.setdefault(origin, []).append(e)
 
     for origin in sorted(by_origin):
@@ -75,11 +78,11 @@ def generate_catalog(
         lines.append("| VA | Size | Name | Symbol | Flags | Match | File |")
         lines.append("|-----|------|------|--------|-------|-------|------|")
         for e in group:
-            va_str = f"0x{e['va']:08X}"
-            match_str = f"{e['marker_type']}/{e['status']}"
+            va_str = f"0x{e.va:08X}"
+            match_str = f"{e.marker_type}/{e.status}"
             lines.append(
-                f"| {va_str} | {e['size']}B | {e['name']} | "
-                f"{e['symbol']} | {e['cflags']} | {match_str} | {e['filepath']} |"
+                f"| {va_str} | {e.size}B | {e.name} | "
+                f"{e.symbol} | {e.cflags} | {match_str} | {e.filepath} |"
             )
 
     # Unmatched functions
@@ -100,11 +103,11 @@ def generate_catalog(
 # ---------------------------------------------------------------------------
 
 
-def _reccmp_type(entry: dict[str, Any]) -> str:
+def _reccmp_type(entry: Annotation) -> str:
     """Map our marker_type + origin to reccmp entity type."""
-    if entry["marker_type"] == "STUB":
+    if entry.marker_type == "STUB":
         return "stub"
-    if entry["origin"] in ("ZLIB", "MSVCRT"):
+    if entry.origin in ("ZLIB", "MSVCRT"):
         return "library"
     return "function"
 
@@ -112,7 +115,7 @@ def _reccmp_type(entry: dict[str, Any]) -> str:
 def generate_reccmp_csv(
     entries: list[Annotation],
     funcs: list[dict[str, Any]],
-    registry: dict[int, dict[str, Any]] | None = None,
+    registry: dict[int, "RegistryEntry"] | None = None,
     target_name: str = "TARGET",
     cfg: ProjectConfig | None = None,
 ) -> str:
@@ -125,10 +128,10 @@ def generate_reccmp_csv(
     a complete function catalog for the binary.  Comments and blank lines are
     allowed by the reccmp spec.
     """
-    by_va: dict[int, dict[str, Any]] = {}
+    by_va: dict[int, Annotation] = {}
     for e in entries:
-        if e["va"] not in by_va:
-            by_va[e["va"]] = e
+        if e.va not in by_va:
+            by_va[e.va] = e
 
     funcs_by_va = {f["va"]: f for f in funcs}
 
@@ -152,11 +155,11 @@ def generate_reccmp_csv(
 
         if va in by_va:
             e = by_va[va]
-            name = e["name"]
-            symbol = e["symbol"]
+            name = e.name
+            symbol = e.symbol
             etype = _reccmp_type(e)
             # Use canonical size from registry if available
-            size = e["size"]
+            size = e.size
             if registry and va in registry:
                 cs = registry[va].get("canonical_size", 0)
                 if cs > 0:
