@@ -31,7 +31,7 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from rebrew.annotation import parse_c_file, resolve_symbol, update_annotation_key
+from rebrew.annotation import parse_c_file_multi, resolve_symbol, update_annotation_key
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.compile import compile_to_obj
 from rebrew.config import ProjectConfig
@@ -343,8 +343,16 @@ def main(
     if not source_path.exists():
         error_exit(f"Source file not found: {source_path}", json_mode=json_output)
 
-    # Parse annotation
-    ann = parse_c_file(source_path, target_name=cfg.marker if cfg else None)
+    # Parse annotation — use multi-parser to support multi-function files,
+    # then select the first MATCHING/MATCHING_RELOC annotation.
+    annotations = parse_c_file_multi(source_path, target_name=cfg.marker if cfg else None)
+    ann = None
+    for a in annotations:
+        if a.status in ("MATCHING", "MATCHING_RELOC"):
+            ann = a
+            break
+    if ann is None and annotations:
+        ann = annotations[0]  # fallback to first for error reporting
     if ann is None:
         error_exit(f"No annotation found in {source_path}", json_mode=json_output)
 

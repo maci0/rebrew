@@ -203,7 +203,8 @@ def update_source_status(
 
     # Idempotency: skip if the annotation already has the desired status
     if target_va is None:
-        existing = parse_c_file(source_path)
+        existing_all = parse_c_file_multi(source_path)
+        existing = existing_all[0] if existing_all else None
         if existing is not None and existing.status == new_status:
             return
     else:
@@ -354,8 +355,8 @@ def main(
         pass  # Data scanner might fail if reversed_dir doesnt exist yet
 
     # Optional: lint the file first to catch basic annotation errors
-    anno = parse_c_file(Path(source), target_name=cfg.marker if cfg else None)
-    if anno:
+    lint_annos = parse_c_file_multi(Path(source), target_name=cfg.marker if cfg else None)
+    for anno in lint_annos:
         eval_errs, eval_warns = anno.validate()
         if not json_output:
             for e in eval_errs:

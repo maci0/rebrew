@@ -809,12 +809,13 @@ def parse_c_file_multi(
 def parse_source_metadata(source_path: str | Path) -> dict[str, str]:
     """Extract annotation metadata as a flat dict.
 
-    Delegates to the canonical ``parse_c_file`` parser so that every tool
+    Delegates to the canonical ``parse_c_file_multi`` parser so that every tool
     agrees on what the annotations say, then reshapes the result into the
     ``{KEY: value}`` dict format that callers expect. Marker entries map to
     the VA string only (for example ``{"FUNCTION": "0x10001a60"}``).
     """
-    anno = parse_c_file(Path(source_path))
+    annos = parse_c_file_multi(Path(source_path))
+    anno = annos[0] if annos else None
     if anno is None:
         return {}
 
