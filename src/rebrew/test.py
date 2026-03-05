@@ -142,11 +142,18 @@ def update_source_status(
     tmp_path = source_path.with_suffix(".c.tmp")
     bak_path = source_path.with_suffix(".c.bak")
 
-    # Idempotency: skip if the (first) annotation already has the desired status
+    # Idempotency: skip if the annotation already has the desired status
     if target_va is None:
         existing = parse_c_file(source_path)
         if existing is not None and existing.status == new_status:
             return
+    else:
+        existing_annos = parse_c_file_multi(source_path)
+        for ann in existing_annos:
+            if ann.va == target_va:
+                if ann.status == new_status and (not blockers_to_remove or not ann.blocker):
+                    return
+                break
 
     with source_path.open(encoding="utf-8") as f:
         lines = f.readlines()
