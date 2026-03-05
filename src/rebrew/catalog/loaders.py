@@ -20,17 +20,42 @@ from rebrew.config import ProjectConfig
 # ---------------------------------------------------------------------------
 
 
-def load_ghidra_functions(path: Path) -> list[GhidraFunction]:
-    """Load cached ghidra_functions.json."""
+def load_function_structure(path: Path) -> list[GhidraFunction]:
+    """Load the function structure cache (``function_structure.json``).
+
+    If *path* does not exist, tries the legacy ``ghidra_functions.json``
+    in the same directory as a migration fallback.
+
+    Returns an empty list if neither file exists.
+    Aborts the program with an error if a file exists but is corrupted.
+    """
+    from rebrew.config import _LEGACY_GHIDRA_JSON
+
     if not path.exists():
-        return []
+        # Migration fallback: try legacy filename in the same directory
+        legacy = path.parent / _LEGACY_GHIDRA_JSON
+        if legacy.exists():
+            path = legacy
+        else:
+            return []
+
+    from rebrew.cli import error_exit
+
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data, list):
-            return []
+            error_exit(
+                f"Corrupt structure JSON at {path.name}: Expected a JSON array, got {type(data).__name__}"
+            )
         return [GhidraFunction.from_dict(d) for d in data if isinstance(d, dict)]
-    except (json.JSONDecodeError, OSError):
-        return []
+    except json.JSONDecodeError as e:
+        error_exit(f"Corrupt structure JSON at {path.name}: {e}")
+    except OSError as e:
+        error_exit(f"Cannot read structure JSON at {path.name}: {e}")
+
+
+# Backwards-compatible alias
+load_ghidra_functions = load_function_structure
 
 
 def _classify_ghidra_label(label: str) -> str:

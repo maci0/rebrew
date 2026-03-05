@@ -46,7 +46,7 @@ perspective. Rebrew auto-detects whichever is installed (`rz` preferred over `r2
 
 **Data files consumed by rebrew:**
 - `functions.txt` — Human-readable function list (VA, size, name) — tool-agnostic format
-- `ghidra_functions.json` — Ghidra function list (consumed by `rebrew skeleton`, `rebrew next`)
+- `function_structure.json` — Ghidra function list (consumed by `rebrew skeleton`, `rebrew next`)
 
 **Known issues:**
 - r2/rz occasionally report bogus sizes for some functions
@@ -108,7 +108,7 @@ yara /tmp/test.yar target.dll
 |---------|----------------|
 | **capstone** | x86 disassembly in matcher scoring |
 | **diskcache** | Persistent caching for GA compilation results (`matcher/core.py`) |
-| **httpx** | HTTP client for Ghidra/ReVa MCP communication (`sync.py`, `skeleton.py`, `decompiler.py`) |
+| **httpx** | HTTP client for Ghidra/ReVa MCP communication (`ghidra/cli.py`, `skeleton.py`, `decompiler.py`) |
 | **jinja2** | Template rendering for skeleton generation (`skeleton.py`) |
 | **lief** | PE/ELF/Mach-O parsing — core dependency for `binary_loader.py`, `matcher/parsers.py`, `test.py` |
 | **numpy** | Numeric computation |

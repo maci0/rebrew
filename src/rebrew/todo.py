@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from rebrew.catalog.models import GhidraFunction
     from rebrew.verify import VerifyCacheEntry
 
 import typer
@@ -28,7 +29,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
-from rebrew.config import ProjectConfig
+from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 from rebrew.naming import (
     detect_origin,
     detect_unmatchable,
@@ -223,7 +224,7 @@ def _score_identify_library(size: int) -> float:
 
 def _collect_setup_steps(
     cfg: ProjectConfig,
-    ghidra_funcs: list[dict[str, Any]],
+    ghidra_funcs: list["GhidraFunction"],
     existing: dict[int, dict[str, str]],
 ) -> list[TodoItem]:
     """Detect missing project setup steps for fresh/incomplete projects.
@@ -236,7 +237,7 @@ def _collect_setup_steps(
 
     # 1. Check doctor health
     src_dir = Path(cfg.reversed_dir)
-    ghidra_json = src_dir / "ghidra_functions.json"
+    ghidra_json = src_dir / FUNCTION_STRUCTURE_JSON
 
     # 2. No function list → need to generate it
     if not ghidra_json.exists():
@@ -350,7 +351,7 @@ def _collect_near_misses(
             continue
         has_delta.add(va)
 
-        size = size_by_va.get(va, 0)
+        size = size_by_va.get(va) or int(info.get("size", 0))
         filename = info.get("filename", "")
 
         if delta <= 4:
@@ -405,7 +406,7 @@ def _collect_improve_matching(
         if va in has_delta:
             continue  # Already captured by near-miss or flag-sweep
 
-        size = size_by_va.get(va, 0)
+        size = size_by_va.get(va) or int(info.get("size", 0))
         filename = info.get("filename", "")
         blocker = info.get("blocker", "")
         desc = "MATCHING — run diff to find delta"
@@ -448,7 +449,7 @@ def _collect_prover_candidates(
     for va, info in existing.items():
         if info["status"] not in ("MATCHING", "MATCHING_RELOC"):
             continue
-        size = size_by_va.get(va, 0)
+        size = size_by_va.get(va) or int(info.get("size", 0))
         if size > 500 or size == 0:
             continue
         filename = info.get("filename", "")
@@ -570,7 +571,7 @@ def _collect_stubs(
     for va, info in existing.items():
         if info["status"] != "STUB":
             continue
-        size = size_by_va.get(va, 0)
+        size = size_by_va.get(va) or int(info.get("size", 0))
         filename = info.get("filename", "")
         items.append(
             TodoItem(
@@ -590,7 +591,7 @@ def _collect_stubs(
 
 
 def _collect_new_functions(
-    ghidra_funcs: list[dict[str, Any]],
+    ghidra_funcs: list["GhidraFunction"],
     existing: dict[int, dict[str, str]],
     covered_vas: dict[int, str],
     cfg: ProjectConfig,
@@ -667,7 +668,7 @@ def _collect_missing_annotations(
         if symbol:
             continue
 
-        size = size_by_va.get(va, 0)
+        size = size_by_va.get(va) or int(info.get("size", 0))
         filename = info.get("filename", "")
         items.append(
             TodoItem(
@@ -687,7 +688,7 @@ def _collect_missing_annotations(
 
 
 def _collect_library_candidates(
-    ghidra_funcs: list[dict[str, Any]],
+    ghidra_funcs: list["GhidraFunction"],
     existing: dict[int, dict[str, str]],
     cfg: ProjectConfig,
 ) -> list[TodoItem]:
@@ -727,7 +728,7 @@ def _collect_library_candidates(
 
 def collect_all(
     cfg: ProjectConfig,
-    ghidra_funcs: list[dict[str, Any]],
+    ghidra_funcs: list["GhidraFunction"],
     existing: dict[int, dict[str, str]],
     covered_vas: dict[int, str],
 ) -> list[TodoItem]:

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from rebrew.annotation import Annotation
 from rebrew.config import ProjectConfig
 from rebrew.verify import (
     _compiler_config_hash,
@@ -179,26 +180,28 @@ class TestIncrementalVerify:
         file_b.write_text("int func_b(void) { return 2; }\n", encoding="utf-8")
 
         entries = [
-            {
-                "va": 0x10001000,
-                "name": "func_a",
-                "filepath": "func_a.c",
-                "size": 16,
-                "origin": "GAME",
-                "cflags": "",
-                "symbol": "",
-                "marker_type": "FUNCTION",
-            },
-            {
-                "va": 0x10002000,
-                "name": "func_b",
-                "filepath": "func_b.c",
-                "size": 16,
-                "origin": "GAME",
-                "cflags": "",
-                "symbol": "",
-                "marker_type": "FUNCTION",
-            },
+            Annotation(
+                va=0x10001000,
+                name="func_a",
+                filepath="func_a.c",
+                size=16,
+                origin="GAME",
+                cflags="",
+                symbol="",
+                marker_type="FUNCTION",
+                status="EXACT",
+            ),
+            Annotation(
+                va=0x10002000,
+                name="func_b",
+                filepath="func_b.c",
+                size=16,
+                origin="GAME",
+                cflags="",
+                symbol="",
+                marker_type="FUNCTION",
+                status="EXACT",
+            ),
         ]
 
         calls: list[int] = []
@@ -216,11 +219,11 @@ class TestIncrementalVerify:
             return {}
 
         def fake_verify_entry(
-            entry: dict[str, object],
+            entry: Annotation,
             _cfg: ProjectConfig,
             cache: object = None,
         ) -> tuple[bool, str, bytes | None, bytes | None, list[int] | dict[int, str] | None]:
-            calls.append(int(entry["va"]))
+            calls.append(int(entry.va))
             return True, "EXACT MATCH", b"\x90", b"\x90", None
 
         monkeypatch.setattr("rebrew.verify.get_config", fake_get_config)
@@ -270,16 +273,17 @@ class TestIncrementalVerify:
         file_a.write_text("int func_a(void) { return 1; }\n", encoding="utf-8")
 
         entries = [
-            {
-                "va": 0x10001000,
-                "name": "func_a",
-                "filepath": "func_a.c",
-                "size": 16,
-                "origin": "GAME",
-                "cflags": "",
-                "symbol": "",
-                "status": "MATCHING",
-            }
+            Annotation(
+                va=0x10001000,
+                name="func_a",
+                filepath="func_a.c",
+                size=16,
+                origin="GAME",
+                cflags="",
+                symbol="",
+                status="MATCHING",
+                marker_type="FUNCTION",
+            )
         ]
 
         def fake_get_config(*args: object, **kwargs: object) -> ProjectConfig:
@@ -295,7 +299,7 @@ class TestIncrementalVerify:
             return {}
 
         def fake_verify_entry(
-            entry: dict[str, object],
+            entry: Annotation,
             _cfg: ProjectConfig,
             cache: object = None,
         ) -> tuple[bool, str, bytes | None, bytes | None, list[int] | dict[int, str] | None]:

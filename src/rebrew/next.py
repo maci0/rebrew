@@ -212,7 +212,7 @@ def main(
         matching_items: list[tuple[int, int, int | None, dict[str, str]]] = []
         for imp_va, info in sorted(existing.items()):
             if info["status"] in ("MATCHING", "MATCHING_RELOC"):
-                imp_size = size_by_va.get(imp_va, 0)
+                imp_size = size_by_va.get(imp_va) or int(info.get("size", 0))
                 # Use structured BLOCKER_DELTA if available, else parse from text
                 raw_bd = info.get("blocker_delta", "")
                 try:
@@ -241,6 +241,7 @@ def main(
                         "byte_delta": delta,
                         "origin": info["origin"],
                         "filename": info["filename"],
+                        "symbol": info.get("symbol", ""),
                         "blocker": info.get("blocker", ""),
                     }
                 )
@@ -269,9 +270,16 @@ def main(
                 symbol = info.get("symbol") or f"_func_{imp_va:08x}"
                 imp_cflags = cfg.resolve_origin_cflags(info["origin"])
                 rel_path = f"{cfg.reversed_dir.name}/{info['filename']}"
-                console.print(
-                    f'    TEST: rebrew test {rel_path} {symbol} --va 0x{imp_va:08x} --size {imp_size} --cflags "{imp_cflags}"'
-                )
+                if info.get("symbol"):
+                    # Use symbol-only form so rebrew test auto-detects VA/size
+                    # from annotations — works correctly in multi-function files
+                    console.print(
+                        f'    TEST: rebrew test {rel_path} {symbol} --cflags "{imp_cflags}"'
+                    )
+                else:
+                    console.print(
+                        f'    TEST: rebrew test {rel_path} {symbol} --va 0x{imp_va:08x} --size {imp_size} --cflags "{imp_cflags}"'
+                    )
         return
 
     # --unmatchable mode: show detected unmatchable functions
@@ -326,7 +334,7 @@ def main(
                     # try to find size in ghidra_funcs
                     for f in ghidra_funcs:
                         if f.va == m_va:
-                            m_size_val = f.size
+                            m_size_val = str(f.size)
                             break
                 if m_size_val:
                     parsed_m_size = int(m_size_val)

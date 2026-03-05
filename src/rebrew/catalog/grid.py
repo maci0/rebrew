@@ -8,7 +8,10 @@ import hashlib
 import math
 import struct
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from rebrew.catalog.models import GhidraDataLabel
 
 from rebrew.annotation import Annotation
 from rebrew.catalog.loaders import extract_dll_bytes, load_ghidra_data_labels
@@ -35,11 +38,11 @@ def merge_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
 
 
 def _find_ghidra_data_label(
-    va: int, data_labels: dict[int, dict[str, Any]]
-) -> tuple[int, dict[str, Any]] | None:
+    va: int, data_labels: dict[int, "GhidraDataLabel"]
+) -> tuple[int, "GhidraDataLabel"] | None:
     """Return (label_va, label_dict) if *va* falls inside a known Ghidra data label region."""
     for dl_va, dl_info in data_labels.items():
-        if dl_va <= va < dl_va + dl_info["size"]:
+        if dl_va <= va < dl_va + dl_info.size:
             return dl_va, dl_info
     return None
 
@@ -190,7 +193,7 @@ def generate_data_json(
             "fileOffset": file_off,
             "textOffset": text_off,
             "sha256": fn_hash,
-            "files": [x["filepath"] for x in elist],
+            "files": [x.filepath for x in elist],
             "detected_by": reg.get("detected_by", []),
             "size_by_tool": reg.get("size_by_tool", {}),
             "ghidra_name": reg.get("ghidra_name", ""),
@@ -279,8 +282,8 @@ def generate_data_json(
                     is_switch_data = False
                     if dl_result is not None:
                         label_va, dl_info = dl_result
-                        if dl_info["state"] == "data":
-                            label_end_off = (label_va + dl_info["size"]) - sec_va
+                        if dl_info.state == "data":
+                            label_end_off = (label_va + dl_info.size) - sec_va
                             absorb_size = min(label_end_off, next_func_off) - func_end_off
                             is_switch_data = True
                     elif _is_jump_table(gap_bytes, sec_va, sec_size):
@@ -420,10 +423,10 @@ def generate_data_json(
                     dl_result = _find_ghidra_data_label(sec_va + off, ghidra_data_labels)
                     if dl_result is not None:
                         label_va, dl_info = dl_result
-                        gap_state = dl_info["state"]
-                        gap_label = dl_info["label"] or None
+                        gap_state = dl_info.state
+                        gap_label = dl_info.label or None
                         # Extend gap to cover full label region (merge into one segment)
-                        label_end_off = (label_va + dl_info["size"]) - sec_va
+                        label_end_off = (label_va + dl_info.size) - sec_va
                         gap_end = min(sec_size, label_end_off, next_off)
                     elif (sec_va + off) in thunk_offsets:
                         gap_state = "thunk"

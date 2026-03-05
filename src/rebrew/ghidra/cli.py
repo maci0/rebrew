@@ -1,3 +1,4 @@
+import contextlib
 import json
 from typing import Any
 
@@ -10,7 +11,12 @@ from rebrew.catalog import (
     scan_reversed_dir,
 )
 from rebrew.cli import TargetOption, error_exit, iter_sources, json_print, require_config
-from rebrew.ghidra.client import _init_mcp_session, apply_commands_via_mcp
+from rebrew.config import FUNCTION_STRUCTURE_JSON
+from rebrew.ghidra.client import (
+    _fetch_all_functions,
+    _init_mcp_session,
+    apply_commands_via_mcp,
+)
 from rebrew.ghidra.commands import (
     _is_generic_name,
     _pull_comments,
@@ -141,6 +147,11 @@ def main(
     pull_data: bool = typer.Option(
         False, "--pull-data", help="Pull data labels from Ghidra and generate rebrew_globals.h"
     ),
+    refresh_cache: bool = typer.Option(
+        False,
+        "--refresh-cache",
+        help="Fetch all functions from Ghidra MCP and write function_structure.json",
+    ),
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
@@ -163,8 +174,11 @@ def main(
         or pull_structs
         or pull_comments
         or pull_data
+        or refresh_cache
     ):
-        error_exit("No action specified. Use --summary, --export, --apply, --push, or --pull.")
+        error_exit(
+            "No action specified. Use --summary, --export, --apply, --push, --pull, or --refresh-cache."
+        )
 
     cfg = require_config(target=target)
     reversed_dir = cfg.reversed_dir
@@ -173,7 +187,16 @@ def main(
     entries_raw = scan_reversed_dir(reversed_dir, cfg=cfg)
     entries: list[dict[str, Any]] = [e if isinstance(e, dict) else e.to_dict() for e in entries_raw]
 
-    if push or pull or pull_signatures or pull_structs or pull_comments or pull_data or apply:
+    if (
+        push
+        or pull
+        or pull_signatures
+        or pull_structs
+        or pull_comments
+        or pull_data
+        or apply
+        or refresh_cache
+    ):
         try:
             with httpx.Client(timeout=10.0) as probe_client:
                 probe_session = _init_mcp_session(probe_client, endpoint)
@@ -371,10 +394,13 @@ def main(
         if errs > 0:
             raise typer.Exit(code=1)
 
+    if refresh_cache:
+        _refresh_structure_cache(cfg, endpoint, program_path, dry_run, json_output)
+
     if sync_sizes or sync_new_functions:
         # Build registry to compare function list vs ghidra sizes
         func_list_path = cfg.function_list
-        ghidra_json_path = reversed_dir / "ghidra_functions.json"
+        ghidra_json_path = reversed_dir / FUNCTION_STRUCTURE_JSON
         bin_path = cfg.target_binary
 
         funcs = parse_function_list(func_list_path)
@@ -414,6 +440,78 @@ def main(
                 print(f"Done: {ok} succeeded, {errs} failed")
                 if errs > 0:
                     raise typer.Exit(code=1)
+
+
+def _refresh_structure_cache(
+    cfg: Any,
+    endpoint: str,
+    program_path: str,
+    dry_run: bool,
+    json_output: bool,
+) -> None:
+    """Fetch all functions from Ghidra MCP and write function_structure.json.
+
+    Uses an atomic write pattern (tmp file + rename) to avoid corruption.
+    """
+    import os
+    import tempfile
+
+    reversed_dir = cfg.reversed_dir
+    out_path = reversed_dir / FUNCTION_STRUCTURE_JSON
+
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            session_id = _init_mcp_session(client, endpoint)
+            print(f"Fetching functions from Ghidra ({program_path})...")
+            raw_funcs = _fetch_all_functions(client, endpoint, program_path, session_id)
+    except (httpx.HTTPError, OSError) as exc:
+        error_exit(f"Failed to fetch functions from Ghidra MCP: {exc}")
+
+    if not raw_funcs:
+        error_exit("No functions returned from Ghidra MCP. Is the program open?")
+
+    # Normalize to tool-agnostic schema
+    entries = []
+    for f in raw_funcs:
+        # Parse VA — Ghidra MCP may return hex strings like "0x10001000"
+        raw_va = f.get("va", 0)
+        va = int(raw_va, 0) if isinstance(raw_va, str) else int(raw_va)
+        raw_size = f.get("size", 0)
+        size = int(raw_size, 0) if isinstance(raw_size, str) else int(raw_size)
+
+        entry: dict[str, Any] = {"va": va, "size": size}
+        # Preserve tool-assigned name as optional hint
+        tool_name = f.get("tool_name") or f.get("ghidra_name", "")
+        if tool_name:
+            entry["tool_name"] = tool_name
+        entries.append(entry)
+
+    print(f"  Fetched {len(entries)} functions")
+
+    if json_output:
+        json_print(entries)
+        return
+
+    if dry_run:
+        print(f"  Would write {len(entries)} entries to {out_path}")
+        return
+
+    # Atomic write: write to tmp file in same directory, then rename
+    reversed_dir.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(
+        suffix=".tmp", prefix="function_structure_", dir=str(reversed_dir)
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as tmp_f:
+            json.dump(entries, tmp_f, indent=2)
+            tmp_f.write("\n")
+        os.replace(tmp_path, str(out_path))
+        print(f"  Wrote {out_path}")
+    except BaseException:
+        # Clean up tmp file on any error
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path)
+        raise
 
 
 def main_entry() -> None:

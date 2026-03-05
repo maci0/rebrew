@@ -103,9 +103,10 @@ class TestSplitBasic:
         assert (tmp_path / "func_a.c").exists()
         assert (tmp_path / "func_b.c").exists()
 
-    def test_falls_back_to_va_filename_without_symbol(
+    def test_derives_name_from_c_definition_without_symbol_annotation(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
+        """Function name should come from C definition even without // SYMBOL:."""
         content = (
             "// FUNCTION: SERVER 0x1000ABCD\n"
             "// STATUS: EXACT\n"
@@ -131,7 +132,8 @@ class TestSplitBasic:
 
         result = runner.invoke(app, [str(src)])
         assert result.exit_code == 0
-        assert (tmp_path / "func_1000abcd.c").exists()
+        # Name derived from C definition, not VA fallback
+        assert (tmp_path / "first.c").exists()
         assert (tmp_path / "named.c").exists()
 
     def test_dry_run_does_not_create_files(self, tmp_path: Path, monkeypatch: Any) -> None:
@@ -248,3 +250,57 @@ class TestSplitBasic:
         assert (tmp_path / "server_a.c").exists()
         assert (tmp_path / "server_b.c").exists()
         assert not (tmp_path / "client_a.c").exists()
+
+
+class TestSplitExtractVA:
+    """Tests for --va single-function extraction mode."""
+
+    def test_extracts_single_function_with_preamble(self, tmp_path: Path, monkeypatch: Any) -> None:
+        src = _write(tmp_path / "multi.c", _multi_two())
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
+
+        result = runner.invoke(app, ["--va", "0x10001000", str(src)])
+        assert result.exit_code == 0
+        out = tmp_path / "multi_c" / "func_a.c"
+        assert out.exists()
+        content = out.read_text(encoding="utf-8")
+        assert "#include <stdio.h>" in content
+        assert "// FUNCTION: SERVER 0x10001000" in content
+        assert "int func_a(void)" in content
+
+    def test_removes_extracted_block_from_source(self, tmp_path: Path, monkeypatch: Any) -> None:
+        src = _write(tmp_path / "multi.c", _multi_two())
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
+
+        result = runner.invoke(app, ["--va", "0x10001000", str(src)])
+        assert result.exit_code == 0
+        remaining = src.read_text(encoding="utf-8")
+        assert "0x10001000" not in remaining
+        assert "// FUNCTION: SERVER 0x10002000" in remaining
+        assert "#include <stdio.h>" in remaining
+
+    def test_dry_run_does_not_modify_files(self, tmp_path: Path, monkeypatch: Any) -> None:
+        src = _write(tmp_path / "multi.c", _multi_two())
+        original = src.read_text(encoding="utf-8")
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
+
+        result = runner.invoke(app, ["--dry-run", "--va", "0x10001000", str(src)])
+        assert result.exit_code == 0
+        assert not (tmp_path / "multi_c" / "func_a.c").exists()
+        assert src.read_text(encoding="utf-8") == original
+
+    def test_errors_on_unknown_va(self, tmp_path: Path, monkeypatch: Any) -> None:
+        src = _write(tmp_path / "multi.c", _multi_two())
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
+
+        result = runner.invoke(app, ["--va", "0xDEADBEEF", str(src)])
+        assert result.exit_code != 0
+        assert "No function block found" in result.output

@@ -1,6 +1,6 @@
 # CLI Reference
 
-All 30 CLI tools are installed as entry points via `pyproject.toml`.
+All 32 CLI tools are installed as entry points via `pyproject.toml`.
 Every tool supports `--target / -t` to select a target from `rebrew-project.toml` and
 reads defaults (binary path, reversed_dir, compiler settings) from the project config.
 
@@ -19,7 +19,7 @@ Run any tool with `--help` to see usage examples and context
 | `rebrew-next` | `next.py` | Prioritize uncovered functions by difficulty; auto-filters unmatchable; `--json` for all modes |
 | `rebrew-skeleton` | `skeleton.py` | Generate annotated `.c` skeleton from VA (with `--decomp`, `--xrefs`, `--append` for multi-function files) |
 | `rebrew-catalog` | `catalog/` | Parse annotations, generate catalog + coverage JSON |
-| `rebrew-sync` | `sync.py` | Sync annotations, structs, and signatures to/from Ghidra via ReVa MCP (`--push`, `--pull`, `--apply`, `--export`) |
+| `rebrew-sync` | `ghidra/cli.py` | Sync annotations, structs, and signatures to/from Ghidra via ReVa MCP (`--push`, `--pull`, `--apply`, `--export`) |
 | `rebrew-lint` | `lint.py` | Lint annotation standards in decomp C files |
 | `rebrew-extract` | `extract.py` | Batch extract and disassemble functions from binary |
 | `rebrew-match` | `match.py` / `matcher/` | GA matching engine (diff with `--mm`, flag-sweep with `--tier`, `--fix-blocker`); `--diff-only --json` structured diff |
@@ -332,13 +332,16 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 
 ### `rebrew split`
 
-`rebrew split <source_file> [--output-dir DIR] [--dry-run] [--force] [--json]`
+`rebrew split <source_file> [--va HEX] [--output-dir DIR] [--dry-run] [--force] [--json]`
 
 Split a multi-function `.c` file into individual single-function files. Each output file gets the shared preamble (includes, defines, extern declarations) plus its own annotation block and function body. Filenames are derived from the C function definition name; falls back to `func_<VA>.c` when no function definition is present.
 
+With `--va`, extract a **single function** into its own file (into a `source_c/` subdirectory) and remove it from the original. This is useful for isolating a function to iterate on independently.
+
 | Flag | Effect |
-|------|--------|
-| `--output-dir DIR` | Write output files to DIR (default: same directory as input) |
+|------|---------|
+| `--va HEX` | Extract a single function by VA into `source_c/name.c` and remove from original |
+| `--output-dir DIR` | Write output files to DIR (default: same directory / `source_c/` for `--va`) |
 | `--dry-run` | Preview changes without writing |
 | `--force` | Overwrite existing output files |
 | `--json` | Structured JSON output |
@@ -473,10 +476,12 @@ rebrew nasm --va 0x10003ca0 --size 77 --verify     # With round-trip verificatio
 rebrew nasm --batch --out-dir output/nasm/         # Batch extract all matched
 
 # Splitting & Merging
-rebrew split src/target_name/multi.c               # split multi-function file
+rebrew split src/target_name/multi.c               # split all functions into individual files
 rebrew split src/target_name/multi.c --dry-run      # preview split
+rebrew split --va 0x10003DA0 src/target_name/multi.c  # extract one function into multi_c/
+rebrew split --va 0x10003DA0 --dry-run src/target_name/multi.c  # preview extraction
 rebrew merge a.c b.c -o merged.c                    # merge into one file
-rebrew merge a.c b.c -o merged.c --delete           # merge and remove originals
+rebrew merge multi_c/ multi.c -o multi.c --force --delete  # merge extracted function back
 
 # Semantic equivalence proving
 rebrew prove src/target_name/calculate_physics.c     # prove MATCHING → PROVEN
@@ -528,7 +533,7 @@ rebrew sync --pull-data                            # Fetch data labels into rebr
 |--------|---------|
 | `annotation.py` | Canonical annotation parser (`parse_c_file`, `parse_c_file_multi`, `normalize_status`) |
 | `lint.py` | Annotation linter (E000–E017 / W001–W017); `--fix` auto-migrates old formats |
-| `sync.py` | Sync annotations to Ghidra via ReVa MCP; skips generic `func_` labels by default |
+| `ghidra/cli.py` | Sync annotations to Ghidra via ReVa MCP; skips generic `func_` labels by default |
 
 ### Binary Analysis
 

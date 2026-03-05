@@ -1,7 +1,7 @@
 # Bootstrapping a New Binary
 
 Step-by-step guide for adding an entirely new executable or DLL to the project
-when **no prior RE work exists** for it — no `.c` files, no `ghidra_functions.json`,
+when **no prior RE work exists** for it — no `.c` files, no `function_structure.json`,
 no catalog entries.
 
 ## 1. Initialize the project
@@ -26,7 +26,7 @@ cp /path/to/mygame.exe original/mygame.exe
 
 ## 3. Discover functions
 
-You need a `ghidra_functions.json` inside the source directory. This is the
+You need a `function_structure.json` inside the source directory. This is the
 function list that `rebrew skeleton` and `rebrew next` consume.
 
 **Option A — Ghidra (recommended):**
@@ -34,17 +34,17 @@ function list that `rebrew skeleton` and `rebrew next` consume.
 1. Import the binary into a Ghidra project.
 2. Run Auto-Analysis (`Analysis → Auto Analyze...`).
 3. Export the function list via script or the ReVa MCP plugin.
-4. Save as `src/mygame/ghidra_functions.json` with the schema:
+4. Save as `src/mygame/function_structure.json` with the schema:
 
 ```json
 [
-  {"va": 4198400, "size": 64, "ghidra_name": "FUN_00401000"},
-  {"va": 4198464, "size": 128, "ghidra_name": "entry"}
+  {"va": 4198400, "size": 64, "tool_name": "FUN_00401000"},
+  {"va": 4198464, "size": 128, "tool_name": "entry"}
 ]
 ```
 
 > [!NOTE]
-> VAs must be **integers** (not hex strings). The `ghidra_name` field is used
+> VAs must be **integers** (not hex strings). The `tool_name` field is used
 > for origin detection and filename generation.
 
 **Option B — radare2 / rizin (headless):**
@@ -57,10 +57,13 @@ rz -q -c 'aaa; aflj' original/MyGame/mygame.exe > /tmp/funcs.json
 
 # Convert to rebrew schema:
 python3 -c "
-import json, sys
+import json, sys, os
 funcs = json.load(open('/tmp/funcs.json'))
-out = [{'va': f['offset'], 'size': f['size'], 'ghidra_name': f['name']} for f in funcs]
-json.dump(out, open('src/mygame/ghidra_functions.json', 'w'), indent=2)
+out = [{'va': f['offset'], 'size': f['size'], 'tool_name': f['name']} for f in funcs]
+tmp_path = 'src/mygame/function_structure.json.tmp'
+final_path = 'src/mygame/function_structure.json'
+json.dump(out, open(tmp_path, 'w'), indent=2)
+os.replace(tmp_path, final_path)
 print(f'Exported {len(out)} functions')
 "
 ```
@@ -153,7 +156,6 @@ your own via the `origins`, `library_origins`, `origin_comments`, and
 // ORIGIN: GAME
 // SIZE: 64
 // CFLAGS: /O2 /Gd
-// SYMBOL: _my_func
 ```
 
 See [ANNOTATIONS.md](ANNOTATIONS.md) for the full annotation format reference.
@@ -177,7 +179,7 @@ rebrew next --target mygame --stats
 [ ] Binary placed in original/
 [ ] Target added to rebrew-project.toml under [targets.<name>]
 [ ] Source directory created: src/<target>/
-[ ] Function list exported: src/<target>/ghidra_functions.json
+[ ] Function list exported: src/<target>/function_structure.json
 [ ] Compiler identified and toolchain verified
 [ ] FLIRT scan completed, library functions cataloged
 [ ] Functions triaged (rebrew triage)

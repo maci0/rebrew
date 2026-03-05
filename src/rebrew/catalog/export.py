@@ -73,7 +73,7 @@ def generate_catalog(
         by_origin.setdefault(origin, []).append(e)
 
     for origin in sorted(by_origin):
-        group = sorted(by_origin.get(origin, []), key=lambda x: x["va"])
+        group = sorted(by_origin.get(origin, []), key=lambda x: x.va)
         lines.append(f"\n## {origin} ({len(group)} functions)\n")
         lines.append("| VA | Size | Name | Symbol | Flags | Match | File |")
         lines.append("|-----|------|------|--------|-------|-------|------|")

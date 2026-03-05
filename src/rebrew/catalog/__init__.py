@@ -12,8 +12,9 @@ from rebrew.catalog.export import generate_reccmp_csv as generate_reccmp_csv
 from rebrew.catalog.grid import generate_data_json as generate_data_json
 from rebrew.catalog.grid import merge_ranges as merge_ranges
 from rebrew.catalog.loaders import extract_dll_bytes as extract_dll_bytes
+from rebrew.catalog.loaders import load_function_structure as load_function_structure
 from rebrew.catalog.loaders import load_ghidra_data_labels as load_ghidra_data_labels
-from rebrew.catalog.loaders import load_ghidra_functions as load_ghidra_functions
+from rebrew.catalog.loaders import load_ghidra_functions as load_ghidra_functions  # alias
 from rebrew.catalog.loaders import parse_function_list as parse_function_list
 from rebrew.catalog.loaders import scan_reversed_dir as scan_reversed_dir
 from rebrew.catalog.registry import _DEFAULT_R2_BOGUS_SIZES as _DEFAULT_R2_BOGUS_SIZES
