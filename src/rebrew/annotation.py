@@ -456,11 +456,16 @@ def make_func_entry(
 # ---------------------------------------------------------------------------
 
 
-def update_size_annotation(filepath: Path, new_size: int) -> bool:
+def update_size_annotation(filepath: Path, new_size: int, target_va: int | None = None) -> bool:
     """Update the ``// SIZE: NNN`` annotation in a .c file.
 
     Only increases size (safety: never shrinks a manually-set value).
     Returns True if the file was modified, False otherwise.
+
+    Args:
+        target_va: If set, only update the SIZE line belonging to the
+            annotation block whose FUNCTION marker contains this VA.
+            When None (default), updates the first SIZE found.
     """
     try:
         text = filepath.read_text(encoding="utf-8", errors="replace")
@@ -468,16 +473,40 @@ def update_size_annotation(filepath: Path, new_size: int) -> bool:
         warnings.warn(f"Cannot read {filepath} for size update: {e}", stacklevel=2)
         return False
 
+    lines = text.splitlines(keepends=True)
     size_re = re.compile(r"(//\s*SIZE:\s*)(\d+)")
-    match = size_re.search(text)
-    if not match:
+    marker_re = re.compile(
+        r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*\S+\s+(0x[0-9a-fA-F]+)"
+    )
+
+    # Walk lines tracking which annotation block we're in.
+    in_target_block = target_va is None  # No filter → always match
+    match_line_idx: int | None = None
+
+    for i, line in enumerate(lines):
+        m = marker_re.search(line)
+        if m:
+            found_va = int(m.group(1), 16)
+            in_target_block = target_va is None or found_va == target_va
+
+        if in_target_block:
+            sm = size_re.search(line)
+            if sm:
+                match_line_idx = i
+                break
+
+    if match_line_idx is None:
         return False
 
-    old_size = int(match.group(2))
+    sm = size_re.search(lines[match_line_idx])
+    assert sm is not None  # guaranteed by loop above
+    old_size = int(sm.group(2))
     if new_size <= old_size:
         return False
 
-    new_text = text[: match.start()] + match.group(1) + str(new_size) + text[match.end() :]
+    line = lines[match_line_idx]
+    lines[match_line_idx] = line[: sm.start()] + sm.group(1) + str(new_size) + line[sm.end() :]
+    new_text = "".join(lines)
     atomic_write_text(filepath, new_text, encoding="utf-8")
     return True
 
