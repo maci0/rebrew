@@ -13,7 +13,7 @@ from rebrew.annotation import parse_c_file_multi
 from rebrew.binary_loader import extract_raw_bytes
 from rebrew.catalog import load_ghidra_functions
 from rebrew.cli import TargetOption, error_exit, iter_sources, json_print, parse_va, require_config
-from rebrew.config import ProjectConfig
+from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 
 _EPILOG = """\
 [bold]Examples:[/bold]
@@ -50,7 +50,7 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
     lookup: dict[int, tuple[str, str]] = {}
 
     # Load Ghidra function names
-    ghidra_json = cfg.reversed_dir / "ghidra_functions.json"
+    ghidra_json = cfg.reversed_dir / FUNCTION_STRUCTURE_JSON
     ghidra_funcs = load_ghidra_functions(ghidra_json)
     for func in ghidra_funcs:
         if func.va and func.name:

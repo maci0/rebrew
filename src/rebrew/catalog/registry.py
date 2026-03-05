@@ -4,11 +4,9 @@ Merges function list and Ghidra function lists into a unified registry with
 smart size resolution (jump table detection, padding absorption, etc.).
 """
 
-import json
 import struct
-import warnings
 from pathlib import Path
-from typing import Any, TypedDict, cast
+from typing import Any, TypedDict
 
 from rebrew.binary_loader import load_binary
 from rebrew.config import ProjectConfig
@@ -243,31 +241,21 @@ def build_function_registry(
             entry["size_by_tool"]["list"] = list_size
         entry["list_name"] = str(func["name"])
 
-    # --- Ghidra functions (from cached JSON) ---
-    ghidra_funcs: list[dict[str, Any]] = []
-    if ghidra_path and ghidra_path.exists():
-        try:
-            ghidra_funcs = cast(
-                list[dict[str, Any]],
-                json.loads(ghidra_path.read_text(encoding="utf-8")),
-            )
-        except json.JSONDecodeError as e:
-            warnings.warn(f"Corrupt Ghidra JSON at {ghidra_path}: {e}", stacklevel=2)
-        except OSError as e:
-            warnings.warn(f"Cannot read Ghidra JSON at {ghidra_path}: {e}", stacklevel=2)
+    # --- Function structure (from cached JSON) ---
+    from rebrew.catalog.loaders import load_function_structure
 
-    for func in ghidra_funcs:
-        try:
-            va = int(func["va"])
-            ghidra_size = int(func["size"])
-            ghidra_name = str(func.get("ghidra_name", func.get("name", "")))
-        except (KeyError, ValueError, TypeError):
+    structure_entries = load_function_structure(ghidra_path) if ghidra_path else []
+
+    for func in structure_entries:
+        va = func.va
+        if va == 0 or func.size == 0:
             continue
+
         entry = registry.setdefault(va, _new_registry_entry(va, cfg))
         if "ghidra" not in entry["detected_by"]:
             entry["detected_by"].append("ghidra")
-        entry["size_by_tool"]["ghidra"] = ghidra_size
-        entry["ghidra_name"] = ghidra_name
+        entry["size_by_tool"]["ghidra"] = func.size
+        entry["ghidra_name"] = func.tool_name or func.name
 
     # --- Exports ---
     exports: dict[int, str] = cfg.dll_exports if cfg else {}

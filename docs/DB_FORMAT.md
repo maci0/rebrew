@@ -14,7 +14,7 @@ flowchart LR
     A["*.c annotations"] -->|rebrew catalog| B["db/data_*.json"]
     LH["library_*.h headers"] -->|rebrew catalog| B
     FL["functions.txt"] -->|rebrew catalog| B
-    GH["ghidra_functions.json"] -->|rebrew catalog| B
+    GH["function_structure.json"] -->|rebrew catalog| B
     BIN["target binary"] -->|rebrew catalog| B
     B -->|rebrew build-db| C["db/coverage.db"]
     C -->|recoverage serve| D["REST API + Dashboard UI"]
@@ -25,7 +25,7 @@ flowchart LR
 
 | Step | Tool | Input | Output |
 |------|------|-------|--------|
-| 1. Catalog | `rebrew catalog --json` | `*.c` annotations, `library_*.h` headers, `functions.txt`, `ghidra_functions.json`, target binary | `db/data_<target>.json` |
+| 1. Catalog | `rebrew catalog --json` | `*.c` annotations, `library_*.h` headers, `functions.txt`, `function_structure.json`, target binary | `db/data_<target>.json` |
 | 1b. Export Labels | `rebrew catalog --export-ghidra-labels` | (same as above) | `ghidra_data_labels.json` (detected data labels/thunks for Ghidra round-trip) |
 | 2. Build DB | `rebrew build-db` | `db/data_*.json` | `db/coverage.db` |
 | 3. Serve | `recoverage serve` | `db/coverage.db` | HTTP dashboard at `localhost:8001` |

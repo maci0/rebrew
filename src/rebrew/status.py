@@ -94,12 +94,12 @@ def collect_target_stats(
     marker_ctr: Counter[str] = Counter()
     func_ranges: list[tuple[int, int]] = []
     for entry in entries:
-        status_ctr[entry["status"]] += 1
-        origin_ctr[entry["origin"]] += 1
-        marker_ctr[entry["marker_type"]] += 1
-        if entry["marker_type"] not in ("GLOBAL", "DATA") and entry["status"] != "STUB":
-            start = entry["va"]
-            end = start + max(entry["size"], 0)
+        status_ctr[entry.status] += 1
+        origin_ctr[entry.origin] += 1
+        marker_ctr[entry.marker_type] += 1
+        if entry.marker_type not in ("GLOBAL", "DATA") and entry.status != "STUB":
+            start = entry.va
+            end = start + max(entry.size, 0)
             func_ranges.append((start, end))
 
     merged_ranges = merge_ranges(func_ranges)

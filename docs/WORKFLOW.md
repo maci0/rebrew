@@ -306,7 +306,6 @@ Based on test results, update the header:
 // ORIGIN: GAME
 // SIZE: <SIZE>
 // CFLAGS: /O2 /Gd
-// SYMBOL: _my_func
 ```
 
 If STATUS is MATCHING, add a BLOCKER line (or auto-generate it):
@@ -378,8 +377,9 @@ Always include `/nologo /c /MT` as base flags (added automatically by `rebrew te
 
 Every .c file MUST start with an annotation block. See [ANNOTATIONS.md](ANNOTATIONS.md) for the full format reference.
 
-Required fields: marker (FUNCTION/LIBRARY/STUB), STATUS, ORIGIN, SIZE, CFLAGS.
-Recommended: SYMBOL, SOURCE (for CRT/ZLIB), BLOCKER (for MATCHING/STUB).
+Required fields: marker (FUNCTION/LIBRARY/STUB), STATUS, ORIGIN, SIZE.
+Recommended: SOURCE (for CRT/ZLIB), BLOCKER (for MATCHING/STUB).
+CFLAGS is optional — falls back to the target default from config.
 
 A file may contain **multiple annotation blocks** for multi-function compilation.
 See [ANNOTATIONS.md](ANNOTATIONS.md#multi-function-files) for details.
@@ -548,7 +548,6 @@ int __cdecl my_shared_func(int param)
 // ORIGIN: GAME
 // SIZE: 42
 // CFLAGS: /O2 /Gd
-// SYMBOL: _my_shared_func
 
 #include "../shared/my_shared_func.c"
 ```
@@ -571,6 +570,6 @@ both targets benefit automatically.
 | [ANNOTATIONS.md](ANNOTATIONS.md) | Full annotation format reference and linter codes (E000–E017, W001–W017) |
 | [GHIDRA_SYNC.md](GHIDRA_SYNC.md) | Ghidra ↔ Rebrew sync feature matrix and known issues |
 | [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md) | Obtaining, creating, and using FLIRT signatures |
-| [CLI.md](CLI.md) | All 30 CLI tools, flags, and examples |
+| [CLI.md](CLI.md) | All 32 CLI tools, flags, and examples |
 | [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, arch presets, compiler profiles |
 | [TOOLCHAIN.md](TOOLCHAIN.md) | External tools, MSVC6 toolchain, Python dependencies |

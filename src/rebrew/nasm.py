@@ -337,19 +337,19 @@ def _parse_annotations(filepath: Path) -> list[dict[str, Any]]:
 
     results: list[dict[str, Any]] = []
     for entry in entries:
-        status = entry["status"]
+        status = entry.status
         if status not in ("EXACT", "RELOC", "MATCHING", "MATCHING_RELOC", "PROVEN", "STUB"):
             continue
 
-        size = entry["size"]
+        size = entry.size
         if not size:
             continue
 
         results.append(
             {
-                "va": entry["va"],
+                "va": entry.va,
                 "size": size,
-                "symbol": entry["symbol"],
+                "symbol": entry.symbol,
                 "status": status,
                 "filepath": filepath,
             }

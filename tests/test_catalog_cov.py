@@ -103,7 +103,7 @@ class TestBuildFunctionRegistry:
 
     def test_with_ghidra(self, tmp_path) -> None:
         funcs = [make_func_entry(0x10001000, 64, "_func_a")]
-        ghidra_json = tmp_path / "ghidra_functions.json"
+        ghidra_json = tmp_path / "function_structure.json"
         ghidra_data = [
             make_ghidra_func(0x10001000, 64, "func_a"),
             make_ghidra_func(0x10003000, 32, "func_c"),

@@ -500,8 +500,6 @@ def _apply_query_once(
 
     return ASTMutator.replace_node(source, target_node, replacement)
 
-    return ASTMutator.replace_node(source, expr_node, replacement)
-
 
 # --- Mutations ---
 
@@ -805,9 +803,8 @@ def mut_ast_toggle_volatile(s: str, rng: random.Random) -> str | None:
         decl = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
 
         # Try removing volatile first
-        if b"volatile " in decl:
-            if rng.random() < 0.5:
-                return decl.replace(b"volatile ", b"")
+        if b"volatile " in decl and rng.random() < 0.5:
+            return decl.replace(b"volatile ", b"")
 
         # Try adding volatile
         if b"volatile" not in decl:
@@ -1402,13 +1399,12 @@ def mut_ast_toggle_char_signedness(s: str, rng: random.Random) -> str | None:
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         t = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
-        if t == b"char":
-            return b"unsigned char"
-        elif t == b"unsigned char":
-            return b"signed char"
-        elif t == b"signed char":
-            return b"char"
-        return t
+        mapping = {
+            b"char": b"unsigned char",
+            b"unsigned char": b"signed char",
+            b"signed char": b"char",
+        }
+        return mapping.get(t, t)
 
     res = _apply_query_once(b_source, _QUERY_CHAR_TYPE, _repl, rng)
     return res.decode("utf-8") if res is not None else None

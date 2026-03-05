@@ -16,7 +16,10 @@ Usage:
 
 import importlib
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from rebrew.catalog.models import GhidraFunction
 
 import httpx
 import jinja2
@@ -35,7 +38,7 @@ from rebrew.cli import (
     rel_display_path,
     require_config,
 )
-from rebrew.config import ProjectConfig
+from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 from rebrew.decompiler import fetch_decompilation
 from rebrew.naming import (
     detect_origin,
@@ -381,7 +384,7 @@ def generate_diff_command(
 
 
 def list_uncovered(
-    ghidra_funcs: list[dict[str, Any]],
+    ghidra_funcs: list["GhidraFunction"],
     existing_vas: dict[int, str],
     cfg: ProjectConfig,
     origin_filter: str | None = None,
@@ -392,14 +395,9 @@ def list_uncovered(
     uncovered: list[tuple[int, int, str, str]] = []
     ignored_syms = set(cfg.ignored_symbols or [])
     for func in ghidra_funcs:
-        va_obj = func.get("va")
-        size_obj = func.get("size")
-        if not isinstance(va_obj, int) or not isinstance(size_obj, int):
-            continue
-        va = va_obj
-        size = size_obj
-        name_obj = func.get("ghidra_name")
-        name = name_obj if isinstance(name_obj, str) and name_obj else f"FUN_{va:08x}"
+        va = func.va
+        size = func.size
+        name = func.name if func.name else f"FUN_{va:08x}"
 
         if va in existing_vas:
             continue
@@ -497,7 +495,7 @@ def main(
     src_dir = cfg.reversed_dir
     root = cfg.root
 
-    ghidra_json = src_dir / "ghidra_functions.json"
+    ghidra_json = src_dir / FUNCTION_STRUCTURE_JSON
     ghidra_funcs = load_ghidra_functions(ghidra_json)
     existing_vas = load_existing_vas(src_dir, cfg=cfg)
 
@@ -607,25 +605,16 @@ def main(
     # Find in Ghidra functions
     ghidra_entry = None
     for func in ghidra_funcs:
-        if func["va"] == va_int:
+        if func.va == va_int:
             ghidra_entry = func
             break
 
     if not ghidra_entry:
         error_exit(f"VA 0x{va_int:08x} not found in ghidra_functions.json", json_mode=json_output)
 
-    size_obj = ghidra_entry.get("size")
-    if not isinstance(size_obj, int):
-        error_exit(
-            f"Invalid size for VA 0x{va_int:08x} in ghidra_functions.json", json_mode=json_output
-        )
-    size = size_obj
-    ghidra_name_obj = ghidra_entry.get("ghidra_name")
-    ghidra_name = (
-        ghidra_name_obj
-        if isinstance(ghidra_name_obj, str) and ghidra_name_obj
-        else f"FUN_{va_int:08x}"
-    )
+    size = ghidra_entry.size
+
+    ghidra_name = ghidra_entry.name if ghidra_entry.name else f"FUN_{va_int:08x}"
 
     # Check if already covered
     if va_int in existing_vas and not force and not append:

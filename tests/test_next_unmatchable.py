@@ -364,7 +364,7 @@ class TestLoadDataMultiVA:
         )
 
         # Write ghidra_functions.json with 3 functions (2 covered, 1 not)
-        ghidra_json = src_dir / "ghidra_functions.json"
+        ghidra_json = src_dir / "function_structure.json"
         ghidra_json.write_text(
             json.dumps(
                 [
@@ -407,7 +407,7 @@ class TestLoadDataMultiVA:
             encoding="utf-8",
         )
 
-        ghidra_json = src_dir / "ghidra_functions.json"
+        ghidra_json = src_dir / "function_structure.json"
         ghidra_json.write_text(
             json.dumps(
                 [
@@ -439,7 +439,7 @@ class TestLoadDataMultiVA:
             encoding="utf-8",
         )
 
-        ghidra_json = src_dir / "ghidra_functions.json"
+        ghidra_json = src_dir / "function_structure.json"
         ghidra_json.write_text(json.dumps([]), encoding="utf-8")
 
         cfg = ProjectConfig(root=Path("/tmp"), reversed_dir=src_dir)

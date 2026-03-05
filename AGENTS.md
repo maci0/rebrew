@@ -3,7 +3,7 @@
 ## Overview
 
 **Rebrew** is a compiler-in-the-loop decompilation workbench for binary-matching
-game reversing. Python package (`src/rebrew/`) with 30 CLI tools for compiling,
+game reversing. Python package (`src/rebrew/`) with 32 CLI tools for compiling,
 comparing, and matching C source against target binary functions (MSVC6 under Wine).
 
 Installed as an editable package (`uv pip install -e .`) into a workspace project
@@ -16,7 +16,7 @@ that contains the actual binaries, source files, and toolchains.
 uv pip install -e .
 uv sync --all-extras            # with dev deps
 
-# Run ALL tests (~1581 tests)
+# Run ALL tests (~1644 tests)
 uv run pytest tests/ -v
 
 # Run a SINGLE test file
@@ -106,7 +106,7 @@ Key libraries and what they provide:
   format/arch identification via parsed headers (`header.machine`, `header.machine_type`,
   `header.cpu_type`), PE/ELF/Mach-O parsing. Never use manual `struct.unpack` on binary
   headers when LIEF can do it.
-- **httpx** (`httpx`): HTTP client for Ghidra/ReVa MCP communication (`sync.py`,
+- **httpx** (`httpx`): HTTP client for Ghidra/ReVa MCP communication (`ghidra/cli.py`,
   `skeleton.py`, `decompiler.py`). Use `httpx.Client` for connection-pooled requests.
   Never use `urllib.request` for MCP endpoints.
 - **Typer** (`typer`): CLI framework. Use `typer.echo(msg, err=True)` for stderr warnings

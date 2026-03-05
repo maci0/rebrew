@@ -10,12 +10,16 @@ Extracted from skeleton.py and next.py to eliminate circular dependencies.
 import bisect
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import capstone
 
+if TYPE_CHECKING:
+    from rebrew.catalog.models import GhidraFunction
+
 from rebrew.annotation import parse_c_file_multi, parse_library_header
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va
-from rebrew.config import ProjectConfig
+from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 
 # 8-tuple: (difficulty, size, va, name, origin, reason, neighbor_file, similarity)
 UncoveredItem = tuple[int, int, int, str, str, str, str | None, float]
@@ -223,7 +227,7 @@ def load_data(
     from rebrew.cli import iter_library_headers, iter_sources, rel_display_path
 
     src_dir = Path(cfg.reversed_dir)
-    ghidra_json = src_dir / "ghidra_functions.json"
+    ghidra_json = src_dir / FUNCTION_STRUCTURE_JSON
 
     # Ghidra functions
     ghidra_funcs = load_ghidra_functions(ghidra_json)
@@ -242,6 +246,7 @@ def load_data(
                 continue
             existing[entry.va] = {
                 "filename": rel_name,
+                "size": str(entry.size),
                 "status": entry.status,
                 "origin": entry.origin,
                 "blocker": entry.blocker,
@@ -260,6 +265,7 @@ def load_data(
                 continue
             existing[entry.va] = {
                 "filename": hfile.name,
+                "size": str(entry.size),
                 "status": entry.status,
                 "origin": entry.origin,
                 "blocker": "",

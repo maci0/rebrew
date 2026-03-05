@@ -739,7 +739,7 @@ class TestCollectAllMatching:
         # Create ghidra_functions.json so setup doesn't short-circuit
         src_dir = tmp_path / "src"
         src_dir.mkdir()
-        (src_dir / "ghidra_functions.json").write_text(
+        (src_dir / "function_structure.json").write_text(
             json.dumps(
                 [
                     {"va": 0x1000, "size": 100, "ghidra_name": "game_init"},
@@ -789,7 +789,7 @@ class TestSetupSteps:
         cfg = _make_cfg(tmp_path)
         src_dir = tmp_path / "src"
         src_dir.mkdir()
-        (src_dir / "ghidra_functions.json").write_text("[]", encoding="utf-8")
+        (src_dir / "function_structure.json").write_text("[]", encoding="utf-8")
         ghidra_funcs = [GhidraFunction(va=0x1000, size=100, name="f")]
         items = _collect_setup_steps(cfg, ghidra_funcs, {})
         assert len(items) == 2
@@ -801,7 +801,7 @@ class TestSetupSteps:
         cfg = _make_cfg(tmp_path)
         src_dir = tmp_path / "src"
         src_dir.mkdir()
-        (src_dir / "ghidra_functions.json").write_text("[]", encoding="utf-8")
+        (src_dir / "function_structure.json").write_text("[]", encoding="utf-8")
         existing = {0x1000: {"status": "STUB", "symbol": "f", "filename": "f.c", "origin": "GAME"}}
         items = _collect_setup_steps(cfg, [{"va": 0x1000, "size": 100}], existing)
         assert len(items) == 1
@@ -812,7 +812,7 @@ class TestSetupSteps:
         cfg = _make_cfg(tmp_path)
         src_dir = tmp_path / "src"
         src_dir.mkdir()
-        (src_dir / "ghidra_functions.json").write_text("[]", encoding="utf-8")
+        (src_dir / "function_structure.json").write_text("[]", encoding="utf-8")
         cache_dir = tmp_path / ".rebrew"
         cache_dir.mkdir()
         (cache_dir / "verify_cache.json").write_text("{}", encoding="utf-8")

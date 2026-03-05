@@ -29,7 +29,7 @@ from rebrew.catalog import (
     scan_reversed_dir,
 )
 from rebrew.cli import TargetOption, error_exit, get_config, json_print
-from rebrew.config import ProjectConfig
+from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 from rebrew.utils import atomic_write_text
 
 # ---------------------------------------------------------------------------
@@ -51,20 +51,20 @@ def verify_entry(
     """
     from rebrew.compile import compile_and_compare
 
-    cfile = cfg.reversed_dir / entry["filepath"]
+    cfile = cfg.reversed_dir / entry.filepath
     if not cfile.exists():
         return False, f"MISSING_FILE: {cfile}", None, None, None
 
-    if entry["va"] < 0x1000:
+    if entry.va < 0x1000:
         return False, "INVALID_VA: VA too low", None, None, None
-    if entry["size"] <= 0:
+    if entry.size <= 0:
         return False, "MISSING_SIZE: No SIZE annotation", None, None, None
 
-    cflags_str = entry["cflags"]
+    cflags_str = entry.cflags
     cflags = cflags_str if cflags_str else "/O2"
-    symbol = entry["symbol"] if entry["symbol"] else "_" + entry["name"]
+    symbol = entry.symbol if entry.symbol else "_" + entry.name
 
-    target_bytes = extract_raw_bytes(cfg.target_binary, entry["va"], entry["size"])
+    target_bytes = extract_raw_bytes(cfg.target_binary, entry.va, entry.size)
     if not target_bytes:
         return False, "Cannot extract DLL bytes", None, None, None
 
@@ -442,7 +442,7 @@ def main(
     if jobs is None:
         jobs = cfg.default_jobs
     func_list_path = cfg.function_list
-    ghidra_json_path = reversed_dir / "ghidra_functions.json"
+    ghidra_json_path = reversed_dir / FUNCTION_STRUCTURE_JSON
 
     out_file = Path(output_path) if output_path else cfg.root / "db" / "verify_results.json"
     previous_report: dict[str, Any] | None = None
@@ -469,7 +469,7 @@ def main(
 
     registry = build_function_registry(funcs, cfg, ghidra_json_path)
 
-    unique_vas = {e["va"] for e in entries}
+    unique_vas = {e.va for e in entries}
     ghidra_count = sum(1 for r in registry.values() if "ghidra" in r["detected_by"])
     list_count = sum(1 for r in registry.values() if "list" in r["detected_by"])
     both_count = sum(
@@ -493,7 +493,7 @@ def main(
     unique_entries: list[Annotation] = []
     data_count = 0
     library_header_count = 0
-    for entry in sorted(entries, key=lambda x: x["va"]):
+    for entry in sorted(entries, key=lambda x: x.va):
         if entry.get("marker_type", "FUNCTION") in ("DATA", "GLOBAL"):
             data_count += 1
             continue
@@ -502,8 +502,8 @@ def main(
         if fp and fp.endswith(".h"):
             library_header_count += 1
             continue
-        if entry["va"] not in seen_vas:
-            seen_vas.add(entry["va"])
+        if entry.va not in seen_vas:
+            seen_vas.add(entry.va)
             unique_entries.append(entry)
     if data_count and not json_output:
         console.print(f"Skipped {data_count} DATA/GLOBAL annotations (not compilable)")
@@ -526,7 +526,7 @@ def main(
     cached_count = 0
 
     for entry in unique_entries:
-        va_key = f"0x{entry['va']:08x}"
+        va_key = f"0x{entry.va:08x}"
         cached_entry = entries_cache.get(va_key)
         if cached_entry is None:
             entries_to_verify.append(entry)
@@ -619,7 +619,7 @@ def main(
                         None,
                         None,
                     )
-                name = entry["name"]
+                name = entry.name
                 progress.update(task, advance=1, description=name)
 
                 # Classify result
@@ -656,7 +656,7 @@ def main(
 
                 results.append(
                     {
-                        "va": f"0x{entry['va']:08x}",
+                        "va": f"0x{entry.va:08x}",
                         "name": name,
                         "filepath": entry.get("filepath", ""),
                         "size": entry.get("size", 0),
@@ -677,14 +677,14 @@ def main(
             if fp.exists():
                 current_status = entry.get("status")
                 if status in ("EXACT", "RELOC") and current_status != status:
-                    update_annotation_key(fp, entry["va"], "STATUS", status)
-                    remove_annotation_key(fp, entry["va"], "BLOCKER")
-                    remove_annotation_key(fp, entry["va"], "BLOCKER_DELTA")
+                    update_annotation_key(fp, entry.va, "STATUS", status)
+                    remove_annotation_key(fp, entry.va, "BLOCKER")
+                    remove_annotation_key(fp, entry.va, "BLOCKER_DELTA")
                 elif status == "MISMATCH" and current_status in ("EXACT", "RELOC"):
-                    update_annotation_key(fp, entry["va"], "STATUS", "MATCHING")
+                    update_annotation_key(fp, entry.va, "STATUS", "MATCHING")
                     if delta > 0:
-                        update_annotation_key(fp, entry["va"], "BLOCKER", f"Mismatch {delta} bytes")
-                        update_annotation_key(fp, entry["va"], "BLOCKER_DELTA", str(delta))
+                        update_annotation_key(fp, entry.va, "BLOCKER", f"Mismatch {delta} bytes")
+                        update_annotation_key(fp, entry.va, "BLOCKER_DELTA", str(delta))
 
     # Sort results by VA
     results.sort(key=lambda r: r["va"])
@@ -839,7 +839,7 @@ def main(
     if fail_details:
         out_console.print()
         for entry, msg in sorted(fail_details, key=lambda x: x[0]["va"]):
-            out_console.print(rf"  [red bold]\[FAIL][/] 0x{entry['va']:08X} {entry['name']}: {msg}")
+            out_console.print(rf"  [red bold]\[FAIL][/] 0x{entry.va:08X} {entry.name}: {msg}")
 
     # Summary
     style = "green" if failed == 0 else "red"

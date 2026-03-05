@@ -108,7 +108,7 @@ def main(
     near_miss: list[dict[str, Any]] = []
     for imp_va, info in sorted(existing.items()):
         if info.get("status", "") in ("MATCHING", "MATCHING_RELOC"):
-            imp_size = size_by_va.get(imp_va, 0)
+            imp_size = size_by_va.get(imp_va) or int(info.get("size", 0))
             raw_bd = info.get("blocker_delta", "")
             try:
                 delta = int(raw_bd) if raw_bd else parse_byte_delta(info.get("blocker", ""))

@@ -22,7 +22,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 |------|-------------|
 | `rebrew skeleton` | Generate annotated `.c` stubs from VAs; `--decomp` for inline decompilation; `--xrefs` for caller context |
 | `rebrew rename` | Rename a function across the entire codebase (symbol, filename, cross-references) |
-| `rebrew split` | Break multi-function `.c` files into individual single-function files |
+| `rebrew split` | Break multi-function `.c` files into individual files; `--va` to extract one function |
 | `rebrew merge` | Combine single-function files into one multi-function file |
 | `rebrew lint` | Validate annotation correctness (E000–E017, W001–W017) |
 | `rebrew promote` | Test + atomically update STATUS; `--all` for batch promotion |
@@ -130,7 +130,9 @@ rebrew cu-map                       # infer compilation unit boundaries
 rebrew cu-map --json                # JSON output for scripting
 rebrew lint                         # lint annotations in your source files
 rebrew split src/target_name/multi.c           # split multi-function file into individual files
+rebrew split --va 0x10003DA0 src/target_name/multi.c  # extract one function into multi_c/
 rebrew merge a.c b.c --output merged.c         # merge files into one multi-function file
+rebrew merge multi_c/ multi.c -o multi.c --force --delete  # merge extracted function back
 rebrew status                       # show reversing status overview
 rebrew data                         # inventory globals in .data/.rdata/.bss
 rebrew data --dispatch              # detect dispatch tables / vtables
@@ -161,6 +163,7 @@ rebrew verify --json                # structured JSON report to stdout
 rebrew verify --diff                # detect regressions against last saved report
 rebrew promote --all --origin GAME  # batch promote all promotable GAME functions
 rebrew split src/target_name/multi.c --dry-run  # preview split without writing
+rebrew split --va 0x10003DA0 --dry-run src/target_name/multi.c  # preview single extraction
 rebrew merge a.c b.c -o merged.c --delete       # merge and delete originals
 rebrew extract list                 # list un-reversed candidates
 rebrew extract batch 20             # extract and disassemble first 20 smallest
@@ -201,7 +204,7 @@ rebrew sync --pull --dry-run        # preview pull without modifying files
 ```bash
 cd rebrew/
 uv sync --all-extras       # install dev dependencies
-uv run pytest tests/ -v    # run tests (~1443 tests)
+uv run pytest tests/ -v    # run tests (~1644 tests)
 uv run ruff check .        # lint
 uv run ruff format .       # format
 python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me

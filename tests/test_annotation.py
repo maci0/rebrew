@@ -599,6 +599,114 @@ int func_b(void) { return 1; }
         assert result.name == "MyFunction"
         assert result.symbol == "_MyFunction"
 
+    def test_skip_forward_declaration_single(self) -> None:
+        """Forward declarations (ending with ';') should be skipped in parse_new_format."""
+        lines = [
+            "// FUNCTION: SERVER 0x1000A8F0",
+            "// QueueCommandForProcessing",
+            "void* memcpy(void*, const void*, unsigned int);",
+            "",
+            "int __cdecl QueueCommandForProcessing(int player_slot, char* cmd_data)",
+            "{",
+        ]
+        result = parse_new_format(lines)
+        assert result is not None
+        assert result.name == "QueueCommandForProcessing"
+        assert result.symbol == "_QueueCommandForProcessing"
+
+    def test_skip_forward_declaration_multi(self) -> None:
+        """Forward declarations should be skipped in parse_new_format_multi."""
+        from rebrew.annotation import parse_new_format_multi
+
+        lines = [
+            "// STATUS: MATCHING",
+            "// ORIGIN: GAME",
+            "// SIZE: 130",
+            "// FUNCTION: SERVER 0x1000BD50",
+            "// reset_entity_state",
+            "void* memset(void*, int, unsigned int);",
+            "",
+            "void __cdecl reset_entity_state(char* param_1)",
+            "{",
+            "}",
+            "",
+            "// STATUS: MATCHING",
+            "// ORIGIN: GAME",
+            "// SIZE: 109",
+            "// FUNCTION: SERVER 0x1000C600",
+            "// InitRandomEntity",
+            "int __cdecl RandomBelow(unsigned short max);",
+            "",
+            "char* __cdecl InitRandomEntity(void)",
+            "{",
+            "}",
+        ]
+        results = parse_new_format_multi(lines)
+        assert len(results) == 2
+        assert results[0].name == "reset_entity_state"
+        assert results[0].symbol == "_reset_entity_state"
+        assert results[1].name == "InitRandomEntity"
+        assert results[1].symbol == "_InitRandomEntity"
+
+    def test_declspec_not_matched_as_name(self) -> None:
+        """__declspec(noreturn) should not be matched as a function name."""
+        lines = [
+            "// FUNCTION: SERVER 0x10003520",
+            "// ReportFatalError",
+            "__declspec(noreturn) void __cdecl _exit(int);",
+            "",
+            "void __cdecl ReportFatalError(char* modulePath, unsigned int lineNumber, char* message)",
+            "{",
+        ]
+        result = parse_new_format(lines)
+        assert result is not None
+        assert result.name == "ReportFatalError"
+        assert result.symbol == "_ReportFatalError"
+
+    def test_stdcall_decorated_symbol(self) -> None:
+        """__stdcall functions should get decorated symbol names (_func@N)."""
+        lines = [
+            "// FUNCTION: SERVER 0x10009310",
+            "// STATUS: MATCHING",
+            "// SIZE: 8",
+            "",
+            "int __stdcall exit_handler(int a, int b, int c)",
+            "{",
+        ]
+        result = parse_new_format(lines)
+        assert result is not None
+        assert result.name == "exit_handler"
+        assert result.symbol == "_exit_handler@12"
+
+    def test_winapi_decorated_symbol(self) -> None:
+        """WINAPI functions should get decorated symbol names (_func@N)."""
+        lines = [
+            "// FUNCTION: SERVER 0x10002770",
+            "// STATUS: MATCHING",
+            "// SIZE: 1836",
+            "",
+            "int WINAPI CrashDumpUnhandledExceptionFilter(EXCEPTION_POINTERS* pExceptionPointers)",
+            "{",
+        ]
+        result = parse_new_format(lines)
+        assert result is not None
+        assert result.name == "CrashDumpUnhandledExceptionFilter"
+        assert result.symbol == "_CrashDumpUnhandledExceptionFilter@4"
+
+    def test_stdcall_void_params(self) -> None:
+        """__stdcall with void params should produce @0 suffix."""
+        lines = [
+            "// FUNCTION: SERVER 0x10001000",
+            "// STATUS: EXACT",
+            "// SIZE: 10",
+            "",
+            "void __stdcall NoArgsFunc(void)",
+            "{",
+        ]
+        result = parse_new_format(lines)
+        assert result is not None
+        assert result.symbol == "_NoArgsFunc@0"
+
     def test_empty_file_returns_empty_list(self, tmp_path) -> None:
         from rebrew.annotation import parse_c_file_multi
 

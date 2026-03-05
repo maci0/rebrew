@@ -11,6 +11,7 @@ from typing import Any
 import typer
 
 from rebrew.annotation import (
+    _C_FUNC_IDENT_RE,
     NEW_FUNC_CAPTURE_RE,
     NEW_KV_RE,
     parse_c_file_multi,
@@ -49,6 +50,7 @@ def _block_metadata(block: str) -> dict[str, Any] | None:
         return None
 
     kv: dict[str, str] = {}
+    c_func_name = ""
     for line in lines[marker_idx + 1 :]:
         stripped = line.strip()
         if not stripped:
@@ -59,12 +61,20 @@ def _block_metadata(block: str) -> dict[str, Any] | None:
             continue
         if stripped.startswith("//"):
             continue
+        # Try to extract function name from C definition (same regex as annotation.py)
+        if not c_func_name:
+            m4 = _C_FUNC_IDENT_RE.match(stripped)
+            if m4 and not stripped.rstrip().endswith(";"):
+                c_func_name = m4.group("name")
         break
+
+    # Prefer C function definition name, fall back to legacy // SYMBOL: annotation
+    symbol = c_func_name or kv.get("SYMBOL", "")
 
     return {
         "module": marker_match.group("module"),
         "va": int(marker_match.group("va"), 16),
-        "symbol": kv.get("SYMBOL", ""),
+        "symbol": symbol,
     }
 
 
@@ -79,13 +89,20 @@ def _build_output_name(symbol: str, va: int, ext: str) -> str:
 @app.callback(invoke_without_command=True)
 def main(
     source: str | None = typer.Argument(None, help="Path to a multi-function source file"),
+    va: str | None = typer.Option(
+        None, "--va", help="Extract a single function by VA (hex) into its own file"
+    ),
     output_dir: str | None = typer.Option(None, "--output-dir", help="Output directory"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     force: bool = typer.Option(False, "--force", help="Overwrite existing output files"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Split a multi-function C file into one file per function block."""
+    """Split a multi-function C file into one file per function block.
+
+    With --va, extract a single function into its own file (preamble included).
+    Without --va, split ALL functions into individual files.
+    """
     if source is None:
         error_exit("Source file argument is required", json_mode=json_output)
 
@@ -110,6 +127,79 @@ def main(
         error_exit(f"Failed to read source: {exc}", json_mode=json_output)
 
     preamble, blocks = split_annotation_sections(text)
+
+    # --va mode: extract a single function block
+    if va is not None:
+        target_va = int(va, 16) if va.startswith("0x") or va.startswith("0X") else int(va, 16)
+        matched_block: str | None = None
+        matched_meta: dict[str, Any] | None = None
+        for block in blocks:
+            meta = _block_metadata(block)
+            if meta is None:
+                continue
+            module = str(meta["module"])
+            if cfg.marker and module.lower() != cfg.marker.lower():
+                continue
+            if int(meta["va"]) == target_va:
+                matched_block = block
+                matched_meta = meta
+                break
+
+        if matched_block is None or matched_meta is None:
+            error_exit(
+                f"No function block found for VA 0x{target_va:08x} in {source_path.name}",
+                json_mode=json_output,
+            )
+
+        symbol = str(matched_meta["symbol"])
+        out_name = _build_output_name(symbol, target_va, cfg.source_ext)
+        # Default to a subdirectory named after the source file: sim.c -> sim_c/
+        if output_dir is None:
+            stem = source_path.stem + source_path.suffix.replace(".", "_")
+            va_out_dir = source_path.parent / stem
+        else:
+            va_out_dir = Path(output_dir)
+        out_path = va_out_dir / out_name
+
+        if not force and out_path.exists():
+            error_exit(f"Output file already exists: {out_path}", json_mode=json_output)
+
+        result_info = {
+            "source": rel_display_path(source_path, cfg.reversed_dir),
+            "va": f"0x{target_va:08x}",
+            "symbol": symbol,
+            "output": rel_display_path(out_path, va_out_dir),
+        }
+
+        if not dry_run:
+            va_out_dir.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(out_path, preamble + matched_block, encoding="utf-8")
+            # Remove the extracted block from the source file
+            remaining = [b for b in blocks if b is not matched_block]
+            if remaining:
+                atomic_write_text(source_path, preamble + "".join(remaining), encoding="utf-8")
+            else:
+                source_path.unlink()
+
+        if json_output:
+            json_print(
+                {
+                    "source": str(source_path),
+                    "output_dir": str(out_dir),
+                    "count": 1,
+                    "dry_run": dry_run,
+                    "files": [result_info],
+                }
+            )
+        else:
+            action = "Would extract" if dry_run else "Extracted"
+            typer.echo(
+                f"{action} 0x{target_va:08x} ({symbol or 'unnamed'}) → {out_path.name}",
+                err=True,
+            )
+        return
+
+    # Full split mode: split ALL functions into individual files
     if len(blocks) < 2:
         error_exit(
             "Input must contain at least two function blocks to split", json_mode=json_output
@@ -133,9 +223,9 @@ def main(
         if cfg.marker and module.lower() != cfg.marker.lower():
             continue
 
-        va = int(meta["va"])
+        block_va = int(meta["va"])
         symbol = str(meta["symbol"])
-        out_name = _build_output_name(symbol, va, cfg.source_ext)
+        out_name = _build_output_name(symbol, block_va, cfg.source_ext)
         out_path = out_dir / out_name
 
         if not force and (out_path.exists() or out_path in existing_sources):
@@ -144,7 +234,7 @@ def main(
         planned.append(
             {
                 "source": rel_display_path(source_path, cfg.reversed_dir),
-                "va": f"0x{va:08x}",
+                "va": f"0x{block_va:08x}",
                 "symbol": symbol,
                 "output": rel_display_path(out_path, out_dir),
             }

@@ -500,7 +500,7 @@ This allows you to test the identical C function against different binaries at d
 
 A single `.c` file may contain **multiple `// FUNCTION:` annotation blocks**, each with its own `STATUS`, `SIZE`, etc. This enables grouping related functions together (e.g., all CRT environment functions in one file).
 
-Use `rebrew split` to break a multi-function file into individual files, or `rebrew merge` to combine single-function files into one. Both tools preserve annotation blocks and shared preamble.
+Use `rebrew split` to break a multi-function file into individual files, or `rebrew merge` to combine single-function files into one. Use `rebrew split --va 0xVA` to extract a single function for focused iteration (creates `source_c/name.c` and removes the block from the original). Both tools preserve annotation blocks and shared preamble.
 
 ### Format
 

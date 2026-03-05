@@ -19,6 +19,7 @@ from rebrew.cli import (
     TargetOption,
     get_config,
 )
+from rebrew.config import FUNCTION_STRUCTURE_JSON
 
 app = typer.Typer(
     help="Rebrew validation pipeline: parse annotations, generate catalog and coverage data.",
@@ -94,7 +95,7 @@ def main(
         target = target or "default"
 
     func_list_path = cfg.function_list if cfg else (reversed_dir / "functions.txt")
-    ghidra_json_path = reversed_dir / "ghidra_functions.json"
+    ghidra_json_path = reversed_dir / FUNCTION_STRUCTURE_JSON
 
     if not any(
         [
@@ -116,8 +117,8 @@ def main(
         typer.echo(
             "To export Ghidra functions, run this in the MCP console:\n"
             f"  get-functions programPath=/{bin_path.name} filterDefaultNames=false\n"
-            f"Then save the output as {reversed_dir.name}/ghidra_functions.json with format:\n"
-            '  [{"va": 0x10001000, "size": 302, "ghidra_name": "FUN_10001000"}, ...]\n'
+            f"Then save the output as {reversed_dir.name}/function_structure.json with format:\n"
+            '  [{"va": 0x10001000, "size": 302, "tool_name": "FUN_10001000"}, ...]\n'
             "\n"
             "To also export data labels (switch tables, etc.), search for non-function\n"
             f"labels in Ghidra and save as {reversed_dir.name}/ghidra_data_labels.json:\n"
