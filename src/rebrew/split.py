@@ -8,6 +8,7 @@ its own file while the block is removed from the original source.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import TypedDict
 
@@ -100,6 +101,32 @@ def _build_output_name(symbol: str, va: int, ext: str) -> str:
     if not stem:
         stem = f"func_{va:08x}"
     return f"{stem}{ext}"
+
+
+# Matches #include "relative/path.h" (not <system> includes).
+_RELATIVE_INCLUDE_RE = re.compile(r'^(\s*#\s*include\s+")([^"]+)("\s*)$')
+
+
+def _adjust_relative_includes(text: str) -> str:
+    """Prepend ``../`` to every relative ``#include "..."`` path.
+
+    When a file is moved one directory level deeper (e.g. from
+    ``command/`` into ``command/command_c/``), all relative include
+    paths must be adjusted so the compiler still finds the headers.
+    Absolute paths and ``<system>`` includes are left unchanged.
+    """
+    adjusted: list[str] = []
+    for line in text.splitlines(keepends=True):
+        m = _RELATIVE_INCLUDE_RE.match(line)
+        if m:
+            prefix, path, suffix = m.group(1), m.group(2), m.group(3)
+            # Don't touch absolute Windows or POSIX paths
+            if not path.startswith(("/", "\\")) and ":" not in path:
+                path = "../" + path
+            adjusted.append(f"{prefix}{path}{suffix}")
+        else:
+            adjusted.append(line)
+    return "".join(adjusted)
 
 
 @app.callback(invoke_without_command=True)
@@ -196,7 +223,11 @@ def main(
 
         if not dry_run:
             va_out_dir.mkdir(parents=True, exist_ok=True)
-            atomic_write_text(out_path, preamble + matched_block, encoding="utf-8")
+            # Adjust relative #include paths when moving files one level deeper
+            adjusted_preamble = (
+                _adjust_relative_includes(preamble) if output_dir is None else preamble
+            )
+            atomic_write_text(out_path, adjusted_preamble + matched_block, encoding="utf-8")
             # Remove the extracted block from the source file (by index, not identity)
             remaining = [b for i, b in enumerate(blocks) if i != matched_idx]
             if remaining:
