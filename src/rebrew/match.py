@@ -21,7 +21,7 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from rebrew.annotation import parse_c_file, parse_source_metadata
+from rebrew.annotation import parse_c_file_multi, parse_source_metadata
 from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
 from rebrew.compile import resolve_cl_command
 from rebrew.compile_cache import CompileCache, get_compile_cache
@@ -456,7 +456,8 @@ def main(
                 name_to_va[name] = glob.va
     except (OSError, AttributeError, KeyError, ValueError):
         pass
-    anno = parse_c_file(Path(seed_c), target_name=cfg.marker if cfg else None)
+    annos = parse_c_file_multi(Path(seed_c), target_name=cfg.marker if cfg else None)
+    anno = annos[0] if annos else None
     if anno:
         eval_errs, eval_warns = anno.validate()
         if not json_output:

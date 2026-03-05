@@ -12,7 +12,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from rebrew.annotation import update_annotation_key
+from rebrew.annotation import parse_c_file_multi, update_annotation_key
 from rebrew.catalog import scan_reversed_dir
 from rebrew.cli import TargetOption, error_exit, iter_sources, json_print, require_config
 from rebrew.config import ProjectConfig
@@ -94,8 +94,12 @@ def rename_function_everywhere(
                 exc,
             )
 
-    # 4. Rename file if needed
+    # 4. Rename file if needed — skip when file has multiple annotations
+    #    (renaming would disassociate the other functions from their file).
     if rename_file:
+        multi_function_file = len(parse_c_file_multi(filepath)) > 1
+        if multi_function_file and not new_filename:
+            rename_file = False  # auto-rename unsafe for multi-function files
         if new_filename:
             if not new_filename.endswith(filepath.suffix):
                 new_filename = new_filename + filepath.suffix

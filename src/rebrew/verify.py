@@ -9,7 +9,10 @@ import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from rebrew.compile_cache import CompileCache
 
 import typer
 from rich.console import Console
@@ -33,11 +36,16 @@ from rebrew.utils import atomic_write_text
 
 
 def verify_entry(
-    entry: Annotation, cfg: ProjectConfig
+    entry: Annotation,
+    cfg: ProjectConfig,
+    cache: "CompileCache | None" = None,
 ) -> tuple[bool, str, bytes | None, bytes | None, dict[int, str] | None]:
     """Compile a .c file and compare output bytes against DLL.
 
     Delegates to ``compile_and_compare`` for the compile→extract→compare flow.
+    When *cache* is provided, compilation results are reused across calls
+    for the same source content + flags — critical for multi-function files
+    where the same .c is compiled once and multiple symbols extracted.
     """
     from rebrew.compile import compile_and_compare
 
@@ -64,6 +72,7 @@ def verify_entry(
         symbol,
         target_bytes,
         cflags,
+        cache=cache,
     )
     return matched, msg, target_bytes, obj_bytes, reloc_offsets
 
@@ -448,12 +457,21 @@ def main(
             f"Incremental: {cached_count} cached, {fresh_count} to verify (use --full to force all)"
         )
 
+    # Initialize a shared compile cache so multi-function files only
+    # compile once — the second symbol extraction hits the cache.
+    try:
+        from rebrew.compile_cache import get_compile_cache
+
+        compile_cache = get_compile_cache(cfg.root)
+    except (ImportError, OSError):
+        compile_cache = None
+
     def _verify(
         e: Annotation,
     ) -> tuple[
         Annotation, bool, str, bytes | None, bytes | None, list[int] | dict[int, str] | None
     ]:
-        return (e, *verify_entry(e, cfg))
+        return (e, *verify_entry(e, cfg, cache=compile_cache))
 
     deferred_fixes: list[tuple[Annotation, str, int]] = []
     with Progress(

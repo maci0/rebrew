@@ -158,18 +158,18 @@ int my_func(void) { return 0; }
             encoding="utf-8",
         )
         result = _parse_annotations(src)
-        assert result is not None
-        assert result["va"] == 0x10003DA0
-        assert result["size"] == 77
-        assert result["symbol"] == "_my_func"
-        assert result["status"] == "RELOC"
+        assert len(result) == 1
+        assert result[0]["va"] == 0x10003DA0
+        assert result[0]["size"] == 77
+        assert result[0]["symbol"] == "_my_func"
+        assert result[0]["status"] == "RELOC"
 
     def test_returns_none_for_no_annotations(self, tmp_path: Path) -> None:
         """Returns None for a file without annotations."""
         src = tmp_path / "plain.c"
         src.write_text("int main(void) { return 0; }\n", encoding="utf-8")
         result = _parse_annotations(src)
-        assert result is None
+        assert result == []
 
     def test_returns_none_for_invalid_status(self, tmp_path: Path) -> None:
         """Returns None for files with unrecognized STATUS."""
@@ -188,7 +188,7 @@ int f(void) { return 0; }
             encoding="utf-8",
         )
         result = _parse_annotations(src)
-        assert result is None
+        assert result == []
 
     def test_returns_none_for_missing_size(self, tmp_path: Path) -> None:
         """Returns None when SIZE is missing (0)."""
@@ -206,7 +206,7 @@ int f(void) { return 0; }
             encoding="utf-8",
         )
         result = _parse_annotations(src)
-        assert result is None
+        assert result == []
 
 
 # ---------------------------------------------------------------------------
