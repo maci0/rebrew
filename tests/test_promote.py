@@ -22,9 +22,9 @@ class TestPromoteFile:
     def _make_cfg(self, tmp_path: Path) -> Any:
         return SimpleNamespace(
             marker="test.dll",
+            target_binary=Path("test.dll"),
             reversed_dir=tmp_path,
             source_ext=".c",
-            extract_dll_bytes=lambda _va, _size: b"\x55\x8b\xec\xc3",
             for_origin=lambda _origin: None,
         )
 
@@ -54,6 +54,7 @@ class TestPromoteFile:
         monkeypatch.setattr(
             "rebrew.promote.smart_reloc_compare", lambda *_args: (False, 1, 4, [], [])
         )
+        monkeypatch.setattr("rebrew.promote.extract_raw_bytes", lambda *_args: b"\x55\x8b\xec\xc3")
         monkeypatch.setattr("rebrew.promote.update_source_status", _fake_update)
 
         results = _promote_file(source, cfg, dry_run=False)
@@ -83,6 +84,7 @@ class TestPromoteFile:
         monkeypatch.setattr(
             "rebrew.promote.smart_reloc_compare", lambda *_args: (True, 4, 4, [], [])
         )
+        monkeypatch.setattr("rebrew.promote.extract_raw_bytes", lambda *_args: b"\x55\x8b\xec\xc3")
 
         results = _promote_file(source, cfg, dry_run=False)
         assert results[0]["new_status"] == "EXACT"
@@ -110,6 +112,7 @@ class TestPromoteFile:
         monkeypatch.setattr(
             "rebrew.promote.smart_reloc_compare", lambda *_args: (True, 4, 4, [], [])
         )
+        monkeypatch.setattr("rebrew.promote.extract_raw_bytes", lambda *_args: b"\x55\x8b\xec\xc3")
 
         results = _promote_file(source, cfg, dry_run=False)
         assert results[0]["new_status"] == "EXACT"
@@ -169,6 +172,7 @@ class TestPromoteFile:
         monkeypatch.setattr(
             "rebrew.promote.smart_reloc_compare", lambda *_args: (True, 4, 4, [], [])
         )
+        monkeypatch.setattr("rebrew.promote.extract_raw_bytes", lambda *_args: b"\x55\x8b\xec\xc3")
 
         results = _promote_file(source, cfg, dry_run=False, origin_filter="GAME")
         assert len(calls) == 1
@@ -195,6 +199,7 @@ class TestPromoteFile:
         monkeypatch.setattr(
             "rebrew.promote.smart_reloc_compare", lambda *_args: (True, 4, 4, [], [])
         )
+        monkeypatch.setattr("rebrew.promote.extract_raw_bytes", lambda *_args: b"\x55\x8b\xec\xc3")
 
         before = source.read_text(encoding="utf-8")
         results = _promote_file(source, cfg, dry_run=True)
@@ -207,10 +212,10 @@ class TestBatchPromote:
     def _make_cfg(self, tmp_path: Path) -> Any:
         return SimpleNamespace(
             marker="test.dll",
+            target_binary=Path("test.dll"),
             reversed_dir=tmp_path,
             source_ext=".c",
             for_origin=lambda _origin: None,
-            extract_dll_bytes=lambda _va, _size: b"",
         )
 
     def test_discovers_all_files(self, tmp_path: Path, monkeypatch: Any) -> None:

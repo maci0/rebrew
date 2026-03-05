@@ -387,6 +387,23 @@ def va_to_file_offset(info: BinaryInfo, va: int) -> int:
     return va - info.text_va + info.text_raw_offset
 
 
+def extract_raw_bytes(binary_path: Path, va: int, size: int) -> bytes:
+    """Read raw bytes from a target binary at a given VA.
+
+    Supports VAs in any section by using section-aware extraction.
+    Falls back to a simple file-offset calculation if the VA is not in
+    any known section. Trims padding by default via `extract_bytes_at_va`.
+    """
+    info = load_binary(binary_path)
+    data = extract_bytes_at_va(info, va, size)
+    if data is not None:
+        return data
+    # Fallback to simple file-offset calculation
+    with binary_path.open("rb") as f:
+        f.seek(va_to_file_offset(info, va))
+        return f.read(size)
+
+
 # ---------------------------------------------------------------------------
 # Format detection
 # ---------------------------------------------------------------------------

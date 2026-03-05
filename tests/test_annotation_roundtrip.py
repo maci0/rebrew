@@ -29,7 +29,6 @@ def base_file(tmp_path: Path) -> Path:
 @pytest.mark.parametrize(
     "key, initial_val, new_val",
     [
-        ("SYMBOL", "_start", "_complex_@_symbol"),
         ("STATUS", "STUB", "EXACT"),
         ("SIZE", "10", "42"),
         ("CFLAGS", "/O2", "/O2 /Oy- /Ob1"),
@@ -66,22 +65,18 @@ def test_roundtrip_multi_target(tmp_path: Path) -> None:
         "// ORIGIN: GAME\n"
         "// SIZE: 10\n"
         "// CFLAGS: /O2\n"
-        "// SYMBOL: _func\n"
         "\n"
         "// FUNCTION: TARGET2 0x2000\n"
         "// STATUS: STUB\n"
         "// ORIGIN: ZLIB\n"
         "// SIZE: 20\n"
         "// CFLAGS: /O1\n"
-        "// SYMBOL: _func2\n"
         "void func() {}\n",
         encoding="utf-8",
     )
 
     # Update TARGET1
     update_annotation_key(f, 0x1000, "STATUS", "RELOC")
-    # Update TARGET2
-    update_annotation_key(f, 0x2000, "SYMBOL", "_func2_updated")
 
     anns = parse_c_file_multi(f)
     assert len(anns) == 2
@@ -89,12 +84,11 @@ def test_roundtrip_multi_target(tmp_path: Path) -> None:
     # Verify TARGET1
     assert anns[0].va == 0x1000
     assert anns[0].status == "RELOC"
-    assert anns[0].symbol == "_func"
 
-    # Verify TARGET2
+    # Verify TARGET2 — name derived from C function def
     assert anns[1].va == 0x2000
     assert anns[1].status == "STUB"
-    assert anns[1].symbol == "_func2_updated"
+    assert anns[1].name == "func"
 
 
 def test_roundtrip_creates_missing_key(base_file: Path) -> None:

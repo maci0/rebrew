@@ -10,8 +10,9 @@ import struct
 from pathlib import Path
 from typing import Any
 
+from rebrew.annotation import Annotation
 from rebrew.catalog.loaders import extract_dll_bytes, load_ghidra_data_labels
-from rebrew.catalog.registry import _is_jump_table
+from rebrew.catalog.registry import RegistryEntry, _is_jump_table
 from rebrew.catalog.sections import get_globals, get_sections
 
 # Maximum trailing gap (in bytes) that can be absorbed into the preceding function
@@ -44,18 +45,18 @@ def _find_ghidra_data_label(
 
 
 def generate_data_json(
-    entries: list[Any],
+    entries: list[Annotation],
     funcs: list[dict[str, Any]],
     text_size: int,
     bin_path: Path | None = None,
-    registry: dict[int, dict[str, Any]] | None = None,
+    registry: dict[int, RegistryEntry] | None = None,
     src_dir: Path | None = None,
     root_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Generate db/data.json structure."""
-    by_va: dict[int, list[dict[str, Any]]] = {}
+    by_va: dict[int, list[Annotation]] = {}
     for e in entries:
-        by_va.setdefault(e["va"], []).append(e)
+        by_va.setdefault(e.va, []).append(e)
 
     unique_vas = set(by_va)
     funcs_by_va: dict[int, dict[str, Any]] = {f["va"]: f for f in funcs}

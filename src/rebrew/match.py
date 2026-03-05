@@ -22,9 +22,11 @@ import typer
 from rich.console import Console
 
 from rebrew.annotation import parse_c_file_multi, parse_source_metadata
+from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
 from rebrew.compile import resolve_cl_command
 from rebrew.compile_cache import CompileCache, get_compile_cache
+from rebrew.core.toolchain import msvc_env_from_config
 from rebrew.matcher import (
     BuildCache,
     BuildResult,
@@ -356,7 +358,8 @@ thorough   ~1M combos      Deep search
 
 full       ~8.3M combos    Exhaustive (needs sampling)
 
-[dim]Auto-reads VA, SIZE, SYMBOL, and CFLAGS from source annotations.
+[dim]Auto-reads VA, SIZE, and CFLAGS from source annotations.
+Symbol is derived from the C function definition.
 Requires rebrew-project.toml with valid compiler paths.[/dim]"""
 
 app = typer.Typer(
@@ -477,7 +480,7 @@ def main(
 
     origin = meta.get("ORIGIN", "")
     compile_cfg = cfg.for_origin(origin)
-    msvc_env = compile_cfg.msvc_env()
+    msvc_env = msvc_env_from_config(compile_cfg)
     if cl is None or (compile_cfg.compiler_runner and cl == compile_cfg.compiler_command):
         cl = " ".join(resolve_cl_command(compile_cfg))
     inc = inc or str(compile_cfg.compiler_includes)
@@ -496,10 +499,14 @@ def main(
     if inc_path.exists():
         inc = str(inc_path)
 
+    if not symbol and anno:
+        symbol = anno.symbol
     if not symbol:
-        symbol = meta.get("SYMBOL")
+        symbol = meta.get("SYMBOL")  # fallback for legacy annotations
     if not symbol:
-        error_exit("--symbol required (not found in source annotations)", json_mode=json_output)
+        error_exit(
+            "--symbol required (could not derive from C function definition)", json_mode=json_output
+        )
 
     if not cflags:
         # Fallback default — should be set via annotation or config cflags_presets.
@@ -526,7 +533,7 @@ def main(
     # Extract target bytes from offset in the configured binary
     if target_va and target_size:
         va_int = parse_va(target_va, json_mode=json_output)
-        target_bytes = cfg.extract_dll_bytes(va_int, target_size)
+        target_bytes = extract_raw_bytes(cfg.target_binary, va_int, target_size)
     else:
         error_exit("Need VA and SIZE (from source annotations or CLI)", json_mode=json_output)
 
@@ -683,7 +690,7 @@ def main(
             timeout=cfg.compile_timeout,
         )
 
-        sim: StructuralSimilarity | None = None
+        sim_res = None
         res = build_candidate_obj_only(
             seed_src,
             cl,
@@ -698,7 +705,7 @@ def main(
             obj_bytes = res.obj_bytes
             if len(obj_bytes) > len(target_bytes):
                 obj_bytes = obj_bytes[: len(target_bytes)]
-            sim = structural_similarity(target_bytes, obj_bytes, res.reloc_offsets)
+            sim_res = structural_similarity(target_bytes, obj_bytes, res.reloc_offsets)
 
         best_score = results[0][0] if results else float("inf")
 
@@ -714,16 +721,16 @@ def main(
                 "exact": best_score < 0.1,
                 "results": sweep_items,
             }
-            if sim is not None:
+            if sim_res is not None:
                 payload["structural_similarity"] = {
-                    "total_insns": sim.total_insns,
-                    "exact": sim.exact,
-                    "reloc_only": sim.reloc_only,
-                    "register_only": sim.register_only,
-                    "structural": sim.structural,
-                    "mnemonic_match_ratio": sim.mnemonic_match_ratio,
-                    "structural_ratio": sim.structural_ratio,
-                    "flag_sensitive": sim.flag_sensitive,
+                    "total_insns": sim_res.total_insns,
+                    "exact": sim_res.exact,
+                    "reloc_only": sim_res.reloc_only,
+                    "register_only": sim_res.register_only,
+                    "structural": sim_res.structural,
+                    "mnemonic_match_ratio": sim_res.mnemonic_match_ratio,
+                    "structural_ratio": sim_res.structural_ratio,
+                    "flag_sensitive": sim_res.flag_sensitive,
                 }
             json_print(payload)
         else:

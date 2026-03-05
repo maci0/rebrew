@@ -18,6 +18,7 @@ Usage::
 import contextlib
 import shutil
 from pathlib import Path
+from typing import Any
 
 import tomlkit
 import typer
@@ -41,6 +42,7 @@ def _find_root() -> Path:
             "Could not find rebrew-project.toml in any parent directory.\n"
             "Run this command from within a rebrew project, or use 'rebrew init' first.",
         )
+        raise AssertionError("unreachable")
 
 
 def _load_toml(root: Path | None = None) -> tuple[tomlkit.TOMLDocument, Path]:
@@ -65,7 +67,9 @@ def _resolve_target(doc: tomlkit.TOMLDocument, target: str | None) -> str:
     if not targets:
         error_exit("No [targets] section in rebrew-project.toml.")
     if target is None:
-        target = next(iter(targets))
+        target_str = next(iter(targets))
+        assert isinstance(target_str, str)
+        target = target_str
     if target not in targets:
         error_exit(f"Target '{target}' not found. Available: {list(targets)}")
     return target
@@ -155,7 +159,7 @@ def show(
 
     # Navigate dot-separated key
     parts = key.split(".")
-    current = doc
+    current: Any = doc
     for part in parts:
         if isinstance(current, dict) and part in current:
             current = current[part]
@@ -240,7 +244,7 @@ def add_target(
             source_ext = ".c"
 
     # Inherit defaults from first existing target in the project
-    first_target = None
+    first_target: Any = None
     if targets:
         first_key = next(iter(targets), None)
         if first_key:
@@ -324,7 +328,7 @@ def set_value(
     doc, toml_path = _load_toml()
 
     parts = key.split(".")
-    current = doc
+    current: Any = doc
     for part in parts[:-1]:
         if part not in current:
             current[part] = tomlkit.table()
@@ -356,7 +360,8 @@ def add_origin(
     """Add an origin to a target's origins list."""
     doc, toml_path = _load_toml()
     target = _resolve_target(doc, target)
-    tgt = doc["targets"][target]
+    targets_table: Any = doc["targets"]
+    tgt: Any = targets_table[target]
 
     origins = tgt.get("origins")
     if origins is None:
@@ -384,7 +389,8 @@ def remove_origin(
     """Remove an origin from a target's origins list (idempotent)."""
     doc, toml_path = _load_toml()
     target = _resolve_target(doc, target)
-    tgt = doc["targets"][target]
+    targets_table: Any = doc["targets"]
+    tgt: Any = targets_table[target]
 
     origins = tgt.get("origins")
     if origins is None or origin.upper() not in origins:
@@ -418,7 +424,8 @@ def set_cflags(
     if target is not None:
         # Per-target cflags_presets
         target = _resolve_target(doc, target)
-        tgt = doc["targets"][target]
+        targets_table: Any = doc["targets"]
+        tgt: Any = targets_table[target]
         presets = tgt.get("cflags_presets")
         if presets is None:
             presets = tomlkit.table()
@@ -427,7 +434,7 @@ def set_cflags(
         scope = f'targets."{target}"'
     else:
         # Global cflags_presets
-        compiler = doc.get("compiler")
+        compiler: Any = doc.get("compiler")
         if compiler is None:
             compiler = tomlkit.table()
             doc["compiler"] = compiler

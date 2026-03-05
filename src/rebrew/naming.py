@@ -10,7 +10,6 @@ Extracted from skeleton.py and next.py to eliminate circular dependencies.
 import bisect
 import re
 from pathlib import Path
-from typing import Any
 
 import capstone
 
@@ -212,11 +211,11 @@ def estimate_difficulty(
 
 def load_data(
     cfg: ProjectConfig,
-) -> tuple[list[dict[str, Any]], dict[int, dict[str, str]], dict[int, str]]:
+) -> tuple[list["GhidraFunction"], dict[int, dict[str, str]], dict[int, str]]:
     """Load all project data.
 
     Returns (ghidra_funcs, existing, covered_vas) where:
-    - ghidra_funcs: list of function dicts from ghidra_functions.json
+    - ghidra_funcs: list of GhidraFunction objects
     - existing: dict mapping VA -> {filename, status, origin, blocker, symbol}
     - covered_vas: dict mapping VA -> filename (for find_neighbor_file)
     """

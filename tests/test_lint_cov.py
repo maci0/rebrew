@@ -102,6 +102,7 @@ class TestLintFile:
         assert any(c == "E004" for _, c, _ in result.errors)
 
     def test_missing_symbol(self, tmp_path) -> None:
+        """W001 is no longer emitted — SYMBOL is derived from C function definitions."""
         f = _make_c_file(
             tmp_path,
             content=(
@@ -114,8 +115,8 @@ class TestLintFile:
             ),
         )
         result = lint_file(f)
-        # Missing SYMBOL should produce W001
-        assert any(c == "W001" for _, c, _ in result.warnings)
+        # W001 was removed: symbol is now derived from C function definitions
+        assert not any(c == "W001" for _, c, _ in result.warnings)
 
     def test_missing_size(self, tmp_path) -> None:
         f = _make_c_file(

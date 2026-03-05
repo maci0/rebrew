@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from rebrew.annotation import Annotation
 from rebrew.catalog import (
     build_function_registry,
     generate_catalog,
@@ -144,19 +145,17 @@ class TestBuildFunctionRegistry:
 class TestGenerateCatalog:
     def test_basic(self) -> None:
         entries = [
-            {
-                "va": 0x10001000,
-                "func_name": "func_a",
-                "name": "func_a",
-                "status": "EXACT",
-                "origin": "GAME",
-                "size": 64,
-                "symbol": "_func_a",
-                "filepath": "/src/func_a.c",
-                "cflags": "/O2",
-                "marker": "SERVER",
-                "marker_type": "FUNCTION",
-            },
+            Annotation(
+                va=0x10001000,
+                name="func_a",
+                status="EXACT",
+                origin="GAME",
+                size=64,
+                symbol="_func_a",
+                filepath="/src/func_a.c",
+                cflags="/O2",
+                marker_type="FUNCTION",
+            ),
         ]
         funcs = [make_func_entry(0x10001000, 64, "_func_a")]
         md = generate_catalog(entries, funcs, text_size=1000)
@@ -176,18 +175,17 @@ class TestGenerateCatalog:
 class TestGenerateDataJson:
     def test_basic(self) -> None:
         entries = [
-            {
-                "va": 0x10001000,
-                "name": "func_a",
-                "status": "EXACT",
-                "origin": "GAME",
-                "size": 64,
-                "symbol": "_func_a",
-                "filepath": "/src/func_a.c",
-                "cflags": "/O2",
-                "marker": "SERVER",
-                "marker_type": "FUNCTION",
-            },
+            Annotation(
+                va=0x10001000,
+                name="func_a",
+                status="EXACT",
+                origin="GAME",
+                size=64,
+                symbol="_func_a",
+                filepath="/src/func_a.c",
+                cflags="/O2",
+                marker_type="FUNCTION",
+            ),
         ]
         funcs = [make_func_entry(0x10001000, 64, "_func_a")]
         data = generate_data_json(entries, funcs, text_size=1000)

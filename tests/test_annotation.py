@@ -189,7 +189,8 @@ class TestAnnotationValidation:
         errors, _ = ann.validate()
         assert not any("CFLAGS" in e for e in errors)
 
-    def test_missing_symbol_warning(self) -> None:
+    def test_no_symbol_warning_when_derived(self) -> None:
+        """SYMBOL is now derived from C definition — no warning needed."""
         ann = Annotation(
             va=0x10001000,
             size=42,
@@ -200,7 +201,7 @@ class TestAnnotationValidation:
             marker_type="FUNCTION",
         )
         _, warnings = ann.validate()
-        assert any("SYMBOL" in w for w in warnings)
+        assert not any("SYMBOL" in w for w in warnings)
 
     def test_stub_without_blocker_warning(self) -> None:
         ann = Annotation(
@@ -293,7 +294,8 @@ class TestParseNewFormat:
             "// ORIGIN: GAME",
             "// SIZE: 31",
             "// CFLAGS: /O2 /Gd",
-            "// SYMBOL: _bit_reverse",
+            "",
+            "int bit_reverse(int x) { return x; }",
         ]
         result = parse_new_format(lines)
         assert result is not None
@@ -301,6 +303,7 @@ class TestParseNewFormat:
         assert result["status"] == "EXACT"
         assert result["origin"] == "GAME"
         assert result["size"] == 31
+        assert result["name"] == "bit_reverse"
         assert result["symbol"] == "_bit_reverse"
 
     def test_parse_no_marker_returns_none(self) -> None:
@@ -521,6 +524,80 @@ int func_b(void) { return 1; }
         assert result.status == "EXACT"
         assert result.size == 42
         assert result.symbol == "_func_a"
+
+    def test_shared_symbol_uses_func_name_hint(self) -> None:
+        """Functions with shared SYMBOL should use the name hint comment instead.
+
+        Regression test for the loadsave.c bug where all FUNCTION blocks had
+        ``// SYMBOL: _ReadVfsDataChecked`` but were actually different functions.
+        """
+        from rebrew.annotation import parse_new_format_multi
+
+        lines = [
+            "// STATUS: MATCHING",
+            "// ORIGIN: GAME",
+            "// SIZE: 728",
+            "// SYMBOL: _ReadVfsDataChecked",
+            "// FUNCTION: SERVER 0x10012000",
+            "// LoadGraveyardData",
+            "// PROTOTYPE: int __cdecl LoadGraveyardData(int, int)",
+            "",
+            "int __cdecl LoadGraveyardData(int a, int b) { return 0; }",
+            "",
+            "// STATUS: MATCHING",
+            "// ORIGIN: GAME",
+            "// SIZE: 346",
+            "// SYMBOL: _ReadVfsDataChecked",
+            "// FUNCTION: SERVER 0x100122e0",
+            "// InitNewDynastyEntity",
+            "",
+            "void InitNewDynastyEntity(int a, int b) {}",
+            "",
+            "// ORIGIN: GAME",
+            "// STATUS: RELOC",
+            "// SIZE: 37",
+            "// SYMBOL: _ReadVfsDataChecked",
+            "// FUNCTION: SERVER 0x10012440",
+            "// ReadVfsDataChecked",
+            "",
+            "int ReadVfsDataChecked(void* a, int b, int c, int d) { return 1; }",
+        ]
+        results = parse_new_format_multi(lines)
+        assert len(results) == 3
+
+        # First block: name hint overrides shared SYMBOL
+        assert results[0].name == "LoadGraveyardData"
+        assert results[0].symbol == "_LoadGraveyardData"
+        assert results[0].va == 0x10012000
+        assert results[0].size == 728
+
+        # Second block: different name hint, different derived symbol
+        assert results[1].name == "InitNewDynastyEntity"
+        assert results[1].symbol == "_InitNewDynastyEntity"
+        assert results[1].va == 0x100122E0
+        assert results[1].size == 346
+
+        # Third block: name hint matches SYMBOL, so SYMBOL is used directly
+        assert results[2].name == "ReadVfsDataChecked"
+        assert results[2].symbol == "_ReadVfsDataChecked"
+        assert results[2].va == 0x10012440
+        assert results[2].size == 37
+
+    def test_func_name_hint_single_format(self) -> None:
+        """Function name hint should also work in parse_new_format."""
+        lines = [
+            "// STATUS: EXACT",
+            "// ORIGIN: GAME",
+            "// SIZE: 100",
+            "// FUNCTION: SERVER 0x10001000",
+            "// MyFunction",
+            "",
+            "int MyFunction(void) { return 0; }",
+        ]
+        result = parse_new_format(lines)
+        assert result is not None
+        assert result.name == "MyFunction"
+        assert result.symbol == "_MyFunction"
 
     def test_empty_file_returns_empty_list(self, tmp_path) -> None:
         from rebrew.annotation import parse_c_file_multi

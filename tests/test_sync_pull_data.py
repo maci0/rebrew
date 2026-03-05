@@ -2,7 +2,7 @@ import sys
 from types import SimpleNamespace
 from typing import Any
 
-from rebrew.sync import _pull_data
+from rebrew.ghidra import _pull_data
 
 
 class _FakeClient:
@@ -14,6 +14,9 @@ class _FakeClient:
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         return None
+
+    def post(self, *args: Any, **kwargs: Any) -> Any:
+        return SimpleNamespace(headers={"Mcp-Session-Id": "sess123"})
 
 
 def _mock_httpx(monkeypatch: Any) -> None:
@@ -58,8 +61,8 @@ def _run_pull_data(
             return data_by_addr.get(str(arguments["addressOrSymbol"]))
         raise AssertionError(f"unexpected tool call: {tool_name}")
 
-    monkeypatch.setattr("rebrew.sync._init_mcp_session", _fake_init)
-    monkeypatch.setattr("rebrew.sync._fetch_mcp_tool_raw", _fake_fetch_raw)
+    monkeypatch.setattr("rebrew.ghidra.commands._init_mcp_session", _fake_init)
+    monkeypatch.setattr("rebrew.ghidra.commands._fetch_mcp_tool_raw", _fake_fetch_raw)
 
     if sections is not None:
         sec_objs = {
@@ -235,8 +238,8 @@ class TestPullDataGlobalsHeader:
             raise AssertionError(f"unexpected tool call: {tool_name}")
 
         _mock_httpx(monkeypatch)
-        monkeypatch.setattr("rebrew.sync._init_mcp_session", _fake_init)
-        monkeypatch.setattr("rebrew.sync._fetch_mcp_tool_raw", _fake_fetch_raw)
+        monkeypatch.setattr("rebrew.ghidra.commands._init_mcp_session", _fake_init)
+        monkeypatch.setattr("rebrew.ghidra.commands._fetch_mcp_tool_raw", _fake_fetch_raw)
         cfg = SimpleNamespace(
             reversed_dir=tmp_path,
             target_binary=tmp_path / "target.exe",

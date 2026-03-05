@@ -9,6 +9,7 @@ import json
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -28,7 +29,7 @@ def build_db(
     conn: sqlite3.Connection | None = None
     try:
         conn = sqlite3.connect(db_path)
-        c = conn.cursor()
+        c: sqlite3.Cursor = conn.cursor()
         # Enable WAL mode for better concurrency during regen
         c.execute("PRAGMA journal_mode=WAL")
 
@@ -251,7 +252,8 @@ def build_db(
             )
 
             g_rows = []
-            for va, g in data.get("globals", {}).items():
+            globals_data: dict[str, Any] = data.get("globals", {})
+            for va, g in globals_data.items():
                 try:
                     va_int = int(va, 16) if isinstance(va, str) and va.startswith("0x") else int(va)
                 except (ValueError, TypeError):
@@ -281,12 +283,18 @@ def build_db(
             for sec_name, sec in data.get("sections", {}).items():
                 # Calculate stats for data sections
                 if sec_name != ".text":
-                    exact_count = reloc_count = matching_count = stub_count = 0
-                    padding_count = 0
-                    exact_bytes = reloc_bytes = matching_bytes = stub_bytes = 0
-                    padding_bytes = 0
-                    covered_bytes = 0
-                    total_items = 0
+                    exact_count: int = 0
+                    reloc_count: int = 0
+                    matching_count: int = 0
+                    stub_count: int = 0
+                    padding_count: int = 0
+                    exact_bytes: int = 0
+                    reloc_bytes: int = 0
+                    matching_bytes: int = 0
+                    stub_bytes: int = 0
+                    padding_bytes: int = 0
+                    covered_bytes: int = 0
+                    total_items: int = 0
 
                     for cell in sec.get("cells", []):
                         state = cell.get("state")
@@ -369,6 +377,50 @@ def build_db(
                     cell_rows,
                 )
 
+            # Calculate function stats for metadata
+            c.execute(
+                "SELECT va, name, size, status, origin, symbol, markerType, files "
+                "FROM functions WHERE target = ? AND markerType NOT IN ('GLOBAL', 'DATA') ORDER BY va",
+                (target_name,),
+            )
+            functions = c.fetchall()
+
+            total: int = len(functions)
+            by_status: dict[str, int] = {}
+            by_origin: dict[str, list[Any]] = {}
+            covered_bytes_func: int = 0
+            for fn in functions:
+                st = fn[3] or "UNKNOWN"
+                by_status[st] = by_status.get(st, 0) + 1
+                orig = fn[4] or "UNKNOWN"  # origin is at index 4
+                by_origin.setdefault(orig, []).append(fn)
+                size = fn[2]  # size is at index 2
+                if st != "none":  # Only count non-none functions towards coverage
+                    covered_bytes_func += size if size is not None else 0
+
+            text_section_data = data.get("sections", {}).get(".text", {})
+            total_bytes: int = text_section_data.get("size", 0)
+
+            c.execute(
+                """
+                INSERT INTO metadata VALUES (?, 'function_stats', ?)
+            """.strip(),
+                (
+                    target_name,
+                    json.dumps(
+                        {
+                            "total": total,
+                            "covered_bytes": covered_bytes_func,
+                            "total_bytes": total_bytes,
+                            "by_status": by_status,
+                            "by_origin_counts": {
+                                orig: len(f_list) for orig, f_list in by_origin.items()
+                            },
+                        }
+                    ),
+                ),
+            )
+
             c.execute(
                 "INSERT INTO metadata VALUES (?, ?, ?)",
                 (target_name, "summary", json.dumps(summary_data)),
@@ -437,7 +489,7 @@ def _generate_catalogs(
 ) -> list[Path]:
     """Generate CATALOG.md files from DB data (DB is single source of truth)."""
     catalog_paths: list[Path] = []
-    c = conn.cursor()
+    c: sqlite3.Cursor = conn.cursor()
     c.execute("SELECT DISTINCT target FROM functions")
     targets = [row[0] for row in c.fetchall()]
 
@@ -478,20 +530,22 @@ def _generate_catalogs(
         functions = c.fetchall()
 
         # Compute stats
-        total = len(functions)
+        total: int = len(functions)
         by_status: dict[str, int] = {}
-        by_origin: dict[str, list[object]] = {}
-        covered_bytes = 0
+        by_origin: dict[str, list[Any]] = {}
+        covered_bytes_func: int = 0
         for fn in functions:
             st = fn[3] or "UNKNOWN"
             by_status[st] = by_status.get(st, 0) + 1
             orig = fn[4] or "UNKNOWN"
             by_origin.setdefault(orig, []).append(fn)
-            covered_bytes += fn[2] or 0
+            size = fn[2]
+            if st != "none":  # Only count non-none functions towards coverage
+                covered_bytes_func += size if size is not None else 0
 
         text_summary = summary.get(".text", {})
-        text_size = text_summary.get("size", 0)
-        coverage_pct = (covered_bytes / text_size * 100.0) if text_size else 0.0
+        text_size: int = text_summary.get("size", 0)
+        coverage_pct: float = (covered_bytes_func / text_size * 100.0) if text_size else 0.0
 
         # Build markdown
         lines = []
@@ -506,7 +560,7 @@ def _generate_catalogs(
             f"{by_status.get('STUB', 0)} stubs)  "
         )
         lines.append(
-            f"Coverage: {coverage_pct:.1f}% of .text section ({covered_bytes}/{text_size} bytes)\n"
+            f"Coverage: {coverage_pct:.1f}% of .text section ({covered_bytes_func}/{text_size} bytes)\n"
         )
 
         # Table by origin

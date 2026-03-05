@@ -69,7 +69,7 @@ def _block_metadata(block: str) -> dict[str, Any] | None:
 
 
 def _build_output_name(symbol: str, va: int, ext: str) -> str:
-    """Generate output filename from SYMBOL or fallback VA."""
+    """Generate output filename from symbol or fallback VA."""
     stem = symbol.lstrip("_").strip()
     if not stem:
         stem = f"func_{va:08x}"

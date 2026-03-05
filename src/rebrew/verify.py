@@ -7,6 +7,7 @@ and reports status (EXACT, RELOC, MATCHING, etc.).
 import concurrent.futures
 import hashlib
 import json
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -21,6 +22,7 @@ from rich.table import Table
 from rich.text import Text
 
 from rebrew.annotation import Annotation
+from rebrew.binary_loader import extract_raw_bytes
 from rebrew.catalog import (
     build_function_registry,
     parse_function_list,
@@ -62,7 +64,7 @@ def verify_entry(
     cflags = cflags_str if cflags_str else "/O2"
     symbol = entry["symbol"] if entry["symbol"] else "_" + entry["name"]
 
-    target_bytes = cfg.extract_dll_bytes(entry["va"], entry["size"])
+    target_bytes = extract_raw_bytes(cfg.target_binary, entry["va"], entry["size"])
     if not target_bytes:
         return False, "Cannot extract DLL bytes", None, None, None
 
@@ -137,20 +139,118 @@ def _source_hash(filepath: Path) -> str:
     return hashlib.sha256(filepath.read_bytes()).hexdigest()
 
 
-def _load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> dict[str, Any] | None:
+@dataclass
+class VerifyResult:
+    status: str
+    va: str | int
+    size: int = 0
+    filepath: str = ""
+    origin: str = ""
+    name: str = ""
+    symbol: str = ""
+    delta: int | None = None
+    match_percent: float | None = None
+    passed: bool = False  # Added this field
+    message: str = ""
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "VerifyResult":
+        return cls(
+            status=str(d.get("status", "")),
+            va=d.get("va", ""),
+            size=int(d.get("size", 0)),
+            filepath=str(d.get("filepath", "")),
+            origin=str(d.get("origin", "")),
+            name=str(d.get("name", "")),
+            symbol=str(d.get("symbol", "")),
+            delta=d.get("delta"),
+            match_percent=d.get("match_percent"),
+            passed=bool(d.get("passed", False)),  # Added this field
+            message=str(d.get("message", "")),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "va": self.va,
+            "size": self.size,
+            "filepath": self.filepath,
+            "origin": self.origin,
+            "name": self.name,
+            "symbol": self.symbol,
+            "delta": self.delta,
+            "match_percent": self.match_percent,
+            "passed": self.passed,  # Added this field
+            "message": self.message,
+        }
+
+
+@dataclass
+class VerifyCacheEntry:
+    source_hash: str
+    filepath: str
+    mtime_ns: int
+    result: VerifyResult
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "VerifyCacheEntry":
+        return cls(
+            source_hash=str(d.get("source_hash", "")),
+            filepath=str(d.get("filepath", "")),
+            mtime_ns=int(d.get("mtime_ns", 0)),
+            result=VerifyResult.from_dict(d.get("result", {})),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "source_hash": self.source_hash,
+            "filepath": self.filepath,
+            "mtime_ns": self.mtime_ns,
+            "result": self.result.to_dict(),
+        }
+
+
+@dataclass
+class VerifyCache:
+    version: int
+    compiler_hash: str
+    target: str
+    entries: dict[str, VerifyCacheEntry]
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "VerifyCache":
+        return cls(
+            version=int(d.get("version", 0)),
+            compiler_hash=str(d.get("compiler_hash", "")),
+            target=str(d.get("target", "")),
+            entries={
+                str(k): VerifyCacheEntry.from_dict(v)
+                for k, v in d.get("entries", {}).items()
+                if isinstance(v, dict)
+            },
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "version": self.version,
+            "compiler_hash": self.compiler_hash,
+            "target": self.target,
+            "entries": {k: v.to_dict() for k, v in self.entries.items()},
+        }
+
+
+def _load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> VerifyCache | None:
     if not cache_path.exists():
         return None
     try:
-        data = json.loads(cache_path.read_text(encoding="utf-8"))
+        data = VerifyCache.from_dict(json.loads(cache_path.read_text(encoding="utf-8")))
     except (json.JSONDecodeError, OSError):
         return None
-    if not isinstance(data, dict):
+    if data.version != 1:
         return None
-    if data.get("version") != 1:
+    if data.target != cfg.target_name:
         return None
-    if data.get("target") != cfg.target_name:
-        return None
-    if data.get("compiler_hash") != _compiler_config_hash(cfg):
+    if data.compiler_hash != _compiler_config_hash(cfg):
         return None
     return data
 
@@ -178,21 +278,37 @@ def _save_verify_cache(
         if file_info is None:
             continue
         mtime, source_hash = file_info
-        cache_entries[va_key] = {
+
+        # Ensure result has default fields present
+        res_dict = {
+            "status": result.get("status", ""),
+            "va": va_key,
+            "size": result.get("size", 0),
+            "filepath": filepath,
+            "origin": result.get("origin", ""),
+            "name": result.get("name", ""),
+            "symbol": result.get("symbol", ""),
+            "delta": result.get("delta", None),
+            "match_percent": result.get("match_percent", None),
+            "passed": result.get("passed", False),  # Added this field
+            "message": result.get("message", ""),
+        }
+
+        cache_entries[str(va_key)] = {
             "source_hash": source_hash,
             "filepath": filepath,
             "mtime_ns": mtime,
-            "result": result,
+            "result": res_dict,
         }
 
-    cache_data = {
-        "version": 1,
-        "compiler_hash": _compiler_config_hash(cfg),
-        "target": cfg.target_name,
-        "entries": cache_entries,
-    }
+    cache_data = VerifyCache(
+        version=1,
+        compiler_hash=_compiler_config_hash(cfg),
+        target=cfg.target_name,
+        entries={str(k): VerifyCacheEntry.from_dict(v) for k, v in cache_entries.items()},
+    )
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(cache_path, json.dumps(cache_data, indent=2), encoding="utf-8")
+    atomic_write_text(cache_path, json.dumps(cache_data.to_dict(), indent=2), encoding="utf-8")
 
 
 def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
@@ -402,19 +518,21 @@ def main(
     results: list[dict[str, Any]] = []  # per-function structured results
 
     cache_path = cfg.root / ".rebrew" / "verify_cache.json"
-    verify_cache = None if full else _load_verify_cache(cache_path, cfg)
-    cache_entries = verify_cache.get("entries", {}) if verify_cache else {}
+    verify_cache_obj = None if full else _load_verify_cache(cache_path, cfg)
+    entries_cache: dict[str, VerifyCacheEntry] = (
+        verify_cache_obj.entries if verify_cache_obj else {}
+    )
     entries_to_verify: list[Annotation] = []
     cached_count = 0
 
     for entry in unique_entries:
         va_key = f"0x{entry['va']:08x}"
-        cached_entry = cache_entries.get(va_key)
-        if not isinstance(cached_entry, dict):
+        cached_entry = entries_cache.get(va_key)
+        if cached_entry is None:
             entries_to_verify.append(entry)
             continue
 
-        if cached_entry.get("filepath") != entry.get("filepath"):
+        if cached_entry.filepath != entry.get("filepath"):
             entries_to_verify.append(entry)
             continue
 
@@ -424,35 +542,32 @@ def main(
             continue
 
         current_mtime = filepath.stat().st_mtime_ns
-        cached_mtime = cached_entry.get("mtime_ns", cached_entry.get("mtime"))
-        if current_mtime != cached_mtime:
+        if current_mtime != cached_entry.mtime_ns:
             try:
                 current_hash = _source_hash(filepath)
             except OSError:
                 entries_to_verify.append(entry)
                 continue
-            if current_hash != cached_entry.get("source_hash"):
+            if current_hash != cached_entry.source_hash:
                 entries_to_verify.append(entry)
                 continue
 
-        cached_result = cached_entry.get("result")
-        if not isinstance(cached_result, dict):
-            entries_to_verify.append(entry)
-            continue
-
-        results.append(cached_result)
-        if bool(cached_result.get("passed")):
+        # If we reach here, the cache entry is valid
+        results.append(cached_entry.result.to_dict())
+        if cached_entry.result.passed:
             passed += 1
         else:
             failed += 1
-            fail_details.append((entry, str(cached_result.get("message", ""))))
+            fail_details.append(
+                (entry, str(cached_entry.result.message))
+            )  # Assuming message is part of VerifyResult
         cached_count += 1
 
     total = len(unique_entries)
     fresh_count = len(entries_to_verify)
     effective_jobs = min(jobs, fresh_count) if fresh_count else 1
 
-    if verify_cache is not None and not json_output:
+    if verify_cache_obj is not None and not json_output:
         console.print(
             f"Incremental: {cached_count} cached, {fresh_count} to verify (use --full to force all)"
         )

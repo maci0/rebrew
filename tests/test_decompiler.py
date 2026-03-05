@@ -240,10 +240,10 @@ _real_import_module = __import__("importlib").import_module
 
 def _make_sync_import_mock() -> Any:
     """Build an importlib.import_module side_effect that returns real sync module."""
-    from rebrew import sync as _sync_mod
+    from rebrew import ghidra as _sync_mod
 
     def _side_effect(name: str) -> Any:
-        if name == "rebrew.sync":
+        if name == "rebrew.ghidra":
             return _sync_mod
         return _real_import_module(name)
 

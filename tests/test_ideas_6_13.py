@@ -30,28 +30,28 @@ class TestParseMatchingInfo:
     def test_matching_with_small_delta(self, tmp_path) -> None:
         self._make_c(tmp_path, "FuncA", 0x10001000, "MATCHING", "2B diff: off by 2 bytes")
         result = parse_matching_info(tmp_path / "FuncA.c", max_delta=10)
-        assert result is not None
-        assert result["delta"] == 2
+        assert len(result) == 1
+        assert result[0]["delta"] == 2
 
     def test_matching_large_delta_excluded(self, tmp_path) -> None:
         self._make_c(tmp_path, "FuncB", 0x10002000, "MATCHING", "50B diff: too big")
         result = parse_matching_info(tmp_path / "FuncB.c", max_delta=10)
-        assert result is None
+        assert result == []
 
     def test_stub_excluded(self, tmp_path) -> None:
         self._make_c(tmp_path, "FuncC", 0x10003000, "STUB", "2B diff")
         result = parse_matching_info(tmp_path / "FuncC.c", max_delta=10)
-        assert result is None
+        assert result == []
 
     def test_no_blocker_excluded(self, tmp_path) -> None:
         self._make_c(tmp_path, "FuncD", 0x10004000, "MATCHING")
         result = parse_matching_info(tmp_path / "FuncD.c", max_delta=10)
-        assert result is None
+        assert result == []
 
     def test_skip_excluded(self, tmp_path) -> None:
         self._make_c(tmp_path, "FuncE", 0x10005000, "MATCHING", "2B diff", skip=True)
         result = parse_matching_info(tmp_path / "FuncE.c", max_delta=10)
-        assert result is None
+        assert result == []
 
 
 class TestFindNearMiss:

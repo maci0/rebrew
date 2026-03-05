@@ -17,7 +17,10 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from rebrew.verify import VerifyCacheEntry
 
 import typer
 from rich.console import Console
@@ -121,41 +124,41 @@ def _score_near_miss(delta: int | None, size: int) -> float:
     """Score a near-miss fix (delta <= 4B). Higher = easier to fix."""
     if delta is None:
         return 70.0
-    # delta=1 → ~95, delta=4 → ~88, logarithmic falloff
-    score = 95.0 - 7.0 * math.log2(max(delta, 1))
+    # delta=1 → ~85, delta=4 → ~75, logarithmic falloff
+    score = 85.0 - 5.0 * math.log2(max(delta, 1))
     # Boost small functions slightly
     if size < 100:
         score += 2.0
-    return min(95.0, max(70.0, score))
+    return min(85.0, max(70.0, score))
 
 
 def _score_flag_sweep(delta: int | None, size: int) -> float:
     """Score a flag-sweep candidate (delta 5-20B)."""
-    base = 75.0
+    base = 45.0
     if delta is not None:
         # Smaller delta = higher score
         base -= (delta - 5) * 0.5
     if size < 200:
         base += 3.0
-    return min(80.0, max(60.0, base))
+    return min(55.0, max(25.0, base))
 
 
 def _score_prover(size: int) -> float:
     """Score a prover candidate by function size."""
     if size < 100:
-        return 75.0
+        return 40.0
     if size < 300:
-        return 65.0
-    return 55.0
+        return 35.0
+    return 30.0
 
 
 def _score_compile_error(size: int) -> float:
     """Score a compile error fix by function size."""
     if size < 100:
-        return 65.0
+        return 95.0
     if size < 300:
-        return 58.0
-    return 50.0
+        return 90.0
+    return 85.0
 
 
 def _score_improve_matching(size: int) -> float:
@@ -163,36 +166,36 @@ def _score_improve_matching(size: int) -> float:
     if size < 100:
         return 55.0
     if size < 300:
-        return 48.0
-    return 40.0
+        return 50.0
+    return 45.0
 
 
 def _score_verify_fail(delta: int | None, match_pct: float | None) -> float:
     """Score a verify failure (MISMATCH or MISSING_FILE)."""
     if match_pct is not None and match_pct > 90.0:
-        return 62.0  # Very close, high ROI
+        return 90.0  # Very close, high ROI
     if match_pct is not None and match_pct > 70.0:
-        return 55.0
+        return 85.0
     if delta is not None and delta <= 20:
-        return 58.0
-    return 45.0
+        return 82.0
+    return 80.0
 
 
 def _score_finish_stub(size: int) -> float:
     """Score a STUB function that needs implementation."""
     if size < 80:
-        return 55.0
+        return 75.0
     if size < 150:
-        return 48.0
+        return 70.0
     if size < 250:
-        return 40.0
-    return 30.0
+        return 65.0
+    return 60.0
 
 
 def _score_start_function(difficulty: int, size: int) -> float:
     """Score a new function to start working on."""
-    score = 65.0 - (difficulty * 10)
-    return min(60.0, max(10.0, score))
+    score = 65.0 - (difficulty * 5)
+    return min(65.0, max(45.0, score))
 
 
 def _score_add_annotations(size: int) -> float:
@@ -201,16 +204,16 @@ def _score_add_annotations(size: int) -> float:
         return 45.0
     if size < 100:
         return 40.0
-    return 30.0
+    return 35.0
 
 
 def _score_identify_library(size: int) -> float:
     """Score a library identification candidate."""
     if size < 100:
-        return 40.0
+        return 25.0
     if size < 300:
-        return 35.0
-    return 25.0
+        return 20.0
+    return 15.0
 
 
 # ---------------------------------------------------------------------------
@@ -466,43 +469,45 @@ def _collect_prover_candidates(
     return items
 
 
-def _load_verify_entries(cfg: ProjectConfig) -> dict[str, Any]:
+def _load_verify_entries(cfg: ProjectConfig) -> dict[str, "VerifyCacheEntry"]:
     """Load verify cache entries, returning {} on missing/corrupt cache."""
     cache_path = cfg.root / ".rebrew" / "verify_cache.json"
     if not cache_path.exists():
         return {}
     try:
-        data = json.loads(cache_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+        from rebrew.verify import VerifyCache
+
+        data = VerifyCache.from_dict(json.loads(cache_path.read_text(encoding="utf-8")))
+    except (json.JSONDecodeError, OSError, ValueError, AttributeError, ImportError):
         return {}
-    return data.get("entries", {})
+    return data.entries
 
 
 def _collect_compile_errors(
-    entries: dict[str, Any],
+    entries: dict[str, "VerifyCacheEntry"],
 ) -> list[TodoItem]:
     """Collect functions with compile errors from verify cache entries."""
     items: list[TodoItem] = []
     for _va_key, entry in entries.items():
-        result = entry.get("result", {})
-        if result.get("status") != "COMPILE_ERROR":
+        result = entry.result
+        if result.status != "COMPILE_ERROR":
             continue
-        va_str = str(result.get("va", ""))
+        va_str = str(result.va)
         try:
             va = int(va_str, 16) if va_str.startswith("0x") else int(va_str)
         except (ValueError, TypeError):
             continue
-        size = result.get("size", 0)
-        filepath = result.get("filepath", "")
+        size = result.size
+        filepath = result.filepath
         items.append(
             TodoItem(
                 category=CAT_FIX_COMPILE_ERROR,
                 roi_score=_score_compile_error(size),
                 va=va,
-                name=result.get("symbol", ""),
+                name=result.symbol,
                 size=size,
                 filename=filepath,
-                origin=result.get("origin", ""),
+                origin=result.origin,
                 description="Compile error — fix syntax/includes",
                 command=f"rebrew test {filepath}" if filepath else "rebrew verify",
                 status="COMPILE_ERROR",
@@ -512,24 +517,24 @@ def _collect_compile_errors(
 
 
 def _collect_verify_failures(
-    entries: dict[str, Any],
+    entries: dict[str, "VerifyCacheEntry"],
 ) -> list[TodoItem]:
     """Collect verify MISMATCH/MISSING_FILE failures from verify cache entries."""
     items: list[TodoItem] = []
     for _va_key, entry in entries.items():
-        result = entry.get("result", {})
-        status = result.get("status", "")
+        result = entry.result
+        status = result.status
         if status not in ("MISMATCH", "MISSING_FILE"):
             continue
-        va_str = str(result.get("va", ""))
+        va_str = str(result.va)
         try:
             va = int(va_str, 16) if va_str.startswith("0x") else int(va_str)
         except (ValueError, TypeError):
             continue
-        size = result.get("size", 0)
-        filepath = result.get("filepath", "")
-        delta = result.get("delta")
-        match_pct = result.get("match_percent")
+        size = result.size
+        filepath = result.filepath
+        delta = result.delta
+        match_pct = result.match_percent
 
         if status == "MISSING_FILE":
             desc = "Source file missing — recreate or remove annotation"
@@ -543,10 +548,10 @@ def _collect_verify_failures(
                 category=CAT_FIX_VERIFY_FAIL,
                 roi_score=_score_verify_fail(delta, match_pct),
                 va=va,
-                name=result.get("name", ""),
+                name=result.name,
                 size=size,
                 filename=filepath,
-                origin=result.get("origin", ""),
+                origin=result.origin,
                 description=desc,
                 command=f"rebrew test {filepath}" if filepath else "rebrew verify",
                 byte_delta=delta,
@@ -609,9 +614,9 @@ def _collect_new_functions(
     for func in ghidra_funcs:
         if len(items) >= max_candidates:
             break
-        va = func["va"]
-        size = func["size"]
-        name = func.get("ghidra_name", f"FUN_{va:08x}")
+        va = func.va
+        size = func.size
+        name = func.name or f"FUN_{va:08x}"
 
         if va in existing or va in iat_set or name in ignored:
             continue
@@ -655,7 +660,7 @@ def _collect_missing_annotations(
     existing: dict[int, dict[str, str]],
     size_by_va: dict[int, int],
 ) -> list[TodoItem]:
-    """Collect files with missing SYMBOL annotations."""
+    """Collect files with missing symbol (no C function definition to derive from)."""
     items: list[TodoItem] = []
     for va, info in existing.items():
         symbol = info.get("symbol", "")
@@ -673,7 +678,7 @@ def _collect_missing_annotations(
                 size=size,
                 filename=filename,
                 origin=info.get("origin", ""),
-                description="Missing: SYMBOL",
+                description="Missing: symbol (add C function definition)",
                 command=f"rebrew lint {filename}" if filename else "rebrew lint",
                 status=info.get("status", ""),
             )
@@ -690,11 +695,11 @@ def _collect_library_candidates(
     lib_origins = cfg.library_origins if cfg.library_origins else {"ZLIB", "MSVCRT"}
     items: list[TodoItem] = []
     for func in ghidra_funcs:
-        va = func["va"]
+        va = func.va
         if va in existing:
             continue
-        size = func["size"]
-        name = func.get("ghidra_name", f"FUN_{va:08x}")
+        size = func.size
+        name = func.name or f"FUN_{va:08x}"
         origin = detect_origin(va, name, cfg)
         if origin not in lib_origins:
             continue
@@ -732,7 +737,7 @@ def collect_all(
     # Setup steps for fresh/incomplete projects (scored highest)
     items.extend(_collect_setup_steps(cfg, ghidra_funcs, existing))
 
-    size_by_va: dict[int, int] = {f["va"]: f["size"] for f in ghidra_funcs}
+    size_by_va: dict[int, int] = {f.va: f.size for f in ghidra_funcs}
 
     # Near-misses + flag-sweep (returns set of VAs with known deltas)
     near_miss_items, has_delta = _collect_near_misses(existing, size_by_va)
@@ -790,7 +795,7 @@ finish-stub        STUB functions that need implementation
 
 start-function     Uncovered functions, ranked by difficulty
 
-add-annotations    Missing SYMBOL annotations
+add-annotations    Missing symbol (no C function definition)
 
 identify-library   Uncovered library-origin functions
 

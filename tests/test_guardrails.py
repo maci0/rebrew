@@ -69,10 +69,11 @@ class TestParserConsolidation:
         meta = parse_source_metadata(str(p))
         assert meta["CFLAGS"] == "/O2 /Gd"
 
-    def test_symbol_matches(self, tmp_path: Path) -> None:
+    def test_symbol_not_in_meta(self, tmp_path: Path) -> None:
+        """SYMBOL is no longer emitted — it's derived from C definitions."""
         p = _write_c(tmp_path, "func.c", VALID_HEADER)
         meta = parse_source_metadata(str(p))
-        assert meta["SYMBOL"] == "_bit_reverse"
+        assert "SYMBOL" not in meta
 
     def test_size_is_string(self, tmp_path: Path) -> None:
         p = _write_c(tmp_path, "func.c", VALID_HEADER)

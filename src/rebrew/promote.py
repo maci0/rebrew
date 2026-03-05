@@ -17,6 +17,7 @@ from rich.console import Console
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
 
 from rebrew.annotation import parse_c_file_multi
+from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import TargetOption, error_exit, iter_sources, json_print, require_config
 from rebrew.config import ProjectConfig
 from rebrew.matcher.parsers import parse_obj_symbol_bytes
@@ -67,6 +68,9 @@ app = typer.Typer(
 
 console = Console(stderr=True)
 
+# Status rank: lower number = better match quality.
+# Used for both promotion (STUB → EXACT) and demotion (EXACT → MATCHING)
+# when a recompilation result differs from the annotated status.
 _STATUS_RANK: dict[str, int] = {
     "EXACT": 0,
     "RELOC": 1,
@@ -74,6 +78,12 @@ _STATUS_RANK: dict[str, int] = {
     "STUB": 3,
     "": 4,
 }
+
+# Minimum byte-match ratio to classify a non-exact comparison as MATCHING.
+# 80% is conservative enough to avoid false positives from padding/nops
+# while still promoting functions that are structurally correct but have
+# a few byte-level differences (typically relocation or alignment diffs).
+_MATCHING_THRESHOLD = 0.8
 
 
 def _promote_file(
@@ -150,12 +160,12 @@ def _promote_file(
                         "status": "SKIPPED",
                         "previous_status": ann.status,
                         "action": "none",
-                        "reason": "missing SYMBOL or SIZE",
+                        "reason": "missing symbol (no C function definition) or SIZE",
                     }
                 )
                 continue
 
-            target_bytes = cfg.extract_dll_bytes(ann.va, ann.size)
+            target_bytes = extract_raw_bytes(cfg.target_binary, ann.va, ann.size)
             if not target_bytes:
                 results.append(
                     {
@@ -196,20 +206,19 @@ def _promote_file(
                 candidate_status = "RELOC" if relocs else "EXACT"
             else:
                 comparable = min(len(obj_bytes), len(target_bytes))
-                candidate_status = (
-                    "MATCHING"
-                    if (comparable > 0 and match_count > comparable * 0.8)
-                    else ann.status
-                )
+                if comparable > 0 and match_count > comparable * _MATCHING_THRESHOLD:
+                    candidate_status = "MATCHING"
+                else:
+                    # Below match threshold — keep current status if it's already
+                    # low-ranked (STUB or unset), otherwise demote.
+                    candidate_status = ann.status
 
+            # Update whenever the measured status differs from the annotation.
+            # This handles both promotion (STUB → EXACT) and demotion
+            # (EXACT → MATCHING when code changes break a previously-exact match).
             new_status = ann.status
-            should_update = False
-            if candidate_status in ("EXACT", "RELOC"):
-                should_update = candidate_status != ann.status
-                if should_update:
-                    new_status = candidate_status
-            elif _STATUS_RANK.get(candidate_status, 99) < _STATUS_RANK.get(ann.status, 99):
-                should_update = True
+            should_update = candidate_status != ann.status
+            if should_update:
                 new_status = candidate_status
 
             action = "none"

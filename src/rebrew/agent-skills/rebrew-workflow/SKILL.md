@@ -12,16 +12,28 @@ For annotation syntax details, see `references/annotation-format.md`.
 ## 1. Triage and Pick a Function
 
 ```bash
+rebrew todo --json                      # Primary way: get highest ROI action items (compile errors, near-misses, etc)
+rebrew todo -c start-function --json    # filter by category (e.g. only pick new functions)
+rebrew next --json                      # fallback: find unstarted functions (sorted by similarity to matched code)
 rebrew triage --json                    # combined overview: coverage, near-misses, recommendations
-rebrew next --json                      # find easiest functions to tackle (sorted by similarity, then difficulty)
 rebrew next --stats --json              # matching progress
 rebrew next --improving --json          # MATCHING functions sorted by byte delta (closest first)
 rebrew flirt --json                     # FLIRT scan: identify known library functions (fast wins)
 rebrew crt-match --all --origin MSVCRT --json # find matching CRT source files for library-origin functions
-rebrew next --stats --json              # matching progress
 ```
 
 Without `--json`, these produce rich terminal tables for human review.
+
+### Prioritization Strategy
+
+**Always default to `rebrew todo --json`.** It acts as an orchestrator that evaluates the whole project to suggest high ROI tasks based on these tiers:
+1. Compile Errors and Verifier Regressions (Blocks progress)
+2. Near-misses (1-4 byte deltas, fast wins)
+3. Stubs that need finishing
+4. New function starting (ranked by similarity and size)
+5. Flag sweeps / Automated Provers / Add Annotations (automated tasks)
+
+If you are just looking for **new functions** to start, you can use `rebrew todo -c start-function --json` or `rebrew next --json`.
 
 ### Similarity-based prioritization
 
@@ -141,7 +153,8 @@ rebrew promote --all --dry-run --json                # preview batch promotion
 ```
 
 Single-file mode tests and atomically updates STATUS. Batch mode (`--all`) discovers
-all promotable functions, verifies each, and updates annotations. Never demotes.
+all functions, verifies each, and updates annotations. Supports both promotion
+(STUB→MATCHING→RELOC→EXACT) and demotion (EXACT→MATCHING if code regresses).
 Automatically removes BLOCKER/BLOCKER_DELTA annotations on promotion.
 
 ## 9. Verify and Track Progress

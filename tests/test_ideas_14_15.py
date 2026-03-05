@@ -37,7 +37,6 @@ class TestDataAnnotationMarker:
             "// SECTION: .rdata",
             "// ORIGIN: GAME",
             "// NOTE: lookup table for sprite indices",
-            "// SYMBOL: _g_sprite_lut",
         ]
         ann = parse_new_format(lines)
         assert ann is not None
@@ -47,7 +46,8 @@ class TestDataAnnotationMarker:
         assert ann.section == ".rdata"
         assert ann.origin == "GAME"
         assert ann.note == "lookup table for sprite indices"
-        assert ann.symbol == "_g_sprite_lut"
+        # DATA annotations have no C function def, so symbol is empty
+        assert ann.symbol == ""
 
     def test_parse_data_annotation_minimal(self) -> None:
         """Parse a minimal DATA annotation."""

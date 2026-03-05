@@ -21,6 +21,7 @@ The parser always tries the new format first; the old format is a fallback.
 from __future__ import annotations
 
 import contextlib
+import logging
 import re
 import warnings
 from dataclasses import dataclass, field, fields
@@ -28,6 +29,22 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.utils import atomic_write_text
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "Annotation",
+    "VALID_MARKERS",
+    "VALID_STATUSES",
+    "has_skip_annotation",
+    "parse_c_file",
+    "parse_c_file_multi",
+    "parse_source_metadata",
+    "resolve_symbol",
+    "update_annotation_key",
+    "remove_annotation_key",
+    "update_size_annotation",
+]
 
 # ---------------------------------------------------------------------------
 # Valid sets
@@ -100,6 +117,27 @@ BLOCK_FUNC_CAPTURE_RE = re.compile(
     r"/\*\s*(?P<type>FUNCTION|LIBRARY|STUB|GLOBAL|DATA):\s*(?P<module>\S+)\s+(?P<va>0x[0-9a-fA-F]+)\s*\*/"
 )
 BLOCK_KV_RE = re.compile(r"/\*\s*(?P<key>[A-Z_]+):\s*(?P<value>.*?)\s*\*/")
+
+# Function name hint — bare ``// FunctionName`` comment after a marker line.
+# Matches a single-word identifier (no colon, no spaces) that is not a KV key.
+# Used to capture the actual function name in multi-function files where SYMBOL
+# may be shared across blocks.
+FUNC_NAME_HINT_RE = re.compile(r"^//\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*$")
+
+# C function definition — extracts the function name and full prototype from a
+# line like ``int __cdecl LoadGraveyardData(int param_1, int param_2)``.
+# Captures everything before '(' to allow extracting name + full signature.
+# Handles return types, calling conventions (__cdecl, __stdcall, __fastcall),
+# declspecs, and macros.
+_C_FUNC_IDENT_RE = re.compile(
+    r"^\s*"  # leading whitespace
+    r"(?!extern\b|typedef\b)"  # NOT a forward declaration or typedef
+    r"(?:(?:static|inline|unsigned|signed|const|volatile|struct|enum|union|void|char|short|int|long|float|double|__int64|BOOL|DWORD|WORD|BYTE|LONG|UINT|ULONG|HRESULT)\s+)*"  # return type qualifiers
+    r"(?:[A-Za-z_][A-Za-z0-9_*\s]*?\s+)?"  # return type (flexible)
+    r"(?:(?:__cdecl|__stdcall|__fastcall|__thiscall|WINAPI|CALLBACK|APIENTRY|REBREW_NAKED)\s+)*"  # calling convention
+    r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)"  # function name
+    r"\s*\(",  # opening paren
+)
 
 # Javadoc format — rare, from early experiments:
 #   /** @address 0x10003640  @origin GAME */
@@ -388,8 +426,7 @@ class Annotation:
                         "glued together (missing space?)"
                     )
 
-        if not self.symbol:
-            warnings.append("Missing SYMBOL (recommended)")
+        # (SYMBOL is now derived from C definition — no warning needed)
 
         _lib = library_origins if library_origins is not None else {"ZLIB", "MSVCRT"}
         expected_marker = marker_for_origin(self.origin, self.status, _lib)
@@ -544,8 +581,38 @@ def _kv_to_annotation(
     va: int,
     module: str,
 ) -> Annotation:
-    """Convert a parsed key-value dict into an Annotation instance."""
-    symbol = kv.get("SYMBOL", "")
+    """Convert a parsed key-value dict into an Annotation instance.
+
+    Name resolution priority:
+    1. ``_C_FUNC_NAME`` — extracted from the actual C function definition
+    2. ``_FUNC_NAME_HINT`` — bare ``// FunctionName`` comment after the marker
+    3. Empty string (downstream code will fall back to filename stem)
+
+    Symbol is always derived as ``"_" + name`` (standard __cdecl convention).
+    Prototype is extracted from the actual C function definition line when
+    available.
+
+    ``// SYMBOL:`` and ``// PROTOTYPE:`` annotations are tolerated but
+    ignored for name/symbol/prototype derivation.
+    """
+    c_func_name = kv.get("_C_FUNC_NAME", "")
+    c_func_proto = kv.get("_C_FUNC_PROTO", "")
+    func_name_hint = kv.get("_FUNC_NAME_HINT", "")
+
+    # Derive name: prefer C definition > hint comment
+    if c_func_name:
+        name = c_func_name
+    elif func_name_hint:
+        name = func_name_hint
+    else:
+        name = ""
+
+    # Derive symbol: always "_" + name (cdecl default)
+    symbol = "_" + name if name else ""
+
+    # Derive prototype from C definition
+    prototype = c_func_proto
+
     size_str = kv.get("SIZE", "0")
     try:
         size = int(size_str)
@@ -564,7 +631,7 @@ def _kv_to_annotation(
     ann = make_func_entry(
         va=va,
         size=size,
-        name=symbol.lstrip("_") if symbol else "",
+        name=name,
         symbol=symbol,
         module=module,
         status=kv.get("STATUS", "RELOC"),
@@ -581,7 +648,7 @@ def _kv_to_annotation(
     ann.section = kv.get("SECTION", "")
     ann.blocker_delta = blocker_delta
     ann.ghidra = kv.get("GHIDRA", "")
-    ann.prototype = kv.get("PROTOTYPE", "")
+    ann.prototype = prototype
     ann.struct = kv.get("STRUCT", "")
     ann.callers = kv.get("CALLERS", "")
     return ann
@@ -636,8 +703,24 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
             kv[key] = val
             continue
 
+        # Check for function name hint: bare "// FunctionName" after marker
+        if in_annotation_block and "_FUNC_NAME_HINT" not in kv:
+            m3 = FUNC_NAME_HINT_RE.match(stripped)
+            if m3:
+                kv["_FUNC_NAME_HINT"] = m3.group("name")
+                continue
+
         if not in_annotation_block:
             continue
+
+        # Try to extract function name from C definition line
+        if "_C_FUNC_NAME" not in kv:
+            m4 = _C_FUNC_IDENT_RE.match(stripped)
+            if m4:
+                kv["_C_FUNC_NAME"] = m4.group("name")
+                # Extract full prototype: everything up to the closing paren
+                proto_line = stripped.rstrip("{;").strip()
+                kv["_C_FUNC_PROTO"] = proto_line
 
         break
 
@@ -770,15 +853,33 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
                 pending_kv[key] = val
             continue
 
+        # Check for function name hint: bare "// FunctionName" after marker
+        if current_marker_type is not None and not seen_code_after_marker:
+            m3 = FUNC_NAME_HINT_RE.match(stripped)
+            if m3 and "_FUNC_NAME_HINT" not in current_kv:
+                current_kv["_FUNC_NAME_HINT"] = m3.group("name")
+                continue
+
+        # Try to extract function name from C definition line
+        if current_marker_type is not None and "_C_FUNC_NAME" not in current_kv:
+            m4 = _C_FUNC_IDENT_RE.match(stripped)
+            if m4:
+                current_kv["_C_FUNC_NAME"] = m4.group("name")
+                proto_line = stripped.rstrip("{;").strip()
+                current_kv["_C_FUNC_PROTO"] = proto_line
+
         # Non-annotation line — DON'T break scanning (code between blocks)
         # Just skip it and keep looking for the next marker
         if current_marker_type is not None:
             seen_code_after_marker = True
-        # Discard any orphaned pending KV (they belonged to no marker)
-        pending_kv = {}
+        # Keep pending_kv intact — annotations before code (like STATUS,
+        # ORIGIN, SIZE at the top of a file) need to survive through
+        # #include, extern, and typedef lines to reach the FUNCTION marker.
 
     # Flush the last block
     _flush()
+    if pending_kv:
+        logger.debug("Discarding orphaned KV annotations: %s", pending_kv)
     return results
 
 
@@ -820,12 +921,16 @@ def parse_c_file_multi(
         return filtered_entries
 
     # Fallback: try old format (first line only) — returns at most one
-    entry = parse_old_format(lines[0])
-    if entry is not None:
-        if target_name and entry.module and entry.module.lower() != target_name.lower():
+    fallback_entry = parse_old_format(lines[0])
+    if fallback_entry is not None:
+        if (
+            target_name
+            and fallback_entry.module
+            and fallback_entry.module.lower() != target_name.lower()
+        ):
             return []
-        entry.filepath = rel
-        return [entry]
+        fallback_entry.filepath = rel
+        return [fallback_entry]
 
     return []
 
@@ -862,8 +967,9 @@ def parse_source_metadata(source_path: str | Path) -> dict[str, str]:
         meta["SIZE"] = str(anno.size)
     if anno.cflags:
         meta["CFLAGS"] = anno.cflags
-    if anno.symbol:
-        meta["SYMBOL"] = anno.symbol
+    # SYMBOL is derived from function name — don't emit as annotation
+    # if anno.symbol:
+    #     meta["SYMBOL"] = anno.symbol
     if anno.blocker:
         meta["BLOCKER"] = anno.blocker
     if anno.source:
@@ -872,8 +978,9 @@ def parse_source_metadata(source_path: str | Path) -> dict[str, str]:
         meta["NOTE"] = anno.note
     if anno.ghidra:
         meta["GHIDRA"] = anno.ghidra
-    if anno.prototype:
-        meta["PROTOTYPE"] = anno.prototype
+    # PROTOTYPE is derived from C definition — don't emit as annotation
+    # if anno.prototype:
+    #     meta["PROTOTYPE"] = anno.prototype
     if anno.struct:
         meta["STRUCT"] = anno.struct
     if anno.callers:
@@ -897,13 +1004,14 @@ def update_annotation_key(filepath: Path, va: int, key: str, new_value: str) -> 
     last_annotation_idx = -1
     modified = False
     escaped_key = re.escape(key)
+    _marker_pattern = re.compile(
+        r"(?://|/\*)\s*(FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*[A-Z0-9_]+\s+(0x[0-9a-fA-F]+)"
+    )
+    _key_pattern = re.compile(r"((?://|/\*)\s*" + escaped_key + r":\s*)(.*?)(?=\s*(?:\*/|\n|$))")
 
     for i, line in enumerate(lines):
         # Check for marker: // FUNCTION: GAME 0x1000 or STUB or DATA etc.
-        marker_match = re.search(
-            r"(?://|/\*)\s*(FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*[A-Z0-9_]+\s+(0x[0-9a-fA-F]+)",
-            line,
-        )
+        marker_match = _marker_pattern.search(line)
         if marker_match:
             found_va = int(marker_match.group(2), 16)
             in_target_block = found_va == va
@@ -912,9 +1020,7 @@ def update_annotation_key(filepath: Path, va: int, key: str, new_value: str) -> 
             if line.strip().startswith("//") or line.strip().startswith("/*"):
                 last_annotation_idx = i
 
-            sym_match = re.search(
-                r"((?://|/\*)\s*" + escaped_key + r":\s*)(.*?)(?=\s*(?:\*/|\n|$))", line
-            )
+            sym_match = _key_pattern.search(line)
             if sym_match:
                 old_val = sym_match.group(2).strip()
                 if old_val == new_value:
@@ -1101,21 +1207,20 @@ def remove_annotation_key(filepath: Path, va: int, key: str) -> bool:
     in_target_block = False
     modified = False
     escaped_key = re.escape(key)
+    _marker_pattern = re.compile(
+        r"(?://|/\*)\s*(FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*[A-Z0-9_]+\s+(0x[0-9a-fA-F]+)"
+    )
+    _key_pattern = re.compile(r"((?://|/\*)\s*" + escaped_key + r":\s*)(.*?)(?=\s*(?:\*/|\n|$))")
 
     new_lines = []
     for line in lines:
-        marker_match = re.search(
-            r"(?://|/\*)\s*(FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*[A-Z0-9_]+\s+(0x[0-9a-fA-F]+)",
-            line,
-        )
+        marker_match = _marker_pattern.search(line)
         if marker_match:
             found_va = int(marker_match.group(2), 16)
             in_target_block = found_va == va
 
         if in_target_block:
-            sym_match = re.search(
-                r"((?://|/\*)\s*" + escaped_key + r":\s*)(.*?)(?=\s*(?:\*/|\n|$))", line
-            )
+            sym_match = _key_pattern.search(line)
             if sym_match:
                 modified = True
                 continue  # Skip this line

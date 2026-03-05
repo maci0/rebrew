@@ -3,20 +3,18 @@
 from types import SimpleNamespace
 from typing import Any
 
-from rebrew.sync import (
+from rebrew.ghidra import _fetch_mcp_tool, apply_commands_via_mcp
+from rebrew.ghidra.commands import (
     _STATUS_BOOKMARK_CATEGORY,
-    PullChange,
-    PullResult,
-    _fetch_mcp_tool,
     _ghidra_name_to_symbol,
     _is_generic_name,
     _is_meaningful_name,
     _parse_va,
-    apply_commands_via_mcp,
     build_new_function_commands,
     build_size_sync_commands,
     build_sync_commands,
 )
+from rebrew.ghidra.models import PullChange, PullResult
 
 # ---------------------------------------------------------------------------
 # _is_generic_name
@@ -391,9 +389,9 @@ class TestApplyCommandsViaMcp:
             _FakeResponse('{"jsonrpc":"2.0","id":1,"result":{}}'),
         ]
         monkeypatch.setattr(
-            "rebrew.sync.httpx.Client", lambda timeout: _FakeClient(responses, timeout)
+            "rebrew.ghidra.client.httpx.Client", lambda timeout: _FakeClient(responses, timeout)
         )
-        monkeypatch.setattr("rebrew.sync.httpx.HTTPError", _FakeHTTPError)
+        monkeypatch.setattr("rebrew.ghidra.client.httpx.HTTPError", _FakeHTTPError)
 
         commands = [
             {
@@ -416,9 +414,9 @@ class TestApplyCommandsViaMcp:
             _FakeResponse('{"jsonrpc":"2.0","id":1,"error":{"message":"boom"}}'),
         ]
         monkeypatch.setattr(
-            "rebrew.sync.httpx.Client", lambda timeout: _FakeClient(responses, timeout)
+            "rebrew.ghidra.client.httpx.Client", lambda timeout: _FakeClient(responses, timeout)
         )
-        monkeypatch.setattr("rebrew.sync.httpx.HTTPError", _FakeHTTPError)
+        monkeypatch.setattr("rebrew.ghidra.client.httpx.HTTPError", _FakeHTTPError)
 
         commands = [
             {
