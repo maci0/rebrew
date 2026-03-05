@@ -285,7 +285,7 @@ def main(
                 if canonical <= 0 or canonical <= ann.size:
                     continue
                 reason = registry[va].get("size_reason", "")
-                if update_size_annotation(cfile, canonical):
+                if update_size_annotation(cfile, canonical, target_va=va):
                     diff = canonical - ann.size
                     from rebrew.cli import rel_display_path
 
