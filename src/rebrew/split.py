@@ -103,30 +103,27 @@ def _build_output_name(symbol: str, va: int, ext: str) -> str:
     return f"{stem}{ext}"
 
 
-# Matches #include "relative/path.h" (not <system> includes).
-_RELATIVE_INCLUDE_RE = re.compile(r'^(\s*#\s*include\s+")([^"]+)("\s*)$')
+# Matches // CFLAGS: <flags> annotation lines.
+_CFLAGS_RE = re.compile(r"^(\s*//\s*CFLAGS:\s*)(.*)$", re.MULTILINE)
 
 
-def _adjust_relative_includes(text: str) -> str:
-    """Prepend ``../`` to every relative ``#include "..."`` path.
+def _inject_include_parent(block: str) -> str:
+    """Add ``/I..`` to the ``// CFLAGS:`` annotation inside *block*.
 
-    When a file is moved one directory level deeper (e.g. from
-    ``command/`` into ``command/command_c/``), all relative include
-    paths must be adjusted so the compiler still finds the headers.
-    Absolute paths and ``<system>`` includes are left unchanged.
+    When a function is extracted into a subdirectory (e.g. ``command_c/``),
+    the compiler's ``-I<source_parent>`` points to the subdirectory instead
+    of the original parent.  Adding ``/I..`` tells ``compile.py`` to also
+    search the parent of the subdirectory, restoring the original include
+    resolution without touching the preamble (which must stay identical for
+    clean ``rebrew merge`` round-trips).
     """
-    adjusted: list[str] = []
-    for line in text.splitlines(keepends=True):
-        m = _RELATIVE_INCLUDE_RE.match(line)
-        if m:
-            prefix, path, suffix = m.group(1), m.group(2), m.group(3)
-            # Don't touch absolute Windows or POSIX paths
-            if not path.startswith(("/", "\\")) and ":" not in path:
-                path = "../" + path
-            adjusted.append(f"{prefix}{path}{suffix}")
-        else:
-            adjusted.append(line)
-    return "".join(adjusted)
+    m = _CFLAGS_RE.search(block)
+    if m:
+        existing = m.group(2).strip()
+        if "/I.." not in existing:
+            new_cflags = f"{existing} /I.."
+            return block[: m.start(2)] + new_cflags + block[m.end(2) :]
+    return block
 
 
 @app.callback(invoke_without_command=True)
@@ -223,11 +220,12 @@ def main(
 
         if not dry_run:
             va_out_dir.mkdir(parents=True, exist_ok=True)
-            # Adjust relative #include paths when moving files one level deeper
-            adjusted_preamble = (
-                _adjust_relative_includes(preamble) if output_dir is None else preamble
+            # Inject /I.. into CFLAGS so the compiler searches the original
+            # parent directory for relative #include paths.
+            adjusted_block = (
+                _inject_include_parent(matched_block) if output_dir is None else matched_block
             )
-            atomic_write_text(out_path, adjusted_preamble + matched_block, encoding="utf-8")
+            atomic_write_text(out_path, preamble + adjusted_block, encoding="utf-8")
             # Remove the extracted block from the source file (by index, not identity)
             remaining = [b for i, b in enumerate(blocks) if i != matched_idx]
             if remaining:
