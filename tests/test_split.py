@@ -304,3 +304,87 @@ class TestSplitExtractVA:
         result = runner.invoke(app, ["--va", "0xDEADBEEF", str(src)])
         assert result.exit_code != 0
         assert "No function block found" in result.output
+
+    def test_errors_on_invalid_hex_va(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """Non-hex --va should produce a clear error, not a traceback."""
+        src = _write(tmp_path / "multi.c", _multi_two())
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
+
+        result = runner.invoke(app, ["--va", "not_hex", str(src)])
+        assert result.exit_code != 0
+        assert "Invalid VA" in result.output
+
+    def test_va_force_overwrites(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """--va --force should overwrite an existing extracted file."""
+        src = _write(tmp_path / "multi.c", _multi_two())
+        out_dir = tmp_path / "multi_c"
+        out_dir.mkdir()
+        _write(out_dir / "func_a.c", "stale\n")
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
+
+        result = runner.invoke(app, ["--va", "0x10001000", "--force", str(src)])
+        assert result.exit_code == 0
+        content = (out_dir / "func_a.c").read_text(encoding="utf-8")
+        assert "// FUNCTION: SERVER 0x10001000" in content
+
+    def test_va_extracts_last_block_deletes_source(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """Extracting the only remaining block should delete the source file."""
+        content = (
+            "#include <stdio.h>\n"
+            "\n"
+            "// FUNCTION: SERVER 0x10001000\n"
+            "// STATUS: EXACT\n"
+            "// ORIGIN: GAME\n"
+            "// SIZE: 1\n"
+            "// CFLAGS: /O2\n"
+            "// SYMBOL: _only\n"
+            "\n"
+            "int only(void) { return 0; }\n"
+        )
+        src = _write(tmp_path / "single.c", content)
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
+
+        result = runner.invoke(app, ["--va", "0x10001000", str(src)])
+        assert result.exit_code == 0
+        assert (tmp_path / "single_c" / "only.c").exists()
+        assert not src.exists()  # source deleted when no blocks remain
+
+    def test_va_json_output(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """--va --json should produce correct structured output."""
+        src = _write(tmp_path / "multi.c", _multi_two())
+        payloads: list[dict[str, Any]] = []
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
+        monkeypatch.setattr("rebrew.split.json_print", lambda data: payloads.append(data))
+
+        result = runner.invoke(app, ["--json", "--va", "0x10001000", str(src)])
+        assert result.exit_code == 0
+        assert len(payloads) == 1
+        payload = payloads[0]
+        assert payload["count"] == 1
+        assert len(payload["files"]) == 1
+        assert payload["files"][0]["va"] == "0x10001000"
+        # output_dir should be the va_out_dir, not the parent
+        assert "multi_c" in payload["output_dir"]
+
+    def test_va_with_output_dir_override(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """--va with --output-dir should use the override directory."""
+        src = _write(tmp_path / "multi.c", _multi_two())
+        custom_dir = tmp_path / "custom_out"
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
+
+        result = runner.invoke(
+            app, ["--va", "0x10001000", "--output-dir", str(custom_dir), str(src)]
+        )
+        assert result.exit_code == 0
+        assert (custom_dir / "func_a.c").exists()
+        assert not (tmp_path / "multi_c").exists()  # default dir not created
