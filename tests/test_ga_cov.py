@@ -19,6 +19,8 @@ class TestParseStubInfo:
     def _make_stub_file(
         self, tmp_path, va=0x10001000, status="STUB", size=64, symbol="_my_func", origin="GAME"
     ) -> Path:
+        # Derive clean function name from symbol for the C definition
+        func_name = symbol.lstrip("_")
         f = tmp_path / f"func_{va:08x}.c"
         f.write_text(
             f"// FUNCTION: SERVER 0x{va:08X}\n"
@@ -26,8 +28,7 @@ class TestParseStubInfo:
             f"// ORIGIN: {origin}\n"
             f"// SIZE: {size}\n"
             f"// CFLAGS: /O2 /Gd\n"
-            f"// SYMBOL: {symbol}\n"
-            f"void __cdecl {symbol}(void) {{\n"
+            f"void __cdecl {func_name}(void) {{\n"
             f"    // stub\n"
             f"}}\n",
             encoding="utf-8",
@@ -37,35 +38,35 @@ class TestParseStubInfo:
     def test_parses_stub(self, tmp_path) -> None:
         f = self._make_stub_file(tmp_path)
         result = parse_stub_info(f)
-        assert result is not None
-        assert result["va"] == "0x10001000"
-        assert result["symbol"] == "_my_func"
+        assert len(result) == 1
+        assert result[0]["va"] == "0x10001000"
+        assert result[0]["symbol"] == "_my_func"
 
     def test_skips_non_stub(self, tmp_path) -> None:
         f = self._make_stub_file(tmp_path, status="EXACT")
         result = parse_stub_info(f)
-        assert result is None
+        assert result == []
 
     def test_skips_skip_status(self, tmp_path) -> None:
         f = self._make_stub_file(tmp_path, status="SKIP")
         result = parse_stub_info(f)
-        assert result is None
+        assert result == []
 
     def test_skips_ignored_symbols(self, tmp_path) -> None:
         f = self._make_stub_file(tmp_path, symbol="_asm_func")
         result = parse_stub_info(f, ignored={"_asm_func"})
-        assert result is None
+        assert result == []
 
     def test_skips_tiny_functions(self, tmp_path) -> None:
         f = self._make_stub_file(tmp_path, size=2)
         result = parse_stub_info(f)
-        assert result is None
+        assert result == []
 
     def test_no_annotations(self, tmp_path) -> None:
         f = tmp_path / "bad.c"
         f.write_text("int main() { return 0; }\n", encoding="utf-8")
         result = parse_stub_info(f)
-        assert result is None
+        assert result == []
 
 
 # -------------------------------------------------------------------------
@@ -75,6 +76,7 @@ class TestParseStubInfo:
 
 class TestFindAllStubs:
     def _make_stub(self, d, va, symbol, size=64) -> None:
+        func_name = symbol.lstrip("_")
         f = d / f"func_{va:08x}.c"
         f.write_text(
             f"// FUNCTION: SERVER 0x{va:08X}\n"
@@ -82,8 +84,7 @@ class TestFindAllStubs:
             f"// ORIGIN: GAME\n"
             f"// SIZE: {size}\n"
             f"// CFLAGS: /O2 /Gd\n"
-            f"// SYMBOL: {symbol}\n"
-            f"void __cdecl {symbol}(void) {{}}\n",
+            f"void __cdecl {func_name}(void) {{}}\n",
             encoding="utf-8",
         )
 
@@ -178,41 +179,41 @@ class TestParseMatchingAll:
     def test_accepts_matching_without_blocker(self, tmp_path: Path) -> None:
         self._make_c(tmp_path, "FuncA", 0x10001000, "MATCHING")
         result = parse_matching_all(tmp_path / "FuncA.c")
-        assert result is not None
-        assert result["va"] == "0x10001000"
-        assert "delta" not in result
+        assert len(result) == 1
+        assert result[0]["va"] == "0x10001000"
+        assert "delta" not in result[0]
 
     def test_accepts_matching_with_blocker(self, tmp_path: Path) -> None:
         self._make_c(tmp_path, "FuncB", 0x10002000, "MATCHING", "3B diff")
         result = parse_matching_all(tmp_path / "FuncB.c")
-        assert result is not None
-        assert result["delta"] == 3
+        assert len(result) == 1
+        assert result[0]["delta"] == 3
 
     def test_rejects_stub(self, tmp_path: Path) -> None:
         self._make_c(tmp_path, "FuncC", 0x10003000, "STUB")
         result = parse_matching_all(tmp_path / "FuncC.c")
-        assert result is None
+        assert result == []
 
     def test_rejects_exact(self, tmp_path: Path) -> None:
         self._make_c(tmp_path, "FuncD", 0x10004000, "EXACT")
         result = parse_matching_all(tmp_path / "FuncD.c")
-        assert result is None
+        assert result == []
 
     def test_rejects_skip(self, tmp_path: Path) -> None:
         self._make_c(tmp_path, "FuncE", 0x10005000, "MATCHING", skip=True)
         result = parse_matching_all(tmp_path / "FuncE.c")
-        assert result is None
+        assert result == []
 
     def test_rejects_ignored(self, tmp_path: Path) -> None:
         self._make_c(tmp_path, "FuncF", 0x10006000, "MATCHING")
         result = parse_matching_all(tmp_path / "FuncF.c", ignored={"_FuncF"})
-        assert result is None
+        assert result == []
 
     def test_preserves_cflags(self, tmp_path: Path) -> None:
         self._make_c(tmp_path, "FuncG", 0x10007000, "MATCHING", cflags="/O1 /Gz")
         result = parse_matching_all(tmp_path / "FuncG.c")
-        assert result is not None
-        assert result["cflags"] == "/O1 /Gz"
+        assert len(result) == 1
+        assert result[0]["cflags"] == "/O1 /Gz"
 
 
 # -------------------------------------------------------------------------

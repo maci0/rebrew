@@ -78,8 +78,8 @@ def extract_type_definitions(filepath: Path) -> Iterator[str]:
             yield text
         elif node.type == "struct_specifier":
             if node.parent and node.parent.type != "type_definition":
-                text = code_bytes[node.start_byte : node.end_byte]
-                if b"{" in text:
+                struct_text = code_bytes[node.start_byte : node.end_byte]
+                if b"{" in struct_text:
                     end_byte = node.end_byte
                     next_sibling = node.next_sibling
                     if next_sibling and next_sibling.type == ";":

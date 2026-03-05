@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.annotation import Annotation, parse_c_file_multi, parse_library_header
+from rebrew.catalog.models import GhidraDataLabel, GhidraFunction
 from rebrew.catalog.registry import make_func_entry
 from rebrew.config import ProjectConfig
 
@@ -19,12 +20,15 @@ from rebrew.config import ProjectConfig
 # ---------------------------------------------------------------------------
 
 
-def load_ghidra_functions(path: Path) -> list[dict[str, Any]]:
+def load_ghidra_functions(path: Path) -> list[GhidraFunction]:
     """Load cached ghidra_functions.json."""
     if not path.exists():
         return []
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, list):
+            return []
+        return [GhidraFunction.from_dict(d) for d in data if isinstance(d, dict)]
     except (json.JSONDecodeError, OSError):
         return []
 
@@ -42,7 +46,7 @@ def _classify_ghidra_label(label: str) -> str:
     return "data"
 
 
-def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, dict[str, Any]]:
+def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, GhidraDataLabel]:
     """Load Ghidra data labels → {va: {"size": int, "label": str, "state": str}}.
 
     Tries ghidra_data_labels.json first, falls back to ghidra_switchdata.json
@@ -67,17 +71,20 @@ def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, dict[str, Any]]:
 
     try:
         entries = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(entries, list):
+            return {}
     except (json.JSONDecodeError, OSError):
         return {}
 
-    result: dict[int, dict[str, Any]] = {}
+    result: dict[int, GhidraDataLabel] = {}
     for entry in entries:
-        va = entry.get("va", 0)
-        size = entry.get("size", 0)
-        if va and size:
-            label = entry.get("label", "")
-            state = _classify_ghidra_label(label) if label else "data"
-            result[va] = {"size": size, "label": label, "state": state}
+        if not isinstance(entry, dict):
+            continue
+        gdl = GhidraDataLabel.from_dict(entry)
+        if gdl.label:
+            gdl.state = _classify_ghidra_label(gdl.label)
+        if gdl.va and gdl.size:
+            result[gdl.va] = gdl
     return result
 
 
@@ -90,7 +97,7 @@ _FUNC_LINE_RE = re.compile(r"\s*(0x[0-9a-fA-F]+)\s+(\d+)\s+(\S+)")
 
 def parse_function_list(path: Path) -> list[dict[str, Any]]:
     """Parse function list into list of {va, size, name}."""
-    funcs = []
+    funcs: list[dict[str, Any]] = []
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:

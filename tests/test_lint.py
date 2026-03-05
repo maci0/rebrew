@@ -371,6 +371,7 @@ class TestDuplicateVA:
 
 class TestWarnings:
     def test_w001_missing_symbol(self, tmp_path: Path) -> None:
+        """W001 is no longer emitted — SYMBOL is derived from C function definitions."""
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
@@ -381,7 +382,8 @@ int foo(void) { return 0; }
 """
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
-        assert any(c == "W001" for _, c, _ in result.warnings)
+        # W001 was removed: symbol is now derived from C function definitions
+        assert not any(c == "W001" for _, c, _ in result.warnings)
 
     def test_w002_old_format(self, tmp_path: Path) -> None:
         content = "/* func @ 0x10001000 (100B) - /O2 - EXACT [GAME] */\nint x;\n"

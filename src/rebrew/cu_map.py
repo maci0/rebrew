@@ -25,6 +25,7 @@ from rich.table import Table
 
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va, load_binary
 from rebrew.catalog import _is_jump_table, build_function_registry, parse_function_list
+from rebrew.catalog.registry import RegistryEntry
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
 
@@ -124,7 +125,7 @@ def _contiguity_score(gap_classes: list[str]) -> tuple[float, list[str]]:
 
 def _scan_call_targets(
     info: BinaryInfo,
-    registry: dict[int, dict[str, Any]],
+    registry: dict[int, RegistryEntry],
     cfg: ProjectConfig | None,
 ) -> dict[int, set[int]]:
     """Disassemble each function and extract direct CALL targets.
@@ -208,7 +209,7 @@ def _call_graph_boost(
 
 
 def cluster_functions(
-    registry: dict[int, dict[str, Any]],
+    registry: dict[int, RegistryEntry],
     info: BinaryInfo,
     cfg: ProjectConfig | None,
 ) -> list[TUCluster]:
@@ -223,7 +224,7 @@ def cluster_functions(
 
     # Filter: no thunks, no zero-size, only .text functions
     text_end = text_va + text_size
-    eligible: list[tuple[int, dict[str, Any]]] = []
+    eligible: list[tuple[int, RegistryEntry]] = []
     unclustered: list[dict[str, str]] = []
 
     for va, entry in sorted(registry.items()):
@@ -243,7 +244,7 @@ def cluster_functions(
         return []
 
     # --- Pass 1: contiguity clustering ---
-    clusters_raw: list[list[tuple[int, dict[str, Any]]]] = [[eligible[0]]]
+    clusters_raw: list[list[tuple[int, RegistryEntry]]] = [[eligible[0]]]
     gap_classes_raw: list[list[str]] = [[]]
 
     for i in range(1, len(eligible)):
@@ -308,7 +309,7 @@ def cluster_functions(
 
 def _cluster_to_dict(
     cluster: TUCluster,
-    registry: dict[int, dict[str, Any]],
+    registry: dict[int, RegistryEntry],
 ) -> dict[str, Any]:
     """Convert a TUCluster to a JSON-serializable dict."""
     func_dicts: list[dict[str, Any]] = []

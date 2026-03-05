@@ -10,6 +10,7 @@ from pathlib import Path
 import typer
 
 from rebrew.annotation import parse_c_file_multi
+from rebrew.binary_loader import extract_raw_bytes
 from rebrew.catalog import load_ghidra_functions
 from rebrew.cli import TargetOption, error_exit, iter_sources, json_print, parse_va, require_config
 from rebrew.config import ProjectConfig
@@ -52,10 +53,8 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
     ghidra_json = cfg.reversed_dir / "ghidra_functions.json"
     ghidra_funcs = load_ghidra_functions(ghidra_json)
     for func in ghidra_funcs:
-        va = func.get("va")
-        name = func.get("ghidra_name", "")
-        if isinstance(va, int) and isinstance(name, str) and name:
-            lookup[va] = (name, "")
+        if func.va and func.name:
+            lookup[func.va] = (func.name, "")
 
     # Override with names from existing source files (more accurate)
     src_dir = Path(cfg.reversed_dir)
@@ -127,7 +126,7 @@ def main(
 
     # Read the bytes from the binary using config's PE-aware offset calculation
     try:
-        data = cfg.extract_dll_bytes(va_int, size)
+        data = extract_raw_bytes(cfg.target_binary, va_int, size)
 
         # Try capstone disassembly
         try:

@@ -37,6 +37,8 @@ from pathlib import Path
 
 from rebrew.compile_cache import CompileCache, compile_cache_key, get_compile_cache
 from rebrew.config import ProjectConfig
+from rebrew.core.matching import smart_reloc_compare
+from rebrew.core.toolchain import msvc_env_from_config
 from rebrew.matcher.parsers import parse_obj_symbol_bytes
 
 
@@ -240,7 +242,7 @@ def compile_to_obj(
             cmd,
             capture_output=True,
             cwd=str(workdir),
-            env=cfg.msvc_env(),
+            env=msvc_env_from_config(cfg),
             timeout=use_timeout,
         )
     except subprocess.TimeoutExpired:
@@ -320,35 +322,26 @@ def compile_and_compare(
                     reloc_offsets,
                 )
 
-            reloc_set: set[int] = set()
-            pointer_size = cfg.pointer_size
-            if reloc_offsets:
-                for ro in reloc_offsets:
-                    for j in range(pointer_size):
-                        if 0 <= ro + j < len(obj_bytes):
-                            reloc_set.add(ro + j)
+            # Use the unified relocation masking logic
+            matched, match_count, total, relocs, inv_relocs = smart_reloc_compare(
+                obj_bytes, target_bytes, reloc_offsets
+            )
 
-            mismatches: list[int] = []
-            for i in range(len(obj_bytes)):
-                if i in reloc_set:
-                    continue
-                if obj_bytes[i] != target_bytes[i]:
-                    mismatches.append(i)
-
-            if not mismatches:
-                if reloc_offsets:
+            if matched:
+                if relocs:
                     return (
                         True,
-                        f"RELOC-NORM MATCH ({len(reloc_offsets)} relocs)",
+                        f"RELOC-NORM MATCH ({len(relocs)} relocs)",
                         obj_bytes,
                         reloc_offsets,
                     )
                 else:
                     return True, "EXACT MATCH", obj_bytes, reloc_offsets
             else:
+                diff_count = total - match_count
                 return (
                     False,
-                    f"MISMATCH: {len(mismatches)} byte diffs at {mismatches[:5]}",
+                    f"MISMATCH: {diff_count} byte diffs",
                     obj_bytes,
                     reloc_offsets,
                 )

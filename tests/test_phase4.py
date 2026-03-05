@@ -230,13 +230,14 @@ def test_skeleton_imports_at_top() -> None:
 
 def test_init_agents_md_has_skills_section() -> None:
     """AGENTS.md template references the agent-skills directory."""
-    from rebrew.init import DEFAULT_AGENTS_MD
+    from rebrew.init import _AGENTS_MD_TEMPLATE
 
-    assert "## Agent Skills" in DEFAULT_AGENTS_MD
-    assert "rebrew-intake" in DEFAULT_AGENTS_MD
-    assert "rebrew-workflow" in DEFAULT_AGENTS_MD
-    assert "rebrew-matching" in DEFAULT_AGENTS_MD
-    assert "rebrew-data-analysis" in DEFAULT_AGENTS_MD
+    template = _AGENTS_MD_TEMPLATE.read_text(encoding="utf-8")
+    assert "## Agent Skills" in template
+    assert "rebrew-intake" in template
+    assert "rebrew-workflow" in template
+    assert "rebrew-matching" in template
+    assert "rebrew-data-analysis" in template
 
 
 def test_init_agent_skills_source_exists() -> None:

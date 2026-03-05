@@ -24,7 +24,6 @@ To load a specific target::
 """
 
 import copy as _copy_mod
-import os
 import shlex
 import sys
 import tomllib
@@ -174,7 +173,8 @@ class ProjectConfig:
         """Return capstone CS_ARCH_* constant."""
         import capstone
 
-        raw_name = _ARCH_PRESETS.get(self.arch, {}).get("capstone_arch", "CS_ARCH_X86")
+        preset = _ARCH_PRESETS.get(self.arch)
+        raw_name = preset.get("capstone_arch", "CS_ARCH_X86") if preset else "CS_ARCH_X86"
         name = raw_name if isinstance(raw_name, str) else "CS_ARCH_X86"
         return getattr(capstone, name)
 
@@ -183,7 +183,8 @@ class ProjectConfig:
         """Return capstone CS_MODE_* constant."""
         import capstone
 
-        raw_name = _ARCH_PRESETS.get(self.arch, {}).get("capstone_mode", "CS_MODE_32")
+        preset = _ARCH_PRESETS.get(self.arch)
+        raw_name = preset.get("capstone_mode", "CS_MODE_32") if preset else "CS_MODE_32"
         name = raw_name if isinstance(raw_name, str) else "CS_MODE_32"
         return getattr(capstone, name)
 
@@ -244,60 +245,6 @@ class ProjectConfig:
         if origin in self.cflags_presets:
             return self.cflags_presets[origin]
         return fallback
-
-    def msvc_env(self) -> dict[str, str]:
-        """Return a subprocess env dict with MSVC6 VCVARS-equivalent variables.
-
-        Sets INCLUDE, LIB, PATH (for DLL resolution), and WINEDEBUG=-all.
-        This is the equivalent of running ``BIN/VCVARS32.BAT x86`` before
-        invoking CL.EXE under Wine.
-        """
-        env = {**os.environ}
-        runner = self.compiler_runner
-        if not runner:
-            try:
-                parts = shlex.split(self.compiler_command)
-            except ValueError:
-                parts = self.compiler_command.split()
-            if parts and parts[0] in {"wine", "wibo"}:
-                runner = parts[0]
-        if runner.lower() in {"wine", "wibo"}:
-            env["WINEDEBUG"] = "-all"
-        if runner:
-            env["REBREW_COMPILER_RUNNER"] = runner
-
-        # Resolve paths relative to project root
-        bin_dir = str(self.root / "tools" / "MSVC600" / "VC98" / "Bin")
-        inc_dir = str(self.compiler_includes)
-        lib_dir = str(self.compiler_libs)
-
-        # Windows-style env vars consumed by CL.EXE
-        env["INCLUDE"] = inc_dir
-        env["LIB"] = lib_dir
-
-        # Ensure Wine can find C1.DLL, C2.DLL etc. alongside CL.EXE
-        existing_path = env.get("WINEPATH", "")
-        env["WINEPATH"] = f"{bin_dir};{existing_path}" if existing_path else bin_dir
-        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
-
-        return env
-
-    def extract_dll_bytes(self, va: int, size: int) -> bytes:
-        """Read raw bytes from the target binary at a given VA.
-
-        Supports VAs in any section (not just .text) by using
-        the binary_loader's section-aware extraction.
-        """
-        from rebrew.binary_loader import extract_bytes_at_va, load_binary
-
-        info = load_binary(self.target_binary)
-        data = extract_bytes_at_va(info, va, size)
-        if data is not None:
-            return data
-        # Fallback to simple file-offset calculation for .text section
-        with self.target_binary.open("rb") as f:
-            f.seek(self.va_to_file_offset(va))
-            return f.read(size)
 
 
 def _parse_int_list(values: list[Any] | None, field_name: str) -> list[int]:

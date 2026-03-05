@@ -33,6 +33,7 @@ from typing import Any
 import typer
 
 from rebrew.annotation import parse_c_file_multi
+from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
 from rebrew.config import ProjectConfig
 
@@ -234,7 +235,6 @@ def generate_inline_c(
     lines.append(f"// ORIGIN: {cfg.default_origin}")
     lines.append(f"// SIZE: {size}")
     lines.append(f"// CFLAGS: {cflags}")
-    lines.append(f"// SYMBOL: {sym}")
     lines.append("")
     lines.append(f"void __declspec(naked) {func_name}(void)")
     lines.append("{")
@@ -392,7 +392,7 @@ def batch_extract(
         stem = entry["filepath"].name
 
         try:
-            code = cfg.extract_dll_bytes(va, size)
+            code = extract_raw_bytes(cfg.target_binary, va, size)
             if code is None:
                 raise ValueError("VA not in any section")
         except (OSError, KeyError, ValueError) as e:
@@ -525,7 +525,7 @@ def main(
         computed_label = label or bin.stem
     elif va and size:
         computed_va = parse_va(va)
-        code = cfg.extract_dll_bytes(computed_va, size)
+        code = extract_raw_bytes(cfg.target_binary, computed_va, size)
         if code is None:
             error_exit(f"Error: could not extract {size} bytes at VA 0x{computed_va:08X}")
         computed_base_va = computed_va

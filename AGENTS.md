@@ -16,7 +16,7 @@ that contains the actual binaries, source files, and toolchains.
 uv pip install -e .
 uv sync --all-extras            # with dev deps
 
-# Run ALL tests (~1443 tests)
+# Run ALL tests (~1581 tests)
 uv run pytest tests/ -v
 
 # Run a SINGLE test file
@@ -144,6 +144,7 @@ src/rebrew/
 ├── cache_cli.py         # `rebrew cache stats` / `rebrew cache clear` CLI
 ├── prove.py             # Symbolic equivalence prover via angr (optional dep)
 ├── cu_map.py            # Compilation unit boundary inference (contiguity + call graph)
+├── todo.py              # Prioritized action list: what to work on next
 ├── [tool].py            # Each CLI tool (test, verify, match, lint, etc.)
 ├── catalog/             # Function catalog package (see catalog/AGENTS.md)
 │   ├── __init__.py      # Re-exports all public names

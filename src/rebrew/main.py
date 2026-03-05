@@ -22,7 +22,7 @@ app = typer.Typer(
     epilog="""\
 [bold]Typical workflow:[/bold]
 
-rebrew next                  Pick the next function to reverse
+rebrew todo                  See what needs work (prioritized by ROI)
 
 rebrew skeleton 0x<VA>       Generate a .c skeleton from address
 
@@ -109,6 +109,7 @@ _COMMAND_PANELS: dict[str, str] = {
     "catalog": "Export & Sync",
     "build-db": "Export & Sync",
     "sync": "Export & Sync",
+    "binsync-export": "Export & Sync",
 }
 
 # Single-command modules – registered as flat commands via app.command().
@@ -123,7 +124,7 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "rebrew.catalog",
         "Build coverage catalog, data JSON, and optional CSV/Ghidra exports.",
     ),
-    ("sync", "rebrew.sync", "Sync annotations between decomp C files and Ghidra."),
+    ("sync", "rebrew.ghidra.cli", "Sync annotations between decomp C files and Ghidra."),
     ("lint", "rebrew.lint", "Lint C annotations."),
     ("extract", "rebrew.extract", "Extract and disassemble functions from binary."),
     ("match", "rebrew.match", "Single-function matching: byte diff, flag sweep, or GA."),
@@ -145,6 +146,11 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("prove", "rebrew.prove", "Prove semantic equivalence via symbolic execution."),
     ("cu-map", "rebrew.cu_map", "Infer compilation unit boundaries from .text layout."),
     ("todo", "rebrew.todo", "Prioritized action list: what to work on next for highest ROI."),
+    (
+        "binsync-export",
+        "rebrew.binsync_export",
+        "Export annotations to an experimental BinSync state directory.",
+    ),
 ]
 
 # Multi-command modules – registered as groups via app.add_typer().
@@ -155,7 +161,7 @@ _MULTI_COMMANDS: list[tuple[str, str, str]] = [
 ]
 
 
-def _make_stub_cmd(mod_name: str, err: ImportError) -> Callable[[], None]:
+def _make_stub_cmd(mod_name: str, err: Exception) -> Callable[[], None]:
     """Create a stub command function that reports a missing dependency."""
 
     def _stub() -> None:
@@ -165,7 +171,7 @@ def _make_stub_cmd(mod_name: str, err: ImportError) -> Callable[[], None]:
     return _stub
 
 
-def _make_stub_app(mod_name: str, err: ImportError) -> typer.Typer:
+def _make_stub_app(mod_name: str, err: Exception) -> typer.Typer:
     """Create a stub Typer app that reports a missing dependency."""
     stub = typer.Typer(help=f"[unavailable] {mod_name}")
 

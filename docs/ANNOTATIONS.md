@@ -28,7 +28,6 @@ Rebrew extends the reccmp baseline with:
 | `ORIGIN` key | Code provenance — config-driven (e.g. GAME, MSVCRT, ZLIB) |
 | `CFLAGS` key | Compiler flags needed to reproduce original compilation |
 | `SIZE` key | Function/data size in bytes from the original binary |
-| `SYMBOL` key | Decorated symbol name for verifier lookup |
 | `SOURCE` key | Reference file for library functions |
 | `BLOCKER` key | Explanation for why a STUB doesn't match yet |
 | `NOTE` key | Freeform notes |
@@ -36,9 +35,11 @@ Rebrew extends the reccmp baseline with:
 | `SKIP` key | Known acceptable byte differences |
 | `SECTION` key | Section name for data annotations (`.data`, `.rdata`, `.bss`) |
 | `GHIDRA` key | Tracks the Ghidra name to prevent conflict loops |
-| `PROTOTYPE` key | Real typed signature pulled from Ghidra decompilation |
 | `STRUCT` key | Reference to a shared struct definition pulled from Ghidra |
 | `CALLERS` key | Comma-separated callers (optional, auto-generated from xrefs) |
+
+> **Note:** `SYMBOL` and `PROTOTYPE` are now **derived automatically** from the C function definition.
+> No explicit `// SYMBOL:` or `// PROTOTYPE:` annotation is needed.
 
 All rebrew-specific keys use unique names that reccmp's parser safely ignores, so files remain compatible with both toolchains.
 
@@ -53,9 +54,10 @@ Every `.c` file containing a reversed function must begin with a header block:
 // STATUS: value
 // ORIGIN: value
 // SIZE: bytes
-// CFLAGS: compiler_flags
-// SYMBOL: _decorated_name
 ```
+
+> `CFLAGS` is **optional** — when omitted, the target's default flags from
+> `rebrew-project.toml` (`base_cflags` / `cflags_presets`) are used automatically.
 
 ### Example
 
@@ -64,8 +66,6 @@ Every `.c` file containing a reversed function must begin with a header block:
 // STATUS: EXACT
 // ORIGIN: GAME
 // SIZE: 31
-// CFLAGS: /O2 /Gd
-// SYMBOL: _bit_reverse
 
 int __cdecl bit_reverse(int x)
 {
@@ -97,12 +97,10 @@ Format: `// MARKER: MODULE 0xVA`
 | `ORIGIN` | **Mandatory** | E005, E006 | Code provenance (see below) |
 | `SIZE` | **Mandatory** | E007, E008 | Function size in bytes from the original binary |
 | `CFLAGS` | Optional | W018 | Compiler flags to reproduce original compilation (e.g. `/O2 /Gd`). Falls back to `base_cflags` from project config. Only warns if both annotation and config are missing. |
-| `SYMBOL` | **Recommended** | W001 | Decorated symbol name (e.g. `_bit_reverse`). Used by verifier to locate function in `.obj` |
 | `SOURCE` | Conditional | W006 | **Required for library origins** — reference file (e.g. `SBHEAP.C:195`, `deflate.c`). Use `rebrew crt-match --fix-source` to auto-populate. |
 | `BLOCKER` | Conditional | W005 | **Required for STUB** — explain why the function doesn't match yet |
 | `NOTE` | Optional | — | Freeform notes (e.g. `NOTE: uses SSE2 intrinsics`) |
 | `GHIDRA` | Optional | — | The Ghidra name, added by `rebrew sync --pull --accept-local` to prevent conflict loops |
-| `PROTOTYPE` | Optional | — | Added by `rebrew sync --pull-signatures` |
 | `STRUCT` | Optional | — | Linked structs for this file |
 | `CALLERS` | Optional | — | Incoming cross-references |
 | `GLOBALS` | Optional | — | Comma-separated list of globals referenced (e.g. `g_counter, g_state`) |
@@ -110,7 +108,7 @@ Format: `// MARKER: MODULE 0xVA`
 | `ANALYSIS` | Optional | — | Freeform analysis notes from decompiler or reverse engineer (e.g. `ANALYSIS: vtable dispatch, 3 virtual calls`) |
 
 > [!TIP]
-> **Rule of thumb**: Marker, STATUS, ORIGIN, and SIZE are enforced as errors — missing any of them will fail CI. `CFLAGS` is optional (falls back to the target default from config). `SYMBOL` is strongly recommended. `SOURCE` and `BLOCKER` are enforced as warnings only for specific origins/statuses.
+> **Rule of thumb**: Marker, STATUS, ORIGIN, and SIZE are enforced as errors — missing any of them will fail CI. `CFLAGS` is optional (falls back to the target default from config). `SOURCE` and `BLOCKER` are enforced as warnings only for specific origins/statuses. Function name and symbol are derived automatically from the C function definition.
 
 ### STATUS Values
 
@@ -300,7 +298,6 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 
 | Code | Description | Triggered by |
 |------|-------------|--------------|
-| W001 | Missing `SYMBOL` | No `// SYMBOL:` line (recommended for verifier) |
 | W003 | No function implementation | File has annotations but no C code body |
 | W005 | STUB missing `BLOCKER` | `STATUS: STUB` without `// BLOCKER:` explaining why |
 | W006 | Library missing `SOURCE` | Library origin (per `library_origins` config) without `// SOURCE:` pointing to reference file |
@@ -401,9 +398,6 @@ graph TD
       "errors": [
         {"line": 1, "code": "E004", "message": "Invalid STATUS: DONE"}
       ],
-      "warnings": [
-        {"line": 1, "code": "W001", "message": "Missing // SYMBOL: annotation (recommended)"}
-      ],
       "passed": false
     }
   ]
@@ -442,8 +436,8 @@ Users control the directory structure freely (e.g. `rendering/draw.c`, `crt/mall
 | `data_` prefix | `data_dispatch_table.c`, `data_sprite_lut.c` |
 | `func_` prefix | `func_10008880.c` — unnamed, address-based (pre-reversal) |
 
-Filenames do not need to match the `SYMBOL` annotation — multi-function files
-and grouped files (e.g. `command.c` with multiple functions) are common.
+Filenames do not need to match the function name — multi-function files
+and grouped files (e.g., `command.c` with multiple functions) are common.
 
 ---
 
@@ -465,7 +459,6 @@ Run `rebrew lint --fix` to auto-migrate to the new multi-line format.
 /* ORIGIN: GAME */
 /* SIZE: 183 */
 /* CFLAGS: /O2 /Gd */
-/* SYMBOL: _AnalyzeInstruction */
 ```
 
 ### Javadoc Format (Legacy)
@@ -476,7 +469,6 @@ Run `rebrew lint --fix` to auto-migrate to the new multi-line format.
  * @address 0x10003640
  * @size 132
  * @cflags /O2 /Gd
- * @symbol _LogMessageInternal
  * @origin GAME
  * @status RELOC
  */
@@ -496,11 +488,9 @@ If you pass `--target BETA10` to a CLI tool, Rebrew will **automatically ignore*
 ```c
 // FUNCTION: LEGO1 0x1009a8c0
 // STATUS: EXACT
-// SYMBOL: my_func
 
 // FUNCTION: BETA10 0x101832f7
 // STATUS: MATCHING
-// SYMBOL: my_func
 void my_func() {}
 ```
 
@@ -508,7 +498,7 @@ This allows you to test the identical C function against different binaries at d
 
 ## Multi-Function Files
 
-A single `.c` file may contain **multiple `// FUNCTION:` annotation blocks**, each with its own `STATUS`, `SIZE`, `SYMBOL`, etc. This enables grouping related functions together (e.g., all CRT environment functions in one file).
+A single `.c` file may contain **multiple `// FUNCTION:` annotation blocks**, each with its own `STATUS`, `SIZE`, etc. This enables grouping related functions together (e.g., all CRT environment functions in one file).
 
 Use `rebrew split` to break a multi-function file into individual files, or `rebrew merge` to combine single-function files into one. Both tools preserve annotation blocks and shared preamble.
 
@@ -522,7 +512,6 @@ Each annotation block follows the same format as a single-function file. Blocks 
 // ORIGIN: MSVCRT
 // SIZE: 125
 // CFLAGS: /O1 /Gd
-// SYMBOL: _getenv
 
 char *getenv(const char *name)
 {
@@ -535,7 +524,6 @@ char *getenv(const char *name)
 // ORIGIN: MSVCRT
 // SIZE: 110
 // CFLAGS: /O1 /Gd
-// SYMBOL: __wsetenvp
 
 int _wsetenvp(void)
 {
@@ -642,7 +630,7 @@ add key-value annotation lines **after** the symbol line:
 reccmp's parser reads the marker + symbol, calls `_function_done()`, and resets to
 search state. The KV lines are invisible to reccmp but captured by rebrew.
 
-Supported KV keys: `STATUS`, `SIZE`, `CFLAGS`, `SOURCE`, `BLOCKER`, `NOTE`, `ORIGIN`, `SYMBOL`.
+Supported KV keys: `STATUS`, `SIZE`, `CFLAGS`, `SOURCE`, `BLOCKER`, `NOTE`, `ORIGIN`.
 
 Entries without explicit `STATUS` default to `EXACT`. Entries without `SIZE` default to 0
 (resolved from the function registry at catalog time).

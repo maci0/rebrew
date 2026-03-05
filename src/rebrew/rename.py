@@ -1,7 +1,7 @@
 """rename.py - Rename a function and update all cross-references.
 
 Renames a function across the entire codebase: updates ``// FUNCTION:``,
-``// SYMBOL:``, ``extern`` declarations, the source file name (optional),
+``extern`` declarations, the C function definition, the source file name (optional),
 and any other references discovered by scanning the reversed directory.
 """
 
@@ -12,7 +12,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from rebrew.annotation import parse_c_file_multi, update_annotation_key
+from rebrew.annotation import parse_c_file_multi
 from rebrew.catalog import scan_reversed_dir
 from rebrew.cli import TargetOption, error_exit, iter_sources, json_print, require_config
 from rebrew.config import ProjectConfig
@@ -32,11 +32,11 @@ rebrew rename src/game/old.c new_func            Rename by file path
 
 rebrew rename 0x10003da0 new_func                Rename by VA
 
-rebrew rename old_func new_func --symbol _New    Custom SYMBOL annotation
+rebrew rename old_func new_func                  Rename function
 
 rebrew rename old_func new_func --file new.c     Custom filename
 
-[dim]Updates FUNCTION/SYMBOL annotations, function definitions, extern
+[dim]Updates FUNCTION annotations, function definitions, extern
 declarations, and optionally renames the source file.[/dim]""",
 )
 console = Console(stderr=True)
@@ -62,9 +62,8 @@ def rename_function_everywhere(
     if dry_run:
         return 1  # Just a fake count
 
-    # 1. Update SYMBOL annotation
-    if update_annotation_key(filepath, va, "SYMBOL", target_sym):
-        pass  # updated
+    # 1. Symbol is now derived from C function definition — no SYMBOL annotation update needed
+    # The function definition rename at step 2 handles symbol derivation automatically
 
     # 2. Update function definition & calls in file
     try:

@@ -25,6 +25,7 @@ Run any tool with `--help` to see usage examples and context
 | `rebrew-match` | `match.py` / `matcher/` | GA matching engine (diff with `--mm`, flag-sweep with `--tier`, `--fix-blocker`); `--diff-only --json` structured diff |
 | `rebrew-ga` | `ga.py` | Batch GA runner and flag sweep for STUB and MATCHING functions |
 | `rebrew-verify` | `verify.py` | Compile all `.c` files and verify byte match against target binary; `--diff` regression detection; `--json` structured reports |
+| `rebrew-todo` | `todo.py` | Prioritized action list: what to work on next for highest ROI |
 | `rebrew-build-db` | `build_db.py` | Build SQLite `db/coverage.db` from `data_*.json` ([schema docs](DB_FORMAT.md)) |
 | `rebrew-cache` | `cache_cli.py` | Compile cache management (`stats`, `clear` subcommands) |
 | `rebrew-cfg` | `cfg.py` | Read and edit `rebrew-project.toml` programmatically (see [CONFIG.md](CONFIG.md)) |
@@ -86,13 +87,13 @@ Atomically renames a function across the entire project.
 
 | Flag | Description |
 |------|-------------|
-| `--symbol NAME` | New `// SYMBOL:` annotation value (default: `_<new_name>`) |
+| `--symbol NAME` | Override symbol name (default: derived from C function definition as `_<new_name>`) |
 | `--file NAME` | New filename (default: auto-rename if stem matches old name) |
 | `--json` | Output results as JSON |
 
 Behavior:
 
-- Updates the `// SYMBOL:` annotation
+- Symbol is derived automatically from the C function definition
 - Updates the C function definition name
 - Replaces `extern` cross-references across all `.c` files
 - Renames the file itself if the stem matches the old name
@@ -110,6 +111,14 @@ Behavior:
 | `--group` | Group adjacent uncovered functions by address proximity |
 | `--group-gap N` | Max address gap for grouping (default 0x1000) |
 | `--json` | JSON output for all modes |
+
+### `rebrew todo`
+
+| Flag | Description |
+|------|-------------|
+| `-n N` / `--count N` | Number of recommendations to include (default 20) |
+| `-c CAT` / `--category CAT` | Filter by category (e.g. `start-function`, `flag-sweep`, `compile-error`) |
+| `--json` | Output results as JSON |
 
 ### `rebrew skeleton`
 
@@ -325,7 +334,7 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 
 `rebrew split <source_file> [--output-dir DIR] [--dry-run] [--force] [--json]`
 
-Split a multi-function `.c` file into individual single-function files. Each output file gets the shared preamble (includes, defines, extern declarations) plus its own annotation block and function body. Filenames are derived from `// SYMBOL:` annotations; falls back to `func_<VA>.c` when no symbol is present.
+Split a multi-function `.c` file into individual single-function files. Each output file gets the shared preamble (includes, defines, extern declarations) plus its own annotation block and function body. Filenames are derived from the C function definition name; falls back to `func_<VA>.c` when no function definition is present.
 
 | Flag | Effect |
 |------|--------|

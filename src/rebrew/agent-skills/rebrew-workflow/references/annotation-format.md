@@ -7,14 +7,20 @@
 // STATUS: STUB | MATCHING | RELOC | EXACT | PROVEN
 // ORIGIN: GAME | MSVCRT | ZLIB | DIRECTX | ...
 // SIZE: <bytes>
-// CFLAGS: /O2 /Gd
-// SYMBOL: _function_name
+// CFLAGS: /O2 /Gd              (optional — falls back to project config)
 // BLOCKER: register allocation, loop rotation
 // BLOCKER_DELTA: 3
 // NOTE: implementation notes
 // GHIDRA: ghidra_function_name
-// PROTOTYPE: void __cdecl func(int a, int b)
+
+int __cdecl function_name(int param_1, char* param_2)
+{
+    // function body
+}
 ```
+
+> Function name and symbol are derived automatically from the C function
+> definition. No `// SYMBOL:` or `// PROTOTYPE:` annotations are needed.
 
 ## Status Progression
 

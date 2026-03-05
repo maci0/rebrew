@@ -93,18 +93,18 @@ def main(
     # --- Unmatchable count ---
     unmatchable_count = 0
     for func in ghidra_funcs:
-        fva = func["va"]
+        fva = func.va
         if fva in existing:
             continue
-        name = func.get("ghidra_name", "")
-        fsize = func.get("size", 0)
+        name = func.name
+        fsize = func.size
         if detect_unmatchable(fva, fsize, binary_info, iat_set, ignored, name):
             unmatchable_count += 1
 
     actionable = max(0, total - covered - unmatchable_count)
 
     # --- Near-miss MATCHING functions ---
-    size_by_va: dict[int, int] = {f["va"]: f["size"] for f in ghidra_funcs}
+    size_by_va: dict[int, int] = {f.va: f.size for f in ghidra_funcs}
     near_miss: list[dict[str, Any]] = []
     for imp_va, info in sorted(existing.items()):
         if info.get("status", "") in ("MATCHING", "MATCHING_RELOC"):
@@ -131,9 +131,9 @@ def main(
     sorted_covered = sorted(covered_vas)
     recommendations: list[dict[str, Any]] = []
     for func in ghidra_funcs:
-        va = func["va"]
-        size = func["size"]
-        name = func.get("ghidra_name", f"FUN_{va:08x}")
+        va = func.va
+        size = func.size
+        name = func.name or f"FUN_{va:08x}"
         if va in existing or va in iat_set or name in ignored:
             continue
         if detect_unmatchable(va, size, binary_info, iat_set, ignored, name):

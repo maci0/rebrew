@@ -152,11 +152,11 @@ def main(
         unmatchable_count = 0
         unmatchable_reasons: dict[str, int] = {}
         for func in ghidra_funcs:
-            fva = func["va"]
+            fva = func.va
             if fva in existing:
                 continue
-            name = func.get("ghidra_name", "")
-            fsize = func.get("size", 0)
+            name = func.name
+            fsize = func.size
             reason = detect_unmatchable(fva, fsize, binary_info, iat_set, ignored, name)
             if reason:
                 unmatchable_count += 1
@@ -208,7 +208,7 @@ def main(
 
     # --improving mode
     if improving:
-        size_by_va: dict[int, int] = {f["va"]: f["size"] for f in ghidra_funcs}
+        size_by_va: dict[int, int] = {f.va: f.size for f in ghidra_funcs}
         matching_items: list[tuple[int, int, int | None, dict[str, str]]] = []
         for imp_va, info in sorted(existing.items()):
             if info["status"] in ("MATCHING", "MATCHING_RELOC"):
@@ -278,9 +278,9 @@ def main(
     if show_unmatchable:
         unmatchable_list: list[tuple[int, int, str, str]] = []
         for func in ghidra_funcs:
-            um_va = func["va"]
-            um_size = func["size"]
-            um_name = func.get("ghidra_name", f"FUN_{um_va:08x}")
+            um_va = func.va
+            um_size = func.size
+            um_name = func.name or f"FUN_{um_va:08x}"
             if um_va in existing:
                 continue
             reason = detect_unmatchable(um_va, um_size, binary_info, iat_set, ignored, um_name)
@@ -321,20 +321,22 @@ def main(
 
         for m_va, info in existing.items():
             if info.get("status") in ("EXACT", "RELOC"):
-                m_size = info.get("size")
-                if not m_size:
+                m_size_val = info.get("size")
+                if not m_size_val:
                     # try to find size in ghidra_funcs
                     for f in ghidra_funcs:
-                        if f["va"] == m_va:
-                            m_size = f["size"]
+                        if f.va == m_va:
+                            m_size_val = f.size
                             break
-                if m_size and m_size > 0:
-                    try:
-                        m_bytes = extract_bytes_at_va(binary_info, m_va, m_size)
-                        if m_bytes:
-                            matched_funcs.append((m_size, m_bytes))
-                    except (OSError, ValueError, KeyError):
-                        pass
+                if m_size_val:
+                    parsed_m_size = int(m_size_val)
+                    if parsed_m_size > 0:
+                        try:
+                            m_bytes = extract_bytes_at_va(binary_info, m_va, parsed_m_size)
+                            if m_bytes:
+                                matched_funcs.append((parsed_m_size, m_bytes))
+                        except (OSError, ValueError, KeyError):
+                            pass
 
     # Sort by size to quickly filter out wildly different sizes
     matched_funcs.sort(key=lambda x: x[0])
@@ -342,9 +344,9 @@ def main(
     sorted_covered = sorted(covered_vas)  # pre-sort for O(log n) neighbor lookups
     uncovered: list[UncoveredItem] = []
     for func in ghidra_funcs:
-        va = func["va"]
-        size = func["size"]
-        name = func.get("ghidra_name", f"FUN_{va:08x}")
+        va = func.va
+        size = func.size
+        name = func.name or f"FUN_{va:08x}"
 
         if va in existing or va in iat_set:
             continue
@@ -384,17 +386,17 @@ def main(
                     start_idx = bisect.bisect_left(matched_funcs, (min_s, b""))
                     end_idx = bisect.bisect_right(matched_funcs, (max_s, b"\xff"))
 
-                    for m_size, m_bytes in matched_funcs[start_idx:end_idx]:
+                    for cand_size, cand_bytes in matched_funcs[start_idx:end_idx]:
                         # Quick prefix check: if first 4 bytes match, it's worth checking deeper
                         # If sizes match exactly, worth checking
-                        if u_bytes[:4] == m_bytes[:4] or size == m_size:
+                        if u_bytes[:4] == cand_bytes[:4] or size == cand_size:
                             # Use simple difflib ratio on bytes
-                            sm = difflib.SequenceMatcher(None, u_bytes, m_bytes)
+                            sm = difflib.SequenceMatcher(None, u_bytes, cand_bytes)
                             # Quick ratio first
                             if sm.quick_ratio() > best_sim:
-                                r = sm.ratio()
-                                if r > best_sim:
-                                    best_sim = r
+                                sim_ratio = sm.ratio()
+                                if sim_ratio > best_sim:
+                                    best_sim = sim_ratio
 
                     similarity = best_sim
             except (OSError, ValueError, KeyError, MemoryError):

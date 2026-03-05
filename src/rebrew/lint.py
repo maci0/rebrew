@@ -98,13 +98,13 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
     """
     results = []
 
-    current_keys = {}
+    current_keys: dict[str, str] = {}
     current_flags = {"has_new": False, "has_old": False, "has_block": False, "has_javadoc": False}
     in_block = False
 
     # Check for legacy formats in the first 20 lines (for compatibility with single-block legacy fixes)
     legacy_flags = {"has_new": False, "has_old": False, "has_block": False, "has_javadoc": False}
-    legacy_keys = {}
+    legacy_keys: dict[str, str] = {}
 
     for line in lines[:20]:
         stripped = line.strip()
@@ -174,7 +174,6 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
 
         if in_block:
             seen_code_after_marker = True
-        pending_kv = {}
 
     if in_block:
         results.append((current_keys, current_flags))
@@ -429,8 +428,9 @@ def _check_E017_contradictory(result: LintResult, status: str, marker: str) -> N
 
 
 def _check_W001_symbol(result: LintResult, found_keys: dict[str, str]) -> None:
-    if "SYMBOL" not in found_keys:
-        result.warning(result.marker_line, "W001", "Missing // SYMBOL: annotation (recommended)")
+    # SYMBOL is now derived from C function definitions — no warning needed.
+    # Kept as a no-op for any callers that reference it.
+    pass
 
 
 def _check_W005_blocker(result: LintResult, status: str, found_keys: dict[str, str]) -> None:
@@ -622,7 +622,6 @@ def lint_file(
                 _check_E003_E004_status(result, found_keys)
                 _check_E005_E006_origin(result, found_keys, cfg)
                 _check_W018_cflags(result, found_keys, cfg)
-                _check_W001_symbol(result, found_keys)
             _check_E007_E008_size(result, found_keys)
 
             origin = found_keys.get("ORIGIN", "GAME")
@@ -868,7 +867,6 @@ E003   Missing STATUS annotation
 
 E013   Duplicate VA across files
 
-W001   Missing SYMBOL (recommended)
 
 W005   STUB without BLOCKER explanation
 

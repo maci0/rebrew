@@ -44,8 +44,8 @@ rebrew sync --pull --dry-run            # preview pull without modifying files
 - DATA/GLOBAL labels and bookmarks (`rebrew/data` category)
 
 **Pull <- Ghidra:**
-- Function renames (updates `// SYMBOL:` locally and handles `extern` cross-references with `--accept-ghidra`)
-- Function prototypes (`--pull-signatures` writes `// PROTOTYPE:` and updates `extern` usage across codebase)
+- Function renames (updates function name in C definition and handles `extern` cross-references with `--accept-ghidra`)
+- Function prototypes (`--pull-signatures` updates the C function definition and `extern` usage across codebase)
 - Structs (`--pull-structs` writes `types.h` from Ghidra)
 - Comments (`--pull-comments` writes EOL/post comments as `// ANALYSIS:`)
 - Data label names

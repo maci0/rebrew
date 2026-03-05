@@ -4,8 +4,8 @@ import pytest
 from click.exceptions import Exit
 
 from rebrew.init import (
+    _AGENTS_MD_TEMPLATE,
     COMPILER_DEFAULTS,
-    DEFAULT_AGENTS_MD,
     DEFAULT_REBREW_TOML,
     GCC_CONSTRAINTS,
     MSVC7_CONSTRAINTS,
@@ -117,7 +117,8 @@ class TestTemplateRendering:
 
     def test_agents_template_renders(self) -> None:
         """AGENTS.md template renders without KeyError."""
-        result = DEFAULT_AGENTS_MD.format(
+        template = _AGENTS_MD_TEMPLATE.read_text(encoding="utf-8")
+        result = template.format(
             project_name="myproject",
             target_name="game.exe",
             binary_name="game.exe",
@@ -160,6 +161,12 @@ class TestConstraints:
 # ---------------------------------------------------------------------------
 # init() -- filesystem tests
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def mock_download_wibo(monkeypatch) -> None:
+    """Prevent tests from hitting GitHub API rate limits."""
+    monkeypatch.setattr("rebrew.wibo.download_wibo", lambda *args, **kwargs: "v1.2.3")
 
 
 class TestInit:
