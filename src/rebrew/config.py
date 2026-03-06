@@ -377,6 +377,56 @@ def _detect_binary_layout(bin_path: Path, fmt: str = "auto") -> dict[str, int]:
         return {"image_base": 0, "text_va": 0, "text_raw_offset": 0}
 
 
+# Well-known MSVC CRT source directory patterns (relative to project root).
+# Each tuple is (glob_pattern_under_tools, origin_name).
+_CRT_SOURCE_PATTERNS: list[tuple[str, str]] = [
+    ("MSVC600/VC98/CRT/SRC", "MSVCRT"),
+    ("MSVC400/CRT/SRC", "MSVCRT"),
+    ("MSVC420/CRT/SRC", "MSVCRT"),
+    ("MSVC7/crt/src", "MSVCRT"),
+]
+
+
+def detect_crt_sources(root: Path) -> dict[str, str]:
+    """Scan the ``tools/`` directory for known MSVC CRT source trees.
+
+    Returns a dict mapping origin names (e.g. ``"MSVCRT"``) to relative paths
+    suitable for use in ``crt_sources`` config entries.  Uses case-insensitive
+    directory matching to handle varying MSVC packaging conventions.
+
+    Only returns the *first* match per origin so that projects with multiple
+    MSVC versions don't get duplicate entries.
+    """
+    tools_dir = root / "tools"
+    if not tools_dir.is_dir():
+        return {}
+
+    found: dict[str, str] = {}
+    for pattern, origin in _CRT_SOURCE_PATTERNS:
+        if origin in found:
+            continue  # first match wins per origin
+        # Case-insensitive search: walk each component
+        candidate = tools_dir
+        for component in pattern.split("/"):
+            # Find a case-insensitive match in the current directory
+            matched_child = None
+            if candidate.is_dir():
+                component_lower = component.lower()
+                for child in candidate.iterdir():
+                    if child.name.lower() == component_lower and child.is_dir():
+                        matched_child = child
+                        break
+            if matched_child is None:
+                break
+            candidate = matched_child
+        else:
+            # All components matched
+            rel = candidate.relative_to(root)
+            found[origin] = str(rel)
+
+    return found
+
+
 def _find_root(start: Path | None = None) -> Path:
     """Walk up from *start* (or cwd) to find rebrew-project.toml.
 
@@ -693,6 +743,10 @@ def load_config(
     # Default library_origins: all origins except the first (primary/FUNCTION origin)
     if not cfg.library_origins and len(cfg.origins) > 1:
         cfg.library_origins = set(cfg.origins[1:])
+
+    # Auto-detect CRT sources if not explicitly configured
+    if not cfg.crt_sources:
+        cfg.crt_sources = detect_crt_sources(root)
 
     # Auto-detect binary layout if the binary exists
     if cfg.target_binary.exists():

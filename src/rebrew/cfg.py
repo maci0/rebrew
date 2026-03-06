@@ -3,19 +3,28 @@
 Uses tomlkit for format-preserving round-trip editing (comments,
 ordering, and whitespace are retained).
 
+Dotted key paths (e.g. ``targets.server.dll.arch``) are resolved
+using greedy longest-match so TOML keys that contain dots (like
+target names) are handled correctly.
+
 Usage::
 
     rebrew cfg list-targets
     rebrew cfg show [KEY]
+    rebrew cfg get KEY
+    rebrew cfg set KEY VALUE
+    rebrew cfg dump [--toml]
+    rebrew cfg path
     rebrew cfg add-target server.dll --binary original/server.dll
     rebrew cfg remove-target old_target
-    rebrew cfg set compiler.cflags "/O2 /Gd"
     rebrew cfg add-origin ZLIB --target server.dll
     rebrew cfg remove-origin ZLIB --target server.dll
     rebrew cfg set-cflags ZLIB "/O3" --target server.dll
+    rebrew cfg detect-crt [--write]
 """
 
 import contextlib
+import json
 import shutil
 from pathlib import Path
 from typing import Any
@@ -31,6 +40,67 @@ from rebrew.utils import atomic_write_text
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _resolve_dotted_key(
+    doc: dict[str, Any], key: str, *, create_missing: bool = False
+) -> tuple[dict[str, Any], str, list[str]]:
+    """Resolve a dotted key path against a TOML document, handling keys with dots.
+
+    Uses greedy matching: at each level, tries the *longest* matching key first.
+    For example, ``targets.server.dll.arch`` resolves through the ``server.dll``
+    key under ``targets``, not through ``server`` then ``dll``.
+
+    Args:
+        doc: The TOML document (or nested table) to resolve against.
+        key: Dot-separated key path, e.g. ``targets.server.dll.arch``.
+        create_missing: If ``True``, create intermediate tables that don't exist
+            (used by ``set``).  If ``False``, error on missing keys.
+
+    Returns:
+        ``(parent, final_key, resolved_parts)`` where *parent* is the innermost
+        table containing *final_key*, and *resolved_parts* is the decomposed
+        key path (for display).
+    """
+    parts = key.split(".")
+    current: Any = doc
+    resolved: list[str] = []
+    i = 0
+
+    while i < len(parts) - 1:
+        if not isinstance(current, dict):
+            error_exit(f"Key '{'.'.join(resolved)}' is not a table; cannot descend further.")
+
+        # Try longest match first (greedy): combine parts[i..j] and check
+        matched = False
+        for j in range(len(parts) - 1, i, -1):
+            candidate = ".".join(parts[i:j])
+            if candidate in current:
+                resolved.append(candidate)
+                current = current[candidate]
+                i = j
+                matched = True
+                break
+
+        if not matched:
+            # Single-part key
+            part = parts[i]
+            if part in current:
+                resolved.append(part)
+                current = current[part]
+            elif create_missing:
+                resolved.append(part)
+                current[part] = tomlkit.table()
+                current = current[part]
+            else:
+                error_exit(
+                    f"Key '{key}' not found (no match for '{part}' in '{'.'.join(resolved) or '<root>'}')."
+                )
+            i += 1
+
+    final_key = parts[-1] if parts else key
+    resolved.append(final_key)
+    return current, final_key, resolved
 
 
 def _find_root() -> Path:
@@ -157,19 +227,47 @@ def show(
         typer.echo(tomlkit.dumps(doc))
         return
 
-    # Navigate dot-separated key
-    parts = key.split(".")
-    current: Any = doc
-    for part in parts:
-        if isinstance(current, dict) and part in current:
-            current = current[part]
-        else:
-            error_exit(f"Key '{key}' not found.")
+    # Resolve dotted key path (handles keys containing dots like target names)
+    parent, final_key, _ = _resolve_dotted_key(doc, key)
+    if not isinstance(parent, dict) or final_key not in parent:
+        error_exit(f"Key '{key}' not found.")
+    current = parent[final_key]
 
     if isinstance(current, (dict, list)):
         typer.echo(tomlkit.dumps(current) if isinstance(current, dict) else str(current))
     else:
         typer.echo(str(current))
+
+
+@app.command("get")
+def get_value(
+    key: str = typer.Argument(..., help="Dot-separated key to read, e.g. 'compiler.cflags'"),
+) -> None:
+    """Read a single config value (alias for 'show KEY')."""
+    show(key=key, target=None)
+
+
+@app.command("dump")
+def dump(
+    json_output: bool = typer.Option(True, "--json/--toml", help="Output format."),
+) -> None:
+    """Dump entire rebrew-project.toml as JSON or TOML."""
+    doc, _ = _load_toml()
+    if json_output:
+        # Convert tomlkit doc to plain dict for JSON serialization
+        import tomllib
+
+        raw = tomllib.loads(tomlkit.dumps(doc))
+        typer.echo(json.dumps(raw, indent=2, default=str))
+    else:
+        typer.echo(tomlkit.dumps(doc))
+
+
+@app.command("path")
+def path_cmd() -> None:
+    """Print the absolute path to rebrew-project.toml."""
+    root = _find_root()
+    typer.echo(str(root / "rebrew-project.toml"))
 
 
 @app.command("add-target")
@@ -327,14 +425,8 @@ def set_value(
     """Set a scalar config key."""
     doc, toml_path = _load_toml()
 
-    parts = key.split(".")
-    current: Any = doc
-    for part in parts[:-1]:
-        if part not in current:
-            current[part] = tomlkit.table()
-        current = current[part]
-
-    final_key = parts[-1]
+    # Resolve dotted key path (creates intermediate tables as needed)
+    parent, final_key, _ = _resolve_dotted_key(doc, key, create_missing=True)
 
     # Try to coerce value to int/float/bool
     parsed_value: str | int | float | bool = value
@@ -347,7 +439,7 @@ def set_value(
             with contextlib.suppress(ValueError):
                 parsed_value = float(value)
 
-    current[final_key] = parsed_value
+    parent[final_key] = parsed_value
     _save_toml(doc, toml_path)
     typer.secho(f"Set {key} = {parsed_value!r}", fg=typer.colors.GREEN)
 
@@ -447,6 +539,56 @@ def set_cflags(
 
     _save_toml(doc, toml_path)
     typer.secho(f'Set {scope}.cflags_presets.{origin.upper()} = "{flags}"', fg=typer.colors.GREEN)
+
+
+@app.command("detect-crt")
+def detect_crt(
+    write: bool = typer.Option(
+        False, "--write", "-w", help="Write detected paths into rebrew-project.toml."
+    ),
+    target: str | None = typer.Option(
+        None, "--target", "-t", help="Target to write crt_sources into (default: first target)."
+    ),
+) -> None:
+    """Auto-detect CRT source directories from MSVC tools in the project tree."""
+    from rebrew.config import detect_crt_sources
+
+    root = _find_root()
+    detected = detect_crt_sources(root)
+    if not detected:
+        typer.secho("No CRT source directories found under tools/.", fg=typer.colors.YELLOW)
+        return
+
+    for origin, rel_path in sorted(detected.items()):
+        typer.echo(f"  {origin} → {rel_path}")
+
+    if write:
+        doc, toml_path = _load_toml(root)
+        target_name = _resolve_target(doc, target)
+        targets_table: Any = doc["targets"]
+        tgt: Any = targets_table[target_name]
+
+        crt_sources = tgt.get("crt_sources")
+        if crt_sources is None:
+            crt_sources = tomlkit.table()
+            tgt["crt_sources"] = crt_sources
+
+        written = 0
+        for origin, rel_path in sorted(detected.items()):
+            if origin not in crt_sources:
+                crt_sources[origin] = rel_path
+                written += 1
+
+        if written:
+            _save_toml(doc, toml_path)
+            typer.secho(
+                f'Wrote {written} crt_sources entries to [targets."{target_name}"].',
+                fg=typer.colors.GREEN,
+            )
+        else:
+            typer.secho(
+                "All detected paths already configured (no changes).", fg=typer.colors.YELLOW
+            )
 
 
 # ---------------------------------------------------------------------------

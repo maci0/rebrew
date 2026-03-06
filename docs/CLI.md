@@ -69,6 +69,8 @@ Run any tool with `--help` to see usage examples and context
 | `-j N` | Parallel compilation workers |
 | `--out-dir DIR` | Output directory for GA results |
 | `--compare-obj` / `--no-compare-obj` | Use object comparison instead of full link (default: true) |
+| `--extra-seed FILE` | Extra `.c` file(s) to seed GA population from solved functions |
+| `--no-seed` | Disable cross-function solution seeding |
 | `--link COMMAND` | LINK.EXE command (for non-obj comparison) |
 | `--lib DIR` | Lib dir (for non-obj comparison) |
 | `--ldflags FLAGS` | Linker flags (for non-obj comparison) |
@@ -177,6 +179,7 @@ Output prefixes for unambiguous parsing:
 | `--tier TIER` | Flag sweep tier: `quick` (~192), `targeted` (~1.1K), `normal` (~21K), `thorough` (~1M), `full` (~8.3M) |
 | `--fix-cflags` | Auto-update `// CFLAGS:` annotation when flag sweep finds exact match |
 | `--dry-run` | List candidates without running GA/sweep |
+| `--seed-from-solved` / `--no-seed` | Seed GA population from similar solved functions (default: on) |
 | `--json` | Output results as JSON |
 
 ### `rebrew doctor`
@@ -524,8 +527,9 @@ rebrew sync --pull-data                            # Fetch data labels into rebr
 | `matcher/flags.py` | `FlagSet`/`Checkbox` primitives (compatible with decomp.me) |
 | `matcher/flag_data.py` | Auto-generated MSVC flags + sweep tiers (from `tools/sync_decomp_flags.py`) |
 | `matcher/parsers.py` | COFF `.obj` and PE byte extraction (LIEF-based) |
-| `matcher/mutator.py` | 51 C mutation operators for GA |
+| `matcher/mutator.py` | 67 C mutation operators for GA |
 | `matcher/core.py` | SQLite `BuildCache` + GA checkpointing |
+| `solutions.py` | Cross-function solution transfer database (`.rebrew/solutions.json`) |
 
 ### Annotation & Sync
 
