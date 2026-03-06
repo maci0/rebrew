@@ -4,6 +4,7 @@ Defines Score, BuildResult, BuildCache (SQLite-backed), and GACheckpoint
 for persisting GA state across runs.
 """
 
+import dataclasses
 import hashlib
 import json
 import warnings
@@ -135,7 +136,8 @@ def load_checkpoint(path: str | Path, expected_hash: str) -> GACheckpoint | None
                 )
                 return None
             data["rng_state"] = (int(rs[0]), internalstate, rs[2])
-        return GACheckpoint(**data)
+        known = {f.name for f in dataclasses.fields(GACheckpoint)}
+        return GACheckpoint(**{k: v for k, v in data.items() if k in known})
     except (json.JSONDecodeError, KeyError, TypeError, ValueError, OSError) as e:
         warnings.warn(f"Failed to load checkpoint: {e}", stacklevel=2)
         return None

@@ -312,7 +312,7 @@ def compile_and_compare(
                 use_cache=use_cache,
             )
             if obj_path is None:
-                return False, f"COMPILE_ERROR: {filter_wine_stderr(err)[:200]}", None, None
+                return False, f"COMPILE_ERROR: {err[:200]}", None, None
 
             obj_bytes, reloc_offsets = parse_obj_symbol_bytes(obj_path, symbol)
             if obj_bytes is None:
