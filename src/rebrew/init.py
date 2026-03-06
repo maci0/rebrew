@@ -23,7 +23,7 @@ app = typer.Typer(
 
 rebrew init                                        Defaults (msvc6, program.exe)
 
-rebrew init --target server --binary server.dll    Name the target and binary
+rebrew init --target mygame --binary mygame.exe    Name the target and binary
 
 rebrew init --compiler msvc7                       Use MSVC 7.x compiler profile
 
@@ -206,6 +206,7 @@ GCC_CONSTRAINTS = """- **C99/C11**: standard modern C
 
 
 _AGENT_SKILLS_SRC = Path(__file__).parent / "agent-skills"
+_PRINCIPLES_SRC = Path(__file__).parent / "PRINCIPLES.md"
 
 
 def _copy_agent_skills(dest: Path, target_name: str) -> None:
@@ -323,7 +324,14 @@ def main(
     # 5. Copy agent-skills directory (bundled with the package)
     _copy_agent_skills(cwd, target_name)
 
-    # 6. Optionally download wibo runner
+    # 6. Copy PRINCIPLES.md to project root
+    if _PRINCIPLES_SRC.is_file():
+        principles_dest = cwd / "PRINCIPLES.md"
+        if not principles_dest.exists():
+            shutil.copy2(_PRINCIPLES_SRC, principles_dest)
+            console.print("[green]Created PRINCIPLES.md[/] (Project design principles)")
+
+    # 7. Optionally download wibo runner
     if install_wibo:
         from rebrew.wibo import download_wibo
 

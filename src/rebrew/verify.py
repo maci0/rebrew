@@ -101,7 +101,7 @@ rebrew verify -o db/verify_results.json   Write JSON report to file
 
 rebrew verify -j 8                        Use 8 parallel compile jobs
 
-rebrew verify -t server.dll               Verify a specific target
+rebrew verify -t mygame               Verify a specific target
 
 [bold]How it works:[/bold]
 

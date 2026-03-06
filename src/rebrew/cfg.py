@@ -3,7 +3,7 @@
 Uses tomlkit for format-preserving round-trip editing (comments,
 ordering, and whitespace are retained).
 
-Dotted key paths (e.g. ``targets.server.dll.arch``) are resolved
+Dotted key paths (e.g. ``targets.mygame.arch``) are resolved
 using greedy longest-match so TOML keys that contain dots (like
 target names) are handled correctly.
 
@@ -15,11 +15,11 @@ Usage::
     rebrew cfg set KEY VALUE
     rebrew cfg dump [--toml]
     rebrew cfg path
-    rebrew cfg add-target server.dll --binary original/server.dll
+    rebrew cfg add-target mygame --binary original/mygame
     rebrew cfg remove-target old_target
-    rebrew cfg add-origin ZLIB --target server.dll
-    rebrew cfg remove-origin ZLIB --target server.dll
-    rebrew cfg set-cflags ZLIB "/O3" --target server.dll
+    rebrew cfg add-origin ZLIB --target mygame
+    rebrew cfg remove-origin ZLIB --target mygame
+    rebrew cfg set-cflags ZLIB "/O3" --target mygame
     rebrew cfg detect-crt [--write]
 """
 
@@ -48,12 +48,12 @@ def _resolve_dotted_key(
     """Resolve a dotted key path against a TOML document, handling keys with dots.
 
     Uses greedy matching: at each level, tries the *longest* matching key first.
-    For example, ``targets.server.dll.arch`` resolves through the ``server.dll``
+    For example, ``targets.mygame.arch`` resolves through the ``mygame``
     key under ``targets``, not through ``server`` then ``dll``.
 
     Args:
         doc: The TOML document (or nested table) to resolve against.
-        key: Dot-separated key path, e.g. ``targets.server.dll.arch``.
+        key: Dot-separated key path, e.g. ``targets.mygame.arch``.
         create_missing: If ``True``, create intermediate tables that don't exist
             (used by ``set``).  If ``False``, error on missing keys.
 
@@ -272,7 +272,7 @@ def path_cmd() -> None:
 
 @app.command("add-target")
 def add_target(
-    name: str = typer.Argument(..., help="Target name (e.g. 'server.dll')."),
+    name: str = typer.Argument(..., help="Target name (e.g. 'mygame')."),
     binary: str = typer.Option(..., "--binary", "-b", help="Path to the original binary."),
     arch: str | None = typer.Option(
         None,
@@ -418,7 +418,7 @@ def remove_target(
 @app.command("set")
 def set_value(
     key: str = typer.Argument(
-        ..., help="Dot-separated key, e.g. 'compiler.cflags' or 'targets.server.dll.arch'."
+        ..., help="Dot-separated key, e.g. 'compiler.cflags' or 'targets.mygame.arch'."
     ),
     value: str = typer.Argument(..., help="Value to set."),
 ) -> None:
