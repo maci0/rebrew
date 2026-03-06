@@ -14,11 +14,11 @@ Usage:
 import contextlib
 import io
 import json
-import os
 import re
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, NotRequired, TypedDict
 
@@ -196,33 +196,13 @@ def find_near_miss(
         max_delta: Maximum byte delta to include.
         cfg: Optional config for source extension.
     """
-    from rebrew.cli import iter_sources, rel_display_path
-
-    results: list[StubInfo] = []
-    seen_vas: dict[str, str] = {}
-
-    if not reversed_dir.exists():
-        return results
-
-    for cfile in iter_sources(reversed_dir, cfg):
-        infos = parse_matching_info(cfile, ignored=ignored, max_delta=max_delta)
-        rel_name = rel_display_path(cfile, reversed_dir)
-        for info in infos:
-            va_str = info["va"]
-            if va_str in seen_vas:
-                if warn_duplicates:
-                    typer.echo(
-                        f"  WARNING: Duplicate VA {va_str} found in {rel_name} "
-                        f"(already in {seen_vas[va_str]}), skipping",
-                        err=True,
-                    )
-                continue
-            seen_vas[va_str] = rel_name
-            results.append(info)
-
-    # Sort by delta (smallest first = easiest to match)
-    results.sort(key=lambda x: (x["delta"], x["size"]))
-    return results
+    return _collect_with_dedup(
+        reversed_dir,
+        cfg,
+        lambda cfile: parse_matching_info(cfile, ignored=ignored, max_delta=max_delta),
+        sort_key=lambda x: (x["delta"], x["size"]),
+        warn_duplicates=warn_duplicates,
+    )
 
 
 def find_all_stubs(
@@ -240,16 +220,39 @@ def find_all_stubs(
         ignored: Set of symbol names to skip (from cfg.ignored_symbols).
         cfg: Optional config for source extension.
     """
+    return _collect_with_dedup(
+        reversed_dir,
+        cfg,
+        lambda cfile: parse_stub_info(cfile, ignored=ignored),
+        sort_key=lambda x: x["size"],
+        warn_duplicates=warn_duplicates,
+    )
+
+
+def _collect_with_dedup(
+    reversed_dir: Path,
+    cfg: ProjectConfig | None,
+    parser_fn: "Callable[[Path], list[StubInfo]]",
+    sort_key: "Callable[[StubInfo], Any]",
+    warn_duplicates: bool = True,
+) -> list[StubInfo]:
+    """Collect StubInfo dicts from source files, deduplicating by VA.
+
+    Shared implementation for find_near_miss, find_all_stubs, and
+    find_all_matching.  The *parser_fn* is called on each source file and
+    should return a list of StubInfo dicts.  Results are deduplicated by
+    VA (first occurrence wins) and sorted by *sort_key*.
+    """
     from rebrew.cli import iter_sources, rel_display_path
 
-    stubs: list[StubInfo] = []
-    seen_vas: dict[str, str] = {}  # va_str -> rel_path
+    results: list[StubInfo] = []
+    seen_vas: dict[str, str] = {}
 
     if not reversed_dir.exists():
-        return stubs
+        return results
 
     for cfile in iter_sources(reversed_dir, cfg):
-        infos = parse_stub_info(cfile, ignored=ignored)
+        infos = parser_fn(cfile)
         rel_name = rel_display_path(cfile, reversed_dir)
         for info in infos:
             va_str = info["va"]
@@ -262,9 +265,10 @@ def find_all_stubs(
                     )
                 continue
             seen_vas[va_str] = rel_name
-            stubs.append(info)
-    stubs.sort(key=lambda x: x["size"])
-    return stubs
+            results.append(info)
+
+    results.sort(key=sort_key)
+    return results
 
 
 def parse_matching_all(filepath: Path, ignored: set[str] | None = None) -> list[StubInfo]:
@@ -336,33 +340,13 @@ def find_all_matching(
     MATCHING function.  Functions with known byte deltas are processed
     first (smallest delta = closest to match).
     """
-    from rebrew.cli import iter_sources, rel_display_path
-
-    results: list[StubInfo] = []
-    seen_vas: dict[str, str] = {}
-
-    if not reversed_dir.exists():
-        return results
-
-    for cfile in iter_sources(reversed_dir, cfg):
-        infos = parse_matching_all(cfile, ignored=ignored)
-        rel_name = rel_display_path(cfile, reversed_dir)
-        for info in infos:
-            va_str = info["va"]
-            if va_str in seen_vas:
-                if warn_duplicates:
-                    typer.echo(
-                        f"  WARNING: Duplicate VA {va_str} found in {rel_name} "
-                        f"(already in {seen_vas[va_str]}), skipping",
-                        err=True,
-                    )
-                continue
-            seen_vas[va_str] = rel_name
-            results.append(info)
-
-    # Priority: smallest delta first, then smallest size
-    results.sort(key=lambda x: (x.get("delta", 9999), x["size"]))
-    return results
+    return _collect_with_dedup(
+        reversed_dir,
+        cfg,
+        lambda cfile: parse_matching_all(cfile, ignored=ignored),
+        sort_key=lambda x: (x.get("delta", 9999), x["size"]),
+        warn_duplicates=warn_duplicates,
+    )
 
 
 def run_flag_sweep(
@@ -576,10 +560,12 @@ def run_ga(
 def update_stub_to_matched(filepath: Path, best_src: str, stub: StubInfo) -> None:
     """Replace STUB source with matched source and update STATUS.
 
-    Uses atomic write (write to .tmp, validate, rename) with .bak backup
-    to prevent data loss from crashes or invalid writes.
+    Validates the transformed content before writing, then uses
+    ``atomic_write_text`` (write-to-tmp + ``os.replace``) with a .bak
+    backup to prevent data loss from crashes or invalid writes.
     """
-    tmp_path = filepath.with_suffix(".c.tmp")
+    import tempfile
+
     bak_path = filepath.with_suffix(".c.bak")
 
     original = filepath.read_text(encoding="utf-8", errors="replace")
@@ -605,21 +591,32 @@ def update_stub_to_matched(filepath: Path, best_src: str, stub: StubInfo) -> Non
         updated = header + new_body
     # else: header already had STATUS: STUB replaced on line above
 
-    # Write to temp file first
-    tmp_path.write_text(updated, encoding="utf-8")
+    # Validate the transformed content re-parses correctly *before* touching
+    # the original file.  Write to a true temp file in the same directory so
+    # parse_c_file_multi sees it on the same filesystem.
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=".c",
+        dir=filepath.parent,
+        delete=False,
+        encoding="utf-8",
+    ) as tmp:
+        tmp.write(updated)
+        tmp_path = Path(tmp.name)
 
-    # Validate the written file re-parses correctly
-    annos = parse_c_file_multi(tmp_path)
-    anno = annos[0] if annos else None
-    if anno is None:
+    try:
+        annos = parse_c_file_multi(tmp_path)
+        if not annos:
+            raise RuntimeError(
+                f"Post-write validation failed: {filepath} would not re-parse after stub update"
+            )
+    finally:
         tmp_path.unlink(missing_ok=True)
-        raise RuntimeError(
-            f"Post-write validation failed: {filepath} would not re-parse after stub update"
-        )
 
-    # Atomic swap: backup original, replace source with validated temp
+    # Backup original, then atomically replace
     shutil.copy2(filepath, bak_path)
-    os.replace(tmp_path, filepath)
+    atomic_write_text(filepath, updated)
+
     # Show relative path for clarity in nested directory layouts.
     from rebrew.cli import rel_display_path
 

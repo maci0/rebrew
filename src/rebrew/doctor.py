@@ -143,7 +143,7 @@ def check_config_parse(
             ),
             None,
         )
-    except Exception as e:
+    except (ValueError, TypeError, OSError) as e:
         return (
             CheckResult(
                 name="rebrew-project.toml",
@@ -181,7 +181,7 @@ def check_target_binary(cfg: ProjectConfig) -> CheckResult:
                 f"{sections} sections)"
             ),
         )
-    except Exception as e:
+    except (ValueError, FileNotFoundError, OSError) as e:
         return CheckResult(
             name="Target binary",
             status=_FAIL,

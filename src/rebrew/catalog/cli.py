@@ -272,12 +272,12 @@ def main(
 
     if fix_sizes:
         from rebrew.annotation import update_size_annotation
-        from rebrew.cli import iter_sources
+        from rebrew.cli import iter_sources, target_marker
 
         updated = 0
         skipped = 0
         for cfile in iter_sources(reversed_dir, cfg):
-            parsed = parse_c_file_multi(cfile, target_name=cfg.marker if cfg else None)
+            parsed = parse_c_file_multi(cfile, target_name=target_marker(cfg))
             for ann in parsed:
                 va = ann.va
                 if va not in registry:

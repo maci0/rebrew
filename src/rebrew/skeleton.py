@@ -37,6 +37,7 @@ from rebrew.cli import (
     parse_va,
     rel_display_path,
     require_config,
+    target_marker,
 )
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 from rebrew.decompiler import fetch_decompilation
@@ -633,9 +634,7 @@ def main(
             error_exit(f"--append target does not exist: {append_path}", json_mode=json_output)
 
         if not force:
-            existing_in_file = parse_c_file_multi(
-                append_path, target_name=cfg.marker if cfg else None
-            )
+            existing_in_file = parse_c_file_multi(append_path, target_name=target_marker(cfg))
             for entry in existing_in_file:
                 if entry.va == va_int:
                     typer.echo(

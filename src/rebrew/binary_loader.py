@@ -269,8 +269,6 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
         ValueError: If the format cannot be determined or parsing fails.
     """
     path = Path(path)
-    if not path.exists():
-        raise FileNotFoundError(f"Binary not found: {path}")
 
     # Bounded cache keyed on resolved path + format to avoid re-parsing.
     # Lock protects concurrent reads/writes from ThreadPoolExecutor workers
@@ -287,35 +285,38 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     spath = str(path)
     result: BinaryInfo
 
-    if fmt == "auto":
-        binary = lief.parse(spath)
-        if binary is None:
-            raise ValueError(f"Failed to parse binary (unknown format): {path}")
-        if isinstance(binary, lief.PE.Binary):
+    try:
+        if fmt == "auto":
+            binary = lief.parse(spath)
+            if binary is None:
+                raise ValueError(f"Failed to parse binary (unknown format): {path}")
+            if isinstance(binary, lief.PE.Binary):
+                result = _load_pe(binary, path)
+            elif isinstance(binary, lief.ELF.Binary):
+                result = _load_elf(binary, path)
+            elif isinstance(binary, (lief.MachO.FatBinary, lief.MachO.Binary)):
+                result = _load_macho(binary, path)
+            else:
+                raise ValueError(f"Unsupported binary format: {path}")
+        elif fmt == "pe":
+            binary = lief.PE.parse(spath)
+            if binary is None:
+                raise ValueError(f"Failed to parse PE: {path}")
             result = _load_pe(binary, path)
-        elif isinstance(binary, lief.ELF.Binary):
+        elif fmt == "elf":
+            binary = lief.ELF.parse(spath)
+            if binary is None:
+                raise ValueError(f"Failed to parse ELF: {path}")
             result = _load_elf(binary, path)
-        elif isinstance(binary, (lief.MachO.FatBinary, lief.MachO.Binary)):
+        elif fmt == "macho":
+            binary = lief.MachO.parse(spath)
+            if binary is None:
+                raise ValueError(f"Failed to parse Mach-O: {path}")
             result = _load_macho(binary, path)
         else:
-            raise ValueError(f"Unsupported binary format: {path}")
-    elif fmt == "pe":
-        binary = lief.PE.parse(spath)
-        if binary is None:
-            raise ValueError(f"Failed to parse PE: {path}")
-        result = _load_pe(binary, path)
-    elif fmt == "elf":
-        binary = lief.ELF.parse(spath)
-        if binary is None:
-            raise ValueError(f"Failed to parse ELF: {path}")
-        result = _load_elf(binary, path)
-    elif fmt == "macho":
-        binary = lief.MachO.parse(spath)
-        if binary is None:
-            raise ValueError(f"Failed to parse Mach-O: {path}")
-        result = _load_macho(binary, path)
-    else:
-        raise ValueError(f"Unknown binary format: {fmt!r}")
+            raise ValueError(f"Unknown binary format: {fmt!r}")
+    except OSError as exc:
+        raise FileNotFoundError(f"Binary not found: {path}") from exc
 
     with _load_binary_lock:
         # Double-check: another thread may have parsed the same binary

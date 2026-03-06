@@ -40,34 +40,38 @@ def smart_reloc_compare(
     invalid_relocs = []
 
     if coff_relocs is not None:
-        is_dict = isinstance(coff_relocs, dict)
-        reloc_iter = list(coff_relocs.keys()) if is_dict else coff_relocs  # type: ignore
+        if isinstance(coff_relocs, dict):
+            # Dict branch: offset -> symbol_name mapping with VA validation
+            for r in coff_relocs:
+                if r + 4 <= min_len:
+                    valid = True
 
-        for r in reloc_iter:  # type: ignore
-            if r + 4 <= min_len:
-                valid = True
+                    # Check absolute address if we have name mapping
+                    if name_to_va:
+                        sym_name = str(coff_relocs[r])
 
-                # Check absolute address if we have name mapping
-                if is_dict and name_to_va:
-                    sym_name = str(coff_relocs[r])  # type: ignore
+                        # Remove underscore prefix for C names if present
+                        clean_sym = sym_name.lstrip("_") if sym_name.startswith("_") else sym_name
 
-                    # Remove underscore prefix for C names if present
-                    clean_sym = sym_name.lstrip("_") if sym_name.startswith("_") else sym_name
-
-                    target_va = name_to_va.get(clean_sym) or name_to_va.get(sym_name)
-                    if target_va:
-                        try:
-                            # Read absolute address from target bytes (little endian 32-bit)
-                            actual_target_va = struct.unpack("<I", target_bytes[r : r + 4])[0]
-                            if actual_target_va != target_va:
+                        target_va = name_to_va.get(clean_sym) or name_to_va.get(sym_name)
+                        if target_va:
+                            try:
+                                # Read absolute address from target bytes (little endian 32-bit)
+                                actual_target_va = struct.unpack("<I", target_bytes[r : r + 4])[0]
+                                if actual_target_va != target_va:
+                                    valid = False
+                            except struct.error:
                                 valid = False
-                        except struct.error:
-                            valid = False
 
-                if valid:
+                    if valid:
+                        valid_relocs.append(r)
+                    else:
+                        invalid_relocs.append(r)
+        else:
+            # List branch: plain offset list (no symbol resolution needed)
+            for r in coff_relocs:
+                if r + 4 <= min_len:
                     valid_relocs.append(r)
-                else:
-                    invalid_relocs.append(r)
     else:
         i = 0
         while i <= min_len - 4:

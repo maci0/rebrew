@@ -102,6 +102,15 @@ def source_glob(cfg: ProjectConfig | None) -> str:
     return f"*{ext}"
 
 
+def target_marker(cfg: ProjectConfig | None) -> str | None:
+    """Return the target marker name from *cfg*, or ``None`` if unavailable.
+
+    Shorthand for the ``cfg.marker if cfg else None`` pattern that appears
+    at every ``parse_c_file_multi`` / ``parse_library_header`` call site.
+    """
+    return cfg.marker if cfg is not None else None
+
+
 def rel_display_path(filepath: Path, base_dir: Path | None = None) -> str:
     """Return a display-friendly relative path for a source file.
 
