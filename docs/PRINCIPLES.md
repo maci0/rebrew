@@ -12,7 +12,7 @@ Global and project-specific settings live in `rebrew-project.toml`. Tools must r
 Rebrew is built as a collection of small, single-purpose CLI utilities following the Unix philosophy. Complex workflows—like autonomous batch reversing—are achieved by chaining these tools together. This makes the system extremely friendly to AI orchestration and custom batch scripting.
 
 ## 4. Score Monotonicity (Strict Non-Regression)
-Whether driven by a human or an AI agent, the system must **never** make a function's decompiled state worse. Every proposed change is evaluated against a strict byte-comparison score. Updates to existing functions are only promoted if their status improves (e.g., `MATCHING` -> `RELOC`) or the mismatched byte count strictly decreases.
+Whether driven by a human or an AI agent, the system must maintain truthful status annotations. Every proposed change is evaluated against a strict byte-comparison score. Updates to existing functions are only promoted if their status improves (e.g., `MATCHING` -> `RELOC`) or the mismatched byte count strictly decreases. Conversely, `rebrew promote` actively **demotes** functions to `STUB` (with a `BLOCKER` annotation) when code changes cause the byte-match ratio to drop below the 75% threshold — a function can't claim `MATCHING`/`EXACT` status if it no longer matches.
 
 ## 5. Byte-Identical Ground Truth
 "Close enough" is not the goal. The ultimate source of truth is the compiler output. Cosmetic changes (renaming variables, adding comments) are only accepted if `rebrew test` verifies that the resulting `.obj` bytes remain completely identical to the existing matched baseline.

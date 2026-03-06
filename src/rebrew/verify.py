@@ -141,6 +141,8 @@ def _source_hash(filepath: Path) -> str:
 
 @dataclass
 class VerifyResult:
+    """Represents the verification result of a single compiled function."""
+
     status: str
     va: str | int
     size: int = 0
@@ -155,6 +157,7 @@ class VerifyResult:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "VerifyResult":
+        """Reconstruct a VerifyResult from a JSON dictionary."""
         return cls(
             status=str(d.get("status", "")),
             va=d.get("va", ""),
@@ -170,11 +173,14 @@ class VerifyResult:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert this VerifyResult to a JSON-serializable dictionary."""
         return asdict(self)
 
 
 @dataclass
 class VerifyCacheEntry:
+    """A single cache entry linking a source file hash to its VerifyResult."""
+
     source_hash: str
     filepath: str
     mtime_ns: int
@@ -182,6 +188,7 @@ class VerifyCacheEntry:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "VerifyCacheEntry":
+        """Reconstruct a VerifyCacheEntry from a JSON dictionary."""
         return cls(
             source_hash=str(d.get("source_hash", "")),
             filepath=str(d.get("filepath", "")),
@@ -190,11 +197,14 @@ class VerifyCacheEntry:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert this VerifyCacheEntry to a JSON-serializable dictionary."""
         return asdict(self)
 
 
 @dataclass
 class VerifyCache:
+    """The root structure of the verification cache file."""
+
     version: int
     compiler_hash: str
     target: str
@@ -202,6 +212,7 @@ class VerifyCache:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "VerifyCache":
+        """Reconstruct a VerifyCache from a JSON dictionary."""
         return cls(
             version=int(d.get("version", 0)),
             compiler_hash=str(d.get("compiler_hash", "")),
@@ -214,6 +225,7 @@ class VerifyCache:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        """Convert this VerifyCache to a JSON-serializable dictionary."""
         return asdict(self)
 
 
@@ -290,6 +302,16 @@ def _save_verify_cache(
 
 
 def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    """Compare two JSON verify reports and highlight changes in status or match percentage.
+
+    Args:
+        previous: The previous run's full JSON results dict.
+        current: The newly generated full JSON results dict.
+
+    Returns:
+        A dict containing separated lists of 'regressions', 'fixes', and 'improvements'.
+
+    """
     previous_results = {
         str(r["va"]): r for r in previous.get("results", []) if isinstance(r, dict) and "va" in r
     }
@@ -901,8 +923,29 @@ def _print_results(
     # Print failures
     if fail_details:
         out_console.print()
-        for entry, msg in sorted(fail_details, key=lambda x: x[0]["va"]):
-            out_console.print(rf"  [red bold]\[FAIL][/] 0x{entry.va:08X} {entry.name}: {msg}")
+
+        # Build lookup for results to get match_percent
+        res_by_va = {int(r["va"], 16): r for r in results}
+
+        # Sort failures: lowest match_percent first, then by VA
+        def _fail_sort_key(item: tuple[Annotation, str]) -> tuple[float, int]:
+            entry, _ = item
+            r = res_by_va.get(entry.va)
+            mp = r.get("match_percent") if r else 0.0
+            return (mp or 0.0, entry.va)
+
+        for entry, msg in sorted(fail_details, key=_fail_sort_key):
+            res_dict = res_by_va.get(entry.va)
+            st = str(res_dict["status"]) if res_dict else "FAIL"
+            if st == "MISMATCH":
+                match_pct = float(res_dict.get("match_percent", 0.0)) if res_dict else 0.0
+                out_console.print(
+                    rf"  [red bold]\[{match_pct:.1f}%][/] 0x{entry.va:08X} {entry.name}: {msg}"
+                )
+            elif st in ("COMPILE_ERROR", "MISSING_FILE"):
+                out_console.print(rf"  [red bold]\[{st}][/] 0x{entry.va:08X} {entry.name}: {msg}")
+            else:
+                out_console.print(rf"  [red bold]\[FAIL][/] 0x{entry.va:08X} {entry.name}: {msg}")
 
     # Summary
     style = "green" if failed == 0 else "red"

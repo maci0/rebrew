@@ -223,7 +223,16 @@ for _name, _module, _help in _MULTI_COMMANDS:
 
 def main() -> None:
     """Package entry point for the ``rebrew`` umbrella CLI."""
-    app()
+    try:
+        app()
+    except (ValueError, FileNotFoundError, KeyError, RuntimeError) as e:
+        from rebrew.cli import error_exit
+
+        error_exit(str(e))
+    except KeyboardInterrupt:
+        from rebrew.cli import error_exit
+
+        error_exit("Interrupted by user", code=130)
 
 
 if __name__ == "__main__":

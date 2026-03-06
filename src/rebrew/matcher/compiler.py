@@ -117,7 +117,7 @@ def _get_pe_symbol_size(exe_path: Path, symbol: str) -> int | None:
         if next_offset is not None:
             size = next_offset - sym_value
             if 0 < size <= 10000:
-                return size
+                return int(size)
 
         return None
     except (ImportError, OSError, AttributeError, ValueError):
@@ -131,6 +131,7 @@ def generate_flag_combinations(tier: str = "targeted", profile: str = "msvc6") -
         tier: Sweep effort level — "quick", "normal", "thorough", or "full".
               Controls how many flag axes are included.
         profile: Compiler profile name — "msvc6", "msvc7", or "msvc".
+
     """
     # Use synced Flags for this profile, falling back to msvc6
     flags = _FLAGS_MAP.get(profile, _FLAGS_MAP["msvc6"])
@@ -343,8 +344,19 @@ def flag_sweep(
     """Sweep compiler flags to find the best match.
 
     Args:
+        source_code: C source to compile.
+        target_bytes: The target byte sequence to match against.
+        cl_cmd: Path or command to the compiler.
+        inc_dir: Base include directory.
+        base_cflags: Minimum flags required.
+        symbol: Symbol name to extract.
+        n_jobs: Thread count.
         tier: Sweep effort level — "quick", "normal", "thorough", or "full".
+        env: MSVC environment.
+        source_ext: Extension of the source file.
         cache: Optional ``CompileCache`` for cross-run persistence.
+        timeout: Subprocess timeout in seconds.
+
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 

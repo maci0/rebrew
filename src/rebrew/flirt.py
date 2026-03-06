@@ -1,4 +1,5 @@
 """Run FLIRT signature matching against functions in the target binary.
+
 Usage: rebrew flirt [sig_dir]
 """
 
@@ -118,7 +119,7 @@ def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """FLIRT signature scanner for binaries"""
+    """FLIRT signature scanner for binaries.."""
     if flirt is None:
         error_exit("flirt module not found. Run 'uv sync' to install dependencies.")
     cfg = require_config(target=target, json_mode=json_output)

@@ -350,9 +350,14 @@ rebrew promote --all                               # batch promote all promotabl
 rebrew promote --all --origin GAME --dry-run       # preview batch by origin
 ```
 
-`rebrew promote` updates the STATUS annotation and verifies the match still holds.
-Batch mode (`--all`) discovers all functions and updates each. Supports both promotion
-(STUB→MATCHING→RELOC→EXACT) and demotion (EXACT→MATCHING if code regresses).
+`rebrew promote` compiles the source, compares against the target binary, and updates
+the STATUS annotation based on the result. It handles both **promotion** and **demotion**:
+
+- **Promotion** (STUB→MATCHING→RELOC→EXACT): when the measured match quality improves.
+  Automatically removes BLOCKER/BLOCKER_DELTA annotations on promotion to EXACT/RELOC.
+- **Demotion** (EXACT/RELOC/MATCHING→STUB): when byte match falls below the 75% threshold,
+  the function is demoted to STUB and a `BLOCKER` annotation is added with the match ratio
+  (e.g. `auto-demoted: byte match 12/42 below threshold`).
 
 ### 11. Lint and Verify Annotation Health
 

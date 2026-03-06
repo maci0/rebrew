@@ -340,6 +340,7 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
     Args:
         src_dir: Directory containing reversed source files.
         cfg: Optional config for source extension (defaults to ``".c"``).
+
     """
     from rebrew.cli import iter_library_headers, iter_sources, rel_display_path, target_marker
 
@@ -380,6 +381,7 @@ def find_neighbor_file(
         max_gap: Maximum address distance to consider (default 4KB).
         _sorted_keys: Optional pre-sorted list of VAs from *existing_vas*.
             Pass this when calling in a loop to avoid re-sorting on each call.
+
     """
     if not existing_vas:
         return None

@@ -156,9 +156,11 @@ rebrew promote --all --dry-run --json                # preview batch promotion
 ```
 
 Single-file mode tests and atomically updates STATUS. Batch mode (`--all`) discovers
-all functions, verifies each, and updates annotations. Supports both promotion
-(STUB→MATCHING→RELOC→EXACT) and demotion (EXACT→MATCHING if code regresses).
-Automatically removes BLOCKER/BLOCKER_DELTA annotations on promotion.
+all functions, verifies each, and updates annotations. Handles both:
+
+- **Promotion** (STUB→MATCHING→RELOC→EXACT): removes BLOCKER/BLOCKER_DELTA on success.
+- **Demotion** (EXACT/RELOC/MATCHING→STUB): when byte match falls below 75% threshold,
+  demotes to STUB and adds a `BLOCKER` with the match ratio.
 
 ## 9. Verify and Track Progress
 

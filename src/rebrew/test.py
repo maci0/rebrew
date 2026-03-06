@@ -112,9 +112,13 @@ def update_source_status(
     by precomputing block membership before the write pass.
 
     Args:
+        source_path: Path to the .c file to update.
+        new_status: The new status string to set (e.g., EXACT, RELOC).
+        blockers_to_remove: Whether to clear existing BLOCKER annotations.
         target_va: If set, only update the STATUS line belonging to the
             annotation block whose FUNCTION/LIBRARY/STUB marker contains
             this VA.  When None (default), updates ALL STATUS lines.
+
     """
     source_path = Path(source_path)
     tmp_path = source_path.with_suffix(".c.tmp")
@@ -253,6 +257,7 @@ def main(
         cflags: Optional compiler flags string overriding annotation/config defaults.
         json_output: Emit machine-readable JSON responses.
         target: Optional target profile name from ``rebrew-project.toml``.
+
     """
     cfg = require_config(target=target, json_mode=json_output)
 
@@ -460,9 +465,11 @@ def build_result_dict(
         relocs: Relocation start offsets (4-byte spans each).
         obj_bytes: Compiled symbol bytes extracted from object output.
         target_bytes: Ground-truth target bytes.
+        invalid_relocs: Optional list of offsets containing mismatched relocations.
 
     Returns:
         JSON-serializable dictionary with status, metrics, and mismatches.
+
     """
     status = ("RELOC" if relocs else "EXACT") if matched else "MISMATCH"
 

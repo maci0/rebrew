@@ -1,3 +1,5 @@
+"""Module docstring."""
+
 from rebrew.ghidra.cli import app
 from rebrew.ghidra.client import (
     _fetch_mcp_tool,

@@ -85,6 +85,7 @@ def resolve_cl_command(cfg: ProjectConfig) -> list[str]:
 
     Returns:
         List of command parts, e.g. ``["wine", "/abs/path/CL.EXE"]``.
+
     """
     cmd_parts = _safe_shlex_split(cfg.compiler_command)
 
@@ -142,6 +143,7 @@ def compile_to_obj(
 
     Returns:
         (obj_path, error_msg) — obj_path is None on failure.
+
     """
     source_path = Path(source_path)
     workdir = Path(workdir)
@@ -289,10 +291,13 @@ def compile_and_compare(
         symbol: COFF symbol name to extract (e.g. ``_my_func``).
         target_bytes: Expected bytes from the target binary.
         cflags: Compiler flags (string or list).
+        cache: Optional explicit CompileCache instance.
+        use_cache: If True, check and populate the compile cache.
 
     Returns:
         (matched, message, obj_bytes, reloc_offsets)
         matched is True if bytes match after reloc masking.
+
     """
     cflags_list = _safe_shlex_split(cflags) if isinstance(cflags, str) else list(cflags)
 

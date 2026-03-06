@@ -1,3 +1,5 @@
+"""Module docstring."""
+
 from dataclasses import dataclass
 from typing import Any
 
@@ -29,6 +31,7 @@ class FunctionEntry:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "FunctionEntry":
+        """Docstring."""
         va = d.get("va")
         size = d.get("size")
         if va is None or size is None:
@@ -45,6 +48,8 @@ class FunctionEntry:
 
 @dataclass
 class GhidraDataLabel:
+    """Docstring."""
+
     va: int
     size: int
     label: str = ""
@@ -52,6 +57,7 @@ class GhidraDataLabel:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "GhidraDataLabel":
+        """Docstring."""
         return cls(
             va=d.get("va", 0),
             size=d.get("size", 0),

@@ -697,7 +697,7 @@ def _apply_query_once(
     repl: Callable[[dict[str, ts.Node]], bytes],
     rng: random.Random,
 ) -> bytes | None:
-    """Helper to apply an AST query and replace one matched occurrence."""
+    """Apply an AST query and replace one matched occurrence."""
     tree = parse_c_ast(source)
     cursor = ts.QueryCursor(query)
     matches = cursor.matches(tree.root_node)
@@ -783,7 +783,9 @@ def mut_flip_lt_ge(s: str, rng: random.Random) -> str | None:
 
 def mut_add_redundant_parens(s: str, rng: random.Random) -> str | None:
     """Wrap a random identifier in redundant parentheses.
-    AST makes this safe vs wrapping keywords like 'return'."""
+
+    AST makes this safe vs wrapping keywords like 'return'.
+    """
     b_source = s.encode("utf-8")
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
@@ -795,7 +797,7 @@ def mut_add_redundant_parens(s: str, rng: random.Random) -> str | None:
 
 
 def mut_swap_eq_operands(s: str, rng: random.Random) -> str | None:
-    """a == b -> b == a"""
+    """Swap A == b to b == a."""
     b_source = s.encode("utf-8")
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
@@ -808,7 +810,7 @@ def mut_swap_eq_operands(s: str, rng: random.Random) -> str | None:
 
 
 def mut_swap_ne_operands(s: str, rng: random.Random) -> str | None:
-    """a != b -> b != a"""
+    """Swap A != b to b != a."""
     b_source = s.encode("utf-8")
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
@@ -835,7 +837,7 @@ def mut_reassociate_add(s: str, rng: random.Random) -> str | None:
 
 
 def mut_swap_or_operands(s: str, rng: random.Random) -> str | None:
-    """a || b -> b || a  (changes short-circuit order, affects codegen)"""
+    """Swap A || b to b || a (changes short-circuit order, affects codegen)."""
     b_source = s.encode("utf-8")
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
@@ -853,7 +855,7 @@ def mut_swap_or_operands(s: str, rng: random.Random) -> str | None:
 
 
 def mut_swap_and_operands(s: str, rng: random.Random) -> str | None:
-    """a && b -> b && a"""
+    """Swap A && b to b && a."""
     b_source = s.encode("utf-8")
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
@@ -919,7 +921,7 @@ def mut_return_to_goto(s: str, rng: random.Random) -> str | None:
 
 
 def mut_goto_to_return(s: str, rng: random.Random) -> str | None:
-    """Reverse: replace 'goto ret_false;' with 'return 0;'"""
+    """Reverse: replace 'goto ret_false;' with 'return 0;'."""
     b_source = s.encode("utf-8")
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
@@ -2082,7 +2084,7 @@ def mut_hoist_return(s: str, rng: random.Random) -> str | None:
 
 
 def mut_sink_return(s: str, rng: random.Random) -> str | None:
-    """Collapse ret=expr; goto end; back to return expr;
+    """Collapse ret=expr; goto end; back to return expr.
 
     Inverse of mut_hoist_return.
     """
@@ -2266,6 +2268,8 @@ def mut_compound_assign_toggle(s: str, rng: random.Random) -> str | None:
         replacement = var + b" " + base_op + b"= " + rhs + b";"
 
     target = caps.get("expr") or caps.get("stmt")
+    if target is None:
+        return None
     result = b_source[: target.start_byte] + replacement + b_source[target.end_byte :]
     return result.decode("utf-8")
 

@@ -51,6 +51,7 @@ class CompileCache:
     """
 
     def __init__(self, cache_dir: str | Path, size_limit: int = _DEFAULT_SIZE_LIMIT) -> None:
+        """Docstring."""
         self._cache = diskcache.Cache(str(cache_dir), size_limit=size_limit)
 
     def get(self, key: str) -> bytes | None:
@@ -65,7 +66,7 @@ class CompileCache:
     @property
     def volume(self) -> int:
         """Total bytes used by the cache on disk."""
-        return self._cache.volume()
+        return int(self._cache.volume())
 
     @property
     def count(self) -> int:

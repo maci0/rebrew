@@ -86,7 +86,7 @@ def load_functions(cfg: ProjectConfig) -> list[dict[str, int | str]]:
     json_path = txt_path.with_suffix(".json")
 
     if txt_path.exists():
-        raw_funcs = cast(list[dict[str, Any]], parse_function_list(txt_path))
+        raw_funcs = parse_function_list(txt_path)
         return [
             {"va": int(fn["va"]), "size": int(fn["size"]), "name": str(fn["name"])}
             for fn in raw_funcs
@@ -324,6 +324,7 @@ def main(
         max_size: Maximum function size to include.
         json_output: Emit machine-readable JSON output.
         target: Optional target profile from ``rebrew-project.toml``.
+
     """
     cfg = require_config(target=target, json_mode=json_output)
 

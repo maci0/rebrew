@@ -241,8 +241,7 @@ def main(
         False, "--install-wibo", help="Download wibo runner to tools/wibo."
     ),
 ) -> None:
-    """
-    Initialize a new rebrew project in the current directory.
+    """Initialize a new rebrew project in the current directory.
 
     Creates a rebrew-project.toml configuration, an AGENTS.md for AI agents,
     and the necessary directory structure for decompilation.

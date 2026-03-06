@@ -1,3 +1,5 @@
+"""Module docstring."""
+
 import contextlib
 import json
 from typing import Any

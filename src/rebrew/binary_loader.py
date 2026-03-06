@@ -267,6 +267,7 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     Raises:
         FileNotFoundError: If the file does not exist.
         ValueError: If the format cannot be determined or parsing fails.
+
     """
     path = Path(path)
 
@@ -359,6 +360,7 @@ def extract_bytes_at_va(
         function body (linker-inserted INT3/NOP alignment padding removed).
         When the exact ``size`` bytes are needed for byte-level comparison
         or scoring, pass ``trim_padding=False``.
+
     """
     for section in info.sections.values():
         if section.va <= va < section.va + section.raw_size:
@@ -422,6 +424,7 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
     Returns:
         ``(language_name, file_extension)`` — e.g. ``("C++", ".cpp")``.
         Falls back to ``("C", ".c")`` when no strong signal is found.
+
     """
     _THRESHOLD = 3  # minimum matching symbols to avoid false positives
 
@@ -478,7 +481,7 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
         pass
     try:
         if hasattr(parsed, "exported_functions"):
-            for func in parsed.exported_functions:  # type: ignore[union-attr]
+            for func in parsed.exported_functions:
                 if hasattr(func, "name") and func.name:
                     func_name = (
                         func.name.decode("utf-8", errors="replace")

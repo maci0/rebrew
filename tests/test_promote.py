@@ -28,7 +28,8 @@ class TestPromoteFile:
             for_origin=lambda _origin: None,
         )
 
-    def test_never_demotes(self, tmp_path: Path, monkeypatch: Any) -> None:
+    def test_demotes_exact_below_threshold(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """EXACT function with only 25% byte match should be demoted to STUB."""
         source = _make_source(
             tmp_path,
             "// FUNCTION: test.dll 0x10001000\n"
@@ -42,10 +43,101 @@ class TestPromoteFile:
         cfg = self._make_cfg(tmp_path)
         cfg.for_origin = lambda _origin: cfg
 
-        calls: list[tuple[Any, ...]] = []
+        monkeypatch.setattr("rebrew.promote.compile_obj", lambda *_args: ("fake.obj", ""))
+        monkeypatch.setattr(
+            "rebrew.promote.parse_obj_symbol_bytes", lambda *_args: (b"\x90\x90\x90\x90", [])
+        )
+        # 1 out of 4 bytes match = 25%, well below 75% threshold
+        monkeypatch.setattr(
+            "rebrew.promote.smart_reloc_compare", lambda *_args: (False, 1, 4, [], [])
+        )
+        monkeypatch.setattr("rebrew.promote.extract_raw_bytes", lambda *_args: b"\x55\x8b\xec\xc3")
 
-        def _fake_update(*args: Any, **kwargs: Any) -> None:
-            calls.append((args, kwargs))
+        results = _promote_file(source, cfg, dry_run=False)
+        assert results[0]["previous_status"] == "EXACT"
+        assert results[0]["new_status"] == "STUB"
+        assert results[0]["action"] == "demoted"
+        text = source.read_text(encoding="utf-8")
+        assert "// STATUS: STUB\n" in text
+        assert "// BLOCKER: auto-demoted:" in text
+
+    def test_demotes_matching_below_threshold(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """MATCHING function with 0% match should be demoted to STUB."""
+        source = _make_source(
+            tmp_path,
+            "// FUNCTION: test.dll 0x10001000\n"
+            "// STATUS: MATCHING\n"
+            "// ORIGIN: GAME\n"
+            "// SIZE: 4\n"
+            "// CFLAGS: /O2 /Gd\n"
+            "// SYMBOL: _func\n"
+            "void func(void) {}\n",
+        )
+        cfg = self._make_cfg(tmp_path)
+        cfg.for_origin = lambda _origin: cfg
+
+        monkeypatch.setattr("rebrew.promote.compile_obj", lambda *_args: ("fake.obj", ""))
+        monkeypatch.setattr(
+            "rebrew.promote.parse_obj_symbol_bytes", lambda *_args: (b"\x90\x90\x90\x90", [])
+        )
+        monkeypatch.setattr(
+            "rebrew.promote.smart_reloc_compare", lambda *_args: (False, 0, 4, [], [])
+        )
+        monkeypatch.setattr("rebrew.promote.extract_raw_bytes", lambda *_args: b"\x55\x8b\xec\xc3")
+
+        results = _promote_file(source, cfg, dry_run=False)
+        assert results[0]["previous_status"] == "MATCHING"
+        assert results[0]["new_status"] == "STUB"
+        assert results[0]["action"] == "demoted"
+
+    def test_no_demote_above_threshold(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """EXACT with 90% match (above 75% threshold) should become MATCHING, not STUB."""
+        source = _make_source(
+            tmp_path,
+            "// FUNCTION: test.dll 0x10001000\n"
+            "// STATUS: EXACT\n"
+            "// ORIGIN: GAME\n"
+            "// SIZE: 10\n"
+            "// CFLAGS: /O2 /Gd\n"
+            "// SYMBOL: _func\n"
+            "void func(void) {}\n",
+        )
+        cfg = self._make_cfg(tmp_path)
+        cfg.for_origin = lambda _origin: cfg
+
+        monkeypatch.setattr("rebrew.promote.compile_obj", lambda *_args: ("fake.obj", ""))
+        monkeypatch.setattr(
+            "rebrew.promote.parse_obj_symbol_bytes",
+            lambda *_args: (b"\x55\x8b\xec\xc3\x90\x90\x90\x90\x90\x90", []),
+        )
+        # 9 out of 10 bytes match = 90%, above 75% threshold → MATCHING
+        monkeypatch.setattr(
+            "rebrew.promote.smart_reloc_compare", lambda *_args: (False, 9, 10, [], [])
+        )
+        monkeypatch.setattr(
+            "rebrew.promote.extract_raw_bytes",
+            lambda *_args: b"\x55\x8b\xec\xc3\x90\x90\x90\x90\x90\x91",
+        )
+
+        results = _promote_file(source, cfg, dry_run=False)
+        assert results[0]["previous_status"] == "EXACT"
+        assert results[0]["new_status"] == "MATCHING"
+        assert results[0]["action"] == "demoted"
+
+    def test_stub_stays_stub_below_threshold(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """Already-STUB function below threshold should stay STUB with no action."""
+        source = _make_source(
+            tmp_path,
+            "// FUNCTION: test.dll 0x10001000\n"
+            "// STATUS: STUB\n"
+            "// ORIGIN: GAME\n"
+            "// SIZE: 4\n"
+            "// CFLAGS: /O2 /Gd\n"
+            "// SYMBOL: _func\n"
+            "void func(void) {}\n",
+        )
+        cfg = self._make_cfg(tmp_path)
+        cfg.for_origin = lambda _origin: cfg
 
         monkeypatch.setattr("rebrew.promote.compile_obj", lambda *_args: ("fake.obj", ""))
         monkeypatch.setattr(
@@ -55,12 +147,10 @@ class TestPromoteFile:
             "rebrew.promote.smart_reloc_compare", lambda *_args: (False, 1, 4, [], [])
         )
         monkeypatch.setattr("rebrew.promote.extract_raw_bytes", lambda *_args: b"\x55\x8b\xec\xc3")
-        monkeypatch.setattr("rebrew.promote.update_source_status", _fake_update)
 
         results = _promote_file(source, cfg, dry_run=False)
-        assert calls == []
-        assert results[0]["previous_status"] == "EXACT"
-        assert results[0]["new_status"] == "EXACT"
+        assert results[0]["previous_status"] == "STUB"
+        assert results[0]["new_status"] == "STUB"
         assert results[0]["action"] == "none"
 
     def test_promotes_stub_to_exact(self, tmp_path: Path, monkeypatch: Any) -> None:

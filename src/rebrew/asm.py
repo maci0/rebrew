@@ -113,6 +113,7 @@ def main(
         annotate: Include call/jmp name/status comments in text output.
         json_output: Emit machine-readable JSON output.
         target: Optional target profile name from ``rebrew-project.toml``.
+
     """
     va_str = va or va_hex
     if not va_str:

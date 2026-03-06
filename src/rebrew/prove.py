@@ -119,6 +119,7 @@ def prove_equivalence(
 
     Returns:
         (proven, message) — proven is True if semantic equivalence was proved.
+
     """
     import angr
     import claripy
@@ -198,7 +199,7 @@ def prove_equivalence(
         # Timeout via alarm signal (Unix only)
         timed_out = False
 
-        def _timeout_handler(signum: int, frame: Any) -> None:
+        def _timeout_handler(_signum: int, _frame: Any) -> None:
             nonlocal timed_out
             timed_out = True
             raise TimeoutError("Symbolic execution timed out")
@@ -214,9 +215,11 @@ def prove_equivalence(
             signal.signal(signal.SIGALRM, old_handler)
 
         # Filter to only satisfiable states with meaningful EAX values
+        from typing import cast
+
         if timed_out:
-            return sm.satisfiable(unsat_core=False) or []
-        return sm.satisfiable(unsat_core=False)
+            return cast(list[Any], sm.satisfiable(unsat_core=False)) or []
+        return cast(list[Any], sm.satisfiable(unsat_core=False))
 
     try:
         states_orig = _run_simulation(proj_orig, state_orig)

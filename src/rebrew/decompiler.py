@@ -185,11 +185,13 @@ def fetch_decompilation(
         va: Virtual address of the function.
         root: Project root directory.
         endpoint: ReVa MCP endpoint URL (used by ``ghidra`` backend only).
+        program_path: Path to the generic program within ReVa MCP.
 
     Returns:
         A tuple of ``(decompiled_code, backend_name)`` where backend_name is
         the name of the backend that produced the output (useful for ``auto``).
         If decompilation failed, ``(None, backend_name)`` is returned.
+
     """
     if backend == "auto":
         for name in BACKENDS:

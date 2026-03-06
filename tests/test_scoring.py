@@ -264,3 +264,53 @@ class TestStructuralSimilarity:
         assert sim.exact >= 7
         assert sim.structural > 0
         assert sim.total_insns > 0
+
+
+# -------------------------------------------------------------------------
+# Fuzzing and Edge Cases
+# -------------------------------------------------------------------------
+
+
+class TestScoringFuzzing:
+    def test_fuzz_random_noise(self) -> None:
+        """Fuzz with completely random byte sequences of various lengths."""
+        import random
+
+        # 100 iterations of random lengths and bytes
+        for _ in range(100):
+            len1 = random.randint(0, 200)
+            len2 = random.randint(0, 200)
+            b1 = random.randbytes(len1)
+            b2 = random.randbytes(len2)
+
+            # Score and similarity must not crash on malformed/random bytes
+            score = score_candidate(b1, b2)
+            assert isinstance(score, Score)
+            assert score.length_diff == abs(len1 - len2)
+
+            sim = structural_similarity(b1, b2)
+            assert isinstance(sim, StructuralSimilarity)
+
+    def test_extreme_edge_cases(self) -> None:
+        """Test with extreme edge cases (all zeros, all 0xFF, size mismatches)."""
+        cases = [
+            b"",
+            b"\x00" * 100,
+            b"\x01" * 100,
+            b"\xff" * 100,
+            b"\x90" * 50,  # NOPs
+            b"\xcc" * 20,  # INT 3
+        ]
+
+        for tgt in cases:
+            for cand in cases:
+                score = score_candidate(tgt, cand)
+                assert isinstance(score, Score)
+
+                sim = structural_similarity(tgt, cand)
+                assert isinstance(sim, StructuralSimilarity)
+
+                if tgt == cand:
+                    assert score.byte_score == 0.0
+                    assert sim.structural == 0
+                    assert score.length_diff == 0

@@ -143,8 +143,16 @@ def generate_skeleton(
     """Generate the .c file content.
 
     Args:
+        cfg: Project configuration containing settings and marker rules.
+        va: Virtual address of the target function.
+        size: Size of the function in bytes.
+        ghidra_name: Name of the function imported from Ghidra.
+        origin: The source component (e.g., GAME, ZLIB, MSVCRT).
+        custom_name: Optional override name for the function.
+        xref_context: Optional string containing fetched caller cross-references.
         decomp_code: Optional decompilation output to embed as a comment block.
         decomp_backend: Name of the decompiler backend (for the header comment).
+
     """
     # Derive marker from origin (FUNCTION vs LIBRARY). We pass "MATCHED" as status
     # so that marker_for_origin picks FUNCTION/LIBRARY rather than STUB — the template

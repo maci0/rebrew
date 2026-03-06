@@ -98,7 +98,7 @@ Format: `// MARKER: MODULE 0xVA`
 | `SIZE` | **Mandatory** | E007, E008 | Function size in bytes from the original binary |
 | `CFLAGS` | Optional | W018 | Compiler flags to reproduce original compilation (e.g. `/O2 /Gd`). Falls back to `base_cflags` from project config. Only warns if both annotation and config are missing. |
 | `SOURCE` | Conditional | W006 | **Required for library origins** — reference file (e.g. `SBHEAP.C:195`, `deflate.c`). Use `rebrew crt-match --fix-source` to auto-populate. |
-| `BLOCKER` | Conditional | W005 | **Required for STUB** — explain why the function doesn't match yet |
+| `BLOCKER` | Conditional | W005 | **Required for STUB** — explain why the function doesn't match yet. Auto-added by `rebrew promote` on demotion with match ratio. |
 | `NOTE` | Optional | — | Freeform notes (e.g. `NOTE: uses SSE2 intrinsics`) |
 | `GHIDRA` | Optional | — | The Ghidra name, added by `rebrew sync --pull --accept-local` to prevent conflict loops |
 | `STRUCT` | Optional | — | Linked structs for this file |
