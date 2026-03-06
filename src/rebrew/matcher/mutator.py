@@ -1,8 +1,9 @@
 """mutator.py – C source mutation engine for GA-based binary matching.
 
-Provides 51 mutation functions that transform C89 source code to explore
+Provides 67 mutation functions that transform C89 source code to explore
 the MSVC6 code generation space. Each mutation targets a specific compiler
-behavior (register allocation, instruction selection, calling conventions).
+behavior (register allocation, instruction selection, calling conventions,
+and code layout / control flow structure).
 """
 
 import random
@@ -1317,6 +1318,599 @@ def mut_comparison_boundary(s: str, rng: random.Random) -> str | None:
     return s[: m.start()] + replacement + s[m.end() :]
 
 
+# -------------------------
+# Code layout mutations
+# These target structural code patterns that cause MSVC6's codegen to
+# produce different branch layouts, loop entry code, and register
+# live ranges.
+# -------------------------
+
+_RE_NESTED_IF = re.compile(r"\bif\s*\(")
+_RE_FOR_LOOP = re.compile(r"\bfor\s*\(")
+# Simple if/else single-assignment: if (c) x = a; else x = b;
+_RE_IF_ASSIGN_ELSE = re.compile(
+    r"if\s*\(([^)]+)\)\s*\n?\s*(\w+)\s*=\s*([^;]+);\s*\n?\s*else\s*\n?\s*\2\s*=\s*([^;]+);",
+)
+# Ternary assignment: x = c ? a : b;
+_RE_TERNARY_ASSIGN = re.compile(
+    r"(\w+)\s*=\s*\(?\s*([^?;]+?)\s*\)?\s*\?\s*([^:;]+?)\s*:\s*([^;]+?)\s*;",
+)
+# Hoist: return <expr>; at the end of a branch
+_RE_BRANCH_RETURN = re.compile(r"([ \t]+)return\s+([^;]+);(\s*\n\s*\})", re.MULTILINE)
+# Sink: ret = <expr>; goto end;
+_RE_RET_GOTO_END = re.compile(r"([ \t]+)(\w+)\s*=\s*([^;]+);\s*\n\s*\1goto\s+end\s*;")
+
+
+def mut_flatten_nested_if(s: str, rng: random.Random) -> str | None:
+    """Flatten nested if into && chain.
+
+    Changes:  if (a) { if (b) { body } }  →  if (a && b) { body }
+    Complementary with existing mut_split_cmp_chain (which goes the other way).
+    This version handles deeper nesting patterns that split_cmp_chain misses.
+    """
+    matches = list(_RE_NESTED_IF.finditer(s))
+    if not matches:
+        return None
+    m = rng.choice(matches)
+
+    # Find balanced condition parens for outer if
+    paren_start = m.end() - 1
+    paren_end = _find_matching_char(s, paren_start, "(", ")")
+    if paren_end is None:
+        return None
+    outer_cond = s[paren_start + 1 : paren_end - 1].strip()
+
+    # Find outer body braces
+    rest = s[paren_end:].lstrip()
+    if not rest.startswith("{"):
+        return None
+    brace_start = s.index("{", paren_end)
+    brace_end = _find_matching_brace(s, brace_start)
+    if brace_end is None:
+        return None
+
+    # Check that body is just another if (possibly with whitespace)
+    inner_body = s[brace_start + 1 : brace_end - 1].strip()
+    inner_match = re.match(r"if\s*\(", inner_body)
+    if not inner_match:
+        return None
+
+    # Parse the inner if condition
+    inner_paren_start = inner_match.end() - 1
+    inner_paren_end = _find_matching_char(inner_body, inner_paren_start, "(", ")")
+    if inner_paren_end is None:
+        return None
+    inner_cond = inner_body[inner_paren_start + 1 : inner_paren_end - 1].strip()
+
+    # Get inner body (must have braces)
+    inner_rest = inner_body[inner_paren_end:].lstrip()
+    if not inner_rest.startswith("{"):
+        return None
+    inner_brace_start = inner_body.index("{", inner_paren_end)
+    inner_brace_end = _find_matching_brace(inner_body, inner_brace_start)
+    if inner_brace_end is None:
+        return None
+
+    # After the inner if's closing brace, there should be nothing else
+    trailing = inner_body[inner_brace_end:].strip()
+    if trailing:
+        return None  # There's more code — can't safely flatten
+
+    inner_block = inner_body[inner_brace_start:inner_brace_end]
+    replacement = f"if ({outer_cond} && {inner_cond}) {inner_block}"
+    return s[: m.start()] + replacement + s[brace_end:]
+
+
+def mut_extract_else_body(s: str, rng: random.Random) -> str | None:
+    """Convert if/else to negated-condition early exit.
+
+    Changes:  if (c) { A } else { B }  →  if (!(c)) { B; return 0; } A
+    MSVC6 generates different branch layouts for these two patterns,
+    affecting jump distances and register liveness.
+    """
+    # Find if statements that have else clauses
+    matches = list(_RE_NESTED_IF.finditer(s))
+    if not matches:
+        return None
+    rng.shuffle(matches)
+
+    for m in matches:
+        paren_start = m.end() - 1
+        paren_end = _find_matching_char(s, paren_start, "(", ")")
+        if paren_end is None:
+            continue
+        cond = s[paren_start + 1 : paren_end - 1].strip()
+
+        # Find if-body braces
+        rest = s[paren_end:].lstrip()
+        if not rest.startswith("{"):
+            continue
+        brace_start = s.index("{", paren_end)
+        brace_end = _find_matching_brace(s, brace_start)
+        if brace_end is None:
+            continue
+        if_body = s[brace_start + 1 : brace_end - 1]
+
+        # Check for else clause
+        after_if = s[brace_end:].lstrip()
+        offset_to_else = len(s[brace_end:]) - len(after_if)
+        if not after_if.startswith("else"):
+            continue
+        else_start = brace_end + offset_to_else + 4  # skip "else"
+        after_else = s[else_start:].lstrip()
+
+        # Don't match 'else if' — only 'else {' blocks
+        if after_else.startswith("if"):
+            continue
+        if not after_else.startswith("{"):
+            continue
+
+        else_brace_start = s.index("{", else_start)
+        else_brace_end = _find_matching_brace(s, else_brace_start)
+        if else_brace_end is None:
+            continue
+        else_body = s[else_brace_start + 1 : else_brace_end - 1]
+
+        # Build negated condition early-exit form
+        if cond.startswith("!"):
+            neg_cond = cond[1:].strip()
+            if neg_cond.startswith("(") and neg_cond.endswith(")"):
+                neg_cond = neg_cond[1:-1]
+        else:
+            neg_cond = f"!({cond})"
+        replacement = f"if ({neg_cond}) {{{else_body}\n        return 0;\n    }}{if_body}"
+        return s[: m.start()] + replacement + s[else_brace_end:]
+
+    return None
+
+
+def mut_for_to_while(s: str, rng: random.Random) -> str | None:
+    """Convert for loop to while loop.
+
+    Changes:  for (i=0; i<n; i++) { body }
+           →  i=0; while (i<n) { body i++; }
+    MSVC6 generates different loop entry code for for vs while loops.
+    """
+    matches = list(_RE_FOR_LOOP.finditer(s))
+    if not matches:
+        return None
+    m = rng.choice(matches)
+
+    paren_start = m.end() - 1
+    paren_end = _find_matching_char(s, paren_start, "(", ")")
+    if paren_end is None:
+        return None
+    header = s[paren_start + 1 : paren_end - 1]
+
+    # Split on semicolons — must have exactly 2
+    parts = header.split(";")
+    if len(parts) != 3:
+        return None
+    init, cond, inc = [p.strip() for p in parts]
+    if not cond:
+        return None
+
+    # Find body braces
+    rest = s[paren_end:].lstrip()
+    if not rest.startswith("{"):
+        return None
+    brace_start = s.index("{", paren_end)
+    brace_end = _find_matching_brace(s, brace_start)
+    if brace_end is None:
+        return None
+    body = s[brace_start + 1 : brace_end - 1]
+
+    # Build while loop
+    init_stmt = f"{init};\n    " if init else ""
+    inc_stmt = f"\n        {inc};" if inc else ""
+    replacement = f"{init_stmt}while ({cond}) {{{body}{inc_stmt}\n    }}"
+    return s[: m.start()] + replacement + s[brace_end:]
+
+
+def mut_while_to_for(s: str, rng: random.Random) -> str | None:
+    """Convert while loop to for loop.
+
+    Changes:  while (cond) { body }  →  for (; cond; ) { body }
+    Inverse of mut_for_to_while. MSVC6 generates different entry code.
+    """
+    matches = list(_RE_WHILE_LOOP.finditer(s))
+    # Filter out do-while patterns
+    filtered = []
+    for m in matches:
+        before = s[: m.start()].rstrip()
+        if before.endswith("do") or before.endswith("}"):
+            continue  # This is a do-while condition, skip
+        filtered.append(m)
+    if not filtered:
+        return None
+    m = rng.choice(filtered)
+
+    paren_start = m.end() - 1
+    paren_end = _find_matching_char(s, paren_start, "(", ")")
+    if paren_end is None:
+        return None
+    cond = s[paren_start + 1 : paren_end - 1].strip()
+
+    # Find body braces
+    rest = s[paren_end:].lstrip()
+    if not rest.startswith("{"):
+        return None
+    brace_start = s.index("{", paren_end)
+    brace_end = _find_matching_brace(s, brace_start)
+    if brace_end is None:
+        return None
+    body = s[brace_start + 1 : brace_end - 1]
+
+    replacement = f"for (; {cond}; ) {{{body}}}"
+    return s[: m.start()] + replacement + s[brace_end:]
+
+
+def mut_if_to_ternary(s: str, rng: random.Random) -> str | None:
+    """Convert if/else assignment to ternary expression.
+
+    Changes:  if (c) x = a; else x = b;  →  x = (c) ? a : b;
+    The ternary form often generates cmovcc instead of a conditional jump,
+    changing the instruction stream entirely.
+    """
+    matches = list(_RE_IF_ASSIGN_ELSE.finditer(s))
+    if not matches:
+        return None
+    m = rng.choice(matches)
+    cond = m.group(1).strip()
+    var = m.group(2)
+    val_true = m.group(3).strip()
+    val_false = m.group(4).strip()
+    replacement = f"{var} = ({cond}) ? {val_true} : {val_false};"
+    return s[: m.start()] + replacement + s[m.end() :]
+
+
+def mut_ternary_to_if(s: str, rng: random.Random) -> str | None:
+    """Convert ternary expression to if/else assignment.
+
+    Changes:  x = c ? a : b;  →  if (c) x = a; else x = b;
+    Inverse of mut_if_to_ternary. Uses conditional jumps instead of cmov.
+    """
+    matches = list(_RE_TERNARY_ASSIGN.finditer(s))
+    if not matches:
+        return None
+    m = rng.choice(matches)
+    var = m.group(1).strip()
+    cond = m.group(2).strip()
+    val_true = m.group(3).strip()
+    val_false = m.group(4).strip()
+    # Don't convert if this looks like a declaration (has type keyword before var)
+    before = s[: m.start()].rstrip()
+    if (
+        before
+        and before.split()[-1:][0:1]
+        and before.split()[-1]
+        in (
+            "int",
+            "char",
+            "short",
+            "long",
+            "BOOL",
+            "DWORD",
+            "UINT",
+            "BYTE",
+            "WORD",
+            "unsigned",
+            "signed",
+            "const",
+            "volatile",
+        )
+    ):
+        return None
+    replacement = (
+        f"if ({cond})\n        {var} = {val_true};\n    else\n        {var} = {val_false};"
+    )
+    return s[: m.start()] + replacement + s[m.end() :]
+
+
+def mut_hoist_return(s: str, rng: random.Random) -> str | None:
+    """Extract branch returns to a labeled goto accumulator.
+
+    Changes:  return expr;  →  ret = expr; goto end;
+    (and adds 'end: return ret;' before the enclosing function's closing brace)
+    This extends the live range of the ret variable, creating register
+    pressure that forces different register allocation.
+    """
+    matches = list(_RE_BRANCH_RETURN.finditer(s))
+    if not matches:
+        return None
+
+    # Skip if end label already exists
+    if re.search(r"\bend\s*:", s):
+        return None
+
+    m = rng.choice(matches)
+    indent = m.group(1)
+    expr = m.group(2).strip()
+    trailing = m.group(3)
+
+    # Check if ret variable already used
+    ret_var = "ret" if "retcode" not in s else "retval"
+    if re.search(rf"\b{ret_var}\b", s):
+        ret_var = "retval"
+    if re.search(rf"\b{ret_var}\b", s):
+        return None  # Can't find a free variable name
+
+    replacement = f"{indent}{ret_var} = {expr};\n{indent}goto end;{trailing}"
+    result = s[: m.start()] + replacement + s[m.end() :]
+
+    # Find the enclosing function's closing brace by tracking depth
+    # from the replacement position outward.
+    pos = m.start()
+    depth = 0
+    func_close = -1
+    for i in range(pos, len(result)):
+        if result[i] == "{":
+            depth += 1
+        elif result[i] == "}":
+            depth -= 1
+            if depth <= 0:
+                func_close = i
+                break
+    if func_close < 0:
+        return None
+    result = result[:func_close] + f"\nend:\n    return {ret_var};\n" + result[func_close:]
+    return result
+
+
+def mut_sink_return(s: str, rng: random.Random) -> str | None:
+    """Collapse ret=expr; goto end; back to return expr;
+
+    Inverse of mut_hoist_return. Reduces register live ranges.
+    """
+    matches = list(_RE_RET_GOTO_END.finditer(s))
+    if not matches:
+        return None
+
+    m = rng.choice(matches)
+    indent = m.group(1)
+    expr = m.group(3).strip()
+    replacement = f"{indent}return {expr};"
+    result = s[: m.start()] + replacement + s[m.end() :]
+
+    # Remove the end label and its return if no more gotos reference it
+    if "goto end;" not in result:
+        result = re.sub(r"\nend:\n\s*return\s+\w+;\n", "\n", result)
+
+    return result
+
+
+# -------------------------
+# Structural codegen mutations (batch 2)
+# These target expression rewriting and statement ordering patterns
+# that cause MSVC6 to emit different instruction sequences.
+# -------------------------
+
+# Adjacent statement pattern: two simple assignment or call statements
+# Matches both simple (x = ...) and compound (x += ...) assignments
+_RE_ADJACENT_STMTS = re.compile(
+    r"([ \t]+)(\w+\s*(?:[+\-*|&^])?=[^;]+;)\s*\n(\1)(\w+\s*(?:[+\-*|&^])?=[^;]+;)",
+)
+# Guard clause: if (cond) { body; return expr; }\n return other;
+_RE_GUARD_IF_RETURN = re.compile(
+    r"([ \t]*)if\s*\(([^)]+)\)\s*\{([^}]+)return\s+([^;]+);\s*\}\s*\n\s*\1return\s+([^;]+);",
+)
+# For loop with init;cond;incr
+_RE_FOR_COUNT_UP = re.compile(
+    r"for\s*\(\s*(\w+)\s*=\s*0\s*;\s*\1\s*<\s*([^;]+);\s*\1\+\+\s*\)",
+)
+# Compound assignment: x = x OP y
+_RE_COMPOUND_EXPAND = re.compile(
+    r"(\b\w+)\s*=\s*\1\s*([+\-*|&^])\s*([^;]+);",
+)
+# Compound shorthand: x OP= y
+_RE_COMPOUND_SHORT = re.compile(
+    r"(\b\w+)\s*([+\-*|&^])=\s*([^;]+);",
+)
+# De Morgan: !(a && b) or !(a || b)
+_RE_DEMORGAN_AND = re.compile(r"!\s*\(([^)]+?)\s*&&\s*([^)]+?)\)")
+_RE_DEMORGAN_OR = re.compile(r"!\s*\(([^)]+?)\s*\|\|\s*([^)]+?)\)")
+# Post/pre increment
+_RE_POST_INC = re.compile(r"(\b[a-zA-Z_]\w*)\+\+")
+_RE_PRE_INC = re.compile(r"\+\+(\b[a-zA-Z_]\w*)")
+_RE_POST_DEC = re.compile(r"(\b[a-zA-Z_]\w*)--")
+_RE_PRE_DEC = re.compile(r"--(\b[a-zA-Z_]\w*)")
+# x = 0 (simple zero assignment)
+_RE_ASSIGN_ZERO = re.compile(r"(\b\w+)\s*=\s*0\s*;")
+_RE_XOR_SELF = re.compile(r"(\b\w+)\s*\^=\s*\1\s*;")
+# Negate condition: if (expr) — NOT a simple regex, requires balanced parens
+# So we use _find_matching_char at runtime instead of a static regex.
+
+
+def mut_swap_adjacent_stmts(s: str, rng: random.Random) -> str | None:
+    """Swap two adjacent non-dependent assignment statements.
+
+    Affects register allocation order and instruction scheduling.
+    """
+    matches = list(_RE_ADJACENT_STMTS.finditer(s))
+    if not matches:
+        return None
+    m = rng.choice(matches)
+    indent = m.group(1)
+    stmt_a = m.group(2)
+    stmt_b = m.group(4)
+    # Quick dependency check: skip if one statement's LHS appears in the other
+    lhs_a = stmt_a.split("=")[0].strip()
+    lhs_b = stmt_b.split("=")[0].strip()
+    # Use word boundary to avoid false positives (e.g. "a" in "bar")
+    if re.search(r"\b" + re.escape(lhs_a) + r"\b", stmt_b):
+        return None
+    if re.search(r"\b" + re.escape(lhs_b) + r"\b", stmt_a):
+        return None
+    replacement = f"{indent}{stmt_b}\n{indent}{stmt_a}"
+    return s[: m.start()] + replacement + s[m.end() :]
+
+
+def mut_guard_clause(s: str, rng: random.Random) -> str | None:
+    """Extract guard clause: if(c){body;return x;} return y → if(!c) return y; body; return x;
+
+    Changes branch prediction layout and fall-through path.
+    """
+    matches = list(_RE_GUARD_IF_RETURN.finditer(s))
+    if not matches:
+        return None
+    m = rng.choice(matches)
+    indent = m.group(1)
+    cond = m.group(2).strip()
+    body = m.group(3).strip()
+    ret_true = m.group(4).strip()
+    ret_false = m.group(5).strip()
+    # Negate condition simply
+    neg_cond = cond[1:].strip().lstrip("(").rstrip(")") if cond.startswith("!") else f"!({cond})"
+    replacement = (
+        f"{indent}if ({neg_cond}) return {ret_false};\n{indent}{body}\n{indent}return {ret_true};"
+    )
+    return s[: m.start()] + replacement + s[m.end() :]
+
+
+def mut_invert_loop_direction(s: str, rng: random.Random) -> str | None:
+    """Reverse loop iteration: for(i=0;i<n;i++) → for(i=n-1;i>=0;i--).
+
+    Affects loop entry/exit code and comparison instruction selection.
+    """
+    matches = list(_RE_FOR_COUNT_UP.finditer(s))
+    if not matches:
+        return None
+    m = rng.choice(matches)
+    var = m.group(1)
+    limit = m.group(2).strip()
+    replacement = f"for ({var} = {limit} - 1; {var} >= 0; {var}--)"
+    return s[: m.start()] + replacement + s[m.end() :]
+
+
+def mut_compound_assign_toggle(s: str, rng: random.Random) -> str | None:
+    """Toggle between x = x + n and x += n (and other operators).
+
+    MSVC6 sometimes generates different code for these equivalent forms.
+    """
+    # Try expanding compound first, then shortening
+    expand_matches = [(m, "expand") for m in _RE_COMPOUND_SHORT.finditer(s)]
+    short_matches = [(m, "shorten") for m in _RE_COMPOUND_EXPAND.finditer(s)]
+    all_matches = expand_matches + short_matches
+    if not all_matches:
+        return None
+    m, direction = rng.choice(all_matches)
+    if direction == "expand":
+        var = m.group(1)
+        op = m.group(2)
+        expr = m.group(3).strip()
+        replacement = f"{var} = {var} {op} {expr};"
+    else:
+        var = m.group(1)
+        op = m.group(2)
+        expr = m.group(3).strip()
+        replacement = f"{var} {op}= {expr};"
+    return s[: m.start()] + replacement + s[m.end() :]
+
+
+def mut_demorgan(s: str, rng: random.Random) -> str | None:
+    """Apply De Morgan's law: !(a && b) ↔ (!a || !b).
+
+    Forces different branch structure in the compiled output.
+    Only applies to exactly two operands (rejects chained operators).
+    """
+    and_matches = [(m, "and") for m in _RE_DEMORGAN_AND.finditer(s)]
+    or_matches = [(m, "or") for m in _RE_DEMORGAN_OR.finditer(s)]
+    all_matches = and_matches + or_matches
+    if not all_matches:
+        return None
+    m, kind = rng.choice(all_matches)
+    a = m.group(1).strip()
+    b = m.group(2).strip()
+    # Reject if either operand contains the same logical operator (chained ops)
+    # e.g. !(a && b && c) — partial application creates wrong precedence
+    if kind == "and" and ("&&" in a or "&&" in b):
+        return None
+    if kind == "or" and ("||" in a or "||" in b):
+        return None
+    replacement = f"(!{a} || !{b})" if kind == "and" else f"(!{a} && !{b})"
+    return s[: m.start()] + replacement + s[m.end() :]
+
+
+def mut_postpre_increment(s: str, rng: random.Random) -> str | None:
+    """Toggle i++ ↔ ++i and i-- ↔ --i.
+
+    Can affect codegen for complex expressions where evaluation order
+    interacts with register allocation.
+    """
+    candidates: list[tuple[re.Match[str], str]] = []
+    for m in _RE_POST_INC.finditer(s):
+        candidates.append((m, f"++{m.group(1)}"))
+    for m in _RE_PRE_INC.finditer(s):
+        candidates.append((m, f"{m.group(1)}++"))
+    for m in _RE_POST_DEC.finditer(s):
+        candidates.append((m, f"--{m.group(1)}"))
+    for m in _RE_PRE_DEC.finditer(s):
+        candidates.append((m, f"{m.group(1)}--"))
+    if not candidates:
+        return None
+    m, replacement = rng.choice(candidates)
+    return s[: m.start()] + replacement + s[m.end() :]
+
+
+def mut_xor_zero_toggle(s: str, rng: random.Random) -> str | None:
+    """Toggle x = 0 ↔ x ^= x.
+
+    Classic zero-extend pattern: MSVC6 uses xor reg,reg vs mov reg,0
+    depending on source form. This can cause byte-level mismatches.
+    """
+    zero_matches = [(m, "to_xor") for m in _RE_ASSIGN_ZERO.finditer(s)]
+    xor_matches = [(m, "to_zero") for m in _RE_XOR_SELF.finditer(s)]
+    all_matches = zero_matches + xor_matches
+    if not all_matches:
+        return None
+    m, direction = rng.choice(all_matches)
+    var = m.group(1)
+    # Skip if the variable looks like a struct field or array element
+    if "." in var or "->" in var or "[" in var:
+        return None
+    # Check what precedes the match — reject struct access (p->len, s.val)
+    prefix = s[: m.start()]
+    stripped_prefix = prefix.rstrip()
+    if stripped_prefix.endswith((".", ">")):
+        return None
+    # CRITICAL: reject for-loop initializers — for (i = 0; ...) → for (i ^= i; ...) is wrong
+    # because i ^= i assumes i is already initialized with a value
+    if re.search(r"\bfor\s*\([^;]*$", prefix):
+        return None
+    replacement = f"{var} ^= {var};" if direction == "to_xor" else f"{var} = 0;"
+    return s[: m.start()] + replacement + s[m.end() :]
+
+
+def mut_negate_condition(s: str, rng: random.Random) -> str | None:
+    """Wrap if-condition in negation: if (a > b) → if (!(a > b)).
+
+    Forces different conditional jump instruction (jle vs jg, etc.).
+    Only adds negation; does NOT swap bodies (use mut_swap_if_else for that).
+    """
+    # Find all if-conditions using balanced paren matching
+    candidates: list[tuple[int, int, str]] = []
+    for m in re.finditer(r"\bif\s*\(", s):
+        paren_start = m.end() - 1  # position of '('
+        paren_end = _find_matching_char(s, paren_start, "(", ")")
+        if paren_end is None:
+            continue
+        cond = s[paren_start + 1 : paren_end - 1].strip()
+        if cond:
+            candidates.append((m.start(), paren_end, cond))
+    if not candidates:
+        return None
+    start, end, cond = rng.choice(candidates)
+    # Toggle: if already negated, remove negation; otherwise add it
+    if cond.startswith("!(") and cond.endswith(")"):
+        new_cond = cond[2:-1]
+    elif cond.startswith("!") and not cond.startswith("!="):
+        new_cond = cond[1:].strip()
+    else:
+        new_cond = f"!({cond})"
+    replacement = f"if ({new_cond})"
+    return s[:start] + replacement + s[end:]
+
+
 ALL_MUTATIONS = [
     mut_commute_simple_add,
     mut_commute_simple_mul,
@@ -1369,6 +1963,24 @@ ALL_MUTATIONS = [
     mut_toggle_calling_convention,
     mut_toggle_char_signedness,
     mut_comparison_boundary,
+    # Code layout mutations (structural codegen)
+    mut_flatten_nested_if,
+    mut_extract_else_body,
+    mut_for_to_while,
+    mut_while_to_for,
+    mut_if_to_ternary,
+    mut_ternary_to_if,
+    mut_hoist_return,
+    mut_sink_return,
+    # Structural codegen mutations (batch 2)
+    mut_swap_adjacent_stmts,
+    mut_guard_clause,
+    mut_invert_loop_direction,
+    mut_compound_assign_toggle,
+    mut_demorgan,
+    mut_postpre_increment,
+    mut_xor_zero_toggle,
+    mut_negate_condition,
 ]
 
 

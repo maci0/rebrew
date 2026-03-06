@@ -97,7 +97,7 @@ checkpoints when GA parameters change.
 
 ## Mutation Operators
 
-51 operators in `mutator.py`, all named `mut_*`. Categories:
+67 operators in `mutator.py`, all named `mut_*`. Categories:
 
 - **Cast/type**: `mut_add_cast`, `mut_remove_cast`, `mut_change_int_type`
 - **Control flow**: `mut_swap_if_else`, `mut_invert_condition`, `mut_for_to_while`

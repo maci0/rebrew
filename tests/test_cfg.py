@@ -541,3 +541,212 @@ class TestCLISetCflags:
         assert result.exit_code == 0
         doc, _ = _load_toml(tmp_path)
         assert doc["compiler"]["cflags_presets"]["ZLIB"] == "/O3"
+
+
+# ---------------------------------------------------------------------------
+# _resolve_dotted_key unit tests
+# ---------------------------------------------------------------------------
+
+from rebrew.cfg import _resolve_dotted_key  # noqa: E402
+
+
+class TestResolveDottedKey:
+    """Tests for greedy TOML-aware dotted key resolution."""
+
+    def test_simple_key(self, tmp_path: Path) -> None:
+        root = _make_project(tmp_path)
+        doc, _ = _load_toml(root)
+        parent, final, parts = _resolve_dotted_key(doc, "compiler.cflags")
+        assert final == "cflags"
+        assert parent[final] == "/O2 /Gd"
+
+    def test_dotted_target_name(self, tmp_path: Path) -> None:
+        """Key like 'targets.server.dll.arch' must resolve through 'server.dll' key."""
+        root = _make_project(tmp_path)
+        doc, _ = _load_toml(root)
+        parent, final, parts = _resolve_dotted_key(doc, "targets.server.dll.arch")
+        assert final == "arch"
+        assert parent[final] == "x86_32"
+        assert parts == ["targets", "server.dll", "arch"]
+
+    def test_dotted_target_nested(self, tmp_path: Path) -> None:
+        """Deeply nested key through dotted target name."""
+        root = _make_project(tmp_path)
+        doc, _ = _load_toml(root)
+        parent, final, parts = _resolve_dotted_key(doc, "targets.server.dll.cflags_presets.ZLIB")
+        assert final == "ZLIB"
+        assert parent[final] == "/O3"
+
+    def test_missing_key_raises(self, tmp_path: Path) -> None:
+        root = _make_project(tmp_path)
+        doc, _ = _load_toml(root)
+        from click.exceptions import Exit as ClickExit
+
+        with pytest.raises(ClickExit):
+            _resolve_dotted_key(doc, "nonexistent.key.path")
+
+    def test_create_missing(self, tmp_path: Path) -> None:
+        root = _make_project(tmp_path)
+        doc, _ = _load_toml(root)
+        parent, final, _ = _resolve_dotted_key(
+            doc, "new_section.sub_key.value", create_missing=True
+        )
+        # Parent should have been created and final key should be accessible
+        assert final == "value"
+        assert isinstance(parent, dict)
+
+
+# ---------------------------------------------------------------------------
+# CLI tests for new commands
+# ---------------------------------------------------------------------------
+
+
+class TestCLIGet:
+    def test_get_reads_value(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["get", "compiler.cflags"])
+        assert result.exit_code == 0
+        assert "/O2 /Gd" in result.output
+
+    def test_get_dotted_target(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["get", "targets.server.dll.arch"])
+        assert result.exit_code == 0
+        assert "x86_32" in result.output
+
+
+class TestCLIDump:
+    def test_dump_json(self, tmp_path: Path, monkeypatch) -> None:
+        import json
+
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["dump"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "targets" in data
+        assert "compiler" in data
+
+    def test_dump_toml(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["dump", "--toml"])
+        assert result.exit_code == 0
+        assert "[compiler]" in result.output
+
+
+class TestCLIPath:
+    def test_path_output(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["path"])
+        assert result.exit_code == 0
+        assert "rebrew-project.toml" in result.output
+        assert str(tmp_path) in result.output
+
+
+class TestCLIShowDottedTarget:
+    def test_show_dotted_target_arch(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["show", "targets.server.dll.arch"])
+        assert result.exit_code == 0
+        assert "x86_32" in result.output
+
+    def test_show_dotted_target_binary(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["show", "targets.server.dll.binary"])
+        assert result.exit_code == 0
+        assert "original/Server/server.dll" in result.output
+
+
+class TestCLISetDottedTarget:
+    def test_set_through_dotted_target(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set", "targets.server.dll.arch", "x86_64"])
+        assert result.exit_code == 0
+        doc, _ = _load_toml(tmp_path)
+        assert doc["targets"]["server.dll"]["arch"] == "x86_64"
+
+
+# ---------------------------------------------------------------------------
+# CRT auto-detection tests
+# ---------------------------------------------------------------------------
+
+from rebrew.config import detect_crt_sources  # noqa: E402
+
+
+class TestDetectCrtSources:
+    def test_no_tools_dir(self, tmp_path: Path) -> None:
+        """No tools/ directory → empty result."""
+        assert detect_crt_sources(tmp_path) == {}
+
+    def test_empty_tools_dir(self, tmp_path: Path) -> None:
+        (tmp_path / "tools").mkdir()
+        assert detect_crt_sources(tmp_path) == {}
+
+    def test_msvc600_detected(self, tmp_path: Path) -> None:
+        """Standard MSVC600 layout is detected."""
+        crt_dir = tmp_path / "tools" / "MSVC600" / "VC98" / "CRT" / "SRC"
+        crt_dir.mkdir(parents=True)
+        result = detect_crt_sources(tmp_path)
+        assert "MSVCRT" in result
+        assert "MSVC600" in result["MSVCRT"]
+
+    def test_case_insensitive(self, tmp_path: Path) -> None:
+        """CRT path detection is case-insensitive."""
+        crt_dir = tmp_path / "tools" / "msvc600" / "vc98" / "crt" / "src"
+        crt_dir.mkdir(parents=True)
+        result = detect_crt_sources(tmp_path)
+        assert "MSVCRT" in result
+
+    def test_msvc7_detected(self, tmp_path: Path) -> None:
+        crt_dir = tmp_path / "tools" / "MSVC7" / "crt" / "src"
+        crt_dir.mkdir(parents=True)
+        result = detect_crt_sources(tmp_path)
+        assert "MSVCRT" in result
+        assert "MSVC7" in result["MSVCRT"]
+
+    def test_first_match_wins(self, tmp_path: Path) -> None:
+        """Only the first matching pattern per origin is returned."""
+        crt1 = tmp_path / "tools" / "MSVC600" / "VC98" / "CRT" / "SRC"
+        crt1.mkdir(parents=True)
+        crt2 = tmp_path / "tools" / "MSVC7" / "crt" / "src"
+        crt2.mkdir(parents=True)
+        result = detect_crt_sources(tmp_path)
+        # MSVC600 pattern appears first in _CRT_SOURCE_PATTERNS
+        assert "MSVC600" in result["MSVCRT"]
+
+
+class TestCLIDetectCrt:
+    def test_detect_crt_no_tools(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["detect-crt"])
+        assert result.exit_code == 0
+        assert "No CRT source directories found" in result.output
+
+    def test_detect_crt_found(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        crt_dir = tmp_path / "tools" / "MSVC600" / "VC98" / "CRT" / "SRC"
+        crt_dir.mkdir(parents=True)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["detect-crt"])
+        assert result.exit_code == 0
+        assert "MSVCRT" in result.output
+
+    def test_detect_crt_write(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        crt_dir = tmp_path / "tools" / "MSVC600" / "VC98" / "CRT" / "SRC"
+        crt_dir.mkdir(parents=True)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["detect-crt", "--write"])
+        assert result.exit_code == 0
+        assert "Wrote" in result.output
+        doc, _ = _load_toml(tmp_path)
+        assert "crt_sources" in doc["targets"]["server.dll"]
+        assert doc["targets"]["server.dll"]["crt_sources"]["MSVCRT"] == "tools/MSVC600/VC98/CRT/SRC"
