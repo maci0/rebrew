@@ -891,6 +891,17 @@ class TestCompoundAssignToggle:
     def test_no_match(self) -> None:
         assert mut_compound_assign_toggle("x = 5;", RNG) is None
 
+    def test_subtraction_multiterm_rejected(self) -> None:
+        """x -= y - z != x = x - y - z — non-commutative operator with multi-term RHS."""
+        assert mut_compound_assign_toggle("x -= y - z;", RNG) is None
+        assert mut_compound_assign_toggle("x = x - y - z;", RNG) is None
+
+    def test_simple_subtraction_allowed(self) -> None:
+        """Single-term subtraction is always safe: x -= 5 == x = x - 5."""
+        result = mut_compound_assign_toggle("x -= 5;", RNG)
+        assert result is not None
+        assert "x = x - 5;" in result
+
 
 class TestDemorgan:
     def test_and_to_or(self) -> None:
