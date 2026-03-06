@@ -18,7 +18,7 @@ from rebrew.annotation import Annotation, parse_c_file, parse_c_file_multi, pars
 from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config, target_marker
 from rebrew.config import ProjectConfig
-from rebrew.core.matching import smart_reloc_compare
+from rebrew.core import smart_reloc_compare
 from rebrew.matcher.parsers import list_obj_symbols, parse_obj_symbol_bytes
 
 console = Console(stderr=True)

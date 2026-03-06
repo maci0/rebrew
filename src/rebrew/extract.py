@@ -16,11 +16,15 @@ from pathlib import Path
 from typing import Any, cast
 
 import typer
+from rich.console import Console
+from rich.table import Table
 
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va, load_binary
 from rebrew.catalog import parse_function_list, scan_reversed_dir
 from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
 from rebrew.config import ProjectConfig
+
+console = Console(stderr=True)
 
 # ---------------------------------------------------------------------------
 # Binary helpers
@@ -110,9 +114,14 @@ def load_functions(cfg: ProjectConfig) -> list[dict[str, int | str]]:
 
 def cmd_list(candidates: list[tuple[int, int, str]]) -> None:
     """List candidate functions."""
-    print(f"Candidates: {len(candidates)} (sorted by size)")
+    table = Table(title=f"Candidates ({len(candidates)}, sorted by size)")
+    table.add_column("#", justify="right", style="bold")
+    table.add_column("VA", style="cyan")
+    table.add_column("Size", justify="right")
+    table.add_column("Name", style="magenta")
     for i, (va, size, name) in enumerate(candidates):
-        print(f"  {i:3d}  0x{va:08X}  {size:5d}B  {name}")
+        table.add_row(str(i), f"0x{va:08X}", f"{size}B", name)
+    console.print(table)
 
 
 def cmd_extract(
@@ -133,7 +142,7 @@ def cmd_extract(
                 if json_output:
                     json_print({"status": "ERROR", "error": msg})
                 else:
-                    typer.echo(msg, err=True)
+                    console.print(f"[red]ERROR[/] {msg}")
                 return
             try:
                 asm_text = disasm(code, va, cfg=cfg)
@@ -141,7 +150,7 @@ def cmd_extract(
                 if json_output:
                     json_print({"status": "ERROR", "error": str(e)})
                 else:
-                    typer.echo(f"ERROR: {e}", err=True)
+                    console.print(f"[red]ERROR[/] {e}")
                 return
 
             # Save .bin
@@ -163,18 +172,18 @@ def cmd_extract(
                 )
                 return
 
-            print(f"=== {name} @ 0x{va:08X}, {len(code)} bytes ===")
+            console.print(f"\n[bold]=== {name} @ 0x{va:08X}, {len(code)} bytes ===[/]")
             print(f"Hex: {code.hex()}")
             print()
             print(asm_text)
-            print(f"\nSaved to {bin_path}")
+            console.print(f"Saved to {bin_path}")
             return
     if json_output:
         json_print(
             {"status": "ERROR", "error": f"VA 0x{target_va:08X} not found in candidate list"}
         )
         return
-    print(f"VA 0x{target_va:08X} not found in candidate list")
+    console.print(f"[red]VA 0x{target_va:08X} not found in candidate list[/]")
 
 
 def cmd_batch(
@@ -205,7 +214,7 @@ def cmd_batch(
                     }
                 )
                 continue
-            typer.echo(f"ERROR: Failed to extract bytes at VA 0x{va:08X}", err=True)
+            console.print(f"[red]ERROR[/] Failed to extract bytes at VA 0x{va:08X}")
             continue
 
         try:
@@ -222,7 +231,7 @@ def cmd_batch(
                     }
                 )
                 continue
-            typer.echo(f"ERROR: {e}", err=True)
+            console.print(f"[red]ERROR[/] {e}")
             return
 
         bin_path = bin_dir / f"func_0x{va:08X}.bin"
@@ -242,9 +251,9 @@ def cmd_batch(
             )
             continue
 
-        print(f"\n{'=' * 60}")
-        print(f"=== {name} @ 0x{va:08X}, {len(code)} bytes ===")
-        print(f"{'=' * 60}")
+        console.print(f"\n[bold]{'=' * 60}[/]")
+        console.print(f"[bold]=== {name} @ 0x{va:08X}, {len(code)} bytes ===[/]")
+        console.print(f"[bold]{'=' * 60}[/]")
         print(f"Hex: {code.hex()}")
         print()
         print(asm_text)
@@ -328,7 +337,7 @@ def main(
     # Auto-detect already-reversed VAs
     reversed_vas = detect_reversed_vas(src_dir, cfg=cfg)
     if not json_output:
-        typer.echo(f"Found {len(reversed_vas)} already-reversed functions", err=True)
+        console.print(f"Found {len(reversed_vas)} already-reversed functions")
 
     # Filter candidates — cast dict values to expected types for type safety
     candidates: list[tuple[int, int, str]] = []

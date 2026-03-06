@@ -8,9 +8,12 @@ import shutil
 from pathlib import Path
 
 import typer
+from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
 from rebrew.utils import atomic_write_text
+
+console = Console(stderr=True)
 
 app = typer.Typer(
     help="Initialize a new rebrew project directory.",
@@ -208,11 +211,7 @@ _AGENT_SKILLS_SRC = Path(__file__).parent / "agent-skills"
 def _copy_agent_skills(dest: Path, target_name: str) -> None:
     """Copy bundled agent-skills/ into the project under .agents/skills, substituting <target>."""
     if not _AGENT_SKILLS_SRC.is_dir():
-        typer.secho(
-            "Warning: agent-skills not found in package; skipping.",
-            fg=typer.colors.YELLOW,
-            err=True,
-        )
+        console.print("[yellow]Warning: agent-skills not found in package; skipping.[/]")
         return
 
     dest_skills = dest / ".agents" / "skills"
@@ -224,7 +223,7 @@ def _copy_agent_skills(dest: Path, target_name: str) -> None:
         if "<target>" in content:
             md_file.write_text(content.replace("<target>", target_name), encoding="utf-8")
 
-    typer.secho("Created .agents/skills/ (AI workflow instructions)", fg=typer.colors.GREEN)
+    console.print("[green]Created .agents/skills/[/] (AI workflow instructions)")
 
 
 @app.callback(invoke_without_command=True)
@@ -276,7 +275,7 @@ def main(
     runner = "tools/wibo" if install_wibo else profile["runner"]
     toml_content = toml_content.replace("__COMPILER_RUNNER__", runner)
     atomic_write_text(toml_path, toml_content, encoding="utf-8")
-    typer.secho(f"Created {toml_path.name}", fg=typer.colors.GREEN)
+    console.print(f"[green]Created {toml_path.name}[/]")
 
     # 2. Write AGENTS.md (for LLM agents)
     if compiler_profile.startswith("msvc6"):
@@ -301,27 +300,25 @@ def main(
     )
     agents_path = cwd / "AGENTS.md"
     atomic_write_text(agents_path, agents_content, encoding="utf-8")
-    typer.secho(f"Created {agents_path.name} (AI agent instructions)", fg=typer.colors.GREEN)
+    console.print(f"[green]Created {agents_path.name}[/] (AI agent instructions)")
 
     # 3. Create directories
     original_dir = cwd / "original"
     original_dir.mkdir(exist_ok=True)
-    typer.secho(
-        f"Created {original_dir.name}/ (Place your original binaries here)", fg=typer.colors.GREEN
-    )
+    console.print(f"[green]Created {original_dir.name}/[/] (Place your original binaries here)")
 
     src_dir = cwd / "src" / target_name
     src_dir.mkdir(parents=True, exist_ok=True)
-    typer.secho(f"Created src/{target_name}/", fg=typer.colors.GREEN)
+    console.print(f"[green]Created src/{target_name}/[/]")
 
     bin_dir = cwd / "bin" / target_name
     bin_dir.mkdir(parents=True, exist_ok=True)
-    typer.secho(f"Created bin/{target_name}/", fg=typer.colors.GREEN)
+    console.print(f"[green]Created bin/{target_name}/[/]")
 
     # 4. Create empty function list
     func_list = src_dir / "functions.txt"
     func_list.touch(exist_ok=True)
-    typer.secho(f"Created src/{target_name}/functions.txt", fg=typer.colors.GREEN)
+    console.print(f"[green]Created src/{target_name}/functions.txt[/]")
 
     # 5. Copy agent-skills directory (bundled with the package)
     _copy_agent_skills(cwd, target_name)
@@ -332,7 +329,7 @@ def main(
 
         wibo_path = cwd / "tools" / "wibo"
         tag_name = download_wibo(wibo_path)
-        typer.secho(f"Downloaded wibo {tag_name} to {wibo_path}", fg=typer.colors.GREEN)
+        console.print(f"[green]Downloaded wibo {tag_name} to {wibo_path}[/]")
 
     if json_output:
         json_print(
@@ -350,10 +347,10 @@ def main(
             }
         )
     else:
-        typer.secho("\nInitialization complete! Next steps:", fg=typer.colors.CYAN, bold=True)
-        typer.echo(f"1. Copy your original binary to original/{binary_name}")
-        typer.echo("2. Verify your compiler paths in rebrew-project.toml")
-        typer.echo("3. Run 'rebrew todo' to get started!")
+        console.print("\n[bold cyan]Initialization complete! Next steps:[/]")
+        console.print(f"1. Copy your original binary to original/{binary_name}")
+        console.print("2. Verify your compiler paths in rebrew-project.toml")
+        console.print("3. Run 'rebrew todo' to get started!")
 
 
 init = main

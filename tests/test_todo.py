@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from rebrew.catalog.models import GhidraFunction
+from rebrew.catalog.models import FunctionEntry
 from rebrew.todo import (
     CAT_ADD_ANNOTATIONS,
     CAT_FINISH_STUB,
@@ -15,6 +15,7 @@ from rebrew.todo import (
     CAT_FLAG_SWEEP,
     CAT_IDENTIFY_LIBRARY,
     CAT_IMPROVE_MATCHING,
+    CAT_RUN_PROVER,
     CAT_SETUP,
     CAT_START_FUNCTION,
     TodoItem,
@@ -28,13 +29,9 @@ from rebrew.todo import (
     _collect_stubs,
     _collect_verify_failures,
     _load_verify_entries,
-    _score_add_annotations,
-    _score_compile_error,
-    _score_finish_stub,
+    _score_by_size,
     _score_flag_sweep,
-    _score_improve_matching,
     _score_near_miss,
-    _score_prover,
     _score_start_function,
     _score_verify_fail,
     collect_all,
@@ -98,31 +95,31 @@ class TestScoring:
         assert small >= large
 
     def test_prover_small(self) -> None:
-        assert _score_prover(50) == 40.0
+        assert _score_by_size(CAT_RUN_PROVER, 50) == 40.0
 
     def test_prover_medium(self) -> None:
-        assert _score_prover(200) == 35.0
+        assert _score_by_size(CAT_RUN_PROVER, 200) == 35.0
 
     def test_prover_large(self) -> None:
-        assert _score_prover(400) == 30.0
+        assert _score_by_size(CAT_RUN_PROVER, 400) == 30.0
 
     def test_compile_error_small(self) -> None:
-        assert _score_compile_error(50) == 95.0
+        assert _score_by_size(CAT_FIX_COMPILE_ERROR, 50) == 95.0
 
     def test_compile_error_medium(self) -> None:
-        assert _score_compile_error(200) == 90.0
+        assert _score_by_size(CAT_FIX_COMPILE_ERROR, 200) == 90.0
 
     def test_compile_error_large(self) -> None:
-        assert _score_compile_error(500) == 85.0
+        assert _score_by_size(CAT_FIX_COMPILE_ERROR, 500) == 85.0
 
     def test_improve_matching_small(self) -> None:
-        assert _score_improve_matching(50) == 55.0
+        assert _score_by_size(CAT_IMPROVE_MATCHING, 50) == 55.0
 
     def test_improve_matching_medium(self) -> None:
-        assert _score_improve_matching(200) == 50.0
+        assert _score_by_size(CAT_IMPROVE_MATCHING, 200) == 50.0
 
     def test_improve_matching_large(self) -> None:
-        assert _score_improve_matching(500) == 45.0
+        assert _score_by_size(CAT_IMPROVE_MATCHING, 500) == 45.0
 
     def test_verify_fail_high_match(self) -> None:
         assert _score_verify_fail(None, 95.0) == 90.0
@@ -137,16 +134,16 @@ class TestScoring:
         assert _score_verify_fail(None, None) == 80.0
 
     def test_finish_stub_tiny(self) -> None:
-        assert _score_finish_stub(50) == 75.0
+        assert _score_by_size(CAT_FINISH_STUB, 50) == 75.0
 
     def test_finish_stub_small(self) -> None:
-        assert _score_finish_stub(120) == 70.0
+        assert _score_by_size(CAT_FINISH_STUB, 120) == 70.0
 
     def test_finish_stub_medium(self) -> None:
-        assert _score_finish_stub(200) == 65.0
+        assert _score_by_size(CAT_FINISH_STUB, 200) == 70.0
 
     def test_finish_stub_large(self) -> None:
-        assert _score_finish_stub(500) == 60.0
+        assert _score_by_size(CAT_FINISH_STUB, 500) == 60.0
 
     def test_start_function_easy(self) -> None:
         score = _score_start_function(1, 50)
@@ -161,13 +158,13 @@ class TestScoring:
         assert score >= 10.0
 
     def test_add_annotations_zero_size(self) -> None:
-        assert _score_add_annotations(0) == 45.0
+        assert _score_by_size(CAT_ADD_ANNOTATIONS, 0) == 40.0
 
     def test_add_annotations_small(self) -> None:
-        assert _score_add_annotations(50) == 40.0
+        assert _score_by_size(CAT_ADD_ANNOTATIONS, 50) == 40.0
 
     def test_add_annotations_large(self) -> None:
-        assert _score_add_annotations(500) == 35.0
+        assert _score_by_size(CAT_ADD_ANNOTATIONS, 500) == 30.0
 
 
 # ---------------------------------------------------------------------------
@@ -418,8 +415,8 @@ class TestCollectors:
 
     def test_library_candidates(self) -> None:
         ghidra_funcs = [
-            GhidraFunction(va=0x1000, size=100, name="__alloca"),
-            GhidraFunction(va=0x2000, size=200, name="func_lib_zlib"),
+            FunctionEntry(va=0x1000, size=100, name="__alloca"),
+            FunctionEntry(va=0x2000, size=200, name="func_lib_zlib"),
         ]
         existing: dict[int, dict[str, str]] = {}
         cfg = SimpleNamespace(
@@ -438,8 +435,8 @@ class TestCollectors:
         cfg = _make_cfg(tmp_path)
         # No binary, so unmatchable detection is skipped
         ghidra_funcs = [
-            GhidraFunction(va=0x1000, size=50, name="func_small"),
-            GhidraFunction(va=0x2000, size=150, name="func_med"),
+            FunctionEntry(va=0x1000, size=50, name="func_small"),
+            FunctionEntry(va=0x2000, size=150, name="func_med"),
         ]
         # 0x1000 is small (difficulty 1 -> score ~45), 0x2000 is med (difficulty 5 -> score ~5)
         existing: dict[int, dict[str, str]] = {}
@@ -450,7 +447,7 @@ class TestCollectors:
 
     def test_new_functions_skips_existing(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
-        ghidra_funcs = [GhidraFunction(va=0x1000, size=100, name="func")]
+        ghidra_funcs = [FunctionEntry(va=0x1000, size=100, name="func")]
         existing = {
             0x1000: {"status": "EXACT", "symbol": "func", "filename": "f.c", "origin": "GAME"}
         }
@@ -459,7 +456,7 @@ class TestCollectors:
 
     def test_new_functions_caps_at_max(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
-        ghidra_funcs = [GhidraFunction(va=i * 0x1000, size=50, name=f"func_{i}") for i in range(10)]
+        ghidra_funcs = [FunctionEntry(va=i * 0x1000, size=50, name=f"func_{i}") for i in range(10)]
         items = _collect_new_functions(ghidra_funcs, {}, {}, cfg, max_candidates=10)
         assert len(items) == 10
 
@@ -530,7 +527,7 @@ class TestRoiOrdering:
         # size=200: finish_stub→65, improve_matching→50
         matching = TodoItem(
             category=CAT_IMPROVE_MATCHING,
-            roi_score=_score_improve_matching(200),
+            roi_score=_score_by_size(CAT_IMPROVE_MATCHING, 200),
             va=0x1000,
             name="a",
             size=200,
@@ -541,7 +538,7 @@ class TestRoiOrdering:
         )
         stub = TodoItem(
             category=CAT_FINISH_STUB,
-            roi_score=_score_finish_stub(200),
+            roi_score=_score_by_size(CAT_FINISH_STUB, 200),
             va=0x2000,
             name="b",
             size=200,
@@ -699,8 +696,8 @@ class TestCollectAllMatching:
     def test_matching_without_delta_appears(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         ghidra_funcs = [
-            GhidraFunction(va=0x1000, size=200, name="func_a"),
-            GhidraFunction(va=0x2000, size=300, name="func_no_size_in_szbv"),
+            FunctionEntry(va=0x1000, size=200, name="func_a"),
+            FunctionEntry(va=0x2000, size=300, name="func_no_size_in_szbv"),
         ]
         existing = {
             0x1000: {
@@ -718,7 +715,7 @@ class TestCollectAllMatching:
 
     def test_stubs_appear_in_results(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
-        ghidra_funcs = [GhidraFunction(va=0x1000, size=100, name="stub_func")]
+        ghidra_funcs = [FunctionEntry(va=0x1000, size=100, name="stub_func")]
         existing = {
             0x1000: {
                 "status": "STUB",
@@ -749,8 +746,8 @@ class TestCollectAllMatching:
             encoding="utf-8",
         )
         ghidra_funcs = [
-            GhidraFunction(va=0x1000, size=100, name="game_init"),
-            GhidraFunction(va=0x2000, size=50, name="game_update"),
+            FunctionEntry(va=0x1000, size=100, name="game_init"),
+            FunctionEntry(va=0x2000, size=50, name="game_update"),
         ]
         items = collect_all(cfg, ghidra_funcs, {}, {})
         setup_items = [i for i in items if i.category == CAT_SETUP]
@@ -790,7 +787,7 @@ class TestSetupSteps:
         src_dir = tmp_path / "src"
         src_dir.mkdir()
         (src_dir / "function_structure.json").write_text("[]", encoding="utf-8")
-        ghidra_funcs = [GhidraFunction(va=0x1000, size=100, name="f")]
+        ghidra_funcs = [FunctionEntry(va=0x1000, size=100, name="f")]
         items = _collect_setup_steps(cfg, ghidra_funcs, {})
         assert len(items) == 2
         assert any("triage" in i.command for i in items)
@@ -888,12 +885,10 @@ class TestEdgeCases:
         assert items[0].va == 8192
 
     def test_score_identify_library_boundaries(self) -> None:
-        from rebrew.todo import _score_identify_library
-
-        assert _score_identify_library(50) == 25.0
-        assert _score_identify_library(150) == 20.0
-        assert _score_identify_library(400) == 15.0
-        assert _score_identify_library(300) == 15.0
+        assert _score_by_size(CAT_IDENTIFY_LIBRARY, 50) == 25.0
+        assert _score_by_size(CAT_IDENTIFY_LIBRARY, 150) == 20.0
+        assert _score_by_size(CAT_IDENTIFY_LIBRARY, 400) == 15.0
+        assert _score_by_size(CAT_IDENTIFY_LIBRARY, 300) == 15.0
 
     def test_near_miss_with_blocker_text_delta(self) -> None:
         """Near-miss extracted from blocker text like '2B diff'."""

@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from rebrew.catalog.models import GhidraFunction
+from rebrew.catalog.models import FunctionEntry
 from rebrew.config import ProjectConfig
 from rebrew.naming import (
     detect_origin,
@@ -178,8 +178,8 @@ class TestListUncovered:
 
     def test_filters_existing(self) -> None:
         ghidra = [
-            GhidraFunction(va=0x10001000, tool_name="func_a", size=64),
-            GhidraFunction(va=0x10002000, tool_name="func_b", size=128),
+            FunctionEntry(va=0x10001000, tool_name="func_a", size=64),
+            FunctionEntry(va=0x10002000, tool_name="func_b", size=128),
         ]
         existing = {0x10001000: "func_a.c"}
         result = list_uncovered(ghidra, existing, self.cfg)
@@ -188,9 +188,9 @@ class TestListUncovered:
 
     def test_size_filter(self) -> None:
         ghidra = [
-            GhidraFunction(va=0x10001000, tool_name="tiny", size=2),
-            GhidraFunction(va=0x10002000, tool_name="big", size=5000),
-            GhidraFunction(va=0x10003000, tool_name="normal", size=64),
+            FunctionEntry(va=0x10001000, tool_name="tiny", size=2),
+            FunctionEntry(va=0x10002000, tool_name="big", size=5000),
+            FunctionEntry(va=0x10003000, tool_name="normal", size=64),
         ]
         result = list_uncovered(ghidra, {}, self.cfg, min_size=10, max_size=1000)
         vas = [va for va, _, _, _ in result]

@@ -1,7 +1,7 @@
 """catalog - Unified function catalog and reporting package.
 
-Re-exports all public names for backward compatibility so that
-``from rebrew.catalog import X`` continues to work unchanged.
+Re-exports all public names so that
+``from rebrew.catalog import X`` works.
 """
 
 from rebrew.catalog.cli import app as app
@@ -14,7 +14,6 @@ from rebrew.catalog.grid import merge_ranges as merge_ranges
 from rebrew.catalog.loaders import extract_dll_bytes as extract_dll_bytes
 from rebrew.catalog.loaders import load_function_structure as load_function_structure
 from rebrew.catalog.loaders import load_ghidra_data_labels as load_ghidra_data_labels
-from rebrew.catalog.loaders import load_ghidra_functions as load_ghidra_functions  # alias
 from rebrew.catalog.loaders import parse_function_list as parse_function_list
 from rebrew.catalog.loaders import scan_reversed_dir as scan_reversed_dir
 from rebrew.catalog.registry import _DEFAULT_R2_BOGUS_SIZES as _DEFAULT_R2_BOGUS_SIZES

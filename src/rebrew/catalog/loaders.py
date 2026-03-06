@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.annotation import Annotation, parse_c_file_multi, parse_library_header
-from rebrew.catalog.models import GhidraDataLabel, GhidraFunction
+from rebrew.catalog.models import FunctionEntry, GhidraDataLabel
 from rebrew.catalog.registry import make_func_entry
 from rebrew.config import ProjectConfig
 
@@ -20,24 +20,14 @@ from rebrew.config import ProjectConfig
 # ---------------------------------------------------------------------------
 
 
-def load_function_structure(path: Path) -> list[GhidraFunction]:
+def load_function_structure(path: Path) -> list[FunctionEntry]:
     """Load the function structure cache (``function_structure.json``).
 
-    If *path* does not exist, tries the legacy ``ghidra_functions.json``
-    in the same directory as a migration fallback.
-
-    Returns an empty list if neither file exists.
-    Aborts the program with an error if a file exists but is corrupted.
+    Returns an empty list if the file does not exist.
+    Aborts the program with an error if the file exists but is corrupted.
     """
-    from rebrew.config import _LEGACY_GHIDRA_JSON
-
     if not path.exists():
-        # Migration fallback: try legacy filename in the same directory
-        legacy = path.parent / _LEGACY_GHIDRA_JSON
-        if legacy.exists():
-            path = legacy
-        else:
-            return []
+        return []
 
     from rebrew.cli import error_exit
 
@@ -47,15 +37,11 @@ def load_function_structure(path: Path) -> list[GhidraFunction]:
             error_exit(
                 f"Corrupt structure JSON at {path.name}: Expected a JSON array, got {type(data).__name__}"
             )
-        return [GhidraFunction.from_dict(d) for d in data if isinstance(d, dict)]
+        return [FunctionEntry.from_dict(d) for d in data if isinstance(d, dict)]
     except json.JSONDecodeError as e:
         error_exit(f"Corrupt structure JSON at {path.name}: {e}")
     except OSError as e:
         error_exit(f"Cannot read structure JSON at {path.name}: {e}")
-
-
-# Backwards-compatible alias
-load_ghidra_functions = load_function_structure
 
 
 def _classify_ghidra_label(label: str) -> str:

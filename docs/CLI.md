@@ -405,7 +405,7 @@ with only padding between them — this tool exploits that to cluster functions.
 | Flag | Description |
 |------|-------------|
 | `--target NAME` / `-t NAME` | Name of the initial target (default: `main`) |
-| `--binary NAME` | Binary filename (default: `target.dll`) |
+| `--binary NAME` | Binary filename (default: `program.exe`) |
 | `--compiler PROFILE` | Compiler profile (default: `msvc6`) |
 | `--json` | Output results as JSON |
 

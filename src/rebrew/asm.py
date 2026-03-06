@@ -8,10 +8,11 @@ Usage:
 from pathlib import Path
 
 import typer
+from rich.console import Console
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.binary_loader import extract_raw_bytes
-from rebrew.catalog import load_ghidra_functions
+from rebrew.catalog import load_function_structure
 from rebrew.cli import (
     TargetOption,
     error_exit,
@@ -22,6 +23,8 @@ from rebrew.cli import (
     target_marker,
 )
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
+
+console = Console(stderr=True)
 
 _EPILOG = """\
 [bold]Examples:[/bold]
@@ -59,7 +62,7 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
 
     # Load Ghidra function names
     ghidra_json = cfg.reversed_dir / FUNCTION_STRUCTURE_JSON
-    ghidra_funcs = load_ghidra_functions(ghidra_json)
+    ghidra_funcs = load_function_structure(ghidra_json)
     for func in ghidra_funcs:
         if func.va and func.name:
             lookup[func.va] = (func.name, "")
@@ -165,8 +168,10 @@ def main(
                 )
                 return
 
-            print(f"Dumping 0x{va_int:08x} ({len(data)} bytes) from {bin_path.name}:")
-            print()
+            console.print(
+                f"Dumping [cyan]0x{va_int:08x}[/] ({len(data)} bytes) from {bin_path.name}:"
+            )
+            console.print()
             for insn in insn_list:
                 hex_bytes = insn.bytes.hex()
                 line = (
@@ -189,7 +194,7 @@ def main(
             if json_output:
                 error_exit("capstone not installed", json_mode=True)
             # Fallback to hex dump if capstone not available
-            print("(capstone not installed, showing hex dump)")
+            console.print("[yellow](capstone not installed, showing hex dump)[/]")
             for i in range(0, len(data), 16):
                 chunk = data[i : i + 16]
                 hex_str = " ".join(f"{b:02x}" for b in chunk)

@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from rebrew.catalog.models import GhidraFunction
+    from rebrew.catalog.models import FunctionEntry
     from rebrew.verify import VerifyCacheEntry
 
 import typer
@@ -117,7 +117,31 @@ class TodoItem:
 
 
 # ---------------------------------------------------------------------------
-# Scoring functions (pure, testable)
+# Size-tier scoring table: (small<100, medium<300, large) score bounds
+# ---------------------------------------------------------------------------
+
+_SCORE_TIERS: dict[str, tuple[float, float, float]] = {
+    CAT_FIX_COMPILE_ERROR: (95.0, 90.0, 85.0),
+    CAT_FINISH_STUB: (75.0, 70.0, 60.0),
+    CAT_IMPROVE_MATCHING: (55.0, 50.0, 45.0),
+    CAT_RUN_PROVER: (40.0, 35.0, 30.0),
+    CAT_ADD_ANNOTATIONS: (40.0, 35.0, 30.0),
+    CAT_IDENTIFY_LIBRARY: (25.0, 20.0, 15.0),
+}
+
+
+def _score_by_size(category: str, size: int) -> float:
+    """Score a category using simple size-tier lookup."""
+    small, medium, large = _SCORE_TIERS[category]
+    if size < 100:
+        return small
+    if size < 300:
+        return medium
+    return large
+
+
+# ---------------------------------------------------------------------------
+# Scoring functions with non-trivial logic (kept as standalone)
 # ---------------------------------------------------------------------------
 
 
@@ -144,33 +168,6 @@ def _score_flag_sweep(delta: int | None, size: int) -> float:
     return min(55.0, max(25.0, base))
 
 
-def _score_prover(size: int) -> float:
-    """Score a prover candidate by function size."""
-    if size < 100:
-        return 40.0
-    if size < 300:
-        return 35.0
-    return 30.0
-
-
-def _score_compile_error(size: int) -> float:
-    """Score a compile error fix by function size."""
-    if size < 100:
-        return 95.0
-    if size < 300:
-        return 90.0
-    return 85.0
-
-
-def _score_improve_matching(size: int) -> float:
-    """Score a MATCHING function without known delta (needs investigation)."""
-    if size < 100:
-        return 55.0
-    if size < 300:
-        return 50.0
-    return 45.0
-
-
 def _score_verify_fail(delta: int | None, match_pct: float | None) -> float:
     """Score a verify failure (MISMATCH or MISSING_FILE)."""
     if match_pct is not None and match_pct > 90.0:
@@ -182,39 +179,10 @@ def _score_verify_fail(delta: int | None, match_pct: float | None) -> float:
     return 80.0
 
 
-def _score_finish_stub(size: int) -> float:
-    """Score a STUB function that needs implementation."""
-    if size < 80:
-        return 75.0
-    if size < 150:
-        return 70.0
-    if size < 250:
-        return 65.0
-    return 60.0
-
-
 def _score_start_function(difficulty: int, size: int) -> float:
     """Score a new function to start working on."""
     score = 65.0 - (difficulty * 5)
     return min(65.0, max(45.0, score))
-
-
-def _score_add_annotations(size: int) -> float:
-    """Score a missing-annotations fix."""
-    if size == 0:
-        return 45.0
-    if size < 100:
-        return 40.0
-    return 35.0
-
-
-def _score_identify_library(size: int) -> float:
-    """Score a library identification candidate."""
-    if size < 100:
-        return 25.0
-    if size < 300:
-        return 20.0
-    return 15.0
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +192,7 @@ def _score_identify_library(size: int) -> float:
 
 def _collect_setup_steps(
     cfg: ProjectConfig,
-    ghidra_funcs: list["GhidraFunction"],
+    ghidra_funcs: list["FunctionEntry"],
     existing: dict[int, dict[str, str]],
 ) -> list[TodoItem]:
     """Detect missing project setup steps for fresh/incomplete projects.
@@ -416,7 +384,7 @@ def _collect_improve_matching(
         items.append(
             TodoItem(
                 category=CAT_IMPROVE_MATCHING,
-                roi_score=_score_improve_matching(size),
+                roi_score=_score_by_size(CAT_IMPROVE_MATCHING, size),
                 va=va,
                 name=info.get("symbol", ""),
                 size=size,
@@ -456,7 +424,7 @@ def _collect_prover_candidates(
         items.append(
             TodoItem(
                 category=CAT_RUN_PROVER,
-                roi_score=_score_prover(size),
+                roi_score=_score_by_size(CAT_RUN_PROVER, size),
                 va=va,
                 name=info.get("symbol", ""),
                 size=size,
@@ -503,7 +471,7 @@ def _collect_compile_errors(
         items.append(
             TodoItem(
                 category=CAT_FIX_COMPILE_ERROR,
-                roi_score=_score_compile_error(size),
+                roi_score=_score_by_size(CAT_FIX_COMPILE_ERROR, size),
                 va=va,
                 name=result.symbol,
                 size=size,
@@ -576,7 +544,7 @@ def _collect_stubs(
         items.append(
             TodoItem(
                 category=CAT_FINISH_STUB,
-                roi_score=_score_finish_stub(size),
+                roi_score=_score_by_size(CAT_FINISH_STUB, size),
                 va=va,
                 name=info.get("symbol", ""),
                 size=size,
@@ -591,7 +559,7 @@ def _collect_stubs(
 
 
 def _collect_new_functions(
-    ghidra_funcs: list["GhidraFunction"],
+    ghidra_funcs: list["FunctionEntry"],
     existing: dict[int, dict[str, str]],
     covered_vas: dict[int, str],
     cfg: ProjectConfig,
@@ -673,7 +641,7 @@ def _collect_missing_annotations(
         items.append(
             TodoItem(
                 category=CAT_ADD_ANNOTATIONS,
-                roi_score=_score_add_annotations(size),
+                roi_score=_score_by_size(CAT_ADD_ANNOTATIONS, size),
                 va=va,
                 name=f"FUN_{va:08x}",
                 size=size,
@@ -688,7 +656,7 @@ def _collect_missing_annotations(
 
 
 def _collect_library_candidates(
-    ghidra_funcs: list["GhidraFunction"],
+    ghidra_funcs: list["FunctionEntry"],
     existing: dict[int, dict[str, str]],
     cfg: ProjectConfig,
 ) -> list[TodoItem]:
@@ -708,7 +676,7 @@ def _collect_library_candidates(
         items.append(
             TodoItem(
                 category=CAT_IDENTIFY_LIBRARY,
-                roi_score=_score_identify_library(size),
+                roi_score=_score_by_size(CAT_IDENTIFY_LIBRARY, size),
                 va=va,
                 name=name,
                 size=size,
@@ -728,7 +696,7 @@ def _collect_library_candidates(
 
 def collect_all(
     cfg: ProjectConfig,
-    ghidra_funcs: list["GhidraFunction"],
+    ghidra_funcs: list["FunctionEntry"],
     existing: dict[int, dict[str, str]],
     covered_vas: dict[int, str],
 ) -> list[TodoItem]:

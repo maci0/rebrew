@@ -41,7 +41,7 @@ rebrew catalog -t server.dll                Catalog a specific target
 
 1. Scans reversed_dir for .c files with reccmp-style annotations
 
-2. Cross-references with ghidra_functions.json and function list
+2. Cross-references with function_structure.json and function list
 
 3. Builds function registry merging all detection sources
 
@@ -122,8 +122,7 @@ def main(
             "\n"
             "To also export data labels (switch tables, etc.), search for non-function\n"
             f"labels in Ghidra and save as {reversed_dir.name}/ghidra_data_labels.json:\n"
-            '  [{"va": 0x10002E9C, "size": 20, "label": "switchdataD_10002e9c"}, ...]\n'
-            f"(Legacy ghidra_switchdata.json format is still supported for compat.)",
+            '  [{"va": 0x10002E9C, "size": 20, "label": "switchdataD_10002e9c"}, ...]',
             err=True,
         )
         return

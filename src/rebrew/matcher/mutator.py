@@ -1,9 +1,7 @@
-"""mutator.py – C source mutation engine for GA-based binary matching.
+"""mutator.py – Unified C source mutation engine for GA-based binary matching.
 
-Provides 67 mutation functions that transform C89 source code to explore
-the MSVC6 code generation space. Each mutation targets a specific compiler
-behavior (register allocation, instruction selection, calling conventions,
-and code layout / control flow structure).
+Provides mutation functions that transform C89 source code to explore
+the MSVC6 code generation space.  Uses tree-sitter AST for all mutations.
 """
 
 import random
@@ -11,174 +9,1762 @@ import re
 from collections.abc import Callable
 from typing import Literal, overload
 
+import tree_sitter as ts
+
+from rebrew.matcher.ast_engine import _C_LANGUAGE, ASTMutator, parse_c_ast
+
+# --- Query Definitions ---
+# We define tree-sitter queries here for performance
+
+_QUERY_COMMUTE_ADD = ts.Query(
+    _C_LANGUAGE,
+    """
+    (binary_expression
+        left: (identifier) @left
+        "+" @op
+        right: (identifier) @right) @expr
+""",
+)
+
+_QUERY_COMMUTE_MUL = ts.Query(
+    _C_LANGUAGE,
+    """
+    (binary_expression
+        left: (identifier) @left
+        "*" @op
+        right: (identifier) @right) @expr
+""",
+)
+
+_QUERY_EQ_ZERO = ts.Query(
+    _C_LANGUAGE,
+    """
+    (binary_expression
+        left: (identifier) @left
+        ["==" "!="] @op
+        right: (number_literal) @right
+        (#eq? @right "0")) @expr
+""",
+)
+
+_QUERY_FLIP_LT_GE = ts.Query(
+    _C_LANGUAGE,
+    """
+    (binary_expression
+        left: (identifier) @left
+        "<"
+        right: (identifier) @right) @expr
+""",
+)
+
+_QUERY_IDENTIFIER = ts.Query(
+    _C_LANGUAGE,
+    """
+    (identifier) @expr
+""",
+)
+
+_QUERY_SWAP_EQ = ts.Query(
+    _C_LANGUAGE,
+    """
+    (binary_expression
+        left: (identifier) @left
+        "=="
+        right: (identifier) @right) @expr
+""",
+)
+
+_QUERY_SWAP_NE = ts.Query(
+    _C_LANGUAGE,
+    """
+    (binary_expression
+        left: (identifier) @left
+        "!="
+        right: (identifier) @right) @expr
+""",
+)
+
+_QUERY_REASSOCIATE = ts.Query(
+    _C_LANGUAGE,
+    """
+    (binary_expression
+        left: (parenthesized_expression (binary_expression left: (_) @a "+" right: (_) @b))
+        "+"
+        right: (_) @c) @expr
+""",
+)
+
+_QUERY_SWAP_OR = ts.Query(
+    _C_LANGUAGE,
+    """
+    (binary_expression
+        left: (_) @left
+        "||"
+        right: (_) @right) @expr
+""",
+)
+
+_QUERY_SWAP_AND = ts.Query(
+    _C_LANGUAGE,
+    """
+    (binary_expression
+        left: (_) @left
+        "&&"
+        right: (_) @right) @expr
+""",
+)
+
+_QUERY_DOUBLE_NOT = ts.Query(
+    _C_LANGUAGE,
+    """
+    (unary_expression
+        operator: "!"
+        argument: (unary_expression
+            operator: "!"
+            argument: (identifier) @ident)) @expr
+""",
+)
+
+_QUERY_GOTO_RET_FALSE = ts.Query(
+    _C_LANGUAGE,
+    """
+    (goto_statement
+        (statement_identifier) @lbl
+        (#eq? @lbl "ret_false")) @expr
+""",
+)
+
+_QUERY_IF_ELSE = ts.Query(
+    _C_LANGUAGE,
+    """
+    (if_statement
+        condition: (parenthesized_expression) @cond
+        consequence: (_) @cons
+        alternative: (else_clause (_) @alt)) @expr
+""",
+)
+
+_QUERY_RHS_IDENT = ts.Query(
+    _C_LANGUAGE,
+    """
+    [
+        (assignment_expression right: (identifier) @expr)
+        (init_declarator value: (identifier) @expr)
+        (return_statement (identifier) @expr)
+        (argument_list (identifier) @expr)
+    ]
+""",
+)
+
+_QUERY_REMOVE_CAST = ts.Query(
+    _C_LANGUAGE,
+    """
+    (cast_expression
+        type: (type_descriptor) @type
+        value: (_) @val
+        (#match? @type "^(DWORD|int|BOOL|unsigned int)$")) @expr
+""",
+)
+
+_QUERY_DECLARATION = ts.Query(
+    _C_LANGUAGE,
+    """
+    (declaration) @expr
+""",
+)
+
+_QUERY_IF_FALSE_BITAND = ts.Query(
+    _C_LANGUAGE,
+    """
+    [
+      (if_statement
+          condition: (parenthesized_expression (unary_expression operator: "!" argument: (_) @cond))
+          consequence: (expression_statement (assignment_expression left: (identifier) @var right: (number_literal) @false_val (#match? @false_val "^0|FALSE$")))) @expr
+
+      (if_statement
+          condition: (parenthesized_expression (unary_expression operator: "!" argument: (_) @cond))
+          consequence: (compound_statement (expression_statement (assignment_expression left: (identifier) @var right: (number_literal) @false_val (#match? @false_val "^0|FALSE$"))))) @expr
+    ]
+""",
+)
+
+_QUERY_ELSE_IF = ts.Query(
+    _C_LANGUAGE,
+    """
+    (if_statement
+        condition: (parenthesized_expression) @cond1
+        consequence: (_) @cons1
+        alternative: (else_clause
+            (if_statement
+                condition: (parenthesized_expression) @cond2
+                consequence: (_) @cons2
+            )
+        )
+    ) @expr
+""",
+)
+
+_QUERY_BITAND = ts.Query(
+    _C_LANGUAGE,
+    """
+    (expression_statement
+        (assignment_expression left: (identifier) @var operator: "&=" right: (_) @expr)
+    ) @stmt
+""",
+)
+
+_QUERY_CALL_ASSIGN = ts.Query(
+    _C_LANGUAGE,
+    """
+    (expression_statement
+        (assignment_expression left: (identifier) @var right: (call_expression) @call)
+    ) @expr
+""",
+)
+
+_QUERY_TEMP_VAR = ts.Query(
+    _C_LANGUAGE,
+    """
+    (compound_statement
+        (expression_statement (assignment_expression left: (identifier) @tmp right: (_) @stmt)) @stmt1
+        .
+        (expression_statement (assignment_expression left: (identifier) @var right: (identifier) @tmp2 (#eq? @tmp @tmp2))) @stmt2
+    )
+""",
+)
+
+_QUERY_ADJACENT_DECL = ts.Query(
+    _C_LANGUAGE,
+    """
+    (compound_statement
+        (declaration) @d1
+        .
+        (declaration) @d2
+    )
+""",
+)
+
+_QUERY_SPLIT_DECL = ts.Query(
+    _C_LANGUAGE,
+    """
+    (declaration
+        type: (_) @type
+        declarator: (init_declarator
+            declarator: (identifier) @var
+            value: (_) @expr
+        )
+    ) @stmt
+""",
+)
+
+_QUERY_MERGE_DECL = ts.Query(
+    _C_LANGUAGE,
+    """
+    (compound_statement
+        (declaration type: (_) @type declarator: (identifier) @decl) @d1
+        .
+        (expression_statement (assignment_expression left: (identifier) @var right: (_) @init_expr (#eq? @decl @var))) @d2
+    )
+""",
+)
+
+_QUERY_WHILE = ts.Query(
+    _C_LANGUAGE,
+    """
+    (while_statement
+        condition: (parenthesized_expression) @cond
+        body: (compound_statement) @body
+    ) @stmt
+""",
+)
+
+_QUERY_DO_WHILE = ts.Query(
+    _C_LANGUAGE,
+    """
+    (do_statement
+        body: (compound_statement) @body
+        condition: (parenthesized_expression) @cond
+    ) @stmt
+""",
+)
+
+_QUERY_EARLY_RETURN = ts.Query(
+    _C_LANGUAGE,
+    """
+    (if_statement
+        condition: (parenthesized_expression (unary_expression operator: "!" argument: (_) @expr))
+        consequence: [
+            (return_statement (number_literal) @ret_val (#match? @ret_val "^0$"))
+            (compound_statement (return_statement (number_literal) @ret_val (#match? @ret_val "^0$")))
+        ]
+    ) @stmt
+""",
+)
+
+_QUERY_ACCUM = ts.Query(
+    _C_LANGUAGE,
+    """
+    (expression_statement
+        (assignment_expression left: (identifier) @var operator: "&=" right: (_) @expr (#match? @var "^(ret|retcode|result)$"))
+    ) @stmt
+""",
+)
+
+_QUERY_PTR_PARAM = ts.Query(
+    _C_LANGUAGE,
+    """
+    (parameter_declaration type: (_) @type declarator: (pointer_declarator declarator: (identifier) @var) @ptr_decl) @stmt
+""",
+)
+
+_QUERY_INT_PARAM = ts.Query(
+    _C_LANGUAGE,
+    """
+    (parameter_declaration type: (primitive_type) @type declarator: (identifier) @var (#eq? @type "int")) @expr
+""",
+)
+
+_QUERY_CONST_ADD_FOLD = ts.Query(
+    _C_LANGUAGE,
+    """
+    (compound_statement
+        (expression_statement (assignment_expression left: (identifier) @v1 operator: "=" right: (binary_expression left: (identifier) @v2 operator: "+" right: (number_literal) @n1 (#eq? @v1 @v2)))) @stmt1
+        .
+        (expression_statement (assignment_expression left: (identifier) @v3 operator: "=" right: (binary_expression left: (identifier) @v4 operator: "+" right: (number_literal) @n2 (#eq? @v3 @v4) (#eq? @v1 @v3)))) @stmt2
+    )
+""",
+)
+
+_QUERY_CONST_ADD_UNFOLD = ts.Query(
+    _C_LANGUAGE,
+    """
+    (expression_statement
+        (assignment_expression left: (identifier) @v1 operator: "=" right: (binary_expression left: (identifier) @v2 operator: "+" right: (number_literal) @n (#eq? @v1 @v2)))
+    ) @stmt
+""",
+)
+
+_QUERY_ARRAY_INDEX = ts.Query(
+    _C_LANGUAGE,
+    """
+    (subscript_expression argument: (_) @arr index: (_) @idx) @expr
+""",
+)
+
+_QUERY_PTR_ARROW = ts.Query(
+    _C_LANGUAGE,
+    """
+    (field_expression argument: (_) @ptr "->" field: (field_identifier) @field) @expr
+""",
+)
+
+_QUERY_RETURN_TYPE = ts.Query(
+    _C_LANGUAGE,
+    """
+    (function_definition type: (primitive_type) @expr declarator: (_))
+""",
+)
+
+_QUERY_PTR_PARAM = ts.Query(
+    _C_LANGUAGE,
+    """
+    (parameter_declaration type: (primitive_type) @type declarator: (pointer_declarator declarator: (identifier) @var)) @stmt
+""",
+)
+
+_QUERY_WHILE_LOOP = ts.Query(
+    _C_LANGUAGE,
+    """
+    (while_statement condition: (_) @cond body: (compound_statement) @body) @stmt
+""",
+)
+
+_QUERY_SPLIT_CMP_CHAIN = ts.Query(
+    _C_LANGUAGE,
+    """
+    (if_statement
+        condition: (parenthesized_expression
+            (binary_expression left: (_) @left operator: "&&" right: (_) @right)
+        )
+        consequence: (compound_statement) @body
+    ) @stmt
+""",
+)
+
+_QUERY_MERGE_CMP_CHAIN = ts.Query(
+    _C_LANGUAGE,
+    """
+    (if_statement
+        condition: (parenthesized_expression) @cond1
+        consequence: (compound_statement
+            (if_statement
+                condition: (parenthesized_expression) @cond2
+                consequence: (compound_statement) @body
+            )
+        ) @stmt2
+    ) @stmt
+""",
+)
+
+_QUERY_COMBINE_PTR_ARITH = ts.Query(
+    _C_LANGUAGE,
+    """
+    (compound_statement
+        (expression_statement (assignment_expression left: (identifier) @v1 right: (binary_expression left: (identifier) @v2 operator: "+" right: (number_literal) @n1))) @stmt1
+        (expression_statement (assignment_expression left: (identifier) @v3 right: (binary_expression left: (identifier) @v4 operator: "+" right: (number_literal) @n2))) @stmt2
+        (#eq? @v1 @v2)
+        (#eq? @v2 @v3)
+        (#eq? @v3 @v4)
+    )
+""",
+)
+
+_QUERY_SPLIT_PTR_ARITH = ts.Query(
+    _C_LANGUAGE,
+    """
+    (expression_statement (assignment_expression left: (identifier) @v1 right: (binary_expression left: (identifier) @v2 operator: "+" right: (number_literal) @n1))) @stmt
+    (#eq? @v1 @v2)
+""",
+)
+
+_QUERY_PARAM_ORDER = ts.Query(
+    _C_LANGUAGE,
+    """
+    (function_definition declarator: (function_declarator parameters: (parameter_list) @expr))
+""",
+)
+
+_QUERY_CALL_CONV = ts.Query(
+    _C_LANGUAGE,
+    """
+    (function_definition (ms_call_modifier) @expr)
+""",
+)
+
+_QUERY_NO_CALL_CONV = ts.Query(
+    _C_LANGUAGE,
+    """
+    (function_definition type: (_) @type declarator: (function_declarator declarator: (identifier) @name)) @stmt
+""",
+)
+
+_QUERY_CHAR_TYPE = ts.Query(
+    _C_LANGUAGE,
+    """
+    (primitive_type) @expr
+""",
+)
+
+_QUERY_CMP_BOUNDARY = ts.Query(
+    _C_LANGUAGE,
+    """
+    (binary_expression left: (_) @left operator: [">" ">=" "<" "<="] @op right: (number_literal) @num) @expr
+""",
+)
+
+# Note: Tree-sitter might see some macros or types differently.
+_QUERY_RETURN_FALSE = ts.Query(
+    _C_LANGUAGE,
+    """
+    (return_statement
+        (number_literal) @val
+        (#match? @val "^0|FALSE$")) @expr
+""",
+)  # But for typical C code generated/decompiled, these work well.
+
+
 # ---------------------------------------------------------------------------
-# Pre-compiled regex patterns (module-level for performance)
+# Queries for structural/code-layout mutations (formerly regex-only)
+# ---------------------------------------------------------------------------
+
+_QUERY_NESTED_IF = ts.Query(
+    _C_LANGUAGE,
+    """
+    (if_statement
+        condition: (parenthesized_expression) @outer_cond
+        consequence: (compound_statement
+            (if_statement
+                condition: (parenthesized_expression) @inner_cond
+                consequence: (compound_statement) @inner_body
+            ) @inner_if
+        ) @outer_body
+    ) @expr
+""",
+)
+
+_QUERY_FOR_LOOP = ts.Query(
+    _C_LANGUAGE,
+    """
+    (for_statement
+        initializer: (_)? @init
+        condition: (_)? @cond
+        update: (_)? @update
+        body: (compound_statement) @body
+    ) @stmt
+""",
+)
+
+_QUERY_IF_ASSIGN_ELSE = ts.Query(
+    _C_LANGUAGE,
+    """
+    (if_statement
+        condition: (parenthesized_expression) @cond
+        consequence: [
+            (expression_statement (assignment_expression left: (identifier) @var1 right: (_) @val1))
+            (compound_statement (expression_statement (assignment_expression left: (identifier) @var1 right: (_) @val1)))
+        ]
+        alternative: (else_clause [
+            (expression_statement (assignment_expression left: (identifier) @var2 right: (_) @val2))
+            (compound_statement (expression_statement (assignment_expression left: (identifier) @var2 right: (_) @val2)))
+        ])
+    ) @expr
+""",
+)
+
+_QUERY_TERNARY = ts.Query(
+    _C_LANGUAGE,
+    """
+    (expression_statement
+        (assignment_expression
+            left: (identifier) @var
+            right: (conditional_expression
+                condition: (_) @cond
+                consequence: (_) @val_true
+                alternative: (_) @val_false
+            )
+        )
+    ) @expr
+""",
+)
+
+_QUERY_ADJACENT_EXPR_STMTS = ts.Query(
+    _C_LANGUAGE,
+    """
+    (compound_statement
+        (expression_statement) @s1
+        .
+        (expression_statement) @s2
+    )
+""",
+)
+
+_QUERY_COMPOUND_ASSIGN = ts.Query(
+    _C_LANGUAGE,
+    """
+    (expression_statement
+        (assignment_expression
+            left: (identifier) @var
+            operator: ["+=" "-=" "*=" "|=" "&=" "^="] @op
+            right: (_) @rhs
+        )
+    ) @expr
+""",
+)
+
+_QUERY_EXPANDED_COMPOUND = ts.Query(
+    _C_LANGUAGE,
+    """
+    (expression_statement
+        (assignment_expression
+            left: (identifier) @var
+            operator: "="
+            right: (binary_expression
+                left: (identifier) @var2
+                operator: ["+" "-" "*" "|" "&" "^"] @op
+                right: (_) @rhs
+            )
+        )
+    ) @expr
+""",
+)
+
+_QUERY_DEMORGAN_NOT_AND = ts.Query(
+    _C_LANGUAGE,
+    """
+    (unary_expression
+        operator: "!"
+        argument: (parenthesized_expression
+            (binary_expression
+                left: (_) @a
+                operator: "&&"
+                right: (_) @b
+            )
+        )
+    ) @expr
+""",
+)
+
+_QUERY_DEMORGAN_NOT_OR = ts.Query(
+    _C_LANGUAGE,
+    """
+    (unary_expression
+        operator: "!"
+        argument: (parenthesized_expression
+            (binary_expression
+                left: (_) @a
+                operator: "||"
+                right: (_) @b
+            )
+        )
+    ) @expr
+""",
+)
+
+_QUERY_POST_INCREMENT = ts.Query(
+    _C_LANGUAGE,
+    """
+    (update_expression argument: (identifier) @var operator: "++") @expr
+""",
+)
+
+_QUERY_POST_DECREMENT = ts.Query(
+    _C_LANGUAGE,
+    """
+    (update_expression argument: (identifier) @var operator: "--") @expr
+""",
+)
+
+_QUERY_ASSIGN_ZERO = ts.Query(
+    _C_LANGUAGE,
+    """
+    (expression_statement
+        (assignment_expression
+            left: (identifier) @var
+            operator: "="
+            right: (number_literal) @val
+            (#eq? @val "0")
+        )
+    ) @expr
+""",
+)
+
+_QUERY_XOR_SELF = ts.Query(
+    _C_LANGUAGE,
+    """
+    (expression_statement
+        (assignment_expression
+            left: (identifier) @var
+            operator: "^="
+            right: (identifier) @var2
+            (#eq? @var @var2)
+        )
+    ) @expr
+""",
+)
+
+_QUERY_FOR_COUNT_UP = ts.Query(
+    _C_LANGUAGE,
+    """
+    (for_statement
+        initializer: (assignment_expression
+            left: (identifier) @var
+            right: (number_literal) @zero
+            (#eq? @zero "0")
+        )
+        condition: (binary_expression
+            left: (identifier) @var2
+            operator: "<"
+            right: (_) @limit
+            (#eq? @var @var2)
+        )
+        update: (update_expression
+            argument: (identifier) @var3
+            operator: "++"
+            (#eq? @var @var3)
+        )
+        body: (compound_statement) @body
+    ) @stmt
+""",
+)
+
+_QUERY_IF_BODY_RETURN = ts.Query(
+    _C_LANGUAGE,
+    """
+    (if_statement
+        condition: (parenthesized_expression) @cond
+        consequence: (compound_statement) @if_body
+        alternative: (else_clause
+            (compound_statement) @else_body
+        )
+    ) @expr
+""",
+)
+
+
+def _apply_query_once(
+    source: bytes,
+    query: ts.Query,
+    repl: Callable[[dict[str, ts.Node]], bytes],
+    rng: random.Random,
+) -> bytes | None:
+    """Helper to apply an AST query and replace one matched occurrence."""
+    tree = parse_c_ast(source)
+    cursor = ts.QueryCursor(query)
+    matches = cursor.matches(tree.root_node)
+
+    if not matches:
+        return None
+
+    # Match is a tuple of (pattern_index, dict_of_captures)
+    # We want a random match
+    _, captures = rng.choice(matches)
+
+    # captures is a dict mapping capture name (e.g. "expr") to a list of Nodes
+    # We assume one node per capture name in our queries
+    single_captures = {k: v[0] for k, v in captures.items()}
+
+    target_node = single_captures.get("stmt") or single_captures.get("expr")
+    if not target_node:
+        return None
+
+    replacement = repl(single_captures)
+
+    return ASTMutator.replace_node(source, target_node, replacement)
+
+
+# --- Mutations ---
+
+
+def mut_commute_simple_add(s: str, rng: random.Random) -> str | None:
+    """Swap operands of simple identifier addition."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        left = b_source[captures["left"].start_byte : captures["left"].end_byte]
+        right = b_source[captures["right"].start_byte : captures["right"].end_byte]
+        return right + b" + " + left
+
+    res = _apply_query_once(b_source, _QUERY_COMMUTE_ADD, _repl, rng)
+    return res.decode("utf-8") if res else None
+
+
+def mut_commute_simple_mul(s: str, rng: random.Random) -> str | None:
+    """Swap operands of simple identifier multiplication."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        left = b_source[captures["left"].start_byte : captures["left"].end_byte]
+        right = b_source[captures["right"].start_byte : captures["right"].end_byte]
+        return right + b" * " + left
+
+    res = _apply_query_once(b_source, _QUERY_COMMUTE_MUL, _repl, rng)
+    return res.decode("utf-8") if res else None
+
+
+def mut_flip_eq_zero(s: str, rng: random.Random) -> str | None:
+    """Rewrite x == 0 / x != 0 into boolean-not forms."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        left = b_source[captures["left"].start_byte : captures["left"].end_byte]
+        op = b_source[captures["op"].start_byte : captures["op"].end_byte]
+
+        if op == b"==":
+            return b"!" + left
+        else:
+            return b"!!" + left
+
+    res = _apply_query_once(b_source, _QUERY_EQ_ZERO, _repl, rng)
+    return res.decode("utf-8") if res else None
+
+
+def mut_flip_lt_ge(s: str, rng: random.Random) -> str | None:
+    """Rewrite ``a < b`` into the equivalent negated ``!(a >= b)`` form."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        left = b_source[captures["left"].start_byte : captures["left"].end_byte]
+        right = b_source[captures["right"].start_byte : captures["right"].end_byte]
+        return b"!(" + left + b" >= " + right + b")"
+
+    res = _apply_query_once(b_source, _QUERY_FLIP_LT_GE, _repl, rng)
+    return res.decode("utf-8") if res else None
+
+
+def mut_add_redundant_parens(s: str, rng: random.Random) -> str | None:
+    """Wrap a random identifier in redundant parentheses.
+    AST makes this safe vs wrapping keywords like 'return'."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        ident = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        return b"(" + ident + b")"
+
+    res = _apply_query_once(b_source, _QUERY_IDENTIFIER, _repl, rng)
+    return res.decode("utf-8") if res else None
+
+
+def mut_swap_eq_operands(s: str, rng: random.Random) -> str | None:
+    """a == b -> b == a"""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        left = b_source[captures["left"].start_byte : captures["left"].end_byte]
+        right = b_source[captures["right"].start_byte : captures["right"].end_byte]
+        return right + b" == " + left
+
+    res = _apply_query_once(b_source, _QUERY_SWAP_EQ, _repl, rng)
+    return res.decode("utf-8") if res else None
+
+
+def mut_swap_ne_operands(s: str, rng: random.Random) -> str | None:
+    """a != b -> b != a"""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        left = b_source[captures["left"].start_byte : captures["left"].end_byte]
+        right = b_source[captures["right"].start_byte : captures["right"].end_byte]
+        return right + b" != " + left
+
+    res = _apply_query_once(b_source, _QUERY_SWAP_NE, _repl, rng)
+    return res.decode("utf-8") if res else None
+
+
+def mut_reassociate_add(s: str, rng: random.Random) -> str | None:
+    """Reassociate ``(a + b) + c`` into ``a + (b + c)``."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        a = b_source[captures["a"].start_byte : captures["a"].end_byte]
+        b = b_source[captures["b"].start_byte : captures["b"].end_byte]
+        c = b_source[captures["c"].start_byte : captures["c"].end_byte]
+        return a + b" + (" + b + b" + " + c + b")"
+
+    res = _apply_query_once(b_source, _QUERY_REASSOCIATE, _repl, rng)
+    return res.decode("utf-8") if res else None
+
+
+def mut_swap_or_operands(s: str, rng: random.Random) -> str | None:
+    """a || b -> b || a  (changes short-circuit order, affects codegen)"""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        left = b_source[captures["left"].start_byte : captures["left"].end_byte]
+        right = b_source[captures["right"].start_byte : captures["right"].end_byte]
+        if left == right:
+            return b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        return right + b" || " + left
+
+    res = _apply_query_once(b_source, _QUERY_SWAP_OR, _repl, rng)
+    if not res:
+        return None
+    res_str = res.decode("utf-8")
+    return res_str if res_str != s else None
+
+
+def mut_swap_and_operands(s: str, rng: random.Random) -> str | None:
+    """a && b -> b && a"""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        left = b_source[captures["left"].start_byte : captures["left"].end_byte]
+        right = b_source[captures["right"].start_byte : captures["right"].end_byte]
+        if left == right:
+            return b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        return right + b" && " + left
+
+    res = _apply_query_once(b_source, _QUERY_SWAP_AND, _repl, rng)
+    if not res:
+        return None
+    res_str = res.decode("utf-8")
+    return res_str if res_str != s else None
+
+
+def mut_toggle_bool_not(s: str, rng: random.Random) -> str | None:
+    """Remove one ``!!identifier`` sequence."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        ident = b_source[captures["ident"].start_byte : captures["ident"].end_byte]
+        return ident
+
+    res = _apply_query_once(b_source, _QUERY_DOUBLE_NOT, _repl, rng)
+    return res.decode("utf-8") if res else None
+
+
+def mut_return_to_goto(s: str, rng: random.Random) -> str | None:
+    """Replace 'return FALSE;' or 'return 0;' with 'goto ret_false;' and add label."""
+    if "ret_false:" in s:
+        return None  # already has the label
+
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        return b"goto ret_false;"
+
+    res = _apply_query_once(b_source, _QUERY_RETURN_FALSE, _repl, rng)
+    if not res:
+        return None
+
+    result = res.decode("utf-8")
+
+    # Needs to add ret_false: before the last return statement
+    # We will use regex for the fallback label injection for now since it operates on the whole block
+    import re
+
+    _RE_FINAL_RET = re.compile(
+        r"(\s+return[^;]+;[ \t]*\n[ \t]*\}(?:\s*|//.*)*)$(?![\s\S]*\})", re.MULTILINE
+    )
+    final_ret = _RE_FINAL_RET.search(result)
+    if final_ret:
+        pos = final_ret.start(1)
+        result = result[:pos] + "\nret_false:\n" + result[pos:]
+    else:
+        # Fallback: add before closing brace
+        last_brace = result.rfind("}")
+        if last_brace >= 0:
+            result = result[:last_brace] + "ret_false:\n    return 0;\n" + result[last_brace:]
+
+    return result
+
+
+def mut_goto_to_return(s: str, rng: random.Random) -> str | None:
+    """Reverse: replace 'goto ret_false;' with 'return 0;'"""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        return b"return 0;"
+
+    res = _apply_query_once(b_source, _QUERY_GOTO_RET_FALSE, _repl, rng)
+    if not res:
+        return None
+
+    result = res.decode("utf-8")
+
+    # Remove the label if no more gotos reference it
+    if "goto ret_false" not in result:
+        import re
+
+        result = re.sub(r"^[ \t]*ret_false:[ \t]*\n", "", result, flags=re.MULTILINE)
+        result = re.sub(r"^[ \t]*ret_false:[ \t]*", "", result, flags=re.MULTILINE)
+
+    return result
+
+
+def mut_swap_if_else(s: str, rng: random.Random) -> str | None:
+    """Swap if/else bodies and negate the condition."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        cond_node = captures["cond"]
+        cons_node = captures["cons"]
+        alt_node = captures["alt"]  # this is the statement inside `else_clause`
+
+        cond = b_source[cond_node.start_byte : cond_node.end_byte]
+        cons = b_source[cons_node.start_byte : cons_node.end_byte]
+        alt = b_source[alt_node.start_byte : alt_node.end_byte]
+
+        # Strip outer parens from cond if present to negate safely
+        cond_inner = cond[1:-1] if cond.startswith(b"(") and cond.endswith(b")") else cond
+
+        # Simple negation - in real scenarios, prefer mut_flip_lt_ge and others
+        negated_cond = b"!(" + cond_inner + b")"
+
+        return b"if (" + negated_cond + b") " + alt + b" else " + cons
+
+    res = _apply_query_once(b_source, _QUERY_IF_ELSE, _repl, rng)
+    return res.decode("utf-8") if res else None
+
+
+def mut_add_cast(s: str, rng: random.Random) -> str | None:
+    """Wrap an expression in (BOOL) or (int) cast."""
+    b_source = s.encode("utf-8")
+    casts = [b"(int)", b"(unsigned int)"]
+    cast = rng.choice(casts)
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        ident_node = captures["expr"]
+        ident = b_source[ident_node.start_byte : ident_node.end_byte]
+
+        # Don't cast type keywords. Even though tree-sitter distinguishes
+        # identifiers from keywords, it's safer to have a small blocklist.
+        if ident in (
+            b"BOOL",
+            b"int",
+            b"DWORD",
+            b"HANDLE",
+            b"LPVOID",
+            b"void",
+            b"return",
+            b"if",
+            b"else",
+            b"while",
+            b"for",
+            b"goto",
+            b"volatile",
+        ):
+            return ident
+
+        return cast + ident
+
+    res = _apply_query_once(b_source, _QUERY_RHS_IDENT, _repl, rng)
+    if not res:
+        return None
+    res_str = res.decode("utf-8")
+    return res_str if res_str != s else None
+
+
+def mut_remove_cast(s: str, rng: random.Random) -> str | None:
+    """Remove a (TYPE) cast."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        val = b_source[captures["val"].start_byte : captures["val"].end_byte]
+        return val
+
+    res = _apply_query_once(b_source, _QUERY_REMOVE_CAST, _repl, rng)
+    return res.decode("utf-8") if res else None
+
+
+def mut_toggle_volatile(s: str, rng: random.Random) -> str | None:
+    """Add or remove 'volatile' on a local variable declaration."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        decl = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+
+        # Try removing volatile first
+        if b"volatile " in decl and rng.random() < 0.5:
+            return decl.replace(b"volatile ", b"")
+
+        # Try adding volatile
+        if b"volatile" not in decl:
+            # simple trick: inject after the type
+            # but we can just prepend it
+            return b"volatile " + decl
+
+        return decl
+
+    res = _apply_query_once(b_source, _QUERY_DECLARATION, _repl, rng)
+    if not res:
+        return None
+    res_str = res.decode("utf-8")
+    return res_str if res_str != s else None
+
+
+def mut_add_register_keyword(s: str, rng: random.Random) -> str | None:
+    """Add 'register' keyword to a local variable declaration."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        decl = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        if b"register" not in decl:
+            return b"register " + decl
+        return decl
+
+    res = _apply_query_once(b_source, _QUERY_DECLARATION, _repl, rng)
+    if not res:
+        return None
+    res_str = res.decode("utf-8")
+    return res_str if res_str != s else None
+
+
+def mut_remove_register_keyword(s: str, rng: random.Random) -> str | None:
+    """Remove 'register' keyword from a local variable declaration."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        decl = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        if b"register " in decl:
+            return decl.replace(b"register ", b"")
+        return decl
+
+    res = _apply_query_once(b_source, _QUERY_DECLARATION, _repl, rng)
+    if not res:
+        return None
+    res_str = res.decode("utf-8")
+    return res_str if res_str != s else None
+
+
+def mut_if_false_to_bitand(s: str, rng: random.Random) -> str | None:
+    """Convert 'if (!expr) var = FALSE;' to 'var &= expr;'."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        cond = b_source[captures["cond"].start_byte : captures["cond"].end_byte]
+        var = b_source[captures["var"].start_byte : captures["var"].end_byte]
+
+        return var + b" &= " + cond + b";"
+
+    res = _apply_query_once(b_source, _QUERY_IF_FALSE_BITAND, _repl, rng)
+    return res.decode("utf-8") if res else None
+
+
+def mut_reorder_elseif(s: str, rng: random.Random) -> str | None:
+    """Swap two branches in an else-if chain."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        cond1 = b_source[captures["cond1"].start_byte : captures["cond1"].end_byte]
+        cons1 = b_source[captures["cons1"].start_byte : captures["cons1"].end_byte]
+        cond2 = b_source[captures["cond2"].start_byte : captures["cond2"].end_byte]
+        cons2 = b_source[captures["cons2"].start_byte : captures["cons2"].end_byte]
+
+        return b"if " + cond2 + b" " + cons2 + b" else if " + cond1 + b" " + cons1
+
+    res = _apply_query_once(b_source, _QUERY_ELSE_IF, _repl, rng)
+    return res.decode("utf-8") if res else None
+
+
+def mut_bitand_to_if_false(s: str, rng: random.Random) -> str | None:
+    """Reverse of mut_if_false_to_bitand: convert 'var &= expr;' to 'if (!expr) var = 0;'."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        var = b_source[captures["var"].start_byte : captures["var"].end_byte]
+        expr = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+
+        return b"if (!(" + expr + b"))\n            " + var + b" = 0;"
+
+    res = _apply_query_once(b_source, _QUERY_BITAND, _repl, rng)
+    return res.decode("utf-8") if res else None
+
+
+def mut_introduce_temp_for_call(s: str, rng: random.Random) -> str | None:
+    """Introduce a temp variable for a function call result."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        var = b_source[captures["var"].start_byte : captures["var"].end_byte]
+        call = b_source[captures["call"].start_byte : captures["call"].end_byte]
+
+        if b"tmp" in b_source:
+            return b"tmp = " + call + b";\n    " + var + b" = tmp;"
+        else:
+            return b"BOOL tmp = " + call + b";\n    " + var + b" = tmp;"
+
+    res = _apply_query_once(b_source, _QUERY_CALL_ASSIGN, _repl, rng)
+    return res.decode("utf-8") if res else None
+
+
+def mut_remove_temp_var(s: str, rng: random.Random) -> str | None:
+    """Remove a temp variable usage: 'tmp = expr; var = tmp;' -> 'var = expr;'."""
+    b_source = s.encode("utf-8")
+    cursor = ts.QueryCursor(_QUERY_TEMP_VAR)
+    from rebrew.matcher.ast_engine import parse_c_ast
+
+    tree = parse_c_ast(b_source)
+    matches = cursor.matches(tree.root_node)
+
+    if not matches:
+        return None
+
+    match = rng.choice(matches)
+    captures = {k: v[0] for k, v in match[1].items()}
+
+    stmt1 = captures["stmt1"]
+    stmt2 = captures["stmt2"]
+
+    var = b_source[captures["var"].start_byte : captures["var"].end_byte]
+    expr = b_source[captures["stmt"].start_byte : captures["stmt"].end_byte]
+
+    replacement = var + b" = " + expr + b";"
+
+    res = b_source[: stmt1.start_byte] + replacement + b_source[stmt2.end_byte :]
+    return res.decode("utf-8")
+
+
+def mut_toggle_signedness(s: str, rng: random.Random) -> str | None:
+    """Toggle signed/unsigned on a local variable declaration."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        decl = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        if b"unsigned " in decl:
+            return decl.replace(b"unsigned ", b"")
+        else:
+            return b"unsigned " + decl
+
+    res = _apply_query_once(b_source, _QUERY_DECLARATION, _repl, rng)
+    if not res:
+        return None
+    res_str = res.decode("utf-8")
+    return res_str if res_str != s else None
+
+
+def mut_swap_adjacent_declarations(s: str, rng: random.Random) -> str | None:
+    """Swap two adjacent variable declarations."""
+    b_source = s.encode("utf-8")
+    cursor = ts.QueryCursor(_QUERY_ADJACENT_DECL)
+    from rebrew.matcher.ast_engine import parse_c_ast
+
+    tree = parse_c_ast(b_source)
+    matches = cursor.matches(tree.root_node)
+
+    if not matches:
+        return None
+
+    match = rng.choice(matches)
+    captures = {k: v[0] for k, v in match[1].items()}
+
+    d1 = captures["d1"]
+    d2 = captures["d2"]
+
+    d1_text = b_source[d1.start_byte : d1.end_byte]
+    d2_text = b_source[d2.start_byte : d2.end_byte]
+    mid_text = b_source[d1.end_byte : d2.start_byte]
+
+    replacement = d2_text + mid_text + d1_text
+    res = b_source[: d1.start_byte] + replacement + b_source[d2.end_byte :]
+    return res.decode("utf-8")
+
+
+def mut_split_declaration_init(s: str, rng: random.Random) -> str | None:
+    """Split 'TYPE var = expr;' into 'TYPE var; var = expr;'."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        type_ = b_source[captures["type"].start_byte : captures["type"].end_byte]
+        var = b_source[captures["var"].start_byte : captures["var"].end_byte]
+        expr = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+
+        return type_ + b" " + var + b";\n    " + var + b" = " + expr + b";"
+
+    res = _apply_query_once(b_source, _QUERY_SPLIT_DECL, _repl, rng)
+    return res.decode("utf-8") if res else None
+
+
+def mut_merge_declaration_init(s: str, rng: random.Random) -> str | None:
+    """Merge 'TYPE var; ... var = expr;' into 'TYPE var = expr;'."""
+    b_source = s.encode("utf-8")
+    cursor = ts.QueryCursor(_QUERY_MERGE_DECL)
+    from rebrew.matcher.ast_engine import parse_c_ast
+
+    tree = parse_c_ast(b_source)
+    matches = cursor.matches(tree.root_node)
+
+    if not matches:
+        return None
+
+    match = rng.choice(matches)
+    captures = {k: v[0] for k, v in match[1].items()}
+
+    d1 = captures["d1"]
+    d2 = captures["d2"]
+
+    type_ = b_source[captures["type"].start_byte : captures["type"].end_byte]
+    var = b_source[captures["var"].start_byte : captures["var"].end_byte]
+    expr = b_source[captures["init_expr"].start_byte : captures["init_expr"].end_byte]
+
+    replacement = type_ + b" " + var + b" = " + expr + b";"
+    res = b_source[: d1.start_byte] + replacement + b_source[d2.end_byte :]
+    return res.decode("utf-8")
+
+
+def mut_while_to_dowhile(s: str, rng: random.Random) -> str | None:
+    """Convert 'while (cond) { body }' to 'if (cond) { do { body } while (cond); }'."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        cond = b_source[captures["cond"].start_byte : captures["cond"].end_byte]
+        body = b_source[captures["body"].start_byte : captures["body"].end_byte]
+        return b"if " + cond + b" {\n    do " + body + b" while " + cond + b";\n    }"
+
+    res = _apply_query_once(b_source, _QUERY_WHILE, _repl, rng)
+    return res.decode("utf-8") if res else None
+
+
+def mut_dowhile_to_while(s: str, rng: random.Random) -> str | None:
+    """Convert 'do { body } while (cond);' to 'while (cond) { body }'."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        cond = b_source[captures["cond"].start_byte : captures["cond"].end_byte]
+        body = b_source[captures["body"].start_byte : captures["body"].end_byte]
+        return b"while " + cond + b" " + body
+
+    res = _apply_query_once(b_source, _QUERY_DO_WHILE, _repl, rng)
+    return res.decode("utf-8") if res else None
+
+
+def mut_early_return_to_accum(s: str, rng: random.Random) -> str | None:
+    """Convert 'if (!expr) return 0;' to 'ret &= expr;' accumulator pattern."""
+    b_source = s.encode("utf-8")
+    if (
+        b"ret;" not in b_source
+        and b"retcode;" not in b_source
+        and b"ret\n" not in b_source
+        and b"retcode\n" not in b_source
+        and b"ret=" not in b_source
+        and b"retcode=" not in b_source
+        and b"ret =" not in b_source
+        and b"retcode =" not in b_source
+    ):
+        return None
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        expr = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        var = b"retcode" if b"retcode" in b_source else b"ret"
+        return var + b" &= " + expr + b";"
+
+    res = _apply_query_once(b_source, _QUERY_EARLY_RETURN, _repl, rng)
+    return res.decode("utf-8") if res else None
+
+
+def mut_accum_to_early_return(s: str, rng: random.Random) -> str | None:
+    """Convert 'ret &= expr;' to 'if (!expr) return 0;'."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        expr = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        return b"if (!(" + expr + b"))\n        return 0;"
+
+    res = _apply_query_once(b_source, _QUERY_ACCUM, _repl, rng)
+    return res.decode("utf-8") if res else None
+
+
+def mut_pointer_to_int_param(s: str, rng: random.Random) -> str | None:
+    """Change a pointer parameter to int or vice versa."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        var = b_source[captures["var"].start_byte : captures["var"].end_byte]
+        return b"int " + var
+
+    res = _apply_query_once(b_source, _QUERY_PTR_PARAM, _repl, rng)
+    return res.decode("utf-8") if res else None
+
+
+def mut_int_to_pointer_param(s: str, rng: random.Random) -> str | None:
+    """Change an int parameter to char* (for pointer-based access)."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        var = b_source[captures["var"].start_byte : captures["var"].end_byte]
+        return b"char *" + var
+
+    res = _apply_query_once(b_source, _QUERY_INT_PARAM, _repl, rng)
+    return res.decode("utf-8") if res else None
+
+
+def mut_duplicate_loop_body(s: str, rng: random.Random) -> str | None:
+    """Duplicate loop body (manual loop unrolling by 2x)."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        cond = b_source[captures["cond"].start_byte : captures["cond"].end_byte]
+        body = b_source[captures["body"].start_byte : captures["body"].end_byte]
+
+        inner = body[1:-1].strip()
+        if not inner:
+            raise ValueError()
+        return b"while " + cond + b" {\n    " + inner + b"\n    " + inner + b"\n}"
+
+    try:
+        res = _apply_query_once(b_source, _QUERY_WHILE, _repl, rng)
+        return res.decode("utf-8") if res else None
+    except ValueError:
+        return None
+
+
+def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
+    b_source = s.encode("utf-8")
+    cursor = ts.QueryCursor(_QUERY_CONST_ADD_FOLD)
+    from rebrew.matcher.ast_engine import parse_c_ast
+
+    tree = parse_c_ast(b_source)
+    matches = cursor.matches(tree.root_node)
+
+    valid_matches = []
+    for match in matches:
+        captures = {k: v[0] for k, v in match[1].items()}
+        if captures["stmt1"].next_named_sibling == captures["stmt2"]:
+            try:
+                n1 = int(
+                    b_source[captures["n1"].start_byte : captures["n1"].end_byte].decode("utf-8")
+                )
+                n2 = int(
+                    b_source[captures["n2"].start_byte : captures["n2"].end_byte].decode("utf-8")
+                )
+                valid_matches.append((captures, n1, n2))
+            except ValueError:
+                pass
+
+    if not valid_matches:
+        return None
+
+    captures, n1, n2 = rng.choice(valid_matches)
+    v1 = b_source[captures["v1"].start_byte : captures["v1"].end_byte]
+
+    new_sum = str(n1 + n2).encode("utf-8")
+    replacement = v1 + b" = " + v1 + b" + " + new_sum + b";"
+
+    start = captures["stmt1"].start_byte
+    end = captures["stmt2"].end_byte
+    return (b_source[:start] + replacement + b_source[end:]).decode("utf-8")
+
+
+def mut_unfold_constant_add(s: str, rng: random.Random) -> str | None:
+    b_source = s.encode("utf-8")
+    cursor = ts.QueryCursor(_QUERY_CONST_ADD_UNFOLD)
+    from rebrew.matcher.ast_engine import parse_c_ast
+
+    tree = parse_c_ast(b_source)
+    matches = cursor.matches(tree.root_node)
+
+    valid_matches = []
+    for match in matches:
+        captures = {k: v[0] for k, v in match[1].items()}
+        try:
+            n = int(b_source[captures["n"].start_byte : captures["n"].end_byte].decode("utf-8"))
+            if 1 < n <= 16:
+                valid_matches.append((captures, n))
+        except ValueError:
+            pass
+
+    if not valid_matches:
+        return None
+
+    captures, n = rng.choice(valid_matches)
+    v1 = b_source[captures["v1"].start_byte : captures["v1"].end_byte]
+
+    incs = b"; ".join([v1 + b" = " + v1 + b" + 1" for _ in range(n)]) + b";"
+
+    start = captures["stmt"].start_byte
+    end = captures["stmt"].end_byte
+    return (b_source[:start] + incs + b_source[end:]).decode("utf-8")
+
+
+def mut_change_array_index_order(s: str, rng: random.Random) -> str | None:
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        arr = b_source[captures["arr"].start_byte : captures["arr"].end_byte]
+        idx = b_source[captures["idx"].start_byte : captures["idx"].end_byte]
+        return idx + b"[" + arr + b"]"
+
+    res = _apply_query_once(b_source, _QUERY_ARRAY_INDEX, _repl, rng)
+    return res.decode("utf-8") if res is not None else None
+
+
+def mut_struct_vs_ptr_access(s: str, rng: random.Random) -> str | None:
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        ptr = b_source[captures["ptr"].start_byte : captures["ptr"].end_byte]
+        field = b_source[captures["field"].start_byte : captures["field"].end_byte]
+        return b"(*" + ptr + b")." + field
+
+    res = _apply_query_once(b_source, _QUERY_PTR_ARROW, _repl, rng)
+    return res.decode("utf-8") if res is not None else None
+
+
+def mut_change_return_type(s: str, rng: random.Random) -> str | None:
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        current = b_source[captures["expr"].start_byte : captures["expr"].end_byte].decode("utf-8")
+        types = ["int", "char", "short", "long"]
+        candidates = [t for t in types if t != current]
+        if not candidates:
+            return current.encode("utf-8")
+        new_type = rng.choice(candidates).encode("utf-8")
+        return new_type
+
+    res = _apply_query_once(b_source, _QUERY_RETURN_TYPE, _repl, rng)
+    return res.decode("utf-8") if res is not None else None
+
+
+def mut_split_cmp_chain(s: str, rng: random.Random) -> str | None:
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        left = b_source[captures["left"].start_byte : captures["left"].end_byte]
+        right = b_source[captures["right"].start_byte : captures["right"].end_byte]
+        body = b_source[captures["body"].start_byte : captures["body"].end_byte]
+        return b"if (" + left + b") { if (" + right + b") " + body + b" }"
+
+    res = _apply_query_once(b_source, _QUERY_SPLIT_CMP_CHAIN, _repl, rng)
+    return res.decode("utf-8") if res is not None else None
+
+
+def mut_merge_cmp_chain(s: str, rng: random.Random) -> str | None:
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        cond1 = b_source[captures["cond1"].start_byte + 1 : captures["cond1"].end_byte - 1]
+        cond2 = b_source[captures["cond2"].start_byte + 1 : captures["cond2"].end_byte - 1]
+        body = b_source[captures["body"].start_byte : captures["body"].end_byte]
+        return b"if ((" + cond1 + b") && (" + cond2 + b")) " + body
+
+    res = _apply_query_once(b_source, _QUERY_MERGE_CMP_CHAIN, _repl, rng)
+    return res.decode("utf-8") if res is not None else None
+
+
+def mut_combine_ptr_arith(s: str, rng: random.Random) -> str | None:
+    b_source = s.encode("utf-8")
+    cursor = ts.QueryCursor(_QUERY_COMBINE_PTR_ARITH)
+    from rebrew.matcher.ast_engine import parse_c_ast
+
+    tree = parse_c_ast(b_source)
+    matches = cursor.matches(tree.root_node)
+
+    valid_matches: list[tuple[dict[str, ts.Node], int, int]] = []
+    for match in matches:
+        captures = {k: v[0] for k, v in match[1].items()}
+        try:
+            n1 = int(b_source[captures["n1"].start_byte : captures["n1"].end_byte].decode("utf-8"))
+            n2 = int(b_source[captures["n2"].start_byte : captures["n2"].end_byte].decode("utf-8"))
+            s1 = captures["stmt1"]
+            s2 = captures["stmt2"]
+            between = b_source[s1.end_byte : s2.start_byte].strip()
+            if not between:
+                valid_matches.append((captures, n1, n2))
+        except ValueError:
+            pass
+
+    if not valid_matches:
+        return None
+
+    captures, n1, n2 = rng.choice(valid_matches)
+    v1 = b_source[captures["v1"].start_byte : captures["v1"].end_byte]
+    new_sum = str(n1 + n2).encode("utf-8")
+    replacement = v1 + b" = " + v1 + b" + " + new_sum + b";"
+    start = captures["stmt1"].start_byte
+    end = captures["stmt2"].end_byte
+    return (b_source[:start] + replacement + b_source[end:]).decode("utf-8")
+
+
+def mut_split_ptr_arith(s: str, rng: random.Random) -> str | None:
+    b_source = s.encode("utf-8")
+    cursor = ts.QueryCursor(_QUERY_SPLIT_PTR_ARITH)
+    from rebrew.matcher.ast_engine import parse_c_ast
+
+    tree = parse_c_ast(b_source)
+    matches = cursor.matches(tree.root_node)
+
+    valid_matches: list[tuple[dict[str, ts.Node], int]] = []
+    for match in matches:
+        if not match[1]:
+            continue
+        captures = {k: v[0] for k, v in match[1].items()}
+        if "n1" not in captures or "v1" not in captures:
+            continue
+        try:
+            n = int(b_source[captures["n1"].start_byte : captures["n1"].end_byte].decode("utf-8"))
+            if n > 1:
+                valid_matches.append((captures, n))
+        except ValueError:
+            pass
+
+    if not valid_matches:
+        return None
+
+    captures, n = rng.choice(valid_matches)
+    v1 = b_source[captures["v1"].start_byte : captures["v1"].end_byte]
+    n1 = n // 2
+    n2 = n - n1
+    replacement = (
+        v1
+        + b" = "
+        + v1
+        + b" + "
+        + str(n1).encode("utf-8")
+        + b"; "
+        + v1
+        + b" = "
+        + v1
+        + b" + "
+        + str(n2).encode("utf-8")
+        + b";"
+    )
+    start = captures["stmt"].start_byte
+    end = captures["stmt"].end_byte
+    return (b_source[:start] + replacement + b_source[end:]).decode("utf-8")
+
+
+def mut_change_param_order(s: str, rng: random.Random) -> str | None:
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        params = captures["expr"]
+        children = [c for c in params.children if c.type != "," and c.type != "(" and c.type != ")"]
+        if len(children) < 2:
+            return b_source[params.start_byte : params.end_byte]
+        i, j = rng.sample(range(len(children)), 2)
+        params_text = [b_source[c.start_byte : c.end_byte] for c in children]
+        params_text[i], params_text[j] = params_text[j], params_text[i]
+        return b"(" + b", ".join(params_text) + b")"
+
+    res = _apply_query_once(b_source, _QUERY_PARAM_ORDER, _repl, rng)
+    return res.decode("utf-8") if res is not None else None
+
+
+def mut_toggle_calling_convention(s: str, rng: random.Random) -> str | None:
+    b_source = s.encode("utf-8")
+
+    def _repl_existing(captures: dict[str, ts.Node]) -> bytes:
+        conv = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        if conv == b"__cdecl":
+            return b"__stdcall"
+        elif conv == b"__stdcall":
+            return b"__cdecl"
+        return conv
+
+    res = _apply_query_once(b_source, _QUERY_CALL_CONV, _repl_existing, rng)
+    if res is not None:
+        return res.decode("utf-8")
+
+    # No existing convention — insert one before the type
+    def _repl_insert(captures: dict[str, ts.Node]) -> bytes:
+        t = b_source[captures["type"].start_byte : captures["type"].end_byte]
+        conv = rng.choice([b"__cdecl", b"__stdcall"])
+        return t + b" " + conv
+
+    res = _apply_query_once(b_source, _QUERY_NO_CALL_CONV, _repl_insert, rng)
+    return res.decode("utf-8") if res is not None else None
+
+
+def mut_toggle_char_signedness(s: str, rng: random.Random) -> str | None:
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        t = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        mapping = {
+            b"char": b"unsigned char",
+            b"unsigned char": b"signed char",
+            b"signed char": b"char",
+        }
+        return mapping.get(t, t)
+
+    res = _apply_query_once(b_source, _QUERY_CHAR_TYPE, _repl, rng)
+    return res.decode("utf-8") if res is not None else None
+
+
+def mut_comparison_boundary(s: str, rng: random.Random) -> str | None:
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        left = b_source[captures["left"].start_byte : captures["left"].end_byte]
+        op = b_source[captures["op"].start_byte : captures["op"].end_byte]
+        num_str = b_source[captures["num"].start_byte : captures["num"].end_byte]
+        try:
+            num = int(num_str.decode("utf-8"))
+        except ValueError:
+            return b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        if op == b">" and num == 0:
+            return left + b" >= 1"
+        elif op == b">=" and num == 1:
+            return left + b" > 0"
+        elif op == b"<" and num == 1:
+            return left + b" <= 0"
+        elif op == b"<=" and num == 0:
+            return left + b" < 1"
+        return b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+
+    res = _apply_query_once(b_source, _QUERY_CMP_BOUNDARY, _repl, rng)
+    return res.decode("utf-8") if res is not None else None
+
+
+def mut_insert_noop_block(s: str, rng: random.Random) -> str | None:
+    """Insert a no-op block `if (0) {}` before a random statement in a compound body."""
+    b_source = s.encode("utf-8")
+    from rebrew.matcher.ast_engine import parse_c_ast
+
+    tree = parse_c_ast(b_source)
+    # Find all statements inside compound_statements
+    q = ts.Query(
+        _C_LANGUAGE,
+        """(compound_statement [(expression_statement) (declaration) (return_statement)] @stmt)""",
+    )
+    cursor = ts.QueryCursor(q)
+    matches = cursor.matches(tree.root_node)
+    if not matches:
+        return None
+    match = rng.choice(matches)
+    captures = {k: v[0] for k, v in match[1].items()}
+    stmt_node = captures["stmt"]
+    noop = b"if (0) {} "
+    start = stmt_node.start_byte
+    return (b_source[:start] + noop + b_source[start:]).decode("utf-8")
+
+
+def mut_introduce_local_alias(s: str, rng: random.Random) -> str | None:
+    """Introduce a local alias for an identifier used in an expression statement."""
+    b_source = s.encode("utf-8")
+    from rebrew.matcher.ast_engine import parse_c_ast
+
+    tree = parse_c_ast(b_source)
+    q = ts.Query(
+        _C_LANGUAGE,
+        """(expression_statement (assignment_expression right: (identifier) @var)) @stmt""",
+    )
+    cursor = ts.QueryCursor(q)
+    matches = cursor.matches(tree.root_node)
+    if not matches:
+        return None
+    match = rng.choice(matches)
+    captures = {k: v[0] for k, v in match[1].items()}
+    var_node = captures["var"]
+    stmt_node = captures["stmt"]
+    var_name = b_source[var_node.start_byte : var_node.end_byte]
+    alias = b"_alias_" + var_name
+    decl = b"int " + alias + b" = " + var_name + b"; "
+    # Replace the var usage with the alias
+    result = (
+        b_source[: stmt_node.start_byte]
+        + decl
+        + b_source[stmt_node.start_byte : var_node.start_byte]
+        + alias
+        + b_source[var_node.end_byte :]
+    )
+    return result.decode("utf-8")
+
+
+def mut_reorder_declarations(s: str, rng: random.Random) -> str | None:
+    """Swap two adjacent declarations in a compound statement."""
+    b_source = s.encode("utf-8")
+    from rebrew.matcher.ast_engine import parse_c_ast
+
+    tree = parse_c_ast(b_source)
+    q = ts.Query(
+        _C_LANGUAGE,
+        """
+        (compound_statement (declaration) @d1 (declaration) @d2)
+    """,
+    )
+    cursor = ts.QueryCursor(q)
+    matches = cursor.matches(tree.root_node)
+    if not matches:
+        return None
+    match = rng.choice(matches)
+    captures = {k: v[0] for k, v in match[1].items()}
+    d1 = captures["d1"]
+    d2 = captures["d2"]
+    d1_text = b_source[d1.start_byte : d1.end_byte]
+    d2_text = b_source[d2.start_byte : d2.end_byte]
+    result = (
+        b_source[: d1.start_byte]
+        + d2_text
+        + b_source[d1.end_byte : d2.start_byte]
+        + d1_text
+        + b_source[d2.end_byte :]
+    )
+    return result.decode("utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Shared utilities
 # ---------------------------------------------------------------------------
 
 _RE_FUNC_START = re.compile(
     r"^[a-zA-Z_][a-zA-Z0-9_*\s]*\s+[a-zA-Z_][a-zA-Z0-9_]*\s*\(",
     re.MULTILINE,
 )
-_RE_COMMUTE_ADD = re.compile(r"\b([A-Za-z_]\w*)\s*\+\s*([A-Za-z_]\w*)\b")
-_RE_COMMUTE_MUL = re.compile(r"\b([A-Za-z_]\w*)\s*\*\s*([A-Za-z_]\w*)\b")
-_RE_FLIP_EQ_ZERO = re.compile(r"\b([A-Za-z_]\w*)\s*(==|!=)\s*0\b")
-_RE_FLIP_LT_GE = re.compile(r"\b([A-Za-z_]\w*)\s*<\s*([A-Za-z_]\w*)\b")
-_C_KEYWORDS = frozenset(
-    {
-        "auto",
-        "break",
-        "case",
-        "char",
-        "const",
-        "continue",
-        "default",
-        "do",
-        "double",
-        "else",
-        "enum",
-        "extern",
-        "float",
-        "for",
-        "goto",
-        "if",
-        "int",
-        "long",
-        "register",
-        "return",
-        "short",
-        "signed",
-        "sizeof",
-        "static",
-        "struct",
-        "switch",
-        "typedef",
-        "union",
-        "unsigned",
-        "void",
-        "volatile",
-        "while",
-        "BOOL",
-        "DWORD",
-        "HANDLE",
-        "LPVOID",
-        "LPCSTR",
-        "LPSTR",
-        "HRESULT",
-        "UINT",
-        "ULONG",
-        "BYTE",
-        "WORD",
-        "SIZE_T",
-        "WPARAM",
-        "LPARAM",
-        "LRESULT",
-        "TRUE",
-        "FALSE",
-        "NULL",
-        "include",
-        "define",
-        "ifdef",
-        "ifndef",
-        "endif",
-        "pragma",
-    }
-)
-_RE_ADD_PARENS = re.compile(r"\b([A-Za-z_]\w*)\b")
-_RE_REASSOCIATE = re.compile(
-    r"\(\s*([A-Za-z_]\w*)\s*\+\s*([A-Za-z_]\w*)\s*\)\s*\+\s*([A-Za-z_]\w*)"
-)
-_RE_DOUBLE_NOT = re.compile(r"!!\s*([A-Za-z_]\w*)")
-_RE_SWAP_EQ = re.compile(r"(\b\w+\b)\s*==\s*(\b\w+\b)")
-_RE_SWAP_NE = re.compile(r"(\b\w+\b)\s*!=\s*(\b\w+\b)")
-_RE_SWAP_OR = re.compile(r"([^|&\n]+?)\s*\|\|\s*([^|&\n;)]+)")
-_RE_SWAP_AND = re.compile(r"([^|&\n]+?)\s*&&\s*([^|&\n;)]+)")
-_RE_RETURN_FALSE = re.compile(r"\breturn\s+(?:FALSE|0)\s*;")
-_RE_GOTO_RET_FALSE = re.compile(r"\bgoto\s+ret_false\s*;")
-_RE_FINAL_RET = re.compile(r"(\n)([ \t]*return\s+\w+\s*;\s*\n\})")
-_RE_RET_FALSE_LABEL = re.compile(r"\n\s*ret_false:\s*\n\s*return\s+0\s*;\s*\n")
-_RE_RET_FALSE_LABEL_BARE = re.compile(r"\n\s*ret_false:\s*\n")
-_RE_LOCAL_PARAMS = re.compile(r"\b(?:HANDLE|DWORD|LPVOID|int|BOOL)\s+(\w+)")
-_RE_BRACE_AFTER_PAREN = re.compile(r"\)\s*\{")
-_RE_DECL_LINE = re.compile(r"^([ \t]+)((?:BOOL|int|DWORD|HANDLE|LPVOID)\s+\w+)\s*;$", re.MULTILINE)
-_RE_INIT_LINE = re.compile(
-    r"^([ \t]+(?:BOOL|int|DWORD|HANDLE|LPVOID)\s+\w+)\s*=\s*[^;]+;$", re.MULTILINE
-)
-_RE_IF_COND = re.compile(r"\bif\s*\(([^{]*?)\)\s*\{")
-_RE_ELSEIF_CHAIN = re.compile(r"(\bif\s*\([^{]*?\)\s*\{)")
-_RE_CAST_TARGET = re.compile(r"(?<=[=(,!])\s*(\b[A-Za-z_]\w*\b)(?!\s*\()")
-_RE_REMOVE_CAST = re.compile(r"\((?:BOOL|int|DWORD|HANDLE|LPVOID)\)(\w+)")
-_RE_VOLATILE = re.compile(r"\bvolatile\s+")
-_RE_ADD_VOLATILE = re.compile(r"^([ \t]+)((?:BOOL|int|DWORD|HANDLE|LPVOID)\s+\w+)", re.MULTILINE)
-_RE_ADD_REGISTER = re.compile(r"^([ \t]+)((?:BOOL|int|DWORD|HANDLE|LPVOID)\s+\w+)", re.MULTILINE)
-_RE_REMOVE_REGISTER = re.compile(r"\bregister\s+")
-_RE_IF_FALSE_BITAND = re.compile(
-    r"if\s*\(\s*!\s*(\w+\s*\([^)]*(?:\([^)]*\)[^)]*)*\))\s*\)\s*\n?\s*(\w+)\s*=\s*(?:FALSE|0)\s*;"
-)
-_RE_BITAND_TO_IF = re.compile(r"(\w+)\s*&=\s*(\w+\s*\([^)]*(?:\([^)]*\)[^)]*)*\))\s*;")
-_RE_VAR_ASSIGN_CALL = re.compile(r"(\w+)\s*=\s*(\w+\s*\([^;]+\))\s*;")
-_RE_BOOL_TMP_DECL = re.compile(r"\b(?:BOOL|int)\s+tmp\b")
-_RE_TEMP_VAR = re.compile(r"tmp\s*=\s*([^;]+);\s*\n\s*(\w+)\s*=\s*tmp\s*;")
-_RE_UNSIGNED_REMOVE = re.compile(r"\bunsigned\s+(int|long|short|char)\b")
-_RE_UNSIGNED_ADD = re.compile(r"(?<!\bunsigned\s)(?<!\bsigned\s)\b(int|long|short)\s+(\w+)\s*[;=,]")
-_TYPE_PAT_STR = (
-    r"(?:const\s+)?(?:unsigned\s+)?(?:volatile\s+)?"
-    r"(?:BOOL|int|DWORD|HANDLE|LPVOID|HLOCAL|void|char|short|long|float|double|"
-    r"UINT|ULONG|BYTE|WORD|SIZE_T|CRITICAL_SECTION|ushort|uint|undefined\d?)"
-)
-_RE_DECL_SWAP = re.compile(
-    r"^([ \t]+)(" + _TYPE_PAT_STR + r")\s+\**\w+(?:\s*\[[^\]]*\])?\s*(?:=\s*[^;]+)?;\s*$"
-)
-_TYPE_KW = (
-    r"(?:BOOL|int|DWORD|HANDLE|LPVOID|char|short|long|float|double|"
-    r"UINT|ULONG|BYTE|WORD)"
-)
-_RE_SPLIT_DECL = re.compile(
-    r"^([ \t]+)((?:const\s+)?(?:unsigned\s+)?(?:volatile\s+)?"
-    + _TYPE_KW
-    + r"\s+\**(\w+))\s*=\s*([^;]+);",
-    re.MULTILINE,
-)
-_RE_MERGE_DECL = re.compile(
-    r"^([ \t]+)((?:unsigned\s+)?(?:volatile\s+)?" + _TYPE_KW + r")\s+(\w+)\s*;\s*\n"
-    r"\1\3\s*=\s*([^;]+);",
-    re.MULTILINE,
-)
-_RE_WHILE_LOOP = re.compile(r"\bwhile\s*\(")
-_RE_DO_WHILE = re.compile(r"\bdo\s*\{")
-_RE_DO_WHILE_COND = re.compile(r"while\s*\((.+)\)\s*;")  # .+ allows nested parens like func()
-_RE_EARLY_RETURN = re.compile(
-    r"if\s*\(\s*!\s*(\w+\s*\([^)]*(?:\([^)]*\)[^)]*)*\))\s*\)\s*\n?\s*return\s+(?:FALSE|0)\s*;"
-)
-_RE_ACCUM = re.compile(r"(\w+)\s*&=\s*(\w+\s*\([^)]*(?:\([^)]*\)[^)]*)*\))\s*;")
-_RE_RETCODE_VAR = re.compile(r"\bret(?:code)?\b")
-_RE_PTR_PARAM = re.compile(r"\b(char|void|int|short|long|unsigned\s+char)\s*\*\s*(\w+)")
-_RE_INT_PARAM = re.compile(r"(?<=[(,])\s*int\s+(\w+)")
-_RE_CONST_ADD = re.compile(r"(\w+)\s*=\s*\1\s*\+\s*(\d+);\s*(\1)\s*=\s*\3\s*\+\s*(\d+);")
-_RE_SINGLE_ADD = re.compile(r"(\w+)\s*=\s*\1\s*\+\s*(\d+);")
-_RE_ARRAY_INDEX = re.compile(r"(\w+)\s*\[\s*(\w+)\s*\]")
-_RE_PTR_ARROW = re.compile(r"(\w+)\s*->\s*(\w+)")
-_RE_CMP_CHAIN_3 = re.compile(r"if\s*\(([^=!&|]+)\s*&&\s*([^=!&|]+)\s*&&\s*([^)]+)\)", re.MULTILINE)
-_RE_CMP_CHAIN_2 = re.compile(r"if\s*\(([^=!&|]+)\s*&&\s*([^)]+)\)")
-_RE_MERGE_IF = re.compile(r"if\s*\(([^)]+)\)\s*\{\s*\}\s*if\s*\(([^)]+)\)\s*\{\s*\}")
-_RE_PTR_ARITH_DOUBLE = _RE_CONST_ADD  # Same pattern: fold two consecutive adds
-_RE_PTR_ARITH_SINGLE = _RE_SINGLE_ADD  # Same pattern: split a single add
-_RE_RETURN_TYPE = re.compile(r"^(int|char|short|long)\s+(\*?\s*\w+)\s*\([^)]*\)\s*\{", re.MULTILINE)
-_RE_FUNC_SIG = re.compile(r"^(\w+(?:[ \t]+\w+)+)[ \t]*\(([^)]+)\)[ \t]*\{", re.MULTILINE)
-# Validation patterns (used by quick_validate)
 _RE_VALIDATE_LABEL = re.compile(r"^\s*([a-zA-Z_]\w*)\s*:", re.MULTILINE)
 _LABEL_IGNORE = frozenset({"case", "default", "public", "private", "protected"})
-_TYPE_KEYWORDS = (
+_TYPE_KEYWORDS_RE = (
     r"(?:BOOL|int|DWORD|HANDLE|LPVOID|void|char|short|long|float|double|"
     r"unsigned|signed|const|volatile|register|UINT|ULONG|BYTE|WORD)"
 )
-_RE_VALIDATE_DOUBLE_TYPE = re.compile(r"\b(" + _TYPE_KEYWORDS + r")\s+\1\b")
+_RE_VALIDATE_DOUBLE_TYPE = re.compile(r"\b(" + _TYPE_KEYWORDS_RE + r")\s+\1\b")
 
 
 def _split_preamble_body(source: str) -> tuple[str, str]:
     """Split source into preamble (includes, typedefs, externs) and function body."""
     lines = source.splitlines()
-    preamble = []
-    body = []
+    preamble: list[str] = []
+    body: list[str] = []
     in_body = False
     brace_count = 0
 
@@ -193,32 +1779,18 @@ def _split_preamble_body(source: str) -> tuple[str, str]:
         else:
             body.append(line)
             brace_count += line.count("{") - line.count("}")
-            if brace_count == 0 and "}" in line:
-                # We might have trailing stuff, but usually it's just one function
-                pass
 
     return "\n".join(preamble), "\n".join(body)
 
 
 def quick_validate(source: str) -> bool:
-    """Fast check for obvious syntax errors that would waste a compilation round.
-
-    Checks:
-    - Balanced braces and parentheses
-    - At least one function definition present
-    - No duplicate goto labels (e.g. two ``ret_false:`` labels)
-    - No adjacent duplicate type keywords (e.g. ``int int``)
-    """
+    """Fast check for obvious syntax errors that would waste a compilation round."""
     if source.count("{") != source.count("}"):
         return False
     if source.count("(") != source.count(")"):
         return False
-
-    # Must contain at least one function definition
     if not _RE_FUNC_START.search(source):
         return False
-
-    # Detect duplicate goto labels (common mutation artifact)
     labels: set[str] = set()
     for m in _RE_VALIDATE_LABEL.finditer(source):
         label = m.group(1)
@@ -227,8 +1799,6 @@ def quick_validate(source: str) -> bool:
         if label in labels:
             return False
         labels.add(label)
-
-    # Detect adjacent duplicate type keywords (e.g. "int int x;")
     return not _RE_VALIDATE_DOUBLE_TYPE.search(source)
 
 
@@ -236,1676 +1806,596 @@ def compute_population_diversity(pop: list[str]) -> float:
     """Compute diversity of the population (0.0 to 1.0)."""
     if not pop or len(pop) < 2:
         return 0.0
-
-    unique_sources = set(pop)
-    return len(unique_sources) / len(pop)
+    return len(set(pop)) / len(pop)
 
 
 def crossover(parent1: str, parent2: str, rng: random.Random) -> str:
     """Line-level crossover of two parent sources."""
     p1_pre, p1_body = _split_preamble_body(parent1)
     _, p2_body = _split_preamble_body(parent2)
-
     lines1 = p1_body.splitlines()
     lines2 = p2_body.splitlines()
-
     if not lines1 or not lines2:
         return parent1
-
-    # Need at least 2 lines in both parents to have a meaningful split point
     min_len = min(len(lines1), len(lines2))
     if min_len < 2:
         return parent1
-
     split_idx = rng.randint(1, min_len - 1)
-
     child_body = "\n".join(lines1[:split_idx] + lines2[split_idx:])
     child = p1_pre + "\n" + child_body
-
     if quick_validate(child):
         return child
     return parent1
 
 
-# --- Mutations ---
-
-
-def _sub_once(
-    pat: str | re.Pattern[str],
-    repl: str | Callable[[re.Match[str]], str],
-    s: str,
-    rng: random.Random,
-) -> str | None:
-    """Helper to randomly replace one occurrence of a pattern."""
-    matches = list(pat.finditer(s) if isinstance(pat, re.Pattern) else re.finditer(pat, s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    replacement: str = repl if isinstance(repl, str) else repl(m)
-    return s[: m.start()] + replacement + s[m.end() :]
-
-
-def mut_commute_simple_add(s: str, rng: random.Random) -> str | None:
-    """Swap operands of simple identifier addition expressions."""
-    # x + y  -> y + x  (identifiers only)
-    return _sub_once(_RE_COMMUTE_ADD, lambda m: f"{m.group(2)} + {m.group(1)}", s, rng)
-
-
-def mut_commute_simple_mul(s: str, rng: random.Random) -> str | None:
-    """Swap operands of simple identifier multiplication expressions."""
-    return _sub_once(_RE_COMMUTE_MUL, lambda m: f"{m.group(2)} * {m.group(1)}", s, rng)
-
-
-def mut_flip_eq_zero(s: str, rng: random.Random) -> str | None:
-    """Rewrite ``x == 0``/``x != 0`` into boolean-not forms."""
-
-    # x == 0 -> !x , x != 0 -> !!x
-    def repl(m: re.Match[str]) -> str:
-        x, op = m.group(1), m.group(2)
-        return f"!{x}" if op == "==" else f"!!{x}"
-
-    return _sub_once(_RE_FLIP_EQ_ZERO, repl, s, rng)
-
-
-def mut_flip_lt_ge(s: str, rng: random.Random) -> str | None:
-    """Rewrite ``a < b`` into the equivalent negated ``>=`` form."""
-    # a < b -> !(a >= b)
-    return _sub_once(_RE_FLIP_LT_GE, lambda m: f"!({m.group(1)} >= {m.group(2)})", s, rng)
-
-
-def mut_add_redundant_parens(s: str, rng: random.Random) -> str | None:
-    """Wrap a random non-keyword identifier in redundant parentheses."""
-    matches = [m for m in _RE_ADD_PARENS.finditer(s) if m.group(1) not in _C_KEYWORDS]
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    return s[: m.start()] + f"({m.group(1)})" + s[m.end() :]
-
-
-def mut_reassociate_add(s: str, rng: random.Random) -> str | None:
-    """Reassociate ``(a + b) + c`` into ``a + (b + c)``."""
-    # (a + b) + c -> a + (b + c)
-    return _sub_once(
-        _RE_REASSOCIATE, lambda m: f"{m.group(1)} + ({m.group(2)} + {m.group(3)})", s, rng
-    )
-
-
-def mut_insert_noop_block(s: str, rng: random.Random) -> str | None:
-    """Insert a no-op volatile block at a random line boundary."""
-    # Insert a no-op volatile read, tends to affect optimization, use sparingly.
-    insertion = "\n    { volatile int __noop = 0; (void)__noop; }\n"
-    lines = s.splitlines(True)
-    if len(lines) < 3:
-        return None
-    idx = rng.randrange(0, len(lines))
-    return "".join(lines[:idx] + [insertion] + lines[idx:])
-
-
-def mut_toggle_bool_not(s: str, rng: random.Random) -> str | None:
-    """Remove one ``!!identifier`` sequence."""
-    # !!x -> x, and x -> !!x for identifiers in boolean contexts is unsafe.
-    # Here only remove !! on identifiers.
-    return _sub_once(_RE_DOUBLE_NOT, lambda m: f"{m.group(1)}", s, rng)
-
-
-def _swap_binary_operands(pat: re.Pattern[str], op: str, s: str, rng: random.Random) -> str | None:
-    """Swap operands of a binary operator (shared by eq/ne/or/and swaps)."""
-    matches = list(pat.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    a, b = m.group(1).strip(), m.group(2).strip()
-    if a == b:
-        return None
-    return s[: m.start()] + f"{b} {op} {a}" + s[m.end() :]
-
-
-def mut_swap_eq_operands(s: str, rng: random.Random) -> str | None:
-    """a == b -> b == a"""
-    return _swap_binary_operands(_RE_SWAP_EQ, "==", s, rng)
-
-
-def mut_swap_ne_operands(s: str, rng: random.Random) -> str | None:
-    """a != b -> b != a"""
-    return _swap_binary_operands(_RE_SWAP_NE, "!=", s, rng)
-
-
-def mut_swap_or_operands(s: str, rng: random.Random) -> str | None:
-    """a || b -> b || a  (changes short-circuit order, affects codegen)"""
-    return _swap_binary_operands(_RE_SWAP_OR, "||", s, rng)
-
-
-def mut_swap_and_operands(s: str, rng: random.Random) -> str | None:
-    """a && b -> b && a"""
-    return _swap_binary_operands(_RE_SWAP_AND, "&&", s, rng)
-
-
-def mut_return_to_goto(s: str, rng: random.Random) -> str | None:
-    """Replace 'return FALSE;' or 'return 0;' with 'goto ret_false;' and add label."""
-    if "ret_false:" in s:
-        return None  # already has the label
-    matches = list(_RE_RETURN_FALSE.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    start, end = m.span()
-    result = s[:start] + "goto ret_false;" + s[end:]
-    # Add label before the final return statement
-    final_ret = _RE_FINAL_RET.search(result)
-    if final_ret:
-        pos = final_ret.start(1)
-        result = result[:pos] + "\nret_false:\n" + result[pos:]
-    else:
-        # Fallback: add before closing brace
-        last_brace = result.rfind("}")
-        if last_brace >= 0:
-            result = result[:last_brace] + "ret_false:\n    return 0;\n" + result[last_brace:]
-    return result
-
-
-def mut_goto_to_return(s: str, rng: random.Random) -> str | None:
-    """Reverse: replace 'goto ret_false;' with 'return FALSE;'"""
-    matches = list(_RE_GOTO_RET_FALSE.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    start, end = m.span()
-    result = s[:start] + "return 0;" + s[end:]
-    # Remove the label if no more gotos reference it
-    if "goto ret_false" not in result:
-        result = _RE_RET_FALSE_LABEL.sub("\n", result)
-        result = _RE_RET_FALSE_LABEL_BARE.sub("\n", result)
-    return result
-
-
-def mut_introduce_local_alias(s: str, rng: random.Random) -> str | None:
-    """Create a local variable aliasing a parameter and replace some uses."""
-    # Find parameter names in __stdcall function signatures
-    params = _RE_LOCAL_PARAMS.findall(s)
-    params = [
-        p for p in params if len(p) > 1 and p not in ("WINAPI", "BOOL", "HANDLE", "DWORD", "LPVOID")
-    ]
-    if not params:
-        return None
-    param = rng.choice(params)
-    alias = "_" + param[0]  # e.g., hDllHandle -> _h
-    if alias in s:
-        return None  # already aliased
-
-    # Find the type of the parameter
-    type_match = re.search(r"\b(HANDLE|DWORD|LPVOID|int|BOOL)\s+" + re.escape(param) + r"\b", s)
-    if not type_match:
-        return None
-    ptype = type_match.group(1)
-
-    # Insert alias declaration after opening brace of function body
-    brace_match = _RE_BRACE_AFTER_PAREN.search(s)
-    if not brace_match:
-        return None
-    insert_pos = brace_match.end()
-    decl = f"\n    {ptype} {alias} = {param};"
-    result = s[:insert_pos] + decl + s[insert_pos:]
-
-    # Replace some (not all) subsequent uses of param with alias
-    # Only replace in the function body (after the declaration)
-    body_start = insert_pos + len(decl)
-    body = result[body_start:]
-    occurrences = list(re.finditer(r"\b" + re.escape(param) + r"\b", body))
-    if not occurrences:
-        return result
-    # Replace a random subset
-    to_replace = rng.sample(occurrences, k=rng.randint(1, len(occurrences)))
-    to_replace.sort(key=lambda m: m.start(), reverse=True)
-    for occ in to_replace:
-        body = body[: occ.start()] + alias + body[occ.end() :]
-    return result[:body_start] + body
-
-
-def mut_reorder_declarations(s: str, rng: random.Random) -> str | None:
-    """Move a local variable declaration or add an initializer."""
-    matches = list(_RE_DECL_LINE.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    decl_line = m.group(0)
-    indent = m.group(1)
-    decl_core = m.group(2)
-
-    choice = rng.randint(0, 1)
-    if choice == 0:
-        # Add "= 0" initializer
-        if "= " in decl_line:
-            return None
-        new_line = f"{indent}{decl_core} = 0;"
-        return s[: m.start()] + new_line + s[m.end() :]
-    else:
-        # Remove initializer if present
-        init_matches = list(_RE_INIT_LINE.finditer(s))
-        if not init_matches:
-            return None
-        im = rng.choice(init_matches)
-        return s[: im.start()] + im.group(1) + ";" + s[im.end() :]
-
-
-def _find_matching_char(s: str, open_pos: int, open_ch: str, close_ch: str) -> int | None:
-    """Find closing delimiter matching the opener at *open_pos*.
-
-    Returns the index **after** the closing delimiter, or ``None`` if
-    unbalanced.  Works for ``{}`` and ``()``.
-    """
-    if open_pos >= len(s) or s[open_pos] != open_ch:
-        return None
-    depth = 1
-    i = open_pos + 1
-    while i < len(s) and depth > 0:
-        if s[i] == open_ch:
-            depth += 1
-        elif s[i] == close_ch:
-            depth -= 1
-        i += 1
-    return i if depth == 0 else None
-
-
-def _find_matching_brace(s: str, open_pos: int) -> int | None:
-    """Find closing brace matching the opening brace at open_pos."""
-    return _find_matching_char(s, open_pos, "{", "}")
-
-
-def mut_swap_if_else(s: str, rng: random.Random) -> str | None:
-    """Negate condition and swap if/else bodies."""
-    matches = list(_RE_IF_COND.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    cond = m.group(1).strip()
-    if_brace_start = s.find("{", m.start())
-    if if_brace_start == -1:
-        return None
-    if_brace_end = _find_matching_brace(s, if_brace_start)
-    if if_brace_end is None:
-        return None
-
-    # Check for else clause
-    rest = s[if_brace_end:].lstrip()
-    if not rest.startswith("else"):
-        return None
-    else_start = s.find("else", if_brace_end)
-    if else_start == -1:
-        return None
-    after_else = s[else_start + 4 :].lstrip()
-    if not after_else.startswith("{"):
-        return None
-    else_brace_start = s.find("{", else_start + 4)
-    if else_brace_start == -1:
-        return None
-    else_brace_end = _find_matching_brace(s, else_brace_start)
-    if else_brace_end is None:
-        return None
-
-    if_body = s[if_brace_start + 1 : if_brace_end - 1]
-    else_body = s[else_brace_start + 1 : else_brace_end - 1]
-
-    # Negate condition
-    if cond.startswith("!") and not cond.startswith("!!"):
-        neg_cond = cond[1:].strip()
-        if neg_cond.startswith("(") and neg_cond.endswith(")"):
-            neg_cond = neg_cond[1:-1]
-    else:
-        neg_cond = f"!({cond})"
-
-    result = (
-        s[: m.start()] + f"if ({neg_cond}) {{{else_body}}} else {{{if_body}}}" + s[else_brace_end:]
-    )
-    return result
-
-
-def mut_reorder_elseif(s: str, rng: random.Random) -> str | None:
-    """Swap two branches in an else-if chain."""
-    matches = list(_RE_ELSEIF_CHAIN.finditer(s))
-    if len(matches) < 2:
-        return None
-
-    # Find adjacent if/else-if pairs
-    for m in matches:
-        brace_start = s.find("{", m.start())
-        if brace_start == -1:
-            continue
-        brace_end = _find_matching_brace(s, brace_start)
-        if brace_end is None:
-            continue
-        rest = s[brace_end:].lstrip()
-        if rest.startswith("else if"):
-            else_if_start = s.find("else if", brace_end)
-            if else_if_start == -1:
-                continue
-            # Extract the else-if condition and body
-            ei_match = re.match(r"else\s+if\s*\(([^{]*?)\)\s*\{", s[else_if_start:])
-            if not ei_match:
-                continue
-            ei_brace_start = s.find("{", else_if_start + ei_match.start())
-            if ei_brace_start == -1:
-                continue
-            ei_brace_end = _find_matching_brace(s, ei_brace_start)
-            if ei_brace_end is None:
-                continue
-
-            # Extract first branch cond + body
-            cond1_match = re.match(r"if\s*\(([^{]*?)\)\s*\{", s[m.start() :])
-            if not cond1_match:
-                continue
-            cond1 = cond1_match.group(1).strip()
-            body1 = s[brace_start + 1 : brace_end - 1]
-            cond2 = ei_match.group(1).strip()
-            body2 = s[ei_brace_start + 1 : ei_brace_end - 1]
-
-            # Swap the two branches
-            result = (
-                s[: m.start()]
-                + f"if ({cond2}) {{{body2}}}\n    else if ({cond1}) {{{body1}}}"
-                + s[ei_brace_end:]
-            )
-            return result
-    return None
-
-
-def mut_add_cast(s: str, rng: random.Random) -> str | None:
-    """Wrap an expression in (BOOL) or (int) cast."""
-    casts = ["(int)", "(unsigned int)"]
-    cast = rng.choice(casts)
-    matches = list(_RE_CAST_TARGET.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    ident = m.group(1)
-    # Don't cast type keywords
-    if ident in (
-        "BOOL",
-        "int",
-        "DWORD",
-        "HANDLE",
-        "LPVOID",
-        "void",
-        "return",
-        "if",
-        "else",
-        "while",
-        "for",
-        "goto",
-        "volatile",
-    ):
-        return None
-    start, end = m.span(1)
-    return s[:start] + f"{cast}{ident}" + s[end:]
-
-
-def mut_remove_cast(s: str, rng: random.Random) -> str | None:
-    """Remove a (TYPE) cast."""
-    return _sub_once(_RE_REMOVE_CAST, lambda m: m.group(1), s, rng)
-
-
-def mut_toggle_volatile(s: str, rng: random.Random) -> str | None:
-    """Add or remove 'volatile' on a local variable declaration."""
-    # Try removing volatile first
-    vol_matches = list(_RE_VOLATILE.finditer(s))
-    if vol_matches and rng.random() < 0.5:
-        m = rng.choice(vol_matches)
-        return s[: m.start()] + s[m.end() :]
-    # Try adding volatile
-    matches = list(_RE_ADD_VOLATILE.finditer(s))
-    matches = [m for m in matches if "volatile" not in s[m.start() : m.end() + 20]]
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    return s[: m.start()] + m.group(1) + "volatile " + m.group(2) + s[m.end() :]
-
-
-def mut_add_register_keyword(s: str, rng: random.Random) -> str | None:
-    """Add 'register' keyword to a local variable declaration.
-    Note: MSVC6 largely ignores register hints, but the keyword
-    can sometimes affect variable ordering in the symbol table."""
-    matches = list(_RE_ADD_REGISTER.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    if "register" in s[m.start() : m.end() + 20]:
-        return None
-    return s[: m.start()] + m.group(1) + "register " + m.group(2) + s[m.end() :]
-
-
-def mut_remove_register_keyword(s: str, rng: random.Random) -> str | None:
-    """Remove 'register' keyword from a declaration."""
-    matches = list(_RE_REMOVE_REGISTER.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    return s[: m.start()] + s[m.end() :]
-
-
-def mut_if_false_to_bitand(s: str, rng: random.Random) -> str | None:
-    """Convert 'if (!expr) var = FALSE;' to 'var &= expr;'.
-
-    This can produce `and [mem], reg` instead of `test/jne/mov` pattern,
-    which is how MSVC6 sometimes optimizes this idiom.
-    """
-    matches = list(_RE_IF_FALSE_BITAND.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    call_expr = m.group(1)
-    var_name = m.group(2)
-    replacement = f"{var_name} &= {call_expr};"
-    return s[: m.start()] + replacement + s[m.end() :]
-
-
-def mut_bitand_to_if_false(s: str, rng: random.Random) -> str | None:
-    """Reverse of mut_if_false_to_bitand: convert 'var &= expr;' to 'if (!expr) var = FALSE;'."""
-    matches = list(_RE_BITAND_TO_IF.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    var_name = m.group(1)
-    call_expr = m.group(2)
-    replacement = f"if (!{call_expr})\n            {var_name} = 0;"
-    return s[: m.start()] + replacement + s[m.end() :]
-
-
-def mut_introduce_temp_for_call(s: str, rng: random.Random) -> str | None:
-    """Introduce a temp variable for a function call result.
-
-    Transforms: var = FuncCall(...);
-    Into:       tmp = FuncCall(...); var = tmp;
-
-    This can help the compiler keep the result in a register for subsequent tests.
-    """
-    matches = list(_RE_VAR_ASSIGN_CALL.finditer(s))
-    # Filter to only function calls (must have parens), not already using tmp
-    matches = [m for m in matches if "(" in m.group(2) and "tmp" not in m.group(0)]
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    var_name = m.group(1)
-    call_expr = m.group(2)
-    # Check if tmp is already declared
-    if _RE_BOOL_TMP_DECL.search(s):
-        replacement = f"tmp = {call_expr};\n    {var_name} = tmp;"
-    else:
-        replacement = f"BOOL tmp = {call_expr};\n    {var_name} = tmp;"
-    return s[: m.start()] + replacement + s[m.end() :]
-
-
-def mut_remove_temp_var(s: str, rng: random.Random) -> str | None:
-    """Remove a temp variable usage: 'tmp = expr; var = tmp;' -> 'var = expr;'."""
-    matches = list(_RE_TEMP_VAR.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    expr = m.group(1)
-    var_name = m.group(2)
-    return s[: m.start()] + f"{var_name} = {expr};" + s[m.end() :]
-
-
-# -------------------------
-# Register-allocation-aware mutations
-# These target MSVC6's register allocator: variable declaration order,
-# signed/unsigned types, expression structure, and control flow all
-# influence which variables go into EAX/ECX/EDX vs ESI/EDI/EBX.
-# -------------------------
-
-
-def mut_toggle_signedness(s: str, rng: random.Random) -> str | None:
-    """Toggle signed/unsigned on a local variable declaration.
-
-    MSVC6 generates different instructions for signed vs unsigned:
-    - movsx vs movzx for extension
-    - sar vs shr for right shift
-    - jl/jge vs jb/jae for comparisons
-    These changes alter register pressure and allocation order.
-    """
-    matches = list(_RE_UNSIGNED_REMOVE.finditer(s))
-    matches_add = list(_RE_UNSIGNED_ADD.finditer(s))
-
-    candidates = []
-    if matches:
-        candidates.append(("remove", matches))
-    if matches_add:
-        candidates.append(("add", matches_add))
-    if not candidates:
-        return None
-
-    action, ms = rng.choice(candidates)
-    m = rng.choice(ms)
-    if action == "remove":
-        return s[: m.start()] + m.group(1) + s[m.end() :]
-    else:
-        return s[: m.start()] + "unsigned " + m.group(0) + s[m.end() :]
-
-
-def mut_swap_adjacent_declarations(s: str, rng: random.Random) -> str | None:
-    """Swap two adjacent variable declarations at function start.
-
-    MSVC6 register allocator is sensitive to declaration order when
-    multiple variables have similar liveness. Swapping declarations
-    can change which variable gets EAX vs ECX vs EDX.
-    """
-
-    lines = s.split("\n")
-    decl_indices = []
-    for i, line in enumerate(lines):
-        if _RE_DECL_SWAP.match(line):
-            decl_indices.append(i)
-
-    pairs = []
-    for i in range(len(decl_indices) - 1):
-        if decl_indices[i + 1] == decl_indices[i] + 1:
-            pairs.append((decl_indices[i], decl_indices[i + 1]))
-    if not pairs:
-        return None
-
-    a_idx, b_idx = rng.choice(pairs)
-    lines[a_idx], lines[b_idx] = lines[b_idx], lines[a_idx]
-    return "\n".join(lines)
-
-
-def mut_split_declaration_init(s: str, rng: random.Random) -> str | None:
-    """Split 'TYPE var = expr;' into 'TYPE var; var = expr;'.
-
-    Separating declaration from initialization changes when the compiler
-    considers the variable 'live', which affects register allocation.
-    """
-    matches = list(_RE_SPLIT_DECL.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    indent = m.group(1)
-    decl = m.group(2)
-    var = m.group(3)
-    init_expr = m.group(4).strip()
-    replacement = f"{indent}{decl};\n{indent}{var} = {init_expr};"
-    return s[: m.start()] + replacement + s[m.end() :]
-
-
-def mut_merge_declaration_init(s: str, rng: random.Random) -> str | None:
-    """Merge 'TYPE var; ... var = expr;' into 'TYPE var = expr;'.
-
-    Reverse of mut_split_declaration_init. Merging shortens the live range
-    gap, which can free a register for other variables.
-    """
-
-    matches = list(_RE_MERGE_DECL.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    indent = m.group(1)
-    type_decl = m.group(2)
-    var = m.group(3)
-    init_expr = m.group(4).strip()
-    replacement = f"{indent}{type_decl} {var} = {init_expr};"
-    return s[: m.start()] + replacement + s[m.end() :]
-
-
-def mut_while_to_dowhile(s: str, rng: random.Random) -> str | None:
-    """Convert 'while (cond) { body }' to 'if (cond) { do { body } while (cond); }'.
-
-    MSVC6 performs loop rotation differently for while vs do-while.
-    A do-while avoids the duplicated condition check at loop top.
-    """
-    matches = list(_RE_WHILE_LOOP.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    # Find balanced closing paren for the condition
-    paren_start = m.end() - 1  # index of '('
-    paren_end = _find_matching_char(s, paren_start, "(", ")")
-    if paren_end is None:
-        return None
-    cond = s[paren_start + 1 : paren_end - 1]
-
-    # Find opening brace after condition
-    rest_after_paren = s[paren_end:].lstrip()
-    if not rest_after_paren.startswith("{"):
-        return None
-    brace_start = s.index("{", paren_end)
-    close = _find_matching_brace(s, brace_start)
-    if close is None:
-        return None
-    body = s[brace_start + 1 : close - 1]
-    before = s[: m.start()]
-    after = s[close:]
-    replacement = f"if ({cond}) {{\n    do {{{body}}} while ({cond});\n    }}"
-    return before + replacement + after
-
-
-def mut_dowhile_to_while(s: str, rng: random.Random) -> str | None:
-    """Convert 'do { body } while (cond);' to 'while (cond) { body }'.
-
-    Reverse of mut_while_to_dowhile. Changes loop rotation behavior.
-    """
-    matches = list(_RE_DO_WHILE.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    brace_start = m.end() - 1
-    close = _find_matching_brace(s, brace_start)
-    if close is None:
-        return None
-    body = s[brace_start + 1 : close - 1]
-    # Find 'while (cond);' after closing brace
-    after_close_raw = s[close:]
-    after_close = after_close_raw.lstrip()
-    wm = _RE_DO_WHILE_COND.match(after_close)
-    if not wm:
-        return None
-    cond = wm.group(1)
-    before = s[: m.start()]
-    whitespace_skip = len(after_close_raw) - len(after_close)
-    rest = s[close + whitespace_skip + wm.end() :]
-    replacement = f"while ({cond}) {{{body}}}"
-    return before + replacement + rest
-
-
-def mut_early_return_to_accum(s: str, rng: random.Random) -> str | None:
-    """Convert 'if (!expr) return 0;' to 'ret &= expr;' accumulator pattern.
-
-    This extends the live range of a return-value variable, creating register
-    pressure that forces the compiler to spill other variables to stack,
-    changing the overall register allocation.
-    """
-    matches = list(_RE_EARLY_RETURN.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    call_expr = m.group(1)
-    # Check if 'ret' or 'retcode' already exists
-    if _RE_RETCODE_VAR.search(s):
-        var = "retcode" if "retcode" in s else "ret"
-        replacement = f"{var} &= {call_expr};"
-    else:
-        return None
-    return s[: m.start()] + replacement + s[m.end() :]
-
-
-def mut_accum_to_early_return(s: str, rng: random.Random) -> str | None:
-    """Convert 'ret &= expr;' to 'if (!expr) return 0;'.
-
-    Reverse of mut_early_return_to_accum.
-    """
-    matches = list(_RE_ACCUM.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    var_name = m.group(1)
-    if var_name not in ("ret", "retcode", "result"):
-        return None
-    call_expr = m.group(2)
-    replacement = f"if (!{call_expr})\n        return 0;"
-    return s[: m.start()] + replacement + s[m.end() :]
-
-
-def mut_pointer_to_int_param(s: str, rng: random.Random) -> str | None:
-    """Change a pointer parameter to int or vice versa.
-
-    MSVC6 generates different address computation instructions for
-    pointer arithmetic vs integer + cast, affecting register usage.
-    """
-    matches = list(_RE_PTR_PARAM.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    # Don't change extern/typedef declarations
-    line_start = s.rfind("\n", 0, m.start()) + 1
-    line = s[line_start : m.start()]
-    if "extern" in line or "typedef" in line:
-        return None
-    var_name = m.group(2)
-    # Replace 'TYPE *name' with 'int name'
-    return s[: m.start()] + "int " + var_name + s[m.end() :]
-
-
-def mut_int_to_pointer_param(s: str, rng: random.Random) -> str | None:
-    """Change an int parameter to char* (for pointer-based access).
-
-    Reverse of mut_pointer_to_int_param. Using char* changes how the
-    compiler generates field access (lea vs add).
-    """
-    matches = list(_RE_INT_PARAM.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    var_name = m.group(1)
-    return s[: m.start()] + " char *" + var_name + s[m.end() :]
-
-
-def mut_duplicate_loop_body(s: str, rng: random.Random) -> str | None:
-    """Duplicate loop body (manual loop unrolling by 2x).
-
-    Changes:
-    while(condition) { body; }
-    ->
-    while(condition) { body; body; }
-    This affects register pressure and loop overhead.
-    """
-    matches = list(_RE_WHILE_LOOP.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    # Find balanced condition parens
-    paren_start = m.end() - 1
-    paren_end = _find_matching_char(s, paren_start, "(", ")")
-    if paren_end is None:
-        return None
-    cond = s[paren_start + 1 : paren_end - 1]
-    # Find balanced body braces
-    rest_after_paren = s[paren_end:].lstrip()
-    if not rest_after_paren.startswith("{"):
-        return None
-    brace_start = s.index("{", paren_end)
-    brace_end = _find_matching_brace(s, brace_start)
-    if brace_end is None:
-        return None
-    body = s[brace_start + 1 : brace_end - 1]
-    # Duplicate body
-    new_body = body + "\n" + body.strip()
-    new_while = f"while ({cond}) {{{new_body}}}"
-    return s[: m.start()] + new_while + s[brace_end:]
-
-
-def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
-    """Fold multiple +1 or +N into a single addition.
-
-    Changes: x = x + 1; x = x + 1; -> x = x + 2;
-    This affects how many add instructions are generated.
-    """
-
-    matches = list(_RE_CONST_ADD.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    var = m.group(1)
-    n1 = int(m.group(2))
-    n2 = int(m.group(4))
-    new = f"{var} = {var} + {n1 + n2};"
-    return s[: m.start()] + new + s[m.end() :]
-
-
-def mut_unfold_constant_add(s: str, rng: random.Random) -> str | None:
-    """Unfold addition into multiple increments.
-
-    Changes: x = x + 2; -> x = x + 1; x = x + 1;
-    This adds more add instructions for register pressure.
-    """
-
-    matches = list(_RE_SINGLE_ADD.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    var = m.group(1)
-    n = int(m.group(2))
-    if n <= 1 or n > 16:
-        return None
-    # Split into n increments of 1
-    incs = "; ".join([f"{var} = {var} + 1" for _ in range(n)]) + ";"
-    return s[: m.start()] + incs + s[m.end() :]
-
-
-def mut_change_array_index_order(s: str, rng: random.Random) -> str | None:
-    """Change array[i] to i[array] (equivalent but different codegen).
-
-    Both compile to same code but can affect MSVC register allocation.
-    """
-
-    matches = list(_RE_ARRAY_INDEX.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    arr = m.group(1)
-    idx = m.group(2)
-    new = f"{idx}[{arr}]"
-    return s[: m.start()] + new + s[m.end() :]
-
-
-def mut_struct_vs_ptr_access(s: str, rng: random.Random) -> str | None:
-    """Change ptr->field to (*ptr).field (equivalent semantics, different codegen).
-
-    This affects how MSVC generates field access code.
-    """
-
-    matches = list(_RE_PTR_ARROW.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    ptr = m.group(1)
-    field = m.group(2)
-    new = f"(*{ptr}).{field}"
-    return s[: m.start()] + new + s[m.end() :]
-
-
-def mut_split_cmp_chain(s: str, rng: random.Random) -> str | None:
-    """Split chained && into nested if statements.
-
-    Changes: if (a && b) { body } -> if (a) { if (b) { body } }
-    This preserves semantics while changing control flow and register usage.
-    """
-    matches = list(_RE_CMP_CHAIN_3.finditer(s))
-    if not matches:
-        matches = list(_RE_CMP_CHAIN_2.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    # Find the body braces following the if(...)
-    rest = s[m.end() :].lstrip()
-    if not rest.startswith("{"):
-        return None
-    brace_start = s.index("{", m.end())
-    brace_end = _find_matching_brace(s, brace_start)
-    if brace_end is None:
-        return None
-    body = s[brace_start + 1 : brace_end - 1]
-
-    # Extract the condition text between "if (" and the closing ")"
-    cond_text = m.group(0)
-    inner = cond_text[cond_text.index("(") + 1 : cond_text.rindex(")")]
-    parts = [p.strip() for p in re.split(r"\s*&&\s*", inner)]
-    if len(parts) < 2:
-        return None
-
-    # Build nested ifs with balanced braces:
-    # if (a && b) { body }  ->  if (a) { if (b) { body } }
-    # if (a && b && c) { body }  ->  if (a) { if (b) { if (c) { body } } }
-    inner_block = "{" + body + "}"
-    for i in range(len(parts) - 1, -1, -1):
-        inner_block = f"if ({parts[i]}) {inner_block}"
-        if i > 0:
-            inner_block = "{ " + inner_block + " }"
-    result = s[: m.start()] + inner_block + s[brace_end:]
-    return result
-
-
-def mut_merge_cmp_chain(s: str, rng: random.Random) -> str | None:
-    """Merge separate if statements into chained comparison.
-
-    Changes: if (a == b) {} if (b == c) {} -> if (a == b && b == c) {}
-    Opposite of split_cmp_chain.
-    """
-
-    matches = list(_RE_MERGE_IF.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    cond1 = m.group(1)
-    cond2 = m.group(2)
-    new = f"if ({cond1} && {cond2}) {{}}"
-    return s[: m.start()] + new + s[m.end() :]
-
-
-def mut_combine_ptr_arith(s: str, rng: random.Random) -> str | None:
-    """Combine separate pointer arithmetic into single expression.
-
-    Changes: p = p + n; p = p + m; -> p = p + (n + m);
-    Affects number of add instructions generated.
-    """
-
-    matches = list(_RE_PTR_ARITH_DOUBLE.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    var = m.group(1)
-    n1 = int(m.group(2))
-    n2 = int(m.group(4))
-    new = f"{var} = {var} + {n1 + n2};"
-    return s[: m.start()] + new + s[m.end() :]
-
-
-def mut_split_ptr_arith(s: str, rng: random.Random) -> str | None:
-    """Split combined pointer arithmetic into separate statements.
-
-    Changes: p = p + n; -> p = p + n1; p = p + n2; where n1+n2=n
-    Adds more add instructions for register pressure.
-    """
-
-    matches = list(_RE_PTR_ARITH_SINGLE.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    var = m.group(1)
-    n = int(m.group(2))
-    if n <= 1:
-        return None
-    # Split into two parts
-    n1 = n // 2
-    n2 = n - n1
-    new = f"{var} = {var} + {n1}; {var} = {var} + {n2};"
-    return s[: m.start()] + new + s[m.end() :]
-
-
-def mut_change_return_type(s: str, rng: random.Random) -> str | None:
-    """Change return type between int/char/short for register pressure.
-
-    Different return types generate different register usage (al vs ax vs eax).
-    """
-
-    matches = list(_RE_RETURN_TYPE.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    types = ["int", "char", "short", "long"]
-    current = m.group(1)
-    new_type = rng.choice([t for t in types if t != current])
-    # Replace only the return type, preserving everything after it
-    return s[: m.start()] + new_type + s[m.start() + len(m.group(1)) :]
-
-
-def mut_change_param_order(s: str, rng: random.Random) -> str | None:
-    """Reorder function parameters to affect register allocation.
-
-    MSVC passes parameters in different registers based on position.
-    """
-
-    match = _RE_FUNC_SIG.search(s)
-    if not match:
-        return None
-    params = [p.strip() for p in match.group(2).split(",")]
-    if len(params) < 2:
-        return None
-    # Swap two random params
-    i, j = rng.sample(range(len(params)), 2)
-    params[i], params[j] = params[j], params[i]
-    new_sig = match.group(1) + "(" + ", ".join(params) + ") {"
-    return s[: match.start()] + new_sig + s[match.end() :]
-
-
-# Calling convention patterns
-_RE_FUNC_DEF_CONV = re.compile(
-    r"^([a-zA-Z_][a-zA-Z0-9_*\s]*)\s+(__cdecl|__stdcall)\s+([a-zA-Z_][a-zA-Z0-9_]*\s*\()",
-    re.MULTILINE,
-)
-# Char signedness
-_RE_UNSIGNED_CHAR = re.compile(r"\bunsigned\s+char\b")
-_RE_SIGNED_CHAR = re.compile(r"\bsigned\s+char\b")
-_RE_BARE_CHAR = re.compile(r"(?<!unsigned )(?<!unsigned\t)(?<!signed )(?<!signed\t)\bchar\b")
-# Comparison boundary
-_RE_GE_ONE = re.compile(r"(\b\w+)\s*>=\s*1\b")
-_RE_GT_ZERO = re.compile(r"(\b\w+)\s*>\s*0\b")
-_RE_LE_ZERO = re.compile(r"(\b\w+)\s*<=\s*0\b")
-_RE_LT_ONE = re.compile(r"(\b\w+)\s*<\s*1\b")
-
-
-def mut_toggle_calling_convention(s: str, rng: random.Random) -> str | None:
-    """Toggle between __cdecl and __stdcall calling conventions.
-
-    MSVC6 generates different prologue/epilogue code for each convention.
-    __cdecl: caller cleans stack; __stdcall: callee cleans stack (ret N).
-    """
-    m = _RE_FUNC_DEF_CONV.search(s)
-    if m:
-        old_conv = m.group(2)
-        new_conv = "__stdcall" if old_conv == "__cdecl" else "__cdecl"
-        return s[: m.start(2)] + new_conv + s[m.end(2) :]
-
-    # No explicit convention — try adding one
-    match = _RE_FUNC_SIG.search(s)
-    if not match:
-        return None
-    conv = rng.choice(["__cdecl", "__stdcall"])
-    # Insert convention between return type and function name
-    # group(1) captures "rettype funcname" — split on last whitespace
-    sig = match.group(1)
-    last_space = sig.rfind(" ")
-    if last_space < 0:
-        return None
-    return (
-        s[: match.start(1)]
-        + sig[:last_space]
-        + " "
-        + conv
-        + " "
-        + sig[last_space + 1 :]
-        + s[match.end(1) :]
-    )
-
-
-def mut_toggle_char_signedness(s: str, rng: random.Random) -> str | None:
-    """Toggle char signedness: char -> unsigned char -> signed char -> char.
-
-    MSVC6 treats char as signed by default, but explicit signedness
-    affects sign-extension in generated code (movsx vs movzx).
-    """
-    # Collect all replacement candidates
-    candidates: list[tuple[re.Match[str], str, bool]] = []  # (match, replacement, is_line_based)
-    for m in _RE_UNSIGNED_CHAR.finditer(s):
-        candidates.append((m, "signed char", False))
-    for m in _RE_SIGNED_CHAR.finditer(s):
-        candidates.append((m, "char", False))
-    # Bare char → unsigned char (only in declaration-like lines)
-    for m in _RE_BARE_CHAR.finditer(s):
-        candidates.append((m, "unsigned char", False))
-
-    if not candidates:
-        return None
-    m, replacement, _ = rng.choice(candidates)
-    result = s[: m.start()] + replacement + s[m.end() :]
-    # Guard against double-keyword artifacts like "unsigned unsigned char"
-    if "unsigned unsigned" in result or "signed signed" in result:
-        return None
-    return result
-
-
-def mut_comparison_boundary(s: str, rng: random.Random) -> str | None:
-    """Toggle comparison boundary: >= 1 <-> > 0, <= 0 <-> < 1.
-
-    These generate different x86 comparison encodings (cmp+jge vs cmp+jg)
-    which can cause byte-level mismatches even with identical logic.
-    """
-    # Collect all matches across all four patterns with their replacements
-    candidates: list[tuple[re.Match[str], str]] = []
-    for m in _RE_GE_ONE.finditer(s):
-        candidates.append((m, m.group(1) + " > 0"))
-    for m in _RE_GT_ZERO.finditer(s):
-        candidates.append((m, m.group(1) + " >= 1"))
-    for m in _RE_LE_ZERO.finditer(s):
-        candidates.append((m, m.group(1) + " < 1"))
-    for m in _RE_LT_ONE.finditer(s):
-        candidates.append((m, m.group(1) + " <= 0"))
-
-    if not candidates:
-        return None
-    m, replacement = rng.choice(candidates)
-    return s[: m.start()] + replacement + s[m.end() :]
-
-
-# -------------------------
-# Code layout mutations
-# These target structural code patterns that cause MSVC6's codegen to
-# produce different branch layouts, loop entry code, and register
-# live ranges.
-# -------------------------
-
-_RE_NESTED_IF = re.compile(r"\bif\s*\(")
-_RE_FOR_LOOP = re.compile(r"\bfor\s*\(")
-# Simple if/else single-assignment: if (c) x = a; else x = b;
-_RE_IF_ASSIGN_ELSE = re.compile(
-    r"if\s*\(([^)]+)\)\s*\n?\s*(\w+)\s*=\s*([^;]+);\s*\n?\s*else\s*\n?\s*\2\s*=\s*([^;]+);",
-)
-# Ternary assignment: x = c ? a : b;
-_RE_TERNARY_ASSIGN = re.compile(
-    r"(\w+)\s*=\s*\(?\s*([^?;]+?)\s*\)?\s*\?\s*([^:;]+?)\s*:\s*([^;]+?)\s*;",
-)
-# Hoist: return <expr>; at the end of a branch
-_RE_BRANCH_RETURN = re.compile(r"([ \t]+)return\s+([^;]+);(\s*\n\s*\})", re.MULTILINE)
-# Sink: ret = <expr>; goto end;
-_RE_RET_GOTO_END = re.compile(r"([ \t]+)(\w+)\s*=\s*([^;]+);\s*\n\s*\1goto\s+end\s*;")
+# ---------------------------------------------------------------------------
+# Structural code-layout mutations (AST rewrites of former regex mutations)
+# ---------------------------------------------------------------------------
 
 
 def mut_flatten_nested_if(s: str, rng: random.Random) -> str | None:
     """Flatten nested if into && chain.
 
-    Changes:  if (a) { if (b) { body } }  →  if (a && b) { body }
-    Complementary with existing mut_split_cmp_chain (which goes the other way).
-    This version handles deeper nesting patterns that split_cmp_chain misses.
+    Changes:  if (a) { if (b) { body } }  ->  if (a && b) { body }
     """
-    matches = list(_RE_NESTED_IF.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
+    b_source = s.encode("utf-8")
+    cursor = ts.QueryCursor(_QUERY_NESTED_IF)
+    tree = parse_c_ast(b_source)
+    matches = cursor.matches(tree.root_node)
 
-    # Find balanced condition parens for outer if
-    paren_start = m.end() - 1
-    paren_end = _find_matching_char(s, paren_start, "(", ")")
-    if paren_end is None:
-        return None
-    outer_cond = s[paren_start + 1 : paren_end - 1].strip()
+    # Filter: outer body must contain ONLY the inner if (no other stmts)
+    valid = []
+    for match in matches:
+        caps = {k: v[0] for k, v in match[1].items()}
+        outer_body = caps["outer_body"]
+        # Count named children that are actual statements (not just braces)
+        stmts = [c for c in outer_body.named_children]
+        if len(stmts) == 1 and stmts[0].type == "if_statement":
+            valid.append(caps)
 
-    # Find outer body braces
-    rest = s[paren_end:].lstrip()
-    if not rest.startswith("{"):
-        return None
-    brace_start = s.index("{", paren_end)
-    brace_end = _find_matching_brace(s, brace_start)
-    if brace_end is None:
+    if not valid:
         return None
 
-    # Check that body is just another if (possibly with whitespace)
-    inner_body = s[brace_start + 1 : brace_end - 1].strip()
-    inner_match = re.match(r"if\s*\(", inner_body)
-    if not inner_match:
-        return None
+    caps = rng.choice(valid)
+    outer_cond = b_source[caps["outer_cond"].start_byte + 1 : caps["outer_cond"].end_byte - 1]
+    inner_cond = b_source[caps["inner_cond"].start_byte + 1 : caps["inner_cond"].end_byte - 1]
+    inner_body = b_source[caps["inner_body"].start_byte : caps["inner_body"].end_byte]
 
-    # Parse the inner if condition
-    inner_paren_start = inner_match.end() - 1
-    inner_paren_end = _find_matching_char(inner_body, inner_paren_start, "(", ")")
-    if inner_paren_end is None:
-        return None
-    inner_cond = inner_body[inner_paren_start + 1 : inner_paren_end - 1].strip()
-
-    # Get inner body (must have braces)
-    inner_rest = inner_body[inner_paren_end:].lstrip()
-    if not inner_rest.startswith("{"):
-        return None
-    inner_brace_start = inner_body.index("{", inner_paren_end)
-    inner_brace_end = _find_matching_brace(inner_body, inner_brace_start)
-    if inner_brace_end is None:
-        return None
-
-    # After the inner if's closing brace, there should be nothing else
-    trailing = inner_body[inner_brace_end:].strip()
-    if trailing:
-        return None  # There's more code — can't safely flatten
-
-    inner_block = inner_body[inner_brace_start:inner_brace_end]
-    replacement = f"if ({outer_cond} && {inner_cond}) {inner_block}"
-    return s[: m.start()] + replacement + s[brace_end:]
+    replacement = b"if (" + outer_cond.strip() + b" && " + inner_cond.strip() + b") " + inner_body
+    result = b_source[: caps["expr"].start_byte] + replacement + b_source[caps["expr"].end_byte :]
+    return result.decode("utf-8")
 
 
 def mut_extract_else_body(s: str, rng: random.Random) -> str | None:
     """Convert if/else to negated-condition early exit.
 
-    Changes:  if (c) { A } else { B }  →  if (!(c)) { B; return 0; } A
-    MSVC6 generates different branch layouts for these two patterns,
-    affecting jump distances and register liveness.
+    Changes:  if (c) { A } else { B }  ->  if (!(c)) { B; return 0; } A
     """
-    # Find if statements that have else clauses
-    matches = list(_RE_NESTED_IF.finditer(s))
+    b_source = s.encode("utf-8")
+    cursor = ts.QueryCursor(_QUERY_IF_BODY_RETURN)
+    tree = parse_c_ast(b_source)
+    matches = cursor.matches(tree.root_node)
+
     if not matches:
         return None
-    rng.shuffle(matches)
 
-    for m in matches:
-        paren_start = m.end() - 1
-        paren_end = _find_matching_char(s, paren_start, "(", ")")
-        if paren_end is None:
-            continue
-        cond = s[paren_start + 1 : paren_end - 1].strip()
+    match = rng.choice(matches)
+    caps = {k: v[0] for k, v in match[1].items()}
 
-        # Find if-body braces
-        rest = s[paren_end:].lstrip()
-        if not rest.startswith("{"):
-            continue
-        brace_start = s.index("{", paren_end)
-        brace_end = _find_matching_brace(s, brace_start)
-        if brace_end is None:
-            continue
-        if_body = s[brace_start + 1 : brace_end - 1]
+    cond = b_source[caps["cond"].start_byte + 1 : caps["cond"].end_byte - 1]
+    if_body = b_source[caps["if_body"].start_byte + 1 : caps["if_body"].end_byte - 1]
+    else_body = b_source[caps["else_body"].start_byte + 1 : caps["else_body"].end_byte - 1]
 
-        # Check for else clause
-        after_if = s[brace_end:].lstrip()
-        offset_to_else = len(s[brace_end:]) - len(after_if)
-        if not after_if.startswith("else"):
-            continue
-        else_start = brace_end + offset_to_else + 4  # skip "else"
-        after_else = s[else_start:].lstrip()
+    # Negate condition
+    cond_stripped = cond.strip()
+    if cond_stripped.startswith(b"!") and not cond_stripped.startswith(b"!="):
+        neg_cond = cond_stripped[1:].strip()
+        if neg_cond.startswith(b"(") and neg_cond.endswith(b")"):
+            neg_cond = neg_cond[1:-1]
+    else:
+        neg_cond = b"!(" + cond_stripped + b")"
 
-        # Don't match 'else if' — only 'else {' blocks
-        if after_else.startswith("if"):
-            continue
-        if not after_else.startswith("{"):
-            continue
-
-        else_brace_start = s.index("{", else_start)
-        else_brace_end = _find_matching_brace(s, else_brace_start)
-        if else_brace_end is None:
-            continue
-        else_body = s[else_brace_start + 1 : else_brace_end - 1]
-
-        # Build negated condition early-exit form
-        if cond.startswith("!"):
-            neg_cond = cond[1:].strip()
-            if neg_cond.startswith("(") and neg_cond.endswith(")"):
-                neg_cond = neg_cond[1:-1]
-        else:
-            neg_cond = f"!({cond})"
-        replacement = f"if ({neg_cond}) {{{else_body}\n        return 0;\n    }}{if_body}"
-        return s[: m.start()] + replacement + s[else_brace_end:]
-
-    return None
+    replacement = b"if (" + neg_cond + b") {" + else_body + b"\n        return 0;\n    }" + if_body
+    result = b_source[: caps["expr"].start_byte] + replacement + b_source[caps["expr"].end_byte :]
+    return result.decode("utf-8")
 
 
 def mut_for_to_while(s: str, rng: random.Random) -> str | None:
     """Convert for loop to while loop.
 
-    Changes:  for (i=0; i<n; i++) { body }
-           →  i=0; while (i<n) { body i++; }
-    MSVC6 generates different loop entry code for for vs while loops.
+    Changes:  for (i=0; i<n; i++) { body }  ->  i=0; while (i<n) { body i++; }
     """
-    matches = list(_RE_FOR_LOOP.finditer(s))
+    b_source = s.encode("utf-8")
+    cursor = ts.QueryCursor(_QUERY_FOR_LOOP)
+    tree = parse_c_ast(b_source)
+    matches = cursor.matches(tree.root_node)
+
     if not matches:
         return None
-    m = rng.choice(matches)
 
-    paren_start = m.end() - 1
-    paren_end = _find_matching_char(s, paren_start, "(", ")")
-    if paren_end is None:
-        return None
-    header = s[paren_start + 1 : paren_end - 1]
+    match = rng.choice(matches)
+    caps = {k: v[0] for k, v in match[1].items()}
 
-    # Split on semicolons — must have exactly 2
-    parts = header.split(";")
-    if len(parts) != 3:
-        return None
-    init, cond, inc = [p.strip() for p in parts]
+    init = b_source[caps["init"].start_byte : caps["init"].end_byte] if "init" in caps else b""
+    cond = b_source[caps["cond"].start_byte : caps["cond"].end_byte] if "cond" in caps else b""
+    update = (
+        b_source[caps["update"].start_byte : caps["update"].end_byte] if "update" in caps else b""
+    )
+    body = b_source[caps["body"].start_byte : caps["body"].end_byte]
+
     if not cond:
         return None
 
-    # Find body braces
-    rest = s[paren_end:].lstrip()
-    if not rest.startswith("{"):
-        return None
-    brace_start = s.index("{", paren_end)
-    brace_end = _find_matching_brace(s, brace_start)
-    if brace_end is None:
-        return None
-    body = s[brace_start + 1 : brace_end - 1]
-
     # Build while loop
-    init_stmt = f"{init};\n    " if init else ""
-    inc_stmt = f"\n        {inc};" if inc else ""
-    replacement = f"{init_stmt}while ({cond}) {{{body}{inc_stmt}\n    }}"
-    return s[: m.start()] + replacement + s[brace_end:]
+    parts = []
+    if init:
+        init_text = init.strip()
+        if not init_text.endswith(b";"):
+            init_text += b";"
+        parts.append(init_text + b"\n    ")
+
+    inner = body[1:-1]  # strip { }
+    if update:
+        inner = inner.rstrip() + b"\n        " + update + b";\n    "
+
+    parts.append(b"while (" + cond + b") {" + inner + b"}")
+
+    replacement = b"".join(parts)
+    result = b_source[: caps["stmt"].start_byte] + replacement + b_source[caps["stmt"].end_byte :]
+    return result.decode("utf-8")
 
 
 def mut_while_to_for(s: str, rng: random.Random) -> str | None:
     """Convert while loop to for loop.
 
-    Changes:  while (cond) { body }  →  for (; cond; ) { body }
-    Inverse of mut_for_to_while. MSVC6 generates different entry code.
+    Changes:  while (cond) { body }  ->  for (; cond; ) { body }
     """
-    matches = list(_RE_WHILE_LOOP.finditer(s))
-    # Filter out do-while patterns
-    filtered = []
-    for m in matches:
-        before = s[: m.start()].rstrip()
-        if before.endswith("do") or before.endswith("}"):
-            continue  # This is a do-while condition, skip
-        filtered.append(m)
-    if not filtered:
-        return None
-    m = rng.choice(filtered)
+    b_source = s.encode("utf-8")
 
-    paren_start = m.end() - 1
-    paren_end = _find_matching_char(s, paren_start, "(", ")")
-    if paren_end is None:
-        return None
-    cond = s[paren_start + 1 : paren_end - 1].strip()
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        cond = b_source[captures["cond"].start_byte : captures["cond"].end_byte]
+        body = b_source[captures["body"].start_byte : captures["body"].end_byte]
+        # Strip parens from condition
+        cond_inner = cond
+        if cond_inner.startswith(b"(") and cond_inner.endswith(b")"):
+            cond_inner = cond_inner[1:-1]
+        return b"for (; " + cond_inner.strip() + b"; ) " + body
 
-    # Find body braces
-    rest = s[paren_end:].lstrip()
-    if not rest.startswith("{"):
-        return None
-    brace_start = s.index("{", paren_end)
-    brace_end = _find_matching_brace(s, brace_start)
-    if brace_end is None:
-        return None
-    body = s[brace_start + 1 : brace_end - 1]
-
-    replacement = f"for (; {cond}; ) {{{body}}}"
-    return s[: m.start()] + replacement + s[brace_end:]
+    res = _apply_query_once(b_source, _QUERY_WHILE, _repl, rng)
+    return res.decode("utf-8") if res is not None else None
 
 
 def mut_if_to_ternary(s: str, rng: random.Random) -> str | None:
     """Convert if/else assignment to ternary expression.
 
-    Changes:  if (c) x = a; else x = b;  →  x = (c) ? a : b;
-    The ternary form often generates cmovcc instead of a conditional jump,
-    changing the instruction stream entirely.
+    Changes:  if (c) x = a; else x = b;  ->  x = (c) ? a : b;
     """
-    matches = list(_RE_IF_ASSIGN_ELSE.finditer(s))
+    b_source = s.encode("utf-8")
+    cursor = ts.QueryCursor(_QUERY_IF_ASSIGN_ELSE)
+    tree = parse_c_ast(b_source)
+    matches = cursor.matches(tree.root_node)
+
     if not matches:
         return None
-    m = rng.choice(matches)
-    cond = m.group(1).strip()
-    var = m.group(2)
-    val_true = m.group(3).strip()
-    val_false = m.group(4).strip()
-    replacement = f"{var} = ({cond}) ? {val_true} : {val_false};"
-    return s[: m.start()] + replacement + s[m.end() :]
+
+    # Filter: both assignments must target the same variable
+    valid = []
+    for match in matches:
+        caps = {k: v[0] for k, v in match[1].items()}
+        var1 = b_source[caps["var1"].start_byte : caps["var1"].end_byte]
+        var2 = b_source[caps["var2"].start_byte : caps["var2"].end_byte]
+        if var1 == var2:
+            valid.append(caps)
+
+    if not valid:
+        return None
+
+    caps = rng.choice(valid)
+    cond = b_source[caps["cond"].start_byte : caps["cond"].end_byte]
+    var = b_source[caps["var1"].start_byte : caps["var1"].end_byte]
+    val_true = b_source[caps["val1"].start_byte : caps["val1"].end_byte]
+    val_false = b_source[caps["val2"].start_byte : caps["val2"].end_byte]
+
+    replacement = var + b" = " + cond + b" ? " + val_true + b" : " + val_false + b";"
+    result = b_source[: caps["expr"].start_byte] + replacement + b_source[caps["expr"].end_byte :]
+    return result.decode("utf-8")
 
 
 def mut_ternary_to_if(s: str, rng: random.Random) -> str | None:
     """Convert ternary expression to if/else assignment.
 
-    Changes:  x = c ? a : b;  →  if (c) x = a; else x = b;
-    Inverse of mut_if_to_ternary. Uses conditional jumps instead of cmov.
+    Changes:  x = c ? a : b;  ->  if (c) x = a; else x = b;
     """
-    matches = list(_RE_TERNARY_ASSIGN.finditer(s))
+    b_source = s.encode("utf-8")
+    cursor = ts.QueryCursor(_QUERY_TERNARY)
+    tree = parse_c_ast(b_source)
+    matches = cursor.matches(tree.root_node)
+
     if not matches:
         return None
-    m = rng.choice(matches)
-    var = m.group(1).strip()
-    cond = m.group(2).strip()
-    val_true = m.group(3).strip()
-    val_false = m.group(4).strip()
-    # Don't convert if this looks like a declaration (has type keyword before var)
-    before = s[: m.start()].rstrip()
-    if (
-        before
-        and before.split()[-1:][0:1]
-        and before.split()[-1]
-        in (
-            "int",
-            "char",
-            "short",
-            "long",
-            "BOOL",
-            "DWORD",
-            "UINT",
-            "BYTE",
-            "WORD",
-            "unsigned",
-            "signed",
-            "const",
-            "volatile",
-        )
-    ):
-        return None
+
+    match = rng.choice(matches)
+    caps = {k: v[0] for k, v in match[1].items()}
+
+    var = b_source[caps["var"].start_byte : caps["var"].end_byte]
+    cond = b_source[caps["cond"].start_byte : caps["cond"].end_byte]
+    val_true = b_source[caps["val_true"].start_byte : caps["val_true"].end_byte]
+    val_false = b_source[caps["val_false"].start_byte : caps["val_false"].end_byte]
+
     replacement = (
-        f"if ({cond})\n        {var} = {val_true};\n    else\n        {var} = {val_false};"
+        b"if ("
+        + cond
+        + b")\n        "
+        + var
+        + b" = "
+        + val_true
+        + b";\n    else\n        "
+        + var
+        + b" = "
+        + val_false
+        + b";"
     )
-    return s[: m.start()] + replacement + s[m.end() :]
+    result = b_source[: caps["expr"].start_byte] + replacement + b_source[caps["expr"].end_byte :]
+    return result.decode("utf-8")
 
 
 def mut_hoist_return(s: str, rng: random.Random) -> str | None:
     """Extract branch returns to a labeled goto accumulator.
 
-    Changes:  return expr;  →  ret = expr; goto end;
-    (and adds 'end: return ret;' before the enclosing function's closing brace)
-    This extends the live range of the ret variable, creating register
-    pressure that forces different register allocation.
+    Changes:  return expr;  ->  ret = expr; goto end;
+    (and adds 'end: return ret;' before the function's closing brace)
     """
-    matches = list(_RE_BRANCH_RETURN.finditer(s))
+    b_source = s.encode("utf-8")
+    if b"end:" in b_source:
+        return None
+
+    tree = parse_c_ast(b_source)
+    q = ts.Query(_C_LANGUAGE, "(return_statement (_) @val) @stmt")
+    cursor = ts.QueryCursor(q)
+    matches = cursor.matches(tree.root_node)
+
     if not matches:
         return None
 
-    # Skip if end label already exists
-    if re.search(r"\bend\s*:", s):
+    match = rng.choice(matches)
+    caps = {k: v[0] for k, v in match[1].items()}
+    val = b_source[caps["val"].start_byte : caps["val"].end_byte]
+    stmt = caps["stmt"]
+
+    ret_var = b"ret" if b"retcode" not in b_source else b"retval"
+    if ret_var in b_source:
+        ret_var = b"retval"
+    if ret_var in b_source:
         return None
 
-    m = rng.choice(matches)
-    indent = m.group(1)
-    expr = m.group(2).strip()
-    trailing = m.group(3)
+    replacement = ret_var + b" = " + val + b";\n    goto end;"
+    result = b_source[: stmt.start_byte] + replacement + b_source[stmt.end_byte :]
 
-    # Check if ret variable already used
-    ret_var = "ret" if "retcode" not in s else "retval"
-    if re.search(rf"\b{ret_var}\b", s):
-        ret_var = "retval"
-    if re.search(rf"\b{ret_var}\b", s):
-        return None  # Can't find a free variable name
+    # Add end label before the last closing brace
+    last_brace = result.rfind(b"}")
+    if last_brace >= 0:
+        result = (
+            result[:last_brace] + b"\nend:\n    return " + ret_var + b";\n" + result[last_brace:]
+        )
 
-    replacement = f"{indent}{ret_var} = {expr};\n{indent}goto end;{trailing}"
-    result = s[: m.start()] + replacement + s[m.end() :]
-
-    # Find the enclosing function's closing brace by tracking depth
-    # from the replacement position outward.
-    pos = m.start()
-    depth = 0
-    func_close = -1
-    for i in range(pos, len(result)):
-        if result[i] == "{":
-            depth += 1
-        elif result[i] == "}":
-            depth -= 1
-            if depth <= 0:
-                func_close = i
-                break
-    if func_close < 0:
-        return None
-    result = result[:func_close] + f"\nend:\n    return {ret_var};\n" + result[func_close:]
-    return result
+    return result.decode("utf-8")
 
 
 def mut_sink_return(s: str, rng: random.Random) -> str | None:
     """Collapse ret=expr; goto end; back to return expr;
 
-    Inverse of mut_hoist_return. Reduces register live ranges.
+    Inverse of mut_hoist_return.
     """
-    matches = list(_RE_RET_GOTO_END.finditer(s))
-    if not matches:
+    b_source = s.encode("utf-8")
+    if b"goto end;" not in b_source:
         return None
 
-    m = rng.choice(matches)
-    indent = m.group(1)
-    expr = m.group(3).strip()
-    replacement = f"{indent}return {expr};"
-    result = s[: m.start()] + replacement + s[m.end() :]
+    # Use regex since this is a multi-statement pattern
+    pat = re.compile(rb"(\w+)\s*=\s*([^;]+);\s*\n\s*goto\s+end\s*;")
+    all_m = list(pat.finditer(b_source))
+    if not all_m:
+        return None
 
-    # Remove the end label and its return if no more gotos reference it
-    if "goto end;" not in result:
-        result = re.sub(r"\nend:\n\s*return\s+\w+;\n", "\n", result)
+    m = rng.choice(all_m)
+    expr = m.group(2)
+    replacement = b"return " + expr + b";"
+    result = b_source[: m.start()] + replacement + b_source[m.end() :]
 
-    return result
+    # Remove end label if no more gotos
+    if b"goto end;" not in result:
+        result = re.sub(rb"\nend:\n\s*return\s+\w+;\n", b"\n", result)
 
-
-# -------------------------
-# Structural codegen mutations (batch 2)
-# These target expression rewriting and statement ordering patterns
-# that cause MSVC6 to emit different instruction sequences.
-# -------------------------
-
-# Adjacent statement pattern: two simple assignment or call statements
-# Matches both simple (x = ...) and compound (x += ...) assignments
-_RE_ADJACENT_STMTS = re.compile(
-    r"([ \t]+)(\w+\s*(?:[+\-*|&^])?=[^;]+;)\s*\n(\1)(\w+\s*(?:[+\-*|&^])?=[^;]+;)",
-)
-# Guard clause: if (cond) { body; return expr; }\n return other;
-_RE_GUARD_IF_RETURN = re.compile(
-    r"([ \t]*)if\s*\(([^)]+)\)\s*\{([^}]+)return\s+([^;]+);\s*\}\s*\n\s*\1return\s+([^;]+);",
-)
-# For loop with init;cond;incr
-_RE_FOR_COUNT_UP = re.compile(
-    r"for\s*\(\s*(\w+)\s*=\s*0\s*;\s*\1\s*<\s*([^;]+);\s*\1\+\+\s*\)",
-)
-# Compound assignment: x = x OP y
-_RE_COMPOUND_EXPAND = re.compile(
-    r"(\b\w+)\s*=\s*\1\s*([+\-*|&^])\s*([^;]+);",
-)
-# Compound shorthand: x OP= y
-_RE_COMPOUND_SHORT = re.compile(
-    r"(\b\w+)\s*([+\-*|&^])=\s*([^;]+);",
-)
-# De Morgan: !(a && b) or !(a || b)
-_RE_DEMORGAN_AND = re.compile(r"!\s*\(([^)]+?)\s*&&\s*([^)]+?)\)")
-_RE_DEMORGAN_OR = re.compile(r"!\s*\(([^)]+?)\s*\|\|\s*([^)]+?)\)")
-# Post/pre increment
-_RE_POST_INC = re.compile(r"(\b[a-zA-Z_]\w*)\+\+")
-_RE_PRE_INC = re.compile(r"\+\+(\b[a-zA-Z_]\w*)")
-_RE_POST_DEC = re.compile(r"(\b[a-zA-Z_]\w*)--")
-_RE_PRE_DEC = re.compile(r"--(\b[a-zA-Z_]\w*)")
-# x = 0 (simple zero assignment)
-_RE_ASSIGN_ZERO = re.compile(r"(\b\w+)\s*=\s*0\s*;")
-_RE_XOR_SELF = re.compile(r"(\b\w+)\s*\^=\s*\1\s*;")
-# Negate condition: if (expr) — NOT a simple regex, requires balanced parens
-# So we use _find_matching_char at runtime instead of a static regex.
+    return result.decode("utf-8")
 
 
 def mut_swap_adjacent_stmts(s: str, rng: random.Random) -> str | None:
-    """Swap two adjacent non-dependent assignment statements.
+    """Swap two adjacent non-dependent assignment statements."""
+    b_source = s.encode("utf-8")
+    cursor = ts.QueryCursor(_QUERY_ADJACENT_EXPR_STMTS)
+    tree = parse_c_ast(b_source)
+    matches = cursor.matches(tree.root_node)
 
-    Affects register allocation order and instruction scheduling.
-    """
-    matches = list(_RE_ADJACENT_STMTS.finditer(s))
     if not matches:
         return None
-    m = rng.choice(matches)
-    indent = m.group(1)
-    stmt_a = m.group(2)
-    stmt_b = m.group(4)
-    # Quick dependency check: skip if one statement's LHS appears in the other
-    lhs_a = stmt_a.split("=")[0].strip()
-    lhs_b = stmt_b.split("=")[0].strip()
-    # Use word boundary to avoid false positives (e.g. "a" in "bar")
-    if re.search(r"\b" + re.escape(lhs_a) + r"\b", stmt_b):
+
+    # Filter: only swap assignment statements, check no dependencies
+    valid = []
+    for match in matches:
+        caps = {k: v[0] for k, v in match[1].items()}
+        s1 = caps["s1"]
+        s2 = caps["s2"]
+        s1_text = b_source[s1.start_byte : s1.end_byte]
+        s2_text = b_source[s2.start_byte : s2.end_byte]
+        # Both must be assignments
+        if b"=" not in s1_text or b"=" not in s2_text:
+            continue
+        # Quick dependency check
+        lhs1 = s1_text.split(b"=")[0].strip()
+        lhs2 = s2_text.split(b"=")[0].strip()
+        if lhs1 in s2_text or lhs2 in s1_text:
+            continue
+        valid.append(caps)
+
+    if not valid:
         return None
-    if re.search(r"\b" + re.escape(lhs_b) + r"\b", stmt_a):
-        return None
-    replacement = f"{indent}{stmt_b}\n{indent}{stmt_a}"
-    return s[: m.start()] + replacement + s[m.end() :]
+
+    caps = rng.choice(valid)
+    s1 = caps["s1"]
+    s2 = caps["s2"]
+    s1_text = b_source[s1.start_byte : s1.end_byte]
+    s2_text = b_source[s2.start_byte : s2.end_byte]
+    mid = b_source[s1.end_byte : s2.start_byte]
+
+    result = b_source[: s1.start_byte] + s2_text + mid + s1_text + b_source[s2.end_byte :]
+    return result.decode("utf-8")
 
 
 def mut_guard_clause(s: str, rng: random.Random) -> str | None:
-    """Extract guard clause: if(c){body;return x;} return y → if(!c) return y; body; return x;
+    """Extract guard clause.
 
-    Changes branch prediction layout and fall-through path.
+    Changes: if(c){body;return x;} return y -> if(!c) return y; body; return x;
     """
-    matches = list(_RE_GUARD_IF_RETURN.finditer(s))
-    if not matches:
+    b_source = s.encode("utf-8")
+    # Use regex for this complex multi-statement pattern
+    pat = re.compile(
+        rb"([ \t]*)if\s*\(([^)]+)\)\s*\{([^}]+)return\s+([^;]+);\s*\}\s*\n\s*\1return\s+([^;]+);"
+    )
+    all_m = list(pat.finditer(b_source))
+    if not all_m:
         return None
-    m = rng.choice(matches)
+
+    m = rng.choice(all_m)
     indent = m.group(1)
     cond = m.group(2).strip()
     body = m.group(3).strip()
     ret_true = m.group(4).strip()
     ret_false = m.group(5).strip()
-    # Negate condition simply
-    neg_cond = cond[1:].strip().lstrip("(").rstrip(")") if cond.startswith("!") else f"!({cond})"
+
+    if cond.startswith(b"!"):
+        neg = cond[1:].strip().lstrip(b"(").rstrip(b")")
+    else:
+        neg = b"!(" + cond + b")"
+
     replacement = (
-        f"{indent}if ({neg_cond}) return {ret_false};\n{indent}{body}\n{indent}return {ret_true};"
+        indent
+        + b"if ("
+        + neg
+        + b") return "
+        + ret_false
+        + b";\n"
+        + indent
+        + body
+        + b"\n"
+        + indent
+        + b"return "
+        + ret_true
+        + b";"
     )
-    return s[: m.start()] + replacement + s[m.end() :]
+    result = b_source[: m.start()] + replacement + b_source[m.end() :]
+    return result.decode("utf-8")
 
 
 def mut_invert_loop_direction(s: str, rng: random.Random) -> str | None:
-    """Reverse loop iteration: for(i=0;i<n;i++) → for(i=n-1;i>=0;i--).
+    """Reverse loop iteration: for(i=0;i<n;i++) -> for(i=n-1;i>=0;i--)."""
+    b_source = s.encode("utf-8")
+    cursor = ts.QueryCursor(_QUERY_FOR_COUNT_UP)
+    tree = parse_c_ast(b_source)
+    matches = cursor.matches(tree.root_node)
 
-    Affects loop entry/exit code and comparison instruction selection.
-    """
-    matches = list(_RE_FOR_COUNT_UP.finditer(s))
     if not matches:
         return None
-    m = rng.choice(matches)
-    var = m.group(1)
-    limit = m.group(2).strip()
-    replacement = f"for ({var} = {limit} - 1; {var} >= 0; {var}--)"
-    return s[: m.start()] + replacement + s[m.end() :]
+
+    match = rng.choice(matches)
+    caps = {k: v[0] for k, v in match[1].items()}
+
+    var = b_source[caps["var"].start_byte : caps["var"].end_byte]
+    limit = b_source[caps["limit"].start_byte : caps["limit"].end_byte]
+    body = b_source[caps["body"].start_byte : caps["body"].end_byte]
+
+    replacement = (
+        b"for (" + var + b" = " + limit + b" - 1; " + var + b" >= 0; " + var + b"--) " + body
+    )
+    result = b_source[: caps["stmt"].start_byte] + replacement + b_source[caps["stmt"].end_byte :]
+    return result.decode("utf-8")
 
 
 def mut_compound_assign_toggle(s: str, rng: random.Random) -> str | None:
-    """Toggle between x = x + n and x += n (and other operators).
+    """Toggle between x = x + n and x += n."""
+    b_source = s.encode("utf-8")
 
-    MSVC6 sometimes generates different code for these equivalent forms.
-    Only safe for commutative/associative operators when the RHS is a
-    multi-term expression. For subtraction, x -= (y - z) != x = x - y - z.
-    """
-    # Try expanding compound first, then shortening
-    expand_matches = [(m, "expand") for m in _RE_COMPOUND_SHORT.finditer(s)]
-    short_matches = [(m, "shorten") for m in _RE_COMPOUND_EXPAND.finditer(s)]
+    # Try expanding compound (x += n -> x = x + n)
+    expand_cursor = ts.QueryCursor(_QUERY_COMPOUND_ASSIGN)
+    tree = parse_c_ast(b_source)
+    expand_matches = [(m, "expand") for m in expand_cursor.matches(tree.root_node)]
+
+    # Try shortening expanded (x = x + n -> x += n)
+    short_cursor = ts.QueryCursor(_QUERY_EXPANDED_COMPOUND)
+    short_matches = []
+    for m in short_cursor.matches(tree.root_node):
+        caps = {k: v[0] for k, v in m[1].items()}
+        var = b_source[caps["var"].start_byte : caps["var"].end_byte]
+        var2 = b_source[caps["var2"].start_byte : caps["var2"].end_byte]
+        if var == var2:
+            short_matches.append((m, "shorten"))
+
     all_matches = expand_matches + short_matches
     if not all_matches:
         return None
-    m, direction = rng.choice(all_matches)
-    var = m.group(1)
-    op = m.group(2)
-    expr = m.group(3).strip()
-    # SAFETY: for non-commutative operators (- and implicitly /), compound
-    # and expanded forms differ when the RHS is a multi-term expression.
-    # x -= (y - z) means x = x - (y-z) = x-y+z, but expanding gives
-    # x = x - y - z = (x-y)-z -- semantically different.
-    # Reject toggle if operator is '-' and expr contains another '-', '+', or operator.
-    if op == "-" and re.search(r"[+\-]", expr):
-        return None
-    replacement = f"{var} = {var} {op} {expr};" if direction == "expand" else f"{var} {op}= {expr};"
-    return s[: m.start()] + replacement + s[m.end() :]
+
+    match, direction = rng.choice(all_matches)
+    caps = {k: v[0] for k, v in match[1].items()}
+
+    var = b_source[caps["var"].start_byte : caps["var"].end_byte]
+    op = b_source[caps["op"].start_byte : caps["op"].end_byte]
+    rhs = b_source[caps["rhs"].start_byte : caps["rhs"].end_byte]
+
+    if direction == "expand":
+        # x += n -> x = x + n
+        base_op = op.rstrip(b"=").strip()
+        if not base_op:
+            base_op = b"+"
+        # Safety: reject subtraction with multi-term RHS
+        if base_op == b"-" and (b"+" in rhs or b"-" in rhs):
+            return None
+        replacement = var + b" = " + var + b" " + base_op + b" " + rhs + b";"
+    else:
+        # x = x + n -> x += n
+        base_op = b_source[caps["op"].start_byte : caps["op"].end_byte]
+        if base_op == b"-" and (b"+" in rhs or b"-" in rhs):
+            return None
+        replacement = var + b" " + base_op + b"= " + rhs + b";"
+
+    target = caps.get("expr") or caps.get("stmt")
+    result = b_source[: target.start_byte] + replacement + b_source[target.end_byte :]
+    return result.decode("utf-8")
 
 
 def mut_demorgan(s: str, rng: random.Random) -> str | None:
-    """Apply De Morgan's law: !(a && b) ↔ (!a || !b).
+    """Apply De Morgan's law: !(a && b) <-> (!a || !b)."""
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
 
-    Forces different branch structure in the compiled output.
-    Only applies to exactly two operands (rejects chained operators).
-    """
-    and_matches = [(m, "and") for m in _RE_DEMORGAN_AND.finditer(s)]
-    or_matches = [(m, "or") for m in _RE_DEMORGAN_OR.finditer(s)]
+    and_cursor = ts.QueryCursor(_QUERY_DEMORGAN_NOT_AND)
+    and_matches = [(m, "and") for m in and_cursor.matches(tree.root_node)]
+
+    or_cursor = ts.QueryCursor(_QUERY_DEMORGAN_NOT_OR)
+    or_matches = [(m, "or") for m in or_cursor.matches(tree.root_node)]
+
     all_matches = and_matches + or_matches
     if not all_matches:
         return None
-    m, kind = rng.choice(all_matches)
-    a = m.group(1).strip()
-    b = m.group(2).strip()
-    # Reject if either operand contains the same logical operator (chained ops)
-    # e.g. !(a && b && c) — partial application creates wrong precedence
-    if kind == "and" and ("&&" in a or "&&" in b):
-        return None
-    if kind == "or" and ("||" in a or "||" in b):
-        return None
-    replacement = f"(!{a} || !{b})" if kind == "and" else f"(!{a} && !{b})"
-    return s[: m.start()] + replacement + s[m.end() :]
+
+    match, kind = rng.choice(all_matches)
+    caps = {k: v[0] for k, v in match[1].items()}
+
+    a = b_source[caps["a"].start_byte : caps["a"].end_byte]
+    b = b_source[caps["b"].start_byte : caps["b"].end_byte]
+
+    if kind == "and":
+        replacement = b"(!" + a + b" || !" + b + b")"
+    else:
+        replacement = b"(!" + a + b" && !" + b + b")"
+
+    expr = caps["expr"]
+    result = b_source[: expr.start_byte] + replacement + b_source[expr.end_byte :]
+    return result.decode("utf-8")
 
 
 def mut_postpre_increment(s: str, rng: random.Random) -> str | None:
-    """Toggle i++ ↔ ++i and i-- ↔ --i.
+    """Toggle i++ <-> ++i and i-- <-> --i."""
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
 
-    Can affect codegen for complex expressions where evaluation order
-    interacts with register allocation.
-    """
-    candidates: list[tuple[re.Match[str], str]] = []
-    for m in _RE_POST_INC.finditer(s):
-        candidates.append((m, f"++{m.group(1)}"))
-    for m in _RE_PRE_INC.finditer(s):
-        candidates.append((m, f"{m.group(1)}++"))
-    for m in _RE_POST_DEC.finditer(s):
-        candidates.append((m, f"--{m.group(1)}"))
-    for m in _RE_PRE_DEC.finditer(s):
-        candidates.append((m, f"{m.group(1)}--"))
+    candidates: list[tuple[dict[str, ts.Node], bytes]] = []
+
+    for q in [_QUERY_POST_INCREMENT, _QUERY_POST_DECREMENT]:
+        cursor = ts.QueryCursor(q)
+        for m in cursor.matches(tree.root_node):
+            caps = {k: v[0] for k, v in m[1].items()}
+            expr_node = caps["expr"]
+            var = b_source[caps["var"].start_byte : caps["var"].end_byte]
+            text = b_source[expr_node.start_byte : expr_node.end_byte]
+            # Determine if post or pre and the operator
+            if text.endswith(b"++"):
+                candidates.append((caps, b"++" + var))
+            elif text.endswith(b"--"):
+                candidates.append((caps, b"--" + var))
+            elif text.startswith(b"++"):
+                candidates.append((caps, var + b"++"))
+            elif text.startswith(b"--"):
+                candidates.append((caps, var + b"--"))
+
     if not candidates:
         return None
-    m, replacement = rng.choice(candidates)
-    return s[: m.start()] + replacement + s[m.end() :]
+
+    caps, replacement = rng.choice(candidates)
+    expr = caps["expr"]
+    result = b_source[: expr.start_byte] + replacement + b_source[expr.end_byte :]
+    return result.decode("utf-8")
 
 
 def mut_xor_zero_toggle(s: str, rng: random.Random) -> str | None:
-    """Toggle x = 0 ↔ x ^= x.
+    """Toggle x = 0 <-> x ^= x."""
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
 
-    Classic zero-extend pattern: MSVC6 uses xor reg,reg vs mov reg,0
-    depending on source form. This can cause byte-level mismatches.
-    """
-    zero_matches = [(m, "to_xor") for m in _RE_ASSIGN_ZERO.finditer(s)]
-    xor_matches = [(m, "to_zero") for m in _RE_XOR_SELF.finditer(s)]
-    all_matches = zero_matches + xor_matches
-    if not all_matches:
+    candidates: list[tuple[dict[str, ts.Node], bytes, str]] = []
+
+    zero_cursor = ts.QueryCursor(_QUERY_ASSIGN_ZERO)
+    for m in zero_cursor.matches(tree.root_node):
+        caps = {k: v[0] for k, v in m[1].items()}
+        # Skip if inside a for-loop initializer
+        parent = caps["expr"].parent
+        if parent and parent.type == "for_statement":
+            continue
+        var = b_source[caps["var"].start_byte : caps["var"].end_byte]
+        if b"." in var or b"->" in var or b"[" in var:
+            continue
+        candidates.append((caps, var + b" ^= " + var + b";", "expr"))
+
+    xor_cursor = ts.QueryCursor(_QUERY_XOR_SELF)
+    for m in xor_cursor.matches(tree.root_node):
+        caps = {k: v[0] for k, v in m[1].items()}
+        var = b_source[caps["var"].start_byte : caps["var"].end_byte]
+        candidates.append((caps, var + b" = 0;", "expr"))
+
+    if not candidates:
         return None
-    m, direction = rng.choice(all_matches)
-    var = m.group(1)
-    # Skip if the variable looks like a struct field or array element
-    if "." in var or "->" in var or "[" in var:
-        return None
-    # Check what precedes the match — reject struct access (p->len, s.val)
-    prefix = s[: m.start()]
-    stripped_prefix = prefix.rstrip()
-    if stripped_prefix.endswith((".", ">")):
-        return None
-    # CRITICAL: reject for-loop initializers — for (i = 0; ...) → for (i ^= i; ...) is wrong
-    # because i ^= i assumes i is already initialized with a value
-    if re.search(r"\bfor\s*\([^;]*$", prefix):
-        return None
-    replacement = f"{var} ^= {var};" if direction == "to_xor" else f"{var} = 0;"
-    return s[: m.start()] + replacement + s[m.end() :]
+
+    caps, replacement, target_key = rng.choice(candidates)
+    target = caps[target_key]
+    result = b_source[: target.start_byte] + replacement + b_source[target.end_byte :]
+    return result.decode("utf-8")
 
 
 def mut_negate_condition(s: str, rng: random.Random) -> str | None:
-    """Wrap if-condition in negation: if (a > b) → if (!(a > b)).
+    """Wrap if-condition in negation: if (a > b) -> if (!(a > b))."""
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
 
-    Forces different conditional jump instruction (jle vs jg, etc.).
-    Only adds negation; does NOT swap bodies (use mut_swap_if_else for that).
-    """
-    # Find all if-conditions using balanced paren matching
-    candidates: list[tuple[int, int, str]] = []
-    for m in re.finditer(r"\bif\s*\(", s):
-        paren_start = m.end() - 1  # position of '('
-        paren_end = _find_matching_char(s, paren_start, "(", ")")
-        if paren_end is None:
-            continue
-        cond = s[paren_start + 1 : paren_end - 1].strip()
-        if cond:
-            candidates.append((m.start(), paren_end, cond))
-    if not candidates:
+    q = ts.Query(_C_LANGUAGE, "(if_statement condition: (parenthesized_expression) @cond) @stmt")
+    cursor = ts.QueryCursor(q)
+    matches = cursor.matches(tree.root_node)
+
+    if not matches:
         return None
-    start, end, cond = rng.choice(candidates)
-    # Toggle: if already negated, remove negation; otherwise add it
-    if cond.startswith("!(") and cond.endswith(")"):
+
+    match = rng.choice(matches)
+    caps = {k: v[0] for k, v in match[1].items()}
+    cond_node = caps["cond"]
+    cond = b_source[cond_node.start_byte + 1 : cond_node.end_byte - 1].strip()
+
+    # Toggle negation
+    if cond.startswith(b"!(") and cond.endswith(b")"):
         new_cond = cond[2:-1]
-    elif cond.startswith("!") and not cond.startswith("!="):
+    elif cond.startswith(b"!") and not cond.startswith(b"!="):
         new_cond = cond[1:].strip()
     else:
-        new_cond = f"!({cond})"
-    replacement = f"if ({new_cond})"
-    return s[:start] + replacement + s[end:]
+        new_cond = b"!(" + cond + b")"
+
+    replacement = b"(" + new_cond + b")"
+    result = b_source[: cond_node.start_byte] + replacement + b_source[cond_node.end_byte :]
+    return result.decode("utf-8")
 
 
 ALL_MUTATIONS = [
@@ -1914,25 +2404,22 @@ ALL_MUTATIONS = [
     mut_flip_eq_zero,
     mut_flip_lt_ge,
     mut_add_redundant_parens,
-    mut_reassociate_add,
-    mut_insert_noop_block,
-    mut_toggle_bool_not,
     mut_swap_eq_operands,
     mut_swap_ne_operands,
+    mut_reassociate_add,
     mut_swap_or_operands,
     mut_swap_and_operands,
+    mut_toggle_bool_not,
     mut_return_to_goto,
     mut_goto_to_return,
-    mut_introduce_local_alias,
-    mut_reorder_declarations,
     mut_swap_if_else,
-    mut_reorder_elseif,
     mut_add_cast,
     mut_remove_cast,
     mut_toggle_volatile,
     mut_add_register_keyword,
     mut_remove_register_keyword,
     mut_if_false_to_bitand,
+    mut_reorder_elseif,
     mut_bitand_to_if_false,
     mut_introduce_temp_for_call,
     mut_remove_temp_var,
@@ -1951,16 +2438,18 @@ ALL_MUTATIONS = [
     mut_unfold_constant_add,
     mut_change_array_index_order,
     mut_struct_vs_ptr_access,
+    mut_change_return_type,
     mut_split_cmp_chain,
     mut_merge_cmp_chain,
     mut_combine_ptr_arith,
     mut_split_ptr_arith,
-    mut_change_return_type,
     mut_change_param_order,
     mut_toggle_calling_convention,
     mut_toggle_char_signedness,
     mut_comparison_boundary,
-    # Code layout mutations (structural codegen)
+    mut_insert_noop_block,
+    mut_introduce_local_alias,
+    mut_reorder_declarations,
     mut_flatten_nested_if,
     mut_extract_else_body,
     mut_for_to_while,
@@ -1969,7 +2458,6 @@ ALL_MUTATIONS = [
     mut_ternary_to_if,
     mut_hoist_return,
     mut_sink_return,
-    # Structural codegen mutations (batch 2)
     mut_swap_adjacent_stmts,
     mut_guard_clause,
     mut_invert_loop_direction,
@@ -2022,15 +2510,11 @@ def mutate_code(
     """
     preamble, body = _split_preamble_body(source)
 
-    # Build weighted selection list
     weights: list[float] | None = None
     if mutation_weights:
         weights = [mutation_weights.get(m.__name__, 1.0) for m in ALL_MUTATIONS]
-        # Fall back to uniform if all weights are zero
         if not any(w > 0 for w in weights):
             weights = None
-    else:
-        weights = None
 
     for _ in range(10):
         if weights:

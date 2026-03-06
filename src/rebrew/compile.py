@@ -37,8 +37,7 @@ from pathlib import Path
 
 from rebrew.compile_cache import CompileCache, compile_cache_key, get_compile_cache
 from rebrew.config import ProjectConfig
-from rebrew.core.matching import smart_reloc_compare
-from rebrew.core.toolchain import msvc_env_from_config
+from rebrew.core import msvc_env_from_config, smart_reloc_compare
 from rebrew.matcher.parsers import parse_obj_symbol_bytes
 
 
