@@ -18,6 +18,7 @@ from rebrew.cli import (
     rel_display_path,
     require_config,
     source_glob,
+    target_marker,
 )
 from rebrew.config import ProjectConfig
 from rebrew.utils import atomic_write_text
@@ -120,7 +121,7 @@ def main(
     included_inputs: list[Path] = []
 
     for file_path in input_files:
-        annotations = parse_c_file_multi(file_path, target_name=cfg.marker if cfg else None)
+        annotations = parse_c_file_multi(file_path, target_name=target_marker(cfg))
         if not annotations:
             continue
 

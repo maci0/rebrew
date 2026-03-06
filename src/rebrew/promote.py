@@ -18,7 +18,14 @@ from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.binary_loader import extract_raw_bytes
-from rebrew.cli import TargetOption, error_exit, iter_sources, json_print, require_config
+from rebrew.cli import (
+    TargetOption,
+    error_exit,
+    iter_sources,
+    json_print,
+    require_config,
+    target_marker,
+)
 from rebrew.config import ProjectConfig
 from rebrew.matcher.parsers import parse_obj_symbol_bytes
 from rebrew.test import (
@@ -93,7 +100,7 @@ def _promote_file(
     origin_filter: str | None = None,
 ) -> list[dict[str, Any]]:
     source = str(source_path)
-    annotations = parse_c_file_multi(source_path, target_name=cfg.marker if cfg else None)
+    annotations = parse_c_file_multi(source_path, target_name=target_marker(cfg))
     if not annotations:
         return [
             {
@@ -230,13 +237,15 @@ def _promote_file(
                         blockers_to_remove=(new_status in ("EXACT", "RELOC")),
                         target_va=ann.va,
                     )
-                    # Verify the status was actually written
-                    verify_annos = parse_c_file_multi(
-                        source_path, target_name=cfg.marker if cfg else None
-                    )
+                    # Verify the status was actually written.
+                    # Default to "updated" — only downgrade if re-parse
+                    # explicitly shows the old status persists.
+                    action = "updated"
+                    verify_annos = parse_c_file_multi(source_path, target_name=target_marker(cfg))
                     for va_ann in verify_annos:
-                        if va_ann.va == ann.va and va_ann.status == new_status:
-                            action = "updated"
+                        if va_ann.va == ann.va:
+                            if va_ann.status != new_status:
+                                action = "write_failed"
                             break
                 else:
                     action = "would_update"

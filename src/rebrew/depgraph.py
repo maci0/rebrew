@@ -19,7 +19,14 @@ from typing import TypedDict
 import typer
 
 from rebrew.annotation import parse_c_file_multi
-from rebrew.cli import TargetOption, error_exit, iter_sources, json_print, require_config
+from rebrew.cli import (
+    TargetOption,
+    error_exit,
+    iter_sources,
+    json_print,
+    require_config,
+    target_marker,
+)
 from rebrew.config import ProjectConfig
 
 
@@ -122,7 +129,7 @@ def build_graph(
 
     for cfile in iter_sources(reversed_dir, cfg):
         rel_name = rel_display_path(cfile, reversed_dir)
-        for entry in parse_c_file_multi(cfile, target_name=cfg.marker if cfg else None):
+        for entry in parse_c_file_multi(cfile, target_name=target_marker(cfg)):
             if entry.marker_type in ("GLOBAL", "DATA"):
                 continue
             if origin_filter and entry.origin != origin_filter:

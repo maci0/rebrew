@@ -12,7 +12,15 @@ import typer
 from rebrew.annotation import parse_c_file_multi
 from rebrew.binary_loader import extract_raw_bytes
 from rebrew.catalog import load_ghidra_functions
-from rebrew.cli import TargetOption, error_exit, iter_sources, json_print, parse_va, require_config
+from rebrew.cli import (
+    TargetOption,
+    error_exit,
+    iter_sources,
+    json_print,
+    parse_va,
+    require_config,
+    target_marker,
+)
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 
 _EPILOG = """\
@@ -61,7 +69,7 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
     if src_dir.is_dir():
         for cfile in iter_sources(src_dir, cfg):
             try:
-                entries = parse_c_file_multi(cfile, target_name=cfg.marker if cfg else None)
+                entries = parse_c_file_multi(cfile, target_name=target_marker(cfg))
                 if not entries:
                     continue
 

@@ -224,7 +224,7 @@ def load_data(
     - covered_vas: dict mapping VA -> filename (for find_neighbor_file)
     """
     from rebrew.catalog import load_ghidra_functions
-    from rebrew.cli import iter_library_headers, iter_sources, rel_display_path
+    from rebrew.cli import iter_library_headers, iter_sources, rel_display_path, target_marker
 
     src_dir = Path(cfg.reversed_dir)
     ghidra_json = src_dir / FUNCTION_STRUCTURE_JSON
@@ -237,7 +237,7 @@ def load_data(
     existing: dict[int, dict[str, str]] = {}
     covered_vas: dict[int, str] = {}
     for cfile in iter_sources(src_dir, cfg):
-        entries = parse_c_file_multi(cfile, target_name=cfg.marker if cfg else None)
+        entries = parse_c_file_multi(cfile, target_name=target_marker(cfg))
         rel_name = rel_display_path(cfile, src_dir)
         for entry in entries:
             if entry.marker_type in ("GLOBAL", "DATA"):
@@ -259,7 +259,7 @@ def load_data(
 
     # Scan library_*.h files for identified CRT/zlib functions
     for hfile in iter_library_headers(src_dir):
-        lib_entries = parse_library_header(hfile, target_name=cfg.marker if cfg else None)
+        lib_entries = parse_library_header(hfile, target_name=target_marker(cfg))
         for entry in lib_entries:
             if entry.va < 0x1000:
                 continue
@@ -341,13 +341,13 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
         src_dir: Directory containing reversed source files.
         cfg: Optional config for source extension (defaults to ``".c"``).
     """
-    from rebrew.cli import iter_library_headers, iter_sources, rel_display_path
+    from rebrew.cli import iter_library_headers, iter_sources, rel_display_path, target_marker
 
     src_path = Path(src_dir)
     existing: dict[int, str] = {}
     for cfile in iter_sources(src_path, cfg):
         rel_name = rel_display_path(cfile, src_path)
-        entries = parse_c_file_multi(cfile, target_name=cfg.marker if cfg else None)
+        entries = parse_c_file_multi(cfile, target_name=target_marker(cfg))
         for entry in entries:
             if entry.marker_type in ("GLOBAL", "DATA"):
                 continue
@@ -355,7 +355,7 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
 
     # Scan library_*.h files for identified CRT/zlib functions
     for hfile in iter_library_headers(src_path):
-        lib_entries = parse_library_header(hfile, target_name=cfg.marker if cfg else None)
+        lib_entries = parse_library_header(hfile, target_name=target_marker(cfg))
         for entry in lib_entries:
             existing[entry.va] = hfile.name
 

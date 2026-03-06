@@ -173,18 +173,16 @@ def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> l
     Supports multi-function files: a single source file may contain multiple
     ``// FUNCTION:`` blocks, each generating a separate entry.
     """
-    from rebrew.cli import iter_library_headers, iter_sources
+    from rebrew.cli import iter_library_headers, iter_sources, target_marker
 
     entries: list[Annotation] = []
     for cfile in iter_sources(reversed_dir, cfg):
-        parsed = parse_c_file_multi(
-            cfile, target_name=cfg.marker if cfg else None, base_dir=reversed_dir
-        )
+        parsed = parse_c_file_multi(cfile, target_name=target_marker(cfg), base_dir=reversed_dir)
         entries.extend(parsed)
 
     # Scan library_*.h files for LIBRARY markers (CRT/zlib identifications)
     for hfile in iter_library_headers(reversed_dir):
-        parsed = parse_library_header(hfile, target_name=cfg.marker if cfg else None)
+        parsed = parse_library_header(hfile, target_name=target_marker(cfg))
         entries.extend(parsed)
 
     return entries

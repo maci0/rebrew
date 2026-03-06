@@ -7,7 +7,7 @@ and reports status (EXACT, RELOC, MATCHING, etc.).
 import concurrent.futures
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -170,19 +170,7 @@ class VerifyResult:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "status": self.status,
-            "va": self.va,
-            "size": self.size,
-            "filepath": self.filepath,
-            "origin": self.origin,
-            "name": self.name,
-            "symbol": self.symbol,
-            "delta": self.delta,
-            "match_percent": self.match_percent,
-            "passed": self.passed,  # Added this field
-            "message": self.message,
-        }
+        return asdict(self)
 
 
 @dataclass
@@ -202,12 +190,7 @@ class VerifyCacheEntry:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "source_hash": self.source_hash,
-            "filepath": self.filepath,
-            "mtime_ns": self.mtime_ns,
-            "result": self.result.to_dict(),
-        }
+        return asdict(self)
 
 
 @dataclass
@@ -231,12 +214,7 @@ class VerifyCache:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "version": self.version,
-            "compiler_hash": self.compiler_hash,
-            "target": self.target,
-            "entries": {k: v.to_dict() for k, v in self.entries.items()},
-        }
+        return asdict(self)
 
 
 def _load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> VerifyCache | None:
@@ -583,9 +561,7 @@ def main(
 
     def _verify(
         e: Annotation,
-    ) -> tuple[
-        Annotation, bool, str, bytes | None, bytes | None, list[int] | dict[int, str] | None
-    ]:
+    ) -> tuple[Annotation, bool, str, bytes | None, bytes | None, dict[int, str] | None]:
         return (e, *verify_entry(e, cfg, cache=compile_cache))
 
     deferred_fixes: list[tuple[Annotation, str, int]] = []

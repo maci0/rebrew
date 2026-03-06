@@ -33,7 +33,7 @@ from rich.console import Console
 
 from rebrew.annotation import parse_c_file_multi, resolve_symbol, update_annotation_key
 from rebrew.binary_loader import extract_raw_bytes
-from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.cli import TargetOption, error_exit, json_print, require_config, target_marker
 from rebrew.compile import compile_to_obj
 from rebrew.config import ProjectConfig
 from rebrew.matcher.parsers import parse_obj_symbol_bytes
@@ -346,7 +346,7 @@ def main(
 
     # Parse annotation — use multi-parser to support multi-function files,
     # then select the first MATCHING/MATCHING_RELOC annotation.
-    annotations = parse_c_file_multi(source_path, target_name=cfg.marker if cfg else None)
+    annotations = parse_c_file_multi(source_path, target_name=target_marker(cfg))
     ann = None
     for a in annotations:
         if a.status in ("MATCHING", "MATCHING_RELOC"):

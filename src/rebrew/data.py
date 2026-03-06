@@ -328,7 +328,7 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
     Returns a list of dicts with: va, name, size, section, origin, note, filepath.
     """
     from rebrew.annotation import parse_c_file_multi
-    from rebrew.cli import iter_sources, rel_display_path
+    from rebrew.cli import iter_sources, rel_display_path, target_marker
 
     entries: list[dict[str, Any]] = []
     if not src_dir.exists():
@@ -336,7 +336,7 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
 
     for cfile in iter_sources(src_dir, cfg):
         rel_name = rel_display_path(cfile, src_dir)
-        for ann in parse_c_file_multi(cfile, target_name=cfg.marker if cfg else None):
+        for ann in parse_c_file_multi(cfile, target_name=target_marker(cfg)):
             if ann.marker_type == "DATA":
                 entries.append(
                     {
@@ -966,11 +966,11 @@ def main(
         }
 
         # Build known functions map from reversed source files
-        from rebrew.cli import iter_sources, rel_display_path
+        from rebrew.cli import iter_sources, rel_display_path, target_marker
 
         known_functions: dict[int, dict[str, str]] = {}
         for cfile in iter_sources(src_dir, cfg):
-            for entry in parse_c_file_multi(cfile, target_name=cfg.marker if cfg else None):
+            for entry in parse_c_file_multi(cfile, target_name=target_marker(cfg)):
                 if entry.va:
                     known_functions[entry.va] = {
                         "name": entry.name or rel_display_path(cfile, src_dir),

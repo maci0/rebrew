@@ -24,6 +24,7 @@ import subprocess
 import sys
 import warnings
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -90,7 +91,7 @@ def _run_re(binary: Path, va: int, cmd: str, root: Path) -> str | None:
     return None
 
 
-def fetch_r2ghidra(binary: Path, va: int, root: Path) -> str | None:
+def fetch_r2ghidra(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
     """Fetch decompilation using the ghidra decompiler plugin (``pdg``).
 
     Works with both r2ghidra (radare2) and rz-ghidra (rizin).
@@ -101,7 +102,7 @@ def fetch_r2ghidra(binary: Path, va: int, root: Path) -> str | None:
     return _run_re(binary, va, "pdg", root)
 
 
-def fetch_r2dec(binary: Path, va: int, root: Path) -> str | None:
+def fetch_r2dec(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
     """Fetch decompilation using the jsdec plugin (``pdd``).
 
     Works with both r2dec (radare2) and rz-dec (rizin).
@@ -116,15 +117,14 @@ def fetch_ghidra(
     binary: Path,
     va: int,
     root: Path,
-    *,
-    endpoint: str | None = None,
-    program_path: str | None = None,
+    **kwargs: Any,
 ) -> str | None:
     """Fetch decompilation from Ghidra via ReVa MCP ``get-decompilation`` tool.
 
     Requires ``httpx`` and a running ReVa MCP server connected to Ghidra.
     """
-    endpoint = endpoint or _DEFAULT_MCP_ENDPOINT
+    endpoint: str = kwargs.get("endpoint") or _DEFAULT_MCP_ENDPOINT
+    program_path: str | None = kwargs.get("program_path")
 
     _sync_mod = importlib.import_module("rebrew.ghidra")
     _fetch_raw = _sync_mod._fetch_mcp_tool_raw
@@ -194,7 +194,7 @@ def fetch_decompilation(
     if backend == "auto":
         for name in BACKENDS:
             fn = _BACKEND_MAP[name]
-            result = fn(binary_path, va, root)  # type: ignore
+            result = fn(binary_path, va, root, endpoint=endpoint, program_path=program_path)
             if result:
                 return result, name
         return None, "auto"
@@ -207,10 +207,4 @@ def fetch_decompilation(
         )
         return None, backend
 
-    if backend == "ghidra":
-        if program_path is None:
-            return backend_fn(binary_path, va, root, endpoint=endpoint), backend  # type: ignore
-        return backend_fn(
-            binary_path, va, root, endpoint=endpoint, program_path=program_path
-        ), backend  # type: ignore
-    return backend_fn(binary_path, va, root), backend  # type: ignore
+    return backend_fn(binary_path, va, root, endpoint=endpoint, program_path=program_path), backend
