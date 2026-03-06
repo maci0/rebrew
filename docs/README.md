@@ -30,7 +30,7 @@
 
 | Document | Description |
 |----------|-------------|
-| [DESIGN_PRINCIPLES.md](DESIGN_PRINCIPLES.md) | Core architectural philosophy (idempotency, score monotonicity, snowball effect) |
+| [PRINCIPLES.md](PRINCIPLES.md) | Core architectural philosophy (idempotency, score monotonicity, snowball effect) |
 | [USER_STORIES.md](USER_STORIES.md) | Personas, acceptance criteria, and mermaid workflow diagrams |
 | [IDEAS.md](IDEAS.md) | Prioritized improvement ideas |
 | [ANGR_PROPOSAL.md](ANGR_PROPOSAL.md) | Proposal for angr-based semantic equivalence checking |

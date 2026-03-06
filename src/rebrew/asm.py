@@ -37,7 +37,7 @@ rebrew asm --va 0x10003ca0 --size 128     Using named option
 
 rebrew asm 0x10003ca0 --no-annotate       Skip call/jmp name annotations
 
-rebrew asm 0x10003ca0 -t server.dll       Use alternate target
+rebrew asm 0x10003ca0 -t mygame       Use alternate target
 
 rebrew asm 0x10003ca0 --size 77 --json    Machine-readable JSON output
 

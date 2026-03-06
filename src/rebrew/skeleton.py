@@ -64,10 +64,10 @@ _DEFAULT_ORIGIN_TODOS: dict[str, str] = {
 _DEFAULT_ORIGIN_COMMENTS: dict[str, str] = {
     "GAME": "TODO: Add extern declarations for globals and called functions",
     "MSVCRT": (
-        "CRT function - check tools/MSVC600/VC98/CRT/SRC/ for original source\n"
+        "CRT function - check crt_sources path in rebrew-project.toml for original source\n"
         "Also check: https://github.com/shihyu/learn_c/tree/master/vc_lib_src/src"
     ),
-    "ZLIB": "zlib 1.1.3 function - check references/zlib-1.1.3/ for original source",
+    "ZLIB": "zlib function - check references/ directory for original source",
 }
 
 _SKELETON_TEMPLATE = jinja2.Template(

@@ -519,7 +519,7 @@ _EPILOG = """\
 
 rebrew doctor                    Check default target
 
-rebrew doctor --target lego1     Check specific target
+rebrew doctor --target mygame     Check specific target
 
 rebrew doctor --json             Machine-readable output
 
