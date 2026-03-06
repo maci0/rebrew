@@ -45,6 +45,7 @@ from rebrew.matcher import (
 from rebrew.matcher.mutator import quick_validate
 from rebrew.utils import atomic_write_text
 
+log = logging.getLogger(__name__)
 console = Console(stderr=True)
 
 
@@ -831,7 +832,7 @@ def main(
             )
             save_solution(cfg.root, entry)
         except Exception:  # noqa: BLE001
-            logging.debug("Solution save failed", exc_info=True)
+            log.debug("Solution save failed", exc_info=True)
 
 
 def main_entry() -> None:

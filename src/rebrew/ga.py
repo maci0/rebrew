@@ -32,6 +32,8 @@ from rebrew.config import ProjectConfig
 from rebrew.core.toolchain import msvc_env_from_config
 from rebrew.utils import atomic_write_text
 
+log = logging.getLogger(__name__)
+
 
 class StubInfo(TypedDict):
     """Parsed annotation fields for a STUB or near-miss MATCHING function.
@@ -570,7 +572,7 @@ def run_ga(
             )
             save_solution(project_root, entry)
         except Exception:  # noqa: BLE001
-            logging.debug("Solution save failed", exc_info=True)
+            log.debug("Solution save failed", exc_info=True)
 
     return matched, output
 
