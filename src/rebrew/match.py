@@ -150,6 +150,7 @@ class BinaryMatchingGA:
         env: dict[str, str] | None = None,
         compile_cache: CompileCache | None = None,
         compile_timeout: int = 60,
+        extra_seeds: list[str] | None = None,
     ) -> None:
         self.seed_source = seed_source
         self.target_bytes = target_bytes
@@ -185,11 +186,22 @@ class BinaryMatchingGA:
 
         self.cache = BuildCache(str(self.out_dir / "build_cache.db"))
         self.compile_cache = compile_cache
+        self.extra_seeds = extra_seeds or []
 
         self._init_population()
 
     def _init_population(self) -> None:
         self.population = [self.seed_source]
+        # Inject solved sources as extra seeds (cross-function transfer)
+        for seed_src in self.extra_seeds:
+            if seed_src not in self.population:
+                self.population.append(seed_src)
+                # Also add a mutated variant
+                if len(self.population) < self.pop_size:
+                    mutated = mutate_code(
+                        seed_src, self.rng, mutation_weights=self.mutation_weights
+                    )
+                    self.population.append(mutated)
         while len(self.population) < self.pop_size:
             src = self.seed_source
             for _ in range(self.rng.randint(1, 4)):
@@ -423,6 +435,12 @@ def main(
     ),
     seed: int | None = typer.Option(None, "--seed", help="RNG seed for reproducible GA runs"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    extra_seed: list[str] | None = typer.Option(
+        None, "--extra-seed", help="Extra .c file(s) to seed GA population from solved functions"
+    ),
+    no_seed: bool = typer.Option(
+        False, "--no-seed", help="Disable cross-function solution seeding"
+    ),
     target: str | None = TargetOption,
 ) -> None:
     """Genetic Algorithm engine for binary matching."""
@@ -743,6 +761,14 @@ def main(
             return
         raise typer.Exit(code=1)
 
+    # Load extra seed sources from solved functions
+    loaded_seeds: list[str] = []
+    if not no_seed and extra_seed:
+        for extra_path in extra_seed:
+            ep = Path(extra_path)
+            if ep.exists():
+                loaded_seeds.append(ep.read_text(encoding="utf-8", errors="replace"))
+
     ga = BinaryMatchingGA(
         seed_src,
         target_bytes,
@@ -763,6 +789,7 @@ def main(
         compile_cache=cc,
         compile_timeout=cfg.compile_timeout,
         verbose=0 if json_output else 1,
+        extra_seeds=loaded_seeds or None,
     )
     best_src, best_score = ga.run()
 
@@ -786,6 +813,24 @@ def main(
         typer.echo(f"\nDone. Best score: {best_score:.2f}", err=True)
         if best_score < 0.1:
             typer.echo("EXACT MATCH", err=True)
+
+    # Save solution on exact match
+    if best_score < 0.1:
+        try:
+            from rebrew.solutions import SolutionEntry, save_solution
+
+            entry = SolutionEntry(
+                symbol=symbol,
+                cflags=cflags,
+                origin=origin,
+                size=target_size or 0,
+                source_file=seed_c,
+                score=best_score,
+                generations=generations,
+            )
+            save_solution(cfg.root, entry)
+        except Exception:  # noqa: BLE001
+            pass  # solution save is best-effort
 
 
 def main_entry() -> None:

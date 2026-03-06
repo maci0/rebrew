@@ -95,6 +95,12 @@ from .mutator import (
     mut_comparison_boundary as mut_comparison_boundary,
 )
 from .mutator import (
+    mut_compound_assign_toggle as mut_compound_assign_toggle,
+)
+from .mutator import (
+    mut_demorgan as mut_demorgan,
+)
+from .mutator import (
     mut_dowhile_to_while as mut_dowhile_to_while,
 )
 from .mutator import (
@@ -102,6 +108,12 @@ from .mutator import (
 )
 from .mutator import (
     mut_early_return_to_accum as mut_early_return_to_accum,
+)
+from .mutator import (
+    mut_extract_else_body as mut_extract_else_body,
+)
+from .mutator import (
+    mut_flatten_nested_if as mut_flatten_nested_if,
 )
 from .mutator import (
     mut_flip_eq_zero as mut_flip_eq_zero,
@@ -113,10 +125,22 @@ from .mutator import (
     mut_fold_constant_add as mut_fold_constant_add,
 )
 from .mutator import (
+    mut_for_to_while as mut_for_to_while,
+)
+from .mutator import (
     mut_goto_to_return as mut_goto_to_return,
 )
 from .mutator import (
+    mut_guard_clause as mut_guard_clause,
+)
+from .mutator import (
+    mut_hoist_return as mut_hoist_return,
+)
+from .mutator import (
     mut_if_false_to_bitand as mut_if_false_to_bitand,
+)
+from .mutator import (
+    mut_if_to_ternary as mut_if_to_ternary,
 )
 from .mutator import (
     mut_insert_noop_block as mut_insert_noop_block,
@@ -131,13 +155,22 @@ from .mutator import (
     mut_introduce_temp_for_call as mut_introduce_temp_for_call,
 )
 from .mutator import (
+    mut_invert_loop_direction as mut_invert_loop_direction,
+)
+from .mutator import (
     mut_merge_cmp_chain as mut_merge_cmp_chain,
 )
 from .mutator import (
     mut_merge_declaration_init as mut_merge_declaration_init,
 )
 from .mutator import (
+    mut_negate_condition as mut_negate_condition,
+)
+from .mutator import (
     mut_pointer_to_int_param as mut_pointer_to_int_param,
+)
+from .mutator import (
+    mut_postpre_increment as mut_postpre_increment,
 )
 from .mutator import (
     mut_reassociate_add as mut_reassociate_add,
@@ -161,6 +194,9 @@ from .mutator import (
     mut_return_to_goto as mut_return_to_goto,
 )
 from .mutator import (
+    mut_sink_return as mut_sink_return,
+)
+from .mutator import (
     mut_split_cmp_chain as mut_split_cmp_chain,
 )
 from .mutator import (
@@ -176,6 +212,9 @@ from .mutator import (
     mut_swap_adjacent_declarations as mut_swap_adjacent_declarations,
 )
 from .mutator import (
+    mut_swap_adjacent_stmts as mut_swap_adjacent_stmts,
+)
+from .mutator import (
     mut_swap_and_operands as mut_swap_and_operands,
 )
 from .mutator import (
@@ -189,6 +228,9 @@ from .mutator import (
 )
 from .mutator import (
     mut_swap_or_operands as mut_swap_or_operands,
+)
+from .mutator import (
+    mut_ternary_to_if as mut_ternary_to_if,
 )
 from .mutator import (
     mut_toggle_bool_not as mut_toggle_bool_not,
@@ -210,6 +252,12 @@ from .mutator import (
 )
 from .mutator import (
     mut_while_to_dowhile as mut_while_to_dowhile,
+)
+from .mutator import (
+    mut_while_to_for as mut_while_to_for,
+)
+from .mutator import (
+    mut_xor_zero_toggle as mut_xor_zero_toggle,
 )
 from .mutator import (
     mutate_code as mutate_code,

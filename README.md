@@ -112,6 +112,10 @@ rebrew init --target mygame --binary mygame.exe --compiler msvc6 # initialize pr
 rebrew cfg list-targets              # list configured targets
 rebrew cfg add-origin ZLIB           # add origin to default target
 rebrew cfg set compiler.cflags "/O1" # set a config value
+rebrew cfg get targets.main.arch     # read a value (supports dotted target names)
+rebrew cfg dump                      # dump config as JSON
+rebrew cfg path                      # print config file path
+rebrew cfg detect-crt --write        # auto-detect MSVC CRT source directories
 
 # Development
 rebrew skeleton 0x10003DA0          # generate C skeleton from disassembly

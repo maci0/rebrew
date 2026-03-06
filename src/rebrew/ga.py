@@ -554,6 +554,23 @@ def run_ga(
             except (RuntimeError, OSError) as e:
                 typer.echo(f"  WARNING: GA matched but failed to update source: {e}", err=True)
 
+        # Record the solution for cross-function seeding
+        try:
+            from rebrew.solutions import SolutionEntry, save_solution
+
+            entry = SolutionEntry(
+                symbol=stub["symbol"],
+                cflags=stub["cflags"],
+                origin=stub.get("origin", ""),
+                size=stub["size"],
+                source_file=str(filepath.relative_to(project_root)),
+                score=0.0,
+                generations=generations,
+            )
+            save_solution(project_root, entry)
+        except Exception:  # noqa: BLE001
+            pass  # solution save is best-effort
+
     return matched, output
 
 
@@ -696,6 +713,11 @@ def main(
         help="Auto-update CFLAGS annotation when flag sweep finds exact match",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    seed_from_solved: bool = typer.Option(
+        True,
+        "--seed-from-solved/--no-seed",
+        help="Seed GA population from similar solved functions (default: on)",
+    ),
     target: str | None = TargetOption,
 ) -> None:
     """Run GA or batch flag sweep across STUB/MATCHING functions."""
@@ -806,6 +828,29 @@ def main(
             )
 
         ga_cfg = cfg.for_origin(stub.get("origin", ""))
+
+        # Look up similar solved functions to seed the GA
+        extra_ga_flags: list[str] = []
+        if seed_from_solved:
+            try:
+                from rebrew.solutions import find_similar
+
+                similar = find_similar(
+                    cfg.root,
+                    origin=stub.get("origin", ""),
+                    size=stub["size"],
+                    cflags=stub["cflags"],
+                    top_k=3,
+                )
+                for sol in similar:
+                    sol_path = cfg.root / sol.source_file
+                    if sol_path.exists():
+                        extra_ga_flags.extend(["--extra-seed", str(sol_path)])
+                        if not json_output:
+                            print(f"  Seeding from solved: {sol.symbol} ({sol.size}B)")
+            except Exception:  # noqa: BLE001
+                pass  # solution lookup is best-effort
+
         matched, output = run_ga(
             stub,
             compiler_command=ga_cfg.compiler_command,
@@ -815,6 +860,7 @@ def main(
             pop=pop_size,
             jobs=jobs,
             timeout_min=timeout_min,
+            extra_flags=extra_ga_flags or None,
         )
 
         result_entry: dict[str, Any] = {

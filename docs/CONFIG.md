@@ -320,16 +320,24 @@ Programmatically read and write `rebrew-project.toml` using `tomlkit` for format
 edits (comments and ordering are retained). All mutating commands are idempotent —
 running the same command twice produces the same result with no errors.
 
+Dotted key paths use greedy longest-match resolution so TOML keys that contain dots
+(like target names `server.dll`) are handled correctly — e.g. `targets.server.dll.arch`
+resolves through the `server.dll` key.
+
 | Subcommand | Description | Example |
 |------------|-------------|---------|
 | `list-targets` | List all defined targets | `rebrew cfg list-targets` |
 | `show [KEY]` | Print config or a dot-separated key | `rebrew cfg show compiler.cflags` |
+| `get KEY` | Read a single config value (alias for `show KEY`) | `rebrew cfg get targets.server.dll.arch` |
+| `set KEY VALUE` | Set a scalar config key | `rebrew cfg set compiler.cflags "/O1"` |
+| `dump` | Dump entire config as JSON (default) or TOML (`--toml`) | `rebrew cfg dump` |
+| `path` | Print absolute path to `rebrew-project.toml` | `rebrew cfg path` |
 | `add-target NAME` | Add a target section + create dirs | `rebrew cfg add-target client.exe -b original/client.exe` |
 | `remove-target NAME` | Remove a target section | `rebrew cfg remove-target old_target` |
-| `set KEY VALUE` | Set a scalar config key | `rebrew cfg set compiler.cflags "/O1"` |
 | `add-origin ORIGIN` | Append origin to targets list | `rebrew cfg add-origin ZLIB -t server.dll` |
 | `remove-origin ORIGIN` | Remove origin from targets list | `rebrew cfg remove-origin ZLIB -t server.dll` |
 | `set-cflags ORIGIN FLAGS` | Set cflags preset for an origin | `rebrew cfg set-cflags ZLIB "/O3" -t server.dll` |
+| `detect-crt` | Auto-detect MSVC CRT source directories | `rebrew cfg detect-crt --write` |
 
 ```bash
 # Example workflow: add a second binary and configure it
@@ -337,4 +345,18 @@ rebrew cfg add-target client.exe --binary original/Client/client.exe --arch x86_
 rebrew cfg add-origin ZLIB --target client.exe
 rebrew cfg set-cflags GAME "/O2 /Gd" --target client.exe
 rebrew cfg show targets.client.exe
+
+# Read/write through dotted target names
+rebrew cfg get targets.server.dll.arch          # read value through dotted key
+rebrew cfg set targets.server.dll.arch x86_64   # set value through dotted key
+
+# Auto-detect CRT source directories from MSVC tools
+rebrew cfg detect-crt                           # preview detected paths
+rebrew cfg detect-crt --write                   # write into rebrew-project.toml
+
+# Dump config for scripting
+rebrew cfg dump                                 # JSON output
+rebrew cfg dump --toml                          # TOML output
+rebrew cfg path                                 # print path to config file
 ```
+

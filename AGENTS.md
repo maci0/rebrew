@@ -159,7 +159,7 @@ src/rebrew/
 │   ├── core.py          # Data types: Score, BuildResult, BuildCache, GACheckpoint
 │   ├── compiler.py      # MSVC6 compilation + flag sweep (Wine/wibo subprocess)
 │   ├── scoring.py       # Byte-level scoring, structural similarity (capstone + numpy)
-│   ├── mutator.py       # 51 C source mutation operators for GA exploration
+│   ├── mutator.py       # 67 C source mutation operators for GA exploration
 │   ├── parsers.py       # Object file parsing (COFF/ELF/Mach-O via LIEF)
 │   ├── flags.py         # FlagSet/Checkbox primitives (decomp.me compatible)
 │   └── flag_data.py     # Auto-synced MSVC flag definitions
