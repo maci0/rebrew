@@ -478,7 +478,7 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
         pass
     try:
         if hasattr(parsed, "exported_functions"):
-            for func in parsed.exported_functions:  # type: ignore
+            for func in parsed.exported_functions:  # type: ignore[union-attr]
                 if hasattr(func, "name") and func.name:
                     func_name = (
                         func.name.decode("utf-8", errors="replace")
