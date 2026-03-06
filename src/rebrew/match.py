@@ -9,6 +9,7 @@ Usage:
 """
 
 import hashlib
+import logging
 import random
 import shlex
 import subprocess
@@ -830,7 +831,7 @@ def main(
             )
             save_solution(cfg.root, entry)
         except Exception:  # noqa: BLE001
-            pass  # solution save is best-effort
+            logging.debug("Solution save failed", exc_info=True)
 
 
 def main_entry() -> None:

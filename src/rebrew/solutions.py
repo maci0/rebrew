@@ -148,7 +148,7 @@ def find_similar(
         size_diff = abs(e.size - size)
         # Cflags similarity: 0 if prefix matches, 1 otherwise
         e_cflags = _normalize_cflags(e.cflags)
-        cflags_match = 0 if cflags_norm and e_cflags.startswith(cflags_norm[:20]) else 1
+        cflags_match = 0 if cflags_norm and e_cflags == cflags_norm else 1
         return (size_diff, cflags_match)
 
     candidates.sort(key=_sort_key)
@@ -160,5 +160,5 @@ def _normalize_cflags(cflags: str) -> str:
     parts = cflags.split()
     # Remove build-noise flags that don't affect codegen
     skip = {"/nologo", "/c"}
-    meaningful = sorted(p for p in parts if p not in skip)
+    meaningful = sorted(p for p in parts if p not in skip and not p.startswith(("/Fo", "/Fe")))
     return " ".join(meaningful)

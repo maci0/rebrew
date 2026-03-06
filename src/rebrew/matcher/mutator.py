@@ -348,42 +348,36 @@ def mut_toggle_bool_not(s: str, rng: random.Random) -> str | None:
     return _sub_once(_RE_DOUBLE_NOT, lambda m: f"{m.group(1)}", s, rng)
 
 
+def _swap_binary_operands(pat: re.Pattern[str], op: str, s: str, rng: random.Random) -> str | None:
+    """Swap operands of a binary operator (shared by eq/ne/or/and swaps)."""
+    matches = list(pat.finditer(s))
+    if not matches:
+        return None
+    m = rng.choice(matches)
+    a, b = m.group(1).strip(), m.group(2).strip()
+    if a == b:
+        return None
+    return s[: m.start()] + f"{b} {op} {a}" + s[m.end() :]
+
+
 def mut_swap_eq_operands(s: str, rng: random.Random) -> str | None:
     """a == b -> b == a"""
-    return _sub_once(_RE_SWAP_EQ, lambda m: f"{m.group(2)} == {m.group(1)}", s, rng)
+    return _swap_binary_operands(_RE_SWAP_EQ, "==", s, rng)
 
 
 def mut_swap_ne_operands(s: str, rng: random.Random) -> str | None:
     """a != b -> b != a"""
-    return _sub_once(_RE_SWAP_NE, lambda m: f"{m.group(2)} != {m.group(1)}", s, rng)
+    return _swap_binary_operands(_RE_SWAP_NE, "!=", s, rng)
 
 
 def mut_swap_or_operands(s: str, rng: random.Random) -> str | None:
     """a || b -> b || a  (changes short-circuit order, affects codegen)"""
-    matches = list(_RE_SWAP_OR.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    a_text = m.group(1).strip()
-    b_text = m.group(2).strip()
-    if a_text == b_text:
-        return None
-    start, end = m.span()
-    return s[:start] + f"{b_text} || {a_text}" + s[end:]
+    return _swap_binary_operands(_RE_SWAP_OR, "||", s, rng)
 
 
 def mut_swap_and_operands(s: str, rng: random.Random) -> str | None:
     """a && b -> b && a"""
-    matches = list(_RE_SWAP_AND.finditer(s))
-    if not matches:
-        return None
-    m = rng.choice(matches)
-    a_text = m.group(1).strip()
-    b_text = m.group(2).strip()
-    if a_text == b_text:
-        return None
-    start, end = m.span()
-    return s[:start] + f"{b_text} && {a_text}" + s[end:]
+    return _swap_binary_operands(_RE_SWAP_AND, "&&", s, rng)
 
 
 def mut_return_to_goto(s: str, rng: random.Random) -> str | None:
@@ -1984,6 +1978,15 @@ ALL_MUTATIONS = [
     mut_postpre_increment,
     mut_xor_zero_toggle,
     mut_negate_condition,
+]
+
+__all__ = [
+    "ALL_MUTATIONS",
+    "compute_population_diversity",
+    "crossover",
+    "mutate_code",
+    "quick_validate",
+    *[m.__name__ for m in ALL_MUTATIONS],
 ]
 
 
