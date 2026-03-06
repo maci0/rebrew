@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from rich.console import Console
 
 from rebrew.annotation import NEW_FUNC_CAPTURE_RE, parse_c_file_multi, split_annotation_sections
 from rebrew.cli import (
@@ -22,6 +23,8 @@ from rebrew.cli import (
 )
 from rebrew.config import ProjectConfig
 from rebrew.utils import atomic_write_text
+
+console = Console(stderr=True)
 
 app = typer.Typer(
     help="Merge single-function C files into one multi-function file.",
@@ -176,13 +179,12 @@ def main(
         json_print(payload)
         return
 
-    typer.echo(
-        f"Merged {len(sorted_blocks)} functions from {len(included_inputs)} files "
-        f"into {output_path.name}",
-        err=True,
+    console.print(
+        f"Merged [bold]{len(sorted_blocks)}[/] functions from {len(included_inputs)} files "
+        f"into {output_path.name}"
     )
     if delete and not dry_run:
-        typer.echo("Deleted original input files after merge", err=True)
+        console.print("Deleted original input files after merge")
 
 
 def main_entry() -> None:

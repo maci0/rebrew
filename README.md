@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/mascot.png" alt="Rebrew mascot" width="256" />
+</p>
+
 # ☕ Rebrew
 
 **Compiler-in-the-loop decompilation workbench for binary-matching game reversing.**
@@ -208,7 +212,7 @@ rebrew sync --pull --dry-run        # preview pull without modifying files
 ```bash
 cd rebrew/
 uv sync --all-extras       # install dev dependencies
-uv run pytest tests/ -v    # run tests (~1644 tests)
+uv run pytest tests/ -v    # run tests (~1744 tests)
 uv run ruff check .        # lint
 uv run ruff format .       # format
 python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me

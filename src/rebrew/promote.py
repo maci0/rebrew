@@ -372,13 +372,13 @@ def main(
             action = r.get("action", "none")
             if action in ("updated", "would_update"):
                 verb = "Updated" if action == "updated" else "Would update"
-                typer.echo(f"{sym}: {prev} -> {status} ({verb})", err=True)
+                console.print(f"[magenta]{sym}[/]: {prev} \u2192 [bold green]{status}[/] ({verb})")
             elif r.get("status") == "SKIPPED":
-                typer.echo(f"{sym}: SKIPPED ({r.get('reason', '')})", err=True)
+                console.print(f"[magenta]{sym}[/]: [yellow]SKIPPED[/] ({r.get('reason', '')})")
             elif r.get("status") == "ERROR":
-                typer.echo(f"{sym}: ERROR ({r.get('reason', '')})", err=True)
+                console.print(f"[magenta]{sym}[/]: [red]ERROR[/] ({r.get('reason', '')})")
             else:
-                typer.echo(f"{sym}: {status} (no change)", err=True)
+                console.print(f"[magenta]{sym}[/]: {status} (no change)")
 
     has_errors = any(r.get("status") == "ERROR" for r in results)
     has_mismatches = any(

@@ -12,6 +12,8 @@ from importlib import import_module
 from typing import Any
 
 import typer
+from rich.console import Console
+from rich.table import Table
 
 from rebrew.cli import TargetOption, json_print, require_config
 from rebrew.naming import (
@@ -22,6 +24,8 @@ from rebrew.naming import (
     load_data,
     parse_byte_delta,
 )
+
+console = Console(stderr=True)
 
 app = typer.Typer(
     help="Cold-start triage report for agent sessions.",
@@ -232,32 +236,52 @@ def main(
             report["flirt_error"] = flirt_error
         json_print(report)
     else:
-        print("=" * 60)
-        print("REBREW TRIAGE REPORT")
-        print("=" * 60)
-        print()
-        print(f"Coverage: {covered}/{total} ({pct:.1f}%)")
-        print(f"  EXACT: {exact}  RELOC: {reloc}  MATCHING: {matching}  STUB: {stub}")
-        print(f"  Unmatchable: {unmatchable_count}  Actionable: ~{actionable}")
+        stats_table = Table(title="REBREW TRIAGE REPORT", show_header=False)
+        stats_table.add_column("Category", style="cyan")
+        stats_table.add_column("Value", justify="right")
+        stats_table.add_row("Coverage", f"{covered}/{total} ({pct:.1f}%)")
+        stats_table.add_row("  EXACT", f"[green]{exact}[/]")
+        stats_table.add_row("  RELOC", f"[green]{reloc}[/]")
+        stats_table.add_row("  MATCHING", f"[yellow]{matching}[/]")
+        stats_table.add_row("  STUB", f"[red]{stub}[/]")
+        stats_table.add_row("  Unmatchable", str(unmatchable_count))
+        stats_table.add_row("  Actionable", f"~{actionable}")
         if flirt_count is not None:
-            print(f"  FLIRT library matches: {flirt_count}")
-        print()
+            stats_table.add_row("  FLIRT library matches", str(flirt_count))
+        console.print(stats_table)
 
         if near_miss:
-            print(
-                f"Near-miss functions ({len(near_miss)} total, showing top {min(count, len(near_miss))}):"
+            nm_table = Table(
+                title=f"Near-Miss Functions ({len(near_miss)} total, showing top {min(count, len(near_miss))})"
             )
+            nm_table.add_column("VA", style="cyan")
+            nm_table.add_column("Size", justify="right")
+            nm_table.add_column("Delta", justify="right")
+            nm_table.add_column("File", style="magenta")
             for nm in near_miss[:count]:
                 delta_str = f"{nm['byte_delta']}B" if nm["byte_delta"] is not None else "?"
-                print(f"  {nm['va']}  {nm['size']:4d}B  Δ{delta_str:>5s}  {nm['filename']}")
-            print()
+                delta_style = (
+                    "green" if nm["byte_delta"] is not None and nm["byte_delta"] <= 5 else "yellow"
+                )
+                nm_table.add_row(
+                    nm["va"],
+                    f"{nm['size']}B",
+                    f"[{delta_style}]\u0394{delta_str}[/]",
+                    nm["filename"],
+                )
+            console.print(nm_table)
 
         if recommendations:
-            print(f"Recommendations (top {len(recommendations)}):")
+            rec_table = Table(title=f"Recommendations (top {len(recommendations)})")
+            rec_table.add_column("VA", style="cyan")
+            rec_table.add_column("Size", justify="right")
+            rec_table.add_column("Diff")
+            rec_table.add_column("Origin", justify="right", style="dim")
+            rec_table.add_column("Name", style="magenta")
             for r in recommendations:
                 stars = "*" * r["difficulty"]
-                print(f"  {r['va']}  {r['size']:4d}B  {stars:5s}  {r['origin']:>6s}  {r['name']}")
-            print()
+                rec_table.add_row(r["va"], f"{r['size']}B", stars, r["origin"], r["name"])
+            console.print(rec_table)
 
 
 def main_entry() -> None:

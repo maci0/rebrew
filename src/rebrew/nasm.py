@@ -31,11 +31,14 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from rich.console import Console
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
 from rebrew.config import ProjectConfig
+
+console = Console(stderr=True)
 
 
 def extract_from_bin(bin_path: Path) -> bytes:
@@ -396,7 +399,7 @@ def batch_extract(
             if code is None:
                 raise ValueError("VA not in any section")
         except (OSError, KeyError, ValueError) as e:
-            typer.echo(f"  [{i}/{total}] {stem}: SKIP (extraction error: {e})", err=True)
+            console.print(f"  \\[{i}/{total}] {stem}: [yellow]SKIP[/] (extraction error: {e})")
             continue
 
         nasm_src, stats = disassemble_to_nasm(code, va, symbol)
@@ -417,12 +420,11 @@ def batch_extract(
 
         pct = stats["pct_nasm"]
         db = stats["db_fallbacks"]
-        typer.echo(
-            f"  [{i}/{total}] {stem:40s} {size:4d}B  nasm={pct:5.1f}% db={db:2d}  {status}",
-            err=True,
+        console.print(
+            f"  \\[{i}/{total}] {stem:40s} {size:4d}B  nasm={pct:5.1f}% db={db:2d}  {status}"
         )
 
-    typer.echo(f"\nDone: {ok} ok, {fail} failed, {total} total", err=True)
+    console.print(f"\nDone: [green]{ok} ok[/], [red]{fail} failed[/], {total} total")
 
 
 app = typer.Typer(
@@ -560,23 +562,25 @@ def main(
         if json_output:
             json_print(result)
         else:
-            print(f"Function: {computed_label}")
-            print(f"  Base VA: 0x{run_stats['base_va']:08X}")
-            print(f"  Size: {run_stats['total_bytes']} bytes")
-            print(f"  Instructions: {run_stats['total_instructions']}")
-            print(f"  NASM-compatible: {run_stats['nasm_ok']} ({run_stats['pct_nasm']:.1f}%)")
-            print(f"  db fallbacks: {run_stats['db_fallbacks']}")
+            console.print(f"[bold]Function:[/] {computed_label}")
+            console.print(f"  Base VA: [cyan]0x{run_stats['base_va']:08X}[/]")
+            console.print(f"  Size: {run_stats['total_bytes']} bytes")
+            console.print(f"  Instructions: {run_stats['total_instructions']}")
+            console.print(
+                f"  NASM-compatible: {run_stats['nasm_ok']} ({run_stats['pct_nasm']:.1f}%)"
+            )
+            console.print(f"  db fallbacks: {run_stats['db_fallbacks']}")
         return
 
     if output:
         output.write_text(out_src, encoding="utf-8")
-        print(f"Written to {output}")
+        console.print(f"Written to {output}")
     else:
         print(out_src)
 
     if verify:
         _, msg = verify_roundtrip(nasm_src, code)
-        print(f"\nRound-trip verification: {msg}")
+        console.print(f"\nRound-trip verification: {msg}")
 
 
 def main_entry() -> None:

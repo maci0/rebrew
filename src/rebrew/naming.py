@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 import capstone
 
 if TYPE_CHECKING:
-    from rebrew.catalog.models import GhidraFunction
+    from rebrew.catalog.models import FunctionEntry
 
 from rebrew.annotation import parse_c_file_multi, parse_library_header
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va
@@ -215,22 +215,22 @@ def estimate_difficulty(
 
 def load_data(
     cfg: ProjectConfig,
-) -> tuple[list["GhidraFunction"], dict[int, dict[str, str]], dict[int, str]]:
+) -> tuple[list["FunctionEntry"], dict[int, dict[str, str]], dict[int, str]]:
     """Load all project data.
 
     Returns (ghidra_funcs, existing, covered_vas) where:
-    - ghidra_funcs: list of GhidraFunction objects
+    - ghidra_funcs: list of FunctionEntry objects
     - existing: dict mapping VA -> {filename, status, origin, blocker, symbol}
     - covered_vas: dict mapping VA -> filename (for find_neighbor_file)
     """
-    from rebrew.catalog import load_ghidra_functions
+    from rebrew.catalog import load_function_structure
     from rebrew.cli import iter_library_headers, iter_sources, rel_display_path, target_marker
 
     src_dir = Path(cfg.reversed_dir)
     ghidra_json = src_dir / FUNCTION_STRUCTURE_JSON
 
     # Ghidra functions
-    ghidra_funcs = load_ghidra_functions(ghidra_json)
+    ghidra_funcs = load_function_structure(ghidra_json)
 
     # Existing source files — use parse_c_file_multi to capture all VAs in
     # multi-function files (not just the first annotation).
