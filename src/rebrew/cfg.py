@@ -61,6 +61,7 @@ def _resolve_dotted_key(
         ``(parent, final_key, resolved_parts)`` where *parent* is the innermost
         table containing *final_key*, and *resolved_parts* is the decomposed
         key path (for display).
+
     """
     parts = key.split(".")
     current: Any = doc

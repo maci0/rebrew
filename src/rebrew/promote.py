@@ -16,7 +16,7 @@ import typer
 from rich.console import Console
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
 
-from rebrew.annotation import parse_c_file_multi
+from rebrew.annotation import parse_c_file_multi, update_annotation_key
 from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import (
     TargetOption,
@@ -27,11 +27,11 @@ from rebrew.cli import (
     target_marker,
 )
 from rebrew.config import ProjectConfig
+from rebrew.core.matching import smart_reloc_compare
 from rebrew.matcher.parsers import parse_obj_symbol_bytes
 from rebrew.test import (
     build_result_dict,
     compile_obj,
-    smart_reloc_compare,
     update_source_status,
 )
 
@@ -60,9 +60,13 @@ rebrew promote --all --dry-run --json         Preview batch promotion as JSON
 
 3. Updates STATUS to EXACT/RELOC/MATCHING based on result
 
-4. Removes BLOCKER annotation if the function matches (EXACT/RELOC)
+4. Demotes to STUB if byte match falls below 75% threshold
 
-5. Reports the result as structured JSON
+5. On demotion, adds BLOCKER annotation with match ratio
+
+6. Removes BLOCKER annotation if the function matches (EXACT/RELOC)
+
+7. Reports the result as structured JSON
 
 [dim]This is the atomic version of 'rebrew test + manual STATUS edit'.
 Safe for agent use — idempotent, validates before writing.[/dim]"""
@@ -87,10 +91,10 @@ _STATUS_RANK: dict[str, int] = {
 }
 
 # Minimum byte-match ratio to classify a non-exact comparison as MATCHING.
-# 80% is conservative enough to avoid false positives from padding/nops
+# 75% is conservative enough to avoid false positives from padding/nops
 # while still promoting functions that are structurally correct but have
 # a few byte-level differences (typically relocation or alignment diffs).
-_MATCHING_THRESHOLD = 0.8
+_MATCHING_THRESHOLD = 0.75
 
 
 def _promote_file(
@@ -216,17 +220,21 @@ def _promote_file(
                 if comparable > 0 and match_count > comparable * _MATCHING_THRESHOLD:
                     candidate_status = "MATCHING"
                 else:
-                    # Below match threshold — keep current status if it's already
-                    # low-ranked (STUB or unset), otherwise demote.
-                    candidate_status = ann.status
+                    # Below match threshold — demote to STUB.
+                    # A function can't be MATCHING/EXACT/RELOC if the diff is too big.
+                    candidate_status = "STUB"
 
             # Update whenever the measured status differs from the annotation.
             # This handles both promotion (STUB → EXACT) and demotion
-            # (EXACT → MATCHING when code changes break a previously-exact match).
+            # (EXACT → STUB when code changes break a previously-matching function).
             new_status = ann.status
             should_update = candidate_status != ann.status
             if should_update:
                 new_status = candidate_status
+
+            is_demotion = should_update and _STATUS_RANK.get(new_status, 99) > _STATUS_RANK.get(
+                ann.status, 99
+            )
 
             action = "none"
             if should_update:
@@ -237,10 +245,19 @@ def _promote_file(
                         blockers_to_remove=(new_status in ("EXACT", "RELOC")),
                         target_va=ann.va,
                     )
+                    # On demotion to STUB, add a BLOCKER explaining why
+                    if is_demotion and new_status == "STUB":
+                        ratio = f"{match_count}/{total}" if total > 0 else "unknown"
+                        update_annotation_key(
+                            source_path,
+                            ann.va,
+                            "BLOCKER",
+                            f"auto-demoted: byte match {ratio} below threshold",
+                        )
                     # Verify the status was actually written.
-                    # Default to "updated" — only downgrade if re-parse
+                    # Default to "updated"/"demoted" — only downgrade if re-parse
                     # explicitly shows the old status persists.
-                    action = "updated"
+                    action = "demoted" if is_demotion else "updated"
                     verify_annos = parse_c_file_multi(source_path, target_name=target_marker(cfg))
                     for va_ann in verify_annos:
                         if va_ann.va == ann.va:
@@ -248,7 +265,7 @@ def _promote_file(
                                 action = "write_failed"
                             break
                 else:
-                    action = "would_update"
+                    action = "would_demote" if is_demotion else "would_update"
 
             result_dict = build_result_dict(
                 source,
@@ -324,6 +341,7 @@ def main(
 
         summary = {
             "promoted": sum(1 for r in results if r.get("action") in ("updated", "would_update")),
+            "demoted": sum(1 for r in results if r.get("action") in ("demoted", "would_demote")),
             "unchanged": sum(
                 1
                 for r in results
@@ -347,6 +365,7 @@ def main(
             console.print(
                 "Promotion complete: "
                 f"{summary['promoted']} promoted, "
+                f"{summary['demoted']} demoted, "
                 f"{summary['unchanged']} unchanged, "
                 f"{summary['errors']} errors, "
                 f"{summary['skipped']} skipped"
@@ -373,6 +392,9 @@ def main(
             if action in ("updated", "would_update"):
                 verb = "Updated" if action == "updated" else "Would update"
                 console.print(f"[magenta]{sym}[/]: {prev} \u2192 [bold green]{status}[/] ({verb})")
+            elif action in ("demoted", "would_demote"):
+                verb = "Demoted" if action == "demoted" else "Would demote"
+                console.print(f"[magenta]{sym}[/]: {prev} \u2192 [bold red]{status}[/] ({verb})")
             elif r.get("status") == "SKIPPED":
                 console.print(f"[magenta]{sym}[/]: [yellow]SKIPPED[/] ({r.get('reason', '')})")
             elif r.get("status") == "ERROR":

@@ -1,3 +1,5 @@
+"""Module docstring."""
+
 import contextlib
 import json
 import time
@@ -165,7 +167,7 @@ def _init_mcp_session(client: Any, endpoint: str) -> str:
     resp = client.post(
         endpoint, json=init_payload, headers=_MCP_HEADERS, timeout=_MCP_REQUEST_TIMEOUT_S
     )
-    return resp.headers.get("Mcp-Session-Id", "")
+    return str(resp.headers.get("Mcp-Session-Id", ""))
 
 
 def _fetch_all_symbols(

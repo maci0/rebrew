@@ -26,6 +26,7 @@ def smart_reloc_compare(
 
     Returns:
         (matched, match_count, total_bytes, valid_relocs, invalid_relocs)
+
     """
     import struct
 

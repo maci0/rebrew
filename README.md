@@ -29,7 +29,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | `rebrew split` | Break multi-function `.c` files into individual files; `--va` to extract one function |
 | `rebrew merge` | Combine single-function files into one multi-function file |
 | `rebrew lint` | Validate annotation correctness (E000–E017, W001–W017) |
-| `rebrew promote` | Test + atomically update STATUS; `--all` for batch promotion |
+| `rebrew promote` | Test + atomically update STATUS; promotes on match, demotes to STUB below threshold; `--all` for batch |
 
 ### Analysis
 

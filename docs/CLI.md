@@ -38,7 +38,7 @@ Run any tool with `--help` to see usage examples and context
 | `rebrew-status` | `status.py` | Project reversing status overview (per-target breakdowns) |
 | `rebrew-data` | `data.py` | Global data scanner for .data/.rdata/.bss; `--bss` layout verification; `--dispatch` vtable detection |
 | `rebrew-graph` | `depgraph.py` | Function dependency graph (mermaid, DOT, summary) |
-| `rebrew-promote` | `promote.py` | Test + atomically update STATUS annotation; `--all` batch mode with `--dir`/`--origin` filters; `--json` structured output |
+| `rebrew-promote` | `promote.py` | Test + atomically update STATUS annotation (promotes on match, demotes to STUB below 75% threshold); `--all` batch mode with `--dir`/`--origin` filters; `--json` structured output |
 | `rebrew-triage` | `triage.py` | Cold-start triage: coverage stats, FLIRT scan, near-miss list, recommendations; `--json` |
 | `rebrew-cu-map` | `cu_map.py` | Infer compilation unit boundaries from .text layout and call graph; `--json` |
 | `rebrew-doctor` | `doctor.py` | Diagnostic checks for project health (config, compiler, binary, paths); `--install-wibo`; `--json` |

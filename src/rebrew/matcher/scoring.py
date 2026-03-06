@@ -230,15 +230,24 @@ def diff_functions(
     cs_mode: int = _DEFAULT_CS_MODE,
     pointer_size: int = 4,
 ) -> dict[str, Any] | None:
-    """Print a side-by-side diff of target and candidate disassembly.
+    r"""Print a side-by-side diff of target and candidate disassembly.
 
     Args:
+        target_bytes: Ground-truth target bytes.
+        candidate_bytes: Compiled candidate bytes.
+        reloc_offsets: Optional list/dict of known relocation offsets.
+        invalid_relocs: Optional list of invalid relocation offsets.
         mismatches_only: If True, only print lines with structural differences
             (``**`` markers). Equivalent to ``| grep '\\*\\*'`` but built-in.
+        register_aware: Highlight register allocation differences (RR markers).
         as_dict: If True, return a structured dict instead of printing.
+        cs_arch: Capstone architecture (default x86).
+        cs_mode: Capstone mode (default 32-bit).
+        pointer_size: Pointer size in bytes (default 4).
 
     Returns:
         A dict with diff data when ``as_dict`` is True, otherwise None.
+
     """
     md = capstone.Cs(cs_arch, cs_mode)
 
