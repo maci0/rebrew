@@ -16,7 +16,7 @@ that contains the actual binaries, source files, and toolchains.
 uv pip install -e .
 uv sync --all-extras            # with dev deps
 
-# Run ALL tests (~1644 tests)
+# Run ALL tests (~1744 tests)
 uv run pytest tests/ -v
 
 # Run a SINGLE test file
@@ -109,8 +109,9 @@ Key libraries and what they provide:
 - **httpx** (`httpx`): HTTP client for Ghidra/ReVa MCP communication (`ghidra/cli.py`,
   `skeleton.py`, `decompiler.py`). Use `httpx.Client` for connection-pooled requests.
   Never use `urllib.request` for MCP endpoints.
-- **Typer** (`typer`): CLI framework. Use `typer.echo(msg, err=True)` for stderr warnings
-  in CLI code (not `print(..., file=sys.stderr)` inside Typer commands).
+- **Typer** (`typer`): CLI framework. Use `Console(stderr=True)` from Rich for
+  user-facing output; rich markup (`[green]`, `[bold]`, etc.) for styled messages.
+  Keep raw `print()` only for data output meant for piping (e.g. disassembly, NASM source).
 - **pathlib** (`Path`): Path manipulation. Use `Path` methods over `os.path.*`.
 - **tempfile** (`TemporaryDirectory`): Use context-managed `TemporaryDirectory` over
   `tempfile.mkdtemp()` + manual `shutil.rmtree()`.
@@ -179,7 +180,10 @@ Every single-command tool follows this structure:
 
 ```python
 import typer
+from rich.console import Console
 from rebrew.cli import TargetOption, get_config
+
+console = Console(stderr=True)
 
 app = typer.Typer(help="Tool description", rich_markup_mode="rich")
 
@@ -211,7 +215,7 @@ All CLI tools follow these conventions for a consistent user experience:
 - **Parameter ordering**: `--json` always comes before `--target`, both as the last two options
 - **`--json` help text**: Always `"Output results as JSON"` (exact string)
 - **`--dry-run` help text**: Always `"Preview changes without writing"` for file-modifying tools
-- **Rich output to stderr**: Use `Console(stderr=True)` so Rich tables/progress bars don't mix with JSON stdout
+- **Rich output to stderr**: Use `console = Console(stderr=True)` with `console.print()` for all user-facing output; Rich markup (`[green]`, `[bold]`, `[red]`, etc.) for styled messages. Keep raw `print()` only for data output meant for piping (disassembly, NASM source, hex dumps).
 - **`main_entry()` docstring**: Always `"""Run the Typer CLI application."""`
 - **`if __name__` guard**: Every CLI module ends with `if __name__ == "__main__": main_entry()`
 - **Error handling in JSON mode**: Pass `json_mode=json_output` to `error_exit()` so errors are JSON-formatted when `--json` is active

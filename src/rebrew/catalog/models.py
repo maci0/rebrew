@@ -43,10 +43,6 @@ class FunctionEntry:
         )
 
 
-# Backwards-compatible alias
-GhidraFunction = FunctionEntry
-
-
 @dataclass
 class GhidraDataLabel:
     va: int

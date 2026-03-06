@@ -57,10 +57,6 @@ tool (Ghidra, radare2, rizin).  Names are optional hints used only when
 no source annotation exists.  Source annotations are always authoritative
 for naming.
 """
-
-_LEGACY_GHIDRA_JSON = "ghidra_functions.json"
-"""Legacy filename — kept for migration fallback."""
-
 # ---------------------------------------------------------------------------
 # Architecture presets
 # ---------------------------------------------------------------------------

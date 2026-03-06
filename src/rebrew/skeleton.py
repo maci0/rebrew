@@ -19,17 +19,19 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from rebrew.catalog.models import GhidraFunction
+    from rebrew.catalog.models import FunctionEntry
 
 import httpx
 import jinja2
 import typer
+from rich.console import Console
+from rich.table import Table
 
 from rebrew.annotation import (
     marker_for_origin,
     parse_c_file_multi,
 )
-from rebrew.catalog import load_ghidra_functions
+from rebrew.catalog import load_function_structure
 from rebrew.cli import (
     TargetOption,
     error_exit,
@@ -48,6 +50,8 @@ from rebrew.naming import (
     sanitize_name,
 )
 from rebrew.utils import atomic_write_text
+
+console = Console(stderr=True)
 
 # Default skeleton TODO text per origin (used when cfg.origin_todos is empty)
 _DEFAULT_ORIGIN_TODOS: dict[str, str] = {
@@ -385,7 +389,7 @@ def generate_diff_command(
 
 
 def list_uncovered(
-    ghidra_funcs: list["GhidraFunction"],
+    ghidra_funcs: list["FunctionEntry"],
     existing_vas: dict[int, str],
     cfg: ProjectConfig,
     origin_filter: str | None = None,
@@ -497,34 +501,37 @@ def main(
     root = cfg.root
 
     ghidra_json = src_dir / FUNCTION_STRUCTURE_JSON
-    ghidra_funcs = load_ghidra_functions(ghidra_json)
+    ghidra_funcs = load_function_structure(ghidra_json)
     existing_vas = load_existing_vas(src_dir, cfg=cfg)
 
     # --list mode
     if list_mode:
         uncovered = list_uncovered(ghidra_funcs, existing_vas, cfg, origin, min_size, max_size)
         if not uncovered:
-            print("No uncovered functions found matching criteria.")
+            console.print("No uncovered functions found matching criteria.")
             return
 
-        print(f"Uncovered functions: {len(uncovered)}")
-        print(f"{'VA':>12s}  {'Size':>5s}  {'Origin':>6s}  {'Name'}")
-        print(f"{'---':>12s}  {'---':>5s}  {'---':>6s}  {'---'}")
+        table = Table(title=f"Uncovered Functions ({len(uncovered)})")
+        table.add_column("VA", style="cyan")
+        table.add_column("Size", justify="right")
+        table.add_column("Origin", justify="right", style="dim")
+        table.add_column("Name", style="magenta")
         for va_val, size_val, name_val, origin_val in uncovered:
-            print(f"  0x{va_val:08x}  {size_val:4d}B  {origin_val:>6s}  {name_val}")
+            table.add_row(f"0x{va_val:08x}", f"{size_val}B", origin_val, name_val)
+        console.print(table)
 
         # Summary
         by_origin: dict[str, int] = {}
         for _, _, _, origin_val in uncovered:
             by_origin[origin_val] = by_origin.get(origin_val, 0) + 1
-        print(f"\nBy origin: {', '.join(f'{k}: {v}' for k, v in sorted(by_origin.items()))}")
+        console.print(f"By origin: {', '.join(f'{k}: {v}' for k, v in sorted(by_origin.items()))}")
         return
 
     # --batch mode
     if batch:
         uncovered = list_uncovered(ghidra_funcs, existing_vas, cfg, origin, min_size, max_size)
         if not uncovered:
-            print("No uncovered functions found matching criteria.")
+            console.print("No uncovered functions found matching criteria.")
             return
 
         count = min(batch, len(uncovered))
@@ -535,7 +542,7 @@ def main(
             rel_path = rel_display_path(filepath, root)
 
             if filepath.exists() and not force:
-                typer.echo(f"SKIP: {rel_path} (already exists)", err=True)
+                console.print(f"[yellow]SKIP[/] {rel_path} (already exists)")
                 continue
 
             d_code = None
@@ -559,9 +566,9 @@ def main(
                     va_val,
                 )
                 if xref_context_val:
-                    typer.echo("  XREFs: fetched caller context", err=True)
+                    console.print("  [dim]XREFs:[/] fetched caller context")
                 else:
-                    typer.echo("  XREFs: unavailable (MCP unreachable or no callers)", err=True)
+                    console.print("  [dim]XREFs:[/] unavailable (MCP unreachable or no callers)")
             content = generate_skeleton(
                 cfg,
                 va_val,
@@ -578,8 +585,8 @@ def main(
             cflags_val = cfg.resolve_origin_cflags(origin_val)
             test_cmd = generate_test_command(rel_path, symbol_val, va_val, size_val, cflags_val)
 
-            typer.echo(f"CREATED: {rel_path} ({size_val}B, {origin_val})", err=True)
-            typer.echo(f"  TEST: {test_cmd}", err=True)
+            console.print(f"[bold green]CREATED[/] {rel_path} ({size_val}B, {origin_val})")
+            console.print(f"  [dim]TEST:[/] {test_cmd}")
             created.append(
                 {
                     "file": str(rel_path),
@@ -594,7 +601,7 @@ def main(
         if json_output:
             json_print({"created": created, "count": len(created)})
         else:
-            typer.echo(f"\nCreated {len(created)} skeleton files.", err=True)
+            console.print(f"\n[bold]Created {len(created)} skeleton files.[/]")
         return
 
     # Single VA mode
@@ -619,8 +626,8 @@ def main(
 
     # Check if already covered
     if va_int in existing_vas and not force and not append:
-        print(f"Already covered by: {existing_vas[va_int]}")
-        print("Use --force to overwrite.")
+        console.print(f"Already covered by: {existing_vas[va_int]}")
+        console.print("Use [cyan]--force[/] to overwrite.")
         raise typer.Exit(code=0)
 
     origin_val = origin or detect_origin(va_int, ghidra_name, cfg)
@@ -637,10 +644,9 @@ def main(
             existing_in_file = parse_c_file_multi(append_path, target_name=target_marker(cfg))
             for entry in existing_in_file:
                 if entry.va == va_int:
-                    typer.echo(
+                    console.print(
                         f"VA 0x{va_int:08x} already in {append_path.name}. "
-                        f"Use --force to append anyway.",
-                        err=True,
+                        f"Use [cyan]--force[/] to append anyway."
                     )
                     raise typer.Exit(code=0)
 
@@ -665,9 +671,9 @@ def main(
                 va_int,
             )
             if xref_context_val:
-                typer.echo("  XREFs: fetched caller context", err=True)
+                console.print("  [dim]XREFs:[/] fetched caller context")
             else:
-                typer.echo("  XREFs: unavailable (MCP unreachable or no callers)", err=True)
+                console.print("  [dim]XREFs:[/] unavailable (MCP unreachable or no callers)")
 
         block = generate_annotation_block(
             cfg,
@@ -694,13 +700,13 @@ def main(
 
         rel_path_val = rel_display_path(append_path, root)
         symbol_val = "_" + name if name else "_" + sanitize_name(ghidra_name)
-        typer.echo(f"APPENDED to {rel_path_val}:", err=True)
-        typer.echo(f"  VA:     0x{va_int:08x}", err=True)
-        typer.echo(f"  Size:   {size}B", err=True)
-        typer.echo(f"  Symbol: {symbol_val}", err=True)
-        typer.echo("", err=True)
-        typer.echo("Test all functions in this file:", err=True)
-        typer.echo(f"  rebrew test {rel_path_val}", err=True)
+        console.print(f"[bold green]APPENDED[/] to {rel_path_val}:")
+        console.print(f"  VA:     [cyan]0x{va_int:08x}[/]")
+        console.print(f"  Size:   {size}B")
+        console.print(f"  Symbol: [magenta]{symbol_val}[/]")
+        console.print()
+        console.print("Test all functions in this file:")
+        console.print(f"  [dim]rebrew test {rel_path_val}[/]")
         if json_output:
             json_print(
                 {
@@ -731,9 +737,9 @@ def main(
             endpoint=endpoint,
         )
         if decomp_code_val:
-            typer.echo(f"  Decompiler: {decomp_backend_name}", err=True)
+            console.print(f"  [dim]Decompiler:[/] {decomp_backend_name}")
         else:
-            typer.echo("  Decompiler: no output (backend unavailable or failed)", err=True)
+            console.print("  [dim]Decompiler:[/] no output (backend unavailable or failed)")
     if xrefs:
         _sync_mod = importlib.import_module("rebrew.ghidra")
         _resolve = _sync_mod._resolve_program_path
@@ -744,9 +750,9 @@ def main(
             va_int,
         )
         if xref_context_val:
-            typer.echo("  XREFs: fetched caller context", err=True)
+            console.print("  [dim]XREFs:[/] fetched caller context")
         else:
-            typer.echo("  XREFs: unavailable (MCP unreachable or no callers)", err=True)
+            console.print("  [dim]XREFs:[/] unavailable (MCP unreachable or no callers)")
 
     content_val = generate_skeleton(
         cfg,
@@ -782,28 +788,27 @@ def main(
             }
         )
     else:
-        typer.echo(f"Created: {rel_path_val}", err=True)
-        typer.echo(f"  VA:     0x{va_int:08x}", err=True)
-        typer.echo(f"  Size:   {size}B", err=True)
-        typer.echo(f"  Origin: {origin_val}", err=True)
-        typer.echo(f"  Symbol: {symbol_val}", err=True)
-        typer.echo("", err=True)
-        typer.echo("Test command:", err=True)
-        typer.echo(f"  {test_cmd}", err=True)
-        typer.echo("", err=True)
-        typer.echo("Diff command:", err=True)
-        typer.echo(f"  {diff_cmd}", err=True)
-        typer.echo("", err=True)
-        typer.echo("Next steps:", err=True)
-        typer.echo(f"  1. Get Ghidra decompilation for 0x{va_int:08x}", err=True)
-        typer.echo("  2. Replace the TODO placeholder with actual C89 code", err=True)
-        typer.echo(
-            "  3. Ensure C89 compliance: vars at block top, no // comments in body, no for(int ...)",
-            err=True,
+        console.print(f"[bold green]Created:[/] {rel_path_val}")
+        console.print(f"  VA:     [cyan]0x{va_int:08x}[/]")
+        console.print(f"  Size:   {size}B")
+        console.print(f"  Origin: {origin_val}")
+        console.print(f"  Symbol: [magenta]{symbol_val}[/]")
+        console.print()
+        console.print("[bold]Test command:[/]")
+        console.print(f"  [dim]{test_cmd}[/]")
+        console.print()
+        console.print("[bold]Diff command:[/]")
+        console.print(f"  [dim]{diff_cmd}[/]")
+        console.print()
+        console.print("[bold]Next steps:[/]")
+        console.print(f"  1. Get Ghidra decompilation for [cyan]0x{va_int:08x}[/]")
+        console.print("  2. Replace the TODO placeholder with actual C89 code")
+        console.print(
+            "  3. Ensure C89 compliance: vars at block top, no // comments in body, no for(int ...)"
         )
-        typer.echo("  4. Run the test command above to check match", err=True)
-        typer.echo("  5. Update STATUS from STUB to EXACT/RELOC/MATCHING based on result", err=True)
-        typer.echo("  6. If MATCHING, add BLOCKER annotation explaining the difference", err=True)
+        console.print("  4. Run the test command above to check match")
+        console.print("  5. Update STATUS from STUB to EXACT/RELOC/MATCHING based on result")
+        console.print("  6. If MATCHING, add BLOCKER annotation explaining the difference")
 
 
 def main_entry() -> None:

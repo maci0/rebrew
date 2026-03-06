@@ -24,15 +24,17 @@ from pathlib import Path
 from typing import Any, NotRequired, TypedDict
 
 import typer
+from rich.console import Console
 
 from rebrew.annotation import has_skip_annotation, parse_c_file_multi, resolve_symbol
 from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import TargetOption, require_config
 from rebrew.config import ProjectConfig
-from rebrew.core.toolchain import msvc_env_from_config
+from rebrew.core import msvc_env_from_config
 from rebrew.utils import atomic_write_text
 
 log = logging.getLogger(__name__)
+console = Console(stderr=True)
 
 
 class StubInfo(TypedDict):
@@ -62,75 +64,26 @@ _FUNC_START_RE = re.compile(
 )
 
 
-def parse_stub_info(filepath: Path, ignored: set[str] | None = None) -> list[StubInfo]:
-    """Extract STUB annotation fields from a reversed .c file.
-
-    Uses the canonical multi-function parser from rebrew.annotation, then
-    applies STUB-specific filtering (SKIP, ignored symbols, min size).
-    Returns a list of StubInfo dicts — one per qualifying annotation.
-
-    Args:
-        filepath: Path to the .c source file.
-        ignored: Set of symbol names to skip (from cfg.ignored_symbols).
-    """
-    if ignored is None:
-        ignored = set()
-
-    entries = parse_c_file_multi(filepath)
-    if not entries:
-        return []
-
-    if has_skip_annotation(filepath):
-        return []
-
-    results: list[StubInfo] = []
-    for entry in entries:
-        status = entry["status"]
-        if status != "STUB":
-            continue
-
-        symbol = resolve_symbol(entry, filepath)
-        if symbol in ignored or symbol.lstrip("_") in ignored:
-            continue
-
-        if entry.va < 0x1000:
-            continue
-
-        size = entry["size"]
-        if size < 10:
-            continue
-
-        # Fallback defaults — used only when annotation lacks CFLAGS/ORIGIN.
-        # Config-driven values should be set upstream in the annotation itself.
-        cflags = entry["cflags"] or "/O2 /Gd"
-        origin = entry["origin"] or "GAME"
-
-        results.append(
-            {
-                "filepath": filepath,
-                "va": f"0x{entry['va']:08X}",
-                "size": size,
-                "symbol": symbol,
-                "cflags": cflags,
-                "origin": origin,
-            }
-        )
-    return results
-
-
-def parse_matching_info(
-    filepath: Path, ignored: set[str] | None = None, max_delta: int = 10
+def _parse_annotations(
+    filepath: Path,
+    *,
+    status_filter: set[str],
+    max_delta: int | None = None,
+    ignored: set[str] | None = None,
 ) -> list[StubInfo]:
-    """Extract MATCHING annotation fields from a reversed .c file.
+    """Generic annotation parser with configurable status and delta filters.
 
-    Like parse_stub_info but for MATCHING functions with small byte deltas.
-    Only returns functions whose BLOCKER byte-delta is <= max_delta.
-    Returns a list of StubInfo dicts — one per qualifying annotation.
+    Shared implementation for parse_stub_info, parse_matching_info, and
+    parse_matching_all.  Reads annotations via the canonical multi-function
+    parser, then applies filtering by status, ignored symbols, min VA, min
+    size, and optional byte-delta threshold.
 
     Args:
         filepath: Path to the .c source file.
-        ignored: Set of symbol names to skip.
-        max_delta: Maximum byte delta to include.
+        status_filter: Set of status strings to include (e.g. {"STUB"}).
+        max_delta: If set, only include entries whose BLOCKER byte-delta
+                   is <= this value.  None means no delta filtering.
+        ignored: Set of symbol names to skip (from cfg.ignored_symbols).
     """
     from rebrew.naming import parse_byte_delta
 
@@ -147,7 +100,7 @@ def parse_matching_info(
     results: list[StubInfo] = []
     for entry in entries:
         status = entry["status"]
-        if status != "MATCHING":
+        if status not in status_filter:
             continue
 
         if entry.va < 0x1000:
@@ -161,27 +114,44 @@ def parse_matching_info(
         if size < 10:
             continue
 
-        # Parse byte delta from BLOCKER annotation
+        # Parse byte delta from BLOCKER annotation (for MATCHING functions)
         blocker = entry.get("blocker") or ""
         delta = parse_byte_delta(blocker) if blocker else None
-        if delta is None or delta > max_delta:
+
+        # Apply delta filter if requested
+        if max_delta is not None and (delta is None or delta > max_delta):
             continue
 
+        # Fallback defaults — used only when annotation lacks CFLAGS/ORIGIN.
         cflags = entry["cflags"] or "/O2 /Gd"
         origin = entry["origin"] or "GAME"
 
-        results.append(
-            {
-                "filepath": filepath,
-                "va": f"0x{entry['va']:08X}",
-                "size": size,
-                "symbol": symbol,
-                "cflags": cflags,
-                "origin": origin,
-                "delta": delta,
-            }
-        )
+        info: StubInfo = {
+            "filepath": filepath,
+            "va": f"0x{entry['va']:08X}",
+            "size": size,
+            "symbol": symbol,
+            "cflags": cflags,
+            "origin": origin,
+        }
+        if delta is not None:
+            info["delta"] = delta
+        results.append(info)
     return results
+
+
+def parse_stub_info(filepath: Path, ignored: set[str] | None = None) -> list[StubInfo]:
+    """Extract STUB annotation fields from a reversed .c file."""
+    return _parse_annotations(filepath, status_filter={"STUB"}, ignored=ignored)
+
+
+def parse_matching_info(
+    filepath: Path, ignored: set[str] | None = None, max_delta: int = 10
+) -> list[StubInfo]:
+    """Extract MATCHING annotation fields with byte delta <= max_delta."""
+    return _parse_annotations(
+        filepath, status_filter={"MATCHING"}, max_delta=max_delta, ignored=ignored
+    )
 
 
 def find_near_miss(
@@ -275,60 +245,13 @@ def _collect_with_dedup(
 
 
 def parse_matching_all(filepath: Path, ignored: set[str] | None = None) -> list[StubInfo]:
-    """Extract MATCHING annotation fields from a reversed .c file (no delta filter).
+    """Extract all MATCHING annotations (no delta filter).
 
     Unlike ``parse_matching_info``, this accepts all MATCHING functions regardless
     of whether they have a BLOCKER annotation or byte delta.  Used by the batch
     flag sweep mode which targets every MATCHING function.
-    Returns a list of StubInfo dicts — one per qualifying annotation.
     """
-    from rebrew.naming import parse_byte_delta
-
-    if ignored is None:
-        ignored = set()
-
-    entries = parse_c_file_multi(filepath)
-    if not entries:
-        return []
-
-    if has_skip_annotation(filepath):
-        return []
-
-    results: list[StubInfo] = []
-    for entry in entries:
-        status = entry["status"]
-        if status != "MATCHING":
-            continue
-
-        if entry.va < 0x1000:
-            continue
-
-        symbol = resolve_symbol(entry, filepath)
-        if symbol in ignored or symbol.lstrip("_") in ignored:
-            continue
-
-        size = entry["size"]
-        if size < 10:
-            continue
-
-        blocker = entry.get("blocker") or ""
-        delta = parse_byte_delta(blocker) if blocker else None
-
-        cflags = entry["cflags"] or "/O2 /Gd"
-        origin = entry["origin"] or "GAME"
-
-        info: StubInfo = {
-            "filepath": filepath,
-            "va": f"0x{entry['va']:08X}",
-            "size": size,
-            "symbol": symbol,
-            "cflags": cflags,
-            "origin": origin,
-        }
-        if delta is not None:
-            info["delta"] = delta
-        results.append(info)
-    return results
+    return _parse_annotations(filepath, status_filter={"MATCHING"}, ignored=ignored)
 
 
 def find_all_matching(
@@ -641,7 +564,7 @@ def update_stub_to_matched(filepath: Path, best_src: str, stub: StubInfo) -> Non
     from rebrew.cli import rel_display_path
 
     display = rel_display_path(filepath, filepath.parent.parent)
-    print(f"  Updated {display}: STUB -> RELOC (backup: {bak_path.name})")
+    console.print(f"  [bold green]Updated[/] {display}: STUB → RELOC (backup: {bak_path.name})")
 
 
 app = typer.Typer(
@@ -769,15 +692,15 @@ def main(
     from rebrew.cli import rel_display_path
 
     if not json_output:
-        print(f"Found {len(stubs)} {mode_label} function(s) to process:\n")
+        console.print(f"\nFound [bold]{len(stubs)}[/] {mode_label} function(s) to process:\n")
         for i, stub in enumerate(stubs, 1):
             delta_str = f"  Δ{stub['delta']}B" if "delta" in stub else ""
             display = rel_display_path(stub["filepath"], reversed_dir)
-            print(
-                f"  {i:3d}. {display:45s}  {stub['size']:4d}B  "
-                f"{stub['va']}  {stub['symbol']:30s}  {stub['cflags']}{delta_str}"
+            console.print(
+                f"  {i:3d}. [magenta]{display:45s}[/]  {stub['size']:4d}B  "
+                f"[cyan]{stub['va']}[/]  {stub['symbol']:30s}  [dim]{stub['cflags']}{delta_str}[/]"
             )
-        print()
+        console.print()
 
     if dry_run:
         if json_output:
@@ -805,7 +728,7 @@ def main(
                 )
             )
         else:
-            print("Dry run — exiting.")
+            console.print("Dry run — exiting.")
         return
 
     if flag_sweep:
@@ -821,9 +744,11 @@ def main(
     for i, stub in enumerate(stubs, 1):
         display = rel_display_path(stub["filepath"], reversed_dir)
         if not json_output:
-            print(f"\n{'=' * 60}")
-            print(f"[{i}/{len(stubs)}] {display} ({stub['size']}B) symbol={stub['symbol']}")
-            print(f"{'=' * 60}")
+            console.print(f"\n[bold]{'=' * 60}[/]")
+            console.print(
+                f"\\[{i}/{len(stubs)}] [magenta]{display}[/] ({stub['size']}B) symbol={stub['symbol']}"
+            )
+            console.print(f"[bold]{'=' * 60}[/]")
         else:
             print(
                 f"[{i}/{len(stubs)}] {display} ({stub['size']}B)",
@@ -850,7 +775,9 @@ def main(
                     if sol_path.exists():
                         extra_ga_flags.extend(["--extra-seed", str(sol_path)])
                         if not json_output:
-                            print(f"  Seeding from solved: {sol.symbol} ({sol.size}B)")
+                            console.print(
+                                f"  [dim]Seeding from solved:[/] {sol.symbol} ({sol.size}B)"
+                            )
             except Exception:  # noqa: BLE001
                 logging.debug("Solution lookup failed", exc_info=True)
 
@@ -879,14 +806,14 @@ def main(
         if matched:
             matched_count += 1
             if not json_output:
-                print(f"  MATCHED! ({matched_count} total matches)")
+                console.print(f"  [bold green]MATCHED![/] ({matched_count} total matches)")
         else:
             failed_count += 1
             if not json_output:
                 last_lines = output.strip().split("\n")[-5:]
-                print("  No match. Last output:")
+                console.print("  [red]No match.[/] Last output:")
                 for line in last_lines:
-                    print(f"    {line}")
+                    console.print(f"    [dim]{line}[/]")
 
         ga_results.append(result_entry)
 
@@ -904,9 +831,11 @@ def main(
             )
         )
     else:
-        print(f"\n{'=' * 60}")
-        print(f"Results: {matched_count} matched, {failed_count} failed, {len(stubs)} total")
-        print(f"{'=' * 60}")
+        console.print(f"\n[bold]{'=' * 60}[/]")
+        console.print(
+            f"Results: [green]{matched_count} matched[/], [red]{failed_count} failed[/], {len(stubs)} total"
+        )
+        console.print(f"[bold]{'=' * 60}[/]")
 
 
 def _run_batch_flag_sweep(
@@ -929,10 +858,12 @@ def _run_batch_flag_sweep(
     for i, stub in enumerate(stubs, 1):
         display = rel_display_path(stub["filepath"], reversed_dir)
         if not json_output:
-            print(f"\n{'=' * 60}")
-            print(f"[{i}/{len(stubs)}] {display} ({stub['size']}B) symbol={stub['symbol']}")
-            print(f"  Current flags: {stub['cflags']}")
-            print(f"{'=' * 60}")
+            console.print(f"\n[bold]{'=' * 60}[/]")
+            console.print(
+                f"\\[{i}/{len(stubs)}] [magenta]{display}[/] ({stub['size']}B) symbol={stub['symbol']}"
+            )
+            console.print(f"  Current flags: [dim]{stub['cflags']}[/]")
+            console.print(f"[bold]{'=' * 60}[/]")
         else:
             print(
                 f"[{i}/{len(stubs)}] {display} ({stub['size']}B)",
@@ -971,16 +902,16 @@ def _run_batch_flag_sweep(
 
         if not json_output:
             if not all_results:
-                print("  No compilable results.")
+                console.print("  No compilable results.")
             else:
                 top_n = min(5, len(all_results))
                 for score, flags in all_results[:top_n]:
-                    marker = " ← EXACT" if score < 0.1 else ""
-                    print(f"  {score:8.2f}: {flags}{marker}")
+                    marker = " ← [bold green]EXACT[/]" if score < 0.1 else ""
+                    console.print(f"  {score:8.2f}: [dim]{flags}[/]{marker}")
                 if is_exact:
-                    print(f"  EXACT MATCH with flags: {best_flags}")
+                    console.print(f"  [bold green]EXACT MATCH[/] with flags: {best_flags}")
                     if cflags_updated:
-                        print(f"  Updated CFLAGS annotation → {best_flags}")
+                        console.print(f"  [bold]Updated CFLAGS annotation → {best_flags}[/]")
 
         sweep_results.append(result_entry)
 
@@ -999,12 +930,12 @@ def _run_batch_flag_sweep(
             )
         )
     else:
-        print(f"\n{'=' * 60}")
-        print(
-            f"Flag sweep results: {exact_count} exact, "
+        console.print(f"\n[bold]{'=' * 60}[/]")
+        console.print(
+            f"Flag sweep results: [green]{exact_count} exact[/], "
             f"{improved_count} compilable, {len(stubs)} total (tier={tier})"
         )
-        print(f"{'=' * 60}")
+        console.print(f"[bold]{'=' * 60}[/]")
 
 
 def main_entry() -> None:

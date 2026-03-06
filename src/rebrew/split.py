@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TypedDict
 
 import typer
+from rich.console import Console
 
 from rebrew.annotation import (
     _C_FUNC_IDENT_RE,
@@ -32,6 +33,8 @@ from rebrew.cli import (
     target_marker,
 )
 from rebrew.utils import atomic_write_text
+
+console = Console(stderr=True)
 
 app = typer.Typer(
     help="Split multi-function C files into single-function files.",
@@ -246,9 +249,8 @@ def main(
             )
         else:
             action = "Would extract" if dry_run else "Extracted"
-            typer.echo(
-                f"{action} 0x{target_va:08x} ({symbol or 'unnamed'}) → {out_path.name}",
-                err=True,
+            console.print(
+                f"[bold green]{action}[/] 0x{target_va:08x} ({symbol or 'unnamed'}) → {out_path.name}"
             )
         return
 
@@ -315,12 +317,11 @@ def main(
         )
         return
 
-    typer.echo(
-        f"Split {split_count} functions from {source_path.name} into {split_count} files",
-        err=True,
+    console.print(
+        f"Split [bold]{split_count}[/] functions from {source_path.name} into {split_count} files"
     )
     for item in planned:
-        typer.echo(f"  {item['output']} <- {item['va']}", err=True)
+        console.print(f"  {item['output']} ← [cyan]{item['va']}[/]")
 
 
 def main_entry() -> None:

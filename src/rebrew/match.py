@@ -16,6 +16,7 @@ import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +28,7 @@ from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config, target_marker
 from rebrew.compile import resolve_cl_command
 from rebrew.compile_cache import CompileCache, get_compile_cache
-from rebrew.core.toolchain import msvc_env_from_config
+from rebrew.core import msvc_env_from_config
 from rebrew.matcher import (
     BuildCache,
     BuildResult,
@@ -457,7 +458,75 @@ def main(
     csv_output = diff_format == "csv"
 
     cfg = require_config(target=target, json_mode=json_output)
+    params = _resolve_build_params(
+        cfg, seed_c, cl, inc, cflags, symbol, target_va, target_size, force, json_output
+    )
 
+    if diff_only:
+        _run_diff_mode(
+            params, mismatches_only, register_aware, csv_output, fix_blocker, json_output
+        )
+        return
+
+    if flag_sweep_only:
+        _run_flag_sweep(params, tier, jobs, json_output)
+        return
+
+    # Default: GA run
+    _run_ga(
+        params,
+        out_dir,
+        generations,
+        pop_size,
+        jobs,
+        compare_obj,
+        link,
+        lib,
+        ldflags,
+        seed,
+        json_output,
+        extra_seed,
+        no_seed,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Build parameter resolution
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _BuildParams:
+    """Resolved build parameters shared across all modes."""
+
+    cfg: Any
+    seed_c: str
+    seed_src: str
+    cl: str
+    inc: str
+    cflags: str
+    symbol: str
+    target_bytes: bytes
+    va_int: int
+    target_size: int
+    origin: str
+    msvc_env: dict[str, str] | None
+    cc: Any  # CompileCache | None
+
+
+def _resolve_build_params(
+    cfg: Any,
+    seed_c: str,
+    cl: str | None,
+    inc: str | None,
+    cflags: str | None,
+    symbol: str | None,
+    target_va: str | None,
+    target_size: int | None,
+    force: bool,
+    json_output: bool,
+) -> _BuildParams:
+    """Resolve config, annotations, compiler, and target bytes into build params."""
     try:
         cc = get_compile_cache(cfg.root)
     except OSError:
@@ -479,6 +548,7 @@ def main(
                 name_to_va[name] = glob.va
     except (OSError, AttributeError, KeyError, ValueError):
         pass
+
     annos = parse_c_file_multi(Path(seed_c), target_name=target_marker(cfg))
     anno = annos[0] if annos else None
     if anno:
@@ -497,7 +567,6 @@ def main(
                 )
 
     meta = parse_source_metadata(seed_c)
-
     origin = meta.get("ORIGIN", "")
     compile_cfg = cfg.for_origin(origin)
     msvc_env = msvc_env_from_config(compile_cfg)
@@ -522,16 +591,14 @@ def main(
     if not symbol and anno:
         symbol = anno.symbol
     if not symbol:
-        symbol = meta.get("SYMBOL")  # fallback for legacy annotations
+        symbol = meta.get("SYMBOL")
     if not symbol:
         error_exit(
             "--symbol required (could not derive from C function definition)", json_mode=json_output
         )
 
     if not cflags:
-        # Fallback default — should be set via annotation or config cflags_presets.
         cflags = meta.get("CFLAGS", "/O2 /Gd")
-    # Ensure compile-only flags are present
     if "/c" not in cflags:
         cflags = "/nologo /c " + cflags
 
@@ -550,7 +617,6 @@ def main(
         except ValueError:
             error_exit(f"Invalid SIZE annotation: {meta['SIZE']!r}")
 
-    # Extract target bytes from offset in the configured binary
     if target_va and target_size:
         va_int = parse_va(target_va, json_mode=json_output)
         target_bytes = extract_raw_bytes(cfg.target_binary, va_int, target_size)
@@ -561,209 +627,263 @@ def main(
         error_exit("Could not extract target bytes", json_mode=json_output)
 
     seed_src = Path(seed_c).read_text(encoding="utf-8")
+
+    return _BuildParams(
+        cfg=cfg,
+        seed_c=seed_c,
+        seed_src=seed_src,
+        cl=cl,
+        inc=inc,
+        cflags=cflags,
+        symbol=symbol,
+        target_bytes=target_bytes,
+        va_int=va_int,
+        target_size=target_size,
+        origin=origin,
+        msvc_env=msvc_env,
+        cc=cc,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Mode: --diff-only
+# ---------------------------------------------------------------------------
+
+
+def _run_diff_mode(
+    p: _BuildParams,
+    mismatches_only: bool,
+    register_aware: bool,
+    csv_output: bool,
+    fix_blocker: bool,
+    json_output: bool,
+) -> None:
+    """Compile seed and show byte diff vs target."""
+    res = build_candidate_obj_only(
+        p.seed_src,
+        p.cl,
+        p.inc,
+        p.cflags,
+        p.symbol,
+        env=p.msvc_env,
+        cache=p.cc,
+        timeout=p.cfg.compile_timeout,
+    )
+    if not (res.ok and res.obj_bytes):
+        if json_output:
+            error_exit(f"Build failed: {res.error_msg}", json_mode=True)
+        console.print(f"Build failed: {res.error_msg}")
+        raise typer.Exit(code=2)
+
+    obj_bytes = res.obj_bytes
+    if len(obj_bytes) > len(p.target_bytes):
+        obj_bytes = obj_bytes[: len(p.target_bytes)]
+    summary = diff_functions(
+        p.target_bytes,
+        obj_bytes,
+        res.reloc_offsets,
+        mismatches_only=mismatches_only,
+        register_aware=register_aware,
+        as_dict=True,
+    )
+    if not json_output and not csv_output:
+        diff_functions(
+            p.target_bytes,
+            obj_bytes,
+            res.reloc_offsets,
+            mismatches_only=mismatches_only,
+            register_aware=register_aware,
+        )
+
+    has_structural = False
+    if summary:
+        blockers = classify_blockers(summary)
+        sim = structural_similarity(p.target_bytes, obj_bytes, res.reloc_offsets)
+
+        if json_output:
+            summary["structural_similarity"] = {
+                "total_insns": sim.total_insns,
+                "exact": sim.exact,
+                "reloc_only": sim.reloc_only,
+                "register_only": sim.register_only,
+                "structural": sim.structural,
+                "mnemonic_match_ratio": sim.mnemonic_match_ratio,
+                "structural_ratio": sim.structural_ratio,
+                "flag_sensitive": sim.flag_sensitive,
+            }
+            if blockers:
+                summary["blockers"] = blockers
+            json_print(summary)
+        elif csv_output:
+            import csv
+
+            writer = csv.writer(sys.stdout)
+            writer.writerow(
+                ["Index", "Match", "Target_Bytes", "Target_Disasm", "Cand_Bytes", "Cand_Disasm"]
+            )
+            instructions_obj = summary.get("instructions", [])
+            instructions = instructions_obj if isinstance(instructions_obj, list) else []
+            for row in instructions:
+                if not isinstance(row, dict):
+                    continue
+                m_char = row.get("match") or ""
+                if mismatches_only and m_char != "**":
+                    continue
+                t_obj = row.get("target") or {}
+                c_obj = row.get("candidate") or {}
+                t_data = t_obj if isinstance(t_obj, dict) else {}
+                c_data = c_obj if isinstance(c_obj, dict) else {}
+                writer.writerow(
+                    [
+                        row.get("index", ""),
+                        m_char,
+                        t_data.get("bytes", ""),
+                        t_data.get("disasm", ""),
+                        c_data.get("bytes", ""),
+                        c_data.get("disasm", ""),
+                    ]
+                )
+        else:
+            if blockers:
+                console.print("\nAuto-classified blockers:")
+                for b in blockers:
+                    console.print(f"  - {b}")
+            _print_structural_similarity(sim)
+
+        if fix_blocker:
+            from rebrew.annotation import remove_annotation_key, update_annotation_key
+
+            seed_path = Path(p.seed_c)
+            if blockers:
+                blocker_text = ", ".join(blockers)
+                delta = sum(
+                    1 for a, b in zip(p.target_bytes, obj_bytes, strict=False) if a != b
+                ) + abs(len(p.target_bytes) - len(obj_bytes))
+                updated = update_annotation_key(seed_path, p.va_int, "BLOCKER", blocker_text)
+                if delta > 0:
+                    update_annotation_key(seed_path, p.va_int, "BLOCKER_DELTA", str(delta))
+                if updated and not json_output:
+                    typer.echo(
+                        f"  Updated BLOCKER: {blocker_text} ({delta}B delta)",
+                        err=True,
+                    )
+            else:
+                removed_b = remove_annotation_key(seed_path, p.va_int, "BLOCKER")
+                removed_d = remove_annotation_key(seed_path, p.va_int, "BLOCKER_DELTA")
+                if (removed_b or removed_d) and not json_output:
+                    typer.echo("  Cleared BLOCKER (no structural diffs)", err=True)
+
+        summary_obj = summary.get("summary", {})
+        structural_obj = summary_obj.get("structural", 0) if isinstance(summary_obj, dict) else 0
+        has_structural = isinstance(structural_obj, int | float) and structural_obj > 0
+    if has_structural:
+        raise typer.Exit(code=1)
+
+
+# ---------------------------------------------------------------------------
+# Mode: --flag-sweep-only
+# ---------------------------------------------------------------------------
+
+
+def _run_flag_sweep(
+    p: _BuildParams,
+    tier: str,
+    jobs: int,
+    json_output: bool,
+) -> None:
+    """Run compiler flag sweep and report results."""
+    results = flag_sweep(
+        p.seed_src,
+        p.target_bytes,
+        p.cl,
+        p.inc,
+        p.cflags,
+        p.symbol,
+        jobs,
+        tier=tier,
+        env=p.msvc_env,
+        cache=p.cc,
+        timeout=p.cfg.compile_timeout,
+    )
+
+    sim_res = None
+    res = build_candidate_obj_only(
+        p.seed_src,
+        p.cl,
+        p.inc,
+        p.cflags,
+        p.symbol,
+        env=p.msvc_env,
+        cache=p.cc,
+        timeout=p.cfg.compile_timeout,
+    )
+    if res.ok and res.obj_bytes:
+        obj_bytes = res.obj_bytes
+        if len(obj_bytes) > len(p.target_bytes):
+            obj_bytes = obj_bytes[: len(p.target_bytes)]
+        sim_res = structural_similarity(p.target_bytes, obj_bytes, res.reloc_offsets)
+
+    best_score = results[0][0] if results else float("inf")
+
+    if json_output:
+        sweep_items = [{"score": round(s, 2), "flags": f} for s, f in results[:20]]
+        payload: dict[str, Any] = {
+            "source": p.seed_c,
+            "symbol": p.symbol,
+            "mode": "flag_sweep",
+            "tier": tier,
+            "best_score": round(best_score, 2) if best_score < float("inf") else None,
+            "best_flags": results[0][1] if results else None,
+            "exact": best_score < 0.1,
+            "results": sweep_items,
+        }
+        if sim_res is not None:
+            payload["structural_similarity"] = {
+                "total_insns": sim_res.total_insns,
+                "exact": sim_res.exact,
+                "reloc_only": sim_res.reloc_only,
+                "register_only": sim_res.register_only,
+                "structural": sim_res.structural,
+                "mnemonic_match_ratio": sim_res.mnemonic_match_ratio,
+                "structural_ratio": sim_res.structural_ratio,
+                "flag_sensitive": sim_res.flag_sensitive,
+            }
+        json_print(payload)
+    else:
+        for score, flags in results[:10]:
+            console.print(f"{score:.2f}: {flags}")
+        if sim_res is not None:
+            _print_structural_similarity(sim_res)
+
+    if best_score < 0.1:
+        return
+    raise typer.Exit(code=1)
+
+
+# ---------------------------------------------------------------------------
+# Mode: GA run (default)
+# ---------------------------------------------------------------------------
+
+
+def _run_ga(
+    p: _BuildParams,
+    out_dir: str,
+    generations: int,
+    pop_size: int,
+    jobs: int,
+    compare_obj: bool,
+    link: str | None,
+    lib: str | None,
+    ldflags: str | None,
+    seed: int | None,
+    json_output: bool,
+    extra_seed: list[str] | None,
+    no_seed: bool,
+) -> None:
+    """Run the full GA matching engine."""
     out_dir_path = Path(out_dir)
     out_dir_path.mkdir(parents=True, exist_ok=True)
 
-    if diff_only:
-        res = build_candidate_obj_only(
-            seed_src,
-            cl,
-            inc,
-            cflags,
-            symbol,
-            env=msvc_env,
-            cache=cc,
-            timeout=cfg.compile_timeout,
-        )
-        if res.ok and res.obj_bytes:
-            obj_bytes = res.obj_bytes
-            if len(obj_bytes) > len(target_bytes):
-                obj_bytes = obj_bytes[: len(target_bytes)]
-            summary = diff_functions(
-                target_bytes,
-                obj_bytes,
-                res.reloc_offsets,
-                mismatches_only=mismatches_only,
-                register_aware=register_aware,
-                as_dict=True,
-            )
-            if not json_output and not csv_output:
-                diff_functions(
-                    target_bytes,
-                    obj_bytes,
-                    res.reloc_offsets,
-                    mismatches_only=mismatches_only,
-                    register_aware=register_aware,
-                )
-
-            has_structural = False
-            if summary:
-                blockers = classify_blockers(summary)
-                sim = structural_similarity(target_bytes, obj_bytes, res.reloc_offsets)
-
-                if json_output:
-                    summary["structural_similarity"] = {
-                        "total_insns": sim.total_insns,
-                        "exact": sim.exact,
-                        "reloc_only": sim.reloc_only,
-                        "register_only": sim.register_only,
-                        "structural": sim.structural,
-                        "mnemonic_match_ratio": sim.mnemonic_match_ratio,
-                        "structural_ratio": sim.structural_ratio,
-                        "flag_sensitive": sim.flag_sensitive,
-                    }
-                    if blockers:
-                        summary["blockers"] = blockers
-                    json_print(summary)
-                elif csv_output:
-                    import csv
-
-                    writer = csv.writer(sys.stdout)
-                    writer.writerow(
-                        [
-                            "Index",
-                            "Match",
-                            "Target_Bytes",
-                            "Target_Disasm",
-                            "Cand_Bytes",
-                            "Cand_Disasm",
-                        ]
-                    )
-                    instructions_obj = summary.get("instructions", [])
-                    instructions = instructions_obj if isinstance(instructions_obj, list) else []
-                    for row in instructions:
-                        if not isinstance(row, dict):
-                            continue
-                        m_char = row.get("match") or ""
-                        if mismatches_only and m_char != "**":
-                            continue
-                        t_obj = row.get("target") or {}
-                        c_obj = row.get("candidate") or {}
-                        t_data = t_obj if isinstance(t_obj, dict) else {}
-                        c_data = c_obj if isinstance(c_obj, dict) else {}
-                        writer.writerow(
-                            [
-                                row.get("index", ""),
-                                m_char,
-                                t_data.get("bytes", ""),
-                                t_data.get("disasm", ""),
-                                c_data.get("bytes", ""),
-                                c_data.get("disasm", ""),
-                            ]
-                        )
-                else:
-                    if blockers:
-                        console.print("\nAuto-classified blockers:")
-                        for b in blockers:
-                            console.print(f"  - {b}")
-                    _print_structural_similarity(sim)
-
-                if fix_blocker:
-                    from rebrew.annotation import remove_annotation_key, update_annotation_key
-
-                    seed_path = Path(seed_c)
-                    if blockers:
-                        blocker_text = ", ".join(blockers)
-                        delta = sum(
-                            1 for a, b in zip(target_bytes, obj_bytes, strict=False) if a != b
-                        ) + abs(len(target_bytes) - len(obj_bytes))
-                        updated = update_annotation_key(seed_path, va_int, "BLOCKER", blocker_text)
-                        if delta > 0:
-                            update_annotation_key(seed_path, va_int, "BLOCKER_DELTA", str(delta))
-                        if updated and not json_output:
-                            typer.echo(
-                                f"  Updated BLOCKER: {blocker_text} ({delta}B delta)",
-                                err=True,
-                            )
-                    else:
-                        removed_b = remove_annotation_key(seed_path, va_int, "BLOCKER")
-                        removed_d = remove_annotation_key(seed_path, va_int, "BLOCKER_DELTA")
-                        if (removed_b or removed_d) and not json_output:
-                            typer.echo("  Cleared BLOCKER (no structural diffs)", err=True)
-
-                summary_obj = summary.get("summary", {})
-                structural_obj = (
-                    summary_obj.get("structural", 0) if isinstance(summary_obj, dict) else 0
-                )
-                has_structural = isinstance(structural_obj, int | float) and structural_obj > 0
-            if has_structural:
-                raise typer.Exit(code=1)
-            return
-        else:
-            if json_output:
-                error_exit(f"Build failed: {res.error_msg}", json_mode=True)
-            console.print(f"Build failed: {res.error_msg}")
-            raise typer.Exit(code=2)
-
-    if flag_sweep_only:
-        results = flag_sweep(
-            seed_src,
-            target_bytes,
-            cl,
-            inc,
-            cflags,
-            symbol,
-            jobs,
-            tier=tier,
-            env=msvc_env,
-            cache=cc,
-            timeout=cfg.compile_timeout,
-        )
-
-        sim_res = None
-        res = build_candidate_obj_only(
-            seed_src,
-            cl,
-            inc,
-            cflags,
-            symbol,
-            env=msvc_env,
-            cache=cc,
-            timeout=cfg.compile_timeout,
-        )
-        if res.ok and res.obj_bytes:
-            obj_bytes = res.obj_bytes
-            if len(obj_bytes) > len(target_bytes):
-                obj_bytes = obj_bytes[: len(target_bytes)]
-            sim_res = structural_similarity(target_bytes, obj_bytes, res.reloc_offsets)
-
-        best_score = results[0][0] if results else float("inf")
-
-        if json_output:
-            sweep_items = [{"score": round(s, 2), "flags": f} for s, f in results[:20]]
-            payload: dict[str, Any] = {
-                "source": seed_c,
-                "symbol": symbol,
-                "mode": "flag_sweep",
-                "tier": tier,
-                "best_score": round(best_score, 2) if best_score < float("inf") else None,
-                "best_flags": results[0][1] if results else None,
-                "exact": best_score < 0.1,
-                "results": sweep_items,
-            }
-            if sim_res is not None:
-                payload["structural_similarity"] = {
-                    "total_insns": sim_res.total_insns,
-                    "exact": sim_res.exact,
-                    "reloc_only": sim_res.reloc_only,
-                    "register_only": sim_res.register_only,
-                    "structural": sim_res.structural,
-                    "mnemonic_match_ratio": sim_res.mnemonic_match_ratio,
-                    "structural_ratio": sim_res.structural_ratio,
-                    "flag_sensitive": sim_res.flag_sensitive,
-                }
-            json_print(payload)
-        else:
-            for score, flags in results[:10]:
-                console.print(f"{score:.2f}: {flags}")
-            if sim_res is not None:
-                _print_structural_similarity(sim_res)
-
-        if best_score < 0.1:
-            return
-        raise typer.Exit(code=1)
-
-    # Load extra seed sources from solved functions
     loaded_seeds: list[str] = []
     if not no_seed and extra_seed:
         for extra_path in extra_seed:
@@ -772,12 +892,12 @@ def main(
                 loaded_seeds.append(ep.read_text(encoding="utf-8", errors="replace"))
 
     ga = BinaryMatchingGA(
-        seed_src,
-        target_bytes,
-        cl,
-        inc,
-        cflags,
-        symbol,
+        p.seed_src,
+        p.target_bytes,
+        p.cl,
+        p.inc,
+        p.cflags,
+        p.symbol,
         out_dir_path,
         pop_size=pop_size,
         num_generations=generations,
@@ -786,10 +906,10 @@ def main(
         link_cmd=link,
         lib_dir=lib,
         ldflags=ldflags,
-        env=msvc_env,
+        env=p.msvc_env,
         rng_seed=seed,
-        compile_cache=cc,
-        compile_timeout=cfg.compile_timeout,
+        compile_cache=p.cc,
+        compile_timeout=p.cfg.compile_timeout,
         verbose=0 if json_output else 1,
         extra_seeds=loaded_seeds or None,
     )
@@ -797,8 +917,8 @@ def main(
 
     if json_output:
         ga_payload: dict[str, Any] = {
-            "source": seed_c,
-            "symbol": symbol,
+            "source": p.seed_c,
+            "symbol": p.symbol,
             "mode": "ga",
             "generations": generations,
             "pop_size": pop_size,
@@ -822,15 +942,15 @@ def main(
             from rebrew.solutions import SolutionEntry, save_solution
 
             entry = SolutionEntry(
-                symbol=symbol,
-                cflags=cflags,
-                origin=origin,
-                size=target_size or 0,
-                source_file=seed_c,
+                symbol=p.symbol,
+                cflags=p.cflags,
+                origin=p.origin,
+                size=p.target_size or 0,
+                source_file=p.seed_c,
                 score=best_score,
                 generations=generations,
             )
-            save_solution(cfg.root, entry)
+            save_solution(p.cfg.root, entry)
         except Exception:  # noqa: BLE001
             log.debug("Solution save failed", exc_info=True)
 

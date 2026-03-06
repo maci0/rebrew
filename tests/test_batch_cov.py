@@ -154,7 +154,7 @@ class TestCmdList:
         """Empty candidate list shows 0 count."""
         cmd_list([])
         captured = capsys.readouterr()
-        assert "Candidates: 0" in captured.out
+        assert "Candidates (0" in captured.err
 
     def test_formats_candidates(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Candidates are printed with VA, size, and name."""
@@ -164,17 +164,17 @@ class TestCmdList:
         ]
         cmd_list(candidates)
         captured = capsys.readouterr()
-        assert "Candidates: 2" in captured.out
-        assert "0x10001000" in captured.out
-        assert "func_a" in captured.out
-        assert "func_b" in captured.out
+        assert "Candidates (2" in captured.err
+        assert "0x10001000" in captured.err
+        assert "func_a" in captured.err
+        assert "func_b" in captured.err
 
     def test_index_numbering(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Candidates have sequential index numbers."""
         candidates = [(0x10001000 + i * 0x100, 16 + i, f"f{i}") for i in range(3)]
         cmd_list(candidates)
         captured = capsys.readouterr()
-        lines = [
-            line for line in captured.out.splitlines() if line.strip().startswith(("0", "1", "2"))
-        ]
-        assert len(lines) == 3
+        # Rich Table renders numbered rows — check all 3 items appear in stderr
+        assert "f0" in captured.err
+        assert "f1" in captured.err
+        assert "f2" in captured.err

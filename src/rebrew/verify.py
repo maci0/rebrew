@@ -415,36 +415,154 @@ def main(
         cfg = get_config(target=target)
     except (FileNotFoundError, KeyError) as exc:
         error_exit(str(exc), json_mode=json_output)
-    bin_path = cfg.target_binary
-    reversed_dir = cfg.reversed_dir
     if jobs is None:
         jobs = cfg.default_jobs
-    func_list_path = cfg.function_list
-    ghidra_json_path = reversed_dir / FUNCTION_STRUCTURE_JSON
 
     out_file = Path(output_path) if output_path else cfg.root / "db" / "verify_results.json"
-    previous_report: dict[str, Any] | None = None
-    diff_warning: str | None = None
-    if diff_mode:
-        if not out_file.exists():
-            diff_warning = f"No previous verify report at {out_file}; skipping diff"
-        else:
-            try:
-                loaded = json.loads(out_file.read_text(encoding="utf-8"))
-                if isinstance(loaded, dict):
-                    previous_report = loaded
-                else:
-                    diff_warning = f"Previous verify report at {out_file} is invalid JSON object"
-            except (OSError, json.JSONDecodeError) as exc:
-                diff_warning = f"Could not read previous verify report at {out_file}: {exc}"
+    previous_report, diff_warning = _load_previous_report(out_file, diff_mode, json_output)
 
-        if diff_warning and not json_output:
-            console.print(f"[yellow]Warning:[/] {diff_warning}")
+    unique_entries, passed, failed, fail_details, results, cached_count = _prepare_entries(
+        cfg,
+        full,
+        json_output,
+    )
+
+    total = len(unique_entries)
+
+    v_passed, v_failed, v_fail_details, v_results, deferred = _run_verification(
+        [e for e in unique_entries if not any(r["va"] == f"0x{e.va:08x}" for r in results)],
+        cfg,
+        jobs,
+        total,
+        cached_count,
+        json_output,
+    )
+    passed += v_passed
+    failed += v_failed
+    fail_details.extend(v_fail_details)
+    results.extend(v_results)
+
+    if fix_status and deferred:
+        _apply_status_fixes(deferred, cfg)
+
+    results.sort(key=lambda r: r["va"])
+
+    timestamp = datetime.now(UTC).isoformat()
+    report = {
+        "timestamp": timestamp,
+        "target": cfg.target_name,
+        "binary": str(cfg.target_binary),
+        "summary": {
+            "total": total,
+            "passed": passed,
+            "failed": failed,
+            "exact": sum(1 for r in results if r["status"] == "EXACT"),
+            "reloc": sum(1 for r in results if r["status"] == "RELOC"),
+            "mismatch": sum(1 for r in results if r["status"] == "MISMATCH"),
+            "compile_error": sum(1 for r in results if r["status"] == "COMPILE_ERROR"),
+            "missing_file": sum(1 for r in results if r["status"] == "MISSING_FILE"),
+        },
+        "results": results,
+    }
+
+    cache_path = cfg.root / ".rebrew" / "verify_cache.json"
+    try:
+        _save_verify_cache(cache_path, cfg, results, unique_entries)
+    except (OSError, TypeError):
+        if not json_output:
+            console.print(f"[yellow]Warning:[/] Could not write verify cache to {cache_path}")
+
+    diff_result: dict[str, Any] | None = None
+    if diff_mode and previous_report is not None:
+        diff_result = diff_reports(previous_report, report)
+
+    if json_output or output_path or diff_mode:
+        report_json = json.dumps(report, indent=2)
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(out_file, report_json, encoding="utf-8")
+        if not json_output:
+            console.print(f"Report written to {out_file}")
+
+        if json_output:
+            if diff_mode:
+                payload: dict[str, Any] = {"report": report, "diff": diff_result}
+                if diff_warning:
+                    payload["warning"] = diff_warning
+                json_print(payload)
+            else:
+                json_print(report)
+
+            has_regressions = bool(diff_result and diff_result["regressions"])
+            if failed > 0 or has_regressions:
+                raise typer.Exit(code=1)
+            return
+
+    _print_results(
+        results,
+        fail_details,
+        diff_result,
+        diff_warning,
+        diff_mode,
+        summary,
+        total,
+        passed,
+        failed,
+        json_output,
+    )
+
+    has_regressions = bool(diff_result and diff_result["regressions"])
+    if failed > 0 or has_regressions:
+        raise typer.Exit(code=1)
+
+
+# ---------------------------------------------------------------------------
+# Phase helpers
+# ---------------------------------------------------------------------------
+
+
+def _load_previous_report(
+    out_file: Path,
+    diff_mode: bool,
+    json_output: bool,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Load previous verify report for --diff mode."""
+    if not diff_mode:
+        return None, None
+
+    diff_warning: str | None = None
+    previous_report: dict[str, Any] | None = None
+
+    if not out_file.exists():
+        diff_warning = f"No previous verify report at {out_file}; skipping diff"
+    else:
+        try:
+            loaded = json.loads(out_file.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                previous_report = loaded
+            else:
+                diff_warning = f"Previous verify report at {out_file} is invalid JSON object"
+        except (OSError, json.JSONDecodeError) as exc:
+            diff_warning = f"Could not read previous verify report at {out_file}: {exc}"
+
+    if diff_warning and not json_output:
+        console.print(f"[yellow]Warning:[/] {diff_warning}")
+
+    return previous_report, diff_warning
+
+
+def _prepare_entries(
+    cfg: Any,
+    full: bool,
+    json_output: bool,
+) -> tuple[list[Annotation], int, int, list[tuple[Annotation, str]], list[dict[str, Any]], int]:
+    """Scan reversed_dir, filter entries, check cache. Returns (unique_entries, passed, failed, fail_details, results, cached_count)."""
+    reversed_dir = cfg.reversed_dir
+    func_list_path = cfg.function_list
+    ghidra_json_path = reversed_dir / FUNCTION_STRUCTURE_JSON
 
     console.print(f"Scanning {reversed_dir}...")
     entries = scan_reversed_dir(reversed_dir, cfg=cfg)
     funcs = parse_function_list(func_list_path)
-
     registry = build_function_registry(funcs, cfg, ghidra_json_path)
 
     unique_vas = {e.va for e in entries}
@@ -461,10 +579,8 @@ def main(
         f"thunks: {thunk_count})"
     )
 
-    # Verify
-
-    if not bin_path.exists():
-        error_exit(f"{bin_path} not found", json_mode=json_output)
+    if not cfg.target_binary.exists():
+        error_exit(f"{cfg.target_binary} not found", json_mode=json_output)
 
     # Filter out non-compilable annotations and deduplicate by VA
     seen_vas: set[int] = set()
@@ -475,7 +591,6 @@ def main(
         if entry.get("marker_type", "FUNCTION") in ("DATA", "GLOBAL"):
             data_count += 1
             continue
-        # Library header entries (from library_*.h) have no compilable source
         fp = entry.get("filepath", "")
         if fp and fp.endswith(".h"):
             library_header_count += 1
@@ -490,33 +605,30 @@ def main(
             f"Skipped {library_header_count} library header entries (identified, not compiled)"
         )
 
+    # Check cache
     passed = 0
     failed = 0
     fail_details: list[tuple[Annotation, str]] = []
-    results: list[dict[str, Any]] = []  # per-function structured results
+    results: list[dict[str, Any]] = []
 
     cache_path = cfg.root / ".rebrew" / "verify_cache.json"
     verify_cache_obj = None if full else _load_verify_cache(cache_path, cfg)
     entries_cache: dict[str, VerifyCacheEntry] = (
         verify_cache_obj.entries if verify_cache_obj else {}
     )
-    entries_to_verify: list[Annotation] = []
     cached_count = 0
 
     for entry in unique_entries:
         va_key = f"0x{entry.va:08x}"
         cached_entry = entries_cache.get(va_key)
         if cached_entry is None:
-            entries_to_verify.append(entry)
             continue
 
         if cached_entry.filepath != entry.get("filepath"):
-            entries_to_verify.append(entry)
             continue
 
         filepath = cfg.reversed_dir / entry.get("filepath", "")
         if not filepath.exists():
-            entries_to_verify.append(entry)
             continue
 
         current_mtime = filepath.stat().st_mtime_ns
@@ -524,34 +636,47 @@ def main(
             try:
                 current_hash = _source_hash(filepath)
             except OSError:
-                entries_to_verify.append(entry)
                 continue
             if current_hash != cached_entry.source_hash:
-                entries_to_verify.append(entry)
                 continue
 
-        # If we reach here, the cache entry is valid
         results.append(cached_entry.result.to_dict())
         if cached_entry.result.passed:
             passed += 1
         else:
             failed += 1
-            fail_details.append(
-                (entry, str(cached_entry.result.message))
-            )  # Assuming message is part of VerifyResult
+            fail_details.append((entry, str(cached_entry.result.message)))
         cached_count += 1
 
-    total = len(unique_entries)
-    fresh_count = len(entries_to_verify)
-    effective_jobs = min(jobs, fresh_count) if fresh_count else 1
-
     if verify_cache_obj is not None and not json_output:
+        fresh_count = len(unique_entries) - cached_count
         console.print(
             f"Incremental: {cached_count} cached, {fresh_count} to verify (use --full to force all)"
         )
 
-    # Initialize a shared compile cache so multi-function files only
-    # compile once — the second symbol extraction hits the cache.
+    return unique_entries, passed, failed, fail_details, results, cached_count
+
+
+def _run_verification(
+    entries_to_verify: list[Annotation],
+    cfg: Any,
+    jobs: int,
+    total: int,
+    cached_count: int,
+    json_output: bool,
+) -> tuple[
+    int, int, list[tuple[Annotation, str]], list[dict[str, Any]], list[tuple[Annotation, str, int]]
+]:
+    """Run parallel verification and classify results. Returns (passed, failed, fail_details, results, deferred_fixes)."""
+    passed = 0
+    failed = 0
+    fail_details: list[tuple[Annotation, str]] = []
+    results: list[dict[str, Any]] = []
+    deferred_fixes: list[tuple[Annotation, str, int]] = []
+
+    fresh_count = len(entries_to_verify)
+    effective_jobs = min(jobs, fresh_count) if fresh_count else 1
+
     try:
         from rebrew.compile_cache import get_compile_cache
 
@@ -564,7 +689,6 @@ def main(
     ) -> tuple[Annotation, bool, str, bytes | None, bytes | None, dict[int, str] | None]:
         return (e, *verify_entry(e, cfg, cache=compile_cache))
 
-    deferred_fixes: list[tuple[Annotation, str, int]] = []
     with Progress(
         TextColumn("[bold blue]Verifying"),
         BarColumn(),
@@ -598,7 +722,6 @@ def main(
                 name = entry.name
                 progress.update(task, advance=1, description=name)
 
-                # Classify result
                 match_percent = 0.0
                 delta = 0
                 if ok:
@@ -627,8 +750,7 @@ def main(
                     else:
                         status = "FAIL"
 
-                if fix_status:
-                    deferred_fixes.append((entry, status, delta))
+                deferred_fixes.append((entry, status, delta))
 
                 results.append(
                     {
@@ -644,79 +766,44 @@ def main(
                     }
                 )
 
-    # Apply deferred --fix-status writes after all compilation is complete
-    if deferred_fixes:
-        from rebrew.annotation import remove_annotation_key, update_annotation_key
+    return passed, failed, fail_details, results, deferred_fixes
 
-        for entry, status, delta in deferred_fixes:
-            fp = cfg.reversed_dir / entry.get("filepath", "")
-            if fp.exists():
-                current_status = entry.get("status")
-                if status in ("EXACT", "RELOC") and current_status != status:
-                    update_annotation_key(fp, entry.va, "STATUS", status)
-                    remove_annotation_key(fp, entry.va, "BLOCKER")
-                    remove_annotation_key(fp, entry.va, "BLOCKER_DELTA")
-                elif status == "MISMATCH" and current_status in ("EXACT", "RELOC"):
-                    update_annotation_key(fp, entry.va, "STATUS", "MATCHING")
-                    if delta > 0:
-                        update_annotation_key(fp, entry.va, "BLOCKER", f"Mismatch {delta} bytes")
-                        update_annotation_key(fp, entry.va, "BLOCKER_DELTA", str(delta))
 
-    # Sort results by VA
-    results.sort(key=lambda r: r["va"])
+def _apply_status_fixes(
+    deferred_fixes: list[tuple[Annotation, str, int]],
+    cfg: Any,
+) -> None:
+    """Apply --fix-status annotation updates after all compilation is complete."""
+    from rebrew.annotation import remove_annotation_key, update_annotation_key
 
-    # Build structured report
-    timestamp = datetime.now(UTC).isoformat()
-    report = {
-        "timestamp": timestamp,
-        "target": cfg.target_name,
-        "binary": str(bin_path),
-        "summary": {
-            "total": total,
-            "passed": passed,
-            "failed": failed,
-            "exact": sum(1 for r in results if r["status"] == "EXACT"),
-            "reloc": sum(1 for r in results if r["status"] == "RELOC"),
-            "mismatch": sum(1 for r in results if r["status"] == "MISMATCH"),
-            "compile_error": sum(1 for r in results if r["status"] == "COMPILE_ERROR"),
-            "missing_file": sum(1 for r in results if r["status"] == "MISSING_FILE"),
-        },
-        "results": results,
-    }
+    for entry, status, delta in deferred_fixes:
+        fp = cfg.reversed_dir / entry.get("filepath", "")
+        if fp.exists():
+            current_status = entry.get("status")
+            if status in ("EXACT", "RELOC") and current_status != status:
+                update_annotation_key(fp, entry.va, "STATUS", status)
+                remove_annotation_key(fp, entry.va, "BLOCKER")
+                remove_annotation_key(fp, entry.va, "BLOCKER_DELTA")
+            elif status == "MISMATCH" and current_status in ("EXACT", "RELOC"):
+                update_annotation_key(fp, entry.va, "STATUS", "MATCHING")
+                if delta > 0:
+                    update_annotation_key(fp, entry.va, "BLOCKER", f"Mismatch {delta} bytes")
+                    update_annotation_key(fp, entry.va, "BLOCKER_DELTA", str(delta))
 
-    try:
-        _save_verify_cache(cache_path, cfg, results, unique_entries)
-    except (OSError, TypeError):
-        if not json_output:
-            console.print(f"[yellow]Warning:[/] Could not write verify cache to {cache_path}")
 
-    diff_result: dict[str, Any] | None = None
-    if diff_mode and previous_report is not None:
-        diff_result = diff_reports(previous_report, report)
-
-    # JSON output mode
-    if json_output or output_path or diff_mode:
-        report_json = json.dumps(report, indent=2)
-
-        out_file.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(out_file, report_json, encoding="utf-8")
-        if not json_output:
-            console.print(f"Report written to {out_file}")
-
-        if json_output:
-            if diff_mode:
-                payload: dict[str, Any] = {"report": report, "diff": diff_result}
-                if diff_warning:
-                    payload["warning"] = diff_warning
-                json_print(payload)
-            else:
-                json_print(report)
-
-            has_regressions = bool(diff_result and diff_result["regressions"])
-            if failed > 0 or has_regressions:
-                raise typer.Exit(code=1)
-            return
-
+def _print_results(
+    results: list[dict[str, Any]],
+    fail_details: list[tuple[Annotation, str]],
+    diff_result: dict[str, Any] | None,
+    diff_warning: str | None,
+    diff_mode: bool,
+    show_summary: bool,
+    total: int,
+    passed: int,
+    failed: int,
+    json_output: bool,
+) -> None:
+    """Print diff report, summary table, and failure details."""
     if diff_mode and diff_result is not None:
         regressions = diff_result["regressions"]
         improvements = diff_result["improvements"]
@@ -755,7 +842,7 @@ def main(
             out_console.print()
             out_console.print(f"Warning: {diff_warning}")
 
-    if summary:
+    if show_summary:
         out_console.print()
         table = Table(title="Verification Summary", show_header=True)
         table.add_column("VA", style="cyan")
@@ -826,10 +913,6 @@ def main(
         result_text.append(", ")
         result_text.append(f"{failed} failed", style="red")
     out_console.print(result_text)
-
-    has_regressions = bool(diff_result and diff_result["regressions"])
-    if failed > 0 or has_regressions:
-        raise typer.Exit(code=1)
 
 
 def main_entry() -> None:
