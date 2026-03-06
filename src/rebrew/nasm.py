@@ -205,10 +205,10 @@ def _build_nasm_lines(
         raw = entry["raw"]
         nasm_text = entry["nasm"]
         if idx in db_indices:
-            db_hex = ", ".join(f"0x{b:02X}" for b in raw)  # type: ignore
-            lines.append(f"    db {db_hex:40s} ; {addr:08X}  {nasm_text}")  # type: ignore
+            db_hex = ", ".join(f"0x{b:02X}" for b in raw)
+            lines.append(f"    db {db_hex:40s} ; {addr:08X}  {nasm_text}")
         else:
-            lines.append(f"    {nasm_text:40s} ; {addr:08X}  {raw.hex()}")  # type: ignore
+            lines.append(f"    {nasm_text:40s} ; {addr:08X}  {raw.hex()}")
     if trailing:
         db_hex = ", ".join(f"0x{b:02X}" for b in trailing)
         lines.append(f"    db {db_hex}  ; trailing data")
