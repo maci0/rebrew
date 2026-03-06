@@ -397,6 +397,80 @@ class TestBatchPromote:
         assert "results" in payload
 
 
+class TestPromoteExitCode:
+    """Regression tests for promote CLI exit code.
+
+    Prior to the Phase-1 audit fix, the single-file promote path raised
+    typer.Exit(1) whenever new_status was not EXACT/RELOC, meaning even normal
+    MATCHING/STUB outcomes caused failure. Only ERROR status should trigger exit 1.
+    """
+
+    def _make_cfg(self, tmp_path: Path) -> Any:
+        return SimpleNamespace(
+            marker="test.dll",
+            target_binary=Path("test.dll"),
+            reversed_dir=tmp_path,
+            source_ext=".c",
+            for_origin=lambda _origin: None,
+        )
+
+    def test_matching_result_exits_zero(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """A MATCHING outcome (no status change) must exit 0, not 1."""
+        source = tmp_path / "func.c"
+        source.write_text(
+            "// FUNCTION: test.dll 0x10001000\n"
+            "// STATUS: MATCHING\n"
+            "// ORIGIN: GAME\n"
+            "// SIZE: 4\n"
+            "// CFLAGS: /O2 /Gd\n"
+            "// SYMBOL: _func\n"
+            "void func(void) {}\n",
+            encoding="utf-8",
+        )
+        cfg = self._make_cfg(tmp_path)
+        cfg.for_origin = lambda _origin: cfg
+
+        monkeypatch.setattr("rebrew.promote.require_config", lambda **_kw: cfg)
+        monkeypatch.setattr("rebrew.promote.compile_obj", lambda *_a: ("fake.obj", ""))
+        monkeypatch.setattr(
+            "rebrew.promote.parse_obj_symbol_bytes", lambda *_a: (b"\x90\x90\x90\x90", [])
+        )
+        # 3/4 match → MATCHING, stays MATCHING, action="none"
+        monkeypatch.setattr("rebrew.promote.smart_reloc_compare", lambda *_a: (False, 3, 4, [], []))
+        monkeypatch.setattr("rebrew.promote.extract_raw_bytes", lambda *_a: b"\x55\x8b\xec\xc3")
+
+        result = runner.invoke(app, [str(source)])
+        assert result.exit_code == 0, (
+            f"Expected exit 0 for MATCHING outcome, got {result.exit_code}: {result.output}"
+        )
+
+    def test_error_result_exits_one(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """A compile ERROR must still exit 1 — agents must detect failures."""
+        source = tmp_path / "func.c"
+        source.write_text(
+            "// FUNCTION: test.dll 0x10001000\n"
+            "// STATUS: STUB\n"
+            "// ORIGIN: GAME\n"
+            "// SIZE: 4\n"
+            "// CFLAGS: /O2 /Gd\n"
+            "// SYMBOL: _func\n"
+            "void func(void) {}\n",
+            encoding="utf-8",
+        )
+        cfg = self._make_cfg(tmp_path)
+        cfg.for_origin = lambda _origin: cfg
+
+        monkeypatch.setattr("rebrew.promote.require_config", lambda **_kw: cfg)
+        # compile_obj returns None → compile ERROR
+        monkeypatch.setattr("rebrew.promote.compile_obj", lambda *_a: (None, "CL.EXE not found"))
+        monkeypatch.setattr("rebrew.promote.extract_raw_bytes", lambda *_a: b"\x55\x8b\xec\xc3")
+
+        result = runner.invoke(app, [str(source)])
+        assert result.exit_code == 1, (
+            f"Expected exit 1 for ERROR result, got {result.exit_code}: {result.output}"
+        )
+
+
 class TestStatusRank:
     def test_rank_ordering(self) -> None:
         assert _STATUS_RANK["EXACT"] < _STATUS_RANK["RELOC"]

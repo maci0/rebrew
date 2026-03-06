@@ -219,6 +219,11 @@ class ProjectConfig:
         if not overrides:
             return self
         cfg = _copy_mod.copy(self)
+        # Shallow copy shares mutable container references with the original.
+        # Clone the fields that callers may mutate to prevent aliasing bugs.
+        cfg.library_origins = set(self.library_origins)
+        cfg.origins = list(self.origins)
+        cfg.padding_bytes = list(self.padding_bytes)
         if "command" in overrides:
             cfg.compiler_command = overrides["command"]
         if "runner" in overrides:

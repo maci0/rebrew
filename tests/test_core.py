@@ -100,7 +100,7 @@ class TestGACheckpoint:
             best_score=100.0,
             best_source="int f() { return 0; }",
             population=["src1", "src2"],
-            rng_state=(3, (1, 2, 3)),
+            rng_state=(3, (1, 2, 3), None),  # valid 3-tuple: (version, internalstate, gauss_next)
             stagnant_gens=5,
             elapsed_sec=30.0,
             args_hash="abc123",
@@ -188,3 +188,88 @@ class TestComputeArgsHash:
         a1 = {"target_exe": "a.exe", "unrelated": True}
         a2 = {"target_exe": "a.exe"}
         assert compute_args_hash(a1) == compute_args_hash(a2)
+
+
+# ---------------------------------------------------------------------------
+# Audit-specific regression tests (Phase 3 hardening — matcher/core.py)
+# ---------------------------------------------------------------------------
+
+
+class TestAuditCheckpoint:
+    """Tests added during the formal code audit to verify load_checkpoint
+    gracefully rejects corrupted rng_state without crashing the GA loop."""
+
+    def test_corrupt_rng_state_wrong_length_returns_none(self, tmp_path) -> None:
+        """rng_state with len != 3 must return None with a UserWarning (not crash)."""
+        import json
+
+        path = str(tmp_path / "bad_ckpt.json")
+        # Construct a checkpoint JSON where rng_state has 2 elements (truncated)
+        data = {
+            "generation": 5,
+            "best_score": 80.0,
+            "best_source": "int f() { return 0; }",
+            "population": ["a"],
+            "rng_state": [3, [1, 2, 3]],  # len == 2, not 3
+            "stagnant_gens": 2,
+            "elapsed_sec": 10.0,
+            "args_hash": "myhash",
+        }
+        with open(path, "w") as fh:
+            json.dump(data, fh)
+
+        import pytest
+
+        with pytest.warns(UserWarning, match="unexpected structure"):
+            loaded = load_checkpoint(path, "myhash")
+        assert loaded is None
+
+    def test_corrupt_rng_state_bad_internal_type_returns_none(self, tmp_path) -> None:
+        """rng_state with non-list internal state must return None (not crash Random.setstate)."""
+        import json
+
+        path = str(tmp_path / "bad_ckpt2.json")
+        # Internal state is a string, not a list of ints
+        data = {
+            "generation": 1,
+            "best_score": 0.0,
+            "best_source": None,
+            "population": [],
+            "rng_state": [3, "not_a_list", None],
+            "stagnant_gens": 0,
+            "elapsed_sec": 0.0,
+            "args_hash": "myhash2",
+        }
+        with open(path, "w") as fh:
+            json.dump(data, fh)
+
+        import pytest
+
+        with pytest.warns(UserWarning, match="unexpected structure"):
+            loaded = load_checkpoint(path, "myhash2")
+        assert loaded is None
+
+    def test_corrupt_rng_state_non_int_elements_returns_none(self, tmp_path) -> None:
+        """rng_state internal state with non-coercible elements must return None gracefully."""
+        import json
+
+        path = str(tmp_path / "bad_ckpt3.json")
+        # Internal state has a string element that can't be cast to int
+        data = {
+            "generation": 1,
+            "best_score": 0.0,
+            "best_source": None,
+            "population": [],
+            "rng_state": [3, ["not", "ints", "here"], None],
+            "stagnant_gens": 0,
+            "elapsed_sec": 0.0,
+            "args_hash": "myhash3",
+        }
+        with open(path, "w") as fh:
+            json.dump(data, fh)
+
+        import pytest
+
+        with pytest.warns(UserWarning):
+            loaded = load_checkpoint(path, "myhash3")
+        assert loaded is None
