@@ -14,6 +14,7 @@ Usage:
 import contextlib
 import io
 import json
+import logging
 import re
 import shutil
 import subprocess
@@ -569,7 +570,7 @@ def run_ga(
             )
             save_solution(project_root, entry)
         except Exception:  # noqa: BLE001
-            pass  # solution save is best-effort
+            logging.debug("Solution save failed", exc_info=True)
 
     return matched, output
 
@@ -849,7 +850,7 @@ def main(
                         if not json_output:
                             print(f"  Seeding from solved: {sol.symbol} ({sol.size}B)")
             except Exception:  # noqa: BLE001
-                pass  # solution lookup is best-effort
+                logging.debug("Solution lookup failed", exc_info=True)
 
         matched, output = run_ga(
             stub,
