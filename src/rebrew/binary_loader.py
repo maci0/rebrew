@@ -279,7 +279,9 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     with _load_binary_lock:
         cached = _load_binary_cache.get(cache_key)
         if cached is not None:
-            # Refresh: move to end so FIFO eviction keeps recently-accessed entries
+            # LRU refresh: pop and re-insert so this entry moves to the end.
+            # Python 3.7+ dicts are insertion-ordered; next(iter(cache)) always
+            # yields the oldest entry.  Re-inserting makes this the newest.
             _load_binary_cache[cache_key] = _load_binary_cache.pop(cache_key)
             return cached
 
@@ -336,7 +338,7 @@ def extract_bytes_at_va(
     info: BinaryInfo,
     va: int,
     size: int,
-    padding_bytes: tuple[int, ...] = (0xCC, 0x90),
+    padding_bytes: tuple[int, ...] | list[int] = (0xCC, 0x90),
     *,
     trim_padding: bool = True,
 ) -> bytes | None:

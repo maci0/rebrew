@@ -987,3 +987,103 @@ class TestAuditAnnotation:
         """to_dict() inline_error is empty string when not set."""
         ann = Annotation()
         assert ann.to_dict()["inline_error"] == ""
+
+    # --- P1-01 regression: update_annotation_key must not bleed into next block ---
+
+    def test_update_annotation_key_no_bleed_into_next_block(self, tmp_path) -> None:
+        """Bug P1-01: update_annotation_key with stale in_target_block=True would
+        continue editing key-value lines in annotation blocks after the target VA.
+
+        Two-function file: update STATUS on VA1 only.  VA2's STATUS must remain
+        unchanged after the edit.
+        """
+        from rebrew.annotation import update_annotation_key
+
+        content = (
+            "// FUNCTION: SERVER 0x10001000\n"
+            "// STATUS: RELOC\n"
+            "// SIZE: 42\n"
+            "int func_a(void) {}\n"
+            "\n"
+            "// FUNCTION: SERVER 0x10002000\n"
+            "// STATUS: MATCHING\n"
+            "// SIZE: 100\n"
+            "int func_b(void) {}\n"
+        )
+        f = tmp_path / "dual.c"
+        f.write_text(content, encoding="utf-8")
+
+        changed = update_annotation_key(f, 0x10001000, "STATUS", "EXACT")
+        assert changed is True
+
+        result = f.read_text(encoding="utf-8")
+        lines = result.splitlines()
+
+        # VA1's STATUS must be updated
+        assert any("STATUS: EXACT" in line for line in lines[:5])
+        # VA2's STATUS must remain MATCHING (not bleed to EXACT)
+        va2_status_lines = [line for line in lines[5:] if "STATUS" in line]
+        assert va2_status_lines, "VA2 STATUS line disappeared"
+        assert all("MATCHING" in line for line in va2_status_lines), (
+            f"VA2 STATUS was corrupted: {va2_status_lines}"
+        )
+
+    # --- P1-02 regression: remove_annotation_key must not bleed into next block ---
+
+    def test_remove_annotation_key_no_bleed_into_next_block(self, tmp_path) -> None:
+        """Bug P1-02: remove_annotation_key iterated all lines without resetting
+        in_target_block on new-marker encounters, causing keys in subsequent blocks
+        to be deleted when they matched the target key pattern.
+
+        Two-function file: remove BLOCKER from VA1 only.  VA2's BLOCKER must survive.
+        """
+        from rebrew.annotation import remove_annotation_key
+
+        content = (
+            "// FUNCTION: SERVER 0x10001000\n"
+            "// STATUS: STUB\n"
+            "// BLOCKER: needs investigation\n"
+            "void func_a(void) {}\n"
+            "\n"
+            "// FUNCTION: SERVER 0x10002000\n"
+            "// STATUS: STUB\n"
+            "// BLOCKER: different blocker\n"
+            "void func_b(void) {}\n"
+        )
+        f = tmp_path / "dual_blockers.c"
+        f.write_text(content, encoding="utf-8")
+
+        changed = remove_annotation_key(f, 0x10001000, "BLOCKER")
+        assert changed is True
+
+        result = f.read_text(encoding="utf-8")
+        # VA1's BLOCKER should be gone
+        assert "needs investigation" not in result
+        # VA2's BLOCKER must survive untouched
+        assert "different blocker" in result, (
+            "VA2's BLOCKER was incorrectly removed (block-bleed bug P1-02)"
+        )
+
+    # --- P1-09 regression: nested templates in stdcall param sizing ---
+
+    def test_stdcall_deeply_nested_template(self) -> None:
+        """Bug P1-09: single-pass re.sub(<[^<>]*>) left stray '>' with templates
+        nested more than one level deep (e.g. std::map<int, std::pair<A,B>>).
+
+        Iterative stripping must handle arbitrary depth.
+        """
+        from rebrew.annotation import _calc_stdcall_param_size  # type: ignore[attr-defined]
+
+        # std::map<int, std::pair<A,B>> is ONE parameter (a map).
+        # Before fix: two-pass needed, single-pass left stray '>' giving TWO counted params.
+        size = _calc_stdcall_param_size(
+            "void __stdcall handler(std::map<int, std::pair<int,int>> m)"
+        )
+        # One pointer-sized parameter (map is passed by reference/pointer)
+        assert size == 4, f"Expected 4 bytes for one param, got {size}"
+
+        # Also: two parameters, one of which is a nested template
+        size2 = _calc_stdcall_param_size(
+            "void __stdcall handler(std::map<int, std::pair<int,int>> m, int n)"
+        )
+        assert size2 == 8, f"Expected 8 bytes for two params, got {size2}"

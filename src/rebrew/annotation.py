@@ -32,6 +32,18 @@ from rebrew.utils import atomic_write_text
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Module-level constants
+# ---------------------------------------------------------------------------
+
+_PARSE_LOOKAHEAD_LINES: Final[int] = 20
+"""Maximum lines scanned from file start when looking for a new-format annotation marker.
+
+Keeping this small avoids large readaheads on files with deeply-nested preambles.
+Increasing it would allow markers buried further down the file to be found by
+``parse_c_file``; ``parse_c_file_multi`` already scans the full file instead.
+"""
+
 __all__ = [
     "Annotation",
     "VALID_MARKERS",
@@ -330,6 +342,7 @@ class Annotation:
     inline_error: str = ""
     globals_list: list[str] = field(default_factory=list)
     section: str = ""  # .data, .rdata, .bss — used by DATA annotations
+    line: int = 0  # 1-based line number of the marker in the source file
 
     # -- Dict-like access for backward compat --
 
@@ -384,6 +397,7 @@ class Annotation:
             "callers": self.callers,
             "globals": self.globals_list,
             "inline_error": self.inline_error,
+            "line": self.line,
         }
         if self.section:
             d["section"] = self.section
@@ -575,7 +589,7 @@ def parse_old_format(line: str) -> Annotation | None:
 
     mt = marker_for_origin(origin, status)
 
-    return make_func_entry(
+    ann = make_func_entry(
         va=int(m.group("va"), 16),
         size=int(m.group("size")),
         name=name,
@@ -587,6 +601,8 @@ def parse_old_format(line: str) -> Annotation | None:
         marker_type=mt,
         filepath="",
     )
+    ann.line = 1  # old-format annotations are always on the first line
+    return ann
 
 
 # __stdcall parameter types → stack size in bytes (MSVC6 x86 conventions).
@@ -640,7 +656,15 @@ def _calc_stdcall_param_size(proto: str) -> int | None:
     # producing an incorrect decorated name like ``_foo@12`` instead of
     # ``_foo@4``.  Template args never appear at the top-level comma
     # boundary — only as nested angle-bracket content.
-    params_str = re.sub(r"<[^<>]*>", "", params_str)
+    #
+    # Iterative stripping handles arbitrary nesting depth:
+    # e.g. std::map<int, std::pair<A, B>> requires two passes:
+    #   pass 1: removes "<A, B>" → std::map<int, std::pair>
+    #   pass 2: removes "<int, std::pair>" → (empty)
+    prev = None
+    while prev != params_str:
+        prev = params_str
+        params_str = re.sub(r"<[^<>]*>", "", params_str)
 
     total = 0
     for param in params_str.split(","):
@@ -863,7 +887,7 @@ def parse_c_file(
     rel = _relative_filepath(filepath, base_dir)
 
     # Try new format first (multi-line) — preferred, canonical output
-    entry = parse_new_format(lines[:20])
+    entry = parse_new_format(lines[:_PARSE_LOOKAHEAD_LINES])
     if entry is not None:
         if target_name and entry.module and entry.module.lower() != target_name.lower():
             return None
@@ -902,17 +926,18 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
     current_kv: dict[str, str] = {}
     pending_kv: dict[str, str] = {}
     seen_code_after_marker: bool = False
+    current_line: int = 0  # 1-based line number of the current marker
 
     def _flush() -> None:
         nonlocal current_marker_type, current_va, current_module, current_kv, pending_kv
         if current_marker_type is None or current_va is None:
             return
-        results.append(
-            _kv_to_annotation(current_kv, current_marker_type, current_va, current_module)
-        )
+        ann = _kv_to_annotation(current_kv, current_marker_type, current_va, current_module)
+        ann.line = current_line
+        results.append(ann)
         pending_kv = {}
 
-    for line in lines:
+    for lineno, line in enumerate(lines, start=1):
         stripped = line.strip()
         if not stripped:
             continue
@@ -927,6 +952,7 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
             current_marker_type = m.group("type")
             current_va = int(m.group("va"), 16)
             current_module = m.group("module")
+            current_line = lineno
             # Merge any pending key-value lines that appeared before this marker
             current_kv = saved_pending
             pending_kv = {}
@@ -1112,6 +1138,10 @@ def update_annotation_key(filepath: Path, va: int, key: str, new_value: str) -> 
         marker_match = _marker_pattern.search(line)
         if marker_match:
             found_va = int(marker_match.group(2), 16)
+            if in_target_block and found_va != va:
+                # A new annotation block started after our target block.
+                # Stop here — edits must not bleed into subsequent blocks.
+                break
             in_target_block = found_va == va
 
         if in_target_block:
@@ -1315,7 +1345,10 @@ def remove_annotation_key(filepath: Path, va: int, key: str) -> bool:
         marker_match = _marker_pattern.search(line)
         if marker_match:
             found_va = int(marker_match.group(2), 16)
-            in_target_block = found_va == va
+            # Ternary: if we are already in the target block and the new VA is
+            # different, we've crossed into a sibling block — stop removal there.
+            # Otherwise set in_target_block based on whether this VA matches.
+            in_target_block = False if in_target_block and found_va != va else found_va == va
 
         if in_target_block:
             sym_match = _key_pattern.search(line)
