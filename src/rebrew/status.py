@@ -242,7 +242,7 @@ rebrew status                          Rich dashboard with progress bars
 
 rebrew status --json                   Machine-readable JSON output
 
-rebrew status -t server.dll            Status for a specific target
+rebrew status -t mygame            Status for a specific target
 
 [bold]What it shows:[/bold]
 

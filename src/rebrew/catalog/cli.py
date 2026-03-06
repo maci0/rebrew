@@ -35,7 +35,7 @@ rebrew catalog --catalog                    Generate CATALOG.md in reversed_dir
 
 rebrew catalog --json --catalog             Generate both JSON and CATALOG.md
 
-rebrew catalog -t server.dll                Catalog a specific target
+rebrew catalog -t mygame                Catalog a specific target
 
 [bold]What it does:[/bold]
 

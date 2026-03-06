@@ -4,8 +4,8 @@ Runs rebrew test internally, then updates the STATUS and BLOCKER annotations
 based on the result. Outputs structured JSON for agent consumption.
 
 Usage:
-    rebrew promote src/server.dll/my_func.c
-    rebrew promote src/server.dll/my_func.c --json
+    rebrew promote src/mygame/my_func.c
+    rebrew promote src/mygame/my_func.c --json
 """
 
 import tempfile
@@ -48,7 +48,7 @@ rebrew promote --all                          Batch promote all promotable funct
 
 rebrew promote --all --origin GAME            Only promote GAME functions
 
-rebrew promote --all --dir src/server.dll     Restrict to subdirectory
+rebrew promote --all --dir src/mygame     Restrict to subdirectory
 
 rebrew promote --all --dry-run --json         Preview batch promotion as JSON
 

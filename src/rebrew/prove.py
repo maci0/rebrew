@@ -271,11 +271,11 @@ def prove_equivalence(
 _EPILOG = """\
 [bold]Examples:[/bold]
 
-rebrew prove src/server.dll/calculate_physics.c       Prove equivalence
+rebrew prove src/mygame/calculate_physics.c       Prove equivalence
 
-rebrew prove src/server.dll/calculate_physics.c --json JSON output
+rebrew prove src/mygame/calculate_physics.c --json JSON output
 
-rebrew prove src/server.dll/calculate_physics.c --dry-run  Don't update annotations
+rebrew prove src/mygame/calculate_physics.c --dry-run  Don't update annotations
 
 rebrew prove my_func                                  Find by symbol name
 

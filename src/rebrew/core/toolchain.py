@@ -2,6 +2,7 @@
 
 import os
 import shlex
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -29,8 +30,21 @@ def msvc_env_from_config(cfg: "ProjectConfig") -> dict[str, str]:
     if runner:
         env["REBREW_COMPILER_RUNNER"] = runner
 
-    # Resolve paths relative to project root
-    bin_dir = str(cfg.root / "tools" / "MSVC600" / "VC98" / "Bin")
+    # Derive bin_dir from the compiler command path.
+    # e.g. "wine tools/MSVC600/VC98/Bin/CL.EXE" → "tools/MSVC600/VC98/Bin"
+    try:
+        parts = shlex.split(cfg.compiler_command)
+    except ValueError:
+        parts = cfg.compiler_command.split()
+    # Skip the runner prefix (wine/wibo) to find the CL.EXE path
+    cl_parts = [p for p in parts if p.lower() not in {"wine", "wibo"}]
+    if cl_parts:
+        cl_path = Path(cl_parts[0])
+        if not cl_path.is_absolute():
+            cl_path = cfg.root / cl_path
+        bin_dir = str(cl_path.parent)
+    else:
+        bin_dir = ""
     inc_dir = str(cfg.compiler_includes)
     lib_dir = str(cfg.compiler_libs)
 
