@@ -246,16 +246,16 @@ def build_function_registry(
 
     structure_entries = load_function_structure(ghidra_path) if ghidra_path else []
 
-    for func in structure_entries:
-        va = func.va
-        if va == 0 or func.size == 0:
+    for struc_func in structure_entries:
+        va = struc_func.va
+        if va == 0 or struc_func.size == 0:
             continue
 
         entry = registry.setdefault(va, _new_registry_entry(va, cfg))
         if "ghidra" not in entry["detected_by"]:
             entry["detected_by"].append("ghidra")
-        entry["size_by_tool"]["ghidra"] = func.size
-        entry["ghidra_name"] = func.tool_name or func.name
+        entry["size_by_tool"]["ghidra"] = struc_func.size
+        entry["ghidra_name"] = struc_func.tool_name or struc_func.name
 
     # --- Exports ---
     exports: dict[int, str] = cfg.dll_exports if cfg else {}

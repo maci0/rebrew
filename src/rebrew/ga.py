@@ -71,7 +71,7 @@ def _parse_annotations(
     max_delta: int | None = None,
     ignored: set[str] | None = None,
 ) -> list[StubInfo]:
-    """Generic annotation parser with configurable status and delta filters.
+    """Parse annotations with configurable status and delta filters.
 
     Shared implementation for parse_stub_info, parse_matching_info, and
     parse_matching_all.  Reads annotations via the canonical multi-function
@@ -84,6 +84,7 @@ def _parse_annotations(
         max_delta: If set, only include entries whose BLOCKER byte-delta
                    is <= this value.  None means no delta filtering.
         ignored: Set of symbol names to skip (from cfg.ignored_symbols).
+
     """
     from rebrew.naming import parse_byte_delta
 
@@ -168,6 +169,8 @@ def find_near_miss(
         ignored: Set of symbol names to skip.
         max_delta: Maximum byte delta to include.
         cfg: Optional config for source extension.
+        warn_duplicates: If True, warn when multiple annotations share the same function name.
+
     """
     return _collect_with_dedup(
         reversed_dir,
@@ -192,6 +195,8 @@ def find_all_stubs(
         reversed_dir: Directory containing reversed .c files.
         ignored: Set of symbol names to skip (from cfg.ignored_symbols).
         cfg: Optional config for source extension.
+        warn_duplicates: If True, warn when multiple annotations share the same function name.
+
     """
     return _collect_with_dedup(
         reversed_dir,
@@ -409,6 +414,7 @@ def run_ga(
     Returns:
         Tuple ``(matched, output)`` where ``matched`` is True for exact matches
         and ``output`` contains combined stdout/stderr (or ``TIMEOUT``).
+
     """
     filepath = stub["filepath"]
     # Use relative path with suffix stripped to avoid collisions when nested

@@ -188,7 +188,7 @@ class ProjectConfig:
         preset = _ARCH_PRESETS.get(self.arch)
         raw_name = preset.get("capstone_arch", "CS_ARCH_X86") if preset else "CS_ARCH_X86"
         name = raw_name if isinstance(raw_name, str) else "CS_ARCH_X86"
-        return getattr(capstone, name)
+        return int(getattr(capstone, name))
 
     @property
     def capstone_mode(self) -> int:
@@ -198,7 +198,7 @@ class ProjectConfig:
         preset = _ARCH_PRESETS.get(self.arch)
         raw_name = preset.get("capstone_mode", "CS_MODE_32") if preset else "CS_MODE_32"
         name = raw_name if isinstance(raw_name, str) else "CS_MODE_32"
-        return getattr(capstone, name)
+        return int(getattr(capstone, name))
 
     def va_to_file_offset(self, va: int) -> int:
         """Convert VA to raw file offset using .text section constants."""
@@ -523,6 +523,7 @@ def load_config(
         root: Project root directory.  Auto-detected if ``None``.
         target: Name of the target to load (key under ``[targets]``).
                 Defaults to the first target defined in the file.
+
     """
     root = _find_root(root)
     toml_path = root / "rebrew-project.toml"

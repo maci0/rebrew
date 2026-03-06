@@ -384,6 +384,7 @@ def find_dispatch_tables(
         known_functions: Map of VA -> {"name": str, "status": str} for reversed funcs.
         ptr_size: Pointer size in bytes (4 for 32-bit PE).
         min_entries: Minimum entries to qualify as a dispatch table.
+
     """
     text_sec = sections.get(".text")
     if not text_sec:

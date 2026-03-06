@@ -256,6 +256,7 @@ def marker_for_origin(origin: str, status: str, library_origins: set[str] | None
         status: Status string (e.g. "EXACT", "STUB").
         library_origins: Set of origins that should use LIBRARY marker.
                          Defaults to {"ZLIB", "MSVCRT"} if not provided.
+
     """
     if status == "STUB":
         return "STUB"
@@ -328,6 +329,7 @@ class Annotation:
     # -- Dict-like access for backward compat --
 
     def __getitem__(self, key: str) -> Any:
+        """Docstring."""
         attr = _FIELD_ALIASES.get(key, key)
         try:
             return getattr(self, attr)
@@ -335,6 +337,7 @@ class Annotation:
             raise KeyError(key)
 
     def __setitem__(self, key: str, value: Any) -> None:
+        """Docstring."""
         attr = _FIELD_ALIASES.get(key, key)
         if hasattr(self, attr):
             object.__setattr__(self, attr, value)
@@ -342,6 +345,7 @@ class Annotation:
             raise KeyError(key)
 
     def __contains__(self, key: str) -> bool:
+        """Docstring."""
         attr = _FIELD_ALIASES.get(key, key)
         return attr in {f.name for f in fields(self)}
 
@@ -500,9 +504,12 @@ def update_size_annotation(filepath: Path, new_size: int, target_va: int | None 
     Returns True if the file was modified, False otherwise.
 
     Args:
+        filepath: Path to the .c source file.
+        new_size: New SIZE value.
         target_va: If set, only update the SIZE line belonging to the
             annotation block whose FUNCTION marker contains this VA.
             When None (default), updates the first SIZE found.
+
     """
     try:
         text = filepath.read_text(encoding="utf-8", errors="replace")
@@ -1081,7 +1088,7 @@ def update_annotation_key(filepath: Path, va: int, key: str, new_value: str) -> 
     modified = False
     escaped_key = re.escape(key)
     _marker_pattern = re.compile(
-        r"(?://|/\*)\s*(FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*[A-Z0-9_]+\s+(0x[0-9a-fA-F]+)"
+        r"(?://|/\*)\s*(FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*\S+\s+(0x[0-9a-fA-F]+)"
     )
     _key_pattern = re.compile(r"((?://|/\*)\s*" + escaped_key + r":\s*)(.*?)(?=\s*(?:\*/|\n|$))")
 

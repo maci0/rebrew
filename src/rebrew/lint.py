@@ -187,6 +187,7 @@ def _parse_header(lines: list[str]) -> tuple[dict[str, str], dict[str, bool]]:
     Returns:
         (found_keys, format_flags) where format_flags has keys:
         has_new, has_old, has_block, has_javadoc
+
     """
     found_keys: dict[str, str] = {}
     flags = {"has_new": False, "has_old": False, "has_block": False, "has_javadoc": False}
@@ -571,6 +572,7 @@ def lint_file(
         cfg: Optional ProjectConfig for config-aware checks.
         seen_vas: Optional dict mapping VA → filename for duplicate detection.
                   Will be mutated (VAs from this file are added).
+
     """
     result = LintResult(filepath)
 

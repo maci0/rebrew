@@ -121,7 +121,8 @@ Use `--fix-blocker` to auto-generate these from diff classification, or write ma
 ```
 
 Used by `rebrew next --improving` to sort by proximity to a match.
-`rebrew promote` automatically removes BLOCKER/BLOCKER_DELTA on promotion to EXACT/RELOC.
+`rebrew promote` automatically removes BLOCKER/BLOCKER_DELTA on promotion to EXACT/RELOC,
+and adds a BLOCKER with the match ratio on demotion to STUB (below 75% threshold).
 
 ## 7. Batch Flag Sweep
 

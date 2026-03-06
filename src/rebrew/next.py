@@ -406,8 +406,8 @@ def _build_recommendations(
                 u_bytes = extract_bytes_at_va(binary_info, va, size)
                 if u_bytes:
                     best_sim = 0.0
-                    min_s = int(size * 0.8)
-                    max_s = int(size * 1.2)
+                    min_s = int(size * 0.75)
+                    max_s = int(size * 1.25)
                     start_idx = bisect.bisect_left(matched_funcs, (min_s, b""))
                     end_idx = bisect.bisect_right(matched_funcs, (max_s, b"\xff"))
 

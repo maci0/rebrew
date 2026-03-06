@@ -116,6 +116,7 @@ def build_graph(
     Returns:
         nodes: {func_name: {"status": str, "origin": str, "va": int, "file": str}}
         edges: [(caller_name, callee_name)]
+
     """
     nodes: dict[str, NodeInfo] = {}
     edges: list[tuple[str, str]] = []

@@ -155,6 +155,36 @@ class BinaryMatchingGA:
         compile_timeout: int = 60,
         extra_seeds: list[str] | None = None,
     ) -> None:
+        """Initialize the genetic algorithm matching engine.
+
+        Args:
+            seed_source: Initial C source code.
+            target_bytes: The target byte sequence.
+            cl_cmd: Compiler path or command.
+            inc_dir: Base include directory.
+            cflags: Compiler flags.
+            symbol: Target symbol name.
+            out_dir: Output directory for matched source.
+            pop_size: Population size.
+            num_generations: Maximum generations to run.
+            mutation_prob: Mutation probability.
+            crossover_prob: Crossover probability.
+            elitism: Number of elite individuals to keep.
+            num_jobs: Thread count for parallel compilation.
+            mutation_weights: Custom weights for mutators.
+            stagnation_limit: Generations without improvement before stop.
+            verbose: Verbosity level.
+            rng_seed: Random seed.
+            compare_obj: If True, compare object files instead of full link.
+            link_cmd: Linker command.
+            lib_dir: Library directory.
+            ldflags: Linker flags.
+            env: Optional MSVC environment variables.
+            compile_cache: Persistent compiler cache.
+            compile_timeout: Subprocess timeout for compilations.
+            extra_seeds: Additional C sources for initial population.
+
+        """
         self.seed_source = seed_source
         self.target_bytes = target_bytes
         self.cl_cmd = cl_cmd

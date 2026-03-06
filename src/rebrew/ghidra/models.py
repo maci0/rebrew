@@ -1,3 +1,5 @@
+"""models.py - Data access classes for Ghidra MCP responses."""
+
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -50,12 +52,15 @@ class PullResult:
 
 @dataclass
 class JsonRpcError:
+    """JSON-RPC error payload."""
+
     code: int
     message: str
     data: Any | None = None
 
     @classmethod
     def from_dict(cls, d: dict[str, Any] | str | Any) -> "JsonRpcError":
+        """Reconstruct from dictionary."""
         if isinstance(d, str):
             return cls(code=-1, message=d, data=None)
         if not isinstance(d, dict):
@@ -69,6 +74,8 @@ class JsonRpcError:
 
 @dataclass
 class JsonRpcResponse:
+    """JSON-RPC response payload."""
+
     jsonrpc: str
     id: int | str | None = None
     result: dict[str, Any] | None = None
@@ -76,6 +83,7 @@ class JsonRpcResponse:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "JsonRpcResponse":
+        """Reconstruct from dictionary."""
         err = d.get("error")
         return cls(
             jsonrpc=str(d.get("jsonrpc", "2.0")),
@@ -87,21 +95,27 @@ class JsonRpcResponse:
 
 @dataclass
 class McpToolContent:
+    """Content item within a tool result."""
+
     type: str
     text: str
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "McpToolContent":
+        """Reconstruct from dictionary."""
         return cls(type=str(d.get("type", "")), text=str(d.get("text", "")))
 
 
 @dataclass
 class McpToolResult:
+    """Result from invoking an MCP tool."""
+
     content: list[McpToolContent]
     isError: bool = False
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "McpToolResult":
+        """Reconstruct from dictionary."""
         return cls(
             content=[
                 McpToolContent.from_dict(c) for c in d.get("content", []) if isinstance(c, dict)
@@ -112,15 +126,20 @@ class McpToolResult:
 
 @dataclass
 class RevaProgramInfo:
+    """Program path info returned by ReVa."""
+
     programPath: str
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "RevaProgramInfo":
+        """Reconstruct from dictionary."""
         return cls(programPath=str(d.get("programPath", "")))
 
 
 @dataclass
 class RevaFunction:
+    """Function metadata from ReVa."""
+
     address: str
     size: int
     name: str = ""
@@ -129,6 +148,7 @@ class RevaFunction:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "RevaFunction":
+        """Reconstruct from dictionary."""
         return cls(
             address=str(d.get("address") or d.get("va") or ""),
             size=int(d.get("size", 0)),
@@ -140,11 +160,14 @@ class RevaFunction:
 
 @dataclass
 class RevaPageHeader:
+    """Pagination info for bulk ReVa requests."""
+
     totalCount: int
     nextStartIndex: int
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "RevaPageHeader":
+        """Reconstruct from dictionary."""
         return cls(
             totalCount=int(d.get("totalCount", 0)), nextStartIndex=int(d.get("nextStartIndex", 0))
         )
@@ -152,12 +175,15 @@ class RevaPageHeader:
 
 @dataclass
 class RevaDataType:
+    """Ghidra data type definition."""
+
     name: str
     size: int = 0
     cDefinition: str = ""
 
     @classmethod
     def from_dict(cls, d: dict[str, Any] | str) -> "RevaDataType":
+        """Reconstruct from dictionary."""
         if isinstance(d, str):
             return cls(name=d)
         return cls(
@@ -169,6 +195,8 @@ class RevaDataType:
 
 @dataclass
 class RevaDataLabel:
+    """Ghidra data label definition."""
+
     address: str
     size: int
     name: str = ""
@@ -176,6 +204,7 @@ class RevaDataLabel:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "RevaDataLabel":
+        """Reconstruct from dictionary."""
         return cls(
             address=str(d.get("address", "")),
             size=int(d.get("size", 0)),
@@ -186,6 +215,8 @@ class RevaDataLabel:
 
 @dataclass
 class RevaDataInfo:
+    """Ghidra data symbol info."""
+
     address: str
     name: str = ""
     byteLength: int = 0
@@ -193,6 +224,7 @@ class RevaDataInfo:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "RevaDataInfo":
+        """Reconstruct from dictionary."""
         return cls(
             address=str(d.get("address", "")),
             name=str(d.get("name", "")),

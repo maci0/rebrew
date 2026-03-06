@@ -55,7 +55,6 @@ def rename_function_everywhere(
     dry_run: bool = False,
 ) -> int:
     """Perform a full cross-reference rename. Returns number of files modified."""
-
     actual_old_name = old_sym.lstrip("_") if old_sym.startswith("_") else old_name
     updated_files = 0
 

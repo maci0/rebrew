@@ -49,6 +49,7 @@ def extract_from_bin(bin_path: Path) -> bytes:
 
     Returns:
         Entire file contents as ``bytes``.
+
     """
     return bin_path.read_bytes()
 
@@ -58,6 +59,7 @@ def _get_capstone_x86() -> tuple[int, int, int, Any]:
 
     Raises:
         RuntimeError: If capstone is not installed.
+
     """
     try:
         from capstone import CS_ARCH_X86, CS_MODE_32, CS_OPT_SYNTAX_INTEL, Cs
@@ -163,8 +165,11 @@ def _find_bad_instructions_individually(
     base_va: int,
     code: bytes,
 ) -> set[int]:
-    """Per-instruction fallback: test each instruction by embedding it in a
-    db-padded file at its correct offset, then checking its bytes."""
+    """Test each instruction by embedding it in a db-padded file.
+
+    Per-instruction fallback: test each instruction by embedding it in a
+    db-padded file at its correct offset, then checking its bytes.
+    """
     bad: set[int] = set()
     total_insn_size = sum(e["size"] for e in insn_data)
     trailing = code[total_insn_size:]
@@ -495,6 +500,8 @@ def main(
     Args:
         va: Function virtual address in hex for configured-target extraction.
         size: Function size in bytes for configured-target extraction.
+        inline_c: Output C with inline assembly wrapper instead of raw ASM.
+        json_output: Output results as JSON instead of human-readable text.
         bin: Path to raw ``.bin`` input file.
         label: Optional label override for the emitted function symbol.
         output: Optional output ``.asm`` path (stdout when omitted).
@@ -505,6 +512,7 @@ def main(
         out_dir: Output directory for batch mode.
         base_va: Base VA (hex) used with ``--bin`` mode.
         target: Optional target profile from ``rebrew-project.toml``.
+
     """
     cfg = require_config(target=target, json_mode=json_output)
 
