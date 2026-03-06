@@ -91,10 +91,41 @@ _STATUS_RANK: dict[str, int] = {
 }
 
 # Minimum byte-match ratio to classify a non-exact comparison as MATCHING.
-# 75% is conservative enough to avoid false positives from padding/nops
-# while still promoting functions that are structurally correct but have
-# a few byte-level differences (typically relocation or alignment diffs).
-_MATCHING_THRESHOLD = 0.75
+#
+# Size-aware: a single mismatching byte in a 4-byte stub would fail a flat 75%
+# threshold — not a meaningful signal.  We clamp the threshold between a hard
+# floor (50%) and the normal ceiling (75%), using an absolute slack budget so
+# that tiny functions get more leniency while large ones converge to 75%.
+_MATCHING_FLOOR = 0.75       # threshold ceiling / large-function target
+_MATCHING_HARD_FLOOR = 0.50  # absolute minimum — even tiny stubs need ≥50%
+_MATCHING_SLACK_BYTES = 4    # absolute byte tolerance granted to small functions
+
+
+def _matching_threshold(comparable: int) -> float:
+    """Return the minimum match ratio required for MATCHING classification.
+
+    Uses ``clamp(1 - SLACK/n, HARD_FLOOR, FLOOR)`` so the threshold is lenient
+    for small functions and converges to the normal 75% for large ones.
+
+    With FLOOR=0.75, HARD_FLOOR=0.50, SLACK=4:
+
+    ======  ===========  =========
+    Size    1 - 4/n      threshold
+    ======  ===========  =========
+     4 B    0.00          0.50  (hard floor)
+     6 B    0.33          0.50  (hard floor)
+     8 B    0.50          0.50
+    12 B    0.67          0.67
+    16 B    0.75          0.75  (converged)
+    32 B+   >0.75 → cap  0.75
+    ======  ===========  =========
+    """
+    if comparable <= 0:
+        return _MATCHING_FLOOR
+    raw = 1.0 - _MATCHING_SLACK_BYTES / comparable
+    return max(_MATCHING_HARD_FLOOR, min(_MATCHING_FLOOR, raw))
+
+
 
 
 def _promote_file(
@@ -217,7 +248,7 @@ def _promote_file(
                 candidate_status = "RELOC" if relocs else "EXACT"
             else:
                 comparable = min(len(obj_bytes), len(target_bytes))
-                if comparable > 0 and match_count > comparable * _MATCHING_THRESHOLD:
+                if comparable > 0 and match_count > comparable * _matching_threshold(comparable):
                     candidate_status = "MATCHING"
                 else:
                     # Below match threshold — demote to STUB.
