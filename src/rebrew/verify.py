@@ -937,15 +937,22 @@ def _print_results(
         for entry, msg in sorted(fail_details, key=_fail_sort_key):
             res_dict = res_by_va.get(entry.va)
             st = str(res_dict["status"]) if res_dict else "FAIL"
+            fp = entry.get("filepath", "")
+            ln = entry.get("line", 0)
+            fp_suffix = f" [dim]({fp}:{ln})[/]" if fp and ln else f" [dim]({fp})[/]" if fp else ""
             if st == "MISMATCH":
                 match_pct = float(res_dict.get("match_percent", 0.0)) if res_dict else 0.0
                 out_console.print(
-                    rf"  [red bold]\[{match_pct:.1f}%][/] 0x{entry.va:08X} {entry.name}: {msg}"
+                    rf"  [red bold]\[{match_pct:.1f}%][/] 0x{entry.va:08X} {entry.name}{fp_suffix}: {msg}"
                 )
             elif st in ("COMPILE_ERROR", "MISSING_FILE"):
-                out_console.print(rf"  [red bold]\[{st}][/] 0x{entry.va:08X} {entry.name}: {msg}")
+                out_console.print(
+                    rf"  [red bold]\[{st}][/] 0x{entry.va:08X} {entry.name}{fp_suffix}: {msg}"
+                )
             else:
-                out_console.print(rf"  [red bold]\[FAIL][/] 0x{entry.va:08X} {entry.name}: {msg}")
+                out_console.print(
+                    rf"  [red bold]\[FAIL][/] 0x{entry.va:08X} {entry.name}{fp_suffix}: {msg}"
+                )
 
     # Summary
     style = "green" if failed == 0 else "red"

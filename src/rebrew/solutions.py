@@ -9,6 +9,7 @@ Storage: ``.rebrew/solutions.json`` — append-only JSON array, deduped by symbo
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 from dataclasses import asdict, dataclass, field
@@ -85,11 +86,8 @@ def load_solutions(project_root: Path) -> list[SolutionEntry]:
         if not isinstance(item, dict):
             continue
         try:
-            entries.append(
-                SolutionEntry(
-                    **{k: v for k, v in item.items() if k in SolutionEntry.__dataclass_fields__}
-                )
-            )
+            known = {f.name for f in dataclasses.fields(SolutionEntry)}
+            entries.append(SolutionEntry(**{k: v for k, v in item.items() if k in known}))
         except TypeError:
             continue
     return entries
