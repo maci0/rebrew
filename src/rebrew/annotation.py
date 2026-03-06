@@ -26,7 +26,7 @@ import re
 import warnings
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from rebrew.utils import atomic_write_text
 
@@ -227,6 +227,9 @@ def normalize_status(raw: str) -> str:
 
     Check order matters: ``MATCHING_RELOC`` must be tested before both
     ``MATCHING`` and ``RELOC`` because it contains both as substrings.
+    ``PROVEN`` is an independent canonical value — included before the
+    generic fallthrough so old-format strings like ``"PROVEN_MATCH"``
+    are normalised to ``"PROVEN"`` rather than returned verbatim.
     """
     s = raw.strip().upper()
     # MATCHING_RELOC must precede both MATCHING and RELOC (substring containment)
@@ -240,6 +243,8 @@ def normalize_status(raw: str) -> str:
         return "RELOC"
     if "STUB" in s:
         return "STUB"
+    if "PROVEN" in s:
+        return "PROVEN"
     return s
 
 
@@ -293,7 +298,7 @@ def resolve_symbol(entry: Annotation, filepath: Path) -> str:
 # ---------------------------------------------------------------------------
 
 # Field name mapping for dict-like access (handles "globals" → globals_list)
-_FIELD_ALIASES = {"globals": "globals_list"}
+_FIELD_ALIASES: Final[dict[str, str]] = {"globals": "globals_list"}
 
 
 @dataclass
@@ -329,7 +334,7 @@ class Annotation:
     # -- Dict-like access for backward compat --
 
     def __getitem__(self, key: str) -> Any:
-        """Docstring."""
+        """Return the field value for *key* (supports field aliases)."""
         attr = _FIELD_ALIASES.get(key, key)
         try:
             return getattr(self, attr)
@@ -337,7 +342,7 @@ class Annotation:
             raise KeyError(key)
 
     def __setitem__(self, key: str, value: Any) -> None:
-        """Docstring."""
+        """Set the field *key* to *value* (supports field aliases)."""
         attr = _FIELD_ALIASES.get(key, key)
         if hasattr(self, attr):
             object.__setattr__(self, attr, value)
@@ -345,7 +350,7 @@ class Annotation:
             raise KeyError(key)
 
     def __contains__(self, key: str) -> bool:
-        """Docstring."""
+        """Return True if *key* (or its alias) is a field of this Annotation."""
         attr = _FIELD_ALIASES.get(key, key)
         return attr in {f.name for f in fields(self)}
 
@@ -378,6 +383,7 @@ class Annotation:
             "struct": self.struct,
             "callers": self.callers,
             "globals": self.globals_list,
+            "inline_error": self.inline_error,
         }
         if self.section:
             d["section"] = self.section
@@ -542,14 +548,15 @@ def update_size_annotation(filepath: Path, new_size: int, target_va: int | None 
     if match_line_idx is None:
         return False
 
-    sm = size_re.search(lines[match_line_idx])
-    assert sm is not None  # guaranteed by loop above
-    old_size = int(sm.group(2))
+    sm2 = size_re.search(lines[match_line_idx])
+    if sm2 is None:  # pragma: no cover — loop body guarantees a match; defensive guard
+        return False
+    old_size = int(sm2.group(2))
     if new_size <= old_size:
         return False
 
     line = lines[match_line_idx]
-    lines[match_line_idx] = line[: sm.start()] + sm.group(1) + str(new_size) + line[sm.end() :]
+    lines[match_line_idx] = line[: sm2.start()] + sm2.group(1) + str(new_size) + line[sm2.end() :]
     new_text = "".join(lines)
     atomic_write_text(filepath, new_text, encoding="utf-8")
     return True
@@ -626,6 +633,14 @@ def _calc_stdcall_param_size(proto: str) -> int | None:
     # Variadic functions can't be __stdcall-decorated
     if "..." in params_str:
         return None
+
+    # Strip template parameter lists before splitting on commas.
+    # Without this, a parameter like ``std::pair<int,int>`` would be
+    # counted as two parameters, doubling the computed stack size and
+    # producing an incorrect decorated name like ``_foo@12`` instead of
+    # ``_foo@4``.  Template args never appear at the top-level comma
+    # boundary — only as nested angle-bracket content.
+    params_str = re.sub(r"<[^<>]*>", "", params_str)
 
     total = 0
     for param in params_str.split(","):

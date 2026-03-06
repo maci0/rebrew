@@ -403,12 +403,7 @@ def main(
                 console.print(f"[magenta]{sym}[/]: {status} (no change)")
 
     has_errors = any(r.get("status") == "ERROR" for r in results)
-    has_mismatches = any(
-        r.get("status") == "MISMATCH" or r.get("new_status") not in ("EXACT", "RELOC")
-        for r in results
-        if r.get("status") != "SKIPPED" and r.get("status") != "ERROR"
-    )
-    if has_errors or has_mismatches:
+    if has_errors:
         raise typer.Exit(code=1)
 
 
