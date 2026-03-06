@@ -53,6 +53,11 @@ class SolutionEntry:
 
 
 def _solutions_path(project_root: Path) -> Path:
+    """Return the solutions.json path (no side effects)."""
+    return project_root / _SOLUTIONS_DIR / _SOLUTIONS_FILE
+
+
+def _ensure_solutions_dir(project_root: Path) -> Path:
     """Return the solutions.json path, creating the directory if needed."""
     d = project_root / _SOLUTIONS_DIR
     d.mkdir(parents=True, exist_ok=True)
@@ -105,7 +110,7 @@ def save_solution(project_root: Path, entry: SolutionEntry) -> None:
     updated.sort(key=lambda e: e.symbol)
 
     data = [asdict(e) for e in updated]
-    p = _solutions_path(project_root)
+    p = _ensure_solutions_dir(project_root)
     atomic_write_text(p, json.dumps(data, indent=2) + "\n", encoding="utf-8")
     log.info("Saved solution for %s (%d total)", entry.symbol, len(updated))
 

@@ -1786,6 +1786,8 @@ def mut_compound_assign_toggle(s: str, rng: random.Random) -> str | None:
     """Toggle between x = x + n and x += n (and other operators).
 
     MSVC6 sometimes generates different code for these equivalent forms.
+    Only safe for commutative/associative operators when the RHS is a
+    multi-term expression. For subtraction, x -= (y - z) != x = x - y - z.
     """
     # Try expanding compound first, then shortening
     expand_matches = [(m, "expand") for m in _RE_COMPOUND_SHORT.finditer(s)]
@@ -1794,16 +1796,17 @@ def mut_compound_assign_toggle(s: str, rng: random.Random) -> str | None:
     if not all_matches:
         return None
     m, direction = rng.choice(all_matches)
-    if direction == "expand":
-        var = m.group(1)
-        op = m.group(2)
-        expr = m.group(3).strip()
-        replacement = f"{var} = {var} {op} {expr};"
-    else:
-        var = m.group(1)
-        op = m.group(2)
-        expr = m.group(3).strip()
-        replacement = f"{var} {op}= {expr};"
+    var = m.group(1)
+    op = m.group(2)
+    expr = m.group(3).strip()
+    # SAFETY: for non-commutative operators (- and implicitly /), compound
+    # and expanded forms differ when the RHS is a multi-term expression.
+    # x -= (y - z) means x = x - (y-z) = x-y+z, but expanding gives
+    # x = x - y - z = (x-y)-z -- semantically different.
+    # Reject toggle if operator is '-' and expr contains another '-', '+', or operator.
+    if op == "-" and re.search(r"[+\-]", expr):
+        return None
+    replacement = f"{var} = {var} {op} {expr};" if direction == "expand" else f"{var} {op}= {expr};"
     return s[: m.start()] + replacement + s[m.end() :]
 
 
