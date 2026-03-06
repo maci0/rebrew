@@ -23,7 +23,7 @@ from rich.console import Console
 
 from rebrew.annotation import parse_c_file_multi, parse_source_metadata
 from rebrew.binary_loader import extract_raw_bytes
-from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
+from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config, target_marker
 from rebrew.compile import resolve_cl_command
 from rebrew.compile_cache import CompileCache, get_compile_cache
 from rebrew.core.toolchain import msvc_env_from_config
@@ -459,7 +459,7 @@ def main(
                 name_to_va[name] = glob.va
     except (OSError, AttributeError, KeyError, ValueError):
         pass
-    annos = parse_c_file_multi(Path(seed_c), target_name=cfg.marker if cfg else None)
+    annos = parse_c_file_multi(Path(seed_c), target_name=target_marker(cfg))
     anno = annos[0] if annos else None
     if anno:
         eval_errs, eval_warns = anno.validate()
@@ -736,8 +736,8 @@ def main(
         else:
             for score, flags in results[:10]:
                 console.print(f"{score:.2f}: {flags}")
-            if sim is not None:
-                _print_structural_similarity(sim)
+            if sim_res is not None:
+                _print_structural_similarity(sim_res)
 
         if best_score < 0.1:
             return

@@ -22,7 +22,14 @@ from rich.console import Console
 from rich.table import Table
 
 from rebrew.annotation import Annotation, parse_c_file_multi, update_annotation_key
-from rebrew.cli import TargetOption, error_exit, iter_sources, json_print, parse_va, require_config
+from rebrew.cli import (
+    TargetOption,
+    error_exit,
+    iter_sources,
+    json_print,
+    parse_va,
+    require_config,
+)
 from rebrew.config import ProjectConfig
 
 

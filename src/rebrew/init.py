@@ -10,6 +10,7 @@ from pathlib import Path
 import typer
 
 from rebrew.cli import error_exit, json_print
+from rebrew.utils import atomic_write_text
 
 app = typer.Typer(
     help="Initialize a new rebrew project directory.",
@@ -274,7 +275,7 @@ def main(
     )
     runner = "tools/wibo" if install_wibo else profile["runner"]
     toml_content = toml_content.replace("__COMPILER_RUNNER__", runner)
-    toml_path.write_text(toml_content, encoding="utf-8")
+    atomic_write_text(toml_path, toml_content, encoding="utf-8")
     typer.secho(f"Created {toml_path.name}", fg=typer.colors.GREEN)
 
     # 2. Write AGENTS.md (for LLM agents)
@@ -299,7 +300,7 @@ def main(
         lang=profile.get("lang", "C89"),
     )
     agents_path = cwd / "AGENTS.md"
-    agents_path.write_text(agents_content, encoding="utf-8")
+    atomic_write_text(agents_path, agents_content, encoding="utf-8")
     typer.secho(f"Created {agents_path.name} (AI agent instructions)", fg=typer.colors.GREEN)
 
     # 3. Create directories

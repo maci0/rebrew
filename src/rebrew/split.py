@@ -29,6 +29,7 @@ from rebrew.cli import (
     rel_display_path,
     require_config,
     source_glob,
+    target_marker,
 )
 from rebrew.utils import atomic_write_text
 
@@ -257,7 +258,7 @@ def main(
             "Input must contain at least two function blocks to split", json_mode=json_output
         )
 
-    entries = parse_c_file_multi(source_path, target_name=cfg.marker if cfg else None)
+    entries = parse_c_file_multi(source_path, target_name=target_marker(cfg))
     if len(entries) < 2:
         error_exit(
             f"No splittable blocks found for target '{cfg.marker}'",

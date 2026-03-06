@@ -140,7 +140,11 @@ class TestFindReTool:
 class TestAutoFallback:
     @patch.dict(
         "rebrew.decompiler._BACKEND_MAP",
-        {"r2ghidra": lambda *a: None, "r2dec": lambda *a: None, "ghidra": lambda *a: None},
+        {
+            "r2ghidra": lambda *a, **kw: None,
+            "r2dec": lambda *a, **kw: None,
+            "ghidra": lambda *a, **kw: None,
+        },
     )
     def test_all_fail(self) -> None:
         code, name = fetch_decompilation("auto", Path("/f"), 0x1000, Path("/f"))
@@ -149,7 +153,11 @@ class TestAutoFallback:
 
     @patch.dict(
         "rebrew.decompiler._BACKEND_MAP",
-        {"r2ghidra": lambda *a: None, "r2dec": lambda *a: "int x;", "ghidra": lambda *a: None},
+        {
+            "r2ghidra": lambda *a, **kw: None,
+            "r2dec": lambda *a, **kw: "int x;",
+            "ghidra": lambda *a, **kw: None,
+        },
     )
     def test_r2dec_fallback(self) -> None:
         code, name = fetch_decompilation("auto", Path("/f"), 0x1000, Path("/f"))
@@ -158,7 +166,11 @@ class TestAutoFallback:
 
     @patch.dict(
         "rebrew.decompiler._BACKEND_MAP",
-        {"r2ghidra": lambda *a: "void f() {}", "r2dec": lambda *a: None, "ghidra": lambda *a: None},
+        {
+            "r2ghidra": lambda *a, **kw: "void f() {}",
+            "r2dec": lambda *a, **kw: None,
+            "ghidra": lambda *a, **kw: None,
+        },
     )
     def test_r2ghidra_first(self) -> None:
         code, name = fetch_decompilation("auto", Path("/f"), 0x1000, Path("/f"))
@@ -167,7 +179,7 @@ class TestAutoFallback:
 
     @patch.dict(
         "rebrew.decompiler._BACKEND_MAP",
-        {"r2ghidra": lambda *a: "void f() {}"},
+        {"r2ghidra": lambda *a, **kw: "void f() {}"},
     )
     def test_explicit_backend(self) -> None:
         code, name = fetch_decompilation("r2ghidra", Path("/f"), 0x1000, Path("/f"))
@@ -425,7 +437,7 @@ class TestGhidraBackend:
         assert code == "int x;"
         assert name == "ghidra"
         mock_fn.assert_called_once_with(
-            Path("/f"), 0x1000, Path("/f"), endpoint="http://custom:8080/mcp"
+            Path("/f"), 0x1000, Path("/f"), endpoint="http://custom:8080/mcp", program_path=None
         )
 
     def test_dispatch_does_not_pass_endpoint_for_r2(self) -> None:
@@ -436,7 +448,9 @@ class TestGhidraBackend:
             )
         assert code == "int y;"
         assert name == "r2ghidra"
-        mock_fn.assert_called_once_with(Path("/f"), 0x1000, Path("/f"))
+        mock_fn.assert_called_once_with(
+            Path("/f"), 0x1000, Path("/f"), endpoint="http://unused", program_path=None
+        )
 
     def test_cleans_ansi_from_mcp_response(self) -> None:
         import json

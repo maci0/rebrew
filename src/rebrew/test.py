@@ -16,7 +16,7 @@ from rich.console import Console
 
 from rebrew.annotation import Annotation, parse_c_file, parse_c_file_multi, parse_source_metadata
 from rebrew.binary_loader import extract_raw_bytes
-from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
+from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config, target_marker
 from rebrew.config import ProjectConfig
 from rebrew.core.matching import smart_reloc_compare
 from rebrew.matcher.parsers import list_obj_symbols, parse_obj_symbol_bytes
@@ -275,7 +275,7 @@ def main(
         print(f"rebrew test: skipping reloc validation (scan_globals: {exc})", file=sys.stderr)
 
     # Optional: lint the file first to catch basic annotation errors
-    lint_annos = parse_c_file_multi(Path(source), target_name=cfg.marker if cfg else None)
+    lint_annos = parse_c_file_multi(Path(source), target_name=target_marker(cfg))
     for anno in lint_annos:
         eval_errs, eval_warns = anno.validate()
         if not json_output:
@@ -286,7 +286,7 @@ def main(
 
     # Multi-function support: if no explicit symbol/va/size, test all annotations
     if symbol is None and va is None and size is None:
-        annotations = parse_c_file_multi(Path(source), target_name=cfg.marker if cfg else None)
+        annotations = parse_c_file_multi(Path(source), target_name=target_marker(cfg))
         if len(annotations) > 1:
             origin = annotations[0].origin if annotations else ""
             _test_multi(
