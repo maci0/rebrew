@@ -946,3 +946,71 @@ formatx = "typo"
         root = _make_project(tmp_path, toml)
         with pytest.warns(UserWarning, match=r"unrecognized keys"):
             load_config(root)
+
+
+# ---------------------------------------------------------------------------
+# Audit-specific regression tests (Phase 3 hardening — config.py)
+# ---------------------------------------------------------------------------
+
+
+class TestAuditConfig:
+    """Tests added during the formal code audit to verify for_origin()
+    does not share mutable container references with the parent config."""
+
+    def test_for_origin_library_origins_not_shared(self, tmp_path: Path) -> None:
+        """Mutating library_origins on the for_origin() copy must not affect the parent."""
+        toml = """\
+[targets.main]
+binary = "test.exe"
+library_origins = ["MSVCRT"]
+
+[compiler.origins.MSVCRT]
+cflags = "/O1"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert "MSVCRT" in cfg.library_origins
+
+        copy = cfg.for_origin("MSVCRT")
+        copy.library_origins.add("INJECTED")
+
+        # Parent must be unaffected
+        assert "INJECTED" not in cfg.library_origins
+
+    def test_for_origin_origins_list_not_shared(self, tmp_path: Path) -> None:
+        """Mutating origins on the for_origin() copy must not affect the parent."""
+        toml = """\
+[targets.main]
+binary = "test.exe"
+origins = ["GAME", "MSVCRT"]
+
+[compiler.origins.MSVCRT]
+cflags = "/O1"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        original_len = len(cfg.origins)
+
+        copy = cfg.for_origin("MSVCRT")
+        copy.origins.append("INJECTED")
+
+        assert len(cfg.origins) == original_len
+        assert "INJECTED" not in cfg.origins
+
+    def test_for_origin_padding_bytes_not_shared(self, tmp_path: Path) -> None:
+        """Mutating padding_bytes on the for_origin() copy must not affect the parent."""
+        toml = """\
+[targets.main]
+binary = "test.exe"
+
+[compiler.origins.MSVCRT]
+cflags = "/O1"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        original = list(cfg.padding_bytes)
+
+        copy = cfg.for_origin("MSVCRT")
+        copy.padding_bytes.append(0xFF)
+
+        assert cfg.padding_bytes == original

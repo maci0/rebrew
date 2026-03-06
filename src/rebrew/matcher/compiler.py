@@ -7,6 +7,7 @@ and extracting function bytes from the resulting object/executable.
 
 import contextlib
 import itertools
+import logging
 import os
 import re
 import shlex
@@ -23,6 +24,8 @@ from .core import BuildResult
 from .flag_data import COMMON_MSVC_FLAGS, MSVC6_FLAGS, MSVC_SWEEP_TIERS
 from .flags import Checkbox, Flags, FlagSet
 from .parsers import extract_function_from_binary, parse_obj_symbol_bytes
+
+log = logging.getLogger(__name__)
 
 
 def _filter_wine_stderr(text: str) -> str:
@@ -391,6 +394,11 @@ def flag_sweep(
             try:
                 score, flags = fut.result()
             except (OSError, subprocess.SubprocessError, ValueError, RuntimeError):
+                continue
+            except Exception:  # noqa: BLE001
+                # Unexpected exception (e.g. TypeError from scoring pipeline bug):
+                # log at DEBUG so it surfaces in --verbose or CI runs without crashing the sweep.
+                log.debug("Unexpected error in flag_sweep worker", exc_info=True)
                 continue
             if score < float("inf"):
                 results.append((score, flags))

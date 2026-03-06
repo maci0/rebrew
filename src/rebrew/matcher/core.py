@@ -15,6 +15,10 @@ import diskcache
 
 from rebrew.utils import atomic_write_text
 
+# Python's random.Random.getstate() returns (version, internalstate, gauss_next).
+# Providing a precise alias here avoids tuple[Any, ...] which gives no static guarantees.
+RngState = tuple[int, tuple[int, ...], float | None]
+
 
 @dataclass
 class Score:
@@ -84,7 +88,7 @@ class GACheckpoint:
     best_score: float
     best_source: str | None
     population: list[str]
-    rng_state: tuple[Any, ...]
+    rng_state: RngState
     stagnant_gens: int
     elapsed_sec: float
     args_hash: str
@@ -107,15 +111,30 @@ def load_checkpoint(path: str | Path, expected_hash: str) -> GACheckpoint | None
         if data.get("args_hash") != expected_hash:
             warnings.warn("Checkpoint args hash mismatch, ignoring checkpoint.", stacklevel=2)
             return None
-        # JSON deserializes all tuples as lists; Random.getstate() returns
-        # (version, tuple_of_625_ints, gauss_next) — recursively restore tuples
+        # JSON deserialises all tuples as lists; Random.getstate() returns
+        # (version, tuple_of_625_ints, gauss_next) — rebuild the precise 3-tuple.
         if "rng_state" in data and isinstance(data["rng_state"], list):
             rs = data["rng_state"]
-            if len(rs) >= 3:
-                internalstate = tuple(rs[1]) if isinstance(rs[1], list) else rs[1]
-                data["rng_state"] = (rs[0], internalstate, rs[2])
-            else:
-                data["rng_state"] = tuple(rs)
+            if len(rs) != 3 or not isinstance(rs[1], (list, tuple)):
+                warnings.warn(
+                    f"Checkpoint rng_state has unexpected structure (len={len(rs)}); "
+                    "ignoring checkpoint.",
+                    stacklevel=2,
+                )
+                return None
+            # Validate and coerce each element of the internal state to int.
+            # A corrupted checkpoint could contain floats or strings here,
+            # which would cause random.Random.setstate() to raise ValueError
+            # uncaught inside the GA loop.
+            try:
+                internalstate: tuple[int, ...] = tuple(int(x) for x in rs[1])
+            except (TypeError, ValueError) as exc:
+                warnings.warn(
+                    f"Checkpoint rng_state internal state is invalid ({exc}); ignoring checkpoint.",
+                    stacklevel=2,
+                )
+                return None
+            data["rng_state"] = (int(rs[0]), internalstate, rs[2])
         return GACheckpoint(**data)
     except (json.JSONDecodeError, KeyError, TypeError, ValueError, OSError) as e:
         warnings.warn(f"Failed to load checkpoint: {e}", stacklevel=2)

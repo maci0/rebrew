@@ -51,7 +51,14 @@ class CompileCache:
     """
 
     def __init__(self, cache_dir: str | Path, size_limit: int = _DEFAULT_SIZE_LIMIT) -> None:
-        """Docstring."""
+        """Open (or create) the disk-backed compile cache at *cache_dir*.
+
+        Args:
+            cache_dir: Directory where SQLite metadata and value files are stored.
+                Created automatically if it does not exist.
+            size_limit: Maximum on-disk footprint in bytes.  Oldest entries
+                are evicted by ``diskcache`` when the limit is exceeded (LRU).
+        """
         self._cache = diskcache.Cache(str(cache_dir), size_limit=size_limit)
 
     def get(self, key: str) -> bytes | None:

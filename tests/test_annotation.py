@@ -894,3 +894,96 @@ class TestParseLibraryHeader:
         results = parse_library_header(hfile)
         assert len(results) == 1
         assert results[0].origin == "SMARTHEAP"
+
+
+# ---------------------------------------------------------------------------
+# Audit-specific regression tests (Phase 3 hardening)
+# ---------------------------------------------------------------------------
+
+
+class TestAuditAnnotation:
+    """Tests added during the formal Phase 1/2/3 code audit to cover
+    branches that were not previously exercised."""
+
+    # normalize_status: PROVEN branch (audit finding — was falling through to raw return)
+    def test_normalize_status_proven(self) -> None:
+        """'PROVEN' must map to the canonical status string, not pass through verbatim."""
+        assert normalize_status("PROVEN") == "PROVEN"
+        # Old-format variants containing the word should also normalise
+        assert normalize_status("proven_match") == "PROVEN"
+        assert normalize_status("PROVEN_OK") == "PROVEN"
+
+    # update_size_annotation: target_va parameter (previously untested branch)
+    def test_update_size_annotation_target_va_match(self, tmp_path) -> None:
+        """When target_va is provided, only the matching annotation block is updated."""
+        from rebrew.annotation import update_size_annotation
+
+        content = (
+            "// FUNCTION: SERVER 0x10001000\n"
+            "// SIZE: 10\n"
+            "int func_a(void) {}\n\n"
+            "// FUNCTION: SERVER 0x10002000\n"
+            "// SIZE: 20\n"
+            "int func_b(void) {}\n"
+        )
+        f = tmp_path / "dual.c"
+        f.write_text(content, encoding="utf-8")
+
+        # Only update the SIZE belonging to 0x10002000
+        changed = update_size_annotation(f, 99, target_va=0x10002000)
+        assert changed is True
+        updated = f.read_text(encoding="utf-8")
+        assert "// SIZE: 10" in updated  # func_a unchanged
+        assert "// SIZE: 99" in updated  # func_b updated
+
+    def test_update_size_annotation_target_va_no_match(self, tmp_path) -> None:
+        """update_size_annotation returns False when target_va does not match any block."""
+        from rebrew.annotation import update_size_annotation
+
+        f = tmp_path / "single.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x10001000\n// SIZE: 10\nint f(void) {}\n", encoding="utf-8"
+        )
+        changed = update_size_annotation(f, 99, target_va=0xDEADBEEF)
+        assert changed is False
+
+    def test_update_size_annotation_no_shrink(self, tmp_path) -> None:
+        """update_size_annotation never reduces size (safety invariant)."""
+        from rebrew.annotation import update_size_annotation
+
+        f = tmp_path / "big.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x10001000\n// SIZE: 100\nint f(void) {}\n", encoding="utf-8"
+        )
+        changed = update_size_annotation(f, 50)  # 50 < 100 — must not shrink
+        assert changed is False
+
+    # _calc_stdcall_param_size: template param regression
+    def test_stdcall_template_param_counted_correctly(self) -> None:
+        """std::pair<int,int> is ONE parameter — must not be double-counted."""
+        from rebrew.annotation import _calc_stdcall_param_size  # type: ignore[attr-defined]
+
+        # pair<int,int> stripped to "pair", one 4-byte slot
+        size = _calc_stdcall_param_size("void __stdcall foo(std::pair<int,int> p)")
+        assert size == 4
+
+    def test_stdcall_nested_template(self) -> None:
+        """Nested templates should still count as single params each."""
+        from rebrew.annotation import _calc_stdcall_param_size  # type: ignore[attr-defined]
+
+        # Two params: pair<int,int> and int
+        size = _calc_stdcall_param_size("void __stdcall bar(std::pair<int,int> a, int b)")
+        assert size == 8
+
+    # to_dict completeness: inline_error must be serialised
+    def test_to_dict_contains_inline_error(self) -> None:
+        """to_dict() must include inline_error for faithful round-tripping."""
+        ann = Annotation(inline_error="// FUNCTION: SERVER 0x1000 // EXTRA")
+        d = ann.to_dict()
+        assert "inline_error" in d
+        assert d["inline_error"] == "// FUNCTION: SERVER 0x1000 // EXTRA"
+
+    def test_to_dict_inline_error_empty_by_default(self) -> None:
+        """to_dict() inline_error is empty string when not set."""
+        ann = Annotation()
+        assert ann.to_dict()["inline_error"] == ""

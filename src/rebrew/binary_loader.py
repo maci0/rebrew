@@ -61,16 +61,17 @@ class BinaryInfo:
     def data(self) -> bytes:
         """Raw file bytes, loaded lazily.
 
-        Not thread-safe: concurrent first-access may read the file twice.
-        This is benign (idempotent) and rare due to the module-level cache.
+        Uses a single ``read_bytes()`` call so that the size check is
+        performed on the bytes we actually read, not a separate ``stat()``
+        that could race with a file replacement between the two syscalls.
         """
         if self._data is None:
-            file_size = self.path.stat().st_size
-            if file_size > 512 * 1024 * 1024:  # 512 MB safety limit
+            raw = self.path.read_bytes()
+            if len(raw) > 512 * 1024 * 1024:  # 512 MB safety limit
                 raise ValueError(
-                    f"Binary file too large ({file_size / 1024 / 1024:.0f} MB): {self.path}"
+                    f"Binary file too large ({len(raw) / 1024 / 1024:.0f} MB): {self.path}"
                 )
-            self._data = self.path.read_bytes()
+            self._data = raw
         return self._data
 
 

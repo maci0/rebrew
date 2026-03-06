@@ -50,13 +50,19 @@ def get_config(target: str | None = None) -> ProjectConfig:
 
 
 def require_config(target: str | None = None, *, json_mode: bool = False) -> ProjectConfig:
-    """Load the project config, exiting with a user-friendly error on failure."""
+    """Load the project config, exiting with a user-friendly error on failure.
+
+    Each except branch calls error_exit() which is typed ``NoReturn``; the
+    explicit ``return cfg`` makes the successful code path unambiguous to
+    static analysers (mypy/pyright) and avoids an implicit ``None`` return.
+    """
     try:
-        return load_config(target=target)
+        cfg = load_config(target=target)
     except FileNotFoundError as exc:
         error_exit(str(exc), json_mode=json_mode)
     except (KeyError, ValueError) as exc:
         error_exit(f"Config error: {exc}", json_mode=json_mode)
+    return cfg  # reached only when load_config() succeeds; branches above are NoReturn
 
 
 # ---------------------------------------------------------------------------
