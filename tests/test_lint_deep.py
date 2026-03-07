@@ -166,7 +166,8 @@ class TestLintFileEdgeCases:
             "void _f() {}\n",
         )
         result = lint_file(f)
-        assert any(code == "E008" for _, code, _ in result.errors)
+        # E008 no longer fires — // SIZE: is sidecar-only, not validated in source
+        assert not any(code == "E008" for _, code, _ in result.errors)
 
     def test_invalid_size_text(self, tmp_path) -> None:
         f = _write(
@@ -181,7 +182,8 @@ class TestLintFileEdgeCases:
             "void _f() {}\n",
         )
         result = lint_file(f)
-        assert any(code == "E008" for _, code, _ in result.errors)
+        # E008 no longer fires — // SIZE: is sidecar-only, not validated in source
+        assert not any(code == "E008" for _, code, _ in result.errors)
 
     def test_missing_cflags(self, tmp_path) -> None:
         f = _write(
