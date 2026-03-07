@@ -245,7 +245,6 @@ def _parse_header(lines: list[str]) -> tuple[dict[str, str], dict[str, bool]]:
                 found_keys["VA"] = val
             elif key in (
                 "STATUS",
-                "SIZE",
                 "CFLAGS",
                 "SOURCE",
                 "BLOCKER",
@@ -631,7 +630,7 @@ def lint_file(
             if marker not in ("GLOBAL", "DATA"):
                 _check_E003_E004_status(result, found_keys)
                 _check_W018_cflags(result, found_keys, cfg)
-                _check_E007_E008_size(result, found_keys)
+                # SIZE check removed: // SIZE: is now sidecar-only, not required in source.
             else:
                 # For DATA/GLOBAL: overlay data sidecar fields (size, section, note)
                 if va_int is not None and mod:
@@ -686,7 +685,6 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
         va_str = m.group("va").lower()
         if not va_str.startswith("0x"):
             va_str = "0x" + va_str
-        size = m.group("size")
         raw_cflags = m.group("cflags").strip()
         status = normalize_status(m.group("status"))
         marker = "STUB" if status == "STUB" else "FUNCTION"
@@ -695,7 +693,6 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
             cflags_parts.append("/Gd")
         cflags = " ".join(cflags_parts)
         annotation = f"// {marker}: {cfg.marker} {va_str}\n// STATUS: {status}\n"
-        annotation += f"// SIZE: {size}\n"
         if cflags:
             annotation += f"// CFLAGS: {cflags}\n"
 
@@ -730,10 +727,8 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
         module = found_keys.get("MODULE", cfg.marker)
         va_str = found_keys.get("VA", "0x0")
         status = found_keys.get("STATUS", "RELOC")
-        size = found_keys.get("SIZE", "0")
         cflags = found_keys.get("CFLAGS", "")
         annotation = f"// {marker}: {module} {va_str}\n// STATUS: {status}\n"
-        annotation += f"// SIZE: {size}\n"
         if cflags:
             annotation += f"// CFLAGS: {cflags}\n"
         for extra_key in ("BLOCKER", "SOURCE", "NOTE", "SKIP"):
@@ -774,10 +769,8 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
             status = found_keys_jd.get("STATUS", "RELOC").upper()
             module = found_keys_jd.get("MODULE", cfg.marker)
             marker = marker_for_module(module, status)
-            size = found_keys_jd.get("SIZE", "0")
             cflags = found_keys_jd.get("CFLAGS", "")
             annotation = f"// {marker}: {cfg.marker} {va_str}\n// STATUS: {status}\n"
-            annotation += f"// SIZE: {size}\n"
             if cflags:
                 annotation += f"// CFLAGS: {cflags}\n"
 

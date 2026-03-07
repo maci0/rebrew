@@ -916,13 +916,20 @@ class TestAuditAnnotation:
         assert changed is False
 
     def test_update_size_annotation_no_shrink(self, tmp_path) -> None:
-        """update_size_annotation never reduces size (safety invariant)."""
+        """update_size_annotation never reduces size (safety invariant).
+
+        The sidecar must be pre-populated with the existing size; the .c file's
+        // SIZE: annotation is no longer read by update_size_annotation.
+        """
         from rebrew.annotation import update_size_annotation
+        from rebrew.sidecar import save_sidecar
 
         f = tmp_path / "big.c"
         f.write_text(
             "// FUNCTION: SERVER 0x10001000\n// SIZE: 100\nint f(void) {}\n", encoding="utf-8"
         )
+        # Pre-populate sidecar with existing size — update_size_annotation now reads sidecar
+        save_sidecar(tmp_path, {("SERVER", 0x10001000): {"size": 100}})
         changed = update_size_annotation(f, 50)  # 50 < 100 — must not shrink
         assert changed is False
 

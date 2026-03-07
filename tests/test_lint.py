@@ -188,7 +188,8 @@ int foo(void) { return 0; }
         result = lint_file(f)
         assert any(c in ("E003", "E004") for _, c, _ in result.errors)
 
-    def test_missing_size(self, tmp_path: Path) -> None:
+    def test_missing_size_no_error(self, tmp_path: Path) -> None:
+        """// SIZE: is no longer required in source — SIZE lives in the sidecar."""
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
@@ -197,9 +198,11 @@ int foo(void) { return 0; }
 """
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
-        assert any(c == "E007" for _, c, _ in result.errors)
+        # No E007 error — SIZE is sidecar-only, not required in source
+        assert not any(c == "E007" for _, c, _ in result.errors)
 
-    def test_invalid_size(self, tmp_path: Path) -> None:
+    def test_invalid_size_in_source_no_error(self, tmp_path: Path) -> None:
+        """A // SIZE: -5 in source no longer triggers E008 (SIZE is sidecar-only)."""
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
@@ -209,7 +212,8 @@ int foo(void) { return 0; }
 """
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
-        assert any(c == "E008" for _, c, _ in result.errors)
+        # No E008 error — the lint no longer validates inline SIZE values
+        assert not any(c == "E008" for _, c, _ in result.errors)
 
     def test_missing_cflags_no_config(self, tmp_path: Path) -> None:
         content = """\
@@ -574,8 +578,8 @@ int foo(void) { return 0; }
 """
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
-        # STATUS should default to RELOC but SIZE should be missing
-        assert any(c == "E007" for _, c, _ in result.errors)  # missing SIZE
+        # STATUS defaults to RELOC — no error. SIZE is sidecar-only, no E007.
+        assert not any(c == "E007" for _, c, _ in result.errors)
         # CFLAGS is optional — handled by W018 warning, not an error
 
 
