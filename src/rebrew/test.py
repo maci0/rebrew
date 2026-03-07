@@ -111,7 +111,7 @@ def update_source_status(
 ) -> None:
     """Update the STATUS for a function via the sidecar.
 
-    Writes ``status`` to the per-directory ``rebrew-functions.toml`` sidecar for the
+    Writes ``status`` to the per-directory ``rebrew-function.toml`` sidecar for the
     given VA.  When *blockers_to_remove* is True the ``blocker`` and
     ``blocker_delta`` fields are also cleared from the sidecar.
 

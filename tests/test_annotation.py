@@ -966,7 +966,7 @@ class TestAuditAnnotation:
     # --- P1-01 regression: update_annotation_key must not bleed into next block ---
 
     def test_update_annotation_key_no_bleed_into_next_block(self, tmp_path: Path) -> None:
-        """STATUS is a sidecar key — update_annotation_key writes to rebrew-functions.toml.
+        """STATUS is a sidecar key — update_annotation_key writes to rebrew-function.toml.
 
         The .c file must remain completely untouched. VA2 is never affected.
         """
@@ -1003,7 +1003,7 @@ class TestAuditAnnotation:
     # --- P1-02 regression: remove_annotation_key must not bleed into next block ---
 
     def test_remove_annotation_key_no_bleed_into_next_block(self, tmp_path: Path) -> None:
-        """BLOCKER is a sidecar key — remove_annotation_key deletes from rebrew-functions.toml.
+        """BLOCKER is a sidecar key — remove_annotation_key deletes from rebrew-function.toml.
 
         The .c file must remain untouched. VA2's sidecar entry is not affected.
         """

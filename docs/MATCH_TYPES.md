@@ -1,6 +1,6 @@
 # Function Status Reference
 
-All function statuses are stored in the `rebrew-functions.toml` sidecar, keyed by hex VA.
+All function statuses are stored in the `rebrew-function.toml` sidecar, keyed by hex VA.
 The `.c` file contains only the stable `// FUNCTION: MODULE 0xVA` marker line.
 
 ## Status Overview

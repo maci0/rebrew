@@ -6,7 +6,7 @@ Given a VA address, generates a properly annotated .c file skeleton with:
 - The exact rebrew test command to verify it
 
 All volatile metadata (STATUS, SIZE, CFLAGS, BLOCKER) is written to the
-``rebrew-functions.toml`` sidecar by this generator, not into the .c file.
+``rebrew-function.toml`` sidecar by this generator, not into the .c file.
 
 Usage:
     rebrew skeleton 0x10003da0                    # Auto-detect origin
@@ -407,7 +407,7 @@ rebrew skeleton --list --origin ZLIB           List uncovered ZLIB functions
 
 A .c file with a single marker line (``// FUNCTION: MODULE 0xVA``) and a
 placeholder function body.  All volatile metadata (STATUS, SIZE, CFLAGS,
-BLOCKER) is written to the ``rebrew-functions.toml`` sidecar alongside the
+BLOCKER) is written to the ``rebrew-function.toml`` sidecar alongside the
 .c file, not into the file itself.
 
 With --append, the annotation block is appended to an existing .c file,

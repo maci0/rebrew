@@ -91,7 +91,7 @@ A multi-target source file might look like:
 void __cdecl MyFunc(void) { ... }
 ```
 
-Each target's `rebrew-functions.toml` sidecar holds the metadata (STATUS, SIZE, CFLAGS) for the
+Each target's `rebrew-function.toml` sidecar holds the metadata (STATUS, SIZE, CFLAGS) for the
 corresponding VA.
 
 Running `rebrew test --target server_dll` processes only the `SERVER` annotation block. Running `rebrew test --target client_exe` processes only the `CLIENT` block.
@@ -123,7 +123,7 @@ Compiler settings are resolved in layers. Each layer overrides the previous:
 1. **Built-in defaults** — `wine CL.EXE`, `/nologo /c /MT`, 60s timeout
 2. **`[compiler]`** — Global settings shared across all targets
 3. **`[targets.<name>.compiler]`** — Per-target overrides (partial — only keys present override)
-4. **`rebrew-functions.toml` sidecar** — Per-function CFLAGS override in the function's entry (highest priority for cflags)
+4. **`rebrew-function.toml` sidecar** — Per-function CFLAGS override in the function's entry (highest priority for cflags)
 
 ```toml
 # Global defaults — all targets inherit these
@@ -213,7 +213,7 @@ cflags = "/O2"    # this target's ZLIB uses /O2, not the global /O3
 2. `[targets.<name>.compiler]` — Per-target overrides
 3. `[compiler.origins.<ORIGIN>]` — Global per-origin overrides
 4. `[targets.<name>.compiler.origins.<ORIGIN>]` — Per-target per-origin (most specific config)
-5. **`rebrew-functions.toml` sidecar** — Per-function CFLAGS override in the function's sidecar entry (cflags only, highest priority)
+5. **`rebrew-function.toml` sidecar** — Per-function CFLAGS override in the function's sidecar entry (cflags only, highest priority)
 
 Supported keys in `[compiler.origins.<ORIGIN>]`: `command`, `runner`, `includes`, `libs`, `cflags`, `base_cflags`, `profile`, `timeout`.
 
@@ -221,7 +221,7 @@ Tools use `cfg.for_origin(origin)` to get a config with all origin overrides app
 
 ### Origin-Based Flag Presets (`cflags_presets`)
 
-A simpler shorthand for the common case where only cflags differ per origin. Used by `rebrew match --fix-cflags` (writes to `rebrew-functions.toml` sidecar), `rebrew next` (recommends flags), and `rebrew lint` (validates sidecar entries).
+A simpler shorthand for the common case where only cflags differ per origin. Used by `rebrew match --fix-cflags` (writes to `rebrew-function.toml` sidecar), `rebrew next` (recommends flags), and `rebrew lint` (validates sidecar entries).
 
 ```toml
 [compiler.cflags_presets]

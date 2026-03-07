@@ -1,7 +1,7 @@
 """sidecar.py — Per-directory metadata store for rebrew.
 
 Volatile annotation fields (STATUS, SIZE, CFLAGS, BLOCKER, NOTE, GHIDRA, …)
-are stored in a ``rebrew-functions.toml`` sidecar file alongside the reversed
+are stored in a ``rebrew-function.toml`` sidecar file alongside the reversed
 ``.c`` sources, rather than as comment annotations inside those files.
 
 Key format
@@ -12,7 +12,7 @@ The sidecar is keyed by *qualified module+VA string*::
     status = "EXACT"
     size   = 42
 
-This allows a single ``rebrew-functions.toml`` to hold metadata for **multiple
+This allows a single ``rebrew-function.toml`` to hold metadata for **multiple
 targets** (e.g. ``SERVER`` and ``CLIENT``) that share a directory or ``.c``
 file — the full key is unambiguous even if two targets happen to have a
 function at the same VA.  The format mirrors the ``// FUNCTION: SERVER
@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-SIDECAR_FILENAME = "rebrew-functions.toml"
+SIDECAR_FILENAME = "rebrew-function.toml"
 
 # Fields that live in the sidecar — routing table used by update/delete helpers.
 SIDECAR_FIELDS: frozenset[str] = frozenset(
@@ -82,7 +82,7 @@ SIDECAR_FIELDS: frozenset[str] = frozenset(
         # They are listed here so callers can ask ``is_sidecar_key("SOURCE")``.
         "SOURCE",
         # NOTE: SECTION is intentionally absent — it is owned by data_sidecar.py
-        # for DATA/GLOBAL annotations and must not be written to rebrew-functions.toml.
+        # for DATA/GLOBAL annotations and must not be written to rebrew-function.toml.
     }
 )
 
@@ -127,7 +127,7 @@ def is_sidecar_key(key: str) -> bool:
 
 
 def sidecar_path(source_or_dir: Path) -> Path:
-    """Return the ``rebrew-functions.toml`` path for a source file or its parent directory.
+    """Return the ``rebrew-function.toml`` path for a source file or its parent directory.
 
     Args:
         source_or_dir: Either a ``.c`` source file or the directory that
@@ -182,10 +182,10 @@ def _parse_key(key: str) -> tuple[str, int] | None:
 
 
 def _find_sidecar_dir(start: Path) -> Path:
-    """Return the directory that owns ``rebrew-functions.toml`` for *start*.
+    """Return the directory that owns ``rebrew-function.toml`` for *start*.
 
     Walks *start* → parent → grandparent … until a directory containing
-    ``rebrew-functions.toml`` is found.  If no ancestor has the file, returns
+    ``rebrew-function.toml`` is found.  If no ancestor has the file, returns
     *start* (so callers that write will create the file there).
 
     Args:
@@ -207,9 +207,9 @@ def _find_sidecar_dir(start: Path) -> Path:
 
 
 def load_sidecar(directory: Path) -> dict[tuple[str, int], dict[str, Any]]:
-    """Load a ``rebrew-functions.toml`` for sources in *directory*.
+    """Load a ``rebrew-function.toml`` for sources in *directory*.
 
-    Walks *directory* → parent → … until ``rebrew-functions.toml`` is found,
+    Walks *directory* → parent → … until ``rebrew-function.toml`` is found,
     then loads and returns its contents.  This means a single sidecar file at
     a project root (e.g. ``src/server.dll/``) is shared by all subdirectories.
 
@@ -246,7 +246,7 @@ def save_sidecar(
     directory: Path,
     data: dict[tuple[str, int], dict[str, Any]],
 ) -> None:
-    """Atomically write *data* to ``rebrew-functions.toml`` in *directory*.
+    """Atomically write *data* to ``rebrew-function.toml`` in *directory*.
 
     Args:
         directory: The directory to write into.
@@ -299,7 +299,7 @@ def get_entry(directory: Path, va: int, module: str) -> dict[str, Any]:
     Returns an empty dict if not found.
 
     Args:
-        directory: Directory containing ``rebrew-functions.toml``.
+        directory: Directory containing ``rebrew-function.toml``.
         va: Virtual address integer.
         module: Target module name (e.g. ``"SERVER"``).
 
@@ -311,7 +311,7 @@ def set_field(directory: Path, va: int, key: str, value: Any, module: str) -> No
     """Set one field for *(module, va)* in the sidecar.
 
     Walks up from *directory* to find the existing sidecar file.  If no
-    ancestor sidecar exists, creates ``rebrew-functions.toml`` in *directory*.
+    ancestor sidecar exists, creates ``rebrew-function.toml`` in *directory*.
     Uses in-place ``tomlkit`` editing to preserve formatting and comments.
 
     Args:
@@ -388,7 +388,7 @@ def merge_into_annotation(ann: Annotation, directory: Path) -> Annotation:
 
     Args:
         ann: The ``Annotation`` object to mutate.
-        directory: Directory containing ``rebrew-functions.toml``.
+        directory: Directory containing ``rebrew-function.toml``.
 
     Returns:
         The mutated *ann* (same object, for chaining convenience).

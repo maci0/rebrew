@@ -20,7 +20,7 @@ All rebrew-specific metadata lives in ``rebrew-data.toml``::
 
 Key format
 ----------
-Identical to ``rebrew-functions.toml``: ``"MODULE.0xVA"`` (qualified key).
+Identical to ``rebrew-function.toml``: ``"MODULE.0xVA"`` (qualified key).
 This makes the sidecar unambiguous across multi-target projects.
 
 Owned fields per entry::

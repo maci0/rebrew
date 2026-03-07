@@ -38,7 +38,7 @@ Use `--rr` to see if remaining `**` diffs are register allocation differences.
 
 `rebrew diff` auto-classifies systemic compiler differences from `**` / `RR` lines
 (e.g. "register allocation", "loop rotation / branch layout", "stack frame choice").
-Use `--fix-blocker` to auto-write these to the `rebrew-functions.toml` sidecar:
+Use `--fix-blocker` to auto-write these to the `rebrew-function.toml` sidecar:
 
 ```bash
 rebrew diff --fix-blocker src/<target>/<file>.c       # auto-write BLOCKER to sidecar
@@ -96,7 +96,7 @@ Use this to quickly rule out flag-based solutions before spending time on sweeps
 
 ## 6. Blocker Tracking
 
-When a function is MATCHING but not byte-perfect, blockers live in the `rebrew-functions.toml` sidecar:
+When a function is MATCHING but not byte-perfect, blockers live in the `rebrew-function.toml` sidecar:
 
 ```toml
 ["SERVER.0x<VA>"]
