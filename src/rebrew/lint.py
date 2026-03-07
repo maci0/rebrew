@@ -6,6 +6,7 @@ Supports --fix mode to auto-migrate from old format to new format.
 Inspired by reccmp's decomplint tool.
 """
 
+import contextlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -492,23 +493,37 @@ def _check_W017_note_rebrew(result: LintResult, found_keys: dict[str, str]) -> N
         )
 
 
+# Keys owned by data_sidecar (rebrew-data.toml) rather than the function sidecar.
+_DATA_SIDECAR_KEYS: frozenset[str] = frozenset({"SECTION", "NOTE", "SIZE"})
+
+
 def _check_W019_inline_sidecar_keys(
     result: LintResult,
     found_keys: dict[str, str],
     sidecar_sourced_keys: set[str],
+    marker: str = "",
 ) -> None:
     """Warn when a rebrew-specific annotation key appears inline in source.
 
-    These keys (CFLAGS, SKIP, GLOBALS, BLOCKER, SOURCE, NOTE, GHIDRA, …)
-    must live exclusively in ``rebrew-functions.toml``.  Any occurrence
-    in the ``.c`` file should be migrated: strip from source, add to sidecar.
+    These keys must live exclusively in the appropriate sidecar TOML file.
+    DATA/GLOBAL annotations write SIZE/SECTION/NOTE to ``rebrew-data.toml``;
+    function annotations write everything else to ``rebrew-functions.toml``.
     """
+    is_data = marker in ("DATA", "GLOBAL")
     for key in SIDECAR_KEYS:
         if key in found_keys and key not in sidecar_sourced_keys:
+            # Choose the right sidecar filename for this key.
+            if is_data and key in _DATA_SIDECAR_KEYS:
+                toml_file = "rebrew-data.toml"
+            elif key in _DATA_SIDECAR_KEYS and not is_data:
+                # SECTION/NOTE/SIZE on a function marker → still goes to functions sidecar
+                toml_file = "rebrew-functions.toml"
+            else:
+                toml_file = "rebrew-functions.toml"
             result.warning(
                 result.marker_line,
                 "W019",
-                f"Inline // {key}: annotation must move to rebrew-functions.toml sidecar",
+                f"Inline // {key}: annotation must move to {toml_file} sidecar",
             )
 
 
@@ -680,7 +695,7 @@ def lint_file(
             _check_W015_va_case(result, va_str)
             _check_W016_section(result, marker, found_keys)
             _check_W017_note_rebrew(result, found_keys)
-            _check_W019_inline_sidecar_keys(result, found_keys, _sidecar_sourced_keys)
+            _check_W019_inline_sidecar_keys(result, found_keys, _sidecar_sourced_keys, marker)
 
     result.context_prefix = ""
     _check_body_rules(result, lines, all_headers[0][1]["has_new"] if all_headers else False)
@@ -829,7 +844,84 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
             atomic_write_text(filepath, new_text, encoding="utf-8")
             return True
 
-    return False
+    # --- W019: new-format files with inline sidecar keys ---
+    # Strip inline SIDECAR_KEYS from the .c file and write them to the
+    # appropriate TOML (rebrew-data.toml for DATA/GLOBAL SECTION/NOTE/SIZE,
+    # rebrew-functions.toml for everything else).
+    from rebrew.annotation import SIDECAR_KEYS as _SIDECAR_KEYS
+
+    # Detect marker type (FUNCTION/STUB/GLOBAL/DATA), module, and VA.
+    _marker_type = ""
+    _module = ""
+    _va_hex = ""
+    for _line in lines[:20]:
+        _stripped = _line.strip()
+        if NEW_FUNC_RE.match(_stripped):
+            _parts = _stripped.split(None, 2)  # ["//", "MARKER:", "MODULE 0xVA"]
+            if len(_parts) >= 2:
+                _marker_type = _parts[1].rstrip(":").upper()
+            if len(_parts) >= 3:
+                _rest = _parts[2].split()
+                _module = _rest[0] if _rest else ""
+                _va_hex = _rest[1].lower() if len(_rest) > 1 else ""
+            break
+
+    _is_data = _marker_type in ("GLOBAL", "DATA")
+
+    # Collect inline sidecar key/values and the line indices to drop.
+    _sidecar_inline: dict[str, str] = {}
+    _drop_lines: set[int] = set()
+    for _li, _line in enumerate(lines):
+        _stripped = _line.strip()
+        _km = NEW_KV_RE.match(_stripped)
+        if _km:
+            _k = _km.group("key").upper()
+            if _k in _SIDECAR_KEYS:
+                _sidecar_inline[_k] = _km.group("value").strip()
+                _drop_lines.add(_li)
+
+    if not _sidecar_inline:
+        return False
+
+    # Parse VA integer for sidecar write.
+    _va_int: int | None = None
+    if _va_hex:
+        with contextlib.suppress(ValueError):
+            _va_int = int(_va_hex, 16)
+
+    if _va_int is not None and _module:
+        try:
+            if _is_data:
+                # DATA/GLOBAL: SIZE/SECTION/NOTE → rebrew-data.toml
+                from rebrew.data_sidecar import set_data_field as _set_data_field
+
+                _data_key_map = {"SIZE": "size", "SECTION": "section", "NOTE": "note"}
+                for _k, _toml_k in _data_key_map.items():
+                    if _k in _sidecar_inline:
+                        _set_data_field(
+                            filepath.parent, _va_int, _toml_k, _sidecar_inline[_k], module=_module
+                        )
+                # Any remaining sidecar keys (GHIDRA, SKIP, …) → rebrew-functions.toml
+                _remaining = {k: v for k, v in _sidecar_inline.items() if k not in _data_key_map}
+                if _remaining:
+                    from rebrew.sidecar import set_field as _set_field2
+
+                    for _k, _v in _remaining.items():
+                        _set_field2(filepath.parent, _va_int, _k.lower(), _v, module=_module)
+            else:
+                # Function/Stub keys → rebrew-functions.toml
+                from rebrew.sidecar import set_field as _set_field
+
+                for _k, _v in _sidecar_inline.items():
+                    _set_field(filepath.parent, _va_int, _k.lower(), _v, module=_module)
+        except Exception:  # noqa: BLE001
+            # Sidecar write failure — leave file untouched
+            return False
+
+    # Write the stripped source file (remove inline sidecar key lines).
+    new_text = "".join(line for li, line in enumerate(lines) if li not in _drop_lines)
+    atomic_write_text(filepath, new_text, encoding="utf-8")
+    return True
 
 
 def _print_summary(results: list[LintResult]) -> None:

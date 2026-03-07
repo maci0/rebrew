@@ -62,6 +62,10 @@ Iteratively edit source and compile-compare against the target binary:
 rebrew test src/<target>/<file>.c          # compile + byte-compare; auto-updates STATUS
 rebrew test src/<target>/<file>.c --json   # JSON output
 rebrew test src/<target>/<file>.c --no-promote  # skip STATUS update
+rebrew test --all --json                   # batch test all reversed .c files
+rebrew test --all --origin GAME --json     # batch mode, filter by origin
+rebrew test --all --dir src/<target>/ --json    # batch mode, restrict to subdir
+rebrew test --all --dry-run                # list candidates without testing
 ```
 
 `rebrew test` auto-updates STATUS in the sidecar after each run:
