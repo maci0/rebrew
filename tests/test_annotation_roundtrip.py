@@ -1,7 +1,7 @@
 """Tests for annotation round-trip fidelity (Idea 19).
 
 After the sidecar migration, volatile fields (STATUS, CFLAGS, BLOCKER, NOTE,
-GLOBALS, SIZE) are stored in rebrew-functions.toml rather than in the .c file. Round-trip
+GLOBALS, SIZE) are stored in rebrew-function.toml rather than in the .c file. Round-trip
 reads must pass ``sidecar_dir`` to ``parse_c_file_multi`` to see them.
 """
 

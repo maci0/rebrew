@@ -210,7 +210,7 @@ Rebrew's model is **matching-centric** (marker + sidecar metadata):
 int __cdecl bit_reverse(int x) { ... }  // symbol derived from C definition
 ```
 ```toml
-# rebrew-functions.toml sidecar (found via walk-up, managed by CLI tools)
+# rebrew-function.toml sidecar (found via walk-up, managed by CLI tools)
 ["0x10008880"]
 status = "EXACT"
 size = 31

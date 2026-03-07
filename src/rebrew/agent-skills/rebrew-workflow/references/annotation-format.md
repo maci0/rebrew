@@ -30,13 +30,13 @@ int stub(void) { return 0; }
 ```
 
 > [!CAUTION]
-> **Never manually edit `rebrew-functions.toml`.** All volatile metadata (STATUS, SIZE, CFLAGS,
+> **Never manually edit `rebrew-function.toml`.** All volatile metadata (STATUS, SIZE, CFLAGS,
 > BLOCKER, NOTE, GHIDRA) is managed exclusively by Rebrew CLI tools:
 > - `rebrew test` → STATUS (auto-promotes on EXACT/RELOC; use `--no-promote` to skip)
 > - `rebrew diff --fix-blocker` → BLOCKER / BLOCKER_DELTA
 > - `rebrew sync --pull` → NOTE, GHIDRA
 
-## What goes in `rebrew-functions.toml` sidecar
+## What goes in `rebrew-function.toml` sidecar
 
 ```toml
 ["SERVER.0x10008880"]
@@ -52,7 +52,7 @@ source = "ENVIRON.C"
 ```
 
 The sidecar file is found automatically by all rebrew tools via walk-up from the
-source file's directory (climbs parent dirs until `rebrew-functions.toml` is found),
+source file's directory (climbs parent dirs until `rebrew-function.toml` is found),
 so a single file at a project root can serve all subdirectories. Tools including — including **`rebrew lint`**, which reads the
 sidecar before running validation so that STATUS, SIZE, CFLAGS etc. are visible
 even when not present inline.
@@ -78,7 +78,7 @@ void my_func() {}
 Each target has its own sidecar entry, keyed by `MODULE.0xVA`:
 
 ```toml
-# A single rebrew-functions.toml found via walk-up (e.g. at src/server.dll/):
+# A single rebrew-function.toml found via walk-up (e.g. at src/server.dll/):
 ["LEGO1.0x1009a8c0"]
 status = "EXACT"
 size = 42
@@ -97,7 +97,7 @@ marker line.
 ## Data Annotations
 
 DATA/GLOBAL metadata lives in a **`rebrew-data.toml` sidecar** — the data
-analogue of `rebrew-functions.toml`. Only the stable marker line stays in
+analogue of `rebrew-function.toml`. Only the stable marker line stays in
 the `.c` file:
 
 **`.c` file:**

@@ -355,7 +355,7 @@ def update_cflags_annotation(filepath: Path, new_cflags: str) -> bool:
     """Update the ``cflags`` for a function — writes to the sidecar.
 
     Locates the FUNCTION marker in *filepath* to extract the VA and module,
-    then writes *new_cflags* to ``rebrew-functions.toml`` via ``set_field``.
+    then writes *new_cflags* to ``rebrew-function.toml`` via ``set_field``.
 
     Returns True if the sidecar was updated, False on failure.
     """

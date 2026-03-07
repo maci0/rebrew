@@ -52,13 +52,13 @@ Every `.c` file containing a reversed function must begin with a **marker line**
 // MARKER: MODULE 0xVA
 ```
 
-That's it. All metadata (STATUS, SIZE, CFLAGS, BLOCKER, etc.) lives in the `rebrew-functions.toml`
+That's it. All metadata (STATUS, SIZE, CFLAGS, BLOCKER, etc.) lives in the `rebrew-function.toml`
 sidecar found via walk-up from the source file's directory (rebrew climbs parent dirs
 until  is found), managed automatically by the CLI tools.
 
 > [!CAUTION]
 > **Never manually add STATUS, SIZE, or CFLAGS to a `.c` file.** These are managed
-> by `rebrew promote`, `rebrew match`, and `rebrew sync`. Manual edits to `rebrew-functions.toml`
+> by `rebrew promote`, `rebrew match`, and `rebrew sync`. Manual edits to `rebrew-function.toml`
 > or volatile annotation lines in `.c` files will be overwritten or ignored.
 
 ### Example
@@ -72,7 +72,7 @@ int __cdecl bit_reverse(int x)
 }
 ```
 
-`rebrew-functions.toml` (found via walk-up, managed by tools):
+`rebrew-function.toml` (found via walk-up, managed by tools):
 ```toml
 ["0x10008880"]
 status = "EXACT"
@@ -103,7 +103,7 @@ Format: `// MARKER: MODULE 0xVA`
 | `SIZE` | **Mandatory** | E007, E008 | Function size in bytes from the original binary |
 | `CFLAGS` | Optional | W018 | Per-function compiler flag override. Falls back to the target's `base_cflags` / `cflags_presets` in `rebrew-project.toml`. Only needed for functions compiled with non-default flags (e.g. a static lib linked with `/O1` into an `/O2` binary). |
 | `SOURCE` | Conditional | W006 | **Required for library origins** — reference file (e.g. `SBHEAP.C:195`, `deflate.c`). Use `rebrew crt-match --fix-source` to auto-populate. |
-| `BLOCKER` | Conditional | W005 | **Required for STUB** — explain why the function doesn't match yet. Now lives in `rebrew-functions.toml` sidecar; auto-added by `rebrew promote` on demotion. |
+| `BLOCKER` | Conditional | W005 | **Required for STUB** — explain why the function doesn't match yet. Now lives in `rebrew-function.toml` sidecar; auto-added by `rebrew promote` on demotion. |
 | `NOTE` | Optional | — | Freeform notes (e.g. `NOTE: uses SSE2 intrinsics`) — lives in sidecar |
 | `GHIDRA` | Optional | — | The Ghidra name, added by `rebrew sync --pull --accept-local` to prevent conflict loops — lives in sidecar |
 | `STRUCT` | Optional | — | Linked structs for this file |
@@ -113,7 +113,7 @@ Format: `// MARKER: MODULE 0xVA`
 | `ANALYSIS` | Optional | — | Freeform analysis notes from decompiler or reverse engineer |
 
 > [!CAUTION]
-> **Never manually edit `rebrew-functions.toml`.** This sidecar file stores volatile metadata
+> **Never manually edit `rebrew-function.toml`.** This sidecar file stores volatile metadata
 > (STATUS, CFLAGS, SIZE, BLOCKER, NOTE, GHIDRA, etc.) and is managed exclusively by
 > Rebrew CLI tools (`rebrew promote`, `rebrew match`, `rebrew sync`, etc.).
 > Manual edits will be silently lost or may corrupt the file.
@@ -169,7 +169,7 @@ Global variables, dispatch tables, const arrays, and string tables live in the d
 
 The **reccmp-compatible marker line** stays in the `.c` file.  All rebrew-specific
 metadata (SIZE, SECTION, NOTE) lives in the **`rebrew-data.toml` sidecar** — the
-data analogue of `rebrew-functions.toml` (also found via walk-up from the source file's directory).
+data analogue of `rebrew-function.toml` (also found via walk-up from the source file's directory).
 
 **`.c` file** (only the stable identity):
 ```c
@@ -286,7 +286,7 @@ The linter (W007) will warn if a file defining structs lacks the `// SIZE 0xNN` 
 
 The linter validates annotation headers in all `.c` files under the reversed source directory. It enforces the format described above and catches common mistakes.
 
-Before running validation, the linter loads the **`rebrew-functions.toml`** sidecar for each directory and overlays any fields it contains into the annotation being checked. This means that files whose STATUS, SIZE, CFLAGS etc. live only in the sidecar (no inline annotation) will still pass validation correctly — sidecar values count just as much as inline values.
+Before running validation, the linter loads the **`rebrew-function.toml`** sidecar for each directory and overlays any fields it contains into the annotation being checked. This means that files whose STATUS, SIZE, CFLAGS etc. live only in the sidecar (no inline annotation) will still pass validation correctly — sidecar values count just as much as inline values.
 
 ```
 Usage:  rebrew lint [OPTIONS]

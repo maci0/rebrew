@@ -696,7 +696,7 @@ char s_hello[] = "hello";
 int g_foo;
 """
         # Write the sidecar with SECTION set using the canonical TOML key format
-        sidecar = tmp_path / "rebrew-functions.toml"
+        sidecar = tmp_path / "rebrew-function.toml"
         sidecar.write_text(
             '["SERVER.0x10050000"]\nsection = ".bss"\n',
             encoding="utf-8",
@@ -809,7 +809,7 @@ int foo(void) { return 0; }
 int foo(void) { return 0; }
 """
         # Write a sidecar with CFLAGS for this VA
-        sidecar = tmp_path / "rebrew-functions.toml"
+        sidecar = tmp_path / "rebrew-function.toml"
         sidecar.write_text(
             '[SERVER."0x10008880"]\ncflags = "/O2"\n',
             encoding="utf-8",

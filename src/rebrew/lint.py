@@ -422,13 +422,13 @@ def _check_W001_symbol(result: LintResult, found_keys: dict[str, str]) -> None:
 
 
 def _check_W005_blocker(result: LintResult, status: str, found_keys: dict[str, str]) -> None:
-    # BLOCKER lives in rebrew-functions.toml sidecar; the sidecar overlay already injects it
+    # BLOCKER lives in rebrew-function.toml sidecar; the sidecar overlay already injects it
     # into found_keys before this check runs, so this fires only when absent from both.
     if status == "STUB" and "BLOCKER" not in found_keys:
         result.warning(
             result.marker_line,
             "W005",
-            "STUB function missing 'blocker' explanation (set via rebrew match --fix-blocker or add to rebrew-functions.toml)",
+            "STUB function missing 'blocker' explanation (set via rebrew match --fix-blocker or add to rebrew-function.toml)",
         )
 
 
@@ -507,7 +507,7 @@ def _check_W019_inline_sidecar_keys(
 
     These keys must live exclusively in the appropriate sidecar TOML file.
     DATA/GLOBAL annotations write SIZE/SECTION/NOTE to ``rebrew-data.toml``;
-    function annotations write everything else to ``rebrew-functions.toml``.
+    function annotations write everything else to ``rebrew-function.toml``.
     """
     is_data = marker in ("DATA", "GLOBAL")
     for key in SIDECAR_KEYS:
@@ -517,9 +517,9 @@ def _check_W019_inline_sidecar_keys(
                 toml_file = "rebrew-data.toml"
             elif key in _DATA_SIDECAR_KEYS and not is_data:
                 # SECTION/NOTE/SIZE on a function marker → still goes to functions sidecar
-                toml_file = "rebrew-functions.toml"
+                toml_file = "rebrew-function.toml"
             else:
-                toml_file = "rebrew-functions.toml"
+                toml_file = "rebrew-function.toml"
             result.warning(
                 result.marker_line,
                 "W019",
@@ -784,7 +784,7 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
         va_str = found_keys.get("VA", "0x0")
         status = found_keys.get("STATUS", "RELOC")
         # Build a clean annotation: only marker + STATUS inline.
-        # Route CFLAGS and other sidecar fields to rebrew-functions.toml.
+        # Route CFLAGS and other sidecar fields to rebrew-function.toml.
         annotation = f"// {marker}: {module} {va_str}\n// STATUS: {status}\n"
         try:
             from rebrew.sidecar import set_field as _set_field
@@ -1029,7 +1029,7 @@ W016   DATA/GLOBAL missing SECTION annotation
 
 W017   NOTE contains [rebrew] sync metadata
 
-W019   Inline annotation that must live in rebrew-functions.toml sidecar
+W019   Inline annotation that must live in rebrew-function.toml sidecar
 
 W010   Unknown annotation key
 

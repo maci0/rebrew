@@ -157,7 +157,7 @@ The `.c` file contains **only the marker line**:
 ```
 
 All metadata (STATUS, SIZE, CFLAGS, BLOCKER) is managed by the CLI tools and stored
-in `rebrew-functions.toml` (found automatically via walk-up). **Never manually edit `rebrew-functions.toml`.**
+in `rebrew-function.toml` (found automatically via walk-up). **Never manually edit `rebrew-function.toml`.**
 
 See [ANNOTATIONS.md](ANNOTATIONS.md) for the full annotation format reference.
 
