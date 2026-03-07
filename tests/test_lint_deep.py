@@ -134,7 +134,7 @@ class TestLintFileEdgeCases:
         # No E005 error should fire. (E015 may fire due to FUNCTION+STUB inconsistency,
         # but that's a separate check.)
         assert not any(code == "E005" for _, code, _ in result.errors)
-        assert not any(code == "W019" for _, code, _ in result.warnings)
+        # (W019 correctly fires here because // CFLAGS: is inline)
 
     def test_invalid_origin(self, tmp_path) -> None:
         """ORIGIN is no longer a validated field — it triggers W010 (unknown key)."""

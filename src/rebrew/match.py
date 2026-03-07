@@ -493,9 +493,16 @@ def _resolve_build_params(
         )
 
     if not cflags:
-        cflags = meta.get("CFLAGS", "/O2 /Gd")
-    if "/c" not in cflags:
-        cflags = "/nologo /c " + cflags
+        cflags = meta.get("CFLAGS", getattr(compile_cfg, "cflags", "/O2 /Gd") or "/O2 /Gd")
+    # Prepend base_cflags from project config (includes /nologo /c /MT and any /I project dirs).
+    # This ensures per-file CFLAGS compose correctly with project-level include paths and flags
+    # (e.g. /I.../src/NP that provides project headers like rebrew_globals.h).
+    base_cf = getattr(compile_cfg, "base_cflags", "") or ""
+    if base_cf and "/c" in base_cf:
+        # base_cflags already has /c — use it as the prefix, avoids duplicate /c
+        cflags = f"{base_cf} {cflags}".strip()
+    elif "/c" not in cflags:
+        cflags = f"/nologo /c {cflags}".strip()
 
     if not target_va:
         for marker_key in ("FUNCTION", "LIBRARY", "STUB"):
