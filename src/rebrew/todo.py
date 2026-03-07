@@ -1,14 +1,14 @@
 """todo.py – Prioritized action dashboard for rebrew projects.
 
-Synthesizes signals from multiple analysis tools (verify, next, triage, status)
-into a single ranked list of "what to work on next" with ROI scoring and
-suggested commands.
+Synthesizes verify results, coverage data, and function catalog into a single
+ranked list of "what to work on next" with ROI scoring.
 
 Usage::
 
     rebrew todo                     Top 20 actions by ROI
     rebrew todo --count 50          Show top 50
     rebrew todo -c fix-near-miss    Filter by category
+    rebrew todo --stats             Show coverage stats header
     rebrew todo --json              Machine-readable output
 """
 

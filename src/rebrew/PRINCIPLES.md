@@ -59,4 +59,4 @@ Volatile, frequently-changing metadata (`STATUS`, `CFLAGS`, `SIZE`, `BLOCKER`, `
 
 ## Atomicity
 
-All tools that modify the source file system (like `rebrew lint --fix`, `rebrew skeleton`, `rebrew promote`, and `rebrew sidecar`) use atomic file replacement (`atomic_write_text`). This ensures that if the process is killed midway or a power failure occurs, neither the source files nor the `rebrew-functions.toml` sidecar files are ever left in an incomplete or corrupted state.
+All tools that modify the source file system (like `rebrew lint --fix`, `rebrew skeleton`, `rebrew test`, and `rebrew sidecar`) use atomic file replacement (`atomic_write_text`). This ensures that if the process is killed midway or a power failure occurs, neither the source files nor the `rebrew-functions.toml` sidecar files are ever left in an incomplete or corrupted state.
