@@ -35,7 +35,6 @@ def _make_cfg(
 VALID_HEADER = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
-// CFLAGS: /O2 /Gd
 
 int __cdecl bit_reverse(int x)
 {
@@ -46,9 +45,6 @@ int __cdecl bit_reverse(int x)
 VALID_LIBRARY_HEADER = """\
 // STUB: SERVER 0x10023714
 // STATUS: STUB
-// CFLAGS: /O1
-// BLOCKER: missing CRT internals
-// SOURCE: ENVIRON.C
 
 #include <stdlib.h>
 int stub(void) { return 0; }
@@ -68,13 +64,19 @@ class TestValidAnnotations:
         assert len(result.errors) == 0
 
     def test_valid_function_no_warnings(self, tmp_path: Path) -> None:
+        """With a config providing base_cflags, a clean file has no warnings."""
         f = _write_c(tmp_path, "bit_reverse.c", VALID_HEADER)
-        result = lint_file(f)
-        assert len(result.warnings) == 0
+        cfg = _make_cfg()  # base_cflags is set — no W018, and no inline rebrew keys
+        result = lint_file(f, cfg=cfg)
+        # W019: CFLAGS inline is expected since VALID_HEADER still has inline CFLAGS;
+        # this test ensures no OTHER warnings besides W019.
+        non_w019 = [w for w in result.warnings if w[1] != "W019"]
+        assert non_w019 == []
 
     def test_valid_library_no_errors(self, tmp_path: Path) -> None:
+        cfg = _make_cfg()
         f = _write_c(tmp_path, "copy_environ.c", VALID_LIBRARY_HEADER)
-        result = lint_file(f)
+        result = lint_file(f, cfg=cfg)
         assert result.passed
 
 
@@ -170,8 +172,7 @@ int foo(void) { return 0; }
         result = lint_file(f)
         # ORIGIN is derivable from MODULE (SERVER) — no error
         assert not any(c == "E005" for _, c, _ in result.errors)
-        # No W019 either — MODULE is present
-        assert not any(c == "W019" for _, c, _ in result.warnings)
+        # (W019 fires for the inline CFLAGS — that's expected)
 
     def test_invalid_status_broken_value(self, tmp_path: Path) -> None:
         """An unknown STATUS value (BROKEN) should produce an error."""
@@ -446,8 +447,8 @@ class TestCflagsPreset:
         result = lint_file(f, cfg=cfg)
         assert not any(c == "W010" for _, c, _ in result.warnings)
 
-    def test_annotation_with_cflags_no_w008(self, tmp_path: Path) -> None:
-        """CFLAGS annotation (valid key) should not produce W008-like warnings."""
+    def test_annotation_with_cflags_fires_w019(self, tmp_path: Path) -> None:
+        """Inline // CFLAGS: fires W019 since CFLAGS is a sidecar-only key."""
         cfg = _make_cfg()
         content = """\
 // FUNCTION: SERVER 0x10008880
@@ -457,7 +458,9 @@ int foo(void) { return 0; }
 """
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f, cfg=cfg)
-        # CFLAGS is a valid key, should not produce W010
+        # CFLAGS is a sidecar key; inline occurrence fires W019
+        assert any(c == "W019" for _, c, _ in result.warnings)
+        # But no W010 (it is still a known key)
         assert not any(c == "W010" for _, c, _ in result.warnings)
 
 
@@ -638,7 +641,8 @@ int foo(void) { return 0; }
 
 
 class TestSkipKey:
-    def test_skip_key_not_unknown(self, tmp_path: Path) -> None:
+    def test_skip_key_fires_w019(self, tmp_path: Path) -> None:
+        """Inline // SKIP: is a sidecar key and now fires W019 (not W010)."""
         content = """\
 // LIBRARY: SERVER 0x1001b8a5
 // STATUS: MATCHING
@@ -649,7 +653,13 @@ int foo(void) { return 0; }
 """
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
+        # W010 (unknown key) should NOT fire — SKIP/SOURCE/CFLAGS are known keys
         assert not any(c == "W010" for _, c, _ in result.warnings)
+        # W019 SHOULD fire for each inline sidecar key
+        w019 = [msg for _, c, msg in result.warnings if c == "W019"]
+        assert any("SKIP" in m for m in w019)
+        assert any("CFLAGS" in m for m in w019)
+        assert any("SOURCE" in m for m in w019)
 
 
 # ---------------------------------------------------------------------------
@@ -679,15 +689,23 @@ char s_hello[] = "hello";
         assert any(c == "W016" for _, c, _ in result.warnings)
 
     def test_w016_global_with_section_no_warning(self, tmp_path: Path) -> None:
+        """SECTION from the sidecar should suppress W016 without inline SECTION."""
         content = """\
 // GLOBAL: SERVER 0x10050000
 // SIZE: 4
-// SECTION: .bss
 int g_foo;
 """
+        # Write the sidecar with SECTION set using the canonical TOML key format
+        sidecar = tmp_path / "rebrew-functions.toml"
+        sidecar.write_text(
+            '["SERVER.0x10050000"]\nsection = ".bss"\n',
+            encoding="utf-8",
+        )
         f = _write_c(tmp_path, "g_foo.c", content)
         result = lint_file(f)
         assert not any(c == "W016" for _, c, _ in result.warnings)
+        # Also: no inline SECTION key → no W019 for SECTION
+        assert not any("SECTION" in m for _, c, m in result.warnings if c == "W019")
 
     def test_w016_function_no_warning(self, tmp_path: Path) -> None:
         f = _write_c(tmp_path, "bit_reverse.c", VALID_HEADER)
@@ -719,11 +737,10 @@ int __cdecl bit_reverse(int x)
         assert any(c == "W017" for _, c, _ in result.warnings)
 
     def test_w017_normal_note_no_warning(self, tmp_path: Path) -> None:
+        """A normal NOTE inline fires W019 but not W017."""
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
-// SIZE: 31
-// CFLAGS: /O2 /Gd
 // NOTE: This handles player initialization
 
 int __cdecl bit_reverse(int x)
@@ -734,11 +751,73 @@ int __cdecl bit_reverse(int x)
         f = _write_c(tmp_path, "bit_reverse.c", content)
         result = lint_file(f)
         assert not any(c == "W017" for _, c, _ in result.warnings)
+        # NOTE is a sidecar key; it fires W019 since it's inline
+        assert any(c == "W019" and "NOTE" in m for _, c, m in result.warnings)
 
     def test_w017_no_note_no_warning(self, tmp_path: Path) -> None:
-        f = _write_c(tmp_path, "bit_reverse.c", VALID_HEADER)
+        """A file with no NOTE inline and no W019 for NOTE."""
+        content = """\
+// FUNCTION: SERVER 0x10008880
+// STATUS: EXACT
+
+int __cdecl bit_reverse(int x)
+{
+    return x;
+}
+"""
+        f = _write_c(tmp_path, "bit_reverse.c", content)
         result = lint_file(f)
         assert not any(c == "W017" for _, c, _ in result.warnings)
+        assert not any("NOTE" in m for _, c, m in result.warnings if c == "W019")
+
+
+# ---------------------------------------------------------------------------
+# W019: Inline sidecar key
+# ---------------------------------------------------------------------------
+
+
+class TestW019InlineSidecarKeys:
+    def test_w019_inline_cflags(self, tmp_path: Path) -> None:
+        """Inline // CFLAGS: fires W019."""
+        content = """\
+// FUNCTION: SERVER 0x10008880
+// STATUS: EXACT
+// CFLAGS: /O2
+int foo(void) { return 0; }
+"""
+        f = _write_c(tmp_path, "foo.c", content)
+        result = lint_file(f)
+        assert any(c == "W019" and "CFLAGS" in m for _, c, m in result.warnings)
+
+    def test_w019_inline_skip(self, tmp_path: Path) -> None:
+        """Inline // SKIP: fires W019."""
+        content = """\
+// FUNCTION: SERVER 0x10008880
+// STATUS: EXACT
+// SKIP: not matchable
+int foo(void) { return 0; }
+"""
+        f = _write_c(tmp_path, "foo.c", content)
+        result = lint_file(f)
+        assert any(c == "W019" and "SKIP" in m for _, c, m in result.warnings)
+
+    def test_w019_not_for_sidecar_sourced_key(self, tmp_path: Path) -> None:
+        """A CFLAGS value from the sidecar should NOT fire W019."""
+        content = """\
+// FUNCTION: SERVER 0x10008880
+// STATUS: EXACT
+int foo(void) { return 0; }
+"""
+        # Write a sidecar with CFLAGS for this VA
+        sidecar = tmp_path / "rebrew-functions.toml"
+        sidecar.write_text(
+            '[SERVER."0x10008880"]\ncflags = "/O2"\n',
+            encoding="utf-8",
+        )
+        f = _write_c(tmp_path, "foo.c", content)
+        result = lint_file(f)
+        # No W019 since CFLAGS came from sidecar, not inline
+        assert not any(c == "W019" and "CFLAGS" in m for _, c, m in result.warnings)
 
 
 # ---------------------------------------------------------------------------

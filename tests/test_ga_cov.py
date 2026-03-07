@@ -298,45 +298,54 @@ class TestFindAllMatching:
 
 
 class TestUpdateCflagsAnnotation:
-    def _make_source(self, tmp_path: Path, cflags: str = "/O2 /Gd") -> Path:
+    """update_cflags_annotation now writes CFLAGS to the sidecar (not inline)."""
+
+    def _make_source(self, tmp_path: Path) -> Path:
         f = tmp_path / "func.c"
         f.write_text(
             "// FUNCTION: SERVER 0x10001000\n"
             "// STATUS: MATCHING\n"
-            "// SIZE: 100\n"
-            f"// CFLAGS: {cflags}\n"
-            "// SYMBOL: _func\n"
             "int __cdecl func(void) { return 0; }\n",
             encoding="utf-8",
         )
         return f
 
-    def test_updates_cflags(self, tmp_path: Path) -> None:
-        f = self._make_source(tmp_path, "/O2 /Gd")
+    def test_updates_cflags_to_sidecar(self, tmp_path: Path) -> None:
+        """update_cflags_annotation writes CFLAGS to the sidecar, not inline."""
+        f = self._make_source(tmp_path)
         changed = update_cflags_annotation(f, "/O1 /Gz")
         assert changed is True
-        content = f.read_text(encoding="utf-8")
-        assert "// CFLAGS: /O1 /Gz" in content
-        assert "// CFLAGS: /O2 /Gd" not in content
+        # Verify sidecar was written
+        sidecar = tmp_path / "rebrew-functions.toml"
+        assert sidecar.exists()
+        content = sidecar.read_text(encoding="utf-8")
+        assert "/O1 /Gz" in content
+        # Source file itself should be unchanged (no inline CFLAGS written)
+        source = f.read_text(encoding="utf-8")
+        assert "CFLAGS" not in source
 
     def test_no_change_when_same(self, tmp_path: Path) -> None:
-        f = self._make_source(tmp_path, "/O2 /Gd")
+        """update_cflags_annotation returns False when sidecar already has same value."""
+        f = self._make_source(tmp_path)
+        # Write initial value
+        update_cflags_annotation(f, "/O2 /Gd")
+        # Now write same value again
         changed = update_cflags_annotation(f, "/O2 /Gd")
         assert changed is False
 
-    def test_no_change_when_no_annotation(self, tmp_path: Path) -> None:
+    def test_no_change_when_no_marker(self, tmp_path: Path) -> None:
+        """Returns False when no FUNCTION/STUB marker can be found in the file."""
         f = tmp_path / "no_cflags.c"
         f.write_text(
-            "// FUNCTION: SERVER 0x10001000\n// STATUS: STUB\nint main() { return 0; }\n",
+            "int main() { return 0; }\n",
             encoding="utf-8",
         )
         changed = update_cflags_annotation(f, "/O1 /Gz")
         assert changed is False
 
-    def test_preserves_other_annotations(self, tmp_path: Path) -> None:
-        f = self._make_source(tmp_path, "/O2 /Gd")
+    def test_preserves_source_file(self, tmp_path: Path) -> None:
+        """The source .c file must not be modified when updating via sidecar."""
+        f = self._make_source(tmp_path)
+        original = f.read_text(encoding="utf-8")
         update_cflags_annotation(f, "/O1 /Gz")
-        content = f.read_text(encoding="utf-8")
-        assert "// STATUS: MATCHING" in content
-        assert "// SYMBOL: _func" in content
-        assert "// SIZE: 100" in content
+        assert f.read_text(encoding="utf-8") == original

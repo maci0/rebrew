@@ -48,6 +48,7 @@ __all__ = [
     "Annotation",
     "VALID_MARKERS",
     "VALID_STATUSES",
+    "SIDECAR_KEYS",
     "has_skip_annotation",
     "parse_c_file",
     "parse_c_file_multi",
@@ -66,7 +67,6 @@ VALID_MARKERS = {"FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"}
 VALID_STATUSES = {"EXACT", "RELOC", "MATCHING", "MATCHING_RELOC", "STUB", "PROVEN"}
 
 # Keys that every function block must declare.
-# CFLAGS is intentionally excluded: it falls back to the project-wide base_cflags.
 # SIZE is intentionally excluded: SIZE lives exclusively in the rebrew-functions.toml
 # sidecar (written by rebrew skeleton / catalog --update-sizes / update_size_annotation).
 # Remaining // SIZE: lines in existing source are parsed as a fallback value (so older
@@ -75,21 +75,28 @@ VALID_STATUSES = {"EXACT", "RELOC", "MATCHING", "MATCHING_RELOC", "STUB", "PROVE
 REQUIRED_KEYS = {"STATUS"}
 # No recommended keys — all annotation metadata is either required or optional.
 RECOMMENDED_KEYS: set[str] = set()
+# OPTIONAL_KEYS: only reccmp-compatible keys that are permitted inline.
+# All rebrew-specific keys (CFLAGS, SKIP, GLOBALS, BLOCKER, SOURCE, NOTE, SECTION,
+# GHIDRA, BLOCKER_DELTA) must live in rebrew-functions.toml — see SIDECAR_KEYS.
 OPTIONAL_KEYS = {
-    # Volatile metadata (lives in rebrew-functions.toml sidecar, not in .c files)
-    "CFLAGS",  # overrides project default; rare (library with different flags)
-    # Other optional fields recognised by reccmp or rebrew
-    "ANALYSIS",
-    "SOURCE",
-    "BLOCKER",
-    "BLOCKER_DELTA",
-    "NOTE",
-    "GLOBALS",
-    "SKIP",
-    "SECTION",
-    "GHIDRA",
+    "ANALYSIS",  # reccmp compatibility (structural analysis note)
 }
-ALL_KNOWN_KEYS = REQUIRED_KEYS | OPTIONAL_KEYS | {"MARKER", "VA"}
+# Rebrew-specific keys that must live exclusively in the sidecar.
+# Finding any of these inline fires lint W019.
+SIDECAR_KEYS: frozenset[str] = frozenset(
+    {
+        "CFLAGS",
+        "SKIP",
+        "GLOBALS",
+        "BLOCKER",
+        "BLOCKER_DELTA",
+        "SOURCE",
+        "NOTE",
+        "SECTION",
+        "GHIDRA",
+    }
+)
+ALL_KNOWN_KEYS = REQUIRED_KEYS | OPTIONAL_KEYS | SIDECAR_KEYS | {"MARKER", "VA"}
 
 # ---------------------------------------------------------------------------
 # Regex patterns
@@ -290,7 +297,26 @@ def marker_for_module(module: str, status: str, library_modules: set[str] | None
 
 
 def has_skip_annotation(filepath: Path) -> bool:
-    """Check if a .c file has a ``// SKIP:`` annotation in the first 20 lines."""
+    """Return True if a function in *filepath* is marked as skippable.
+
+    Checks the ``rebrew-functions.toml`` sidecar first (preferred — the
+    canonical location per the 2026 annotation migration).  Falls back to
+    scanning the first 20 source lines for a ``// SKIP:`` comment so that
+    files not yet migrated continue to work.
+    """
+    # --- Sidecar fast path ---
+    try:
+        from rebrew.sidecar import load_sidecar
+
+        entries = load_sidecar(filepath.parent)
+        for _key, entry in entries.items():
+            raw_skip = entry.get("skip", "")
+            if raw_skip and str(raw_skip).strip().lower() not in ("", "0", "false", "no"):
+                return True
+    except Exception:  # noqa: BLE001 — sidecar read failure is non-fatal
+        pass
+
+    # --- Inline fallback (legacy .c files not yet migrated) ---
     try:
         text = filepath.read_text(encoding="utf-8", errors="replace")
     except OSError:
