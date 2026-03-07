@@ -1,7 +1,7 @@
 """Hash-based compile cache for skipping redundant Wine/wibo invocations.
 
 Each Wine/wibo CL.EXE invocation costs 200-500ms of subprocess startup
-overhead.  During ``rebrew ga`` (100 gen × 30 pop × N functions) and
+overhead.  During ``rebrew match --all`` (100 gen × 30 pop × N functions) and
 ``rebrew match --flag-sweep`` (192-8.3M flag combinations), the same
 ``(source + flags)`` combination is frequently compiled multiple times.
 

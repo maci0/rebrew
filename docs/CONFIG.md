@@ -278,7 +278,7 @@ All 32 tools read from `rebrew-project.toml`. Each uses `try/except` with hardco
 | `verify.py` | `image_base`, `text_va`, `text_raw_offset`, `target_binary`, `reversed_dir` |
 | `test.py` | `target_binary`, `text_va`, `text_raw_offset`, compiler paths |
 | `nasm.py` | `target_binary`, `reversed_dir` (uses `cfg.extract_dll_bytes()`) |
-| `ga.py` | `reversed_dir`, `target_binary`, `compiler_includes` |
+| `match.py` | `reversed_dir`, `target_binary`, `compiler_includes`, `compiler_command` |
 | `ghidra/cli.py` | `reversed_dir` |
 | `next.py` | `reversed_dir` |
 | `skeleton.py` | `reversed_dir` |
