@@ -1,6 +1,6 @@
 """solutions.py – Cross-function solution transfer database.
 
-Records GA solution fingerprints (cflags, origin, size) when functions reach
+Records GA solution fingerprints (cflags, size) when functions reach
 EXACT match. Seeds new GA runs from structurally similar solved functions to
 reduce convergence time.
 
@@ -33,9 +33,6 @@ class SolutionEntry:
 
     cflags: str
     """Winning compiler flags (e.g. ``/nologo /c /O2 /Gd``)."""
-
-    origin: str
-    """Origin group (e.g. ``GAME``, ``CRT``)."""
 
     size: int
     """Target function byte size."""
@@ -115,7 +112,6 @@ def save_solution(project_root: Path, entry: SolutionEntry) -> None:
 
 def find_similar(
     project_root: Path,
-    origin: str,
     size: int,
     cflags: str = "",
     top_k: int = 5,
@@ -123,20 +119,13 @@ def find_similar(
     """Find solved functions most similar to the given target.
 
     Similarity heuristic (simple, deterministic, no ML):
-      1. Same origin group (required filter)
-      2. Closest function size (absolute difference)
-      3. Tie-break: prefer matching cflags prefix
+      1. Closest function size (absolute difference)
+      2. Tie-break: prefer matching cflags prefix
 
     Returns up to *top_k* entries, sorted by similarity (best first).
-    An empty list is returned if no solutions exist for the origin.
     """
     all_entries = load_solutions(project_root)
     if not all_entries:
-        return []
-
-    # Filter to same origin
-    candidates = [e for e in all_entries if e.origin == origin]
-    if not candidates:
         return []
 
     # Normalize cflags for prefix matching
@@ -149,8 +138,8 @@ def find_similar(
         cflags_match = 0 if cflags_norm and e_cflags == cflags_norm else 1
         return (size_diff, cflags_match)
 
-    candidates.sort(key=_sort_key)
-    return candidates[:top_k]
+    all_entries.sort(key=_sort_key)
+    return all_entries[:top_k]
 
 
 def _normalize_cflags(cflags: str) -> str:

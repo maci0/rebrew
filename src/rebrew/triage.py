@@ -17,7 +17,6 @@ from rich.table import Table
 
 from rebrew.cli import TargetOption, json_print, require_config
 from rebrew.naming import (
-    detect_origin,
     detect_unmatchable,
     estimate_difficulty,
     ignored_symbols,
@@ -82,12 +81,9 @@ def main(
     total = len(ghidra_funcs)
     covered = len(existing)
     by_status: dict[str, int] = {}
-    by_origin: dict[str, int] = {}
     for info in existing.values():
         status = info.get("status", "")
-        origin = info.get("origin", "")
         by_status[status] = by_status.get(status, 0) + 1
-        by_origin[origin] = by_origin.get(origin, 0) + 1
 
     exact = by_status.get("EXACT", 0)
     reloc = by_status.get("RELOC", 0)
@@ -144,8 +140,7 @@ def main(
             continue
         if size < 10:
             continue
-        origin = detect_origin(va, name, cfg)
-        difficulty, reason = estimate_difficulty(size, name, origin, ignored, cfg=cfg)
+        difficulty, reason = estimate_difficulty(size, name, ignored=ignored, cfg=cfg)
         if difficulty == 0:
             continue
         neighbor = find_neighbor_file(va, covered_vas, _sorted_keys=sorted_covered)
@@ -153,7 +148,7 @@ def main(
             suggested_file = f"{cfg.reversed_dir.name}/{neighbor}"
             suggested_action = "append"
         else:
-            fname = make_filename(va, name, origin, cfg=cfg)
+            fname = make_filename(va, name, cfg=cfg)
             suggested_file = f"{cfg.reversed_dir.name}/{fname}"
             suggested_action = "create"
         recommendations.append(
@@ -161,7 +156,6 @@ def main(
                 "va": f"0x{va:08x}",
                 "size": size,
                 "difficulty": difficulty,
-                "origin": origin,
                 "name": name,
                 "reason": reason,
                 "suggested_file": suggested_file,
@@ -276,11 +270,10 @@ def main(
             rec_table.add_column("VA", style="cyan")
             rec_table.add_column("Size", justify="right")
             rec_table.add_column("Diff")
-            rec_table.add_column("Origin", justify="right", style="dim")
             rec_table.add_column("Name", style="magenta")
             for r in recommendations:
                 stars = "*" * r["difficulty"]
-                rec_table.add_row(r["va"], f"{r['size']}B", stars, r["origin"], r["name"])
+                rec_table.add_row(r["va"], f"{r['size']}B", stars, r["name"])
             console.print(rec_table)
 
 

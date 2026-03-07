@@ -82,13 +82,6 @@ class TestBuildGraph:
         assert nodes["UnknownFunc"]["status"] == "UNKNOWN"
         assert ("FuncA", "UnknownFunc") in edges
 
-    def test_origin_filter(self, tmp_path) -> None:
-        self._make_c_file(tmp_path, "GameFunc", 0x10001000, "RELOC", "GAME")
-        self._make_c_file(tmp_path, "CrtFunc", 0x1001E000, "RELOC", "MSVCRT")
-        nodes, _ = build_graph(tmp_path, origin_filter="GAME")
-        assert "GameFunc" in nodes
-        assert "CrtFunc" not in nodes
-
     def test_no_self_edges(self, tmp_path) -> None:
         self._make_c_file(tmp_path, "FuncA", 0x10001000, "RELOC", "GAME", ["FuncA"])
         _, edges = build_graph(tmp_path)

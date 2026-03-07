@@ -299,23 +299,26 @@ rebrew match --flag-sweep-only src/target_name/my_func.c --target-va 0x<VA> --ta
 
 ### 8. Update the annotation
 
-Based on test results, update the header:
-```c
-// FUNCTION: SERVER 0x<VA>
-// STATUS: RELOC              <-- update this
-// ORIGIN: GAME
-// SIZE: <SIZE>
-// CFLAGS: /O2 /Gd
+Based on test results, **use `rebrew promote` rather than editing by hand.** It compiles, diffs, and atomically updates `rebrew-functions.toml`:
+
+```bash
+rebrew promote src/target_name/my_func.c   # test + update STATUS in rebrew-functions.toml
+rebrew promote src/target_name/my_func.c --dry-run  # preview
 ```
 
-If STATUS is MATCHING, add a BLOCKER line (or auto-generate it):
+The `.c` file only ever contains the stable `// FUNCTION: MODULE 0xVA` marker line. STATUS, SIZE, CFLAGS all live in the sidecar.
+
+If STATUS is MATCHING, auto-classify and write the BLOCKER to the sidecar:
 ```bash
-rebrew match --diff-only --fix-blocker src/target_name/my_func.c  # auto-write BLOCKER
+rebrew match --diff-only --fix-blocker src/target_name/my_func.c
 ```
-```c
-// STATUS: MATCHING
-// BLOCKER: register allocation, jump condition swap
-// BLOCKER_DELTA: 3
+
+This writes to `rebrew-functions.toml` (found via walk-up):
+```toml
+["SERVER.0x<VA>"]
+status = "MATCHING"
+blocker = "register allocation, jump condition swap"
+blocker_delta = 3
 ```
 
 ### 9. If still MATCHING — prove semantic equivalence
@@ -382,9 +385,13 @@ Always include `/nologo /c /MT` as base flags (added automatically by `rebrew te
 
 Every .c file MUST start with an annotation block. See [ANNOTATIONS.md](ANNOTATIONS.md) for the full format reference.
 
-Required fields: marker (FUNCTION/LIBRARY/STUB), STATUS, ORIGIN, SIZE.
-Recommended: SOURCE (for CRT/ZLIB), BLOCKER (for MATCHING/STUB).
-CFLAGS is optional — falls back to the target default from config.
+Required fields (enforced as linter errors): marker (FUNCTION/LIBRARY/STUB), STATUS, SIZE.
+Optional: CFLAGS (falls back to project config default). Symbol is derived automatically from the C function definition.
+Conditional: SOURCE (for CRT/ZLIB), BLOCKER (for MATCHING/STUB — stored in `rebrew-functions.toml` sidecar).
+
+> [!CAUTION]
+> **Never manually edit `rebrew-functions.toml`.** Volatile metadata (STATUS, CFLAGS, SIZE, BLOCKER, NOTE, GHIDRA)
+> is managed exclusively by Rebrew CLI tools. Manual edits will be lost or may corrupt the file.
 
 A file may contain **multiple annotation blocks** for multi-function compilation.
 See [ANNOTATIONS.md](ANNOTATIONS.md#multi-function-files) for details.
@@ -549,10 +556,6 @@ int __cdecl my_shared_func(int param)
 
 ```c
 // FUNCTION: SERVER 0x10001000
-// STATUS: RELOC
-// ORIGIN: GAME
-// SIZE: 42
-// CFLAGS: /O2 /Gd
 
 #include "../shared/my_shared_func.c"
 ```
@@ -563,8 +566,8 @@ both targets benefit automatically.
 
 > [!TIP]
 > If a function exists in both binaries but with **different compiler flags**
-> (e.g. one uses `/O2`, the other `/O1`), both wrappers can specify different
-> `CFLAGS` lines while still `#include`-ing the same source file.
+> (e.g. one uses `/O2`, the other `/O1`), each target's sidecar can specify different
+> CFLAGS while still `#include`-ing the same source file.
 
 ## See Also
 

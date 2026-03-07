@@ -201,7 +201,7 @@ def build_sync_commands(
 
         comment_lines = [
             f"[rebrew] {primary.get('marker_type', 'FUNCTION')}: {status}",
-            f"Origin: {primary.get('origin', 'UNKNOWN')}",
+            f"Module: {primary.get('module', '')}",
             f"Size: {primary.get('size', 0)}B",
             f"CFlags: {primary.get('cflags', '')}",
             f"Symbol: {primary.get('symbol', '')}",
@@ -220,7 +220,7 @@ def build_sync_commands(
         )
 
         bm_category = _STATUS_BOOKMARK_CATEGORY.get(
-            status, primary.get("origin", "UNKNOWN").lower()
+            status, primary.get("module", "").lower() or "rebrew"
         )
         bm_comment = f"{name} - {status} ({primary.get('size', 0)}B, {primary.get('cflags', '')})"
         commands.append(
@@ -333,7 +333,7 @@ def build_sync_commands(
                 "[rebrew] DATA",
                 f"Size: {d_entry['size']}B",
                 f"Section: {d_entry['section']}",
-                f"Origin: {d_entry['origin']}",
+                f"Module: {d_entry.get('module', '')}",
             ]
             if d_entry.get("note"):
                 comment_lines.append(f"Note: {d_entry['note']}")
@@ -579,7 +579,7 @@ def pull_ghidra_renames(
                 if local_name.lstrip("_") == ghidra_name.lstrip("_"):
                     skip_name_update = True
 
-                if filter_origin and entry.get("origin") != filter_origin:
+                if filter_origin and entry.get("module") != filter_origin:
                     skip_name_update = True
 
                 if (
@@ -671,7 +671,18 @@ def pull_ghidra_renames(
                                 dry_run=dry_run,
                             )
                         else:
-                            update_annotation_key(filepath, va, "SYMBOL", ghidra_name)
+                            # DATA/GLOBAL entries — write name to rebrew-data.toml sidecar
+                            module = entry.get("module", "")
+                            if module and not dry_run:
+                                from rebrew.data_sidecar import set_data_field
+
+                                set_data_field(
+                                    filepath.parent,
+                                    va,
+                                    "name",
+                                    ghidra_name,
+                                    module,
+                                )
 
                         change = PullChange(
                             va=va,
@@ -703,7 +714,27 @@ def pull_ghidra_renames(
                     if not json_output:
                         print(f"  Would update NOTE at 0x{va:08x}")
                 else:
-                    if update_annotation_key(filepath, va, "NOTE", sanitized):
+                    marker_type = entry.get("marker_type", "FUNCTION")
+                    if marker_type in ("DATA", "GLOBAL"):
+                        # DATA/GLOBAL notes go to rebrew-data.toml sidecar
+                        module = entry.get("module", "")
+                        if module:
+                            from rebrew.data_sidecar import set_data_field
+
+                            set_data_field(filepath.parent, va, "note", sanitized, module)
+                            change = PullChange(
+                                va=va,
+                                field="NOTE",
+                                local_value=local_note,
+                                ghidra_value=sanitized,
+                                filepath=str(filepath.name),
+                                action="update (data sidecar)",
+                            )
+                            result.changes.append(change)
+                            result.updated += 1
+                            if not json_output:
+                                print(f"  Updated NOTE in rebrew-data.toml at 0x{va:08x}")
+                    elif update_annotation_key(filepath, va, "NOTE", sanitized):
                         change = PullChange(
                             va=va,
                             field="NOTE",

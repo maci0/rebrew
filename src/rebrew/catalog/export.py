@@ -64,17 +64,17 @@ def generate_catalog(
         f"Coverage: {coverage_pct:.1f}% of .text section ({covered_bytes}/{text_size} bytes)\n"
     )
 
-    # Group by origin (discovered dynamically from data, excluding GLOBAL/DATA)
-    by_origin: dict[str, list[Annotation]] = {}
+    # Group by module (discovered dynamically from data, excluding GLOBAL/DATA)
+    by_module: dict[str, list[Annotation]] = {}
     for e in entries:
         if e.get("marker_type") in ("GLOBAL", "DATA"):
             continue
-        origin = e.origin
-        by_origin.setdefault(origin, []).append(e)
+        module = e.module or "GAME"
+        by_module.setdefault(module, []).append(e)
 
-    for origin in sorted(by_origin):
-        group = sorted(by_origin.get(origin, []), key=lambda x: x.va)
-        lines.append(f"\n## {origin} ({len(group)} functions)\n")
+    for module in sorted(by_module):
+        group = sorted(by_module.get(module, []), key=lambda x: x.va)
+        lines.append(f"\n## {module} ({len(group)} functions)\n")
         lines.append("| VA | Size | Name | Symbol | Flags | Match | File |")
         lines.append("|-----|------|------|--------|-------|-------|------|")
         for e in group:
@@ -104,10 +104,10 @@ def generate_catalog(
 
 
 def _reccmp_type(entry: Annotation) -> str:
-    """Map our marker_type + origin to reccmp entity type."""
+    """Map our marker_type to reccmp entity type."""
     if entry.marker_type == "STUB":
         return "stub"
-    if entry.origin in ("ZLIB", "MSVCRT"):
+    if entry.marker_type == "LIBRARY":
         return "library"
     return "function"
 

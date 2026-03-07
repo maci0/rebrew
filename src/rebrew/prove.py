@@ -385,11 +385,9 @@ def main(
     # Compile source and extract obj bytes
     cflags_str = ann.cflags or "/O2 /Gd"
     cflags_list = cflags_str.split()
-    origin = ann.origin or "GAME"
-    compile_cfg = cfg.for_origin(origin)
 
     with tempfile.TemporaryDirectory(prefix="rebrew_prove_") as workdir:
-        obj_path, err = compile_to_obj(compile_cfg, source_path, cflags_list, workdir)
+        obj_path, err = compile_to_obj(cfg, source_path, cflags_list, workdir)
         if obj_path is None:
             error_exit(f"Compile error: {err}", json_mode=json_output)
 

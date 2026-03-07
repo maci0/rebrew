@@ -31,7 +31,6 @@ from rich.table import Table
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 from rebrew.naming import (
-    detect_origin,
     detect_unmatchable,
     estimate_difficulty,
     find_neighbor_file,
@@ -87,7 +86,6 @@ class TodoItem:
     name: str
     size: int
     filename: str
-    origin: str
     description: str
     command: str
     byte_delta: int | None = None
@@ -103,7 +101,6 @@ class TodoItem:
             "name": self.name,
             "size": self.size,
             "filename": self.filename,
-            "origin": self.origin,
             "description": self.description,
             "command": self.command,
         }
@@ -220,7 +217,6 @@ def _collect_setup_steps(
                     name="",
                     size=0,
                     filename="",
-                    origin="",
                     description="Build function catalog from Ghidra or function list",
                     command="rebrew catalog",
                 )
@@ -235,7 +231,6 @@ def _collect_setup_steps(
                     name="",
                     size=0,
                     filename="",
-                    origin="",
                     description="Export function list from Ghidra/r2/rizin",
                     command="rebrew doctor",
                 )
@@ -256,7 +251,6 @@ def _collect_setup_steps(
                 name="",
                 size=0,
                 filename="",
-                origin="",
                 description=f"Run triage to survey {len(ghidra_funcs)} functions",
                 command="rebrew triage",
             )
@@ -270,7 +264,6 @@ def _collect_setup_steps(
                 name="",
                 size=0,
                 filename="",
-                origin="",
                 description="Generate first skeleton files to start reversing",
                 command="rebrew skeleton --batch 5",
             )
@@ -287,7 +280,6 @@ def _collect_setup_steps(
                 name="",
                 size=0,
                 filename="",
-                origin="",
                 description=f"Run first verify on {len(existing)} functions",
                 command="rebrew verify",
             )
@@ -331,7 +323,6 @@ def _collect_near_misses(
                     name=info.get("symbol", ""),
                     size=size,
                     filename=filename,
-                    origin=info.get("origin", ""),
                     description=f"{delta}B diff — tweak code or adjust padding",
                     command=f"rebrew match -d {filename}"
                     if filename
@@ -349,7 +340,6 @@ def _collect_near_misses(
                     name=info.get("symbol", ""),
                     size=size,
                     filename=filename,
-                    origin=info.get("origin", ""),
                     description=f"{delta}B diff — try compiler flag sweep",
                     command=f"rebrew match --sweep {filename}"
                     if filename
@@ -389,7 +379,6 @@ def _collect_improve_matching(
                 name=info.get("symbol", ""),
                 size=size,
                 filename=filename,
-                origin=info.get("origin", ""),
                 description=desc,
                 command=f"rebrew match -d {filename}" if filename else f"rebrew match 0x{va:08x}",
                 status=info["status"],
@@ -429,7 +418,6 @@ def _collect_prover_candidates(
                 name=info.get("symbol", ""),
                 size=size,
                 filename=filename,
-                origin=info.get("origin", ""),
                 description="MATCHING + small — prove semantic equivalence",
                 command=f"rebrew prove {filename}" if filename else f"rebrew prove 0x{va:08x}",
                 status=info["status"],
@@ -476,7 +464,6 @@ def _collect_compile_errors(
                 name=result.symbol,
                 size=size,
                 filename=filepath,
-                origin=result.origin,
                 description="Compile error — fix syntax/includes",
                 command=f"rebrew test {filepath}" if filepath else "rebrew verify",
                 status="COMPILE_ERROR",
@@ -520,7 +507,6 @@ def _collect_verify_failures(
                 name=result.name,
                 size=size,
                 filename=filepath,
-                origin=result.origin,
                 description=desc,
                 command=f"rebrew test {filepath}" if filepath else "rebrew verify",
                 byte_delta=delta,
@@ -549,7 +535,6 @@ def _collect_stubs(
                 name=info.get("symbol", ""),
                 size=size,
                 filename=filename,
-                origin=info.get("origin", ""),
                 description=f"STUB ({size}B) — implement function body",
                 command=f"rebrew test {filename}" if filename else f"rebrew test 0x{va:08x}",
                 status="STUB",
@@ -596,8 +581,7 @@ def _collect_new_functions(
         if reason:
             continue
 
-        origin = detect_origin(va, name, cfg)
-        difficulty, desc = estimate_difficulty(size, name, origin, ignored, cfg=cfg)
+        difficulty, desc = estimate_difficulty(size, name, ignored=ignored, cfg=cfg)
         if difficulty == 0:
             continue
 
@@ -615,7 +599,6 @@ def _collect_new_functions(
                 name=name,
                 size=size,
                 filename=neighbor or "",
-                origin=origin,
                 description=desc,
                 command=cmd,
                 difficulty=difficulty,
@@ -646,7 +629,6 @@ def _collect_missing_annotations(
                 name=f"FUN_{va:08x}",
                 size=size,
                 filename=filename,
-                origin=info.get("origin", ""),
                 description="Missing: symbol (add C function definition)",
                 command=f"rebrew lint {filename}" if filename else "rebrew lint",
                 status=info.get("status", ""),
@@ -660,8 +642,8 @@ def _collect_library_candidates(
     existing: dict[int, dict[str, str]],
     cfg: ProjectConfig,
 ) -> list[TodoItem]:
-    """Collect uncovered functions with library origin for identification."""
-    lib_origins = cfg.library_origins if cfg.library_origins else {"ZLIB", "MSVCRT"}
+    """Collect uncovered functions with library module for identification."""
+    lib_modules = set(cfg.library_modules) if cfg.library_modules else {"ZLIB", "MSVCRT"}
     items: list[TodoItem] = []
     for func in ghidra_funcs:
         va = func.va
@@ -669,8 +651,8 @@ def _collect_library_candidates(
             continue
         size = func.size
         name = func.name or f"FUN_{va:08x}"
-        origin = detect_origin(va, name, cfg)
-        if origin not in lib_origins:
+        module = func.module if hasattr(func, "module") else ""
+        if module not in lib_modules:
             continue
 
         items.append(
@@ -681,8 +663,7 @@ def _collect_library_candidates(
                 name=name,
                 size=size,
                 filename="",
-                origin=origin,
-                description=f"{origin} function — check reference sources or FLIRT",
+                description=f"{module or 'library'} function — check reference sources or FLIRT",
                 command=f"rebrew flirt --va 0x{va:08x}",
             )
         )

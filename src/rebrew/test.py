@@ -5,7 +5,6 @@ Usage:
 """
 
 import re
-import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -14,7 +13,7 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from rebrew.annotation import Annotation, parse_c_file, parse_c_file_multi, parse_source_metadata
+from rebrew.annotation import Annotation, parse_c_file_multi, parse_source_metadata
 from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config, target_marker
 from rebrew.config import ProjectConfig
@@ -103,93 +102,59 @@ def update_source_status(
     blockers_to_remove: bool = True,
     target_va: int | None = None,
 ) -> None:
-    """Update the STATUS annotation in a source file.
+    """Update the STATUS for a function via the sidecar.
 
-    Uses atomic write (write to .tmp, validate, rename) with .bak backup
-    to prevent data loss from crashes or invalid writes.
+    Writes ``status`` to the per-directory ``rebrew-functions.toml`` sidecar for the
+    given VA.  When *blockers_to_remove* is True the ``blocker`` and
+    ``blocker_delta`` fields are also cleared from the sidecar.
 
-    Handles both KV-after-marker and KV-before-marker (reccmp) orderings
-    by precomputing block membership before the write pass.
+    The ``.c`` source file is **never modified** by this function — all
+    volatile metadata lives in the sidecar.
 
     Args:
-        source_path: Path to the .c file to update.
-        new_status: The new status string to set (e.g., EXACT, RELOC).
-        blockers_to_remove: Whether to clear existing BLOCKER annotations.
-        target_va: If set, only update the STATUS line belonging to the
-            annotation block whose FUNCTION/LIBRARY/STUB marker contains
-            this VA.  When None (default), updates ALL STATUS lines.
+        source_path: Path to the .c file (used to locate the sidecar directory).
+        new_status: The new status string (e.g., ``EXACT``, ``RELOC``).
+        blockers_to_remove: Whether to clear existing BLOCKER/BLOCKER_DELTA.
+        target_va: VA of the specific function to update.  When None the
+            first annotation block's VA is used (single-function files).
 
     """
-    source_path = Path(source_path)
-    tmp_path = source_path.with_suffix(".c.tmp")
-    bak_path = source_path.with_suffix(".c.bak")
+    from rebrew.sidecar import delete_field, get_entry, set_field
 
-    # Idempotency: skip if the annotation already has the desired status
-    if target_va is None:
+    source_path = Path(source_path)
+    directory = source_path.parent
+
+    # Resolve target VA (and module) if not explicitly given
+    va = target_va
+    module = ""
+    if va is None:
         existing_all = parse_c_file_multi(source_path)
-        existing = existing_all[0] if existing_all else None
-        if existing is not None and existing.status == new_status:
-            return
+        if existing_all:
+            va = existing_all[0].va
+            module = existing_all[0].module
     else:
-        existing_annos = parse_c_file_multi(source_path)
-        for ann in existing_annos:
-            if ann.va == target_va:
-                if ann.status == new_status and (not blockers_to_remove or not ann.blocker):
-                    return
+        # VA was provided; scan the file for the matching annotation to get its module
+        existing_all = parse_c_file_multi(source_path)
+        for ann in existing_all:
+            if ann.va == va:
+                module = ann.module
                 break
 
-    with source_path.open(encoding="utf-8") as f:
-        lines = f.readlines()
+    if va is None:
+        return  # Nothing to update
 
-    # Precompute which lines belong to the target annotation block.
-    # This handles both KV-after-marker and KV-before-marker orderings.
-    target_lines = _find_block_lines(lines, target_va) if target_va is not None else None
-
-    changed = False
-    with tmp_path.open("w", encoding="utf-8") as f:
-        for i, line in enumerate(lines):
-            in_block = target_lines is None or i in target_lines
-
-            if in_block and _STATUS_RE.match(line):
-                if line.startswith("//"):
-                    new_line = f"// STATUS: {new_status}\n"
-                else:
-                    new_line = f"/* STATUS: {new_status} */\n"
-                f.write(new_line)
-                if new_line != line:
-                    changed = True
-            elif in_block and blockers_to_remove and _BLOCKER_RE.match(line):
-                changed = True
-                continue
-            else:
-                f.write(line)
-
-    if not changed:
-        tmp_path.unlink(missing_ok=True)
+    # Idempotency: skip if sidecar already has the desired status (and no blocker to clear)
+    entry = get_entry(directory, va, module=module)
+    current_status = entry.get("status", "")
+    current_blocker = entry.get("blocker", "")
+    if current_status == new_status and (not blockers_to_remove or not current_blocker):
         return
 
-    # Validate the written file re-parses correctly.
-    # parse_c_file_multi only handles new-format annotations; fall back to
-    # parse_c_file for old single-line headers.
-    annos = parse_c_file_multi(tmp_path)
-    if not annos and parse_c_file(tmp_path) is None:
-        tmp_path.unlink(missing_ok=True)
-        raise RuntimeError(
-            f"Post-write validation failed: {source_path} would not re-parse after status update"
-        )
+    set_field(directory, va, "status", new_status, module=module)
 
-    # Atomic swap: backup original, rename tmp to source
-    if source_path.exists():
-        shutil.copy2(source_path, bak_path)
-
-    import os
-
-    try:
-        os.replace(tmp_path, source_path)
-    except BaseException:
-        if bak_path.exists() and source_path.exists():
-            shutil.copy2(bak_path, source_path)
-        raise
+    if blockers_to_remove:
+        delete_field(directory, va, "blocker", module=module)
+        delete_field(directory, va, "blocker_delta", module=module)
 
 
 _EPILOG = """\
@@ -293,9 +258,8 @@ def main(
     if symbol is None and va is None and size is None:
         annotations = parse_c_file_multi(Path(source), target_name=target_marker(cfg))
         if len(annotations) > 1:
-            origin = annotations[0].origin if annotations else ""
             _test_multi(
-                cfg.for_origin(origin),
+                cfg,
                 source,
                 annotations,
                 cflags,
@@ -306,14 +270,12 @@ def main(
 
     meta = parse_source_metadata(source)
 
-    # Derive symbol from annotation, fallback to meta, then CLI
+    # Derive symbol from annotation (C function definition)
     if not symbol:
         # First try the parsed annotation object (derives from C func def)
         lint_anno = lint_annos[0] if lint_annos else None
         if lint_anno and lint_anno.symbol:
             symbol = lint_anno.symbol
-    if not symbol:
-        symbol = meta.get("SYMBOL")  # fallback for legacy annotations
     if not symbol:
         if json_output:
             error_exit("Symbol not provided", json_mode=True)
@@ -340,9 +302,6 @@ def main(
     cflags_str = cflags or meta.get("CFLAGS", "/O2 /Gd")
     cflags_parts = cflags_str.split()
 
-    origin = meta.get("ORIGIN", "")
-    compile_cfg = cfg.for_origin(origin)
-
     if va_str is not None and size_val is not None:
         va_int = parse_va(va_str, json_mode=json_output)
         target_bytes = extract_raw_bytes(cfg.target_binary, va_int, size_val)
@@ -356,7 +315,7 @@ def main(
         error_exit("Specify either target_bin or (VA and SIZE) via args or source metadata")
 
     with tempfile.TemporaryDirectory(prefix="test_func_") as workdir:
-        obj_path, err = compile_obj(compile_cfg, source, cflags_parts, workdir)
+        obj_path, err = compile_obj(cfg, source, cflags_parts, workdir)
         if obj_path is None:
             error_exit(f"COMPILE ERROR:\n{err}", json_mode=json_output)
 
@@ -406,7 +365,9 @@ def main(
             else:
                 console.print(f"EXACT MATCH: {total}/{total} bytes")
         else:
-            console.print(f"MISMATCH: {match_count}/{total} bytes")
+            near = total > 0 and (match_count / total) >= 0.97
+            label = "[bold yellow]NEAR MATCH[/bold yellow]" if near else "[red]MISMATCH[/red]"
+            console.print(f"{label}: {match_count}/{total} bytes")
             console.print(f"\nTarget ({len(target_bytes)}B): {target_bytes.hex()}")
             console.print(f"Output ({len(obj_bytes)}B): {obj_bytes.hex()}")
             if len(obj_bytes) == len(target_bytes):
@@ -471,7 +432,8 @@ def build_result_dict(
         JSON-serializable dictionary with status, metrics, and mismatches.
 
     """
-    status = ("RELOC" if relocs else "EXACT") if matched else "MISMATCH"
+    near = not matched and total > 0 and (match_count / total) >= 0.97
+    status = ("RELOC" if relocs else "EXACT") if matched else ("NEAR_MATCH" if near else "MISMATCH")
 
     mismatches: list[dict[str, str | int]] = []
     invalid_relocs = invalid_relocs or []
@@ -616,7 +578,13 @@ def _test_multi(
                 else:
                     console.print(f"[bold green]EXACT[/bold green] {sym} — {total}/{total}B")
             else:
-                console.print(f"[red]MISMATCH[/red] {sym} — {match_count}/{total}B")
+                near = total > 0 and (match_count / total) >= 0.97
+                if near:
+                    console.print(
+                        f"[bold yellow]NEAR MATCH[/bold yellow] {sym} — {match_count}/{total}B"
+                    )
+                else:
+                    console.print(f"[red]MISMATCH[/red] {sym} — {match_count}/{total}B")
 
         if json_output:
             json_print({"source": source, "results": results_list})

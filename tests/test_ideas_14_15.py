@@ -35,7 +35,6 @@ class TestDataAnnotationMarker:
             "// DATA: SERVER 0x10025000",
             "// SIZE: 256",
             "// SECTION: .rdata",
-            "// ORIGIN: GAME",
             "// NOTE: lookup table for sprite indices",
         ]
         ann = parse_new_format(lines)
@@ -44,7 +43,6 @@ class TestDataAnnotationMarker:
         assert ann.va == 0x10025000
         assert ann.size == 256
         assert ann.section == ".rdata"
-        assert ann.origin == "GAME"
         assert ann.note == "lookup table for sprite indices"
         # DATA annotations have no C function def, so symbol is empty
         assert ann.symbol == ""
@@ -70,7 +68,6 @@ class TestDataAnnotationMarker:
             name="g_sprite_lut",
             marker_type="DATA",
             section=".rdata",
-            origin="GAME",
         )
         d = ann.to_dict()
         assert d["section"] == ".rdata"
@@ -83,7 +80,6 @@ class TestDataAnnotationMarker:
             size=100,
             name="func_a",
             marker_type="FUNCTION",
-            origin="GAME",
         )
         d = ann.to_dict()
         assert "section" not in d

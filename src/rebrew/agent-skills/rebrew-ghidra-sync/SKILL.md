@@ -48,8 +48,9 @@ rebrew sync --pull --dry-run            # preview pull without modifying files
 - Function prototypes (`--pull-signatures` updates the C function definition and `extern` usage across codebase)
 - Structs (`--pull-structs` writes `types.h` from Ghidra)
 - Comments (`--pull-comments` writes EOL/post comments as `// ANALYSIS:`)
-- Data label names
-- Plate and pre-comments (updates `// NOTE:` locally)
+- **Data label names** → written to `rebrew-data.toml` sidecar as `name` field (not inline in `.c`)
+- Plate and pre-comments for functions (updates `// NOTE:` locally)
+- **Data label comments** → written to `rebrew-data.toml` sidecar as `note` field (not inline in `.c`)
 - Data labels (`--pull-data` fetches Ghidra data labels via MCP and generates `rebrew_globals.h` with typed extern declarations grouped by PE section)
 
 ## 4. Safety Guarantees

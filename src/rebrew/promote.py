@@ -3,11 +3,16 @@
 Runs rebrew test internally, then updates the STATUS and BLOCKER annotations
 based on the result. Outputs structured JSON for agent consumption.
 
+When a function body contains inline assembly (``__asm`` / ``__asm__`` blocks),
+promote immediately sets STATUS back to STUB and writes a BLOCKER comment
+explaining the reason, without attempting to compile-compare.
+
 Usage:
     rebrew promote src/mygame/my_func.c
     rebrew promote src/mygame/my_func.c --json
 """
 
+import re
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -30,6 +35,7 @@ from rebrew.config import ProjectConfig
 from rebrew.core.matching import smart_reloc_compare
 from rebrew.matcher.parsers import parse_obj_symbol_bytes
 from rebrew.test import (
+    _MARKER_RE,
     build_result_dict,
     compile_obj,
     update_source_status,
@@ -96,9 +102,37 @@ _STATUS_RANK: dict[str, int] = {
 # threshold — not a meaningful signal.  We clamp the threshold between a hard
 # floor (50%) and the normal ceiling (75%), using an absolute slack budget so
 # that tiny functions get more leniency while large ones converge to 75%.
-_MATCHING_FLOOR = 0.75       # threshold ceiling / large-function target
+_MATCHING_FLOOR = 0.75  # threshold ceiling / large-function target
 _MATCHING_HARD_FLOOR = 0.50  # absolute minimum — even tiny stubs need ≥50%
-_MATCHING_SLACK_BYTES = 4    # absolute byte tolerance granted to small functions
+_MATCHING_SLACK_BYTES = 4  # absolute byte tolerance granted to small functions
+
+# Inline ASM detection: matches MSVC ``__asm {``, ``__asm keyword``,
+# and GCC ``__asm__(``.  The pattern is intentionally broad — any use of
+# inline assembly in the function body disqualifies byte-compare promotion.
+_INLINE_ASM_RE = re.compile(r"\b(?:__asm__|__asm)\b")
+
+
+def _function_body_has_inline_asm(
+    source_text: str, ann_index: int, all_va_lines: list[int]
+) -> bool:
+    """Return True if the function at *ann_index* contains inline ASM.
+
+    Extracts the per-function text slice from *source_text* by finding the
+    line range between the marker for this annotation and the next one (or
+    end of file).  Scans that slice for ``__asm`` / ``__asm__`` tokens.
+
+    Args:
+        source_text: Full source file text.
+        all_va_lines: List of 0-based line indices where each annotation
+            marker starts (one entry per annotation, same order as selected).
+        ann_index: Index of the annotation to check within *all_va_lines*.
+
+    """
+    lines = source_text.splitlines(keepends=True)
+    start = all_va_lines[ann_index]
+    end = all_va_lines[ann_index + 1] if ann_index + 1 < len(all_va_lines) else len(lines)
+    body = "".join(lines[start:end])
+    return bool(_INLINE_ASM_RE.search(body))
 
 
 def _matching_threshold(comparable: int) -> float:
@@ -126,13 +160,10 @@ def _matching_threshold(comparable: int) -> float:
     return max(_MATCHING_HARD_FLOOR, min(_MATCHING_FLOOR, raw))
 
 
-
-
 def _promote_file(
     source_path: Path,
     cfg: ProjectConfig,
     dry_run: bool,
-    origin_filter: str | None = None,
 ) -> list[dict[str, Any]]:
     source = str(source_path)
     annotations = parse_c_file_multi(source_path, target_name=target_marker(cfg))
@@ -149,36 +180,33 @@ def _promote_file(
 
     results: list[dict[str, Any]] = []
     selected_annotations = annotations
-    if origin_filter:
-        selected_annotations = [
-            ann for ann in annotations if (ann.origin or "").upper() == origin_filter.upper()
-        ]
-        skipped_annotations = [
-            ann for ann in annotations if (ann.origin or "").upper() != origin_filter.upper()
-        ]
-        for ann in skipped_annotations:
-            results.append(
-                {
-                    "source": source,
-                    "va": f"0x{ann.va:08x}",
-                    "symbol": ann.symbol or "",
-                    "status": "SKIPPED",
-                    "previous_status": ann.status,
-                    "action": "none",
-                    "reason": f"origin '{ann.origin}' does not match filter '{origin_filter}'",
-                }
-            )
 
     if not selected_annotations:
         return results
 
     cflags_str = selected_annotations[0].cflags or "/O2 /Gd"
     cflags_parts = cflags_str.split()
-    origin = selected_annotations[0].origin if selected_annotations else ""
-    compile_cfg = cfg.for_origin(origin)
+
+    # Build a list of marker-line indices (0-based) for the selected annotations
+    # so we can slice per-function source bodies for inline ASM detection.
+    source_text = source_path.read_text(encoding="utf-8", errors="replace")
+    source_lines = source_text.splitlines(keepends=True)
+
+    marker_line_map: dict[int, int] = {}  # va -> 0-based line index
+    for li, line in enumerate(source_lines):
+        m = _MARKER_RE.match(line)
+        if m:
+            try:
+                va_found = int(m.group(2), 16)
+                marker_line_map[va_found] = li
+            except (IndexError, ValueError):
+                pass
+
+    # Ordered list of marker start lines for all selected annotations
+    selected_marker_lines = [marker_line_map.get(ann.va, 0) for ann in selected_annotations]
 
     with tempfile.TemporaryDirectory(prefix="promote_") as workdir:
-        obj_path, err = compile_obj(compile_cfg, source, cflags_parts, workdir)
+        obj_path, err = compile_obj(cfg, source, cflags_parts, workdir)
         if obj_path is None:
             return [
                 *results,
@@ -191,8 +219,48 @@ def _promote_file(
                 },
             ]
 
-        for ann in selected_annotations:
+        for ann_idx, ann in enumerate(selected_annotations):
             sym = ann.symbol
+
+            # --- Inline ASM check --------------------------------------------------
+            # If the function body contains __asm / __asm__ we can't byte-compare it;
+            # demote to STUB immediately and record a BLOCKER.
+            if _function_body_has_inline_asm(source_text, ann_idx, selected_marker_lines):
+                candidate_status = "STUB"
+                is_asm_demotion = ann.status != "STUB"
+                if not dry_run:
+                    if is_asm_demotion:
+                        update_source_status(
+                            source_path,
+                            "STUB",
+                            blockers_to_remove=False,
+                            target_va=ann.va,
+                        )
+                    update_annotation_key(
+                        source_path,
+                        ann.va,
+                        "BLOCKER",
+                        "contains inline assembly (__asm block) — cannot byte-compare",
+                    )
+                action = (
+                    "demoted"
+                    if is_asm_demotion and not dry_run
+                    else ("would_demote" if is_asm_demotion and dry_run else "none")
+                )
+                results.append(
+                    {
+                        "source": source,
+                        "va": f"0x{ann.va:08x}",
+                        "symbol": sym or "",
+                        "previous_status": ann.status,
+                        "new_status": "STUB",
+                        "action": action,
+                        "reason": "inline assembly detected",
+                    }
+                )
+                continue
+            # -----------------------------------------------------------------------
+
             if not sym or not ann.size:
                 results.append(
                     {
@@ -289,7 +357,11 @@ def _promote_file(
                     # Default to "updated"/"demoted" — only downgrade if re-parse
                     # explicitly shows the old status persists.
                     action = "demoted" if is_demotion else "updated"
-                    verify_annos = parse_c_file_multi(source_path, target_name=target_marker(cfg))
+                    verify_annos = parse_c_file_multi(
+                        source_path,
+                        target_name=target_marker(cfg),
+                        sidecar_dir=source_path.parent,
+                    )
                     for va_ann in verify_annos:
                         if va_ann.va == ann.va:
                             if va_ann.status != new_status:
@@ -327,11 +399,6 @@ def main(
     dir_filter: str | None = typer.Option(
         None, "--dir", help="Restrict batch to this subdirectory"
     ),
-    origin_filter: str | None = typer.Option(
-        None,
-        "--origin",
-        help="Filter by origin (GAME, MSVCRT, ZLIB)",
-    ),
     target: str | None = TargetOption,
 ) -> None:
     """Test a function and atomically update its STATUS annotation."""
@@ -356,7 +423,7 @@ def main(
             for source_path in source_files:
                 progress.update(task, description=source_path.name)
                 try:
-                    file_results = _promote_file(source_path, cfg, dry_run, origin_filter)
+                    file_results = _promote_file(source_path, cfg, dry_run)
                 except (OSError, ValueError, RuntimeError) as exc:
                     file_results = [
                         {
@@ -387,7 +454,6 @@ def main(
                 {
                     "batch": True,
                     "directory": str(scan_dir),
-                    "origin": origin_filter,
                     "summary": summary,
                     "results": results,
                 }
@@ -410,7 +476,7 @@ def main(
         error_exit("source argument required (or use --all for batch mode)", json_mode=json_output)
 
     source_path = Path(source)
-    results = _promote_file(source_path, cfg, dry_run, origin_filter)
+    results = _promote_file(source_path, cfg, dry_run)
 
     if json_output:
         json_print({"source": source, "results": results})

@@ -65,8 +65,6 @@ The `marker` field identifies which target a source file's annotations belong to
 
 ```c
 // FUNCTION: SERVER 0x10008880    ← "SERVER" is the marker
-// STATUS: EXACT
-// ORIGIN: GAME
 ```
 
 When a project has multiple targets (e.g. `server.dll` and `client.exe`), the same `.c` file may contain annotations for both targets. Tools use `marker` to filter annotations to the active target — only annotations matching `cfg.marker` are processed.
@@ -87,19 +85,14 @@ A multi-target source file might look like:
 
 ```c
 // FUNCTION: SERVER 0x10008880
-// STATUS: EXACT
-// ORIGIN: GAME
-// SIZE: 42
-// CFLAGS: /O2 /Gd
 
 // FUNCTION: CLIENT 0x00401000
-// STATUS: STUB
-// ORIGIN: GAME
-// SIZE: 42
-// CFLAGS: /O2 /Gd
 
 void __cdecl MyFunc(void) { ... }
 ```
+
+Each target's `rebrew-functions.toml` sidecar holds the metadata (STATUS, SIZE, CFLAGS) for the
+corresponding VA.
 
 Running `rebrew test --target server_dll` processes only the `SERVER` annotation block. Running `rebrew test --target client_exe` processes only the `CLIENT` block.
 
@@ -130,7 +123,7 @@ Compiler settings are resolved in layers. Each layer overrides the previous:
 1. **Built-in defaults** — `wine CL.EXE`, `/nologo /c /MT`, 60s timeout
 2. **`[compiler]`** — Global settings shared across all targets
 3. **`[targets.<name>.compiler]`** — Per-target overrides (partial — only keys present override)
-4. **Source annotations** — `// CFLAGS: /O2 /Gd` in individual `.c` files (highest priority)
+4. **`rebrew-functions.toml` sidecar** — Per-function CFLAGS override in the function's entry (highest priority for cflags)
 
 ```toml
 # Global defaults — all targets inherit these
@@ -220,7 +213,7 @@ cflags = "/O2"    # this target's ZLIB uses /O2, not the global /O3
 2. `[targets.<name>.compiler]` — Per-target overrides
 3. `[compiler.origins.<ORIGIN>]` — Global per-origin overrides
 4. `[targets.<name>.compiler.origins.<ORIGIN>]` — Per-target per-origin (most specific config)
-5. `// CFLAGS:` annotation — Per-file (cflags only, highest priority)
+5. **`rebrew-functions.toml` sidecar** — Per-function CFLAGS override in the function's sidecar entry (cflags only, highest priority)
 
 Supported keys in `[compiler.origins.<ORIGIN>]`: `command`, `runner`, `includes`, `libs`, `cflags`, `base_cflags`, `profile`, `timeout`.
 
@@ -228,7 +221,7 @@ Tools use `cfg.for_origin(origin)` to get a config with all origin overrides app
 
 ### Origin-Based Flag Presets (`cflags_presets`)
 
-A simpler shorthand for the common case where only cflags differ per origin. Used by `rebrew skeleton` (generates `// CFLAGS:` annotations), `rebrew next` (recommends flags), and `rebrew lint` (validates annotations).
+A simpler shorthand for the common case where only cflags differ per origin. Used by `rebrew match --fix-cflags` (writes to `rebrew-functions.toml` sidecar), `rebrew next` (recommends flags), and `rebrew lint` (validates sidecar entries).
 
 ```toml
 [compiler.cflags_presets]
@@ -334,15 +327,12 @@ resolves through the `server.dll` key.
 | `path` | Print absolute path to `rebrew-project.toml` | `rebrew cfg path` |
 | `add-target NAME` | Add a target section + create dirs | `rebrew cfg add-target client.exe -b original/client.exe` |
 | `remove-target NAME` | Remove a target section | `rebrew cfg remove-target old_target` |
-| `add-origin ORIGIN` | Append origin to targets list | `rebrew cfg add-origin ZLIB -t server.dll` |
-| `remove-origin ORIGIN` | Remove origin from targets list | `rebrew cfg remove-origin ZLIB -t server.dll` |
 | `set-cflags ORIGIN FLAGS` | Set cflags preset for an origin | `rebrew cfg set-cflags ZLIB "/O3" -t server.dll` |
 | `detect-crt` | Auto-detect MSVC CRT source directories | `rebrew cfg detect-crt --write` |
 
 ```bash
 # Example workflow: add a second binary and configure it
 rebrew cfg add-target client.exe --binary original/Client/client.exe --arch x86_32
-rebrew cfg add-origin ZLIB --target client.exe
 rebrew cfg set-cflags GAME "/O2 /Gd" --target client.exe
 rebrew cfg show targets.client.exe
 

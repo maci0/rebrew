@@ -151,7 +151,6 @@ class TestParseAnnotations:
 // ORIGIN: GAME
 // SIZE: 77
 // CFLAGS: /O2 /Gd
-// SYMBOL: _my_func
 
 int my_func(void) { return 0; }
 """,
@@ -181,7 +180,6 @@ int my_func(void) { return 0; }
 // ORIGIN: GAME
 // SIZE: 77
 // CFLAGS: /O2
-// SYMBOL: _f
 
 int f(void) { return 0; }
 """,
@@ -199,7 +197,6 @@ int f(void) { return 0; }
 // STATUS: STUB
 // ORIGIN: GAME
 // CFLAGS: /O2
-// SYMBOL: _f
 
 int f(void) { return 0; }
 """,

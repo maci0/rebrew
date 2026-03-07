@@ -23,7 +23,6 @@ EXACT_GAME = """\
 // ORIGIN: GAME
 // SIZE: 31
 // CFLAGS: /O2 /Gd
-// SYMBOL: _bit_reverse
 
 int __cdecl bit_reverse(int x)
 {
@@ -37,7 +36,6 @@ STUB_GAME = """\
 // ORIGIN: GAME
 // SIZE: 50
 // CFLAGS: /O2 /Gd
-// SYMBOL: _some_stub
 // BLOCKER: unknown internals
 
 int stub(void) { return 0; }
@@ -49,7 +47,6 @@ RELOC_MSVCRT = """\
 // ORIGIN: MSVCRT
 // SIZE: 103
 // CFLAGS: /O1
-// SYMBOL: __copy_environ
 // SOURCE: ENVIRON.C
 
 int foo(void) { return 0; }
@@ -68,7 +65,6 @@ class TestCollectTargetStats:
         assert stats.done_count == 0
         assert stats.stub_count == 0
         assert stats.status_counts == {}
-        assert stats.origin_counts == {}
         assert stats.marker_counts == {}
 
     def test_nonexistent_dir(self, tmp_path: Path) -> None:
@@ -82,7 +78,6 @@ class TestCollectTargetStats:
         assert stats.done_count == 1
         assert stats.stub_count == 0
         assert stats.status_counts == {"EXACT": 1}
-        assert stats.origin_counts == {"GAME": 1}
         assert stats.marker_counts == {"FUNCTION": 1}
         assert stats.total_bytes_reversed == 31
 
@@ -98,8 +93,6 @@ class TestCollectTargetStats:
         assert stats.status_counts["EXACT"] == 1
         assert stats.status_counts["RELOC"] == 1
         assert stats.status_counts["STUB"] == 1
-        assert stats.origin_counts["GAME"] == 2
-        assert stats.origin_counts["MSVCRT"] == 1
         assert stats.marker_counts["FUNCTION"] == 1
         assert stats.marker_counts["LIBRARY"] == 1
         assert stats.marker_counts["STUB"] == 1
@@ -135,7 +128,6 @@ class TestTargetStatsToDict:
         assert d["done"] == 1
         assert d["stubs"] == 0
         assert "by_status" in d
-        assert "by_origin" in d
         assert "by_marker" in d
         assert d["by_status"]["EXACT"] == 1
         assert d["coverage_bytes"] == 31
@@ -169,7 +161,6 @@ OVERLAP_FUNC_A = """\
 // ORIGIN: GAME
 // SIZE: 200
 // CFLAGS: /O2 /Gd
-// SYMBOL: _func_a
 
 int __cdecl func_a(void) { return 0; }
 """
@@ -180,7 +171,6 @@ OVERLAP_FUNC_B = """\
 // ORIGIN: GAME
 // SIZE: 100
 // CFLAGS: /O2 /Gd
-// SYMBOL: _func_b
 
 int __cdecl func_b(void) { return 0; }
 """
@@ -194,7 +184,6 @@ GAP_FUNC_C = """\
 // ORIGIN: GAME
 // SIZE: 50
 // CFLAGS: /O2 /Gd
-// SYMBOL: _func_c
 
 int __cdecl func_c(void) { return 0; }
 """
@@ -205,7 +194,6 @@ GAP_FUNC_D = """\
 // ORIGIN: GAME
 // SIZE: 60
 // CFLAGS: /O2 /Gd
-// SYMBOL: _func_d
 
 int __cdecl func_d(void) { return 0; }
 """

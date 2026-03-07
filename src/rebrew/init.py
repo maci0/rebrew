@@ -87,10 +87,9 @@ reversed_dir = "src/{target_name}"   # directory containing reversed .c files
 function_list = "src/{target_name}/functions.txt"
 bin_dir = "bin/{target_name}"        # directory for extracted .bin files
 source_ext = ".c"                      # source file extension (.c, .cpp, etc.)
-origins = ["GAME"]                   # valid ORIGIN values for annotations
 # ignored_symbols = []              # symbols to skip (ASM builtins etc.)
 
-# Per-target cflags presets — keyed by ORIGIN, override global presets.
+# Per-target cflags presets — keyed by module name, override global presets.
 # [targets."{target_name}".cflags_presets]
 # GAME = "/O2 /Gd"
 

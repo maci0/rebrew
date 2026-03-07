@@ -184,7 +184,7 @@ def test_make_filename_c() -> None:
     """Default cfg → .c extension."""
     from rebrew.naming import make_filename
 
-    cfg = ProjectConfig(root=Path("/tmp"), origin_prefixes={}, source_ext=".c")
+    cfg = ProjectConfig(root=Path("/tmp"), source_ext=".c")
     result = make_filename(0x10001000, "my_func", "GAME", cfg=cfg)
     assert result.endswith(".c")
 
@@ -193,7 +193,7 @@ def test_make_filename_cpp() -> None:
     """source_ext=.cpp → .cpp extension."""
     from rebrew.naming import make_filename
 
-    cfg = ProjectConfig(root=Path("/tmp"), origin_prefixes={}, source_ext=".cpp")
+    cfg = ProjectConfig(root=Path("/tmp"), source_ext=".cpp")
     result = make_filename(0x10001000, "my_func", "GAME", cfg=cfg)
     assert result.endswith(".cpp")
 

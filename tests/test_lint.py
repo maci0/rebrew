@@ -20,29 +20,23 @@ def _write_c(tmp_path: Path, name: str, content: str) -> Path:
 
 def _make_cfg(
     marker: str = "SERVER",
-    origins: list[str] | None = None,
-    cflags_presets: dict[str, str] | None = None,
-    library_origins: set[str] | None = None,
     base_cflags: str = "/nologo /c /MT",
+    library_modules: set | None = None,
 ) -> SimpleNamespace:
     """Create a minimal config-like namespace for config-aware lint tests."""
     return ProjectConfig(
         root=Path("/tmp"),
         marker=marker,
-        origins=origins or ["GAME", "MSVCRT", "ZLIB"],
-        cflags_presets=cflags_presets or {},
-        library_origins=library_origins or {"MSVCRT", "ZLIB"},
         base_cflags=base_cflags,
+        library_modules=library_modules or set(),
     )
 
 
 VALID_HEADER = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
-// ORIGIN: GAME
 // SIZE: 31
 // CFLAGS: /O2 /Gd
-// SYMBOL: _bit_reverse
 
 int __cdecl bit_reverse(int x)
 {
@@ -53,10 +47,8 @@ int __cdecl bit_reverse(int x)
 VALID_LIBRARY_HEADER = """\
 // STUB: SERVER 0x10023714
 // STATUS: STUB
-// ORIGIN: MSVCRT
 // SIZE: 103
 // CFLAGS: /O1
-// SYMBOL: __copy_environ
 // BLOCKER: missing CRT internals
 // SOURCE: ENVIRON.C
 
@@ -110,7 +102,6 @@ class TestMissingAnnotation:
         content = """\
 // BADTYPE: SERVER 0x10008880
 // STATUS: EXACT
-// ORIGIN: GAME
 // SIZE: 31
 // CFLAGS: /O2 /Gd
 int foo(void) { return 0; }
@@ -130,7 +121,6 @@ class TestInvalidVA:
         content = """\
 // FUNCTION: SERVER 0x00000001
 // STATUS: EXACT
-// ORIGIN: GAME
 // SIZE: 10
 // CFLAGS: /O2 /Gd
 int foo(void) { return 0; }
@@ -149,7 +139,6 @@ class TestMissingFields:
     def test_missing_status(self, tmp_path: Path) -> None:
         content = """\
 // FUNCTION: SERVER 0x10008880
-// ORIGIN: GAME
 // SIZE: 31
 // CFLAGS: /O2 /Gd
 int foo(void) { return 0; }
@@ -162,7 +151,6 @@ int foo(void) { return 0; }
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: PERFECT
-// ORIGIN: GAME
 // SIZE: 31
 // CFLAGS: /O2
 int foo(void) { return 0; }
@@ -171,7 +159,8 @@ int foo(void) { return 0; }
         result = lint_file(f)
         assert any(c == "E004" for _, c, _ in result.errors)
 
-    def test_missing_origin(self, tmp_path: Path) -> None:
+    def test_missing_origin_no_error_when_module_present(self, tmp_path: Path) -> None:
+        """ORIGIN is optional when FUNCTION: MODULE field is present — no E005 error."""
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
@@ -181,26 +170,28 @@ int foo(void) { return 0; }
 """
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
-        assert any(c == "E005" for _, c, _ in result.errors)
+        # ORIGIN is derivable from MODULE (SERVER) — no error
+        assert not any(c == "E005" for _, c, _ in result.errors)
+        # No W019 either — MODULE is present
+        assert not any(c == "W019" for _, c, _ in result.warnings)
 
-    def test_invalid_origin(self, tmp_path: Path) -> None:
+    def test_invalid_status_broken_value(self, tmp_path: Path) -> None:
+        """An unknown STATUS value (BROKEN) should produce an error."""
         content = """\
 // FUNCTION: SERVER 0x10008880
-// STATUS: EXACT
-// ORIGIN: OPENSSL
+// STATUS: BROKEN
 // SIZE: 31
 // CFLAGS: /O2
 int foo(void) { return 0; }
 """
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
-        assert any(c == "E006" for _, c, _ in result.errors)
+        assert any(c in ("E003", "E004") for _, c, _ in result.errors)
 
     def test_missing_size(self, tmp_path: Path) -> None:
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
-// ORIGIN: GAME
 // CFLAGS: /O2
 int foo(void) { return 0; }
 """
@@ -212,7 +203,6 @@ int foo(void) { return 0; }
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
-// ORIGIN: GAME
 // SIZE: -5
 // CFLAGS: /O2
 int foo(void) { return 0; }
@@ -225,7 +215,6 @@ int foo(void) { return 0; }
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
-// ORIGIN: GAME
 // SIZE: 31
 int foo(void) { return 0; }
 """
@@ -238,7 +227,6 @@ int foo(void) { return 0; }
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
-// ORIGIN: GAME
 // SIZE: 31
 int foo(void) { return 0; }
 """
@@ -259,7 +247,6 @@ class TestUnknownKeys:
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
-// ORIGIN: GAME
 // SIZE: 31
 // CFLAGS: /O2
 // FLAVOR: vanilla
@@ -275,31 +262,22 @@ int foo(void) { return 0; }
 # ---------------------------------------------------------------------------
 
 
-class TestConfigOrigin:
-    def test_origin_not_in_config(self, tmp_path: Path) -> None:
-        cfg = _make_cfg(origins=["GAME"])
+class TestConfigMarkerValidation:
+    def test_wrong_module_raises_no_error_without_cfg(self, tmp_path: Path) -> None:
+        """Without cfg, module is not validated against marker."""
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
-// ORIGIN: MSVCRT
 // SIZE: 31
 // CFLAGS: /O2
 int foo(void) { return 0; }
 """
         f = _write_c(tmp_path, "foo.c", content)
-        result = lint_file(f, cfg=cfg)
-        # E006 fires because cfg.origins is set and MSVCRT is not in it
-        assert any(c == "E006" for _, c, _ in result.errors)
-
-    def test_origin_in_config_is_ok(self, tmp_path: Path) -> None:
-        cfg = _make_cfg(origins=["GAME", "MSVCRT"])
-        f = _write_c(tmp_path, "bit_reverse.c", VALID_HEADER)
-        result = lint_file(f, cfg=cfg)
+        result = lint_file(f)
         assert not any(c == "E006" for _, c, _ in result.errors)
 
-    def test_empty_origins_no_warning(self, tmp_path: Path) -> None:
-        """Fresh project with no origins configured should not warn."""
-        cfg = _make_cfg(origins=[])
+    def test_valid_function_with_cfg_no_errors(self, tmp_path: Path) -> None:
+        cfg = _make_cfg()
         f = _write_c(tmp_path, "bit_reverse.c", VALID_HEADER)
         result = lint_file(f, cfg=cfg)
         assert not any(c == "E006" for _, c, _ in result.errors)
@@ -316,7 +294,6 @@ class TestConfigMarker:
         content = """\
 // FUNCTION: CLIENT 0x10008880
 // STATUS: EXACT
-// ORIGIN: GAME
 // SIZE: 31
 // CFLAGS: /O2
 int foo(void) { return 0; }
@@ -375,7 +352,6 @@ class TestWarnings:
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
-// ORIGIN: GAME
 // SIZE: 31
 // CFLAGS: /O2 /Gd
 int foo(void) { return 0; }
@@ -395,37 +371,33 @@ int foo(void) { return 0; }
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
-// ORIGIN: GAME
 // SIZE: 31
 // CFLAGS: /O2 /Gd
-// SYMBOL: _foo
 """
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
         assert any(c == "W003" for _, c, _ in result.warnings)
 
     def test_e015_marker_origin_mismatch(self, tmp_path: Path) -> None:
+        """FUNCTION marker with library module should trigger E015 (should be LIBRARY)."""
+        cfg = _make_cfg(library_modules={"SERVER"})
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
-// ORIGIN: MSVCRT
 // SIZE: 31
 // CFLAGS: /O2
-// SYMBOL: _foo
 int foo(void) { return 0; }
 """
         f = _write_c(tmp_path, "foo.c", content)
-        result = lint_file(f)
+        result = lint_file(f, cfg=cfg)
         assert any(c == "E015" for _, c, _ in result.errors)
 
     def test_w005_stub_without_blocker(self, tmp_path: Path) -> None:
         content = """\
 // STUB: SERVER 0x10008880
 // STATUS: STUB
-// ORIGIN: GAME
 // SIZE: 31
 // CFLAGS: /O2
-// SYMBOL: _foo
 int foo(void) { return 0; }
 """
         f = _write_c(tmp_path, "foo.c", content)
@@ -433,27 +405,25 @@ int foo(void) { return 0; }
         assert any(c == "W005" for _, c, _ in result.warnings)
 
     def test_w006_library_without_source(self, tmp_path: Path) -> None:
+        """Library module without SOURCE annotation should trigger W006."""
+        cfg = _make_cfg(library_modules={"SERVER"})
         content = """\
 // LIBRARY: SERVER 0x10008880
 // STATUS: EXACT
-// ORIGIN: MSVCRT
 // SIZE: 31
 // CFLAGS: /O1
-// SYMBOL: _crt_foo
 int foo(void) { return 0; }
 """
         f = _write_c(tmp_path, "crt_foo.c", content)
-        result = lint_file(f)
+        result = lint_file(f, cfg=cfg)
         assert any(c == "W006" for _, c, _ in result.warnings)
 
     def test_e017_contradictory_matching_stub(self, tmp_path: Path) -> None:
         content = """\
 // STUB: SERVER 0x10008880
 // STATUS: MATCHING
-// ORIGIN: GAME
 // SIZE: 31
 // CFLAGS: /O2
-// SYMBOL: _foo
 int foo(void) { return 0; }
 """
         f = _write_c(tmp_path, "foo.c", content)
@@ -467,26 +437,27 @@ int foo(void) { return 0; }
 
 
 class TestCflagsPreset:
-    def test_w008_cflags_mismatch(self, tmp_path: Path) -> None:
-        cfg = _make_cfg(cflags_presets={"GAME": "/O2 /Gd"})
+    def test_invalid_annotation_key_no_error_for_valid(self, tmp_path: Path) -> None:
+        """Valid annotations should not produce unknown-key warnings."""
+        cfg = _make_cfg()
+        f = _write_c(tmp_path, "bit_reverse.c", VALID_HEADER)
+        result = lint_file(f, cfg=cfg)
+        assert not any(c == "W010" for _, c, _ in result.warnings)
+
+    def test_annotation_with_cflags_no_w008(self, tmp_path: Path) -> None:
+        """CFLAGS annotation (valid key) should not produce W008-like warnings."""
+        cfg = _make_cfg()
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
-// ORIGIN: GAME
 // SIZE: 31
 // CFLAGS: /O1
-// SYMBOL: _foo
 int foo(void) { return 0; }
 """
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f, cfg=cfg)
-        assert any(c == "W008" for _, c, _ in result.warnings)
-
-    def test_w008_cflags_matching_no_warning(self, tmp_path: Path) -> None:
-        cfg = _make_cfg(cflags_presets={"GAME": "/O2 /Gd"})
-        f = _write_c(tmp_path, "bit_reverse.c", VALID_HEADER)
-        result = lint_file(f, cfg=cfg)
-        assert not any(c == "W008" for _, c, _ in result.warnings)
+        # CFLAGS is a valid key, should not produce W010
+        assert not any(c == "W010" for _, c, _ in result.warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -617,7 +588,7 @@ class TestCorruptedAnnotation:
     def test_e014_literal_backslash_n(self, tmp_path: Path) -> None:
         content = (
             "// LIBRARY: SERVER 0x1001cd57\n"
-            "// STATUS: EXACT\\n// ORIGIN: MSVCRT\n"
+            "// STATUS: EXACT\\n"
             "// SIZE: 40\n"
             "// CFLAGS: /O1\n"
             "// SYMBOL: _format_digits\n"
@@ -638,10 +609,8 @@ class TestVAHexCase:
         content = """\
 // FUNCTION: SERVER 0x1000AbCd
 // STATUS: EXACT
-// ORIGIN: GAME
 // SIZE: 31
 // CFLAGS: /O2 /Gd
-// SYMBOL: _foo
 int foo(void) { return 0; }
 """
         f = _write_c(tmp_path, "foo.c", content)
@@ -673,10 +642,8 @@ class TestSkipKey:
 // LIBRARY: SERVER 0x1001b8a5
 // STATUS: MATCHING
 // SKIP: xor edi,edi after call
-// ORIGIN: MSVCRT
 // SIZE: 11
 // CFLAGS: /O1
-// SYMBOL: _foo
 // SOURCE: foo.c
 int foo(void) { return 0; }
 """
@@ -738,10 +705,8 @@ class TestW017NoteRebrew:
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
-// ORIGIN: GAME
 // SIZE: 31
 // CFLAGS: /O2 /Gd
-// SYMBOL: _bit_reverse
 // NOTE: [rebrew] FUNCTION: EXACT
 
 int __cdecl bit_reverse(int x)
@@ -757,10 +722,8 @@ int __cdecl bit_reverse(int x)
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
-// ORIGIN: GAME
 // SIZE: 31
 // CFLAGS: /O2 /Gd
-// SYMBOL: _bit_reverse
 // NOTE: This handles player initialization
 
 int __cdecl bit_reverse(int x)

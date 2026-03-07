@@ -31,7 +31,6 @@ class TestSolutionEntry:
         e = SolutionEntry(
             symbol="_my_func",
             cflags="/O2 /Gd",
-            origin="GAME",
             size=128,
             source_file="src/game/func.c",
         )
@@ -40,7 +39,7 @@ class TestSolutionEntry:
         assert e.generations == 0
 
     def test_defaults(self) -> None:
-        e = SolutionEntry(symbol="_f", cflags="/O2", origin="GAME", size=10, source_file="f.c")
+        e = SolutionEntry(symbol="_f", cflags="/O2", size=10, source_file="f.c")
         assert e.solved_at  # should have a timestamp
 
 
@@ -57,7 +56,6 @@ class TestLoadSave:
         e = SolutionEntry(
             symbol="_func_a",
             cflags="/O2 /Gd",
-            origin="GAME",
             size=64,
             source_file="src/a.c",
             score=0.0,
@@ -72,14 +70,12 @@ class TestLoadSave:
         e1 = SolutionEntry(
             symbol="_func_a",
             cflags="/O2 /Gd",
-            origin="GAME",
             size=64,
             source_file="src/a.c",
         )
         e2 = SolutionEntry(
             symbol="_func_a",
             cflags="/O1",
-            origin="GAME",
             size=64,
             source_file="src/a.c",
         )
@@ -96,7 +92,6 @@ class TestLoadSave:
                 SolutionEntry(
                     symbol=sym,
                     cflags="/O2",
-                    origin="GAME",
                     size=100,
                     source_file=f"{sym}.c",
                 ),
@@ -146,34 +141,27 @@ class TestFindSimilar:
     def _seed_db(self, root: Path) -> None:
         """Seed the DB with a variety of solutions."""
         entries = [
-            SolutionEntry("_small", "/O2 /Gd", "GAME", 32, "small.c"),
-            SolutionEntry("_medium", "/O2 /Gd", "GAME", 128, "medium.c"),
-            SolutionEntry("_large", "/O2 /Gd", "GAME", 512, "large.c"),
-            SolutionEntry("_crt_func", "/O1", "CRT", 64, "crt.c"),
-            SolutionEntry("_game_o1", "/O1", "GAME", 100, "game_o1.c"),
+            SolutionEntry("_small", "/O2 /Gd", 32, "small.c"),
+            SolutionEntry("_medium", "/O2 /Gd", 128, "medium.c"),
+            SolutionEntry("_large", "/O2 /Gd", 512, "large.c"),
+            SolutionEntry("_crt_func", "/O1", 64, "crt.c"),
+            SolutionEntry("_game_o1", "/O1", 100, "game_o1.c"),
         ]
         for e in entries:
             save_solution(root, e)
 
     def test_empty_db(self, project_root: Path) -> None:
-        assert find_similar(project_root, "GAME", 100) == []
-
-    def test_filters_by_origin(self, project_root: Path) -> None:
-        self._seed_db(project_root)
-        results = find_similar(project_root, "CRT", 64)
-        assert all(r.origin == "CRT" for r in results)
-        assert len(results) == 1
+        assert find_similar(project_root, 100) == []
 
     def test_sorts_by_size_distance(self, project_root: Path) -> None:
         self._seed_db(project_root)
-        results = find_similar(project_root, "GAME", 100, top_k=10)
-        # _game_o1 (100B) should be first, then _medium (128B), etc.
+        results = find_similar(project_root, 100, top_k=10)
+        # _game_o1 (100B) should be first, then _crt_func (64B, dist 36), then _medium (128B, dist 28)
         assert results[0].symbol == "_game_o1"
-        assert results[1].symbol == "_medium"
 
     def test_top_k_limits(self, project_root: Path) -> None:
         self._seed_db(project_root)
-        results = find_similar(project_root, "GAME", 100, top_k=2)
+        results = find_similar(project_root, 100, top_k=2)
         assert len(results) == 2
 
     def test_cflags_tiebreak(self, project_root: Path) -> None:
@@ -181,18 +169,14 @@ class TestFindSimilar:
         # Both _game_o1 (100B, /O1) and _medium (128B, /O2 /Gd)
         # When querying with /O2 /Gd and size 114 (equidistant from 100 and 128):
         # 114-100=14 vs 128-114=14, but /O2 /Gd should break tie in favor of _medium
-        results = find_similar(project_root, "GAME", 114, cflags="/O2 /Gd")
+        results = find_similar(project_root, 114, cflags="/O2 /Gd")
         # Both are distance 14 from size 114, but _medium has matching cflags
         assert results[0].symbol == "_medium"
 
-    def test_no_origin_match(self, project_root: Path) -> None:
+    def test_returns_all_when_below_top_k(self, project_root: Path) -> None:
         self._seed_db(project_root)
-        assert find_similar(project_root, "UNKNOWN", 100) == []
-
-
-# -------------------------------------------------------------------------
-# _normalize_cflags
-# -------------------------------------------------------------------------
+        results = find_similar(project_root, 100, top_k=100)
+        assert len(results) == 5  # all 5 seeded entries
 
 
 class TestNormalizeCflags:

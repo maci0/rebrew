@@ -68,16 +68,14 @@ rebrew asm 0x<VA> --size 128 --json            # dump 128 bytes of disassembly a
 
 
 ### Multiple Target Synchronization
-Rebrew natively filters annotations by the currently active `--target`. You can place the identical code block under multiple `// FUNCTION: <MODULE>` blocks in the same C file:
+Rebrew natively filters annotations by the currently active `--target`. Place multiple `// FUNCTION: <MODULE>` marker lines in the same C file — **no other metadata in the .c file**:
 ```c
 // FUNCTION: LEGO1 0x1009a8c0
-// STATUS: EXACT
 
 // FUNCTION: BETA10 0x101832f7
-// STATUS: MATCHING
 void my_func() {}
 ```
-Testing via `rebrew test src/file.c --target LEGO1` will completely ignore the BETA10 block, and vice versa. Always respect existing multi-target blocks.
+Each target's `rebrew-functions.toml` sidecar holds the STATUS, SIZE, CFLAGS for that VA. Testing via `rebrew test src/file.c --target LEGO1` processes only the LEGO1 block. Always respect existing multi-target blocks.
 
 ## 4. Implement and Test
 
@@ -87,9 +85,18 @@ Iteratively edit source and compile-compare against the target binary:
 rebrew test src/<target>/<file>.c --json    # compile + byte-compare
 ```
 
-Adjust code and `// CFLAGS:` annotation until STATUS reaches EXACT or RELOC.
+Adjust code until STATUS reaches EXACT or RELOC.  Compiler flags are stored in
+`rebrew-functions.toml` per VA — change them with `rebrew cfg set-cflags` or let
+`rebrew match` update them automatically.
 For deeper matching (flag sweep, GA engine), use the `rebrew-matching` skill.
 Compile cache is automatic during matching/test workflows; use `rebrew cache stats` only for operational inspection.
+
+> [!CAUTION]
+> **Never manually edit `rebrew-functions.toml` or `rebrew-data.toml`.**
+> STATUS, CFLAGS, SIZE, BLOCKER, and other volatile metadata for functions are stored in
+> `rebrew-functions.toml`; SIZE, SECTION, NAME, and NOTE for data/global annotations live
+> in `rebrew-data.toml`. Manual edits will be lost or corrupt the files. Always use CLI
+> tools to update these fields.
 
 When MATCHING, auto-classify and write blockers:
 ```bash
@@ -126,7 +133,9 @@ High-confidence clusters suggest functions that should share a `.c` file.
 ## 6. Global Data
 
 If the function references globals, use the `rebrew-data-analysis` skill for
-`// GLOBAL:` / `// DATA:` annotations and the `rebrew data` tool.
+`// GLOBAL:` / `// DATA:` annotations and the `rebrew data` tool. Global metadata
+(name, size, section, note) lives in the **`rebrew-data.toml`** sidecar, managed
+automatically by `rebrew data`, `rebrew data --fix-bss`, and `rebrew sync --pull`.
 
 ## 7. Prove Stubborn MATCHING Functions
 
@@ -158,9 +167,9 @@ rebrew promote --all --dry-run --json                # preview batch promotion
 Single-file mode tests and atomically updates STATUS. Batch mode (`--all`) discovers
 all functions, verifies each, and updates annotations. Handles both:
 
-- **Promotion** (STUB→MATCHING→RELOC→EXACT): removes BLOCKER/BLOCKER_DELTA on success.
+- **Promotion** (STUB→MATCHING→RELOC→EXACT): removes BLOCKER/BLOCKER_DELTA from sidecar on success.
 - **Demotion** (EXACT/RELOC/MATCHING→STUB): when byte match falls below 75% threshold,
-  demotes to STUB and adds a `BLOCKER` with the match ratio.
+  demotes to STUB and adds a `blocker` entry in `rebrew-functions.toml` with the match ratio.
 
 ## 9. Verify and Track Progress
 
@@ -172,7 +181,7 @@ rebrew verify --summary                 # summary table with match %
 rebrew verify --json                    # bulk compile + diff all reversed functions
 rebrew verify -j 8 -o report.json      # parallel compile, save report to file
 rebrew verify --diff --json             # compare against last saved report, detect regressions
-rebrew lint --json                      # check annotation correctness
+rebrew lint --json                      # check annotation correctness (reads rebrew-functions.toml sidecar)
 rebrew lint --fix                       # auto-migrate old annotation formats
 rebrew lint --summary                   # status/origin breakdown table
 ```

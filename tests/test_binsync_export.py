@@ -42,7 +42,6 @@ int foo() { return 1; }
     f2.write_text(
         """// FUNCTION: SERVER 0x20002000
 // STATUS: MATCHING
-// SYMBOL: my_matching_func
 double bar() { return 2.0; }
 """,
         encoding="utf-8",

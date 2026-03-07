@@ -8,8 +8,8 @@ import contextlib
 import warnings
 from pathlib import Path
 
-from rebrew.annotation import marker_for_origin
 from rebrew.compile import resolve_cl_command
+from rebrew.sidecar import get_entry
 from rebrew.test import update_source_status
 
 VALID_HEADER = """\
@@ -18,7 +18,6 @@ VALID_HEADER = """\
 // ORIGIN: GAME
 // SIZE: 31
 // CFLAGS: /O2 /Gd
-// SYMBOL: _bit_reverse
 
 int __cdecl bit_reverse(int x)
 {
@@ -33,7 +32,6 @@ STUB_HEADER = """\
 // ORIGIN: GAME
 // SIZE: 31
 // CFLAGS: /O2 /Gd
-// SYMBOL: _bit_reverse
 
 int __cdecl bit_reverse(int x)
 {
@@ -76,29 +74,6 @@ class TestResolveClCommand:
 
 
 # ---------------------------------------------------------------------------
-# 2. Marker type unification
-# ---------------------------------------------------------------------------
-
-
-class TestMarkerTypeConsistency:
-    """Verify skeleton uses the same mapping as annotation."""
-
-    def test_game_is_function(self) -> None:
-        assert marker_for_origin("GAME", "MATCHED") == "FUNCTION"
-
-    def test_msvcrt_is_library(self) -> None:
-        assert marker_for_origin("MSVCRT", "MATCHED") == "LIBRARY"
-
-    def test_zlib_is_library(self) -> None:
-        assert marker_for_origin("ZLIB", "MATCHED") == "LIBRARY"
-
-    def test_stub_is_stub(self) -> None:
-        # STUBs should return "STUB" regardless of origin
-        assert marker_for_origin("GAME", "STUB") == "STUB"
-        assert marker_for_origin("MSVCRT", "STUB") == "STUB"
-
-
-# ---------------------------------------------------------------------------
 # 3. Idempotent status updates
 # ---------------------------------------------------------------------------
 
@@ -110,17 +85,22 @@ class TestIdempotentStatusUpdate:
         p = _write_c(tmp_path, "func.c", VALID_HEADER)
         bak = tmp_path / "func.c.bak"
 
-        # Status is already EXACT, update to EXACT should be a no-op
+        # Status in file is EXACT but sidecar has no entry yet — it returns '' which != EXACT
+        # Set sidecar to EXACT first so update is truly a no-op
+        from rebrew.sidecar import set_field
+
+        set_field(tmp_path, 0x10008880, "status", "EXACT", module="SERVER")
         update_source_status(str(p), "EXACT")
         assert not bak.exists(), "Should not create backup for no-op update"
 
     def test_writes_when_status_differs(self, tmp_path: Path) -> None:
         p = _write_c(tmp_path, "func.c", VALID_HEADER)
-        bak = tmp_path / "func.c.bak"
 
         update_source_status(str(p), "RELOC")
-        assert bak.exists()
-        assert "STATUS: RELOC" in p.read_text(encoding="utf-8")
+        # Status written to sidecar, .c file untouched, no .bak
+        entry = get_entry(tmp_path, 0x10008880, module="SERVER")
+        assert entry["status"] == "RELOC"
+        assert "STATUS: EXACT" in p.read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------

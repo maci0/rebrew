@@ -107,7 +107,7 @@ Replace the current ReVa MCP HTTP transport with BinSync's Git-based sync.
    Git repo
 2. BinSync's decompiler plugins pick up changes automatically
 3. `rebrew sync --pull` reads BinSync State from the Git repo
-4. Rebrew-specific fields (STATUS, SIZE, CFLAGS, ORIGIN) stored as comments or
+4. Rebrew-specific fields (STATUS, SIZE, CFLAGS) stored as comments or
    in a custom artifact extension
 
 **Effort:** High — requires rewriting sync.py's transport layer, mapping rebrew's
@@ -203,18 +203,21 @@ size = 31
 type = "int __cdecl bit_reverse(int x)"
 ```
 
-Rebrew's model is **matching-centric** (annotations with compiler flags, match status):
-```
+Rebrew's model is **matching-centric** (marker + sidecar metadata):
+```c
 // FUNCTION: SERVER 0x10008880
-// STATUS: EXACT
-// ORIGIN: GAME
-// SIZE: 31
-// CFLAGS: /O2 /Gd
-// SYMBOL: _bit_reverse
+
+int __cdecl bit_reverse(int x) { ... }  // symbol derived from C definition
+```
+```toml
+# rebrew-functions.toml sidecar (found via walk-up, managed by CLI tools)
+["0x10008880"]
+status = "EXACT"
+size = 31
+cflags = "/O2 /Gd"
 ```
 
-Rebrew-specific fields (`STATUS`, `CFLAGS`, `ORIGIN`, `BLOCKER`, `SOURCE`) have no
-BinSync equivalent. They'd need to be stored as structured comments or custom
+Rebrew-specific fields (`STATUS`, `CFLAGS`, `BLOCKER`, `SOURCE`) have no BinSync equivalent. They'd need to be stored as structured comments or custom
 extensions, which is fragile and non-standard.
 
 ### Redundancy with Existing Ghidra Sync
@@ -310,7 +313,7 @@ rebrew import-binsync <repo-path> [--dry-run] [--json]
 
 1. Read `functions/*.toml` from BinSync repo
 2. For each function with a VA in our registry:
-   - Update SYMBOL if we have `func_XXXXXXXX` placeholder
+   - Update the C function name if we have a `func_XXXXXXXX` placeholder
    - Import prototype if available
    - Import comments as NOTE annotations
 3. Read `structs/*.toml` and append to `types.h`
@@ -327,7 +330,7 @@ Map rebrew annotations to BinSync State:
 - `Annotation.symbol` ↔ `Function.name`
 - `Annotation.prototype` ↔ `Function.header.type`
 - `Annotation.note` ↔ `Comment.comment`
-- `STATUS`, `CFLAGS`, `ORIGIN` → stored as `[rebrew]` prefixed comment at function VA
+- `STATUS`, `CFLAGS` → stored as `[rebrew]` prefixed comment at function VA (from sidecar)
 
 ---
 

@@ -7,8 +7,13 @@ Covers: parser consolidation, CFLAGS validation, safe file write-back,
 import re
 from pathlib import Path
 
-from rebrew.annotation import make_func_entry, parse_c_file, parse_source_metadata
+from rebrew.annotation import (
+    make_func_entry,
+    parse_c_file_multi,
+    parse_source_metadata,
+)
 from rebrew.naming import sanitize_name
+from rebrew.sidecar import get_entry
 from rebrew.test import smart_reloc_compare, update_source_status
 
 # ---------------------------------------------------------------------------
@@ -21,7 +26,6 @@ VALID_HEADER = """\
 // ORIGIN: GAME
 // SIZE: 31
 // CFLAGS: /O2 /Gd
-// SYMBOL: _bit_reverse
 
 int __cdecl bit_reverse(int x)
 {
@@ -36,7 +40,6 @@ STUB_HEADER = """\
 // ORIGIN: GAME
 // SIZE: 31
 // CFLAGS: /O2 /Gd
-// SYMBOL: _bit_reverse
 
 int __cdecl bit_reverse(int x)
 {
@@ -110,7 +113,6 @@ class TestCflagsValidation:
             va=0x10001000,
             marker_type="FUNCTION",
             status="STUB",
-            origin="GAME",
             size=32,
             cflags="/O2 /Gd",
             symbol="_foo",
@@ -127,7 +129,6 @@ class TestCflagsValidation:
             va=0x10001000,
             marker_type="FUNCTION",
             status="STUB",
-            origin="GAME",
             size=32,
             cflags="O2 Gd",
             symbol="_foo",
@@ -143,7 +144,6 @@ class TestCflagsValidation:
             va=0x10001000,
             marker_type="FUNCTION",
             status="STUB",
-            origin="GAME",
             size=32,
             cflags="/O2/Gd",
             symbol="_foo",
@@ -161,92 +161,83 @@ class TestCflagsValidation:
 
 
 class TestSafeWriteBack:
-    """Verify update_source_status creates backup and validates."""
+    """Verify update_source_status writes to sidecar and leaves .c untouched."""
 
     def test_status_updated(self, tmp_path: Path) -> None:
         p = _write_c(tmp_path, "func.c", VALID_HEADER)
         update_source_status(str(p), "RELOC")
-        text = p.read_text(encoding="utf-8")
-        assert "STATUS: RELOC" in text
+        # .c file must be untouched
+        assert "STATUS: EXACT" in p.read_text(encoding="utf-8")
+        # Sidecar has new status
+        entry = get_entry(tmp_path, 0x10008880, module="SERVER")
+        assert entry["status"] == "RELOC"
 
     def test_backup_created(self, tmp_path: Path) -> None:
         p = _write_c(tmp_path, "func.c", VALID_HEADER)
         update_source_status(str(p), "RELOC")
+        # No .bak file created — status lives in sidecar, not file
         bak = tmp_path / "func.c.bak"
-        assert bak.exists()
-        # Backup should contain original status
-        assert "STATUS: EXACT" in bak.read_text(encoding="utf-8")
+        assert not bak.exists()
 
     def test_reparseable_after_update(self, tmp_path: Path) -> None:
         p = _write_c(tmp_path, "func.c", VALID_HEADER)
         update_source_status(str(p), "RELOC")
-        anno = parse_c_file(p)
-        assert anno is not None
-        assert anno.status == "RELOC"
+        # Read with sidecar_dir to see new status
+        anns = parse_c_file_multi(p, sidecar_dir=tmp_path)
+        assert anns
+        assert anns[0].status == "RELOC"
 
     def test_blocker_removed(self, tmp_path: Path) -> None:
         p = _write_c(tmp_path, "stub.c", STUB_HEADER)
+        # Pre-populate sidecar with BLOCKER
+        from rebrew.sidecar import set_field
+
+        set_field(tmp_path, 0x10008880, "blocker", "initial decompilation", module="SERVER")
         update_source_status(str(p), "RELOC", blockers_to_remove=True)
-        text = p.read_text(encoding="utf-8")
-        assert "BLOCKER" not in text
+        # Blocker gone from sidecar
+        entry = get_entry(tmp_path, 0x10008880, module="SERVER")
+        assert not entry.get("blocker")
+        # .c file still has the inline BLOCKER comment (not touched)
+        assert "BLOCKER" in p.read_text(encoding="utf-8")
 
     def test_target_va_updates_only_matching_block(self, tmp_path: Path) -> None:
-        """Multi-function file: target_va should only update that block's STATUS."""
+        """Multi-function file: target_va should only update that block's sidecar entry."""
         multi = (
             "// FUNCTION: SERVER 0x10001000\n"
-            "// STATUS: STUB\n"
-            "// BLOCKER: initial decompilation\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 32\n"
-            "// CFLAGS: /O2 /Gd\n"
             "// SYMBOL: _func_a\n"
             "void _func_a(void) {}\n"
             "\n"
             "// FUNCTION: SERVER 0x10002000\n"
-            "// STATUS: STUB\n"
-            "// BLOCKER: dependency\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 64\n"
-            "// CFLAGS: /O2 /Gd\n"
             "// SYMBOL: _func_b\n"
             "void _func_b(void) {}\n"
         )
         p = _write_c(tmp_path, "multi.c", multi)
         update_source_status(str(p), "RELOC", target_va=0x10001000)
-        text = p.read_text(encoding="utf-8")
-        # First block should be updated
-        assert "// STATUS: RELOC" in text
-        # Second block should remain STUB
-        lines = text.splitlines()
-        second_status = [line for line in lines if "STATUS:" in line][1]
-        assert "STUB" in second_status
-        # Only the first blocker should be removed
-        assert "BLOCKER: dependency" in text
+        # First VA updated in sidecar
+        entry1 = get_entry(tmp_path, 0x10001000, module="SERVER")
+        assert entry1["status"] == "RELOC"
+        # Second VA NOT in sidecar (untouched)
+        entry2 = get_entry(tmp_path, 0x10002000, module="SERVER")
+        assert "status" not in entry2
+        # .c file untouched
+        assert p.read_text(encoding="utf-8") == multi
 
     def test_target_va_none_updates_all(self, tmp_path: Path) -> None:
-        """Without target_va, all STATUS lines should be updated."""
+        """Without target_va, the first annotation block's VA is used."""
         multi = (
             "// FUNCTION: SERVER 0x10001000\n"
-            "// STATUS: STUB\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 32\n"
-            "// CFLAGS: /O2 /Gd\n"
             "// SYMBOL: _func_a\n"
             "void _func_a(void) {}\n"
             "\n"
             "// FUNCTION: SERVER 0x10002000\n"
-            "// STATUS: STUB\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 64\n"
-            "// CFLAGS: /O2 /Gd\n"
             "// SYMBOL: _func_b\n"
             "void _func_b(void) {}\n"
         )
         p = _write_c(tmp_path, "multi.c", multi)
         update_source_status(str(p), "EXACT")
-        text = p.read_text(encoding="utf-8")
-        status_lines = [line for line in text.splitlines() if "STATUS:" in line]
-        assert all("EXACT" in s for s in status_lines)
+        # Only first VA updated (update_source_status resolves first VA when target_va=None)
+        entry1 = get_entry(tmp_path, 0x10001000, module="SERVER")
+        assert entry1["status"] == "EXACT"
 
 
 # ---------------------------------------------------------------------------

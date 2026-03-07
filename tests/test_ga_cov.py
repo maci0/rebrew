@@ -17,7 +17,12 @@ from rebrew.ga import (
 
 class TestParseStubInfo:
     def _make_stub_file(
-        self, tmp_path, va=0x10001000, status="STUB", size=64, symbol="_my_func", origin="GAME"
+        self,
+        tmp_path,
+        va=0x10001000,
+        status="STUB",
+        size=64,
+        symbol="_my_func",
     ) -> Path:
         # Derive clean function name from symbol for the C definition
         func_name = symbol.lstrip("_")
@@ -25,7 +30,6 @@ class TestParseStubInfo:
         f.write_text(
             f"// FUNCTION: SERVER 0x{va:08X}\n"
             f"// STATUS: {status}\n"
-            f"// ORIGIN: {origin}\n"
             f"// SIZE: {size}\n"
             f"// CFLAGS: /O2 /Gd\n"
             f"void __cdecl {func_name}(void) {{\n"
@@ -109,7 +113,6 @@ class TestFindAllStubs:
         f.write_text(
             "// FUNCTION: SERVER 0x10001000\n"
             "// STATUS: EXACT\n"
-            "// ORIGIN: GAME\n"
             "// SIZE: 64\n"
             "// CFLAGS: /O2 /Gd\n"
             "// SYMBOL: _exact\n"
@@ -127,7 +130,6 @@ class TestFindAllStubs:
         f2.write_text(
             "// FUNCTION: SERVER 0x10001000\n"
             "// STATUS: STUB\n"
-            "// ORIGIN: GAME\n"
             "// SIZE: 64\n"
             "// CFLAGS: /O2 /Gd\n"
             "// SYMBOL: _dup_b\n"
@@ -162,7 +164,6 @@ class TestParseMatchingAll:
         lines = [
             f"// FUNCTION: SERVER 0x{va:08x}",
             f"// STATUS: {status}",
-            "// ORIGIN: GAME",
             "// SIZE: 100",
             f"// CFLAGS: {cflags}",
             f"// SYMBOL: _{name}",
@@ -234,7 +235,6 @@ class TestFindAllMatching:
         lines = [
             f"// FUNCTION: SERVER 0x{va:08x}",
             f"// STATUS: {status}",
-            "// ORIGIN: GAME",
             f"// SIZE: {size}",
             "// CFLAGS: /O2 /Gd",
             f"// SYMBOL: _{name}",
@@ -282,7 +282,6 @@ class TestFindAllMatching:
         f2.write_text(
             "// FUNCTION: SERVER 0x10001000\n"
             "// STATUS: MATCHING\n"
-            "// ORIGIN: GAME\n"
             "// SIZE: 100\n"
             "// CFLAGS: /O2 /Gd\n"
             "// SYMBOL: _Dup2\n"
@@ -304,7 +303,6 @@ class TestUpdateCflagsAnnotation:
         f.write_text(
             "// FUNCTION: SERVER 0x10001000\n"
             "// STATUS: MATCHING\n"
-            "// ORIGIN: GAME\n"
             "// SIZE: 100\n"
             f"// CFLAGS: {cflags}\n"
             "// SYMBOL: _func\n"

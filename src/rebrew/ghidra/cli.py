@@ -134,8 +134,8 @@ def main(
     accept_local: bool = typer.Option(
         False, "--accept-local", help="Keep local names for all conflicts (adds // GHIDRA:)"
     ),
-    filter_origin: str = typer.Option(
-        None, "--origin", help="Only apply pull updates to this origin (e.g. MSVCRT)"
+    filter_module: str = typer.Option(
+        None, "--module", help="Only apply pull updates to this module (e.g. MSVCRT)"
     ),
     pull_signatures: bool = typer.Option(
         False, "--pull-signatures", help="Pull function prototypes from Ghidra and update externs"
@@ -222,7 +222,7 @@ def main(
                 json_output=json_output,
                 accept_ghidra=accept_ghidra,
                 accept_local=accept_local,
-                filter_origin=filter_origin,
+                filter_origin=filter_module,
             )
             if pull_result.conflicts > 0 and not dry_run:
                 print(
@@ -325,9 +325,9 @@ def main(
     if summary:
         if ops is None:  # pragma: no cover — guarded by branch above
             raise typer.Exit(code=1)
-        by_origin: dict[str, list[dict[str, Any]]] = {}
+        by_module: dict[str, list[dict[str, Any]]] = {}
         for e in entries:
-            by_origin.setdefault(e["origin"], []).append(e)
+            by_module.setdefault(e["module"], []).append(e)
 
         create_fns = [o for o in ops if o["tool"] == "create-function"]
         labels = [o for o in ops if o["tool"] == "create-label"]
@@ -341,7 +341,7 @@ def main(
                 {
                     "entries": len(entries),
                     "unique_vas": len(by_va),
-                    "by_origin": {k: len(v) for k, v in sorted(by_origin.items())},
+                    "by_module": {k: len(v) for k, v in sorted(by_module.items())},
                     "operations": {
                         "create_function": len(create_fns),
                         "create_label": len(labels),
@@ -355,8 +355,8 @@ def main(
             )
         else:
             print(f"Annotations: {len(entries)} entries, {len(by_va)} unique VAs")
-            for origin in sorted(by_origin):
-                print(f"  {origin}: {len(by_origin[origin])}")
+            for module in sorted(by_module):
+                print(f"  {module}: {len(by_module[module])}")
             print(f"If exported, would generate {len(ops)} operations:")
             if create_fns:
                 print(f"  - Create {len(create_fns)} functions (create-function)")

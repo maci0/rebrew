@@ -130,9 +130,14 @@ class TestLintFileEdgeCases:
             "void _f() {}\n",
         )
         result = lint_file(f)
-        assert any(code == "E005" for _, code, _ in result.errors)
+        # ORIGIN is now optional — MODULE is present (SERVER), so origin is derivable.
+        # No E005 error should fire. (E015 may fire due to FUNCTION+STUB inconsistency,
+        # but that's a separate check.)
+        assert not any(code == "E005" for _, code, _ in result.errors)
+        assert not any(code == "W019" for _, code, _ in result.warnings)
 
     def test_invalid_origin(self, tmp_path) -> None:
+        """ORIGIN is no longer a validated field — it triggers W010 (unknown key)."""
         f = _write(
             tmp_path,
             "bad_origin.c",
@@ -145,7 +150,8 @@ class TestLintFileEdgeCases:
             "void _f() {}\n",
         )
         result = lint_file(f)
-        assert any(code == "E006" for _, code, _ in result.errors)
+        # ORIGIN is now an unknown key — triggers W010, not E006
+        assert any(code == "W010" for _, code, _ in result.warnings)
 
     def test_invalid_size_negative(self, tmp_path) -> None:
         f = _write(
@@ -272,19 +278,20 @@ class TestLintFileEdgeCases:
         assert any(code == "W005" for _, code, _ in result.warnings)
 
     def test_crt_without_source(self, tmp_path) -> None:
+        """Library module without SOURCE triggers W006 when cfg identifies it as library."""
+        cfg = ProjectConfig(root=Path("/tmp"), library_modules={"SERVER"})
         f = _write(
             tmp_path,
             "crt.c",
             "// FUNCTION: SERVER 0x10001000\n"
             "// STATUS: EXACT\n"
-            "// ORIGIN: MSVCRT\n"
             "// SIZE: 64\n"
             "// CFLAGS: /O2 /Gd\n"
             "// SYMBOL: _f\n"
             "void _f() {}\n",
         )
-        result = lint_file(f)
-        # W006: MSVCRT without SOURCE
+        result = lint_file(f, cfg=cfg)
+        # W006: library module SERVER without SOURCE annotation
         assert any(code == "W006" for _, code, _ in result.warnings)
 
     def test_file_with_no_code(self, tmp_path) -> None:
@@ -305,8 +312,6 @@ class TestLintFileEdgeCases:
     def test_config_module_mismatch(self, tmp_path) -> None:
         cfg = ProjectConfig(
             root=Path("/tmp"),
-            origins=["GAME", "MSVCRT"],
-            cflags_presets={"GAME": "/O2 /Gd"},
             marker="GAME_DLL",
         )
         f = _write(
@@ -324,11 +329,10 @@ class TestLintFileEdgeCases:
         # E012: module mismatch
         assert any(code == "E012" for _, code, _ in result.errors)
 
-    def test_config_cflags_mismatch(self, tmp_path) -> None:
+    def test_config_marker_match(self, tmp_path) -> None:
+        """Matching module to cfg.marker produces no E012 error."""
         cfg = ProjectConfig(
             root=Path("/tmp"),
-            origins=["GAME"],
-            cflags_presets={"GAME": "/O2 /Gd"},
             marker="SERVER",
         )
         f = _write(
@@ -336,15 +340,14 @@ class TestLintFileEdgeCases:
             "cflags_diff.c",
             "// FUNCTION: SERVER 0x10001000\n"
             "// STATUS: EXACT\n"
-            "// ORIGIN: GAME\n"
             "// SIZE: 64\n"
             "// CFLAGS: /O1\n"
             "// SYMBOL: _f\n"
             "void _f() {}\n",
         )
         result = lint_file(f, cfg=cfg)
-        # W008: CFLAGS mismatch
-        assert any(code == "W008" for _, code, _ in result.warnings)
+        # No E012: module matches cfg.marker
+        assert not any(code == "E012" for _, code, _ in result.errors)
 
     def test_corrupted_status_newline(self, tmp_path) -> None:
         f = _write(

@@ -23,7 +23,6 @@ To load a specific target::
     cfg = load_config(target="client_exe")
 """
 
-import copy as _copy_mod
 import shlex
 import sys
 import tomllib
@@ -122,9 +121,6 @@ class ProjectConfig:
     function_list: Path = field(default_factory=lambda: Path())
     bin_dir: Path = field(default_factory=lambda: Path())
     marker: str = ""  # Prefix used in annotations, e.g. // FUNCTION: SERVER 0x... (default: target_name.upper())
-    origins: list[str] = field(default_factory=list)  # Valid ORIGIN values, e.g. ["GAME", "ZLIB"]
-    default_origin: str = ""  # Default ORIGIN when not specified (first origin if empty)
-    origin_prefixes: dict[str, str] = field(default_factory=dict)  # origin -> filename prefix
     r2_bogus_vas: list[int] = field(default_factory=list)  # VAs with known-bad r2 size data
 
     # --- project-level defaults ---
@@ -157,22 +153,14 @@ class ProjectConfig:
     game_range_end: int | None = None
     iat_thunks: list[int] = field(default_factory=list)
     dll_exports: dict[int, str] = field(default_factory=dict)
-    cflags_presets: dict[str, str] = field(default_factory=dict)
     zlib_vas: list[int] = field(default_factory=list)
     ignored_symbols: list[str] = field(default_factory=list)
     compiler_profiles: dict[str, dict[str, str]] = field(
         default_factory=dict
     )  # e.g. {"clang": {...}}
-    origin_compiler: dict[str, dict[str, str]] = field(
-        default_factory=dict
-    )  # Per-origin compiler overrides, e.g. {"ZLIB": {"command": "...", "cflags": "/O3"}}
-    library_origins: set[str] = field(
+    library_modules: set[str] = field(
         default_factory=set
-    )  # Origins using LIBRARY marker (e.g. {"ZLIB", "MSVCRT"})
-    origin_comments: dict[str, str] = field(
-        default_factory=dict
-    )  # Origin → skeleton preamble comment
-    origin_todos: dict[str, str] = field(default_factory=dict)  # Origin → TODO text for skeleton
+    )  # Module names using LIBRARY marker (e.g. {"MSVCRT", "ZLIB"})
     crt_sources: dict[str, str] = field(default_factory=dict)
     source_ext: str = ".c"  # Source file extension (e.g. ".c", ".cpp")
     ghidra_program_path: str = ""
@@ -203,65 +191,6 @@ class ProjectConfig:
     def va_to_file_offset(self, va: int) -> int:
         """Convert VA to raw file offset using .text section constants."""
         return va - self.text_va + self.text_raw_offset
-
-    def for_origin(self, origin: str) -> "ProjectConfig":
-        """Return config with per-origin compiler overrides applied.
-
-        Looks up *origin* in ``origin_compiler`` and returns a shallow copy
-        with the matching compiler fields overridden.  Returns ``self``
-        unchanged if no overrides exist for the given origin.
-
-        Uses ``copy.copy`` (shallow) rather than ``copy.deepcopy`` because
-        only scalar fields are modified.  Mutable container fields (lists,
-        dicts, sets) are shared but never mutated through the returned copy.
-        """
-        overrides = self.origin_compiler.get(origin, {})
-        if not overrides:
-            return self
-        cfg = _copy_mod.copy(self)
-        # Shallow copy shares mutable container references with the original.
-        # Clone the fields that callers may mutate to prevent aliasing bugs.
-        cfg.library_origins = set(self.library_origins)
-        cfg.origins = list(self.origins)
-        cfg.padding_bytes = list(self.padding_bytes)
-        if "command" in overrides:
-            cfg.compiler_command = overrides["command"]
-        if "runner" in overrides:
-            cfg.compiler_runner = overrides["runner"]
-        if "includes" in overrides:
-            cfg.compiler_includes = (
-                _resolve(self.root, overrides["includes"]) or self.compiler_includes
-            )
-        if "libs" in overrides:
-            cfg.compiler_libs = _resolve(self.root, overrides["libs"]) or self.compiler_libs
-        if "cflags" in overrides:
-            cfg.cflags = overrides["cflags"]
-        if "base_cflags" in overrides:
-            cfg.base_cflags = overrides["base_cflags"]
-        if "profile" in overrides:
-            cfg.compiler_profile = overrides["profile"]
-        if "timeout" in overrides:
-            try:
-                timeout_val = int(overrides["timeout"])
-            except (ValueError, TypeError):
-                timeout_val = self.compile_timeout
-            cfg.compile_timeout = max(timeout_val, 1)
-        return cfg
-
-    def resolve_origin_cflags(self, origin: str, fallback: str = "/O2 /Gd") -> str:
-        """Return effective default cflags for a given origin.
-
-        Resolution order (first non-empty wins):
-        1. ``origin_compiler[origin]["cflags"]``
-        2. ``cflags_presets[origin]``
-        3. *fallback*
-        """
-        oc = self.origin_compiler.get(origin, {})
-        if "cflags" in oc:
-            return oc["cflags"]
-        if origin in self.cflags_presets:
-            return self.cflags_presets[origin]
-        return fallback
 
 
 def _parse_int_list(values: list[Any] | None, field_name: str) -> list[int]:
@@ -460,23 +389,17 @@ _KNOWN_TARGET_KEYS = {
     "arch",
     "format",
     "marker",
-    "origins",
     "reversed_dir",
     "function_list",
     "bin_dir",
     "compiler",
-    "cflags_presets",
-    "default_origin",
-    "origin_prefixes",
     "r2_bogus_vas",
     "game_range_end",
     "iat_thunks",
     "dll_exports",
     "zlib_vas",
     "ignored_symbols",
-    "library_origins",
-    "origin_comments",
-    "origin_todos",
+    "library_modules",
     "crt_sources",
     "source_ext",
     "ghidra_program_path",
@@ -489,9 +412,7 @@ _KNOWN_COMPILER_KEYS = {
     "libs",
     "cflags",
     "profile",
-    "cflags_presets",
     "profiles",
-    "origins",
     "base_cflags",
     "timeout",
 }
@@ -501,17 +422,6 @@ _KNOWN_PROJECT_KEYS = {
     "jobs",
     "db_dir",
     "output_dir",
-}
-
-_KNOWN_ORIGIN_COMPILER_KEYS = {
-    "command",
-    "runner",
-    "includes",
-    "libs",
-    "cflags",
-    "profile",
-    "base_cflags",
-    "timeout",
 }
 
 _KNOWN_FORMATS = {"pe", "elf", "macho"}
@@ -563,26 +473,6 @@ def load_config(
                     f"rebrew-project.toml [targets.{tgt_name}]: unrecognized keys: {unknown_tgt}",
                 )
 
-    for scope, origins_dict in (
-        ("compiler", raw.get("compiler", {}).get("origins", {})),
-        *(
-            (
-                f"targets.{tn}.compiler",
-                raw.get("targets", {}).get(tn, {}).get("compiler", {}).get("origins", {}),
-            )
-            for tn in raw.get("targets", {})
-        ),
-    ):
-        if isinstance(origins_dict, dict):
-            for origin_name, origin_vals in origins_dict.items():
-                if isinstance(origin_vals, dict):
-                    unknown_origin = set(origin_vals) - _KNOWN_ORIGIN_COMPILER_KEYS
-                    if unknown_origin:
-                        _config_warn(
-                            f"rebrew-project.toml [{scope}.origins.{origin_name}]: "
-                            f"unrecognized keys: {unknown_origin}",
-                        )
-
     targets_dict = raw.get("targets", {})
     if not targets_dict:
         raise KeyError("rebrew-project.toml has no [targets] section")
@@ -591,14 +481,9 @@ def load_config(
         raise KeyError("rebrew-project.toml [targets] section has no valid target names")
 
     global_compiler_raw = raw.get("compiler", {})
-    global_compiler = {
-        k: v
-        for k, v in global_compiler_raw.items()
-        if k not in ("cflags_presets", "profiles", "origins")
-    }
+    global_compiler = {k: v for k, v in global_compiler_raw.items() if k not in ("profiles",)}
 
     compiler_profiles = global_compiler_raw.get("profiles", {})
-    global_origins = global_compiler_raw.get("origins", {})
 
     if target is None:
         target = all_target_names[0]
@@ -608,23 +493,10 @@ def load_config(
         )
     tgt = targets_dict[target]
     target_compiler_raw = tgt.get("compiler", {})
-    target_compiler = {k: v for k, v in target_compiler_raw.items() if k not in ("origins",)}
-    target_origins = target_compiler_raw.get("origins", {})
+    target_compiler = dict(target_compiler_raw)
     compiler = {**global_compiler, **target_compiler}
     compiler_runner, compiler_command = _split_compiler_runner(compiler)
 
-    # Merge per-origin compiler overrides: global → per-target
-    merged_origin_compiler: dict[str, dict[str, str]] = {}
-    for origin_key in sorted(set(global_origins) | set(target_origins)):
-        merged_values = {
-            **global_origins.get(origin_key, {}),
-            **target_origins.get(origin_key, {}),
-        }
-        origin_runner, origin_command = _split_compiler_runner(merged_values)
-        if "runner" not in merged_values and origin_runner:
-            merged_values["runner"] = origin_runner
-            merged_values["command"] = origin_command
-        merged_origin_compiler[origin_key] = {str(k): str(v) for k, v in merged_values.items()}
     sources = tgt
 
     # --- Validate value types for known fields ---
@@ -683,11 +555,7 @@ def load_config(
     if compiler_libs is None:  # pragma: no cover
         raise ValueError("Failed to resolve compiler libs path")
 
-    # Merge cflags_presets: global first, then per-target overrides
-    merged_presets = {
-        **global_compiler_raw.get("cflags_presets", {}),
-        **tgt.get("cflags_presets", {}),
-    }
+    # cflags_presets: reserved for future per-origin flag lookup (not yet wired into ProjectConfig)
 
     cfg = ProjectConfig(
         root=root,
@@ -701,9 +569,6 @@ def load_config(
         function_list=function_list,
         bin_dir=bin_dir,
         marker=tgt.get("marker", target.upper()),
-        origins=_parse_str_list(tgt.get("origins", []), "origins"),
-        default_origin=tgt.get("default_origin", ""),
-        origin_prefixes=tgt.get("origin_prefixes", {}),
         r2_bogus_vas=_parse_int_list(tgt.get("r2_bogus_vas", []), "r2_bogus_vas"),
         # project-level defaults
         project_name=project_raw.get("name", ""),
@@ -727,24 +592,16 @@ def load_config(
         game_range_end=tgt.get("game_range_end"),
         iat_thunks=_parse_int_list(tgt.get("iat_thunks", []), "iat_thunks"),
         dll_exports=_parse_hex_dict(tgt.get("dll_exports", {})),
-        cflags_presets=merged_presets,
         zlib_vas=_parse_int_list(tgt.get("zlib_vas", []), "zlib_vas"),
         ignored_symbols=_parse_str_list(tgt.get("ignored_symbols", []), "ignored_symbols"),
         compiler_profiles=compiler_profiles,
-        origin_compiler=merged_origin_compiler,
-        library_origins=set(_parse_str_list(tgt.get("library_origins", []), "library_origins")),
-        origin_comments=tgt.get("origin_comments", {}),
-        origin_todos=tgt.get("origin_todos", {}),
+        library_modules=set(_parse_str_list(tgt.get("library_modules", []), "library_modules")),
         crt_sources=tgt.get("crt_sources", {}),
         source_ext=tgt.get("source_ext", ".c"),
         ghidra_program_path=tgt.get("ghidra_program_path", ""),
         # all targets
         all_targets=all_target_names,
     )
-
-    # Default library_origins: all origins except the first (primary/FUNCTION origin)
-    if not cfg.library_origins and len(cfg.origins) > 1:
-        cfg.library_origins = set(cfg.origins[1:])
 
     # Auto-detect CRT sources if not explicitly configured
     if not cfg.crt_sources:

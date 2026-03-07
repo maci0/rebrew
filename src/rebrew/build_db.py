@@ -53,7 +53,7 @@ def build_db(
                 size INTEGER,
                 fileOffset INTEGER,
                 status TEXT,
-                origin TEXT,
+                module TEXT,
                 cflags TEXT,
                 symbol TEXT,
                 markerType TEXT,
@@ -82,7 +82,7 @@ def build_db(
                 name TEXT,
                 decl TEXT,
                 files TEXT,
-                origin TEXT,
+                module TEXT,
                 size INTEGER,
                 PRIMARY KEY (target, va)
             )
@@ -130,7 +130,7 @@ def build_db(
 
         c.execute("CREATE INDEX IF NOT EXISTS idx_functions_name ON functions(target, name)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_functions_status ON functions(target, status)")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_functions_origin ON functions(target, origin)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_functions_module ON functions(target, module)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_globals_name ON globals(target, name)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_cells_section ON cells(target, section_name)")
         c.execute(
@@ -225,7 +225,7 @@ def build_db(
                         fn.get("size"),
                         fn.get("fileOffset"),
                         fn.get("status"),
-                        fn.get("origin"),
+                        fn.get("module"),
                         fn.get("cflags"),
                         fn.get("symbol"),
                         fn.get("markerType"),
@@ -265,7 +265,7 @@ def build_db(
                         g.get("name"),
                         g.get("decl"),
                         json.dumps(g.get("files", [])),
-                        g.get("origin"),
+                        g.get("module"),
                         g.get("size", 4),
                     )
                 )
@@ -379,7 +379,7 @@ def build_db(
 
             # Calculate function stats for metadata
             c.execute(
-                "SELECT va, name, size, status, origin, symbol, markerType, files "
+                "SELECT va, name, size, status, module, symbol, markerType, files "
                 "FROM functions WHERE target = ? AND markerType NOT IN ('GLOBAL', 'DATA') ORDER BY va",
                 (target_name,),
             )
@@ -387,13 +387,13 @@ def build_db(
 
             total: int = len(functions)
             by_status: dict[str, int] = {}
-            by_origin: dict[str, list[Any]] = {}
+            by_module: dict[str, list[Any]] = {}
             covered_bytes_func: int = 0
             for fn in functions:
                 st = fn[3] or "UNKNOWN"
                 by_status[st] = by_status.get(st, 0) + 1
-                orig = fn[4] or "UNKNOWN"  # origin is at index 4
-                by_origin.setdefault(orig, []).append(fn)
+                mod = fn[4] or "GAME"  # module is at index 4
+                by_module.setdefault(mod, []).append(fn)
                 size = fn[2]  # size is at index 2
                 if st != "none":  # Only count non-none functions towards coverage
                     covered_bytes_func += size if size is not None else 0
@@ -413,8 +413,8 @@ def build_db(
                             "covered_bytes": covered_bytes_func,
                             "total_bytes": total_bytes,
                             "by_status": by_status,
-                            "by_origin_counts": {
-                                orig: len(f_list) for orig, f_list in by_origin.items()
+                            "by_module_counts": {
+                                mod: len(f_list) for mod, f_list in by_module.items()
                             },
                         }
                     ),
@@ -523,7 +523,7 @@ def _generate_catalogs(
 
         # Get all functions
         c.execute(
-            "SELECT va, name, size, status, origin, symbol, markerType, files "
+            "SELECT va, name, size, status, module, symbol, markerType, files "
             "FROM functions WHERE target = ? AND markerType NOT IN ('GLOBAL', 'DATA') ORDER BY va",
             (target_name,),
         )
@@ -532,13 +532,13 @@ def _generate_catalogs(
         # Compute stats
         total: int = len(functions)
         by_status: dict[str, int] = {}
-        by_origin: dict[str, list[Any]] = {}
+        by_module: dict[str, list[Any]] = {}
         covered_bytes_func: int = 0
         for fn in functions:
             st = fn[3] or "UNKNOWN"
             by_status[st] = by_status.get(st, 0) + 1
-            orig = fn[4] or "UNKNOWN"
-            by_origin.setdefault(orig, []).append(fn)
+            mod = fn[4] or "GAME"
+            by_module.setdefault(mod, []).append(fn)
             size = fn[2]
             if st != "none":  # Only count non-none functions towards coverage
                 covered_bytes_func += size if size is not None else 0
@@ -563,10 +563,10 @@ def _generate_catalogs(
             f"Coverage: {coverage_pct:.1f}% of .text section ({covered_bytes_func}/{text_size} bytes)\n"
         )
 
-        # Table by origin
-        for origin in sorted(by_origin):
-            fns = by_origin[origin]
-            lines.append(f"\n## {origin} ({len(fns)} functions)\n")
+        # Table by module
+        for module in sorted(by_module):
+            fns = by_module[module]
+            lines.append(f"\n## {module} ({len(fns)} functions)\n")
             lines.append("| VA | Symbol | Size | Status | Files |")
             lines.append("|---:|--------|-----:|--------|-------|")
             for fn in fns:
