@@ -75,7 +75,7 @@ that indicate missing `extern` declarations.
 
 ### Workflow for fixing relocation mismatches
 
-1. Run `rebrew match --diff-only --json src/<target>/<file>.c` — note `~~` addresses
+1. Run `rebrew diff --json src/<target>/<file>.c` — note `~~` addresses
 2. Run `rebrew data --bss --json` — check if the addresses fall in BSS gaps
 3. Run `rebrew data --fix-bss` to automatically generate `bss_padding.c` (writes SIZE/SECTION/NOTE to `rebrew-data.toml`)
 4. Add missing `extern` declarations with `// GLOBAL:` annotations
