@@ -118,9 +118,9 @@ class TestScoring:
         assert _score_by_size(CAT_IMPROVE_MATCHING, 500) == 45.0
 
     def test_verify_fail_high_match(self) -> None:
-        # 95% match: base=44, no size boost → 44
-        score = _score_verify_fail(None, 95.0, 100)
-        assert 40.0 <= score <= 50.0
+        # >=95% match: flat 43, no size boost — always below start-function min (45)
+        assert _score_verify_fail(None, 95.0, 100) == 43.0
+        assert _score_verify_fail(None, 99.0, 28) == 43.0  # tiny size, still flat 43
 
     def test_verify_fail_medium_match(self) -> None:
         # 75% match: base=55

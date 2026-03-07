@@ -182,7 +182,9 @@ def _score_verify_fail(delta: int | None, match_pct: float | None, size: int = 0
         # Unknown — treat conservatively, don't crowd out start-function
         base = 46.0
     elif match_pct >= 95.0:
-        base = 44.0  # negligible gain, last 1% often structural
+        # Negligible gain, last 1% often a stubborn structural diff.
+        # Flat score below start-function min (45) so it never crowds them out.
+        return 43.0
     elif match_pct >= 80.0:
         base = 55.0
     elif match_pct >= 60.0:
@@ -795,6 +797,12 @@ def main(
         "-c",
         help="Filter by category (fix-near-miss, flag-sweep, start-function, ...)",
     ),
+    max_per_cat: int = typer.Option(
+        5,
+        "--max-per-cat",
+        "-m",
+        help="Max items per category in default view (0 = unlimited)",
+    ),
     stats: bool = typer.Option(False, "--stats", "-s", help="Show coverage stats header"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -823,7 +831,19 @@ def main(
     if category:
         all_items = [i for i in all_items if i.category == category]
 
-    display_items = all_items[:count]
+    # Per-category cap: prevent any single category from flooding the default view.
+    # Applied only when not filtering by category. Use -m 0 to disable.
+    if not category and max_per_cat > 0:
+        cat_counts: dict[str, int] = {}
+        capped: list[TodoItem] = []
+        for item in all_items:
+            n = cat_counts.get(item.category, 0)
+            if n < max_per_cat:
+                capped.append(item)
+                cat_counts[item.category] = n + 1
+        display_items = capped[:count]
+    else:
+        display_items = all_items[:count]
 
     if json_output:
         cat_summary: dict[str, int] = {}
