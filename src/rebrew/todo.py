@@ -165,15 +165,36 @@ def _score_flag_sweep(delta: int | None, size: int) -> float:
     return min(55.0, max(25.0, base))
 
 
-def _score_verify_fail(delta: int | None, match_pct: float | None) -> float:
-    """Score a verify failure (MISMATCH or MISSING_FILE)."""
-    if match_pct is not None and match_pct > 90.0:
-        return 90.0  # Very close, high ROI
-    if match_pct is not None and match_pct > 70.0:
-        return 85.0
-    if delta is not None and delta <= 20:
-        return 82.0
-    return 80.0
+def _score_verify_fail(delta: int | None, match_pct: float | None, size: int = 0) -> float:
+    """Score a verify failure by closeness. Higher match% = less work = higher ROI.
+
+    Intentionally capped below compile errors (~85-95) and near-misses (~70-85).
+    A 99% match is a fast near-miss-style fix; a 0% match on a large function
+    is low ROI (full rewrite). The score drives sorting within the category.
+    """
+    if match_pct is None:
+        # No data — treat as moderate mismatch
+        base = 58.0
+    elif match_pct >= 95.0:
+        # Near-miss regression — fast to fix, but don't outrank compile errors
+        base = 72.0
+    elif match_pct >= 80.0:
+        base = 65.0
+    elif match_pct >= 60.0:
+        base = 58.0
+    elif match_pct >= 30.0:
+        base = 52.0
+    else:
+        # Very low match — likely full regression or needs major rework, low ROI
+        base = 45.0
+
+    # Prefer smaller functions (easier to fix)
+    if size > 0 and size < 100:
+        base += 3.0
+    elif size > 500:
+        base -= 5.0
+
+    return min(75.0, max(40.0, base))
 
 
 def _score_start_function(difficulty: int, size: int) -> float:
@@ -251,8 +272,8 @@ def _collect_setup_steps(
                 name="",
                 size=0,
                 filename="",
-                description=f"Run triage to survey {len(ghidra_funcs)} functions",
-                command="rebrew triage",
+                description=f"Run todo to survey {len(ghidra_funcs)} functions",
+                command="rebrew todo --json",
             )
         )
         step += 1
@@ -324,9 +345,7 @@ def _collect_near_misses(
                     size=size,
                     filename=filename,
                     description=f"{delta}B diff — tweak code or adjust padding",
-                    command=f"rebrew match -d {filename}"
-                    if filename
-                    else f"rebrew match 0x{va:08x}",
+                    command=f"rebrew diff {filename}" if filename else f"rebrew diff 0x{va:08x}",
                     byte_delta=delta,
                     status=info["status"],
                 )
@@ -340,10 +359,10 @@ def _collect_near_misses(
                     name=info.get("symbol", ""),
                     size=size,
                     filename=filename,
-                    description=f"{delta}B diff — try compiler flag sweep",
-                    command=f"rebrew match --sweep {filename}"
+                    description=f"{delta}B diff — try flag sweep or GA",
+                    command=f"rebrew match --flag-sweep-only {filename}"
                     if filename
-                    else f"rebrew match --sweep 0x{va:08x}",
+                    else f"rebrew match --flag-sweep-only 0x{va:08x}",
                     byte_delta=delta,
                     status=info["status"],
                 )
@@ -380,7 +399,7 @@ def _collect_improve_matching(
                 size=size,
                 filename=filename,
                 description=desc,
-                command=f"rebrew match -d {filename}" if filename else f"rebrew match 0x{va:08x}",
+                command=f"rebrew diff {filename}" if filename else f"rebrew diff 0x{va:08x}",
                 status=info["status"],
             )
         )
@@ -502,7 +521,7 @@ def _collect_verify_failures(
         items.append(
             TodoItem(
                 category=CAT_FIX_VERIFY_FAIL,
-                roi_score=_score_verify_fail(delta, match_pct),
+                roi_score=_score_verify_fail(delta, match_pct, size),
                 va=va,
                 name=result.name,
                 size=size,
@@ -767,6 +786,7 @@ def main(
         "-c",
         help="Filter by category (fix-near-miss, flag-sweep, start-function, ...)",
     ),
+    stats: bool = typer.Option(False, "--stats", "-s", help="Show coverage stats header"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -778,68 +798,107 @@ def main(
         error_exit(f"Failed to load project data: {exc}", json_mode=json_output)
     all_items = collect_all(cfg, ghidra_funcs, existing, covered_vas)
 
+    # Coverage stats (always computed for JSON, optional for terminal)
+    status_counts: dict[str, int] = {}
+    for info in existing.values():
+        s = info.get("status", "STUB")
+        status_counts[s] = status_counts.get(s, 0) + 1
+    total_funcs = len(ghidra_funcs)
+    covered = len(covered_vas)
+    exact = status_counts.get("EXACT", 0)
+    reloc = status_counts.get("RELOC", 0)
+    matching = status_counts.get("MATCHING", 0) + status_counts.get("MATCHING_RELOC", 0)
+    stub = status_counts.get("STUB", 0)
+    pct = round(100.0 * (exact + reloc) / total_funcs, 1) if total_funcs else 0.0
+
     if category:
         all_items = [i for i in all_items if i.category == category]
 
     display_items = all_items[:count]
 
     if json_output:
-        summary: dict[str, int] = {}
+        cat_summary: dict[str, int] = {}
         for item in all_items:
-            summary[item.category] = summary.get(item.category, 0) + 1
+            cat_summary[item.category] = cat_summary.get(item.category, 0) + 1
         json_print(
             {
+                "coverage": {
+                    "total": total_funcs,
+                    "covered": covered,
+                    "exact": exact,
+                    "reloc": reloc,
+                    "matching": matching,
+                    "stub": stub,
+                    "pct_matched": pct,
+                },
                 "total_items": len(all_items),
                 "count": len(display_items),
-                "summary": summary,
+                "summary": cat_summary,
                 "items": [i.to_dict() for i in display_items],
             }
         )
         return
 
+    if stats or not display_items:
+        # Show coverage stats header
+        console.print(
+            f"  [bold]Coverage[/bold]: {covered}/{total_funcs} functions"
+            f"  [green]EXACT: {exact}[/green]"
+            f"  [cyan]RELOC: {reloc}[/cyan]"
+            f"  [yellow]MATCHING: {matching}[/yellow]"
+            f"  [dim]STUB: {stub}[/dim]"
+            f"  → [bold]{pct}%[/bold] matched"
+        )
+
     if not display_items:
         console.print("No action items found. Great progress!")
         return
 
-    table = Table(show_header=True, header_style="bold", pad_edge=False)
+    table = Table(show_header=True, header_style="bold", pad_edge=False, expand=True)
     table.add_column("#", style="dim", width=3, justify="right")
-    table.add_column("ROI", width=4, justify="right")
-    table.add_column("Category", width=18)
+    table.add_column("Cat", width=14)
     table.add_column("VA", width=12)
-    table.add_column("Size", width=6, justify="right")
-    table.add_column("Name", width=28, no_wrap=True, overflow="ellipsis")
-    table.add_column("Action", no_wrap=False)
+    table.add_column("Sz", width=5, justify="right")
+    table.add_column("Name", width=26, no_wrap=True, overflow="ellipsis")
+    table.add_column("Description", no_wrap=True, overflow="ellipsis")
+    table.add_column("Command", no_wrap=True, overflow="ellipsis", style="bold dim")
 
     for i, item in enumerate(display_items, 1):
         color = _CATEGORY_COLORS.get(item.category, "white")
+        cat_label = item.category.replace("-", "\u2011")  # non-breaking hyphen for display
         table.add_row(
             str(i),
-            f"{item.roi_score:.0f}",
-            f"[{color}]{item.category}[/{color}]",
-            f"0x{item.va:08x}",
+            f"[{color}]{cat_label}[/{color}]",
+            f"0x{item.va:08x}" if item.va else "",
             f"{item.size}B" if item.size else "",
             item.name,
             item.description,
+            item.command,
         )
 
-    # Summary line
-    summary_parts: dict[str, int] = {}
+    # Category summary subtitle
+    cat_parts: dict[str, int] = {}
     for item in all_items:
-        summary_parts[item.category] = summary_parts.get(item.category, 0) + 1
-    summary_text = "  ".join(
+        cat_parts[item.category] = cat_parts.get(item.category, 0) + 1
+    subtitle = "  ".join(
         f"[{_CATEGORY_COLORS.get(cat, 'white')}]{cat}: {cnt}[/{_CATEGORY_COLORS.get(cat, 'white')}]"
-        for cat, cnt in sorted(summary_parts.items(), key=lambda x: -x[1])
+        for cat, cnt in sorted(cat_parts.items(), key=lambda x: -x[1])
     )
 
     panel = Panel(
         table,
-        title=f"Rebrew TODO — {len(all_items)} actions",
-        subtitle=summary_text,
+        title=f"[bold]Rebrew TODO[/bold] — {len(all_items)} actions"
+        f"  [green]{exact}E[/green] [cyan]{reloc}R[/cyan]"
+        f" [yellow]{matching}M[/yellow] [dim]{stub}S[/dim]"
+        f" ({pct}%)",
+        subtitle=subtitle,
         border_style="blue",
     )
     console.print(panel)
     console.print(f"  Showing top {len(display_items)} of {len(all_items)} items")
-    console.print("  Tip: use [bold]rebrew todo -c <category>[/bold] to filter")
+    console.print(
+        "  Tip: use [bold]rebrew todo -c <category>[/bold] to filter  |  [bold]rebrew todo -s[/bold] for stats"
+    )
 
 
 def main_entry() -> None:

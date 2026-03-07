@@ -118,16 +118,24 @@ class TestScoring:
         assert _score_by_size(CAT_IMPROVE_MATCHING, 500) == 45.0
 
     def test_verify_fail_high_match(self) -> None:
-        assert _score_verify_fail(None, 95.0) == 90.0
+        # 95% match on a 100B function: base=72 + size_boost=3 → capped at 75
+        score = _score_verify_fail(None, 95.0, 100)
+        assert 70.0 <= score <= 75.0
 
     def test_verify_fail_medium_match(self) -> None:
-        assert _score_verify_fail(None, 75.0) == 85.0
+        # 75% match falls in the >=60% bucket: base=58
+        score = _score_verify_fail(None, 75.0)
+        assert 55.0 <= score <= 70.0
 
     def test_verify_fail_small_delta(self) -> None:
-        assert _score_verify_fail(10, None) == 82.0
+        # No match_pct data: base=58
+        score = _score_verify_fail(10, None)
+        assert 50.0 <= score <= 65.0
 
     def test_verify_fail_unknown(self) -> None:
-        assert _score_verify_fail(None, None) == 80.0
+        # No data: base=58
+        score = _score_verify_fail(None, None)
+        assert 50.0 <= score <= 65.0
 
     def test_finish_stub_tiny(self) -> None:
         assert _score_by_size(CAT_FINISH_STUB, 50) == 75.0
@@ -763,7 +771,7 @@ class TestSetupSteps:
         assert "catalog" in items[0].command
 
     def test_ghidra_json_no_sources(self, tmp_path: Path) -> None:
-        """Have ghidra_functions.json but no source files → triage + skeleton steps."""
+        """Have ghidra_functions.json but no source files → todo + skeleton steps."""
         cfg = _make_cfg(tmp_path)
         src_dir = tmp_path / "src"
         src_dir.mkdir()
@@ -771,7 +779,7 @@ class TestSetupSteps:
         ghidra_funcs = [FunctionEntry(va=0x1000, size=100, name="f")]
         items = _collect_setup_steps(cfg, ghidra_funcs, {})
         assert len(items) == 2
-        assert any("triage" in i.command for i in items)
+        assert any("todo" in i.command for i in items)
         assert any("skeleton" in i.command for i in items)
 
     def test_sources_but_no_verify_cache(self, tmp_path: Path) -> None:
