@@ -845,78 +845,105 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
             return True
 
     # --- W019: new-format files with inline sidecar keys ---
-    # Strip inline SIDECAR_KEYS from the .c file and write them to the
-    # appropriate TOML (rebrew-data.toml for DATA/GLOBAL SECTION/NOTE/SIZE,
-    # rebrew-functions.toml for everything else).
+    # Segment the file into annotation blocks, then for each block strip any
+    # sidecar-owned inline keys and route them to the correct TOML.
+    # This handles multi-annotation files (e.g. globals.c) correctly because
+    # each block's VA and marker type are resolved independently.
     from rebrew.annotation import SIDECAR_KEYS as _SIDECAR_KEYS
 
-    # Detect marker type (FUNCTION/STUB/GLOBAL/DATA), module, and VA.
-    _marker_type = ""
-    _module = ""
-    _va_hex = ""
-    for _line in lines[:20]:
-        _stripped = _line.strip()
-        if NEW_FUNC_RE.match(_stripped):
-            _parts = _stripped.split(None, 2)  # ["//", "MARKER:", "MODULE 0xVA"]
-            if len(_parts) >= 2:
-                _marker_type = _parts[1].rstrip(":").upper()
-            if len(_parts) >= 3:
-                _rest = _parts[2].split()
-                _module = _rest[0] if _rest else ""
-                _va_hex = _rest[1].lower() if len(_rest) > 1 else ""
-            break
-
-    _is_data = _marker_type in ("GLOBAL", "DATA")
-
-    # Collect inline sidecar key/values and the line indices to drop.
-    _sidecar_inline: dict[str, str] = {}
+    _DATA_KEY_MAP: dict[str, str] = {"SIZE": "size", "SECTION": "section", "NOTE": "note"}
     _drop_lines: set[int] = set()
+    _any_migrated = False
+
+    # Split file into annotation blocks. Each block starts at a NEW_FUNC_RE
+    # marker line and its KV lines follow (up to the next marker or blank/code line
+    # that ends the annotation header).
+    _block_start_indices: list[int] = []
     for _li, _line in enumerate(lines):
-        _stripped = _line.strip()
-        _km = NEW_KV_RE.match(_stripped)
-        if _km:
-            _k = _km.group("key").upper()
-            if _k in _SIDECAR_KEYS:
-                _sidecar_inline[_k] = _km.group("value").strip()
-                _drop_lines.add(_li)
+        if NEW_FUNC_RE.match(_line.strip()):
+            _block_start_indices.append(_li)
 
-    if not _sidecar_inline:
-        return False
+    if not _block_start_indices:
+        return False  # No new-format markers found; not a new-format file
 
-    # Parse VA integer for sidecar write.
-    _va_int: int | None = None
-    if _va_hex:
+    # Build per-block ranges: block i spans [_block_start_indices[i], _block_start_indices[i+1])
+    _block_ranges = []
+    for _bi, _start in enumerate(_block_start_indices):
+        _end = _block_start_indices[_bi + 1] if _bi + 1 < len(_block_start_indices) else len(lines)
+        _block_ranges.append((_start, _end))
+
+    for _bstart, _bend in _block_ranges:
+        # Parse marker line to get type, module, VA.
+        _marker_line = lines[_bstart].strip()
+        _parts = _marker_line.split(None, 2)  # ["//", "MARKER:", "MODULE 0xVA"]
+        if len(_parts) < 3:
+            continue
+        _marker_type = _parts[1].rstrip(":").upper()
+        _rest = _parts[2].split()
+        _module = _rest[0] if _rest else ""
+        _va_hex = _rest[1].lower() if len(_rest) > 1 else ""
+        if not _module or not _va_hex:
+            continue
+
+        _va_int: int | None = None
         with contextlib.suppress(ValueError):
             _va_int = int(_va_hex, 16)
+        if _va_int is None:
+            continue
 
-    if _va_int is not None and _module:
+        _is_data = _marker_type in ("GLOBAL", "DATA")
+
+        # Collect inline sidecar keys within this block's KV lines only.
+        # KV lines are consecutive `// KEY: value` lines immediately after the marker.
+        _block_sidecar: dict[str, str] = {}
+        for _li in range(_bstart + 1, _bend):
+            _stripped = lines[_li].strip()
+            if not _stripped or not _stripped.startswith("//"):
+                break  # Blank or code — end of annotation header
+            _km = NEW_KV_RE.match(_stripped)
+            if not _km:
+                break
+            _k = _km.group("key").upper()
+            if _k in _SIDECAR_KEYS:
+                _block_sidecar[_k] = _km.group("value").strip()
+                _drop_lines.add(_li)
+
+        if not _block_sidecar:
+            continue
+
+        # Write sidecar keys to the appropriate TOML.
         try:
             if _is_data:
-                # DATA/GLOBAL: SIZE/SECTION/NOTE → rebrew-data.toml
                 from rebrew.data_sidecar import set_data_field as _set_data_field
 
-                _data_key_map = {"SIZE": "size", "SECTION": "section", "NOTE": "note"}
-                for _k, _toml_k in _data_key_map.items():
-                    if _k in _sidecar_inline:
+                for _k, _toml_k in _DATA_KEY_MAP.items():
+                    if _k in _block_sidecar:
                         _set_data_field(
-                            filepath.parent, _va_int, _toml_k, _sidecar_inline[_k], module=_module
+                            filepath.parent, _va_int, _toml_k, _block_sidecar[_k], module=_module
                         )
-                # Any remaining sidecar keys (GHIDRA, SKIP, …) → rebrew-functions.toml
-                _remaining = {k: v for k, v in _sidecar_inline.items() if k not in _data_key_map}
+                _remaining = {k: v for k, v in _block_sidecar.items() if k not in _DATA_KEY_MAP}
                 if _remaining:
                     from rebrew.sidecar import set_field as _set_field2
 
                     for _k, _v in _remaining.items():
                         _set_field2(filepath.parent, _va_int, _k.lower(), _v, module=_module)
             else:
-                # Function/Stub keys → rebrew-functions.toml
                 from rebrew.sidecar import set_field as _set_field
 
-                for _k, _v in _sidecar_inline.items():
+                for _k, _v in _block_sidecar.items():
                     _set_field(filepath.parent, _va_int, _k.lower(), _v, module=_module)
+            _any_migrated = True
         except Exception:  # noqa: BLE001
-            # Sidecar write failure — leave file untouched
-            return False
+            # Sidecar write failure for this block — skip stripping its lines
+            _drop_lines -= set(
+                _li
+                for _li in range(_bstart + 1, _bend)
+                if NEW_KV_RE.match(lines[_li].strip())
+                and NEW_KV_RE.match(lines[_li].strip()).group("key").upper() in _block_sidecar  # type: ignore[union-attr]
+            )
+
+    if not _any_migrated:
+        return False
 
     # Write the stripped source file (remove inline sidecar key lines).
     new_text = "".join(line for li, line in enumerate(lines) if li not in _drop_lines)
