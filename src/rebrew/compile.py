@@ -104,6 +104,46 @@ def resolve_cl_command(cfg: ProjectConfig) -> list[str]:
     return command
 
 
+def resolve_compiler_env(
+    cfg: ProjectConfig,
+) -> tuple[str, str, dict[str, str] | None, CompileCache | None]:
+    """Resolve compiler command, include dir, MSVC env, and compile cache from config.
+
+    Returns ``(cl_cmd, inc_dir, msvc_env, compile_cache)`` — the four values
+    shared by every compilation-based tool.  Extracted so that ``rebrew match``
+    and ``rebrew ga`` (now a shim) don't duplicate this 20-line block.
+
+    Args:
+        cfg: ProjectConfig instance from the project root.
+
+    Returns:
+        Tuple of (cl_cmd, inc_dir, msvc_env, compile_cache) where compile_cache
+        may be None if the cache database cannot be opened.
+
+    """
+    cl_parts = _safe_shlex_split(cfg.compiler_command)
+    cl_res: list[str] = []
+    for part in cl_parts:
+        p = cfg.root / part
+        cl_res.append(str(p) if p.exists() else part)
+    cl_cmd = " ".join(cl_res)
+    if not cl_cmd:
+        cl_cmd = " ".join(str(p) for p in resolve_cl_command(cfg))
+
+    inc_dir = str(cfg.compiler_includes)
+    inc_path = cfg.root / inc_dir
+    if inc_path.exists():
+        inc_dir = str(inc_path)
+
+    env = msvc_env_from_config(cfg)
+
+    cc: CompileCache | None = None
+    with contextlib.suppress(OSError):
+        cc = get_compile_cache(cfg.root)
+
+    return cl_cmd, inc_dir, env, cc
+
+
 # ---------------------------------------------------------------------------
 # Object file compilation
 # ---------------------------------------------------------------------------
