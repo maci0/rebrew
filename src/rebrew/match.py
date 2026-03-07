@@ -4,8 +4,11 @@
 Compile C source, compare object bytes against a target function, and
 iteratively mutate to find a byte-perfect or relocation-normalized match.
 
+For a byte diff of the current state, use ``rebrew diff src/f.c``.
+
 Usage:
-    rebrew match <source.c> [--diff-only] [--flag-sweep-only --tier TIER]
+    rebrew match <source.c> [--flag-sweep-only --tier TIER]
+    rebrew match <source.c> [--generations N --pop-size N]
 """
 
 import hashlib
@@ -13,7 +16,6 @@ import logging
 import random
 import shlex
 import subprocess
-import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -37,7 +39,6 @@ from rebrew.matcher import (
     build_candidate_obj_only,
     compute_population_diversity,
     crossover,
-    diff_functions,
     flag_sweep,
     mutate_code,
     score_candidate,
@@ -62,66 +63,6 @@ def _print_structural_similarity(sim: StructuralSimilarity) -> None:
         f"  Mnemonic match: {sim.mnemonic_match_ratio:.1%}  |  "
         f"Structural ratio: {sim.structural_ratio:.1%}"
     )
-
-
-def classify_blockers(diff_summary: dict[str, Any]) -> list[str]:
-    """Auto-classify MATCHING blockers from structural diffs.
-
-    Looks for patterns in mismatched (** / RR) lines to identify systemic
-    compiler differences like register allocation, loop rotation, etc.
-    """
-    blockers = set()
-    insns_raw = diff_summary.get("instructions", [])
-    insns = insns_raw if isinstance(insns_raw, list) else []
-
-    for row in insns:
-        if not isinstance(row, dict):
-            continue
-        match_char = row.get("match")
-        if match_char not in ("**", "RR"):
-            continue
-
-        t_obj = row.get("target") or {}
-        c_obj = row.get("candidate") or {}
-        t = t_obj if isinstance(t_obj, dict) else {}
-        c = c_obj if isinstance(c_obj, dict) else {}
-        t_asm = t.get("disasm", "")
-        c_asm = c.get("disasm", "")
-
-        # Register allocation
-        if match_char == "RR":
-            blockers.add("register allocation")
-            continue
-
-        t_parts = t_asm.split()
-        c_parts = c_asm.split()
-        t_mnem = t_parts[0] if t_parts else ""
-        c_mnem = c_parts[0] if c_parts else ""
-
-        # Loop rotation / jump conditions
-        if (t_mnem.startswith("j") and c_mnem.startswith("j")) and t_mnem != c_mnem:
-            if t_mnem != "jmp" and c_mnem != "jmp":
-                blockers.add("jump condition swap")
-            else:
-                blockers.add("loop rotation / branch layout")
-
-        # Zero-extend patterns
-        if ("xor" in t_mnem and "mov" in c_mnem) or ("mov" in t_mnem and "xor" in c_mnem):
-            blockers.add("zero-extend pattern (xor vs mov)")
-
-        # Comparison direction swap
-        if t_mnem == "cmp" and c_mnem == "cmp" and t_asm != c_asm:
-            blockers.add("comparison direction swap")
-
-        # Stack frame choice
-        if ("push" in t_mnem and "sub esp" in c_asm) or ("sub esp" in t_asm and "push" in c_mnem):
-            blockers.add("stack frame choice (push vs sub esp)")
-
-        # Instruction folding (lea vs mov)
-        if ("lea" in t_mnem and "mov" in c_mnem) or ("mov" in t_mnem and "lea" in c_mnem):
-            blockers.add("instruction folding (lea vs mov)")
-
-    return sorted(list(blockers))
 
 
 class BinaryMatchingGA:
@@ -367,17 +308,11 @@ class BinaryMatchingGA:
 _EPILOG = """\
 [bold]Modes:[/bold]
 
-rebrew match src/f.c --diff-only               Show byte diff vs target
-
-rebrew match src/f.c --diff-only --mm          Show only structural diffs (**)
-
 rebrew match src/f.c --flag-sweep-only          Find best compiler flags
 
 rebrew match src/f.c                            Full GA matching run
 
 [bold]Examples:[/bold]
-
-rebrew match src/game/my_func.c --diff-only
 
 rebrew match src/game/my_func.c --flag-sweep-only --tier targeted
 
@@ -385,11 +320,13 @@ rebrew match src/game/my_func.c --generations 200 --pop-size 48 -j 8
 
 rebrew match src/game/my_func.c --seed 42       Reproducible GA run
 
-rebrew match src/f.c --diff-only --json          JSON structured diff
-
 rebrew match src/f.c --flag-sweep-only --json   JSON flag sweep results
 
 rebrew match src/f.c --json                     JSON GA results
+
+[bold]Byte diff:[/bold]
+
+Use [bold]rebrew diff src/f.c[/bold] to show a byte diff before running the GA.
 
 [bold]Flag sweep tiers:[/bold]
 
@@ -431,21 +368,6 @@ def main(
     link: str | None = typer.Option(None, help="LINK.EXE command"),
     lib: str | None = typer.Option(None, help="Lib dir"),
     ldflags: str | None = typer.Option(None, help="Linker flags"),
-    diff_only: bool = typer.Option(
-        False, "--diff-only", "-d", help="Show diff for seed file, don't run GA"
-    ),
-    mismatches_only: bool = typer.Option(
-        False,
-        "--mismatches-only",
-        "--mm",
-        help="With --diff-only, show only ** (structural diff) lines",
-    ),
-    register_aware: bool = typer.Option(
-        False,
-        "--register-aware",
-        "--rr",
-        help="With --diff-only, normalize register encodings and mark differences as RR",
-    ),
     flag_sweep_only: bool = typer.Option(
         False, "--flag-sweep-only", "-S", help="Run compiler flag sweep instead of GA"
     ),
@@ -455,16 +377,6 @@ def main(
     ),
     force: bool = typer.Option(
         False, "--force", help="Continue even if annotation lint errors exist"
-    ),
-    fix_blocker: bool = typer.Option(
-        False,
-        "--fix-blocker",
-        help="With --diff-only, auto-write BLOCKER/BLOCKER_DELTA annotations from diff classification",
-    ),
-    diff_format: str = typer.Option(
-        "terminal",
-        "--diff-format",
-        help="Output format for --diff-only: terminal, csv (use --json for JSON)",
     ),
     seed: int | None = typer.Option(None, "--seed", help="RNG seed for reproducible GA runs"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -476,27 +388,11 @@ def main(
     ),
     target: str | None = TargetOption,
 ) -> None:
-    """Genetic Algorithm engine for binary matching."""
-    if diff_format not in ("terminal", "json", "csv"):
-        error_exit("--diff-format must be 'terminal', 'json', or 'csv'")
-
-    # --json takes precedence over --diff-format
-    if json_output:
-        diff_format = "json"
-    elif diff_format == "json":
-        json_output = True
-    csv_output = diff_format == "csv"
-
+    """Genetic Algorithm engine for binary matching (flag sweep or GA)."""
     cfg = require_config(target=target, json_mode=json_output)
     params = _resolve_build_params(
         cfg, seed_c, cl, inc, cflags, symbol, target_va, target_size, force, json_output
     )
-
-    if diff_only:
-        _run_diff_mode(
-            params, mismatches_only, register_aware, csv_output, fix_blocker, json_output
-        )
-        return
 
     if flag_sweep_only:
         _run_flag_sweep(params, tier, jobs, json_output)
@@ -578,7 +474,9 @@ def _resolve_build_params(
     except (OSError, AttributeError, KeyError, ValueError):
         pass
 
-    annos = parse_c_file_multi(Path(seed_c), target_name=target_marker(cfg))
+    annos = parse_c_file_multi(
+        Path(seed_c), target_name=target_marker(cfg), sidecar_dir=Path(seed_c).parent
+    )
     anno = annos[0] if annos else None
     if anno:
         eval_errs, eval_warns = anno.validate()
@@ -668,141 +566,6 @@ def _resolve_build_params(
         msvc_env=msvc_env,
         cc=cc,
     )
-
-
-# ---------------------------------------------------------------------------
-# Mode: --diff-only
-# ---------------------------------------------------------------------------
-
-
-def _run_diff_mode(
-    p: _BuildParams,
-    mismatches_only: bool,
-    register_aware: bool,
-    csv_output: bool,
-    fix_blocker: bool,
-    json_output: bool,
-) -> None:
-    """Compile seed and show byte diff vs target."""
-    res = build_candidate_obj_only(
-        p.seed_src,
-        p.cl,
-        p.inc,
-        p.cflags,
-        p.symbol,
-        env=p.msvc_env,
-        cache=p.cc,
-        timeout=p.cfg.compile_timeout,
-    )
-    if not (res.ok and res.obj_bytes):
-        if json_output:
-            error_exit(f"Build failed: {res.error_msg}", json_mode=True)
-        console.print(f"Build failed: {res.error_msg}")
-        raise typer.Exit(code=2)
-
-    obj_bytes = res.obj_bytes
-    if len(obj_bytes) > len(p.target_bytes):
-        obj_bytes = obj_bytes[: len(p.target_bytes)]
-    summary = diff_functions(
-        p.target_bytes,
-        obj_bytes,
-        res.reloc_offsets,
-        mismatches_only=mismatches_only,
-        register_aware=register_aware,
-        as_dict=True,
-    )
-    if not json_output and not csv_output:
-        diff_functions(
-            p.target_bytes,
-            obj_bytes,
-            res.reloc_offsets,
-            mismatches_only=mismatches_only,
-            register_aware=register_aware,
-        )
-
-    has_structural = False
-    if summary:
-        blockers = classify_blockers(summary)
-        sim = structural_similarity(p.target_bytes, obj_bytes, res.reloc_offsets)
-
-        if json_output:
-            summary["structural_similarity"] = {
-                "total_insns": sim.total_insns,
-                "exact": sim.exact,
-                "reloc_only": sim.reloc_only,
-                "register_only": sim.register_only,
-                "structural": sim.structural,
-                "mnemonic_match_ratio": sim.mnemonic_match_ratio,
-                "structural_ratio": sim.structural_ratio,
-                "flag_sensitive": sim.flag_sensitive,
-            }
-            if blockers:
-                summary["blockers"] = blockers
-            json_print(summary)
-        elif csv_output:
-            import csv
-
-            writer = csv.writer(sys.stdout)
-            writer.writerow(
-                ["Index", "Match", "Target_Bytes", "Target_Disasm", "Cand_Bytes", "Cand_Disasm"]
-            )
-            instructions_obj = summary.get("instructions", [])
-            instructions = instructions_obj if isinstance(instructions_obj, list) else []
-            for row in instructions:
-                if not isinstance(row, dict):
-                    continue
-                m_char = row.get("match") or ""
-                if mismatches_only and m_char != "**":
-                    continue
-                t_obj = row.get("target") or {}
-                c_obj = row.get("candidate") or {}
-                t_data = t_obj if isinstance(t_obj, dict) else {}
-                c_data = c_obj if isinstance(c_obj, dict) else {}
-                writer.writerow(
-                    [
-                        row.get("index", ""),
-                        m_char,
-                        t_data.get("bytes", ""),
-                        t_data.get("disasm", ""),
-                        c_data.get("bytes", ""),
-                        c_data.get("disasm", ""),
-                    ]
-                )
-        else:
-            if blockers:
-                console.print("\nAuto-classified blockers:")
-                for b in blockers:
-                    console.print(f"  - {b}")
-            _print_structural_similarity(sim)
-
-        if fix_blocker:
-            from rebrew.annotation import remove_annotation_key, update_annotation_key
-
-            seed_path = Path(p.seed_c)
-            if blockers:
-                blocker_text = ", ".join(blockers)
-                delta = sum(
-                    1 for a, b in zip(p.target_bytes, obj_bytes, strict=False) if a != b
-                ) + abs(len(p.target_bytes) - len(obj_bytes))
-                updated = update_annotation_key(seed_path, p.va_int, "BLOCKER", blocker_text)
-                if delta > 0:
-                    update_annotation_key(seed_path, p.va_int, "BLOCKER_DELTA", str(delta))
-                if updated and not json_output:
-                    typer.echo(
-                        f"  Updated BLOCKER: {blocker_text} ({delta}B delta)",
-                        err=True,
-                    )
-            else:
-                removed_b = remove_annotation_key(seed_path, p.va_int, "BLOCKER")
-                removed_d = remove_annotation_key(seed_path, p.va_int, "BLOCKER_DELTA")
-                if (removed_b or removed_d) and not json_output:
-                    typer.echo("  Cleared BLOCKER (no structural diffs)", err=True)
-
-        summary_obj = summary.get("summary", {})
-        structural_obj = summary_obj.get("structural", 0) if isinstance(summary_obj, dict) else 0
-        has_structural = isinstance(structural_obj, int | float) and structural_obj > 0
-    if has_structural:
-        raise typer.Exit(code=1)
 
 
 # ---------------------------------------------------------------------------

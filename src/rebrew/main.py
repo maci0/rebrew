@@ -26,15 +26,11 @@ rebrew todo                  See what needs work (prioritized by ROI)
 
 rebrew skeleton 0x<VA>       Generate a .c skeleton from address
 
-rebrew test src/<func>.c     Compile and byte-compare against target
+rebrew test src/<func>.c     Compile, byte-compare, and auto-update STATUS
 
-rebrew match -d src/f.c      Show byte diff for near-misses
-
-rebrew promote src/f.c       Test and auto-update STATUS annotation
+rebrew diff src/f.c          Show byte diff for near-misses
 
 rebrew verify                Bulk-verify all reversed functions
-
-rebrew status                Project-wide progress overview
 
 [bold]Exit codes:[/bold]
 
@@ -83,31 +79,25 @@ _COMMAND_PANELS: dict[str, str] = {
     "skeleton": "Development",
     "test": "Development",
     "verify": "Development",
-    "promote": "Development",
     "lint": "Development",
     "rename": "Development",
     "split": "Development",
     "merge": "Development",
     # Analysis — understanding the binary and progress
-    "next": "Analysis",
-    "status": "Analysis",
-    "triage": "Analysis",
+    "todo": "Analysis",
     "data": "Analysis",
     "graph": "Analysis",
     "flirt": "Analysis",
     "crt-match": "Analysis",
-    "cu-map": "Analysis",
-    "todo": "Analysis",
     # Matching — solving byte-level differences
     "match": "Matching",
+    "diff": "Matching",
     "ga": "Matching",
     "extract": "Matching",
     "asm": "Matching",
-    "nasm": "Matching",
     "prove": "Matching",
     # Export & Sync — generating data and syncing with external tools
     "catalog": "Export & Sync",
-    "build-db": "Export & Sync",
     "sync": "Export & Sync",
     "binsync-export": "Export & Sync",
 }
@@ -115,37 +105,30 @@ _COMMAND_PANELS: dict[str, str] = {
 # Single-command modules – registered as flat commands via app.command().
 _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("rename", "rebrew.rename", "Rename a function and update all cross-references."),
-    ("test", "rebrew.test", "Quick compile-and-compare for reversed functions."),
+    ("test", "rebrew.test", "Compile, byte-compare, and auto-update STATUS annotation."),
     ("verify", "rebrew.verify", "Validate compiled bytes against target binary."),
-    ("next", "rebrew.next", "Find the next best functions to work on."),
     ("skeleton", "rebrew.skeleton", "Generate skeleton C files for matching."),
-    (
-        "catalog",
-        "rebrew.catalog",
-        "Build coverage catalog, data JSON, and optional CSV/Ghidra exports.",
-    ),
     ("sync", "rebrew.ghidra.cli", "Sync annotations between decomp C files and Ghidra."),
     ("lint", "rebrew.lint", "Lint C annotations."),
     ("extract", "rebrew.extract", "Extract and disassemble functions from binary."),
-    ("match", "rebrew.match", "Single-function matching: byte diff, flag sweep, or GA."),
+    ("match", "rebrew.match", "Flag sweep or GA matching engine."),
+    ("diff", "rebrew.diff", "Compile and diff a reversed function against the target binary."),
     ("ga", "rebrew.ga", "Batch GA runner across all STUB/MATCHING functions."),
-    ("asm", "rebrew.asm", "Disassemble original bytes."),
-    ("build-db", "rebrew.build_db", "Build SQLite coverage database."),
+    ("asm", "rebrew.asm", "Disassemble a function (hex dump or NASM source)."),
     ("init", "rebrew.init", "Initialize a new rebrew project."),
-    ("status", "rebrew.status", "Project reversing status overview."),
     ("data", "rebrew.data", "Global data scanner for .data/.rdata/.bss sections."),
-    ("graph", "rebrew.depgraph", "Function dependency graph visualization."),
-    ("promote", "rebrew.promote", "Test + atomically update STATUS annotation."),
-    ("triage", "rebrew.triage", "Cold-start triage: FLIRT scan + coverage summary."),
+    (
+        "graph",
+        "rebrew.depgraph",
+        "Function dependency graph visualization (--cu-map for CU boundaries).",
+    ),
+    ("todo", "rebrew.todo", "Prioritized action list: what to work on next."),
     ("crt-match", "rebrew.crt_match", "CRT source cross-reference matcher."),
     ("flirt", "rebrew.flirt", "FLIRT signature scanning."),
-    ("nasm", "rebrew.nasm", "NASM assembly extraction."),
     ("doctor", "rebrew.doctor", "Diagnostic checks for project health."),
     ("split", "rebrew.split", "Split multi-function C files into single-function files."),
     ("merge", "rebrew.merge", "Merge single-function C files into one multi-function file."),
     ("prove", "rebrew.prove", "Prove semantic equivalence via symbolic execution."),
-    ("cu-map", "rebrew.cu_map", "Infer compilation unit boundaries from .text layout."),
-    ("todo", "rebrew.todo", "Prioritized action list: what to work on next for highest ROI."),
     (
         "binsync-export",
         "rebrew.binsync_export",
@@ -158,6 +141,7 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
 _MULTI_COMMANDS: list[tuple[str, str, str]] = [
     ("cfg", "rebrew.cfg", "Read and edit rebrew-project.toml programmatically."),
     ("cache", "rebrew.cache_cli", "Manage the compile result cache."),
+    ("catalog", "rebrew.catalog", "Build coverage catalog, data JSON, CSV/Ghidra exports, and DB."),
 ]
 
 

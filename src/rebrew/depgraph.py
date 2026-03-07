@@ -359,6 +359,8 @@ rebrew graph --focus _my_func --depth 2       Neighbourhood around one function
 
 rebrew graph -o graph.md                      Write output to file
 
+rebrew graph --cu-map                         Compilation unit boundary map
+
 [bold]Output formats:[/bold]
 
 mermaid    Mermaid flowchart (default; paste into docs)
@@ -386,12 +388,20 @@ def main(
         None, "--focus", help="Focus on a specific function and its neighbours"
     ),
     depth: int = typer.Option(1, "--depth", help="Neighbourhood depth for --focus"),
+    cu_map: bool = typer.Option(False, "--cu-map", help="Show compilation unit boundary map"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     output: str | None = typer.Option(None, "--output", "-o", help="Output file (default: stdout)"),
     target: str | None = TargetOption,
 ) -> None:
     """Generate function dependency graph from reversed .c files."""
     cfg = require_config(target=target, json_mode=json_output)
+
+    if cu_map:
+        from rebrew.cu_map import main as _cu_map_main
+
+        _cu_map_main(json_output=json_output, target=target)
+        return
+
     reversed_dir = cfg.reversed_dir
 
     nodes, edges = build_graph(reversed_dir, cfg=cfg)

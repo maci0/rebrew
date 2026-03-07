@@ -1,5 +1,5 @@
 def test_classify_blockers() -> None:
-    from rebrew.match import classify_blockers
+    from rebrew.diff import classify_blockers
 
     summary = {
         "instructions": [

@@ -1114,7 +1114,7 @@ def parse_source_metadata(source_path: str | Path) -> dict[str, str]:
     ``{KEY: value}`` dict format that callers expect. Marker entries map to
     the VA string only (for example ``{"FUNCTION": "0x10001a60"}``).
     """
-    annos = parse_c_file_multi(Path(source_path))
+    annos = parse_c_file_multi(Path(source_path), sidecar_dir=Path(source_path).parent)
     anno = annos[0] if annos else None
     if anno is None:
         return {}

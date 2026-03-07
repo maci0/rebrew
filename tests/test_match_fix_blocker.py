@@ -1,10 +1,10 @@
-"""Tests for rebrew.match --fix-blocker annotation writing and classify_blockers."""
+"""Tests for rebrew.diff classify_blockers and --fix-blocker annotation writing."""
 
 from pathlib import Path
 from typing import Any
 
 from rebrew.annotation import parse_c_file_multi, update_annotation_key
-from rebrew.match import classify_blockers
+from rebrew.diff import classify_blockers
 
 # ---------------------------------------------------------------------------
 # classify_blockers — pattern detection
