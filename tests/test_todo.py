@@ -118,35 +118,46 @@ class TestScoring:
         assert _score_by_size(CAT_IMPROVE_MATCHING, 500) == 45.0
 
     def test_verify_fail_high_match(self) -> None:
-        # 95% match, 100B: base=46, no size modifier → ~46
+        # 95% match: base=44, no size boost → 44
         score = _score_verify_fail(None, 95.0, 100)
-        assert 40.0 <= score <= 55.0
+        assert 40.0 <= score <= 50.0
 
     def test_verify_fail_medium_match(self) -> None:
         # 75% match: base=55
         score = _score_verify_fail(None, 75.0)
-        assert 50.0 <= score <= 63.0
+        assert 50.0 <= score <= 62.0
 
     def test_verify_fail_small_delta(self) -> None:
-        # No match_pct: base=50
+        # No match_pct: base=46
         score = _score_verify_fail(10, None)
-        assert 40.0 <= score <= 60.0
+        assert 40.0 <= score <= 55.0
 
     def test_verify_fail_unknown(self) -> None:
-        # No data: base=50
+        # No data: base=46
         score = _score_verify_fail(None, None)
-        assert 40.0 <= score <= 60.0
+        assert 40.0 <= score <= 55.0
 
     def test_verify_fail_sweet_spot(self) -> None:
-        # 65% match, small (80B): base=60+3=63 — best ROI
+        # 65% match, small (80B): base=59+3=62
         score = _score_verify_fail(None, 65.0, 80)
-        assert score == 63.0
+        assert score == 62.0
 
     def test_verify_fail_high_ranks_below_sweet_spot(self) -> None:
         # 99% match should rank below 65% match (negligible gain)
         high = _score_verify_fail(None, 99.0, 80)
         sweet = _score_verify_fail(None, 65.0, 80)
         assert high < sweet
+
+    def test_verify_fail_low_match_below_start_function(self) -> None:
+        # <30% match on any size should score below start-function threshold (~45)
+        low = _score_verify_fail(None, 5.0, 50)
+        assert low < 45.0
+
+    def test_verify_fail_low_match_large_penalized(self) -> None:
+        # <30% match, large function: penalized further
+        small = _score_verify_fail(None, 5.0, 50)
+        large = _score_verify_fail(None, 5.0, 500)
+        assert small >= large
 
     def test_finish_stub_tiny(self) -> None:
         assert _score_by_size(CAT_FINISH_STUB, 50) == 75.0
