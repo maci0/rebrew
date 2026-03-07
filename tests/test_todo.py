@@ -118,24 +118,35 @@ class TestScoring:
         assert _score_by_size(CAT_IMPROVE_MATCHING, 500) == 45.0
 
     def test_verify_fail_high_match(self) -> None:
-        # 95% match on a 100B function: base=72 + size_boost=3 → capped at 75
+        # 95% match, 100B: base=46, no size modifier → ~46
         score = _score_verify_fail(None, 95.0, 100)
-        assert 70.0 <= score <= 75.0
+        assert 40.0 <= score <= 55.0
 
     def test_verify_fail_medium_match(self) -> None:
-        # 75% match falls in the >=60% bucket: base=58
+        # 75% match: base=55
         score = _score_verify_fail(None, 75.0)
-        assert 55.0 <= score <= 70.0
+        assert 50.0 <= score <= 63.0
 
     def test_verify_fail_small_delta(self) -> None:
-        # No match_pct data: base=58
+        # No match_pct: base=50
         score = _score_verify_fail(10, None)
-        assert 50.0 <= score <= 65.0
+        assert 40.0 <= score <= 60.0
 
     def test_verify_fail_unknown(self) -> None:
-        # No data: base=58
+        # No data: base=50
         score = _score_verify_fail(None, None)
-        assert 50.0 <= score <= 65.0
+        assert 40.0 <= score <= 60.0
+
+    def test_verify_fail_sweet_spot(self) -> None:
+        # 65% match, small (80B): base=60+3=63 — best ROI
+        score = _score_verify_fail(None, 65.0, 80)
+        assert score == 63.0
+
+    def test_verify_fail_high_ranks_below_sweet_spot(self) -> None:
+        # 99% match should rank below 65% match (negligible gain)
+        high = _score_verify_fail(None, 99.0, 80)
+        sweet = _score_verify_fail(None, 65.0, 80)
+        assert high < sweet
 
     def test_finish_stub_tiny(self) -> None:
         assert _score_by_size(CAT_FINISH_STUB, 50) == 75.0
