@@ -191,21 +191,29 @@ def _score_verify_fail(delta: int | None, match_pct: float | None, size: int = 0
         base = 59.0  # sweet spot
     elif match_pct >= 30.0:
         base = 48.0
+    elif match_pct >= 20.0:
+        base = 43.0  # still below start-function (45)
+    elif match_pct >= 10.0:
+        base = 41.0
+    elif match_pct >= 5.0:
+        base = 39.0
     else:
-        # Full regression territory — score BELOW start-function (~45)
-        base = 40.0
+        base = 37.0  # 0-5% — essentially start from scratch
 
-    # Size modifiers — only meaningful for mid-range items
+    # Size modifiers for mid-range items (>=30%)
     if match_pct is not None and match_pct >= 30.0:
         if 0 < size < 100:
             base += 3.0
         elif size > 500:
             base -= 5.0
-    elif match_pct is not None and match_pct < 30.0 and size > 300:
-        # Low-match, large function: even harder to fix
-        base -= 3.0
+    elif match_pct is not None and match_pct < 30.0:
+        # Low-match: penalize medium/large functions more (bigger rewrite)
+        if size > 200:
+            base -= 2.0
+        if size > 500:
+            base -= 2.0  # cumulative for very large
 
-    return min(62.0, max(36.0, base))
+    return min(62.0, max(34.0, base))
 
 
 def _score_start_function(difficulty: int, size: int) -> float:
