@@ -352,29 +352,36 @@ def run_flag_sweep(
 
 
 def update_cflags_annotation(filepath: Path, new_cflags: str) -> bool:
-    """Update the ``// CFLAGS:`` annotation in a source file.
+    """Update the ``cflags`` for a function — writes to the sidecar.
 
-    Returns True if the file was modified, False if the annotation
-    was not found or already had the same value.
+    Locates the FUNCTION marker in *filepath* to extract the VA and module,
+    then writes *new_cflags* to ``rebrew-functions.toml`` via ``set_field``.
+
+    Returns True if the sidecar was updated, False on failure.
     """
-    content = filepath.read_text(encoding="utf-8")
-    pattern = r"^(//\s*)CFLAGS:\s*(.+)$"
-    match = re.search(pattern, content, flags=re.MULTILINE)
-    if match is None:
+    from rebrew.sidecar import get_entry, set_field
+
+    try:
+        text = filepath.read_text(encoding="utf-8")
+    except OSError:
         return False
 
-    old_cflags = match.group(2).strip()
-    if old_cflags == new_cflags:
-        return False
-
-    updated = re.sub(
-        pattern,
-        rf"\g<1>CFLAGS: {new_cflags}",
-        content,
-        count=1,
-        flags=re.MULTILINE,
+    m = re.search(
+        r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*(\S+)\s+(0x[0-9a-fA-F]+)",
+        text,
     )
-    atomic_write_text(filepath, updated, encoding="utf-8")
+    if m is None:
+        return False
+
+    module = m.group(1)
+    va_int = int(m.group(2), 16)
+
+    # Check current sidecar value to avoid unnecessary writes
+    entry = get_entry(filepath.parent, va_int, module=module)
+    if entry.get("cflags", "") == new_cflags:
+        return False
+
+    set_field(filepath.parent, va_int, "cflags", new_cflags, module=module)
     return True
 
 

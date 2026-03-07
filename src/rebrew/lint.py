@@ -26,6 +26,7 @@ from rebrew.annotation import (
     NEW_FUNC_RE,
     NEW_KV_RE,
     OLD_RE,
+    SIDECAR_KEYS,
     VALID_MARKERS,
     VALID_STATUSES,
     marker_for_module,
@@ -491,6 +492,26 @@ def _check_W017_note_rebrew(result: LintResult, found_keys: dict[str, str]) -> N
         )
 
 
+def _check_W019_inline_sidecar_keys(
+    result: LintResult,
+    found_keys: dict[str, str],
+    sidecar_sourced_keys: set[str],
+) -> None:
+    """Warn when a rebrew-specific annotation key appears inline in source.
+
+    These keys (CFLAGS, SKIP, GLOBALS, BLOCKER, SOURCE, NOTE, GHIDRA, …)
+    must live exclusively in ``rebrew-functions.toml``.  Any occurrence
+    in the ``.c`` file should be migrated: strip from source, add to sidecar.
+    """
+    for key in SIDECAR_KEYS:
+        if key in found_keys and key not in sidecar_sourced_keys:
+            result.warning(
+                result.marker_line,
+                "W019",
+                f"Inline // {key}: annotation must move to rebrew-functions.toml sidecar",
+            )
+
+
 def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> None:
     """Check struct SIZE comments and code presence (W003, W007)."""
     has_code = False
@@ -595,13 +616,19 @@ def lint_file(
         # but we only overlay if the key is not already present inline — this lets
         # any remaining inline annotation (from files not yet fully migrated) take
         # precedence so the check accurately reflects what the compiler will see.
+        # We also track which keys were supplied by the sidecar (vs inline) so
+        # that W019 can distinguish between a key that must be migrated and one
+        # that is correctly sidecar-only.
+        _sidecar_sourced_keys: set[str] = set()
         if mod and va_str:
             try:
                 _va_int = int(va_str, 16)
                 _sidecar_override = _sidecar_entries.get((mod, _va_int), {})
                 for _toml_key, _found_key in _SIDECAR_TO_FOUND.items():
-                    if _toml_key in _sidecar_override and _found_key not in found_keys:
-                        found_keys[_found_key] = str(_sidecar_override[_toml_key])
+                    if _toml_key in _sidecar_override:
+                        if _found_key not in found_keys:
+                            found_keys[_found_key] = str(_sidecar_override[_toml_key])
+                        _sidecar_sourced_keys.add(_found_key)
             except (ValueError, KeyError):
                 pass
 
@@ -653,6 +680,7 @@ def lint_file(
             _check_W015_va_case(result, va_str)
             _check_W016_section(result, marker, found_keys)
             _check_W017_note_rebrew(result, found_keys)
+            _check_W019_inline_sidecar_keys(result, found_keys, _sidecar_sourced_keys)
 
     result.context_prefix = ""
     _check_body_rules(result, lines, all_headers[0][1]["has_new"] if all_headers else False)
@@ -692,9 +720,19 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
         if "/Gd" not in cflags_parts:
             cflags_parts.append("/Gd")
         cflags = " ".join(cflags_parts)
+        # Write only the marker + STATUS inline; route CFLAGS and other volatile
+        # fields to the sidecar so the .c file stays clean.
         annotation = f"// {marker}: {cfg.marker} {va_str}\n// STATUS: {status}\n"
         if cflags:
-            annotation += f"// CFLAGS: {cflags}\n"
+            # Write CFLAGS to sidecar
+            try:
+                from rebrew.sidecar import set_field as _set_field
+
+                va_int = int(va_str, 16)
+                _set_field(filepath.parent, va_int, "cflags", cflags, module=cfg.marker)
+            except Exception:  # noqa: BLE001
+                # Sidecar write failure is non-fatal; fall back to inline for now
+                annotation += f"// CFLAGS: {cflags}\n"
 
         new_text = annotation + "".join(lines[1:])
         atomic_write_text(filepath, new_text, encoding="utf-8")
@@ -727,18 +765,31 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
         module = found_keys.get("MODULE", cfg.marker)
         va_str = found_keys.get("VA", "0x0")
         status = found_keys.get("STATUS", "RELOC")
-        cflags = found_keys.get("CFLAGS", "")
+        # Build a clean annotation: only marker + STATUS inline.
+        # Route CFLAGS and other sidecar fields to rebrew-functions.toml.
         annotation = f"// {marker}: {module} {va_str}\n// STATUS: {status}\n"
-        if cflags:
-            annotation += f"// CFLAGS: {cflags}\n"
-        for extra_key in ("BLOCKER", "SOURCE", "NOTE", "SKIP"):
-            if extra_key in found_keys:
-                annotation += f"// {extra_key}: {found_keys[extra_key]}\n"
+        try:
+            from rebrew.sidecar import set_field as _set_field
+
+            va_int = int(va_str, 16)
+            for _extra_key in ("CFLAGS", "BLOCKER", "SOURCE", "NOTE", "SKIP"):
+                if _extra_key in found_keys and found_keys[_extra_key]:
+                    _set_field(
+                        filepath.parent,
+                        va_int,
+                        _extra_key.lower(),
+                        found_keys[_extra_key],
+                        module=module,
+                    )
+        except Exception:  # noqa: BLE001
+            # Sidecar write failure: fall back to inline for sidecar keys
+            for extra_key in ("CFLAGS", "BLOCKER", "SOURCE", "NOTE", "SKIP"):
+                if extra_key in found_keys:
+                    annotation += f"// {extra_key}: {found_keys[extra_key]}\n"
 
         new_text = annotation + "".join(lines[header_end:])
         atomic_write_text(filepath, new_text, encoding="utf-8")
         return True
-
     # --- Try javadoc format: /** ... @address 0x... */ ---
     if first.startswith(("/**", "/*")):
         found_keys_jd: dict[str, str] = {}
@@ -855,6 +906,8 @@ W005   STUB without BLOCKER explanation
 W016   DATA/GLOBAL missing SECTION annotation
 
 W017   NOTE contains [rebrew] sync metadata
+
+W019   Inline annotation that must live in rebrew-functions.toml sidecar
 
 W010   Unknown annotation key
 
