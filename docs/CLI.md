@@ -469,6 +469,7 @@ rebrew sync --pull-data                            # Fetch data labels into rebr
 
 ### Unified Compilation
 
-All tools share a single compile path via `rebrew.compile`. The module reads
-`base_cflags` and `timeout` from config, ensuring consistent behavior across
-`rebrew test`, `rebrew verify`, and `rebrew match`.
+All tools share a single compile path via `rebrew.compile`. The module provides
+`compile_to_obj` for single-file compilation and `resolve_compiler_env(cfg)` for
+consistent compiler + cache resolution across `rebrew test`, `rebrew verify`, and
+`rebrew match`.

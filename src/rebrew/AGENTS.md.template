@@ -30,9 +30,9 @@ Use `--json` for structured output (preferred for agents).
 | `rebrew test <file> --json` | Compile and byte-compare against target |
 | `rebrew test --all --json` | Batch test all reversed functions |
 | `rebrew diff <file> --json` | Structured byte diff vs target |
-| `rebrew match <file> --json` | Run GA matching engine |
-| `rebrew ga --near-miss --threshold 5` | Batch GA on MATCHING functions with small deltas |
-| `rebrew ga --json` | Batch GA on all STUB functions |
+| `rebrew match <file> --json` | Run GA matching engine on one function |
+| `rebrew match --all --json` | Batch GA on all STUB functions |
+| `rebrew match --all --near-miss --threshold 5` | Batch GA on MATCHING functions with small deltas |
 | `rebrew rename <old> <new>` | Rename function and update cross-references |
 | `rebrew verify --json` | Bulk verify all reversed files |
 | `rebrew lint --json` | Validate annotations |
