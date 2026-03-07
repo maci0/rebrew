@@ -15,8 +15,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | Tool | What it does |
 |------|-------------|
 | `rebrew test` | Compile your C and diff it byte-by-byte against the original binary |
-| `rebrew match` | GA engine — brute-force compiler flags and mutate source to find exact byte matches |
-| `rebrew ga` | Batch GA across all STUBs; `--near-miss` for close matches; `--flag-sweep` for flag search |
+| `rebrew match` | GA engine — single file or batch (`--all`); brute-force compiler flags and mutate source to find exact byte matches |
 | `rebrew verify` | Bulk compile + report match status; `--fix-status` auto-updates annotations; `--diff` for CI regression checks |
 | `rebrew prove` | Symbolic equivalence via angr + Z3 — mathematically prove MATCHING functions are equivalent |
 
@@ -154,10 +153,10 @@ rebrew build-db                     # build SQLite coverage database from catalo
 rebrew match --diff-only src/target_name/f.c       # side-by-side disassembly diff
 rebrew match --diff-only --mm src/target_name/f.c  # show only structural diffs (**)
 rebrew match src/target_name/f.c    # run the Genetic Algorithm Engine to resolve diffs
-rebrew ga                           # batch GA runner to solve all stubs
-rebrew ga --near-miss --threshold 5 # batch GA on MATCHING functions with ≤5B delta
-rebrew ga --flag-sweep              # batch flag sweep on all MATCHING functions
-rebrew ga --flag-sweep --tier targeted --fix-cflags  # targeted sweep, auto-update CFLAGS
+rebrew match --all                          # batch GA on all STUB functions
+rebrew match --all --near-miss --threshold 5 # batch GA on MATCHING with ≤5B delta
+rebrew match --all --flag-sweep             # batch flag sweep on all MATCHING functions
+rebrew match --all --flag-sweep --fix-cflags  # targeted sweep, auto-update CFLAGS
 
 # Semantic Equivalence (requires angr: uv pip install -e ".[prove]")
 rebrew prove src/server.dll/calculate_physics.c      # prove MATCHING function equivalent
