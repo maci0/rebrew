@@ -168,35 +168,42 @@ def _score_flag_sweep(delta: int | None, size: int) -> float:
 def _score_verify_fail(delta: int | None, match_pct: float | None, size: int = 0) -> float:
     """Score a verify failure. Best ROI is moderate match% on small functions.
 
-    Very high match% (>=95%) = negligible gain, potentially stubborn structural
-    diff → LOW score. Very low match% = full rewrite needed → LOW score.
-    Sweet spot is 60-80% on small functions (meaningful gain, manageable effort).
+    ROI tiers by match%:
+    - >=95%: negligible gain (stubborn structural diff) → ~44
+    - 80-94%: decent, worth fixing → ~53-58
+    - 60-79%: sweet spot; meaningful gain, achievable → ~58-62
+    - 30-59%: significant work, moderate gain → ~47-50
+    - <30%:   effectively a full rewrite; scores BELOW start-function (< 45)
+              so these don't crowd out more productive work
 
-    Capped at 63 — below finish_stub (75) and near-misses (70-85).
+    Capped at 62. Min 36 (below add-annotations floor for large low-match items).
     """
     if match_pct is None:
-        base = 50.0
-    elif match_pct >= 95.0:
-        # Negligible gain — last 1% is often a stubborn structural diff
+        # Unknown — treat conservatively, don't crowd out start-function
         base = 46.0
+    elif match_pct >= 95.0:
+        base = 44.0  # negligible gain, last 1% often structural
     elif match_pct >= 80.0:
         base = 55.0
     elif match_pct >= 60.0:
-        # Best sweet spot: meaningful gain, achievable
-        base = 60.0
+        base = 59.0  # sweet spot
     elif match_pct >= 30.0:
-        base = 52.0
+        base = 48.0
     else:
-        # Full regression — high effort, very low ROI
-        base = 44.0
+        # Full regression territory — score BELOW start-function (~45)
+        base = 40.0
 
-    # Prefer smaller functions (faster to fix)
-    if 0 < size < 100:
-        base += 3.0
-    elif size > 500:
-        base -= 4.0
+    # Size modifiers — only meaningful for mid-range items
+    if match_pct is not None and match_pct >= 30.0:
+        if 0 < size < 100:
+            base += 3.0
+        elif size > 500:
+            base -= 5.0
+    elif match_pct is not None and match_pct < 30.0 and size > 300:
+        # Low-match, large function: even harder to fix
+        base -= 3.0
 
-    return min(63.0, max(40.0, base))
+    return min(62.0, max(36.0, base))
 
 
 def _score_start_function(difficulty: int, size: int) -> float:
