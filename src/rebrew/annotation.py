@@ -67,12 +67,20 @@ VALID_STATUSES = {"EXACT", "RELOC", "MATCHING", "MATCHING_RELOC", "STUB", "PROVE
 
 # Keys that every function block must declare.
 # CFLAGS is intentionally excluded: it falls back to the project-wide base_cflags.
-REQUIRED_KEYS = {"STATUS", "SIZE"}
+# SIZE is intentionally excluded: it lives exclusively in the rebrew-functions.toml sidecar
+# (written by rebrew skeleton / catalog --update-sizes / update_size_annotation). Any
+# remaining // SIZE: lines in existing source are read as a parse-time fallback but the
+# sidecar always wins via merge_into_annotation(); new files must NOT have // SIZE: at all.
+REQUIRED_KEYS = {"STATUS"}
 # No recommended keys — all annotation metadata is either required or optional.
 RECOMMENDED_KEYS: set[str] = set()
 OPTIONAL_KEYS = {
     # Volatile metadata (lives in rebrew-functions.toml sidecar, not in .c files)
     "CFLAGS",  # overrides project default; rare (library with different flags)
+    # SIZE lives in the sidecar. Existing files may still contain // SIZE: as a
+    # backward-compat fallback (parsed but never written by new code). Keeping it
+    # here suppresses W010 "unknown key" warnings on those legacy annotations.
+    "SIZE",
     # Other optional fields
     "ANALYSIS",
     "SOURCE",
@@ -530,78 +538,51 @@ def _module_for_va(filepath: Path, va: int) -> str:
 
 
 def update_size_annotation(filepath: Path, new_size: int, target_va: int | None = None) -> bool:
-    """Update the SIZE for a function — writes to the sidecar when a VA is given.
+    """Update the SIZE for a function — always writes to the sidecar.
 
-    When *target_va* is provided the new size is written to the ``rebrew-functions.toml``
-    sidecar in the same directory as *filepath* (only increasing, never
-    shrinking).  When *target_va* is None the legacy in-file ``// SIZE: NNN``
-    edit is performed on the first SIZE found (retained for callers that have
-    not been migrated yet).
+    Writes *new_size* to the ``rebrew-functions.toml`` sidecar in the same
+    directory as *filepath* (only increasing, never shrinking).
+
+    *target_va* is required for multi-function files; for single-function files
+    it can be omitted and will be inferred from the marker line.
 
     Returns True if any change was made, False otherwise.
 
     Args:
         filepath: Path to the .c source file (used to locate the directory).
         new_size: New SIZE value.
-        target_va: VA of the specific function to update.  Prefer passing this
-            — it routes the write to the sidecar instead of the .c file.
+        target_va: VA of the specific function to update.  Required for files
+            with multiple FUNCTION: markers; otherwise inferred automatically.
 
     """
-    # --- Sidecar path (preferred when VA is known) ---
-    if target_va is not None:
-        from rebrew.sidecar import get_entry, set_field
+    from rebrew.sidecar import get_entry, set_field
 
-        module = _module_for_va(filepath, target_va)
-        entry = get_entry(filepath.parent, target_va, module=module)
-        old_size = int(entry.get("size", 0))
-        if new_size <= old_size:
+    # Resolve VA if not provided — scan file for the first marker line
+    va = target_va
+    if va is None:
+        marker_re = re.compile(
+            r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*\S+\s+(0x[0-9a-fA-F]+)"
+        )
+        try:
+            text = filepath.read_text(encoding="utf-8", errors="replace")
+        except OSError as e:
+            warnings.warn(f"Cannot read {filepath} for size update: {e}", stacklevel=2)
             return False
-        set_field(filepath.parent, target_va, "size", new_size, module=module)
-        return True
-
-    # --- Legacy in-file path (no VA known) ---
-    try:
-        text = filepath.read_text(encoding="utf-8", errors="replace")
-    except OSError as e:
-        warnings.warn(f"Cannot read {filepath} for size update: {e}", stacklevel=2)
-        return False
-
-    lines = text.splitlines(keepends=True)
-    size_re = re.compile(r"(//\s*SIZE:\s*)(\d+)")
-    marker_re = re.compile(
-        r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*\S+\s+(0x[0-9a-fA-F]+)"
-    )
-
-    # Walk lines tracking which annotation block we're in.
-    in_target_block = target_va is None  # No filter → always match
-    match_line_idx: int | None = None
-
-    for i, line in enumerate(lines):
-        m = marker_re.search(line)
-        if m:
-            found_va = int(m.group(1), 16)
-            in_target_block = target_va is None or found_va == target_va
-
-        if in_target_block:
-            sm = size_re.search(line)
-            if sm:
-                match_line_idx = i
+        for line in text.splitlines():
+            m = marker_re.search(line)
+            if m:
+                va = int(m.group(1), 16)
                 break
 
-    if match_line_idx is None:
+    if va is None:
         return False
 
-    sm2 = size_re.search(lines[match_line_idx])
-    if sm2 is None:  # pragma: no cover — loop body guarantees a match; defensive guard
-        return False
-    old_size = int(sm2.group(2))
+    module = _module_for_va(filepath, va)
+    entry = get_entry(filepath.parent, va, module=module)
+    old_size = int(entry.get("size", 0))
     if new_size <= old_size:
         return False
-
-    line = lines[match_line_idx]
-    lines[match_line_idx] = line[: sm2.start()] + sm2.group(1) + str(new_size) + line[sm2.end() :]
-    new_text = "".join(lines)
-    atomic_write_text(filepath, new_text, encoding="utf-8")
+    set_field(filepath.parent, va, "size", new_size, module=module)
     return True
 
 

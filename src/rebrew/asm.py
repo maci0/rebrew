@@ -323,7 +323,6 @@ def generate_inline_c(
 
     lines: list[str] = []
     lines.append(f"// FUNCTION: {marker} 0x{va:08x}")
-    lines.append(f"// SIZE: {size}")
     lines.append(f"// CFLAGS: {cflags}")
     lines.append("")
     lines.append(f"void __declspec(naked) {func_name}(void)")

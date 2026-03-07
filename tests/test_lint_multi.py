@@ -26,26 +26,38 @@ int func2() { return 2; }
 
 
 def test_multi_block_linting(tmp_path: Path):
+    """Multi-block file should pass even when a block has no SIZE in source.
+
+    SIZE is sidecar-only; E007 is no longer emitted.
+    """
     f = _write_c(tmp_path, "func1.c", MULTI_BLOCK_FILE)
-
-    # It should detect missing SIZE in the second block
     res = lint_file(f)
+    # Both blocks have STATUS — no errors expected
+    assert res.passed
+    assert not any(code == "E007" for _, code, _ in res.errors)
 
+
+def test_multi_block_missing_status(tmp_path: Path):
+    """Multi-block file with a missing STATUS should still error."""
+    content = """\
+// FUNCTION: SERVER 0x10008880
+// STATUS: EXACT
+// CFLAGS: /O2 /Gd
+
+int func1() { return 1; }
+
+// FUNCTION: CLIENT 0x10009990
+// CFLAGS: /O2 /Gd
+
+int func2() { return 2; }
+"""
+    f = _write_c(tmp_path, "func1.c", content)
+    res = lint_file(f)
     assert not res.passed
-    assert len(res.errors) == 1
-
-    line, code, msg = res.errors[0]
-    assert code == "E007"
-    assert "[CLIENT 0x10009990]" in msg
-    assert "Missing // SIZE:" in msg
+    assert any(code == "E003" for _, code, _ in res.errors)
 
 
 def test_multi_block_all_valid(tmp_path: Path):
-    valid_multi = MULTI_BLOCK_FILE.replace(
-        "// CFLAGS: /O2 /Gd\n\nint func2()",
-        "// SIZE: 42\n// CFLAGS: /O2 /Gd\n\nint func2()",
-    )
-    f = _write_c(tmp_path, "func1.c", valid_multi)
-
+    f = _write_c(tmp_path, "func1.c", MULTI_BLOCK_FILE)
     res = lint_file(f)
     assert res.passed
