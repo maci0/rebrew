@@ -341,7 +341,7 @@ class TestDuplicateVADetection:
         for name in ("func_a.c", "func_b.c"):
             (tmp_path / name).write_text(STUB_HEADER, encoding="utf-8")
 
-        from rebrew.ga import find_all_stubs
+        from rebrew.match import find_all_stubs
 
         stubs = find_all_stubs(tmp_path)
         # Should only keep one
@@ -357,7 +357,7 @@ class TestDuplicateVADetection:
         (tmp_path / "func_a.c").write_text(header_a, encoding="utf-8")
         (tmp_path / "func_b.c").write_text(header_b, encoding="utf-8")
 
-        from rebrew.ga import find_all_stubs
+        from rebrew.match import find_all_stubs
 
         stubs = find_all_stubs(tmp_path)
         assert len(stubs) == 2

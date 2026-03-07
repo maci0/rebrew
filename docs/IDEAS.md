@@ -35,7 +35,7 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 
 ### ~~19. Cross-function solution transfer~~ ✅
 
-> **Status: Done.** Solution database added in `solutions.py`. GA auto-saves solution fingerprints (cflags, origin, size) on exact match to `.rebrew/solutions.json`. New GA runs auto-seed from similar solved functions. CLI: `rebrew ga --no-seed` to disable, `rebrew match --extra-seed FILE --no-seed`.
+> **Status: Done.** Solution database added in `solutions.py`. GA auto-saves solution fingerprints (cflags, origin, size) on exact match to `.rebrew/solutions.json`. New GA runs auto-seed from similar solved functions. CLI: `rebrew match --all --no-solved` to disable, `rebrew match --extra-seed FILE --no-seed`.
 
 ### 20. Test watch mode
 

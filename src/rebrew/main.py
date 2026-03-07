@@ -92,7 +92,6 @@ _COMMAND_PANELS: dict[str, str] = {
     # Matching — solving byte-level differences
     "match": "Matching",
     "diff": "Matching",
-    "ga": "Matching",
     "extract": "Matching",
     "asm": "Matching",
     "prove": "Matching",
@@ -111,9 +110,8 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("sync", "rebrew.ghidra.cli", "Sync annotations between decomp C files and Ghidra."),
     ("lint", "rebrew.lint", "Lint C annotations."),
     ("extract", "rebrew.extract", "Extract and disassemble functions from binary."),
-    ("match", "rebrew.match", "Flag sweep or GA matching engine."),
+    ("match", "rebrew.match", "GA matching engine — single file or batch (--all)."),
     ("diff", "rebrew.diff", "Compile and diff a reversed function against the target binary."),
-    ("ga", "rebrew.ga", "Batch GA runner across all STUB/MATCHING functions."),
     ("asm", "rebrew.asm", "Disassemble a function (hex dump or NASM source)."),
     ("init", "rebrew.init", "Initialize a new rebrew project."),
     ("data", "rebrew.data", "Global data scanner for .data/.rdata/.bss sections."),

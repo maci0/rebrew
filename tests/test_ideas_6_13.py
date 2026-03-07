@@ -3,7 +3,7 @@
 import struct
 
 from rebrew.data import DispatchEntry, DispatchTable, find_dispatch_tables
-from rebrew.ga import find_near_miss, parse_matching_info
+from rebrew.match import find_near_miss, parse_matching_info
 
 # ---------------------------------------------------------------------------
 # Tests for ga.py near-miss mode (#6)

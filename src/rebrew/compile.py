@@ -111,7 +111,7 @@ def resolve_compiler_env(
 
     Returns ``(cl_cmd, inc_dir, msvc_env, compile_cache)`` — the four values
     shared by every compilation-based tool.  Extracted so that ``rebrew match``
-    and ``rebrew ga`` (now a shim) don't duplicate this 20-line block.
+    and ``rebrew match`` don't duplicate this 20-line block.
 
     Args:
         cfg: ProjectConfig instance from the project root.

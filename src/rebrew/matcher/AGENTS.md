@@ -114,7 +114,7 @@ Selected uniformly at random by default. `mutate_code()` accepts optional
 
 - **`match.py`** — Single-function GA CLI. Imports `BuildCache`, `build_candidate`,
   `score_candidate`, `mutate_code`, `crossover`, `diff_functions`, `structural_similarity`.
-- **`ga.py`** — Batch GA runner. Imports `flag_sweep` from `compiler.py`.
+- **`match.py`** — Single-function and batch (`--all`) GA engine. Imports `flag_sweep` from `compiler.py`.
 
 ## Gotchas
 
