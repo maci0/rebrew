@@ -14,34 +14,29 @@ Run any tool with `--help` to see usage examples and context
 | `rebrew` | `main.py` | Unified CLI entry point for all subcommands |
 | `rebrew-rename` | `rename.py` | Rename a function and update all cross-references |
 | `rebrew-init` | `init.py` | Scaffold a new project directory and `rebrew-project.toml` |
-| `rebrew-test` | `test.py` | Quick compile-and-compare (single or multi-function files); `--json` structured output |
-| `rebrew-asm` | `asm.py` | Dump disassembly from target binary at a VA; `--json` structured output |
-| `rebrew-next` | `next.py` | Prioritize uncovered functions by difficulty; auto-filters unmatchable; `--json` for all modes |
+| `rebrew-test` | `test.py` | Compile-and-compare; auto-promotes STATUS on EXACT/RELOC; `--no-promote` to skip; `--json` output |
+| `rebrew-asm` | `asm.py` | Dump disassembly (`--format hex`) or NASM (`--format nasm`) from target binary at a VA |
+| `rebrew-diff` | `diff.py` | Side-by-side disassembly diff against target binary; `--fix-blocker` writes BLOCKER annotations |
 | `rebrew-skeleton` | `skeleton.py` | Generate annotated `.c` skeleton from VA (with `--decomp`, `--xrefs`, `--append` for multi-function files) |
 | `rebrew-catalog` | `catalog/` | Parse annotations, generate catalog + coverage JSON |
 | `rebrew-sync` | `ghidra/cli.py` | Sync annotations, structs, and signatures to/from Ghidra via ReVa MCP (`--push`, `--pull`, `--apply`, `--export`) |
 | `rebrew-lint` | `lint.py` | Lint annotation standards in decomp C files |
 | `rebrew-extract` | `extract.py` | Batch extract and disassemble functions from binary |
-| `rebrew-match` | `match.py` / `matcher/` | GA matching engine (diff with `--mm`, flag-sweep with `--tier`, `--fix-blocker`); `--diff-only --json` structured diff |
+| `rebrew-match` | `match.py` / `matcher/` | GA matching engine (flag-sweep with `--flag-sweep-only`/`--tier`, `--fix-blocker`); `--json` structured output |
 | `rebrew-ga` | `ga.py` | Batch GA runner and flag sweep for STUB and MATCHING functions |
 | `rebrew-verify` | `verify.py` | Compile all `.c` files and verify byte match against target binary; `--diff` regression detection; `--json` structured reports |
-| `rebrew-todo` | `todo.py` | Prioritized action list: what to work on next for highest ROI |
-| `rebrew-build-db` | `build_db.py` | Build SQLite `db/coverage.db` from `data_*.json` ([schema docs](DB_FORMAT.md)) |
+| `rebrew-todo` | `todo.py` | Prioritized action list: what to work on next, ROI-ranked across all signals |
 | `rebrew-cache` | `cache_cli.py` | Compile cache management (`stats`, `clear` subcommands) |
 | `rebrew-cfg` | `cfg.py` | Read and edit `rebrew-project.toml` programmatically (see [CONFIG.md](CONFIG.md)) |
-| `rebrew-nasm` | `nasm.py` | NASM assembly extraction |
 | `rebrew-split` | `split.py` | Split multi-function C files into individual files |
 | `rebrew-merge` | `merge.py` | Merge single-function C files into multi-function file |
 | `rebrew-prove` | `prove.py` | Prove semantic equivalence via angr symbolic execution (optional dep) |
 | `rebrew-flirt` | `flirt.py` | FLIRT signature scanning (see [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md)) |
 | `rebrew-crt-match` | `crt_match.py` | CRT source cross-reference matcher (index, match, ASM detection) |
-| `rebrew-status` | `status.py` | Project reversing status overview (per-target breakdowns) |
 | `rebrew-data` | `data.py` | Global data scanner for .data/.rdata/.bss; `--bss` layout verification; `--dispatch` vtable detection |
-| `rebrew-graph` | `depgraph.py` | Function dependency graph (mermaid, DOT, summary) |
-| `rebrew-promote` | `promote.py` | Test + atomically update STATUS annotation (promotes on match, demotes to STUB below 75% threshold); `--all` batch mode with `--dir`/`--origin` filters; `--json` structured output |
-| `rebrew-triage` | `triage.py` | Cold-start triage: coverage stats, FLIRT scan, near-miss list, recommendations; `--json` |
-| `rebrew-cu-map` | `cu_map.py` | Infer compilation unit boundaries from .text layout and call graph; `--json` |
+| `rebrew-graph` | `depgraph.py` | Function dependency graph (mermaid, DOT, summary); `--cu-map` infers compilation unit boundaries |
 | `rebrew-doctor` | `doctor.py` | Diagnostic checks for project health (config, compiler, binary, paths); `--install-wibo`; `--json` |
+| `rebrew-build-db` | `build_db.py` | Build SQLite `db/coverage.db` from `data_*.json` ([schema docs](DB_FORMAT.md)) |
 
 ## Tool Flags
 
@@ -100,26 +95,13 @@ Behavior:
 - Replaces `extern` cross-references across all `.c` files
 - Renames the file itself if the stem matches the old name
 
-### `rebrew next`
-
-| Flag | Description |
-|------|-------------|
-| `--stats` | Show progress statistics instead of recommendations |
-| `--improving` | List MATCHING functions sorted by byte delta |
-| `--unmatchable` | Show auto-detected unmatchable functions |
-| `--origin ORIGIN` | Filter by origin (e.g. `GAME`, `MSVCRT`) |
-| `-n N` | Number of recommendations |
-| `--commands` | Print test commands for each function |
-| `--group` | Group adjacent uncovered functions by address proximity |
-| `--group-gap N` | Max address gap for grouping (default 0x1000) |
-| `--json` | JSON output for all modes |
-
 ### `rebrew todo`
 
 | Flag | Description |
 |------|-------------|
-| `-n N` / `--count N` | Number of recommendations to include (default 20) |
-| `-c CAT` / `--category CAT` | Filter by category (e.g. `start-function`, `flag-sweep`, `compile-error`) |
+| `-n N` / `--count N` | Number of items to show (default 20) |
+| `-c CAT` / `--category CAT` | Filter by category (e.g. `start-function`, `fix-verify-fail`) |
+| `-s` / `--stats` | Show coverage stats in the panel title |
 | `--json` | Output results as JSON |
 
 ### `rebrew skeleton`
@@ -205,6 +187,7 @@ Output prefixes for unambiguous parsing:
 | Flag | Description |
 |------|-------------|
 | `-f FORMAT` / `--format FORMAT` | Output format: `mermaid` (default), `dot`, `summary` |
+| `--cu-map` | Infer compilation unit boundaries (clusters by .text contiguity + call graph) |
 | `--origin ORIGIN` | Filter to specific origin |
 | `--focus NAME` | Neighbourhood of a specific function |
 | `--depth N` | Depth for focus mode |
@@ -222,23 +205,6 @@ Output prefixes for unambiguous parsing:
 | `--files FILE...` | Check specific files instead of full scan |
 
 See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–E017, W001–W017).
-
-### `rebrew promote`
-
-| Flag | Description |
-|------|-------------|
-| `--all` | Batch promote all promotable functions (discovers via `iter_sources`) |
-| `--dir DIR` | With `--all`, restrict batch to a subdirectory |
-| `--origin ORIGIN` | With `--all`, filter by origin (GAME, MSVCRT, ZLIB) |
-| `--json` | Output results as JSON |
-| `--dry-run` | Preview changes without writing |
-
-### `rebrew triage`
-
-| Flag | Description |
-|------|-------------|
-| `-n N` | Number of recommendations to include (default 10) |
-| `--json` | Output as JSON |
 
 ### `rebrew catalog`
 
@@ -279,12 +245,6 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 | `--endpoint URL` | ReVa MCP endpoint URL |
 | `--json` | Output results as JSON |
 
-### `rebrew status`
-
-| Flag | Description |
-|------|-------------|
-| `--json` | Machine-readable JSON output |
-
 ### `rebrew flirt`
 
 | Flag | Description |
@@ -313,24 +273,6 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 | `COMMAND` | `list`, `extract`, or `batch N` (positional argument) |
 | `--min-size N` | Minimum function size to extract (default 8) |
 | `--max-size N` | Maximum function size to extract (default 50000) |
-| `--json` | Output results as JSON |
-
-### `rebrew nasm`
-
-| Flag | Description |
-|------|-------------|
-| `--va HEX` | Virtual address (hex) |
-| `--size N` | Function size in bytes |
-| `--bin FILE` | Raw `.bin` file input |
-| `--label NAME` | Label name for the function |
-| `-o FILE` / `--output FILE` | Output `.asm` file (default: stdout) |
-| `--verify` | Assemble output and verify byte-identical round-trip |
-| `--stats` | Print stats only (no ASM output) |
-| `--all` | Batch mode: extract all functions from `reversed_dir` |
-| `--batch-stubs` | Batch mode: extract only STUB functions |
-| `--out-dir DIR` | Output directory for batch mode |
-| `--base-va HEX` | Base VA for `.bin` files (default: 0) |
-| `--inline-c` | Output C file with inline assembly instead of NASM |
 | `--json` | Output results as JSON |
 
 ### `rebrew split`
@@ -380,19 +322,6 @@ Merge multiple single-function `.c` files into one multi-function file. Preamble
 | `--delete` | Delete input files after successful merge |
 | `--json` | Structured JSON output |
 
-### `rebrew cu-map`
-
-`rebrew cu-map [--json] [--target NAME]`
-
-Infer compilation unit (translation unit) boundaries from the .text section layout
-and call graph. MSVC6 linker places functions from the same `.obj` contiguously
-with only padding between them — this tool exploits that to cluster functions.
-
-| Flag | Description |
-|------|-------------|
-| `--json` | Output results as JSON |
-| `--target NAME` | Select a target from `rebrew-project.toml` |
-
 ### `rebrew build-db`
 
 | Flag | Description |
@@ -413,7 +342,8 @@ with only padding between them — this tool exploits that to cluster functions.
 
 ```bash
 # Disassembly
-rebrew asm 0x100011f0 --size 64                   # Disassemble 64 bytes at VA
+rebrew asm 0x100011f0 --size 64                   # Hex dump 64 bytes at VA
+rebrew asm 0x100011f0 --format nasm               # NASM disassembly at VA
 rebrew asm 0x100011f0 --target server.dll         # Use alternate target
 
 # Skeleton generation
@@ -423,21 +353,21 @@ rebrew skeleton 0x10003da0 --decomp --decomp-backend r2dec   # Radare2 r2dec
 rebrew skeleton 0x10003da0 --xrefs                # With caller context from Ghidra
 rebrew skeleton 0x10003da0 --append getenv.c      # Append to multi-function file
 
-# Testing
+# Testing (auto-promotes STATUS on EXACT/RELOC)
 rebrew test src/target_name/my_func.c --json      # JSON test result
+rebrew test src/target_name/my_func.c --no-promote # compile without updating STATUS
 
-# Prioritization
-rebrew next --stats                                # Show progress statistics
-rebrew next --stats --json                         # JSON progress stats
-rebrew next --improving                            # MATCHING functions by byte delta
-rebrew next --unmatchable                          # Show unmatchable functions
-rebrew next --origin GAME -n 20                    # Top 20 GAME functions
+# Prioritization & action queue
+rebrew todo                                        # Top 20 ROI-ranked actions
+rebrew todo -c start-function                      # Only uncovered functions to start
+rebrew todo -c fix-verify-fail -n 50               # All verify failures
+rebrew todo --stats --json                         # Coverage stats + full JSON report
 
-# Matching & GA
-rebrew match --diff-only src/target_name/f.c       # Side-by-side diff
-rebrew match --diff-only --mm src/target_name/f.c  # Only structural diffs
-rebrew match --diff-only --fix-blocker src/target_name/f.c  # Auto-write BLOCKER annotations
-rebrew match --diff-only --json src/target_name/f.c # JSON diff
+# Diff & investigation
+rebrew diff src/target_name/f.c                    # Side-by-side diff
+rebrew diff --mm src/target_name/f.c               # Only structural diffs
+rebrew diff --fix-blocker src/target_name/f.c      # Auto-write BLOCKER annotations
+rebrew diff --json src/target_name/f.c             # JSON diff
 rebrew ga                                          # Batch GA on all STUBs
 rebrew ga --near-miss --threshold 5                # GA on MATCHING with <=5B delta
 rebrew ga --dry-run                                # List candidates only
@@ -465,20 +395,6 @@ rebrew graph                                       # Mermaid call graph
 rebrew graph --format dot --origin GAME            # DOT graph, GAME only
 rebrew graph --focus FuncName --depth 2            # Neighbourhood of a function
 
-# Promote & triage
-rebrew promote src/target_name/my_func.c           # Test + update STATUS
-rebrew promote --all                               # Batch promote all promotable
-rebrew promote --all --origin GAME --dry-run       # Preview batch by origin
-rebrew promote src/target_name/my_func.c --json    # JSON output for agents
-rebrew triage                                      # Cold-start triage summary
-rebrew triage --json -n 20                         # JSON report, top 20
-
-# NASM extraction
-rebrew nasm --va 0x10003ca0 --size 77              # Extract single function
-rebrew nasm --va 0x10003ca0 --size 77 --verify     # With round-trip verification
-rebrew nasm --batch --out-dir output/nasm/         # Batch extract all matched
-
-# Splitting & Merging
 rebrew split src/target_name/multi.c               # split all functions into individual files
 rebrew split src/target_name/multi.c --dry-run      # preview split
 rebrew split --va 0x10003DA0 src/target_name/multi.c  # extract one function into multi_c/
@@ -497,10 +413,10 @@ rebrew flirt                                       # Scan with default sigs
 rebrew flirt sigs/ --min-size 32                   # Custom dir, skip tiny funcs
 rebrew flirt --json                                # JSON output
 
-# Compilation unit inference
-rebrew cu-map                                      # Rich table of inferred TU clusters
-rebrew cu-map --json                               # JSON output for scripting
-rebrew cu-map --json | jq '.clusters | length'     # count clusters
+# Compilation unit inference (via graph --cu-map)
+rebrew graph --cu-map                              # Rich table of inferred TU clusters
+rebrew graph --cu-map --json                       # JSON output for scripting
+rebrew graph --cu-map --json | jq '.clusters | length'  # count clusters
 
 # CRT source matching
 rebrew crt-match 0x10006c00                     # match a single VA against CRT source
