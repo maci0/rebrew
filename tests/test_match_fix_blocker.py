@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Any
 
-from rebrew.annotation import parse_c_file, update_annotation_key
+from rebrew.annotation import parse_c_file_multi, update_annotation_key
 from rebrew.match import classify_blockers
 
 # ---------------------------------------------------------------------------
@@ -85,7 +85,6 @@ class TestClassifyBlockers:
 _SOURCE_TEMPLATE = """\
 // FUNCTION: TARGET 0x{va:08x}
 // STATUS: MATCHING
-// SYMBOL: _test_func
 // SIZE: 10
 
 int test_func(void) {{
@@ -108,8 +107,9 @@ class TestFixBlockerAnnotationWrite:
         update_annotation_key(src, va, "BLOCKER", blocker_text)
         update_annotation_key(src, va, "BLOCKER_DELTA", "3")
 
-        anno = parse_c_file(src)
-        assert anno is not None
+        anns = parse_c_file_multi(src, sidecar_dir=src.parent)
+        assert anns
+        anno = anns[0]
         assert anno.blocker == blocker_text
         assert anno.blocker_delta == 3
 
@@ -121,17 +121,17 @@ class TestFixBlockerAnnotationWrite:
         update_annotation_key(src, va, "BLOCKER", "register allocation")
         update_annotation_key(src, va, "BLOCKER_DELTA", "5")
 
-        anno = parse_c_file(src)
-        assert anno is not None
-        assert anno.blocker == "register allocation"
+        anns = parse_c_file_multi(src, sidecar_dir=src.parent)
+        assert anns
+        assert anns[0].blocker == "register allocation"
 
         remove_annotation_key(src, va, "BLOCKER")
         remove_annotation_key(src, va, "BLOCKER_DELTA")
 
-        anno2 = parse_c_file(src)
-        assert anno2 is not None
-        assert not anno2.blocker
-        assert anno2.blocker_delta is None
+        anns2 = parse_c_file_multi(src, sidecar_dir=src.parent)
+        assert anns2
+        assert not anns2[0].blocker
+        assert anns2[0].blocker_delta is None
 
     def test_overwrites_existing_blocker(self, tmp_path: Path) -> None:
         src = _make_source(tmp_path)
@@ -141,9 +141,9 @@ class TestFixBlockerAnnotationWrite:
             src, va, "BLOCKER", "register allocation, loop rotation / branch layout"
         )
 
-        anno = parse_c_file(src)
-        assert anno is not None
-        assert anno.blocker == "register allocation, loop rotation / branch layout"
+        anns = parse_c_file_multi(src, sidecar_dir=src.parent)
+        assert anns
+        assert anns[0].blocker == "register allocation, loop rotation / branch layout"
 
     def test_delta_calculation(self) -> None:
         target = b"\x55\x8b\xec\x33\xc0\xc3"

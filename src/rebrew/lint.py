@@ -21,7 +21,6 @@ from rebrew.annotation import (
     BLOCK_FUNC_CAPTURE_RE,
     BLOCK_FUNC_RE,
     BLOCK_KV_RE,
-    DEFAULT_ORIGINS,
     JAVADOC_ADDR_RE,
     JAVADOC_KV_RE,
     NEW_FUNC_RE,
@@ -29,7 +28,7 @@ from rebrew.annotation import (
     OLD_RE,
     VALID_MARKERS,
     VALID_STATUSES,
-    marker_for_origin,
+    marker_for_module,
     normalize_status,
 )
 from rebrew.cli import TargetOption, error_exit, get_config, json_print
@@ -48,7 +47,7 @@ class LintResult:
     """Accumulated lint errors and warnings for a single source file.
 
     Why a custom linter? Standard C linters don't understand our `// STATUS:` and
-    `// ORIGIN:` annotations. We need strict validation of these metadata fields
+    other rebrew annotations. We need strict validation of these metadata fields
     to ensure the CI pipeline and other tools (like `rebrew test`) can parse them.
     """
 
@@ -246,10 +245,8 @@ def _parse_header(lines: list[str]) -> tuple[dict[str, str], dict[str, bool]]:
                 found_keys["VA"] = val
             elif key in (
                 "STATUS",
-                "ORIGIN",
                 "SIZE",
                 "CFLAGS",
-                "SYMBOL",
                 "SOURCE",
                 "BLOCKER",
                 "NOTE",
@@ -297,9 +294,9 @@ def _check_format_warnings(
             "Javadoc-style annotation format detected (@address — run with --fix to migrate)",
         )
         if "MARKER" not in found_keys:
-            origin = found_keys.get("ORIGIN", "GAME")
+            module = found_keys.get("MODULE", "")
             status = found_keys.get("STATUS", "RELOC")
-            found_keys["MARKER"] = marker_for_origin(origin, status)
+            found_keys["MARKER"] = marker_for_module(module, status)
         flags["has_new"] = True
 
     if has_old and not flags["has_new"]:
@@ -365,17 +362,6 @@ def _check_E003_E004_status(result: LintResult, found_keys: dict[str, str]) -> N
             result.error(result.marker_line, "E004", f"Invalid STATUS: {found_keys['STATUS']}")
 
 
-def _check_E005_E006_origin(
-    result: LintResult, found_keys: dict[str, str], cfg: ProjectConfig | None = None
-) -> None:
-    if "ORIGIN" not in found_keys:
-        result.error(result.marker_line, "E005", "Missing // ORIGIN: annotation")
-    else:
-        valid = set(cfg.origins) if cfg and cfg.origins else DEFAULT_ORIGINS
-        if valid and found_keys["ORIGIN"] not in valid:
-            result.error(result.marker_line, "E006", f"Invalid ORIGIN: {found_keys['ORIGIN']}")
-
-
 def _check_E007_E008_size(result: LintResult, found_keys: dict[str, str]) -> None:
     if "SIZE" not in found_keys:
         result.error(result.marker_line, "E007", "Missing // SIZE: annotation")
@@ -409,15 +395,15 @@ def _check_W010_unknown_keys(result: LintResult, found_keys: dict[str, str]) -> 
 
 
 def _check_E015_marker_consistency(
-    result: LintResult, marker: str, origin: str, status: str, cfg: ProjectConfig | None = None
+    result: LintResult, marker: str, module: str, status: str, cfg: ProjectConfig | None = None
 ) -> None:
-    lib_origins = cfg.library_origins if cfg and cfg.library_origins is not None else None
-    expected_marker = marker_for_origin(origin, status, lib_origins)
+    lib_modules = cfg.library_modules if cfg and cfg.library_modules is not None else set()
+    expected_marker = marker_for_module(module, status, lib_modules)
     if marker != expected_marker and marker in VALID_MARKERS and marker not in ("GLOBAL", "DATA"):
         result.error(
             result.marker_line,
             "E015",
-            f"Marker {marker} inconsistent with ORIGIN {origin} (expected {expected_marker})",
+            f"Marker {marker} inconsistent with module {module!r} (expected {expected_marker})",
         )
 
 
@@ -435,25 +421,25 @@ def _check_W001_symbol(result: LintResult, found_keys: dict[str, str]) -> None:
 
 
 def _check_W005_blocker(result: LintResult, status: str, found_keys: dict[str, str]) -> None:
+    # BLOCKER lives in rebrew-functions.toml sidecar; the sidecar overlay already injects it
+    # into found_keys before this check runs, so this fires only when absent from both.
     if status == "STUB" and "BLOCKER" not in found_keys:
         result.warning(
             result.marker_line,
             "W005",
-            "STUB function missing // BLOCKER: annotation (explain why it doesn't match)",
+            "STUB function missing 'blocker' explanation (set via rebrew match --fix-blocker or add to rebrew-functions.toml)",
         )
 
 
 def _check_W006_source(
-    result: LintResult, origin: str, found_keys: dict[str, str], cfg: ProjectConfig | None = None
+    result: LintResult, module: str, found_keys: dict[str, str], cfg: ProjectConfig | None = None
 ) -> None:
-    lib_origins = (
-        cfg.library_origins if cfg and cfg.library_origins is not None else {"MSVCRT", "ZLIB"}
-    )
-    if origin in lib_origins and "SOURCE" not in found_keys:
+    lib_modules = cfg.library_modules if cfg and cfg.library_modules is not None else set()
+    if module in lib_modules and "SOURCE" not in found_keys:
         result.warning(
             result.marker_line,
             "W006",
-            f"{origin} function missing // SOURCE: annotation "
+            f"Library module {module!r} missing // SOURCE: annotation "
             "(reference file, e.g. SBHEAP.C:195 or deflate.c)",
         )
 
@@ -470,14 +456,11 @@ def _check_W015_va_case(result: LintResult, va_str: str) -> None:
 
 
 def _check_config_rules(
-    result: LintResult, found_keys: dict[str, str], cfg: ProjectConfig | None, origin: str
+    result: LintResult, found_keys: dict[str, str], cfg: ProjectConfig | None
 ) -> None:
-    """Config-aware checks (W008, E012)."""
+    """Config-aware checks (E012)."""
     if cfg is None:
         return
-
-    # Note: W011 (origin not in configured origins) removed — E006 already checks
-    # cfg.origins when available, so W011 would be a duplicate diagnostic.
 
     module = found_keys.get("MODULE", "")
     marker = getattr(cfg, "marker", None)
@@ -487,24 +470,6 @@ def _check_config_rules(
             "E012",
             f"Module '{module}' doesn't match configured marker '{marker}'",
         )
-
-    if "CFLAGS" in found_keys:
-        expected_cflags = None
-        origin_compiler = getattr(cfg, "origin_compiler", None)
-        if origin_compiler and origin in origin_compiler and "cflags" in origin_compiler[origin]:
-            expected_cflags = origin_compiler[origin]["cflags"]
-        cflags_presets = getattr(cfg, "cflags_presets", None)
-        if expected_cflags is None and cflags_presets and origin in cflags_presets:
-            expected_cflags = cflags_presets[origin]
-
-        if expected_cflags is not None:
-            actual_cflags = found_keys["CFLAGS"]
-            if actual_cflags != expected_cflags:
-                result.warning(
-                    result.marker_line,
-                    "W008",
-                    f"CFLAGS '{actual_cflags}' differ from {origin} preset '{expected_cflags}'",
-                )
 
 
 def _check_W016_section(result: LintResult, marker: str, found_keys: dict[str, str]) -> None:
@@ -593,11 +558,54 @@ def lint_file(
         found_keys, flags = _parse_header(lines)
         all_headers = [(found_keys, flags)]
 
+    # Load the per-directory sidecar once so all annotation blocks in this file can use it.
+    # Keys in the result: (module, va_int) -> {toml_field: value}
+    from rebrew.sidecar import load_sidecar as _load_sidecar
+
+    _sidecar_entries = _load_sidecar(filepath.parent)
+
+    # Also load the data sidecar for DATA/GLOBAL annotations.
+    from rebrew.data_sidecar import load_data_sidecar as _load_data_sidecar
+
+    _data_sidecar_entries = _load_data_sidecar(filepath.parent)
+
+    # TOML field name -> uppercase found_keys name mapping
+    _SIDECAR_TO_FOUND: dict[str, str] = {
+        "status": "STATUS",
+        "size": "SIZE",
+        "cflags": "CFLAGS",
+        "blocker": "BLOCKER",
+        "blocker_delta": "BLOCKER_DELTA",
+        "ghidra": "GHIDRA",
+        "analysis": "ANALYSIS",
+        "note": "NOTE",
+        "skip": "SKIP",
+        "globals": "GLOBALS",
+        "section": "SECTION",
+        "source": "SOURCE",
+    }
+
     for i, (found_keys, flags) in enumerate(all_headers):
         result.marker_line = int(found_keys.get("_LINE", "1"))
 
         mod = found_keys.get("MODULE", "")
         va_str = found_keys.get("VA", "")
+
+        # Overlay sidecar fields into found_keys for this annotation block.
+        # Sidecar always wins for the fields it owns (STATUS, SIZE, CFLAGS, etc.),
+        # but we only overlay if the key is not already present inline — this lets
+        # any remaining inline annotation (from files not yet fully migrated) take
+        # precedence so the check accurately reflects what the compiler will see.
+        if mod and va_str:
+            try:
+                _va_int = int(va_str, 16)
+                _sidecar_override = _sidecar_entries.get((mod, _va_int), {})
+                for _toml_key, _found_key in _SIDECAR_TO_FOUND.items():
+                    if _toml_key in _sidecar_override and _found_key not in found_keys:
+                        found_keys[_found_key] = str(_sidecar_override[_toml_key])
+            except (ValueError, KeyError):
+                pass
+
         ctx = f"[{mod} {va_str}] " if mod and va_str else ""
 
         if len(all_headers) > 1:
@@ -622,19 +630,26 @@ def lint_file(
 
             if marker not in ("GLOBAL", "DATA"):
                 _check_E003_E004_status(result, found_keys)
-                _check_E005_E006_origin(result, found_keys, cfg)
                 _check_W018_cflags(result, found_keys, cfg)
-            _check_E007_E008_size(result, found_keys)
+                _check_E007_E008_size(result, found_keys)
+            else:
+                # For DATA/GLOBAL: overlay data sidecar fields (size, section, note)
+                if va_int is not None and mod:
+                    _ds_override = _data_sidecar_entries.get((mod, va_int), {})
+                    _DS_TO_FOUND = {"size": "SIZE", "section": "SECTION", "note": "NOTE"}
+                    for _ds_key, _ds_found_key in _DS_TO_FOUND.items():
+                        if _ds_key in _ds_override and _ds_found_key not in found_keys:
+                            found_keys[_ds_found_key] = str(_ds_override[_ds_key])
 
-            origin = found_keys.get("ORIGIN", "GAME")
+            module = found_keys.get("MODULE", "")
             status = found_keys.get("STATUS", "")
 
-            _check_E015_marker_consistency(result, marker, origin, status, cfg)
+            _check_E015_marker_consistency(result, marker, module, status, cfg)
             _check_W005_blocker(result, status, found_keys)
-            _check_W006_source(result, origin, found_keys, cfg)
+            _check_W006_source(result, module, found_keys, cfg)
             _check_W010_unknown_keys(result, found_keys)
             _check_E017_contradictory(result, status, marker)
-            _check_config_rules(result, found_keys, cfg, origin)
+            _check_config_rules(result, found_keys, cfg)
 
             _check_W015_va_case(result, va_str)
             _check_W016_section(result, marker, found_keys)
@@ -668,30 +683,22 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
     # --- Try old single-line format ---
     m = OLD_RE.match(first)
     if m:
-        name = m.group("name")
         va_str = m.group("va").lower()
         if not va_str.startswith("0x"):
             va_str = "0x" + va_str
         size = m.group("size")
         raw_cflags = m.group("cflags").strip()
         status = normalize_status(m.group("status"))
-        origin = m.group("origin").strip().upper()
-        marker = marker_for_origin(origin, status)
+        marker = "STUB" if status == "STUB" else "FUNCTION"
         cflags_parts = raw_cflags.split()
-        lib_origins = cfg.library_origins if cfg.library_origins is not None else {"MSVCRT", "ZLIB"}
-        if "/Gd" not in cflags_parts and origin not in lib_origins:
+        if "/Gd" not in cflags_parts:
             cflags_parts.append("/Gd")
         cflags = " ".join(cflags_parts)
-        symbol = "_" + name
+        annotation = f"// {marker}: {cfg.marker} {va_str}\n// STATUS: {status}\n"
+        annotation += f"// SIZE: {size}\n"
+        if cflags:
+            annotation += f"// CFLAGS: {cflags}\n"
 
-        annotation = (
-            f"// {marker}: {cfg.marker} {va_str}\n"
-            f"// STATUS: {status}\n"
-            f"// ORIGIN: {origin}\n"
-            f"// SIZE: {size}\n"
-            f"// CFLAGS: {cflags}\n"
-            f"// SYMBOL: {symbol}\n"
-        )
         new_text = annotation + "".join(lines[1:])
         atomic_write_text(filepath, new_text, encoding="utf-8")
         return True
@@ -723,20 +730,12 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
         module = found_keys.get("MODULE", cfg.marker)
         va_str = found_keys.get("VA", "0x0")
         status = found_keys.get("STATUS", "RELOC")
-        origin = found_keys.get("ORIGIN", "GAME")
         size = found_keys.get("SIZE", "0")
         cflags = found_keys.get("CFLAGS", "")
-        symbol = found_keys.get("SYMBOL", "")
-
-        annotation = (
-            f"// {marker}: {module} {va_str}\n"
-            f"// STATUS: {status}\n"
-            f"// ORIGIN: {origin}\n"
-            f"// SIZE: {size}\n"
-            f"// CFLAGS: {cflags}\n"
-        )
-        if symbol:
-            annotation += f"// SYMBOL: {symbol}\n"
+        annotation = f"// {marker}: {module} {va_str}\n// STATUS: {status}\n"
+        annotation += f"// SIZE: {size}\n"
+        if cflags:
+            annotation += f"// CFLAGS: {cflags}\n"
         for extra_key in ("BLOCKER", "SOURCE", "NOTE", "SKIP"):
             if extra_key in found_keys:
                 annotation += f"// {extra_key}: {found_keys[extra_key]}\n"
@@ -772,22 +771,15 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
             # Resolve VA from ADDRESS if present
             if "ADDRESS" in found_keys_jd:
                 va_str = found_keys_jd["ADDRESS"].lower()
-            origin = found_keys_jd.get("ORIGIN", "GAME").upper()
             status = found_keys_jd.get("STATUS", "RELOC").upper()
-            marker = marker_for_origin(origin, status)
+            module = found_keys_jd.get("MODULE", cfg.marker)
+            marker = marker_for_module(module, status)
             size = found_keys_jd.get("SIZE", "0")
             cflags = found_keys_jd.get("CFLAGS", "")
-            symbol = found_keys_jd.get("SYMBOL", "")
-
-            annotation = (
-                f"// {marker}: {cfg.marker} {va_str}\n"
-                f"// STATUS: {status}\n"
-                f"// ORIGIN: {origin}\n"
-                f"// SIZE: {size}\n"
-                f"// CFLAGS: {cflags}\n"
-            )
-            if symbol:
-                annotation += f"// SYMBOL: {symbol}\n"
+            annotation = f"// {marker}: {cfg.marker} {va_str}\n// STATUS: {status}\n"
+            annotation += f"// SIZE: {size}\n"
+            if cflags:
+                annotation += f"// CFLAGS: {cflags}\n"
 
             new_text = annotation + "".join(lines[header_end:])
             atomic_write_text(filepath, new_text, encoding="utf-8")
@@ -797,11 +789,10 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
 
 
 def _print_summary(results: list[LintResult]) -> None:
-    """Print a breakdown table by status and origin."""
+    """Print a breakdown table by status and marker type."""
     from collections import Counter
 
     status_counts: Counter[str] = Counter()
-    origin_counts: Counter[str] = Counter()
     marker_counts: Counter[str] = Counter()
 
     for r in results:
@@ -818,8 +809,6 @@ def _print_summary(results: list[LintResult]) -> None:
                 val = m.group("value").strip()
                 if key == "STATUS":
                     status_counts[val] += 1
-                elif key == "ORIGIN":
-                    origin_counts[val] += 1
             elif NEW_FUNC_RE.match(stripped):
                 m2 = _MARKER_TYPE_RE.match(stripped)
                 if m2:
@@ -833,8 +822,6 @@ def _print_summary(results: list[LintResult]) -> None:
 
     for status, count in sorted(status_counts.items(), key=lambda x: -x[1]):
         table.add_row("STATUS", status, str(count))
-    for origin, count in sorted(origin_counts.items(), key=lambda x: -x[1]):
-        table.add_row("ORIGIN", origin, str(count))
     for marker, count in sorted(marker_counts.items(), key=lambda x: -x[1]):
         table.add_row("MARKER", marker, str(count))
 

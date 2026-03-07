@@ -16,7 +16,7 @@ that contains the actual binaries, source files, and toolchains.
 uv pip install -e .
 uv sync --all-extras            # with dev deps
 
-# Run ALL tests (~1744 tests)
+# Run ALL tests (~1809 tests)
 uv run pytest tests/ -v
 
 # Run a SINGLE test file
@@ -141,6 +141,7 @@ src/rebrew/
 ├── utils.py             # Shared utilities (Wine stderr filtering, path helpers)
 ├── wibo.py              # Auto-download + verify wibo (lightweight Wine alternative)
 ├── compile_cache.py     # Disk-backed compile result cache (diskcache, SHA-256 keyed)
+├── sidecar.py           # Per-directory rebrew-functions.toml sidecar loader/writer (volatile metadata)
 ├── crt_match.py         # CRT source cross-reference matcher (index, match, ASM detection)
 ├── cache_cli.py         # `rebrew cache stats` / `rebrew cache clear` CLI
 ├── prove.py             # Symbolic equivalence prover via angr (optional dep)
@@ -206,7 +207,7 @@ if __name__ == "__main__":
 - `TargetOption` + `get_config()` from `rebrew.cli` — never build config manually.
 - `main_entry()` registered in `pyproject.toml` `[project.scripts]`.
 - Most tools support `--json` for machine-readable output. Always use `--json` when executing these CLI tools yourself to receive structured output.
-- The multi-command modules are `cfg.py` (subcommands: `list-targets`, `show`, `add-target`, `remove-target`, `set`, `add-origin`, `remove-origin`, `set-cflags`) and `cache_cli.py` (subcommands: `stats`, `clear`), both registered via `add_typer()` in `main.py`.
+- The multi-command modules are `cfg.py` (subcommands: `list-targets`, `show`, `add-target`, `remove-target`, `set`, `set-cflags`) and `cache_cli.py` (subcommands: `stats`, `clear`), both registered via `add_typer()` in `main.py`.
 
 ### CLI Conventions
 
@@ -237,3 +238,4 @@ All CLI tools follow these conventions for a consistent user experience:
 - **Source glob**: Use `source_glob(cfg)` — respects `cfg.source_ext` (`.c`, `.cpp`)
 - **No wheel reinvention**: If an imported library provides the functionality, use it
 - **No backward compat**: One canonical name per function — no aliases, no shims, no legacy wrappers
+- **Sidecar for volatile metadata**: Volatile fields (STATUS, CFLAGS, BLOCKER, NOTE, GHIDRA) live in `rebrew-functions.toml` per-directory sidecar, managed via `rebrew.sidecar`. **Never manually edit `rebrew-functions.toml`**

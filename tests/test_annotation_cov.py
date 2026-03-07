@@ -8,13 +8,11 @@ def test_update_annotation_key_multiple_funcs(tmp_path: Path):
     cfile.write_text(
         """// FUNCTION: GAME 0x1000
 // STATUS: EXACT
-// SYMBOL: func_1000
 // CFLAGS: /O2
 // SIZE: 10
 void func_1000() {}
 
 // FUNCTION: GAME 0x2000
-// SYMBOL: func_2000
 // SIZE: 10
 void func_2000() {}
 """,

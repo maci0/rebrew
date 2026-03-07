@@ -34,7 +34,6 @@ def _make_cfg(tmp_path: Path) -> ProjectConfig:
         base_cflags="/nologo /c /MT",
         compiler_includes=tmp_path / "include",
         compiler_libs=tmp_path / "lib",
-        origin_compiler={"GAME": {"cflags": "/O2 /Gd"}},
     )
 
 
@@ -185,7 +184,6 @@ class TestIncrementalVerify:
                 name="func_a",
                 filepath="func_a.c",
                 size=16,
-                origin="GAME",
                 cflags="",
                 symbol="",
                 marker_type="FUNCTION",
@@ -196,7 +194,6 @@ class TestIncrementalVerify:
                 name="func_b",
                 filepath="func_b.c",
                 size=16,
-                origin="GAME",
                 cflags="",
                 symbol="",
                 marker_type="FUNCTION",
@@ -278,7 +275,6 @@ class TestIncrementalVerify:
                 name="func_a",
                 filepath="func_a.c",
                 size=16,
-                origin="GAME",
                 cflags="",
                 symbol="",
                 status="MATCHING",

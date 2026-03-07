@@ -1,34 +1,116 @@
-# Match Types Reference
+# Function Status Reference
 
-When you compile your C source and compare against the target function bytes from the DLL,
-the test harness classifies the result into one of these categories.
+All function statuses are stored in the `rebrew-functions.toml` sidecar, keyed by hex VA.
+The `.c` file contains only the stable `// FUNCTION: MODULE 0xVA` marker line.
 
-## EXACT
-
-Byte-for-byte identical. Every single byte in your compiled .obj matches the target bytes
-extracted from the DLL. This is the gold standard.
+## Status Overview
 
 ```
-Target:  53 8b 5c 24 08 56 57 8b 43 10 50 e8 f0 83 00 00
-Output:  53 8b 5c 24 08 56 57 8b 43 10 50 e8 f0 83 00 00
-         == == == == == == == == == == == == == == == ==
+UNDOCUMENTED  →  STUB  →  MATCHING  →  RELOC  →  EXACT
+                                  ↘             ↗
+                               MATCHING_RELOC
+                                  ↓
+                               PROVEN (from MATCHING or MATCHING_RELOC via rebrew prove)
+                               SKIP   (parallel track — intentionally unmatchable)
 ```
 
-This is rare in practice because `call` and `jmp` instructions encode relative offsets
-that depend on where the function is placed in the final binary. You get EXACT when
-the function has no calls to other functions and no references to global variables, or
-when comparing at the .obj level with the same linker layout.
+| Status | Byte match | Set by | Counts in coverage |
+|--------|-----------|--------|-------------------|
+| `UNDOCUMENTED` | — | Automatic (no .c file) | ❌ No |
+| `STUB` | <75% | `rebrew promote` (demotion) | ❌ No |
+| `MATCHING` | ≥75% | `rebrew promote` | ⚠️ Partial |
+| `MATCHING_RELOC` | Near-reloc | `rebrew promote` | ⚠️ Partial |
+| `RELOC` | 100% (masked) | `rebrew promote` | ✅ Yes |
+| `EXACT` | 100% (raw) | `rebrew promote` | ✅ Yes |
+| `PROVEN` | Semantic | `rebrew prove` | ✅ Yes |
+| `SKIP` | N/A | Manual (sidecar) | ✅ Yes (excluded) |
+
+---
+
+## UNDOCUMENTED
+
+Function exists in `function_structure.json` but no `.c` file has been created yet.
+This is the implicit starting state — rebrew tracks it from the function list, not the
+sidecar. Tools like `rebrew next` and `rebrew todo` surface these as action items.
+
+```bash
+rebrew next --json          # find next UNDOCUMENTED function to start
+rebrew skeleton 0x10008880  # generate .c skeleton → transitions to STUB
+```
+
+No sidecar entry exists yet. Coverage dashboard shows these as "untouched".
+
+---
+
+## STUB
+
+A `.c` file exists but the implementation is a placeholder — either empty, contains
+`TODO`, or compiles to something radically different from the target (< 75% byte match,
+or wrong size).
+
+Also assigned automatically by `rebrew promote` when a previously-matching function
+regresses below the 75% match threshold (demotion).
+
+```toml
+["SERVER.0x10008880"]
+status = "STUB"
+size = 163
+blocker = "needs complete rewrite from scratch, 199B target vs 163B compiled"
+```
+
+Common causes: LLM-generated skeleton that doesn't match, missing CRT internals,
+wrong calling convention, completely wrong algorithm structure.
+
+---
+
+## MATCHING
+
+The compiled output is ≥ 75% byte-similar to the target but has structural differences
+that persist after relocation masking — different register allocation, different loop
+structure, different branch ordering.
+
+`rebrew match --fix-blocker` auto-classifies the difference type and writes it to the sidecar:
+
+```toml
+["SERVER.0x10008880"]
+status = "MATCHING"
+size = 130
+blocker = "register allocation (esi/edi swap)"
+blocker_delta = 7
+```
+
+Common blockers: register allocation, loop peeling, branch inversion, code block
+reordering, stack frame choice.
+
+**Next steps**: Iterate code structure, or run `rebrew match` (GA engine) to explore
+permutations. For near-miss cases (small delta), try `rebrew ga --near-miss`.
+
+---
+
+## MATCHING_RELOC
+
+Like MATCHING but the structural differences are very small (typically 1–5 bytes) and
+the remainder matches after relocation masking. An intermediate milestone worth tracking
+separately — these are prime candidates for the GA engine.
+
+```toml
+["SERVER.0x10008880"]
+status = "MATCHING_RELOC"
+size = 128
+blocker = "operand swap in one instruction, 2B delta"
+blocker_delta = 2
+```
+
+**Next steps**: Strong candidate for `rebrew match` or `rebrew prove`.
+
+---
 
 ## RELOC
 
-Identical after masking relocatable bytes. The function's logic, register allocation,
-and control flow are all correct. The only differences are in bytes that the linker
-patches at link time:
-
-- `call rel32` (`E8 xx xx xx xx`) — the 4-byte displacement after a call opcode
-- `jmp rel32` (`E9 xx xx xx xx`) — long jump displacements
-- `mov eax, [abs32]` (`A1 xx xx xx xx`) — absolute address loads
-- `cmp [abs32], imm` (`83 3D xx xx xx xx yy`) — comparisons against globals
+Identical after masking relocatable bytes (`call rel32`, `jmp rel32`, `mov eax,[abs32]`,
+etc.). The function's logic, register allocation, and control flow are all correct.
+Only call targets and global addresses differ, which is expected — the linker patches
+these at link time.
 
 ```
 Target:  50 e8 f0 83 00 00 8b f8 83 c4 04 a1 80 58 03 10
@@ -36,69 +118,92 @@ Output:  50 e8 00 00 00 00 8b f8 83 c4 04 a1 00 00 00 00
          == ~~ ~~ ~~ ~~ ~~ == == == == == ~~ ~~ ~~ ~~ ~~
 ```
 
-The `~~` bytes are relocation-only differences — the linker would fill these in with the
-correct addresses. A RELOC match means your source code is functionally correct and
-produces the same machine code structure. **This is the typical best result** for
-functions that reference globals or call other functions.
+This is the **typical best result** for functions that call other functions or reference
+globals. Counts as complete in the project coverage metrics.
 
-## MATCHING
-
-The compiled output is close but not identical even after relocation masking. There are
-structural byte differences (`**` in diff output) — meaning the compiler generated
-slightly different instructions. Common causes:
-
-| Cause | Example | Fix |
-|-------|---------|-----|
-| Wrong comparison operator | `< 2` generates `cmp 2; setl` vs `<= 1` generates `cmp 1; setle` | Try the equivalent expression |
-| Register allocation swap | Counter in EAX vs ECX | Change variable declaration order, types, or usage |
-| Loop structure | Peeled first iteration, inverted exit condition | Try `for` vs `do-while` vs `while` |
-| Code block ordering | `return 1` placed before vs after `return 0` | Restructure if/else/goto |
-| Addressing mode | `[eax + ecx*4]` vs `[ecx]` with separate `add ecx, 4` | Change how you express pointer arithmetic |
-| Extra indirection | `mov reg, [global]; call [reg+off]` vs `call [off+global]` | Use array declaration instead of pointer-to-pointer |
-
-A MATCHING file should include a `BLOCKER` annotation describing the specific difference:
-```c
-// STATUS: MATCHING
-// BLOCKER: register allocation (esi/edi swap) + loop peeling, 123B vs 130B
+```toml
+["SERVER.0x10008880"]
+status = "RELOC"
+size = 42
 ```
 
-## MATCHING_RELOC
+---
 
-Like MATCHING but even closer — the only structural differences are small (1-5 bytes)
-and the rest matches after relocation masking. Worth iterating on.
+## EXACT
 
-## STUB
+Byte-for-byte identical. Every single byte in the compiled `.obj` matches the target
+bytes extracted from the DLL.
 
-Placeholder or far-off implementation. The compiled output is significantly different
-from the target — wrong size, wrong structure, or still contains TODO placeholders.
-A STUB should always have a `BLOCKER` annotation:
-
-```c
-// STATUS: STUB
-// BLOCKER: needs complete rewrite, 199B vs 163B
 ```
+Target:  53 8b 5c 24 08 56 57 8b 43 10 50 e8 f0 83 00 00
+Output:  53 8b 5c 24 08 56 57 8b 43 10 50 e8 f0 83 00 00
+         == == == == == == == == == == == == == == == ==
+```
+
+Rare in practice for functions with external calls (since call offsets are
+linker-dependent). Common for leaf functions with no calls or global refs.
+
+```toml
+["SERVER.0x10008880"]
+status = "EXACT"
+size = 31
+```
+
+---
 
 ## PROVEN
 
-Semantically equivalent, mathematically verified via `rebrew prove`. The compiled output
-produces different bytes (different register allocation, instruction reordering, loop
-unrolling), but angr's symbolic execution engine and Z3 constraint solver have proven
-that for ALL possible inputs, the return value (`EAX`) is identical.
+Semantically equivalent — mathematically verified by `rebrew prove` via angr
+symbolic execution + Z3 constraint solving. The compiled bytes differ structurally
+(different register allocation, instruction reordering, loop unrolling), but for **all
+possible inputs**, the return value and observable side-effects are identical.
 
-```c
-// STATUS: PROVEN
+Used when a function is stuck on MATCHING due to compiler jitter that can't be
+resolved by flag sweeps or code restructuring.
+
+```toml
+["SERVER.0x10008880"]
+status = "PROVEN"
+size = 142
 ```
 
-A `PROVEN` status holds the same weight as `EXACT` or `RELOC` in project completion
-metrics. It represents the strongest guarantee possible for functions where the compiler
-stubbornly refuses to generate byte-identical code.
-
-To prove a MATCHING function:
 ```bash
-rebrew prove src/target_name/my_func.c
+rebrew prove src/target/calculate_physics.c   # runs angr + Z3, ~15-60s
 ```
 
+Counts as complete. Holds the same weight as EXACT or RELOC in coverage metrics.
 See [ANGR_PROPOSAL.md](ANGR_PROPOSAL.md) for the full technical design.
+
+---
+
+## SKIP
+
+Intentionally excluded from matching. Used for functions that are known to be
+unmatchable or irrelevant to the decompilation effort:
+
+| Reason | Examples |
+|--------|---------|
+| IAT thunks | `jmp [__imp_GetProcAddress]` — compiler-generated, no source |
+| SEH helpers | `__except_handler3`, `__local_unwind2` — MSVC runtime internals |
+| ASM builtins | `_memcpy_rep`, `_strlen_sse2` — hand-written assembly |
+| Import stubs | Trampolines to DLL imports with no game logic |
+| Padding / alignment | Dead bytes between functions, never executed |
+| Linker-generated | `__security_cookie_check`, `__SEH_prolog` |
+
+```toml
+["SERVER.0x10001234"]
+status = "SKIP"
+skip_reason = "IAT thunk — jmp [__imp_CreateFileA]"
+```
+
+SKIP functions are excluded from the "unmatched" count in coverage metrics — they
+are treated as intentionally resolved, not as open work items.
+
+```bash
+rebrew triage --json    # auto-identifies likely SKIP candidates
+```
+
+---
 
 ## How rebrew test Classifies Results
 
@@ -107,22 +212,27 @@ flowchart TD
     A[Compile C to .obj] --> B[Extract obj bytes]
     B --> C[Extract target bytes from DLL]
     C --> D{target == output?}
-    D -- Yes --> E[EXACT MATCH]
-    D -- No --> F[Mask relocation bytes<br/>call/jmp/mov offsets]
-    F --> G{masked target ==<br/>masked output?}
-    G -- Yes --> H[RELOC-NORMALIZED MATCH]
-    G -- No --> I[MISMATCH]
+    D -- Yes --> E[EXACT]
+    D -- No --> F[Mask relocation bytes]
+    F --> G{masked target == masked output?}
+    G -- Yes --> H[RELOC]
+    G -- No --> I[Compute similarity score]
+    I --> J{score >= 75%?}
+    J -- "Yes, small delta" --> K[MATCHING_RELOC]
+    J -- "Yes, larger delta" --> L[MATCHING]
+    J -- No --> M[STUB demotion]
 ```
 
 ```text
-1. Compile your .c file to a .obj with MSVC6 under Wine
-2. Extract the symbol's bytes from the .obj (COFF parser)
-3. Extract the target bytes from the DLL at the given VA
+1. Compile .c file to .obj with MSVC6 under Wine
+2. Extract symbol bytes from .obj (COFF parser)
+3. Extract target bytes from DLL at the given VA
 4. Compare:
-   a. If target_bytes == output_bytes → EXACT MATCH
-   b. Else, mask relocation bytes in both (zero out call/jmp/mov displacements)
-      If masked_target == masked_output → RELOC-NORMALIZED MATCH
-   c. Else → MISMATCH (shows byte count and hex dump)
+   a. target_bytes == output_bytes               → EXACT
+   b. masked_target == masked_output             → RELOC
+   c. similarity >= 75%, delta <= threshold      → MATCHING_RELOC
+   d. similarity >= 75%, delta > threshold       → MATCHING
+   e. similarity < 75% or wrong size             → STUB (demotion)
 ```
 
 ## Relocation Masking Details

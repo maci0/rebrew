@@ -242,7 +242,6 @@ class TestGenerateSkeletonWithDecomp:
             decomp_code="void crt_init() {}",
             decomp_backend="r2dec",
         )
-        assert "CRT function" in result
         assert "/* === Decompilation (r2dec) === */" in result
         assert "void crt_init() {}" in result
 

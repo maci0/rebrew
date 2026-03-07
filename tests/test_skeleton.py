@@ -1,13 +1,11 @@
 """Tests for rebrew.skeleton — utility functions for skeleton generation."""
 
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 from rebrew.catalog.models import FunctionEntry
 from rebrew.config import ProjectConfig
 from rebrew.naming import (
-    detect_origin,
     find_neighbor_file,
     load_existing_vas,
     make_filename,
@@ -52,61 +50,30 @@ class TestSanitizeName:
 
 
 # -------------------------------------------------------------------------
-# detect_origin
-# -------------------------------------------------------------------------
-
-
-class TestDetectOrigin:
-    def setup_method(self) -> None:
-        self.cfg = ProjectConfig(
-            root=Path("/tmp"),
-            zlib_vas=[0x10020000],
-            game_range_end=0x1000B460,
-            default_origin="",
-            origins=["GAME", "MSVCRT", "ZLIB"],
-        )
-
-    def test_game(self) -> None:
-        assert detect_origin(0x10001000, "my_func", self.cfg) == "GAME"
-
-    def test_msvcrt_high_addr(self) -> None:
-        assert detect_origin(0x1000C000, "my_func", self.cfg) == "MSVCRT"
-
-    def test_zlib(self) -> None:
-        assert detect_origin(0x10020000, "inflate", self.cfg) == "ZLIB"
-
-    def test_crt_prefix(self) -> None:
-        assert detect_origin(0x10001000, "__security_cookie", self.cfg) == "MSVCRT"
-
-    def test_crt_prefix_2(self) -> None:
-        assert detect_origin(0x10001000, "_crt_init", self.cfg) == "MSVCRT"
-
-
-# -------------------------------------------------------------------------
 # make_filename
 # -------------------------------------------------------------------------
 
 
 class TestMakeFilename:
     def test_fun_prefix(self) -> None:
-        assert make_filename(0x10001000, "FUN_10001000", "GAME") == "func_10001000.c"
+        assert make_filename(0x10001000, "FUN_10001000") == "func_10001000.c"
 
     def test_custom_name(self) -> None:
-        result = make_filename(0x10001000, "whatever", "GAME", "my_func")
+        result = make_filename(0x10001000, "whatever", "my_func")
         assert result.endswith(".c")
         assert "my_func" in result
 
     def test_no_origin_prefix(self) -> None:
-        assert make_filename(0x10001000, "ParsePacket", "GAME") == "ParsePacket.c"
+        assert make_filename(0x10001000, "ParsePacket") == "ParsePacket.c"
 
     def test_no_origin_prefix_msvcrt(self) -> None:
-        assert make_filename(0x10001000, "memset", "MSVCRT") == "memset.c"
+        assert make_filename(0x10001000, "memset") == "memset.c"
 
     def test_name_with_prefix_unchanged(self) -> None:
-        assert make_filename(0x10001000, "game_something", "GAME") == "game_something.c"
+        assert make_filename(0x10001000, "game_something") == "game_something.c"
 
     def test_func_no_prefix(self) -> None:
-        assert make_filename(0x10001000, "FUN_10001000", "GAME") == "func_10001000.c"
+        assert make_filename(0x10001000, "FUN_10001000") == "func_10001000.c"
 
 
 # -------------------------------------------------------------------------
@@ -169,11 +136,7 @@ class TestListUncovered:
     def setup_method(self) -> None:
         self.cfg = ProjectConfig(
             root=Path("/tmp"),
-            zlib_vas=[],
-            game_range_end=0x1000B460,
             ignored_symbols=[],
-            default_origin="",
-            origins=["GAME", "MSVCRT", "ZLIB"],
         )
 
     def test_filters_existing(self) -> None:
@@ -183,8 +146,8 @@ class TestListUncovered:
         ]
         existing = {0x10001000: "func_a.c"}
         result = list_uncovered(ghidra, existing, self.cfg)
-        assert all(va != 0x10001000 for va, _, _, _ in result)
-        assert any(va == 0x10002000 for va, _, _, _ in result)
+        assert all(va != 0x10001000 for va, _, _ in result)
+        assert any(va == 0x10002000 for va, _, _ in result)
 
     def test_size_filter(self) -> None:
         ghidra = [
@@ -193,7 +156,7 @@ class TestListUncovered:
             FunctionEntry(va=0x10003000, tool_name="normal", size=64),
         ]
         result = list_uncovered(ghidra, {}, self.cfg, min_size=10, max_size=1000)
-        vas = [va for va, _, _, _ in result]
+        vas = [va for va, _, _ in result]
         assert 0x10001000 not in vas
         assert 0x10002000 not in vas
         assert 0x10003000 in vas
@@ -204,47 +167,36 @@ class TestListUncovered:
 # -------------------------------------------------------------------------
 
 
-class TestGenerateSkeletonOrigins:
-    def _make_cfg(self, **overrides: Any) -> SimpleNamespace:
-        defaults = dict(
+class TestGenerateSkeletonModules:
+    """Verify generate_skeleton and generate_annotation_block use library_modules."""
+
+    def _make_cfg(self, **overrides: Any) -> ProjectConfig:
+        defaults: dict[str, Any] = dict(
             marker="SERVER",
-            cflags_presets={"GAME": "/O2 /Gd", "DIRECTX": "/O2"},
-            library_origins={"DIRECTX"},
-            origin_comments={},
-            origin_todos={},
+            library_modules={"DIRECTX"},
         )
         defaults.update(overrides)
         return ProjectConfig(root=Path("/tmp"), **defaults)
 
-    def test_custom_library_origin_uses_library_marker(self) -> None:
+    def test_library_module_uses_library_marker(self) -> None:
         cfg = self._make_cfg()
         content = generate_skeleton(cfg, 0x10001000, 64, "dx_init", "DIRECTX")
         assert content.startswith("// LIBRARY: SERVER")
 
-    def test_primary_origin_uses_function_marker(self) -> None:
+    def test_non_library_module_uses_function_marker(self) -> None:
         cfg = self._make_cfg()
-        content = generate_skeleton(cfg, 0x10001000, 64, "game_func", "GAME")
+        content = generate_skeleton(cfg, 0x10001000, 64, "game_func", "SERVER")
         assert content.startswith("// FUNCTION: SERVER")
 
-    def test_annotation_block_custom_library_origin(self) -> None:
+    def test_annotation_block_library_module(self) -> None:
         cfg = self._make_cfg()
         block = generate_annotation_block(cfg, 0x10001000, 64, "dx_init", "DIRECTX")
         assert block.startswith("// LIBRARY: SERVER")
 
-    def test_config_origin_comment_used(self) -> None:
-        cfg = self._make_cfg(origin_comments={"GAME": "Custom comment here"})
-        content = generate_skeleton(cfg, 0x10001000, 64, "my_func", "GAME")
-        assert "Custom comment here" in content
-
-    def test_config_origin_todo_used(self) -> None:
-        cfg = self._make_cfg(origin_todos={"GAME": "Custom TODO text"})
-        content = generate_skeleton(cfg, 0x10001000, 64, "my_func", "GAME")
-        assert "Custom TODO text" in content
-
-    def test_default_comment_when_no_config(self) -> None:
-        cfg = self._make_cfg(origin_comments={})
-        content = generate_skeleton(cfg, 0x10001000, 64, "my_func", "GAME")
-        assert "Add extern declarations" in content
+    def test_default_comment_in_skeleton(self) -> None:
+        cfg = self._make_cfg()
+        content = generate_skeleton(cfg, 0x10001000, 64, "my_func", "SERVER")
+        assert "TODO: Implement" in content
 
 
 # -------------------------------------------------------------------------

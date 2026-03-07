@@ -186,7 +186,7 @@ def generate_data_json(
             "vaStart": f"0x{va:08x}",
             "size": canonical_size,
             "status": e["status"],
-            "origin": e["origin"],
+            "module": e["module"],
             "markerType": e["marker_type"],
             "cflags": e["cflags"],
             "symbol": e["symbol"],

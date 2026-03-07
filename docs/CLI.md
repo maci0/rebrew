@@ -133,7 +133,7 @@ Behavior:
 | `--endpoint URL` | ReVa MCP endpoint URL (for `--xrefs` and `--decomp-backend ghidra`) |
 | `--append FILE` | Append to existing multi-function file |
 | `--name NAME` | Override function name |
-| `--origin TYPE` | Force origin type (GAME, MSVCRT, ZLIB) |
+| `--origin TYPE` | Force compiler profile/origin type (GAME, MSVCRT, ZLIB) from config |
 | `-o FILE` / `--output FILE` | Output file path |
 | `--force` | Overwrite existing files |
 | `--list` | List uncovered functions (no file generation) |
@@ -146,7 +146,7 @@ Behavior:
 
 | Flag | Description |
 |------|-------------|
-| `--fix-status` | Auto-update `// STATUS:` and `// BLOCKER:` annotations based on compile results |
+| `--fix-status` | Auto-update `STATUS` in `rebrew-functions.toml` sidecar based on compile results |
 | `--diff` | Compare against last saved `db/verify_results.json`, detect regressions/improvements; exit code 1 on regression |
 | `--summary` | Show EXACT/RELOC/MATCHING summary table with match percentages |
 | `--json` | Structured JSON report to stdout |
@@ -177,7 +177,7 @@ Output prefixes for unambiguous parsing:
 | `--threshold N` | Max byte delta for `--near-miss` mode (default 10) |
 | `--flag-sweep` | Batch flag sweep on all MATCHING functions (no GA mutations) |
 | `--tier TIER` | Flag sweep tier: `quick` (~192), `targeted` (~1.1K), `normal` (~21K), `thorough` (~1M), `full` (~8.3M) |
-| `--fix-cflags` | Auto-update `// CFLAGS:` annotation when flag sweep finds exact match |
+| `--fix-cflags` | Auto-update `CFLAGS` in `rebrew-functions.toml` sidecar when flag sweep finds exact match |
 | `--dry-run` | List candidates without running GA/sweep |
 | `--seed-from-solved` / `--no-seed` | Seed GA population from similar solved functions (default: on) |
 | `--json` | Output results as JSON |
@@ -250,7 +250,7 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 | `--csv` | Generate reccmp-compatible CSV |
 | `--export-ghidra` | Cache Ghidra function list |
 | `--export-ghidra-labels` | Generate `ghidra_data_labels.json` from detected tables |
-| `--fix-sizes` | Update `// SIZE:` annotations to match canonical sizes |
+| `--fix-sizes` | Update `SIZE` entries in `rebrew-functions.toml` sidecar to match canonical sizes |
 | `--root DIR` | Project root directory (auto-detected if omitted) |
 
 ### `rebrew sync`

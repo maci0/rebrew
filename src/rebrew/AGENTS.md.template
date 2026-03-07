@@ -34,9 +34,9 @@ Use `--json` for structured output (preferred for agents).
 | `rebrew skeleton 0x<VA>` | Generate C skeleton from address |
 | `rebrew test <file> --json` | Compile and byte-compare against target |
 | `rebrew match --diff-only <file> --json` | Structured byte diff |
-| `rebrew match --flag-sweep-only <file>` | Find best compiler flags for a single function |
+| `rebrew match --flag-sweep-only <file>` | Per-function flag sweep (focused iteration on one function) |
 | `rebrew match <file> --json` | Run GA matching engine |
-| `rebrew ga --flag-sweep --json` | Batch flag sweep on all MATCHING functions |
+| `rebrew ga --flag-sweep --json` | Batch flag sweep across all MATCHING functions |
 | `rebrew ga --near-miss --threshold 5` | Batch GA on MATCHING functions with small deltas |
 | `rebrew promote <file> --json` | Test + atomically update STATUS |
 | `rebrew rename <old> <new>` | Rename function and update cross-references |
@@ -54,13 +54,12 @@ Use `--json` for structured output (preferred for agents).
 
 ## Annotation Format
 
-Every reversed `.c` file starts with:
+Every reversed `.c` file starts with a **stable identity header** — only the
+information that is intrinsic to the function and never changes:
 
 ```c
 // FUNCTION: {target_name} 0x<virtual_address>
-// STATUS: STUB
-// ORIGIN: GAME
-// SIZE: <bytes>
+// SYMBOL: _function_name                 ← optional, derived from C definition
 
 void __cdecl function_name(void)
 {{
@@ -68,11 +67,27 @@ void __cdecl function_name(void)
 }}
 ```
 
-The function name and symbol are derived automatically from the C function definition.
-`CFLAGS` is optional — falls back to the target default from `rebrew-project.toml`.
+Volatile metadata (status, size, compiler flags, notes, blockers) is stored
+**outside** the `.c` file in a per-directory `rebrew-functions.toml` sidecar file:
 
-**STATUS**: `EXACT` (byte-perfect) > `RELOC` (match after masking relocations)
-> `MATCHING` (close) > `STUB` (incomplete)
+```toml
+[0x10001234]
+status = "STUB"
+size   = 42
+cflags = "/O2 /Gd"
+blocker = "register allocation"
+note   = "inline asm detected"
+```
+
+> [!CAUTION]
+> **Never manually edit `rebrew-functions.toml`.** It is managed exclusively by Rebrew
+> CLI tools (`rebrew promote`, `rebrew test`, `rebrew match`, etc.).  Manual
+> edits will be lost or corrupt the file and break tool workflows.
+
+**STATUS values**: `EXACT` (byte-perfect) > `RELOC` (match after masking
+relocations) > `MATCHING` (close) > `STUB` (incomplete)
+
+`CFLAGS` is optional — falls back to the target default from `rebrew-project.toml`.
 
 ## Compiler Constraints ({compiler_profile})
 

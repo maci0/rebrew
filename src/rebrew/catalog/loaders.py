@@ -158,12 +158,21 @@ def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> l
 
     Supports multi-function files: a single source file may contain multiple
     ``// FUNCTION:`` blocks, each generating a separate entry.
+
+    Merges data from each directory's ``rebrew-functions.toml`` sidecar so that volatile
+    metadata (STATUS, CFLAGS, SIZE, BLOCKER, etc.) stored outside the .c file
+    is visible to catalog tools.
     """
     from rebrew.cli import iter_library_headers, iter_sources, target_marker
 
     entries: list[Annotation] = []
     for cfile in iter_sources(reversed_dir, cfg):
-        parsed = parse_c_file_multi(cfile, target_name=target_marker(cfg), base_dir=reversed_dir)
+        parsed = parse_c_file_multi(
+            cfile,
+            target_name=target_marker(cfg),
+            base_dir=reversed_dir,
+            sidecar_dir=cfile.parent,
+        )
         entries.extend(parsed)
 
     # Scan library_*.h files for LIBRARY markers (CRT/zlib identifications)

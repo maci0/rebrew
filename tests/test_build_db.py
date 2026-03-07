@@ -165,7 +165,6 @@ class TestBuildDbRoundTrip:
         assert row["vaStart"] == "0x10001000"
         assert row["size"] == 64
         assert row["status"] == "EXACT"
-        assert row["origin"] == "GAME"
         assert row["is_export"] == 1
         assert row["sha256"] == "abcd1234"
 
@@ -199,7 +198,7 @@ class TestBuildDbRoundTrip:
         conn.close()
 
     def test_globals_columns(self, project_root: Path) -> None:
-        """Globals have origin and size columns."""
+        """Globals have size columns."""
         build_db(project_root)
         conn = sqlite3.connect(project_root / "db" / "coverage.db")
         conn.row_factory = sqlite3.Row
@@ -211,12 +210,10 @@ class TestBuildDbRoundTrip:
 
         counter_row = rows[0]
         assert counter_row["name"] == "g_counter"
-        assert counter_row["origin"] == "GAME"
         assert counter_row["size"] == 4
 
         buffer_row = rows[1]
         assert buffer_row["name"] == "g_buffer"
-        assert buffer_row["origin"] == "GAME"
         assert buffer_row["size"] == 256
         conn.close()
 

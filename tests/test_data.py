@@ -30,7 +30,6 @@ ANNOTATED_GLOBAL = """\
 // ORIGIN: GAME
 // SIZE: 242
 // CFLAGS: /O2 /Gd
-// SYMBOL: _func_10011790
 
 // GLOBAL: SERVER 0x100a8c30
 extern int DAT_100a8c30;
@@ -50,7 +49,6 @@ EXTERN_DATA_ONLY = """\
 // ORIGIN: GAME
 // SIZE: 31
 // CFLAGS: /O2 /Gd
-// SYMBOL: _foo
 
 extern unsigned short DAT_100358a0;
 extern char s_message_buffer[];
@@ -64,7 +62,6 @@ EXTERN_WITH_FUNCTIONS = """\
 // ORIGIN: GAME
 // SIZE: 31
 // CFLAGS: /O2 /Gd
-// SYMBOL: _bar
 
 extern int __cdecl ResolveEntityById(void **, void **, void **, int);
 extern void __cdecl LogMessage(char *, int);
@@ -80,7 +77,6 @@ TYPE_CONFLICT_A = """\
 // ORIGIN: GAME
 // SIZE: 10
 // CFLAGS: /O2 /Gd
-// SYMBOL: _a
 
 extern int g_shared;
 
@@ -93,7 +89,6 @@ TYPE_CONFLICT_B = """\
 // ORIGIN: GAME
 // SIZE: 10
 // CFLAGS: /O2 /Gd
-// SYMBOL: _b
 
 extern char *g_shared;
 
@@ -106,7 +101,6 @@ DOUBLE_POINTER_GLOBAL = """\
 // ORIGIN: GAME
 // SIZE: 10
 // CFLAGS: /O2 /Gd
-// SYMBOL: _ptrs
 
 extern char **g_double_ptr;
 
@@ -119,7 +113,6 @@ BSS_LARGE_ENTRY = """\
 // ORIGIN: GAME
 // SIZE: 10
 // CFLAGS: /O2 /Gd
-// SYMBOL: _bss_large
 
 // GLOBAL: SERVER 0x20000000
 extern char g_bss_blob[200];
@@ -294,15 +287,28 @@ class TestBssFix:
         assert fix_file.exists()
 
         content = fix_file.read_text(encoding="utf-8")
+        # Marker lines stay in the .c file
         assert "// DATA: GAME 0x00001010" in content
-        assert "// STATUS: EXACT" in content
-        assert "// ORIGIN: GAME" in content
-        assert "// SECTION: .bss" in content
         assert "char gap_00001010[16];" in content
-        assert "// NOTE: gap between g_var1 and g_var2" in content
-
         assert "// DATA: GAME 0x00001030" in content
         assert "char gap_00001030[32];" in content
+        # SIZE/SECTION/NOTE are NOT in the .c file — they live in rebrew-data.toml
+        assert "// STATUS:" not in content
+        assert "// SIZE:" not in content
+        assert "// SECTION:" not in content
+        assert "// NOTE:" not in content
+
+        # Verify metadata was written to rebrew-data.toml sidecar
+        from rebrew.data_sidecar import get_data_entry
+
+        entry_1 = get_data_entry(tmp_path, 0x1010, "GAME")
+        assert entry_1["size"] == 16
+        assert entry_1["section"] == ".bss"
+        assert "g_var1" in entry_1["note"] and "g_var2" in entry_1["note"]
+
+        entry_2 = get_data_entry(tmp_path, 0x1030, "GAME")
+        assert entry_2["size"] == 32
+        assert entry_2["section"] == ".bss"
 
 
 def test_verify_bss_layout_clamps_coverage(tmp_path: Path) -> None:

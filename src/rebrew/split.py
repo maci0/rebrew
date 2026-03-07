@@ -89,8 +89,8 @@ def _block_metadata(block: str) -> _BlockMeta | None:
                 c_func_name = m4.group("name")
         break
 
-    # Prefer C function definition name, fall back to legacy // SYMBOL: annotation
-    symbol = c_func_name or kv.get("SYMBOL", "")
+    # Symbol is derived from C function definition name
+    symbol = c_func_name
 
     return _BlockMeta(
         module=marker_match.group("module"),

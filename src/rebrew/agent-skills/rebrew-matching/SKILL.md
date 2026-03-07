@@ -35,7 +35,7 @@ Use `--register-aware` to see if remaining `**` diffs are actually just unfixabl
 
 ### Auto-Classified Blockers
 
-`rebrew match --diff-only` auto-classifies systemic compiler differences from `**` / `RR` lines (e.g. "register allocation", "loop rotation / branch layout", "stack frame choice"). Use `--fix-blocker` to auto-write these as `// BLOCKER:` and `// BLOCKER_DELTA:` annotations:
+`rebrew match --diff-only` auto-classifies systemic compiler differences from `**` / `RR` lines (e.g. "register allocation", "loop rotation / branch layout", "stack frame choice"). Use `--fix-blocker` to auto-write these as `blocker` / `blocker_delta` fields in the `rebrew-functions.toml` sidecar:
 
 ```bash
 rebrew match --diff-only --fix-blocker src/<target>/<file>.c       # auto-write BLOCKER annotations
@@ -113,11 +113,12 @@ Use this to quickly rule out flag-based solutions before spending time on sweeps
 ## 6. Blocker Tracking
 
 When a function is MATCHING but not byte-perfect, track the blocker in annotations.
-Use `--fix-blocker` to auto-generate these from diff classification, or write manually:
+Use `--fix-blocker` to auto-generate these from diff classification. They live in the `rebrew-functions.toml` sidecar (never inline in `.c`):
 
-```c
-// BLOCKER: register allocation, jump condition swap
-// BLOCKER_DELTA: 3
+```toml
+["SERVER.0x<VA>"]
+blocker = "register allocation, jump condition swap"
+blocker_delta = 3
 ```
 
 Used by `rebrew next --improving` to sort by proximity to a match.
@@ -148,8 +149,8 @@ Functions without a known delta are processed last.
 | `thorough` | ~1M | Deep search |
 | `full` | ~8.3M | Exhaustive |
 
-With `--fix-cflags`, the `// CFLAGS:` annotation is automatically updated when
-the sweep finds an exact match (score < 0.1).
+With `--fix-cflags`, the `CFLAGS` field is automatically updated in the `rebrew-functions.toml`
+sidecar (not the `.c` file) when the sweep finds an exact match (score < 0.1).
 
 ## Tips
 

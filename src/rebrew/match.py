@@ -539,7 +539,6 @@ class _BuildParams:
     target_bytes: bytes
     va_int: int
     target_size: int
-    origin: str
     msvc_env: dict[str, str] | None
     cc: Any  # CompileCache | None
 
@@ -597,8 +596,7 @@ def _resolve_build_params(
                 )
 
     meta = parse_source_metadata(seed_c)
-    origin = meta.get("ORIGIN", "")
-    compile_cfg = cfg.for_origin(origin)
+    compile_cfg = cfg
     msvc_env = msvc_env_from_config(compile_cfg)
     if cl is None or (compile_cfg.compiler_runner and cl == compile_cfg.compiler_command):
         cl = " ".join(resolve_cl_command(compile_cfg))
@@ -620,8 +618,6 @@ def _resolve_build_params(
 
     if not symbol and anno:
         symbol = anno.symbol
-    if not symbol:
-        symbol = meta.get("SYMBOL")
     if not symbol:
         error_exit(
             "--symbol required (could not derive from C function definition)", json_mode=json_output
@@ -669,7 +665,6 @@ def _resolve_build_params(
         target_bytes=target_bytes,
         va_int=va_int,
         target_size=target_size,
-        origin=origin,
         msvc_env=msvc_env,
         cc=cc,
     )
@@ -974,7 +969,6 @@ def _run_ga(
             entry = SolutionEntry(
                 symbol=p.symbol,
                 cflags=p.cflags,
-                origin=p.origin,
                 size=p.target_size or 0,
                 source_file=p.seed_c,
                 score=best_score,

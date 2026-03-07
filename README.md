@@ -114,7 +114,7 @@ cd /path/to/your-decomp-project    # must contain rebrew-project.toml
 # Project Setup
 rebrew init --target mygame --binary mygame.exe --compiler msvc6 # initialize project
 rebrew cfg list-targets              # list configured targets
-rebrew cfg add-origin ZLIB           # add origin to default target
+rebrew cfg set-cflags ZLIB "/O3"        # set cflags for origin
 rebrew cfg set compiler.cflags "/O1" # set a config value
 rebrew cfg get targets.main.arch     # read a value (supports dotted target names)
 rebrew cfg dump                      # dump config as JSON

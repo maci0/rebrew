@@ -16,21 +16,40 @@ rebrew data --summary --json            # section-level summary (sizes, counts)
 rebrew data --conflicts --json          # type conflicts: same VA, different types across files
 rebrew data --dispatch --json           # detect dispatch tables / vtables in .data/.rdata
 rebrew data --bss --json                # verify .bss layout, detect gaps from missing externs
-rebrew data --fix-bss                   # auto-generate bss_padding.c with dummy arrays
+rebrew data --fix-bss                   # auto-generate bss_padding.c + write SIZE/SECTION/NOTE to sidecar
 ```
 
 ## DATA Annotations
 
-Standalone global data objects use `// DATA:` annotations:
+DATA metadata lives in a **`rebrew-data.toml` sidecar** found via walk-up from the  file's directory (a single file at the source root serves all subdirectories).
+Only the stable marker line stays in the `.c` file:
 
+**`.c` file:**
 ```c
 // DATA: SERVER 0x10025000
-// SIZE: 256
-// SECTION: .rdata
-// ORIGIN: GAME
-// NOTE: lookup table for sprite indices
+
 const unsigned char g_sprite_lut[256] = { ... };
 ```
+
+**`rebrew-data.toml`** (auto-managed — never edit manually):
+```toml
+["SERVER.0x10025000"]
+name    = "g_sprite_lut"      # preferred label (BinSync/Ghidra import target)
+size    = 256
+section = ".rdata"
+note    = "lookup table for sprite indices"
+```
+
+| Field | Purpose |
+|-------|---------|
+| `name` | Preferred variable label — overrides C stem; populated by `rebrew sync --pull` from Ghidra |
+| `size` | Size in bytes |
+| `section` | PE section (`.data`, `.rdata`, `.bss`) |
+| `note` | Description; populated by `rebrew sync --pull` from Ghidra comments |
+
+> [!CAUTION]
+> **Never manually edit `rebrew-data.toml`.** It is managed automatically by `rebrew data`,
+> `rebrew data --fix-bss`, and `rebrew sync --pull`.
 
 ## GLOBAL Annotations
 
@@ -38,7 +57,7 @@ When a function references a global address from disassembly:
 
 1. Declare the global in a source file or centralized header.
 2. Annotate with `// GLOBAL: MODULE 0x<VA>` for tracking.
-3. The `MODULE` value (e.g. `GAME`, `ZLIB`) sets the `origin` field.
+3. Metadata (name, size, section, note) goes in `rebrew-data.toml` — same format as DATA.
 
 ## Debugging Relocation Mismatches
 
@@ -58,7 +77,7 @@ that indicate missing `extern` declarations.
 
 1. Run `rebrew match --diff-only --json src/<target>/<file>.c` — note `~~` addresses
 2. Run `rebrew data --bss --json` — check if the addresses fall in BSS gaps
-3. Run `rebrew data --fix-bss` to automatically generate `bss_padding.c`
+3. Run `rebrew data --fix-bss` to automatically generate `bss_padding.c` (writes SIZE/SECTION/NOTE to `rebrew-data.toml`)
 4. Add missing `extern` declarations with `// GLOBAL:` annotations
 5. Re-test with `rebrew test src/<target>/<file>.c --json`
 
