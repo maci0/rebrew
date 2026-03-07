@@ -695,7 +695,6 @@ def _run_all_batch(
         json_output: Emit JSON output.
 
     """
-    from rebrew.annotation import parse_c_file_multi
     from rebrew.cli import iter_sources
 
     search_root = cfg.reversed_dir
@@ -756,29 +755,35 @@ def _run_all_batch(
     except Exception:  # noqa: BLE001
         pass
 
-    total_files = len(sources)
-    exact_files = 0
-    batch_results: list[dict] = []
+    testable_sources: list[tuple[Path, list[Annotation]]] = []
+    skipped_no_size = 0
 
-    if not json_output:
-        console.print(f"\n[bold]Batch testing {total_files} file(s)…[/bold]\n")
-
-    for i, src in enumerate(sources, 1):
+    for src in sources:
         try:
             annos = parse_c_file_multi(src)
         except Exception:  # noqa: BLE001
             annos = []
+        # Only include files that have at least one annotation with both symbol and SIZE.
+        # Files where all annotations lack SIZE (STUB, no catalog SIZE yet) are silently
+        # skipped — _test_multi would just SKIP every entry and produce noisy output.
+        if any(a.symbol and a.size for a in annos):
+            testable_sources.append((src, annos))
+        elif annos:
+            skipped_no_size += 1
 
-        if not annos:
-            continue
+    total_testable = len(testable_sources)
 
+    if not json_output:
+        skipped_msg = f", {skipped_no_size} skipped (no SIZE)" if skipped_no_size else ""
+        console.print(f"\n[bold]Batch testing {total_testable} file(s)[/bold]{skipped_msg}…\n")
+
+    batch_results: list[dict] = []
+
+    for i, (src, annos) in enumerate(testable_sources, 1):
         src_str = str(src)
         if not json_output:
-            console.print(f"[bold][{i}/{total_files}][/bold] {src_str}")
+            console.print(f"[bold][{i}/{total_testable}][/bold] {src_str}")
 
-        # Re-use _test_multi for the heavy lifting but capture promote here
-        # For --all we always call _test_multi (which handles no_promote implicitly
-        # because we pass it below only for the STATUS update step).
         _test_multi(
             cfg,
             src_str,
@@ -788,26 +793,28 @@ def _run_all_batch(
             json_output=False,  # always console for per-file; aggregate JSON below
         )
 
-        # Auto-promote: update STATUS for each annotation with a result
-        if not no_promote:
-            for ann in annos:
-                va_str_ann = f"0x{ann.va:08x}" if ann.va else None
-                if va_str_ann:
-                    # Re-run a quick single-function test to get the exact result
-                    # for promotion purposes — reuse the already-compiled obj via
-                    # the _test_multi path above which already updated the console.
-                    # The sidecar write happens inside the_test_multi → update_source_status.
-                    pass  # _test_multi already called update_source_status per function
-
-        exact_files += 1
         batch_results.append({"file": src_str})
 
     if json_output:
         import json as _json
 
-        print(_json.dumps({"total": total_files, "results": batch_results}, indent=2))
+        print(
+            _json.dumps(
+                {
+                    "total": total_testable,
+                    "skipped_no_size": skipped_no_size,
+                    "results": batch_results,
+                },
+                indent=2,
+            )
+        )
     else:
-        console.print(f"\n[bold]Batch complete.[/bold] Tested {total_files} file(s).")
+        console.print(
+            f"\n[bold]Batch complete.[/bold] "
+            f"Tested {total_testable} file(s)"
+            + (f", {skipped_no_size} skipped (no SIZE)" if skipped_no_size else "")
+            + "."
+        )
 
 
 def main_entry() -> None:
