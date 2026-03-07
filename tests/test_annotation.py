@@ -465,30 +465,39 @@ int func_b(void) { return 1; }
         assert results[1].filepath == "multi.c"
 
     def test_parse_c_file_still_returns_first(self, tmp_path) -> None:
-        """parse_c_file backward compat: returns first annotation only."""
+        """parse_c_file returns the first annotation; SIZE comes from sidecar via parse_c_file_multi."""
         content = """\
 // FUNCTION: SERVER 0x10001000
 // STATUS: EXACT
-// SIZE: 42
 // CFLAGS: /O2
 
 int func_a(void) { return 0; }
 
 // FUNCTION: SERVER 0x10002000
 // STATUS: MATCHING
-// SIZE: 100
 // CFLAGS: /O2
 
 int func_b(void) { return 1; }
 """
         f = tmp_path / "multi.c"
         f.write_text(content, encoding="utf-8")
+        # SIZE lives in sidecar
+        sidecar = tmp_path / "rebrew-function.toml"
+        sidecar.write_text(
+            '["SERVER.0x10001000"]\nsize = 42\n',
+            encoding="utf-8",
+        )
+        # parse_c_file (no sidecar arg) returns first annotation; size=0 since sidecar not loaded
         result = parse_c_file(f)
         assert result is not None
         assert result.va == 0x10001000
         assert result.status == "EXACT"
-        assert result.size == 42
         assert result.symbol == "_func_a"
+        # parse_c_file_multi with sidecar_dir picks up SIZE from sidecar
+        from rebrew.annotation import parse_c_file_multi
+
+        results = parse_c_file_multi(f, sidecar_dir=f.parent)
+        assert results[0].size == 42
 
     def test_shared_symbol_uses_func_name_hint(self) -> None:
         """Functions with shared SYMBOL should use the name hint comment instead.
