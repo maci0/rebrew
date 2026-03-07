@@ -1,8 +1,8 @@
-"""Tests for rebrew.ga — STUB parsing, batch GA, and batch flag sweep logic."""
+"""Tests for batch GA and flag sweep logic in rebrew.match (formerly rebrew.ga)."""
 
 from pathlib import Path
 
-from rebrew.ga import (
+from rebrew.match import (
     find_all_matching,
     find_all_stubs,
     parse_matching_all,
@@ -30,11 +30,17 @@ class TestParseStubInfo:
         f.write_text(
             f"// FUNCTION: SERVER 0x{va:08X}\n"
             f"// STATUS: {status}\n"
-            f"// SIZE: {size}\n"
             f"// CFLAGS: /O2 /Gd\n"
             f"void __cdecl {func_name}(void) {{\n"
             f"    // stub\n"
             f"}}\n",
+            encoding="utf-8",
+        )
+        # SIZE lives in sidecar, not inline
+        sidecar = tmp_path / "rebrew-function.toml"
+        existing = sidecar.read_text(encoding="utf-8") if sidecar.exists() else ""
+        sidecar.write_text(
+            existing + f'["SERVER.0x{va:08X}"]\nsize = {size}\n',
             encoding="utf-8",
         )
         return f
@@ -86,9 +92,15 @@ class TestFindAllStubs:
             f"// FUNCTION: SERVER 0x{va:08X}\n"
             f"// STATUS: STUB\n"
             f"// ORIGIN: GAME\n"
-            f"// SIZE: {size}\n"
             f"// CFLAGS: /O2 /Gd\n"
             f"void __cdecl {func_name}(void) {{}}\n",
+            encoding="utf-8",
+        )
+        # SIZE in sidecar
+        sidecar = d / "rebrew-function.toml"
+        existing = sidecar.read_text(encoding="utf-8") if sidecar.exists() else ""
+        sidecar.write_text(
+            existing + f'["SERVER.0x{va:08X}"]\nsize = {size}\n',
             encoding="utf-8",
         )
 

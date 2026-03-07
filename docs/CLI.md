@@ -22,8 +22,7 @@ Run any tool with `--help` to see usage examples and context
 | `rebrew-sync` | `ghidra/cli.py` | Sync annotations, structs, and signatures to/from Ghidra via ReVa MCP (`--push`, `--pull`, `--apply`, `--export`) |
 | `rebrew-lint` | `lint.py` | Lint annotation standards in decomp C files |
 | `rebrew-extract` | `extract.py` | Batch extract and disassemble functions from binary |
-| `rebrew-match` | `match.py` / `matcher/` | GA matching engine (`--fix-blocker`); `--json` structured output |
-| `rebrew-ga` | `ga.py` | Batch GA runner for STUB and MATCHING functions |
+| `rebrew-match` | `match.py` / `matcher/` | GA matching engine (single-function or `--all` batch); `--fix-blocker`; `--json` structured output |
 | `rebrew-verify` | `verify.py` | Compile all `.c` files and verify byte match against target binary; `--diff` regression detection; `--json` structured reports |
 | `rebrew-todo` | `todo.py` | Prioritized action list: what to work on next, ROI-ranked across all signals |
 | `rebrew-cache` | `cache_cli.py` | Compile cache management (`stats`, `clear` subcommands) |
@@ -146,13 +145,14 @@ Output prefixes for unambiguous parsing:
 | `MISSING_FILE:` | Source file not found |
 | `EXACT MATCH` / `RELOC-NORM MATCH` | Success |
 
-### `rebrew ga`
+### `rebrew match --all` (batch mode)
 
 | Flag | Description |
 |------|-------------|
+| `--all` | Enable batch mode (required for all flags below) |
 | `--max-stubs N` | Max functions to process, 0=all (default 0) |
-| `--generations N` | GA generations per function (default 200) |
-| `--pop-size N` | GA population size (default 48) |
+| `--generations N` / `-g N` | GA generations per function (default 100) |
+| `--pop-size N` / `-p N` | GA population size (default 32) |
 | `-j N` / `--jobs N` | Parallel jobs (default: from `[project].jobs`) |
 | `--timeout-min N` | Per-function GA timeout in minutes (default 30) |
 | `--min-size N` | Min target size to attempt |
@@ -161,8 +161,9 @@ Output prefixes for unambiguous parsing:
 | `--near-miss` | Target MATCHING functions instead of STUBs |
 | `--threshold N` | Max byte delta for `--near-miss` mode (default 10) |
 | `--dry-run` | List candidates without running GA |
-| `--seed-from-solved` / `--no-seed` | Seed GA population from similar solved functions (default: on) |
+| `--seed-from-solved` / `--no-solved` | Seed GA population from similar solved functions (default: on) |
 | `--json` | Output results as JSON |
+
 
 ### `rebrew doctor`
 
@@ -368,9 +369,9 @@ rebrew diff src/target_name/f.c                    # Side-by-side diff
 rebrew diff --mm src/target_name/f.c               # Only structural diffs
 rebrew diff --fix-blocker src/target_name/f.c      # Auto-write BLOCKER annotations
 rebrew diff --json src/target_name/f.c             # JSON diff
-rebrew ga                                          # Batch GA on all STUBs
-rebrew ga --near-miss --threshold 5                # GA on MATCHING with <=5B delta
-rebrew ga --dry-run                                # List candidates only
+rebrew match --all                                 # Batch GA on all STUBs
+rebrew match --all --near-miss --threshold 5       # GA on MATCHING with <=5B delta
+rebrew match --all --dry-run                       # List candidates only
 
 # Verification & status
 rebrew verify                                      # Verify all reversed functions

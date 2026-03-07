@@ -83,7 +83,7 @@ Common blockers: register allocation, loop peeling, branch inversion, code block
 reordering, stack frame choice.
 
 **Next steps**: Iterate code structure, or run `rebrew match` (GA engine) to explore
-permutations. For near-miss cases (small delta), try `rebrew ga --near-miss`.
+permutations. For near-miss cases (small delta), try `rebrew match --all --near-miss`.
 
 ---
 

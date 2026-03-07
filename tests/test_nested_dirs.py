@@ -10,8 +10,8 @@ from pathlib import Path
 from rebrew.cli import iter_sources, rel_display_path
 from rebrew.config import ProjectConfig
 from rebrew.data import scan_data_annotations, scan_globals
-from rebrew.ga import find_all_stubs, find_near_miss
 from rebrew.lint import lint_file
+from rebrew.match import find_all_stubs, find_near_miss
 from rebrew.naming import load_existing_vas
 
 # ---------------------------------------------------------------------------

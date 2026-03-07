@@ -99,7 +99,7 @@ rebrew asm 0x10003da0 --size 160 --json | jq '.instructions[] | .mnemonic'
 | `rebrew flirt` | FLIRT scan results |
 | `rebrew crt-match` | CRT source matching results |
 | `rebrew data` | Data scan results |
-| `rebrew ga` | Batch GA results |
+| `rebrew match --all` | Batch GA results |
 | `rebrew split` | Split results (files created, VAs, symbols) |
 | `rebrew merge` | Merge results (inputs, output, VA list) |
 | `rebrew prove` | Prove results (proven/not, state counts, status update) |
