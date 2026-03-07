@@ -166,35 +166,37 @@ def _score_flag_sweep(delta: int | None, size: int) -> float:
 
 
 def _score_verify_fail(delta: int | None, match_pct: float | None, size: int = 0) -> float:
-    """Score a verify failure by closeness. Higher match% = less work = higher ROI.
+    """Score a verify failure. Best ROI is moderate match% on small functions.
 
-    Intentionally capped below compile errors (~85-95) and near-misses (~70-85).
-    A 99% match is a fast near-miss-style fix; a 0% match on a large function
-    is low ROI (full rewrite). The score drives sorting within the category.
+    Very high match% (>=95%) = negligible gain, potentially stubborn structural
+    diff → LOW score. Very low match% = full rewrite needed → LOW score.
+    Sweet spot is 60-80% on small functions (meaningful gain, manageable effort).
+
+    Capped at 63 — below finish_stub (75) and near-misses (70-85).
     """
     if match_pct is None:
-        # No data — treat as moderate mismatch
-        base = 58.0
+        base = 50.0
     elif match_pct >= 95.0:
-        # Near-miss regression — fast to fix, but don't outrank compile errors
-        base = 72.0
+        # Negligible gain — last 1% is often a stubborn structural diff
+        base = 46.0
     elif match_pct >= 80.0:
-        base = 65.0
+        base = 55.0
     elif match_pct >= 60.0:
-        base = 58.0
+        # Best sweet spot: meaningful gain, achievable
+        base = 60.0
     elif match_pct >= 30.0:
         base = 52.0
     else:
-        # Very low match — likely full regression or needs major rework, low ROI
-        base = 45.0
+        # Full regression — high effort, very low ROI
+        base = 44.0
 
-    # Prefer smaller functions (easier to fix)
-    if size > 0 and size < 100:
+    # Prefer smaller functions (faster to fix)
+    if 0 < size < 100:
         base += 3.0
     elif size > 500:
-        base -= 5.0
+        base -= 4.0
 
-    return min(75.0, max(40.0, base))
+    return min(63.0, max(40.0, base))
 
 
 def _score_start_function(difficulty: int, size: int) -> float:
@@ -861,7 +863,6 @@ def main(
     table.add_column("Sz", width=5, justify="right")
     table.add_column("Name", width=26, no_wrap=True, overflow="ellipsis")
     table.add_column("Description", no_wrap=True, overflow="ellipsis")
-    table.add_column("Command", no_wrap=True, overflow="ellipsis", style="bold dim")
 
     for i, item in enumerate(display_items, 1):
         color = _CATEGORY_COLORS.get(item.category, "white")
@@ -873,7 +874,6 @@ def main(
             f"{item.size}B" if item.size else "",
             item.name,
             item.description,
-            item.command,
         )
 
     # Category summary subtitle
