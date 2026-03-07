@@ -8,7 +8,7 @@ on each one to attempt automatic byte-perfect matching.
 Usage:
     rebrew ga [--max-stubs N] [--generations G] [-j JOBS] [--dry-run]
     rebrew ga --near-miss --threshold 10
-    rebrew ga --flag-sweep [--tier TIER] [--fix-cflags]
+    rebrew ga --min-size 20 --max-size 200
 """
 
 import contextlib

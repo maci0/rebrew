@@ -94,6 +94,7 @@ SIDECAR_KEYS: frozenset[str] = frozenset(
         "NOTE",
         "SECTION",
         "GHIDRA",
+        "SIZE",  # lives in rebrew-functions.toml (functions) or rebrew-data.toml (DATA/GLOBAL)
     }
 )
 ALL_KNOWN_KEYS = REQUIRED_KEYS | OPTIONAL_KEYS | SIDECAR_KEYS | {"MARKER", "VA"}
