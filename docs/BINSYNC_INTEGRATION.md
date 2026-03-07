@@ -258,7 +258,6 @@ binary matching projects.
 BinSync knows nothing about:
 - Compiler flags, compilation, byte matching
 - MSVC6 toolchain under Wine
-- The GA engine, flag sweeps, or symbolic proving
 - reccmp annotation compatibility
 
 All of rebrew's core value proposition is invisible to BinSync.
