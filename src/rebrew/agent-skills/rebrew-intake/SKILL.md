@@ -20,7 +20,9 @@ Then place the binary at the path specified in `rebrew-project.toml` (default: `
 
 
 ### Multi-Target File Layout
-When adding a new target that shares substantial codebase with an existing target (e.g., adding `BETA10` to a `LEGO1` project), you do not need to duplicate `.c` files. Add a second `// FUNCTION: BETA10 0x...` or `// STUB: BETA10 0x...` annotation block above the same function body.
+When adding a new target that shares codebase with an existing target (e.g., adding `BETA10` to a `LEGO1`
+project), you do not need to duplicate `.c` files. Add a second `// FUNCTION: BETA10 0x...` annotation block
+above the same function body.
 
 ## Intake Procedure
 
@@ -30,7 +32,6 @@ When adding a new target that shares substantial codebase with an existing targe
 rebrew doctor                           # check toolchain and project health
 rebrew doctor --install-wibo            # auto-download wibo if Wine is unavailable
 rebrew cfg list-targets                 # confirm target is configured
-rebrew status --json                    # should show the target with 0 functions
 ```
 
 On Linux, `--install-wibo` downloads wibo (a lightweight Win32 PE loader) as
@@ -58,22 +59,15 @@ since the original source is often available.
 
 ### 3. Build Function Catalog
 
-Generate the function catalog from the binary's symbol table, source annotations,
-and library header identifications (`library_*.h` files with `// LIBRARY:` markers
-for known CRT/zlib functions):
-
 ```bash
 rebrew catalog --json                   # build catalog + data JSON
-rebrew build-db                         # build SQLite coverage database
+rebrew catalog db                       # build SQLite coverage database
 ```
 
 ### 4. Initial Triage
 
-Get a comprehensive overview of the reversing landscape:
-
 ```bash
-rebrew triage --json                    # coverage stats, recommendations, FLIRT counts
-rebrew next --stats --json              # detailed progress statistics
+rebrew todo --json                      # prioritized action items overview
 rebrew data --dispatch --json           # detect dispatch tables / vtables
 ```
 
@@ -82,13 +76,11 @@ rebrew data --dispatch --json           # detect dispatch tables / vtables
 Identify which functions were likely compiled from the same source file:
 
 ```bash
-rebrew cu-map --json                    # cluster functions into inferred translation units
+rebrew graph --cu-map --json            # cluster functions into inferred translation units
 ```
 
-This uses inter-function gap analysis (padding vs non-padding) and call-graph
-signals (static-function detection) to group contiguous functions. High-confidence
-clusters suggest functions that should be merged into the same `.c` file via
-`rebrew merge` or `rebrew skeleton --append`.
+This uses inter-function gap analysis and call-graph signals to group contiguous functions.
+High-confidence clusters suggest functions that should be merged into the same `.c` file.
 
 ### 6. Assess Scope
 
@@ -101,8 +93,6 @@ From the triage output, evaluate:
 
 ### 7. Extract Disassembly (Optional)
 
-Batch-extract function bytes and disassembly for offline analysis:
-
 ```bash
 rebrew extract list                     # list un-reversed candidates
 rebrew extract batch 20                 # extract first 20 smallest
@@ -113,7 +103,7 @@ rebrew extract batch 20                 # extract first 20 smallest
 Start with the easiest functions identified by triage:
 
 ```bash
-rebrew next --json                      # get recommended functions
+rebrew todo --json                      # get recommended functions
 rebrew skeleton --list --origin GAME    # list all uncovered GAME functions
 rebrew skeleton --batch 10              # generate 10 skeletons (smallest first)
 rebrew skeleton 0x<VA>                  # generate one skeleton by VA
@@ -124,10 +114,6 @@ rebrew skeleton 0x<VA> --xrefs          # with caller context from Ghidra
 
 For library functions identified by FLIRT, check if reference source is available
 (e.g. `tools/MSVC600/VC98/CRT/SRC/` for MSVCRT, `references/zlib-1.1.3/` for zlib).
-
-For functions that share a translation unit, use `rebrew merge` to combine them
-or `rebrew skeleton 0x<VA> --append existing_file.c` to add to an existing file.
-Use `rebrew split` later if functions need to be separated for independent tracking.
 
 ### 9. Sync to Ghidra (Optional)
 
@@ -144,9 +130,9 @@ Intake Progress:
 - [ ] Binary placed at configured path
 - [ ] rebrew cfg confirms target
 - [ ] FLIRT scan complete
-- [ ] Catalog and coverage DB built
-- [ ] Triage report reviewed
-- [ ] Compilation units inferred (cu-map)
+- [ ] Catalog and coverage DB built (rebrew catalog + rebrew catalog db)
+- [ ] Triage report reviewed (rebrew todo)
+- [ ] Compilation units inferred (rebrew graph --cu-map)
 - [ ] First skeletons generated
 - [ ] Ghidra synced (if available)
 ```
