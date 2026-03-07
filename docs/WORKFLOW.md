@@ -126,7 +126,6 @@ graph TD
     Test -->|COMPILE ERROR| Write
     Done --> Lint[Lint & verify<br/>rebrew lint]
     Diff --> Flags{Unsure about flags?}
-    Flags -->|Yes| Sweep[Sweep flags<br/>rebrew match --flag-sweep-only]
     Sweep --> Write
     Flags -->|No| Prove{Still MATCHING?}
     Prove -->|Yes| Symbolic[Prove equivalence<br/>rebrew prove]
@@ -269,7 +268,6 @@ rebrew diff --mm src/target_name/my_func.c
 ### 7. If unsure about compiler flags — sweep
 
 ```bash
-rebrew match --flag-sweep-only src/target_name/my_func.c --target-va 0x<VA> --target-size <SIZE>
 ```
 
 ### 8. Update the annotation
@@ -299,7 +297,6 @@ blocker_delta = 3
 
 ### 9. If still MATCHING — prove semantic equivalence
 
-If a function remains `MATCHING` after flag sweeping and source adjustments, and the
 blockers are purely structural (register allocation, instruction reordering), use
 `rebrew prove` to mathematically verify equivalence:
 

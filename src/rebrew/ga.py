@@ -570,7 +570,7 @@ def update_stub_to_matched(filepath: Path, best_src: str, stub: StubInfo) -> Non
 
 
 app = typer.Typer(
-    help="Batch GA runner and flag sweep for STUB and MATCHING functions.",
+    help="Batch GA runner for STUB and MATCHING functions.",
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
@@ -583,12 +583,6 @@ rebrew ga --max-stubs 5                       Process at most 5 functions
 
 rebrew ga --near-miss --threshold 10          Target MATCHING funcs within 10B
 
-rebrew ga --flag-sweep                        Batch flag sweep on all MATCHING
-
-rebrew ga --flag-sweep --tier targeted        Use targeted tier (~1.1K combos)
-
-rebrew ga --flag-sweep --fix-cflags           Auto-update CFLAGS on exact match
-
 rebrew ga --min-size 20 --max-size 200        Filter by function size
 
 rebrew ga --filter my_func                    Only functions matching substring
@@ -600,8 +594,6 @@ rebrew ga -j 16 --generations 300 --pop-size 64  Tune GA parameters
 [default]  GA on STUB functions (sorted by size, smallest first)
 
 --near-miss  GA on MATCHING functions with small byte deltas
-
---flag-sweep  Compiler flag sweep on all MATCHING functions (no GA mutations)
 
 [dim]Functions are processed smallest/easiest first. Duplicate VAs are
 detected and skipped. Ignored symbols from rebrew-project.toml are excluded.[/dim]""",
@@ -628,17 +620,22 @@ def main(
     ),
     threshold: int = typer.Option(10, "--threshold", help="Max byte delta for --near-miss mode"),
     flag_sweep: bool = typer.Option(
-        False, "--flag-sweep", help="Batch flag sweep on all MATCHING functions (no GA mutations)"
+        False,
+        "--flag-sweep",
+        help="Batch flag sweep on all MATCHING functions (no GA mutations)",
+        hidden=True,  # intentionally hidden: use only when project flags are uncertain
     ),
     tier: str = typer.Option(
         "targeted",
         "--tier",
-        help="Flag sweep tier: quick (~192), targeted (~1.1K), normal (~21K), thorough (~1M). Default: targeted.",
+        help="Flag sweep tier",
+        hidden=True,  # intentionally hidden: companion to --flag-sweep
     ),
     fix_cflags: bool = typer.Option(
         False,
         "--fix-cflags",
         help="Auto-update CFLAGS annotation when flag sweep finds exact match",
+        hidden=True,  # intentionally hidden: companion to --flag-sweep
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     seed_from_solved: bool = typer.Option(
@@ -648,7 +645,7 @@ def main(
     ),
     target: str | None = TargetOption,
 ) -> None:
-    """Run GA or batch flag sweep across STUB/MATCHING functions."""
+    """Run GA across STUB/MATCHING functions."""
     cfg = require_config(target=target)
     if jobs is None:
         jobs = int(cfg.default_jobs)

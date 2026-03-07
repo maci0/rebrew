@@ -34,7 +34,6 @@ int stub(void) { return 0; }
 > BLOCKER, NOTE, GHIDRA) is managed exclusively by Rebrew CLI tools:
 > - `rebrew test` → STATUS (auto-promotes on EXACT/RELOC; use `--no-promote` to skip)
 > - `rebrew diff --fix-blocker` → BLOCKER / BLOCKER_DELTA
-> - `rebrew match --flag-sweep-only --fix-cflags` → CFLAGS
 > - `rebrew sync --pull` → NOTE, GHIDRA
 
 ## What goes in `rebrew-functions.toml` sidecar
