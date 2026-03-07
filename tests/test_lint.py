@@ -201,7 +201,7 @@ int foo(void) { return 0; }
         assert not any(c == "E007" for _, c, _ in result.errors)
 
     def test_invalid_size_in_source_no_error(self, tmp_path: Path) -> None:
-        """A // SIZE: -5 in source no longer triggers E008 (SIZE is sidecar-only)."""
+        """A // SIZE: -5 in source fires W019 (sidecar-only) but no longer E008."""
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
@@ -213,6 +213,8 @@ int foo(void) { return 0; }
         result = lint_file(f)
         # No E008 error — the lint no longer validates inline SIZE values
         assert not any(c == "E008" for _, c, _ in result.errors)
+        # W019 fires — inline SIZE must move to rebrew-function.toml
+        assert any(c == "W019" and "SIZE" in m for _, c, m in result.warnings)
 
     def test_missing_cflags_no_config(self, tmp_path: Path) -> None:
         content = """\
@@ -669,9 +671,12 @@ int foo(void) { return 0; }
 
 class TestW016Section:
     def test_w016_global_missing_section(self, tmp_path: Path) -> None:
+        """GLOBAL without SECTION in sidecar fires W016."""
+        # SIZE in sidecar (not inline) so W019 doesn't fire for SIZE
+        sidecar = tmp_path / "rebrew-function.toml"
+        sidecar.write_text('["SERVER.0x10050000"]\nsize = 4\n', encoding="utf-8")
         content = """\
 // GLOBAL: SERVER 0x10050000
-// SIZE: 4
 int g_foo;
 """
         f = _write_c(tmp_path, "g_foo.c", content)
@@ -679,9 +684,11 @@ int g_foo;
         assert any(c == "W016" for _, c, _ in result.warnings)
 
     def test_w016_data_missing_section(self, tmp_path: Path) -> None:
+        """DATA without SECTION in sidecar fires W016."""
+        sidecar = tmp_path / "rebrew-function.toml"
+        sidecar.write_text('["SERVER.0x10050000"]\nsize = 10\n', encoding="utf-8")
         content = """\
 // DATA: SERVER 0x10050000
-// SIZE: 10
 char s_hello[] = "hello";
 """
         f = _write_c(tmp_path, "s_hello.c", content)
@@ -690,21 +697,20 @@ char s_hello[] = "hello";
 
     def test_w016_global_with_section_no_warning(self, tmp_path: Path) -> None:
         """SECTION from the sidecar should suppress W016 without inline SECTION."""
-        content = """\
-// GLOBAL: SERVER 0x10050000
-// SIZE: 4
-int g_foo;
-"""
-        # Write the sidecar with SECTION set using the canonical TOML key format
+        # Write the sidecar with both SIZE and SECTION set
         sidecar = tmp_path / "rebrew-function.toml"
         sidecar.write_text(
-            '["SERVER.0x10050000"]\nsection = ".bss"\n',
+            '["SERVER.0x10050000"]\nsize = 4\nsection = ".bss"\n',
             encoding="utf-8",
         )
+        content = """\
+// GLOBAL: SERVER 0x10050000
+int g_foo;
+"""
         f = _write_c(tmp_path, "g_foo.c", content)
         result = lint_file(f)
         assert not any(c == "W016" for _, c, _ in result.warnings)
-        # Also: no inline SECTION key → no W019 for SECTION
+        # No inline SECTION → no W019 for SECTION
         assert not any("SECTION" in m for _, c, m in result.warnings if c == "W019")
 
     def test_w016_function_no_warning(self, tmp_path: Path) -> None:
@@ -818,6 +824,19 @@ int foo(void) { return 0; }
         result = lint_file(f)
         # No W019 since CFLAGS came from sidecar, not inline
         assert not any(c == "W019" and "CFLAGS" in m for _, c, m in result.warnings)
+
+    def test_w019_inline_size(self, tmp_path: Path) -> None:
+        """Inline // SIZE: on a FUNCTION annotation fires W019."""
+        content = """\
+// FUNCTION: SERVER 0x10008880
+// STATUS: EXACT
+// SIZE: 128
+int foo(void) { return 0; }
+"""
+        f = _write_c(tmp_path, "foo.c", content)
+        result = lint_file(f)
+        # SIZE must live in rebrew-function.toml — inline triggers W019
+        assert any(c == "W019" and "SIZE" in m for _, c, m in result.warnings)
 
 
 # ---------------------------------------------------------------------------
