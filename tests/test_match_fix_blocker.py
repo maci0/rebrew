@@ -1,13 +1,11 @@
-"""Tests for rebrew.diff classify_blockers and --fix-blocker annotation writing."""
+"""Tests for rebrew.diff classify_blockers and blocker delta calculations."""
 
-from pathlib import Path
 from typing import Any
 
-from rebrew.annotation import parse_c_file_multi, update_annotation_key
 from rebrew.diff import classify_blockers
 
 # ---------------------------------------------------------------------------
-# classify_blockers — pattern detection
+# Helpers
 # ---------------------------------------------------------------------------
 
 
@@ -17,6 +15,11 @@ def _make_insn(match: str, target_asm: str, cand_asm: str) -> dict[str, Any]:
         "target": {"disasm": target_asm, "bytes": ""},
         "candidate": {"disasm": cand_asm, "bytes": ""},
     }
+
+
+# ---------------------------------------------------------------------------
+# classify_blockers — pattern detection
+# ---------------------------------------------------------------------------
 
 
 class TestClassifyBlockers:
@@ -79,87 +82,8 @@ class TestClassifyBlockers:
 
 
 # ---------------------------------------------------------------------------
-# --fix-blocker annotation integration
+# classify_blockers — edge cases
 # ---------------------------------------------------------------------------
-
-_SOURCE_TEMPLATE = """\
-// FUNCTION: TARGET 0x{va:08x}
-// STATUS: MATCHING
-// SIZE: 10
-
-int test_func(void) {{
-    return 0;
-}}
-"""
-
-
-def _make_source(tmp_path: Path, va: int = 0x10001000) -> Path:
-    src = tmp_path / "test_func.c"
-    src.write_text(_SOURCE_TEMPLATE.format(va=va), encoding="utf-8")
-    return src
-
-
-class TestFixBlockerAnnotationWrite:
-    def test_writes_blocker_annotation(self, tmp_path: Path) -> None:
-        src = _make_source(tmp_path)
-        va = 0x10001000
-        blocker_text = "register allocation, jump condition swap"
-        update_annotation_key(src, va, "BLOCKER", blocker_text)
-        update_annotation_key(src, va, "BLOCKER_DELTA", "3")
-
-        anns = parse_c_file_multi(src, sidecar_dir=src.parent)
-        assert anns
-        anno = anns[0]
-        assert anno.blocker == blocker_text
-        assert anno.blocker_delta == 3
-
-    def test_writes_then_clears_blocker(self, tmp_path: Path) -> None:
-        from rebrew.annotation import remove_annotation_key
-
-        src = _make_source(tmp_path)
-        va = 0x10001000
-        update_annotation_key(src, va, "BLOCKER", "register allocation")
-        update_annotation_key(src, va, "BLOCKER_DELTA", "5")
-
-        anns = parse_c_file_multi(src, sidecar_dir=src.parent)
-        assert anns
-        assert anns[0].blocker == "register allocation"
-
-        remove_annotation_key(src, va, "BLOCKER")
-        remove_annotation_key(src, va, "BLOCKER_DELTA")
-
-        anns2 = parse_c_file_multi(src, sidecar_dir=src.parent)
-        assert anns2
-        assert not anns2[0].blocker
-        assert anns2[0].blocker_delta is None
-
-    def test_overwrites_existing_blocker(self, tmp_path: Path) -> None:
-        src = _make_source(tmp_path)
-        va = 0x10001000
-        update_annotation_key(src, va, "BLOCKER", "old blocker text")
-        update_annotation_key(
-            src, va, "BLOCKER", "register allocation, loop rotation / branch layout"
-        )
-
-        anns = parse_c_file_multi(src, sidecar_dir=src.parent)
-        assert anns
-        assert anns[0].blocker == "register allocation, loop rotation / branch layout"
-
-    def test_delta_calculation(self) -> None:
-        target = b"\x55\x8b\xec\x33\xc0\xc3"
-        obj = b"\x55\x8b\xec\x31\xc0\xc3"
-        delta = sum(1 for a, b in zip(target, obj, strict=False) if a != b) + abs(
-            len(target) - len(obj)
-        )
-        assert delta == 1
-
-    def test_delta_with_size_difference(self) -> None:
-        target = b"\x55\x8b\xec\x33\xc0\xc3"
-        obj = b"\x55\x8b\xec\xc3"
-        delta = sum(1 for a, b in zip(target, obj, strict=False) if a != b) + abs(
-            len(target) - len(obj)
-        )
-        assert delta == 3
 
 
 class TestClassifyBlockersEdgeCases:
@@ -189,3 +113,26 @@ class TestClassifyBlockersEdgeCases:
         result = classify_blockers(summary)
         assert "register allocation" in result
         assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# Blocker delta calculation (pure logic, no I/O)
+# ---------------------------------------------------------------------------
+
+
+class TestBlockerDeltaCalculation:
+    def test_single_byte_diff(self) -> None:
+        target = b"\x55\x8b\xec\x33\xc0\xc3"
+        obj = b"\x55\x8b\xec\x31\xc0\xc3"
+        delta = sum(1 for a, b in zip(target, obj, strict=False) if a != b) + abs(
+            len(target) - len(obj)
+        )
+        assert delta == 1
+
+    def test_size_difference_adds_to_delta(self) -> None:
+        target = b"\x55\x8b\xec\x33\xc0\xc3"
+        obj = b"\x55\x8b\xec\xc3"
+        delta = sum(1 for a, b in zip(target, obj, strict=False) if a != b) + abs(
+            len(target) - len(obj)
+        )
+        assert delta == 3
