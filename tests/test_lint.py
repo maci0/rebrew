@@ -35,7 +35,6 @@ def _make_cfg(
 VALID_HEADER = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
-// SIZE: 31
 // CFLAGS: /O2 /Gd
 
 int __cdecl bit_reverse(int x)
@@ -47,7 +46,6 @@ int __cdecl bit_reverse(int x)
 VALID_LIBRARY_HEADER = """\
 // STUB: SERVER 0x10023714
 // STATUS: STUB
-// SIZE: 103
 // CFLAGS: /O1
 // BLOCKER: missing CRT internals
 // SOURCE: ENVIRON.C
@@ -454,7 +452,6 @@ class TestCflagsPreset:
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
-// SIZE: 31
 // CFLAGS: /O1
 int foo(void) { return 0; }
 """
@@ -646,7 +643,6 @@ class TestSkipKey:
 // LIBRARY: SERVER 0x1001b8a5
 // STATUS: MATCHING
 // SKIP: xor edi,edi after call
-// SIZE: 11
 // CFLAGS: /O1
 // SOURCE: foo.c
 int foo(void) { return 0; }
