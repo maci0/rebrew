@@ -679,8 +679,11 @@ def lint_file(
                     _ds_override = _data_sidecar_entries.get((mod, va_int), {})
                     _DS_TO_FOUND = {"size": "SIZE", "section": "SECTION", "note": "NOTE"}
                     for _ds_key, _ds_found_key in _DS_TO_FOUND.items():
-                        if _ds_key in _ds_override and _ds_found_key not in found_keys:
-                            found_keys[_ds_found_key] = str(_ds_override[_ds_key])
+                        if _ds_key in _ds_override:
+                            if _ds_found_key not in found_keys:
+                                found_keys[_ds_found_key] = str(_ds_override[_ds_key])
+                            # Mark as sidecar-sourced so W019 doesn't fire for these
+                            _sidecar_sourced_keys.add(_ds_found_key)
 
             module = found_keys.get("MODULE", "")
             status = found_keys.get("STATUS", "")
