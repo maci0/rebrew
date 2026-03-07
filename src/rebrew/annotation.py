@@ -67,21 +67,18 @@ VALID_STATUSES = {"EXACT", "RELOC", "MATCHING", "MATCHING_RELOC", "STUB", "PROVE
 
 # Keys that every function block must declare.
 # CFLAGS is intentionally excluded: it falls back to the project-wide base_cflags.
-# SIZE is intentionally excluded: it lives exclusively in the rebrew-functions.toml sidecar
-# (written by rebrew skeleton / catalog --update-sizes / update_size_annotation). Any
-# remaining // SIZE: lines in existing source are read as a parse-time fallback but the
-# sidecar always wins via merge_into_annotation(); new files must NOT have // SIZE: at all.
+# SIZE is intentionally excluded: SIZE lives exclusively in the rebrew-functions.toml
+# sidecar (written by rebrew skeleton / catalog --update-sizes / update_size_annotation).
+# Remaining // SIZE: lines in existing source are parsed as a fallback value (so older
+# files still work with rebrew test), but the key is NOT in OPTIONAL_KEYS — any // SIZE:
+# in source intentionally fires W010 to nudge cleanup.
 REQUIRED_KEYS = {"STATUS"}
 # No recommended keys — all annotation metadata is either required or optional.
 RECOMMENDED_KEYS: set[str] = set()
 OPTIONAL_KEYS = {
     # Volatile metadata (lives in rebrew-functions.toml sidecar, not in .c files)
     "CFLAGS",  # overrides project default; rare (library with different flags)
-    # SIZE lives in the sidecar. Existing files may still contain // SIZE: as a
-    # backward-compat fallback (parsed but never written by new code). Keeping it
-    # here suppresses W010 "unknown key" warnings on those legacy annotations.
-    "SIZE",
-    # Other optional fields
+    # Other optional fields recognised by reccmp or rebrew
     "ANALYSIS",
     "SOURCE",
     "BLOCKER",
