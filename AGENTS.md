@@ -3,7 +3,7 @@
 ## Overview
 
 **Rebrew** is a compiler-in-the-loop decompilation workbench for binary-matching
-game reversing. Python package (`src/rebrew/`) with 32 CLI tools for compiling,
+game reversing. Python package (`src/rebrew/`) with CLI tools for compiling,
 comparing, and matching C source against target binary functions (MSVC6 under Wine).
 
 Installed as an editable package (`uv pip install -e .`) into a workspace project
@@ -16,7 +16,7 @@ that contains the actual binaries, source files, and toolchains.
 uv pip install -e .
 uv sync --all-extras            # with dev deps
 
-# Run ALL tests (~1809 tests)
+# Run ALL tests (~1712 tests)
 uv run pytest tests/ -v
 
 # Run a SINGLE test file
@@ -129,8 +129,8 @@ src/rebrew/
 │                        #   iter_library_headers(), error_exit(), json_print(), parse_va()
 ├── config.py            # ProjectConfig dataclass, rebrew-project.toml loader
 ├── annotation.py        # Annotation parsing (dataclass + regex parsers + library header parser)
-├── compile.py           # Shared compile helpers (compile_to_obj)
-├── naming.py            # Shared naming/difficulty/origin helpers (next, skeleton, triage, ga)
+├── compile.py           # Shared compile helpers (compile_to_obj, resolve_compiler_env)
+├── naming.py            # Shared naming/difficulty/origin helpers (next, skeleton, triage)
 ├── binary_loader.py     # PE/COFF/ELF/Mach-O binary loading + format detection (via LIEF)
 ├── extract.py           # Batch extract and disassemble functions
 ├── decompiler.py        # Pluggable decompiler backend (r2ghidra, r2dec, Ghidra headless)
@@ -147,7 +147,8 @@ src/rebrew/
 ├── prove.py             # Symbolic equivalence prover via angr (optional dep)
 ├── cu_map.py            # Compilation unit boundary inference (contiguity + call graph)
 ├── todo.py              # Prioritized action list: what to work on next
-├── [tool].py            # Each CLI tool (test, verify, match, lint, etc.)
+├── match.py             # GA engine — single file or batch (--all); absorbs old ga.py
+├── [tool].py            # Each CLI tool (test, verify, diff, lint, etc.)
 ├── catalog/             # Function catalog package (see catalog/AGENTS.md)
 │   ├── __init__.py      # Re-exports all public names
 │   ├── loaders.py       # Ghidra JSON + text function list parsers, DLL bytes, library header scanning
