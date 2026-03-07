@@ -22,8 +22,8 @@ Run any tool with `--help` to see usage examples and context
 | `rebrew-sync` | `ghidra/cli.py` | Sync annotations, structs, and signatures to/from Ghidra via ReVa MCP (`--push`, `--pull`, `--apply`, `--export`) |
 | `rebrew-lint` | `lint.py` | Lint annotation standards in decomp C files |
 | `rebrew-extract` | `extract.py` | Batch extract and disassemble functions from binary |
-| `rebrew-match` | `match.py` / `matcher/` | GA matching engine (flag-sweep with `--flag-sweep-only`/`--tier`, `--fix-blocker`); `--json` structured output |
-| `rebrew-ga` | `ga.py` | Batch GA runner and flag sweep for STUB and MATCHING functions |
+| `rebrew-match` | `match.py` / `matcher/` | GA matching engine (`--fix-blocker`); `--json` structured output |
+| `rebrew-ga` | `ga.py` | Batch GA runner for STUB and MATCHING functions |
 | `rebrew-verify` | `verify.py` | Compile all `.c` files and verify byte match against target binary; `--diff` regression detection; `--json` structured reports |
 | `rebrew-todo` | `todo.py` | Prioritized action list: what to work on next, ROI-ranked across all signals |
 | `rebrew-cache` | `cache_cli.py` | Compile cache management (`stats`, `clear` subcommands) |
@@ -54,8 +54,6 @@ Run any tool with `--help` to see usage examples and context
 | `--mm` / `--mismatches-only` | With `--diff-only`, show only structural (`**`) lines + summary |
 | `--rr` / `--register-aware` | With `--diff-only`, normalize register encodings and mark as `RR` |
 | `--diff-format FORMAT` | Output format for diff: `terminal` (default), `json`, `csv` |
-| `--flag-sweep-only` | Sweep compiler flags without GA mutations |
-| `--tier TIER` | Flag sweep tier: `quick` (192), `targeted` (1.1K), `normal` (21K), `thorough` (1M), `full` (8.3M) |
 | `--fix-blocker` | With `--diff-only`, auto-write `BLOCKER`/`BLOCKER_DELTA` annotations from diff classification |
 | `--seed N` | Seed RNG for reproducible GA runs |
 | `--force` | Continue even if annotation linter finds errors |
@@ -74,6 +72,11 @@ Run any tool with `--help` to see usage examples and context
 
 | Flag | Description |
 |------|-------------|
+| `--all` | Batch test all reversed .c files |
+| `--dir PATH` | With `--all`, restrict to this subdirectory |
+| `--origin TYPE` | With `--all`, filter by origin (GAME, MSVCRT, ZLIB) |
+| `--dry-run` | Preview changes without writing |
+| `--no-promote` | Skip STATUS annotation update |
 | `--json` | JSON structured output |
 
 ### `rebrew rename`
@@ -157,10 +160,7 @@ Output prefixes for unambiguous parsing:
 | `--filter STR` | Only process functions matching this substring |
 | `--near-miss` | Target MATCHING functions instead of STUBs |
 | `--threshold N` | Max byte delta for `--near-miss` mode (default 10) |
-| `--flag-sweep` | Batch flag sweep on all MATCHING functions (no GA mutations) |
-| `--tier TIER` | Flag sweep tier: `quick` (~192), `targeted` (~1.1K), `normal` (~21K), `thorough` (~1M), `full` (~8.3M) |
-| `--fix-cflags` | Auto-update `CFLAGS` in `rebrew-functions.toml` sidecar when flag sweep finds exact match |
-| `--dry-run` | List candidates without running GA/sweep |
+| `--dry-run` | List candidates without running GA |
 | `--seed-from-solved` / `--no-seed` | Seed GA population from similar solved functions (default: on) |
 | `--json` | Output results as JSON |
 
@@ -371,9 +371,6 @@ rebrew diff --json src/target_name/f.c             # JSON diff
 rebrew ga                                          # Batch GA on all STUBs
 rebrew ga --near-miss --threshold 5                # GA on MATCHING with <=5B delta
 rebrew ga --dry-run                                # List candidates only
-rebrew ga --flag-sweep                             # Batch flag sweep on all MATCHING
-rebrew ga --flag-sweep --tier targeted             # Use targeted tier (~1.1K combos)
-rebrew ga --flag-sweep --fix-cflags                # Auto-update CFLAGS on exact match
 
 # Verification & status
 rebrew verify                                      # Verify all reversed functions

@@ -306,46 +306,12 @@ class BinaryMatchingGA:
 
 
 _EPILOG = """\
-[bold]Modes:[/bold]
-
-rebrew match src/f.c --flag-sweep-only          Find best compiler flags
-
-rebrew match src/f.c                            Full GA matching run
-
-[bold]Examples:[/bold]
-
-rebrew match src/game/my_func.c --flag-sweep-only --tier targeted
-
-rebrew match src/game/my_func.c --generations 200 --pop-size 48 -j 8
-
-rebrew match src/game/my_func.c --seed 42       Reproducible GA run
-
-rebrew match src/f.c --flag-sweep-only --json   JSON flag sweep results
-
-rebrew match src/f.c --json                     JSON GA results
-
-[bold]Byte diff:[/bold]
-
-Use [bold]rebrew diff src/f.c[/bold] to show a byte diff before running the GA.
-
-[bold]Flag sweep tiers:[/bold]
-
-quick      ~192 combos     Fast iteration
-
-targeted   ~1.1K combos    Codegen-altering flags only (/Oy, /Op)
-
-normal     ~21K combos     Default sweep
-
-thorough   ~1M combos      Deep search
-
-full       ~8.3M combos    Exhaustive (needs sampling)
-
 [dim]Auto-reads VA, SIZE, and CFLAGS from source annotations.
 Symbol is derived from the C function definition.
 Requires rebrew-project.toml with valid compiler paths.[/dim]"""
 
 app = typer.Typer(
-    help="GA engine for binary matching (diff, flag-sweep, GA).",
+    help="GA engine for binary matching (GA).",
     rich_markup_mode="rich",
     epilog=_EPILOG,
 )
@@ -369,11 +335,16 @@ def main(
     lib: str | None = typer.Option(None, help="Lib dir"),
     ldflags: str | None = typer.Option(None, help="Linker flags"),
     flag_sweep_only: bool = typer.Option(
-        False, "--flag-sweep-only", "-S", help="Run compiler flag sweep instead of GA"
+        False,
+        "--flag-sweep-only",
+        "-S",
+        help="Run compiler flag sweep instead of GA",
+        hidden=True,  # intentionally hidden: use only when project flags are uncertain
     ),
     tier: str = typer.Option(
         "targeted",
-        help="Flag sweep tier: quick (~192), targeted (~1.1K), normal (~21K), thorough (~258K), full.",
+        help="Flag sweep tier",
+        hidden=True,  # intentionally hidden: companion to --flag-sweep-only
     ),
     force: bool = typer.Option(
         False, "--force", help="Continue even if annotation lint errors exist"
@@ -388,7 +359,7 @@ def main(
     ),
     target: str | None = TargetOption,
 ) -> None:
-    """Genetic Algorithm engine for binary matching (flag sweep or GA)."""
+    """Genetic Algorithm engine for binary matching (GA)."""
     cfg = require_config(target=target, json_mode=json_output)
     params = _resolve_build_params(
         cfg, seed_c, cl, inc, cflags, symbol, target_va, target_size, force, json_output

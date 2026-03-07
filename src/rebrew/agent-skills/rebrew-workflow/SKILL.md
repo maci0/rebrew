@@ -81,7 +81,7 @@ rebrew diff src/<target>/<file>.c --fix-blocker  # auto-write BLOCKER to sidecar
 > **Never manually edit `rebrew-functions.toml` or `rebrew-data.toml`.**
 > All volatile metadata lives in sidecars managed by CLI tools.
 
-For deeper matching (flag sweep, GA engine), see the `rebrew-matching` skill.
+For deeper matching (GA engine), see the `rebrew-matching` skill.
 
 ## 5. File Organization
 

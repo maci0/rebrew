@@ -126,7 +126,6 @@ graph TD
     Test -->|MISMATCH| Diff["rebrew match --diff-only"]
     Test -->|COMPILE ERROR| Write
     Diff --> Flags{"Unsure about<br/>compiler flags?"}
-    Flags -->|Yes| Sweep["rebrew match<br/>--flag-sweep-only"]
     Sweep --> Write
     Flags -->|No| Write
 

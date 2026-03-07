@@ -1,12 +1,12 @@
 ---
 name: rebrew-matching
-description: Performs byte-level binary matching using diff analysis, compiler flag sweeping, and the genetic algorithm engine. Use this skill when a function needs structural diff analysis, GA matching, batch flag sweeping, or symbolic equivalence proving to achieve EXACT/RELOC/PROVEN status. Triggers on 'match', 'diff', 'flag sweep', 'GA', 'genetic algorithm', 'byte diff', 'MATCHING status', 'near-miss', 'BLOCKER', 'structural similarity', 'compiler flags', 'CFLAGS', 'prove', 'symbolic execution', 'angr', or 'semantic equivalence'.
+description: Performs byte-level binary matching using diff analysis and the genetic algorithm engine. Use this skill when a function needs structural diff analysis, GA matching, or symbolic equivalence proving to achieve EXACT/RELOC/PROVEN status. Triggers on 'match', 'diff', 'GA', 'genetic algorithm', 'byte diff', 'MATCHING status', 'near-miss', 'BLOCKER', 'structural similarity', 'compiler flags', 'CFLAGS', 'prove', 'symbolic execution', 'angr', or 'semantic equivalence'.
 license: MIT
 ---
 
 # Rebrew Matching
 
-Deep dive into diff analysis, flag sweeping, and the GA engine.
+Deep dive into diff analysis and the GA engine.
 For the overall reversing workflow, see the `rebrew-workflow` skill.
 
 ## 1. Diff Analysis (Always Start Here)
@@ -47,34 +47,9 @@ rebrew diff --fix-blocker --json src/<target>/<file>.c # with JSON output
 
 When no structural diffs remain, `--fix-blocker` clears existing BLOCKER/BLOCKER_DELTA.
 
-## 2. Flag Sweep
+Use this to quickly rule out structural issues before running the GA.
 
-> [!IMPORTANT]
-> **Only run flag sweeps when the project's default flags are genuinely suspect for this function.**
-> If the project has well-established global CFLAGS (e.g. `/O2 /Gd` for GAME origin), a per-function
-> sweep rarely helps and wastes time. The GA is usually more effective for finding code transformations.
->
-> **When to sweep**: the diff shows byte-level divergence with correct structure (no `**` lines),
-> or you have reason to believe this function used non-standard optimization flags.
-
-```bash
-rebrew match --flag-sweep-only src/<target>/<file>.c --tier targeted    # ~1.1K combos
-rebrew match --flag-sweep-only src/<target>/<file>.c                    # default tier (normal, ~21K)
-```
-
-| Tier | Combinations | Use Case |
-|------|-------------|----------|
-| `quick` | ~192 | Fast sanity check |
-| `targeted` | ~1.1K | Codegen-altering flags only (`/Oy`, `/Op`) — try this first |
-| `normal` | ~21K | Default sweep |
-| `thorough` | ~1M | Deep search |
-| `full` | ~8.3M | Exhaustive |
-
-The structural similarity block in `rebrew diff --json` tells you if sweeping is likely to help:
-- `flag_sensitive: true` → sweep may help
-- `flag_sensitive: false` → diffs are structural; skip the sweep, go to GA or `rebrew prove`
-
-## 3. GA Engine
+## 2. GA Engine
 
 For automated matching when manual tuning and diffs are insufficient:
 
@@ -131,29 +106,10 @@ blocker_delta = 3
 
 Use `rebrew diff --fix-blocker` to auto-generate these from diff classification.
 
-## 7. Batch Flag Sweep
-
-> [!IMPORTANT]
-> Same caveat as above: only run batch sweeps if there is genuine uncertainty about
-> project flags. For established projects, prefer `rebrew ga` for batch near-miss functions.
-
-```bash
-rebrew ga --flag-sweep                             # sweep all MATCHING functions
-rebrew ga --flag-sweep --tier targeted             # targeted tier (~1.1K combos)
-rebrew ga --flag-sweep --fix-cflags                # auto-update CFLAGS on exact match
-rebrew ga --flag-sweep --dry-run --json            # preview candidates as JSON
-rebrew ga --flag-sweep --filter my_func            # only functions matching substring
-rebrew ga --flag-sweep --min-size 20 --max-size 200  # filter by size
-```
-
-With `--fix-cflags`, the `CFLAGS` field is updated in the sidecar when the sweep finds
-an exact match (score < 0.1).
-
-## Tips
+## 5. Tips
 
 - Always start with `rebrew diff` before running the GA.
 - For library-origin functions (MSVCRT, ZLIB), use `rebrew crt-match` to identify the reference source first.
-- If `flag_sensitive: false`, skip the flag sweep and go straight to GA or `prove`.
 - Common CFLAGS presets: `/O2 /Gd` (GAME), `/O1 /Gd` (MSVCRT).
 - If a function remains MATCHING after GA and blockers are structural, use `rebrew prove`.
 
