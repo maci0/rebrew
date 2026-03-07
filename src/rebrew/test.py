@@ -1,7 +1,11 @@
 """Quick compile-and-compare for reversed functions.
 
+By default, after comparing, the STATUS annotation is auto-updated in the
+sidecar (via update_source_status). Use --no-promote to skip this.
+
 Usage:
     rebrew test <source.c> [symbol] [--va 0xHEX --size N] [--cflags ...]
+    rebrew test <source.c> --no-promote   # skip STATUS update
 """
 
 import re
@@ -128,13 +132,13 @@ def update_source_status(
     va = target_va
     module = ""
     if va is None:
-        existing_all = parse_c_file_multi(source_path)
+        existing_all = parse_c_file_multi(source_path, sidecar_dir=source_path.parent)
         if existing_all:
             va = existing_all[0].va
             module = existing_all[0].module
     else:
         # VA was provided; scan the file for the matching annotation to get its module
-        existing_all = parse_c_file_multi(source_path)
+        existing_all = parse_c_file_multi(source_path, sidecar_dir=source_path.parent)
         for ann in existing_all:
             if ann.va == va:
                 module = ann.module
@@ -168,9 +172,11 @@ rebrew test f.c _sym --va 0x10009310 --size 42      Override VA and size from CL
 
 rebrew test f.c _sym --cflags "/O1 /Gd"             Override compiler flags
 
+rebrew test src/game_dll/my_func.c --no-promote     Skip STATUS annotation update
+
 rebrew test src/game_dll/my_func.c --json            Machine-readable JSON output
 
-[bold]How it works:[/bold]
+[bold]Auto-promote (default behaviour):[/bold]
 
 1. Compiles the .c file with MSVC6 (via Wine) using annotation CFLAGS
 
@@ -180,11 +186,15 @@ rebrew test src/game_dll/my_func.c --json            Machine-readable JSON outpu
 
 4. Reports EXACT, RELOC (match after masking relocations), or MISMATCH
 
+5. Updates STATUS in sidecar (EXACT / RELOC / MATCHING) — skip with --no-promote
+
+6. If EXACT/RELOC: clears any auto-generated BLOCKER from sidecar
+
 [dim]All parameters can be auto-detected from // FUNCTION, // STATUS, // SIZE,
 and // CFLAGS annotations. Symbol is derived from the C function definition.[/dim]"""
 
 app = typer.Typer(
-    help="Quick compile-and-compare for reversed functions.",
+    help="Compile-and-compare for reversed functions (auto-updates STATUS by default).",
     rich_markup_mode="rich",
     epilog=_EPILOG,
 )
@@ -198,6 +208,11 @@ def main(
     va: str | None = typer.Option(None, help="VA in hex (e.g. 0x10009310)"),
     size: int | None = typer.Option(None, help="Size in bytes"),
     cflags: str | None = typer.Option(None, help="Compiler flags"),
+    no_promote: bool = typer.Option(
+        False,
+        "--no-promote",
+        help="Skip auto-update of STATUS annotation after test",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -245,7 +260,9 @@ def main(
         print(f"rebrew test: skipping reloc validation (scan_globals: {exc})", file=sys.stderr)
 
     # Optional: lint the file first to catch basic annotation errors
-    lint_annos = parse_c_file_multi(Path(source), target_name=target_marker(cfg))
+    lint_annos = parse_c_file_multi(
+        Path(source), target_name=target_marker(cfg), sidecar_dir=Path(source).parent
+    )
     for anno in lint_annos:
         eval_errs, eval_warns = anno.validate()
         if not json_output:
@@ -256,7 +273,9 @@ def main(
 
     # Multi-function support: if no explicit symbol/va/size, test all annotations
     if symbol is None and va is None and size is None:
-        annotations = parse_c_file_multi(Path(source), target_name=target_marker(cfg))
+        annotations = parse_c_file_multi(
+            Path(source), target_name=target_marker(cfg), sidecar_dir=Path(source).parent
+        )
         if len(annotations) > 1:
             _test_multi(
                 cfg,
@@ -393,6 +412,33 @@ def main(
                     console.print("Diffs (non-reloc):")
                     for d in diff[:20]:
                         console.print(d)
+
+    # Auto-promote: update STATUS in sidecar from test result (skip with --no-promote)
+    if not no_promote and va_str:
+        va_int_for_promote = parse_va(va_str, json_mode=json_output)
+        if matched:
+            new_status = "RELOC" if relocs else "EXACT"
+            # Clear blockers on an exact/reloc match (they are auto-generated)
+            update_source_status(
+                source,
+                new_status,
+                blockers_to_remove=True,
+                target_va=va_int_for_promote,
+            )
+            if not json_output:
+                console.print(f"[dim]STATUS → {new_status}[/dim]")
+        elif total > 0:
+            match_ratio = match_count / total
+            if match_ratio >= 0.75:
+                # MATCHING — do NOT clear blocker (may be user-set)
+                update_source_status(
+                    source,
+                    "MATCHING",
+                    blockers_to_remove=False,
+                    target_va=va_int_for_promote,
+                )
+                if not json_output:
+                    console.print("[dim]STATUS → MATCHING[/dim]")
 
 
 def build_result_dict(
