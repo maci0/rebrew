@@ -522,6 +522,10 @@ def _collect_verify_failures(
         delta = result.delta
         match_pct = result.match_percent
 
+        # Skip near-perfect matches — they're essentially RELOC and not actionable
+        if match_pct is not None and match_pct >= 95.0:
+            continue
+
         if status == "MISSING_FILE":
             desc = "Source file missing — recreate or remove annotation"
         elif match_pct is not None:
@@ -797,12 +801,6 @@ def main(
         "-c",
         help="Filter by category (fix-near-miss, flag-sweep, start-function, ...)",
     ),
-    max_per_cat: int = typer.Option(
-        5,
-        "--max-per-cat",
-        "-m",
-        help="Max items per category in default view (0 = unlimited)",
-    ),
     stats: bool = typer.Option(False, "--stats", "-s", help="Show coverage stats header"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -831,19 +829,7 @@ def main(
     if category:
         all_items = [i for i in all_items if i.category == category]
 
-    # Per-category cap: prevent any single category from flooding the default view.
-    # Applied only when not filtering by category. Use -m 0 to disable.
-    if not category and max_per_cat > 0:
-        cat_counts: dict[str, int] = {}
-        capped: list[TodoItem] = []
-        for item in all_items:
-            n = cat_counts.get(item.category, 0)
-            if n < max_per_cat:
-                capped.append(item)
-                cat_counts[item.category] = n + 1
-        display_items = capped[:count]
-    else:
-        display_items = all_items[:count]
+    display_items = all_items[:count]
 
     if json_output:
         cat_summary: dict[str, int] = {}
