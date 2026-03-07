@@ -53,11 +53,7 @@ def _make_cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
         "marker": "TEST",
         "iat_thunks": [],
         "ignored_symbols": [],
-        "zlib_vas": [],
-        "game_range_end": None,
-        "default_origin": "GAME",
-        "origins": ["GAME"],
-        "library_origins": {"ZLIB", "MSVCRT"},
+        "library_modules": set(),
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -414,22 +410,18 @@ class TestCollectors:
         assert len(items) == 0
 
     def test_library_candidates(self) -> None:
-        ghidra_funcs = [
-            FunctionEntry(va=0x1000, size=100, name="__alloca"),
-            FunctionEntry(va=0x2000, size=200, name="func_lib_zlib"),
-        ]
+        # FunctionEntry with module="MSVCRT" is identified as a library candidate
+        msvcrt_func = SimpleNamespace(va=0x1000, size=100, name="__alloca", module="MSVCRT")
+        other_func = SimpleNamespace(va=0x2000, size=200, name="game_func", module="")
         existing: dict[int, dict[str, str]] = {}
         cfg = SimpleNamespace(
-            zlib_vas=[],
-            game_range_end=0x5000,
-            default_origin="GAME",
-            origins=["GAME"],
-            library_origins={"MSVCRT"},
+            library_modules={"MSVCRT"},
         )
-        items = _collect_library_candidates(ghidra_funcs, existing, cfg)
+        items = _collect_library_candidates([msvcrt_func, other_func], existing, cfg)  # type: ignore[arg-type]
         lib_items = [i for i in items if i.category == CAT_IDENTIFY_LIBRARY]
-        # __alloca → MSVCRT origin (name starts with __)
+        # Only __alloca (MSVCRT module) should be flagged
         assert any(i.va == 0x1000 for i in lib_items)
+        assert not any(i.va == 0x2000 for i in lib_items)
 
     def test_new_functions_basic(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
@@ -475,7 +467,6 @@ class TestRoiOrdering:
             name="a",
             size=100,
             filename="a.c",
-            origin="GAME",
             description="",
             command="",
             byte_delta=3,
@@ -487,7 +478,6 @@ class TestRoiOrdering:
             name="b",
             size=500,
             filename="",
-            origin="GAME",
             description="",
             command="",
             difficulty=3,
@@ -503,7 +493,6 @@ class TestRoiOrdering:
             name="a",
             size=100,
             filename="",
-            origin="",
             description="",
             command="",
             byte_delta=1,
@@ -515,7 +504,6 @@ class TestRoiOrdering:
             name="b",
             size=100,
             filename="",
-            origin="",
             description="",
             command="",
             byte_delta=4,
@@ -532,7 +520,6 @@ class TestRoiOrdering:
             name="a",
             size=200,
             filename="",
-            origin="",
             description="",
             command="",
         )
@@ -543,7 +530,6 @@ class TestRoiOrdering:
             name="b",
             size=200,
             filename="",
-            origin="",
             description="",
             command="",
         )
@@ -565,7 +551,6 @@ class TestJsonOutput:
             name="func",
             size=100,
             filename="a.c",
-            origin="GAME",
             description="2B diff",
             command="rebrew match -d a.c",
         )
@@ -585,7 +570,6 @@ class TestJsonOutput:
             name="func",
             size=100,
             filename="a.c",
-            origin="GAME",
             description="",
             command="",
             byte_delta=2,
@@ -613,7 +597,6 @@ class TestCategoryFilter:
                 name="a",
                 size=100,
                 filename="",
-                origin="",
                 description="",
                 command="",
             ),
@@ -624,7 +607,6 @@ class TestCategoryFilter:
                 name="b",
                 size=200,
                 filename="",
-                origin="",
                 description="",
                 command="",
             ),
@@ -635,7 +617,6 @@ class TestCategoryFilter:
                 name="c",
                 size=150,
                 filename="",
-                origin="",
                 description="",
                 command="",
             ),
@@ -872,7 +853,6 @@ class TestEdgeCases:
                     size=200,
                     filepath="b.c",
                     name="func_b",
-                    origin="GAME",
                     message="",
                     passed=False,
                     match_percent=85.0,
@@ -929,7 +909,6 @@ class TestEdgeCases:
                     size=100,
                     filepath="a.c",
                     name="a",
-                    origin="GAME",
                     message="",
                     passed=False,
                 ),

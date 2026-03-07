@@ -49,7 +49,6 @@ class StubInfo(TypedDict):
     size: int
     symbol: str
     cflags: str
-    origin: str
     delta: NotRequired[int]
 
 
@@ -123,9 +122,8 @@ def _parse_annotations(
         if max_delta is not None and (delta is None or delta > max_delta):
             continue
 
-        # Fallback defaults — used only when annotation lacks CFLAGS/ORIGIN.
+        # Fallback defaults — used only when annotation lacks CFLAGS.
         cflags = entry["cflags"] or "/O2 /Gd"
-        origin = entry["origin"] or "GAME"
 
         info: StubInfo = {
             "filepath": filepath,
@@ -133,7 +131,6 @@ def _parse_annotations(
             "size": size,
             "symbol": symbol,
             "cflags": cflags,
-            "origin": origin,
         }
         if delta is not None:
             info["delta"] = delta
@@ -305,7 +302,7 @@ def run_flag_sweep(
     if not target_bytes:
         return float("inf"), "", []
 
-    compile_cfg = cfg.for_origin(stub.get("origin", ""))
+    compile_cfg = cfg
     msvc_env = msvc_env_from_config(compile_cfg)
     cl_cmd = compile_cfg.compiler_command
     inc_dir = str(compile_cfg.compiler_includes)
@@ -493,7 +490,6 @@ def run_ga(
             entry = SolutionEntry(
                 symbol=stub["symbol"],
                 cflags=stub["cflags"],
-                origin=stub.get("origin", ""),
                 size=stub["size"],
                 source_file=str(filepath.relative_to(project_root)),
                 score=0.0,
@@ -761,7 +757,7 @@ def main(
                 file=sys.stderr,
             )
 
-        ga_cfg = cfg.for_origin(stub.get("origin", ""))
+        ga_cfg = cfg
 
         # Look up similar solved functions to seed the GA
         extra_ga_flags: list[str] = []
@@ -771,7 +767,6 @@ def main(
 
                 similar = find_similar(
                     cfg.root,
-                    origin=stub.get("origin", ""),
                     size=stub["size"],
                     cflags=stub["cflags"],
                     top_k=3,

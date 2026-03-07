@@ -28,7 +28,6 @@ from rebrew.binary_loader import BinaryInfo, load_binary
 from rebrew.cli import TargetOption, json_print, require_config
 from rebrew.naming import (
     UncoveredItem,
-    detect_origin,
     detect_unmatchable,
     estimate_difficulty,
     find_neighbor_file,
@@ -111,12 +110,9 @@ def _show_stats(
     uncovered_count = total - covered
 
     by_status: dict[str, int] = {}
-    by_origin: dict[str, int] = {}
     for info in existing.values():
         s = info["status"]
-        o = info["origin"]
         by_status[s] = by_status.get(s, 0) + 1
-        by_origin[o] = by_origin.get(o, 0) + 1
 
     exact = by_status.get("EXACT", 0)
     reloc = by_status.get("RELOC", 0)
@@ -149,7 +145,6 @@ def _show_stats(
                 "covered": covered,
                 "coverage_pct": round(pct, 1),
                 "by_status": by_status,
-                "by_origin": by_origin,
                 "unmatchable": unmatchable_count,
                 "actionable": actionable,
             }
@@ -219,7 +214,6 @@ def _show_improving(
                     "va": f"0x{imp_va:08x}",
                     "size": imp_size,
                     "byte_delta": delta,
-                    "origin": info["origin"],
                     "filename": info["filename"],
                     "symbol": info.get("symbol", ""),
                     "blocker": info.get("blocker", ""),
@@ -239,7 +233,6 @@ def _show_improving(
     table.add_column("VA", style="cyan")
     table.add_column("Size", justify="right")
     table.add_column("Delta", justify="right")
-    table.add_column("Origin", justify="right", style="dim")
     table.add_column("File", style="magenta")
     table.add_column("Blocker")
 
@@ -256,7 +249,6 @@ def _show_improving(
             f"0x{imp_va:08x}",
             f"{imp_size}B",
             Text(delta_str, style=delta_style),
-            info["origin"],
             info["filename"],
             info.get("blocker", ""),
         )
@@ -267,7 +259,7 @@ def _show_improving(
         console.print()
         for imp_va, imp_size, _delta, info in matching_items[:count]:
             symbol = info.get("symbol") or f"_func_{imp_va:08x}"
-            imp_cflags = cfg.resolve_origin_cflags(info["origin"])
+            imp_cflags = cfg.base_cflags or "/O2 /Gd"
             rel_path = f"{cfg.reversed_dir.name}/{info['filename']}"
             if info.get("symbol"):
                 console.print(
@@ -339,7 +331,6 @@ def _build_recommendations(
     iat_set: set[int],
     ignored: set[str],
     cfg: Any,
-    origin_filter: str | None,
     min_size: int,
     max_size: int,
 ) -> list[UncoveredItem]:
@@ -388,11 +379,7 @@ def _build_recommendations(
         if size < min_size or size > max_size:
             continue
 
-        origin = detect_origin(va, name, cfg)
-        if origin_filter and origin != origin_filter:
-            continue
-
-        difficulty, reason = estimate_difficulty(size, name, origin, ignored, cfg=cfg)
+        difficulty, reason = estimate_difficulty(size, name, ignored=ignored, cfg=cfg)
         if difficulty == 0:
             continue
 
@@ -423,9 +410,9 @@ def _build_recommendations(
             except (OSError, ValueError, KeyError, MemoryError):
                 pass
 
-        uncovered.append((difficulty, size, va, name, origin, reason, neighbor, similarity))
+        uncovered.append((difficulty, size, va, name, reason, neighbor, similarity))
 
-    uncovered.sort(key=lambda x: (-x[7], x[0], x[1]))
+    uncovered.sort(key=lambda x: (-x[6], x[0], x[1]))
     return uncovered
 
 
@@ -450,19 +437,18 @@ def _display_groups(
             grp_va_hi = max(item[2] for item in grp)
             grp_neighbor = None
             for item in grp:
-                if item[6]:
-                    grp_neighbor = item[6]
+                if item[5]:
+                    grp_neighbor = item[5]
                     break
             funcs = [
                 {
                     "va": f"0x{fva:08x}",
                     "size": fsz,
                     "difficulty": fdiff,
-                    "origin": forg,
                     "name": fname,
                     "similarity": fsim,
                 }
-                for fdiff, fsz, fva, fname, forg, _, _, fsim in grp
+                for fdiff, fsz, fva, fname, _, _, fsim in grp
             ]
             json_groups.append(
                 {
@@ -494,8 +480,8 @@ def _display_groups(
         va_hi = max(item[2] for item in grp)
         neighbor = None
         for item in grp:
-            if item[6]:
-                neighbor = item[6]
+            if item[5]:
+                neighbor = item[5]
                 break
 
         title = (
@@ -508,12 +494,11 @@ def _display_groups(
         table.add_column("VA", style="cyan")
         table.add_column("Size", justify="right")
         table.add_column("Diff")
-        table.add_column("Origin", justify="right", style="dim")
         table.add_column("Name", style="magenta")
 
-        for diff, grp_size, grp_va, grp_name, grp_origin, _reason, _, _sim in grp:
+        for diff, grp_size, grp_va, grp_name, _reason, _, _sim in grp:
             stars = "*" * diff
-            table.add_row(f"0x{grp_va:08x}", f"{grp_size}B", stars, grp_origin, grp_name)
+            table.add_row(f"0x{grp_va:08x}", f"{grp_size}B", stars, grp_name)
 
         console.print(table)
 
@@ -526,7 +511,7 @@ def _display_groups(
             else:
                 first = grp[0]
                 console.print(f"  [dim]GEN:[/] rebrew skeleton 0x{first[2]:08x}")
-                fname = make_filename(first[2], first[3], first[4])
+                fname = make_filename(first[2], first[3])
                 for item in grp[1:]:
                     console.print(
                         f"  [dim]GEN:[/] rebrew skeleton 0x{item[2]:08x} --append {fname}"
@@ -556,7 +541,6 @@ def _display_recommendations(
             rec_size,
             rec_va,
             rec_name,
-            rec_origin,
             rec_reason,
             neighbor,
             sim,
@@ -565,7 +549,7 @@ def _display_recommendations(
                 suggested_file = f"{cfg.reversed_dir.name}/{neighbor}"
                 suggested_action = "append"
             else:
-                fname = make_filename(rec_va, rec_name, rec_origin, cfg=cfg)
+                fname = make_filename(rec_va, rec_name, cfg=cfg)
                 suggested_file = f"{cfg.reversed_dir.name}/{fname}"
                 suggested_action = "create"
             items.append(
@@ -575,7 +559,6 @@ def _display_recommendations(
                     "size": rec_size,
                     "difficulty": diff,
                     "similarity": sim,
-                    "origin": rec_origin,
                     "name": rec_name,
                     "reason": rec_reason,
                     "neighbor_file": neighbor,
@@ -599,12 +582,11 @@ def _display_recommendations(
     table.add_column("Size", justify="right")
     table.add_column("Diff")
     table.add_column("Sim", justify="right")
-    table.add_column("Origin", justify="right", style="dim")
     table.add_column("Name", style="magenta")
     table.add_column("Reason")
     table.add_column("Target", style="dim")
 
-    for i, (diff, rec_size, rec_va, rec_name, rec_origin, rec_reason, neighbor, sim) in enumerate(
+    for i, (diff, rec_size, rec_va, rec_name, rec_reason, neighbor, sim) in enumerate(
         uncovered[:count], 1
     ):
         stars = "*" * diff
@@ -616,7 +598,6 @@ def _display_recommendations(
             f"{rec_size}B",
             stars,
             sim_str,
-            rec_origin,
             rec_name,
             rec_reason,
             target,
@@ -643,7 +624,7 @@ def _display_recommendations(
 
     console.print()
     console.print("To generate a skeleton: [cyan]rebrew skeleton 0x<VA>[/]")
-    console.print("To generate a batch:    [cyan]rebrew skeleton --batch 10 --origin GAME[/]")
+    console.print("To generate a batch:    [cyan]rebrew skeleton --batch 10[/]")
 
 
 # ---------------------------------------------------------------------------
@@ -654,9 +635,6 @@ def _display_recommendations(
 @app.callback(invoke_without_command=True)
 def main(
     count: int = typer.Option(20, "--count", "-n", help="Number of recommendations"),
-    origin_filter: str | None = typer.Option(
-        None, "--origin", "-o", help="Filter by origin (GAME, MSVCRT, ZLIB)"
-    ),
     improving: bool = typer.Option(
         False, "--improving", "-i", help="Show MATCHING functions to improve"
     ),
@@ -709,7 +687,6 @@ def main(
         iat_set,
         ignored,
         cfg,
-        origin_filter,
         min_size,
         max_size,
     )

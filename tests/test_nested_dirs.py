@@ -24,7 +24,6 @@ STUB_TEMPLATE = """\
 // ORIGIN: {origin}
 // SIZE: {size}
 // CFLAGS: /O2 /Gd
-// SYMBOL: {symbol}
 {blocker}
 void __cdecl {symbol_bare}(void)
 {{
@@ -47,7 +46,6 @@ GLOBAL_TEMPLATE = """\
 // ORIGIN: GAME
 // SIZE: 64
 // CFLAGS: /O2 /Gd
-// SYMBOL: _{func}
 
 // GLOBAL: SERVER 0x{global_va:08X}
 extern int {name};

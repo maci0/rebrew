@@ -1,6 +1,6 @@
 """naming.py - Shared function analysis and naming utilities.
 
-Provides function classification (origin detection, difficulty estimation,
+Provides function classification (difficulty estimation,
 unmatchable detection), naming conventions (filename generation, sanitization),
 and data loading helpers shared across multiple CLI tools.
 
@@ -21,8 +21,8 @@ from rebrew.annotation import parse_c_file_multi, parse_library_header
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 
-# 8-tuple: (difficulty, size, va, name, origin, reason, neighbor_file, similarity)
-UncoveredItem = tuple[int, int, int, str, str, str, str | None, float]
+# 7-tuple: (difficulty, size, va, name, reason, neighbor_file, similarity)
+UncoveredItem = tuple[int, int, int, str, str, str | None, float]
 
 # ---------------------------------------------------------------------------
 # Unmatchable function detection
@@ -152,35 +152,14 @@ def parse_byte_delta(blocker: str) -> int | None:
 
 
 # ---------------------------------------------------------------------------
-# Origin detection and difficulty estimation
+# Difficulty estimation
 # ---------------------------------------------------------------------------
-
-
-def detect_origin(va: int, name: str, cfg: ProjectConfig) -> str:
-    """Detect function origin based on VA, name, and config rules.
-
-    Uses project-specific heuristics (zlib_vas, game_range_end) for known
-    origins, then falls back to cfg.default_origin or the first configured origin.
-    """
-    zlib_vas = set(cfg.zlib_vas or [])
-    if va in zlib_vas:
-        return "ZLIB"
-    game_range_end = cfg.game_range_end
-    if game_range_end and va >= game_range_end:
-        return "MSVCRT"
-    if name.startswith(("__", "_crt")):
-        return "MSVCRT"
-    default = cfg.default_origin or ""
-    if default:
-        return default
-    origins = cfg.origins or []
-    return origins[0] if origins else "GAME"
 
 
 def estimate_difficulty(
     size: int,
     name: str,
-    origin: str,
+    module: str = "",
     ignored: set[str] | None = None,
     cfg: ProjectConfig | None = None,
 ) -> tuple[int, str]:
@@ -188,15 +167,13 @@ def estimate_difficulty(
     if ignored and name in ignored:
         return 0, "ASM builtin / ignored symbol (skip)"
 
-    lib_origins = cfg.library_origins if cfg else None
-    if lib_origins is None:
-        lib_origins = {"ZLIB", "MSVCRT"}
-    if origin in lib_origins:
+    lib_modules = cfg.library_modules if cfg else set()
+    if module in lib_modules:
         if size < 100:
-            return 2, f"small {origin} function, reference source available"
-        return 3, f"{origin} function, check reference sources"
+            return 2, f"small {module} function, reference source available"
+        return 3, f"{module} function, check reference sources"
 
-    # Primary origin (GAME or equivalent)
+    # Standard function
     if size < 80:
         return 1, "tiny function, likely simple getter/setter"
     if size < 150:
@@ -248,7 +225,6 @@ def load_data(
                 "filename": rel_name,
                 "size": str(entry.size),
                 "status": entry.status,
-                "origin": entry.origin,
                 "blocker": entry.blocker,
                 "blocker_delta": str(entry.blocker_delta)
                 if entry.blocker_delta is not None
@@ -267,7 +243,6 @@ def load_data(
                 "filename": hfile.name,
                 "size": str(entry.size),
                 "status": entry.status,
-                "origin": entry.origin,
                 "blocker": "",
                 "blocker_delta": "",
                 "symbol": entry.symbol,
@@ -442,7 +417,6 @@ def sanitize_name(ghidra_name: str) -> str:
 def make_filename(
     va: int,
     ghidra_name: str,
-    origin: str,
     custom_name: str | None = None,
     cfg: ProjectConfig | None = None,
 ) -> str:

@@ -25,7 +25,6 @@ Rebrew extends the reccmp baseline with:
 | `DATA` marker | Marks standalone global data (`// DATA: MODULE 0xVA`) |
 | `STUB` marker | Marks incomplete implementations (`STATUS: STUB`) — not a reccmp marker |
 | `STATUS` key | Track match quality (EXACT, RELOC, MATCHING, etc.) |
-| `ORIGIN` key | Code provenance — config-driven (e.g. GAME, MSVCRT, ZLIB) |
 | `CFLAGS` key | Compiler flags needed to reproduce original compilation |
 | `SIZE` key | Function/data size in bytes from the original binary |
 | `SOURCE` key | Reference file for library functions |
@@ -47,25 +46,25 @@ All rebrew-specific keys use unique names that reccmp's parser safely ignores, s
 
 ## Function Annotations
 
-Every `.c` file containing a reversed function must begin with a header block:
+Every `.c` file containing a reversed function must begin with a **marker line**:
 
 ```c
 // MARKER: MODULE 0xVA
-// STATUS: value
-// ORIGIN: value
-// SIZE: bytes
 ```
 
-> `CFLAGS` is **optional** — when omitted, the target's default flags from
-> `rebrew-project.toml` (`base_cflags` / `cflags_presets`) are used automatically.
+That's it. All metadata (STATUS, SIZE, CFLAGS, BLOCKER, etc.) lives in the `rebrew-functions.toml`
+sidecar found via walk-up from the source file's directory (rebrew climbs parent dirs
+until  is found), managed automatically by the CLI tools.
+
+> [!CAUTION]
+> **Never manually add STATUS, SIZE, or CFLAGS to a `.c` file.** These are managed
+> by `rebrew promote`, `rebrew match`, and `rebrew sync`. Manual edits to `rebrew-functions.toml`
+> or volatile annotation lines in `.c` files will be overwritten or ignored.
 
 ### Example
 
 ```c
 // FUNCTION: SERVER 0x10008880
-// STATUS: EXACT
-// ORIGIN: GAME
-// SIZE: 31
 
 int __cdecl bit_reverse(int x)
 {
@@ -73,13 +72,20 @@ int __cdecl bit_reverse(int x)
 }
 ```
 
+`rebrew-functions.toml` (found via walk-up, managed by tools):
+```toml
+["0x10008880"]
+status = "EXACT"
+size = 31
+```
+
 ### Marker Types (Functions)
 
 | Marker | When to use |
 |--------|-------------|
-| `FUNCTION` | Game code (`ORIGIN: GAME`) that isn't a stub |
-| `LIBRARY` | Third-party library code (origins listed in `library_origins` config) |
-| `STUB` | Incomplete implementation (any origin, `STATUS: STUB`) |
+| `FUNCTION` | Non-library game code that isn't a stub |
+| `LIBRARY` | Third-party library code (modules configured as `library_origins` in config) |
+| `STUB` | Incomplete implementation (`STATUS: STUB`) |
 
 Format: `// MARKER: MODULE 0xVA`
 
@@ -94,21 +100,29 @@ Format: `// MARKER: MODULE 0xVA`
 |-----|:---------:|--------|-------------|
 | Marker line | **Mandatory** | E001 | `// FUNCTION:`, `// LIBRARY:`, or `// STUB:` with MODULE and VA |
 | `STATUS` | **Mandatory** | E003, E004 | Match quality (see below) |
-| `ORIGIN` | **Mandatory** | E005, E006 | Code provenance (see below) |
 | `SIZE` | **Mandatory** | E007, E008 | Function size in bytes from the original binary |
-| `CFLAGS` | Optional | W018 | Compiler flags to reproduce original compilation (e.g. `/O2 /Gd`). Falls back to `base_cflags` from project config. Only warns if both annotation and config are missing. |
+| `CFLAGS` | Optional | W018 | Per-function compiler flag override. Falls back to the target's `base_cflags` / `cflags_presets` in `rebrew-project.toml`. Only needed for functions compiled with non-default flags (e.g. a static lib linked with `/O1` into an `/O2` binary). |
 | `SOURCE` | Conditional | W006 | **Required for library origins** — reference file (e.g. `SBHEAP.C:195`, `deflate.c`). Use `rebrew crt-match --fix-source` to auto-populate. |
-| `BLOCKER` | Conditional | W005 | **Required for STUB** — explain why the function doesn't match yet. Auto-added by `rebrew promote` on demotion with match ratio. |
-| `NOTE` | Optional | — | Freeform notes (e.g. `NOTE: uses SSE2 intrinsics`) |
-| `GHIDRA` | Optional | — | The Ghidra name, added by `rebrew sync --pull --accept-local` to prevent conflict loops |
+| `BLOCKER` | Conditional | W005 | **Required for STUB** — explain why the function doesn't match yet. Now lives in `rebrew-functions.toml` sidecar; auto-added by `rebrew promote` on demotion. |
+| `NOTE` | Optional | — | Freeform notes (e.g. `NOTE: uses SSE2 intrinsics`) — lives in sidecar |
+| `GHIDRA` | Optional | — | The Ghidra name, added by `rebrew sync --pull --accept-local` to prevent conflict loops — lives in sidecar |
 | `STRUCT` | Optional | — | Linked structs for this file |
 | `CALLERS` | Optional | — | Incoming cross-references |
 | `GLOBALS` | Optional | — | Comma-separated list of globals referenced (e.g. `g_counter, g_state`) |
 | `SKIP` | Optional | — | Known acceptable byte differences (e.g. `SKIP: xor edi,edi after call`) |
-| `ANALYSIS` | Optional | — | Freeform analysis notes from decompiler or reverse engineer (e.g. `ANALYSIS: vtable dispatch, 3 virtual calls`) |
+| `ANALYSIS` | Optional | — | Freeform analysis notes from decompiler or reverse engineer |
+
+> [!CAUTION]
+> **Never manually edit `rebrew-functions.toml`.** This sidecar file stores volatile metadata
+> (STATUS, CFLAGS, SIZE, BLOCKER, NOTE, GHIDRA, etc.) and is managed exclusively by
+> Rebrew CLI tools (`rebrew promote`, `rebrew match`, `rebrew sync`, etc.).
+> Manual edits will be silently lost or may corrupt the file.
 
 > [!TIP]
-> **Rule of thumb**: Marker, STATUS, ORIGIN, and SIZE are enforced as errors — missing any of them will fail CI. `CFLAGS` is optional (falls back to the target default from config). `SOURCE` and `BLOCKER` are enforced as warnings only for specific origins/statuses. Function name and symbol are derived automatically from the C function definition.
+> **Rule of thumb**: Marker, STATUS, and SIZE are enforced as errors by the linter — missing any
+> of them will fail CI. CFLAGS is optional and falls back to the target default from config.
+> `SOURCE` and `BLOCKER` are enforced as warnings only for specific origins/statuses. Function
+> name and symbol are derived automatically from the C function definition.
 
 ### STATUS Values
 
@@ -121,22 +135,15 @@ Format: `// MARKER: MODULE 0xVA`
 | `PROVEN` | Semantically equivalent, proven via symbolic execution (angr + Z3) |
 | `STUB` | Placeholder, doesn't match yet |
 
-### ORIGIN Values
+### Origin / Compiler Preset Configuration
 
-Origins are **config-driven** — each project defines its own in `rebrew-project.toml`. Example defaults:
-
-| Origin | Meaning | Default CFLAGS |
-|--------|---------|----------------|
-| `GAME` | Original game code | `/O2 /Gd` |
-| `MSVCRT` | Microsoft Visual C++ runtime library | `/O1` |
-| `ZLIB` | zlib compression library | `/O2` |
-
-Configure in `rebrew-project.toml`:
+Origin is a **project-level concept** — not a per-function `.c` annotation. Each project
+configures its own origins (compiler profiles) in `rebrew-project.toml`:
 
 ```toml
 [targets."server.dll"]
-origins = ["GAME", "MSVCRT", "ZLIB"]       # valid ORIGIN values
-default_origin = "GAME"                      # default when not specified
+origins = ["GAME", "MSVCRT", "ZLIB"]       # known compiler profiles
+default_origin = "GAME"                      # applied when unspecified
 library_origins = ["MSVCRT", "ZLIB"]         # origins using LIBRARY marker
 
 [targets."server.dll".origin_comments]       # skeleton preamble per origin
@@ -148,7 +155,9 @@ GAME = "Implement based on Ghidra decompilation"
 MSVCRT = "Implement from CRT source"
 ```
 
-If `library_origins` is not set, it defaults to all origins except the first (the first origin is treated as the primary/FUNCTION origin).
+The origin is **inferred from the module name** — either via the `default_origin` setting
+or by matching the module against `library_origins`. There is no `// ORIGIN:` annotation
+in `.c` files.
 
 ---
 
@@ -158,60 +167,91 @@ Global variables, dispatch tables, const arrays, and string tables live in the d
 
 ### Format
 
+The **reccmp-compatible marker line** stays in the `.c` file.  All rebrew-specific
+metadata (SIZE, SECTION, NOTE) lives in the **`rebrew-data.toml` sidecar** — the
+data analogue of `rebrew-functions.toml` (also found via walk-up from the source file's directory).
+
+**`.c` file** (only the stable identity):
 ```c
 // DATA: MODULE 0xVA
-// SIZE: bytes
-// SECTION: .data | .rdata | .bss
-// ORIGIN: value
-// NOTE: optional description
+
+extern type name;
+```
+
+**`rebrew-data.toml`** (found via walk-up from source dir, auto-managed):
+```toml
+["MODULE.0xVA"]
+size    = <bytes>
+section = ".data" | ".rdata" | ".bss"
+note    = "optional description"
 ```
 
 ### Examples
 
 #### Named global variable (.data)
 
+`.c` file:
 ```c
 // DATA: SERVER 0x1002c5a0
-// SIZE: 32
-// SECTION: .data
-// ORIGIN: GAME
-// NOTE: dispatch table for packet handlers
+
 extern dispatch_fn g_packet_handlers[8];
+```
+
+`rebrew-data.toml`:
+```toml
+["SERVER.0x1002c5a0"]
+size    = 32
+section = ".data"
+note    = "dispatch table for packet handlers"
 ```
 
 #### Const lookup table (.rdata)
 
+`.c` file:
 ```c
 // DATA: SERVER 0x10025000
-// SIZE: 256
-// SECTION: .rdata
-// ORIGIN: GAME
-// NOTE: sprite index lookup table
+
 const unsigned char g_sprite_lut[256] = { 0x00, 0x01, /* ... */ };
+```
+
+`rebrew-data.toml`:
+```toml
+["SERVER.0x10025000"]
+size    = 256
+section = ".rdata"
+note    = "sprite index lookup table"
 ```
 
 #### Uninitialized state (.bss)
 
+`.c` file:
 ```c
 // DATA: SERVER 0x10031b78
-// SIZE: 4
-// SECTION: .bss
-// ORIGIN: GAME
+
 extern int g_frame_counter;
+```
+
+`rebrew-data.toml`:
+```toml
+["SERVER.0x10031b78"]
+size    = 4
+section = ".bss"
 ```
 
 ### Annotation Keys (Data)
 
-| Key | Required? | Description |
-|-----|:---------:|-------------|
-| `DATA` marker | **Mandatory** | `// DATA: MODULE 0xVA` — the data address in the original binary |
-| `SIZE` | **Mandatory** | Size of the data item in bytes |
-| `SECTION` | **Mandatory** | Which PE section: `.data`, `.rdata`, or `.bss` |
-| `ORIGIN` | **Recommended** | Code provenance (per project's configured origins) |
-| `NOTE` | Optional | Description of the data item's purpose |
+| Key | Location | Required? | Description |
+|-----|----------|:---------:|-------------|
+| `DATA` marker | `.c` file | **Mandatory** | `// DATA: MODULE 0xVA` — the data address in the original binary |
+| `name` | `rebrew-data.toml` | Optional | Preferred variable name (overrides C stem; import target from BinSync/IDA) |
+| `size` | `rebrew-data.toml` | Recommended | Size of the data item in bytes |
+| `section` | `rebrew-data.toml` | Recommended | Which PE section: `.data`, `.rdata`, or `.bss` |
+| `note` | `rebrew-data.toml` | Optional | Description of the data item's purpose |
 
 > [!NOTE]
 > `DATA` markers are recognized and tracked as first-class citizens by `rebrew data` and `rebrew catalog`.
+> The `rebrew-data.toml` sidecar is created and updated automatically by rebrew tools.
+> **Never edit it manually.**
 
 ### Filename Convention
 
@@ -246,6 +286,8 @@ The linter (W007) will warn if a file defining structs lacks the `// SIZE 0xNN` 
 
 The linter validates annotation headers in all `.c` files under the reversed source directory. It enforces the format described above and catches common mistakes.
 
+Before running validation, the linter loads the **`rebrew-functions.toml`** sidecar for each directory and overlays any fields it contains into the annotation being checked. This means that files whose STATUS, SIZE, CFLAGS etc. live only in the sidecar (no inline annotation) will still pass validation correctly — sidecar values count just as much as inline values.
+
 ```
 Usage:  rebrew lint [OPTIONS]
 ```
@@ -268,12 +310,11 @@ Errors indicate broken annotations that will cause `rebrew test`, `rebrew verify
 |------|-------------|--------------|
 | E003 | Missing `STATUS` | No `// STATUS:` line in header |
 | E004 | Invalid STATUS value | `STATUS: DONE` or other non-standard value (valid: EXACT, RELOC, MATCHING, MATCHING_RELOC, PROVEN, STUB) |
-| E005 | Missing `ORIGIN` | No `// ORIGIN:` line in header |
-| E006 | Invalid ORIGIN value | `ORIGIN: UNKNOWN` — must be in `origins` list from `rebrew-project.toml` (falls back to GAME, MSVCRT, ZLIB) |
+| E006 | *(reserved)* | Unused — was ORIGIN validation |
 | E007 | Missing `SIZE` | No `// SIZE:` line in header |
 | E008 | Invalid SIZE value | `SIZE: -1`, `SIZE: 0`, `SIZE: abc` |
 | E014 | Corrupted annotation value | Literal `\n` inside a field value (typically from a line-wrapping bug) |
-| E015 | Marker/ORIGIN mismatch | `// FUNCTION:` with a library origin (expected `LIBRARY`). Library origins defined by `library_origins` config |
+| E015 | Marker/module mismatch | `// FUNCTION:` with a library-configured module (expected `LIBRARY`). Library modules defined by `library_origins` config |
 | E017 | Contradictory status/marker | `STATUS: MATCHING` on a `// STUB:` marker |
 
 #### Config-Aware Errors (require `rebrew-project.toml`)
@@ -300,14 +341,14 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 |------|-------------|--------------|
 | W003 | No function implementation | File has annotations but no C code body |
 | W005 | STUB missing `BLOCKER` | `STATUS: STUB` without `// BLOCKER:` explaining why |
-| W006 | Library missing `SOURCE` | Library origin (per `library_origins` config) without `// SOURCE:` pointing to reference file |
+| W006 | Library missing `SOURCE` | Library module (per `library_origins` config) without `// SOURCE:` pointing to reference file |
 | W007 | Struct without SIZE annotation | File defines `typedef struct` but lacks `// SIZE 0xNN` comment |
 
 #### Format Migration Warnings
 
 | Code | Description | Triggered by |
 |------|-------------|--------------|
-| W002 | Old single-line format | `/* func @ 0xVA (NB) - /flags - STATUS [ORIGIN] */` — run `--fix` |
+| W002 | Old single-line format | `/* func @ 0xVA (NB) - /flags - STATUS */` — run `--fix` |
 | W012 | Block-comment format | `/* FUNCTION: SERVER 0x... */` — run `--fix` |
 | W013 | Javadoc format | `@address 0x...` / `@status RELOC` — run `--fix` |
 
@@ -317,6 +358,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 |------|-------------|--------------|
 | W008 | CFLAGS differ from preset | `CFLAGS: /O2 /Gd` on a `MSVCRT` function when preset says `/O1` |
 | W018 | Missing CFLAGS with no config fallback | No `// CFLAGS:` line **and** no `base_cflags` in project config — compile may use wrong flags |
+| W019 | *(reserved)* | Unused — was missing ORIGIN warning |
 | W010 | Unknown annotation key | `// FOOBAR: value` — key not in the known set |
 | W015 | Mixed-case VA hex digits | `0x10003Da0` — prefer consistent `0x10003da0` or `0x10003DA0` |
 
@@ -324,7 +366,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 
 | Code | Description | Triggered by |
 |------|-------------|--------------|
-| W016 | DATA/GLOBAL missing `SECTION` | `// DATA:` or `// GLOBAL:` marker without `// SECTION:` (.data, .rdata, .bss) |
+| W016 | DATA/GLOBAL missing `section` in sidecar | `// DATA:` or `// GLOBAL:` marker with no `section` in `rebrew-data.toml` (.data, .rdata, .bss) |
 | W017 | NOTE contains sync metadata | `NOTE: [rebrew] ...` — looks like auto-generated sync metadata, not a human note |
 
 ---
@@ -415,9 +457,6 @@ STATUS    RELOC       198
 STATUS    STUB        141
 STATUS    MATCHING     63
 STATUS    EXACT        60
-ORIGIN    MSVCRT      217
-ORIGIN    GAME        207
-ORIGIN    ZLIB         38
 MARKER    STUB        141
 MARKER    LIBRARY     114
 MARKER    FUNCTION    207
@@ -456,7 +495,6 @@ Run `rebrew lint --fix` to auto-migrate to the new multi-line format.
 ```c
 /* FUNCTION: SERVER 0x10003260 */
 /* STATUS: MATCHING */
-/* ORIGIN: GAME */
 /* SIZE: 183 */
 /* CFLAGS: /O2 /Gd */
 ```
@@ -469,7 +507,6 @@ Run `rebrew lint --fix` to auto-migrate to the new multi-line format.
  * @address 0x10003640
  * @size 132
  * @cflags /O2 /Gd
- * @origin GAME
  * @status RELOC
  */
 ```
@@ -496,6 +533,32 @@ void my_func() {}
 
 This allows you to test the identical C function against different binaries at different virtual addresses without duplicating source files.
 
+#### Version differences
+
+A common use-case is the same function appearing at a different VA across retail builds of the game. Annotate both addresses in the same file and rebrew diffing will test whichever target you select:
+
+```c
+// FUNCTION: SERVER_V1 0x10022340
+// FUNCTION: SERVER_V2 0x10023b10
+
+char *getenv(const char *name)
+{
+    /* implementation */
+}
+```
+
+`rebrew-project.toml` defines both as separate targets pointing to their respective DLL:
+
+```toml
+[targets."server_v1.dll"]
+marker = "SERVER_V1"
+
+[targets."server_v2.dll"]
+marker = "SERVER_V2"
+```
+
+Running `rebrew test --target SERVER_V2 getenv.c` will compile and diff against the v2 binary, ignoring the `SERVER_V1` annotation block entirely.
+
 ## Multi-Function Files
 
 A single `.c` file may contain **multiple `// FUNCTION:` annotation blocks**, each with its own `STATUS`, `SIZE`, etc. This enables grouping related functions together (e.g., all CRT environment functions in one file).
@@ -508,10 +571,6 @@ Each annotation block follows the same format as a single-function file. Blocks 
 
 ```c
 // FUNCTION: SERVER 0x10022340
-// STATUS: MATCHING
-// ORIGIN: MSVCRT
-// SIZE: 125
-// CFLAGS: /O1 /Gd
 
 char *getenv(const char *name)
 {
@@ -519,11 +578,6 @@ char *getenv(const char *name)
 }
 
 // FUNCTION: SERVER 0x10022f83
-// STATUS: STUB
-// BLOCKER: initial decompilation - needs analysis
-// ORIGIN: MSVCRT
-// SIZE: 110
-// CFLAGS: /O1 /Gd
 
 int _wsetenvp(void)
 {
@@ -630,7 +684,7 @@ add key-value annotation lines **after** the symbol line:
 reccmp's parser reads the marker + symbol, calls `_function_done()`, and resets to
 search state. The KV lines are invisible to reccmp but captured by rebrew.
 
-Supported KV keys: `STATUS`, `SIZE`, `CFLAGS`, `SOURCE`, `BLOCKER`, `NOTE`, `ORIGIN`.
+Supported KV keys: `STATUS`, `SIZE`, `CFLAGS`, `SOURCE`, `BLOCKER`, `NOTE`.
 
 Entries without explicit `STATUS` default to `EXACT`. Entries without `SIZE` default to 0
 (resolved from the function registry at catalog time).

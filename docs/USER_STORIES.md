@@ -58,8 +58,7 @@ graph TD
 ```mermaid
 graph TD
     A["Existing project with<br/>server.dll target"] --> B["rebrew cfg add-target client.exe<br/>--binary original/client.exe"]
-    B --> C["rebrew cfg add-origin ZLIB<br/>--target client.exe"]
-    C --> D["rebrew cfg set-cflags GAME<br/>'/O2 /Gd' --target client.exe"]
+    B --> D["rebrew cfg set-cflags GAME<br/>'/O2 /Gd' --target client.exe"]
     D --> E["Both targets in rebrew-project.toml"]
     E --> F["rebrew next --target client.exe"]
 
@@ -278,7 +277,7 @@ graph LR
     subgraph "Local (.c files)"
         L1["Function names<br/>& signatures"]
         L2["Struct definitions"]
-        L3["STATUS / ORIGIN<br/>annotations"]
+        L3["STATUS / SIZE<br/>metadata (sidecar)"]
     end
 
     subgraph "Ghidra Project"
@@ -396,7 +395,7 @@ graph TD
 > **As a Contributor**, I want the linter to catch annotation mistakes in my `.c` files so that all files follow the project's annotation standard.
 
 ### Acceptance Criteria
-- `rebrew lint` checks all annotation fields (FUNCTION, STATUS, ORIGIN, SIZE, CFLAGS)
+- `rebrew lint` checks all annotation fields (FUNCTION, STATUS, SIZE, CFLAGS)
 - Error codes E000–E017 for hard errors, W001–W017 for warnings
 - `rebrew lint --fix` auto-migrates old annotation formats
 - Running lint twice changes nothing (idempotent)
@@ -552,6 +551,6 @@ graph LR
 
 ### Acceptance Criteria
 - `$ rebrew rename old_func new_func` renames the C definition.
-- `// SYMBOL:` annotation is updated automatically.
 - All files importing `old_func` via `extern` statements are rewritten to use `new_func`.
 - The filename is changed if the stem matched `old_func`.
+- Symbol is derived automatically from the C function definition (no explicit `// SYMBOL:` annotation needed).

@@ -13,7 +13,7 @@ Supports three annotation formats:
    ``/* FUNCTION: SERVER 0x10003260 */``
 
 3. **Old (legacy)** — single-line shorthand from early decomp work:
-   ``/* name @ 0xVA (NB) - /flags - STATUS [ORIGIN] */``
+   ``/* name @ 0xVA (NB) - /flags - STATUS */``
 
 The parser always tries the new format first; the old format is a fallback.
 """
@@ -64,13 +64,16 @@ __all__ = [
 
 VALID_MARKERS = {"FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"}
 VALID_STATUSES = {"EXACT", "RELOC", "MATCHING", "MATCHING_RELOC", "STUB", "PROVEN"}
-# Default origins — used as fallback when config is not available.
-# Projects should define their own origins in rebrew-project.toml.
-DEFAULT_ORIGINS = {"GAME", "MSVCRT", "ZLIB"}
 
-REQUIRED_KEYS = {"STATUS", "ORIGIN", "SIZE", "CFLAGS"}
-RECOMMENDED_KEYS = {"SYMBOL"}
+# Keys that every function block must declare.
+# CFLAGS is intentionally excluded: it falls back to the project-wide base_cflags.
+REQUIRED_KEYS = {"STATUS", "SIZE"}
+# No recommended keys — all annotation metadata is either required or optional.
+RECOMMENDED_KEYS: set[str] = set()
 OPTIONAL_KEYS = {
+    # Volatile metadata (lives in rebrew-functions.toml sidecar, not in .c files)
+    "CFLAGS",  # overrides project default; rare (library with different flags)
+    # Other optional fields
     "ANALYSIS",
     "SOURCE",
     "BLOCKER",
@@ -81,21 +84,20 @@ OPTIONAL_KEYS = {
     "SECTION",
     "GHIDRA",
 }
-ALL_KNOWN_KEYS = REQUIRED_KEYS | RECOMMENDED_KEYS | OPTIONAL_KEYS | {"MARKER", "VA"}
+ALL_KNOWN_KEYS = REQUIRED_KEYS | OPTIONAL_KEYS | {"MARKER", "VA"}
 
 # ---------------------------------------------------------------------------
 # Regex patterns
 # ---------------------------------------------------------------------------
 
 # Old format regex — matches the one-liner:
-#   /* name @ 0xVA (NB) - /cflags - STATUS [ORIGIN] */
+#   /* name @ 0xVA (NB) - /cflags - STATUS */
 # Named groups:
 #   name   — function name (e.g. "bit_reverse")
 #   va     — virtual address hex (e.g. "0x10008880")
 #   size   — size in bytes (e.g. "31")
 #   cflags — compiler flags (e.g. "/O2 /Gd")
 #   status — status string (e.g. "MATCHED")
-#   origin — origin tag (e.g. "GAME")
 OLD_RE = re.compile(
     r"/\*\s*"
     r"(?P<name>\S+)"
@@ -106,7 +108,7 @@ OLD_RE = re.compile(
     r"(?P<cflags>[^-]+?)"
     r"\s*-\s*"
     r"(?P<status>[^[]+?)"
-    r"\s*\[(?P<origin>[A-Z]+)\]"
+    r"(?:\s*\[[A-Z]+\])?"
     r"\s*\*/"
 )
 
@@ -265,21 +267,19 @@ def normalize_cflags(raw: str) -> str:
     return raw.strip().rstrip(",").strip()
 
 
-def marker_for_origin(origin: str, status: str, library_origins: set[str] | None = None) -> str:
-    """Derive expected marker type from origin and status.
+def marker_for_module(module: str, status: str, library_modules: set[str] | None = None) -> str:
+    """Derive expected marker type from module name and status.
 
     Args:
-        origin: Origin tag (e.g. "GAME", "ZLIB").
+        module: Module identifier from the marker line (e.g. "SERVER", "MSVCRT").
         status: Status string (e.g. "EXACT", "STUB").
-        library_origins: Set of origins that should use LIBRARY marker.
-                         Defaults to {"ZLIB", "MSVCRT"} if not provided.
+        library_modules: Set of module names that should use LIBRARY marker.
+                         Defaults to empty set if not provided.
 
     """
     if status == "STUB":
         return "STUB"
-    if library_origins is None:
-        library_origins = {"ZLIB", "MSVCRT"}
-    if origin in library_origins:
+    if library_modules and module in library_modules:
         return "LIBRARY"
     return "FUNCTION"
 
@@ -327,7 +327,6 @@ class Annotation:
     symbol: str = ""
     module: str = ""
     status: str = ""
-    origin: str = ""
     cflags: str = ""
     marker_type: str = ""
     filepath: str = ""
@@ -383,7 +382,6 @@ class Annotation:
             "symbol": self.symbol,
             "module": self.module,
             "status": self.status,
-            "origin": self.origin,
             "cflags": self.cflags,
             "marker_type": self.marker_type,
             "filepath": self.filepath,
@@ -406,8 +404,7 @@ class Annotation:
     def validate(
         self,
         filepath: Path | None = None,
-        valid_origins: set[str] | None = None,
-        library_origins: set[str] | None = None,
+        library_modules: set[str] | None = None,
     ) -> tuple[list[str], list[str]]:
         """Validate annotation fields. Returns (errors, warnings)."""
         errors: list[str] = []
@@ -426,9 +423,6 @@ class Annotation:
 
         if self.status and self.status not in VALID_STATUSES:
             errors.append(f"Invalid STATUS: {self.status}")
-
-        if self.origin and self.origin not in (valid_origins or DEFAULT_ORIGINS):
-            errors.append(f"Invalid ORIGIN: {self.origin}")
 
         if self.size <= 0:
             errors.append(f"Invalid SIZE: {self.size}")
@@ -450,22 +444,21 @@ class Annotation:
                         "glued together (missing space?)"
                     )
 
-        # (SYMBOL is now derived from C definition — no warning needed)
-
-        _lib = library_origins if library_origins is not None else {"ZLIB", "MSVCRT"}
-        expected_marker = marker_for_origin(self.origin, self.status, _lib)
+        # Check marker consistency against module name
+        _lib = library_modules or set()
+        expected_marker = marker_for_module(self.module, self.status, _lib)
         if self.marker_type and self.marker_type != expected_marker:
             warnings.append(
-                f"Marker {self.marker_type} inconsistent with ORIGIN {self.origin} "
+                f"Marker {self.marker_type} inconsistent with module {self.module!r} "
                 f"(expected {expected_marker})"
             )
 
         if self.status == "STUB" and not self.blocker:
             warnings.append("STUB function missing BLOCKER annotation")
 
-        if self.origin in _lib and not self.source:
+        if self.module in _lib and not self.source:
             warnings.append(
-                f"{self.origin} function missing SOURCE annotation "
+                f"Library module {self.module!r} missing SOURCE annotation "
                 "(reference file, e.g. SBHEAP.C:195 or deflate.c)"
             )
 
@@ -481,7 +474,6 @@ def make_func_entry(
     name: str,
     symbol: str,
     status: str,
-    origin: str,
     cflags: str,
     marker_type: str,
     filepath: str,
@@ -492,7 +484,7 @@ def make_func_entry(
     inline_error: str = "",
     globals_list: list[str] | None = None,
 ) -> Annotation:
-    """Create an Annotation instance (backward-compat wrapper)."""
+    """Create an Annotation instance."""
     return Annotation(
         va=va,
         size=size,
@@ -500,7 +492,6 @@ def make_func_entry(
         symbol=symbol,
         module=module,
         status=status,
-        origin=origin,
         cflags=cflags,
         marker_type=marker_type,
         filepath=filepath,
@@ -517,20 +508,58 @@ def make_func_entry(
 # ---------------------------------------------------------------------------
 
 
-def update_size_annotation(filepath: Path, new_size: int, target_va: int | None = None) -> bool:
-    """Update the ``// SIZE: NNN`` annotation in a .c file.
+def _module_for_va(filepath: Path, va: int) -> str:
+    """Scan *filepath* for a marker line for *va* and return its module name.
 
-    Only increases size (safety: never shrinks a manually-set value).
-    Returns True if the file was modified, False otherwise.
+    Returns the module name (e.g. ``"SERVER"``) or an empty string if not found.
+    Used by annotation mutation helpers to route sidecar writes to the correct key.
+    """
+    _marker_re = re.compile(
+        r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*([\w.]+)\s+(0x[0-9a-fA-F]+)",
+        re.IGNORECASE,
+    )
+    try:
+        text = filepath.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    for line in text.splitlines():
+        m = _marker_re.search(line)
+        if m and int(m.group(2), 16) == va:
+            return m.group(1)
+    return ""
+
+
+def update_size_annotation(filepath: Path, new_size: int, target_va: int | None = None) -> bool:
+    """Update the SIZE for a function — writes to the sidecar when a VA is given.
+
+    When *target_va* is provided the new size is written to the ``rebrew-functions.toml``
+    sidecar in the same directory as *filepath* (only increasing, never
+    shrinking).  When *target_va* is None the legacy in-file ``// SIZE: NNN``
+    edit is performed on the first SIZE found (retained for callers that have
+    not been migrated yet).
+
+    Returns True if any change was made, False otherwise.
 
     Args:
-        filepath: Path to the .c source file.
+        filepath: Path to the .c source file (used to locate the directory).
         new_size: New SIZE value.
-        target_va: If set, only update the SIZE line belonging to the
-            annotation block whose FUNCTION marker contains this VA.
-            When None (default), updates the first SIZE found.
+        target_va: VA of the specific function to update.  Prefer passing this
+            — it routes the write to the sidecar instead of the .c file.
 
     """
+    # --- Sidecar path (preferred when VA is known) ---
+    if target_va is not None:
+        from rebrew.sidecar import get_entry, set_field
+
+        module = _module_for_va(filepath, target_va)
+        entry = get_entry(filepath.parent, target_va, module=module)
+        old_size = int(entry.get("size", 0))
+        if new_size <= old_size:
+            return False
+        set_field(filepath.parent, target_va, "size", new_size, module=module)
+        return True
+
+    # --- Legacy in-file path (no VA known) ---
     try:
         text = filepath.read_text(encoding="utf-8", errors="replace")
     except OSError as e:
@@ -582,12 +611,11 @@ def parse_old_format(line: str) -> Annotation | None:
     if not m:
         return None
     status = normalize_status(m.group("status"))
-    origin = m.group("origin").strip().upper()
     cflags = normalize_cflags(m.group("cflags"))
     name = m.group("name")
     module = ""  # OLD_RE has no module group; always empty for legacy format
 
-    mt = marker_for_origin(origin, status)
+    mt = "STUB" if status == "STUB" else "FUNCTION"
 
     ann = make_func_entry(
         va=int(m.group("va"), 16),
@@ -596,7 +624,6 @@ def parse_old_format(line: str) -> Annotation | None:
         symbol="_" + name,
         module=module,
         status=status,
-        origin=origin,
         cflags=cflags,
         marker_type=mt,
         filepath="",
@@ -699,8 +726,8 @@ def _kv_to_annotation(
     Prototype is extracted from the actual C function definition line when
     available.
 
-    ``// SYMBOL:`` and ``// PROTOTYPE:`` annotations are tolerated but
-    ignored for name/symbol/prototype derivation.
+    ``// SYMBOL:`` and ``// PROTOTYPE:`` annotations are no longer supported;
+    they are ignored during parsing and will trigger W010 (unknown key) in lint.
     """
     c_func_name = kv.get("_C_FUNC_NAME", "")
     c_func_proto = kv.get("_C_FUNC_PROTO", "")
@@ -749,7 +776,6 @@ def _kv_to_annotation(
         symbol=symbol,
         module=module,
         status=kv.get("STATUS", "RELOC"),
-        origin=kv.get("ORIGIN", "GAME"),
         cflags=kv.get("CFLAGS", ""),
         marker_type=marker_type,
         filepath="",
@@ -1011,12 +1037,19 @@ def parse_c_file_multi(
     filepath: Path,
     target_name: str | None = None,
     base_dir: Path | None = None,
+    sidecar_dir: Path | None = None,
 ) -> list[Annotation]:
     """Parse ALL annotation blocks from a decomp .c file.
 
     Returns a list of Annotations, one per ``// FUNCTION:`` marker found
     in the file.  For single-function files this returns a one-element list.
     Returns an empty list if no annotations are found.
+
+    When *sidecar_dir* is provided each returned Annotation is overlaid with
+    values from that directory's ``rebrew-functions.toml`` (sidecar wins for volatile
+    fields like STATUS, SIZE, CFLAGS, BLOCKER, NOTE, GHIDRA).  Pass
+    ``filepath.parent`` as *sidecar_dir* to enable sidecar merging for a
+    single-file call.
 
     Sets ``filepath`` on each returned Annotation.  When *base_dir* is
     given the stored path is relative to it; otherwise the bare filename.
@@ -1042,6 +1075,11 @@ def parse_c_file_multi(
         ]
         for entry in filtered_entries:
             entry.filepath = rel
+        if sidecar_dir is not None:
+            from rebrew.sidecar import merge_into_annotation
+
+            for entry in filtered_entries:
+                merge_into_annotation(entry, sidecar_dir)
         return filtered_entries
 
     # Fallback: try old format (first line only) — returns at most one
@@ -1054,6 +1092,10 @@ def parse_c_file_multi(
         ):
             return []
         fallback_entry.filepath = rel
+        if sidecar_dir is not None:
+            from rebrew.sidecar import merge_into_annotation
+
+            merge_into_annotation(fallback_entry, sidecar_dir)
         return [fallback_entry]
 
     return []
@@ -1085,8 +1127,6 @@ def parse_source_metadata(source_path: str | Path) -> dict[str, str]:
         meta[anno.marker_type] = va_hex
     if anno.status:
         meta["STATUS"] = anno.status
-    if anno.origin:
-        meta["ORIGIN"] = anno.origin
     if anno.size > 0:
         meta["SIZE"] = str(anno.size)
     if anno.cflags:
@@ -1113,10 +1153,22 @@ def parse_source_metadata(source_path: str | Path) -> dict[str, str]:
 
 
 def update_annotation_key(filepath: Path, va: int, key: str, new_value: str) -> bool:
-    """Update or add an annotation key like ``// SYMBOL: <value>`` for a specific VA.
+    """Update or add an annotation key for a specific VA.
 
-    Returns True if the file was modified, False otherwise.
+    For sidecar-owned keys (STATUS, SIZE, CFLAGS, BLOCKER, NOTE, GHIDRA, …)
+    the value is written to the ``rebrew-functions.toml`` sidecar in the same directory
+    as *filepath*, leaving the ``.c`` file untouched.  For non-sidecar keys
+    (ORIGIN, SOURCE for library functions) the existing in-file edit logic
+    applies.
+
+    Returns True if any write was made, False otherwise.
     """
+    from rebrew.sidecar import is_sidecar_key, set_field
+
+    if is_sidecar_key(key):
+        module = _module_for_va(filepath, va)
+        set_field(filepath.parent, va, key.lower(), new_value, module=module)
+        return True
     try:
         text = filepath.read_text(encoding="utf-8", errors="replace")
     except OSError as e:
@@ -1186,24 +1238,6 @@ def update_annotation_key(filepath: Path, va: int, key: str, new_value: str) -> 
 # Library header parser
 # ---------------------------------------------------------------------------
 
-# Origin inference from library_*.h filename stems
-_LIBRARY_ORIGIN_MAP: dict[str, str] = {
-    "msvc": "MSVCRT",
-    "msvcrt": "MSVCRT",
-    "crt": "MSVCRT",
-    "zlib": "ZLIB",
-}
-
-
-def _infer_library_origin(stem: str) -> str:
-    """Infer ORIGIN from a library_*.h filename stem.
-
-    Strips the ``library_`` prefix and maps known suffixes to canonical
-    origin names.  Unknown suffixes are uppercased as-is.
-    """
-    suffix = stem.removeprefix("library_").lower()
-    return _LIBRARY_ORIGIN_MAP.get(suffix, suffix.upper())
-
 
 def parse_library_header(
     filepath: Path,
@@ -1244,7 +1278,6 @@ def parse_library_header(
     if not lines:
         return []
 
-    origin = _infer_library_origin(filepath.stem)
     results: list[Annotation] = []
 
     i = 0
@@ -1302,10 +1335,9 @@ def parse_library_header(
                     va=va,
                     size=size,
                     name=symbol.lstrip("_") if symbol else "",
-                    symbol=kv.get("SYMBOL", symbol),
+                    symbol=symbol,
                     module=module,
                     status=kv.get("STATUS", "EXACT"),
-                    origin=kv.get("ORIGIN", origin),
                     cflags=kv.get("CFLAGS", ""),
                     marker_type="LIBRARY",
                     filepath=filepath.name,
@@ -1321,10 +1353,19 @@ def parse_library_header(
 
 
 def remove_annotation_key(filepath: Path, va: int, key: str) -> bool:
-    """Remove an annotation key like ``// BLOCKER: <value>`` for a specific VA.
+    """Remove an annotation key for a specific VA.
 
-    Returns True if the file was modified, False otherwise.
+    For sidecar-owned keys the matching field is deleted from ``rebrew-functions.toml``.
+    For non-sidecar keys the existing in-file removal logic applies.
+
+    Returns True if any change was made, False otherwise.
     """
+    from rebrew.sidecar import delete_field, is_sidecar_key
+
+    if is_sidecar_key(key):
+        module = _module_for_va(filepath, va)
+        delete_field(filepath.parent, va, key.lower(), module=module)
+        return True
     try:
         text = filepath.read_text(encoding="utf-8", errors="replace")
     except OSError as e:

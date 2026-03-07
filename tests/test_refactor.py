@@ -160,7 +160,10 @@ class TestEstimateDifficulty:
         assert d > 0
 
     def test_zlib_easy(self) -> None:
-        d, _ = estimate_difficulty(50, "deflate", "ZLIB")
+        from types import SimpleNamespace
+
+        cfg = SimpleNamespace(library_modules={"ZLIB"})
+        d, _ = estimate_difficulty(50, "deflate", "ZLIB", cfg=cfg)
         assert d == 2  # small library origin with reference source
 
     def test_small_game_easy(self) -> None:

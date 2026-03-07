@@ -145,8 +145,6 @@ class TestLintFile:
     def test_with_config(self, tmp_path) -> None:
         cfg = ProjectConfig(
             root=Path("/tmp"),
-            origins=["GAME", "MSVCRT"],
-            cflags_presets={"GAME": "/O2 /Gd"},
             marker="SERVER",
         )
         f = _make_c_file(tmp_path)

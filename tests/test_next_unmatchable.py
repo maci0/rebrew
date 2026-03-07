@@ -6,7 +6,6 @@ from pathlib import Path
 from rebrew.binary_loader import BinaryInfo, SectionInfo
 from rebrew.config import ProjectConfig
 from rebrew.naming import (
-    detect_origin,
     detect_unmatchable,
     group_uncovered,
     ignored_symbols,
@@ -214,23 +213,6 @@ class TestIgnoredSymbols:
     def test_empty_list(self) -> None:
         cfg = ProjectConfig(root=Path("/tmp"), ignored_symbols=[])
         assert ignored_symbols(cfg) == set()
-
-
-# ---------------------------------------------------------------------------
-# detect_origin — getattr robustness
-# ---------------------------------------------------------------------------
-
-
-class TestDetectOriginRobust:
-    def test_missing_game_range_end(self) -> None:
-        """Should not crash when cfg lacks game_range_end."""
-        cfg = ProjectConfig(root=Path("/tmp"), origins=["GAME"])
-        assert detect_origin(0x1000C000, "my_func", cfg) == "GAME"
-
-    def test_crt_prefix_without_game_range(self) -> None:
-        """CRT prefix detection should work regardless of game_range_end."""
-        cfg = ProjectConfig(root=Path("/tmp"), origins=["GAME", "MSVCRT"])
-        assert detect_origin(0x10001000, "__security_init_cookie", cfg) == "MSVCRT"
 
 
 # ---------------------------------------------------------------------------

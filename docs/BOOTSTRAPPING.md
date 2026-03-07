@@ -147,16 +147,17 @@ Each successful match becomes context for harder functions — creating a
 
 Decide on the origin categories for your binary and configure them in `rebrew-project.toml`.
 For a typical game DLL, the origins might be `GAME`, `MSVCRT`, and `ZLIB`. Define
-your own via the `origins`, `library_origins`, `origin_comments`, and
-`origin_todos` config keys. Example annotation:
+your own via the `origins`, `library_origins`, `cflags_presets`, and
+`origin_comments` config keys.
+
+The `.c` file contains **only the marker line**:
 
 ```c
 // FUNCTION: MYGAME 0x00401000
-// STATUS: STUB
-// ORIGIN: GAME
-// SIZE: 64
-// CFLAGS: /O2 /Gd
 ```
+
+All metadata (STATUS, SIZE, CFLAGS, BLOCKER) is managed by the CLI tools and stored
+in `rebrew-functions.toml` (found automatically via walk-up). **Never manually edit `rebrew-functions.toml`.**
 
 See [ANNOTATIONS.md](ANNOTATIONS.md) for the full annotation format reference.
 

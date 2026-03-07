@@ -1,4 +1,9 @@
-"""Tests for annotation round-trip fidelity (Idea 19)."""
+"""Tests for annotation round-trip fidelity (Idea 19).
+
+After the sidecar migration, volatile fields (STATUS, CFLAGS, BLOCKER, NOTE,
+GLOBALS, SIZE) are stored in rebrew-functions.toml rather than in the .c file. Round-trip
+reads must pass ``sidecar_dir`` to ``parse_c_file_multi`` to see them.
+"""
 
 from pathlib import Path
 
@@ -14,13 +19,7 @@ from rebrew.annotation import (
 def base_file(tmp_path: Path) -> Path:
     f = tmp_path / "test.c"
     f.write_text(
-        "// FUNCTION: MAIN 0x1000\n"
-        "// STATUS: STUB\n"
-        "// ORIGIN: GAME\n"
-        "// SIZE: 10\n"
-        "// CFLAGS: /O2\n"
-        "// SYMBOL: _start\n"
-        "void start() {}\n",
+        "// FUNCTION: MAIN 0x1000\n// SYMBOL: _start\nvoid start() {}\n",
         encoding="utf-8",
     )
     return f
@@ -38,13 +37,13 @@ def base_file(tmp_path: Path) -> Path:
     ],
 )
 def test_roundtrip_single_value(base_file: Path, key: str, initial_val: str, new_val: str) -> None:
-    """Test that writing a value and reading it back preserves the exact string."""
-    # Write
+    """Writing a sidecar field and reading it back preserves the exact string."""
+    # Write — goes to sidecar for sidecar-owned keys
     modified = update_annotation_key(base_file, 0x1000, key, new_val)
     assert modified
 
-    # Read
-    anns = parse_c_file_multi(base_file)
+    # Read — must pass sidecar_dir to pick up the sidecar entries
+    anns = parse_c_file_multi(base_file, sidecar_dir=base_file.parent)
     assert len(anns) == 1
     ann = anns[0]
 
@@ -61,24 +60,18 @@ def test_roundtrip_multi_target(tmp_path: Path) -> None:
     f = tmp_path / "multi.c"
     f.write_text(
         "// FUNCTION: TARGET1 0x1000\n"
-        "// STATUS: EXACT\n"
-        "// ORIGIN: GAME\n"
-        "// SIZE: 10\n"
-        "// CFLAGS: /O2\n"
+        "// SYMBOL: _func_a\n"
         "\n"
         "// FUNCTION: TARGET2 0x2000\n"
-        "// STATUS: STUB\n"
-        "// ORIGIN: ZLIB\n"
-        "// SIZE: 20\n"
-        "// CFLAGS: /O1\n"
+        "// SYMBOL: _func_b\n"
         "void func() {}\n",
         encoding="utf-8",
     )
 
-    # Update TARGET1
+    # Update TARGET1 status → goes to sidecar
     update_annotation_key(f, 0x1000, "STATUS", "RELOC")
 
-    anns = parse_c_file_multi(f)
+    anns = parse_c_file_multi(f, sidecar_dir=f.parent)
     assert len(anns) == 2
 
     # Verify TARGET1
@@ -87,12 +80,10 @@ def test_roundtrip_multi_target(tmp_path: Path) -> None:
 
     # Verify TARGET2 — name derived from C function def
     assert anns[1].va == 0x2000
-    assert anns[1].status == "STUB"
     assert anns[1].name == "func"
 
 
 def test_roundtrip_creates_missing_key(base_file: Path) -> None:
-    # BLOCKER doesn't exist initially
     update_annotation_key(base_file, 0x1000, "BLOCKER", "Loop unrolling")
-    anns = parse_c_file_multi(base_file)
+    anns = parse_c_file_multi(base_file, sidecar_dir=base_file.parent)
     assert anns[0].blocker == "Loop unrolling"

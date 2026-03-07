@@ -69,7 +69,7 @@ def verify_entry(
         return False, "Cannot extract DLL bytes", None, None, None
 
     matched, msg, obj_bytes, reloc_offsets = compile_and_compare(
-        cfg.for_origin(entry.origin),
+        cfg,
         cfile,
         symbol,
         target_bytes,
@@ -130,7 +130,6 @@ def _compiler_config_hash(cfg: ProjectConfig) -> str:
         cfg.base_cflags,
         str(cfg.compiler_includes),
         str(cfg.compiler_libs),
-        json.dumps(cfg.origin_compiler, sort_keys=True),
     ]
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
@@ -147,7 +146,6 @@ class VerifyResult:
     va: str | int
     size: int = 0
     filepath: str = ""
-    origin: str = ""
     name: str = ""
     symbol: str = ""
     delta: int | None = None
@@ -163,7 +161,6 @@ class VerifyResult:
             va=d.get("va", ""),
             size=int(d.get("size", 0)),
             filepath=str(d.get("filepath", "")),
-            origin=str(d.get("origin", "")),
             name=str(d.get("name", "")),
             symbol=str(d.get("symbol", "")),
             delta=d.get("delta"),
@@ -275,7 +272,6 @@ def _save_verify_cache(
             "va": va_key,
             "size": result.get("size", 0),
             "filepath": filepath,
-            "origin": result.get("origin", ""),
             "name": result.get("name", ""),
             "symbol": result.get("symbol", ""),
             "delta": result.get("delta", None),

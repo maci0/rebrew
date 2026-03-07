@@ -183,10 +183,10 @@ def main(
             )
         )
 
-        origin_counts: dict[str, int] = {}
+        module_counts: dict[str, int] = {}
         for va in fn_vas:
-            origin = by_va[va][0]["origin"]
-            origin_counts[origin] = origin_counts.get(origin, 0) + 1
+            module = by_va[va][0]["module"] or "GAME"
+            module_counts[module] = module_counts.get(module, 0) + 1
 
         done = exact + reloc + matching
         print("\n=== Rebrew Status ===")
@@ -197,9 +197,9 @@ def main(
             print(f"  MATCHING: {matching}")
         if stub:
             print(f"  STUB: {stub}")
-        print("By origin:")
-        for origin in sorted(origin_counts):
-            print(f"  {origin}: {origin_counts[origin]}")
+        print("By module:")
+        for module in sorted(module_counts):
+            print(f"  {module}: {module_counts[module]}")
 
         covered = 0
         for va in fn_vas:

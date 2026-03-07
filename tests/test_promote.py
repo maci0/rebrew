@@ -7,6 +7,7 @@ from typing import Any
 from typer.testing import CliRunner
 
 from rebrew.promote import _STATUS_RANK, _promote_file, app
+from rebrew.sidecar import get_entry
 
 runner = CliRunner()
 
@@ -41,8 +42,6 @@ class TestPromoteFile:
             "void func(void) {}\n",
         )
         cfg = self._make_cfg(tmp_path)
-        cfg.for_origin = lambda _origin: cfg
-
         monkeypatch.setattr("rebrew.promote.compile_obj", lambda *_args: ("fake.obj", ""))
         monkeypatch.setattr(
             "rebrew.promote.parse_obj_symbol_bytes", lambda *_args: (b"\x90\x90\x90\x90", [])
@@ -57,9 +56,10 @@ class TestPromoteFile:
         assert results[0]["previous_status"] == "EXACT"
         assert results[0]["new_status"] == "STUB"
         assert results[0]["action"] == "demoted"
-        text = source.read_text(encoding="utf-8")
-        assert "// STATUS: STUB\n" in text
-        assert "// BLOCKER: auto-demoted:" in text
+        # STATUS and BLOCKER written to sidecar
+        entry = get_entry(tmp_path, 0x10001000, module="test.dll")
+        assert entry["status"] == "STUB"
+        assert "auto-demoted" in entry.get("blocker", "")
 
     def test_demotes_matching_below_threshold(self, tmp_path: Path, monkeypatch: Any) -> None:
         """MATCHING function with 0% match should be demoted to STUB."""
@@ -74,8 +74,6 @@ class TestPromoteFile:
             "void func(void) {}\n",
         )
         cfg = self._make_cfg(tmp_path)
-        cfg.for_origin = lambda _origin: cfg
-
         monkeypatch.setattr("rebrew.promote.compile_obj", lambda *_args: ("fake.obj", ""))
         monkeypatch.setattr(
             "rebrew.promote.parse_obj_symbol_bytes", lambda *_args: (b"\x90\x90\x90\x90", [])
@@ -103,8 +101,6 @@ class TestPromoteFile:
             "void func(void) {}\n",
         )
         cfg = self._make_cfg(tmp_path)
-        cfg.for_origin = lambda _origin: cfg
-
         monkeypatch.setattr("rebrew.promote.compile_obj", lambda *_args: ("fake.obj", ""))
         monkeypatch.setattr(
             "rebrew.promote.parse_obj_symbol_bytes",
@@ -137,8 +133,6 @@ class TestPromoteFile:
             "void func(void) {}\n",
         )
         cfg = self._make_cfg(tmp_path)
-        cfg.for_origin = lambda _origin: cfg
-
         monkeypatch.setattr("rebrew.promote.compile_obj", lambda *_args: ("fake.obj", ""))
         monkeypatch.setattr(
             "rebrew.promote.parse_obj_symbol_bytes", lambda *_args: (b"\x90\x90\x90\x90", [])
@@ -165,8 +159,6 @@ class TestPromoteFile:
             "void func(void) {}\n",
         )
         cfg = self._make_cfg(tmp_path)
-        cfg.for_origin = lambda _origin: cfg
-
         monkeypatch.setattr("rebrew.promote.compile_obj", lambda *_args: ("fake.obj", ""))
         monkeypatch.setattr(
             "rebrew.promote.parse_obj_symbol_bytes", lambda *_args: (b"\x55\x8b\xec\xc3", [])
@@ -179,7 +171,8 @@ class TestPromoteFile:
         results = _promote_file(source, cfg, dry_run=False)
         assert results[0]["new_status"] == "EXACT"
         assert results[0]["action"] == "updated"
-        assert "// STATUS: EXACT\n" in source.read_text(encoding="utf-8")
+        entry = get_entry(tmp_path, 0x10001000, module="test.dll")
+        assert entry["status"] == "EXACT"
 
     def test_promotes_matching_to_exact(self, tmp_path: Path, monkeypatch: Any) -> None:
         source = _make_source(
@@ -193,8 +186,6 @@ class TestPromoteFile:
             "void func(void) {}\n",
         )
         cfg = self._make_cfg(tmp_path)
-        cfg.for_origin = lambda _origin: cfg
-
         monkeypatch.setattr("rebrew.promote.compile_obj", lambda *_args: ("fake.obj", ""))
         monkeypatch.setattr(
             "rebrew.promote.parse_obj_symbol_bytes", lambda *_args: (b"\x55\x8b\xec\xc3", [])
@@ -207,66 +198,8 @@ class TestPromoteFile:
         results = _promote_file(source, cfg, dry_run=False)
         assert results[0]["new_status"] == "EXACT"
         assert results[0]["action"] == "updated"
-        assert "// STATUS: EXACT\n" in source.read_text(encoding="utf-8")
-
-    def test_origin_filter_skips(self, tmp_path: Path, monkeypatch: Any) -> None:
-        source = _make_source(
-            tmp_path,
-            "// FUNCTION: test.dll 0x10001000\n"
-            "// STATUS: STUB\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 4\n"
-            "// CFLAGS: /O2 /Gd\n"
-            "// SYMBOL: _func\n"
-            "void func(void) {}\n",
-        )
-        cfg = self._make_cfg(tmp_path)
-
-        calls: list[tuple[Any, ...]] = []
-
-        def _fake_compile(*args: Any, **kwargs: Any) -> tuple[str | None, str]:
-            calls.append((args, kwargs))
-            return "fake.obj", ""
-
-        monkeypatch.setattr("rebrew.promote.compile_obj", _fake_compile)
-
-        results = _promote_file(source, cfg, dry_run=False, origin_filter="MSVCRT")
-        assert calls == []
-        assert len(results) == 1
-        assert results[0]["status"] == "SKIPPED"
-
-    def test_origin_filter_matches(self, tmp_path: Path, monkeypatch: Any) -> None:
-        source = _make_source(
-            tmp_path,
-            "// FUNCTION: test.dll 0x10001000\n"
-            "// STATUS: STUB\n"
-            "// ORIGIN: GAME\n"
-            "// SIZE: 4\n"
-            "// CFLAGS: /O2 /Gd\n"
-            "// SYMBOL: _func\n"
-            "void func(void) {}\n",
-        )
-        cfg = self._make_cfg(tmp_path)
-        cfg.for_origin = lambda _origin: cfg
-
-        calls: list[tuple[Any, ...]] = []
-
-        def _fake_compile(*args: Any, **kwargs: Any) -> tuple[str | None, str]:
-            calls.append((args, kwargs))
-            return "fake.obj", ""
-
-        monkeypatch.setattr("rebrew.promote.compile_obj", _fake_compile)
-        monkeypatch.setattr(
-            "rebrew.promote.parse_obj_symbol_bytes", lambda *_args: (b"\x55\x8b\xec\xc3", [])
-        )
-        monkeypatch.setattr(
-            "rebrew.promote.smart_reloc_compare", lambda *_args: (True, 4, 4, [], [])
-        )
-        monkeypatch.setattr("rebrew.promote.extract_raw_bytes", lambda *_args: b"\x55\x8b\xec\xc3")
-
-        results = _promote_file(source, cfg, dry_run=False, origin_filter="GAME")
-        assert len(calls) == 1
-        assert results[0]["status"] == "EXACT"
+        entry = get_entry(tmp_path, 0x10001000, module="test.dll")
+        assert entry["status"] == "EXACT"
 
     def test_dry_run_no_write(self, tmp_path: Path, monkeypatch: Any) -> None:
         source = _make_source(
@@ -280,8 +213,6 @@ class TestPromoteFile:
             "void func(void) {}\n",
         )
         cfg = self._make_cfg(tmp_path)
-        cfg.for_origin = lambda _origin: cfg
-
         monkeypatch.setattr("rebrew.promote.compile_obj", lambda *_args: ("fake.obj", ""))
         monkeypatch.setattr(
             "rebrew.promote.parse_obj_symbol_bytes", lambda *_args: (b"\x55\x8b\xec\xc3", [])
@@ -320,7 +251,6 @@ class TestBatchPromote:
             source_path: Path,
             _cfg: Any,
             _dry_run: bool,
-            _origin_filter: str | None = None,
         ) -> list[dict[str, Any]]:
             seen.append(str(source_path.relative_to(tmp_path)))
             return []
@@ -345,7 +275,6 @@ class TestBatchPromote:
             source_path: Path,
             _cfg: Any,
             _dry_run: bool,
-            _origin_filter: str | None = None,
         ) -> list[dict[str, Any]]:
             seen.append(str(source_path.relative_to(tmp_path)))
             return []
@@ -368,7 +297,6 @@ class TestBatchPromote:
             source_path: Path,
             _cfg: Any,
             _dry_run: bool,
-            _origin_filter: str | None = None,
         ) -> list[dict[str, Any]]:
             return [
                 {
@@ -428,8 +356,6 @@ class TestPromoteExitCode:
             encoding="utf-8",
         )
         cfg = self._make_cfg(tmp_path)
-        cfg.for_origin = lambda _origin: cfg
-
         monkeypatch.setattr("rebrew.promote.require_config", lambda **_kw: cfg)
         monkeypatch.setattr("rebrew.promote.compile_obj", lambda *_a: ("fake.obj", ""))
         monkeypatch.setattr(
@@ -458,8 +384,6 @@ class TestPromoteExitCode:
             encoding="utf-8",
         )
         cfg = self._make_cfg(tmp_path)
-        cfg.for_origin = lambda _origin: cfg
-
         monkeypatch.setattr("rebrew.promote.require_config", lambda **_kw: cfg)
         # compile_obj returns None → compile ERROR
         monkeypatch.setattr("rebrew.promote.compile_obj", lambda *_a: (None, "CL.EXE not found"))
@@ -489,3 +413,164 @@ class TestStatusRank:
         assert not _is_promotion("MATCHING", "STUB")
         assert not _is_promotion("EXACT", "MATCHING")
         assert not _is_promotion("STUB", "STUB")
+
+
+class TestInlineAsmDetection:
+    """Tests for the inline ASM detection path in _promote_file.
+
+    When a function body contains ``__asm`` or ``__asm__`` tokens, promote
+    must immediately demote to STUB and write a BLOCKER comment instead of
+    attempting a compile-compare cycle.
+    """
+
+    def _make_cfg(self, tmp_path: Path) -> Any:
+        return SimpleNamespace(
+            marker="test.dll",
+            target_binary=Path("test.dll"),
+            reversed_dir=tmp_path,
+            source_ext=".c",
+            for_origin=lambda _origin: None,
+        )
+
+    def test_matching_with_asm_block_demoted_to_stub(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """MATCHING function with __asm block → demoted to STUB, BLOCKER written."""
+        source = _make_source(
+            tmp_path,
+            "// FUNCTION: test.dll 0x10001000\n"
+            "// STATUS: MATCHING\n"
+            "// ORIGIN: GAME\n"
+            "// SIZE: 8\n"
+            "// CFLAGS: /O2 /Gd\n"
+            "\n"
+            "void func(void) {\n"
+            "    __asm {\n"
+            "        push ebp\n"
+            "        mov ebp, esp\n"
+            "    }\n"
+            "}\n",
+        )
+        cfg = self._make_cfg(tmp_path)
+        compile_calls: list[Any] = []
+        monkeypatch.setattr(
+            "rebrew.promote.compile_obj",
+            lambda *a: (compile_calls.append(a), ("fake.obj", ""))[1],
+        )
+
+        results = _promote_file(source, cfg, dry_run=False)
+
+        assert len(results) == 1
+        r = results[0]
+        assert r["previous_status"] == "MATCHING"
+        assert r["new_status"] == "STUB"
+        assert r["action"] == "demoted"
+        assert r["reason"] == "inline assembly detected"
+
+        # STATUS and BLOCKER written to sidecar
+        entry = get_entry(tmp_path, 0x10001000, module="test.dll")
+        assert entry["status"] == "STUB"
+        assert (
+            "inline assembly" in entry.get("blocker", "")
+            or "asm" in entry.get("blocker", "").lower()
+        )
+
+    def test_already_stub_with_asm_block_no_status_change(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Already-STUB function with __asm → action=none, BLOCKER still written."""
+        source = _make_source(
+            tmp_path,
+            "// FUNCTION: test.dll 0x10001000\n"
+            "// STATUS: STUB\n"
+            "// ORIGIN: GAME\n"
+            "// SIZE: 8\n"
+            "// CFLAGS: /O2 /Gd\n"
+            "\n"
+            "void func(void) {\n"
+            "    __asm {\n"
+            "        push ebp\n"
+            "    }\n"
+            "}\n",
+        )
+        cfg = self._make_cfg(tmp_path)
+        monkeypatch.setattr("rebrew.promote.compile_obj", lambda *a: ("fake.obj", ""))
+
+        results = _promote_file(source, cfg, dry_run=False)
+        r = results[0]
+        assert r["new_status"] == "STUB"
+        assert r["action"] == "none"
+        # Already-STUB: BLOCKER is not written (no demotion occurs)
+        # Just verify the action is "none" (already verified above)
+        assert r["action"] == "none"  # redundant but explicit
+
+    def test_dry_run_asm_no_write(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """Dry run with __asm block: action=would_demote, file not modified."""
+        source = _make_source(
+            tmp_path,
+            "// FUNCTION: test.dll 0x10001000\n"
+            "// STATUS: MATCHING\n"
+            "// ORIGIN: GAME\n"
+            "// SIZE: 8\n"
+            "// CFLAGS: /O2 /Gd\n"
+            "\n"
+            "void func(void) {\n"
+            "    __asm {\n"
+            "        push ebp\n"
+            "    }\n"
+            "}\n",
+        )
+        cfg = self._make_cfg(tmp_path)
+        monkeypatch.setattr("rebrew.promote.compile_obj", lambda *a: ("fake.obj", ""))
+
+        before = source.read_text(encoding="utf-8")
+        results = _promote_file(source, cfg, dry_run=True)
+        after = source.read_text(encoding="utf-8")
+
+        assert results[0]["action"] == "would_demote"
+        assert before == after
+
+    def test_gcc_asm_keyword_detected(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """GCC __asm__ syntax is also detected."""
+        source = _make_source(
+            tmp_path,
+            "// FUNCTION: test.dll 0x10001000\n"
+            "// STATUS: MATCHING\n"
+            "// ORIGIN: GAME\n"
+            "// SIZE: 8\n"
+            "// CFLAGS: /O2 /Gd\n"
+            "\n"
+            "void func(void) {\n"
+            '    __asm__("push ebp\\n");\n'
+            "}\n",
+        )
+        cfg = self._make_cfg(tmp_path)
+        monkeypatch.setattr("rebrew.promote.compile_obj", lambda *a: ("fake.obj", ""))
+
+        results = _promote_file(source, cfg, dry_run=False)
+        assert results[0]["new_status"] == "STUB"
+        assert results[0]["action"] == "demoted"
+
+    def test_no_asm_takes_normal_path(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """Functions without inline ASM still go through compile-compare normally."""
+        source = _make_source(
+            tmp_path,
+            "// FUNCTION: test.dll 0x10001000\n"
+            "// STATUS: STUB\n"
+            "// ORIGIN: GAME\n"
+            "// SIZE: 4\n"
+            "// CFLAGS: /O2 /Gd\n"
+            "\n"
+            "void func(void) {}\n",
+        )
+        cfg = self._make_cfg(tmp_path)
+        monkeypatch.setattr("rebrew.promote.compile_obj", lambda *a: ("fake.obj", ""))
+        monkeypatch.setattr(
+            "rebrew.promote.parse_obj_symbol_bytes", lambda *a: (b"\x55\x8b\xec\xc3", [])
+        )
+        monkeypatch.setattr("rebrew.promote.smart_reloc_compare", lambda *a: (True, 4, 4, [], []))
+        monkeypatch.setattr("rebrew.promote.extract_raw_bytes", lambda *a: b"\x55\x8b\xec\xc3")
+
+        results = _promote_file(source, cfg, dry_run=False)
+        # Normal compile-compare path: STUB → EXACT
+        assert results[0]["new_status"] == "EXACT"

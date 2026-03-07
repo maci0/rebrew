@@ -490,7 +490,7 @@ class TestBuildSyncCommandsData:
         assert "Type: int" in comments[0]["args"]["comment"]
         assert "Section: .bss" in comments[0]["args"]["comment"]
         assert "Note: hi" in comments[1]["args"]["comment"]
-        assert "Origin: GAME" in comments[1]["args"]["comment"]
+        assert "Module:" in comments[1]["args"]["comment"]
 
         assert len(bookmarks) == 2
         assert bookmarks[0]["args"]["category"] == "rebrew/data"

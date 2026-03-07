@@ -1,7 +1,7 @@
 """status.py – Project reversing status overview.
 
 Scans annotation headers across all configured targets and prints a
-Rich-formatted summary of reversing progress: STATUS, ORIGIN, and MARKER
+Rich-formatted summary of reversing progress: STATUS and MARKER
 breakdowns, byte coverage, and identified libraries.
 """
 
@@ -37,7 +37,6 @@ class TargetStats:
     text_section_size: int = 0
 
     status_counts: dict[str, int] = field(default_factory=dict)
-    origin_counts: dict[str, int] = field(default_factory=dict)
     marker_counts: dict[str, int] = field(default_factory=dict)
 
     # Derived
@@ -69,7 +68,6 @@ class TargetStats:
             "coverage_bytes": self.total_bytes_reversed,
             "text_size": self.text_section_size,
             "by_status": dict(self.status_counts),
-            "by_origin": dict(self.origin_counts),
             "by_marker": dict(self.marker_counts),
         }
 
@@ -90,12 +88,10 @@ def collect_target_stats(
     stats.file_count = len(entries)
 
     status_ctr: Counter[str] = Counter()
-    origin_ctr: Counter[str] = Counter()
     marker_ctr: Counter[str] = Counter()
     func_ranges: list[tuple[int, int]] = []
     for entry in entries:
         status_ctr[entry.status] += 1
-        origin_ctr[entry.origin] += 1
         marker_ctr[entry.marker_type] += 1
         if entry.marker_type not in ("GLOBAL", "DATA") and entry.status != "STUB":
             start = entry.va
@@ -122,7 +118,6 @@ def collect_target_stats(
                 padding_size += gap
 
     stats.status_counts = dict(status_ctr)
-    stats.origin_counts = dict(origin_ctr)
     stats.marker_counts = dict(marker_ctr)
     stats.total_bytes_reversed = total_size + padding_size
 
@@ -172,11 +167,6 @@ def _render_target(console: Console, stats: TargetStats) -> None:
         bar = "█" * bar_len
         color = _STATUS_COLORS.get(status, "white")
         tbl.add_row("STATUS", f"[{color}]{status}[/]", str(count), f"[{color}]{bar}[/]")
-
-    # ORIGIN rows
-    for origin in sorted(stats.origin_counts):
-        count = stats.origin_counts[origin]
-        tbl.add_row("ORIGIN", origin, str(count), "")
 
     # MARKER rows
     for marker in sorted(stats.marker_counts):
@@ -247,7 +237,7 @@ rebrew status -t mygame            Status for a specific target
 [bold]What it shows:[/bold]
 
 Total functions, bytes matched, status breakdown (EXACT / RELOC / MATCHING /
-STUB), per-origin coverage, and byte coverage percentage.
+STUB), and byte coverage percentage.
 
 [dim]Scans reversed_dir for annotation headers.
 Run 'rebrew catalog --json' first to generate coverage data.[/dim]""",

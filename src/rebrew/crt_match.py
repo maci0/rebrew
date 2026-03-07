@@ -6,7 +6,7 @@ extraction from C source, and known ASM-only function detection.
 
 Usage:
     rebrew crt-match 0x10006c00              Match a single VA
-    rebrew crt-match --all                   Match all library-origin functions
+    rebrew crt-match --all                   Match all LIBRARY-marker functions
     rebrew crt-match --fix-source            Auto-write // SOURCE: annotations
 """
 
@@ -41,7 +41,7 @@ class CrtSourceEntry:
     file: str
     line: int
     is_asm: bool
-    origin: str
+    module: str
 
 
 @dataclass
@@ -122,7 +122,7 @@ _C_FUNCTION_RE = re.compile(
 _ASM_PROC_RE = re.compile(r"^\s*_?(\w+)\s+PROC\b", re.MULTILINE)
 
 
-def build_crt_index(source_dir: Path, origin: str) -> list[CrtSourceEntry]:
+def build_crt_index(source_dir: Path, module: str) -> list[CrtSourceEntry]:
     """Build an index of C and ASM functions from a reference source directory."""
     if not source_dir.exists() or not source_dir.is_dir():
         return []
@@ -153,7 +153,7 @@ def build_crt_index(source_dir: Path, origin: str) -> list[CrtSourceEntry]:
                         file=rel_file,
                         line=line,
                         is_asm=False,
-                        origin=origin,
+                        module=module,
                     )
                 )
 
@@ -164,7 +164,7 @@ def build_crt_index(source_dir: Path, origin: str) -> list[CrtSourceEntry]:
                     file=rel_file,
                     line=0,
                     is_asm=False,
-                    origin=origin,
+                    module=module,
                 )
             )
         else:
@@ -176,7 +176,7 @@ def build_crt_index(source_dir: Path, origin: str) -> list[CrtSourceEntry]:
                         file=rel_file,
                         line=line,
                         is_asm=True,
-                        origin=origin,
+                        module=module,
                     )
                 )
 
@@ -215,7 +215,7 @@ def _match_reason(base_reason: str, asm_only: bool) -> str:
 
 
 def match_function(
-    name: str, size: int, origin: str, index: list[CrtSourceEntry], *, va: int = 0
+    name: str, size: int, module: str, index: list[CrtSourceEntry], *, va: int = 0
 ) -> list[CrtMatch]:
     """Match a single binary function name against a source index."""
     binary_raw = name.strip().lower()
@@ -224,7 +224,7 @@ def match_function(
 
     matches: list[CrtMatch] = []
     for source_entry in index:
-        if source_entry.origin.upper() != origin.upper():
+        if source_entry.module.upper() != module.upper():
             continue
 
         source_raw = source_entry.name.strip().lower()
@@ -276,18 +276,15 @@ def match_function(
 
 def _collect_library_annotations(
     cfg: ProjectConfig,
-    origin_filter: str | None = None,
 ) -> list[tuple[Path, Annotation]]:
+    """Collect LIBRARY-marker annotations from source files."""
     annotations: list[tuple[Path, Annotation]] = []
-    origin_filter_upper = origin_filter.upper() if origin_filter else None
-    library_origins = {origin.upper() for origin in cfg.library_origins}
+    library_modules = {m.upper() for m in getattr(cfg, "library_modules", [])}
 
     for source_path in iter_sources(cfg.reversed_dir, cfg):
         for ann in parse_c_file_multi(source_path, target_name=cfg.marker):
-            origin_upper = ann.origin.upper()
-            if ann.marker_type != "LIBRARY" and origin_upper not in library_origins:
-                continue
-            if origin_filter_upper and origin_upper != origin_filter_upper:
+            module_upper = (ann.module or "").upper()
+            if ann.marker_type != "LIBRARY" and module_upper not in library_modules:
                 continue
             annotations.append((source_path, ann))
 
@@ -296,22 +293,22 @@ def _collect_library_annotations(
 
 def _build_indexes(cfg: ProjectConfig) -> dict[str, list[CrtSourceEntry]]:
     indexes: dict[str, list[CrtSourceEntry]] = {}
-    for origin, rel_path in cfg.crt_sources.items():
+    for module_name, rel_path in cfg.crt_sources.items():
         source_dir = Path(rel_path)
         if not source_dir.is_absolute():
             source_dir = cfg.root / source_dir
-        indexes[origin.upper()] = build_crt_index(source_dir, origin.upper())
+        indexes[module_name.upper()] = build_crt_index(source_dir, module_name.upper())
     return indexes
 
 
 def match_all(cfg: ProjectConfig) -> list[CrtMatch]:
-    """Match all library-origin functions against configured CRT source indices."""
+    """Match all LIBRARY-marker functions against configured CRT source indices."""
     indexes = _build_indexes(cfg)
     all_matches: list[CrtMatch] = []
 
     for _, ann in _collect_library_annotations(cfg):
-        origin_upper = ann.origin.upper()
-        index = indexes.get(origin_upper, [])
+        module_upper = (ann.module or "").upper()
+        index = indexes.get(module_upper, [])
         if not index:
             continue
 
@@ -319,7 +316,7 @@ def match_all(cfg: ProjectConfig) -> list[CrtMatch]:
         if not binary_name:
             continue
 
-        matches = match_function(binary_name, ann.size, origin_upper, index, va=ann.va)
+        matches = match_function(binary_name, ann.size, module_upper, index, va=ann.va)
         all_matches.extend(matches)
 
     return all_matches
@@ -330,7 +327,7 @@ def _match_to_dict(match: CrtMatch) -> dict[str, Any]:
         "va": f"0x{match.va:08x}",
         "binary_name": match.binary_name,
         "binary_size": match.binary_size,
-        "origin": match.source.origin,
+        "module": match.source.module,
         "source_file": match.source.file,
         "source_line": match.source.line,
         "source_is_asm": match.source.is_asm,
@@ -348,7 +345,7 @@ def _source_ref(entry: CrtSourceEntry) -> str:
 
 def _render_index_table(entries: list[CrtSourceEntry]) -> None:
     table = Table(title="CRT Source Index")
-    table.add_column("Origin")
+    table.add_column("Module")
     table.add_column("Name")
     table.add_column("File")
     table.add_column("Line", justify="right")
@@ -356,7 +353,7 @@ def _render_index_table(entries: list[CrtSourceEntry]) -> None:
 
     for entry in entries:
         table.add_row(
-            entry.origin,
+            entry.module,
             entry.name,
             entry.file,
             str(entry.line),
@@ -370,7 +367,7 @@ def _render_match_table(matches: list[CrtMatch]) -> None:
     table = Table(title="CRT Match Results")
     table.add_column("VA")
     table.add_column("Binary")
-    table.add_column("Origin")
+    table.add_column("Module")
     table.add_column("Source")
     table.add_column("Confidence", justify="right")
     table.add_column("Reason")
@@ -380,7 +377,7 @@ def _render_match_table(matches: list[CrtMatch]) -> None:
         table.add_row(
             f"0x{match.va:08x}",
             match.binary_name,
-            match.source.origin,
+            match.source.module,
             src,
             f"{match.confidence:.2f}",
             match.reason,
@@ -394,9 +391,7 @@ _EPILOG = """\
 
 rebrew crt-match 0x10006c00                     Match a single VA
 
-rebrew crt-match --all                          Match all library-origin functions
-
-rebrew crt-match --all --origin MSVCRT          Match only MSVCRT functions
+rebrew crt-match --all                          Match all LIBRARY-marker functions
 
 rebrew crt-match --fix-source --all             Auto-write // SOURCE: annotations
 
@@ -415,8 +410,7 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def main(
     va: str | None = typer.Argument(None, help="Virtual address to match (hex, e.g. 0x10006c00)"),
-    all_funcs: bool = typer.Option(False, "--all", help="Match all library-origin functions"),
-    origin: str | None = typer.Option(None, "--origin", help="Filter by origin (MSVCRT, ZLIB)"),
+    all_funcs: bool = typer.Option(False, "--all", help="Match all LIBRARY-marker functions"),
     fix_source: bool = typer.Option(
         False,
         "--fix-source",
@@ -448,7 +442,7 @@ def main(
                     "count": len(flat_index),
                     "entries": [
                         {
-                            "origin": entry.origin,
+                            "module": entry.module,
                             "name": entry.name,
                             "file": entry.file,
                             "line": entry.line,
@@ -466,7 +460,7 @@ def main(
         error_exit("Provide a VA or use --all", json_mode=json_output)
 
     annotation_map = {
-        ann.va: (source_path, ann) for source_path, ann in _collect_library_annotations(cfg, origin)
+        ann.va: (source_path, ann) for source_path, ann in _collect_library_annotations(cfg)
     }
 
     matches: list[CrtMatch] = []
@@ -481,22 +475,18 @@ def main(
         if not function_name:
             error_exit(f"Annotation at 0x{va_int:08x} has no symbol/name", json_mode=json_output)
 
-        index = indexes.get(ann.origin.upper(), [])
+        module_upper = (ann.module or "").upper()
+        index = indexes.get(module_upper, [])
         if not index:
             error_exit(
-                f"No CRT index configured for origin '{ann.origin}'",
+                f"No CRT index configured for module '{ann.module}'",
                 json_mode=json_output,
             )
 
-        matches = match_function(function_name, ann.size, ann.origin, index, va=va_int)
+        matches = match_function(function_name, ann.size, module_upper, index, va=va_int)
 
     if all_funcs:
         all_matches = match_all(cfg)
-        if origin:
-            origin_upper = origin.upper()
-            all_matches = [
-                match for match in all_matches if match.source.origin.upper() == origin_upper
-            ]
         seen_keys: set[tuple[int, str, float]] = {
             (m.va, m.source.file, m.confidence) for m in matches
         }

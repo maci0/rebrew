@@ -34,7 +34,6 @@ class NodeInfo(TypedDict):
     """Type-safe node info for dependency graph nodes."""
 
     status: str
-    origin: str
     va: int
     file: str
 
@@ -108,13 +107,12 @@ def _extract_callees(c_path: Path) -> list[str]:
 
 def build_graph(
     reversed_dir: Path,
-    origin_filter: str | None = None,
     cfg: ProjectConfig | None = None,
 ) -> tuple[dict[str, NodeInfo], list[tuple[str, str]]]:
     """Build a call graph from reversed source files.
 
     Returns:
-        nodes: {func_name: {"status": str, "origin": str, "va": int, "file": str}}
+        nodes: {func_name: {"status": str, "va": int, "file": str}}
         edges: [(caller_name, callee_name)]
 
     """
@@ -133,14 +131,11 @@ def build_graph(
         for entry in parse_c_file_multi(cfile, target_name=target_marker(cfg)):
             if entry.marker_type in ("GLOBAL", "DATA"):
                 continue
-            if origin_filter and entry.origin != origin_filter:
-                continue
 
             # Use symbol without leading underscore as display name
             display = entry.symbol.lstrip("_") if entry.symbol else cfile.stem
             nodes[display] = {
                 "status": entry.status,
-                "origin": entry.origin,
                 "va": entry.va,
                 "file": rel_name,
             }
@@ -159,7 +154,6 @@ def build_graph(
             if callee_display not in nodes:
                 nodes[callee_display] = {
                     "status": "UNKNOWN",
-                    "origin": "",
                     "va": 0,
                     "file": "",
                 }
@@ -388,9 +382,6 @@ def main(
     fmt: str = typer.Option(
         "mermaid", "--format", "-f", help="Output format: mermaid, dot, summary"
     ),
-    origin_filter: str | None = typer.Option(
-        None, "--origin", help="Filter by origin (GAME, MSVCRT, ZLIB)"
-    ),
     focus: str | None = typer.Option(
         None, "--focus", help="Focus on a specific function and its neighbours"
     ),
@@ -403,7 +394,7 @@ def main(
     cfg = require_config(target=target, json_mode=json_output)
     reversed_dir = cfg.reversed_dir
 
-    nodes, edges = build_graph(reversed_dir, origin_filter, cfg=cfg)
+    nodes, edges = build_graph(reversed_dir, cfg=cfg)
 
     if not nodes:
         error_exit("No functions found.", json_mode=json_output)
@@ -426,7 +417,6 @@ def main(
                 "nodes": {
                     name: {
                         "status": info["status"],
-                        "origin": info["origin"],
                         "va": f"0x{info['va']:08x}" if info["va"] else "0x0",
                         "file": info["file"],
                     }

@@ -1,11 +1,12 @@
 """Tests for rebrew.annotation — Annotation dataclass and parsers."""
 
+from pathlib import Path
+
 import pytest
 
 from rebrew.annotation import (
     Annotation,
     make_func_entry,
-    marker_for_origin,
     normalize_cflags,
     normalize_status,
     parse_c_file,
@@ -86,7 +87,7 @@ class TestAnnotationDataclass:
             name="foo",
             symbol="_foo",
             status="EXACT",
-            origin="GAME",
+            module="SERVER",
             cflags="/O2",
             marker_type="FUNCTION",
             filepath="foo.c",
@@ -108,7 +109,7 @@ class TestAnnotationDataclass:
             name="foo",
             symbol="_foo",
             status="EXACT",
-            origin="GAME",
+            module="SERVER",
             cflags="/O2",
             marker_type="FUNCTION",
             filepath="foo.c",
@@ -133,7 +134,6 @@ class TestAnnotationValidation:
             name="foo",
             symbol="_foo",
             status="EXACT",
-            origin="GAME",
             cflags="/O2",
             marker_type="FUNCTION",
         )
@@ -146,23 +146,24 @@ class TestAnnotationValidation:
             size=42,
             cflags="/O2",
             status="BOGUS",
-            origin="GAME",
             marker_type="FUNCTION",
         )
         errors, _ = ann.validate()
         assert any("STATUS" in e for e in errors)
 
-    def test_invalid_origin(self) -> None:
+    def test_invalid_module(self) -> None:
+        """Annotation.validate() does not validate module values (open field)."""
         ann = Annotation(
             va=0x10001000,
             size=42,
             cflags="/O2",
             status="EXACT",
-            origin="BOGUS",
+            module="BOGUS",
             marker_type="FUNCTION",
         )
         errors, _ = ann.validate()
-        assert any("ORIGIN" in e for e in errors)
+        # module is a free-form field, no ORIGIN error expected
+        assert not any("ORIGIN" in e for e in errors)
 
     def test_invalid_size(self) -> None:
         ann = Annotation(
@@ -170,7 +171,6 @@ class TestAnnotationValidation:
             size=0,
             cflags="/O2",
             status="EXACT",
-            origin="GAME",
             marker_type="FUNCTION",
         )
         errors, _ = ann.validate()
@@ -183,7 +183,6 @@ class TestAnnotationValidation:
             size=42,
             cflags="",
             status="EXACT",
-            origin="GAME",
             marker_type="FUNCTION",
         )
         errors, _ = ann.validate()
@@ -197,7 +196,6 @@ class TestAnnotationValidation:
             cflags="/O2",
             symbol="",
             status="EXACT",
-            origin="GAME",
             marker_type="FUNCTION",
         )
         _, warnings = ann.validate()
@@ -210,23 +208,23 @@ class TestAnnotationValidation:
             cflags="/O2",
             symbol="_foo",
             status="STUB",
-            origin="GAME",
             marker_type="STUB",
         )
         _, warnings = ann.validate()
         assert any("BLOCKER" in w for w in warnings)
 
     def test_msvcrt_without_source_warning(self) -> None:
+        """Library module missing SOURCE should warn when that module is in library_modules."""
         ann = Annotation(
             va=0x10001000,
             size=42,
             cflags="/O2",
             symbol="_foo",
             status="EXACT",
-            origin="MSVCRT",
+            module="MSVCRT",
             marker_type="LIBRARY",
         )
-        _, warnings = ann.validate()
+        _, warnings = ann.validate(library_modules={"MSVCRT"})
         assert any("SOURCE" in w for w in warnings)
 
 
@@ -256,19 +254,6 @@ class TestNormalizeHelpers:
     def test_normalize_cflags(self) -> None:
         assert normalize_cflags("  /O2 /Gd , ") == "/O2 /Gd"
 
-    def test_marker_for_origin(self) -> None:
-        assert marker_for_origin("GAME", "EXACT") == "FUNCTION"
-        assert marker_for_origin("MSVCRT", "EXACT") == "LIBRARY"
-        assert marker_for_origin("GAME", "STUB") == "STUB"
-
-    def test_marker_for_origin_custom_library_origins(self) -> None:
-        assert marker_for_origin("DIRECTX", "EXACT", library_origins={"DIRECTX"}) == "LIBRARY"
-        assert marker_for_origin("GAME", "EXACT", library_origins={"DIRECTX"}) == "FUNCTION"
-
-    def test_marker_for_origin_empty_library_origins(self) -> None:
-        # Empty set: no origins are library origins
-        assert marker_for_origin("MSVCRT", "EXACT", library_origins=set()) == "FUNCTION"
-
 
 class TestParseOldFormat:
     def test_parse_valid(self) -> None:
@@ -278,7 +263,6 @@ class TestParseOldFormat:
         assert result["va"] == 0x10008880
         assert result["size"] == 31
         assert result["status"] == "EXACT"
-        assert result["origin"] == "GAME"
         assert result["name"] == "bit_reverse"
 
     def test_parse_invalid_returns_none(self) -> None:
@@ -291,7 +275,6 @@ class TestParseNewFormat:
         lines = [
             "// FUNCTION: SERVER 0x10008880",
             "// STATUS: EXACT",
-            "// ORIGIN: GAME",
             "// SIZE: 31",
             "// CFLAGS: /O2 /Gd",
             "",
@@ -301,7 +284,6 @@ class TestParseNewFormat:
         assert result is not None
         assert result["va"] == 0x10008880
         assert result["status"] == "EXACT"
-        assert result["origin"] == "GAME"
         assert result["size"] == 31
         assert result["name"] == "bit_reverse"
         assert result["symbol"] == "_bit_reverse"
@@ -309,7 +291,6 @@ class TestParseNewFormat:
     def test_parse_no_marker_returns_none(self) -> None:
         lines = [
             "// STATUS: EXACT",
-            "// ORIGIN: GAME",
         ]
         assert parse_new_format(lines) is None
 
@@ -317,7 +298,6 @@ class TestParseNewFormat:
         lines = [
             "// FUNCTION: SERVER 0x10001000",
             "// STATUS: EXACT",
-            "// ORIGIN: GAME",
             "// SIZE: 100",
             "// CFLAGS: /O2",
             "// GLOBALS: g_counter, g_flag",
@@ -326,7 +306,6 @@ class TestParseNewFormat:
         assert result is not None
         assert result["va"] == 0x10001000
         assert result["status"] == "EXACT"
-        assert result["origin"] == "GAME"
         assert result["size"] == 100
         assert result["cflags"] == "/O2"
         assert result["globals"] == ["g_counter", "g_flag"]
@@ -337,10 +316,8 @@ class TestParseCFile:
         content = """\
 // FUNCTION: SERVER 0x10001234
 // STATUS: EXACT
-// ORIGIN: GAME
 // SIZE: 42
 // CFLAGS: /O2
-// SYMBOL: _myfunc
 
 int myfunc(void) { return 0; }
 """
@@ -350,7 +327,6 @@ int myfunc(void) { return 0; }
         assert result is not None
         assert result["va"] == 0x10001234
         assert result["status"] == "EXACT"
-        assert result["origin"] == "GAME"
         assert result["size"] == 42
         assert result["cflags"] == "/O2"
         assert result["symbol"] == "_myfunc"
@@ -365,7 +341,6 @@ int myfunc(void) { return 0; }
         assert result["va"] == 0x10001234
         assert result["size"] == 42
         assert result["status"] == "EXACT"
-        assert result["origin"] == "GAME"
         assert result["name"] == "myfunc"
 
     def test_parse_nonexistent_file(self, tmp_path) -> None:
@@ -392,7 +367,6 @@ class TestMultiFunctionParsing:
         lines = [
             "// FUNCTION: SERVER 0x10001000",
             "// STATUS: EXACT",
-            "// ORIGIN: GAME",
             "// SIZE: 42",
             "// CFLAGS: /O2",
             "// SYMBOL: _func_a",
@@ -401,7 +375,6 @@ class TestMultiFunctionParsing:
             "",
             "// FUNCTION: SERVER 0x10002000",
             "// STATUS: MATCHING",
-            "// ORIGIN: MSVCRT",
             "// SIZE: 100",
             "// CFLAGS: /O1",
             "// SYMBOL: _func_b",
@@ -416,7 +389,7 @@ class TestMultiFunctionParsing:
         assert results[1].va == 0x10002000
         assert results[1].symbol == "_func_b"
         assert results[1].status == "MATCHING"
-        assert results[1].origin == "MSVCRT"
+        assert results[1].module == "SERVER"
 
     def test_parse_three_with_code_between(self) -> None:
         from rebrew.annotation import parse_new_format_multi
@@ -470,19 +443,15 @@ class TestMultiFunctionParsing:
         content = """\
 // FUNCTION: SERVER 0x10001000
 // STATUS: EXACT
-// ORIGIN: GAME
 // SIZE: 42
 // CFLAGS: /O2
-// SYMBOL: _func_a
 
 int func_a(void) { return 0; }
 
 // FUNCTION: SERVER 0x10002000
 // STATUS: MATCHING
-// ORIGIN: GAME
 // SIZE: 100
 // CFLAGS: /O2
-// SYMBOL: _func_b
 
 int func_b(void) { return 1; }
 """
@@ -500,19 +469,15 @@ int func_b(void) { return 1; }
         content = """\
 // FUNCTION: SERVER 0x10001000
 // STATUS: EXACT
-// ORIGIN: GAME
 // SIZE: 42
 // CFLAGS: /O2
-// SYMBOL: _func_a
 
 int func_a(void) { return 0; }
 
 // FUNCTION: SERVER 0x10002000
 // STATUS: MATCHING
-// ORIGIN: GAME
 // SIZE: 100
 // CFLAGS: /O2
-// SYMBOL: _func_b
 
 int func_b(void) { return 1; }
 """
@@ -535,7 +500,6 @@ int func_b(void) { return 1; }
 
         lines = [
             "// STATUS: MATCHING",
-            "// ORIGIN: GAME",
             "// SIZE: 728",
             "// SYMBOL: _ReadVfsDataChecked",
             "// FUNCTION: SERVER 0x10012000",
@@ -545,7 +509,6 @@ int func_b(void) { return 1; }
             "int __cdecl LoadGraveyardData(int a, int b) { return 0; }",
             "",
             "// STATUS: MATCHING",
-            "// ORIGIN: GAME",
             "// SIZE: 346",
             "// SYMBOL: _ReadVfsDataChecked",
             "// FUNCTION: SERVER 0x100122e0",
@@ -553,7 +516,6 @@ int func_b(void) { return 1; }
             "",
             "void InitNewDynastyEntity(int a, int b) {}",
             "",
-            "// ORIGIN: GAME",
             "// STATUS: RELOC",
             "// SIZE: 37",
             "// SYMBOL: _ReadVfsDataChecked",
@@ -587,7 +549,6 @@ int func_b(void) { return 1; }
         """Function name hint should also work in parse_new_format."""
         lines = [
             "// STATUS: EXACT",
-            "// ORIGIN: GAME",
             "// SIZE: 100",
             "// FUNCTION: SERVER 0x10001000",
             "// MyFunction",
@@ -620,7 +581,6 @@ int func_b(void) { return 1; }
 
         lines = [
             "// STATUS: MATCHING",
-            "// ORIGIN: GAME",
             "// SIZE: 130",
             "// FUNCTION: SERVER 0x1000BD50",
             "// reset_entity_state",
@@ -631,7 +591,6 @@ int func_b(void) { return 1; }
             "}",
             "",
             "// STATUS: MATCHING",
-            "// ORIGIN: GAME",
             "// SIZE: 109",
             "// FUNCTION: SERVER 0x1000C600",
             "// InitRandomEntity",
@@ -809,14 +768,13 @@ class TestParseLibraryHeader:
 
         assert results[0].va == 0x1001A18A
         assert results[0].symbol == "_fflush"
-        assert results[0].origin == "MSVCRT"
+        assert results[0].module == "SERVER"
         assert results[0].marker_type == "LIBRARY"
         assert results[0].status == "EXACT"
-        assert results[0].module == "SERVER"
 
         assert results[1].va == 0x1001A1BB
         assert results[1].symbol == "__fclose_lk"
-        assert results[1].origin == "MSVCRT"
+        assert results[1].module == "SERVER"
 
     def test_parse_zlib_header(self, tmp_path) -> None:
         hfile = tmp_path / "library_zlib.h"
@@ -825,7 +783,6 @@ class TestParseLibraryHeader:
         assert len(results) == 1
         assert results[0].va == 0x10050000
         assert results[0].symbol == "_deflate"
-        assert results[0].origin == "ZLIB"
 
     def test_target_filter(self, tmp_path) -> None:
         hfile = tmp_path / "library_msvc.h"
@@ -845,12 +802,12 @@ class TestParseLibraryHeader:
         results = parse_library_header(hfile)
         assert results == []
 
-    def test_unknown_library_origin(self, tmp_path) -> None:
+    def test_unknown_library_module(self, tmp_path) -> None:
         hfile = tmp_path / "library_openssl.h"
         hfile.write_text("// LIBRARY: SERVER 0x10060000\n// _SSL_init\n")
         results = parse_library_header(hfile)
         assert len(results) == 1
-        assert results[0].origin == "OPENSSL"
+        assert results[0].module == "SERVER"
 
     def test_extended_kv_annotations(self, tmp_path) -> None:
         """KV lines after symbol are captured (rebrew extension, invisible to reccmp)."""
@@ -878,7 +835,6 @@ class TestParseLibraryHeader:
         assert results[0].cflags == "/O2 /Gd"
         assert results[0].source == "deflate.c"
         assert results[0].blocker == "2B diff"
-        assert results[0].origin == "ZLIB"
 
         # Minimal entry — defaults still work
         assert results[1].va == 0x10050100
@@ -887,13 +843,13 @@ class TestParseLibraryHeader:
         assert results[1].size == 0
         assert results[1].cflags == ""
 
-    def test_kv_origin_override(self, tmp_path) -> None:
-        """Explicit ORIGIN in KV overrides filename-inferred origin."""
+    def test_kv_module_preserved(self, tmp_path) -> None:
+        """Module (target name) in LIBRARY marker is stored in annotation.module."""
         hfile = tmp_path / "library_msvc.h"
-        hfile.write_text("// LIBRARY: SERVER 0x10060000\n// _custom_alloc\n// ORIGIN: SMARTHEAP\n")
+        hfile.write_text("// LIBRARY: MYTARGET 0x10060000\n// _custom_alloc\n")
         results = parse_library_header(hfile)
         assert len(results) == 1
-        assert results[0].origin == "SMARTHEAP"
+        assert results[0].module == "MYTARGET"
 
 
 # ---------------------------------------------------------------------------
@@ -914,9 +870,10 @@ class TestAuditAnnotation:
         assert normalize_status("PROVEN_OK") == "PROVEN"
 
     # update_size_annotation: target_va parameter (previously untested branch)
-    def test_update_size_annotation_target_va_match(self, tmp_path) -> None:
-        """When target_va is provided, only the matching annotation block is updated."""
+    def test_update_size_annotation_target_va_match(self, tmp_path: Path) -> None:
+        """When target_va is provided, size is written to sidecar (not .c file)."""
         from rebrew.annotation import update_size_annotation
+        from rebrew.sidecar import get_entry
 
         content = (
             "// FUNCTION: SERVER 0x10001000\n"
@@ -929,22 +886,33 @@ class TestAuditAnnotation:
         f = tmp_path / "dual.c"
         f.write_text(content, encoding="utf-8")
 
-        # Only update the SIZE belonging to 0x10002000
+        # Update SIZE for 0x10002000 — goes to sidecar, NOT the .c file
         changed = update_size_annotation(f, 99, target_va=0x10002000)
         assert changed is True
-        updated = f.read_text(encoding="utf-8")
-        assert "// SIZE: 10" in updated  # func_a unchanged
-        assert "// SIZE: 99" in updated  # func_b updated
 
-    def test_update_size_annotation_target_va_no_match(self, tmp_path) -> None:
-        """update_size_annotation returns False when target_va does not match any block."""
+        # .c file must be untouched
+        original = f.read_text(encoding="utf-8")
+        assert "// SIZE: 20" in original  # func_b still has old value in file
+
+        # Sidecar must have new value for func_b only
+        entry_b = get_entry(tmp_path, 0x10002000, module="SERVER")
+        assert entry_b["size"] == 99
+        # func_a not in sidecar (was not touched)
+        entry_a = get_entry(tmp_path, 0x10001000, module="SERVER")
+        assert "size" not in entry_a
+
+    def test_update_size_annotation_target_va_no_match(self, tmp_path: Path) -> None:
+        """update_size_annotation returns False when new_size <= existing sidecar size."""
         from rebrew.annotation import update_size_annotation
+        from rebrew.sidecar import save_sidecar
 
         f = tmp_path / "single.c"
         f.write_text(
             "// FUNCTION: SERVER 0x10001000\n// SIZE: 10\nint f(void) {}\n", encoding="utf-8"
         )
-        changed = update_size_annotation(f, 99, target_va=0xDEADBEEF)
+        # Pre-populate sidecar with size=200 so new_size=99 is rejected (not an increase)
+        save_sidecar(tmp_path, {("SERVER", 0x10001000): {"size": 200}})
+        changed = update_size_annotation(f, 99, target_va=0x10001000)
         assert changed is False
 
     def test_update_size_annotation_no_shrink(self, tmp_path) -> None:
@@ -990,14 +958,13 @@ class TestAuditAnnotation:
 
     # --- P1-01 regression: update_annotation_key must not bleed into next block ---
 
-    def test_update_annotation_key_no_bleed_into_next_block(self, tmp_path) -> None:
-        """Bug P1-01: update_annotation_key with stale in_target_block=True would
-        continue editing key-value lines in annotation blocks after the target VA.
+    def test_update_annotation_key_no_bleed_into_next_block(self, tmp_path: Path) -> None:
+        """STATUS is a sidecar key — update_annotation_key writes to rebrew-functions.toml.
 
-        Two-function file: update STATUS on VA1 only.  VA2's STATUS must remain
-        unchanged after the edit.
+        The .c file must remain completely untouched. VA2 is never affected.
         """
         from rebrew.annotation import update_annotation_key
+        from rebrew.sidecar import get_entry
 
         content = (
             "// FUNCTION: SERVER 0x10001000\n"
@@ -1016,28 +983,25 @@ class TestAuditAnnotation:
         changed = update_annotation_key(f, 0x10001000, "STATUS", "EXACT")
         assert changed is True
 
-        result = f.read_text(encoding="utf-8")
-        lines = result.splitlines()
+        # .c file must be completely untouched
+        assert f.read_text(encoding="utf-8") == content
 
-        # VA1's STATUS must be updated
-        assert any("STATUS: EXACT" in line for line in lines[:5])
-        # VA2's STATUS must remain MATCHING (not bleed to EXACT)
-        va2_status_lines = [line for line in lines[5:] if "STATUS" in line]
-        assert va2_status_lines, "VA2 STATUS line disappeared"
-        assert all("MATCHING" in line for line in va2_status_lines), (
-            f"VA2 STATUS was corrupted: {va2_status_lines}"
-        )
+        # VA1 sidecar entry has new status
+        entry1 = get_entry(tmp_path, 0x10001000, module="SERVER")
+        assert entry1["status"] == "EXACT"
+        # VA2 was not touched
+        entry2 = get_entry(tmp_path, 0x10002000, module="SERVER")
+        assert "status" not in entry2
 
     # --- P1-02 regression: remove_annotation_key must not bleed into next block ---
 
-    def test_remove_annotation_key_no_bleed_into_next_block(self, tmp_path) -> None:
-        """Bug P1-02: remove_annotation_key iterated all lines without resetting
-        in_target_block on new-marker encounters, causing keys in subsequent blocks
-        to be deleted when they matched the target key pattern.
+    def test_remove_annotation_key_no_bleed_into_next_block(self, tmp_path: Path) -> None:
+        """BLOCKER is a sidecar key — remove_annotation_key deletes from rebrew-functions.toml.
 
-        Two-function file: remove BLOCKER from VA1 only.  VA2's BLOCKER must survive.
+        The .c file must remain untouched. VA2's sidecar entry is not affected.
         """
         from rebrew.annotation import remove_annotation_key
+        from rebrew.sidecar import get_entry, save_sidecar
 
         content = (
             "// FUNCTION: SERVER 0x10001000\n"
@@ -1053,16 +1017,28 @@ class TestAuditAnnotation:
         f = tmp_path / "dual_blockers.c"
         f.write_text(content, encoding="utf-8")
 
+        # Pre-populate sidecar for both VAs
+        save_sidecar(
+            tmp_path,
+            {
+                ("SERVER", 0x10001000): {"blocker": "needs investigation"},
+                ("SERVER", 0x10002000): {"blocker": "different blocker"},
+            },
+        )
+
         changed = remove_annotation_key(f, 0x10001000, "BLOCKER")
         assert changed is True
 
-        result = f.read_text(encoding="utf-8")
-        # VA1's BLOCKER should be gone
-        assert "needs investigation" not in result
-        # VA2's BLOCKER must survive untouched
-        assert "different blocker" in result, (
-            "VA2's BLOCKER was incorrectly removed (block-bleed bug P1-02)"
-        )
+        # VA1's blocker must be gone from sidecar
+        entry1 = get_entry(tmp_path, 0x10001000, module="SERVER")
+        assert "blocker" not in entry1
+
+        # VA2's blocker must survive
+        entry2 = get_entry(tmp_path, 0x10002000, module="SERVER")
+        assert entry2.get("blocker") == "different blocker"
+
+        # .c file untouched
+        assert f.read_text(encoding="utf-8") == content
 
     # --- P1-09 regression: nested templates in stdcall param sizing ---
 

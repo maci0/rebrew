@@ -232,15 +232,13 @@ def generate_inline_c(
     symbol: str | None,
 ) -> str:
     """Generate a C file with inline assembly using rebrew annotations."""
-    cflags = cfg.resolve_origin_cflags(cfg.default_origin)
+    cflags = cfg.base_cflags or "/O2 /Gd"
     marker = cfg.marker if cfg.marker else "TARGET"
     sym = symbol or f"_func_{va:08x}"
     func_name = sym.lstrip("_")
 
     lines = []
     lines.append(f"// FUNCTION: {marker} 0x{va:08x}")
-    lines.append("// STATUS: STUB")
-    lines.append(f"// ORIGIN: {cfg.default_origin}")
     lines.append(f"// SIZE: {size}")
     lines.append(f"// CFLAGS: {cflags}")
     lines.append("")

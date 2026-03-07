@@ -126,7 +126,7 @@ class TestAsmOnlyDetection:
 class TestFunctionMatching:
     def test_match_exact_name(self) -> None:
         index = [
-            CrtSourceEntry(name="malloc", file="MALLOC.C", line=42, is_asm=False, origin="MSVCRT"),
+            CrtSourceEntry(name="malloc", file="MALLOC.C", line=42, is_asm=False, module="MSVCRT"),
         ]
 
         matches = match_function("_malloc", 64, "MSVCRT", index)
@@ -136,7 +136,7 @@ class TestFunctionMatching:
 
     def test_match_filename_based(self) -> None:
         index = [
-            CrtSourceEntry(name="qsort", file="QSORT.C", line=0, is_asm=False, origin="MSVCRT"),
+            CrtSourceEntry(name="qsort", file="QSORT.C", line=0, is_asm=False, module="MSVCRT"),
         ]
 
         matches = match_function("_qsort", 80, "MSVCRT", index)
@@ -146,7 +146,7 @@ class TestFunctionMatching:
 
     def test_match_asm_function(self) -> None:
         index = [
-            CrtSourceEntry(name="strlen", file="STRLEN.ASM", line=12, is_asm=True, origin="MSVCRT"),
+            CrtSourceEntry(name="strlen", file="STRLEN.ASM", line=12, is_asm=True, module="MSVCRT"),
         ]
 
         matches = match_function("strlen", 25, "MSVCRT", index)
@@ -156,7 +156,7 @@ class TestFunctionMatching:
 
     def test_match_no_match(self) -> None:
         index = [
-            CrtSourceEntry(name="malloc", file="MALLOC.C", line=42, is_asm=False, origin="MSVCRT"),
+            CrtSourceEntry(name="malloc", file="MALLOC.C", line=42, is_asm=False, module="MSVCRT"),
         ]
 
         matches = match_function("totally_unknown", 40, "MSVCRT", index)
@@ -165,11 +165,11 @@ class TestFunctionMatching:
 
     def test_match_confidence_ordering(self) -> None:
         index = [
-            CrtSourceEntry(name="_malloc", file="EXACT.C", line=8, is_asm=False, origin="MSVCRT"),
+            CrtSourceEntry(name="_malloc", file="EXACT.C", line=8, is_asm=False, module="MSVCRT"),
             CrtSourceEntry(
-                name="malloc", file="NORMALIZED.C", line=12, is_asm=False, origin="MSVCRT"
+                name="malloc", file="NORMALIZED.C", line=12, is_asm=False, module="MSVCRT"
             ),
-            CrtSourceEntry(name="malloc", file="FILENAME.C", line=0, is_asm=False, origin="MSVCRT"),
+            CrtSourceEntry(name="malloc", file="FILENAME.C", line=0, is_asm=False, module="MSVCRT"),
         ]
 
         matches = match_function("_malloc", 64, "MSVCRT", index)
@@ -181,8 +181,8 @@ class TestFunctionMatching:
 
     def test_match_filename_does_not_shadow_exact(self) -> None:
         index = [
-            CrtSourceEntry(name="malloc", file="MALLOC.C", line=0, is_asm=False, origin="MSVCRT"),
-            CrtSourceEntry(name="malloc", file="MALLOC.C", line=42, is_asm=False, origin="MSVCRT"),
+            CrtSourceEntry(name="malloc", file="MALLOC.C", line=0, is_asm=False, module="MSVCRT"),
+            CrtSourceEntry(name="malloc", file="MALLOC.C", line=42, is_asm=False, module="MSVCRT"),
         ]
 
         matches = match_function("malloc", 64, "MSVCRT", index)
@@ -192,18 +192,18 @@ class TestFunctionMatching:
 
     def test_match_filters_by_origin(self) -> None:
         index = [
-            CrtSourceEntry(name="inflate", file="INF.C", line=10, is_asm=False, origin="ZLIB"),
-            CrtSourceEntry(name="inflate", file="CRT.C", line=20, is_asm=False, origin="MSVCRT"),
+            CrtSourceEntry(name="inflate", file="INF.C", line=10, is_asm=False, module="ZLIB"),
+            CrtSourceEntry(name="inflate", file="CRT.C", line=20, is_asm=False, module="MSVCRT"),
         ]
 
         matches = match_function("inflate", 200, "ZLIB", index)
 
         assert len(matches) == 1
-        assert matches[0].source.origin == "ZLIB"
+        assert matches[0].source.module == "ZLIB"
 
     def test_match_va_passthrough(self) -> None:
         index = [
-            CrtSourceEntry(name="malloc", file="MALLOC.C", line=42, is_asm=False, origin="MSVCRT"),
+            CrtSourceEntry(name="malloc", file="MALLOC.C", line=42, is_asm=False, module="MSVCRT"),
         ]
 
         matches = match_function("malloc", 64, "MSVCRT", index, va=0x10006C00)
@@ -212,7 +212,7 @@ class TestFunctionMatching:
 
     def test_match_stdcall_decorated(self) -> None:
         index = [
-            CrtSourceEntry(name="foo", file="FOO.C", line=5, is_asm=False, origin="MSVCRT"),
+            CrtSourceEntry(name="foo", file="FOO.C", line=5, is_asm=False, module="MSVCRT"),
         ]
 
         matches = match_function("_foo@8", 32, "MSVCRT", index)
@@ -223,15 +223,15 @@ class TestFunctionMatching:
 
 class TestSourceRef:
     def test_c_source_with_line(self) -> None:
-        entry = CrtSourceEntry(name="malloc", file="MALLOC.C", line=42, is_asm=False, origin="X")
+        entry = CrtSourceEntry(name="malloc", file="MALLOC.C", line=42, is_asm=False, module="X")
         assert _source_ref(entry) == "MALLOC.C:42"
 
     def test_asm_source_omits_line(self) -> None:
-        entry = CrtSourceEntry(name="memcpy", file="MEMCPY.ASM", line=12, is_asm=True, origin="X")
+        entry = CrtSourceEntry(name="memcpy", file="MEMCPY.ASM", line=12, is_asm=True, module="X")
         assert _source_ref(entry) == "MEMCPY.ASM"
 
     def test_filename_entry_omits_line(self) -> None:
-        entry = CrtSourceEntry(name="qsort", file="QSORT.C", line=0, is_asm=False, origin="X")
+        entry = CrtSourceEntry(name="qsort", file="QSORT.C", line=0, is_asm=False, module="X")
         assert _source_ref(entry) == "QSORT.C"
 
 

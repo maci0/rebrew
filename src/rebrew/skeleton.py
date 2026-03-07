@@ -1,9 +1,12 @@
 """skeleton.py - Generate .c skeleton file for an uncovered function.
 
 Given a VA address, generates a properly annotated .c file skeleton with:
-- reccmp-style annotations (FUNCTION/LIBRARY marker, STATUS, ORIGIN, SIZE, CFLAGS)
+- reccmp-style marker line (FUNCTION/LIBRARY/STUB:  MODULE 0xVA)
 - A placeholder function body
 - The exact rebrew test command to verify it
+
+All volatile metadata (STATUS, SIZE, CFLAGS, BLOCKER) is written to the
+``rebrew-functions.toml`` sidecar by this generator, not into the .c file.
 
 Usage:
     rebrew skeleton 0x10003da0                    # Auto-detect origin
@@ -28,7 +31,7 @@ from rich.console import Console
 from rich.table import Table
 
 from rebrew.annotation import (
-    marker_for_origin,
+    marker_for_module,
     parse_c_file_multi,
 )
 from rebrew.catalog import load_function_structure
@@ -44,7 +47,6 @@ from rebrew.cli import (
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 from rebrew.decompiler import fetch_decompilation
 from rebrew.naming import (
-    detect_origin,
     load_existing_vas,
     make_filename,
     sanitize_name,
@@ -53,31 +55,9 @@ from rebrew.utils import atomic_write_text
 
 console = Console(stderr=True)
 
-# Default skeleton TODO text per origin (used when cfg.origin_todos is empty)
-_DEFAULT_ORIGIN_TODOS: dict[str, str] = {
-    "GAME": "Implement based on Ghidra decompilation",
-    "MSVCRT": "Implement from CRT source",
-    "ZLIB": "Implement from zlib 1.1.3 source",
-}
-
-# Default skeleton preamble comments per origin (used when cfg.origin_comments is empty)
-_DEFAULT_ORIGIN_COMMENTS: dict[str, str] = {
-    "GAME": "TODO: Add extern declarations for globals and called functions",
-    "MSVCRT": (
-        "CRT function - check crt_sources path in rebrew-project.toml for original source\n"
-        "Also check: https://github.com/shihyu/learn_c/tree/master/vc_lib_src/src"
-    ),
-    "ZLIB": "zlib function - check references/ directory for original source",
-}
-
 _SKELETON_TEMPLATE = jinja2.Template(
     """\
 // {{ marker }}: {{ cfg_marker }} 0x{{ '%08x' % va }}
-// STATUS: STUB
-// BLOCKER: initial decompilation - needs analysis
-// ORIGIN: {{ origin }}
-// SIZE: {{ size }}
-// CFLAGS: {{ cflags }}
 
 {% if origin_comment -%}
 /* {{ origin_comment }} */
@@ -104,11 +84,6 @@ int __cdecl {{ func_name }}(void)
 _ANNOTATION_BLOCK_TEMPLATE = jinja2.Template(
     """\
 // {{ marker }}: {{ cfg_marker }} 0x{{ '%08x' % va }}
-// STATUS: STUB
-// BLOCKER: initial decompilation - needs analysis
-// ORIGIN: {{ origin }}
-// SIZE: {{ size }}
-// CFLAGS: {{ cflags }}
 
 {% if xref_context -%}
 {{ xref_context }}
@@ -134,7 +109,7 @@ def generate_skeleton(
     va: int,
     size: int,
     ghidra_name: str,
-    origin: str,
+    module: str = "",
     custom_name: str | None = None,
     xref_context: str | None = None,
     decomp_code: str | None = None,
@@ -147,41 +122,29 @@ def generate_skeleton(
         va: Virtual address of the target function.
         size: Size of the function in bytes.
         ghidra_name: Name of the function imported from Ghidra.
-        origin: The source component (e.g., GAME, ZLIB, MSVCRT).
+        module: Module name used for the marker line.
         custom_name: Optional override name for the function.
         xref_context: Optional string containing fetched caller cross-references.
         decomp_code: Optional decompilation output to embed as a comment block.
         decomp_backend: Name of the decompiler backend (for the header comment).
 
     """
-    # Derive marker from origin (FUNCTION vs LIBRARY). We pass "MATCHED" as status
-    # so that marker_for_origin picks FUNCTION/LIBRARY rather than STUB — the template
-    # writes STATUS: STUB on its own annotation line.
-    lib_origins = cfg.library_origins or None
-    marker = marker_for_origin(origin, "MATCHED", lib_origins)
-    cflags = cfg.resolve_origin_cflags(origin)
+    lib_modules = cfg.library_modules or set()
+    marker = marker_for_module(module, "MATCHED", lib_modules)
+    cflags = cfg.base_cflags or "/O2 /Gd"
 
     # Determine symbol name
     symbol = "_" + custom_name if custom_name else "_" + sanitize_name(ghidra_name)
     func_name = symbol.lstrip("_")
 
-    cfg_todos = cfg.origin_todos or {}
-    if cfg_todos:
-        todo = cfg_todos.get(origin, "Implement function")
-    else:
-        todo = _DEFAULT_ORIGIN_TODOS.get(origin, "Implement function")
-
-    cfg_comments = cfg.origin_comments or {}
-    if cfg_comments:
-        origin_comment = cfg_comments.get(origin, "")
-    else:
-        origin_comment = _DEFAULT_ORIGIN_COMMENTS.get(origin, "")
+    todo = "Implement based on Ghidra decompilation"
+    origin_comment = ""
 
     return _SKELETON_TEMPLATE.render(
         marker=marker,
         cfg_marker=cfg.marker,
         va=va,
-        origin=origin,
+        origin_comment=origin_comment,
         size=size,
         cflags=cflags,
         symbol=symbol,
@@ -191,7 +154,6 @@ def generate_skeleton(
         decomp_code=decomp_code,
         decomp_backend=decomp_backend or "decompiler",
         todo=todo,
-        origin_comment=origin_comment,
     )
 
 
@@ -200,7 +162,7 @@ def generate_annotation_block(
     va: int,
     size: int,
     ghidra_name: str,
-    origin: str,
+    module: str = "",
     custom_name: str | None = None,
     xref_context: str | None = None,
     decomp_code: str | None = None,
@@ -208,12 +170,11 @@ def generate_annotation_block(
 ) -> str:
     """Generate an annotation block + stub body for appending to an existing file.
 
-    Unlike generate_skeleton(), this omits origin-specific preamble comments
-    and produces a compact block suitable for appending after existing code.
+    Produces a compact block suitable for appending after existing code.
     """
-    lib_origins = cfg.library_origins or None
-    marker = marker_for_origin(origin, "MATCHED", lib_origins)
-    cflags = cfg.resolve_origin_cflags(origin)
+    lib_modules = cfg.library_modules or set()
+    marker = marker_for_module(module, "MATCHED", lib_modules)
+    cflags = cfg.base_cflags or "/O2 /Gd"
 
     symbol = "_" + custom_name if custom_name else "_" + sanitize_name(ghidra_name)
     func_name = symbol.lstrip("_")
@@ -222,7 +183,6 @@ def generate_annotation_block(
         marker=marker,
         cfg_marker=cfg.marker,
         va=va,
-        origin=origin,
         size=size,
         cflags=cflags,
         symbol=symbol,
@@ -400,12 +360,11 @@ def list_uncovered(
     ghidra_funcs: list["FunctionEntry"],
     existing_vas: dict[int, str],
     cfg: ProjectConfig,
-    origin_filter: str | None = None,
     min_size: int = 10,
     max_size: int = 9999,
-) -> list[tuple[int, int, str, str]]:
-    """List uncovered functions. Returns [(va, size, ghidra_name, origin)]."""
-    uncovered: list[tuple[int, int, str, str]] = []
+) -> list[tuple[int, int, str]]:
+    """List uncovered functions. Returns [(va, size, ghidra_name)]."""
+    uncovered: list[tuple[int, int, str]] = []
     ignored_syms = set(cfg.ignored_symbols or [])
     for func in ghidra_funcs:
         va = func.va
@@ -419,11 +378,7 @@ def list_uncovered(
         if name in ignored_syms:
             continue
 
-        origin = detect_origin(va, name, cfg)
-        if origin_filter and origin != origin_filter:
-            continue
-
-        uncovered.append((va, size, name, origin))
+        uncovered.append((va, size, name))
 
     uncovered.sort(key=lambda x: x[1])  # Sort by size
     return uncovered
@@ -450,9 +405,10 @@ rebrew skeleton --list --origin ZLIB           List uncovered ZLIB functions
 
 [bold]What it creates:[/bold]
 
-A .c file with reccmp-style annotations (FUNCTION, STATUS, ORIGIN, SIZE,
-CFLAGS) and a placeholder function body. The file is placed in the
-configured reversed_dir with the function name as filename.
+A .c file with a single marker line (``// FUNCTION: MODULE 0xVA``) and a
+placeholder function body.  All volatile metadata (STATUS, SIZE, CFLAGS,
+BLOCKER) is written to the ``rebrew-functions.toml`` sidecar alongside the
+.c file, not into the file itself.
 
 With --append, the annotation block is appended to an existing .c file,
 enabling multi-function compilation units where related functions share a file.
@@ -472,7 +428,6 @@ def main(
     va_arg: str | None = typer.Argument(None, help="Function VA in hex (e.g. 0x10003da0)"),
     va: str | None = typer.Option(None, "--va", help="Function VA in hex"),
     name: str | None = typer.Option(None, help="Custom function name"),
-    origin: str | None = typer.Option(None, help="Force origin type (GAME, MSVCRT, ZLIB)"),
     output: str | None = typer.Option(None, "--output", "-o", help="Output file path"),
     list_mode: bool = typer.Option(False, "--list", help="List uncovered functions"),
     batch: int | None = typer.Option(None, help="Generate N skeletons (smallest first)"),
@@ -514,7 +469,7 @@ def main(
 
     # --list mode
     if list_mode:
-        uncovered = list_uncovered(ghidra_funcs, existing_vas, cfg, origin, min_size, max_size)
+        uncovered = list_uncovered(ghidra_funcs, existing_vas, cfg, min_size, max_size)
         if not uncovered:
             console.print("No uncovered functions found matching criteria.")
             return
@@ -522,30 +477,23 @@ def main(
         table = Table(title=f"Uncovered Functions ({len(uncovered)})")
         table.add_column("VA", style="cyan")
         table.add_column("Size", justify="right")
-        table.add_column("Origin", justify="right", style="dim")
         table.add_column("Name", style="magenta")
-        for va_val, size_val, name_val, origin_val in uncovered:
-            table.add_row(f"0x{va_val:08x}", f"{size_val}B", origin_val, name_val)
+        for va_val, size_val, name_val in uncovered:
+            table.add_row(f"0x{va_val:08x}", f"{size_val}B", name_val)
         console.print(table)
-
-        # Summary
-        by_origin: dict[str, int] = {}
-        for _, _, _, origin_val in uncovered:
-            by_origin[origin_val] = by_origin.get(origin_val, 0) + 1
-        console.print(f"By origin: {', '.join(f'{k}: {v}' for k, v in sorted(by_origin.items()))}")
         return
 
     # --batch mode
     if batch:
-        uncovered = list_uncovered(ghidra_funcs, existing_vas, cfg, origin, min_size, max_size)
+        uncovered = list_uncovered(ghidra_funcs, existing_vas, cfg, min_size, max_size)
         if not uncovered:
             console.print("No uncovered functions found matching criteria.")
             return
 
         count = min(batch, len(uncovered))
         created = []
-        for va_val, size_val, name_val, origin_val in uncovered[:count]:
-            filename = make_filename(va_val, name_val, origin_val, cfg=cfg)
+        for va_val, size_val, name_val in uncovered[:count]:
+            filename = make_filename(va_val, name_val, cfg=cfg)
             filepath = src_dir / filename
             rel_path = rel_display_path(filepath, root)
 
@@ -582,7 +530,6 @@ def main(
                 va_val,
                 size_val,
                 name_val,
-                origin_val,
                 xref_context=xref_context_val,
                 decomp_code=d_code,
                 decomp_backend=d_backend,
@@ -590,17 +537,16 @@ def main(
             atomic_write_text(filepath, content, encoding="utf-8")
 
             symbol_val = "_" + sanitize_name(name_val)
-            cflags_val = cfg.resolve_origin_cflags(origin_val)
+            cflags_val = cfg.base_cflags or "/O2 /Gd"
             test_cmd = generate_test_command(rel_path, symbol_val, va_val, size_val, cflags_val)
 
-            console.print(f"[bold green]CREATED[/] {rel_path} ({size_val}B, {origin_val})")
+            console.print(f"[bold green]CREATED[/] {rel_path} ({size_val}B)")
             console.print(f"  [dim]TEST:[/] {test_cmd}")
             created.append(
                 {
                     "file": str(rel_path),
                     "va": f"0x{va_val:08x}",
                     "size": size_val,
-                    "origin": origin_val,
                     "symbol": symbol_val,
                     "test_command": test_cmd,
                 }
@@ -638,7 +584,7 @@ def main(
         console.print("Use [cyan]--force[/] to overwrite.")
         raise typer.Exit(code=0)
 
-    origin_val = origin or detect_origin(va_int, ghidra_name, cfg)
+    module_val = cfg.marker  # Use the project marker as module name
 
     # --append mode: add annotation block to an existing file
     if append:
@@ -688,7 +634,7 @@ def main(
             va_int,
             size,
             ghidra_name,
-            origin_val,
+            module_val,
             name,
             xref_context=xref_context_val,
             decomp_code=decomp_code_val,
@@ -722,14 +668,13 @@ def main(
                     "file": str(rel_path_val),
                     "va": f"0x{va_int:08x}",
                     "size": size,
-                    "origin": origin_val,
                     "symbol": symbol_val,
                     "test_command": f"rebrew test {rel_path_val}",
                 }
             )
         return
 
-    filename_val = make_filename(va_int, ghidra_name, origin_val, name, cfg=cfg)
+    filename_val = make_filename(va_int, ghidra_name, name, cfg=cfg)
     filepath_val = Path(output) if output else src_dir / filename_val
     rel_path_val = rel_display_path(filepath_val, root)
 
@@ -767,7 +712,7 @@ def main(
         va_int,
         size,
         ghidra_name,
-        origin_val,
+        module_val,
         name,
         xref_context=xref_context_val,
         decomp_code=decomp_code_val,
@@ -777,7 +722,7 @@ def main(
 
     # Compute test commands
     symbol_val = "_" + name if name else "_" + sanitize_name(ghidra_name)
-    cflags_val = cfg.resolve_origin_cflags(origin_val)
+    cflags_val = cfg.base_cflags or "/O2 /Gd"
 
     test_cmd = generate_test_command(str(rel_path_val), symbol_val, va_int, size, cflags_val)
     diff_cmd = generate_diff_command(cfg, str(rel_path_val), symbol_val, va_int, size, cflags_val)
@@ -789,7 +734,6 @@ def main(
                 "file": str(rel_path_val),
                 "va": f"0x{va_int:08x}",
                 "size": size,
-                "origin": origin_val,
                 "symbol": symbol_val,
                 "test_command": test_cmd,
                 "diff_command": diff_cmd,
@@ -799,7 +743,6 @@ def main(
         console.print(f"[bold green]Created:[/] {rel_path_val}")
         console.print(f"  VA:     [cyan]0x{va_int:08x}[/]")
         console.print(f"  Size:   {size}B")
-        console.print(f"  Origin: {origin_val}")
         console.print(f"  Symbol: [magenta]{symbol_val}[/]")
         console.print()
         console.print("[bold]Test command:[/]")
