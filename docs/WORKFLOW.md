@@ -273,7 +273,7 @@ rebrew diff --mm src/target_name/my_func.c
 ### 8. Update the annotation
 
 Based on test results, **`rebrew test` auto-promotes** STATUS on EXACT or RELOC matches,
-updating `rebrew-functions.toml` atomically:
+updating `rebrew-function.toml` atomically:
 
 ```bash
 rebrew test src/target_name/my_func.c   # compile + update STATUS automatically
@@ -287,7 +287,7 @@ If STATUS is MATCHING, auto-classify and write the BLOCKER to the sidecar:
 rebrew diff --fix-blocker src/target_name/my_func.c
 ```
 
-This writes to `rebrew-functions.toml` (found via walk-up):
+This writes to `rebrew-function.toml` (found via walk-up):
 ```toml
 ["SERVER.0x<VA>"]
 status = "MATCHING"
@@ -348,10 +348,10 @@ Every .c file MUST start with an annotation block. See [ANNOTATIONS.md](ANNOTATI
 
 Required fields (enforced as linter errors): marker (FUNCTION/LIBRARY/STUB), STATUS, SIZE.
 Optional: CFLAGS (falls back to project config default). Symbol is derived automatically from the C function definition.
-Conditional: SOURCE (for CRT/ZLIB), BLOCKER (for MATCHING/STUB — stored in `rebrew-functions.toml` sidecar).
+Conditional: SOURCE (for CRT/ZLIB), BLOCKER (for MATCHING/STUB — stored in `rebrew-function.toml` sidecar).
 
 > [!CAUTION]
-> **Never manually edit `rebrew-functions.toml`.** Volatile metadata (STATUS, CFLAGS, SIZE, BLOCKER, NOTE, GHIDRA)
+> **Never manually edit `rebrew-function.toml`.** Volatile metadata (STATUS, CFLAGS, SIZE, BLOCKER, NOTE, GHIDRA)
 > is managed exclusively by Rebrew CLI tools. Manual edits will be lost or may corrupt the file.
 
 A file may contain **multiple annotation blocks** for multi-function compilation.

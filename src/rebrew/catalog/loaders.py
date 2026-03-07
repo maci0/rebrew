@@ -159,7 +159,7 @@ def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> l
     Supports multi-function files: a single source file may contain multiple
     ``// FUNCTION:`` blocks, each generating a separate entry.
 
-    Merges data from each directory's ``rebrew-functions.toml`` sidecar so that volatile
+    Merges data from each directory's ``rebrew-function.toml`` sidecar so that volatile
     metadata (STATUS, CFLAGS, SIZE, BLOCKER, etc.) stored outside the .c file
     is visible to catalog tools.
     """

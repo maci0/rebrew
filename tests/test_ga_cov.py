@@ -316,7 +316,7 @@ class TestUpdateCflagsAnnotation:
         changed = update_cflags_annotation(f, "/O1 /Gz")
         assert changed is True
         # Verify sidecar was written
-        sidecar = tmp_path / "rebrew-functions.toml"
+        sidecar = tmp_path / "rebrew-function.toml"
         assert sidecar.exists()
         content = sidecar.read_text(encoding="utf-8")
         assert "/O1 /Gz" in content

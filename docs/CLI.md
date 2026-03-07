@@ -131,7 +131,7 @@ Behavior:
 
 | Flag | Description |
 |------|-------------|
-| `--fix-status` | Auto-update `STATUS` in `rebrew-functions.toml` sidecar based on compile results |
+| `--fix-status` | Auto-update `STATUS` in `rebrew-function.toml` sidecar based on compile results |
 | `--diff` | Compare against last saved `db/verify_results.json`, detect regressions/improvements; exit code 1 on regression |
 | `--summary` | Show EXACT/RELOC/MATCHING summary table with match percentages |
 | `--json` | Structured JSON report to stdout |
@@ -216,7 +216,7 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 | `--csv` | Generate reccmp-compatible CSV |
 | `--export-ghidra` | Cache Ghidra function list |
 | `--export-ghidra-labels` | Generate `ghidra_data_labels.json` from detected tables |
-| `--fix-sizes` | Update `SIZE` entries in `rebrew-functions.toml` sidecar to match canonical sizes |
+| `--fix-sizes` | Update `SIZE` entries in `rebrew-function.toml` sidecar to match canonical sizes |
 | `--root DIR` | Project root directory (auto-detected if omitted) |
 
 ### `rebrew sync`

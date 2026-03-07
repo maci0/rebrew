@@ -67,7 +67,7 @@ VALID_MARKERS = {"FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"}
 VALID_STATUSES = {"EXACT", "RELOC", "MATCHING", "MATCHING_RELOC", "STUB", "PROVEN"}
 
 # Keys that every function block must declare.
-# SIZE is intentionally excluded: SIZE lives exclusively in the rebrew-functions.toml
+# SIZE is intentionally excluded: SIZE lives exclusively in the rebrew-function.toml
 # sidecar (written by rebrew skeleton / catalog --update-sizes / update_size_annotation).
 # Remaining // SIZE: lines in existing source are parsed as a fallback value (so older
 # files still work with rebrew test), but the key is NOT in OPTIONAL_KEYS — any // SIZE:
@@ -77,7 +77,7 @@ REQUIRED_KEYS = {"STATUS"}
 RECOMMENDED_KEYS: set[str] = set()
 # OPTIONAL_KEYS: only reccmp-compatible keys that are permitted inline.
 # All rebrew-specific keys (CFLAGS, SKIP, GLOBALS, BLOCKER, SOURCE, NOTE, SECTION,
-# GHIDRA, BLOCKER_DELTA) must live in rebrew-functions.toml — see SIDECAR_KEYS.
+# GHIDRA, BLOCKER_DELTA) must live in rebrew-function.toml — see SIDECAR_KEYS.
 OPTIONAL_KEYS = {
     "ANALYSIS",  # reccmp compatibility (structural analysis note)
 }
@@ -94,7 +94,7 @@ SIDECAR_KEYS: frozenset[str] = frozenset(
         "NOTE",
         "SECTION",
         "GHIDRA",
-        "SIZE",  # lives in rebrew-functions.toml (functions) or rebrew-data.toml (DATA/GLOBAL)
+        "SIZE",  # lives in rebrew-function.toml (functions) or rebrew-data.toml (DATA/GLOBAL)
     }
 )
 ALL_KNOWN_KEYS = REQUIRED_KEYS | OPTIONAL_KEYS | SIDECAR_KEYS | {"MARKER", "VA"}
@@ -300,7 +300,7 @@ def marker_for_module(module: str, status: str, library_modules: set[str] | None
 def has_skip_annotation(filepath: Path) -> bool:
     """Return True if a function in *filepath* is marked as skippable.
 
-    Checks the ``rebrew-functions.toml`` sidecar first (preferred — the
+    Checks the ``rebrew-function.toml`` sidecar first (preferred — the
     canonical location per the 2026 annotation migration).  Falls back to
     scanning the first 20 source lines for a ``// SKIP:`` comment so that
     files not yet migrated continue to work.
@@ -564,7 +564,7 @@ def _module_for_va(filepath: Path, va: int) -> str:
 def update_size_annotation(filepath: Path, new_size: int, target_va: int | None = None) -> bool:
     """Update the SIZE for a function — always writes to the sidecar.
 
-    Writes *new_size* to the ``rebrew-functions.toml`` sidecar in the same
+    Writes *new_size* to the ``rebrew-function.toml`` sidecar in the same
     directory as *filepath* (only increasing, never shrinking).
 
     *target_va* is required for multi-function files; for single-function files
@@ -1051,7 +1051,7 @@ def parse_c_file_multi(
     Returns an empty list if no annotations are found.
 
     When *sidecar_dir* is provided each returned Annotation is overlaid with
-    values from that directory's ``rebrew-functions.toml`` (sidecar wins for volatile
+    values from that directory's ``rebrew-function.toml`` (sidecar wins for volatile
     fields like STATUS, SIZE, CFLAGS, BLOCKER, NOTE, GHIDRA).  Pass
     ``filepath.parent`` as *sidecar_dir* to enable sidecar merging for a
     single-file call.
@@ -1161,7 +1161,7 @@ def update_annotation_key(filepath: Path, va: int, key: str, new_value: str) -> 
     """Update or add an annotation key for a specific VA.
 
     For sidecar-owned keys (STATUS, SIZE, CFLAGS, BLOCKER, NOTE, GHIDRA, …)
-    the value is written to the ``rebrew-functions.toml`` sidecar in the same directory
+    the value is written to the ``rebrew-function.toml`` sidecar in the same directory
     as *filepath*, leaving the ``.c`` file untouched.  For non-sidecar keys
     (ORIGIN, SOURCE for library functions) the existing in-file edit logic
     applies.
@@ -1360,7 +1360,7 @@ def parse_library_header(
 def remove_annotation_key(filepath: Path, va: int, key: str) -> bool:
     """Remove an annotation key for a specific VA.
 
-    For sidecar-owned keys the matching field is deleted from ``rebrew-functions.toml``.
+    For sidecar-owned keys the matching field is deleted from ``rebrew-function.toml``.
     For non-sidecar keys the existing in-file removal logic applies.
 
     Returns True if any change was made, False otherwise.

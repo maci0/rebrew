@@ -24,7 +24,7 @@
 | Pull data labels from Ghidra | Ghidra → Local | ✅ Done | `--pull-data` (generates `rebrew_globals.h`); **name/note** written to `rebrew-data.toml` sidecar |
 | XREF context in skeleton generation | Ghidra → Local | ✅ Done | `skeleton --xrefs` |
 | Ghidra decompilation backend for skeleton | Ghidra → Local | ✅ Done | `skeleton --decomp --decomp-backend ghidra` |
-| Sidecar-aware linting | Local | ✅ Done | `rebrew lint` reads `rebrew-functions.toml` before validation |
+| Sidecar-aware linting | Local | ✅ Done | `rebrew lint` reads `rebrew-function.toml` before validation |
 | Incremental / dirty-only sync | Both | ❌ Not yet | — |
 | Watch mode (live file-change sync) | Local → Ghidra | ❌ Not yet | — |
 | Validate `programPath` against Ghidra project | — | ❌ Not yet | — |

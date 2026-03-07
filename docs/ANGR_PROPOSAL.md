@@ -31,7 +31,7 @@ A new Typer command that targets a specific `.c` file or a `MATCHING` function b
 6. **Constraint Solving (Z3)**: At the function exit points, Z3 evaluates the final symbolic state of the return register (`EAX`) and any modified memory. If the algebraic formulas for both states are logically equivalent (i.e., `solver.satisfiable(state_A.regs.eax != state_B.regs.eax)` returns `False`), the functions are mathematically identical.
 
 ### 2. New Status: `PROVEN`
-If Z3 successfully proves semantic equivalence, `rebrew prove` updates the `rebrew-functions.toml`
+If Z3 successfully proves semantic equivalence, `rebrew prove` updates the `rebrew-function.toml`
 sidecar (not the `.c` file) for the function's VA:
 ```toml
 ["0x10008880"]
@@ -62,7 +62,7 @@ A `PROVEN` status holds the same weight as `EXACT` or `RELOC` in the project com
    [angr] Paths explored: 14 (Original), 14 (Obj)
    [Z3] Solving constraints...
    ✅ SEMANTIC EQUIVALENCE PROVEN
-   Updated rebrew-functions.toml: status = "PROVEN" for 0x10008880
+   Updated rebrew-function.toml: status = "PROVEN" for 0x10008880
    ```
 
 ## Technical Challenges & Mitigations

@@ -52,7 +52,7 @@ Rebrew filters annotations by the active `--target`. Multiple `// FUNCTION: <MOD
 // FUNCTION: BETA10 0x101832f7
 void my_func() {}
 ```
-Each target's `rebrew-functions.toml` sidecar holds STATUS, SIZE, CFLAGS for that VA.
+Each target's `rebrew-function.toml` sidecar holds STATUS, SIZE, CFLAGS for that VA.
 
 ## 4. Implement and Test
 
@@ -82,7 +82,7 @@ rebrew diff src/<target>/<file>.c --fix-blocker  # auto-write BLOCKER to sidecar
 ```
 
 > [!CAUTION]
-> **Never manually edit `rebrew-functions.toml` or `rebrew-data.toml`.**
+> **Never manually edit `rebrew-function.toml` or `rebrew-data.toml`.**
 > All volatile metadata lives in sidecars managed by CLI tools.
 
 For deeper matching (GA engine), see the `rebrew-matching` skill.
