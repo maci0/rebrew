@@ -7,7 +7,6 @@ iteratively mutate to find a byte-perfect or relocation-normalized match.
 For a byte diff of the current state, use ``rebrew diff src/f.c``.
 
 Usage:
-    rebrew match <source.c> [--flag-sweep-only --tier TIER]
     rebrew match <source.c> [--generations N --pop-size N]
 """
 

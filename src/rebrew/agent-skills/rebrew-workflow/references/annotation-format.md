@@ -117,7 +117,7 @@ note    = "lookup table for sprite indices"
 ```
 
 > [!NOTE]
-> `name` is the primary BinSync/IDA interop field. When `rebrew sync --pull`
+> `name` is the primary Ghidra interop field. When `rebrew sync --pull`
 > receives a renamed data label from Ghidra it writes the name here (not inline).
 
 > [!CAUTION]
