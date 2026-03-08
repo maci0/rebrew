@@ -2,6 +2,9 @@
 
 Orchestrates annotation scanning, registry building, and output generation
 (CATALOG.md, data.json, reccmp CSV, Ghidra label export, size fixing).
+
+``--data-json`` writes ``db/data_<target>.json`` (feeds into ``rebrew build-db``).
+``--json`` emits a machine-readable summary to stdout, like all other tools.
 """
 
 import json
@@ -17,7 +20,8 @@ from rebrew.catalog.registry import build_function_registry
 from rebrew.catalog.sections import get_text_section_size
 from rebrew.cli import (
     TargetOption,
-    get_config,
+    json_print,
+    require_config,
 )
 from rebrew.config import FUNCTION_STRUCTURE_JSON
 
@@ -27,15 +31,17 @@ app = typer.Typer(
     epilog="""\
 [bold]Examples:[/bold]
 
-rebrew catalog                              Validate annotations (default)
+rebrew catalog                              Validate and summarize (default)
 
-rebrew catalog --json                       Generate db/data_<target>.json
+rebrew catalog --data-json                  Write db/data_<target>.json (feeds build-db)
 
 rebrew catalog --catalog                    Generate CATALOG.md in reversed_dir
 
-rebrew catalog --json --catalog             Generate both JSON and CATALOG.md
+rebrew catalog --data-json --catalog        Write both JSON and CATALOG.md
 
-rebrew catalog -t mygame                Catalog a specific target
+rebrew catalog --json                       Machine-readable summary to stdout
+
+rebrew catalog -t mygame                    Catalog a specific target
 
 [bold]What it does:[/bold]
 
@@ -47,16 +53,16 @@ rebrew catalog -t mygame                Catalog a specific target
 
 4. Generates cell-level coverage data for the .text section
 
-5. Outputs structured JSON and/or CATALOG.md
+5. Outputs structured data and/or CATALOG.md
 
-[dim]The JSON output feeds into 'rebrew build-db' to create the SQLite database
-used by the recoverage dashboard.[/dim]""",
+[dim]Run 'rebrew catalog --data-json && rebrew build-db' to populate the
+recoverage SQLite database.[/dim]""",
 )
 
 
 @app.callback(invoke_without_command=True)
 def main(
-    gen_json: bool = typer.Option(False, "--json", help="Generate db/data.json"),
+    gen_data_json: bool = typer.Option(False, "--data-json", help="Write db/data_<target>.json"),
     catalog: bool = typer.Option(
         False, "--catalog", help="Generate CATALOG.md in reversed directory"
     ),
@@ -77,39 +83,33 @@ def main(
         None,
         help="Project root directory (auto-detected from rebrew-project.toml if omitted)",
     ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Rebrew validation pipeline: parse annotations, generate catalog and coverage data."""
-    cfg = None
-    try:
-        cfg = get_config(target=target)
-        bin_path = cfg.target_binary
-        reversed_dir = cfg.reversed_dir
-        root = cfg.root
-        target = cfg.target_name
-    except (AttributeError, KeyError, FileNotFoundError):
-        if root is None:
-            root = Path.cwd().resolve()
-        bin_path = root / "binary.dll"
-        reversed_dir = root / "src"
-        target = target or "default"
+    cfg = require_config(target=target, json_mode=json_output)
+    bin_path = cfg.target_binary
+    reversed_dir = cfg.reversed_dir
+    root = cfg.root
+    target = cfg.target_name
 
-    func_list_path = cfg.function_list if cfg else (reversed_dir / "functions.txt")
+    func_list_path = cfg.function_list
     ghidra_json_path = reversed_dir / FUNCTION_STRUCTURE_JSON
 
     if not any(
         [
             catalog,
-            gen_json,
+            gen_data_json,
             csv,
             summary,
             export_ghidra,
             export_ghidra_labels,
             fix_sizes,
+            json_output,
         ]
     ):
         catalog = True
-        gen_json = True
+        gen_data_json = True
         csv = True
         summary = True
 
@@ -235,9 +235,9 @@ def main(
         atomic_write_text(catalog_path, catalog_text, encoding="utf-8")
         typer.echo(f"Wrote {catalog_path}", err=True)
 
-    if gen_json or export_ghidra_labels:
+    if gen_data_json or export_ghidra_labels:
         data = generate_data_json(entries, funcs, text_size, bin_path, registry, reversed_dir, root)
-        if gen_json:
+        if gen_data_json:
             coverage_dir = root / "db"
             coverage_dir.mkdir(parents=True, exist_ok=True)
             json_path = coverage_dir / f"data_{target}.json"
@@ -295,6 +295,19 @@ def main(
                 else:
                     skipped += 1
         typer.echo(f"Updated {updated} SIZE annotations ({skipped} skipped)", err=True)
+
+    if json_output:
+        json_print(
+            {
+                "target": target,
+                "annotations": len(entries),
+                "unique_vas": len({e["va"] for e in entries}),
+                "registry": len(registry),
+                "wrote_data_json": gen_data_json,
+                "wrote_catalog": catalog,
+                "wrote_csv": csv,
+            }
+        )
 
 
 def main_entry() -> None:

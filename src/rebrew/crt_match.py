@@ -360,7 +360,7 @@ def _render_index_table(entries: list[CrtSourceEntry]) -> None:
             "yes" if entry.is_asm else "no",
         )
 
-    Console(stderr=True).print(table)
+    console.print(table)
 
 
 def _render_match_table(matches: list[CrtMatch]) -> None:
@@ -383,7 +383,7 @@ def _render_match_table(matches: list[CrtMatch]) -> None:
             match.reason,
         )
 
-    Console(stderr=True).print(table)
+    console.print(table)
 
 
 _EPILOG = """\
@@ -405,6 +405,8 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=_EPILOG,
 )
+
+console = Console(stderr=True)
 
 
 @app.callback(invoke_without_command=True)

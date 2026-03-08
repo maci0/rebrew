@@ -491,36 +491,36 @@ class TestCLISet:
         assert doc["compiler"]["image_base"] == 0x10000000
 
 
-class TestCLIOrigins:
-    def test_add_origin(self, tmp_path: Path, monkeypatch) -> None:
+class TestCLIModules:
+    def test_add_module(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["add-origin", "ENGINE"])
+        result = runner.invoke(cfg_app, ["add-module", "ENGINE"])
         assert result.exit_code == 0
         assert "Added" in result.output
         doc, _ = _load_toml(tmp_path)
         assert "ENGINE" in doc["targets"]["server.dll"]["origins"]
 
-    def test_add_origin_idempotent(self, tmp_path: Path, monkeypatch) -> None:
+    def test_add_module_idempotent(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["add-origin", "GAME"])
+        result = runner.invoke(cfg_app, ["add-module", "GAME"])
         assert result.exit_code == 0
         assert "already exists" in result.output
 
-    def test_remove_origin(self, tmp_path: Path, monkeypatch) -> None:
+    def test_remove_module(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["remove-origin", "ZLIB"])
+        result = runner.invoke(cfg_app, ["remove-module", "ZLIB"])
         assert result.exit_code == 0
         assert "Removed" in result.output
         doc, _ = _load_toml(tmp_path)
         assert "ZLIB" not in doc["targets"]["server.dll"]["origins"]
 
-    def test_remove_origin_idempotent(self, tmp_path: Path, monkeypatch) -> None:
+    def test_remove_module_idempotent(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["remove-origin", "NONEXISTENT"])
+        result = runner.invoke(cfg_app, ["remove-module", "NONEXISTENT"])
         assert result.exit_code == 0
         assert "already removed" in result.output
 
@@ -632,7 +632,7 @@ class TestCLIDump:
     def test_dump_toml(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["dump", "--toml"])
+        result = runner.invoke(cfg_app, ["dump", "--format", "toml"])
         assert result.exit_code == 0
         assert "[compiler]" in result.output
 
