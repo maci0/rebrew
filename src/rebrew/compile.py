@@ -2,11 +2,11 @@
 
 Provides a single, consistent interface for compiling C source to .obj files
 using MSVC under Wine. All tools (rebrew test, rebrew match, rebrew verify)
-should use these functions instead of building compile commands independently.
+use these functions instead of building compile commands independently.
 
 Architecture
 ~~~~~~~~~~~~
-Three entry points exist, in order of abstraction:
+Entry points in order of abstraction:
 
 ``resolve_cl_command(cfg)``
     Lowest level — builds the ``["wine", "/path/CL.EXE"]`` prefix list
@@ -15,6 +15,19 @@ Three entry points exist, in order of abstraction:
 ``compile_to_obj(cfg, source_path, cflags, workdir)``
     Mid-level — copies source to a Wine-compatible workdir and produces
     a ``.obj`` file. Returns ``(obj_path, error_msg)``.
+
+``compile_and_compare(cfg, source_path, symbol, target_bytes, cflags)``
+    High-level — compile, extract symbol bytes, compare to *target_bytes*,
+    and return a :class:`CompareResult`.
+
+``classify_compare_result(matched, msg, obj_bytes, target_bytes, reloc_offsets)``
+    Pure helper — classifies raw comparison outputs into a :class:`CompareResult`
+    (status string, match %, delta).  Used internally by ``compile_and_compare``.
+
+:class:`CompareResult`
+    Structured return type shared by ``compile_and_compare`` and ``verify_entry``.
+    Fields: ``matched``, ``status``, ``match_percent``, ``delta``, ``obj_bytes``,
+    ``reloc_offsets``, ``message``.
 
 Configuration
 ~~~~~~~~~~~~~
@@ -33,12 +46,135 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from rebrew.compile_cache import CompileCache, compile_cache_key, get_compile_cache
 from rebrew.config import ProjectConfig
 from rebrew.core import msvc_env_from_config, smart_reloc_compare
 from rebrew.matcher.parsers import parse_obj_symbol_bytes
+
+# ---------------------------------------------------------------------------
+# Shared result type
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class CompareResult:
+    """Result of a compile-and-compare operation.
+
+    Returned by :func:`compile_and_compare` and consumed by both
+    ``rebrew test`` and ``rebrew verify`` so that status/delta/match_percent
+    classification is done in one place rather than duplicated.
+
+    Attributes:
+        matched: ``True`` when compiled bytes equal target after reloc masking.
+        status: One of ``EXACT``, ``RELOC``, ``MISMATCH``, ``COMPILE_ERROR``,
+            ``MISSING_SIZE``, ``MISSING_FILE``.
+        match_percent: Fraction of non-reloc bytes that match (0–100).
+        delta: Absolute byte difference (mismatch count + size delta).
+        obj_bytes: Compiled bytes extracted from the ``.obj`` file, or ``None``
+            on compile/extract failure.
+        reloc_offsets: Relocation start offsets (4-byte spans each),
+            or ``None`` on failure.
+        message: Human-readable detail string (compiler error, mismatch counts, …).
+    """
+
+    matched: bool
+    status: str
+    match_percent: float
+    delta: int
+    obj_bytes: bytes | None
+    reloc_offsets: list[int] | None
+    message: str = ""
+    inv_reloc_offsets: list[int] = field(default_factory=list)
+
+
+def classify_compare_result(
+    matched: bool,
+    msg: str,
+    target_bytes: bytes | None,
+    obj_bytes: bytes | None,
+    reloc_offsets: list[int] | None,
+    inv_reloc_offsets: list[int] | None = None,
+) -> CompareResult:
+    """Classify a raw compile-and-compare outcome into a :class:`CompareResult`.
+
+    Centralises the EXACT / RELOC / MISMATCH / COMPILE_ERROR classification
+    and the ``match_percent`` / ``delta`` calculations that were previously
+    duplicated in ``test.py`` and ``verify.py``.
+
+    Args:
+        matched: Whether the byte comparison succeeded after reloc masking.
+        msg: Raw message from the compare step.
+        target_bytes: Ground-truth bytes (may be ``None`` on compile failure).
+        obj_bytes: Compiled bytes (may be ``None`` on compile failure).
+        reloc_offsets: Relocation start offsets.
+        inv_reloc_offsets: Invalid relocation offsets (mismatched relocs).
+
+    Returns:
+        A fully-populated :class:`CompareResult`.
+
+    """
+    inv = inv_reloc_offsets or []
+    relocs = reloc_offsets or []
+
+    if matched:
+        status = "RELOC" if relocs else "EXACT"
+        return CompareResult(
+            matched=True,
+            status=status,
+            match_percent=100.0,
+            delta=0,
+            obj_bytes=obj_bytes,
+            reloc_offsets=relocs,
+            message=msg,
+            inv_reloc_offsets=inv,
+        )
+
+    if "COMPILE_ERROR" in msg or obj_bytes is None:
+        return CompareResult(
+            matched=False,
+            status="COMPILE_ERROR",
+            match_percent=0.0,
+            delta=0,
+            obj_bytes=None,
+            reloc_offsets=None,
+            message=msg,
+        )
+
+    if "MISSING" in msg:
+        return CompareResult(
+            matched=False,
+            status="MISSING_SIZE" if "SIZE" in msg else "MISSING_FILE",
+            match_percent=0.0,
+            delta=0,
+            obj_bytes=obj_bytes,
+            reloc_offsets=relocs,
+            message=msg,
+        )
+
+    # MISMATCH — compute delta and match_percent
+    match_percent = 0.0
+    delta = 0
+    if target_bytes and obj_bytes:
+        min_len = min(len(target_bytes), len(obj_bytes))
+        max_len = max(len(target_bytes), len(obj_bytes))
+        mismatches = sum(1 for i in range(min_len) if target_bytes[i] != obj_bytes[i])
+        if max_len > 0:
+            match_percent = ((min_len - mismatches) / max_len) * 100
+        delta = abs(len(target_bytes) - len(obj_bytes)) + mismatches
+
+    return CompareResult(
+        matched=False,
+        status="MISMATCH",
+        match_percent=match_percent,
+        delta=delta,
+        obj_bytes=obj_bytes,
+        reloc_offsets=relocs,
+        message=msg,
+        inv_reloc_offsets=inv,
+    )
 
 
 def _safe_shlex_split(s: str) -> list[str]:
@@ -319,11 +455,14 @@ def compile_and_compare(
     *,
     cache: CompileCache | None = None,
     use_cache: bool = True,
-) -> tuple[bool, str, bytes | None, dict[int, str] | None]:
+) -> CompareResult:
     """Compile source, extract COFF symbol, compare against target bytes with reloc masking.
 
     This is the shared compile→extract→compare flow used by both ``rebrew test``
     and ``rebrew verify``.  Timeout is taken from ``cfg.compile_timeout``.
+
+    Returns a :class:`CompareResult` dataclass.  Use :func:`classify_compare_result`
+    if you already have raw ``(matched, msg, obj_bytes, reloc_offsets)`` values.
 
     Args:
         cfg: ProjectConfig with compiler settings.
@@ -335,8 +474,7 @@ def compile_and_compare(
         use_cache: If True, check and populate the compile cache.
 
     Returns:
-        (matched, message, obj_bytes, reloc_offsets)
-        matched is True if bytes match after reloc masking.
+        :class:`CompareResult` with status, metrics, and byte data.
 
     """
     cflags_list = _safe_shlex_split(cflags) if isinstance(cflags, str) else list(cflags)
@@ -352,42 +490,39 @@ def compile_and_compare(
                 use_cache=use_cache,
             )
             if obj_path is None:
-                return False, f"COMPILE_ERROR: {err[:200]}", None, None
+                return classify_compare_result(
+                    False, f"COMPILE_ERROR: {err[:200]}", target_bytes, None, None
+                )
 
             obj_bytes, reloc_offsets = parse_obj_symbol_bytes(obj_path, symbol)
             if obj_bytes is None:
-                return False, f"COMPILE_ERROR: Symbol '{symbol}' not found in .obj", None, None
+                return classify_compare_result(
+                    False,
+                    f"COMPILE_ERROR: Symbol '{symbol}' not found in .obj",
+                    target_bytes,
+                    None,
+                    None,
+                )
 
             if len(obj_bytes) != len(target_bytes):
-                return (
+                return classify_compare_result(
                     False,
                     f"MISMATCH: Size {len(obj_bytes)}B vs {len(target_bytes)}B",
+                    target_bytes,
                     obj_bytes,
                     reloc_offsets,
                 )
 
-            # Use the unified relocation masking logic
-            matched, match_count, total, relocs, inv_relocs = smart_reloc_compare(
+            matched, _match_count, _total, relocs, inv_relocs = smart_reloc_compare(
                 obj_bytes, target_bytes, reloc_offsets
             )
-
-            if matched:
-                if relocs:
-                    return (
-                        True,
-                        f"RELOC-NORM MATCH ({len(relocs)} relocs)",
-                        obj_bytes,
-                        reloc_offsets,
-                    )
-                else:
-                    return True, "EXACT MATCH", obj_bytes, reloc_offsets
-            else:
-                diff_count = total - match_count
-                return (
-                    False,
-                    f"MISMATCH: {diff_count} byte diffs",
-                    obj_bytes,
-                    reloc_offsets,
-                )
+            msg = (
+                f"RELOC-NORM MATCH ({len(relocs)} relocs)"
+                if (matched and relocs)
+                else ("EXACT MATCH" if matched else f"MISMATCH: {_total - _match_count} byte diffs")
+            )
+            return classify_compare_result(
+                matched, msg, target_bytes, obj_bytes, relocs, inv_relocs
+            )
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError, ValueError) as exc:
-        return False, f"COMPILE_ERROR: {exc}", None, None
+        return classify_compare_result(False, f"COMPILE_ERROR: {exc}", target_bytes, None, None)

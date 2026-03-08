@@ -26,6 +26,12 @@ Owned fields per entry::
 The ``// FUNCTION: MODULE 0xVA`` (and LIBRARY/STUB/GLOBAL/DATA) marker lines
 remain in the ``.c`` files for reccmp compatibility.
 
+Status promotion
+----------------
+Use :func:`update_source_status` — the single canonical writer — to promote
+a function's STATUS.  Both ``rebrew test`` and ``rebrew verify --fix-status``
+call this function; it never touches the ``.c`` file.
+
 Merge semantics
 ---------------
 When a rebrew tool reads an ``Annotation`` from ``parse_c_file_multi()``, it
@@ -113,6 +119,7 @@ __all__ = [
     "set_field",
     "delete_field",
     "merge_into_annotation",
+    "update_source_status",
 ]
 
 
@@ -341,8 +348,8 @@ def set_field(directory: Path, va: int, key: str, value: Any, module: str) -> No
     atomic_write_text(path, tomlkit.dumps(doc))
 
 
-def delete_field(directory: Path, va: int, key: str, module: str) -> None:
-    """Remove *key* from the sidecar entry for *(module, va)*.  No-op if not present.
+def delete_field(directory: Path, va: int, key: str, module: str) -> bool:
+    """Remove *key* from the sidecar entry for *(module, va)*.  Returns True if removed.
 
     Walks up from *directory* to find the sidecar file.
 
@@ -355,21 +362,70 @@ def delete_field(directory: Path, va: int, key: str, module: str) -> None:
     """
     path = _find_sidecar_dir(directory) / SIDECAR_FILENAME
     if not path.exists():
-        return
+        return False
     toml_key = _qualified_key(module, va)
 
     try:
         doc = tomlkit.parse(path.read_text(encoding="utf-8"))
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to parse sidecar %s: %s", path, exc)
-        return
+        return False
 
     if toml_key not in doc:
-        return
+        return False
     entry = doc[toml_key]
     if key in entry:
         del entry[key]  # type: ignore[attr-defined]
         atomic_write_text(path, tomlkit.dumps(doc))
+        return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Status promotion
+# ---------------------------------------------------------------------------
+
+
+def update_source_status(
+    source_path: Path,
+    new_status: str,
+    module: str,
+    va: int,
+    *,
+    clear_blockers: bool = True,
+) -> None:
+    """Write STATUS for (module, va) to the sidecar; never touches the .c file.
+
+    This is the single canonical place to promote a function's STATUS.  Both
+    ``rebrew test`` and ``rebrew verify --fix-status`` call this function.
+
+    Args:
+        source_path: Path to the ``.c`` file (used to locate the sidecar dir).
+        new_status: New status string (e.g. ``EXACT``, ``RELOC``, ``MATCHING``).
+        module: Target module name from the annotation (e.g. ``NP``).
+        va: Virtual address of the function.
+        clear_blockers: If ``True`` (default), remove ``blocker`` and
+            ``blocker_delta`` from the sidecar entry (correct for EXACT/RELOC).
+            Pass ``False`` when demoting to MATCHING to preserve user-set blockers.
+
+    """
+    if not module:
+        return
+
+    directory = source_path.parent
+
+    # Idempotency guard
+    entry = get_entry(directory, va, module=module)
+    current_status = entry.get("status", "")
+    current_blocker = entry.get("blocker", "")
+    if current_status == new_status and (not clear_blockers or not current_blocker):
+        return
+
+    set_field(directory, va, "status", new_status, module=module)
+
+    if clear_blockers:
+        delete_field(directory, va, "blocker", module=module)
+        delete_field(directory, va, "blocker_delta", module=module)
 
 
 # ---------------------------------------------------------------------------

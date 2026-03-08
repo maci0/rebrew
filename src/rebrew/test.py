@@ -26,6 +26,7 @@ from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_c
 from rebrew.config import ProjectConfig
 from rebrew.core import smart_reloc_compare
 from rebrew.matcher.parsers import list_obj_symbols, parse_obj_symbol_bytes
+from rebrew.sidecar import update_source_status
 
 console = Console(stderr=True)
 
@@ -101,67 +102,6 @@ def _find_block_lines(lines: list[str], target_va: int) -> set[int]:
             break
 
     return result
-
-
-def update_source_status(
-    source_path: str | Path,
-    new_status: str,
-    blockers_to_remove: bool = True,
-    target_va: int | None = None,
-) -> None:
-    """Update the STATUS for a function via the sidecar.
-
-    Writes ``status`` to the per-directory ``rebrew-function.toml`` sidecar for the
-    given VA.  When *blockers_to_remove* is True the ``blocker`` and
-    ``blocker_delta`` fields are also cleared from the sidecar.
-
-    The ``.c`` source file is **never modified** by this function — all
-    volatile metadata lives in the sidecar.
-
-    Args:
-        source_path: Path to the .c file (used to locate the sidecar directory).
-        new_status: The new status string (e.g., ``EXACT``, ``RELOC``).
-        blockers_to_remove: Whether to clear existing BLOCKER/BLOCKER_DELTA.
-        target_va: VA of the specific function to update.  When None the
-            first annotation block's VA is used (single-function files).
-
-    """
-    from rebrew.sidecar import delete_field, get_entry, set_field
-
-    source_path = Path(source_path)
-    directory = source_path.parent
-
-    # Resolve target VA (and module) if not explicitly given
-    va = target_va
-    module = ""
-    if va is None:
-        existing_all = parse_c_file_multi(source_path, sidecar_dir=source_path.parent)
-        if existing_all:
-            va = existing_all[0].va
-            module = existing_all[0].module
-    else:
-        # VA was provided; scan the file for the matching annotation to get its module
-        existing_all = parse_c_file_multi(source_path, sidecar_dir=source_path.parent)
-        for ann in existing_all:
-            if ann.va == va:
-                module = ann.module
-                break
-
-    if va is None:
-        return  # Nothing to update
-
-    # Idempotency: skip if sidecar already has the desired status (and no blocker to clear)
-    entry = get_entry(directory, va, module=module)
-    current_status = entry.get("status", "")
-    current_blocker = entry.get("blocker", "")
-    if current_status == new_status and (not blockers_to_remove or not current_blocker):
-        return
-
-    set_field(directory, va, "status", new_status, module=module)
-
-    if blockers_to_remove:
-        delete_field(directory, va, "blocker", module=module)
-        delete_field(directory, va, "blocker_delta", module=module)
 
 
 _EPILOG = """\
@@ -452,14 +392,12 @@ def main(
     # Auto-promote: update STATUS in sidecar from test result (skip with --no-promote)
     if not no_promote and va_str:
         va_int_for_promote = parse_va(va_str, json_mode=json_output)
+        # Resolve module from the parsed annotation (already available)
+        anno_module = lint_annos[0].module if lint_annos else ""
         if matched:
             new_status = "RELOC" if relocs else "EXACT"
-            # Clear blockers on an exact/reloc match (they are auto-generated)
             update_source_status(
-                source,
-                new_status,
-                blockers_to_remove=True,
-                target_va=va_int_for_promote,
+                Path(source), new_status, anno_module, va_int_for_promote, clear_blockers=True
             )
             if not json_output:
                 console.print(f"[dim]STATUS → {new_status}[/dim]")
@@ -468,10 +406,7 @@ def main(
             if match_ratio >= 0.75:
                 # MATCHING — do NOT clear blocker (may be user-set)
                 update_source_status(
-                    source,
-                    "MATCHING",
-                    blockers_to_remove=False,
-                    target_va=va_int_for_promote,
+                    Path(source), "MATCHING", anno_module, va_int_for_promote, clear_blockers=False
                 )
                 if not json_output:
                     console.print("[dim]STATUS → MATCHING[/dim]")
@@ -715,7 +650,7 @@ def _run_all_batch(
         filtered: list[Path] = []
         for s in sources:
             try:
-                annos = parse_c_file_multi(s)
+                annos = parse_c_file_multi(s, sidecar_dir=s.parent)
             except Exception:  # noqa: BLE001
                 continue
             if any(
@@ -760,7 +695,7 @@ def _run_all_batch(
 
     for src in sources:
         try:
-            annos = parse_c_file_multi(src)
+            annos = parse_c_file_multi(src, sidecar_dir=src.parent)
         except Exception:  # noqa: BLE001
             annos = []
         # Only include files that have at least one annotation with both symbol and SIZE.

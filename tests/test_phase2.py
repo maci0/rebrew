@@ -9,8 +9,7 @@ import warnings
 from pathlib import Path
 
 from rebrew.compile import resolve_cl_command
-from rebrew.sidecar import get_entry
-from rebrew.test import update_source_status
+from rebrew.sidecar import get_entry, update_source_status
 
 VALID_HEADER = """\
 // FUNCTION: SERVER 0x10008880
@@ -90,13 +89,13 @@ class TestIdempotentStatusUpdate:
         from rebrew.sidecar import set_field
 
         set_field(tmp_path, 0x10008880, "status", "EXACT", module="SERVER")
-        update_source_status(str(p), "EXACT")
+        update_source_status(p, "EXACT", "SERVER", 0x10008880)
         assert not bak.exists(), "Should not create backup for no-op update"
 
     def test_writes_when_status_differs(self, tmp_path: Path) -> None:
         p = _write_c(tmp_path, "func.c", VALID_HEADER)
 
-        update_source_status(str(p), "RELOC")
+        update_source_status(p, "RELOC", "SERVER", 0x10008880)
         # Status written to sidecar, .c file untouched, no .bak
         entry = get_entry(tmp_path, 0x10008880, module="SERVER")
         assert entry["status"] == "RELOC"

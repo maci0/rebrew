@@ -892,10 +892,6 @@ def resolve_build_params(
     )
 
 
-# keep old private name as alias for any lingering internal callers
-_resolve_build_params = resolve_build_params
-
-
 # ---------------------------------------------------------------------------
 # Single-function: flag sweep
 # ---------------------------------------------------------------------------

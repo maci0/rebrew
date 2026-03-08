@@ -54,8 +54,6 @@ __all__ = [
     "parse_c_file_multi",
     "parse_source_metadata",
     "resolve_symbol",
-    "update_annotation_key",
-    "remove_annotation_key",
     "update_size_annotation",
 ]
 

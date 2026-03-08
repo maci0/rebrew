@@ -53,8 +53,8 @@ source = "ENVIRON.C"
 
 The sidecar file is found automatically by all rebrew tools via walk-up from the
 source file's directory (climbs parent dirs until `rebrew-function.toml` is found),
-so a single file at a project root can serve all subdirectories. Tools including — including **`rebrew lint`**, which reads the
-sidecar before running validation so that STATUS, SIZE, CFLAGS etc. are visible
+so a single file at a project root can serve all subdirectories. This includes **`rebrew lint`**,
+which reads the sidecar before validation so that STATUS, SIZE, CFLAGS etc. are accessible
 even when not present inline.
 
 ## Status Progression

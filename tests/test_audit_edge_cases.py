@@ -14,7 +14,7 @@ import pytest
 
 from rebrew.annotation import __all__ as annotation_all
 from rebrew.annotation import parse_new_format_multi
-from rebrew.test import smart_reloc_compare
+from rebrew.core import smart_reloc_compare
 from rebrew.utils import atomic_write_text
 
 # ---------------------------------------------------------------------------
@@ -181,8 +181,7 @@ class TestAnnotationAllExports:
         required = {
             "Annotation",
             "parse_c_file_multi",
-            "update_annotation_key",
-            "remove_annotation_key",
+            "update_size_annotation",
         }
         missing = required - set(annotation_all)
         assert not missing, f"Missing from __all__: {missing}"

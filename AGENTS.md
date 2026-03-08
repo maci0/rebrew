@@ -129,7 +129,7 @@ src/rebrew/
 │                        #   iter_library_headers(), error_exit(), json_print(), parse_va()
 ├── config.py            # ProjectConfig dataclass, rebrew-project.toml loader
 ├── annotation.py        # Annotation parsing (dataclass + regex parsers + library header parser)
-├── compile.py           # Shared compile helpers (compile_to_obj, resolve_compiler_env)
+├── compile.py           # Shared compile helpers (compile_to_obj, compile_and_compare → CompareResult, classify_compare_result)
 ├── naming.py            # Shared naming/difficulty/origin helpers (next, skeleton, triage)
 ├── binary_loader.py     # PE/COFF/ELF/Mach-O binary loading + format detection (via LIEF)
 ├── extract.py           # Batch extract and disassemble functions
@@ -141,7 +141,7 @@ src/rebrew/
 ├── utils.py             # Shared utilities (Wine stderr filtering, path helpers)
 ├── wibo.py              # Auto-download + verify wibo (lightweight Wine alternative)
 ├── compile_cache.py     # Disk-backed compile result cache (diskcache, SHA-256 keyed)
-├── sidecar.py           # Per-directory rebrew-function.toml sidecar loader/writer (volatile metadata)
+├── sidecar.py           # Per-directory rebrew-function.toml sidecar loader/writer; update_source_status is the canonical STATUS writer
 ├── crt_match.py         # CRT source cross-reference matcher (index, match, ASM detection)
 ├── cache_cli.py         # `rebrew cache stats` / `rebrew cache clear` CLI
 ├── prove.py             # Symbolic equivalence prover via angr (optional dep)
@@ -240,3 +240,5 @@ All CLI tools follow these conventions for a consistent user experience:
 - **No wheel reinvention**: If an imported library provides the functionality, use it
 - **No backward compat**: One canonical name per function — no aliases, no shims, no legacy wrappers
 - **Sidecar for volatile metadata**: Volatile fields (STATUS, CFLAGS, BLOCKER, NOTE, GHIDRA) live in `rebrew-function.toml` per-directory sidecar, managed via `rebrew.sidecar`. **Never manually edit `rebrew-function.toml`**
+- **Status promotion via sidecar only**: Call `update_source_status(path, status, module, va)` from `rebrew.sidecar` to promote STATUS. Both `rebrew test` and `rebrew verify --fix-status` use this function. **Never write STATUS inline into `.c` files.**
+- **Compile result type**: `compile_and_compare` and `verify_entry` return `CompareResult` from `rebrew.compile`. Consume `.matched`, `.status`, `.delta`, `.match_percent` — never unpack as a tuple.
