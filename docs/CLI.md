@@ -210,8 +210,9 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 ### `rebrew catalog`
 
 | Flag | Description |
-|------|-------------|
-| `--json` | Generate `db/data_<target>.json` |
+|------|-----------|
+| `--data-json` | Write `db/data_<target>.json` (input for `build-db`) |
+| `--json` | Print catalog summary as JSON to stdout |
 | `--catalog` | Generate `CATALOG.md` in reversed directory |
 | `--summary` | Print summary to stdout |
 | `--csv` | Generate reccmp-compatible CSV |
@@ -219,7 +220,6 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 | `--export-ghidra-labels` | Generate `ghidra_data_labels.json` from detected tables |
 | `--fix-sizes` | Update `SIZE` entries in `rebrew-function.toml` sidecar to match canonical sizes |
 | `--root DIR` | Project root directory (auto-detected if omitted) |
-
 ### `rebrew sync`
 
 | Flag | Description |
@@ -258,10 +258,9 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 ### `rebrew crt-match`
 
 | Flag | Description |
-|------|-------------|
+|------|-----------|
 | `VA` | Virtual address to match (positional, optional) |
 | `--all` | Match all functions with library origins (MSVCRT, ZLIB, etc.) |
-| `--origin ORIGIN` | Filter by specific origin (e.g. MSVCRT) |
 | `--fix-source` | Auto-write `// SOURCE:` annotations for matches |
 | `--index` | Show the CRT source index (files and functions) |
 | `--target NAME` | Select a target from `rebrew-project.toml` |
@@ -380,7 +379,9 @@ rebrew verify --json                               # Structured JSON report
 rebrew verify -o db/verify_results.json            # Write report to file
 rebrew lint --fix && rebrew lint                   # Fix then re-lint
 rebrew status                                      # Reversing progress overview
-rebrew catalog --summary --csv                     # Catalog + CSV
+rebrew catalog                      # build catalog and show summary
+rebrew catalog --data-json          # write db/data_<target>.json
+rebrew catalog --summary --csv      # show summary + reccmp CSV
 
 # Data analysis
 rebrew data                                        # Inventory globals

@@ -27,7 +27,7 @@ cp /path/to/mygame.exe original/mygame.exe
 ## 3. Discover functions
 
 You need a `function_structure.json` inside the source directory. This is the
-function list that `rebrew skeleton` and `rebrew next` consume.
+function list that `rebrew skeleton` and `rebrew todo` consume.
 
 **Option A — Ghidra (recommended):**
 
@@ -120,14 +120,12 @@ obtaining, creating, and troubleshooting FLIRT signatures.
 
 ## 6. Triage functions
 
-Run triage to classify discovered functions by type and priority:
-
 ```bash
-rebrew triage --json
+rebrew todo --json
 ```
 
-This categorizes functions as library, game code, CRT, unmatchable (IAT thunks,
-SEH helpers, ASM builtins), etc. Use the output to plan your attack order.
+This evaluates the whole project and classifies discovered functions by type and
+priority (library, game code, CRT, unmatchable). Use the output to plan your attack order.
 
 ## 7. Start with leaf functions
 
@@ -136,8 +134,8 @@ functions with no calls to other functions. These are often trivial
 getters/setters/wrappers.
 
 ```bash
-rebrew next --stats            # see the overall breakdown
-rebrew next --origin GAME -n 20  # smallest actionable functions
+rebrew todo --stats            # see the overall breakdown
+rebrew todo -c start-function -n 20  # smallest actionable functions
 ```
 
 Each successful match becomes context for harder functions — creating a
@@ -163,7 +161,7 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full annotation format reference.
 
 ## 9. Full tool support
 
-The core tools (`rebrew skeleton`, `rebrew next`, `rebrew test`, `rebrew match`)
+The core tools (`rebrew skeleton`, `rebrew todo`, `rebrew test`, `rebrew match`)
 are fully target-aware. They automatically read the target configuration from
 `rebrew-project.toml` and operate on the selected target's binary and source directory.
 
@@ -171,7 +169,7 @@ If you have multiple targets, switch between them using the `--target` flag:
 
 ```bash
 rebrew test --target mygame src/mygame/my_func.c
-rebrew next --target mygame --stats
+rebrew todo --target mygame --stats
 ```
 
 ## Checklist
@@ -183,7 +181,7 @@ rebrew next --target mygame --stats
 [ ] Function list exported: src/<target>/function_structure.json
 [ ] Compiler identified and toolchain verified
 [ ] FLIRT scan completed, library functions cataloged
-[ ] Functions triaged (rebrew triage)
+[ ] Functions triaged (rebrew todo)
 [ ] First leaf functions reversed and tested
 [ ] Annotation conventions documented
 ```
