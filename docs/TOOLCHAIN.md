@@ -129,13 +129,18 @@ yara /tmp/test.yar target.dll
 | **pyelftools** | ELF parsing (not needed for PE32) |
 | **matplotlib** | Plotting / visualization |
 
+### Optional Dependencies
+
+| Library | Purpose | Install |
+|---------|---------|--------|
+| **angr** | Symbolic execution + Z3 for `rebrew prove` | `uv pip install -e ".[prove]"` |
+
 ### Not Installed (could be added)
 
 | Library | Purpose |
 |---------|---------|
 | **r2pipe** | Programmatic radare2 access from Python |
-| **angr** | Symbolic execution, CFG recovery |
-| **keystone** | Assembler engine (x86 -> bytes) |
+| **keystone** | Assembler engine (x86 → bytes) |
 | **unicorn** | CPU emulation |
 
 ---

@@ -172,7 +172,6 @@ rebrew prove src/target/calculate_physics.c   # runs angr + Z3, ~15-60s
 ```
 
 Counts as complete. Holds the same weight as EXACT or RELOC in coverage metrics.
-See [ANGR_PROPOSAL.md](ANGR_PROPOSAL.md) for the full technical design.
 
 ---
 
