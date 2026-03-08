@@ -25,6 +25,7 @@
 | Document | Description |
 |----------|-------------|
 | [GHIDRA_SYNC.md](GHIDRA_SYNC.md) | Ghidra ↔ Rebrew sync feature matrix and known issues |
+| [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) | BinSync export: prototype, STATUS/CFLAGS, globals, structs to BinSync state directory |
 
 ## Project
 

@@ -51,7 +51,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | `rebrew cache` | Compile cache management (`stats`, `clear`) |
 | `rebrew cfg` | Read/write `rebrew-project.toml` settings |
 | `rebrew extract` | Batch extract function bytes and disassembly |
-| `rebrew nasm` | Extract NASM-reassembleable ASM with round-trip verification |
+| `rebrew binsync-export` | Export annotations to BinSync state directory (IDA/BinNinja import) |
 | `rebrew asm` | Quick offline disassembly |
 | `rebrew sync` | Push/pull annotations, labels, structs, and comments to Ghidra via ReVa MCP |
 
@@ -91,7 +91,7 @@ cp /path/to/server.dll original/
 
 # 4. Start reversing
 rebrew doctor                       # verify setup
-rebrew triage                       # assess scope
+rebrew todo -c start-function       # find easiest uncovered functions
 rebrew skeleton 0x10003DA0          # generate first stub
 rebrew test src/server/func_10003da0.c  # compile and compare
 ```
@@ -121,30 +121,25 @@ rebrew skeleton 0x10003DA0          # generate C skeleton from disassembly
 rebrew skeleton 0x10003DA0 --xrefs  # skeleton with Ghidra cross-reference context
 rebrew test src/target_name/f.c     # test implementation against target
 rebrew todo                         # see highest ROI action items
-rebrew next --stats                 # show overall progress statistics
-rebrew next --improving             # list MATCHING functions sorted by byte delta
-rebrew triage --json                # combined coverage, near-miss, and recommendations report
+rebrew todo --stats                 # show overall progress statistics
+rebrew todo -c fix-near-miss --json # MATCHING functions sorted by byte delta
 rebrew flirt --json                 # FLIRT scan: identify known library functions
 rebrew crt-match 0x10006c00         # match a single VA against CRT source
 rebrew crt-match --all --origin MSVCRT # match all MSVCRT functions
 rebrew crt-match --fix-source --all  # auto-write // SOURCE: annotations
 rebrew crt-match --index            # show CRT source index
-rebrew cu-map                       # infer compilation unit boundaries
-rebrew cu-map --json                # JSON output for scripting
+rebrew graph --cu-map               # infer compilation unit boundaries
+rebrew graph --cu-map --json        # JSON output for scripting
 rebrew lint                         # lint annotations in your source files
 rebrew split src/target_name/multi.c           # split multi-function file into individual files
 rebrew split --va 0x10003DA0 src/target_name/multi.c  # extract one function into multi_c/
 rebrew merge a.c b.c --output merged.c         # merge files into one multi-function file
 rebrew merge multi_c/ multi.c -o multi.c --force --delete  # merge extracted function back
-rebrew status                       # show reversing status overview
-rebrew data                         # inventory globals in .data/.rdata/.bss
-rebrew data --dispatch              # detect dispatch tables / vtables
-rebrew graph --format summary       # call graph stats and blockers
-rebrew nasm 0x10003DA0              # extract NASM-reassembleable ASM with round-trip verify
 rebrew catalog                      # regenerate the function catalog and coverage JSON
 rebrew catalog --data-json          # write db/data_<target>.json
 rebrew catalog --export-ghidra-labels  # generate ghidra_data_labels.json from detected tables
 rebrew build-db                     # build SQLite coverage database from catalog
+rebrew binsync-export ./binsync_out # export annotations to BinSync state directory
 
 # Matching
 rebrew match --diff-only src/target_name/f.c       # side-by-side disassembly diff

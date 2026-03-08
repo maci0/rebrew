@@ -1,6 +1,6 @@
 # CLI Reference
 
-All 32 CLI tools are installed as entry points via `pyproject.toml`.
+All 26 CLI tools are installed via the unified `rebrew` entry point (subcommands) in `pyproject.toml`.
 Every tool supports `--target / -t` to select a target from `rebrew-project.toml` and
 reads defaults (binary path, reversed_dir, compiler settings) from the project config.
 
@@ -36,6 +36,7 @@ Run any tool with `--help` to see usage examples and context
 | `rebrew-graph` | `depgraph.py` | Function dependency graph (mermaid, DOT, summary); `--cu-map` infers compilation unit boundaries |
 | `rebrew-doctor` | `doctor.py` | Diagnostic checks for project health (config, compiler, binary, paths); `--install-wibo`; `--json` |
 | `rebrew-build-db` | `build_db.py` | Build SQLite `db/coverage.db` from `data_*.json` ([schema docs](DB_FORMAT.md)) |
+| `rebrew-binsync-export` | `binsync_export.py` | Export annotations to BinSync state directory (prototype, STATUS/CFLAGS, globals, structs) |
 
 ## Tool Flags
 

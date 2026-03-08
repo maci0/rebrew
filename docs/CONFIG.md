@@ -277,35 +277,32 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 |------|--------------------|
 | `verify.py` | `image_base`, `text_va`, `text_raw_offset`, `target_binary`, `reversed_dir` |
 | `test.py` | `target_binary`, `text_va`, `text_raw_offset`, compiler paths |
-| `nasm.py` | `target_binary`, `reversed_dir` (uses `cfg.extract_dll_bytes()`) |
 | `match.py` | `reversed_dir`, `target_binary`, `compiler_includes`, `compiler_command` |
 | `ghidra/cli.py` | `reversed_dir` |
-| `next.py` | `reversed_dir` |
+| `todo.py` | `reversed_dir`, `target_binary` |
 | `skeleton.py` | `reversed_dir` |
 | `extract.py` | `reversed_dir`, `target_binary` |
 | `asm.py` | `target_binary`, `capstone_arch`, `capstone_mode` |
-| `annotation.py` | Canonical annotation parser — used by verify, extract, sync, ga, nasm |
+| `annotation.py` | Canonical annotation parser — used by verify, extract, sync, match |
 | `binary_loader.py` | LIEF-based binary loading — used by extract, flirt |
 | `matcher/scoring.py` | `capstone_arch`, `capstone_mode` |
 | `matcher/compiler.py` | `compiler_profile` (drives flag axes) |
 | `matcher/parsers.py` | `padding_bytes` |
-| `catalog/` | `image_base`, `text_va` (via verify.py) |
-| `status.py` | `reversed_dir`, `text_va` |
+| `catalog/` | `image_base`, `text_va` |
 | `data.py` | `reversed_dir`, `target_binary`, `image_base` |
 | `depgraph.py` | `reversed_dir` |
 | `lint.py` | `reversed_dir`, module name |
 | `init.py` | All target config (scaffolding) |
 | `rename.py` | `reversed_dir` |
-| `promote.py` | `marker`, `extract_dll_bytes()`, `for_origin()` |
-| `triage.py` | `reversed_dir`, `target_binary`, `iat_thunks`, `root` |
 | `doctor.py` | `target_binary`, `reversed_dir`, `bin_dir`, `function_list`, compiler paths, `arch`, `binary_format` |
 | `flirt.py` | `target_binary`, `root` |
 | `crt_match.py` | `crt_sources`, `reversed_dir`, `target_binary` |
-| `build_db.py` | `project_root` (via CLI arg, reads `data_*.json` from `db/`) |
+| `build_db.py` | `project_root` (reads `data_*.json` from `db/`) |
 | `cache_cli.py` | `project_root` (cache directory location) |
 | `cfg.py` | `rebrew-project.toml` (tomlkit read/write) |
 | `split.py` | `marker`, `source_ext`, `reversed_dir` |
 | `merge.py` | `marker`, `source_ext`, `reversed_dir` |
+| `binsync_export.py` | `reversed_dir` |
 
 ## Config Editor (`rebrew cfg`)
 
