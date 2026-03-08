@@ -23,10 +23,11 @@ from __future__ import annotations
 
 import re
 import signal
+import struct
 import tempfile
 import warnings
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import typer
 from rich.console import Console
@@ -105,6 +106,7 @@ def prove_equivalence(
     *,
     timeout: int = 60,
     loop_bound: int = 10,
+    binary_path: Path | None = None,
 ) -> tuple[bool, str]:
     """Prove semantic equivalence of two function byte blobs via symbolic execution.
 
@@ -123,6 +125,25 @@ def prove_equivalence(
     """
     import angr
     import claripy
+
+    # Build IAT address → stub address map from LIEF import data (if binary_path given).
+    # This seeds concrete call targets for the original binary's IAT-indirect calls,
+    # preventing angr from creating 256+ symbolic successors.
+    STUB_BASE = 0xDEAD0000
+    iat_stub_map_orig: dict[int, int] = {}  # IAT_addr -> stub_addr
+    if binary_path is not None:
+        try:
+            import lief
+
+            pe = lief.PE.parse(str(binary_path))
+            if pe is not None:
+                for entry in pe.imports:
+                    for fn in entry.entries:
+                        iat_va = fn.iat_address + pe.optional_header.imagebase
+                        stub_addr = (STUB_BASE + len(iat_stub_map_orig) * 4) & 0xFFFFFFFF
+                        iat_stub_map_orig[iat_va] = stub_addr
+        except Exception:
+            pass  # LIEF import scan is best-effort
 
     cc, arg_count = _parse_prototype(prototype)
 
@@ -166,29 +187,54 @@ def prove_equivalence(
             auto_load_libs=False,
         )
 
+    # Stub region: stubs for LIEF-derived IAT entries come first,
+    # followed by stubs for COFF reloc call targets in the compiled blob.
+    stub_offset_base = len(iat_stub_map_orig)  # reloc stubs start here
+    stub_hooks: list[int] = list(iat_stub_map_orig.values())
+
+    # For COFF IMAGE_REL_I386_REL32 relocations, the 4 bytes at each reloc
+    # offset are a near-call REL32 displacement.  When angr executes the raw
+    # (unrelocated) blob, those displacements resolve to arbitrary addresses
+    # that may fall inside the blob or outside — causing path explosion.
+    #
+    # Fix: patch each displacement in the compiled blob so the call resolves
+    # to a unique stub address in a harmless region (STUB_BASE + i*4), then
+    # hook those stubs as ReturnUnconstrained on both projects.
+    patched_comp = bytearray(compiled_bytes)
+
+    if reloc_offsets:
+        for i, (offset, _sym_name) in enumerate(sorted(reloc_offsets.items())):
+            if 0 <= offset <= len(compiled_bytes) - 4:
+                stub_addr = (STUB_BASE + (stub_offset_base + i) * 4) & 0xFFFFFFFF
+                # REL32: target = (offset + 4) + displacement
+                # => displacement = stub_addr - (offset + 4)  (mod 2^32)
+                disp = (stub_addr - (offset + 4)) & 0xFFFFFFFF
+                patched_comp[offset : offset + 4] = struct.pack("<I", disp)
+                stub_hooks.append(stub_addr)
+
     try:
         proj_orig = _make_project(original_bytes)
-        proj_comp = _make_project(compiled_bytes)
+        proj_comp = _make_project(bytes(patched_comp))
     except Exception as e:
         return False, f"Failed to create angr projects: {e}"
 
-    # Hook relocation offsets in compiled blob with ReturnUnconstrained
-    if reloc_offsets:
-        for offset, _sym_name in reloc_offsets.items():
-            if 0 <= offset < len(compiled_bytes):
-                try:
-                    proj_comp.hook(
-                        offset,
-                        angr.SIM_PROCEDURES["stubs"]["ReturnUnconstrained"](),
-                        length=4,
-                    )
-                except (KeyError, TypeError, ValueError) as e:
-                    warnings.warn(
-                        f"Failed to hook reloc at offset 0x{offset:x}: {e}",
-                        stacklevel=2,
-                    )
+    # Hook all stub addresses on both blobs as ReturnUnconstrained.
+    _ret_unc = angr.SIM_PROCEDURES["stubs"]["ReturnUnconstrained"]
+    for stub_addr in stub_hooks:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            try:
+                proj_comp.hook(stub_addr, _ret_unc(), length=1)
+                proj_orig.hook(stub_addr, _ret_unc(), length=1)
+            except Exception:
+                pass
 
+    # Seed IAT slot memory in the original blob's initial state so
+    # indirect calls (via register or memory) resolve to our stubs.
     state_orig = _setup_state(proj_orig, "original")
+    for iat_addr, stub_addr in iat_stub_map_orig.items():
+        state_orig.memory.store(iat_addr, claripy.BVV(stub_addr, 32), endness="Iend_LE")
+
     state_comp = _setup_state(proj_comp, "compiled")
 
     def _run_simulation(proj: angr.Project, state: angr.SimState) -> list[Any]:
@@ -214,12 +260,22 @@ def prove_equivalence(
             signal.alarm(0)
             signal.signal(signal.SIGALRM, old_handler)
 
-        # Filter to only satisfiable states with meaningful EAX values
-        from typing import cast
-
         if timed_out:
-            return cast(list[Any], sm.satisfiable(unsat_core=False)) or []
-        return cast(list[Any], sm.satisfiable(unsat_core=False))
+            # Return whatever partial states angr reached before the alarm
+            partial = list(sm.active) or list(sm.deadended)
+            warnings.warn(
+                "Symbolic execution timed out — using partial states",
+                stacklevel=2,
+            )
+            return cast(list[Any], partial)
+        # Prefer fully-terminated states; fall back to active/unconstrained
+        # if execution ran to completion via a ret with unconstrained target
+        # (typical for bare-blob functions loaded without a call stack).
+        terminal = list(sm.deadended)
+        if not terminal:
+            # ret pops a fake return address → unconstrained EIP; EAX is still valid
+            terminal = list(sm.unconstrained) or list(sm.active)
+        return cast(list[Any], terminal)
 
     try:
         states_orig = _run_simulation(proj_orig, state_orig)
@@ -347,9 +403,13 @@ def main(
     if not source_path.exists():
         error_exit(f"Source file not found: {source_path}", json_mode=json_output)
 
-    # Parse annotation — use multi-parser to support multi-function files,
-    # then select the first MATCHING/MATCHING_RELOC annotation.
-    annotations = parse_c_file_multi(source_path, target_name=target_marker(cfg))
+    # Parse annotation — use multi-parser with sidecar_dir so STATUS/CFLAGS/SIZE
+    # are read from rebrew-function.toml (where volatile metadata lives).
+    annotations = parse_c_file_multi(
+        source_path,
+        target_name=target_marker(cfg),
+        sidecar_dir=source_path.parent,
+    )
     ann = None
     for a in annotations:
         if a.status in ("MATCHING", "MATCHING_RELOC"):
@@ -413,6 +473,7 @@ def main(
         prototype,
         timeout=timeout,
         loop_bound=loop_bound,
+        binary_path=cfg.target_binary,
     )
 
     # Build result
