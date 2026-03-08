@@ -568,7 +568,7 @@ def main(
         try:
             batch_extract_nasm(cfg, batch_out_dir, verify_flag=verify, stubs_only=batch_stubs)
         except RuntimeError as e:
-            error_exit(str(e))
+            error_exit(str(e), json_mode=json_output)
         return
 
     # --- Resolve VA ---

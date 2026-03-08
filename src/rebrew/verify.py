@@ -8,7 +8,7 @@ With ``--fix-status`` the tool promotes STATUS in ``rebrew-function.toml``
 via :func:`~rebrew.sidecar.update_source_status` — the ``.c`` files are
 **never modified**.
 
-With ``--diff`` it compares the current run against the last saved
+With ``--compare`` it compares the current run against the last saved
 ``db/verify_results.json`` and exits with code 1 on any regression (suitable
 for CI / pre-commit hooks).
 """
@@ -121,7 +121,6 @@ def verify_entry(
 
 
 console = Console(stderr=True)
-out_console = Console(stderr=True)
 
 app = typer.Typer(
     help="Rebrew verification pipeline: compile each .c and verify bytes match.",
@@ -435,8 +434,6 @@ def main(
         "--jobs",
         help="Number of parallel compile jobs (default: from [project].jobs or 4)",
     ),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
-    target: str | None = TargetOption,
     output_path: str | None = typer.Option(
         None, "--output", "-o", help="Write JSON report to file (default: db/verify_results.json)"
     ),
@@ -451,7 +448,7 @@ def main(
     ),
     diff_mode: bool = typer.Option(
         False,
-        "--diff",
+        "--compare",
         help="Compare against last saved report and detect regressions",
     ),
     full: bool = typer.Option(
@@ -463,6 +460,8 @@ def main(
             "(also required after header/include changes)"
         ),
     ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
 ) -> None:
     """Rebrew verification pipeline: compile each .c and verify bytes match."""
     cfg = require_config(target=target, json_mode=json_output)
@@ -841,40 +840,40 @@ def _print_results(
         new_items = diff_result["new"]
         removed = diff_result["removed"]
 
-        out_console.print()
-        out_console.print(f"{len(regressions)} regressions detected:")
+        console.print()
+        console.print(f"{len(regressions)} regressions detected:")
         for item in regressions:
-            out_console.print(
+            console.print(
                 "  "
                 f"{item['name']}  {item['previous_status']} -> {item['current_status']}  "
                 f"(delta: {item['delta']}B)"
             )
 
-        out_console.print()
-        out_console.print(f"{len(improvements)} improvements:")
+        console.print()
+        console.print(f"{len(improvements)} improvements:")
         for item in improvements:
-            out_console.print(
+            console.print(
                 f"  {item['name']}  {item['previous_status']} -> {item['current_status']}"
             )
 
         if new_items:
-            out_console.print()
-            out_console.print(f"{len(new_items)} new:")
+            console.print()
+            console.print(f"{len(new_items)} new:")
             for item in new_items:
-                out_console.print(f"  {item['name']}  {item['status']}")
+                console.print(f"  {item['name']}  {item['status']}")
 
         if removed:
-            out_console.print()
-            out_console.print(f"{len(removed)} removed:")
+            console.print()
+            console.print(f"{len(removed)} removed:")
             for item in removed:
-                out_console.print(f"  {item['name']}  {item['status']}")
+                console.print(f"  {item['name']}  {item['status']}")
 
         if diff_warning:
-            out_console.print()
-            out_console.print(f"Warning: {diff_warning}")
+            console.print()
+            console.print(f"Warning: {diff_warning}")
 
     if show_summary:
-        out_console.print()
+        console.print()
         table = Table(title="Verification Summary", show_header=True)
         table.add_column("VA", style="cyan")
         table.add_column("Symbol", style="magenta")
@@ -900,7 +899,7 @@ def _print_results(
             dt = f"{r.get('delta', 0)}B" if st == "MISMATCH" else "-"
             table.add_row(r["va"], r["name"], f"{r['size']}B", st_str, pct, dt)
 
-        out_console.print(table)
+        console.print(table)
 
         exact = sum(1 for r in results if r["status"] == "EXACT")
         reloc = sum(1 for r in results if r["status"] == "RELOC")
@@ -927,11 +926,11 @@ def _print_results(
         stat_table.add_row("MATCHING (6-20B delta)", str(mismatch_6_20))
         stat_table.add_row("MATCHING (21+B delta)", str(mismatch_21))
 
-        out_console.print(stat_table)
+        console.print(stat_table)
 
     # Print failures
     if fail_details:
-        out_console.print()
+        console.print()
 
         # Build lookup for results to get match_percent
         res_by_va = {int(r["va"], 16): r for r in results}
@@ -951,15 +950,15 @@ def _print_results(
             fp_suffix = f" [dim]({fp}:{ln})[/]" if fp and ln else f" [dim]({fp})[/]" if fp else ""
             if st == "MISMATCH":
                 match_pct = float(res_dict.get("match_percent", 0.0)) if res_dict else 0.0
-                out_console.print(
+                console.print(
                     rf"  [red bold]\[{match_pct:.1f}%][/] 0x{entry.va:08X} {entry.name}{fp_suffix}: {msg}"
                 )
             elif st in ("COMPILE_ERROR", "MISSING_FILE"):
-                out_console.print(
+                console.print(
                     rf"  [red bold]\[{st}][/] 0x{entry.va:08X} {entry.name}{fp_suffix}: {msg}"
                 )
             else:
-                out_console.print(
+                console.print(
                     rf"  [red bold]\[FAIL][/] 0x{entry.va:08X} {entry.name}{fp_suffix}: {msg}"
                 )
 
@@ -971,7 +970,7 @@ def _print_results(
     if failed:
         result_text.append(", ")
         result_text.append(f"{failed} failed", style="red")
-    out_console.print(result_text)
+    console.print(result_text)
 
 
 def main_entry() -> None:

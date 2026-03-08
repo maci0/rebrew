@@ -103,8 +103,7 @@ rebrew extract batch 20                 # extract first 20 smallest
 Start with the easiest functions identified by triage:
 
 ```bash
-rebrew todo --json                      # get recommended functions
-rebrew skeleton --list --origin GAME    # list all uncovered GAME functions
+rebrew todo --json                      # get recommended functions to start
 rebrew skeleton --batch 10              # generate 10 skeletons (smallest first)
 rebrew skeleton 0x<VA>                  # generate one skeleton by VA
 rebrew skeleton 0x<VA> --decomp         # include decompilation in skeleton

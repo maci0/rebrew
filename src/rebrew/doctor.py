@@ -24,7 +24,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from rebrew.cli import TargetOption, get_config, json_print
+from rebrew.cli import TargetOption, get_config, json_print, require_config
 from rebrew.config import ProjectConfig
 
 console = Console(stderr=True)
@@ -550,7 +550,7 @@ def main(
     if install_wibo:
         from rebrew.wibo import download_wibo
 
-        cfg = get_config(target=target)
+        cfg = require_config(target=target)
         wibo_path = cfg.root / "tools" / "wibo"
         tag_name = download_wibo(wibo_path)
         console.print(f"Downloaded wibo {tag_name} to {wibo_path}")

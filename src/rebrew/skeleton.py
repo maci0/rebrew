@@ -28,7 +28,6 @@ import httpx
 import jinja2
 import typer
 from rich.console import Console
-from rich.table import Table
 
 from rebrew.annotation import (
     marker_for_module,
@@ -426,10 +425,8 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def main(
     va_arg: str | None = typer.Argument(None, help="Function VA in hex (e.g. 0x10003da0)"),
-    va: str | None = typer.Option(None, "--va", help="Function VA in hex"),
     name: str | None = typer.Option(None, help="Custom function name"),
     output: str | None = typer.Option(None, "--output", "-o", help="Output file path"),
-    list_mode: bool = typer.Option(False, "--list", help="List uncovered functions"),
     batch: int | None = typer.Option(None, help="Generate N skeletons (smallest first)"),
     min_size: int = typer.Option(10, help="Minimum function size"),
     max_size: int = typer.Option(9999, help="Maximum function size"),
@@ -458,7 +455,7 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Generate .c skeleton files for uncovered target binary functions."""
-    va_str = va or va_arg
+    va_str = va_arg
     cfg = require_config(target=target, json_mode=json_output)
     src_dir = cfg.reversed_dir
     root = cfg.root
@@ -466,22 +463,6 @@ def main(
     ghidra_json = src_dir / FUNCTION_STRUCTURE_JSON
     ghidra_funcs = load_function_structure(ghidra_json)
     existing_vas = load_existing_vas(src_dir, cfg=cfg)
-
-    # --list mode
-    if list_mode:
-        uncovered = list_uncovered(ghidra_funcs, existing_vas, cfg, min_size, max_size)
-        if not uncovered:
-            console.print("No uncovered functions found matching criteria.")
-            return
-
-        table = Table(title=f"Uncovered Functions ({len(uncovered)})")
-        table.add_column("VA", style="cyan")
-        table.add_column("Size", justify="right")
-        table.add_column("Name", style="magenta")
-        for va_val, size_val, name_val in uncovered:
-            table.add_row(f"0x{va_val:08x}", f"{size_val}B", name_val)
-        console.print(table)
-        return
 
     # --batch mode
     if batch:

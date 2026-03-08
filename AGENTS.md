@@ -16,7 +16,7 @@ that contains the actual binaries, source files, and toolchains.
 uv pip install -e .
 uv sync --all-extras            # with dev deps
 
-# Run ALL tests (~1712 tests)
+# Run ALL tests (~1710 tests)
 uv run pytest tests/ -v
 
 # Run a SINGLE test file
@@ -183,7 +183,7 @@ Every single-command tool follows this structure:
 ```python
 import typer
 from rich.console import Console
-from rebrew.cli import TargetOption, get_config
+from rebrew.cli import TargetOption, require_config
 
 console = Console(stderr=True)
 
@@ -191,7 +191,7 @@ app = typer.Typer(help="Tool description", rich_markup_mode="rich")
 
 @app.callback(invoke_without_command=True)
 def main(target: str | None = TargetOption) -> None:
-    cfg = get_config(target=target)
+    cfg = require_config(target=target)
     # ... implementation
 
 def main_entry() -> None:
@@ -205,10 +205,10 @@ if __name__ == "__main__":
 - Uses `@app.callback(invoke_without_command=True)` so the function works both
   as a standalone entry point (`rebrew-<cmd>`) and as a flat subcommand when
   registered via `app.command()` in `main.py`.
-- `TargetOption` + `get_config()` from `rebrew.cli` — never build config manually.
+- `TargetOption` + `require_config()` from `rebrew.cli` — never build config manually. Use `get_config()` only when optional config loading is intentional (e.g. `lint.py`, `doctor.py` diagnostics).
 - `main_entry()` registered in `pyproject.toml` `[project.scripts]`.
 - Most tools support `--json` for machine-readable output. Always use `--json` when executing these CLI tools yourself to receive structured output.
-- The multi-command modules are `cfg.py` (subcommands: `list-targets`, `show`, `add-target`, `remove-target`, `set`, `set-cflags`) and `cache_cli.py` (subcommands: `stats`, `clear`), both registered via `add_typer()` in `main.py`.
+- The multi-command modules are `cfg.py` (subcommands: `list-targets`, `show`, `add-target`, `remove-target`, `set`, `set-cflags`, `raw`, `path`, `detect-crt`) and `cache_cli.py` (subcommands: `stats`, `clear`), both registered via `add_typer()` in `main.py`.
 
 ### CLI Conventions
 

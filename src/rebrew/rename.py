@@ -125,10 +125,8 @@ def rename_function_everywhere(
 def main(
     target_ident: str = typer.Argument(..., help="Old function name, file path, or VA"),
     new_name: str = typer.Argument(..., help="New function name"),
-    symbol: str | None = typer.Option(
-        None, "--symbol", help="New SYMBOL annotation (default: _new_name)"
-    ),
     new_file: str | None = typer.Option(None, "--file", help="New filename"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -168,13 +166,15 @@ def main(
 
     actual_old_name = old_sym.lstrip("_") if old_sym.startswith("_") else old_name
 
-    target_sym = symbol if symbol else f"_{new_name}"
     target_func = new_name
 
     filepath = cfg.reversed_dir / old_fp
 
     if not json_output:
-        console.print(f"Renaming {actual_old_name} to {target_func}...")
+        if dry_run:
+            console.print(f"[dim]Dry run:[/dim] Would rename {actual_old_name} → {target_func}")
+        else:
+            console.print(f"Renaming {actual_old_name} to {target_func}...")
 
     try:
         updated = rename_function_everywhere(
@@ -184,9 +184,10 @@ def main(
             old_name=old_name,
             old_sym=old_sym,
             target_func=target_func,
-            target_sym=target_sym,
+            target_sym=f"_{new_name}",
             rename_file=True,
             new_filename=new_file,
+            dry_run=dry_run,
         )
     except FileExistsError as exc:
         error_exit(str(exc), json_mode=json_output)
@@ -196,7 +197,7 @@ def main(
             {
                 "old_name": actual_old_name,
                 "new_name": target_func,
-                "new_symbol": target_sym,
+                "new_symbol": f"_{new_name}",
                 "va": f"0x{va:08x}",
                 "files_updated": updated,
             }

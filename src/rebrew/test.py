@@ -154,9 +154,9 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def main(
     source: str | None = typer.Argument(None, help="C source file (omit with --all)"),
-    symbol: str | None = typer.Argument(None, help="COFF symbol name (e.g. _funcname)"),
-    target_bin: str | None = typer.Argument(None, help="Target .bin file"),
     va: str | None = typer.Option(None, help="VA in hex (e.g. 0x10009310)"),
+    symbol: str | None = typer.Option(None, "--symbol", help="COFF symbol name (e.g. _funcname)"),
+    target_bin: str | None = typer.Option(None, "--target-bin", help="Target .bin file"),
     size: int | None = typer.Option(None, help="Size in bytes"),
     cflags: str | None = typer.Option(None, help="Compiler flags"),
     all_sources: bool = typer.Option(False, "--all", help="Batch test all reversed .c files"),
