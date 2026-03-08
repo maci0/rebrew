@@ -31,6 +31,9 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import ProjectConfig
+from rebrew.naming import normalize_name
+
+console = Console(stderr=True)
 
 
 @dataclass
@@ -181,23 +184,6 @@ def build_crt_index(source_dir: Path, module: str) -> list[CrtSourceEntry]:
                 )
 
     return entries
-
-
-def normalize_name(name: str) -> str:
-    """Normalize function names for cross-source matching.
-
-    Strips import prefixes (``__imp_``), cdecl leading underscore,
-    and stdcall ``@N`` suffixes to produce a canonical form.
-    """
-    normalized = name.strip().lower()
-    if normalized.startswith("__imp_"):
-        normalized = normalized[len("__imp_") :]
-    if normalized.startswith("_") and not normalized.startswith("__"):
-        normalized = normalized[1:]
-    at_pos = normalized.rfind("@")
-    if at_pos > 0 and normalized[at_pos + 1 :].isdigit():
-        normalized = normalized[:at_pos]
-    return normalized
 
 
 _ASM_FUNCTIONS_NORMALIZED = {normalize_name(name) for name in _MSVC6_ASM_FUNCTIONS}
@@ -405,8 +391,6 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=_EPILOG,
 )
-
-console = Console(stderr=True)
 
 
 @app.callback(invoke_without_command=True)
