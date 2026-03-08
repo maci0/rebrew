@@ -10,7 +10,7 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 |---|------|-------|
 | 15 | Compile result cache | `compile_cache.py` — SHA-256 hash-based `.obj` caching via `diskcache`. CLI: `rebrew cache stats/clear`. 23 tests. |
 | 17 | Match regression detection | `rebrew verify --compare` — compares verify results against last saved report. Exit code 1 on regressions. |
-| 18 | Batch promote | `rebrew promote --all` — discovers and promotes all promotable functions in one pass. Supports `--origin`, `--dry-run`. |
+| 18 | Batch promote | `rebrew verify --fix-status` — bulk compile, auto-updates STATUS/BLOCKER for all functions. Supports `--fix-status`, `--compare`, `--dry-run`. |
 | 1 | CRT source cross-reference tool | `rebrew crt-match` — indexes CRT source directories, matches by name with confidence tiers, auto-writes `// SOURCE:`. 19 tests. |
 | 2 | Data Sync and XREF Pipeline | `rebrew sync --pull-data` — fetches data labels from Ghidra, generates `rebrew_globals.h`. 11 tests. |
 | 16 | Auto-download wibo | `wibo.py` — `download_wibo()`, `find_wibo()`, `ensure_wibo()`. CLI: `rebrew doctor --install-wibo`. 15 tests. |

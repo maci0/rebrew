@@ -267,8 +267,24 @@ rebrew diff --mm src/target_name/my_func.c
 
 ### 7. If unsure about compiler flags — sweep
 
+Use `rebrew match --diff-only` first to understand the byte delta, then run a flag sweep to find the optimal flags:
+
 ```bash
+# Side-by-side diff to understand what differs
+rebrew diff src/target_name/my_func.c
+
+# Run the GA with flag sweep (brute-forces compiler flag combinations)
+rebrew match src/target_name/my_func.c --generations 100 --pop-size 32
+
+# Batch flag sweep on all MATCHING functions, auto-update CFLAGS on improvement
+rebrew match --all --flag-sweep --fix-cflags
+
+# Near-miss batch — focus on MATCHING functions with ≤5B delta
+rebrew match --all --near-miss --threshold 5
 ```
+
+Common flag knobs for MSVC6: `/O1` vs `/O2` (size vs speed), `/Gd` (cdecl),
+`/Oy` vs `/Oy-` (frame pointer), `/Oi` (intrinsics), `/Gy` (COMDAT).
 
 ### 8. Update the annotation
 
