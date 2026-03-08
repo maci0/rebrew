@@ -403,6 +403,8 @@ _KNOWN_TARGET_KEYS = {
     "crt_sources",
     "source_ext",
     "ghidra_program_path",
+    "origins",  # written by `rebrew cfg add-target` (origin list for annotation filtering)
+    "cflags_presets",  # written by `rebrew cfg set-cflags` (per-origin compiler flag overrides)
 }
 
 _KNOWN_COMPILER_KEYS = {
@@ -415,6 +417,7 @@ _KNOWN_COMPILER_KEYS = {
     "profiles",
     "base_cflags",
     "timeout",
+    "cflags_presets",  # written by `rebrew cfg set-cflags --global` (per-origin compiler flag overrides)
 }
 
 _KNOWN_PROJECT_KEYS = {
