@@ -91,6 +91,11 @@ A name is considered **auto-generated** (generic) if it matches:
 
 Everything else is treated as a **user-assigned** name and is always preserved.
 
+> [!NOTE]
+> The canonical `normalize_name(name)` function lives in `rebrew.naming` and converts
+> any tool-specific auto-name to `func_<hex>` form. Use it everywhere instead of
+> duplicating the prefix-stripping logic locally.
+
 ### Implications
 
 - **`rebrew sync`**: only pushes labels to Ghidra for user-assigned names (skips generic `func_XXXXXXXX`).
