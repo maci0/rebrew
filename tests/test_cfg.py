@@ -601,29 +601,13 @@ class TestResolveDottedKey:
 # ---------------------------------------------------------------------------
 
 
-class TestCLIGet:
-    def test_get_reads_value(self, tmp_path: Path, monkeypatch) -> None:
-        _make_project(tmp_path)
-        monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["get", "compiler.cflags"])
-        assert result.exit_code == 0
-        assert "/O2 /Gd" in result.output
-
-    def test_get_dotted_target(self, tmp_path: Path, monkeypatch) -> None:
-        _make_project(tmp_path)
-        monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["get", "targets.server.dll.arch"])
-        assert result.exit_code == 0
-        assert "x86_32" in result.output
-
-
 class TestCLIDump:
     def test_dump_json(self, tmp_path: Path, monkeypatch) -> None:
         import json
 
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["dump"])
+        result = runner.invoke(cfg_app, ["raw"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert "targets" in data
@@ -632,7 +616,7 @@ class TestCLIDump:
     def test_dump_toml(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["dump", "--format", "toml"])
+        result = runner.invoke(cfg_app, ["raw", "--format", "toml"])
         assert result.exit_code == 0
         assert "[compiler]" in result.output
 

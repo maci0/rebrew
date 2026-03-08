@@ -1,4 +1,9 @@
-"""Module docstring."""
+"""ghidra/cli.py — Sync rebrew annotations bidirectionally with Ghidra via ReVa MCP.
+
+Supports push (export + apply labels/comments/structs to Ghidra), pull (import
+Ghidra renames/comments into local C files), and bulk cache refresh.
+All network operations use httpx against the ReVa MCP endpoint.
+"""
 
 import contextlib
 import json
@@ -157,7 +162,7 @@ def main(
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
-        help="Preview changes without modifying files (works with --pull and --push)",
+        help="Preview changes without writing",
     ),
     endpoint: str = typer.Option("http://localhost:8080/mcp/message", help="ReVa MCP endpoint URL"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

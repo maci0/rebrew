@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 
 import typer
+from rich.console import Console
 
 from rebrew.annotation import Annotation, parse_c_file_multi
 from rebrew.catalog.export import generate_catalog, generate_reccmp_csv
@@ -24,6 +25,8 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import FUNCTION_STRUCTURE_JSON
+
+console = Console(stderr=True)
 
 app = typer.Typer(
     help="Rebrew validation pipeline: parse annotations, generate catalog and coverage data.",
@@ -114,7 +117,7 @@ def main(
         summary = True
 
     if export_ghidra:
-        typer.echo(
+        console.print(
             "To export Ghidra functions, run this in the MCP console:\n"
             f"  get-functions programPath=/{bin_path.name} filterDefaultNames=false\n"
             f"Then save the output as {reversed_dir.name}/function_structure.json with format:\n"
@@ -123,11 +126,10 @@ def main(
             "To also export data labels (switch tables, etc.), search for non-function\n"
             f"labels in Ghidra and save as {reversed_dir.name}/ghidra_data_labels.json:\n"
             '  [{"va": 0x10002E9C, "size": 20, "label": "switchdataD_10002e9c"}, ...]',
-            err=True,
         )
         return
 
-    typer.echo(f"Scanning {reversed_dir}...", err=True)
+    console.print(f"Scanning {reversed_dir}...", style="dim")
     entries = scan_reversed_dir(reversed_dir, cfg=cfg)
     funcs = parse_function_list(func_list_path)
 
@@ -142,12 +144,12 @@ def main(
         1 for r in registry.values() if "ghidra" in r["detected_by"] and "list" in r["detected_by"]
     )
     thunk_count = sum(1 for r in registry.values() if r["is_thunk"])
-    typer.echo(
+    console.print(
         f"Found {len(entries)} annotations ({len(unique_vas)} unique VAs) "
         f"from {len(registry)} total functions "
         f"(list: {list_count}, ghidra: {ghidra_count}, both: {both_count}, "
         f"thunks: {thunk_count})",
-        err=True,
+        style="dim",
     )
 
     if summary:
@@ -189,34 +191,36 @@ def main(
             module_counts[module] = module_counts.get(module, 0) + 1
 
         done = exact + reloc + matching
-        print("\n=== Rebrew Status ===")
-        print(f"Matched: {done}/{len(registry)} functions")
-        print(f"  EXACT: {exact}")
-        print(f"  RELOC: {reloc}")
+        console.print()
+        console.print("\n=== Rebrew Status ===")
+        console.print(f"Matched: {done}/{len(registry)} functions")
+        console.print(f"  EXACT: {exact}")
+        console.print(f"  RELOC: {reloc}")
         if matching:
-            print(f"  MATCHING: {matching}")
+            console.print(f"  MATCHING: {matching}")
         if stub:
-            print(f"  STUB: {stub}")
-        print("By module:")
+            console.print(f"  STUB: {stub}")
+        console.print("By module:")
         for module in sorted(module_counts):
-            print(f"  {module}: {module_counts[module]}")
+            console.print(f"  {module}: {module_counts[module]}")
 
         covered = 0
         for va in fn_vas:
             if va in registry:
                 covered += registry[va]["canonical_size"]
         pct = (covered / text_size * 100.0) if text_size else 0.0
-        print(f"Coverage: {pct:.1f}% ({covered}/{text_size} bytes)")
+        console.print(f"Coverage: {pct:.1f}% ({covered}/{text_size} bytes)")
 
-        print("\n=== Tool Detection ===")
-        print(
+        console.print()
+        console.print("=== Tool Detection ===")
+        console.print(
             f"  func list only: {sum(1 for r in registry.values() if r['detected_by'] == ['list'])}"
         )
-        print(
+        console.print(
             f"  Ghidra only:  {sum(1 for r in registry.values() if r['detected_by'] == ['ghidra'])}"
         )
-        print(f"  Both tools:   {both_count}")
-        print(f"  IAT thunks:   {thunk_count}")
+        console.print(f"  Both tools:   {both_count}")
+        console.print(f"  IAT thunks:   {thunk_count}")
         size_mismatches = sum(
             1
             for r in registry.values()
@@ -233,7 +237,7 @@ def main(
         catalog_path = reversed_dir / "CATALOG.md"
         catalog_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(catalog_path, catalog_text, encoding="utf-8")
-        typer.echo(f"Wrote {catalog_path}", err=True)
+        console.print(f"Wrote {catalog_path}", style="dim")
 
     if gen_data_json or export_ghidra_labels:
         data = generate_data_json(entries, funcs, text_size, bin_path, registry, reversed_dir, root)
@@ -242,7 +246,7 @@ def main(
             coverage_dir.mkdir(parents=True, exist_ok=True)
             json_path = coverage_dir / f"data_{target}.json"
             atomic_write_text(json_path, json.dumps(data, indent=2) + "\n", encoding="utf-8")
-            typer.echo(f"Wrote {json_path}", err=True)
+            console.print(f"Wrote {json_path}", style="dim")
 
         if export_ghidra_labels:
             text_sec = data.get("sections", {}).get(".text", {})
@@ -260,16 +264,17 @@ def main(
                     )
             labels_path = reversed_dir / "ghidra_data_labels.json"
             atomic_write_text(labels_path, json.dumps(labels, indent=2) + "\n", encoding="utf-8")
-            typer.echo(f"Wrote {labels_path} ({len(labels)} labels)", err=True)
+            console.print(f"Wrote {labels_path} ({len(labels)} labels)", style="dim")
 
     if csv:
         csv_text = generate_reccmp_csv(entries, funcs, registry, target, cfg)
         csv_path = root / "db" / f"{target.lower()}_functions.csv"
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(csv_path, csv_text, encoding="utf-8")
-        typer.echo(f"Wrote {csv_path} ({len(csv_text.splitlines()) - 6} functions)", err=True)
+        console.print(f"Wrote {csv_path} ({len(csv_text.splitlines()) - 6} functions)", style="dim")
 
     if fix_sizes:
+        console.print("[yellow]Warning: --fix-sizes will modify .c files in-place[/]")
         from rebrew.annotation import update_size_annotation
         from rebrew.cli import iter_sources, target_marker
 
@@ -290,11 +295,13 @@ def main(
                     from rebrew.cli import rel_display_path
 
                     display = rel_display_path(cfile, reversed_dir)
-                    print(f"  {display}: SIZE {ann.size} → {canonical} (+{diff}B, {reason})")
+                    console.print(
+                        f"  {display}: SIZE {ann.size} → {canonical} (+{diff}B, {reason})"
+                    )
                     updated += 1
                 else:
                     skipped += 1
-        typer.echo(f"Updated {updated} SIZE annotations ({skipped} skipped)", err=True)
+        console.print(f"[green]Updated {updated} SIZE annotations[/] ({skipped} skipped)")
 
     if json_output:
         json_print(

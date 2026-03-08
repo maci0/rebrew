@@ -16,7 +16,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 |------|-------------|
 | `rebrew test` | Compile your C and diff it byte-by-byte against the original binary |
 | `rebrew match` | GA engine — single file or batch (`--all`); brute-force compiler flags and mutate source to find exact byte matches |
-| `rebrew verify` | Bulk compile + report match status; `--fix-status` auto-updates annotations; `--diff` for CI regression checks |
+| `rebrew verify` | Bulk compile + report match status; `--fix-status` auto-updates annotations; `--compare` for CI regression checks |
 | `rebrew prove` | Symbolic equivalence via angr + Z3 — mathematically prove MATCHING functions are equivalent |
 
 ### Authoring
@@ -111,8 +111,8 @@ rebrew init --target mygame --binary mygame.exe --compiler msvc6 # initialize pr
 rebrew cfg list-targets              # list configured targets
 rebrew cfg set-cflags ZLIB "/O3"        # set cflags for origin
 rebrew cfg set compiler.cflags "/O1" # set a config value
-rebrew cfg get targets.main.arch     # read a value (supports dotted target names)
-rebrew cfg dump                      # dump config as JSON
+rebrew cfg show targets.main.arch     # read a value (supports dotted target names)
+rebrew cfg raw                       # dump config as JSON
 rebrew cfg path                      # print config file path
 rebrew cfg detect-crt --write        # auto-detect MSVC CRT source directories
 
@@ -163,7 +163,7 @@ rebrew prove my_func --dry-run                        # find by symbol, preview 
 # Export & Sync
 rebrew verify --fix-status          # bulk compile and auto-update STATUS/BLOCKER annotations
 rebrew verify --json                # structured JSON report to stdout
-rebrew verify --diff                # detect regressions against last saved report
+rebrew verify --compare             # detect regressions against last saved report
 rebrew split src/target_name/multi.c --dry-run  # preview split without writing
 rebrew split --va 0x10003DA0 --dry-run src/target_name/multi.c  # preview single extraction
 rebrew merge a.c b.c -o merged.c --delete       # merge and delete originals
@@ -206,7 +206,7 @@ rebrew sync --pull --dry-run        # preview pull without modifying files
 ```bash
 cd rebrew/
 uv sync --all-extras       # install dev dependencies
-uv run pytest tests/ -v    # run tests (~1712 tests)
+uv run pytest tests/ -v    # run tests (~1710 tests)
 uv run ruff check .        # lint
 uv run ruff format .       # format
 python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me

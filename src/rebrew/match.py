@@ -625,10 +625,12 @@ def main(
         False,
         "--flag-sweep-only",
         "-S",
-        help="Run compiler flag sweep instead of GA",
-        hidden=True,
+        help="Run MSVC compiler flag sweep instead of GA (tries flag combos to find exact match)",
     ),
-    tier: str = typer.Option("targeted", help="Flag sweep tier", hidden=True),
+    tier: str = typer.Option(
+        "targeted",
+        help="Flag sweep tier: targeted (common flags) or exhaustive (all combos)",
+    ),
     force: bool = typer.Option(
         False, "--force", help="Continue even if annotation lint errors exist"
     ),
@@ -654,13 +656,14 @@ def main(
         10, "--threshold", help="--all: max byte delta for --near-miss mode"
     ),
     flag_sweep: bool = typer.Option(
-        False, "--flag-sweep", help="--all: batch flag sweep on MATCHING functions", hidden=True
+        False,
+        "--flag-sweep",
+        help="--all: batch flag sweep on MATCHING functions (finds optimal CFLAGS)",
     ),
     fix_cflags: bool = typer.Option(
         False,
         "--fix-cflags",
-        help="--all --flag-sweep: auto-update CFLAGS on exact match",
-        hidden=True,
+        help="--all --flag-sweep: auto-update CFLAGS annotation on exact match",
     ),
     max_stubs: int = typer.Option(0, "--max-stubs", help="--all: max functions to process (0=all)"),
     min_size: int = typer.Option(10, "--min-size", help="--all: min target size to attempt"),
@@ -668,9 +671,7 @@ def main(
     filter_str: str = typer.Option(
         "", "--filter", help="--all: only process functions matching substring"
     ),
-    dry_run: bool = typer.Option(
-        False, "--dry-run", help="--all: list targets without running GA/sweep"
-    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     timeout_min: int = typer.Option(
         30, "--timeout-min", help="--all: per-function GA timeout (minutes)"
     ),

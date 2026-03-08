@@ -321,9 +321,8 @@ resolves through the `server.dll` key.
 |------------|-------------|---------|
 | `list-targets` | List all defined targets | `rebrew cfg list-targets` |
 | `show [KEY]` | Print config or a dot-separated key | `rebrew cfg show compiler.cflags` |
-| `get KEY` | Read a single config value (alias for `show KEY`) | `rebrew cfg get targets.server.dll.arch` |
 | `set KEY VALUE` | Set a scalar config key | `rebrew cfg set compiler.cflags "/O1"` |
-| `dump` | Dump entire config as JSON (default) or TOML (`--format toml`) | `rebrew cfg dump` |
+| `raw` | Dump entire config as JSON (default) or TOML (`--format toml`) | `rebrew cfg raw` |
 | `path` | Print absolute path to `rebrew-project.toml` | `rebrew cfg path` |
 | `add-target NAME` | Add a target section + create dirs | `rebrew cfg add-target client.exe -b original/client.exe` |
 | `remove-target NAME` | Remove a target section | `rebrew cfg remove-target old_target` |
@@ -337,7 +336,7 @@ rebrew cfg set-cflags GAME "/O2 /Gd" --target client.exe
 rebrew cfg show targets.client.exe
 
 # Read/write through dotted target names
-rebrew cfg get targets.server.dll.arch          # read value through dotted key
+rebrew cfg show targets.server.dll.arch         # read value through dotted key
 rebrew cfg set targets.server.dll.arch x86_64   # set value through dotted key
 
 # Auto-detect CRT source directories from MSVC tools
@@ -345,8 +344,8 @@ rebrew cfg detect-crt                           # preview detected paths
 rebrew cfg detect-crt --write                   # write into rebrew-project.toml
 
 # Dump config for scripting
-rebrew cfg dump                                 # JSON output
-rebrew cfg dump --format toml                   # TOML output
+rebrew cfg raw                                  # JSON output
+rebrew cfg raw --format toml                    # TOML output
 rebrew cfg path                                 # print path to config file
 ```
 

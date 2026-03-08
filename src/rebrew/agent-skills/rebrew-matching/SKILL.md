@@ -67,6 +67,17 @@ rebrew match src/<target>/<file>.c --generations 200 --pop-size 64 -j 16
 The GA mutates C source (variable types, casts, loop structures) and scores
 each variant against the target bytes. Best source is written to the file.
 
+## 3. Flag Sweep
+
+When diff shows `flag_sensitive: true`, try compiler flag combinations before running the GA:
+
+```bash
+rebrew match src/<target>/<file>.c --flag-sweep-only      # single file: targeted flag sweep
+rebrew match src/<target>/<file>.c --flag-sweep-only -S --tier exhaustive  # exhaustive
+rebrew match --all --flag-sweep                           # batch: sweep all MATCHING functions
+rebrew match --all --flag-sweep --fix-cflags              # auto-update CFLAGS on exact match
+```
+
 ## 4. Scoring (lower = better)
 
 | Component | Weight | Measures |
@@ -106,7 +117,7 @@ blocker_delta = 3
 
 Use `rebrew diff --fix-blocker` to auto-generate these from diff classification.
 
-## 5. Tips
+## 7. Tips
 
 - Always start with `rebrew diff` before running the GA.
 - For library-origin functions (MSVCRT, ZLIB), use `rebrew crt-match` to identify the reference source first.
