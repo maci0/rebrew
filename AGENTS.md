@@ -126,7 +126,8 @@ src/rebrew/
 ├── main.py              # Umbrella CLI (`rebrew` command)
 ├── merge.py             # Merge single-function C files into multi-function file
 ├── cli.py               # Shared: TargetOption, get_config(), iter_sources(),
-│                        #   iter_library_headers(), error_exit(), json_print(), parse_va()
+│                        #   iter_library_headers(), iter_annotations(), error_exit(),
+│                        #   json_print(), parse_va(), source_glob(), target_marker()
 ├── config.py            # ProjectConfig dataclass, rebrew-project.toml loader
 ├── annotation.py        # Annotation parsing (dataclass + regex parsers + library header parser)
 ├── compile.py           # Shared compile helpers (compile_to_obj, compile_and_compare → CompareResult, classify_compare_result)
@@ -236,6 +237,7 @@ All CLI tools follow these conventions for a consistent user experience:
 - **Config-driven**: All tools read `rebrew-project.toml` — never hardcode paths
 - **Idempotent**: Every tool safe to re-run without side effects
 - **Source discovery**: Always use `iter_sources(directory, cfg)` from `cli.py`; use `iter_library_headers(directory)` for `library_*.h` files
+- **Batch annotation loading**: Always use `iter_annotations(sources, target=...)` from `cli.py` — it wraps `parse_c_file_multi` with silent error handling and returns `[(path, [Annotation])]` pairs
 - **Source glob**: Use `source_glob(cfg)` — respects `cfg.source_ext` (`.c`, `.cpp`)
 - **No wheel reinvention**: If an imported library provides the functionality, use it
 - **No backward compat**: One canonical name per function — no aliases, no shims, no legacy wrappers
