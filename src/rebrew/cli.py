@@ -148,3 +148,35 @@ def iter_sources(directory: Path, cfg: ProjectConfig | None = None) -> list[Path
     """
     pattern = source_glob(cfg)
     return sorted(directory.rglob(pattern))
+
+
+def iter_annotations(
+    sources: list[Path],
+    *,
+    target: str | None = None,
+) -> list[tuple[Path, list[Any]]]:
+    """Parse annotations from each source in *sources*, silently skipping failures.
+
+    Returns a list of ``(path, annotations)`` pairs — only entries where at
+    least one annotation was parsed are included.  Uses
+    :func:`rebrew.annotation.parse_c_file_multi` internally.
+
+    This is the single shared idiom for batch-mode annotation loading,
+    replacing the copy-pasted try/except pattern that was spread across
+    ``todo.py``, ``verify.py``, ``test.py``, ``match.py``, and others.
+
+    :param sources: List of paths returned by :func:`iter_sources`.
+    :param target:  Optional marker string passed through to
+        ``parse_c_file_multi`` (use :func:`target_marker` to obtain it).
+    """
+    from rebrew.annotation import parse_c_file_multi  # local import to avoid cycle
+
+    results: list[tuple[Path, list[Any]]] = []
+    for src in sources:
+        try:
+            annos = parse_c_file_multi(src, target_name=target, sidecar_dir=src.parent)
+        except Exception:  # noqa: BLE001
+            continue
+        if annos:
+            results.append((src, annos))
+    return results
