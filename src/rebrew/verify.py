@@ -1,7 +1,16 @@
-"""verify.py - Traceability and verification tool for rebrew.
+"""verify.py — Batch compile-and-compare for all reversed functions.
 
-Analyzes src/*.c files, matches them against the target binary,
-and reports status (EXACT, RELOC, MATCHING, etc.).
+Compiles every annotated ``.c`` file and compares object bytes against the
+target binary.  Results are classified by :class:`~rebrew.compile.CompareResult`
+(EXACT, RELOC, MISMATCH, COMPILE_ERROR, …).
+
+With ``--fix-status`` the tool promotes STATUS in ``rebrew-function.toml``
+via :func:`~rebrew.sidecar.update_source_status` — the ``.c`` files are
+**never modified**.
+
+With ``--diff`` it compares the current run against the last saved
+``db/verify_results.json`` and exits with code 1 on any regression (suitable
+for CI / pre-commit hooks).
 """
 
 import concurrent.futures
@@ -13,6 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from rebrew.compile import CompareResult
     from rebrew.compile_cache import CompileCache
 
 import typer
@@ -22,7 +32,6 @@ from rich.table import Table
 from rich.text import Text
 
 from rebrew.annotation import Annotation
-from rebrew.binary_loader import extract_raw_bytes
 from rebrew.catalog import (
     build_function_registry,
     parse_function_list,
@@ -30,6 +39,7 @@ from rebrew.catalog import (
 )
 from rebrew.cli import TargetOption, error_exit, get_config, json_print
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
+from rebrew.sidecar import update_source_status
 from rebrew.utils import atomic_write_text
 
 # ---------------------------------------------------------------------------
@@ -41,7 +51,7 @@ def verify_entry(
     entry: Annotation,
     cfg: ProjectConfig,
     cache: "CompileCache | None" = None,
-) -> tuple[bool, str, bytes | None, bytes | None, dict[int, str] | None]:
+) -> "CompareResult":
     """Compile a .c file and compare output bytes against DLL.
 
     Delegates to ``compile_and_compare`` for the compile→extract→compare flow.
@@ -49,34 +59,60 @@ def verify_entry(
     for the same source content + flags — critical for multi-function files
     where the same .c is compiled once and multiple symbols extracted.
     """
-    from rebrew.compile import compile_and_compare
+    from rebrew.compile import CompareResult, compile_and_compare
 
     cfile = cfg.reversed_dir / entry.filepath
     if not cfile.exists():
-        return False, f"MISSING_FILE: {cfile}", None, None, None
+        return CompareResult(
+            matched=False,
+            status="MISSING_FILE",
+            match_percent=0.0,
+            delta=0,
+            obj_bytes=None,
+            reloc_offsets=None,
+            message=f"MISSING_FILE: {cfile}",
+        )
 
     if entry.va < 0x1000:
-        return False, "INVALID_VA: VA too low", None, None, None
+        return CompareResult(
+            matched=False,
+            status="COMPILE_ERROR",
+            match_percent=0.0,
+            delta=0,
+            obj_bytes=None,
+            reloc_offsets=None,
+            message="INVALID_VA: VA too low",
+        )
     if entry.size <= 0:
-        return False, "MISSING_SIZE: No SIZE annotation", None, None, None
+        return CompareResult(
+            matched=False,
+            status="MISSING_SIZE",
+            match_percent=0.0,
+            delta=0,
+            obj_bytes=None,
+            reloc_offsets=None,
+            message="MISSING_SIZE: No SIZE annotation",
+        )
 
     cflags_str = entry.cflags
     cflags = cflags_str if cflags_str else "/O2"
     symbol = entry.symbol if entry.symbol else "_" + entry.name
 
+    from rebrew.binary_loader import extract_raw_bytes
+
     target_bytes = extract_raw_bytes(cfg.target_binary, entry.va, entry.size)
     if not target_bytes:
-        return False, "Cannot extract DLL bytes", None, None, None
+        return CompareResult(
+            matched=False,
+            status="COMPILE_ERROR",
+            match_percent=0.0,
+            delta=0,
+            obj_bytes=None,
+            reloc_offsets=None,
+            message="Cannot extract DLL bytes",
+        )
 
-    matched, msg, obj_bytes, reloc_offsets = compile_and_compare(
-        cfg,
-        cfile,
-        symbol,
-        target_bytes,
-        cflags,
-        cache=cache,
-    )
-    return matched, msg, target_bytes, obj_bytes, reloc_offsets
+    return compile_and_compare(cfg, cfile, symbol, target_bytes, cflags, cache=cache)
 
 
 # ---------------------------------------------------------------------------
@@ -704,8 +740,8 @@ def _run_verification(
 
     def _verify(
         e: Annotation,
-    ) -> tuple[Annotation, bool, str, bytes | None, bytes | None, dict[int, str] | None]:
-        return (e, *verify_entry(e, cfg, cache=compile_cache))
+    ) -> tuple[Annotation, "CompareResult"]:
+        return (e, verify_entry(e, cfg, cache=compile_cache))
 
     with Progress(
         TextColumn("[bold blue]Verifying"),
@@ -723,52 +759,35 @@ def _run_verification(
             futures = {pool.submit(_verify, e): e for e in entries_to_verify}
             for future in concurrent.futures.as_completed(futures):
                 try:
-                    entry, ok, msg, target_bytes, obj_bytes, reloc_offsets = future.result()
+                    entry, result = future.result()
                 except Exception as exc:
                     entry = futures[future]
                     typer.echo(
                         f"WARNING: internal error verifying {entry.get('name', '?')}: {exc}",
                         err=True,
                     )
-                    ok, msg, target_bytes, obj_bytes, _reloc_offsets = (
-                        False,
-                        f"INTERNAL_ERROR: {exc}",
-                        None,
-                        None,
-                        None,
+                    from rebrew.compile import CompareResult
+
+                    result = CompareResult(
+                        matched=False,
+                        status="COMPILE_ERROR",
+                        match_percent=0.0,
+                        delta=0,
+                        obj_bytes=None,
+                        reloc_offsets=None,
+                        message=f"INTERNAL_ERROR: {exc}",
                     )
+
                 name = entry.name
                 progress.update(task, advance=1, description=name)
 
-                match_percent = 0.0
-                delta = 0
-                if ok:
+                if result.matched:
                     passed += 1
-                    status = "RELOC" if "RELOC" in msg else "EXACT"
-                    match_percent = 100.0
                 else:
                     failed += 1
-                    fail_details.append((entry, msg))
-                    if "MISMATCH" in msg:
-                        status = "MISMATCH"
-                        if target_bytes and obj_bytes:
-                            min_len = min(len(target_bytes), len(obj_bytes))
-                            max_len = max(len(target_bytes), len(obj_bytes))
-                            mismatches = 0
-                            for i in range(min_len):
-                                if target_bytes[i] != obj_bytes[i]:
-                                    mismatches += 1
-                            if max_len > 0:
-                                match_percent = ((min_len - mismatches) / max_len) * 100
-                            delta = abs(len(target_bytes) - len(obj_bytes)) + mismatches
-                    elif "COMPILE_ERROR" in msg:
-                        status = "COMPILE_ERROR"
-                    elif "MISSING_FILE" in msg:
-                        status = "MISSING_FILE"
-                    else:
-                        status = "FAIL"
+                    fail_details.append((entry, result.message))
 
-                deferred_fixes.append((entry, status, delta))
+                deferred_fixes.append((entry, result.status, result.delta))
 
                 results.append(
                     {
@@ -776,11 +795,11 @@ def _run_verification(
                         "name": name,
                         "filepath": entry.get("filepath", ""),
                         "size": entry.get("size", 0),
-                        "status": status,
-                        "message": msg,
-                        "passed": ok,
-                        "match_percent": match_percent,
-                        "delta": delta,
+                        "status": result.status,
+                        "message": result.message,
+                        "passed": result.matched,
+                        "match_percent": result.match_percent,
+                        "delta": result.delta,
                     }
                 )
 
@@ -791,22 +810,19 @@ def _apply_status_fixes(
     deferred_fixes: list[tuple[Annotation, str, int]],
     cfg: Any,
 ) -> None:
-    """Apply --fix-status annotation updates after all compilation is complete."""
-    from rebrew.annotation import remove_annotation_key, update_annotation_key
-
-    for entry, status, delta in deferred_fixes:
+    """Apply --fix-status sidecar updates after all compilation is complete."""
+    for entry, status, _delta in deferred_fixes:
         fp = cfg.reversed_dir / entry.get("filepath", "")
-        if fp.exists():
-            current_status = entry.get("status")
-            if status in ("EXACT", "RELOC") and current_status != status:
-                update_annotation_key(fp, entry.va, "STATUS", status)
-                remove_annotation_key(fp, entry.va, "BLOCKER")
-                remove_annotation_key(fp, entry.va, "BLOCKER_DELTA")
-            elif status == "MISMATCH" and current_status in ("EXACT", "RELOC"):
-                update_annotation_key(fp, entry.va, "STATUS", "MATCHING")
-                if delta > 0:
-                    update_annotation_key(fp, entry.va, "BLOCKER", f"Mismatch {delta} bytes")
-                    update_annotation_key(fp, entry.va, "BLOCKER_DELTA", str(delta))
+        if not fp.exists():
+            continue
+        module: str = getattr(entry, "module", "") or ""
+        if not module:
+            continue
+        current_status = entry.get("status", "")
+        if status in ("EXACT", "RELOC") and current_status != status:
+            update_source_status(fp, status, module, entry.va, clear_blockers=True)
+        elif status == "MISMATCH" and current_status in ("EXACT", "RELOC"):
+            update_source_status(fp, "MATCHING", module, entry.va, clear_blockers=False)
 
 
 def _print_results(

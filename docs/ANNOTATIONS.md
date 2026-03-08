@@ -54,12 +54,13 @@ Every `.c` file containing a reversed function must begin with a **marker line**
 
 That's it. All metadata (STATUS, SIZE, CFLAGS, BLOCKER, etc.) lives in the `rebrew-function.toml`
 sidecar found via walk-up from the source file's directory (rebrew climbs parent dirs
-until  is found), managed automatically by the CLI tools.
+until it is found), managed automatically by the CLI tools.
 
 > [!CAUTION]
 > **Never manually add STATUS, SIZE, or CFLAGS to a `.c` file.** These are managed
-> by `rebrew promote`, `rebrew match`, and `rebrew sync`. Manual edits to `rebrew-function.toml`
-> or volatile annotation lines in `.c` files will be overwritten or ignored.
+> by `rebrew test`, `rebrew verify --fix-status`, `rebrew match`, and `rebrew sync`.
+> Manual edits to `rebrew-function.toml` or volatile annotation lines in `.c` files
+> will be overwritten or ignored.
 
 ### Example
 
