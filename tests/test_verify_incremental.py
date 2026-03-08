@@ -7,6 +7,7 @@ import pytest
 from typer.testing import CliRunner
 
 from rebrew.annotation import Annotation
+from rebrew.compile import CompareResult
 from rebrew.config import ProjectConfig
 from rebrew.verify import (
     _compiler_config_hash,
@@ -219,9 +220,17 @@ class TestIncrementalVerify:
             entry: Annotation,
             _cfg: ProjectConfig,
             cache: object = None,
-        ) -> tuple[bool, str, bytes | None, bytes | None, list[int] | dict[int, str] | None]:
+        ) -> CompareResult:
             calls.append(int(entry.va))
-            return True, "EXACT MATCH", b"\x90", b"\x90", None
+            return CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"\x90",
+                reloc_offsets=[],
+                message="EXACT MATCH",
+            )
 
         monkeypatch.setattr("rebrew.verify.get_config", fake_get_config)
         monkeypatch.setattr("rebrew.verify.scan_reversed_dir", fake_scan_reversed_dir)
@@ -298,8 +307,16 @@ class TestIncrementalVerify:
             entry: Annotation,
             _cfg: ProjectConfig,
             cache: object = None,
-        ) -> tuple[bool, str, bytes | None, bytes | None, list[int] | dict[int, str] | None]:
-            return True, "EXACT MATCH", b"\x90", b"\x90", None
+        ) -> CompareResult:
+            return CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"\x90",
+                reloc_offsets=[],
+                message="EXACT MATCH",
+            )
 
         monkeypatch.setattr("rebrew.verify.get_config", fake_get_config)
         monkeypatch.setattr("rebrew.verify.scan_reversed_dir", fake_scan_reversed_dir)
@@ -309,12 +326,6 @@ class TestIncrementalVerify:
 
         first = runner.invoke(app, ["--json", "--fix-status"])
         assert first.exit_code == 0, first.output
-
-        def _should_not_be_called(*args: object, **kwargs: object) -> None:
-            raise AssertionError("fix-status update should not run for cached entries")
-
-        monkeypatch.setattr("rebrew.annotation.update_annotation_key", _should_not_be_called)
-        monkeypatch.setattr("rebrew.annotation.remove_annotation_key", _should_not_be_called)
 
         second = runner.invoke(app, ["--json", "--fix-status"])
         assert second.exit_code == 0, second.output

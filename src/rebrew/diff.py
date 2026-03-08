@@ -217,23 +217,29 @@ def run_diff(
             _print_structural_similarity(sim)
 
         if fix_blocker:
-            from rebrew.annotation import remove_annotation_key, update_annotation_key
+            from rebrew.annotation import parse_c_file
+            from rebrew.sidecar import delete_field, set_field
 
             seed_path = Path(p.seed_c)
+            ann = parse_c_file(seed_path)
+            sidecar_dir = seed_path.parent
+            va = ann.va if ann else p.va_int
+            module = ann.module if ann else ""
+
             if blockers:
                 blocker_text = ", ".join(blockers)
                 delta = sum(
                     1 for a, b in zip(p.target_bytes, obj_bytes, strict=False) if a != b
                 ) + abs(len(p.target_bytes) - len(obj_bytes))
-                updated = update_annotation_key(seed_path, p.va_int, "BLOCKER", blocker_text)
+                set_field(sidecar_dir, va, "blocker", blocker_text, module=module)
                 if delta > 0:
-                    update_annotation_key(seed_path, p.va_int, "BLOCKER_DELTA", str(delta))
-                if updated and not json_output:
+                    set_field(sidecar_dir, va, "blocker_delta", delta, module=module)
+                if not json_output:
                     typer.echo(f"  Updated BLOCKER: {blocker_text} ({delta}B delta)", err=True)
             else:
-                removed_b = remove_annotation_key(seed_path, p.va_int, "BLOCKER")
-                removed_d = remove_annotation_key(seed_path, p.va_int, "BLOCKER_DELTA")
-                if (removed_b or removed_d) and not json_output:
+                deleted_b = delete_field(sidecar_dir, va, "blocker", module=module)
+                deleted_d = delete_field(sidecar_dir, va, "blocker_delta", module=module)
+                if (deleted_b or deleted_d) and not json_output:
                     typer.echo("  Cleared BLOCKER (no structural diffs)", err=True)
 
         summary_obj = summary.get("summary", {})
@@ -323,9 +329,9 @@ def main(
     cfg = require_config(target=target, json_mode=json_output)
 
     # Resolve build parameters via match module's shared resolver
-    from rebrew.match import _resolve_build_params
+    from rebrew.match import resolve_build_params
 
-    params = _resolve_build_params(
+    params = resolve_build_params(
         cfg, seed_c, None, None, None, None, None, None, force, json_output
     )
 

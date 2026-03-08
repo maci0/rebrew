@@ -13,8 +13,8 @@ from rebrew.annotation import (
     parse_source_metadata,
 )
 from rebrew.naming import sanitize_name
-from rebrew.sidecar import get_entry
-from rebrew.test import smart_reloc_compare, update_source_status
+from rebrew.sidecar import get_entry, update_source_status
+from rebrew.test import smart_reloc_compare
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -165,7 +165,7 @@ class TestSafeWriteBack:
 
     def test_status_updated(self, tmp_path: Path) -> None:
         p = _write_c(tmp_path, "func.c", VALID_HEADER)
-        update_source_status(str(p), "RELOC")
+        update_source_status(p, "RELOC", "SERVER", 0x10008880)
         # .c file must be untouched
         assert "STATUS: EXACT" in p.read_text(encoding="utf-8")
         # Sidecar has new status
@@ -174,14 +174,14 @@ class TestSafeWriteBack:
 
     def test_backup_created(self, tmp_path: Path) -> None:
         p = _write_c(tmp_path, "func.c", VALID_HEADER)
-        update_source_status(str(p), "RELOC")
+        update_source_status(p, "RELOC", "SERVER", 0x10008880)
         # No .bak file created — status lives in sidecar, not file
         bak = tmp_path / "func.c.bak"
         assert not bak.exists()
 
     def test_reparseable_after_update(self, tmp_path: Path) -> None:
         p = _write_c(tmp_path, "func.c", VALID_HEADER)
-        update_source_status(str(p), "RELOC")
+        update_source_status(p, "RELOC", "SERVER", 0x10008880)
         # Read with sidecar_dir to see new status
         anns = parse_c_file_multi(p, sidecar_dir=tmp_path)
         assert anns
@@ -193,7 +193,7 @@ class TestSafeWriteBack:
         from rebrew.sidecar import set_field
 
         set_field(tmp_path, 0x10008880, "blocker", "initial decompilation", module="SERVER")
-        update_source_status(str(p), "RELOC", blockers_to_remove=True)
+        update_source_status(p, "RELOC", "SERVER", 0x10008880, clear_blockers=True)
         # Blocker gone from sidecar
         entry = get_entry(tmp_path, 0x10008880, module="SERVER")
         assert not entry.get("blocker")
@@ -212,7 +212,7 @@ class TestSafeWriteBack:
             "void _func_b(void) {}\n"
         )
         p = _write_c(tmp_path, "multi.c", multi)
-        update_source_status(str(p), "RELOC", target_va=0x10001000)
+        update_source_status(p, "RELOC", "SERVER", 0x10001000)
         # First VA updated in sidecar
         entry1 = get_entry(tmp_path, 0x10001000, module="SERVER")
         assert entry1["status"] == "RELOC"
@@ -234,7 +234,7 @@ class TestSafeWriteBack:
             "void _func_b(void) {}\n"
         )
         p = _write_c(tmp_path, "multi.c", multi)
-        update_source_status(str(p), "EXACT")
+        update_source_status(p, "EXACT", "SERVER", 0x10001000)
         # Only first VA updated (update_source_status resolves first VA when target_va=None)
         entry1 = get_entry(tmp_path, 0x10001000, module="SERVER")
         assert entry1["status"] == "EXACT"

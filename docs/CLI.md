@@ -470,6 +470,18 @@ rebrew sync --pull-data                            # Fetch data labels into rebr
 ### Unified Compilation
 
 All tools share a single compile path via `rebrew.compile`. The module provides
-`compile_to_obj` for single-file compilation and `resolve_compiler_env(cfg)` for
-consistent compiler + cache resolution across `rebrew test`, `rebrew verify`, and
-`rebrew match`.
+`compile_to_obj` for single-file compilation, `resolve_compiler_env(cfg)` for
+consistent compiler + cache resolution, and the high-level `compile_and_compare`
+that returns a `CompareResult` dataclass used by both `rebrew test` and
+`rebrew verify`.
+
+| Symbol | Module | Purpose |
+|--------|--------|---------|
+| `CompareResult` | `compile.py` | Structured result for compile+compare operations (`matched`, `status`, `match_percent`, `delta`, `obj_bytes`, `message`) |
+| `classify_compare_result` | `compile.py` | Pure helper: classifies raw byte comparison into a `CompareResult` |
+| `compile_and_compare` | `compile.py` | High-level: compile → extract → compare → `CompareResult` |
+| `update_source_status` | `sidecar.py` | Canonical STATUS writer — promotes STATUS in `rebrew-function.toml`; never touches `.c` files |
+
+Both `rebrew test` (auto-promote after single test) and `rebrew verify --fix-status`
+(batch promotion) call `update_source_status`.  The `.c` file is **never modified**
+by either tool's status logic.
