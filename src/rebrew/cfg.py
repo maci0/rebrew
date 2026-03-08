@@ -13,12 +13,12 @@ Usage::
     rebrew cfg show [KEY]
     rebrew cfg get KEY
     rebrew cfg set KEY VALUE
-    rebrew cfg dump [--toml]
+    rebrew cfg dump [--format toml]
     rebrew cfg path
     rebrew cfg add-target mygame --binary original/mygame
     rebrew cfg remove-target old_target
-    rebrew cfg add-origin ZLIB --target mygame
-    rebrew cfg remove-origin ZLIB --target mygame
+    rebrew cfg add-module ZLIB --target mygame
+    rebrew cfg remove-module ZLIB --target mygame
     rebrew cfg set-cflags ZLIB "/O3" --target mygame
     rebrew cfg detect-crt [--write]
 """
@@ -185,7 +185,9 @@ rebrew cfg set compiler.timeout 120        Set a config value
 
 rebrew cfg get targets.main.binary         Read target-specific setting
 
-rebrew cfg dump                            Dump entire rebrew-project.toml as JSON
+rebrew cfg dump                            Dump rebrew-project.toml as JSON
+
+rebrew cfg dump --format toml              Dump as TOML
 
 rebrew cfg path                            Print path to rebrew-project.toml
 
@@ -250,18 +252,18 @@ def get_value(
 
 @app.command("dump")
 def dump(
-    json_output: bool = typer.Option(True, "--json/--toml", help="Output format."),
+    fmt: str = typer.Option("json", "--format", "-f", help="Output format: json, toml"),
 ) -> None:
     """Dump entire rebrew-project.toml as JSON or TOML."""
     doc, _ = _load_toml()
-    if json_output:
-        # Convert tomlkit doc to plain dict for JSON serialization
+    if fmt == "toml":
+        typer.echo(tomlkit.dumps(doc))
+    else:
+        # Default: JSON — convert tomlkit doc to plain dict for serialization
         import tomllib
 
         raw = tomllib.loads(tomlkit.dumps(doc))
         typer.echo(json.dumps(raw, indent=2, default=str))
-    else:
-        typer.echo(tomlkit.dumps(doc))
 
 
 @app.command("path")
@@ -286,8 +288,8 @@ def add_target(
     ),
     origins: str | None = typer.Option(
         None,
-        "--origins",
-        help="Comma-separated origin list (inherits from project or defaults to GAME).",
+        "--modules",
+        help="Comma-separated module list (inherits from project or defaults to GAME).",
     ),
     source_ext: str | None = typer.Option(
         None,
@@ -445,12 +447,12 @@ def set_value(
     typer.secho(f"Set {key} = {parsed_value!r}", fg=typer.colors.GREEN)
 
 
-@app.command("add-origin")
-def add_origin(
-    origin: str = typer.Argument(..., help="Origin name to add (e.g. 'ZLIB')."),
+@app.command("add-module")
+def add_module(
+    module: str = typer.Argument(..., help="Module name to add (e.g. 'ZLIB')."),
     target: str | None = typer.Option(None, "--target", "-t", help="Target name."),
 ) -> None:
-    """Add an origin to a target's origins list."""
+    """Add a module to a target's origins list."""
     doc, toml_path = _load_toml()
     target = _resolve_target(doc, target)
     targets_table: Any = doc["targets"]
@@ -461,48 +463,48 @@ def add_origin(
         origins = []
         tgt["origins"] = origins
 
-    origin_upper = origin.upper()
-    if origin_upper in origins:
-        typer.secho(f"Origin '{origin_upper}' already exists in {target}.", fg=typer.colors.YELLOW)
+    module_upper = module.upper()
+    if module_upper in origins:
+        typer.secho(f"Module '{module_upper}' already exists in {target}.", fg=typer.colors.YELLOW)
         return
 
-    origins.append(origin_upper)
+    origins.append(module_upper)
     _save_toml(doc, toml_path)
     typer.secho(
-        f"Added origin '{origin_upper}' to {target}. Origins: {list(origins)}",
+        f"Added module '{module_upper}' to {target}. Modules: {list(origins)}",
         fg=typer.colors.GREEN,
     )
 
 
-@app.command("remove-origin")
-def remove_origin(
-    origin: str = typer.Argument(..., help="Origin name to remove."),
+@app.command("remove-module")
+def remove_module(
+    module: str = typer.Argument(..., help="Module name to remove."),
     target: str | None = typer.Option(None, "--target", "-t", help="Target name."),
 ) -> None:
-    """Remove an origin from a target's origins list (idempotent)."""
+    """Remove a module from a target's origins list (idempotent)."""
     doc, toml_path = _load_toml()
     target = _resolve_target(doc, target)
     targets_table: Any = doc["targets"]
     tgt: Any = targets_table[target]
 
     origins = tgt.get("origins")
-    if origins is None or origin.upper() not in origins:
+    if origins is None or module.upper() not in origins:
         typer.secho(
-            f"Origin '{origin.upper()}' not in {target} (already removed).", fg=typer.colors.YELLOW
+            f"Module '{module.upper()}' not in {target} (already removed).", fg=typer.colors.YELLOW
         )
         return
 
-    origins.remove(origin.upper())
+    origins.remove(module.upper())
     _save_toml(doc, toml_path)
     typer.secho(
-        f"Removed origin '{origin.upper()}' from {target}. Origins: {list(origins)}",
+        f"Removed module '{module.upper()}' from {target}. Modules: {list(origins)}",
         fg=typer.colors.GREEN,
     )
 
 
 @app.command("set-cflags")
 def set_cflags(
-    origin: str = typer.Argument(..., help="Origin/preset name (e.g. 'ZLIB', 'GAME')."),
+    module: str = typer.Argument(..., help="Module/preset name (e.g. 'ZLIB', 'GAME')."),
     flags: str = typer.Argument(..., help="Compiler flags string (e.g. '/O3')."),
     target: str | None = typer.Option(
         None,
@@ -511,7 +513,7 @@ def set_cflags(
         help="Target name (sets per-target preset). Omit to set global preset.",
     ),
 ) -> None:
-    """Set cflags preset for an origin."""
+    """Set cflags preset for a module."""
     doc, toml_path = _load_toml()
 
     if target is not None:
@@ -523,7 +525,7 @@ def set_cflags(
         if presets is None:
             presets = tomlkit.table()
             tgt["cflags_presets"] = presets
-        presets[origin.upper()] = flags
+        presets[module.upper()] = flags
         scope = f'targets."{target}"'
     else:
         # Global cflags_presets
@@ -535,11 +537,11 @@ def set_cflags(
         if presets is None:
             presets = tomlkit.table()
             compiler["cflags_presets"] = presets
-        presets[origin.upper()] = flags
+        presets[module.upper()] = flags
         scope = "compiler"
 
     _save_toml(doc, toml_path)
-    typer.secho(f'Set {scope}.cflags_presets.{origin.upper()} = "{flags}"', fg=typer.colors.GREEN)
+    typer.secho(f'Set {scope}.cflags_presets.{module.upper()} = "{flags}"', fg=typer.colors.GREEN)
 
 
 @app.command("detect-crt")

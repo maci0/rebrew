@@ -328,11 +328,11 @@ def _resolve_source(source_arg: str, cfg: ProjectConfig) -> Path:
 @app.callback(invoke_without_command=True)
 def main(
     source: str = typer.Argument(..., help="C source file or symbol name"),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
-    target: str | None = TargetOption,
     timeout: int = typer.Option(60, "--timeout", help="Seconds before giving up"),
     loop_bound: int = typer.Option(10, "--loop-bound", help="Max loop iterations for angr"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
 ) -> None:
     """Prove semantic equivalence of a MATCHING function via symbolic execution."""
     # Guard angr import early
