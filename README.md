@@ -28,19 +28,15 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | `rebrew split` | Break multi-function `.c` files into individual files; `--va` to extract one function |
 | `rebrew merge` | Combine single-function files into one multi-function file |
 | `rebrew lint` | Validate annotation correctness (E000–E017, W001–W017) |
-| `rebrew promote` | Test + atomically update STATUS; promotes on match, demotes to STUB below threshold; `--all` for batch |
 
 ### Analysis
 
 | Tool | What it does |
 |------|-------------|
 | `rebrew todo` | Prioritized action list: what to work on next |
-| `rebrew next` | Smart prioritization — recommends similar functions |
-| `rebrew triage` | Cold-start report: coverage stats, FLIRT scan, near-miss list, recommendations |
 | `rebrew status` | Per-target breakdown of EXACT / RELOC / MATCHING / STUB counts |
 | `rebrew graph` | Call graph from `extern` declarations (mermaid, DOT, summary) |
 | `rebrew data` | Inventory `.data`/`.rdata`/`.bss` globals; detect dispatch tables and vtables |
-| `rebrew cu-map` | Infer compilation unit boundaries from .text layout and call graph |
 | `rebrew flirt` | Identify known library functions via FLIRT signatures — no IDA required |
 | `rebrew crt-match` | Cross-reference functions against CRT/library source directories |
 
@@ -146,6 +142,7 @@ rebrew data --dispatch              # detect dispatch tables / vtables
 rebrew graph --format summary       # call graph stats and blockers
 rebrew nasm 0x10003DA0              # extract NASM-reassembleable ASM with round-trip verify
 rebrew catalog                      # regenerate the function catalog and coverage JSON
+rebrew catalog --data-json          # write db/data_<target>.json
 rebrew catalog --export-ghidra-labels  # generate ghidra_data_labels.json from detected tables
 rebrew build-db                     # build SQLite coverage database from catalog
 
@@ -164,11 +161,9 @@ rebrew prove src/server.dll/calculate_physics.c --json  # JSON output
 rebrew prove my_func --dry-run                        # find by symbol, preview only
 
 # Export & Sync
-rebrew rename old_func new_func     # completely rename a function across the codebase
 rebrew verify --fix-status          # bulk compile and auto-update STATUS/BLOCKER annotations
 rebrew verify --json                # structured JSON report to stdout
 rebrew verify --diff                # detect regressions against last saved report
-rebrew promote --all --origin GAME  # batch promote all promotable GAME functions
 rebrew split src/target_name/multi.c --dry-run  # preview split without writing
 rebrew split --va 0x10003DA0 --dry-run src/target_name/multi.c  # preview single extraction
 rebrew merge a.c b.c -o merged.c --delete       # merge and delete originals
@@ -211,7 +206,7 @@ rebrew sync --pull --dry-run        # preview pull without modifying files
 ```bash
 cd rebrew/
 uv sync --all-extras       # install dev dependencies
-uv run pytest tests/ -v    # run tests (~1744 tests)
+uv run pytest tests/ -v    # run tests (~1712 tests)
 uv run ruff check .        # lint
 uv run ruff format .       # format
 python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me

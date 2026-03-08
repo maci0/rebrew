@@ -46,7 +46,7 @@ perspective. Rebrew auto-detects whichever is installed (`rz` preferred over `r2
 
 **Data files consumed by rebrew:**
 - `functions.txt` — Human-readable function list (VA, size, name) — tool-agnostic format
-- `function_structure.json` — Ghidra function list (consumed by `rebrew skeleton`, `rebrew next`)
+- `function_structure.json` — Ghidra function list (consumed by `rebrew skeleton`, `rebrew todo`)
 
 **Known issues:**
 - r2/rz occasionally report bogus sizes for some functions

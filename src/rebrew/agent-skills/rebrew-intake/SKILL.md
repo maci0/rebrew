@@ -60,8 +60,8 @@ since the original source is often available.
 ### 3. Build Function Catalog
 
 ```bash
-rebrew catalog --json                   # build catalog + data JSON
-rebrew catalog db                       # build SQLite coverage database
+rebrew catalog --data-json              # write db/data_<target>.json
+rebrew build-db                         # build SQLite coverage database
 ```
 
 ### 4. Initial Triage
@@ -130,7 +130,7 @@ Intake Progress:
 - [ ] Binary placed at configured path
 - [ ] rebrew cfg confirms target
 - [ ] FLIRT scan complete
-- [ ] Catalog and coverage DB built (rebrew catalog + rebrew catalog db)
+- [ ] Catalog and coverage DB built (rebrew catalog --data-json && rebrew build-db)
 - [ ] Triage report reviewed (rebrew todo)
 - [ ] Compilation units inferred (rebrew graph --cu-map)
 - [ ] First skeletons generated

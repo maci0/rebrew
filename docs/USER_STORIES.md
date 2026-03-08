@@ -75,7 +75,7 @@ graph TD
 ### Acceptance Criteria
 - Function list generated (r2 / Ghidra / lief)
 - FLIRT signatures auto-identify CRT/zlib/Lua functions (~20-40%)
-- `rebrew triage` classifies functions by origin, size, and matchability
+- `rebrew todo` classifies functions by origin, size, and matchability
 - Functions ranked by size and tagged with origin
 - IAT thunks, SEH helpers, and ASM builtins flagged as non-matchable
 
@@ -107,11 +107,10 @@ graph TD
 > **As an RE Dev**, I want to pick a function, write C89 source, and verify it produces byte-identical output so that I can incrementally build the decompiled codebase.
 
 ### Acceptance Criteria
-- `rebrew next` shows prioritized list of uncovered functions
+- `rebrew todo` shows prioritized list of uncovered functions
 - `rebrew skeleton` creates annotated `.c` file
 - `rebrew test` classifies result as EXACT / RELOC / MATCHING / MISMATCH
 - Annotation header updated with correct STATUS and BLOCKER (if any)
-- `rebrew promote` used to promote status on match
 
 ```mermaid
 graph TD
@@ -322,7 +321,7 @@ graph TD
 - `rebrew init` scaffolds the project directory and config
 - Function boundaries detected via radare2/Ghidra
 - FLIRT identifies library functions automatically
-- `rebrew triage` classifies and prioritizes all functions
+- `rebrew todo` classifies and prioritizes all functions
 - Smallest leaf functions processed first (snowball strategy)
 - Each match enriches RAG for subsequent functions
 
@@ -358,9 +357,9 @@ graph TD
 
 ### Acceptance Criteria
 - `rebrew status` shows at-a-glance reversing progress overview
-- `rebrew next --stats` shows function counts by status and origin
+- `rebrew todo --stats` shows function counts by status and origin
 - `rebrew verify` bulk-compiles and re-verifies all `.c` files
-- `rebrew catalog --json` regenerates coverage JSON and function registry
+- `rebrew catalog --data-json` regenerates coverage JSON and function registry
 - `rebrew build-db` updates the dashboard database
 - `rebrew verify` regression gate prevents breaking existing matches
 
