@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from rebrew.flirt import _make_progress_printer, find_func_size, iter_match_offsets, load_signatures
+from rebrew.flirt import find_func_size, iter_match_offsets, load_signatures
 
 # ---------------------------------------------------------------------------
 # find_func_size
@@ -64,46 +64,6 @@ class TestIterMatchOffsets:
 
     def test_includes_final_valid_offset(self) -> None:
         assert list(iter_match_offsets(64, stride=16, min_window=32)) == [0, 16, 32]
-
-
-# ---------------------------------------------------------------------------
-# _make_progress_printer
-# ---------------------------------------------------------------------------
-
-
-class TestMakeProgressPrinter:
-    """Tests for _make_progress_printer() factory."""
-
-    def test_returns_callable(self) -> None:
-        """Returns a callable in both modes."""
-        fn = _make_progress_printer(json_output=False)
-        assert callable(fn)
-
-    def test_json_false_returns_print(self) -> None:
-        """json_output=False returns the builtin print."""
-        fn = _make_progress_printer(json_output=False)
-        assert fn is print
-
-    def test_json_true_returns_stderr_printer(self) -> None:
-        """json_output=True returns a function that prints to stderr."""
-        fn = _make_progress_printer(json_output=True)
-        assert fn is not print
-        assert callable(fn)
-
-    def test_json_printer_writes_stderr(self, capsys) -> None:
-        """The stderr printer writes to stderr, not stdout."""
-        fn = _make_progress_printer(json_output=True)
-        fn("hello from flirt")
-        captured = capsys.readouterr()
-        assert captured.out == ""
-        assert "hello from flirt" in captured.err
-
-    def test_plain_printer_writes_stdout(self, capsys) -> None:
-        """The plain printer writes to stdout."""
-        fn = _make_progress_printer(json_output=False)
-        fn("hello")
-        captured = capsys.readouterr()
-        assert "hello" in captured.out
 
 
 # ---------------------------------------------------------------------------

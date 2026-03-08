@@ -3,14 +3,13 @@
 Usage: rebrew flirt [sig_dir]
 """
 
-import sys
 import warnings
-from collections.abc import Callable
 from importlib import import_module
 from pathlib import Path
 from typing import Any
 
 import typer
+from rich.console import Console
 
 from rebrew.binary_loader import load_binary
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
@@ -20,19 +19,20 @@ try:
 except ImportError:
     flirt = None
 
+console = Console(stderr=True)
+
 
 def load_signatures(sig_dir: str, json_output: bool = False) -> list[Any]:
     """Load all ``.sig`` and ``.pat`` FLIRT signature files from *sig_dir*."""
     if flirt is None:
         return []
 
-    _print = _make_progress_printer(json_output)
-    _print(f"Loading signatures from {sig_dir}...")
+    console.print(f"Loading signatures from {sig_dir}...")
     sigs: list[Any] = []
 
     sig_path = Path(sig_dir)
     if not sig_path.exists():
-        _print(f"Signature directory {sig_dir} not found.")
+        console.print(f"Signature directory {sig_dir} not found.")
         return []
 
     sig_files = sorted(sig_path.glob("*.sig")) + sorted(sig_path.glob("*.pat"))
@@ -44,7 +44,7 @@ def load_signatures(sig_dir: str, json_output: bool = False) -> list[Any]:
             else:
                 parsed = flirt.parse_pat(content.decode("utf-8", errors="ignore"))
             sigs.extend(parsed)
-            _print(f"Loaded {len(parsed)} signatures from {filepath.name}")
+            console.print(f"Loaded {len(parsed)} signatures from {filepath.name}")
         except (OSError, ValueError, TypeError) as e:
             warnings.warn(f"Error loading {filepath}: {e}", stacklevel=2)
 
@@ -72,18 +72,6 @@ def iter_match_offsets(code_size: int, *, stride: int = 16, min_window: int = 32
         return range(0)
     last_start = code_size - min_window
     return range(0, last_start + 1, stride)
-
-
-def _make_progress_printer(json_output: bool) -> Callable[..., None]:
-    """Return a print function that goes to stderr when json_output is True."""
-    if json_output:
-
-        def _print(*args: Any, **kwargs: Any) -> None:
-            kwargs["file"] = sys.stderr
-            print(*args, **kwargs)
-
-        return _print
-    return print
 
 
 app = typer.Typer(
@@ -123,7 +111,6 @@ def main(
     if flirt is None:
         error_exit("flirt module not found. Run 'uv sync' to install dependencies.")
     cfg = require_config(target=target, json_mode=json_output)
-    _print = _make_progress_printer(json_output)
 
     final_sig_dir = sig_dir or (cfg.root / "flirt_sigs")
     final_exe = exe or cfg.target_binary
@@ -133,11 +120,11 @@ def main(
     if not sigs:
         error_exit("No signatures loaded", json_mode=json_output)
 
-    _print("Compiling FLIRT matching engine...")
+    console.print("Compiling FLIRT matching engine...")
     matcher = flirt.compile(sigs)
 
     # 2. Extract function bytes from binary
-    _print(f"Analyzing {final_exe}...")
+    console.print(f"Analyzing {final_exe}...")
     info = load_binary(final_exe)
 
     # Find the text section (PE: .text, Mach-O: __text)
@@ -150,7 +137,7 @@ def main(
     base_va = text_sec.va
 
     sig_count = len(sigs)
-    _print(
+    console.print(
         f"Searching for signature matches in {len(code_data)} bytes "
         f"(min function size: {min_size}B)..."
     )
@@ -163,7 +150,9 @@ def main(
 
     # Guard: FLIRT signatures need at least 32 bytes to match against
     if len(code_data) < 32:
-        _print(f"Warning: .text section too small ({len(code_data)} bytes) for FLIRT matching")
+        console.print(
+            f"Warning: .text section too small ({len(code_data)} bytes) for FLIRT matching"
+        )
         if json_output:
             json_print(
                 {

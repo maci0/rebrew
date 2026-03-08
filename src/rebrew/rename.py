@@ -32,8 +32,6 @@ rebrew rename src/game/old.c new_func            Rename by file path
 
 rebrew rename 0x10003da0 new_func                Rename by VA
 
-rebrew rename old_func new_func                  Rename function
-
 rebrew rename old_func new_func --file new.c     Custom filename
 
 [dim]Updates FUNCTION annotations, function definitions, extern

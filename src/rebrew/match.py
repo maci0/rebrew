@@ -46,10 +46,10 @@ from rebrew.compile import resolve_compiler_env
 from rebrew.compile_cache import CompileCache
 from rebrew.config import ProjectConfig
 from rebrew.core import msvc_env_from_config
+from rebrew.diff import _print_structural_similarity
 from rebrew.matcher import (
     BuildCache,
     BuildResult,
-    StructuralSimilarity,
     build_candidate,
     build_candidate_obj_only,
     compute_population_diversity,
@@ -64,25 +64,6 @@ from rebrew.utils import atomic_write_text
 
 log = logging.getLogger(__name__)
 console = Console(stderr=True)
-
-
-# ---------------------------------------------------------------------------
-# Structural similarity display helper
-# ---------------------------------------------------------------------------
-
-
-def _print_structural_similarity(sim: StructuralSimilarity) -> None:
-    verdict = "flag sweep MAY help" if sim.flag_sensitive else "flags unlikely to help"
-    console.print(f"\nStructural similarity ({verdict}):")
-    console.print(
-        f"  Instructions: {sim.exact} exact, {sim.reloc_only} reloc, "
-        f"{sim.register_only} register, {sim.structural} structural "
-        f"(of {sim.total_insns} total)"
-    )
-    console.print(
-        f"  Mnemonic match: {sim.mnemonic_match_ratio:.1%}  |  "
-        f"Structural ratio: {sim.structural_ratio:.1%}"
-    )
 
 
 # ---------------------------------------------------------------------------
