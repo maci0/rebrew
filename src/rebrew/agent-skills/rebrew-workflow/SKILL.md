@@ -32,7 +32,6 @@ rebrew skeleton 0x<VA>                             # generate annotated .c stub
 rebrew skeleton 0x<VA> --decomp --decomp-backend ghidra # Ghidra decompilation via MCP
 rebrew skeleton 0x<VA> --xrefs                     # include caller context from Ghidra xrefs
 rebrew skeleton 0x<VA> --append existing_file.c    # add to multi-function file
-rebrew skeleton --list --origin GAME               # list uncovered functions
 rebrew skeleton --batch 10                         # generate 10 skeletons (smallest first)
 ```
 
@@ -65,7 +64,7 @@ rebrew test src/<target>/<file>.c --no-promote  # skip STATUS update
 rebrew test --all --json                   # batch test all reversed .c files
 rebrew test --all --origin GAME --json     # batch mode, filter by origin
 rebrew test --all --dir src/<target>/ --json    # batch mode, restrict to subdir
-rebrew test --all --dry-run                # list candidates without testing
+rebrew test --all --dry-run                # preview changes without writing
 ```
 
 `rebrew test` auto-updates STATUS in the sidecar after each run:
@@ -94,6 +93,8 @@ rebrew split src/<target>/multi.c                    # split into individual fil
 rebrew split src/<target>/multi.c --dry-run           # preview without writing
 rebrew split --va 0x10003DA0 src/<target>/multi.c     # extract one function
 rebrew merge a.c b.c -o merged.c                     # merge into one file
+rebrew rename old_func new_func                       # rename across entire project
+rebrew rename old_func new_func --dry-run             # preview rename without writing
 ```
 
 Split when functions need different CFLAGS or independent tracking.
@@ -133,7 +134,7 @@ rebrew doctor                           # check toolchain/config health
 rebrew verify --summary                 # summary table with match %
 rebrew verify --json                    # bulk compile + diff all reversed functions
 rebrew verify -j 8 -o report.json      # parallel compile, save report to file
-rebrew verify --diff --json             # compare against last saved report, detect regressions
+rebrew verify --compare --json          # compare against last saved report, detect regressions
 rebrew lint --json                      # check annotation correctness
 rebrew lint --fix                       # auto-migrate old annotation formats
 rebrew lint --summary                   # status/origin breakdown table
@@ -148,7 +149,7 @@ rebrew build-db                         # build SQLite coverage database
 
 ### Regression Detection
 
-`rebrew verify --diff` compares the current run against `db/verify_results.json`.
+`rebrew verify --compare` compares the current run against `db/verify_results.json`.
 Exit code 1 if any regressions — suitable for CI/pre-commit hooks.
 
 ## 9. Dependency Graph

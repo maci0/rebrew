@@ -3,7 +3,7 @@
 import typer
 from rich.console import Console
 
-from rebrew.cli import TargetOption, get_config
+from rebrew.cli import TargetOption, require_config
 from rebrew.compile_cache import CompileCache
 
 console = Console(stderr=True)
@@ -31,24 +31,20 @@ def stats(
     target: str | None = TargetOption,
 ) -> None:
     """Show compile cache statistics."""
-    try:
-        cfg = get_config(target=target)
-    except (FileNotFoundError, KeyError) as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
+    cfg = require_config(target=target)
 
     cache_dir = cfg.root / ".rebrew" / "compile_cache"
     if not cache_dir.exists():
-        typer.echo("No compile cache found (not yet created).")
+        console.print("No compile cache found (not yet created).")
         return
 
     cache = CompileCache(cache_dir)
     try:
         info = cache.stats()
-        typer.echo(f"Cache directory: {cache_dir}")
-        typer.echo(f"Entries:         {info['entries']}")
-        typer.echo(f"Disk usage:      {info['volume_mb']} MB")
-        typer.echo(f"Size limit:      {info['size_limit_mb']} MB")
+        console.print(f"Cache directory: {cache_dir}")
+        console.print(f"Entries:         {info['entries']}")
+        console.print(f"Disk usage:      {info['volume_mb']} MB")
+        console.print(f"Size limit:      {info['size_limit_mb']} MB")
     finally:
         cache.close()
 
@@ -58,22 +54,18 @@ def clear(
     target: str | None = TargetOption,
 ) -> None:
     """Delete all cached .obj files."""
-    try:
-        cfg = get_config(target=target)
-    except (FileNotFoundError, KeyError) as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
+    cfg = require_config(target=target)
 
     cache_dir = cfg.root / ".rebrew" / "compile_cache"
     if not cache_dir.exists():
-        typer.echo("No compile cache found (nothing to clear).")
+        console.print("No compile cache found (nothing to clear).")
         return
 
     cache = CompileCache(cache_dir)
     try:
         count = cache.count
         cache.clear()
-        typer.echo(f"Cleared {count} cached entries from {cache_dir}")
+        console.print(f"Cleared {count} cached entries from {cache_dir}")
     finally:
         cache.close()
 

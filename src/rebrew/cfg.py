@@ -11,9 +11,8 @@ Usage::
 
     rebrew cfg list-targets
     rebrew cfg show [KEY]
-    rebrew cfg get KEY
     rebrew cfg set KEY VALUE
-    rebrew cfg dump [--format toml]
+    rebrew cfg raw [--format toml]
     rebrew cfg path
     rebrew cfg add-target mygame --binary original/mygame
     rebrew cfg remove-target old_target
@@ -31,11 +30,14 @@ from typing import Any
 
 import tomlkit
 import typer
+from rich.console import Console
 
 from rebrew.binary_loader import detect_format_and_arch as _bl_detect_format_and_arch
 from rebrew.cli import error_exit
 from rebrew.config import _find_root as _config_find_root
 from rebrew.utils import atomic_write_text
+
+console = Console(stderr=True)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -156,15 +158,13 @@ def _detect_format_and_arch(path: Path) -> tuple[str, str | None]:
     try:
         return _bl_detect_format_and_arch(path)
     except OSError:
-        typer.echo(
-            f"Warning: cannot read '{path}' for format detection, defaulting to PE",
-            err=True,
+        console.print(
+            f"[yellow]Warning:[/] cannot read '{path}' for format detection, defaulting to PE"
         )
         return "pe", None
     except ValueError:
-        typer.echo(
-            f"Warning: unrecognized binary format for '{path}', defaulting to PE",
-            err=True,
+        console.print(
+            f"[yellow]Warning:[/] unrecognized binary format for '{path}', defaulting to PE"
         )
         return "pe", None
 
@@ -185,9 +185,9 @@ rebrew cfg set compiler.timeout 120        Set a config value
 
 rebrew cfg get targets.main.binary         Read target-specific setting
 
-rebrew cfg dump                            Dump rebrew-project.toml as JSON
+rebrew cfg raw                             Dump rebrew-project.toml as JSON
 
-rebrew cfg dump --format toml              Dump as TOML
+rebrew cfg raw --format toml               Dump as TOML
 
 rebrew cfg path                            Print path to rebrew-project.toml
 
@@ -202,15 +202,15 @@ def list_targets() -> None:
     doc, _ = _load_toml()
     targets = doc.get("targets", {})
     if not targets:
-        typer.echo("No targets defined.")
+        console.print("No targets defined.")
         return
     for i, name in enumerate(targets):
         tgt = targets[name]
         binary = tgt.get("binary", "?")
         arch = tgt.get("arch", "?")
         marker = "→" if i == 0 else " "
-        typer.echo(f"  {marker} {name}  ({arch}, {binary})")
-    typer.secho("\n  → = default target", dim=True)
+        console.print(f"  {marker} {name}  ({arch}, {binary})")
+    console.print("\n  [dim]→ = default target[/dim]")
 
 
 @app.command("show")
@@ -227,7 +227,7 @@ def show(
 
     if key is None:
         # Print the whole file
-        typer.echo(tomlkit.dumps(doc))
+        print(tomlkit.dumps(doc))
         return
 
     # Resolve dotted key path (handles keys containing dots like target names)
@@ -237,40 +237,32 @@ def show(
     current = parent[final_key]
 
     if isinstance(current, (dict, list)):
-        typer.echo(tomlkit.dumps(current) if isinstance(current, dict) else str(current))
+        print(tomlkit.dumps(current) if isinstance(current, dict) else str(current))
     else:
-        typer.echo(str(current))
+        print(str(current))
 
 
-@app.command("get")
-def get_value(
-    key: str = typer.Argument(..., help="Dot-separated key to read, e.g. 'compiler.cflags'"),
-) -> None:
-    """Read a single config value (alias for 'show KEY')."""
-    show(key=key, target=None)
-
-
-@app.command("dump")
-def dump(
+@app.command("raw")
+def raw(
     fmt: str = typer.Option("json", "--format", "-f", help="Output format: json, toml"),
 ) -> None:
-    """Dump entire rebrew-project.toml as JSON or TOML."""
+    """Dump entire rebrew-project.toml as JSON or TOML (raw machine-readable output)."""
     doc, _ = _load_toml()
     if fmt == "toml":
-        typer.echo(tomlkit.dumps(doc))
+        print(tomlkit.dumps(doc))
     else:
         # Default: JSON — convert tomlkit doc to plain dict for serialization
         import tomllib
 
-        raw = tomllib.loads(tomlkit.dumps(doc))
-        typer.echo(json.dumps(raw, indent=2, default=str))
+        raw_doc = tomllib.loads(tomlkit.dumps(doc))
+        print(json.dumps(raw_doc, indent=2, default=str))
 
 
 @app.command("path")
 def path_cmd() -> None:
     """Print the absolute path to rebrew-project.toml."""
     root = _find_root()
-    typer.echo(str(root / "rebrew-project.toml"))
+    print(str(root / "rebrew-project.toml"))
 
 
 @app.command("add-target")
@@ -315,7 +307,7 @@ def add_target(
 
     # Idempotent: if target already exists, just ensure dirs exist and return
     if name in targets:
-        typer.secho(f"Target '{name}' already exists (no changes made).", fg=typer.colors.YELLOW)
+        console.print(f"[yellow]Target '{name}' already exists (no changes made).[/yellow]")
         (root / "src" / name).mkdir(parents=True, exist_ok=True)
         (root / "bin" / name).mkdir(parents=True, exist_ok=True)
         return
@@ -364,7 +356,7 @@ def add_target(
         dest = original_dir / binary_path.name
         if not dest.exists():
             shutil.copy2(binary_path, dest)
-            typer.secho(f"  Copied {binary_path.name} → original/", fg=typer.colors.GREEN)
+            console.print(f"  [green]Copied {binary_path.name} → original/[/green]")
         binary = f"original/{binary_path.name}"
 
     # Create directories
@@ -394,11 +386,11 @@ def add_target(
     targets[name] = tgt
     _save_toml(doc, toml_path)
 
-    typer.secho(f'Added [targets."{name}"] to rebrew-project.toml', fg=typer.colors.GREEN)
-    typer.secho(f"  Format: {fmt}, Arch: {arch} (auto-detected)", fg=typer.colors.GREEN)
-    typer.secho(f"  Language: {detected_lang} ({source_ext})", fg=typer.colors.GREEN)
-    typer.secho(f"  Created src/{name}/ and bin/{name}/", fg=typer.colors.GREEN)
-    typer.echo(f'\nNext: rebrew next --target "{name}" --stats')
+    console.print(f'[green]Added [targets."{name}"] to rebrew-project.toml[/green]')
+    console.print(f"[green]  Format: {fmt}, Arch: {arch} (auto-detected)[/green]")
+    console.print(f"[green]  Language: {detected_lang} ({source_ext})[/green]")
+    console.print(f"[green]  Created src/{name}/ and bin/{name}/[/green]")
+    console.print(f'\nNext: rebrew next --target "{name}" --stats')
 
 
 @app.command("remove-target")
@@ -409,13 +401,13 @@ def remove_target(
     doc, toml_path = _load_toml()
     targets = doc.get("targets", {})
     if name not in targets:
-        typer.secho(f"Target '{name}' not found (already removed).", fg=typer.colors.YELLOW)
+        console.print(f"[yellow]Target '{name}' not found (already removed).[/yellow]")
         return
 
     del targets[name]
     _save_toml(doc, toml_path)
-    typer.secho(f'Removed [targets."{name}"] from rebrew-project.toml', fg=typer.colors.GREEN)
-    typer.secho("  Note: src/ and bin/ directories were NOT deleted.", dim=True)
+    console.print(f'[green]Removed [targets."{name}"] from rebrew-project.toml[/green]')
+    console.print("  [dim]Note: src/ and bin/ directories were NOT deleted.[/dim]")
 
 
 @app.command("set")
@@ -444,7 +436,7 @@ def set_value(
 
     parent[final_key] = parsed_value
     _save_toml(doc, toml_path)
-    typer.secho(f"Set {key} = {parsed_value!r}", fg=typer.colors.GREEN)
+    console.print(f"[green]Set {key} = {parsed_value!r}[/green]")
 
 
 @app.command("add-module")
@@ -465,14 +457,13 @@ def add_module(
 
     module_upper = module.upper()
     if module_upper in origins:
-        typer.secho(f"Module '{module_upper}' already exists in {target}.", fg=typer.colors.YELLOW)
+        console.print(f"[yellow]Module '{module_upper}' already exists in {target}.[/yellow]")
         return
 
     origins.append(module_upper)
     _save_toml(doc, toml_path)
-    typer.secho(
-        f"Added module '{module_upper}' to {target}. Modules: {list(origins)}",
-        fg=typer.colors.GREEN,
+    console.print(
+        f"[green]Added module '{module_upper}' to {target}. Modules: {list(origins)}[/green]"
     )
 
 
@@ -489,16 +480,15 @@ def remove_module(
 
     origins = tgt.get("origins")
     if origins is None or module.upper() not in origins:
-        typer.secho(
-            f"Module '{module.upper()}' not in {target} (already removed).", fg=typer.colors.YELLOW
+        console.print(
+            f"[yellow]Module '{module.upper()}' not in {target} (already removed).[/yellow]"
         )
         return
 
     origins.remove(module.upper())
     _save_toml(doc, toml_path)
-    typer.secho(
-        f"Removed module '{module.upper()}' from {target}. Modules: {list(origins)}",
-        fg=typer.colors.GREEN,
+    console.print(
+        f"[green]Removed module '{module.upper()}' from {target}. Modules: {list(origins)}[/green]"
     )
 
 
@@ -541,7 +531,7 @@ def set_cflags(
         scope = "compiler"
 
     _save_toml(doc, toml_path)
-    typer.secho(f'Set {scope}.cflags_presets.{module.upper()} = "{flags}"', fg=typer.colors.GREEN)
+    console.print(f'[green]Set {scope}.cflags_presets.{module.upper()} = "{flags}"[/green]')
 
 
 @app.command("detect-crt")
@@ -559,11 +549,11 @@ def detect_crt(
     root = _find_root()
     detected = detect_crt_sources(root)
     if not detected:
-        typer.secho("No CRT source directories found under tools/.", fg=typer.colors.YELLOW)
+        console.print("[yellow]No CRT source directories found under tools/.[/yellow]")
         return
 
     for origin, rel_path in sorted(detected.items()):
-        typer.echo(f"  {origin} → {rel_path}")
+        console.print(f"  {origin} → {rel_path}")
 
     if write:
         doc, toml_path = _load_toml(root)
@@ -584,14 +574,11 @@ def detect_crt(
 
         if written:
             _save_toml(doc, toml_path)
-            typer.secho(
-                f'Wrote {written} crt_sources entries to [targets."{target_name}"].',
-                fg=typer.colors.GREEN,
+            console.print(
+                f'[green]Wrote {written} crt_sources entries to [targets."{target_name}"].[/green]'
             )
         else:
-            typer.secho(
-                "All detected paths already configured (no changes).", fg=typer.colors.YELLOW
-            )
+            console.print("[yellow]All detected paths already configured (no changes).[/yellow]")
 
 
 # ---------------------------------------------------------------------------

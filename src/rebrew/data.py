@@ -24,7 +24,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from rebrew.cli import TargetOption, error_exit, get_config, json_print
+from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
 
 # ---------------------------------------------------------------------------
@@ -914,10 +914,7 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Scan reversed source files for global data declarations."""
-    try:
-        cfg = get_config(target=target)
-    except (FileNotFoundError, KeyError) as exc:
-        error_exit(str(exc), json_mode=json_output)
+    cfg = require_config(target=target, json_mode=json_output)
 
     src_dir = cfg.reversed_dir
     bin_path = cfg.target_binary

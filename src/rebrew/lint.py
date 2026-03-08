@@ -37,7 +37,7 @@ from rebrew.cli import TargetOption, error_exit, get_config, json_print
 from rebrew.config import ProjectConfig
 from rebrew.utils import atomic_write_text
 
-out_console = Console(stderr=True)
+console = Console(stderr=True)
 
 _HEADER_MARKER_RE = re.compile(r"//\s*(\w+):\s*(\S+)\s+(0x[0-9a-fA-F]+)")
 _SIZE_ANNOTATION_RE = re.compile(r"//\s*SIZE\s+0x[0-9a-fA-F]+")
@@ -76,10 +76,10 @@ class LintResult:
         """Print errors (and optionally warnings) to the console."""
         rel = self.filepath.name
         for line, code, msg in self.errors:
-            out_console.print(f"  [bold]{rel}[/bold]:{line}: [red]{code}[/red]: {msg}")
+            console.print(f"  [bold]{rel}[/bold]:{line}: [red]{code}[/red]: {msg}")
         if not quiet:
             for line, code, msg in self.warnings:
-                out_console.print(f"  [bold]{rel}[/bold]:{line}: [yellow]{code}[/yellow]: {msg}")
+                console.print(f"  [bold]{rel}[/bold]:{line}: [yellow]{code}[/yellow]: {msg}")
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for JSON output."""
@@ -980,7 +980,7 @@ def _print_summary(results: list[LintResult]) -> None:
                 if m2:
                     marker_counts[m2.group(1)] += 1
 
-    out_console.print()
+    console.print()
     table = Table(title="Summary", show_lines=False, pad_edge=False)
     table.add_column("Category", style="bold")
     table.add_column("Value")
@@ -991,7 +991,7 @@ def _print_summary(results: list[LintResult]) -> None:
     for marker, count in sorted(marker_counts.items(), key=lambda x: -x[1]):
         table.add_row("MARKER", marker, str(count))
 
-    out_console.print(table)
+    console.print(table)
 
 
 app = typer.Typer(
@@ -1003,6 +1003,8 @@ app = typer.Typer(
 rebrew lint                                  Lint all .c files in reversed_dir
 
 rebrew lint --fix                            Auto-migrate old-format annotations
+
+rebrew lint --fix --dry-run                  Preview which files would be changed
 
 rebrew lint --quiet                          Errors only, suppress warnings
 
@@ -1043,6 +1045,7 @@ Supports old-format, block-comment, and javadoc annotation styles (--fix migrate
 @app.callback(invoke_without_command=True)
 def main(
     fix: bool = typer.Option(False, help="Auto-migrate old-format headers to new annotations"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     quiet: bool = typer.Option(False, help="Only show errors, suppress warnings"),
     files: list[Path] = typer.Option(None, help="Check specific files instead of all *.c"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -1056,7 +1059,7 @@ def main(
     except FileNotFoundError:
         pass  # No config file — lint without config-aware rules
     except (KeyError, ValueError) as exc:
-        out_console.print(f"[yellow]Warning: config error ({exc}); config-aware rules disabled[/]")
+        console.print(f"[yellow]Warning: config error ({exc}); config-aware rules disabled[/]")
 
     reversed_dir = cfg.reversed_dir if cfg else None
 
@@ -1075,17 +1078,28 @@ def main(
             error_exit("--fix requires a valid rebrew-project.toml config")
         fixed = 0
         already_ok = 0
+        would_fix: list[str] = []
         for cfile in c_files:
             result = lint_file(cfile, cfg=cfg)
             needs_fix = any(code in ("W002", "W012", "W013") for _, code, _ in result.warnings)
             if needs_fix:
-                if fix_file(cfg, cfile):
+                if dry_run:
+                    would_fix.append(cfile.name)
+                elif fix_file(cfg, cfile):
                     fixed += 1
                 else:
                     print(f"  Could not fix: {cfile.name}")
             else:
                 already_ok += 1
-        print(f"Fixed {fixed} files, {already_ok} already compliant")
+        if dry_run:
+            if would_fix:
+                console.print(f"[dim]Would fix {len(would_fix)} files:[/]")
+                for name in would_fix:
+                    console.print(f"  {name}")
+            else:
+                console.print("[green]All files already compliant (nothing to fix)[/]")
+        else:
+            print(f"Fixed {fixed} files, {already_ok} already compliant")
         return
 
     # Cross-file duplicate VA tracking
@@ -1126,7 +1140,7 @@ def main(
         result_text.append(", ")
         result_text.append(f"{error_count} errors", style=err_style)
         result_text.append(f", {warning_count} warnings")
-        out_console.print(result_text)
+        console.print(result_text)
 
         if summary:
             _print_summary(all_results)

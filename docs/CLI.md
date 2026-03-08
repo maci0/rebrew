@@ -23,7 +23,7 @@ Run any tool with `--help` to see usage examples and context
 | `rebrew-lint` | `lint.py` | Lint annotation standards in decomp C files |
 | `rebrew-extract` | `extract.py` | Batch extract and disassemble functions from binary |
 | `rebrew-match` | `match.py` / `matcher/` | GA matching engine (single-function or `--all` batch); `--fix-blocker`; `--json` structured output |
-| `rebrew-verify` | `verify.py` | Compile all `.c` files and verify byte match against target binary; `--diff` regression detection; `--json` structured reports |
+| `rebrew-verify` | `verify.py` | Compile all `.c` files and verify byte match against target binary; `--compare` regression detection; `--json` structured reports |
 | `rebrew-todo` | `todo.py` | Prioritized action list: what to work on next, ROI-ranked across all signals |
 | `rebrew-cache` | `cache_cli.py` | Compile cache management (`stats`, `clear` subcommands) |
 | `rebrew-cfg` | `cfg.py` | Read and edit `rebrew-project.toml` programmatically (see [CONFIG.md](CONFIG.md)) |
@@ -86,13 +86,13 @@ Atomically renames a function across the entire project.
 
 | Flag | Description |
 |------|-------------|
-| `--symbol NAME` | Override symbol name (default: derived from C function definition as `_<new_name>`) |
 | `--file NAME` | New filename (default: auto-rename if stem matches old name) |
+| `--dry-run` | Preview changes without writing |
 | `--json` | Output results as JSON |
 
 Behavior:
 
-- Symbol is derived automatically from the C function definition
+- Symbol is derived automatically from the C function definition as `_<new_name>`
 - Updates the C function definition name
 - Replaces `extern` cross-references across all `.c` files
 - Renames the file itself if the stem matches the old name
@@ -120,18 +120,17 @@ Behavior:
 | `--origin TYPE` | Force compiler profile/origin type (GAME, MSVCRT, ZLIB) from config |
 | `-o FILE` / `--output FILE` | Output file path |
 | `--force` | Overwrite existing files |
-| `--list` | List uncovered functions (no file generation) |
 | `--batch N` | Generate N skeletons (smallest first) |
 | `--min-size N` | Minimum function size (default 10) |
 | `--max-size N` | Maximum function size (default 9999) |
-| `--json` | Output results as JSON (for batch/list modes) |
+| `--json` | Output results as JSON (for batch mode) |
 
 ### `rebrew verify`
 
 | Flag | Description |
 |------|-------------|
 | `--fix-status` | Auto-update `STATUS` in `rebrew-function.toml` sidecar based on compile results |
-| `--diff` | Compare against last saved `db/verify_results.json`, detect regressions/improvements; exit code 1 on regression |
+| `--compare` | Compare against last saved `db/verify_results.json`, detect regressions/improvements; exit code 1 on regression |
 | `--summary` | Show EXACT/RELOC/MATCHING summary table with match percentages |
 | `--json` | Structured JSON report to stdout |
 | `-o FILE` / `--output FILE` | Write report to specific file |
@@ -160,7 +159,7 @@ Output prefixes for unambiguous parsing:
 | `--filter STR` | Only process functions matching this substring |
 | `--near-miss` | Target MATCHING functions instead of STUBs |
 | `--threshold N` | Max byte delta for `--near-miss` mode (default 10) |
-| `--dry-run` | List candidates without running GA |
+| `--dry-run` | Preview changes without writing |
 | `--seed-from-solved` / `--no-solved` | Seed GA population from similar solved functions (default: on) |
 | `--json` | Output results as JSON |
 
@@ -374,7 +373,7 @@ rebrew match --all --dry-run                       # List candidates only
 
 # Verification & status
 rebrew verify                                      # Verify all reversed functions
-rebrew verify --diff                               # Compare against last report, detect regressions
+rebrew verify --compare                            # Compare against last report, detect regressions
 rebrew verify --json                               # Structured JSON report
 rebrew verify -o db/verify_results.json            # Write report to file
 rebrew lint --fix && rebrew lint                   # Fix then re-lint
