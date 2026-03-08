@@ -104,7 +104,7 @@ Format: `// MARKER: MODULE 0xVA`
 | `SIZE` | **Mandatory** | E007, E008 | Function size in bytes from the original binary |
 | `CFLAGS` | Optional | W018 | Per-function compiler flag override. Falls back to the target's `base_cflags` / `cflags_presets` in `rebrew-project.toml`. Only needed for functions compiled with non-default flags (e.g. a static lib linked with `/O1` into an `/O2` binary). |
 | `SOURCE` | Conditional | W006 | **Required for library origins** — reference file (e.g. `SBHEAP.C:195`, `deflate.c`). Use `rebrew crt-match --fix-source` to auto-populate. |
-| `BLOCKER` | Conditional | W005 | **Required for STUB** — explain why the function doesn't match yet. Now lives in `rebrew-function.toml` sidecar; auto-added by `rebrew promote` on demotion. |
+| `BLOCKER` | Conditional | W005 | **Required for STUB** — explain why the function doesn't match yet. Now lives in `rebrew-function.toml` sidecar; auto-written by `rebrew diff --fix-blocker`. |
 | `NOTE` | Optional | — | Freeform notes (e.g. `NOTE: uses SSE2 intrinsics`) — lives in sidecar |
 | `GHIDRA` | Optional | — | The Ghidra name, added by `rebrew sync --pull --accept-local` to prevent conflict loops — lives in sidecar |
 | `STRUCT` | Optional | — | Linked structs for this file |
@@ -116,7 +116,7 @@ Format: `// MARKER: MODULE 0xVA`
 > [!CAUTION]
 > **Never manually edit `rebrew-function.toml`.** This sidecar file stores volatile metadata
 > (STATUS, CFLAGS, SIZE, BLOCKER, NOTE, GHIDRA, etc.) and is managed exclusively by
-> Rebrew CLI tools (`rebrew promote`, `rebrew match`, `rebrew sync`, etc.).
+> Rebrew CLI tools (`rebrew test`, `rebrew match`, `rebrew diff --fix-blocker`, `rebrew sync`, etc.).
 > Manual edits will be silently lost or may corrupt the file.
 
 > [!TIP]
@@ -636,7 +636,7 @@ rebrew test src/server.dll/getenv.c
 Library header files provide a lightweight way to register known library functions
 (CRT, zlib, etc.) in the catalog without creating individual `.c` files. These are
 functions you've **identified** — they show up in coverage stats as covered, and
-`rebrew next` / `rebrew skeleton` won't suggest them as work items.
+`rebrew todo` / `rebrew skeleton` won't suggest them as work items.
 
 ### Filename Convention
 

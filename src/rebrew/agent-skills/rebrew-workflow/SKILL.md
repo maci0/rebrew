@@ -15,7 +15,7 @@ For annotation syntax details, see `references/annotation-format.md`.
 rebrew todo --json                      # Primary: get highest ROI action items
 rebrew todo -c start-function --json    # Only new functions to start
 rebrew flirt --json                     # FLIRT scan: identify known library functions (fast wins)
-rebrew crt-match --all --origin MSVCRT --json # find matching CRT source files
+rebrew crt-match --all --json # find matching CRT source files
 ```
 
 **Always default to `rebrew todo --json`.** It evaluates the whole project and suggests tasks by these tiers:
@@ -142,8 +142,8 @@ rebrew lint --summary                   # status/origin breakdown table
 ### Coverage Database
 
 ```bash
-rebrew catalog --json                   # generate catalog JSON
-rebrew catalog db                       # build SQLite coverage database
+rebrew catalog --data-json              # write db/data_<target>.json
+rebrew build-db                         # build SQLite coverage database
 ```
 
 ### Regression Detection

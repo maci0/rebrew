@@ -17,11 +17,11 @@ UNDOCUMENTED  →  STUB  →  MATCHING  →  RELOC  →  EXACT
 | Status | Byte match | Set by | Counts in coverage |
 |--------|-----------|--------|-------------------|
 | `UNDOCUMENTED` | — | Automatic (no .c file) | ❌ No |
-| `STUB` | <75% | `rebrew promote` (demotion) | ❌ No |
-| `MATCHING` | ≥75% | `rebrew promote` | ⚠️ Partial |
-| `MATCHING_RELOC` | Near-reloc | `rebrew promote` | ⚠️ Partial |
-| `RELOC` | 100% (masked) | `rebrew promote` | ✅ Yes |
-| `EXACT` | 100% (raw) | `rebrew promote` | ✅ Yes |
+| `STUB` | <75% | `rebrew test` (demotion) | ❌ No |
+| `MATCHING` | ≥75% | `rebrew test` | ⚠️ Partial |
+| `MATCHING_RELOC` | Near-reloc | `rebrew test` | ⚠️ Partial |
+| `RELOC` | 100% (masked) | `rebrew test` | ✅ Yes |
+| `EXACT` | 100% (raw) | `rebrew test` | ✅ Yes |
 | `PROVEN` | Semantic | `rebrew prove` | ✅ Yes |
 | `SKIP` | N/A | Manual (sidecar) | ✅ Yes (excluded) |
 
@@ -31,10 +31,10 @@ UNDOCUMENTED  →  STUB  →  MATCHING  →  RELOC  →  EXACT
 
 Function exists in `function_structure.json` but no `.c` file has been created yet.
 This is the implicit starting state — rebrew tracks it from the function list, not the
-sidecar. Tools like `rebrew next` and `rebrew todo` surface these as action items.
+sidecar. Tools like `rebrew todo` surface these as action items.
 
 ```bash
-rebrew next --json          # find next UNDOCUMENTED function to start
+rebrew todo --json          # find next UNDOCUMENTED function to start
 rebrew skeleton 0x10008880  # generate .c skeleton → transitions to STUB
 ```
 
@@ -48,7 +48,7 @@ A `.c` file exists but the implementation is a placeholder — either empty, con
 `TODO`, or compiles to something radically different from the target (< 75% byte match,
 or wrong size).
 
-Also assigned automatically by `rebrew promote` when a previously-matching function
+Also assigned automatically by `rebrew test` when a previously-matching function
 regresses below the 75% match threshold (demotion).
 
 ```toml
@@ -200,7 +200,7 @@ SKIP functions are excluded from the "unmatched" count in coverage metrics — t
 are treated as intentionally resolved, not as open work items.
 
 ```bash
-rebrew triage --json    # auto-identifies likely SKIP candidates
+rebrew todo --json    # surface likely SKIP candidates
 ```
 
 ---

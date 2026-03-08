@@ -25,7 +25,7 @@ flowchart LR
 
 | Step | Tool | Input | Output |
 |------|------|-------|--------|
-| 1. Catalog | `rebrew catalog --json` | `*.c` annotations, `library_*.h` headers, `functions.txt`, `function_structure.json`, target binary | `db/data_<target>.json` |
+| 1. Catalog | `rebrew catalog --data-json` | `*.c` annotations, `library_*.h` headers, `functions.txt`, `function_structure.json`, target binary | `db/data_<target>.json` |
 | 1b. Export Labels | `rebrew catalog --export-ghidra-labels` | (same as above) | `ghidra_data_labels.json` (detected data labels/thunks for Ghidra round-trip) |
 | 2. Build DB | `rebrew build-db` | `db/data_*.json` | `db/coverage.db` |
 | 3. Serve | `recoverage serve` | `db/coverage.db` | HTTP dashboard at `localhost:8001` |
@@ -202,7 +202,7 @@ A SQLite view aggregating matching metrics to quickly pull total/exact/stub cell
 
 ## 2. `data_*.json` Intermediate Format
 
-Each `data_<target>.json` file is the output of `rebrew catalog --json`. It contains:
+Each `data_<target>.json` file is the output of `rebrew catalog --data-json`. It contains:
 
 ```json
 {
