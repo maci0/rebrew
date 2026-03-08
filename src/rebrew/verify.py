@@ -37,7 +37,7 @@ from rebrew.catalog import (
     parse_function_list,
     scan_reversed_dir,
 )
-from rebrew.cli import TargetOption, error_exit, get_config, json_print
+from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 from rebrew.sidecar import update_source_status
 from rebrew.utils import atomic_write_text
@@ -465,10 +465,7 @@ def main(
     ),
 ) -> None:
     """Rebrew verification pipeline: compile each .c and verify bytes match."""
-    try:
-        cfg = get_config(target=target)
-    except (FileNotFoundError, KeyError) as exc:
-        error_exit(str(exc), json_mode=json_output)
+    cfg = require_config(target=target, json_mode=json_output)
     if jobs is None:
         jobs = cfg.default_jobs
 

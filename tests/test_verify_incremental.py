@@ -204,7 +204,7 @@ class TestIncrementalVerify:
 
         calls: list[int] = []
 
-        def fake_get_config(*args: object, **kwargs: object) -> ProjectConfig:
+        def fake_require_config(*args: object, **kwargs: object) -> ProjectConfig:
             return cfg
 
         def fake_scan_reversed_dir(*args: object, **kwargs: object) -> list[dict[str, object]]:
@@ -232,7 +232,7 @@ class TestIncrementalVerify:
                 message="EXACT MATCH",
             )
 
-        monkeypatch.setattr("rebrew.verify.get_config", fake_get_config)
+        monkeypatch.setattr("rebrew.verify.require_config", fake_require_config)
         monkeypatch.setattr("rebrew.verify.scan_reversed_dir", fake_scan_reversed_dir)
         monkeypatch.setattr("rebrew.verify.parse_function_list", fake_parse_function_list)
         monkeypatch.setattr("rebrew.verify.build_function_registry", fake_build_registry)
@@ -291,7 +291,7 @@ class TestIncrementalVerify:
             )
         ]
 
-        def fake_get_config(*args: object, **kwargs: object) -> ProjectConfig:
+        def fake_require_config(*args: object, **kwargs: object) -> ProjectConfig:
             return cfg
 
         def fake_scan_reversed_dir(*args: object, **kwargs: object) -> list[dict[str, object]]:
@@ -318,7 +318,7 @@ class TestIncrementalVerify:
                 message="EXACT MATCH",
             )
 
-        monkeypatch.setattr("rebrew.verify.get_config", fake_get_config)
+        monkeypatch.setattr("rebrew.verify.require_config", fake_require_config)
         monkeypatch.setattr("rebrew.verify.scan_reversed_dir", fake_scan_reversed_dir)
         monkeypatch.setattr("rebrew.verify.parse_function_list", fake_parse_function_list)
         monkeypatch.setattr("rebrew.verify.build_function_registry", fake_build_registry)

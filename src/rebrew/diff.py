@@ -308,7 +308,7 @@ def main(
     fmt: str = typer.Option(
         "terminal",
         "--format",
-        help="Output format: terminal, csv (use --json for JSON)",
+        help="Output format: terminal, csv",
     ),
     force: bool = typer.Option(
         False, "--force", help="Continue even if annotation lint errors exist"
@@ -317,13 +317,9 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Compile a reversed function and show a byte diff against the target."""
-    if fmt not in ("terminal", "json", "csv"):
-        error_exit("--format must be 'terminal', 'json', or 'csv'")
+    if fmt not in ("terminal", "csv"):
+        error_exit("--format must be 'terminal' or 'csv'")
 
-    if json_output:
-        fmt = "json"
-    elif fmt == "json":
-        json_output = True
     csv_output = fmt == "csv"
 
     cfg = require_config(target=target, json_mode=json_output)
