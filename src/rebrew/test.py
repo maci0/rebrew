@@ -50,60 +50,6 @@ def compile_obj(
     return compile_to_obj(cfg, source_path, cflags, workdir)
 
 
-def _find_block_lines(lines: list[str], target_va: int) -> set[int]:
-    """Return line indices belonging to the annotation block for *target_va*.
-
-    Handles both orderings:
-    - KV after marker (rebrew):  ``// FUNCTION: ...`` then ``// STATUS: ...``
-    - KV before marker (reccmp): ``// STATUS: ...`` then ``// FUNCTION: ...``
-    """
-    marker_positions: list[tuple[int, int]] = []
-    for i, line in enumerate(lines):
-        m = _MARKER_RE.match(line)
-        if m:
-            marker_positions.append((i, int(m.group(2), 16)))
-
-    target_mk_idx: int | None = None
-    for idx, (_, va) in enumerate(marker_positions):
-        if va == target_va:
-            target_mk_idx = idx
-            break
-
-    if target_mk_idx is None:
-        return set()
-
-    mk_line = marker_positions[target_mk_idx][0]
-    result: set[int] = {mk_line}
-
-    # Forward scan: include KV lines after the marker until code / next marker
-    next_mk = (
-        marker_positions[target_mk_idx + 1][0]
-        if target_mk_idx + 1 < len(marker_positions)
-        else len(lines)
-    )
-    for j in range(mk_line + 1, next_mk):
-        stripped = lines[j].strip()
-        if not stripped:
-            continue
-        if _ANY_KV_LINE_RE.match(lines[j]):
-            result.add(j)
-        else:
-            break
-
-    # Backward scan: include KV lines before the marker (reccmp ordering)
-    prev_boundary = marker_positions[target_mk_idx - 1][0] if target_mk_idx > 0 else -1
-    for j in range(mk_line - 1, prev_boundary, -1):
-        stripped = lines[j].strip()
-        if not stripped:
-            continue
-        if _ANY_KV_LINE_RE.match(lines[j]):
-            result.add(j)
-        else:
-            break
-
-    return result
-
-
 _EPILOG = """\
 [bold]Examples:[/bold]
 
@@ -667,11 +613,7 @@ def _run_all_batch(
 
     if dry_run:
         if json_output:
-            import json as _json
-
-            print(
-                _json.dumps({"count": len(sources), "files": [str(s) for s in sources]}, indent=2)
-            )
+            json_print({"count": len(sources), "files": [str(s) for s in sources]})
         else:
             console.print(f"[bold]Batch test candidates ({len(sources)} files):[/bold]")
             for s in sources:
@@ -731,17 +673,12 @@ def _run_all_batch(
         batch_results.append({"file": src_str})
 
     if json_output:
-        import json as _json
-
-        print(
-            _json.dumps(
-                {
-                    "total": total_testable,
-                    "skipped_no_size": skipped_no_size,
-                    "results": batch_results,
-                },
-                indent=2,
-            )
+        json_print(
+            {
+                "total": total_testable,
+                "skipped_no_size": skipped_no_size,
+                "results": batch_results,
+            }
         )
     else:
         console.print(

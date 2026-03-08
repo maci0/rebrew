@@ -114,6 +114,25 @@ def ignored_symbols(cfg: ProjectConfig) -> set[str]:
     return set(syms) if syms else set()
 
 
+def normalize_name(name: str) -> str:
+    """Normalize a symbol name for cross-source matching.
+
+    Strips import prefixes (``__imp_``), cdecl leading underscore,
+    and stdcall ``@N`` stack-size suffixes to produce a canonical form.
+
+    Matches the stripping logic used in ``crt_match.py``.
+    """
+    normalized = name.strip().lower()
+    if normalized.startswith("__imp_"):
+        normalized = normalized[len("__imp_") :]
+    if normalized.startswith("_") and not normalized.startswith("__"):
+        normalized = normalized[1:]
+    at_pos = normalized.rfind("@")
+    if at_pos > 0 and normalized[at_pos + 1 :].isdigit():
+        normalized = normalized[:at_pos]
+    return normalized
+
+
 # ---------------------------------------------------------------------------
 # Byte delta parsing
 # ---------------------------------------------------------------------------
