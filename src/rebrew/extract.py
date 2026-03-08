@@ -19,6 +19,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from rebrew.asm import disasm_bytes
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va, load_binary
 from rebrew.catalog import parse_function_list, scan_reversed_dir
 from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
@@ -35,28 +36,6 @@ def extract_bytes(binary_info: BinaryInfo, va: int, size: int) -> bytes:
     """Extract raw bytes from binary at given VA."""
     data = extract_bytes_at_va(binary_info, va, size)
     return data if data is not None else b""
-
-
-# ---------------------------------------------------------------------------
-# Disassembly
-# ---------------------------------------------------------------------------
-
-
-def disasm(code_bytes: bytes, va: int, cfg: ProjectConfig | None = None) -> str:
-    """Disassemble using capstone and return formatted string."""
-    try:
-        from capstone import CS_ARCH_X86, CS_MODE_32, Cs
-    except ImportError as e:
-        raise RuntimeError("capstone not installed") from e
-
-    arch = cfg.capstone_arch if cfg else CS_ARCH_X86
-    mode = cfg.capstone_mode if cfg else CS_MODE_32
-    md = Cs(arch, mode)
-    lines = []
-    for insn in md.disasm(code_bytes, va):
-        hex_bytes = insn.bytes.hex()
-        lines.append(f"  {insn.address:08X}  {hex_bytes:20s}  {insn.mnemonic:6s} {insn.op_str}")
-    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +124,7 @@ def cmd_extract(
                     console.print(f"[red]ERROR[/] {msg}")
                 return
             try:
-                asm_text = disasm(code, va, cfg=cfg)
+                asm_text = disasm_bytes(code, va, cfg=cfg)
             except RuntimeError as e:
                 if json_output:
                     json_print({"status": "ERROR", "error": str(e)})
@@ -218,7 +197,7 @@ def cmd_batch(
             continue
 
         try:
-            asm_text = disasm(code, va, cfg=cfg)
+            asm_text = disasm_bytes(code, va, cfg=cfg)
         except RuntimeError as e:
             if json_output:
                 items.append(

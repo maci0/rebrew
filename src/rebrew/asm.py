@@ -44,6 +44,38 @@ from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 console = Console(stderr=True)
 
 # ---------------------------------------------------------------------------
+# Shared disassembly helper
+# ---------------------------------------------------------------------------
+
+
+def disasm_bytes(code_bytes: bytes, va: int, cfg: ProjectConfig | None = None) -> str:
+    """Disassemble *code_bytes* starting at *va* and return a formatted string.
+
+    Each line: ``  {address:08X}  {hex_bytes:20s}  {mnemonic:6s} {operands}``
+
+    Uses ``cfg.capstone_arch``/``cfg.capstone_mode`` when *cfg* is provided;
+    falls back to 32-bit x86.
+
+    Shared by :mod:`rebrew.extract` and any other module that needs a quick
+    human-readable disassembly representation without the full hex-mode output
+    of :func:`_run_hex_mode`.
+    """
+    try:
+        from capstone import CS_ARCH_X86, CS_MODE_32, Cs
+    except ImportError as exc:
+        raise RuntimeError("capstone not installed") from exc
+
+    arch = cfg.capstone_arch if cfg is not None else CS_ARCH_X86
+    mode = cfg.capstone_mode if cfg is not None else CS_MODE_32
+    md = Cs(arch, mode)
+    lines = []
+    for insn in md.disasm(code_bytes, va):
+        hex_bytes = insn.bytes.hex()
+        lines.append(f"  {insn.address:08X}  {hex_bytes:20s}  {insn.mnemonic:6s} {insn.op_str}")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Hex / capstone mode helpers (former asm.py)
 # ---------------------------------------------------------------------------
 
