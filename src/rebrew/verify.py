@@ -152,7 +152,7 @@ _STATUS_RANK: dict[str, int] = {
     "EXACT": 0,
     "RELOC": 1,
     "MISMATCH": 2,
-    "MATCHING": 2,
+    "NEAR_MATCH": 2,
     "COMPILE_ERROR": 3,
     "MISSING_FILE": 4,
     "FAIL": 5,
@@ -818,7 +818,7 @@ def _apply_status_fixes(
             update_source_status(cfg.metadata_dir, status, module, entry.va, clear_blockers=True)
         elif status == "MISMATCH" and current_status in ("EXACT", "RELOC"):
             update_source_status(
-                cfg.metadata_dir, "MATCHING", module, entry.va, clear_blockers=False
+                cfg.metadata_dir, "NEAR_MATCH", module, entry.va, clear_blockers=False
             )
 
 
@@ -890,7 +890,7 @@ def _print_results(
             elif st == "RELOC":
                 st_str = "[green]RELOC[/]"
             elif st == "MISMATCH":
-                st_str = "[yellow]MATCHING[/]"
+                st_str = "[yellow]NEAR_MATCH[/]"
             elif st == "COMPILE_ERROR":
                 st_str = "[red]ERROR[/]"
             else:
@@ -922,10 +922,10 @@ def _print_results(
         stat_table.add_column("Count", justify="right")
         stat_table.add_row("EXACT", str(exact))
         stat_table.add_row("RELOC", str(reloc))
-        stat_table.add_row("MATCHING (0B delta)", str(mismatch_0b))
-        stat_table.add_row("MATCHING (1-5B delta)", str(mismatch_1_5))
-        stat_table.add_row("MATCHING (6-20B delta)", str(mismatch_6_20))
-        stat_table.add_row("MATCHING (21+B delta)", str(mismatch_21))
+        stat_table.add_row("NEAR_MATCH (0B delta)", str(mismatch_0b))
+        stat_table.add_row("NEAR_MATCH (1-5B delta)", str(mismatch_1_5))
+        stat_table.add_row("NEAR_MATCH (6-20B delta)", str(mismatch_6_20))
+        stat_table.add_row("NEAR_MATCH (21+B delta)", str(mismatch_21))
 
         console.print(stat_table)
 

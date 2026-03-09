@@ -383,7 +383,7 @@ rebrew prove my_func                                  Find by symbol name
 
 [bold]How it works:[/bold]
 
-1. Validates the function status is MATCHING (byte-diff but structurally close)
+1. Validates the function status is NEAR_MATCH (byte-diff but structurally close)
 
 2. Extracts target bytes from the DLL and compiles the C source
 
@@ -391,13 +391,13 @@ rebrew prove my_func                                  Find by symbol name
 
 4. Proves EAX equivalence via Z3 constraint solving
 
-5. If proven: updates STATUS from MATCHING → PROVEN
+5. If proven: updates STATUS from NEAR_MATCH → PROVEN
 
 [dim]angr is a heavy optional dependency (~500 MB).
 Install with: uv pip install -e ".[prove]"[/dim]"""
 
 app = typer.Typer(
-    help="Prove semantic equivalence of MATCHING functions via symbolic execution.",
+    help="Prove semantic equivalence of NEAR_MATCH functions via symbolic execution.",
     rich_markup_mode="rich",
     epilog=_EPILOG,
 )
@@ -427,14 +427,14 @@ def _resolve_source(source_arg: str, cfg: ProjectConfig) -> Path:
 @app.callback(invoke_without_command=True)
 def main(
     source: str = typer.Argument(None, help="C source file or symbol name"),
-    all_sources: bool = typer.Option(False, "--all", help="Prove all MATCHING functions"),
+    all_sources: bool = typer.Option(False, "--all", help="Prove all NEAR_MATCH functions"),
     timeout: int = typer.Option(60, "--timeout", help="Seconds before giving up"),
     loop_bound: int = typer.Option(10, "--loop-bound", help="Max loop iterations for angr"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Prove semantic equivalence of a MATCHING function via symbolic execution."""
+    """Prove semantic equivalence of a NEAR_MATCH function via symbolic execution."""
     # Guard angr import early
     try:
         _require_angr()
@@ -463,7 +463,7 @@ def main(
     )
     ann = None
     for a in annotations:
-        if a.status in ("MATCHING", "RELOC"):
+        if a.status in ("NEAR_MATCH", "RELOC"):
             ann = a
             break
     if ann is None and annotations:
@@ -471,10 +471,10 @@ def main(
     if ann is None:
         error_exit(f"No metadata found in {source_path}", json_mode=json_output)
 
-    if ann.status not in ("MATCHING", "RELOC"):
+    if ann.status not in ("NEAR_MATCH", "RELOC"):
         error_exit(
-            f"Status is '{ann.status}', expected MATCHING or RELOC. "
-            "Only MATCHING/RELOC functions need symbolic equivalence proving.",
+            f"Status is '{ann.status}', expected NEAR_MATCH or RELOC. "
+            "Only NEAR_MATCH/RELOC functions need symbolic equivalence proving.",
             json_mode=json_output,
         )
 
@@ -564,7 +564,7 @@ def main(
                 console.print(f"[green]STATUS updated: {ann.status} → PROVEN[/green]")
         else:
             console.print(f"[yellow bold]NOT PROVEN:[/yellow bold] {message}")
-            console.print("[dim]STATUS unchanged — function remains MATCHING[/dim]")
+            console.print("[dim]STATUS unchanged — function remains NEAR_MATCH[/dim]")
 
     if not proven:
         raise typer.Exit(code=1)
@@ -635,7 +635,7 @@ def _run_all_batch(
     dry_run: bool,
     json_output: bool,
 ) -> None:
-    """Batch-prove all MATCHING/RELOC functions."""
+    """Batch-prove all NEAR_MATCH/RELOC functions."""
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     tm = target_marker(cfg)
 
@@ -647,19 +647,19 @@ def _run_all_batch(
         except Exception:  # noqa: BLE001
             continue
         for a in annos:
-            if a.status in ("MATCHING", "RELOC") and a.size:
+            if a.status in ("NEAR_MATCH", "RELOC") and a.size:
                 candidates.append((src, a))
 
     if not candidates:
         if json_output:
             json_print({"total": 0, "proven": 0, "failed": 0, "results": []})
         else:
-            console.print("[dim]No MATCHING/RELOC functions found to prove.[/dim]")
+            console.print("[dim]No NEAR_MATCH/RELOC functions found to prove.[/dim]")
         return
 
     if not json_output:
         console.print(
-            f"\n[bold]Batch proving {len(candidates)} MATCHING/RELOC function(s)[/bold]"
+            f"\n[bold]Batch proving {len(candidates)} NEAR_MATCH/RELOC function(s)[/bold]"
             + (" [dim](--dry-run)[/dim]" if dry_run else "")
             + "\n"
         )
@@ -712,11 +712,11 @@ def _run_all_batch(
     else:
         console.print()
         console.print("[bold]━━━ Prove Summary ━━━[/bold]")
-        matching = sum(1 for _, a in candidates if a.status == "MATCHING")
+        matching = sum(1 for _, a in candidates if a.status == "NEAR_MATCH")
         reloc = sum(1 for _, a in candidates if a.status == "RELOC")
         parts = []
         if matching:
-            parts.append(f"{matching} MATCHING")
+            parts.append(f"{matching} NEAR_MATCH")
         if reloc:
             parts.append(f"{reloc} RELOC")
         console.print(f"  [bold]{' + '.join(parts)}[/bold] functions tested")

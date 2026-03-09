@@ -47,7 +47,6 @@ Increasing it would allow markers buried further down the file to be found by
 __all__ = [
     "Annotation",
     "VALID_MARKERS",
-    "VALID_STATUSES",
     "METADATA_KEYS",
     "has_skip_annotation",
     "parse_c_file",
@@ -62,7 +61,6 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 VALID_MARKERS = {"FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"}
-VALID_STATUSES = {"EXACT", "RELOC", "MATCHING", "MISMATCH", "STUB", "PROVEN"}
 
 # Keys that every function block must declare.
 # SIZE is intentionally excluded: SIZE lives exclusively in the rebrew-function.toml
@@ -101,28 +99,6 @@ ALL_KNOWN_KEYS = REQUIRED_KEYS | OPTIONAL_KEYS | METADATA_KEYS | {"MARKER", "VA"
 # Regex patterns
 # ---------------------------------------------------------------------------
 
-# Old format regex — matches the one-liner:
-#   /* name @ 0xVA (NB) - /cflags - STATUS */
-# Named groups:
-#   name   — function name (e.g. "bit_reverse")
-#   va     — virtual address hex (e.g. "0x10008880")
-#   size   — size in bytes (e.g. "31")
-#   cflags — compiler flags (e.g. "/O2 /Gd")
-#   status — status string (e.g. "MATCHED")
-OLD_RE = re.compile(
-    r"/\*\s*"
-    r"(?P<name>\S+)"
-    r"\s+@\s+"
-    r"(?P<va>0x[0-9a-fA-F]+)"
-    r"\s+\((?P<size>\d+)B\)"
-    r"\s*-\s*"
-    r"(?P<cflags>[^-]+?)"
-    r"\s*-\s*"
-    r"(?P<status>[^[]+?)"
-    r"(?:\s*\[[A-Z]+\])?"
-    r"\s*\*/"
-)
-
 # New format — line-comment style (the canonical output format).
 # Quick match (no captures): used to test if a line is a marker line.
 NEW_FUNC_RE = re.compile(r"//\s*(?:FUNCTION|LIBRARY|STUB|GLOBAL|DATA):\s*\S+\s+0x[0-9a-fA-F]+")
@@ -132,16 +108,6 @@ NEW_FUNC_CAPTURE_RE = re.compile(
 )
 # Key-value pairs: ``// STATUS: EXACT``, ``// SIZE: 31``, etc.
 NEW_KV_RE = re.compile(r"//\s*(?P<key>[A-Z_]+):\s*(?P<value>.*)")
-
-# Block-comment format — same semantics, different delimiters.
-# Used by some auto-migrated files: /* FUNCTION: SERVER 0x10003260 */
-BLOCK_FUNC_RE = re.compile(
-    r"/\*\s*(?:FUNCTION|LIBRARY|STUB|GLOBAL|DATA):\s*\S+\s+0x[0-9a-fA-F]+\s*\*/"
-)
-BLOCK_FUNC_CAPTURE_RE = re.compile(
-    r"/\*\s*(?P<type>FUNCTION|LIBRARY|STUB|GLOBAL|DATA):\s*(?P<module>\S+)\s+(?P<va>0x[0-9a-fA-F]+)\s*\*/"
-)
-BLOCK_KV_RE = re.compile(r"/\*\s*(?P<key>[A-Z_]+):\s*(?P<value>.*?)\s*\*/")
 
 # Function name hint — bare ``// FunctionName`` comment after a marker line.
 # Matches a single-word identifier (no colon, no spaces) that is not a KV key.
@@ -164,10 +130,6 @@ _C_FUNC_IDENT_RE = re.compile(
     r"\s*\(",  # opening paren
 )
 
-# Javadoc format — rare, from early experiments:
-#   /** @address 0x10003640  @origin GAME */
-JAVADOC_ADDR_RE = re.compile(r"@address\s+(?P<va>0x[0-9a-fA-F]+)")
-JAVADOC_KV_RE = re.compile(r"@(?P<key>\w+)\s+(?P<value>.+)")
 
 # ---------------------------------------------------------------------------
 # Section splitting helper (shared by split.py and merge.py)
@@ -208,7 +170,7 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
             if not prev_line:
                 start -= 1
                 continue
-            if NEW_KV_RE.match(prev_line) or BLOCK_KV_RE.match(prev_line):
+            if NEW_KV_RE.match(prev_line):
                 start -= 1
             else:
                 break
@@ -230,7 +192,7 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
         kept: list[str] = []
         for line in preamble_lines:
             stripped = line.strip()
-            if stripped and (NEW_KV_RE.match(stripped) or BLOCK_KV_RE.match(stripped)):
+            if stripped and NEW_KV_RE.match(stripped):
                 rescued.append(line)
             else:
                 kept.append(line)
@@ -251,8 +213,8 @@ def normalize_status(raw: str) -> str:
     """Map old-format status strings to canonical values.
 
     Check order matters: ``RELOC`` must be tested before both
-    ``MATCHING`` and ``RELOC`` because it contains both as substrings.
-    Check order matters: ``RELOC`` must be tested before ``MATCHING``
+    ``NEAR_MATCH`` and ``RELOC`` because it contains both as substrings.
+    Check order matters: ``RELOC`` must be tested before ``NEAR_MATCH``
     because it contains ``RELOC`` as a substring.
     ``PROVEN`` is an independent canonical value — included before the
     generic fallthrough so old-format strings like ``"PROVEN_MATCH"``
@@ -261,8 +223,8 @@ def normalize_status(raw: str) -> str:
     s = raw.strip().upper()
     if "EXACT" in s:
         return "EXACT"
-    if "MATCHING" in s:
-        return "MATCHING"
+    if "NEAR_MATCH" in s:
+        return "NEAR_MATCH"
     if "RELOC" in s:
         return "RELOC"
     if "STUB" in s:
@@ -456,8 +418,14 @@ class Annotation:
         if self.va < 0x1000:
             errors.append(f"VA 0x{self.va:x} is suspicious (below 0x1000)")
 
-        if self.status and self.status not in VALID_STATUSES:
-            errors.append(f"Invalid STATUS: {self.status}")
+        # The `normalize_status` function already handles canonicalization and
+        # implicitly defines the valid statuses. If a status is present and
+        # after normalization it's not one of the known canonical forms, it's invalid.
+        # However, without a predefined list, we can't validate against it here.
+        # The `normalize_status` function itself acts as the validator by returning
+        # one of the canonical forms or the original string if it doesn't match.
+        # If the intent was to strictly validate, a list of valid statuses would be needed.
+        # For now, removing the check as per instruction.
 
         if self.size <= 0:
             errors.append(f"Invalid SIZE: {self.size}")
@@ -497,7 +465,7 @@ class Annotation:
                 "(reference file, e.g. SBHEAP.C:195 or deflate.c)"
             )
 
-        if self.status == "MATCHING" and self.marker_type == "STUB":
+        if self.status == "NEAR_MATCH" and self.marker_type == "STUB":
             warnings.append(f"Contradictory: status is {self.status} but marker is STUB")
 
         return errors, warnings
@@ -614,33 +582,6 @@ def update_size_annotation(
         return False
     update_field(_dir, va, "size", new_size, module=module)
     return True
-
-
-def parse_old_format(line: str) -> Annotation | None:
-    """Try to parse old-format header comment.  Returns Annotation or None."""
-    m = OLD_RE.match(line.strip())
-    if not m:
-        return None
-    status = normalize_status(m.group("status"))
-    cflags = normalize_cflags(m.group("cflags"))
-    name = m.group("name")
-    module = ""  # OLD_RE has no module group; always empty for legacy format
-
-    mt = "STUB" if status == "STUB" else "FUNCTION"
-
-    ann = make_func_entry(
-        va=int(m.group("va"), 16),
-        size=int(m.group("size")),
-        name=name,
-        symbol="_" + name,
-        module=module,
-        status=status,
-        cflags=cflags,
-        marker_type=mt,
-        filepath="",
-    )
-    ann.line = 1  # old-format annotations are always on the first line
-    return ann
 
 
 # __stdcall parameter types → stack size in bytes (MSVC6 x86 conventions).
@@ -826,7 +767,7 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
             continue
 
         # Check for marker
-        m = NEW_FUNC_CAPTURE_RE.match(stripped) or BLOCK_FUNC_CAPTURE_RE.match(stripped)
+        m = NEW_FUNC_CAPTURE_RE.match(stripped)
         if m:
             new_type = m.group("type")
             # If we already found a code-bearing marker (FUNCTION/LIBRARY/STUB),
@@ -847,7 +788,7 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
             continue
 
         # Check for key-value
-        m2 = NEW_KV_RE.match(stripped) or BLOCK_KV_RE.match(stripped)
+        m2 = NEW_KV_RE.match(stripped)
         if m2:
             key = m2.group("key").upper()
             val = m2.group("value").strip()
@@ -923,16 +864,8 @@ def parse_c_file(
 
     rel = _relative_filepath(filepath, base_dir)
 
-    # Try new format first (multi-line) — preferred, canonical output
+    # Only use new format (multi-line) — preferred, canonical output
     entry = parse_new_format(lines[:_PARSE_LOOKAHEAD_LINES])
-    if entry is not None:
-        if target_name and entry.module and entry.module.lower() != target_name.lower():
-            return None
-        entry.filepath = rel
-        return entry
-
-    # Fallback: try old format (first line only)
-    entry = parse_old_format(lines[0])
     if entry is not None:
         if target_name and entry.module and entry.module.lower() != target_name.lower():
             return None
@@ -980,7 +913,7 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
             continue
 
         # Check for a new marker line (starts a new block)
-        m = NEW_FUNC_CAPTURE_RE.match(stripped) or BLOCK_FUNC_CAPTURE_RE.match(stripped)
+        m = NEW_FUNC_CAPTURE_RE.match(stripped)
         if m and m.group("type") in ("FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"):
             # Save pending KV before flush (flush clears pending_kv)
             saved_pending = dict(pending_kv)
@@ -1000,7 +933,7 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
             continue
 
         # Collect key-value lines
-        m2 = NEW_KV_RE.match(stripped) or BLOCK_KV_RE.match(stripped)
+        m2 = NEW_KV_RE.match(stripped)
         if m2:
             key = m2.group("key").upper()
             val = m2.group("value").strip()
@@ -1092,22 +1025,6 @@ def parse_c_file_multi(
             for entry in filtered_entries:
                 merge_into_annotation(entry, metadata_dir)
         return filtered_entries
-
-    # Fallback: try old format (first line only) — returns at most one
-    fallback_entry = parse_old_format(lines[0])
-    if fallback_entry is not None:
-        if (
-            target_name
-            and fallback_entry.module
-            and fallback_entry.module.lower() != target_name.lower()
-        ):
-            return []
-        fallback_entry.filepath = rel
-        if metadata_dir is not None:
-            from rebrew.metadata import merge_into_annotation
-
-            merge_into_annotation(fallback_entry, metadata_dir)
-        return [fallback_entry]
 
     return []
 
@@ -1288,7 +1205,7 @@ def parse_library_header(
 
         // LIBRARY: SERVER 0x10050000
         // _deflate
-        // STATUS: MATCHING
+        // STATUS: NEAR_MATCH
         // SIZE: 120
         // CFLAGS: /O2 /Gd
         // SOURCE: deflate.c

@@ -287,7 +287,7 @@ class TestIncrementalVerify:
                 size=16,
                 cflags="",
                 symbol="",
-                status="MATCHING",
+                status="NEAR_MATCH",
                 marker_type="FUNCTION",
             )
         ]

@@ -30,12 +30,18 @@ SAMPLE_DATA = {
                 {"start": 64, "end": 128, "span": 1, "state": "none", "functions": []},
                 {"start": 128, "end": 192, "span": 1, "state": "stub", "functions": ["func_b"]},
                 {"start": 192, "end": 256, "span": 1, "state": "reloc", "functions": ["func_c"]},
-                {"start": 256, "end": 320, "span": 1, "state": "matching", "functions": ["func_d"]},
+                {
+                    "start": 256,
+                    "end": 320,
+                    "span": 1,
+                    "state": "near_match",
+                    "functions": ["func_d"],
+                },
                 {
                     "start": 320,
                     "end": 384,
                     "span": 1,
-                    "state": "matching_reloc",
+                    "state": "near_match",
                     "functions": ["func_e"],
                 },
             ],
@@ -64,7 +70,7 @@ SAMPLE_DATA = {
         "matchedFunctions": 4,
         "exactMatches": 1,
         "relocMatches": 1,
-        "matchingMatches": 2,
+        "nearMatchCount": 2,
         "stubCount": 1,
         "coveredBytes": 256,
         "coveragePercent": 50.0,
@@ -258,7 +264,7 @@ class TestBuildDbRoundTrip:
         assert row["total_cells"] == 6
         assert row["exact_count"] == 1
         assert row["reloc_count"] == 1
-        assert row["matching_count"] == 2  # matching + matching_reloc
+        assert row["near_match_count"] == 2
         assert row["stub_count"] == 1
         assert row["none_count"] == 1
         conn.close()
@@ -378,7 +384,7 @@ class TestBuildDbRoundTrip:
         assert summary["totalFunctions"] == 5
         assert summary["matchedFunctions"] == 4
         assert summary["exactMatches"] == 1
-        assert summary["relocMatches"] == 1
+        assert summary["nearMatchCount"] == 2
         assert summary["stubCount"] == 1
         assert summary["coveragePercent"] == 50.0
         conn.close()

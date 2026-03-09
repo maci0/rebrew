@@ -187,7 +187,7 @@ class TestRenderers:
 
     def test_dot_matching_reloc_color(self) -> None:
         nodes: dict[str, NodeInfo] = {
-            "FuncM": {"status": "MATCHING", "origin": "GAME", "va": 1, "file": "m.c"}
+            "FuncM": {"status": "NEAR_MATCH", "origin": "GAME", "va": 1, "file": "m.c"}
         }
         result = render_dot(nodes, [])
         assert "#f39c12" in result

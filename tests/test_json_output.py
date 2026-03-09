@@ -162,24 +162,24 @@ class TestBuildResultDict:
         assert result["status"] == "RELOC"
         assert result["reloc_count"] == 1
 
-    def test_mismatch(self) -> None:
+    def test_stub_status(self) -> None:
         target = b"\x55\x8b\xec\x5d\xc3"
-        candidate = b"\x55\x8b\xec\x5d\xcc"
+        candidate = b"\x55\x8b\xec\xaa\xaa"
         result = build_result_dict(
             "src/test.c",
             "_func",
             "0x10001000",
             5,
             matched=False,
-            match_count=4,
+            match_count=3,
             total=5,
             relocs=[],
             obj_bytes=candidate,
             target_bytes=target,
         )
-        assert result["status"] == "MISMATCH"
-        assert len(result["mismatches"]) == 1
-        assert result["mismatches"][0]["offset"] == 4
+        assert result["status"] == "STUB"
+        assert len(result["mismatches"]) == 2
+        assert result["mismatches"][0]["offset"] == 3
 
     def test_mismatch_excludes_relocs(self) -> None:
         """Mismatches list should not include bytes covered by relocations."""

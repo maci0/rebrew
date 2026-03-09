@@ -239,19 +239,19 @@ class TestFindAllStubsNested:
 
 
 # ---------------------------------------------------------------------------
-# 5. find_near_miss (ga.py) — discovers nested MATCHING files
+# 5. find_near_miss (ga.py) — discovers nested NEAR_MATCH files
 # ---------------------------------------------------------------------------
 
 
 class TestFindNearMissNested:
-    """find_near_miss must discover MATCHING files in nested directories."""
+    """find_near_miss must discover NEAR_MATCH files in nested directories."""
 
     def test_finds_nested_matching(self, tmp_path: Path) -> None:
         _make_c(
             tmp_path,
             "game/near.c",
             0x10001000,
-            status="MATCHING",
+            status="NEAR_MATCH",
             blocker="5B diff: off at offsets 0, 1, 2, 3, 4",
         )
         # Write blocker_delta to metadata so _parse_annotations picks it up

@@ -69,7 +69,7 @@ class CompareResult:
 
     Attributes:
         matched: ``True`` when compiled bytes equal target after reloc masking.
-        status: One of ``EXACT``, ``RELOC``, ``MISMATCH``, ``COMPILE_ERROR``,
+        status: One of ``EXACT``, ``RELOC``, ``NEAR_MATCH``, ``STUB``, ``COMPILE_ERROR``,
             ``MISSING_SIZE``, ``MISSING_FILE``.
         match_percent: Fraction of non-reloc bytes that match (0–100).
         delta: Absolute byte difference (mismatch count + size delta).
@@ -100,7 +100,7 @@ def classify_compare_result(
 ) -> CompareResult:
     """Classify a raw compile-and-compare outcome into a :class:`CompareResult`.
 
-    Centralises the EXACT / RELOC / MISMATCH / COMPILE_ERROR classification
+    Centralises the EXACT / RELOC / NEAR_MATCH / STUB / COMPILE_ERROR classification
     and the ``match_percent`` / ``delta`` calculations that were previously
     duplicated in ``test.py`` and ``verify.py``.
 
@@ -154,7 +154,7 @@ def classify_compare_result(
             message=msg,
         )
 
-    # MISMATCH — compute delta and match_percent
+    # Compute delta and match_percent for partial matches
     match_percent = 0.0
     delta = 0
     if target_bytes and obj_bytes:
@@ -165,9 +165,13 @@ def classify_compare_result(
             match_percent = ((min_len - mismatches) / max_len) * 100
         delta = abs(len(target_bytes) - len(obj_bytes)) + mismatches
 
+    status = "STUB"
+    if match_percent >= 75.0:
+        status = "NEAR_MATCH"
+
     return CompareResult(
         matched=False,
-        status="MISMATCH",
+        status=status,
         match_percent=match_percent,
         delta=delta,
         obj_bytes=obj_bytes,
@@ -512,7 +516,7 @@ def compile_and_compare(
             if len(obj_bytes) != len(target_bytes):
                 return classify_compare_result(
                     False,
-                    f"MISMATCH: Size {len(obj_bytes)}B vs {len(target_bytes)}B",
+                    f"SIZE_MISMATCH: Size {len(obj_bytes)}B vs {len(target_bytes)}B",
                     target_bytes,
                     obj_bytes,
                     reloc_offsets,
@@ -524,7 +528,11 @@ def compile_and_compare(
             msg = (
                 f"RELOC-NORM MATCH ({len(relocs)} relocs)"
                 if (matched and relocs)
-                else ("EXACT MATCH" if matched else f"MISMATCH: {_total - _match_count} byte diffs")
+                else (
+                    "EXACT MATCH"
+                    if matched
+                    else f"NEAR_MATCH/STUB: {_total - _match_count} byte diffs"
+                )
             )
             return classify_compare_result(
                 matched, msg, target_bytes, obj_bytes, relocs, inv_relocs
