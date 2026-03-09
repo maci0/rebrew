@@ -205,6 +205,7 @@ def main(
                 annotations,
                 cflags,
                 name_to_va=name_to_va,
+                no_promote=no_promote,
                 json_output=json_output,
             )
             return
@@ -340,7 +341,11 @@ def main(
         va_int_for_promote = parse_va(va_str, json_mode=json_output)
         # Resolve module from the parsed annotation (already available)
         anno_module = lint_annos[0].module if lint_annos else ""
-        if matched:
+        old_status = lint_annos[0].status if lint_annos else ""
+        if old_status == "PROVEN":
+            if not json_output:
+                console.print("[dim]STATUS → skipped (PROVEN)[/dim]")
+        elif matched:
             new_status = "RELOC" if relocs else "EXACT"
             update_source_status(
                 Path(source), new_status, anno_module, va_int_for_promote, clear_blockers=True
@@ -356,6 +361,13 @@ def main(
                 )
                 if not json_output:
                     console.print("[dim]STATUS → MATCHING[/dim]")
+            else:
+                # MISMATCH — demote so sidecar reflects reality
+                update_source_status(
+                    Path(source), "MISMATCH", anno_module, va_int_for_promote, clear_blockers=False
+                )
+                if not json_output:
+                    console.print("[dim]STATUS → MISMATCH[/dim]")
 
 
 def build_result_dict(
@@ -442,23 +454,29 @@ def _test_multi(
     cflags_override: str | None,
     *,
     name_to_va: dict[str, int] | None = None,
+    no_promote: bool = False,
     json_output: bool = False,
-) -> None:
+) -> list[tuple[str, str]]:
     """Test all functions in a multi-function .c file.
 
     Compiles the file once, then extracts and compares each annotated
     symbol independently.
+
+    Returns a list of ``(old_status, new_status)`` tuples for each tested
+    function (used by batch mode for aggregate stats).
     """
     # Use cflags from first annotation as compile flags (all should share the same)
     cflags_str = cflags_override or annotations[0].cflags or "/O2 /Gd"
     cflags_parts = cflags_str.split()
 
     results_list: list[dict[str, Any]] = []
+    status_transitions: list[tuple[str, str]] = []
 
     with tempfile.TemporaryDirectory(prefix="test_multi_") as workdir:
         obj_path, err = compile_obj(cfg, source, cflags_parts, workdir)
         if obj_path is None:
             error_exit(f"COMPILE ERROR:\n{err}", json_mode=json_output)
+            return status_transitions  # unreachable, but keeps type checker happy
 
         for ann in annotations:
             sym = ann.symbol
@@ -549,8 +567,46 @@ def _test_multi(
                 else:
                     console.print(f"[red]MISMATCH[/red] {sym} — {match_count}/{total}B")
 
+            # Determine new status from test result
+            if matched:
+                new_status = "RELOC" if relocs else "EXACT"
+            elif total > 0 and (match_count / total) >= 0.75:
+                new_status = "MATCHING"
+            else:
+                new_status = "MISMATCH"
+
+            old_status = ann.status or "STUB"
+            status_transitions.append((old_status, new_status))
+
+            # Auto-promote: update STATUS in sidecar (mirrors single-function path)
+            if not no_promote:
+                if old_status == "PROVEN":
+                    if not json_output:
+                        console.print("[dim]  STATUS → skipped (PROVEN)[/dim]")
+                elif matched:
+                    update_source_status(
+                        Path(source), new_status, ann.module, ann.va, clear_blockers=True
+                    )
+                    if not json_output:
+                        console.print(f"[dim]  STATUS → {new_status}[/dim]")
+                elif total > 0 and (match_count / total) >= 0.75:
+                    update_source_status(
+                        Path(source), "MATCHING", ann.module, ann.va, clear_blockers=False
+                    )
+                    if not json_output:
+                        console.print("[dim]  STATUS → MATCHING[/dim]")
+                else:
+                    # MISMATCH — demote so sidecar reflects reality
+                    update_source_status(
+                        Path(source), "MISMATCH", ann.module, ann.va, clear_blockers=False
+                    )
+                    if not json_output:
+                        console.print("[dim]  STATUS → MISMATCH[/dim]")
+
         if json_output:
             json_print({"source": source, "results": results_list})
+
+    return status_transitions
 
 
 def _run_all_batch(
@@ -655,20 +711,23 @@ def _run_all_batch(
         console.print(f"\n[bold]Batch testing {total_testable} file(s)[/bold]{skipped_msg}…\n")
 
     batch_results: list[dict] = []
+    all_transitions: list[tuple[str, str]] = []
 
     for i, (src, annos) in enumerate(testable_sources, 1):
         src_str = str(src)
         if not json_output:
             console.print(f"[bold][{i}/{total_testable}][/bold] {src_str}")
 
-        _test_multi(
+        transitions = _test_multi(
             cfg,
             src_str,
             annos,
             cflags_override=None,
             name_to_va=name_to_va,
+            no_promote=no_promote,
             json_output=False,  # always console for per-file; aggregate JSON below
         )
+        all_transitions.extend(transitions)
 
         batch_results.append({"file": src_str})
 
@@ -681,12 +740,89 @@ def _run_all_batch(
             }
         )
     else:
+        _print_batch_summary(all_transitions, total_testable, skipped_no_size)
+
+
+# ---------------------------------------------------------------------------
+# Batch summary
+# ---------------------------------------------------------------------------
+
+_RESULT_COLORS: dict[str, str] = {
+    "EXACT": "bold green",
+    "RELOC": "green",
+    "MATCHING": "yellow",
+    "MISMATCH": "red",
+    "STUB": "dim",
+}
+
+
+def _print_batch_summary(
+    transitions: list[tuple[str, str]],
+    total_files: int,
+    skipped_no_size: int,
+) -> None:
+    """Print a rich summary table after batch testing."""
+    if not transitions:
         console.print(
-            f"\n[bold]Batch complete.[/bold] "
-            f"Tested {total_testable} file(s)"
-            + (f", {skipped_no_size} skipped (no SIZE)" if skipped_no_size else "")
-            + "."
+            f"\n[bold]Batch complete.[/bold] Tested {total_files} file(s), 0 functions compared."
         )
+        return
+
+    # --- Result counts ---
+    result_counts: dict[str, int] = {}
+    for _old, new in transitions:
+        result_counts[new] = result_counts.get(new, 0) + 1
+
+    # --- Transition counts (only where status changed) ---
+    transition_counts: dict[tuple[str, str], int] = {}
+    for old, new in transitions:
+        if old != new:
+            key = (old, new)
+            transition_counts[key] = transition_counts.get(key, 0) + 1
+
+    # --- Print ---
+    console.print()
+    console.print("[bold]━━━ Batch Summary ━━━[/bold]")
+    console.print()
+
+    # Result breakdown
+    console.print(
+        f"  [bold]{len(transitions)}[/bold] functions tested across {total_files} file(s)"
+    )
+    if skipped_no_size:
+        console.print(f"  [dim]{skipped_no_size} file(s) skipped (no SIZE)[/dim]")
+    console.print()
+
+    for status in ("EXACT", "RELOC", "MATCHING", "MISMATCH"):
+        count = result_counts.get(status, 0)
+        if count == 0:
+            continue
+        color = _RESULT_COLORS.get(status, "white")
+        pct = round(100.0 * count / len(transitions), 1)
+        bar_len = int(20 * count / len(transitions))
+        bar = "█" * max(bar_len, 1)
+        console.print(f"  [{color}]{status:12s}  {count:4d}  ({pct:5.1f}%)  {bar}[/{color}]")
+
+    # Other statuses not in the standard order
+    for status in sorted(set(result_counts) - {"EXACT", "RELOC", "MATCHING", "MISMATCH"}):
+        count = result_counts[status]
+        console.print(f"  [dim]{status:12s}  {count:4d}[/dim]")
+
+    # Status transitions
+    if transition_counts:
+        console.print()
+        console.print("  [bold]Status changes:[/bold]")
+        for (old, new), count in sorted(transition_counts.items(), key=lambda x: -x[1]):
+            old_color = _RESULT_COLORS.get(old, "dim")
+            new_color = _RESULT_COLORS.get(new, "dim")
+            console.print(
+                f"    [{old_color}]{old}[/{old_color}] → [{new_color}]{new}[/{new_color}]  ×{count}"
+            )
+    else:
+        console.print()
+        console.print("  [dim]No status changes.[/dim]")
+
+    console.print()
 
 
 def main_entry() -> None:

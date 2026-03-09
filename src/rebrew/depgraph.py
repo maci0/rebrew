@@ -212,7 +212,6 @@ def _status_style(status: str) -> str:
         "RELOC": "reloc",
         "PROVEN": "exact",
         "MATCHING": "matching",
-        "MATCHING_RELOC": "matching",
         "STUB": "stub",
         "UNKNOWN": "unknown",
     }.get(status, "unknown")
@@ -270,7 +269,6 @@ def render_dot(
         "RELOC": "#3498db",
         "PROVEN": "#2ecc71",
         "MATCHING": "#f39c12",
-        "MATCHING_RELOC": "#f39c12",
         "STUB": "#e74c3c",
         "UNKNOWN": "#95a5a6",
     }
@@ -279,7 +277,7 @@ def render_dot(
         nid = _sanitize_id(name)
         status = info["status"]
         color = color_map.get(status, "#95a5a6")
-        font_color = "black" if status in ("MATCHING", "MATCHING_RELOC") else "white"
+        font_color = "black" if status == "MATCHING" else "white"
         label = f"{name}\\n[{status}]" if status != "UNKNOWN" else name
         lines.append(f'    {nid} [label="{label}", fillcolor="{color}", fontcolor="{font_color}"];')
 
@@ -311,7 +309,7 @@ def render_summary(nodes: dict[str, NodeInfo], edges: list[tuple[str, str]]) -> 
         f"Edges: {len(edges)}",
         "By status:",
     ]
-    for status in ("EXACT", "RELOC", "PROVEN", "MATCHING", "MATCHING_RELOC", "STUB", "UNKNOWN"):
+    for status in ("EXACT", "RELOC", "PROVEN", "MATCHING", "STUB", "UNKNOWN"):
         count = by_status.get(status, 0)
         if count:
             lines.append(f"  {status}: {count}")

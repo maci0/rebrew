@@ -62,7 +62,7 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 VALID_MARKERS = {"FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"}
-VALID_STATUSES = {"EXACT", "RELOC", "MATCHING", "MATCHING_RELOC", "STUB", "PROVEN"}
+VALID_STATUSES = {"EXACT", "RELOC", "MATCHING", "MISMATCH", "STUB", "PROVEN"}
 
 # Keys that every function block must declare.
 # SIZE is intentionally excluded: SIZE lives exclusively in the rebrew-function.toml
@@ -250,16 +250,15 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
 def normalize_status(raw: str) -> str:
     """Map old-format status strings to canonical values.
 
-    Check order matters: ``MATCHING_RELOC`` must be tested before both
+    Check order matters: ``RELOC`` must be tested before both
     ``MATCHING`` and ``RELOC`` because it contains both as substrings.
+    Check order matters: ``RELOC`` must be tested before ``MATCHING``
+    because it contains ``RELOC`` as a substring.
     ``PROVEN`` is an independent canonical value — included before the
     generic fallthrough so old-format strings like ``"PROVEN_MATCH"``
     are normalised to ``"PROVEN"`` rather than returned verbatim.
     """
     s = raw.strip().upper()
-    # MATCHING_RELOC must precede both MATCHING and RELOC (substring containment)
-    if "MATCHING_RELOC" in s:
-        return "MATCHING_RELOC"
     if "EXACT" in s:
         return "EXACT"
     if "MATCHING" in s:
@@ -492,7 +491,7 @@ class Annotation:
                 "(reference file, e.g. SBHEAP.C:195 or deflate.c)"
             )
 
-        if self.status in ("MATCHING", "MATCHING_RELOC") and self.marker_type == "STUB":
+        if self.status == "MATCHING" and self.marker_type == "STUB":
             warnings.append(f"Contradictory: status is {self.status} but marker is STUB")
 
         return errors, warnings

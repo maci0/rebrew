@@ -166,54 +166,33 @@ def _score_flag_sweep(delta: int | None, size: int) -> float:
 
 
 def _score_verify_fail(delta: int | None, match_pct: float | None, size: int = 0) -> float:
-    """Score a verify failure. Best ROI is moderate match% on small functions.
+    """Score a verify failure.  Lower match% → higher urgency.
 
-    ROI tiers by match%:
-    - >=95%: negligible gain (stubborn structural diff) → ~44
-    - 80-94%: decent, worth fixing → ~53-58
-    - 60-79%: sweet spot; meaningful gain, achievable → ~58-62
-    - 30-59%: significant work, moderate gain → ~47-50
-    - <30%:   effectively a full rewrite; scores BELOW start-function (< 45)
-              so these don't crowd out more productive work
+    Functions with lower match% are further from correct and need the most
+    attention, so they get higher scores.  Very high match% (>=95%) are
+    stubborn instruction-level diffs that are hard to fix, so they rank last.
 
-    Capped at 62. Min 36 (below add-annotations floor for large low-match items).
+    Score range: 30–62.  Sorted descending by ROI, so higher = more urgent.
     """
     if match_pct is None:
-        # Unknown — treat conservatively, don't crowd out start-function
-        base = 46.0
-    elif match_pct >= 95.0:
-        # Negligible gain, last 1% often a stubborn structural diff.
-        # Flat score below start-function min (45) so it never crowds them out.
-        return 43.0
-    elif match_pct >= 80.0:
-        base = 55.0
-    elif match_pct >= 60.0:
-        base = 59.0  # sweet spot
-    elif match_pct >= 30.0:
-        base = 48.0
-    elif match_pct >= 20.0:
-        base = 43.0  # still below start-function (45)
-    elif match_pct >= 10.0:
-        base = 41.0
-    elif match_pct >= 5.0:
-        base = 39.0
-    else:
-        base = 37.0  # 0-5% — essentially start from scratch
+        # Unknown — treat conservatively
+        return 46.0
 
-    # Size modifiers for mid-range items (>=30%)
-    if match_pct is not None and match_pct >= 30.0:
-        if 0 < size < 100:
-            base += 3.0
-        elif size > 500:
-            base -= 5.0
-    elif match_pct is not None and match_pct < 30.0:
-        # Low-match: penalize medium/large functions more (bigger rewrite)
-        if size > 200:
-            base -= 2.0
-        if size > 500:
-            base -= 2.0  # cumulative for very large
+    # Near-perfect: stubborn structural diffs, very hard to fix
+    if match_pct >= 95.0:
+        return 33.0
 
-    return min(62.0, max(34.0, base))
+    # Linear: lower match% → higher score
+    # 0% → 62,  94% → 34.7
+    base = 62.0 - (match_pct * 0.29)
+
+    # Size bonus: bigger functions are more impactful to fix
+    if size > 200:
+        base += 1.0
+    if size > 500:
+        base += 1.0  # cumulative
+
+    return min(62.0, max(30.0, base))
 
 
 def _score_start_function(difficulty: int, size: int) -> float:
@@ -340,7 +319,7 @@ def _collect_near_misses(
     items: list[TodoItem] = []
     has_delta: set[int] = set()
     for va, info in existing.items():
-        if info["status"] not in ("MATCHING", "MATCHING_RELOC"):
+        if info["status"] != "MATCHING":
             continue
         raw_bd = info.get("blocker_delta", "")
         try:
@@ -397,7 +376,7 @@ def _collect_improve_matching(
     """Collect MATCHING functions without parseable delta (need investigation)."""
     items: list[TodoItem] = []
     for va, info in existing.items():
-        if info["status"] not in ("MATCHING", "MATCHING_RELOC"):
+        if info["status"] != "MATCHING":
             continue
         if va in has_delta:
             continue  # Already captured by near-miss or flag-sweep
@@ -442,7 +421,7 @@ def _collect_prover_candidates(
 
     items: list[TodoItem] = []
     for va, info in existing.items():
-        if info["status"] not in ("MATCHING", "MATCHING_RELOC"):
+        if info["status"] != "MATCHING":
             continue
         size = size_by_va.get(va) or int(info.get("size", 0))
         if size > 500 or size == 0:
@@ -830,7 +809,7 @@ def main(
     covered = len(covered_vas)
     exact = status_counts.get("EXACT", 0)
     reloc = status_counts.get("RELOC", 0)
-    matching = status_counts.get("MATCHING", 0) + status_counts.get("MATCHING_RELOC", 0)
+    matching = status_counts.get("MATCHING", 0)
     stub = status_counts.get("STUB", 0)
     pct = round(100.0 * (exact + reloc) / total_funcs, 1) if total_funcs else 0.0
 

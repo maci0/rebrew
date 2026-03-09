@@ -22,9 +22,9 @@ error message directing users to ``uv pip install -e ".[prove]"``.
 from __future__ import annotations
 
 import re
-import signal
 import struct
 import tempfile
+import time
 import warnings
 from pathlib import Path
 from typing import Any, cast
@@ -34,7 +34,14 @@ from rich.console import Console
 
 from rebrew.annotation import parse_c_file_multi, resolve_symbol, update_annotation_key
 from rebrew.binary_loader import extract_raw_bytes
-from rebrew.cli import TargetOption, error_exit, json_print, require_config, target_marker
+from rebrew.cli import (
+    TargetOption,
+    error_exit,
+    iter_sources,
+    json_print,
+    require_config,
+    target_marker,
+)
 from rebrew.compile import compile_to_obj
 from rebrew.config import ProjectConfig
 from rebrew.matcher.parsers import parse_obj_symbol_bytes
@@ -197,10 +204,12 @@ def prove_equivalence(
     # (unrelocated) blob, those displacements resolve to arbitrary addresses
     # that may fall inside the blob or outside — causing path explosion.
     #
-    # Fix: patch each displacement in the compiled blob so the call resolves
-    # to a unique stub address in a harmless region (STUB_BASE + i*4), then
-    # hook those stubs as ReturnUnconstrained on both projects.
+    # Fix: patch each displacement in BOTH blobs so calls resolve to the same
+    # unique stub address in a harmless region (STUB_BASE + i*4), then hook
+    # those stubs as ReturnUnconstrained on both projects.  This neutralises
+    # relocation-only differences so RELOC functions can be proven equivalent.
     patched_comp = bytearray(compiled_bytes)
+    patched_orig = bytearray(original_bytes)
 
     if reloc_offsets:
         for i, (offset, _sym_name) in enumerate(sorted(reloc_offsets.items())):
@@ -210,10 +219,14 @@ def prove_equivalence(
                 # => displacement = stub_addr - (offset + 4)  (mod 2^32)
                 disp = (stub_addr - (offset + 4)) & 0xFFFFFFFF
                 patched_comp[offset : offset + 4] = struct.pack("<I", disp)
+                # Also patch the original blob at the same offset so both
+                # sides call the same stub — this is the key fix for RELOC.
+                if offset <= len(original_bytes) - 4:
+                    patched_orig[offset : offset + 4] = struct.pack("<I", disp)
                 stub_hooks.append(stub_addr)
 
     try:
-        proj_orig = _make_project(original_bytes)
+        proj_orig = _make_project(bytes(patched_orig))
         proj_comp = _make_project(bytes(patched_comp))
     except Exception as e:
         return False, f"Failed to create angr projects: {e}"
@@ -242,26 +255,20 @@ def prove_equivalence(
         sm = proj.factory.simgr(state)
         sm.use_technique(angr.exploration_techniques.LoopSeer(bound=loop_bound))
 
-        # Timeout via alarm signal (Unix only)
+        # Step-based timeout — angr's broad except handlers swallow SIGALRM,
+        # so we step manually and check wall-clock time each iteration.
+
+        deadline = time.monotonic() + timeout
         timed_out = False
 
-        def _timeout_handler(_signum: int, _frame: Any) -> None:
-            nonlocal timed_out
-            timed_out = True
-            raise TimeoutError("Symbolic execution timed out")
-
-        old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
-        signal.alarm(timeout)
-        try:
-            sm.run()
-        except TimeoutError:
-            pass
-        finally:
-            signal.alarm(0)
-            signal.signal(signal.SIGALRM, old_handler)
+        while sm.active:
+            if time.monotonic() > deadline:
+                timed_out = True
+                break
+            sm.step()
 
         if timed_out:
-            # Return whatever partial states angr reached before the alarm
+            # Return whatever partial states angr reached before the deadline
             partial = list(sm.active) or list(sm.deadended)
             warnings.warn(
                 "Symbolic execution timed out — using partial states",
@@ -383,7 +390,8 @@ def _resolve_source(source_arg: str, cfg: ProjectConfig) -> Path:
 
 @app.callback(invoke_without_command=True)
 def main(
-    source: str = typer.Argument(..., help="C source file or symbol name"),
+    source: str = typer.Argument(None, help="C source file or symbol name"),
+    all_sources: bool = typer.Option(False, "--all", help="Prove all MATCHING functions"),
     timeout: int = typer.Option(60, "--timeout", help="Seconds before giving up"),
     loop_bound: int = typer.Option(10, "--loop-bound", help="Max loop iterations for angr"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
@@ -398,6 +406,13 @@ def main(
         error_exit(str(e), json_mode=json_output)
 
     cfg = require_config(target=target, json_mode=json_output)
+
+    if all_sources:
+        _run_all_batch(cfg, timeout, loop_bound, dry_run, json_output)
+        return
+
+    if source is None:
+        error_exit("Either provide a source file or use --all", json_mode=json_output)
     source_path = _resolve_source(source, cfg)
 
     if not source_path.exists():
@@ -412,7 +427,7 @@ def main(
     )
     ann = None
     for a in annotations:
-        if a.status in ("MATCHING", "MATCHING_RELOC"):
+        if a.status in ("MATCHING", "RELOC"):
             ann = a
             break
     if ann is None and annotations:
@@ -420,10 +435,10 @@ def main(
     if ann is None:
         error_exit(f"No annotation found in {source_path}", json_mode=json_output)
 
-    if ann.status not in ("MATCHING", "MATCHING_RELOC"):
+    if ann.status not in ("MATCHING", "RELOC"):
         error_exit(
-            f"Status is '{ann.status}', expected MATCHING or MATCHING_RELOC. "
-            "Only MATCHING functions need symbolic equivalence proving.",
+            f"Status is '{ann.status}', expected MATCHING or RELOC. "
+            "Only MATCHING/RELOC functions need symbolic equivalence proving.",
             json_mode=json_output,
         )
 
@@ -515,6 +530,163 @@ def main(
 
     if not proven:
         raise typer.Exit(code=1)
+
+
+# ---------------------------------------------------------------------------
+# Batch mode
+# ---------------------------------------------------------------------------
+
+
+def _prove_single(
+    cfg: ProjectConfig,
+    source_path: Path,
+    ann: Any,
+    timeout: int,
+    loop_bound: int,
+    dry_run: bool,
+    json_output: bool,
+) -> tuple[bool, str]:
+    """Prove a single function and return (proven, message)."""
+    symbol = resolve_symbol(ann, source_path)
+    va = ann.va
+    size = ann.size
+
+    if not size:
+        return False, "SIZE missing or zero"
+
+    target_bytes = extract_raw_bytes(cfg.target_binary, va, size)
+    if not target_bytes:
+        return False, f"Failed to extract target bytes at VA 0x{va:08x}"
+
+    cflags_str = ann.cflags or "/O2 /Gd"
+    cflags_list = cflags_str.split()
+
+    with tempfile.TemporaryDirectory(prefix="rebrew_prove_") as workdir:
+        obj_path, err = compile_to_obj(cfg, source_path, cflags_list, workdir)
+        if obj_path is None:
+            return False, f"Compile error: {err}"
+
+        obj_bytes, reloc_offsets = parse_obj_symbol_bytes(obj_path, symbol)
+        if obj_bytes is None:
+            return False, f"Symbol '{symbol}' not found in compiled .obj"
+
+    prototype = ann.prototype or ""
+
+    proven, message = prove_equivalence(
+        target_bytes,
+        obj_bytes,
+        reloc_offsets,
+        prototype,
+        timeout=timeout,
+        loop_bound=loop_bound,
+        binary_path=cfg.target_binary,
+    )
+
+    if proven and not dry_run:
+        update_annotation_key(source_path, va, "STATUS", "PROVEN")
+
+    return proven, message
+
+
+def _run_all_batch(
+    cfg: ProjectConfig,
+    timeout: int,
+    loop_bound: int,
+    dry_run: bool,
+    json_output: bool,
+) -> None:
+    """Batch-prove all MATCHING/RELOC functions."""
+    sources = list(iter_sources(cfg.reversed_dir, cfg))
+    tm = target_marker(cfg)
+
+    # Collect all eligible annotations
+    candidates: list[tuple[Path, Any]] = []
+    for src in sources:
+        try:
+            annos = parse_c_file_multi(src, target_name=tm, sidecar_dir=src.parent)
+        except Exception:  # noqa: BLE001
+            continue
+        for a in annos:
+            if a.status in ("MATCHING", "RELOC") and a.size:
+                candidates.append((src, a))
+
+    if not candidates:
+        if json_output:
+            json_print({"total": 0, "proven": 0, "failed": 0, "results": []})
+        else:
+            console.print("[dim]No MATCHING/RELOC functions found to prove.[/dim]")
+        return
+
+    if not json_output:
+        console.print(
+            f"\n[bold]Batch proving {len(candidates)} MATCHING/RELOC function(s)[/bold]"
+            + (" [dim](--dry-run)[/dim]" if dry_run else "")
+            + "\n"
+        )
+
+    proven_count = 0
+    failed_count = 0
+    results_list: list[dict[str, Any]] = []
+
+    for i, (src, ann) in enumerate(candidates, 1):
+        symbol = resolve_symbol(ann, src)
+        if not json_output:
+            console.print(f"[bold][{i}/{len(candidates)}][/bold] {symbol} (0x{ann.va:08x})")
+
+        try:
+            proven, message = _prove_single(
+                cfg, src, ann, timeout, loop_bound, dry_run, json_output
+            )
+        except Exception as e:  # noqa: BLE001
+            proven, message = False, f"Error: {e}"
+
+        if proven:
+            proven_count += 1
+            if not json_output:
+                action = "would update" if dry_run else "STATUS → PROVEN"
+                console.print(f"  [green bold]PROVEN[/green bold] — {action}")
+        else:
+            failed_count += 1
+            if not json_output:
+                console.print(f"  [yellow]NOT PROVEN:[/yellow] {message}")
+
+        results_list.append(
+            {
+                "source": str(src),
+                "symbol": symbol,
+                "va": f"0x{ann.va:08x}",
+                "proven": proven,
+                "message": message,
+            }
+        )
+
+    if json_output:
+        json_print(
+            {
+                "total": len(candidates),
+                "proven": proven_count,
+                "failed": failed_count,
+                "results": results_list,
+            }
+        )
+    else:
+        console.print()
+        console.print("[bold]━━━ Prove Summary ━━━[/bold]")
+        matching = sum(1 for _, a in candidates if a.status == "MATCHING")
+        reloc = sum(1 for _, a in candidates if a.status == "RELOC")
+        parts = []
+        if matching:
+            parts.append(f"{matching} MATCHING")
+        if reloc:
+            parts.append(f"{reloc} RELOC")
+        console.print(f"  [bold]{' + '.join(parts)}[/bold] functions tested")
+        if proven_count:
+            console.print(f"  [green bold]{proven_count}[/green bold] proven equivalent")
+        if failed_count:
+            console.print(f"  [yellow]{failed_count}[/yellow] not proven")
+        if dry_run:
+            console.print("  [dim]--dry-run: no STATUS updates written[/dim]")
+        console.print()
 
 
 def main_entry() -> None:
