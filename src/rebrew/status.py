@@ -31,12 +31,11 @@ console = Console(stderr=True)
 # Data model
 # ---------------------------------------------------------------------------
 
-_STATUS_ORDER = ["EXACT", "RELOC", "MATCHING_RELOC", "MATCHING", "STUB", "PROVEN"]
+_STATUS_ORDER = ["EXACT", "RELOC", "NEAR_MATCHING", "STUB", "PROVEN"]
 _STATUS_COLORS: dict[str, str] = {
     "EXACT": "green",
     "RELOC": "cyan",
-    "MATCHING_RELOC": "yellow",
-    "MATCHING": "yellow",
+    "NEAR_MATCHING": "yellow",
     "STUB": "dim",
     "PROVEN": "green",
     "COMPILE_ERROR": "red",
@@ -177,7 +176,7 @@ def _load_verify_info(cfg: ProjectConfig) -> VerifyInfo | None:
 def _load_verify_statuses(cfg: ProjectConfig) -> dict[int, str]:
     """Load per-VA verify statuses from the verify cache.
 
-    Returns a dict mapping VA -> verify status (e.g. "EXACT", "MATCHING",
+    Returns a dict mapping VA -> verify status (e.g. "EXACT", "NEAR_MATCHING",
     "COMPILE_ERROR").  Used to override optimistic source statuses.
     """
     cache_path = cfg.root / ".rebrew" / "verify_cache.json"
@@ -223,7 +222,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     It reads source markers, metadata, and function structure (no compilation).
 
     When a verify cache exists, verify results override source statuses
-    so that functions which fail verification (MATCHING, COMPILE_ERROR) are
+    so that functions which fail verification (NEAR_MATCHING, COMPILE_ERROR) are
     not counted as byte-matched.
     """
     from rebrew.cli import iter_sources
@@ -290,8 +289,7 @@ _STATUS_LABELS: dict[str, str] = {
     "EXACT": "✅ EXACT",
     "RELOC": "🔗 RELOC",
     "PROVEN": "🔒 PROVEN",
-    "MATCHING_RELOC": "🔶 MATCHING_RELOC",
-    "MATCHING": "🔶 MATCHING",
+    "NEAR_MATCHING": "🔶 NEAR_MATCHING",
     "STUB": "📝 STUB",
 }
 
@@ -311,9 +309,7 @@ def _render_terminal(report: StatusReport) -> None:
     exact = report.status_counts.get("EXACT", 0)
     reloc = report.status_counts.get("RELOC", 0)
     proven = report.status_counts.get("PROVEN", 0)
-    matching = report.status_counts.get("MATCHING_RELOC", 0) + report.status_counts.get(
-        "MATCHING", 0
-    )
+    matching = report.status_counts.get("NEAR_MATCHING", 0)
     stub = report.status_counts.get("STUB", 0)
 
     bar_text = Text()

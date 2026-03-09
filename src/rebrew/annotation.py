@@ -68,7 +68,7 @@ VALID_MARKERS = {"FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"}
 # Remaining // SIZE: lines in existing source are parsed as a fallback value (so older
 # files still work with rebrew test), but the key is NOT in OPTIONAL_KEYS — any // SIZE:
 # in source intentionally fires W010 to nudge cleanup.
-REQUIRED_KEYS = {"STATUS"}
+REQUIRED_KEYS: set[str] = set()  # All annotation metadata now lives in rebrew-function.toml
 # No recommended keys — all annotation metadata is either required or optional.
 RECOMMENDED_KEYS: set[str] = set()
 # OPTIONAL_KEYS: only reccmp-compatible keys that are permitted inline.
@@ -81,6 +81,7 @@ OPTIONAL_KEYS = {
 # Finding any of these inline fires lint W019.
 METADATA_KEYS: frozenset[str] = frozenset(
     {
+        "STATUS",  # lives in rebrew-function.toml — inline // STATUS: is deprecated
         "CFLAGS",
         "SKIP",
         "GLOBALS",
@@ -198,8 +199,8 @@ def normalize_status(raw: str) -> str:
     """Map old-format status strings to canonical values.
 
     Check order matters: ``RELOC`` must be tested before both
-    ``MATCHING`` and ``RELOC`` because it contains both as substrings.
-    Check order matters: ``RELOC`` must be tested before ``MATCHING``
+    ``NEAR_MATCHING`` and ``RELOC`` because it contains both as substrings.
+    Check order matters: ``RELOC`` must be tested before ``NEAR_MATCHING``
     because it contains ``RELOC`` as a substring.
     ``PROVEN`` is an independent canonical value — included before the
     generic fallthrough so old-format strings like ``"PROVEN_MATCH"``
@@ -208,8 +209,8 @@ def normalize_status(raw: str) -> str:
     s = raw.strip().upper()
     if "EXACT" in s:
         return "EXACT"
-    if "MATCHING" in s:
-        return "MATCHING"
+    if "NEAR_MATCHING" in s:
+        return "NEAR_MATCHING"
     if "RELOC" in s:
         return "RELOC"
     if "STUB" in s:
@@ -450,7 +451,7 @@ class Annotation:
                 "(reference file, e.g. SBHEAP.C:195 or deflate.c)"
             )
 
-        if self.status == "MATCHING" and self.marker_type == "STUB":
+        if self.status == "NEAR_MATCHING" and self.marker_type == "STUB":
             warnings.append(f"Contradictory: status is {self.status} but marker is STUB")
 
         return errors, warnings
@@ -1192,7 +1193,7 @@ def parse_library_header(
 
         // LIBRARY: SERVER 0x10050000
         // _deflate
-        // STATUS: MATCHING
+        // STATUS: NEAR_MATCHING
         // SIZE: 120
         // CFLAGS: /O2 /Gd
         // SOURCE: deflate.c

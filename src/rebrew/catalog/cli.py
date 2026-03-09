@@ -173,14 +173,14 @@ def main(
         matching = sum(
             1
             for va in fn_vas
-            if any(e["status"] in ("MATCHING",) for e in by_va[va])
+            if any(e["status"] in ("NEAR_MATCHING",) for e in by_va[va])
             and not any(e["status"] in ("EXACT", "RELOC") for e in by_va[va])
         )
         stub = sum(
             1
             for va in fn_vas
             if any(e["status"] == "STUB" for e in by_va[va])
-            and not any(e["status"] in ("EXACT", "RELOC", "MATCHING") for e in by_va[va])
+            and not any(e["status"] in ("EXACT", "RELOC", "NEAR_MATCHING") for e in by_va[va])
         )
 
         module_counts: dict[str, int] = {}
@@ -195,7 +195,7 @@ def main(
         console.print(f"  EXACT: {exact}")
         console.print(f"  RELOC: {reloc}")
         if matching:
-            console.print(f"  MATCHING: {matching}")
+            console.print(f"  NEAR_MATCHING: {matching}")
         if stub:
             console.print(f"  STUB: {stub}")
         console.print("By module:")

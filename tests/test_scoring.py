@@ -149,6 +149,51 @@ class TestScoreCandidate:
         score = score_candidate(code, code, reloc_offsets=[-1, 4])
         assert score.reloc_score == 0.0
 
+    def test_deletion_not_rewarded(self) -> None:
+        """A correct-length candidate with some wrong bytes MUST score better
+        than a truncated candidate with no wrong bytes in the overlap.
+
+        This is the core anti-deletion invariant: the GA should never be
+        able to improve its score by simply removing valid C code.
+        """
+        # 100-byte target
+        target = b"\x55\x8b\xec" + bytes(range(97))  # 100B
+        # Candidate A: correct length, 10 wrong bytes
+        cand_a = bytearray(target)
+        for i in range(10):
+            cand_a[50 + i] ^= 0xFF
+        cand_a = bytes(cand_a)
+        # Candidate B: only first 50 bytes (perfect match in overlap, but half deleted)
+        cand_b = target[:50]
+
+        score_a = score_candidate(target, cand_a)
+        score_b = score_candidate(target, cand_b)
+        # Full-length with errors MUST beat truncated
+        assert score_a.total < score_b.total, (
+            f"Deletion rewarded: full({score_a.total:.1f}) >= truncated({score_b.total:.1f})"
+        )
+
+    def test_missing_bytes_penalized(self) -> None:
+        """byte_score must include penalty for missing bytes (len_diff)."""
+        target = b"\x55\x8b\xec\x83\xec\x10\xc3"  # 7 bytes
+        cand = target[:4]  # 4 bytes, 3 missing
+        score = score_candidate(target, cand)
+        # byte_score should be >= 3.0 (at least 3 missing bytes at weight 1.0 each)
+        assert score.byte_score >= 3.0
+
+    def test_mnemonic_coverage_penalty(self) -> None:
+        """A very short candidate shouldn't get a good mnemonic score
+        against a much longer target, even if all its mnemonics match."""
+        # Long target: 20 NOPs + ret
+        target = b"\x90" * 20 + b"\xc3"
+        # Short candidate: 2 NOPs (subset of target mnemonics)
+        cand = b"\x90" * 2
+        score = score_candidate(target, cand)
+        # mnemonic_score should be significantly > 0 despite matching mnemonics
+        assert score.mnemonic_score > 50.0, (
+            f"Short candidate mnemonic_score too low: {score.mnemonic_score:.1f}"
+        )
+
 
 # -------------------------------------------------------------------------
 # diff_functions

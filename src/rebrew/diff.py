@@ -31,7 +31,7 @@ console = Console(stderr=True)
 
 
 def classify_blockers(diff_summary: dict[str, Any]) -> list[str]:
-    """Auto-classify MATCHING blockers from structural diffs.
+    """Auto-classify NEAR_MATCHING blockers from structural diffs.
 
     Looks for patterns in mismatched (** / RR) lines to identify systemic
     compiler differences like register allocation, loop rotation, etc.

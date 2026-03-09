@@ -11,6 +11,7 @@ Usage:
     rebrew test --all --dir src/game_dll/ # batch mode, restrict to subdir
 """
 
+import json
 import re
 import sys
 import tempfile
@@ -36,6 +37,60 @@ _STATUS_RE = re.compile(r"^(//|/\*)\s*STATUS:")
 _BLOCKER_RE = re.compile(r"^(//|/\*)\s*BLOCKER:")
 # Matches any annotation key-value comment line (// KEY: ... or /* KEY: ... */)
 _ANY_KV_LINE_RE = re.compile(r"^(?://|/\*)\s*[A-Z][A-Z_0-9]*:")
+
+
+def _patch_verify_cache(
+    cfg: ProjectConfig,
+    va: int,
+    new_status: str,
+    match_count: int,
+    total: int,
+    reloc_count: int = 0,
+) -> None:
+    """Update the verify cache entry for *va* so status/todo stay in sync.
+
+    When ``rebrew test`` promotes a function's metadata status, the
+    verify cache (read by ``rebrew status`` and ``rebrew todo``) may
+    still hold a stale result from a previous ``rebrew verify`` run.
+    This helper patches the relevant entry in-place so that all tools
+    agree on the current status immediately after a test.
+    """
+    cache_path = cfg.root / ".rebrew" / "verify_cache.json"
+    if not cache_path.exists():
+        return
+    try:
+        raw = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return
+
+    entries = raw.get("entries", {})
+    va_key = f"0x{va:08x}"
+    entry = entries.get(va_key)
+    if entry is None:
+        return  # No cached entry to patch
+
+    result = entry.get("result", {})
+    old_status = result.get("status", "")
+    if old_status == new_status:
+        return  # Already in sync
+
+    # Patch the result fields
+    result["status"] = new_status
+    match_pct = round(100.0 * match_count / total, 1) if total > 0 else 0.0
+    result["match_percent"] = match_pct
+    result["passed"] = new_status in ("EXACT", "RELOC")
+    if total > 0:
+        result["delta"] = total - match_count
+    entry["result"] = result
+    entries[va_key] = entry
+    raw["entries"] = entries
+
+    try:
+        from rebrew.utils import atomic_write_text
+
+        atomic_write_text(cache_path, json.dumps(raw, indent=2), encoding="utf-8")
+    except (OSError, TypeError):
+        pass  # Best-effort — don't crash test on cache write failure
 
 
 def compile_obj(
@@ -83,7 +138,7 @@ rebrew test --all --dry-run                          List batch candidates witho
 
 4. Reports EXACT, RELOC (match after masking relocations), or STUB
 
-5. Updates STATUS in metadata (EXACT / RELOC / MATCHING) — skip with --no-promote (auto-skipped if file is outside project)
+5. Updates STATUS in metadata (EXACT / RELOC / NEAR_MATCHING) — skip with --no-promote (auto-skipped if file is outside project)
 
 6. If EXACT/RELOC: clears any auto-generated BLOCKER from metadata
 
@@ -113,6 +168,9 @@ def main(
         None, "--origin", help="With --all, filter by origin (GAME, MSVCRT, ZLIB)"
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    jobs: int | None = typer.Option(
+        None, "-j", "--jobs", help="Number of parallel compile jobs (with --all)"
+    ),
     no_promote: bool = typer.Option(
         False,
         "--no-promote",
@@ -161,7 +219,7 @@ def main(
             no_promote = True
 
     if all_sources:
-        _run_all_batch(cfg, batch_dir, origin, dry_run, no_promote, json_output)
+        _run_all_batch(cfg, batch_dir, origin, dry_run, no_promote, json_output, jobs=jobs)
         return
 
     if source is None:
@@ -317,7 +375,7 @@ def main(
             near = total > 0 and (match_count / total) >= 0.60
             if near:
                 delta = abs(len(target_bytes) - len(obj_bytes)) + (total - match_count)
-                label = "MATCHING_RELOC" if delta <= 5 else "MATCHING"
+                label = "NEAR_MATCHING" if delta <= 5 else "NEAR_MATCHING"
                 color = "bold yellow"
             else:
                 label = "STUB"
@@ -363,14 +421,17 @@ def main(
             update_source_status(
                 cfg.metadata_dir, new_status, anno_module, va_int_for_promote, clear_blockers=True
             )
+            _patch_verify_cache(
+                cfg, va_int_for_promote, new_status, match_count, total, len(relocs)
+            )
             if not json_output:
                 console.print(f"[dim]STATUS → {new_status}[/dim]")
         elif total > 0:
             match_ratio = match_count / total
             if match_ratio >= 0.60:
-                # MATCHING — do NOT clear blocker (may be user-set)
+                # NEAR_MATCHING — do NOT clear blocker (may be user-set)
                 delta = abs(len(target_bytes) - len(obj_bytes)) + (total - match_count)
-                new_status = "MATCHING_RELOC" if delta <= 5 else "MATCHING"
+                new_status = "NEAR_MATCHING" if delta <= 5 else "NEAR_MATCHING"
                 update_source_status(
                     cfg.metadata_dir,
                     new_status,
@@ -378,6 +439,7 @@ def main(
                     va_int_for_promote,
                     clear_blockers=False,
                 )
+                _patch_verify_cache(cfg, va_int_for_promote, new_status, match_count, total)
                 if not json_output:
                     console.print(f"[dim]STATUS → {new_status}[/dim]")
             else:
@@ -389,6 +451,7 @@ def main(
                     va_int_for_promote,
                     clear_blockers=False,
                 )
+                _patch_verify_cache(cfg, va_int_for_promote, "STUB", match_count, total)
                 if not json_output:
                     console.print("[dim]STATUS → STUB[/dim]")
 
@@ -435,7 +498,7 @@ def build_result_dict(
     status = (
         ("RELOC" if relocs else "EXACT")
         if matched
-        else (("MATCHING_RELOC" if delta <= 5 else "MATCHING") if near else "STUB")
+        else (("NEAR_MATCHING" if delta <= 5 else "NEAR_MATCHING") if near else "STUB")
     )
 
     mismatches: list[dict[str, str | int]] = []
@@ -590,8 +653,7 @@ def _test_multi(
             else:
                 near = total > 0 and (match_count / total) >= 0.60
                 if near:
-                    delta = abs(len(target_bytes) - len(obj_bytes)) + (total - match_count)
-                    label = "MATCHING_RELOC" if delta <= 5 else "MATCHING"
+                    label = "NEAR_MATCHING"
                     color = "bold yellow" if (match_count / total) >= 0.97 else "yellow"
                     console.print(f"[{color}]{label}[/{color}] {sym} — {match_count}/{total}B")
                 else:
@@ -601,43 +663,60 @@ def _test_multi(
             if matched:
                 new_status = "RELOC" if relocs else "EXACT"
             elif match_ratio >= 0.60:
-                delta = abs(len(target_bytes) - len(obj_bytes)) + (total - match_count)
-                new_status = "MATCHING_RELOC" if delta <= 5 else "MATCHING"
+                new_status = "NEAR_MATCHING"
             else:
                 new_status = "STUB"
 
             old_status = ann.status or "STUB"
-            status_transitions.append((old_status, new_status))
 
             # Auto-promote: update STATUS in metadata (mirrors single-function path)
             if not no_promote:
                 if old_status == "PROVEN":
+                    # PROVEN is sticky — don't demote or record a transition
+                    status_transitions.append((old_status, old_status))
                     if not json_output:
                         console.print("[dim]  STATUS → skipped (PROVEN)[/dim]")
                 elif matched:
                     update_source_status(
                         cfg.metadata_dir, new_status, ann.module, ann.va, clear_blockers=True
                     )
+                    _patch_verify_cache(cfg, ann.va, new_status, match_count, total, len(relocs))
+                    status_transitions.append((old_status, new_status))
                     if not json_output:
                         console.print(f"[dim]  STATUS → {new_status}[/dim]")
                 elif total > 0 and (match_count / total) >= 0.60:
-                    if new_status in ("MATCHING", "MATCHING_RELOC"):
+                    if new_status in ("NEAR_MATCHING",):
+                        update_source_status(
+                            cfg.metadata_dir,
+                            new_status,
+                            ann.module,
+                            ann.va,
+                            clear_blockers=False,
+                        )
+                        _patch_verify_cache(cfg, ann.va, new_status, match_count, total)
+                        status_transitions.append((old_status, new_status))
                         if not json_output:
-                            update_source_status(
-                                cfg.metadata_dir,
-                                new_status,
-                                ann.module,
-                                ann.va,
-                                clear_blockers=False,
-                            )
                             console.print(f"[dim]  STATUS → {new_status}[/dim]")
                     else:
                         # STUB — demote so metadata reflects reality
+                        update_source_status(
+                            cfg.metadata_dir, "STUB", ann.module, ann.va, clear_blockers=False
+                        )
+                        _patch_verify_cache(cfg, ann.va, "STUB", match_count, total)
+                        status_transitions.append((old_status, "STUB"))
                         if not json_output:
-                            update_source_status(
-                                cfg.metadata_dir, "STUB", ann.module, ann.va, clear_blockers=False
-                            )
                             console.print("[dim]  STATUS → STUB[/dim]")
+                else:
+                    # Below threshold — demote to STUB
+                    update_source_status(
+                        cfg.metadata_dir, "STUB", ann.module, ann.va, clear_blockers=False
+                    )
+                    _patch_verify_cache(cfg, ann.va, "STUB", match_count, total)
+                    status_transitions.append((old_status, "STUB"))
+                    if not json_output:
+                        console.print("[dim]  STATUS → STUB[/dim]")
+            else:
+                status_transitions.append((old_status, new_status))
 
         if json_output:
             json_print({"source": source, "results": results_list})
@@ -652,12 +731,14 @@ def _run_all_batch(
     dry_run: bool,
     no_promote: bool,
     json_output: bool,
+    jobs: int | None = None,
 ) -> None:
-    """Batch-test all .c files in reversed_dir (or a subdir) and auto-promote.
+    """Batch-test all .c files using verify's parallel/cached engine.
 
-    Iterates every source file via ``iter_sources``.  Each file is compiled
-    once and all annotated functions are compared against target bytes.
-    STATUS is auto-promoted unless *no_promote* is True.
+    Delegates to :func:`rebrew.verify.prepare_entries` and
+    :func:`rebrew.verify.run_verification` for parallel compilation
+    with incremental caching.  STATUS is always promoted/demoted unless
+    *no_promote* is True.
 
     Args:
         cfg: Project configuration.
@@ -666,117 +747,112 @@ def _run_all_batch(
         dry_run: If True, list candidates without running any tests.
         no_promote: Pass-through to suppress STATUS updates.
         json_output: Emit JSON output.
+        jobs: Number of parallel compile jobs (default: from config).
 
     """
-    from rebrew.cli import iter_sources
+    from rebrew.verify import apply_status_updates, prepare_entries, run_verification
 
-    search_root = cfg.reversed_dir
+    if jobs is None:
+        jobs = cfg.default_jobs
+
+    # Reuse verify's scanning + caching engine
+    unique_entries, passed, failed, fail_details, results, cached_count = prepare_entries(
+        cfg,
+        full=True,  # test --all always recompiles (no incremental)
+        json_output=json_output,
+    )
+
+    if not unique_entries:
+        if not json_output:
+            console.print("[yellow]No testable source files found[/yellow]")
+        return
+
+    # Filter by batch_dir if specified
     if batch_dir:
-        search_root = (
+        batch_root = (
             Path(batch_dir).resolve() if Path(batch_dir).is_absolute() else cfg.root / batch_dir
         )
+        batch_root_str = str(batch_root)
+        unique_entries = [
+            e
+            for e in unique_entries
+            if str((cfg.reversed_dir / getattr(e, "filepath", "")).resolve()).startswith(
+                batch_root_str
+            )
+        ]
 
-    sources = list(iter_sources(search_root, cfg))
-
-    if not sources:
-        if not json_output:
-            console.print(f"[yellow]No source files found in {search_root}[/yellow]")
-        return
-
-    # Optionally filter by origin annotation on at least one function
+    # Filter by origin if specified
     if origin_filter:
-        filtered: list[Path] = []
-        for s in sources:
-            try:
-                annos = parse_c_file_multi(s, metadata_dir=cfg.metadata_dir)
-            except Exception:  # noqa: BLE001
-                continue
-            if any(
-                hasattr(a, "origin") and a.origin and a.origin.upper() == origin_filter.upper()
-                for a in annos
-            ):
-                filtered.append(s)
-        sources = filtered
+        unique_entries = [
+            e
+            for e in unique_entries
+            if hasattr(e, "origin") and e.origin and e.origin.upper() == origin_filter.upper()
+        ]
 
-    if not sources:
+    if not unique_entries:
         if not json_output:
-            console.print(f"[yellow]No source files match origin={origin_filter}[/yellow]")
+            console.print(
+                f"[yellow]No source files match filters "
+                f"(dir={batch_dir}, origin={origin_filter})[/yellow]"
+            )
         return
+
+    total = len(unique_entries)
 
     if dry_run:
         if json_output:
-            json_print({"count": len(sources), "files": [str(s) for s in sources]})
+            json_print(
+                {
+                    "count": total,
+                    "files": sorted({getattr(e, "filepath", "") for e in unique_entries}),
+                }
+            )
         else:
-            console.print(f"[bold]Batch test candidates ({len(sources)} files):[/bold]")
-            for s in sources:
-                console.print(f"  {s}")
+            console.print(f"[bold]Batch test candidates ({total} functions):[/bold]")
+            for e in unique_entries:
+                console.print(f"  0x{e.va:08X} {e.name} ({getattr(e, 'filepath', '')})")
         return
 
-    # Build name->VA map once for all files
-    name_to_va: dict[str, int] = {}
-    try:
-        from rebrew.data import scan_globals
-
-        scan = scan_globals(cfg.reversed_dir, cfg)
-        for entry in scan.data_annotations:
-            if getattr(entry, "name", None):
-                name_to_va[entry.name] = entry.va
-    except Exception:  # noqa: BLE001
-        pass
-
-    testable_sources: list[tuple[Path, list[Annotation]]] = []
-    skipped_no_size = 0
-
-    for src in sources:
-        try:
-            annos = parse_c_file_multi(src, metadata_dir=cfg.metadata_dir)
-        except Exception:  # noqa: BLE001
-            annos = []
-        # Only include files that have at least one annotation with both symbol and SIZE.
-        # Files where all annotations lack SIZE (STUB, no catalog SIZE yet) are silently
-        # skipped — _test_multi would just SKIP every entry and produce noisy output.
-        if any(a.symbol and a.size for a in annos):
-            testable_sources.append((src, annos))
-        elif annos:
-            skipped_no_size += 1
-
-    total_testable = len(testable_sources)
-
     if not json_output:
-        skipped_msg = f", {skipped_no_size} skipped (no SIZE)" if skipped_no_size else ""
-        console.print(f"\n[bold]Batch testing {total_testable} file(s)[/bold]{skipped_msg}…\n")
+        console.print(f"\n[bold]Batch testing {total} function(s)…[/bold]\n")
 
-    batch_results: list[dict[str, Any]] = []
-    all_transitions: list[tuple[str, str]] = []
+    # Run verification in parallel
+    v_passed, v_failed, v_fail_details, v_results, deferred = run_verification(
+        unique_entries,
+        cfg,
+        jobs,
+        total,
+        0,  # cached_count=0 since we pass full=True
+        json_output,
+    )
 
-    for i, (src, annos) in enumerate(testable_sources, 1):
-        src_str = str(src)
-        if not json_output:
-            console.print(f"[bold][{i}/{total_testable}][/bold] {src_str}")
+    # Always promote/demote STATUS metadata unless --no-promote
+    if not no_promote and deferred:
+        apply_status_updates(deferred, cfg)
 
-        transitions = _test_multi(
-            cfg,
-            src_str,
-            annos,
-            cflags_override=None,
-            name_to_va=name_to_va,
-            no_promote=no_promote,
-            json_output=False,  # always console for per-file; aggregate JSON below
-        )
-        all_transitions.extend(transitions)
+    # Build transitions for summary display (only include actual changes)
+    transitions: list[tuple[str, str]] = []
+    for entry, status, _delta in deferred:
+        old_status = getattr(entry, "status", "") or "STUB"
+        # PROVEN is sticky — verification result doesn't change it
+        if old_status == "PROVEN":
+            continue
+        transitions.append((old_status, status))
 
-        batch_results.append({"file": src_str})
+    # Count unique files for the summary
+    unique_files = len({getattr(e, "filepath", "") for e in unique_entries})
 
     if json_output:
         json_print(
             {
-                "total": total_testable,
-                "skipped_no_size": skipped_no_size,
-                "results": batch_results,
+                "total": total,
+                "passed": v_passed,
+                "failed": v_failed,
+                "results": v_results,
             }
         )
     else:
-        _print_batch_summary(all_transitions, total_testable, skipped_no_size)
+        _print_batch_summary(transitions, unique_files, 0)
 
 
 # ---------------------------------------------------------------------------
@@ -786,8 +862,7 @@ def _run_all_batch(
 _RESULT_COLORS: dict[str, str] = {
     "EXACT": "bold green",
     "RELOC": "green",
-    "MATCHING_RELOC": "yellow",
-    "MATCHING": "yellow",
+    "NEAR_MATCHING": "yellow",
     "STUB": "red",
     "SKIP": "dim",
 }
@@ -830,7 +905,7 @@ def _print_batch_summary(
         console.print(f"  [dim]{skipped_no_size} file(s) skipped (no SIZE)[/dim]")
     console.print()
 
-    for status in ("EXACT", "RELOC", "MATCHING_RELOC", "MATCHING", "STUB"):
+    for status in ("EXACT", "RELOC", "NEAR_MATCHING", "STUB"):
         count = result_counts.get(status, 0)
         if count == 0:
             continue
@@ -841,9 +916,7 @@ def _print_batch_summary(
         console.print(f"  [{color}]{status:12s}  {count:4d}  ({pct:5.1f}%)  {bar}[/{color}]")
 
     # Other statuses not in the standard order
-    for status in sorted(
-        set(result_counts) - {"EXACT", "RELOC", "MATCHING_RELOC", "MATCHING", "STUB"}
-    ):
+    for status in sorted(set(result_counts) - {"EXACT", "RELOC", "NEAR_MATCHING", "STUB"}):
         count = result_counts[status]
         console.print(f"  [dim]{status:12s}  {count:4d}[/dim]")
 

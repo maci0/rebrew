@@ -58,7 +58,7 @@ until it is found), managed automatically by the CLI tools.
 
 > [!CAUTION]
 > **Never manually add STATUS, SIZE, or CFLAGS to a `.c` file.** These are managed
-> by `rebrew test`, `rebrew verify --fix-status`, `rebrew match`, and `rebrew sync`.
+> by `rebrew test`, `rebrew verify`, `rebrew match`, and `rebrew sync`.
 > Manual edits to `rebrew-function.toml` or volatile annotation lines in `.c` files
 > will be overwritten or ignored.
 
