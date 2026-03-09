@@ -1,6 +1,6 @@
 """Quick compile-and-compare for reversed functions.
 
-By default, after comparing, the STATUS annotation is auto-updated in the
+By default, after comparing, STATUS is auto-updated in the per-directory
 metadata (via update_source_status). Use --no-promote to skip this.
 
 Usage:
@@ -53,7 +53,7 @@ def compile_obj(
 _EPILOG = """\
 [bold]Examples:[/bold]
 
-rebrew test src/game_dll/my_func.c                  Auto-detect symbol, VA, size from annotations
+rebrew test src/game_dll/my_func.c                  Auto-detect symbol, VA, size from source
 
 rebrew test src/game_dll/my_func.c _my_func         Explicit symbol name
 
@@ -61,7 +61,7 @@ rebrew test f.c _sym --va 0x10009310 --size 42      Override VA and size from CL
 
 rebrew test f.c _sym --cflags "/O1 /Gd"             Override compiler flags
 
-rebrew test src/game_dll/my_func.c --no-promote     Skip STATUS annotation update
+rebrew test src/game_dll/my_func.c --no-promote     Skip STATUS metadata update
 
 rebrew test src/game_dll/my_func.c --json            Machine-readable JSON output
 
@@ -75,20 +75,20 @@ rebrew test --all --dry-run                          List batch candidates witho
 
 [bold]Auto-promote (default behaviour):[/bold]
 
-1. Compiles the .c file with MSVC6 (via Wine) using annotation CFLAGS
+1. Compiles the .c file with MSVC6 (via Wine) using CFLAGS from metadata
 
 2. Extracts the named COFF symbol from the .obj
 
 3. Compares compiled bytes against the original DLL bytes at the given VA
 
-4. Reports EXACT, RELOC (match after masking relocations), or MISMATCH
+4. Reports EXACT, RELOC (match after masking relocations), or STUB
 
 5. Updates STATUS in metadata (EXACT / RELOC / NEAR_MATCH) — skip with --no-promote
 
 6. If EXACT/RELOC: clears any auto-generated BLOCKER from metadata
 
-[dim]All parameters can be auto-detected from // FUNCTION, // STATUS, // SIZE,
-and // CFLAGS annotations. Symbol is derived from the C function definition.[/dim]"""
+[dim]Parameters are auto-detected from // FUNCTION and // SIZE markers in source,
+plus STATUS and CFLAGS from rebrew-function.toml metadata.[/dim]"""
 
 app = typer.Typer(
     help="Compile-and-compare for reversed functions (auto-updates STATUS by default).",
@@ -116,7 +116,7 @@ def main(
     no_promote: bool = typer.Option(
         False,
         "--no-promote",
-        help="Skip auto-update of STATUS annotation after test",
+        help="Skip auto-update of STATUS metadata after test",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -128,13 +128,13 @@ def main(
     restrict the batch.  Without --all, a single source file must be provided.
 
     In single-function mode it resolves ``symbol``, ``va``, and ``size`` from
-    CLI arguments first, then falls back to source annotations. In multi-function
+    CLI arguments first, then falls back to source markers. In multi-function
     mode (when no explicit symbol/va/size is provided), it compiles once and
     evaluates each annotated function independently.
 
     Comparison is relocation-aware: COFF relocation records are used to mask
     relocation-dependent byte spans before scoring exactness. Output status is
-    reported as EXACT, RELOC, MISMATCH, or an error state.
+    reported as EXACT, RELOC, STUB, or an error state.
 
     Args:
         source: Path to the C source file to compile.
