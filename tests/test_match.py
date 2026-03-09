@@ -137,3 +137,30 @@ class TestComputeFitness:
         res = BuildResult(ok=True, obj_bytes=None)
         score = ga._compute_fitness(res, "test_hash")
         assert score == 10000000.0
+
+
+# ---------------------------------------------------------------------------
+# GA seed reproducibility (moved from test_phase2.py)
+# ---------------------------------------------------------------------------
+
+
+class TestGASeedReproducibility:
+    """Verify same seed produces same initial population."""
+
+    def test_same_seed_same_population(self) -> None:
+        import random
+
+        rng1 = random.Random(42)
+        pop1 = [rng1.random() for _ in range(10)]
+        rng2 = random.Random(42)
+        pop2 = [rng2.random() for _ in range(10)]
+        assert pop1 == pop2
+
+    def test_different_seed_different_population(self) -> None:
+        import random
+
+        rng1 = random.Random(42)
+        pop1 = [rng1.random() for _ in range(10)]
+        rng2 = random.Random(99)
+        pop2 = [rng2.random() for _ in range(10)]
+        assert pop1 != pop2

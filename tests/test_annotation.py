@@ -13,6 +13,7 @@ from rebrew.annotation import (
     parse_library_header,
     parse_new_format,
     parse_old_format,
+    split_annotation_sections,
 )
 
 # ---------------------------------------------------------------------------
@@ -465,7 +466,7 @@ int func_b(void) { return 1; }
         assert results[1].filepath == "multi.c"
 
     def test_parse_c_file_still_returns_first(self, tmp_path) -> None:
-        """parse_c_file returns the first annotation; SIZE comes from sidecar via parse_c_file_multi."""
+        """parse_c_file returns the first annotation; SIZE comes from metadata via parse_c_file_multi."""
         content = """\
 // FUNCTION: SERVER 0x10001000
 // STATUS: EXACT
@@ -481,22 +482,22 @@ int func_b(void) { return 1; }
 """
         f = tmp_path / "multi.c"
         f.write_text(content, encoding="utf-8")
-        # SIZE lives in sidecar
-        sidecar = tmp_path / "rebrew-function.toml"
-        sidecar.write_text(
+        # SIZE lives in metadata
+        metadata_toml = tmp_path / "rebrew-function.toml"
+        metadata_toml.write_text(
             '["SERVER.0x10001000"]\nsize = 42\n',
             encoding="utf-8",
         )
-        # parse_c_file (no sidecar arg) returns first annotation; size=0 since sidecar not loaded
+        # parse_c_file (no metadata arg) returns first annotation; size=0 since metadata not loaded
         result = parse_c_file(f)
         assert result is not None
         assert result.va == 0x10001000
         assert result.status == "EXACT"
         assert result.symbol == "_func_a"
-        # parse_c_file_multi with sidecar_dir picks up SIZE from sidecar
+        # parse_c_file_multi with metadata_dir picks up SIZE from metadata
         from rebrew.annotation import parse_c_file_multi
 
-        results = parse_c_file_multi(f, sidecar_dir=f.parent)
+        results = parse_c_file_multi(f, metadata_dir=f.parent)
         assert results[0].size == 42
 
     def test_shared_symbol_uses_func_name_hint(self) -> None:
@@ -880,9 +881,9 @@ class TestAuditAnnotation:
 
     # update_size_annotation: target_va parameter (previously untested branch)
     def test_update_size_annotation_target_va_match(self, tmp_path: Path) -> None:
-        """When target_va is provided, size is written to sidecar (not .c file)."""
+        """When target_va is provided, size is written to metadata (not .c file)."""
         from rebrew.annotation import update_size_annotation
-        from rebrew.sidecar import get_entry
+        from rebrew.metadata import get_entry
 
         content = (
             "// FUNCTION: SERVER 0x10001000\n"
@@ -895,7 +896,7 @@ class TestAuditAnnotation:
         f = tmp_path / "dual.c"
         f.write_text(content, encoding="utf-8")
 
-        # Update SIZE for 0x10002000 — goes to sidecar, NOT the .c file
+        # Update SIZE for 0x10002000 — goes to metadata, NOT the .c file
         changed = update_size_annotation(f, 99, target_va=0x10002000)
         assert changed is True
 
@@ -903,42 +904,42 @@ class TestAuditAnnotation:
         original = f.read_text(encoding="utf-8")
         assert "// SIZE: 20" in original  # func_b still has old value in file
 
-        # Sidecar must have new value for func_b only
+        # Metadata must have new value for func_b only
         entry_b = get_entry(tmp_path, 0x10002000, module="SERVER")
         assert entry_b["size"] == 99
-        # func_a not in sidecar (was not touched)
+        # func_a not in metadata (was not touched)
         entry_a = get_entry(tmp_path, 0x10001000, module="SERVER")
         assert "size" not in entry_a
 
     def test_update_size_annotation_target_va_no_match(self, tmp_path: Path) -> None:
-        """update_size_annotation returns False when new_size <= existing sidecar size."""
+        """update_size_annotation returns False when new_size <= existing metadata size."""
         from rebrew.annotation import update_size_annotation
-        from rebrew.sidecar import save_sidecar
+        from rebrew.metadata import save_metadata
 
         f = tmp_path / "single.c"
         f.write_text(
             "// FUNCTION: SERVER 0x10001000\n// SIZE: 10\nint f(void) {}\n", encoding="utf-8"
         )
-        # Pre-populate sidecar with size=200 so new_size=99 is rejected (not an increase)
-        save_sidecar(tmp_path, {("SERVER", 0x10001000): {"size": 200}})
+        # Pre-populate metadata with size=200 so new_size=99 is rejected (not an increase)
+        save_metadata(tmp_path, {("SERVER", 0x10001000): {"size": 200}})
         changed = update_size_annotation(f, 99, target_va=0x10001000)
         assert changed is False
 
     def test_update_size_annotation_no_shrink(self, tmp_path) -> None:
         """update_size_annotation never reduces size (safety invariant).
 
-        The sidecar must be pre-populated with the existing size; the .c file's
+        The metadata must be pre-populated with the existing size; the .c file's
         // SIZE: annotation is no longer read by update_size_annotation.
         """
         from rebrew.annotation import update_size_annotation
-        from rebrew.sidecar import save_sidecar
+        from rebrew.metadata import save_metadata
 
         f = tmp_path / "big.c"
         f.write_text(
             "// FUNCTION: SERVER 0x10001000\n// SIZE: 100\nint f(void) {}\n", encoding="utf-8"
         )
-        # Pre-populate sidecar with existing size — update_size_annotation now reads sidecar
-        save_sidecar(tmp_path, {("SERVER", 0x10001000): {"size": 100}})
+        # Pre-populate metadata with existing size — update_size_annotation now reads metadata
+        save_metadata(tmp_path, {("SERVER", 0x10001000): {"size": 100}})
         changed = update_size_annotation(f, 50)  # 50 < 100 — must not shrink
         assert changed is False
 
@@ -975,12 +976,12 @@ class TestAuditAnnotation:
     # --- P1-01 regression: update_annotation_key must not bleed into next block ---
 
     def test_update_annotation_key_no_bleed_into_next_block(self, tmp_path: Path) -> None:
-        """STATUS is a sidecar key — update_annotation_key writes to rebrew-function.toml.
+        """BLOCKER is a metadata key — update_annotation_key writes to rebrew-function.toml.
 
         The .c file must remain completely untouched. VA2 is never affected.
         """
         from rebrew.annotation import update_annotation_key
-        from rebrew.sidecar import get_entry
+        from rebrew.metadata import get_entry
 
         content = (
             "// FUNCTION: SERVER 0x10001000\n"
@@ -996,28 +997,28 @@ class TestAuditAnnotation:
         f = tmp_path / "dual.c"
         f.write_text(content, encoding="utf-8")
 
-        changed = update_annotation_key(f, 0x10001000, "STATUS", "EXACT")
+        changed = update_annotation_key(f, 0x10001000, "BLOCKER", "1B diff")
         assert changed is True
 
         # .c file must be completely untouched
         assert f.read_text(encoding="utf-8") == content
 
-        # VA1 sidecar entry has new status
+        # VA1 metadata entry has blocker
         entry1 = get_entry(tmp_path, 0x10001000, module="SERVER")
-        assert entry1["status"] == "EXACT"
+        assert entry1["blocker"] == "1B diff"
         # VA2 was not touched
         entry2 = get_entry(tmp_path, 0x10002000, module="SERVER")
-        assert "status" not in entry2
+        assert "blocker" not in entry2
 
     # --- P1-02 regression: remove_annotation_key must not bleed into next block ---
 
     def test_remove_annotation_key_no_bleed_into_next_block(self, tmp_path: Path) -> None:
-        """BLOCKER is a sidecar key — remove_annotation_key deletes from rebrew-function.toml.
+        """BLOCKER is a metadata key — remove_annotation_key deletes from rebrew-function.toml.
 
-        The .c file must remain untouched. VA2's sidecar entry is not affected.
+        The .c file must remain untouched. VA2's metadata entry is not affected.
         """
         from rebrew.annotation import remove_annotation_key
-        from rebrew.sidecar import get_entry, save_sidecar
+        from rebrew.metadata import get_entry, save_metadata
 
         content = (
             "// FUNCTION: SERVER 0x10001000\n"
@@ -1033,8 +1034,8 @@ class TestAuditAnnotation:
         f = tmp_path / "dual_blockers.c"
         f.write_text(content, encoding="utf-8")
 
-        # Pre-populate sidecar for both VAs
-        save_sidecar(
+        # Pre-populate metadata for both VAs
+        save_metadata(
             tmp_path,
             {
                 ("SERVER", 0x10001000): {"blocker": "needs investigation"},
@@ -1045,7 +1046,7 @@ class TestAuditAnnotation:
         changed = remove_annotation_key(f, 0x10001000, "BLOCKER")
         assert changed is True
 
-        # VA1's blocker must be gone from sidecar
+        # VA1's blocker must be gone from metadata
         entry1 = get_entry(tmp_path, 0x10001000, module="SERVER")
         assert "blocker" not in entry1
 
@@ -1079,3 +1080,90 @@ class TestAuditAnnotation:
             "void __stdcall handler(std::map<int, std::pair<int,int>> m, int n)"
         )
         assert size2 == 8, f"Expected 8 bytes for two params, got {size2}"
+
+
+# ---------------------------------------------------------------------------
+# split_annotation_sections (moved from test_phase3.py)
+# ---------------------------------------------------------------------------
+
+
+class TestSplitAnnotationSections:
+    def test_empty_text(self) -> None:
+        preamble, blocks = split_annotation_sections("")
+        assert preamble == ""
+        assert blocks == []
+
+    def test_no_markers(self) -> None:
+        text = "#include <stdio.h>\nint main() { return 0; }\n"
+        preamble, blocks = split_annotation_sections(text)
+        assert preamble == text
+        assert blocks == []
+
+    def test_single_function_block(self) -> None:
+        text = "#include <stdio.h>\n// FUNCTION: GAME 0x10001000\nint foo() { return 1; }\n"
+        preamble, blocks = split_annotation_sections(text)
+        assert preamble == "#include <stdio.h>\n"
+        assert len(blocks) == 1
+        assert "// FUNCTION: GAME 0x10001000" in blocks[0]
+        assert "int foo()" in blocks[0]
+
+    def test_multiple_function_blocks(self) -> None:
+        text = (
+            "#include <stdlib.h>\n"
+            "// FUNCTION: GAME 0x10001000\n"
+            "int foo() { return 1; }\n"
+            "// FUNCTION: GAME 0x10002000\n"
+            "int bar() { return 2; }\n"
+            "// LIBRARY: MSVCRT 0x10003000\n"
+            "int baz() { return 3; }\n"
+        )
+        preamble, blocks = split_annotation_sections(text)
+        assert preamble == "#include <stdlib.h>\n"
+        assert len(blocks) == 3
+
+    def test_no_preamble(self) -> None:
+        text = "// FUNCTION: GAME 0x10001000\nint foo() {}\n"
+        preamble, blocks = split_annotation_sections(text)
+        assert preamble == ""
+        assert len(blocks) == 1
+
+    def test_all_marker_types(self) -> None:
+        text = (
+            "// STUB: GAME 0x10001000\nvoid stub() {}\n"
+            "// GLOBAL: GAME 0x10002000\nint g_val;\n"
+            "// DATA: GAME 0x10003000\nchar data[];\n"
+        )
+        preamble, blocks = split_annotation_sections(text)
+        assert preamble == ""
+        assert len(blocks) == 3
+
+
+from pathlib import Path  # noqa: E402
+
+from rebrew.annotation import update_annotation_key  # noqa: E402
+
+
+def test_update_annotation_key_multiple_funcs(tmp_path: Path):
+    cfile = tmp_path / "test.c"
+    cfile.write_text(
+        """// FUNCTION: GAME 0x1000
+// STATUS: EXACT
+// CFLAGS: /O2
+// SIZE: 10
+void func_1000() {}
+
+// FUNCTION: GAME 0x2000
+// SIZE: 10
+void func_2000() {}
+""",
+        encoding="utf-8",
+    )
+
+    assert update_annotation_key(cfile, 0x1000, "SYMBOL", "ResetScore")
+    assert update_annotation_key(cfile, 0x2000, "SYMBOL", "AddScore")
+
+    text = cfile.read_text(encoding="utf-8")
+    assert "// SYMBOL: ResetScore" in text
+    assert "// SYMBOL: func_1000" not in text
+    assert "// SYMBOL: AddScore" in text
+    assert "// SYMBOL: func_2000" not in text

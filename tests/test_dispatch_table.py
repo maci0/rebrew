@@ -12,26 +12,32 @@ from rebrew.match import find_near_miss, parse_matching_info
 
 class TestParseMatchingInfo:
     def _make_c(self, d, name, va, status, blocker="", skip=False) -> None:
+        import re
+
         lines = [
             f"// FUNCTION: SERVER 0x{va:08x}",
-            f"// STATUS: {status}",
-            "// ORIGIN: GAME",
-            "// SIZE: 100",
-            "// CFLAGS: /O2 /Gd",
             f"// SYMBOL: _{name}",
+            f"int __cdecl {name}(void) {{ return 0; }}",
         ]
-        if blocker:
-            lines.append(f"// BLOCKER: {blocker}")
-        if skip:
-            lines.append("// SKIP: reason")
-        lines.append(f"int __cdecl {name}(void) {{ return 0; }}")
         (d / f"{name}.c").write_text("\n".join(lines), encoding="utf-8")
+        # Write metadata-owned fields to rebrew-function.toml
+        metadata_toml = d / "rebrew-function.toml"
+        existing = metadata_toml.read_text(encoding="utf-8") if metadata_toml.exists() else ""
+        entry = f'["SERVER.0x{va:08x}"]\nstatus = "{status}"\nsize = 100\ncflags = "/O2 /Gd"\n'
+        if blocker:
+            entry += f'blocker = "{blocker}"\n'
+            m = re.match(r"(\d+)B", blocker)
+            if m:
+                entry += f"blocker_delta = {m.group(1)}\n"
+        if skip:
+            entry += 'skip = "reason"\n'
+        metadata_toml.write_text(existing + entry, encoding="utf-8")
 
     def test_matching_with_small_delta(self, tmp_path) -> None:
         self._make_c(tmp_path, "FuncA", 0x10001000, "MATCHING", "2B diff: off by 2 bytes")
         result = parse_matching_info(tmp_path / "FuncA.c", max_delta=10)
         assert len(result) == 1
-        assert result[0]["delta"] == 2
+        assert result[0].delta == 2
 
     def test_matching_large_delta_excluded(self, tmp_path) -> None:
         self._make_c(tmp_path, "FuncB", 0x10002000, "MATCHING", "50B diff: too big")
@@ -56,18 +62,24 @@ class TestParseMatchingInfo:
 
 class TestFindNearMiss:
     def _make_c(self, d, name, va, status, blocker="") -> None:
+        import re
+
         lines = [
             f"// FUNCTION: SERVER 0x{va:08x}",
-            f"// STATUS: {status}",
-            "// ORIGIN: GAME",
-            "// SIZE: 100",
-            "// CFLAGS: /O2 /Gd",
             f"// SYMBOL: _{name}",
+            f"int __cdecl {name}(void) {{ return 0; }}",
         ]
-        if blocker:
-            lines.append(f"// BLOCKER: {blocker}")
-        lines.append(f"int __cdecl {name}(void) {{ return 0; }}")
         (d / f"{name}.c").write_text("\n".join(lines), encoding="utf-8")
+        # Write metadata-owned fields to rebrew-function.toml
+        metadata_toml = d / "rebrew-function.toml"
+        existing = metadata_toml.read_text(encoding="utf-8") if metadata_toml.exists() else ""
+        entry = f'["SERVER.0x{va:08x}"]\nstatus = "{status}"\nsize = 100\ncflags = "/O2 /Gd"\n'
+        if blocker:
+            entry += f'blocker = "{blocker}"\n'
+            m = re.match(r"(\d+)B", blocker)
+            if m:
+                entry += f"blocker_delta = {m.group(1)}\n"
+        metadata_toml.write_text(existing + entry, encoding="utf-8")
 
     def test_finds_near_miss(self, tmp_path) -> None:
         self._make_c(tmp_path, "Near1", 0x10001000, "MATCHING", "2B diff")
@@ -76,7 +88,7 @@ class TestFindNearMiss:
         self._make_c(tmp_path, "Stub", 0x10004000, "STUB", "2B diff")
 
         results = find_near_miss(tmp_path, max_delta=10)
-        names = [r["filepath"].stem for r in results]
+        names = [r.filepath.stem for r in results]
         assert "Near1" in names
         assert "Near2" in names
         assert "Far" not in names
@@ -86,7 +98,7 @@ class TestFindNearMiss:
         self._make_c(tmp_path, "Big", 0x10001000, "MATCHING", "8B diff")
         self._make_c(tmp_path, "Small", 0x10002000, "MATCHING", "1B diff")
         results = find_near_miss(tmp_path, max_delta=10)
-        assert results[0]["delta"] <= results[1]["delta"]
+        assert results[0].delta <= results[1].delta
 
 
 # ---------------------------------------------------------------------------

@@ -87,26 +87,26 @@ class TestResolveSource:
     def test_direct_path_that_exists(self, tmp_path: Path) -> None:
         src = tmp_path / "foo.c"
         src.write_text("// FUNCTION: GAME 0x1000\nint foo(void) { return 0; }\n")
-        cfg = SimpleNamespace(reversed_dir=tmp_path, source_ext=".c")
+        cfg = SimpleNamespace(reversed_dir=tmp_path, metadata_dir=tmp_path.parent, source_ext=".c")
         result = _resolve_source(str(src), cfg)
         assert result == src
 
     def test_symbol_search_finds_stem_match(self, tmp_path: Path) -> None:
         src = tmp_path / "my_func.c"
         src.write_text("// FUNCTION: GAME 0x1000\nint my_func(void) { return 0; }\n")
-        cfg = SimpleNamespace(reversed_dir=tmp_path, source_ext=".c")
+        cfg = SimpleNamespace(reversed_dir=tmp_path, metadata_dir=tmp_path.parent, source_ext=".c")
         result = _resolve_source("my_func", cfg)
         assert result == src
 
     def test_symbol_search_strips_leading_underscore(self, tmp_path: Path) -> None:
         src = tmp_path / "my_func.c"
         src.write_text("// FUNCTION: GAME 0x1000\nint my_func(void) { return 0; }\n")
-        cfg = SimpleNamespace(reversed_dir=tmp_path, source_ext=".c")
+        cfg = SimpleNamespace(reversed_dir=tmp_path, metadata_dir=tmp_path.parent, source_ext=".c")
         result = _resolve_source("_my_func", cfg)
         assert result == src
 
     def test_nonexistent_returns_path_as_is(self, tmp_path: Path) -> None:
-        cfg = SimpleNamespace(reversed_dir=tmp_path, source_ext=".c")
+        cfg = SimpleNamespace(reversed_dir=tmp_path, metadata_dir=tmp_path.parent, source_ext=".c")
         result = _resolve_source("no_such_func", cfg)
         # Returns Path("no_such_func") which doesn't exist — caller handles it
         assert result == Path("no_such_func")
@@ -130,9 +130,9 @@ class TestProveCLIStatusGuard:
         src_dir.mkdir()
         src = src_dir / "foo.c"
         src.write_text("// FUNCTION: GAME 0x00001000\nint __cdecl foo(void) { return 0; }\n")
-        # Write status to sidecar
-        sidecar = src_dir / "rebrew-function.toml"
-        sidecar.write_text(f'["GAME.0x00001000"]\nstatus = "{status}"\nsize = 16\n')
+        # Write status to metadata
+        metadata_toml = src_dir / "rebrew-function.toml"
+        metadata_toml.write_text(f'["GAME.0x00001000"]\nstatus = "{status}"\nsize = 16\n')
         # Fake binary
         (tmp_path / "game.exe").write_bytes(b"\x00" * 512)
         return tmp_path, src

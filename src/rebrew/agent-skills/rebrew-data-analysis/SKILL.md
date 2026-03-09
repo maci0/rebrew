@@ -16,12 +16,12 @@ rebrew data --summary --json            # section-level summary (sizes, counts)
 rebrew data --conflicts --json          # type conflicts: same VA, different types across files
 rebrew data --dispatch --json           # detect dispatch tables / vtables in .data/.rdata
 rebrew data --bss --json                # verify .bss layout, detect gaps from missing externs
-rebrew data --fix-bss                   # auto-generate bss_padding.c + write SIZE/SECTION/NOTE to sidecar
+rebrew data --fix-bss                   # auto-generate bss_padding.c + write SIZE/SECTION/NOTE to metadata file
 ```
 
 ## DATA Annotations
 
-DATA metadata lives in a **`rebrew-data.toml` sidecar** found via walk-up from the  file's directory (a single file at the source root serves all subdirectories).
+DATA metadata lives in a **`rebrew-data.toml` metadata file** found via walk-up from the  file's directory (a single file at the source root serves all subdirectories).
 Only the stable marker line stays in the `.c` file:
 
 **`.c` file:**

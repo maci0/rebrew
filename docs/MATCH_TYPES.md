@@ -1,6 +1,6 @@
 # Function Status Reference
 
-All function statuses are stored in the `rebrew-function.toml` sidecar, keyed by hex VA.
+All function statuses are stored in the `rebrew-function.toml` metadata, keyed by hex VA.
 The `.c` file contains only the stable `// FUNCTION: MODULE 0xVA` marker line.
 
 ## Status Overview
@@ -23,7 +23,7 @@ UNDOCUMENTED  →  STUB  →  MATCHING  →  RELOC  →  EXACT
 | `RELOC` | 100% (masked) | `rebrew test` | ✅ Yes |
 | `EXACT` | 100% (raw) | `rebrew test` | ✅ Yes |
 | `PROVEN` | Semantic | `rebrew prove` | ✅ Yes |
-| `SKIP` | N/A | Manual (sidecar) | ✅ Yes (excluded) |
+| `SKIP` | N/A | Manual (metadata) | ✅ Yes (excluded) |
 
 ---
 
@@ -31,14 +31,14 @@ UNDOCUMENTED  →  STUB  →  MATCHING  →  RELOC  →  EXACT
 
 Function exists in `function_structure.json` but no `.c` file has been created yet.
 This is the implicit starting state — rebrew tracks it from the function list, not the
-sidecar. Tools like `rebrew todo` surface these as action items.
+metadata. Tools like `rebrew todo` surface these as action items.
 
 ```bash
 rebrew todo --json          # find next UNDOCUMENTED function to start
 rebrew skeleton 0x10008880  # generate .c skeleton → transitions to STUB
 ```
 
-No sidecar entry exists yet. Coverage dashboard shows these as "untouched".
+No metadata entry exists yet. Coverage dashboard shows these as "untouched".
 
 ---
 
@@ -69,7 +69,7 @@ The compiled output is ≥ 75% byte-similar to the target but has structural dif
 that persist after relocation masking — different register allocation, different loop
 structure, different branch ordering.
 
-`rebrew match --fix-blocker` auto-classifies the difference type and writes it to the sidecar:
+`rebrew match --fix-blocker` auto-classifies the difference type and writes it to the metadata:
 
 ```toml
 ["SERVER.0x10008880"]

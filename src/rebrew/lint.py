@@ -25,11 +25,11 @@ from rebrew.annotation import (
     BLOCK_KV_RE,
     JAVADOC_ADDR_RE,
     JAVADOC_KV_RE,
+    METADATA_KEYS,
     NEW_FUNC_CAPTURE_RE,
     NEW_FUNC_RE,
     NEW_KV_RE,
     OLD_RE,
-    SIDECAR_KEYS,
     VALID_MARKERS,
     VALID_STATUSES,
     marker_for_module,
@@ -271,9 +271,9 @@ def _check_E013_duplicate_va(
 
 
 def _check_E003_E004_status(result: LintResult, found_keys: dict[str, str]) -> None:
-    # STATUS is a special key: it is in REQUIRED_KEYS (not SIDECAR_KEYS), yet
+    # STATUS is a special key: it is in REQUIRED_KEYS (not METADATA_KEYS), yet
     # it can be supplied from either the inline annotation OR the rebrew-function.toml
-    # sidecar.  The sidecar overlay in lint_file() injects STATUS into found_keys
+    # metadata.  The metadata overlay in lint_file() injects STATUS into found_keys
     # before this check runs, so E003 only fires when STATUS is absent from both.
     if "STATUS" not in found_keys:
         result.error(result.marker_line, "E003", "Missing // STATUS: annotation")
@@ -329,7 +329,7 @@ def _check_E017_contradictory(result: LintResult, status: str, marker: str) -> N
 
 
 def _check_W005_blocker(result: LintResult, status: str, found_keys: dict[str, str]) -> None:
-    # BLOCKER lives in rebrew-function.toml sidecar; the sidecar overlay already injects it
+    # BLOCKER lives in rebrew-function.toml metadata; the metadata overlay already injects it
     # into found_keys before this check runs, so this fires only when absent from both.
     if status == "STUB" and "BLOCKER" not in found_keys:
         result.warning(
@@ -400,38 +400,38 @@ def _check_W017_note_rebrew(result: LintResult, found_keys: dict[str, str]) -> N
         )
 
 
-# Keys owned by data_sidecar (rebrew-data.toml) rather than the function sidecar.
+# Keys owned by data_metadata (rebrew-data.toml) rather than the function metadata.
 # Maps uppercase annotation key -> lowercase TOML field name.
-_DATA_SIDECAR_KEY_MAP: dict[str, str] = {"SIZE": "size", "SECTION": "section", "NOTE": "note"}
+_DATA_METADATA_KEY_MAP: dict[str, str] = {"SIZE": "size", "SECTION": "section", "NOTE": "note"}
 
 
-def _check_W019_inline_sidecar_keys(
+def _check_W019_inline_metadata_keys(
     result: LintResult,
     found_keys: dict[str, str],
-    sidecar_sourced_keys: set[str],
+    metadata_sourced_keys: set[str],
     marker: str = "",
 ) -> None:
     """Warn when a rebrew-specific annotation key appears inline in source.
 
-    These keys must live exclusively in the appropriate sidecar TOML file.
+    These keys must live exclusively in the appropriate metadata TOML file.
     DATA/GLOBAL annotations write SIZE/SECTION/NOTE to ``rebrew-data.toml``;
     function annotations write everything else to ``rebrew-function.toml``.
     """
     is_data = marker in ("DATA", "GLOBAL")
-    for key in SIDECAR_KEYS:
-        if key in found_keys and key not in sidecar_sourced_keys:
-            # Choose the right sidecar filename for this key.
-            if is_data and key in _DATA_SIDECAR_KEY_MAP:
+    for key in METADATA_KEYS:
+        if key in found_keys and key not in metadata_sourced_keys:
+            # Choose the right metadata filename for this key.
+            if is_data and key in _DATA_METADATA_KEY_MAP:
                 toml_file = "rebrew-data.toml"
-            elif key in _DATA_SIDECAR_KEY_MAP and not is_data:
-                # SECTION/NOTE/SIZE on a function marker → still goes to functions sidecar
+            elif key in _DATA_METADATA_KEY_MAP and not is_data:
+                # SECTION/NOTE/SIZE on a function marker → still goes to functions metadata
                 toml_file = "rebrew-function.toml"
             else:
                 toml_file = "rebrew-function.toml"
             result.warning(
                 result.marker_line,
                 "W019",
-                f"Inline // {key}: annotation must move to {toml_file} sidecar",
+                f"Inline // {key}: annotation must move to {toml_file}",
             )
 
 
@@ -503,19 +503,19 @@ def lint_file(
             ({}, {"has_new": False, "has_old": False, "has_block": False, "has_javadoc": False})
         ]
 
-    # Load the per-directory sidecar once so all annotation blocks in this file can use it.
+    # Load the per-directory metadata once so all annotation blocks in this file can use it.
     # Keys in the result: (module, va_int) -> {toml_field: value}
-    from rebrew.sidecar import load_sidecar as _load_sidecar
+    from rebrew.metadata import load_metadata as _load_metadata
 
-    _sidecar_entries = _load_sidecar(filepath.parent)
+    _metadata_entries = _load_metadata(cfg.metadata_dir if cfg else filepath.parent)
 
-    # Also load the data sidecar for DATA/GLOBAL annotations.
-    from rebrew.data_sidecar import load_data_sidecar as _load_data_sidecar
+    # Also load the data metadata for DATA/GLOBAL annotations.
+    from rebrew.data_metadata import load_data_metadata as _load_data_metadata
 
-    _data_sidecar_entries = _load_data_sidecar(filepath.parent)
+    _data_metadata_entries = _load_data_metadata(cfg.metadata_dir if cfg else filepath.parent)
 
     # TOML field name -> uppercase found_keys name mapping
-    _SIDECAR_TO_FOUND: dict[str, str] = {
+    _METADATA_TO_FOUND: dict[str, str] = {
         "status": "STATUS",
         "size": "SIZE",
         "cflags": "CFLAGS",
@@ -536,24 +536,24 @@ def lint_file(
         mod = found_keys.get("MODULE", "")
         va_str = found_keys.get("VA", "")
 
-        # Overlay sidecar fields into found_keys for this annotation block.
-        # Sidecar always wins for the fields it owns (STATUS, SIZE, CFLAGS, etc.),
+        # Overlay metadata fields into found_keys for this annotation block.
+        # Metadata always wins for the fields it owns (STATUS, SIZE, CFLAGS, etc.),
         # but we only overlay if the key is not already present inline — this lets
         # any remaining inline annotation (from files not yet fully migrated) take
         # precedence so the check accurately reflects what the compiler will see.
-        # We also track which keys were supplied by the sidecar (vs inline) so
+        # We also track which keys were supplied by the metadata (vs inline) so
         # that W019 can distinguish between a key that must be migrated and one
-        # that is correctly sidecar-only.
-        _sidecar_sourced_keys: set[str] = set()
+        # that is correctly metadata-only.
+        _metadata_sourced_keys: set[str] = set()
         if mod and va_str:
             try:
                 _va_int = int(va_str, 16)
-                _sidecar_override = _sidecar_entries.get((mod, _va_int), {})
-                for _toml_key, _found_key in _SIDECAR_TO_FOUND.items():
-                    if _toml_key in _sidecar_override:
+                _metadata_override = _metadata_entries.get((mod, _va_int), {})
+                for _toml_key, _found_key in _METADATA_TO_FOUND.items():
+                    if _toml_key in _metadata_override:
                         if _found_key not in found_keys:
-                            found_keys[_found_key] = str(_sidecar_override[_toml_key])
-                        _sidecar_sourced_keys.add(_found_key)
+                            found_keys[_found_key] = str(_metadata_override[_toml_key])
+                        _metadata_sourced_keys.add(_found_key)
             except (ValueError, KeyError):
                 pass
 
@@ -582,18 +582,18 @@ def lint_file(
             if marker not in ("GLOBAL", "DATA"):
                 _check_E003_E004_status(result, found_keys)
                 _check_W018_cflags(result, found_keys, cfg)
-                # SIZE check removed: // SIZE: is now sidecar-only, not required in source.
+                # SIZE check removed: // SIZE: is now metadata-only, not required in source.
             else:
-                # For DATA/GLOBAL: overlay data sidecar fields (size, section, note)
+                # For DATA/GLOBAL: overlay data metadata fields (size, section, note)
                 if va_int is not None and mod:
-                    _ds_override = _data_sidecar_entries.get((mod, va_int), {})
+                    _ds_override = _data_metadata_entries.get((mod, va_int), {})
                     _DS_TO_FOUND = {"size": "SIZE", "section": "SECTION", "note": "NOTE"}
                     for _ds_key, _ds_found_key in _DS_TO_FOUND.items():
                         if _ds_key in _ds_override:
                             if _ds_found_key not in found_keys:
                                 found_keys[_ds_found_key] = str(_ds_override[_ds_key])
-                            # Mark as sidecar-sourced so W019 doesn't fire for these
-                            _sidecar_sourced_keys.add(_ds_found_key)
+                            # Mark as metadata-sourced so W019 doesn't fire for these
+                            _metadata_sourced_keys.add(_ds_found_key)
 
             module = found_keys.get("MODULE", "")
             status = found_keys.get("STATUS", "")
@@ -614,7 +614,7 @@ def lint_file(
             _check_W015_va_case(result, va_str)
             _check_W016_section(result, marker, found_keys)
             _check_W017_note_rebrew(result, found_keys)
-            _check_W019_inline_sidecar_keys(result, found_keys, _sidecar_sourced_keys, marker)
+            _check_W019_inline_metadata_keys(result, found_keys, _metadata_sourced_keys, marker)
 
     result.context_prefix = ""
     _check_body_rules(result, lines, all_headers[0][1]["has_new"] if all_headers else False)
@@ -655,17 +655,17 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
             cflags_parts.append("/Gd")
         cflags = " ".join(cflags_parts)
         # Write only the marker + STATUS inline; route CFLAGS and other volatile
-        # fields to the sidecar so the .c file stays clean.
+        # fields to the metadata so the .c file stays clean.
         annotation = f"// {marker}: {cfg.marker} {va_str}\n// STATUS: {status}\n"
         if cflags:
-            # Write CFLAGS to sidecar
+            # Write CFLAGS to metadata
             try:
-                from rebrew.sidecar import set_field as _set_field
+                from rebrew.metadata import update_field as _update_field
 
                 va_int = int(va_str, 16)
-                _set_field(filepath.parent, va_int, "cflags", cflags, module=cfg.marker)
+                _update_field(cfg.metadata_dir, va_int, "cflags", cflags, module=cfg.marker)
             except (OSError, ValueError, KeyError):
-                # Sidecar write failure is non-fatal; fall back to inline for now
+                # Metadata write failure is non-fatal; fall back to inline for now
                 annotation += f"// CFLAGS: {cflags}\n"
 
         new_text = annotation + "".join(lines[1:])
@@ -700,23 +700,23 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
         va_str = found_keys.get("VA", "0x0")
         status = found_keys.get("STATUS", "RELOC")
         # Build a clean annotation: only marker + STATUS inline.
-        # Route CFLAGS and other sidecar fields to rebrew-function.toml.
+        # Route CFLAGS and other metadata fields to rebrew-function.toml.
         annotation = f"// {marker}: {module} {va_str}\n// STATUS: {status}\n"
         try:
-            from rebrew.sidecar import set_field as _set_field
+            from rebrew.metadata import update_field as _update_field
 
             va_int = int(va_str, 16)
             for _extra_key in ("CFLAGS", "BLOCKER", "SOURCE", "NOTE", "SKIP"):
                 if _extra_key in found_keys and found_keys[_extra_key]:
-                    _set_field(
-                        filepath.parent,
+                    _update_field(
+                        cfg.metadata_dir,
                         va_int,
                         _extra_key.lower(),
                         found_keys[_extra_key],
                         module=module,
                     )
         except (OSError, ValueError, KeyError):
-            # Sidecar write failure: fall back to inline for sidecar keys
+            # Metadata write failure: fall back to inline for metadata keys
             for extra_key in ("CFLAGS", "BLOCKER", "SOURCE", "NOTE", "SKIP"):
                 if extra_key in found_keys:
                     annotation += f"// {extra_key}: {found_keys[extra_key]}\n"
@@ -763,12 +763,12 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
             atomic_write_text(filepath, new_text, encoding="utf-8")
             return True
 
-    # --- W019: new-format files with inline sidecar keys ---
+    # --- W019: new-format files with inline metadata keys ---
     # Segment the file into annotation blocks, then for each block strip any
-    # sidecar-owned inline keys and route them to the correct TOML.
+    # metadata-owned inline keys and route them to the correct TOML.
     # This handles multi-annotation files (e.g. globals.c) correctly because
     # each block's VA and marker type are resolved independently.
-    from rebrew.annotation import SIDECAR_KEYS as _SIDECAR_KEYS
+    from rebrew.annotation import METADATA_KEYS as _METADATA_KEYS
 
     _drop_lines: set[int] = set()
     _any_migrated = False
@@ -810,9 +810,9 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
 
         _is_data = _marker_type in ("GLOBAL", "DATA")
 
-        # Collect inline sidecar keys within this block's KV lines only.
+        # Collect inline metadata keys within this block's KV lines only.
         # KV lines are consecutive `// KEY: value` lines immediately after the marker.
-        _block_sidecar: dict[str, str] = {}
+        _block_metadata: dict[str, str] = {}
         for _li in range(_bstart + 1, _bend):
             _stripped = lines[_li].strip()
             if not _stripped or not _stripped.startswith("//"):
@@ -821,52 +821,78 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
             if not _km:
                 break
             _k = _km.group("key").upper()
-            if _k in _SIDECAR_KEYS:
-                _block_sidecar[_k] = _km.group("value").strip()
+            if _k in _METADATA_KEYS:
+                _block_metadata[_k] = _km.group("value").strip()
                 _drop_lines.add(_li)
 
-        if not _block_sidecar:
+        if not _block_metadata:
             continue
 
-        # Write sidecar keys to the appropriate TOML.
+        # Write metadata keys to the appropriate TOML.
         try:
             if _is_data:
-                from rebrew.data_sidecar import set_data_field as _set_data_field
+                from rebrew.data_metadata import set_data_field as _set_data_field
 
-                for _k, _toml_k in _DATA_SIDECAR_KEY_MAP.items():
-                    if _k in _block_sidecar:
+                for _k, _toml_k in _DATA_METADATA_KEY_MAP.items():
+                    if _k in _block_metadata:
                         _set_data_field(
-                            filepath.parent, _va_int, _toml_k, _block_sidecar[_k], module=_module
+                            cfg.metadata_dir if cfg else filepath.parent,
+                            _va_int,
+                            _toml_k,
+                            _block_metadata[_k],
+                            module=_module,
                         )
                 _remaining = {
-                    k: v for k, v in _block_sidecar.items() if k not in _DATA_SIDECAR_KEY_MAP
+                    k: v for k, v in _block_metadata.items() if k not in _DATA_METADATA_KEY_MAP
                 }
                 if _remaining:
-                    from rebrew.sidecar import set_field as _set_field2
+                    from rebrew.metadata import update_field as _update_field2
 
                     for _k, _v in _remaining.items():
-                        _set_field2(filepath.parent, _va_int, _k.lower(), _v, module=_module)
-            else:
-                from rebrew.sidecar import set_field as _set_field
+                        if _k == "STATUS":
+                            from rebrew.metadata import update_source_status as _update_status2
 
-                for _k, _v in _block_sidecar.items():
-                    _set_field(filepath.parent, _va_int, _k.lower(), _v, module=_module)
+                            _update_status2(filepath, _v, _module, _va_int)
+                        else:
+                            _update_field2(
+                                cfg.metadata_dir if cfg else filepath.parent,
+                                _va_int,
+                                _k.lower(),
+                                _v,
+                                module=_module,
+                            )
+            else:
+                from rebrew.metadata import update_field as _update_field
+
+                for _k, _v in _block_metadata.items():
+                    if _k == "STATUS":
+                        from rebrew.metadata import update_source_status as _update_status
+
+                        _update_status(filepath, _v, _module, _va_int)
+                    else:
+                        _update_field(
+                            cfg.metadata_dir if cfg else filepath.parent,
+                            _va_int,
+                            _k.lower(),
+                            _v,
+                            module=_module,
+                        )
             _any_migrated = True
         except (OSError, ValueError, KeyError):
-            # Sidecar write failure for this block — skip stripping its lines
+            # Metadata write failure for this block — skip stripping its lines
             _drop_lines -= {
                 _li
                 for _li in range(_bstart + 1, _bend)
                 if (
                     (_km2 := NEW_KV_RE.match(lines[_li].strip()))
-                    and _km2.group("key").upper() in _block_sidecar
+                    and _km2.group("key").upper() in _block_metadata
                 )
             }
 
     if not _any_migrated:
         return False
 
-    # Write the stripped source file (remove inline sidecar key lines).
+    # Write the stripped source file (remove inline metadata key lines).
     new_text = "".join(line for li, line in enumerate(lines) if li not in _drop_lines)
     atomic_write_text(filepath, new_text, encoding="utf-8")
     return True
@@ -935,7 +961,7 @@ W016   DATA/GLOBAL missing SECTION annotation
 
 W017   NOTE contains [rebrew] sync metadata
 
-W019   Inline annotation that must live in rebrew-function.toml sidecar
+W019   Inline annotation that must live in rebrew-function.toml metadata
 
 W010   Unknown annotation key
 

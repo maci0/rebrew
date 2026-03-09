@@ -590,7 +590,9 @@ def pull_ghidra_renames(
                         pass  # proceed with updating to ghidra_name
                     elif accept_local:
                         if not dry_run:
-                            update_annotation_key(filepath, va, "GHIDRA", ghidra_name)
+                            update_annotation_key(
+                                filepath, va, "GHIDRA", ghidra_name, metadata_dir=cfg.metadata_dir
+                            )
                         change = PullChange(
                             va=va,
                             field="GHIDRA",
@@ -670,13 +672,13 @@ def pull_ghidra_renames(
                                 dry_run=dry_run,
                             )
                         else:
-                            # DATA/GLOBAL entries — write name to rebrew-data.toml sidecar
+                            # DATA/GLOBAL entries — write name to rebrew-data.toml metadata
                             module = entry.get("module", "")
                             if module and not dry_run:
-                                from rebrew.data_sidecar import set_data_field
+                                from rebrew.data_metadata import set_data_field
 
                                 set_data_field(
-                                    filepath.parent,
+                                    cfg.reversed_dir,
                                     va,
                                     "name",
                                     ghidra_name,
@@ -715,25 +717,27 @@ def pull_ghidra_renames(
                 else:
                     marker_type = entry.get("marker_type", "FUNCTION")
                     if marker_type in ("DATA", "GLOBAL"):
-                        # DATA/GLOBAL notes go to rebrew-data.toml sidecar
+                        # DATA/GLOBAL notes go to rebrew-data.toml metadata
                         module = entry.get("module", "")
                         if module:
-                            from rebrew.data_sidecar import set_data_field
+                            from rebrew.data_metadata import set_data_field
 
-                            set_data_field(filepath.parent, va, "note", sanitized, module)
+                            set_data_field(cfg.metadata_dir, va, "note", sanitized, module)
                             change = PullChange(
                                 va=va,
                                 field="NOTE",
                                 local_value=local_note,
                                 ghidra_value=sanitized,
                                 filepath=str(filepath.name),
-                                action="update (data sidecar)",
+                                action="update (data metadata)",
                             )
                             result.changes.append(change)
                             result.updated += 1
                             if not json_output:
                                 print(f"  Updated NOTE in rebrew-data.toml at 0x{va:08x}")
-                    elif update_annotation_key(filepath, va, "NOTE", sanitized):
+                    elif update_annotation_key(
+                        filepath, va, "NOTE", sanitized, metadata_dir=cfg.metadata_dir
+                    ):
                         change = PullChange(
                             va=va,
                             field="NOTE",
@@ -957,7 +961,9 @@ def _pull_prototypes(
                         continue
 
                     if not dry_run:
-                        update_annotation_key(fp, va, "PROTOTYPE", sig)
+                        update_annotation_key(
+                            fp, va, "PROTOTYPE", sig, metadata_dir=cfg.metadata_dir
+                        )
 
                         if replace_externs:
                             # Replace externs across the project
@@ -1215,7 +1221,9 @@ def _pull_comments(
                 continue
 
             if not dry_run:
-                update_annotation_key(fp, entry_va, "ANALYSIS", combined_comments)
+                update_annotation_key(
+                    fp, entry_va, "ANALYSIS", combined_comments, metadata_dir=cfg.metadata_dir
+                )
             console.print(
                 f"  [green]Pulled comment[/green] for 0x{entry_va:x}: {combined_comments[:80]}..."
             )

@@ -36,7 +36,7 @@ int stub(void) { return 0; }
 > - `rebrew diff --fix-blocker` → BLOCKER / BLOCKER_DELTA
 > - `rebrew sync --pull` → NOTE, GHIDRA
 
-## What goes in `rebrew-function.toml` sidecar
+## What goes in `rebrew-function.toml` metadata file
 
 ```toml
 ["SERVER.0x10008880"]
@@ -51,10 +51,10 @@ blocker = "missing CRT internals"
 source = "ENVIRON.C"
 ```
 
-The sidecar file is found automatically by all rebrew tools via walk-up from the
+The metadata file is found automatically by all rebrew tools via walk-up from the
 source file's directory (climbs parent dirs until `rebrew-function.toml` is found),
 so a single file at a project root can serve all subdirectories. This includes **`rebrew lint`**,
-which reads the sidecar before validation so that STATUS, SIZE, CFLAGS etc. are accessible
+which reads the metadata file before validation so that STATUS, SIZE, CFLAGS etc. are accessible
 even when not present inline.
 
 ## Status Progression
@@ -75,7 +75,7 @@ Same function body, multiple marker lines:
 void my_func() {}
 ```
 
-Each target has its own sidecar entry, keyed by `MODULE.0xVA`:
+Each target has its own metadata file entry, keyed by `MODULE.0xVA`:
 
 ```toml
 # A single rebrew-function.toml found via walk-up (e.g. at src/server.dll/):
@@ -96,7 +96,7 @@ marker line.
 
 ## Data Annotations
 
-DATA/GLOBAL metadata lives in a **`rebrew-data.toml` sidecar** — the data
+DATA/GLOBAL metadata lives in a **`rebrew-data.toml` metadata file** — the data
 analogue of `rebrew-function.toml`. Only the stable marker line stays in
 the `.c` file:
 

@@ -18,6 +18,9 @@ runner = CliRunner()
 # ---------------------------------------------------------------------------
 
 _TOML_CFG = """
+[project]
+default_target = "server"
+
 [targets.server]
 binary = "server.dll"
 reversed_dir = "src"

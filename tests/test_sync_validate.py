@@ -113,6 +113,9 @@ class TestConfigGhidraPath:
         root = self._make_project(
             tmp_path,
             """\
+[project]
+default_target = "main"
+
 [targets.main]
 binary = "game.exe"
 ghidra_program_path = "/Project/game.exe"
@@ -125,6 +128,9 @@ ghidra_program_path = "/Project/game.exe"
         root = self._make_project(
             tmp_path,
             """\
+[project]
+default_target = "main"
+
 [targets.main]
 binary = "game.exe"
 """,

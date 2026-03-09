@@ -5,7 +5,7 @@ target binary.  Results are classified by :class:`~rebrew.compile.CompareResult`
 (EXACT, RELOC, MISMATCH, COMPILE_ERROR, …).
 
 With ``--fix-status`` the tool promotes STATUS in ``rebrew-function.toml``
-via :func:`~rebrew.sidecar.update_source_status` — the ``.c`` files are
+via :func:`~rebrew.metadata.update_source_status` — the ``.c`` files are
 **never modified**.
 
 With ``--compare`` it compares the current run against the last saved
@@ -39,7 +39,7 @@ from rebrew.catalog import (
 )
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
-from rebrew.sidecar import update_source_status
+from rebrew.metadata import update_source_status
 from rebrew.utils import atomic_write_text
 
 # ---------------------------------------------------------------------------
@@ -285,7 +285,7 @@ def _save_verify_cache(
 ) -> None:
     filepath_info: dict[str, tuple[int, str]] = {}
     for entry in entries:
-        relative_path = entry.get("filepath", "")
+        relative_path = getattr(entry, "filepath", "")
         if not relative_path:
             continue
         filepath = cfg.reversed_dir / relative_path
@@ -638,10 +638,10 @@ def _prepare_entries(
     data_count = 0
     library_header_count = 0
     for entry in sorted(entries, key=lambda x: x.va):
-        if entry.get("marker_type", "FUNCTION") in ("DATA", "GLOBAL"):
+        if getattr(entry, "marker_type", "FUNCTION") in ("DATA", "GLOBAL", "BSS", "RODATA", "VTBL"):
             data_count += 1
             continue
-        fp = entry.get("filepath", "")
+        fp = getattr(entry, "filepath", "")
         if fp and fp.endswith(".h"):
             library_header_count += 1
             continue
@@ -649,7 +649,7 @@ def _prepare_entries(
             seen_vas.add(entry.va)
             unique_entries.append(entry)
     if data_count and not json_output:
-        console.print(f"Skipped {data_count} DATA/GLOBAL annotations (not compilable)")
+        console.print(f"Skipped {data_count} DATA/GLOBAL/BSS/RODATA/VTBL entries (not compilable)")
     if library_header_count and not json_output:
         console.print(
             f"Skipped {library_header_count} library header entries (identified, not compiled)"
@@ -674,10 +674,10 @@ def _prepare_entries(
         if cached_entry is None:
             continue
 
-        if cached_entry.filepath != entry.get("filepath"):
+        if cached_entry.filepath != getattr(entry, "filepath", ""):
             continue
 
-        filepath = cfg.reversed_dir / entry.get("filepath", "")
+        filepath = cfg.reversed_dir / getattr(entry, "filepath", "")
         if not filepath.exists():
             continue
 
@@ -757,9 +757,8 @@ def _run_verification(
                 try:
                     entry, result = future.result()
                 except Exception as exc:
-                    entry = futures[future]
                     typer.echo(
-                        f"WARNING: internal error verifying {entry.get('name', '?')}: {exc}",
+                        f"WARNING: internal error verifying {getattr(entry, 'name', '?')}: {exc}",
                         err=True,
                     )
                     from rebrew.compile import CompareResult
@@ -789,8 +788,8 @@ def _run_verification(
                     {
                         "va": f"0x{entry.va:08x}",
                         "name": name,
-                        "filepath": entry.get("filepath", ""),
-                        "size": entry.get("size", 0),
+                        "filepath": getattr(entry, "filepath", ""),
+                        "size": getattr(entry, "size", 0),
                         "status": result.status,
                         "message": result.message,
                         "passed": result.matched,
@@ -806,19 +805,21 @@ def _apply_status_fixes(
     deferred_fixes: list[tuple[Annotation, str, int]],
     cfg: Any,
 ) -> None:
-    """Apply --fix-status sidecar updates after all compilation is complete."""
+    """Apply --fix-status metadata updates after all compilation is complete."""
     for entry, status, _delta in deferred_fixes:
-        fp = cfg.reversed_dir / entry.get("filepath", "")
+        fp = cfg.reversed_dir / getattr(entry, "filepath", "")
         if not fp.exists():
             continue
         module: str = getattr(entry, "module", "") or ""
         if not module:
             continue
-        current_status = entry.get("status", "")
+        current_status = getattr(entry, "status", "")
         if status in ("EXACT", "RELOC") and current_status != status:
-            update_source_status(fp, status, module, entry.va, clear_blockers=True)
+            update_source_status(cfg.metadata_dir, status, module, entry.va, clear_blockers=True)
         elif status == "MISMATCH" and current_status in ("EXACT", "RELOC"):
-            update_source_status(fp, "MATCHING", module, entry.va, clear_blockers=False)
+            update_source_status(
+                cfg.metadata_dir, "MATCHING", module, entry.va, clear_blockers=False
+            )
 
 
 def _print_results(
@@ -945,8 +946,8 @@ def _print_results(
         for entry, msg in sorted(fail_details, key=_fail_sort_key):
             res_dict = res_by_va.get(entry.va)
             st = str(res_dict["status"]) if res_dict else "FAIL"
-            fp = entry.get("filepath", "")
-            ln = entry.get("line", 0)
+            fp = getattr(entry, "filepath", "")
+            ln = getattr(entry, "line", 0)
             fp_suffix = f" [dim]({fp}:{ln})[/]" if fp and ln else f" [dim]({fp})[/]" if fp else ""
             if st == "MISMATCH":
                 match_pct = float(res_dict.get("match_percent", 0.0)) if res_dict else 0.0

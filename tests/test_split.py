@@ -12,7 +12,9 @@ runner = CliRunner()
 
 
 def _make_cfg(tmp_path: Path, marker: str = "SERVER") -> Any:
-    return SimpleNamespace(marker=marker, source_ext=".c", reversed_dir=tmp_path)
+    return SimpleNamespace(
+        marker=marker, source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path.parent
+    )
 
 
 def _write(path: Path, content: str) -> Path:

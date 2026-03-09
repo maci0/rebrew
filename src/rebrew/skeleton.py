@@ -6,7 +6,7 @@ Given a VA address, generates a properly annotated .c file skeleton with:
 - The exact rebrew test command to verify it
 
 All volatile metadata (STATUS, SIZE, CFLAGS, BLOCKER) is written to the
-``rebrew-function.toml`` sidecar by this generator, not into the .c file.
+``rebrew-function.toml`` metadata by this generator, not into the .c file.
 
 Usage:
     rebrew skeleton 0x10003da0                    # Auto-detect origin
@@ -406,7 +406,7 @@ rebrew skeleton --list --origin ZLIB           List uncovered ZLIB functions
 
 A .c file with a single marker line (``// FUNCTION: MODULE 0xVA``) and a
 placeholder function body.  All volatile metadata (STATUS, SIZE, CFLAGS,
-BLOCKER) is written to the ``rebrew-function.toml`` sidecar alongside the
+BLOCKER) is written to the ``rebrew-function.toml`` metadata alongside the
 .c file, not into the file itself.
 
 With --append, the annotation block is appended to an existing .c file,
@@ -577,7 +577,7 @@ def main(
 
         if not force:
             existing_in_file = parse_c_file_multi(
-                append_path, target_name=target_marker(cfg), sidecar_dir=append_path.parent
+                append_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
             )
             for entry in existing_in_file:
                 if entry.va == va_int:
@@ -742,7 +742,7 @@ def main(
         )
         console.print("  4. Run the test command above to check match")
         console.print("  5. Update STATUS from STUB to EXACT/RELOC/MATCHING based on result")
-        console.print("  6. If MATCHING, add BLOCKER annotation explaining the difference")
+        console.print("  6. If MATCHING, add BLOCKER metadata explaining the difference")
 
 
 def main_entry() -> None:

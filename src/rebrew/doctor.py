@@ -445,6 +445,31 @@ def check_source_files(cfg: ProjectConfig) -> CheckResult:
     )
 
 
+def check_metadata_files(cfg: ProjectConfig) -> CheckResult:
+    """Check that rebrew-function.toml and rebrew-data.toml exist in reversed_dir."""
+    reversed_dir: Path = cfg.metadata_dir
+    func_toml = reversed_dir / "rebrew-function.toml"
+    data_toml = reversed_dir / "rebrew-data.toml"
+    missing: list[str] = []
+    if not func_toml.exists():
+        missing.append("rebrew-function.toml")
+    if not data_toml.exists():
+        missing.append("rebrew-data.toml")
+
+    if missing:
+        return CheckResult(
+            name="Metadata TOML",
+            status=_WARN,
+            message=f"Missing in {reversed_dir}: {', '.join(missing)}",
+            fix=f"Create with: touch {' '.join(str(reversed_dir / f) for f in missing)}",
+        )
+    return CheckResult(
+        name="Metadata TOML",
+        status=_PASS,
+        message=f"rebrew-function.toml + rebrew-data.toml in {reversed_dir}",
+    )
+
+
 def check_bin_dir(cfg: ProjectConfig) -> CheckResult:
     """Check that the output bin directory exists or can be created."""
     bin_dir: Path = cfg.bin_dir
@@ -506,6 +531,9 @@ def run_doctor(target: str | None = None) -> DoctorReport:
 
     # 9. Bin directory
     report.checks.append(check_bin_dir(cfg))
+
+    # 10. Metadata TOML files
+    report.checks.append(check_metadata_files(cfg))
 
     return report
 

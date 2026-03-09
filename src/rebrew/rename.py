@@ -93,7 +93,7 @@ def rename_function_everywhere(
     # 4. Rename file if needed — skip when file has multiple annotations
     #    (renaming would disassociate the other functions from their file).
     if rename_file:
-        multi_function_file = len(parse_c_file_multi(filepath, sidecar_dir=filepath.parent)) > 1
+        multi_function_file = len(parse_c_file_multi(filepath, metadata_dir=filepath.parent)) > 1
         if multi_function_file and not new_filename:
             rename_file = False  # auto-rename unsafe for multi-function files
         if new_filename:

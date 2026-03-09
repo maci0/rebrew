@@ -178,3 +178,19 @@ class TestBytesToPatLine:
         crc1 = line1.split()[2]
         crc2 = line2.split()[2]
         assert crc1 != crc2
+
+
+class TestGenFlirtPatEmptyDirname:
+    """Verify that output paths with no directory component don't crash."""
+
+    def test_output_to_current_dir(self) -> None:
+        """Writing a .pat file to the current directory should not crash."""
+        out_path = Path("output.pat")
+        assert out_path.parent == Path(".")
+
+    def test_output_to_subdir(self, tmp_path: Path) -> None:
+        """Writing a .pat file to a subdirectory should create it."""
+        out_path = tmp_path / "subdir" / "output.pat"
+        assert out_path.parent != Path(".")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        assert out_path.parent.exists()
