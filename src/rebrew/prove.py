@@ -137,6 +137,7 @@ def prove_equivalence(
     # This seeds concrete call targets for the original binary's IAT-indirect calls,
     # preventing angr from creating 256+ symbolic successors.
     STUB_BASE = 0xDEAD0000
+    RETURN_SENTINEL = 0xBAADF00D  # Concrete return address pushed on stack
     iat_stub_map_orig: dict[int, int] = {}  # IAT_addr -> stub_addr
     if binary_path is not None:
         try:
@@ -158,18 +159,38 @@ def prove_equivalence(
     sym_args = [claripy.BVS(f"arg_{i}", 32) for i in range(arg_count)]
 
     def _setup_state(proj: angr.Project, label: str) -> angr.SimState:
-        """Create an initial state with symbolic arguments placed per calling convention."""
-        state = proj.factory.blank_state(addr=0)
-        # Set up a fake stack frame
-        state.regs.esp = 0x7FFF0000
-        state.regs.ebp = 0x7FFF0000
+        """Create an initial state with symbolic arguments placed per calling convention.
+
+        Initialises ESP to a fake stack, pushes a concrete return address so
+        ``ret`` pops a known value instead of unconstrained memory.  Enables
+        zero-fill for uninitialized memory and registers to prevent symbolic
+        pollution from globals, statics, and scratch registers.
+        """
+        state = proj.factory.blank_state(
+            addr=0,
+            add_options={
+                angr.options.ZERO_FILL_UNCONSTRAINED_MEMORY,
+                angr.options.ZERO_FILL_UNCONSTRAINED_REGISTERS,
+            },
+        )
+        # Set up a fake stack frame with a concrete return address.
+        # Layout: [ret_addr] [arg0] [arg1] ...  at ESP.
+        STACK_TOP = 0x7FFF0000
+        state.regs.esp = STACK_TOP
+        state.regs.ebp = STACK_TOP
+
+        # Push return address — 'ret' will pop this, ending execution cleanly
+        state.memory.store(STACK_TOP, claripy.BVV(RETURN_SENTINEL, 32), endness="Iend_LE")
+
+        # Arguments sit above the return address on the stack
+        ARG_OFFSET = 4  # first arg at ESP+4 (after ret addr)
 
         if cc == "thiscall" and sym_args:
             # ECX = this pointer (first arg)
             state.regs.ecx = sym_args[0]
             # Remaining args on stack (right-to-left)
             for i, arg in enumerate(sym_args[1:]):
-                state.memory.store(state.regs.esp + 4 + (i * 4), arg, endness="Iend_LE")
+                state.memory.store(STACK_TOP + ARG_OFFSET + (i * 4), arg, endness="Iend_LE")
         elif cc == "fastcall":
             # ECX = arg0, EDX = arg1, rest on stack
             if len(sym_args) >= 1:
@@ -177,11 +198,11 @@ def prove_equivalence(
             if len(sym_args) >= 2:
                 state.regs.edx = sym_args[1]
             for i, arg in enumerate(sym_args[2:]):
-                state.memory.store(state.regs.esp + 4 + (i * 4), arg, endness="Iend_LE")
+                state.memory.store(STACK_TOP + ARG_OFFSET + (i * 4), arg, endness="Iend_LE")
         else:
             # cdecl / stdcall — all args on stack
             for i, arg in enumerate(sym_args):
-                state.memory.store(state.regs.esp + 4 + (i * 4), arg, endness="Iend_LE")
+                state.memory.store(STACK_TOP + ARG_OFFSET + (i * 4), arg, endness="Iend_LE")
 
         return state
 
@@ -242,6 +263,17 @@ def prove_equivalence(
             except Exception:
                 pass
 
+    # Hook the return sentinel address so states that reach it land in
+    # deadended (clean termination) instead of unconstrained.
+    _path_terminator = angr.SIM_PROCEDURES["stubs"]["PathTerminator"]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        try:
+            proj_comp.hook(RETURN_SENTINEL, _path_terminator(), length=0)
+            proj_orig.hook(RETURN_SENTINEL, _path_terminator(), length=0)
+        except Exception:
+            pass
+
     # Seed IAT slot memory in the original blob's initial state so
     # indirect calls (via register or memory) resolve to our stubs.
     state_orig = _setup_state(proj_orig, "original")
@@ -252,7 +284,7 @@ def prove_equivalence(
 
     def _run_simulation(proj: angr.Project, state: angr.SimState) -> list[Any]:
         """Run symbolic execution and return satisfiable states."""
-        sm = proj.factory.simgr(state)
+        sm = proj.factory.simgr(state, save_unconstrained=True)
         sm.use_technique(angr.exploration_techniques.LoopSeer(bound=loop_bound))
 
         # Step-based timeout — angr's broad except handlers swallow SIGALRM,
@@ -269,18 +301,16 @@ def prove_equivalence(
 
         if timed_out:
             # Return whatever partial states angr reached before the deadline
-            partial = list(sm.active) or list(sm.deadended)
+            partial = list(sm.deadended) or list(sm.active)
             warnings.warn(
                 "Symbolic execution timed out — using partial states",
                 stacklevel=2,
             )
             return cast(list[Any], partial)
-        # Prefer fully-terminated states; fall back to active/unconstrained
-        # if execution ran to completion via a ret with unconstrained target
-        # (typical for bare-blob functions loaded without a call stack).
+        # Prefer fully-terminated states (PathTerminator at RETURN_SENTINEL);
+        # fall back to unconstrained (if sentinel hook missed) or active.
         terminal = list(sm.deadended)
         if not terminal:
-            # ret pops a fake return address → unconstrained EIP; EAX is still valid
             terminal = list(sm.unconstrained) or list(sm.active)
         return cast(list[Any], terminal)
 
