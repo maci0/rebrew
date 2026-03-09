@@ -118,6 +118,10 @@ Key libraries and what they provide:
 - **angr** (`angr`, optional): Symbolic execution engine for `prove.py`. Optional
   dependency (`[project.optional-dependencies].prove`). Import guarded with a clear
   error message. Uses `claripy` for Z3 constraint solving.
+- **tree-sitter** (`tree_sitter`, `tree_sitter_c`): C AST parser for structural
+  extraction of function definitions, extern declarations, and extern variables.
+  Used by `c_parser.py` — never hand-roll regex parsers for C structure when
+  tree-sitter can do it.
 
 ## Project Structure
 
@@ -129,7 +133,8 @@ src/rebrew/
 │                        #   iter_library_headers(), iter_annotations(), error_exit(),
 │                        #   json_print(), parse_va(), source_glob(), target_marker()
 ├── config.py            # ProjectConfig dataclass, rebrew-project.toml loader
-├── annotation.py        # Annotation parsing (dataclass + regex parsers + library header parser)
+├── annotation.py        # Annotation parsing (dataclass + comment parsers + library header parser)
+├── c_parser.py          # Shared tree-sitter C parsing (function defs, extern decls, extern vars)
 ├── compile.py           # Shared compile helpers (compile_to_obj, compile_and_compare → CompareResult, classify_compare_result)
 ├── naming.py            # Shared naming/difficulty/origin helpers (next, skeleton, triage)
 ├── binary_loader.py     # PE/COFF/ELF/Mach-O binary loading + format detection (via LIEF)

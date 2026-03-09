@@ -12,8 +12,8 @@ def _classify_status(ok: bool, msg: str) -> str:
     """Reproduce the status classification logic from verify.py main()."""
     if ok:
         return "RELOC" if "RELOC" in msg else "EXACT"
-    if "MISMATCH" in msg:
-        return "MISMATCH"
+    if "STUB" in msg:
+        return "STUB"
     if "COMPILE_ERROR" in msg:
         return "COMPILE_ERROR"
     if "MISSING_FILE" in msg:
@@ -29,7 +29,7 @@ class TestStatusClassification:
         [
             (True, "EXACT MATCH", "EXACT"),
             (True, "RELOC-NORM MATCH (3 relocs)", "RELOC"),
-            (False, "MISMATCH: 5 byte diffs at [0, 1, 2, 3, 4]", "MISMATCH"),
+            (False, "STUB: 5 byte diffs at [0, 1, 2, 3, 4]", "STUB"),
             (False, "COMPILE_ERROR: Symbol '_foo' not found in .obj", "COMPILE_ERROR"),
             (False, "MISSING_FILE: /path/to/file.c", "MISSING_FILE"),
             (False, "Cannot extract DLL bytes", "FAIL"),
@@ -100,8 +100,8 @@ class TestVerifyJsonReport:
                     "name": "func_b",
                     "filepath": "func_b.c",
                     "size": 200,
-                    "status": "MISMATCH",
-                    "message": "MISMATCH: 3 byte diffs at [0, 1, 2]",
+                    "status": "STUB",
+                    "message": "STUB: 3 byte diffs at [0, 1, 2]",
                     "passed": False,
                 },
             ],
@@ -111,7 +111,7 @@ class TestVerifyJsonReport:
         assert deserialized["summary"]["total"] == 2
         assert len(deserialized["results"]) == 2
         assert deserialized["results"][0]["status"] == "EXACT"
-        assert deserialized["results"][1]["status"] == "MISMATCH"
+        assert deserialized["results"][1]["status"] == "STUB"
 
     def test_results_sorted_by_va(self) -> None:
         """Test that results are sorted by VA."""
@@ -146,13 +146,13 @@ class TestVerifyDiff:
         previous = {
             "results": [
                 {"va": "0x10001000", "name": "func_a", "status": "EXACT", "delta": 0},
-                {"va": "0x10002000", "name": "func_b", "status": "MISMATCH", "delta": 3},
+                {"va": "0x10002000", "name": "func_b", "status": "STUB", "delta": 3},
             ]
         }
         current = {
             "results": [
                 {"va": "0x10001000", "name": "func_a", "status": "EXACT", "delta": 0},
-                {"va": "0x10002000", "name": "func_b", "status": "MISMATCH", "delta": 3},
+                {"va": "0x10002000", "name": "func_b", "status": "STUB", "delta": 3},
             ]
         }
 
@@ -168,19 +168,19 @@ class TestVerifyDiff:
             "results": [{"va": "0x10001000", "name": "func_a", "status": "EXACT", "delta": 0}]
         }
         current = {
-            "results": [{"va": "0x10001000", "name": "func_a", "status": "MISMATCH", "delta": 4}]
+            "results": [{"va": "0x10001000", "name": "func_a", "status": "STUB", "delta": 4}]
         }
 
         diff = diff_reports(previous, current)
         assert len(diff["regressions"]) == 1
         assert diff["regressions"][0]["previous_status"] == "EXACT"
-        assert diff["regressions"][0]["current_status"] == "MISMATCH"
+        assert diff["regressions"][0]["current_status"] == "STUB"
         assert diff["regressions"][0]["delta"] == 4
         assert diff["improvements"] == []
 
     def test_diff_improvement(self) -> None:
         previous = {
-            "results": [{"va": "0x10001000", "name": "func_a", "status": "MISMATCH", "delta": 6}]
+            "results": [{"va": "0x10001000", "name": "func_a", "status": "STUB", "delta": 6}]
         }
         current = {
             "results": [{"va": "0x10001000", "name": "func_a", "status": "EXACT", "delta": 0}]
@@ -188,7 +188,7 @@ class TestVerifyDiff:
 
         diff = diff_reports(previous, current)
         assert len(diff["improvements"]) == 1
-        assert diff["improvements"][0]["previous_status"] == "MISMATCH"
+        assert diff["improvements"][0]["previous_status"] == "STUB"
         assert diff["improvements"][0]["current_status"] == "EXACT"
         assert diff["regressions"] == []
 
@@ -224,7 +224,7 @@ class TestVerifyDiff:
         previous = {
             "results": [
                 {"va": "0x10001000", "name": "regress", "status": "EXACT", "delta": 0},
-                {"va": "0x10002000", "name": "improve", "status": "MISMATCH", "delta": 8},
+                {"va": "0x10002000", "name": "improve", "status": "STUB", "delta": 8},
                 {"va": "0x10003000", "name": "same", "status": "RELOC", "delta": 0},
                 {"va": "0x10004000", "name": "removed", "status": "FAIL", "delta": 0},
             ]
@@ -247,12 +247,10 @@ class TestVerifyDiff:
 
     def test_diff_same_status_unchanged(self) -> None:
         previous = {
-            "results": [{"va": "0x10006000", "name": "func_same", "status": "MISMATCH", "delta": 1}]
+            "results": [{"va": "0x10006000", "name": "func_same", "status": "STUB", "delta": 1}]
         }
         current = {
-            "results": [
-                {"va": "0x10006000", "name": "func_same", "status": "MISMATCH", "delta": 12}
-            ]
+            "results": [{"va": "0x10006000", "name": "func_same", "status": "STUB", "delta": 12}]
         }
 
         diff = diff_reports(previous, current)
@@ -281,9 +279,7 @@ class TestVerifyDiff:
             ]
         }
         current = {
-            "results": [
-                {"va": "0x10008000", "name": "func_alias", "status": "MISMATCH", "delta": 5}
-            ]
+            "results": [{"va": "0x10008000", "name": "func_alias", "status": "STUB", "delta": 5}]
         }
 
         diff = diff_reports(previous, current)

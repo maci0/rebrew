@@ -492,12 +492,12 @@ def _collect_compile_errors(
 def _collect_verify_failures(
     entries: dict[str, "VerifyCacheEntry"],
 ) -> list[TodoItem]:
-    """Collect verify MISMATCH/MISSING_FILE failures from verify cache entries."""
+    """Collect verify STUB/NEAR_MATCH/MISSING_FILE failures from verify cache entries."""
     items: list[TodoItem] = []
     for _va_key, entry in entries.items():
         result = entry.result
         status = result.status
-        if status not in ("MISMATCH", "MISSING_FILE"):
+        if status not in ("STUB", "NEAR_MATCH", "MISSING_FILE"):
             continue
         va_str = str(result.va)
         try:
@@ -801,17 +801,38 @@ def main(
     all_items = collect_all(cfg, ghidra_funcs, existing, covered_vas)
 
     # Coverage stats (always computed for JSON, optional for terminal)
+    # Overlay verify cache on annotation statuses (same logic as status.py)
+    verify_statuses: dict[int, str] = {}
+    cache_path = cfg.root / ".rebrew" / "verify_cache.json"
+    if cache_path.exists():
+        try:
+            cache_raw = json.loads(cache_path.read_text(encoding="utf-8"))
+            for va_key, entry_data in cache_raw.get("entries", {}).items():
+                result = entry_data.get("result", {})
+                s = result.get("status", "")
+                if s:
+                    try:
+                        va_int = int(va_key, 16) if va_key.startswith("0x") else int(va_key)
+                        verify_statuses[va_int] = s
+                    except (ValueError, TypeError):
+                        pass
+        except (json.JSONDecodeError, OSError):
+            pass
+
     status_counts: dict[str, int] = {}
-    for info in existing.values():
-        s = info.get("status", "STUB")
+    for va_int, info in existing.items():
+        ann_status = info.get("status", "STUB")
+        # PROVEN is a post-verify promotion that wins over verify cache
+        s = "PROVEN" if ann_status == "PROVEN" else verify_statuses.get(va_int, ann_status)
         status_counts[s] = status_counts.get(s, 0) + 1
     total_funcs = len(ghidra_funcs)
     covered = len(covered_vas)
     exact = status_counts.get("EXACT", 0)
     reloc = status_counts.get("RELOC", 0)
+    proven = status_counts.get("PROVEN", 0)
     matching = status_counts.get("NEAR_MATCH", 0)
     stub = status_counts.get("STUB", 0)
-    pct = round(100.0 * (exact + reloc) / total_funcs, 1) if total_funcs else 0.0
+    pct = round(100.0 * (exact + reloc + proven) / total_funcs, 1) if total_funcs else 0.0
 
     if category:
         all_items = [i for i in all_items if i.category == category]
@@ -829,6 +850,7 @@ def main(
                     "covered": covered,
                     "exact": exact,
                     "reloc": reloc,
+                    "proven": proven,
                     "matching": matching,
                     "stub": stub,
                     "pct_matched": pct,
@@ -847,6 +869,7 @@ def main(
             f"  [bold]Coverage[/bold]: {covered}/{total_funcs} functions"
             f"  [green]EXACT: {exact}[/green]"
             f"  [cyan]RELOC: {reloc}[/cyan]"
+            f"  [magenta]PROVEN: {proven}[/magenta]"
             f"  [yellow]NEAR_MATCH: {matching}[/yellow]"
             f"  [dim]STUB: {stub}[/dim]"
             f"  → [bold]{pct}%[/bold] matched"
@@ -889,8 +912,8 @@ def main(
         table,
         title=f"[bold]Rebrew TODO[/bold] — {len(all_items)} actions"
         f"  [green]{exact}E[/green] [cyan]{reloc}R[/cyan]"
-        f" [yellow]{matching}M[/yellow] [dim]{stub}S[/dim]"
-        f" ({pct}%)",
+        f" [magenta]{proven}P[/magenta] [yellow]{matching}M[/yellow]"
+        f" [dim]{stub}S[/dim] ({pct}%)",
         subtitle=subtitle,
         border_style="blue",
     )
