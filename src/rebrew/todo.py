@@ -14,7 +14,6 @@ Usage::
 
 import contextlib
 import json
-import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -46,29 +45,23 @@ console = Console(stderr=True)
 # ---------------------------------------------------------------------------
 
 CAT_SETUP = "setup"
-CAT_FIX_NEAR_MISS = "fix-near-miss"
-CAT_FLAG_SWEEP = "flag-sweep"
-CAT_IMPROVE_MATCHING = "improve-matching"
-CAT_RUN_PROVER = "run-prover"
-CAT_FIX_COMPILE_ERROR = "fix-compile-error"
-CAT_FIX_VERIFY_FAIL = "fix-verify-fail"
-CAT_FINISH_STUB = "finish-stub"
+CAT_COMPILE_ERROR = "compile-error"
+CAT_FIX_DELTA = "fix-delta"
+CAT_IMPROVE_MATCH = "improve-match"
 CAT_START_FUNCTION = "start-function"
-CAT_ADD_ANNOTATIONS = "add-annotations"
+CAT_MISSING_ANNOTATION = "missing-annotation"
 CAT_IDENTIFY_LIBRARY = "identify-library"
+CAT_RUN_PROVER = "run-prover"
 
 _CATEGORY_COLORS = {
     CAT_SETUP: "bold white",
-    CAT_FIX_NEAR_MISS: "green",
-    CAT_FLAG_SWEEP: "yellow",
-    CAT_IMPROVE_MATCHING: "yellow",
-    CAT_RUN_PROVER: "cyan",
-    CAT_FIX_COMPILE_ERROR: "red",
-    CAT_FIX_VERIFY_FAIL: "red",
-    CAT_FINISH_STUB: "magenta",
+    CAT_COMPILE_ERROR: "red",
+    CAT_FIX_DELTA: "green",
+    CAT_IMPROVE_MATCH: "yellow",
     CAT_START_FUNCTION: "cyan",
-    CAT_ADD_ANNOTATIONS: "dim",
+    CAT_MISSING_ANNOTATION: "dim",
     CAT_IDENTIFY_LIBRARY: "blue",
+    CAT_RUN_PROVER: "cyan",
 }
 
 # ---------------------------------------------------------------------------
@@ -91,6 +84,7 @@ class TodoItem:
     byte_delta: int | None = None
     difficulty: int = 0
     status: str = ""
+    match_percent: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for JSON output."""
@@ -110,95 +104,57 @@ class TodoItem:
             d["difficulty"] = self.difficulty
         if self.status:
             d["status"] = self.status
+        if self.match_percent is not None:
+            d["match_percent"] = self.match_percent
         return d
 
 
 # ---------------------------------------------------------------------------
-# Size-tier scoring table: (small<100, medium<300, large) score bounds
-# ---------------------------------------------------------------------------
-
-_SCORE_TIERS: dict[str, tuple[float, float, float]] = {
-    CAT_FIX_COMPILE_ERROR: (95.0, 90.0, 85.0),
-    CAT_FINISH_STUB: (75.0, 70.0, 60.0),
-    CAT_IMPROVE_MATCHING: (55.0, 50.0, 45.0),
-    CAT_RUN_PROVER: (40.0, 35.0, 30.0),
-    CAT_ADD_ANNOTATIONS: (40.0, 35.0, 30.0),
-    CAT_IDENTIFY_LIBRARY: (25.0, 20.0, 15.0),
-}
-
-
-def _score_by_size(category: str, size: int) -> float:
-    """Score a category using simple size-tier lookup."""
-    small, medium, large = _SCORE_TIERS[category]
-    if size < 100:
-        return small
-    if size < 300:
-        return medium
-    return large
-
-
-# ---------------------------------------------------------------------------
-# Scoring functions with non-trivial logic (kept as standalone)
+# Unified Continuous Scoring
 # ---------------------------------------------------------------------------
 
 
-def _score_near_miss(delta: int | None, size: int) -> float:
-    """Score a near-miss fix (delta <= 4B). Higher = easier to fix."""
-    if delta is None:
-        return 70.0
-    # delta=1 → ~85, delta=4 → ~75, logarithmic falloff
-    score = 85.0 - 5.0 * math.log2(max(delta, 1))
-    # Boost small functions slightly
-    if size < 100:
-        score += 2.0
-    return min(85.0, max(70.0, score))
+def calculate_roi(size: int, match_pct: float | None, delta: int | None, status: str) -> float:
+    """Calculate a continuous ROI score (0-100).
 
-
-def _score_flag_sweep(delta: int | None, size: int) -> float:
-    """Score a flag-sweep candidate (delta 5-20B)."""
-    base = 45.0
-    if delta is not None:
-        # Smaller delta = higher score
-        base -= (delta - 5) * 0.5
-    if size < 200:
-        base += 3.0
-    return min(55.0, max(25.0, base))
-
-
-def _score_verify_fail(delta: int | None, match_pct: float | None, size: int = 0) -> float:
-    """Score a verify failure.  Lower match% → higher urgency.
-
-    Functions with lower match% are further from correct and need the most
-    attention, so they get higher scores.  Very high match% (>=95%) are
-    stubborn instruction-level diffs that are hard to fix, so they rank last.
-
-    Score range: 30–62.  Sorted descending by ROI, so higher = more urgent.
+    User Workflow Heuristic: Higher match percentage is often HARDER to finish
+    because it implies fighting the compiler (register allocation, instruction scheduling).
+    Therefore, rewrite tasks (low match) are prioritized over near-match tasks,
+    unless the near-match task has a small, actionable byte delta.
     """
     if match_pct is None:
-        # Unknown — treat conservatively
-        return 46.0
+        match_pct = 0.0
 
-    # Near-perfect: stubborn structural diffs, very hard to fix
-    if match_pct >= 95.0:
-        return 33.0
+    # Invert the score: 0% match = 65 base, 100% match = 25 base
+    base_score = 65.0 - (match_pct * 0.4)
 
-    # Linear: lower match% → higher score
-    # 0% → 62,  94% → 34.7
-    base = 62.0 - (match_pct * 0.29)
+    modifier = 0.0
 
-    # Size bonus: bigger functions are more impactful to fix
-    if size > 200:
-        base += 1.0
-    if size > 500:
-        base += 1.0  # cumulative
+    # 1. Delta Boosts (Small explicit byte differences are quick wins)
+    if delta is not None:
+        if delta <= 4:
+            modifier += 25.0
+        elif delta <= 20:
+            modifier += 15.0
 
-    return min(62.0, max(30.0, base))
+    # 2. Size Modifiers (Smaller functions are easier to cognitively load and rewrite)
+    if size < 50:
+        modifier += 15.0
+    elif size < 150:
+        modifier += 10.0
+    elif size < 300:
+        modifier += 5.0
+    elif size > 1000:
+        modifier -= 15.0
+    elif size > 500:
+        modifier -= 5.0
 
+    # 3. Stubborn Diff Penalty (High match >= 90%, no explicit small delta)
+    if match_pct >= 90.0 and (delta is None or delta > 20):
+        modifier -= 15.0
 
-def _score_start_function(difficulty: int, size: int) -> float:
-    """Score a new function to start working on."""
-    score = 65.0 - (difficulty * 5)
-    return min(65.0, max(45.0, score))
+    final_score = base_score + modifier
+    return min(89.0, max(1.0, final_score))
 
 
 # ---------------------------------------------------------------------------
@@ -307,106 +263,120 @@ def _collect_setup_steps(
     return items
 
 
-def _collect_near_misses(
+def _collect_active_functions(
     existing: dict[int, dict[str, str]],
     size_by_va: dict[int, int],
-) -> tuple[list[TodoItem], set[int]]:
-    """Collect fix-near-miss (delta <= 4B) and flag-sweep (delta 5-20B) items.
+    name_by_va: dict[int, str],
+    verify_entries: dict[str, "VerifyCacheEntry"],
+) -> list[TodoItem]:
+    """Collect and score all incomplete functions currently tracked in the project.
 
-    Returns (items, has_delta_vas) where has_delta_vas tracks VAs with known deltas
-    so _collect_improve_matching can skip them.
+    This unifies previously separate categories (compile errors, near misses, stubs,
+    verify failures) into a single pass that calculates a continuous ROI score.
     """
     items: list[TodoItem] = []
-    has_delta: set[int] = set()
-    for va, info in existing.items():
-        if info["status"] != "MATCHING":
-            continue
-        raw_bd = info.get("blocker_delta", "")
+
+    # 1. Gather all unique VAs between metadata and verify cache
+    metadata_vas = set(existing.keys())
+    verify_vas = set()
+    for va_str in verify_entries:
         try:
-            delta = int(raw_bd) if raw_bd else parse_byte_delta(info.get("blocker", ""))
-        except ValueError:
-            delta = parse_byte_delta(info.get("blocker", ""))
-        if delta is None:
+            v = int(va_str, 16) if va_str.startswith("0x") else int(va_str)
+            verify_vas.add(v)
+        except (ValueError, TypeError):
+            pass
+
+    all_vas = metadata_vas | verify_vas
+
+    for va in all_vas:
+        info = existing.get(va, {})
+        status = info.get("status", "STUB")
+
+        # Skip finished functions
+        if status in ("EXACT", "RELOC", "PROVEN"):
             continue
-        has_delta.add(va)
 
         size = size_by_va.get(va) or int(info.get("size", 0))
+        name = info.get("symbol") or name_by_va.get(va) or f"FUN_{va:08x}"
         filename = info.get("filename", "")
 
-        if delta <= 4:
-            items.append(
-                TodoItem(
-                    category=CAT_FIX_NEAR_MISS,
-                    roi_score=_score_near_miss(delta, size),
-                    va=va,
-                    name=info.get("symbol", ""),
-                    size=size,
-                    filename=filename,
-                    description=f"{delta}B diff — tweak code or adjust padding",
-                    command=f"rebrew diff {filename}" if filename else f"rebrew diff 0x{va:08x}",
-                    byte_delta=delta,
-                    status=info["status"],
-                )
-            )
-        elif delta <= 20:
-            items.append(
-                TodoItem(
-                    category=CAT_FLAG_SWEEP,
-                    roi_score=_score_flag_sweep(delta, size),
-                    va=va,
-                    name=info.get("symbol", ""),
-                    size=size,
-                    filename=filename,
-                    description=f"{delta}B diff — try flag sweep or GA",
-                    command=f"rebrew match --flag-sweep-only {filename}"
+        # Get verify cache data if available
+        va_key = f"0x{va:08x}"
+        v_entry = verify_entries.get(va_key)
+        v_status = v_entry.result.status if v_entry else None
+        v_match = v_entry.result.match_percent if v_entry else None
+        v_delta = v_entry.result.delta if v_entry else None
+
+        # If verify says it compiled and size changed, or we don't have verify, fallback to metadata parsing
+        calc_delta = v_delta
+        if calc_delta is None and status == "NEAR_MATCHING":
+            raw_bd = info.get("blocker_delta", "")
+            try:
+                calc_delta = int(raw_bd) if raw_bd else parse_byte_delta(info.get("blocker", ""))
+            except ValueError:
+                calc_delta = parse_byte_delta(info.get("blocker", ""))
+
+        cmd = f"rebrew test {filename}" if filename else f"rebrew test 0x{va:08x}"
+
+        # Determine category and specific description
+        if v_status == "COMPILE_ERROR":
+            category = CAT_COMPILE_ERROR
+            desc = "Compile error — fix syntax/includes"
+            score = 200.0  # High priority blocker
+
+        elif not name or name.startswith("FUN_"):
+            category = CAT_MISSING_ANNOTATION
+            desc = "Missing C function definition (needs skeleton)"
+            score = calculate_roi(size, v_match, calc_delta, status)
+            cmd = f"rebrew skeleton 0x{va:08x}"
+
+        elif calc_delta is not None and calc_delta <= 20:
+            category = CAT_FIX_DELTA
+            desc = f"{calc_delta}B diff — try flag sweep, GA, or padding adjustments"
+            score = calculate_roi(size, v_match, calc_delta, status)
+            if calc_delta <= 4:
+                cmd = f"rebrew diff {filename}" if filename else f"rebrew diff 0x{va:08x}"
+            else:
+                cmd = (
+                    f"rebrew match --flag-sweep-only {filename}"
                     if filename
-                    else f"rebrew match --flag-sweep-only 0x{va:08x}",
-                    byte_delta=delta,
-                    status=info["status"],
+                    else f"rebrew match --flag-sweep-only 0x{va:08x}"
                 )
-            )
-    return items, has_delta
 
+        else:
+            category = CAT_IMPROVE_MATCH
+            desc = "Needs implementation/fixing"
+            score = calculate_roi(size, v_match, calc_delta, status)
 
-def _collect_improve_matching(
-    existing: dict[int, dict[str, str]],
-    size_by_va: dict[int, int],
-    has_delta: set[int],
-) -> list[TodoItem]:
-    """Collect MATCHING functions without parseable delta (need investigation)."""
-    items: list[TodoItem] = []
-    for va, info in existing.items():
-        if info["status"] != "MATCHING":
-            continue
-        if va in has_delta:
-            continue  # Already captured by near-miss or flag-sweep
+            blocker = info.get("blocker", "")
+            if blocker:
+                desc += f" — Blocked: {blocker[:50]}"
 
-        size = size_by_va.get(va) or int(info.get("size", 0))
-        filename = info.get("filename", "")
-        blocker = info.get("blocker", "")
-        desc = "MATCHING — run diff to find delta"
-        if blocker:
-            desc = f"MATCHING — {blocker[:50]}"
+            cmd = f"rebrew diff {filename}" if filename else f"rebrew diff 0x{va:08x}"
 
         items.append(
             TodoItem(
-                category=CAT_IMPROVE_MATCHING,
-                roi_score=_score_by_size(CAT_IMPROVE_MATCHING, size),
+                category=category,
+                roi_score=score,
                 va=va,
-                name=info.get("symbol", ""),
+                name=name,
                 size=size,
                 filename=filename,
                 description=desc,
-                command=f"rebrew diff {filename}" if filename else f"rebrew diff 0x{va:08x}",
-                status=info["status"],
+                command=cmd,
+                byte_delta=calc_delta,
+                status=v_status or status,
+                match_percent=v_match,
             )
         )
+
     return items
 
 
 def _collect_prover_candidates(
     existing: dict[int, dict[str, str]],
     size_by_va: dict[int, int],
+    verify_entries: dict[str, Any],
 ) -> list[TodoItem]:
     """Collect functions suitable for symbolic equivalence proving."""
     # Check if angr is importable
@@ -421,23 +391,36 @@ def _collect_prover_candidates(
 
     items: list[TodoItem] = []
     for va, info in existing.items():
-        if info["status"] != "MATCHING":
+        # Prefer verify cache status over annotation/metadata status
+        va_key = f"0x{va:08x}"
+        cached = verify_entries.get(va_key)
+        effective_status = cached.result.status if cached else info["status"]
+        if effective_status != "NEAR_MATCHING":
             continue
         size = size_by_va.get(va) or int(info.get("size", 0))
         if size > 500 or size == 0:
             continue
+
         filename = info.get("filename", "")
+        match_pct = cached.result.match_percent if cached else None
+        byte_delta = cached.result.delta if cached else None
+
         items.append(
             TodoItem(
                 category=CAT_RUN_PROVER,
-                roi_score=_score_by_size(CAT_RUN_PROVER, size),
+                # Prover is most useful at high match% (few diffs to prove).
+                # Give it a bonus so it wins dedup over improve-match/fix-delta.
+                roi_score=calculate_roi(size, match_pct, None, "NEAR_MATCHING")
+                + (10.0 if match_pct and match_pct >= 60 else -10.0),
                 va=va,
                 name=info.get("symbol", ""),
                 size=size,
                 filename=filename,
-                description="MATCHING + small — prove semantic equivalence",
+                description="NEAR_MATCHING + small — prove semantic equivalence",
                 command=f"rebrew prove {filename}" if filename else f"rebrew prove 0x{va:08x}",
-                status=info["status"],
+                status=effective_status,
+                match_percent=match_pct,
+                byte_delta=byte_delta,
             )
         )
     return items
@@ -455,113 +438,6 @@ def _load_verify_entries(cfg: ProjectConfig) -> dict[str, "VerifyCacheEntry"]:
     except (json.JSONDecodeError, OSError, ValueError, AttributeError, ImportError):
         return {}
     return data.entries
-
-
-def _collect_compile_errors(
-    entries: dict[str, "VerifyCacheEntry"],
-) -> list[TodoItem]:
-    """Collect functions with compile errors from verify cache entries."""
-    items: list[TodoItem] = []
-    for _va_key, entry in entries.items():
-        result = entry.result
-        if result.status != "COMPILE_ERROR":
-            continue
-        va_str = str(result.va)
-        try:
-            va = int(va_str, 16) if va_str.startswith("0x") else int(va_str)
-        except (ValueError, TypeError):
-            continue
-        size = result.size
-        filepath = result.filepath
-        items.append(
-            TodoItem(
-                category=CAT_FIX_COMPILE_ERROR,
-                roi_score=_score_by_size(CAT_FIX_COMPILE_ERROR, size),
-                va=va,
-                name=result.symbol,
-                size=size,
-                filename=filepath,
-                description="Compile error — fix syntax/includes",
-                command=f"rebrew test {filepath}" if filepath else "rebrew verify",
-                status="COMPILE_ERROR",
-            )
-        )
-    return items
-
-
-def _collect_verify_failures(
-    entries: dict[str, "VerifyCacheEntry"],
-) -> list[TodoItem]:
-    """Collect verify STUB/MATCHING/MISSING_FILE failures from verify cache entries."""
-    items: list[TodoItem] = []
-    for _va_key, entry in entries.items():
-        result = entry.result
-        status = result.status
-        if status not in ("STUB", "MATCHING", "MISSING_FILE"):
-            continue
-        va_str = str(result.va)
-        try:
-            va = int(va_str, 16) if va_str.startswith("0x") else int(va_str)
-        except (ValueError, TypeError):
-            continue
-        size = result.size
-        filepath = result.filepath
-        delta = result.delta
-        match_pct = result.match_percent
-
-        # Skip near-perfect matches — they're essentially RELOC and not actionable
-        if match_pct is not None and match_pct >= 95.0:
-            continue
-
-        if status == "MISSING_FILE":
-            desc = "Source file missing — recreate or remove annotation"
-        elif match_pct is not None:
-            desc = f"Verify mismatch ({match_pct:.0f}% match)"
-        else:
-            desc = "Verify mismatch — check diff"
-
-        items.append(
-            TodoItem(
-                category=CAT_FIX_VERIFY_FAIL,
-                roi_score=_score_verify_fail(delta, match_pct, size),
-                va=va,
-                name=result.name,
-                size=size,
-                filename=filepath,
-                description=desc,
-                command=f"rebrew test {filepath}" if filepath else "rebrew verify",
-                byte_delta=delta,
-                status=status,
-            )
-        )
-    return items
-
-
-def _collect_stubs(
-    existing: dict[int, dict[str, str]],
-    size_by_va: dict[int, int],
-) -> list[TodoItem]:
-    """Collect STUB functions that need implementation."""
-    items: list[TodoItem] = []
-    for va, info in existing.items():
-        if info["status"] != "STUB":
-            continue
-        size = size_by_va.get(va) or int(info.get("size", 0))
-        filename = info.get("filename", "")
-        items.append(
-            TodoItem(
-                category=CAT_FINISH_STUB,
-                roi_score=_score_by_size(CAT_FINISH_STUB, size),
-                va=va,
-                name=info.get("symbol", ""),
-                size=size,
-                filename=filename,
-                description=f"STUB ({size}B) — implement function body",
-                command=f"rebrew test {filename}" if filename else f"rebrew test 0x{va:08x}",
-                status="STUB",
-            )
-        )
-    return items
 
 
 def _collect_new_functions(
@@ -615,7 +491,7 @@ def _collect_new_functions(
         items.append(
             TodoItem(
                 category=CAT_START_FUNCTION,
-                roi_score=_score_start_function(difficulty, size),
+                roi_score=max(10.0, calculate_roi(size, 0.0, None, "MISSING") - difficulty * 2),
                 va=va,
                 name=name,
                 size=size,
@@ -644,8 +520,8 @@ def _collect_missing_annotations(
         filename = info.get("filename", "")
         items.append(
             TodoItem(
-                category=CAT_ADD_ANNOTATIONS,
-                roi_score=_score_by_size(CAT_ADD_ANNOTATIONS, size),
+                category=CAT_MISSING_ANNOTATION,
+                roi_score=max(10.0, calculate_roi(size, 0.0, None, "MISSING") - 5.0),
                 va=va,
                 name=f"FUN_{va:08x}",
                 size=size,
@@ -679,7 +555,7 @@ def _collect_library_candidates(
         items.append(
             TodoItem(
                 category=CAT_IDENTIFY_LIBRARY,
-                roi_score=_score_by_size(CAT_IDENTIFY_LIBRARY, size),
+                roi_score=max(10.0, calculate_roi(size, 0.0, None, "MISSING") - 10.0),
                 va=va,
                 name=name,
                 size=size,
@@ -709,20 +585,29 @@ def collect_all(
     items.extend(_collect_setup_steps(cfg, ghidra_funcs, existing))
 
     size_by_va: dict[int, int] = {f.va: f.size for f in ghidra_funcs}
-
-    # Near-misses + flag-sweep (returns set of VAs with known deltas)
-    near_miss_items, has_delta = _collect_near_misses(existing, size_by_va)
-
-    items.extend(near_miss_items)
-    items.extend(_collect_improve_matching(existing, size_by_va, has_delta))
-    items.extend(_collect_prover_candidates(existing, size_by_va))
+    name_by_va: dict[int, str] = {f.va: f.name or "" for f in ghidra_funcs}
     verify_entries = _load_verify_entries(cfg)
-    items.extend(_collect_compile_errors(verify_entries))
-    items.extend(_collect_verify_failures(verify_entries))
-    items.extend(_collect_stubs(existing, size_by_va))
+
+    # 1. Collect all active functions tracked in the project
+    items.extend(_collect_active_functions(existing, size_by_va, name_by_va, verify_entries))
+
+    # 2. Collect specialized candidates
+    items.extend(_collect_prover_candidates(existing, size_by_va, verify_entries))
     items.extend(_collect_new_functions(ghidra_funcs, existing, covered_vas, cfg))
-    items.extend(_collect_missing_annotations(existing, size_by_va))
     items.extend(_collect_library_candidates(ghidra_funcs, existing, cfg))
+
+    # Deduplicate by VA — keep only the highest-ROI item per function.
+    # Setup items (va=0) are category-level, not per-function, so they skip dedup.
+    best: dict[int, TodoItem] = {}
+    non_va_items: list[TodoItem] = []
+    for item in items:
+        if item.va == 0:
+            non_va_items.append(item)
+            continue
+        prev = best.get(item.va)
+        if prev is None or item.roi_score > prev.roi_score:
+            best[item.va] = item
+    items = non_va_items + list(best.values())
 
     # Sort by ROI descending
     items.sort(key=lambda x: (-x.roi_score, x.va))
@@ -736,39 +621,33 @@ def collect_all(
 _EPILOG = """\
 [bold]Examples:[/bold]
 
-rebrew todo                          Top 20 actions by ROI
+rebrew todo                          Top 20 actions by ROI (size + similarity to target)
 
 rebrew todo --count 50               Show top 50
 
-rebrew todo -c fix-near-miss         Filter to near-miss fixes only
+rebrew todo -c fix-delta             Filter to quick-win near-misses (<= 20B diff)
 
-rebrew todo -c flag-sweep            Filter to flag-sweep candidates
+rebrew todo -c improve-match         Filter to functions needing general work
 
 rebrew todo --json                   Machine-readable JSON output
 
-[bold]Categories (highest ROI first):[/bold]
+[bold]Categories (interleaved globally by continuous ROI score):[/bold]
 
-setup              Project setup steps (fresh projects)
+setup               Project setup steps (fresh projects)
 
-fix-near-miss      MATCHING with ≤4B diff — tweak code or padding
+compile-error       Failed verify syntax/includes
 
-flag-sweep         MATCHING with 5-20B diff — try compiler flags
+fix-delta           Known tiny byte diffs (<= 20B) — flag sweeps, padding, GA
 
-improve-matching   MATCHING without known delta — investigate diff
+improve-match       Functions in-progress without a known small delta
 
-run-prover         MATCHING + small — prove equivalence via angr
+start-function      Uncovered functions, ranked by difficulty
 
-fix-compile-error  Compile errors from verify cache
+missing-annotation  Found in Ghidra but missing C body
 
-fix-verify-fail    Verify mismatches — regression or missing files
+identify-library    Uncovered library-origin functions
 
-finish-stub        STUB functions that need implementation
-
-start-function     Uncovered functions, ranked by difficulty
-
-add-annotations    Missing symbol (no C function definition)
-
-identify-library   Uncovered library-origin functions
+run-prover          Small nearly-matching functions (angr equivalence)
 
 [dim]Reads from ghidra_functions.json, source files, and .rebrew/verify_cache.json.[/dim]"""
 
@@ -830,7 +709,7 @@ def main(
     exact = status_counts.get("EXACT", 0)
     reloc = status_counts.get("RELOC", 0)
     proven = status_counts.get("PROVEN", 0)
-    matching = status_counts.get("MATCHING", 0)
+    matching = status_counts.get("NEAR_MATCHING", 0)
     stub = status_counts.get("STUB", 0)
     pct = round(100.0 * (exact + reloc + proven) / total_funcs, 1) if total_funcs else 0.0
 
@@ -870,7 +749,7 @@ def main(
             f"  [green]EXACT: {exact}[/green]"
             f"  [cyan]RELOC: {reloc}[/cyan]"
             f"  [magenta]PROVEN: {proven}[/magenta]"
-            f"  [yellow]MATCHING: {matching}[/yellow]"
+            f"  [yellow]NEAR_MATCHING: {matching}[/yellow]"
             f"  [dim]STUB: {stub}[/dim]"
             f"  → [bold]{pct}%[/bold] matched"
         )
@@ -885,17 +764,23 @@ def main(
     table.add_column("VA", width=12)
     table.add_column("Sz", width=5, justify="right")
     table.add_column("Name", width=26, no_wrap=True, overflow="ellipsis")
+    table.add_column("Match %", width=8, justify="right")
+    table.add_column("Δ Bytes", width=8, justify="right")
     table.add_column("Description", no_wrap=True, overflow="ellipsis")
 
     for i, item in enumerate(display_items, 1):
         color = _CATEGORY_COLORS.get(item.category, "white")
         cat_label = item.category.replace("-", "\u2011")  # non-breaking hyphen for display
+        match_str = f"{item.match_percent:.0f}%" if item.match_percent is not None else ""
+        delta_str = f"{item.byte_delta}B" if item.byte_delta is not None else ""
         table.add_row(
             str(i),
             f"[{color}]{cat_label}[/{color}]",
             f"0x{item.va:08x}" if item.va else "",
             f"{item.size}B" if item.size else "",
             item.name,
+            match_str,
+            delta_str,
             item.description,
         )
 

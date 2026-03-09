@@ -372,6 +372,87 @@ _QUERY_PTR_PARAM = ts.Query(
 """,
 )
 
+_QUERY_NESTED_IF_P3 = ts.Query(
+    _C_LANGUAGE,
+    """
+    (if_statement
+        condition: (parenthesized_expression) @cond1
+        consequence: (compound_statement
+            (if_statement
+                condition: (parenthesized_expression) @cond2
+                consequence: (_) @body) @inner_if) @outer_body) @stmt
+""",
+)
+
+
+_QUERY_CALL_ARG = ts.Query(
+    _C_LANGUAGE,
+    """
+    (expression_statement
+        (call_expression
+            arguments: (argument_list
+                (_) @arg)) @call) @stmt
+""",
+)
+
+
+def mut_extract_args_to_temps(s: str, rng: random.Random) -> str | None:
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+    cursor = ts.QueryCursor(_QUERY_CALL_ARG)
+    matches = cursor.matches(tree.root_node)
+
+    valid_args = []
+    for match in matches:
+        # get nodes
+        nodes = {k: (v[0] if isinstance(v, list) else v) for k, v in match[1].items()}
+        stmt = nodes.get("stmt")
+        arg = nodes.get("arg")
+        if not stmt or not arg:
+            continue
+
+        # Check if arg is complex (not a literal or identifier)
+        if arg.type in ("identifier", "number_literal", "string_literal", "char_literal"):
+            continue
+
+        valid_args.append((stmt, arg))
+
+    if not valid_args:
+        return None
+
+    stmt, arg = rng.choice(valid_args)
+
+    arg_str = b_source[arg.start_byte : arg.end_byte]
+
+    var_id = rng.randint(0, 999)
+    var_name = f"_tmp_{var_id}".encode()
+
+    # C89: hoist declaration to function body top, keep assignment inline
+    insert_pos = _find_function_body_insert_pos(b_source, stmt.start_byte)
+    if insert_pos is None:
+        return None
+
+    hoisted_decl = b"\n    int " + var_name + b";"
+    inline_assign = var_name + b" = " + arg_str + b";\n    "
+    new_stmt_str = (
+        b_source[stmt.start_byte : arg.start_byte]
+        + var_name
+        + b_source[arg.end_byte : stmt.end_byte]
+    )
+
+    # Insert hoisted decl first (adjusting offsets for the insertion)
+    out = b_source[:insert_pos] + hoisted_decl + b_source[insert_pos:]
+    # Adjust byte offsets by the length of the hoisted decl
+    offset = len(hoisted_decl)
+    stmt_start = stmt.start_byte + offset
+    stmt_end = stmt.end_byte + offset
+    arg_start = arg.start_byte + offset
+    arg_end = arg.end_byte + offset
+    new_stmt_str = out[stmt_start:arg_start] + var_name + out[arg_end:stmt_end]
+
+    return (out[:stmt_start] + inline_assign + new_stmt_str + out[stmt_end:]).decode("utf-8")
+
+
 _QUERY_WHILE_LOOP = ts.Query(
     _C_LANGUAGE,
     """
@@ -689,6 +770,30 @@ _QUERY_IF_BODY_RETURN = ts.Query(
     ) @expr
 """,
 )
+
+
+def _find_function_body_insert_pos(source: bytes, ref_byte: int) -> int | None:
+    """Find the insert position for a declaration at the top of the enclosing function body.
+
+    Walks up the tree-sitter AST from *ref_byte* to find the enclosing
+    ``function_definition`` → ``compound_statement`` and returns the byte
+    offset right after the opening ``{``.  Returns *None* if no enclosing
+    function body is found.
+
+    This is used to hoist variable declarations so that they comply with
+    C89 scoping rules (all declarations before any statements).
+    """
+    tree = parse_c_ast(source)
+    # Find the deepest node at ref_byte and walk up to find function body
+    node = tree.root_node.descendant_for_byte_range(ref_byte, ref_byte)
+    while node is not None:
+        if node.type == "compound_statement":
+            parent = node.parent
+            if parent is not None and parent.type == "function_definition":
+                # Return position right after the opening brace
+                return node.start_byte + 1
+        node = node.parent
+    return None
 
 
 def _apply_query_once(
@@ -1123,27 +1228,57 @@ def mut_bitand_to_if_false(s: str, rng: random.Random) -> str | None:
 
 
 def mut_introduce_temp_for_call(s: str, rng: random.Random) -> str | None:
-    """Introduce a temp variable for a function call result."""
+    """Introduce a temp variable for a function call result.
+
+    C89-safe: hoists 'BOOL tmp;' to the top of the function body.
+    """
     b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+    cursor = ts.QueryCursor(_QUERY_CALL_ASSIGN)
+    matches = cursor.matches(tree.root_node)
 
-    def _repl(captures: dict[str, ts.Node]) -> bytes:
-        var = b_source[captures["var"].start_byte : captures["var"].end_byte]
-        call = b_source[captures["call"].start_byte : captures["call"].end_byte]
+    if not matches:
+        return None
 
-        if b"tmp" in b_source:
-            return b"tmp = " + call + b";\n    " + var + b" = tmp;"
-        else:
-            return b"BOOL tmp = " + call + b";\n    " + var + b" = tmp;"
+    _, captures = rng.choice(matches)
+    single_captures = {k: v[0] for k, v in captures.items()}
 
-    res = _apply_query_once(b_source, _QUERY_CALL_ASSIGN, _repl, rng)
-    return res.decode("utf-8") if res else None
+    target_node = single_captures.get("expr")
+    if not target_node:
+        return None
+
+    var = b_source[single_captures["var"].start_byte : single_captures["var"].end_byte]
+    call = b_source[single_captures["call"].start_byte : single_captures["call"].end_byte]
+
+    # Inline replacement: tmp = call(); var = tmp;
+    inline_repl = b"tmp = " + call + b";\n    " + var + b" = tmp;"
+
+    if b"tmp" in b_source:
+        # 'tmp' already declared somewhere — just use it, no hoisting needed
+        res = ASTMutator.replace_node(b_source, target_node, inline_repl)
+        return res.decode("utf-8") if res else None
+
+    # C89: hoist 'BOOL tmp;' to function body top
+    insert_pos = _find_function_body_insert_pos(b_source, target_node.start_byte)
+    if insert_pos is None:
+        # Fallback: can't find function body, skip
+        return None
+
+    hoisted_decl = b"\n    BOOL tmp;"
+    out = b_source[:insert_pos] + hoisted_decl + b_source[insert_pos:]
+    offset = len(hoisted_decl)
+
+    # Apply inline replacement at the shifted position
+    new_start = target_node.start_byte + offset
+    new_end = target_node.end_byte + offset
+    result = out[:new_start] + inline_repl + out[new_end:]
+    return result.decode("utf-8")
 
 
 def mut_remove_temp_var(s: str, rng: random.Random) -> str | None:
     """Remove a temp variable usage: 'tmp = expr; var = tmp;' -> 'var = expr;'."""
     b_source = s.encode("utf-8")
     cursor = ts.QueryCursor(_QUERY_TEMP_VAR)
-    from rebrew.matcher.ast_engine import parse_c_ast
 
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -1188,7 +1323,6 @@ def mut_swap_adjacent_declarations(s: str, rng: random.Random) -> str | None:
     """Swap two adjacent variable declarations."""
     b_source = s.encode("utf-8")
     cursor = ts.QueryCursor(_QUERY_ADJACENT_DECL)
-    from rebrew.matcher.ast_engine import parse_c_ast
 
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -1230,7 +1364,6 @@ def mut_merge_declaration_init(s: str, rng: random.Random) -> str | None:
     """Merge 'TYPE var; ... var = expr;' into 'TYPE var = expr;'."""
     b_source = s.encode("utf-8")
     cursor = ts.QueryCursor(_QUERY_MERGE_DECL)
-    from rebrew.matcher.ast_engine import parse_c_ast
 
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -1362,7 +1495,6 @@ def mut_duplicate_loop_body(s: str, rng: random.Random) -> str | None:
 def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
     cursor = ts.QueryCursor(_QUERY_CONST_ADD_FOLD)
-    from rebrew.matcher.ast_engine import parse_c_ast
 
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -1399,7 +1531,6 @@ def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
 def mut_unfold_constant_add(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
     cursor = ts.QueryCursor(_QUERY_CONST_ADD_UNFOLD)
-    from rebrew.matcher.ast_engine import parse_c_ast
 
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -1496,7 +1627,6 @@ def mut_merge_cmp_chain(s: str, rng: random.Random) -> str | None:
 def mut_combine_ptr_arith(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
     cursor = ts.QueryCursor(_QUERY_COMBINE_PTR_ARITH)
-    from rebrew.matcher.ast_engine import parse_c_ast
 
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -1530,7 +1660,6 @@ def mut_combine_ptr_arith(s: str, rng: random.Random) -> str | None:
 def mut_split_ptr_arith(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
     cursor = ts.QueryCursor(_QUERY_SPLIT_PTR_ARITH)
-    from rebrew.matcher.ast_engine import parse_c_ast
 
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -1661,7 +1790,6 @@ def mut_comparison_boundary(s: str, rng: random.Random) -> str | None:
 def mut_insert_noop_block(s: str, rng: random.Random) -> str | None:
     """Insert a no-op block `if (0) {}` before a random statement in a compound body."""
     b_source = s.encode("utf-8")
-    from rebrew.matcher.ast_engine import parse_c_ast
 
     tree = parse_c_ast(b_source)
     # Find all statements inside compound_statements
@@ -1684,7 +1812,6 @@ def mut_insert_noop_block(s: str, rng: random.Random) -> str | None:
 def mut_introduce_local_alias(s: str, rng: random.Random) -> str | None:
     """Introduce a local alias for an identifier used in an expression statement."""
     b_source = s.encode("utf-8")
-    from rebrew.matcher.ast_engine import parse_c_ast
 
     tree = parse_c_ast(b_source)
     q = ts.Query(
@@ -1716,7 +1843,6 @@ def mut_introduce_local_alias(s: str, rng: random.Random) -> str | None:
 def mut_reorder_declarations(s: str, rng: random.Random) -> str | None:
     """Swap two adjacent declarations in a compound statement."""
     b_source = s.encode("utf-8")
-    from rebrew.matcher.ast_engine import parse_c_ast
 
     tree = parse_c_ast(b_source)
     q = ts.Query(
@@ -2402,6 +2528,1738 @@ def mut_negate_condition(s: str, rng: random.Random) -> str | None:
     return result.decode("utf-8")
 
 
+# ---------------------------------------------------------------------------
+# MSVC6-targeted structural mutations (2026-03 batch)
+# ---------------------------------------------------------------------------
+
+_QUERY_IF_STMT = ts.Query(_C_LANGUAGE, "(if_statement) @if_stmt")
+
+# --- Queries for new mutations ---
+
+_QUERY_SUBSCRIPT_EXPR = ts.Query(
+    _C_LANGUAGE,
+    """
+    (subscript_expression argument: (_) @arr index: (_) @idx) @expr
+""",
+)
+
+_QUERY_BIN_COND_IF = ts.Query(
+    _C_LANGUAGE,
+    """
+    (if_statement
+        condition: (parenthesized_expression (binary_expression
+            left: (_) @left
+            right: (_) @right) @bin)
+        consequence: (_) @body) @stmt
+""",
+)
+
+_QUERY_NESTED_IF_P3 = ts.Query(
+    _C_LANGUAGE,
+    """
+    (if_statement
+        condition: (parenthesized_expression) @cond1
+        consequence: (compound_statement
+            (if_statement
+                condition: (parenthesized_expression) @cond2
+                consequence: (_) @body) @inner_if) @outer_body) @stmt
+""",
+)
+
+_QUERY_NESTED_IF_P3 = ts.Query(
+    _C_LANGUAGE,
+    """
+    (if_statement
+        condition: (parenthesized_expression) @cond1
+        consequence: (compound_statement
+            (if_statement
+                condition: (parenthesized_expression) @cond2
+                consequence: (_) @body) @inner_if) @outer_body) @stmt
+""",
+)
+
+
+_QUERY_WHILE_LOOP = ts.Query(
+    _C_LANGUAGE,
+    """
+    (while_statement
+        condition: (parenthesized_expression) @cond
+        body: (_) @body) @stmt
+""",
+)
+
+_QUERY_DEREF_PTR_ADD = ts.Query(
+    _C_LANGUAGE,
+    """
+    (pointer_expression
+        operator: "*"
+        argument: (parenthesized_expression
+            (binary_expression left: (_) @ptr operator: "+" right: (_) @idx)
+        )
+    ) @expr
+""",
+)
+
+_QUERY_SUBSCRIPT_SCALED = ts.Query(
+    _C_LANGUAGE,
+    """
+    (subscript_expression
+        argument: (_) @arr
+        index: (binary_expression left: (_) @idx_left operator: "*" right: (_) @idx_right)
+    ) @expr
+""",
+)
+
+_QUERY_BYTE_TYPE_DECL = ts.Query(
+    _C_LANGUAGE,
+    """
+    (declaration
+        type: (primitive_type) @type
+        declarator: (init_declarator
+            declarator: (identifier) @var
+            value: (_) @init
+        )
+        (#match? @type "^(char|BYTE|unsigned char|signed char)$")
+    ) @stmt
+""",
+)
+
+_QUERY_BYTE_CAST = ts.Query(
+    _C_LANGUAGE,
+    """
+    (cast_expression
+        type: (type_descriptor) @type
+        value: (_) @val
+        (#match? @type "^(WORD|BYTE|unsigned short|unsigned char)$")
+    ) @expr
+""",
+)
+
+_QUERY_REGISTER_DECL = ts.Query(
+    _C_LANGUAGE,
+    """
+    (declaration
+        (storage_class_specifier) @sc
+        (#eq? @sc "register")
+    ) @stmt
+""",
+)
+
+
+# --- Category 1: Control Flow & Branch Inversion ---
+
+
+def mut_while_to_goto_loop(s: str, rng: random.Random) -> str | None:
+    """Rewrite while(cond) { body } to goto-based loop with explicit jumps.
+
+    Forces MSVC6 to emit different branch/fall-through layouts.
+    Output:
+        loop_N:
+          if (!(cond)) goto end_N;
+          body
+          goto loop_N;
+        end_N:
+              ;
+    """
+    b_source = s.encode("utf-8")
+    cursor = ts.QueryCursor(_QUERY_WHILE_LOOP)
+    tree = parse_c_ast(b_source)
+    matches = cursor.matches(tree.root_node)
+
+    if not matches:
+        return None
+
+    match = rng.choice(matches)
+    caps = {k: v[0] for k, v in match[1].items()}
+
+    cond = b_source[caps["cond"].start_byte : caps["cond"].end_byte]
+    body = b_source[caps["body"].start_byte : caps["body"].end_byte]
+
+    # Strip outer parens from cond
+    cond_inner = cond
+    if cond_inner.startswith(b"(") and cond_inner.endswith(b")"):
+        cond_inner = cond_inner[1:-1]
+
+    # Use a unique suffix to avoid label collisions
+    label_id = rng.randint(0, 999)
+    loop_label = f"_loop_{label_id}".encode()
+    end_label = f"_end_{label_id}".encode()
+
+    # Check for label collisions in existing source
+    if loop_label in b_source or end_label in b_source:
+        return None
+
+    inner = body[1:-1]  # strip { }
+
+    replacement = (
+        loop_label
+        + b":\n    "
+        + b"if (!("
+        + cond_inner.strip()
+        + b")) goto "
+        + end_label
+        + b";\n    "
+        + inner.strip()
+        + b"\n    "
+        + b"goto "
+        + loop_label
+        + b";\n    "
+        + end_label
+        + b": ;"
+    )
+
+    result = b_source[: caps["stmt"].start_byte] + replacement + b_source[caps["stmt"].end_byte :]
+    return result.decode("utf-8")
+
+
+# --- Category 2: Stack Frame Manipulation ---
+
+
+def mut_inject_dummy_var(s: str, rng: random.Random) -> str | None:
+    """Inject an unused local variable to change stack frame allocation.
+
+    Adding locals can switch MSVC6 between push ecx (small frame)
+    and sub esp, N (larger frame).
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+
+    # Find function body compound statements
+    q = ts.Query(_C_LANGUAGE, "(function_definition body: (compound_statement) @body)")
+    cursor = ts.QueryCursor(q)
+    matches = cursor.matches(tree.root_node)
+
+    if not matches:
+        return None
+
+    match = rng.choice(matches)
+    caps = {k: v[0] for k, v in match[1].items()}
+    body_node = caps["body"]
+
+    dummy_id = rng.randint(0, 99)
+    dummy_name = f"_dummy_{dummy_id}".encode()
+    if dummy_name in b_source:
+        return None
+
+    # Insert after opening brace
+    insert_pos = body_node.start_byte + 1
+    decl = b"\n    int " + dummy_name + b";"
+    result = b_source[:insert_pos] + decl + b_source[insert_pos:]
+    return result.decode("utf-8")
+
+
+def mut_inject_dummy_array(s: str, rng: random.Random) -> str | None:
+    """Inject an unused char array to push past stack alignment thresholds.
+
+    MSVC6 changes stack allocation strategy at certain byte boundaries.
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+
+    q = ts.Query(_C_LANGUAGE, "(function_definition body: (compound_statement) @body)")
+    cursor = ts.QueryCursor(q)
+    matches = cursor.matches(tree.root_node)
+
+    if not matches:
+        return None
+
+    match = rng.choice(matches)
+    caps = {k: v[0] for k, v in match[1].items()}
+    body_node = caps["body"]
+
+    pad_id = rng.randint(0, 99)
+    pad_name = f"_pad_{pad_id}".encode()
+    if pad_name in b_source:
+        return None
+
+    size = rng.choice([4, 8, 12, 16])
+    insert_pos = body_node.start_byte + 1
+    decl = f"\n    char {pad_name.decode()}[{size}];".encode()
+    result = b_source[:insert_pos] + decl + b_source[insert_pos:]
+    return result.decode("utf-8")
+
+
+def mut_scope_variable(s: str, rng: random.Random) -> str | None:
+    """Move a local variable declaration into a nested block scope.
+
+    MSVC6 allocates stack space differently for block-scoped variables.
+    Wraps the declaration + its first usage in a bare { } block.
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+
+    # Find declarations inside the function body (top-level compound_statement)
+    q = ts.Query(
+        _C_LANGUAGE,
+        """
+        (function_definition body: (compound_statement
+            (declaration type: (_) @type declarator: (_) @decl) @d1
+            .
+            (expression_statement) @next_stmt
+        ))
+    """,
+    )
+    cursor = ts.QueryCursor(q)
+    matches = cursor.matches(tree.root_node)
+
+    if not matches:
+        return None
+
+    match = rng.choice(matches)
+    caps = {k: v[0] for k, v in match[1].items()}
+
+    d1 = caps["d1"]
+    next_stmt = caps["next_stmt"]
+
+    d1_text = b_source[d1.start_byte : d1.end_byte]
+    next_text = b_source[next_stmt.start_byte : next_stmt.end_byte]
+
+    # Wrap both in a bare block
+    replacement = b"{\n        " + d1_text + b"\n        " + next_text + b"\n    }"
+
+    result = b_source[: d1.start_byte] + replacement + b_source[next_stmt.end_byte :]
+    return result.decode("utf-8")
+
+
+# --- Category 3: Instruction Folding (lea vs. Arithmetic) ---
+
+
+def mut_array_to_ptr_arith(s: str, rng: random.Random) -> str | None:
+    """Rewrite p[i] to *(p + i).
+
+    Changes whether MSVC6 uses lea for address computation or explicit
+    add/shl instructions.
+    """
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        arr = b_source[captures["arr"].start_byte : captures["arr"].end_byte]
+        idx = b_source[captures["idx"].start_byte : captures["idx"].end_byte]
+        return b"*((" + arr + b") + (" + idx + b"))"
+
+    res = _apply_query_once(b_source, _QUERY_SUBSCRIPT_EXPR, _repl, rng)
+    if not res:
+        return None
+    res_str = res.decode("utf-8")
+    return res_str if res_str != s else None
+
+
+def mut_ptr_arith_to_array(s: str, rng: random.Random) -> str | None:
+    """Rewrite *(p + i) to p[i] (inverse of mut_array_to_ptr_arith)."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        ptr = b_source[captures["ptr"].start_byte : captures["ptr"].end_byte]
+        idx = b_source[captures["idx"].start_byte : captures["idx"].end_byte]
+        return ptr + b"[" + idx + b"]"
+
+    res = _apply_query_once(b_source, _QUERY_DEREF_PTR_ADD, _repl, rng)
+    if not res:
+        return None
+    res_str = res.decode("utf-8")
+    return res_str if res_str != s else None
+
+
+def mut_decouple_index_math(s: str, rng: random.Random) -> str | None:
+    """Decouple scaled array index to break lea folding.
+
+    Rewrite p[i * N] to { int _off = i * N; p[_off]; }
+    This forces MSVC6 to compute the offset separately instead of
+    folding it into a lea instruction.
+    """
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        arr = b_source[captures["arr"].start_byte : captures["arr"].end_byte]
+        idx_left = b_source[captures["idx_left"].start_byte : captures["idx_left"].end_byte]
+        idx_right = b_source[captures["idx_right"].start_byte : captures["idx_right"].end_byte]
+
+        off_id = random.randint(0, 99)
+        off_name = f"_off_{off_id}".encode()
+        if off_name in b_source:
+            return b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+
+        return (
+            off_name + b" = " + idx_left + b" * " + idx_right + b", " + arr + b"[" + off_name + b"]"
+        )
+
+    res = _apply_query_once(b_source, _QUERY_SUBSCRIPT_SCALED, _repl, rng)
+    if not res:
+        return None
+    res_str = res.decode("utf-8")
+    return res_str if res_str != s else None
+
+
+# --- Category 4: Zero-Extension & Register Clearing ---
+
+
+def mut_preinit_byte_load(s: str, rng: random.Random) -> str | None:
+    """Pre-initialize byte-width variable to trigger xor reg, reg pattern.
+
+    Rewrites: char c = *p;  -->  int c = 0; c = *p;
+    MSVC6 emits xor eax, eax + mov al, [mem] instead of movzx.
+    """
+    b_source = s.encode("utf-8")
+    cursor = ts.QueryCursor(_QUERY_BYTE_TYPE_DECL)
+    tree = parse_c_ast(b_source)
+    matches = cursor.matches(tree.root_node)
+
+    if not matches:
+        return None
+
+    match = rng.choice(matches)
+    caps = {k: v[0] for k, v in match[1].items()}
+
+    var = b_source[caps["var"].start_byte : caps["var"].end_byte]
+    init_expr = b_source[caps["init"].start_byte : caps["init"].end_byte]
+
+    # Widen type to int and split into decl + assign with zero pre-init
+    replacement = b"int " + var + b" = 0;\n    " + var + b" = " + init_expr + b";"
+
+    stmt = caps["stmt"]
+    result = b_source[: stmt.start_byte] + replacement + b_source[stmt.end_byte :]
+    return result.decode("utf-8")
+
+
+def mut_cast_to_bitmask(s: str, rng: random.Random) -> str | None:
+    """Rewrite type casts to explicit bitmask operations.
+
+    (WORD)x  --> (x & 0xFFFF)
+    (BYTE)x  --> (x & 0xFF)
+    Affects movzx vs. and-masking codegen in MSVC6.
+    """
+    b_source = s.encode("utf-8")
+
+    _MASK_MAP = {
+        b"WORD": b"0xFFFF",
+        b"unsigned short": b"0xFFFF",
+        b"BYTE": b"0xFF",
+        b"unsigned char": b"0xFF",
+    }
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        type_text = b_source[captures["type"].start_byte : captures["type"].end_byte]
+        val = b_source[captures["val"].start_byte : captures["val"].end_byte]
+        mask = _MASK_MAP.get(type_text.strip())
+        if mask is None:
+            return b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        return b"((" + val + b") & " + mask + b")"
+
+    res = _apply_query_once(b_source, _QUERY_BYTE_CAST, _repl, rng)
+    if not res:
+        return None
+    res_str = res.decode("utf-8")
+    return res_str if res_str != s else None
+
+
+# --- Category 5: Register Pressure Fuzzing ---
+
+
+def mut_swap_register_keywords(s: str, rng: random.Random) -> str | None:
+    """Swap register keyword between two local variable declarations.
+
+    In MSVC6, the order of register-annotated declarations directly maps
+    to register allocation (first=ESI, second=EDI, third=EBX).
+    Moving register from one var to another changes allocation.
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+
+    # Find ALL declarations
+    q_all = ts.Query(_C_LANGUAGE, "(declaration) @decl")
+    cursor_all = ts.QueryCursor(q_all)
+    all_decls = cursor_all.matches(tree.root_node)
+
+    if len(all_decls) < 2:
+        return None
+
+    # Separate into register and non-register declarations
+    reg_decls = []
+    non_reg_decls = []
+    for m in all_decls:
+        caps = {k: v[0] for k, v in m[1].items()}
+        decl_node = caps["decl"]
+        text = b_source[decl_node.start_byte : decl_node.end_byte]
+        if b"register " in text:
+            reg_decls.append(decl_node)
+        elif text.strip().startswith(
+            (
+                b"int ",
+                b"char ",
+                b"short ",
+                b"long ",
+                b"unsigned ",
+                b"signed ",
+                b"DWORD ",
+                b"BOOL ",
+                b"BYTE ",
+                b"WORD ",
+            )
+        ):
+            non_reg_decls.append(decl_node)
+
+    if not reg_decls or not non_reg_decls:
+        return None
+
+    # Pick one register decl and one non-register decl
+    reg_node = rng.choice(reg_decls)
+    non_reg_node = rng.choice(non_reg_decls)
+
+    reg_text = b_source[reg_node.start_byte : reg_node.end_byte]
+    non_reg_text = b_source[non_reg_node.start_byte : non_reg_node.end_byte]
+
+    # Remove register from the register decl, add it to the non-register decl
+    new_reg_text = reg_text.replace(b"register ", b"", 1)
+    new_non_reg_text = b"register " + non_reg_text
+
+    # Apply replacements in order (later position first to preserve offsets)
+    if reg_node.start_byte > non_reg_node.start_byte:
+        result = (
+            b_source[: non_reg_node.start_byte]
+            + new_non_reg_text
+            + b_source[non_reg_node.end_byte : reg_node.start_byte]
+            + new_reg_text
+            + b_source[reg_node.end_byte :]
+        )
+    else:
+        result = (
+            b_source[: reg_node.start_byte]
+            + new_reg_text
+            + b_source[reg_node.end_byte : non_reg_node.start_byte]
+            + new_non_reg_text
+            + b_source[non_reg_node.end_byte :]
+        )
+
+    return result.decode("utf-8")
+
+
+def mut_add_volatile_intermediate(s: str, rng: random.Random) -> str | None:
+    """Wrap an assignment RHS in a volatile temporary to force stack spill.
+
+    x = a + b;  -->  volatile int _t_N;  (hoisted to function top)
+                     _t_N = a + b; x = _t_N;  (inline)
+
+    C89-safe: declaration is hoisted to the function body top.
+    Forces MSVC6 to spill the intermediate to the stack, freeing up
+    registers for the main computation path.
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+
+    q = ts.Query(
+        _C_LANGUAGE,
+        """
+        (expression_statement
+            (assignment_expression
+                left: (identifier) @var
+                operator: "="
+                right: (binary_expression) @rhs
+            )
+        ) @stmt
+    """,
+    )
+    cursor = ts.QueryCursor(q)
+    matches = cursor.matches(tree.root_node)
+
+    if not matches:
+        return None
+
+    match = rng.choice(matches)
+    caps = {k: v[0] for k, v in match[1].items()}
+
+    var = b_source[caps["var"].start_byte : caps["var"].end_byte]
+    rhs = b_source[caps["rhs"].start_byte : caps["rhs"].end_byte]
+    stmt = caps["stmt"]
+
+    tmp_id = rng.randint(0, 99)
+    tmp_name = f"_t_{tmp_id}".encode()
+    if tmp_name in b_source:
+        return None
+
+    # C89: hoist declaration to function body top
+    insert_pos = _find_function_body_insert_pos(b_source, stmt.start_byte)
+    if insert_pos is None:
+        return None
+
+    hoisted_decl = b"\n    volatile int " + tmp_name + b";"
+    inline_replacement = tmp_name + b" = " + rhs + b";\n    " + var + b" = " + tmp_name + b";"
+
+    out = b_source[:insert_pos] + hoisted_decl + b_source[insert_pos:]
+    offset = len(hoisted_decl)
+    stmt_start = stmt.start_byte + offset
+    stmt_end = stmt.end_byte + offset
+
+    result = out[:stmt_start] + inline_replacement + out[stmt_end:]
+    return result.decode("utf-8")
+
+
+def mut_reorder_register_vars(s: str, rng: random.Random) -> str | None:
+    """Reorder register-annotated variable declarations.
+
+    MSVC6 assigns registers in declaration order:
+      first register var → ESI, second → EDI, third → EBX.
+    Permuting them directly controls register allocation.
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+
+    cursor = ts.QueryCursor(_QUERY_REGISTER_DECL)
+    matches = cursor.matches(tree.root_node)
+
+    # Collect all register declarations
+    reg_nodes: list[ts.Node] = []
+    for m in matches:
+        caps = {k: v[0] for k, v in m[1].items()}
+        reg_nodes.append(caps["stmt"])
+
+    if len(reg_nodes) < 2:
+        return None
+
+    # Pick two adjacent register declarations and swap them
+    idx = rng.randint(0, len(reg_nodes) - 2)
+    n1 = reg_nodes[idx]
+    n2 = reg_nodes[idx + 1]
+
+    n1_text = b_source[n1.start_byte : n1.end_byte]
+    n2_text = b_source[n2.start_byte : n2.end_byte]
+    mid_text = b_source[n1.end_byte : n2.start_byte]
+
+    result = b_source[: n1.start_byte] + n2_text + mid_text + n1_text + b_source[n2.end_byte :]
+    return result.decode("utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Switch statement mutations (MSVC6 comparison chain codegen)
+# ---------------------------------------------------------------------------
+
+_QUERY_SWITCH_STMT = ts.Query(
+    _C_LANGUAGE,
+    """
+    (switch_statement
+        condition: (parenthesized_expression) @cond
+        body: (compound_statement) @body) @stmt
+""",
+)
+
+
+def mut_reorder_switch_cases(s: str, rng: random.Random) -> str | None:
+    """Swap two case clauses within a switch statement.
+
+    MSVC6 generates comparison chains for sparse case values (e.g. Windows
+    message IDs) in **source order**.  Reordering cases directly changes
+    the cmp/je/jne branch tree layout.
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+    cursor = ts.QueryCursor(_QUERY_SWITCH_STMT)
+    matches = cursor.matches(tree.root_node)
+    if not matches:
+        return None
+
+    _, caps = rng.choice(matches)
+    body_node = caps["body"][0]
+
+    # Collect case_statement children (skip default for reordering)
+    case_nodes = [
+        c
+        for c in body_node.children
+        if c.type == "case_statement" and c.children and c.children[0].type == "case"
+    ]
+    if len(case_nodes) < 2:
+        return None
+
+    # Pick two random distinct cases and swap them
+    i, j = rng.sample(range(len(case_nodes)), 2)
+    n1 = case_nodes[i]
+    n2 = case_nodes[j]
+    # Ensure n1 comes before n2 in the source
+    if n1.start_byte > n2.start_byte:
+        n1, n2 = n2, n1
+
+    n1_text = b_source[n1.start_byte : n1.end_byte]
+    n2_text = b_source[n2.start_byte : n2.end_byte]
+
+    result = (
+        b_source[: n1.start_byte]
+        + n2_text
+        + b_source[n1.end_byte : n2.start_byte]
+        + n1_text
+        + b_source[n2.end_byte :]
+    )
+    return result.decode("utf-8")
+
+
+def mut_switch_to_if_chain(s: str, rng: random.Random) -> str | None:
+    """Convert a switch/case statement to an if/else if chain.
+
+    MSVC6 generates fundamentally different code for if/else if vs switch:
+    switch uses a comparison chain with subtraction-based dispatch;
+    if/else if uses direct comparisons.  This mutation explores that
+    alternate codegen path.
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+    cursor = ts.QueryCursor(_QUERY_SWITCH_STMT)
+    matches = cursor.matches(tree.root_node)
+    if not matches:
+        return None
+
+    _, caps = rng.choice(matches)
+    stmt_node = caps["stmt"][0]
+    cond_node = caps["cond"][0]
+    body_node = caps["body"][0]
+
+    # Extract the condition expression (strip parens)
+    cond_text = b_source[cond_node.start_byte + 1 : cond_node.end_byte - 1].strip()
+
+    # Collect case statements with their values and bodies
+    branches: list[tuple[bytes | None, bytes]] = []  # (value_or_None_for_default, body)
+    for child in body_node.children:
+        if child.type != "case_statement":
+            continue
+        is_default = child.children and child.children[0].type == "default"
+        if is_default:
+            # Collect body statements after the colon
+            body_parts = []
+            past_colon = False
+            for sub in child.children:
+                if sub.type == ":":
+                    past_colon = True
+                    continue
+                if past_colon and sub.type != "break_statement":
+                    body_parts.append(b_source[sub.start_byte : sub.end_byte])
+            body_text = b"\n        ".join(body_parts) if body_parts else b"/* empty */"
+            branches.append((None, body_text))
+        else:
+            # Extract case value (between 'case' and ':')
+            value_node = None
+            for sub in child.children:
+                if sub.type == "case":
+                    continue
+                if sub.type == ":":
+                    break
+                value_node = sub
+            if value_node is None:
+                continue
+            case_val = b_source[value_node.start_byte : value_node.end_byte].strip()
+            # Collect body statements after the colon
+            body_parts = []
+            past_colon = False
+            for sub in child.children:
+                if sub.type == ":":
+                    past_colon = True
+                    continue
+                if past_colon and sub.type != "break_statement":
+                    body_parts.append(b_source[sub.start_byte : sub.end_byte])
+            body_text = b"\n        ".join(body_parts) if body_parts else b"/* empty */"
+            branches.append((case_val, body_text))
+
+    if not branches:
+        return None
+
+    # Build if/else if chain
+    parts: list[bytes] = []
+    default_body: bytes | None = None
+    first = True
+    for val, body in branches:
+        if val is None:
+            default_body = body
+            continue
+        if first:
+            parts.append(b"if (" + cond_text + b" == " + val + b") {\n        " + body + b"\n    }")
+            first = False
+        else:
+            parts.append(
+                b" else if (" + cond_text + b" == " + val + b") {\n        " + body + b"\n    }"
+            )
+
+    if default_body is not None:
+        parts.append(b" else {\n        " + default_body + b"\n    }")
+
+    if not parts:
+        return None
+
+    replacement = b"".join(parts)
+    result = b_source[: stmt_node.start_byte] + replacement + b_source[stmt_node.end_byte :]
+    return result.decode("utf-8")
+
+
+def mut_split_switch(s: str, rng: random.Random) -> str | None:
+    """Split a switch into two nested switches guarded by a range check.
+
+    Rewrites ``switch(x) { case A: ...; case B: ...; case C: ...; }``
+    into ``if (x <= B) { switch(x) { case A: ...; case B: ...; } }
+    else { switch(x) { case C: ...; } }``
+
+    This forces a two-level dispatch which can match binaries where the
+    original code used nested message handling or where MSVC6 internally
+    split the comparison tree at a different pivot.
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+    cursor = ts.QueryCursor(_QUERY_SWITCH_STMT)
+    matches = cursor.matches(tree.root_node)
+    if not matches:
+        return None
+
+    _, caps = rng.choice(matches)
+    stmt_node = caps["stmt"][0]
+    cond_node = caps["cond"][0]
+    body_node = caps["body"][0]
+
+    cond_text = b_source[cond_node.start_byte + 1 : cond_node.end_byte - 1].strip()
+
+    # Collect non-default case nodes with their original text
+    case_nodes = []
+    default_text: bytes | None = None
+    for child in body_node.children:
+        if child.type != "case_statement":
+            continue
+        is_default = child.children and child.children[0].type == "default"
+        if is_default:
+            default_text = b_source[child.start_byte : child.end_byte]
+        else:
+            case_nodes.append(child)
+
+    # Need at least 3 cases to make splitting worthwhile
+    if len(case_nodes) < 3:
+        return None
+
+    # Pick a split point (not the first or last)
+    split_idx = rng.randint(1, len(case_nodes) - 1)
+    left_cases = case_nodes[:split_idx]
+    right_cases = case_nodes[split_idx:]
+
+    # Extract the pivot value from the last left case
+    pivot_node = left_cases[-1]
+    pivot_val = None
+    for sub in pivot_node.children:
+        if sub.type == "case":
+            continue
+        if sub.type == ":":
+            break
+        pivot_val = b_source[sub.start_byte : sub.end_byte].strip()
+    if pivot_val is None:
+        return None
+
+    # Build two switches
+    left_body = b"\n    ".join(b_source[c.start_byte : c.end_byte] for c in left_cases)
+    right_body = b"\n    ".join(b_source[c.start_byte : c.end_byte] for c in right_cases)
+
+    # Add default to the right switch (or left, randomly)
+    if default_text is not None:
+        if rng.random() < 0.5:
+            left_body += b"\n    " + default_text
+        else:
+            right_body += b"\n    " + default_text
+
+    replacement = (
+        b"if (" + cond_text + b" <= " + pivot_val + b") {\n"
+        b"    switch (" + cond_text + b") {\n    " + left_body + b"\n    }\n"
+        b"} else {\n"
+        b"    switch (" + cond_text + b") {\n    " + right_body + b"\n    }\n"
+        b"}"
+    )
+
+    result = b_source[: stmt_node.start_byte] + replacement + b_source[stmt_node.end_byte :]
+    return result.decode("utf-8")
+
+
+def mut_move_switch_default(s: str, rng: random.Random) -> str | None:
+    """Move the default clause to the top or bottom of a switch body.
+
+    Default position affects fallthrough and the 'else' branch of
+    MSVC6's comparison chain.  Moving it changes whether the default
+    path is the first or last jne target.
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+    cursor = ts.QueryCursor(_QUERY_SWITCH_STMT)
+    matches = cursor.matches(tree.root_node)
+    if not matches:
+        return None
+
+    _, caps = rng.choice(matches)
+    body_node = caps["body"][0]
+
+    # Find default and non-default case nodes
+    default_node: ts.Node | None = None
+    case_nodes: list[ts.Node] = []
+    for child in body_node.children:
+        if child.type != "case_statement":
+            continue
+        is_default = child.children and child.children[0].type == "default"
+        if is_default:
+            default_node = child
+        else:
+            case_nodes.append(child)
+
+    if default_node is None or not case_nodes:
+        return None
+
+    # Check if default is already at desired position
+    # Move to top if currently at bottom, bottom if at top/middle
+    all_cases = [c for c in body_node.children if c.type == "case_statement"]
+    default_idx = all_cases.index(default_node)
+    new_order = case_nodes + [default_node] if default_idx == 0 else [default_node] + case_nodes
+
+    # Reconstruct the body with reordered cases
+    open_brace = b_source[body_node.start_byte : body_node.start_byte + 1]
+    close_brace = b_source[body_node.end_byte - 1 : body_node.end_byte]
+    # Use the indentation from the first case statement
+    indent = b"\n    "
+    new_body = open_brace + indent
+    new_body += indent.join(b_source[c.start_byte : c.end_byte] for c in new_order)
+    new_body += b"\n" + close_brace
+
+    result = b_source[: body_node.start_byte] + new_body + b_source[body_node.end_byte :]
+    return result.decode("utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Advanced Control Flow & Switch Edge Cases (MSVC6 blocks)
+# ---------------------------------------------------------------------------
+
+
+def mut_if_chain_to_switch(s: str, rng: random.Random) -> str | None:
+    b_source = s.encode("utf-8")
+
+    tree = parse_c_ast(b_source)
+    cursor = ts.QueryCursor(_QUERY_IF_STMT)
+    matches = cursor.matches(tree.root_node)
+
+    valid_chains = []
+
+    for match in matches:
+        if_node = match[1].get("if_stmt")
+        if isinstance(if_node, list):
+            if_node = if_node[0]
+        if not if_node:
+            continue
+
+        if if_node.parent and if_node.parent.type == "else_clause":
+            continue
+
+        chain_var = None
+        cases = []
+        current_if = if_node
+        default_body = None
+
+        valid = True
+        while current_if:
+            if current_if.type != "if_statement":
+                default_body = b_source[current_if.start_byte : current_if.end_byte]
+                break
+
+            cond = current_if.child_by_field_name("condition")
+            if not cond or cond.type != "parenthesized_expression":
+                valid = False
+                break
+            bin_expr = cond.child(1)
+            if not bin_expr or bin_expr.type != "binary_expression":
+                valid = False
+                break
+            op = bin_expr.child_by_field_name("operator")
+            if not op or b_source[op.start_byte : op.end_byte] != b"==":
+                valid = False
+                break
+            left = bin_expr.child_by_field_name("left")
+            right = bin_expr.child_by_field_name("right")
+            if not left or left.type != "identifier":
+                valid = False
+                break
+
+            var_name = b_source[left.start_byte : left.end_byte]
+            val_text = b_source[right.start_byte : right.end_byte]
+
+            if chain_var is None:
+                chain_var = var_name
+            elif chain_var != var_name:
+                valid = False
+                break
+
+            consequence = current_if.child_by_field_name("consequence")
+            cases.append((val_text, consequence))
+
+            alt = current_if.child_by_field_name("alternative")
+            if not alt:
+                break
+
+            next_stmt = alt.child(1)
+            if not next_stmt:
+                break
+            current_if = next_stmt
+
+        if valid and len(cases) >= 2 and chain_var:
+            valid_chains.append((if_node, chain_var, cases, default_body))
+
+    if not valid_chains:
+        return None
+
+    target_if, chain_var, cases, default_body = rng.choice(valid_chains)
+
+    out = b"switch (" + chain_var + b") {\n"
+    for val, body_node in cases:
+        body_text = b_source[body_node.start_byte : body_node.end_byte]
+        if body_node.type == "compound_statement":
+            inner = body_text[1:-1].strip()
+            out += b"    case " + val + b": {\n        " + inner + b"\n        break;\n    }\n"
+        else:
+            out += b"    case " + val + b":\n        " + body_text + b"\n        break;\n"
+
+    if default_body:
+        if default_body.startswith(b"{"):
+            inner = default_body[1:-1].strip()
+            out += b"    default: {\n        " + inner + b"\n        break;\n    }\n"
+        else:
+            out += b"    default:\n        " + default_body + b"\n        break;\n"
+
+    out += b"}"
+
+    end_byte = target_if.end_byte
+    start = target_if.start_byte
+    return (b_source[:start] + out + b_source[end_byte:]).decode("utf-8")
+
+
+def mut_switch_add_explicit_default(s: str, rng: random.Random) -> str | None:
+    b_source = s.encode("utf-8")
+
+    tree = parse_c_ast(b_source)
+    cursor = ts.QueryCursor(_QUERY_SWITCH_STMT)
+    matches = cursor.matches(tree.root_node)
+
+    valid_switches = []
+    for match in matches:
+        switch = match[1].get("stmt")
+        if isinstance(switch, list):
+            switch = switch[0]
+        if not switch:
+            continue
+
+        body = switch.child_by_field_name("body")
+        if not body or body.type != "compound_statement":
+            continue
+
+        has_default = False
+        cases = []
+        for child in body.children:
+            if child.type == "case_statement":
+                # Check if this case is actually a default
+                if any(c.type == "default" for c in child.children):
+                    has_default = True
+                    break
+                else:
+                    cases.append(child)
+
+        if not has_default and cases:
+            valid_switches.append(body)
+
+    if not valid_switches:
+        return None
+
+    target_body = rng.choice(valid_switches)
+    end_idx = target_body.end_byte - 1
+
+    stmt = rng.choice([b"break;", b"return;"])
+    injection = b"\n    default:\n        " + stmt + b"\n"
+
+    return (b_source[:end_idx] + injection + b_source[end_idx:]).decode("utf-8")
+
+
+def mut_wrap_in_else(s: str, rng: random.Random) -> str | None:
+    b_source = s.encode("utf-8")
+
+    tree = parse_c_ast(b_source)
+    cursor = ts.QueryCursor(_QUERY_IF_STMT)
+    matches = cursor.matches(tree.root_node)
+
+    valid_ifs = []
+
+    def contains_early_exit(node) -> bool:
+        if node.type in (
+            "return_statement",
+            "goto_statement",
+            "break_statement",
+            "continue_statement",
+        ):
+            return True
+        if node.type == "compound_statement":
+            for child in node.children:
+                if contains_early_exit(child):
+                    return True
+        return False
+
+    for match in matches:
+        if_stmt = match[1].get("if_stmt")
+        if isinstance(if_stmt, list):
+            if_stmt = if_stmt[0]
+        if not if_stmt:
+            continue
+
+        if if_stmt.child_by_field_name("alternative"):
+            continue
+
+        conseq = if_stmt.child_by_field_name("consequence")
+        if not conseq:
+            continue
+
+        if not contains_early_exit(conseq):
+            continue
+
+        sibling = if_stmt.next_named_sibling
+        if not sibling:
+            continue
+
+        valid_ifs.append((if_stmt, sibling))
+
+    if not valid_ifs:
+        return None
+
+    target_if, target_sibling = rng.choice(valid_ifs)
+
+    parent = target_if.parent
+    if not parent or parent.type != "compound_statement":
+        return None
+
+    start_byte = target_if.end_byte
+    last_child = parent.children[-2]
+    end_byte = last_child.end_byte
+
+    if start_byte >= end_byte:
+        return None
+
+    rest_of_block = b_source[start_byte:end_byte].strip()
+    if not rest_of_block:
+        return None
+
+    replacement = b" else {\n    " + rest_of_block + b"\n}"
+
+    return (b_source[:start_byte] + replacement + b_source[end_byte:]).decode("utf-8")
+
+
+def mut_switch_break_to_return(s: str, rng: random.Random) -> str | None:
+    b_source = s.encode("utf-8")
+
+    tree = parse_c_ast(b_source)
+    cursor = ts.QueryCursor(_QUERY_SWITCH_STMT)
+    matches = cursor.matches(tree.root_node)
+
+    valid_targets = []
+
+    for match in matches:
+        switch = match[1].get("stmt")
+        if isinstance(switch, list):
+            switch = switch[0]
+        if not switch:
+            continue
+
+        sibling = switch.next_named_sibling
+        if not sibling or sibling.type != "return_statement":
+            continue
+
+        ret_text = b_source[sibling.start_byte : sibling.end_byte]
+
+        body = switch.child_by_field_name("body")
+        if not body or body.type != "compound_statement":
+            continue
+
+        break_nodes = []
+
+        def find_breaks(n, bn) -> None:
+            if n.type == "break_statement":
+                bn.append(n)
+            elif n.type not in (
+                "switch_statement",
+                "while_statement",
+                "for_statement",
+                "do_statement",
+            ):
+                for c in n.children:
+                    find_breaks(c, bn)
+
+        find_breaks(body, break_nodes)
+
+        if break_nodes:
+            valid_targets.append((switch, ret_text, break_nodes, sibling))
+
+    if not valid_targets:
+        return None
+
+    switch, ret_text, breaks, ret_node = rng.choice(valid_targets)
+
+    out = b_source
+    breaks.sort(key=lambda n: n.start_byte, reverse=True)
+
+    for b_node in breaks:
+        out = out[: b_node.start_byte] + ret_text + out[b_node.end_byte :]
+
+    return out.decode("utf-8")
+
+
+# --- Phase 3: Advanced Logical & Evaluation Mutations ---
+
+
+def mut_split_and_condition(s: str, rng: random.Random) -> str | None:
+    b_source = s.encode("utf-8")
+
+    tree = parse_c_ast(b_source)
+    cursor = ts.QueryCursor(_QUERY_BIN_COND_IF)
+    matches = cursor.matches(tree.root_node)
+
+    valid_ifs = []
+    for match in matches:
+        stmt = match[1].get("stmt")
+        if isinstance(stmt, list):
+            stmt = stmt[0]
+        if not stmt:
+            continue
+
+        # Must not have else clause for simple split
+        if stmt.child_by_field_name("alternative"):
+            continue
+
+        bin_node = match[1].get("bin")
+        if isinstance(bin_node, list):
+            bin_node = bin_node[0]
+
+        left = match[1].get("left")
+        if isinstance(left, list):
+            left = left[0]
+        right = match[1].get("right")
+        if isinstance(right, list):
+            right = right[0]
+
+        if not left or not right:
+            continue
+        op_text = b_source[left.end_byte : right.start_byte].strip()
+        if op_text != b"&&":
+            continue
+
+        body = match[1].get("body")
+        if isinstance(body, list):
+            body = body[-1]
+
+        valid_ifs.append((stmt, left, right, body))
+
+    if not valid_ifs:
+        return None
+
+    stmt, left, right, body = rng.choice(valid_ifs)
+
+    left_str = b_source[left.start_byte : left.end_byte]
+    right_str = b_source[right.start_byte : right.end_byte]
+    body_str = b_source[body.start_byte : body.end_byte]
+
+    new_stmt = b"if (" + left_str + b") {\n        if (" + right_str + b") " + body_str + b"\n    }"
+
+    return (b_source[: stmt.start_byte] + new_stmt + b_source[stmt.end_byte :]).decode("utf-8")
+
+
+def mut_split_or_condition(s: str, rng: random.Random) -> str | None:
+    b_source = s.encode("utf-8")
+
+    tree = parse_c_ast(b_source)
+    cursor = ts.QueryCursor(_QUERY_BIN_COND_IF)
+    matches = cursor.matches(tree.root_node)
+
+    valid_ifs = []
+    for match in matches:
+        stmt = match[1].get("stmt")
+        if isinstance(stmt, list):
+            stmt = stmt[0]
+        if not stmt:
+            continue
+
+        if stmt.child_by_field_name("alternative"):
+            continue
+
+        bin_node = match[1].get("bin")
+        if isinstance(bin_node, list):
+            bin_node = bin_node[0]
+
+        left = match[1].get("left")
+        if isinstance(left, list):
+            left = left[0]
+        right = match[1].get("right")
+        if isinstance(right, list):
+            right = right[0]
+
+        if not left or not right:
+            continue
+        op_text = b_source[left.end_byte : right.start_byte].strip()
+        if op_text != b"||":
+            continue
+
+        body = match[1].get("body")
+        if isinstance(body, list):
+            body = body[-1]
+
+        valid_ifs.append((stmt, left, right, body))
+
+    if not valid_ifs:
+        return None
+
+    stmt, left, right, body = rng.choice(valid_ifs)
+
+    left_str = b_source[left.start_byte : left.end_byte]
+    right_str = b_source[right.start_byte : right.end_byte]
+    body_str = b_source[body.start_byte : body.end_byte]
+
+    new_stmt = (
+        b"if (" + left_str + b") " + body_str + b"\n    else if (" + right_str + b") " + body_str
+    )
+
+    return (b_source[: stmt.start_byte] + new_stmt + b_source[stmt.end_byte :]).decode("utf-8")
+
+
+def mut_merge_nested_ifs(s: str, rng: random.Random) -> str | None:
+    b_source = s.encode("utf-8")
+
+    tree = parse_c_ast(b_source)
+    cursor = ts.QueryCursor(_QUERY_NESTED_IF_P3)
+    matches = cursor.matches(tree.root_node)
+
+    valid_ifs = []
+    for match in matches:
+        stmt = match[1].get("stmt")
+        if isinstance(stmt, list):
+            stmt = stmt[0]
+        if not stmt:
+            continue
+
+        if stmt.child_by_field_name("alternative"):
+            continue
+
+        inner_if = match[1].get("inner_if")
+        if isinstance(inner_if, list):
+            inner_if = inner_if[-1]
+        if inner_if.child_by_field_name("alternative"):
+            continue
+
+        cond1 = match[1].get("cond1")
+        if isinstance(cond1, list):
+            cond1 = cond1[0]
+        cond2 = match[1].get("cond2")
+        if isinstance(cond2, list):
+            cond2 = cond2[0]
+
+        body = match[1].get("body")
+        if isinstance(body, list):
+            body = body[-1]
+
+        outer_body = match[1].get("outer_body")
+        if isinstance(outer_body, list):
+            outer_body = outer_body[0]
+
+        # Ensure the outer_body only contains the inner_if statement
+        block_nodes = [c for c in outer_body.children if c.type != "{" and c.type != "}"]
+        if len(block_nodes) != 1:
+            continue
+
+        valid_ifs.append((stmt, cond1, cond2, body))
+
+    if not valid_ifs:
+        return None
+
+    stmt, cond1, cond2, body = rng.choice(valid_ifs)
+
+    # We want without the surrounding parens if we are going to wrap it
+    cond1_str = b_source[cond1.start_byte + 1 : cond1.end_byte - 1]
+    cond2_str = b_source[cond2.start_byte + 1 : cond2.end_byte - 1]
+    body_str = b_source[body.start_byte : body.end_byte]
+
+    new_stmt = b"if ((" + cond1_str + b") && (" + cond2_str + b")) " + body_str
+
+    return (b_source[: stmt.start_byte] + new_stmt + b_source[stmt.end_byte :]).decode("utf-8")
+
+
+def mut_extract_condition_to_var(s: str, rng: random.Random) -> str | None:
+    b_source = s.encode("utf-8")
+
+    tree = parse_c_ast(b_source)
+    cursor = ts.QueryCursor(_QUERY_BIN_COND_IF)
+    matches = cursor.matches(tree.root_node)
+
+    valid_ifs = []
+    for match in matches:
+        stmt = match[1].get("stmt")
+        if isinstance(stmt, list):
+            stmt = stmt[0]
+        if not stmt:
+            continue
+
+        bin_node = match[1].get("bin")
+        if isinstance(bin_node, list):
+            bin_node = bin_node[0]
+
+        left = match[1].get("left")
+        if isinstance(left, list):
+            left = left[0]
+        right = match[1].get("right")
+        if isinstance(right, list):
+            right = right[0]
+
+        if not left or not right:
+            continue
+        op_text = b_source[left.end_byte : right.start_byte].strip()
+        if op_text not in (b"==", b"!=", b"<", b">", b"<=", b">="):
+            continue
+
+        valid_ifs.append((stmt, bin_node))
+
+    if not valid_ifs:
+        return None
+
+    stmt, bin_node = rng.choice(valid_ifs)
+    cond_str = b_source[bin_node.start_byte : bin_node.end_byte]
+
+    var_id = rng.randint(0, 999)
+    var_name = f"_cond_{var_id}".encode()
+
+    # C89: hoist declaration to function body top, keep assignment inline
+    insert_pos = _find_function_body_insert_pos(b_source, stmt.start_byte)
+    if insert_pos is None:
+        return None
+
+    hoisted_decl = b"\n    int " + var_name + b";"
+    inline_assign = var_name + b" = (" + cond_str + b");\n    "
+
+    # Insert hoisted declaration
+    out = b_source[:insert_pos] + hoisted_decl + b_source[insert_pos:]
+    offset = len(hoisted_decl)
+
+    # Adjust byte positions for the insertion
+    stmt_start = stmt.start_byte + offset
+    stmt_end = stmt.end_byte + offset
+    bin_start = bin_node.start_byte + offset
+    bin_end = bin_node.end_byte + offset
+
+    # Replace the binary expression with the variable
+    new_stmt_str = out[stmt_start:bin_start] + var_name + out[bin_end:stmt_end]
+
+    return (out[:stmt_start] + inline_assign + new_stmt_str + out[stmt_end:]).decode("utf-8")
+
+
+def mut_loop_condition_extraction(s: str, rng: random.Random) -> str | None:
+    b_source = s.encode("utf-8")
+
+    tree = parse_c_ast(b_source)
+    cursor = ts.QueryCursor(_QUERY_WHILE_LOOP)
+    matches = cursor.matches(tree.root_node)
+
+    valid_loops = []
+    for match in matches:
+        stmt = match[1].get("stmt")
+        if isinstance(stmt, list):
+            stmt = stmt[0]
+        if not stmt:
+            continue
+
+        cond = match[1].get("cond")
+        if isinstance(cond, list):
+            cond = cond[0]
+
+        body = match[1].get("body")
+        if isinstance(body, list):
+            body = body[-1]
+
+        valid_loops.append((stmt, cond, body))
+
+    if not valid_loops:
+        return None
+
+    stmt, cond, body = rng.choice(valid_loops)
+
+    cond_str = b_source[cond.start_byte + 1 : cond.end_byte - 1]
+
+    if body.type == "compound_statement":
+        inner_body = b_source[body.start_byte + 1 : body.end_byte - 1].strip()
+        new_loop = (
+            b"while (1) {\n        if (!("
+            + cond_str
+            + b")) break;\n        "
+            + inner_body
+            + b"\n    }"
+        )
+    else:
+        body_str = b_source[body.start_byte : body.end_byte]
+        new_loop = (
+            b"while (1) {\n        if (!("
+            + cond_str
+            + b")) break;\n        "
+            + body_str
+            + b"\n    }"
+        )
+
+    return (b_source[: stmt.start_byte] + new_loop + b_source[stmt.end_byte :]).decode("utf-8")
+
+
+# ---------------------------------------------------------------------------
+# New MSVC6-targeted mutators (2026-03 GA improvements batch)
+# ---------------------------------------------------------------------------
+
+
+# Type widening/narrowing tables — MSVC6 generates different MOV widths
+_TYPE_WIDEN_MAP: dict[bytes, bytes] = {
+    b"short": b"int",
+    b"int": b"short",
+    b"BYTE": b"DWORD",
+    b"DWORD": b"BYTE",
+    b"WORD": b"DWORD",
+}
+
+_QUERY_LOCAL_DECL = ts.Query(
+    _C_LANGUAGE,
+    """
+    (declaration type: (_) @type declarator: (_) @decl) @stmt
+""",
+)
+
+
+def mut_widen_local_type(s: str, rng: random.Random) -> str | None:
+    """Toggle local variable type width: short↔int, BYTE↔DWORD, WORD↔DWORD.
+
+    MSVC6 generates different MOV sizes (MOVSX, MOVZX, MOV EAX vs MOV AL)
+    depending on the declared type width.
+    """
+    b_source = s.encode("utf-8")
+    cursor = ts.QueryCursor(_QUERY_LOCAL_DECL)
+    tree = parse_c_ast(b_source)
+    matches = cursor.matches(tree.root_node)
+
+    valid = []
+    for match in matches:
+        caps = match[1]
+        type_node = caps.get("type")
+        if isinstance(type_node, list):
+            type_node = type_node[0]
+        if not type_node:
+            continue
+        type_text = b_source[type_node.start_byte : type_node.end_byte].strip()
+        if type_text in _TYPE_WIDEN_MAP:
+            valid.append((type_node, type_text))
+
+    if not valid:
+        return None
+
+    node, old_type = rng.choice(valid)
+    new_type = _TYPE_WIDEN_MAP[old_type]
+    res = b_source[: node.start_byte] + new_type + b_source[node.end_byte :]
+    result = res.decode("utf-8")
+    return result if result != s else None
+
+
+_DLLIMPORT_RE = re.compile(
+    rb"__declspec\s*\(\s*dllimport\s*\)\s*",
+)
+_EXTERN_DECL_RE = re.compile(
+    rb"^(extern\s+)((?:int|void|BOOL|DWORD|HANDLE|HRESULT|UINT|LRESULT|"
+    rb"char|short|long|unsigned|FARPROC|LPVOID)\s+\w+\s*\()",
+    re.MULTILINE,
+)
+
+
+def mut_toggle_dllimport(s: str, rng: random.Random) -> str | None:
+    """Add or remove __declspec(dllimport) on extern function declarations.
+
+    Changes IAT calling sequences: dllimport produces direct CALL [addr]
+    to the IAT, while without it the linker inserts a thunk stub.
+    """
+    b_source = s.encode("utf-8")
+
+    # Try to remove existing dllimport first
+    dllimport_matches = list(_DLLIMPORT_RE.finditer(b_source))
+    if dllimport_matches:
+        m = rng.choice(dllimport_matches)
+        res = b_source[: m.start()] + b_source[m.end() :]
+        result = res.decode("utf-8")
+        return result if result != s else None
+
+    # Try to add dllimport to an extern declaration
+    extern_matches = list(_EXTERN_DECL_RE.finditer(b_source))
+    if extern_matches:
+        m = rng.choice(extern_matches)
+        res = (
+            b_source[: m.start(1)]
+            + m.group(1)
+            + b"__declspec(dllimport) "
+            + m.group(2)
+            + b_source[m.end(2) :]
+        )
+        result = res.decode("utf-8")
+        return result if result != s else None
+
+    return None
+
+
+_MEMCPY_RE = re.compile(
+    rb"memcpy\s*\(\s*([^,]+),\s*([^,]+),\s*(\d+)\s*\)\s*;",
+)
+
+
+def mut_memcpy_to_loop(s: str, rng: random.Random) -> str | None:
+    """Convert memcpy(dst, src, N) to an explicit byte-copy loop.
+
+    MSVC6 inlines memcpy() to REP MOVSD/MOVSB while explicit loops
+    generate different codegen (typically LEA + indexed MOV).
+    """
+    b_source = s.encode("utf-8")
+    matches = list(_MEMCPY_RE.finditer(b_source))
+    if not matches:
+        return None
+
+    m = rng.choice(matches)
+    dst = m.group(1).strip()
+    src = m.group(2).strip()
+    n = m.group(3).strip()
+    idx = rng.randint(0, 999)
+    var = f"_ci_{idx}".encode()
+
+    # C89-safe: we need the loop var declared at function top
+    insert_pos = _find_function_body_insert_pos(b_source, m.start())
+    if insert_pos is None:
+        return None
+
+    hoisted_decl = b"\n    int " + var + b";"
+    loop = (
+        b"for ("
+        + var
+        + b" = 0; "
+        + var
+        + b" < "
+        + n
+        + b"; "
+        + var
+        + b"++) ((char*)"
+        + dst
+        + b")["
+        + var
+        + b"] = ((char*)"
+        + src
+        + b")["
+        + var
+        + b"];"
+    )
+
+    # Insert hoisted decl
+    out = b_source[:insert_pos] + hoisted_decl + b_source[insert_pos:]
+    offset = len(hoisted_decl)
+
+    # Replace memcpy call
+    res = out[: m.start() + offset] + loop + out[m.end() + offset :]
+    return res.decode("utf-8")
+
+
+_BYTE_COPY_LOOP_RE = re.compile(
+    rb"for\s*\(\s*(\w+)\s*=\s*0\s*;\s*\1\s*<\s*(\d+)\s*;\s*\1\s*\+\+\s*\)"
+    rb"\s*\(\(char\s*\*\)\s*(\w+)\)\s*\[\s*\1\s*\]\s*=\s*\(\(char\s*\*\)\s*(\w+)\)\s*\[\s*\1\s*\]\s*;",
+)
+
+
+def mut_loop_to_memcpy(s: str, rng: random.Random) -> str | None:
+    """Convert explicit byte-copy loop to memcpy().
+
+    Inverse of mut_memcpy_to_loop.  memcpy() inlines to REP MOVS
+    on MSVC6, which uses different register allocation.
+    """
+    b_source = s.encode("utf-8")
+    matches = list(_BYTE_COPY_LOOP_RE.finditer(b_source))
+    if not matches:
+        return None
+
+    m = rng.choice(matches)
+    dst = m.group(3)
+    src = m.group(4)
+    n = m.group(2)
+    replacement = b"memcpy(" + dst + b", " + src + b", " + n + b");"
+    res = b_source[: m.start()] + replacement + b_source[m.end() :]
+    return res.decode("utf-8")
+
+
+_QUERY_FLOAT_BINOP = ts.Query(
+    _C_LANGUAGE,
+    """
+    (binary_expression
+        left: (_) @left
+        operator: _ @op
+        right: (_) @right) @expr
+""",
+)
+
+# Float-context hints: variable/function names or types
+_FLOAT_HINTS = re.compile(
+    rb"(?:float|double|FLOAT|DOUBLE|flt|dbl|_f_|_d_|"
+    rb"sin|cos|tan|sqrt|pow|fabs|ceil|floor|log|exp|atan)",
+    re.IGNORECASE,
+)
+
+
+def mut_commute_float_operands(s: str, rng: random.Random) -> str | None:
+    """Swap operands in float multiplication/addition.
+
+    Changes FPU load order: fld a; fmul b  vs  fld b; fmul a.
+    Identical math, different bytes.  Only targets expressions that
+    look like they involve floating-point variables.
+    """
+    b_source = s.encode("utf-8")
+    cursor = ts.QueryCursor(_QUERY_FLOAT_BINOP)
+    tree = parse_c_ast(b_source)
+    matches = cursor.matches(tree.root_node)
+
+    valid = []
+    for match in matches:
+        caps = match[1]
+        op_node = caps.get("op")
+        if isinstance(op_node, list):
+            op_node = op_node[0]
+        if not op_node:
+            continue
+        op_text = b_source[op_node.start_byte : op_node.end_byte]
+        if op_text not in (b"*", b"+"):
+            continue
+
+        left = caps.get("left")
+        right = caps.get("right")
+        if isinstance(left, list):
+            left = left[0]
+        if isinstance(right, list):
+            right = right[0]
+        if not left or not right:
+            continue
+
+        left_text = b_source[left.start_byte : left.end_byte]
+        right_text = b_source[right.start_byte : right.end_byte]
+
+        # Only swap if it looks float-related
+        context = b_source[max(0, left.start_byte - 30) : right.end_byte + 30]
+        if not _FLOAT_HINTS.search(context):
+            continue
+
+        # Don't swap if already identical
+        if left_text == right_text:
+            continue
+
+        valid.append((left, right))
+
+    if not valid:
+        return None
+
+    left, right = rng.choice(valid)
+    left_text = b_source[left.start_byte : left.end_byte]
+    right_text = b_source[right.start_byte : right.end_byte]
+
+    # Swap left and right operands
+    res = (
+        b_source[: left.start_byte]
+        + right_text
+        + b_source[left.end_byte : right.start_byte]
+        + left_text
+        + b_source[right.end_byte :]
+    )
+    result = res.decode("utf-8")
+    return result if result != s else None
+
+
 ALL_MUTATIONS = [
     mut_commute_simple_add,
     mut_commute_simple_mul,
@@ -2470,6 +4328,42 @@ ALL_MUTATIONS = [
     mut_postpre_increment,
     mut_xor_zero_toggle,
     mut_negate_condition,
+    # --- MSVC6-targeted structural mutations (2026-03 batch) ---
+    mut_while_to_goto_loop,
+    mut_inject_dummy_var,
+    mut_inject_dummy_array,
+    mut_scope_variable,
+    mut_array_to_ptr_arith,
+    mut_ptr_arith_to_array,
+    mut_decouple_index_math,
+    mut_preinit_byte_load,
+    mut_cast_to_bitmask,
+    mut_swap_register_keywords,
+    mut_add_volatile_intermediate,
+    mut_reorder_register_vars,
+    # --- Switch statement mutations (MSVC6 comparison chain codegen) ---
+    mut_reorder_switch_cases,
+    mut_switch_to_if_chain,
+    mut_split_switch,
+    mut_move_switch_default,
+    # --- Advanced Control Flow & Switch Edge Cases (MSVC6 blocks) ---
+    mut_if_chain_to_switch,
+    mut_switch_add_explicit_default,
+    mut_wrap_in_else,
+    mut_switch_break_to_return,
+    # --- Phase 3: Advanced Logical & Evaluation Mutations ---
+    mut_split_and_condition,
+    mut_merge_nested_ifs,
+    mut_split_or_condition,
+    mut_extract_condition_to_var,
+    mut_loop_condition_extraction,
+    mut_extract_args_to_temps,
+    # --- MSVC6 type width & codegen mutations (2026-03 GA improvements) ---
+    mut_widen_local_type,
+    mut_toggle_dllimport,
+    mut_memcpy_to_loop,
+    mut_loop_to_memcpy,
+    mut_commute_float_operands,
 ]
 
 __all__ = [

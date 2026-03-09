@@ -36,7 +36,7 @@ _GENERIC_NAME_RE = re.compile(r"^_?(func_|FUN_)[0-9a-fA-F]+(@\d+)?$")
 _STATUS_BOOKMARK_CATEGORY = {
     "EXACT": "rebrew/exact",
     "RELOC": "rebrew/reloc",
-    "MATCHING": "rebrew/matching",
+    "NEAR_MATCHING": "rebrew/matching",
     "STUB": "rebrew/stub",
 }
 

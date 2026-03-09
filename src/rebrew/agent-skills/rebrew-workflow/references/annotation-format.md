@@ -59,7 +59,7 @@ even when not present inline.
 
 ## Status Progression
 
-STUB -> MATCHING -> MATCHING_RELOC -> RELOC -> EXACT
+STUB -> NEAR_MATCHING -> RELOC -> EXACT
            \-> PROVEN (via rebrew prove)
 
 Managed via `rebrew test` (auto-promotes). Never edit STATUS by hand.
@@ -84,7 +84,7 @@ status = "EXACT"
 size = 42
 
 ["BETA10.0x101832f7"]
-status = "MATCHING"
+status = "NEAR_MATCHING"
 size = 42
 blocker = "register allocation"
 ```

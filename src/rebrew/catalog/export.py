@@ -37,7 +37,7 @@ def generate_catalog(
         1
         for vas in by_va.values()
         if any(e["status"] == "STUB" for e in vas)
-        and not any(e["status"] in ("EXACT", "RELOC", "MATCHING") for e in vas)
+        and not any(e["status"] in ("EXACT", "RELOC", "NEAR_MATCHING") for e in vas)
     )
 
     # Coverage bytes

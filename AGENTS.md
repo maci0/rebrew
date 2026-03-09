@@ -168,7 +168,7 @@ src/rebrew/
 │   ├── core.py          # Data types: Score, BuildResult, BuildCache, GACheckpoint
 │   ├── compiler.py      # MSVC6 compilation + flag sweep (Wine/wibo subprocess)
 │   ├── scoring.py       # Byte-level scoring, structural similarity (capstone + numpy)
-│   ├── mutator.py       # 67 C source mutation operators for GA exploration
+│   ├── mutator.py       # 79 C source mutation operators for GA exploration
 │   ├── parsers.py       # Object file parsing (COFF/ELF/Mach-O via LIEF)
 │   ├── flags.py         # FlagSet/Checkbox primitives (decomp.me compatible)
 │   └── flag_data.py     # Auto-synced MSVC flag definitions
@@ -247,5 +247,5 @@ All CLI tools follow these conventions for a consistent user experience:
 - **No wheel reinvention**: If an imported library provides the functionality, use it
 - **No backward compat**: One canonical name per function — no aliases, no shims, no legacy wrappers
 - **Metadata for volatile metadata**: Volatile fields (STATUS, CFLAGS, BLOCKER, NOTE, GHIDRA) live in `rebrew-function.toml` per-directory metadata, managed via `rebrew.metadata`. **Never manually edit `rebrew-function.toml`**
-- **Status promotion via metadata only**: Call `update_source_status(path, status, module, va)` from `rebrew.metadata` to promote STATUS. Both `rebrew test` and `rebrew verify --fix-status` use this function. **Never write STATUS inline into `.c` files.**
+- **Status promotion via metadata only**: Call `update_source_status(path, status, module, va)` from `rebrew.metadata` to promote STATUS. Both `rebrew test` and `rebrew verify` always call this function. **Never write STATUS inline into `.c` files.**
 - **Compile result type**: `compile_and_compare` and `verify_entry` return `CompareResult` from `rebrew.compile`. Consume `.matched`, `.status`, `.delta`, `.match_percent` — never unpack as a tuple.

@@ -211,7 +211,7 @@ class TestWarnings:
         assert any((c == "W006" for _, c, _ in result.warnings))
 
     def test_e017_contradictory_matching_stub(self, tmp_path: Path) -> None:
-        content = "// STUB: SERVER 0x10008880\n// STATUS: MATCHING\n// SIZE: 31\n// CFLAGS: /O2\nint foo(void) { return 0; }\n"
+        content = "// STUB: SERVER 0x10008880\n// STATUS: NEAR_MATCHING\n// SIZE: 31\n// CFLAGS: /O2\nint foo(void) { return 0; }\n"
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
         assert any((c == "E017" for _, c, _ in result.errors))

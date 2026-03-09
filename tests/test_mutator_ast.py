@@ -243,7 +243,7 @@ def test_mut_ast_introduce_temp_for_call():
     source = "int main() { a = foo(); }"
     rng = random.Random(42)
     res = mut_introduce_temp_for_call(source, rng)
-    assert res == "int main() { BOOL tmp = foo();\n    a = tmp; }"
+    assert res == "int main() {\n    BOOL tmp; tmp = foo();\n    a = tmp; }"
 
 
 def test_mut_ast_remove_temp_var():

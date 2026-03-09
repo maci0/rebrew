@@ -16,7 +16,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 |------|-------------|
 | `rebrew test` | Compile your C and diff it byte-by-byte against the original binary |
 | `rebrew match` | GA engine — single file or batch (`--all`); brute-force compiler flags and mutate source to find exact byte matches |
-| `rebrew verify` | Bulk compile + report match status; `--fix-status` auto-updates metadata; `--compare` for CI regression checks |
+| `rebrew verify` | Bulk compile + report match status; always auto-updates metadata; `--compare` for CI regression checks |
 | `rebrew prove` | Symbolic equivalence via angr + Z3 — mathematically prove MATCHING functions are equivalent |
 
 ### Authoring
@@ -156,7 +156,7 @@ rebrew prove src/server.dll/calculate_physics.c --json  # JSON output
 rebrew prove my_func --dry-run                        # find by symbol, preview only
 
 # Export & Sync
-rebrew verify --fix-status          # bulk compile and auto-update STATUS/BLOCKER metadata
+rebrew verify                       # bulk compile and auto-update STATUS/BLOCKER metadata
 rebrew verify --json                # structured JSON report to stdout
 rebrew verify --compare             # detect regressions against last saved report
 rebrew split src/target_name/multi.c --dry-run  # preview split without writing
