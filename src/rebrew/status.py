@@ -254,19 +254,23 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     # the actual verify result is MISMATCH.  Verify results are authoritative.
     verify_statuses = _load_verify_statuses(cfg)
 
-    # Status breakdown — use verify result when available, annotation as fallback
+    # Status breakdown — use verify result when available, annotation as fallback.
+    # Exception: PROVEN (from rebrew prove) is a post-verify promotion that
+    # takes precedence over verify cache RELOC/EXACT results.
     status_counts: dict[str, int] = {}
     for va, info in existing.items():
-        s = verify_statuses.get(va, info.get("status", "STUB"))
+        ann_status = info.get("status", "STUB")
+        s = "PROVEN" if ann_status == "PROVEN" else verify_statuses.get(va, ann_status)
         status_counts[s] = status_counts.get(s, 0) + 1
     report.status_counts = status_counts
 
     # Byte-level coverage: sum sizes of matched functions (EXACT + RELOC + PROVEN)
-    # Uses the effective status (verify-overridden)
+    # Uses the effective status (verify-overridden, but PROVEN wins)
     size_by_va: dict[int, int] = {f.va: f.size for f in ghidra_funcs}
     matched_bytes = 0
     for va, info in existing.items():
-        effective = verify_statuses.get(va, info.get("status"))
+        ann_status = info.get("status")
+        effective = "PROVEN" if ann_status == "PROVEN" else verify_statuses.get(va, ann_status)
         if effective in ("EXACT", "RELOC", "PROVEN"):
             matched_bytes += size_by_va.get(va, 0)
     report.matched_bytes = matched_bytes
