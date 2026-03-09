@@ -211,7 +211,7 @@ def prove_equivalence(
 
         return angr.Project(
             io.BytesIO(blob),
-            main_opts={"backend": "blob", "arch": "x86", "base_addr": 0},
+            main_opts={"backend": "blob", "arch": "x86", "base_addr": 0, "entry_point": 0},
             auto_load_libs=False,
         )
 
