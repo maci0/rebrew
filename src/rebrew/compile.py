@@ -341,31 +341,36 @@ def compile_to_obj(
     base_flags = _safe_shlex_split(cfg.base_cflags)
     use_timeout = cfg.compile_timeout
 
-    # Resolve relative /I paths in user cflags.  The source file is copied
-    # into a temp workdir for Wine, so any relative /I paths from CFLAGS
-    # annotations (e.g. /I..\..\references\zlib) would resolve against the
-    # wrong directory.  Try the source file's parent first (annotations are
-    # typically relative to the source), then the project root.
+    # Resolve relative /I paths in BOTH base_cflags and user cflags.
+    # The source file is copied into a temp workdir for Wine, so any
+    # relative /I paths (e.g. -Isrc/NP) would resolve against the wrong
+    # directory.  Try the source file's parent first, then the project root.
     src_parent = source_path.resolve().parent
-    resolved_cflags = []
-    for flag in cflags:
-        if flag.startswith(("/I", "-I")):
-            prefix = flag[:2]
-            inc_dir = flag[2:].strip('"').strip("'")
-            p = Path(inc_dir)
-            if not p.is_absolute():
-                from_src = (src_parent / p).resolve()
-                from_root = (cfg.root / p).resolve()
-                if from_src.is_dir():
-                    resolved_cflags.append(f"{prefix}{from_src}")
-                elif from_root.is_dir():
-                    resolved_cflags.append(f"{prefix}{from_root}")
+
+    def _resolve_inc_flags(flags: list[str]) -> list[str]:
+        resolved: list[str] = []
+        for flag in flags:
+            if flag.startswith(("/I", "-I")):
+                prefix = flag[:2]
+                inc_dir = flag[2:].strip('"').strip("'")
+                p = Path(inc_dir)
+                if not p.is_absolute():
+                    from_src = (src_parent / p).resolve()
+                    from_root = (cfg.root / p).resolve()
+                    if from_src.is_dir():
+                        resolved.append(f"{prefix}{from_src}")
+                    elif from_root.is_dir():
+                        resolved.append(f"{prefix}{from_root}")
+                    else:
+                        resolved.append(flag)
                 else:
-                    resolved_cflags.append(flag)
+                    resolved.append(flag)
             else:
-                resolved_cflags.append(flag)
-        else:
-            resolved_cflags.append(flag)
+                resolved.append(flag)
+        return resolved
+
+    base_flags = _resolve_inc_flags(base_flags)
+    resolved_cflags = _resolve_inc_flags(cflags)
 
     # --- Compile cache lookup ---
     cc = cache

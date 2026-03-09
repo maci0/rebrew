@@ -31,14 +31,13 @@ def generate_catalog(
     reloc_count = sum(
         1
         for vas in by_va.values()
-        if any(e["status"] in ("RELOC", "MATCHING_RELOC") for e in vas)
-        and not any(e["status"] == "EXACT" for e in vas)
+        if any(e["status"] == "RELOC" for e in vas) and not any(e["status"] == "EXACT" for e in vas)
     )
     stub_count = sum(
         1
         for vas in by_va.values()
         if any(e["status"] == "STUB" for e in vas)
-        and not any(e["status"] in ("EXACT", "RELOC", "MATCHING_RELOC", "MATCHING") for e in vas)
+        and not any(e["status"] in ("EXACT", "RELOC", "MATCHING") for e in vas)
     )
 
     # Coverage bytes

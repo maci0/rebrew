@@ -359,7 +359,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 |------|-------------|--------------|
 | W008 | CFLAGS differ from preset | `CFLAGS: /O2 /Gd` on a `MSVCRT` function when preset says `/O1` |
 | W018 | Missing CFLAGS with no config fallback | No `// CFLAGS:` line **and** no `base_cflags` in project config — compile may use wrong flags |
-| W019 | *(reserved)* | Unused — was missing ORIGIN warning |
+| W019 | Inline sidecar annotation | `// BLOCKER:`, `// NOTE:`, or `// GHIDRA:` inline — run `--fix` to move to `rebrew-function.toml` |
 | W010 | Unknown annotation key | `// FOOBAR: value` — key not in the known set |
 | W015 | Mixed-case VA hex digits | `0x10003Da0` — prefer consistent `0x10003da0` or `0x10003DA0` |
 

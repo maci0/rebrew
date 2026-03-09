@@ -245,8 +245,8 @@ class TestNormalizeHelpers:
         assert normalize_status("MATCHING") == "MATCHING"
 
     def test_normalize_status_matching_reloc(self) -> None:
-        # Regression: must NOT mangle MATCHING_RELOC → RELOC (substring order bug)
-        assert normalize_status("MATCHING_RELOC") == "MATCHING_RELOC"
+        # Regression: must NOT mangle RELOC → RELOC (substring order bug)
+        assert normalize_status("RELOC") == "RELOC"
 
     def test_normalize_status_stub(self) -> None:
         assert normalize_status("STUB") == "STUB"

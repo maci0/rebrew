@@ -167,22 +167,20 @@ def main(
         reloc = sum(
             1
             for va in fn_vas
-            if any(e["status"] in ("RELOC", "MATCHING_RELOC") for e in by_va[va])
+            if any(e["status"] == "RELOC" for e in by_va[va])
             and not any(e["status"] == "EXACT" for e in by_va[va])
         )
         matching = sum(
             1
             for va in fn_vas
-            if any(e["status"] in ("MATCHING", "MATCHING_RELOC") for e in by_va[va])
+            if any(e["status"] in ("MATCHING",) for e in by_va[va])
             and not any(e["status"] in ("EXACT", "RELOC") for e in by_va[va])
         )
         stub = sum(
             1
             for va in fn_vas
             if any(e["status"] == "STUB" for e in by_va[va])
-            and not any(
-                e["status"] in ("EXACT", "RELOC", "MATCHING", "MATCHING_RELOC") for e in by_va[va]
-            )
+            and not any(e["status"] in ("EXACT", "RELOC", "MATCHING") for e in by_va[va])
         )
 
         module_counts: dict[str, int] = {}
@@ -247,6 +245,17 @@ def main(
             json_path = coverage_dir / f"data_{target}.json"
             atomic_write_text(json_path, json.dumps(data, indent=2) + "\n", encoding="utf-8")
             console.print(f"Wrote {json_path}", style="dim")
+
+            # Export function_structure.json for compatibility if we parsed from a list
+            if funcs and not ghidra_json_path.exists():
+                struct_data = [
+                    {"va": f["va"], "size": f["size"], "name": f["name"], "tool_name": f["name"]}
+                    for f in funcs
+                ]
+                atomic_write_text(
+                    ghidra_json_path, json.dumps(struct_data, indent=2) + "\n", encoding="utf-8"
+                )
+                console.print(f"Wrote {ghidra_json_path}", style="dim")
 
         if export_ghidra_labels:
             text_sec = data.get("sections", {}).get(".text", {})
