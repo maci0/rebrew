@@ -93,3 +93,19 @@ class TestLoadSignatures:
         monkeypatch.setattr(flirt_mod, "flirt", None)
         sigs = load_signatures("/some/dir", json_output=True)
         assert sigs == []
+
+
+class TestSmallSectionGuard:
+    """Edge cases for find_func_size with very small inputs."""
+
+    def test_tiny_code_with_ret(self) -> None:
+        """Even very small code should find a ret if present."""
+        code = bytes([0xC3])  # just a ret
+        size = find_func_size(code, 0)
+        assert size == 1
+
+    def test_empty_code(self) -> None:
+        """Empty code (offset == len) should return 0."""
+        code = b""
+        size = find_func_size(code, 0)
+        assert size == 0  # min(4096, 0) = 0

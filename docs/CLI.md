@@ -130,7 +130,7 @@ Behavior:
 
 | Flag | Description |
 |------|-------------|
-| `--fix-status` | Auto-update `STATUS` in `rebrew-function.toml` sidecar based on compile results |
+| `--fix-status` | Auto-update `STATUS` in `rebrew-function.toml` metadata based on compile results |
 | `--compare` | Compare against last saved `db/verify_results.json`, detect regressions/improvements; exit code 1 on regression |
 | `--summary` | Show EXACT/RELOC/MATCHING summary table with match percentages |
 | `--json` | Structured JSON report to stdout |
@@ -181,6 +181,7 @@ Output prefixes for unambiguous parsing:
 | `--bss` | Verify .bss layout and detect gaps |
 | `--dispatch` | Detect dispatch tables / vtables |
 | `--fix-bss` | Auto-generate `bss_padding.c` with dummy arrays for detected gaps |
+| `--gen-header` | Output `rebrew_globals.h` locally without fetching from Ghidra |
 | `--json` | JSON output for all modes |
 
 ### `rebrew graph`
@@ -218,7 +219,7 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 | `--csv` | Generate reccmp-compatible CSV |
 | `--export-ghidra` | Cache Ghidra function list |
 | `--export-ghidra-labels` | Generate `ghidra_data_labels.json` from detected tables |
-| `--fix-sizes` | Update `SIZE` entries in `rebrew-function.toml` sidecar to match canonical sizes |
+| `--fix-sizes` | Update `SIZE` entries in `rebrew-function.toml` metadata to match canonical sizes |
 | `--root DIR` | Project root directory (auto-detected if omitted) |
 ### `rebrew sync`
 
@@ -481,7 +482,7 @@ that returns a `CompareResult` dataclass used by both `rebrew test` and
 | `CompareResult` | `compile.py` | Structured result for compile+compare operations (`matched`, `status`, `match_percent`, `delta`, `obj_bytes`, `message`) |
 | `classify_compare_result` | `compile.py` | Pure helper: classifies raw byte comparison into a `CompareResult` |
 | `compile_and_compare` | `compile.py` | High-level: compile → extract → compare → `CompareResult` |
-| `update_source_status` | `sidecar.py` | Canonical STATUS writer — promotes STATUS in `rebrew-function.toml`; never touches `.c` files |
+| `update_source_status` | `metadata.py` | Canonical STATUS writer — promotes STATUS in `rebrew-function.toml`; never touches `.c` files |
 
 Both `rebrew test` (auto-promote after single test) and `rebrew verify --fix-status`
 (batch promotion) call `update_source_status`.  The `.c` file is **never modified**

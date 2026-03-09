@@ -296,9 +296,9 @@ rebrew test src/target_name/my_func.c   # compile + update STATUS automatically
 rebrew test src/target_name/my_func.c --no-promote  # compile without updating STATUS
 ```
 
-The `.c` file only ever contains the stable `// FUNCTION: MODULE 0xVA` marker line. STATUS, SIZE, CFLAGS all live in the sidecar.
+The `.c` file only ever contains the stable `// FUNCTION: MODULE 0xVA` marker line. STATUS, SIZE, CFLAGS all live in the metadata.
 
-If STATUS is MATCHING, auto-classify and write the BLOCKER to the sidecar:
+If STATUS is MATCHING, auto-classify and write the BLOCKER to the metadata:
 ```bash
 rebrew diff --fix-blocker src/target_name/my_func.c
 ```
@@ -364,7 +364,7 @@ Every .c file MUST start with an annotation block. See [ANNOTATIONS.md](ANNOTATI
 
 Required fields (enforced as linter errors): marker (FUNCTION/LIBRARY/STUB), STATUS, SIZE.
 Optional: CFLAGS (falls back to project config default). Symbol is derived automatically from the C function definition.
-Conditional: SOURCE (for CRT/ZLIB), BLOCKER (for MATCHING/STUB — stored in `rebrew-function.toml` sidecar).
+Conditional: SOURCE (for CRT/ZLIB), BLOCKER (for MATCHING/STUB — stored in `rebrew-function.toml` metadata).
 
 > [!CAUTION]
 > **Never manually edit `rebrew-function.toml`.** Volatile metadata (STATUS, CFLAGS, SIZE, BLOCKER, NOTE, GHIDRA)
@@ -542,7 +542,7 @@ both targets benefit automatically.
 
 > [!TIP]
 > If a function exists in both binaries but with **different compiler flags**
-> (e.g. one uses `/O2`, the other `/O1`), each target's sidecar can specify different
+> (e.g. one uses `/O2`, the other `/O1`), each target's metadata can specify different
 > CFLAGS while still `#include`-ing the same source file.
 
 ## See Also

@@ -263,6 +263,9 @@ class TestIndexEdgeCases:
 class TestConfigIntegration:
     def test_crt_sources_config_field(self, tmp_path: Path) -> None:
         toml = """\
+[project]
+default_target = "main"
+
 [targets.main]
 binary = "test.exe"
 

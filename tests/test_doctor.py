@@ -38,6 +38,7 @@ def _make_cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
         "compiler_libs": tmp_path / "libs",
         "function_list": tmp_path / "funcs.txt",
         "reversed_dir": tmp_path / "src",
+        "metadata_dir": tmp_path,
         "bin_dir": tmp_path / "bin",
         "source_ext": ".c",
     }
@@ -114,7 +115,9 @@ class TestCheckConfigParse:
     def test_valid_config(self, tmp_path: Path) -> None:
         import os
 
-        _make_project(tmp_path, "[targets.main]\nbinary = 'test.exe'\n")
+        _make_project(
+            tmp_path, "[project]\ndefault_target = 'main'\n\n[targets.main]\nbinary = 'test.exe'\n"
+        )
         old = os.getcwd()
         try:
             os.chdir(tmp_path)
@@ -268,7 +271,9 @@ class TestRunDoctor:
     def test_full_run_with_toml(self, tmp_path: Path) -> None:
         import os
 
-        _make_project(tmp_path, "[targets.main]\nbinary = 'test.exe'\n")
+        _make_project(
+            tmp_path, "[project]\ndefault_target = 'main'\n\n[targets.main]\nbinary = 'test.exe'\n"
+        )
         old = os.getcwd()
         try:
             os.chdir(tmp_path)

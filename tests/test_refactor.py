@@ -26,6 +26,7 @@ def _make_project(tmp_path: Path, toml_content: str) -> Path:
 TOML_WITH_PROJECT = """\
 [project]
 name = "Test Game"
+default_target = "main"
 jobs = 16
 db_dir = "mydb"
 output_dir = "myout"
@@ -38,6 +39,9 @@ reversed_dir = "src"
 """
 
 TOML_WITHOUT_PROJECT = """\
+[project]
+default_target = "main"
+
 [targets.main]
 binary = "test.exe"
 format = "pe"
@@ -81,6 +85,9 @@ class TestProjectSection:
 # ---------------------------------------------------------------------------
 
 TOML_WITH_COMPILER = """\
+[project]
+default_target = "main"
+
 [compiler]
 base_cflags = "/nologo /c"
 timeout = 30
@@ -116,6 +123,9 @@ class TestCompilerConfig:
 # ---------------------------------------------------------------------------
 
 TOML_WITH_MARKER = """\
+[project]
+default_target = "server"
+
 [targets.server]
 binary = "server.dll"
 format = "pe"
@@ -183,6 +193,9 @@ class TestEstimateDifficulty:
 class TestIgnoredSymbolsHelper:
     def test_from_config(self, tmp_path: Path) -> None:
         toml = """\
+[project]
+default_target = "main"
+
 [targets.main]
 binary = "test.exe"
 format = "pe"

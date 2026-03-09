@@ -1,7 +1,7 @@
 # BinSync Export
 
 `rebrew binsync-export <outdir>` writes a [BinSync](https://github.com/binsync/binsync)
-state directory from the project's annotations and sidecar metadata. The output can be
+state directory from the project's annotations and metadata. The output can be
 loaded by any BinSync-aware decompiler plugin (IDA Pro, Binary Ninja, Ghidra).
 
 ---

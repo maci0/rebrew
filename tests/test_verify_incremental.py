@@ -2,6 +2,7 @@ import json
 import os
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
@@ -147,15 +148,15 @@ class TestSaveVerifyCache:
             }
         ]
         entries = [
-            {
-                "va": 0x10001000,
-                "name": "func_a",
-                "filepath": "func_a.c",
-                "size": 16,
-                "origin": "GAME",
-                "cflags": "",
-                "symbol": "",
-            }
+            SimpleNamespace(
+                va=0x10001000,
+                name="func_a",
+                filepath="func_a.c",
+                size=16,
+                origin="GAME",
+                cflags="",
+                symbol="",
+            )
         ]
         cache_path = tmp_path / ".rebrew" / "verify_cache.json"
 

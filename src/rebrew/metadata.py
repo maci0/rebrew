@@ -1,12 +1,19 @@
-"""sidecar.py — Per-directory metadata store for rebrew.
+"""metadata.py — Per-directory metadata store for rebrew.
 
 Volatile annotation fields (STATUS, SIZE, CFLAGS, BLOCKER, NOTE, GHIDRA, …)
-are stored in a ``rebrew-function.toml`` sidecar file alongside the reversed
-``.c`` sources, rather than as comment annotations inside those files.
+are stored in a single ``rebrew-function.toml`` metadata file at the
+``reversed_dir`` root (e.g. ``src/<target>/``), rather than as comment
+annotations inside ``.c`` source files.
+
+Location
+--------
+The metadata file lives **only** at ``cfg.reversed_dir``.  There is no walk-up
+discovery — callers must pass the correct root directory.  Subdirectories
+under ``reversed_dir`` do **not** have their own metadata files.
 
 Key format
 ----------
-The sidecar is keyed by *qualified module+VA string*::
+The metadata is keyed by *qualified module+VA string*::
 
     ["SERVER.0x01006364"]
     status = "EXACT"
@@ -35,8 +42,8 @@ call this function; it never touches the ``.c`` file.
 Merge semantics
 ---------------
 When a rebrew tool reads an ``Annotation`` from ``parse_c_file_multi()``, it
-calls ``merge_into_annotation(ann, directory)`` which overlays *sidecar* values
-on top.  Sidecar always wins for the fields it owns.
+calls ``merge_into_annotation(ann, directory)`` which overlays *metadata* values
+on top.  Metadata always wins for the fields it owns.
 
 Atomicity
 ---------
@@ -52,6 +59,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import typing
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -68,10 +76,10 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-SIDECAR_FILENAME = "rebrew-function.toml"
+METADATA_FILENAME = "rebrew-function.toml"
 
-# Fields that live in the sidecar — routing table used by update/delete helpers.
-SIDECAR_FIELDS: frozenset[str] = frozenset(
+# Fields that live in the metadata — routing table used by update/delete helpers.
+METADATA_FIELDS: frozenset[str] = frozenset(
     {
         "STATUS",
         "SIZE",
@@ -85,9 +93,9 @@ SIDECAR_FIELDS: frozenset[str] = frozenset(
         "GLOBALS",
         # ORIGIN and SOURCE are handled differently (SOURCE may stay in .c for library
         # functions; ORIGIN is derivable from the FUNCTION: marker module field).
-        # They are listed here so callers can ask ``is_sidecar_key("SOURCE")``.
+        # They are listed here so callers can ask ``is_metadata_key("SOURCE")``.
         "SOURCE",
-        # NOTE: SECTION is intentionally absent — it is owned by data_sidecar.py
+        # NOTE: SECTION is intentionally absent — it is owned by data_metadata.py
         # for DATA/GLOBAL annotations and must not be written to rebrew-function.toml.
     }
 )
@@ -109,15 +117,16 @@ _TOML_TO_ATTR: dict[str, str] = {
 }
 
 __all__ = [
-    "SIDECAR_FILENAME",
-    "SIDECAR_FIELDS",
-    "is_sidecar_key",
-    "sidecar_path",
-    "load_sidecar",
-    "save_sidecar",
+    "METADATA_FILENAME",
+    "METADATA_FIELDS",
+    "is_metadata_key",
+    "metadata_path",
+    "load_metadata",
+    "save_metadata",
     "get_entry",
     "set_field",
-    "delete_field",
+    "update_field",
+    "remove_field",
     "merge_into_annotation",
     "update_source_status",
 ]
@@ -128,22 +137,19 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 
-def is_sidecar_key(key: str) -> bool:
-    """Return True if *key* (annotation KV name, upper-case) belongs in the sidecar."""
-    return key.upper() in SIDECAR_FIELDS
+def is_metadata_key(key: str) -> bool:
+    """Return True if *key* (annotation KV name, upper-case) belongs in the metadata."""
+    return key.upper() in METADATA_FIELDS
 
 
-def sidecar_path(source_or_dir: Path) -> Path:
-    """Return the ``rebrew-function.toml`` path for a source file or its parent directory.
+def metadata_path(directory: Path) -> Path:
+    """Return the ``rebrew-function.toml`` path for the metadata root directory.
 
     Args:
-        source_or_dir: Either a ``.c`` source file or the directory that
-            contains it.  Both forms are accepted.
+        directory: The ``reversed_dir`` root (e.g. ``src/<target>/``).
 
     """
-    if source_or_dir.is_dir():
-        return source_or_dir / SIDECAR_FILENAME
-    return source_or_dir.parent / SIDECAR_FILENAME
+    return directory / METADATA_FILENAME
 
 
 def _qualified_key(module: str | None, va: int) -> str:
@@ -164,7 +170,7 @@ def _qualified_key(module: str | None, va: int) -> str:
 
 
 def _parse_key(key: str) -> tuple[str, int] | None:
-    """Parse a sidecar TOML key into ``(module, va_int)``.
+    """Parse a metadata TOML key into ``(module, va_int)``.
 
     Only accepts the qualified ``MODULE.0xVA`` form.  Returns ``None`` for
     unrecognised keys.
@@ -188,53 +194,32 @@ def _parse_key(key: str) -> tuple[str, int] | None:
     return None
 
 
-def _find_sidecar_dir(start: Path) -> Path:
-    """Return the directory that owns ``rebrew-function.toml`` for *start*.
-
-    Walks *start* → parent → grandparent … until a directory containing
-    ``rebrew-function.toml`` is found.  If no ancestor has the file, returns
-    *start* (so callers that write will create the file there).
-
-    Args:
-        start: Directory to begin the search from (typically ``filepath.parent``).
-
-    """
-    current = start.resolve()
-    parent = current.parent
-    while current != parent:  # filesystem root: parent of root is itself
-        if (current / SIDECAR_FILENAME).exists():
-            return current
-        current, parent = parent, parent.parent
-    return start
-
-
 # ---------------------------------------------------------------------------
 # Load / Save
 # ---------------------------------------------------------------------------
 
 
-def load_sidecar(directory: Path) -> dict[tuple[str, int], dict[str, Any]]:
-    """Load a ``rebrew-function.toml`` for sources in *directory*.
+def load_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]:
+    """Load ``rebrew-function.toml`` from *directory*.
 
-    Walks *directory* → parent → … until ``rebrew-function.toml`` is found,
-    then loads and returns its contents.  This means a single sidecar file at
-    a project root (e.g. ``src/server.dll/``) is shared by all subdirectories.
+    *directory* must be the metadata root (``cfg.reversed_dir``).  There is
+    no walk-up — the file is expected at exactly ``directory / rebrew-function.toml``.
 
     Returns a mapping of ``{(module, va_int): {field_name: value}}``.
-    Returns an empty dict if no sidecar file is found or it cannot be parsed.
+    Returns an empty dict if no metadata file is found or it cannot be parsed.
 
     Args:
-        directory: Starting directory (typically ``filepath.parent``).
+        directory: The metadata root directory (``cfg.reversed_dir``).
 
     """
-    path = _find_sidecar_dir(directory) / SIDECAR_FILENAME
+    path = directory / METADATA_FILENAME
     if not path.exists():
         return {}
 
     try:
         doc = tomlkit.parse(path.read_text(encoding="utf-8"))
     except Exception as exc:  # noqa: BLE001 — tomlkit raises various types
-        logger.warning("Failed to parse sidecar %s: %s", path, exc)
+        logger.warning("Failed to parse metadata %s: %s", path, exc)
         return {}
 
     result: dict[tuple[str, int], dict[str, Any]] = {}
@@ -249,7 +234,7 @@ def load_sidecar(directory: Path) -> dict[tuple[str, int], dict[str, Any]]:
     return result
 
 
-def save_sidecar(
+def save_metadata(
     directory: Path,
     data: dict[tuple[str, int], dict[str, Any]],
 ) -> None:
@@ -259,7 +244,7 @@ def save_sidecar(
         directory: The directory to write into.
         data: Mapping of ``{(module, va_int): {field: value}}``.
     """
-    path = directory / SIDECAR_FILENAME
+    path = directory / METADATA_FILENAME
     doc = tomlkit.document()
 
     # Write entries sorted by (module, va) for stable diffs.
@@ -301,42 +286,34 @@ def save_sidecar(
 
 
 def get_entry(directory: Path, va: int, module: str) -> dict[str, Any]:
-    """Return sidecar fields for *(module, va)* in *directory*.
+    """Return metadata fields for *(module, va)* in *directory*.
 
     Returns an empty dict if not found.
 
     Args:
-        directory: Directory containing ``rebrew-function.toml``.
+        directory: The metadata root directory (``cfg.reversed_dir``).
         va: Virtual address integer.
         module: Target module name (e.g. ``"SERVER"``).
 
     """
-    return load_sidecar(directory).get((module, va), {})
+    return load_metadata(directory).get((module, va), {})
 
 
-def set_field(directory: Path, va: int, key: str, value: Any, module: str) -> None:
-    """Set one field for *(module, va)* in the sidecar.
+def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> None:
+    """Set one field for *(module, va)* in the metadata.  **Private** — use
+    :func:`update_field` or :func:`update_source_status` instead.
 
-    Walks up from *directory* to find the existing sidecar file.  If no
-    ancestor sidecar exists, creates ``rebrew-function.toml`` in *directory*.
+    Writes directly to ``directory / rebrew-function.toml``.  No walk-up.
     Uses in-place ``tomlkit`` editing to preserve formatting and comments.
-
-    Args:
-        directory: Starting directory (typically ``filepath.parent``).
-        va: Virtual address integer.
-        key: Lower-case TOML key (e.g. ``"status"``, ``"size"``).
-        value: Value to write.
-        module: Target module name (e.g. ``"SERVER"``).
-
     """
-    path = _find_sidecar_dir(directory) / SIDECAR_FILENAME
+    path = directory / METADATA_FILENAME
     toml_key = _qualified_key(module, va)
 
     if path.exists():
         try:
             doc = tomlkit.parse(path.read_text(encoding="utf-8"))
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Failed to parse sidecar %s, starting fresh: %s", path, exc)
+            logger.warning("Failed to parse metadata %s, starting fresh: %s", path, exc)
             doc = tomlkit.document()
     else:
         doc = tomlkit.document()
@@ -348,19 +325,14 @@ def set_field(directory: Path, va: int, key: str, value: Any, module: str) -> No
     atomic_write_text(path, tomlkit.dumps(doc))
 
 
-def delete_field(directory: Path, va: int, key: str, module: str) -> bool:
-    """Remove *key* from the sidecar entry for *(module, va)*.  Returns True if removed.
+def _delete_field(directory: Path, va: int, key: str, module: str) -> bool:
+    """Remove *key* from the metadata entry for *(module, va)*.  **Private** —
+    use :func:`remove_field` instead.
 
-    Walks up from *directory* to find the sidecar file.
-
-    Args:
-        directory: Starting directory (typically ``filepath.parent``).
-        va: Virtual address integer.
-        key: Lower-case TOML key to remove.
-        module: Target module name.
-
+    Reads/writes directly at ``directory / rebrew-function.toml``.  No walk-up.
+    Returns True if removed.
     """
-    path = _find_sidecar_dir(directory) / SIDECAR_FILENAME
+    path = directory / METADATA_FILENAME
     if not path.exists():
         return False
     toml_key = _qualified_key(module, va)
@@ -368,17 +340,88 @@ def delete_field(directory: Path, va: int, key: str, module: str) -> bool:
     try:
         doc = tomlkit.parse(path.read_text(encoding="utf-8"))
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Failed to parse sidecar %s: %s", path, exc)
+        logger.warning("Failed to parse metadata %s: %s", path, exc)
         return False
 
-    if toml_key not in doc:
+    # Use dict access for type checking on tomlkit Container
+    doc_dict = typing.cast(dict[str, Any], doc)
+    if toml_key not in doc_dict:
         return False
-    entry = doc[toml_key]
+    entry = typing.cast(dict[str, Any], doc_dict[toml_key])
     if key in entry:
-        del entry[key]  # type: ignore[attr-defined]
+        del entry[key]
         atomic_write_text(path, tomlkit.dumps(doc))
         return True
     return False
+
+
+def update_field(directory: Path, va: int, key: str, value: Any, module: str) -> None:
+    """Central gatekeeper for all metadata field writes.
+
+    All external callers must use this function (or :func:`update_source_status`
+    for STATUS changes) to write to ``rebrew-function.toml``.
+
+    Business rules enforced here:
+    - STATUS writes are blocked; callers must use :func:`update_source_status`.
+
+    Args:
+        directory: The metadata root directory (``cfg.reversed_dir``).
+        va: Virtual address integer.
+        key: Lower-case TOML key (e.g. ``"cflags"``, ``"blocker"``).
+        value: Value to write.
+        module: Target module name (e.g. ``"SERVER"``).
+
+    Raises:
+        ValueError: If *key* is ``"status"`` — use :func:`update_source_status`.
+
+    """
+    if key == "status":
+        raise ValueError(
+            "Use update_source_status() for STATUS changes — it enforces promotion rules"
+        )
+    _set_field(directory, va, key, value, module=module)
+
+
+def set_field(directory: Path, va: int, key: str, value: Any, module: str) -> None:
+    """Raw field writer — sets *key* to *value* without any guards.
+
+    Unlike :func:`update_field`, this does **not** reject STATUS writes.
+    Use this only when you need to bypass business rules (e.g. tests,
+    data migration scripts).
+
+    Args:
+        directory: The metadata root directory (``cfg.reversed_dir``).
+        va: Virtual address integer.
+        key: Lower-case TOML key (e.g. ``"cflags"``, ``"status"``).
+        value: Value to write.
+        module: Target module name (e.g. ``"SERVER"``).
+
+    """
+    _set_field(directory, va, key, value, module=module)
+
+
+def remove_field(directory: Path, va: int, key: str, module: str) -> bool:
+    """Central gatekeeper for metadata field deletes.
+
+    All external callers must use this function to remove fields from
+    ``rebrew-function.toml``.
+
+    Args:
+        directory: The metadata root directory (``cfg.reversed_dir``).
+        va: Virtual address integer.
+        key: Lower-case TOML key to remove.
+        module: Target module name.
+
+    Returns:
+        True if the field was removed, False otherwise.
+
+    Raises:
+        ValueError: If *key* is ``"status"`` — cannot delete STATUS directly.
+
+    """
+    if key == "status":
+        raise ValueError("Cannot delete STATUS directly")
+    return _delete_field(directory, va, key, module=module)
 
 
 # ---------------------------------------------------------------------------
@@ -387,45 +430,80 @@ def delete_field(directory: Path, va: int, key: str, module: str) -> bool:
 
 
 def update_source_status(
-    source_path: Path,
+    metadata_dir: Path,
     new_status: str,
     module: str,
     va: int,
     *,
     clear_blockers: bool = True,
+    force: bool = False,
 ) -> None:
-    """Write STATUS for (module, va) to the sidecar; never touches the .c file.
+    """Write STATUS for (module, va) to the metadata; never touches the .c file.
 
     This is the single canonical place to promote a function's STATUS.  Both
     ``rebrew test`` and ``rebrew verify --fix-status`` call this function.
 
+    PROVEN is a post-verify promotion from ``rebrew prove`` and is never
+    silently demoted.  Callers that need to override this must pass
+    ``force=True``.
+
+    Uses a single read-modify-write cycle instead of separate get/set/delete
+    calls to minimise I/O and avoid partial-write windows.
+
     Args:
-        source_path: Path to the ``.c`` file (used to locate the sidecar dir).
+        metadata_dir: The metadata root directory (``cfg.reversed_dir``).
         new_status: New status string (e.g. ``EXACT``, ``RELOC``, ``MATCHING``).
         module: Target module name from the annotation (e.g. ``NP``).
         va: Virtual address of the function.
         clear_blockers: If ``True`` (default), remove ``blocker`` and
-            ``blocker_delta`` from the sidecar entry (correct for EXACT/RELOC).
+            ``blocker_delta`` from the metadata entry (correct for EXACT/RELOC).
             Pass ``False`` when demoting to MATCHING to preserve user-set blockers.
+        force: If ``True``, allow demotion from PROVEN.  Default ``False``.
 
     """
     if not module:
         return
 
-    directory = source_path.parent
+    path = metadata_dir / METADATA_FILENAME
+    toml_key = _qualified_key(module, va)
 
-    # Idempotency guard
-    entry = get_entry(directory, va, module=module)
+    # Single read
+    if path.exists():
+        try:
+            doc = tomlkit.parse(path.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to parse metadata %s, starting fresh: %s", path, exc)
+            doc = tomlkit.document()
+    else:
+        doc = tomlkit.document()
+
+    # Use dict access for type checking on tomlkit Container
+    doc_dict = typing.cast(dict[str, Any], doc)
+    if toml_key not in doc_dict:
+        doc_dict[toml_key] = tomlkit.table()
+
+    entry = typing.cast(dict[str, Any], doc_dict[toml_key])
+
+    # Idempotency guard — avoid write if nothing changed
     current_status = entry.get("status", "")
     current_blocker = entry.get("blocker", "")
     if current_status == new_status and (not clear_blockers or not current_blocker):
         return
 
-    set_field(directory, va, "status", new_status, module=module)
+    # PROVEN is a post-verify promotion from rebrew prove — never silently demote.
+    if current_status == "PROVEN" and new_status != "PROVEN" and not force:
+        return
 
+    # Mutate in-place
+    entry["status"] = new_status
     if clear_blockers:
-        delete_field(directory, va, "blocker", module=module)
-        delete_field(directory, va, "blocker_delta", module=module)
+        with contextlib.suppress(KeyError):
+            del entry["blocker"]
+        with contextlib.suppress(KeyError):
+            del entry["blocker_delta"]
+
+    # Single write
+    atomic_write_text(path, tomlkit.dumps(doc))
 
 
 # ---------------------------------------------------------------------------
@@ -434,17 +512,17 @@ def update_source_status(
 
 
 def merge_into_annotation(ann: Annotation, directory: Path) -> Annotation:
-    """Overlay sidecar values onto *ann*, returning the same object mutated.
+    """Overlay metadata values onto *ann*, returning the same object mutated.
 
-    The sidecar wins for every field it defines.
+    The metadata wins for every field it defines.
 
     Lookup uses the qualified key ``(ann.module, ann.va)``.  Multi-target
     ``.c`` files (with multiple ``// FUNCTION: MODULE 0xVA`` markers) each
-    receive their own sidecar entry and are merged in isolation.
+    receive their own metadata entry and are merged in isolation.
 
     Args:
         ann: The ``Annotation`` object to mutate.
-        directory: Directory containing ``rebrew-function.toml``.
+        directory: The metadata root directory (``cfg.reversed_dir``).
 
     Returns:
         The mutated *ann* (same object, for chaining convenience).

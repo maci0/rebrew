@@ -29,7 +29,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, NotRequired, TypedDict
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -284,7 +284,8 @@ class BinaryMatchingGA:
 # ---------------------------------------------------------------------------
 
 
-class StubInfo(TypedDict):
+@dataclass
+class StubInfo:
     """Parsed annotation fields for a STUB or near-miss MATCHING function."""
 
     filepath: Path
@@ -292,7 +293,9 @@ class StubInfo(TypedDict):
     size: int
     symbol: str
     cflags: str
-    delta: NotRequired[int]
+    status: str
+    module: str
+    delta: int = 9999
 
 
 # Match function definition start: return type at start of line.
@@ -313,54 +316,55 @@ def _parse_annotations(
     ignored: set[str] | None = None,
 ) -> list[StubInfo]:
     """Parse annotations with configurable status and delta filters."""
-    from rebrew.naming import parse_byte_delta
-
     if ignored is None:
         ignored = set()
 
-    entries = parse_c_file_multi(filepath, sidecar_dir=filepath.parent)
+    entries = parse_c_file_multi(filepath, metadata_dir=filepath.parent)
     if not entries:
         return []
 
-    if has_skip_annotation(filepath):
+    if has_skip_annotation(filepath, metadata_dir=filepath.parent):
         return []
 
-    results: list[StubInfo] = []
-    for entry in entries:
-        status = entry["status"]
-        if status not in status_filter:
+    stubs: list[StubInfo] = []
+    for ann in entries:
+        parsed_status = ann.status
+        if parsed_status not in status_filter:
             continue
 
-        if entry.va < 0x1000:
+        if ann.va < 0x1000:
             continue
 
-        symbol = resolve_symbol(entry, filepath)
+        symbol = resolve_symbol(ann, filepath)
         if symbol in ignored or symbol.lstrip("_") in ignored:
             continue
 
-        size = entry["size"]
-        if size < 10:
+        if ann.size < 10:
             continue
 
-        blocker = entry.get("blocker") or ""
-        delta = parse_byte_delta(blocker) if blocker else None
+        # Pass STUB and PROVEN directly.
+        # MATCHING functions need delta checks:
+        if parsed_status == "MATCHING":
+            d = ann.blocker_delta or 9999
+            if max_delta is not None and d > max_delta:
+                continue
+            delta = d
+        else:
+            delta = 9999
 
-        if max_delta is not None and (delta is None or delta > max_delta):
-            continue
-
-        cflags = entry["cflags"] or "/O2 /Gd"
-
-        info: StubInfo = {
-            "filepath": filepath,
-            "va": f"0x{entry['va']:08X}",
-            "size": size,
-            "symbol": symbol,
-            "cflags": cflags,
-        }
-        if delta is not None:
-            info["delta"] = delta
-        results.append(info)
-    return results
+        stubs.append(
+            StubInfo(
+                filepath=filepath,
+                va=f"0x{ann.va:x}",
+                size=ann.size,
+                symbol=symbol,
+                cflags=ann.cflags,
+                status=parsed_status,
+                module=ann.module,
+                delta=delta,
+            )
+        )
+    return stubs
 
 
 def parse_stub_info(filepath: Path, ignored: set[str] | None = None) -> list[StubInfo]:
@@ -402,7 +406,7 @@ def _collect_with_dedup(
         infos = parser_fn(cfile)
         rel_name = rel_display_path(cfile, reversed_dir)
         for info in infos:
-            va_str = info["va"]
+            va_str = info.va
             if va_str in seen_vas:
                 if warn_duplicates:
                     typer.echo(
@@ -429,7 +433,7 @@ def find_all_stubs(
         reversed_dir,
         cfg,
         lambda cfile: parse_stub_info(cfile, ignored=ignored),
-        sort_key=lambda x: x["size"],
+        sort_key=lambda x: x.size,
         warn_duplicates=warn_duplicates,
     )
 
@@ -446,7 +450,7 @@ def find_near_miss(
         reversed_dir,
         cfg,
         lambda cfile: parse_matching_info(cfile, ignored=ignored, max_delta=max_delta),
-        sort_key=lambda x: (x["delta"], x["size"]),
+        sort_key=lambda x: (x.delta, x.size),
         warn_duplicates=warn_duplicates,
     )
 
@@ -462,7 +466,7 @@ def find_all_matching(
         reversed_dir,
         cfg,
         lambda cfile: parse_matching_all(cfile, ignored=ignored),
-        sort_key=lambda x: (x.get("delta", 9999), x["size"]),
+        sort_key=lambda x: (x.delta, x.size),
         warn_duplicates=warn_duplicates,
     )
 
@@ -473,11 +477,11 @@ def find_all_matching(
 
 
 def update_cflags_annotation(filepath: Path, new_cflags: str) -> bool:
-    """Update the ``cflags`` for a function — writes to the sidecar.
+    """Update the ``cflags`` for a function — writes to the metadata.
 
-    Returns True if the sidecar was updated, False on failure.
+    Returns True if the metadata was updated, False on failure.
     """
-    from rebrew.sidecar import get_entry, set_field
+    from rebrew.metadata import get_entry, update_field
 
     try:
         text = filepath.read_text(encoding="utf-8")
@@ -504,7 +508,7 @@ def update_cflags_annotation(filepath: Path, new_cflags: str) -> bool:
     if entry.get("cflags", "") == new_cflags:
         return False
 
-    set_field(filepath.parent, va_int, "cflags", new_cflags, module=module)
+    update_field(filepath.parent, va_int, "cflags", new_cflags, module=module)
     return True
 
 
@@ -517,6 +521,18 @@ def update_stub_to_matched(filepath: Path, best_src: str, stub: StubInfo) -> Non
     bak_path = filepath.with_suffix(".c.bak")
 
     original = filepath.read_text(encoding="utf-8", errors="replace")
+
+    m = re.search(
+        r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*(\S+)\s+" + re.escape(stub.va),
+        original,
+        re.IGNORECASE,
+    )
+    if m:
+        module = m.group(1)
+        va_int = int(stub.va, 16)
+        from rebrew.metadata import update_source_status
+
+        update_source_status(filepath.parent, "RELOC", module, va_int)
 
     updated = re.sub(
         r"^(//\s*)STATUS:\s*(STUB|MATCHING(?:_RELOC)?)",
@@ -734,7 +750,7 @@ class _BuildParams:
     """Resolved build parameters shared across all modes."""
 
     cfg: Any
-    seed_c: str
+    seed_c: Path
     seed_src: str
     cl: str
     inc: str
@@ -745,6 +761,69 @@ class _BuildParams:
     target_size: int
     msvc_env: dict[str, str] | None
     cc: Any  # CompileCache | None
+
+    @classmethod
+    def from_stub(
+        cls,
+        st: StubInfo,
+        cfg: ProjectConfig,
+        cl: str | None,
+        inc: str | None,
+        link: str | None,
+        lib: str | None,
+        ldflags: str | None,
+    ) -> "_BuildParams":
+        """Create parameters from a STUB function using the source file metadata."""
+        from rebrew.metadata import get_entry
+
+        entry = get_entry(cfg.reversed_dir, int(st.va, 16), module=st.module)
+        cflags = entry.get("cflags", st.cflags)
+
+        # Resolve compiler environment
+        cl_resolved, inc_resolved, msvc_env, cc = resolve_compiler_env(cfg)
+        if cl is not None:
+            try:
+                cl_parts = shlex.split(cl)
+            except ValueError:
+                cl_parts = cl.split()
+            cl_parts_res = []
+            for part in cl_parts:
+                p = cfg.root / part
+                cl_parts_res.append(str(p) if p.exists() else part)
+            cl_resolved = " ".join(cl_parts_res)
+        if inc is not None:
+            inc_path = cfg.root / inc
+            inc_resolved = str(inc_path) if inc_path.exists() else inc
+
+        # Resolve cflags
+        base_cf = getattr(cfg, "base_cflags", "") or ""
+        if base_cf and "/c" in base_cf:
+            cflags = f"{base_cf} {cflags}".strip()
+        elif "/c" not in cflags:
+            cflags = f"/nologo /c {cflags}".strip()
+
+        # Extract target bytes
+        va_int = int(st.va, 16)
+        target_bytes = extract_raw_bytes(cfg.target_binary, va_int, st.size)
+        if not target_bytes:
+            raise ValueError(f"Could not extract target bytes for {st.symbol} at {st.va}")
+
+        seed_src = st.filepath.read_text(encoding="utf-8")
+
+        return cls(
+            cfg=cfg,
+            seed_c=st.filepath,
+            seed_src=seed_src,
+            cl=cl_resolved,
+            inc=inc_resolved,
+            cflags=cflags,
+            symbol=st.symbol,
+            target_bytes=target_bytes,
+            va_int=va_int,
+            target_size=st.size,
+            msvc_env=msvc_env,
+            cc=cc,
+        )
 
 
 def resolve_build_params(
@@ -760,6 +839,7 @@ def resolve_build_params(
     json_output: bool,
 ) -> _BuildParams:
     """Resolve config, annotations, compiler, and target bytes into build params."""
+    seed_c_path = Path(seed_c)
     # Build name -> VA map for relocation validation
     name_to_va: dict[str, int] = {}
     try:
@@ -778,7 +858,7 @@ def resolve_build_params(
         pass
 
     annos = parse_c_file_multi(
-        Path(seed_c), target_name=target_marker(cfg), sidecar_dir=Path(seed_c).parent
+        seed_c_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
     )
     anno = annos[0] if annos else None
     if anno:
@@ -790,7 +870,7 @@ def resolve_build_params(
                 console.print(f"[bold yellow]LINT WARNING:[/bold yellow] {w}")
         if eval_errs and not force:
             if json_output:
-                error_exit("Annotation lint errors", json_mode=True)
+                error_exit("Lint errors", json_mode=True)
             else:
                 error_exit(
                     "Aborting due to annotation errors. Fix them or use --force to override."
@@ -845,22 +925,22 @@ def resolve_build_params(
         try:
             target_size = int(meta["SIZE"])
         except ValueError:
-            error_exit(f"Invalid SIZE annotation: {meta['SIZE']!r}")
+            error_exit(f"Invalid SIZE metadata: {meta['SIZE']!r}")
 
     if target_va and target_size:
         va_int = parse_va(target_va, json_mode=json_output)
         target_bytes = extract_raw_bytes(cfg.target_binary, va_int, target_size)
     else:
-        error_exit("Need VA and SIZE (from source annotations or CLI)", json_mode=json_output)
+        error_exit("Need VA and SIZE (from source metadata or CLI)", json_mode=json_output)
 
     if not target_bytes:
         error_exit("Could not extract target bytes", json_mode=json_output)
 
-    seed_src = Path(seed_c).read_text(encoding="utf-8")
+    seed_src = seed_c_path.read_text(encoding="utf-8")
 
     return _BuildParams(
         cfg=cfg,
-        seed_c=seed_c,
+        seed_c=seed_c_path,
         seed_src=seed_src,
         cl=cl_resolved,
         inc=inc_resolved,
@@ -922,7 +1002,7 @@ def _run_single_flag_sweep(
     if json_output:
         sweep_items = [{"score": round(s, 2), "flags": f} for s, f in results[:20]]
         payload: dict[str, Any] = {
-            "source": p.seed_c,
+            "source": str(p.seed_c),
             "symbol": p.symbol,
             "mode": "flag_sweep",
             "tier": tier,
@@ -967,11 +1047,11 @@ def run_flag_sweep(
     import contextlib
     import io
 
-    filepath = stub["filepath"]
-    va_int = int(stub["va"], 16)
-    size = stub["size"]
-    symbol = stub["symbol"]
-    cflags = stub["cflags"]
+    filepath = stub.filepath
+    va_int = int(stub.va, 16)
+    size = stub.size
+    symbol = stub.symbol
+    cflags = stub.cflags
 
     source = filepath.read_text(encoding="utf-8")
     target_bytes = extract_raw_bytes(cfg.target_binary, va_int, size)
@@ -1063,7 +1143,7 @@ def _run_single_ga(
 
     if json_output:
         ga_payload: dict[str, Any] = {
-            "source": p.seed_c,
+            "source": str(p.seed_c),
             "symbol": p.symbol,
             "mode": "ga",
             "generations": generations,
@@ -1083,7 +1163,9 @@ def _run_single_ga(
             typer.echo("EXACT MATCH", err=True)
 
     if best_score < 0.1:
-        _save_solution(p.cfg, p.symbol, p.cflags, p.target_size, p.seed_c, best_score, generations)
+        _save_solution(
+            p.cfg, p.symbol, p.cflags, p.target_size, str(p.seed_c), best_score, generations
+        )
 
 
 def _save_solution(
@@ -1127,7 +1209,7 @@ def _run_one_stub_ga(
     extra_seed_paths: list[str] | None = None,
 ) -> tuple[bool, str]:
     """Run one GA pass for a single stub in-process. Returns (matched, summary)."""
-    filepath = stub["filepath"]
+    filepath = stub.filepath
     try:
         rel = filepath.relative_to(cfg.root)
     except ValueError:
@@ -1135,14 +1217,14 @@ def _run_one_stub_ga(
     out_dir = cfg.root / "output" / "ga_runs" / rel.with_suffix("")
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    va_int = int(stub["va"], 16)
-    target_bytes = extract_raw_bytes(cfg.target_binary, va_int, stub["size"])
+    va_int = int(stub.va, 16)
+    target_bytes = extract_raw_bytes(cfg.target_binary, va_int, stub.size)
     if not target_bytes:
         return False, "Could not extract target bytes"
 
     cl_cmd, inc_dir, msvc_env, cc = resolve_compiler_env(cfg)
 
-    cflags = stub["cflags"]
+    cflags = stub.cflags
     base_cf = getattr(cfg, "base_cflags", "") or ""
     if base_cf and "/c" in base_cf:
         cflags = f"{base_cf} {cflags}".strip()
@@ -1164,7 +1246,7 @@ def _run_one_stub_ga(
         cl_cmd,
         inc_dir,
         cflags,
-        stub["symbol"],
+        stub.symbol,
         out_dir,
         num_generations=generations,
         pop_size=pop,
@@ -1202,9 +1284,9 @@ def _run_one_stub_ga(
                     )
             _save_solution(
                 cfg,
-                stub["symbol"],
-                stub["cflags"],
-                stub["size"],
+                stub.symbol,
+                stub.cflags,
+                stub.size,
                 str(filepath),
                 best_score,
                 generations,
@@ -1269,11 +1351,11 @@ def _run_all(  # noqa: PLR0913
         mode_label = "STUB"
 
     if min_size > 0:
-        stubs = [s for s in stubs if s["size"] >= min_size]
+        stubs = [s for s in stubs if s.size >= min_size]
     if max_size < 9999:
-        stubs = [s for s in stubs if s["size"] <= max_size]
+        stubs = [s for s in stubs if s.size <= max_size]
     if filter_str:
-        stubs = [s for s in stubs if filter_str in str(s["filepath"])]
+        stubs = [s for s in stubs if filter_str in str(s.filepath)]
     if max_stubs > 0:
         stubs = stubs[:max_stubs]
 
@@ -1282,11 +1364,11 @@ def _run_all(  # noqa: PLR0913
     if not json_output:
         console.print(f"\nFound [bold]{len(stubs)}[/] {mode_label} function(s) to process:\n")
         for i, stub in enumerate(stubs, 1):
-            delta_str = f"  Δ{stub['delta']}B" if "delta" in stub else ""
-            display = rel_display_path(stub["filepath"], reversed_dir)
+            delta_str = f"  Δ{stub.delta}B" if stub.delta != 9999 else ""
+            display = rel_display_path(stub.filepath, reversed_dir)
             console.print(
-                f"  {i:3d}. [magenta]{display:45s}[/]  {stub['size']:4d}B  "
-                f"[cyan]{stub['va']}[/]  {stub['symbol']:30s}  [dim]{stub['cflags']}{delta_str}[/]"
+                f"  {i:3d}. [magenta]{display:45s}[/]  {stub.size:4d}B  "
+                f"[cyan]{stub.va}[/]  {stub.symbol:30s}  [dim]{stub.cflags}{delta_str}[/]"
             )
         console.print()
 
@@ -1295,14 +1377,14 @@ def _run_all(  # noqa: PLR0913
             items = []
             for stub in stubs:
                 item: dict[str, Any] = {
-                    "file": str(stub["filepath"]),
-                    "va": stub["va"],
-                    "size": stub["size"],
-                    "symbol": stub["symbol"],
-                    "cflags": stub["cflags"],
+                    "file": str(stub.filepath),
+                    "va": stub.va,
+                    "size": stub.size,
+                    "symbol": stub.symbol,
+                    "cflags": stub.cflags,
                 }
-                if "delta" in stub:
-                    item["delta"] = stub["delta"]
+                if stub.delta != 9999:
+                    item["delta"] = stub.delta
                 items.append(item)
             print(
                 json_mod.dumps(
@@ -1325,22 +1407,22 @@ def _run_all(  # noqa: PLR0913
     ga_results: list[dict[str, Any]] = []
 
     for i, stub in enumerate(stubs, 1):
-        display = rel_display_path(stub["filepath"], reversed_dir)
+        display = rel_display_path(stub.filepath, reversed_dir)
         if not json_output:
             console.print(f"\n[bold]{'=' * 60}[/]")
             console.print(
-                f"\\[{i}/{len(stubs)}] [magenta]{display}[/] ({stub['size']}B) symbol={stub['symbol']}"
+                f"\\[{i}/{len(stubs)}] [magenta]{display}[/] ({stub.size}B) symbol={stub.symbol}"
             )
             console.print(f"[bold]{'=' * 60}[/]")
         else:
-            print(f"[{i}/{len(stubs)}] {display} ({stub['size']}B)", file=sys.stderr)
+            print(f"[{i}/{len(stubs)}] {display} ({stub.size}B)", file=sys.stderr)
 
         extra_ga_paths: list[str] = []
         if seed_from_solved:
             try:
                 from rebrew.solutions import find_similar
 
-                similar = find_similar(cfg.root, size=stub["size"], cflags=stub["cflags"], top_k=3)
+                similar = find_similar(cfg.root, size=stub.size, cflags=stub.cflags, top_k=3)
                 for sol in similar:
                     sol_path = cfg.root / sol.source_file
                     if sol_path.exists():
@@ -1357,14 +1439,14 @@ def _run_all(  # noqa: PLR0913
         )
 
         result_entry: dict[str, Any] = {
-            "file": str(stub["filepath"]),
-            "va": stub["va"],
-            "size": stub["size"],
-            "symbol": stub["symbol"],
+            "file": str(stub.filepath),
+            "va": stub.va,
+            "size": stub.size,
+            "symbol": stub.symbol,
             "matched": matched,
         }
-        if "delta" in stub:
-            result_entry["delta"] = stub["delta"]
+        if stub.delta != 9999:
+            result_entry["delta"] = stub.delta
 
         if matched:
             matched_count += 1
@@ -1410,46 +1492,70 @@ def _run_batch_flag_sweep(
     """Execute batch flag sweep across all discovered MATCHING functions."""
     import json as json_mod
 
+    from rebrew.annotation import _module_for_va
     from rebrew.cli import rel_display_path
+    from rebrew.metadata import update_source_status
+    from rebrew.solutions import SolutionEntry, save_solution
 
     reversed_dir = cfg.reversed_dir
+    print(
+        f"\n[bold green]Running {mode_label} flag sweep for {len(stubs)} MATCHING functions with {jobs} workers...[/bold green]"
+    )
     improved_count = 0
     exact_count = 0
     sweep_results: list[dict[str, Any]] = []
 
     for i, stub in enumerate(stubs, 1):
-        display = rel_display_path(stub["filepath"], reversed_dir)
+        display = rel_display_path(stub.filepath, reversed_dir)
         if not json_output:
             console.print(f"\n[bold]{'=' * 60}[/]")
             console.print(
-                f"\\[{i}/{len(stubs)}] [magenta]{display}[/] ({stub['size']}B) symbol={stub['symbol']}"
+                f"\\[{i}/{len(stubs)}] [magenta]{display}[/] ({stub.size}B) symbol={stub.symbol}"
             )
-            console.print(f"  Current flags: [dim]{stub['cflags']}[/]")
+            console.print(f"  Current flags: [dim]{stub.cflags}[/]")
             console.print(f"[bold]{'=' * 60}[/]")
         else:
-            print(f"[{i}/{len(stubs)}] {display} ({stub['size']}B)", file=sys.stderr)
+            print(f"[{i}/{len(stubs)}] {display} ({stub.size}B)", file=sys.stderr)
 
         best_score, best_flags, all_results = run_flag_sweep(stub, cfg, tier=tier, jobs=jobs)
 
         is_exact = best_score < 0.1
         result_entry: dict[str, Any] = {
-            "file": str(stub["filepath"]),
-            "va": stub["va"],
-            "size": stub["size"],
-            "symbol": stub["symbol"],
+            "file": str(stub.filepath),
+            "va": stub.va,
+            "size": stub.size,
+            "symbol": stub.symbol,
             "best_score": round(best_score, 2) if best_score < float("inf") else None,
             "best_flags": best_flags or None,
             "exact": is_exact,
         }
-        if "delta" in stub:
-            result_entry["delta"] = stub["delta"]
+        if stub.delta != 9999:
+            result_entry["delta"] = stub.delta
 
         cflags_updated = False
         if is_exact:
             exact_count += 1
             if fix_cflags and best_flags:
-                cflags_updated = update_cflags_annotation(stub["filepath"], best_flags)
+                cflags_updated = update_cflags_annotation(stub.filepath, best_flags)
                 result_entry["cflags_updated"] = cflags_updated
+                update_source_status(
+                    stub.filepath,
+                    "EXACT",
+                    module=_module_for_va(stub.filepath, int(stub.va, 16)),
+                    va=int(stub.va, 16),
+                    clear_blockers=True,
+                )
+                save_solution(
+                    cfg.metadata_dir,
+                    SolutionEntry(
+                        symbol=stub.symbol,
+                        cflags=best_flags,
+                        size=stub.size,
+                        source_file=display,
+                        score=0.0,
+                        generations=1,
+                    ),
+                )
 
         if best_score < float("inf"):
             improved_count += 1
@@ -1465,7 +1571,7 @@ def _run_batch_flag_sweep(
                 if is_exact:
                     console.print(f"  [bold green]EXACT MATCH[/] with flags: {best_flags}")
                     if cflags_updated:
-                        console.print(f"  [bold]Updated CFLAGS annotation → {best_flags}[/]")
+                        console.print(f"  [bold]Updated CFLAGS → {best_flags}[/]")
 
         sweep_results.append(result_entry)
 

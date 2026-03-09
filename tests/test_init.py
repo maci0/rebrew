@@ -232,3 +232,72 @@ class TestInit:
         init(target_name="t", binary_name="t.exe", compiler_profile="gcc")
         agents = (tmp_path / "AGENTS.md").read_text()
         assert "ELF" in agents
+
+
+# ---------------------------------------------------------------------------
+# init template checks (moved from test_phase4.py)
+# ---------------------------------------------------------------------------
+
+
+class TestInitTemplate:
+    def test_has_project_section(self) -> None:
+        from rebrew.init import DEFAULT_REBREW_TOML
+
+        assert "[project]" in DEFAULT_REBREW_TOML
+
+    def test_has_base_cflags(self) -> None:
+        from rebrew.init import DEFAULT_REBREW_TOML
+
+        assert "base_cflags" in DEFAULT_REBREW_TOML
+
+    def test_has_timeout(self) -> None:
+        from rebrew.init import DEFAULT_REBREW_TOML
+
+        assert "timeout" in DEFAULT_REBREW_TOML
+
+    def test_has_ignored_symbols(self) -> None:
+        from rebrew.init import DEFAULT_REBREW_TOML
+
+        assert "ignored_symbols" in DEFAULT_REBREW_TOML
+
+    def test_has_jobs(self) -> None:
+        from rebrew.init import DEFAULT_REBREW_TOML
+
+        assert "jobs" in DEFAULT_REBREW_TOML
+
+
+class TestInitAgentSkills:
+    def test_agents_md_has_skills_section(self) -> None:
+        from rebrew.init import _AGENTS_MD_TEMPLATE
+
+        template = _AGENTS_MD_TEMPLATE.read_text(encoding="utf-8")
+        assert "## Agent Skills" in template
+
+    def test_agent_skills_source_exists(self) -> None:
+        from rebrew.init import _AGENT_SKILLS_SRC
+
+        assert _AGENT_SKILLS_SRC.is_dir()
+        subdirs = sorted(d.name for d in _AGENT_SKILLS_SRC.iterdir() if d.is_dir())
+        assert "rebrew-intake" in subdirs
+
+    def test_copies_agent_skills(self, tmp_path) -> None:
+        from rebrew.init import _copy_agent_skills
+
+        _copy_agent_skills(tmp_path, "server.dll")
+        skills_dir = tmp_path / ".agents" / "skills"
+        assert skills_dir.is_dir()
+        subdirs = sorted(d.name for d in skills_dir.iterdir() if d.is_dir())
+        assert len(subdirs) == 5
+        for subdir in skills_dir.iterdir():
+            if subdir.is_dir():
+                assert (subdir / "SKILL.md").exists()
+        for md_file in skills_dir.rglob("*.md"):
+            content = md_file.read_text(encoding="utf-8")
+            assert "<target>" not in content
+
+    def test_copies_idempotent(self, tmp_path) -> None:
+        from rebrew.init import _copy_agent_skills
+
+        _copy_agent_skills(tmp_path, "test")
+        _copy_agent_skills(tmp_path, "test")
+        assert (tmp_path / ".agents" / "skills").is_dir()

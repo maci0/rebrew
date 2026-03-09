@@ -48,7 +48,7 @@ __all__ = [
     "Annotation",
     "VALID_MARKERS",
     "VALID_STATUSES",
-    "SIDECAR_KEYS",
+    "METADATA_KEYS",
     "has_skip_annotation",
     "parse_c_file",
     "parse_c_file_multi",
@@ -66,7 +66,7 @@ VALID_STATUSES = {"EXACT", "RELOC", "MATCHING", "MISMATCH", "STUB", "PROVEN"}
 
 # Keys that every function block must declare.
 # SIZE is intentionally excluded: SIZE lives exclusively in the rebrew-function.toml
-# sidecar (written by rebrew skeleton / catalog --update-sizes / update_size_annotation).
+# metadata (written by rebrew skeleton / catalog --update-sizes / update_size_annotation).
 # Remaining // SIZE: lines in existing source are parsed as a fallback value (so older
 # files still work with rebrew test), but the key is NOT in OPTIONAL_KEYS — any // SIZE:
 # in source intentionally fires W010 to nudge cleanup.
@@ -75,13 +75,13 @@ REQUIRED_KEYS = {"STATUS"}
 RECOMMENDED_KEYS: set[str] = set()
 # OPTIONAL_KEYS: only reccmp-compatible keys that are permitted inline.
 # All rebrew-specific keys (CFLAGS, SKIP, GLOBALS, BLOCKER, SOURCE, NOTE, SECTION,
-# GHIDRA, BLOCKER_DELTA) must live in rebrew-function.toml — see SIDECAR_KEYS.
+# GHIDRA, BLOCKER_DELTA) must live in rebrew-function.toml — see METADATA_KEYS.
 OPTIONAL_KEYS = {
     "ANALYSIS",  # reccmp compatibility (structural analysis note)
 }
-# Rebrew-specific keys that must live exclusively in the sidecar.
+# Rebrew-specific keys that must live exclusively in the metadata.
 # Finding any of these inline fires lint W019.
-SIDECAR_KEYS: frozenset[str] = frozenset(
+METADATA_KEYS: frozenset[str] = frozenset(
     {
         "CFLAGS",
         "SKIP",
@@ -95,7 +95,7 @@ SIDECAR_KEYS: frozenset[str] = frozenset(
         "SIZE",  # lives in rebrew-function.toml (functions) or rebrew-data.toml (DATA/GLOBAL)
     }
 )
-ALL_KNOWN_KEYS = REQUIRED_KEYS | OPTIONAL_KEYS | SIDECAR_KEYS | {"MARKER", "VA"}
+ALL_KNOWN_KEYS = REQUIRED_KEYS | OPTIONAL_KEYS | METADATA_KEYS | {"MARKER", "VA"}
 
 # ---------------------------------------------------------------------------
 # Regex patterns
@@ -294,25 +294,31 @@ def marker_for_module(module: str, status: str, library_modules: set[str] | None
     return "FUNCTION"
 
 
-def has_skip_annotation(filepath: Path) -> bool:
+def has_skip_annotation(filepath: Path, metadata_dir: Path | None = None) -> bool:
     """Return True if a function in *filepath* is marked as skippable.
 
-    Checks the ``rebrew-function.toml`` sidecar first (preferred — the
+    Checks the ``rebrew-function.toml`` metadata first (preferred — the
     canonical location per the 2026 annotation migration).  Falls back to
     scanning the first 20 source lines for a ``// SKIP:`` comment so that
     files not yet migrated continue to work.
-    """
-    # --- Sidecar fast path ---
-    try:
-        from rebrew.sidecar import load_sidecar
 
-        entries = load_sidecar(filepath.parent)
-        for _key, entry in entries.items():
-            raw_skip = entry.get("skip", "")
-            if raw_skip and str(raw_skip).strip().lower() not in ("", "0", "false", "no"):
-                return True
-    except Exception:  # noqa: BLE001 — sidecar read failure is non-fatal
-        pass
+    Args:
+        filepath: Path to the ``.c`` source file.
+        metadata_dir: Root directory for ``rebrew-function.toml``.
+            When ``None``, metadata check is skipped.
+    """
+    # --- Metadata fast path ---
+    if metadata_dir is not None:
+        try:
+            from rebrew.metadata import load_metadata
+
+            entries = load_metadata(metadata_dir)
+            for _key, entry in entries.items():
+                raw_skip = entry.get("skip", "")
+                if raw_skip and str(raw_skip).strip().lower() not in ("", "0", "false", "no"):
+                    return True
+        except Exception:  # noqa: BLE001 — metadata read failure is non-fatal
+            pass
 
     # --- Inline fallback (legacy .c files not yet migrated) ---
     try:
@@ -541,7 +547,7 @@ def _module_for_va(filepath: Path, va: int) -> str:
     """Scan *filepath* for a marker line for *va* and return its module name.
 
     Returns the module name (e.g. ``"SERVER"``) or an empty string if not found.
-    Used by annotation mutation helpers to route sidecar writes to the correct key.
+    Used by annotation mutation helpers to route metadata writes to the correct key.
     """
     _marker_re = re.compile(
         r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*([\w.]+)\s+(0x[0-9a-fA-F]+)",
@@ -558,11 +564,13 @@ def _module_for_va(filepath: Path, va: int) -> str:
     return ""
 
 
-def update_size_annotation(filepath: Path, new_size: int, target_va: int | None = None) -> bool:
-    """Update the SIZE for a function — always writes to the sidecar.
+def update_size_annotation(
+    filepath: Path, new_size: int, target_va: int | None = None, metadata_dir: Path | None = None
+) -> bool:
+    """Update the SIZE for a function — always writes to the metadata.
 
-    Writes *new_size* to the ``rebrew-function.toml`` sidecar in the same
-    directory as *filepath* (only increasing, never shrinking).
+    Writes *new_size* to the ``rebrew-function.toml`` metadata at *metadata_dir*
+    (only increasing, never shrinking).
 
     *target_va* is required for multi-function files; for single-function files
     it can be omitted and will be inferred from the marker line.
@@ -570,13 +578,13 @@ def update_size_annotation(filepath: Path, new_size: int, target_va: int | None 
     Returns True if any change was made, False otherwise.
 
     Args:
-        filepath: Path to the .c source file (used to locate the directory).
+        filepath: Path to the .c source file.
         new_size: New SIZE value.
-        target_va: VA of the specific function to update.  Required for files
-            with multiple FUNCTION: markers; otherwise inferred automatically.
-
+        target_va: VA of the specific function to update.
+        metadata_dir: Root directory for ``rebrew-function.toml``.
+            When ``None``, falls back to ``filepath.parent``.
     """
-    from rebrew.sidecar import get_entry, set_field
+    from rebrew.metadata import get_entry, update_field
 
     # Resolve VA if not provided — scan file for the first marker line
     va = target_va
@@ -599,11 +607,12 @@ def update_size_annotation(filepath: Path, new_size: int, target_va: int | None 
         return False
 
     module = _module_for_va(filepath, va)
-    entry = get_entry(filepath.parent, va, module=module)
+    _dir = metadata_dir if metadata_dir is not None else filepath.parent
+    entry = get_entry(_dir, va, module=module)
     old_size = int(entry.get("size", 0))
     if new_size <= old_size:
         return False
-    set_field(filepath.parent, va, "size", new_size, module=module)
+    update_field(_dir, va, "size", new_size, module=module)
     return True
 
 
@@ -1039,7 +1048,7 @@ def parse_c_file_multi(
     filepath: Path,
     target_name: str | None = None,
     base_dir: Path | None = None,
-    sidecar_dir: Path | None = None,
+    metadata_dir: Path | None = None,
 ) -> list[Annotation]:
     """Parse ALL annotation blocks from a decomp .c file.
 
@@ -1047,10 +1056,10 @@ def parse_c_file_multi(
     in the file.  For single-function files this returns a one-element list.
     Returns an empty list if no annotations are found.
 
-    When *sidecar_dir* is provided each returned Annotation is overlaid with
-    values from that directory's ``rebrew-function.toml`` (sidecar wins for volatile
+    When *metadata_dir* is provided each returned Annotation is overlaid with
+    values from that directory's ``rebrew-function.toml`` (metadata wins for volatile
     fields like STATUS, SIZE, CFLAGS, BLOCKER, NOTE, GHIDRA).  Pass
-    ``filepath.parent`` as *sidecar_dir* to enable sidecar merging for a
+    ``filepath.parent`` as *metadata_dir* to enable metadata merging for a
     single-file call.
 
     Sets ``filepath`` on each returned Annotation.  When *base_dir* is
@@ -1077,11 +1086,11 @@ def parse_c_file_multi(
         ]
         for entry in filtered_entries:
             entry.filepath = rel
-        if sidecar_dir is not None:
-            from rebrew.sidecar import merge_into_annotation
+        if metadata_dir is not None:
+            from rebrew.metadata import merge_into_annotation
 
             for entry in filtered_entries:
-                merge_into_annotation(entry, sidecar_dir)
+                merge_into_annotation(entry, metadata_dir)
         return filtered_entries
 
     # Fallback: try old format (first line only) — returns at most one
@@ -1094,10 +1103,10 @@ def parse_c_file_multi(
         ):
             return []
         fallback_entry.filepath = rel
-        if sidecar_dir is not None:
-            from rebrew.sidecar import merge_into_annotation
+        if metadata_dir is not None:
+            from rebrew.metadata import merge_into_annotation
 
-            merge_into_annotation(fallback_entry, sidecar_dir)
+            merge_into_annotation(fallback_entry, metadata_dir)
         return [fallback_entry]
 
     return []
@@ -1108,15 +1117,22 @@ def parse_c_file_multi(
 # ---------------------------------------------------------------------------
 
 
-def parse_source_metadata(source_path: str | Path) -> dict[str, str]:
+def parse_source_metadata(
+    source_path: str | Path, metadata_dir: Path | None = None
+) -> dict[str, str]:
     """Extract annotation metadata as a flat dict.
 
     Delegates to the canonical ``parse_c_file_multi`` parser so that every tool
     agrees on what the annotations say, then reshapes the result into the
     ``{KEY: value}`` dict format that callers expect. Marker entries map to
     the VA string only (for example ``{"FUNCTION": "0x10001a60"}``).
+
+    Args:
+        source_path: Path to the ``.c`` source file.
+        metadata_dir: Directory containing ``rebrew-function.toml``.
+            When ``None``, metadata merging is skipped.
     """
-    annos = parse_c_file_multi(Path(source_path), sidecar_dir=Path(source_path).parent)
+    annos = parse_c_file_multi(Path(source_path), metadata_dir=metadata_dir)
     anno = annos[0] if annos else None
     if anno is None:
         return {}
@@ -1154,22 +1170,36 @@ def parse_source_metadata(source_path: str | Path) -> dict[str, str]:
     return meta
 
 
-def update_annotation_key(filepath: Path, va: int, key: str, new_value: str) -> bool:
+def update_annotation_key(
+    filepath: Path, va: int, key: str, new_value: str, metadata_dir: Path | None = None
+) -> bool:
     """Update or add an annotation key for a specific VA.
 
-    For sidecar-owned keys (STATUS, SIZE, CFLAGS, BLOCKER, NOTE, GHIDRA, …)
-    the value is written to the ``rebrew-function.toml`` sidecar in the same directory
-    as *filepath*, leaving the ``.c`` file untouched.  For non-sidecar keys
+    For metadata-owned keys (STATUS, SIZE, CFLAGS, BLOCKER, NOTE, GHIDRA, …)
+    the value is written to the ``rebrew-function.toml`` metadata at *metadata_dir*,
+    leaving the ``.c`` file untouched.  For non-metadata keys
     (ORIGIN, SOURCE for library functions) the existing in-file edit logic
     applies.
 
+    Args:
+        filepath: Path to the ``.c`` source file.
+        va: Virtual address integer.
+        key: Annotation key (e.g. ``"STATUS"``, ``"CFLAGS"``).
+        new_value: New value string.
+        metadata_dir: Directory containing ``rebrew-function.toml``.
+            Required for metadata-owned keys.
+
     Returns True if any write was made, False otherwise.
     """
-    from rebrew.sidecar import is_sidecar_key, set_field
+    from rebrew.metadata import is_metadata_key, update_field, update_source_status
 
-    if is_sidecar_key(key):
+    if is_metadata_key(key):
         module = _module_for_va(filepath, va)
-        set_field(filepath.parent, va, key.lower(), new_value, module=module)
+        _dir = metadata_dir if metadata_dir is not None else filepath.parent
+        if key.upper() == "STATUS":
+            update_source_status(_dir, new_value, module, va, force=True)
+        else:
+            update_field(_dir, va, key.lower(), new_value, module=module)
         return True
     try:
         text = filepath.read_text(encoding="utf-8", errors="replace")
@@ -1354,19 +1384,29 @@ def parse_library_header(
     return results
 
 
-def remove_annotation_key(filepath: Path, va: int, key: str) -> bool:
+def remove_annotation_key(
+    filepath: Path, va: int, key: str, metadata_dir: Path | None = None
+) -> bool:
     """Remove an annotation key for a specific VA.
 
-    For sidecar-owned keys the matching field is deleted from ``rebrew-function.toml``.
-    For non-sidecar keys the existing in-file removal logic applies.
+    For metadata-owned keys the matching field is deleted from ``rebrew-function.toml``.
+    For non-metadata keys the existing in-file removal logic applies.
+
+    Args:
+        filepath: Path to the ``.c`` source file.
+        va: Virtual address integer.
+        key: Annotation key to remove.
+        metadata_dir: Directory containing ``rebrew-function.toml``.
+            Required for metadata-owned keys.
 
     Returns True if any change was made, False otherwise.
     """
-    from rebrew.sidecar import delete_field, is_sidecar_key
+    from rebrew.metadata import is_metadata_key, remove_field
 
-    if is_sidecar_key(key):
+    if is_metadata_key(key):
         module = _module_for_va(filepath, va)
-        delete_field(filepath.parent, va, key.lower(), module=module)
+        _dir = metadata_dir if metadata_dir is not None else filepath.parent
+        remove_field(_dir, va, key.lower(), module=module)
         return True
     try:
         text = filepath.read_text(encoding="utf-8", errors="replace")

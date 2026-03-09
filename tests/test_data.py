@@ -298,8 +298,8 @@ class TestBssFix:
         assert "// SECTION:" not in content
         assert "// NOTE:" not in content
 
-        # Verify metadata was written to rebrew-data.toml sidecar
-        from rebrew.data_sidecar import get_data_entry
+        # Verify metadata was written to rebrew-data.toml metadata
+        from rebrew.data_metadata import get_data_entry
 
         entry_1 = get_data_entry(tmp_path, 0x1010, "GAME")
         assert entry_1["size"] == 16

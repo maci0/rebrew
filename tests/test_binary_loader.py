@@ -259,3 +259,67 @@ class TestDetectFormat:
         f.write_bytes(b"\x00" * 100)
         with pytest.raises(ValueError):
             detect_format_and_arch(f)
+
+
+# ---------------------------------------------------------------------------
+# load_binary bounded cache (moved from test_phase3.py)
+# ---------------------------------------------------------------------------
+
+import struct as _struct_cache  # noqa: E402
+
+
+def _make_pe_stub_for_cache(path: Path) -> Path:
+    """Build a minimal PE file that LIEF recognises."""
+    buf = bytearray(256)
+    buf[0:2] = b"MZ"
+    _struct_cache.pack_into("<I", buf, 60, 128)
+    buf[128:132] = b"PE\x00\x00"
+    _struct_cache.pack_into("<H", buf, 132, 0x14C)
+    _struct_cache.pack_into("<H", buf, 148, 96)
+    _struct_cache.pack_into("<H", buf, 152, 0x10B)
+    path.write_bytes(bytes(buf))
+    return path
+
+
+class TestLoadBinaryCache:
+    def setup_method(self) -> None:
+        from rebrew.binary_loader import _load_binary_cache
+
+        _load_binary_cache.clear()
+
+    def teardown_method(self) -> None:
+        from rebrew.binary_loader import _load_binary_cache
+
+        _load_binary_cache.clear()
+
+    def test_cache_hit(self, tmp_path: Path) -> None:
+        from rebrew.binary_loader import load_binary
+
+        f = _make_pe_stub_for_cache(tmp_path / "test.exe")
+        info1 = load_binary(f)
+        info2 = load_binary(f)
+        assert info1 is info2
+
+    def test_cache_stores_entry(self, tmp_path: Path) -> None:
+        from rebrew.binary_loader import _load_binary_cache, load_binary
+
+        f = _make_pe_stub_for_cache(tmp_path / "test.exe")
+        load_binary(f)
+        assert len(_load_binary_cache) == 1
+
+    def test_cache_eviction(self, tmp_path: Path) -> None:
+        from rebrew.binary_loader import _LOAD_BINARY_CACHE_MAX, _load_binary_cache, load_binary
+
+        paths = []
+        for i in range(_LOAD_BINARY_CACHE_MAX):
+            p = _make_pe_stub_for_cache(tmp_path / f"test_{i}.exe")
+            paths.append(p)
+            load_binary(p)
+        assert len(_load_binary_cache) == _LOAD_BINARY_CACHE_MAX
+        overflow = _make_pe_stub_for_cache(tmp_path / "overflow.exe")
+        load_binary(overflow)
+        assert len(_load_binary_cache) == _LOAD_BINARY_CACHE_MAX
+        first_key = (str(paths[0].resolve()), "auto")
+        assert first_key not in _load_binary_cache
+        overflow_key = (str(overflow.resolve()), "auto")
+        assert overflow_key in _load_binary_cache

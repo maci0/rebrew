@@ -201,7 +201,7 @@ rebrew sync --pull --dry-run        # preview pull without modifying files
 ```bash
 cd rebrew/
 uv sync --all-extras       # install dev dependencies
-uv run pytest tests/ -v    # run tests (~1710 tests)
+uv run pytest tests/ -v    # run tests (~1737 tests)
 uv run ruff check .        # lint
 uv run ruff format .       # format
 python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me

@@ -22,6 +22,7 @@ def _make_cfg(
     marker: str = "SERVER",
     base_cflags: str = "/nologo /c /MT",
     library_modules: set | None = None,
+    reversed_dir: Path | None = None,
 ) -> SimpleNamespace:
     """Create a minimal config-like namespace for config-aware lint tests."""
     return ProjectConfig(
@@ -29,6 +30,7 @@ def _make_cfg(
         marker=marker,
         base_cflags=base_cflags,
         library_modules=library_modules or set(),
+        reversed_dir=reversed_dir or Path("."),
     )
 
 
@@ -188,7 +190,7 @@ int foo(void) { return 0; }
         assert any(c in ("E003", "E004") for _, c, _ in result.errors)
 
     def test_missing_size_no_error(self, tmp_path: Path) -> None:
-        """// SIZE: is no longer required in source — SIZE lives in the sidecar."""
+        """// SIZE: is no longer required in source — SIZE lives in the metadata."""
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
@@ -197,11 +199,11 @@ int foo(void) { return 0; }
 """
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
-        # No E007 error — SIZE is sidecar-only, not required in source
+        # No E007 error — SIZE is metadata-only, not required in source
         assert not any(c == "E007" for _, c, _ in result.errors)
 
     def test_invalid_size_in_source_no_error(self, tmp_path: Path) -> None:
-        """A // SIZE: -5 in source fires W019 (sidecar-only) but no longer E008."""
+        """A // SIZE: -5 in source fires W019 (metadata-only) but no longer E008."""
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
@@ -450,7 +452,7 @@ class TestCflagsPreset:
         assert not any(c == "W010" for _, c, _ in result.warnings)
 
     def test_annotation_with_cflags_fires_w019(self, tmp_path: Path) -> None:
-        """Inline // CFLAGS: fires W019 since CFLAGS is a sidecar-only key."""
+        """Inline // CFLAGS: fires W019 since CFLAGS is a metadata-only key."""
         cfg = _make_cfg()
         content = """\
 // FUNCTION: SERVER 0x10008880
@@ -460,7 +462,7 @@ int foo(void) { return 0; }
 """
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f, cfg=cfg)
-        # CFLAGS is a sidecar key; inline occurrence fires W019
+        # CFLAGS is a metadata key; inline occurrence fires W019
         assert any(c == "W019" for _, c, _ in result.warnings)
         # But no W010 (it is still a known key)
         assert not any(c == "W010" for _, c, _ in result.warnings)
@@ -580,7 +582,7 @@ int foo(void) { return 0; }
 """
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
-        # STATUS defaults to RELOC — no error. SIZE is sidecar-only, no E007.
+        # STATUS defaults to RELOC — no error. SIZE is metadata-only, no E007.
         assert not any(c == "E007" for _, c, _ in result.errors)
         # CFLAGS is optional — handled by W018 warning, not an error
 
@@ -644,7 +646,7 @@ int foo(void) { return 0; }
 
 class TestSkipKey:
     def test_skip_key_fires_w019(self, tmp_path: Path) -> None:
-        """Inline // SKIP: is a sidecar key and now fires W019 (not W010)."""
+        """Inline // SKIP: is a metadata key and now fires W019 (not W010)."""
         content = """\
 // LIBRARY: SERVER 0x1001b8a5
 // STATUS: MATCHING
@@ -657,7 +659,7 @@ int foo(void) { return 0; }
         result = lint_file(f)
         # W010 (unknown key) should NOT fire — SKIP/SOURCE/CFLAGS are known keys
         assert not any(c == "W010" for _, c, _ in result.warnings)
-        # W019 SHOULD fire for each inline sidecar key
+        # W019 SHOULD fire for each inline metadata key
         w019 = [msg for _, c, msg in result.warnings if c == "W019"]
         assert any("SKIP" in m for m in w019)
         assert any("CFLAGS" in m for m in w019)
@@ -671,10 +673,10 @@ int foo(void) { return 0; }
 
 class TestW016Section:
     def test_w016_global_missing_section(self, tmp_path: Path) -> None:
-        """GLOBAL without SECTION in sidecar fires W016."""
-        # SIZE in sidecar (not inline) so W019 doesn't fire for SIZE
-        sidecar = tmp_path / "rebrew-function.toml"
-        sidecar.write_text('["SERVER.0x10050000"]\nsize = 4\n', encoding="utf-8")
+        """GLOBAL without SECTION in metadata fires W016."""
+        # SIZE in metadata (not inline) so W019 doesn't fire for SIZE
+        metadata_toml = tmp_path / "rebrew-function.toml"
+        metadata_toml.write_text('["SERVER.0x10050000"]\nsize = 4\n', encoding="utf-8")
         content = """\
 // GLOBAL: SERVER 0x10050000
 int g_foo;
@@ -684,9 +686,9 @@ int g_foo;
         assert any(c == "W016" for _, c, _ in result.warnings)
 
     def test_w016_data_missing_section(self, tmp_path: Path) -> None:
-        """DATA without SECTION in sidecar fires W016."""
-        sidecar = tmp_path / "rebrew-function.toml"
-        sidecar.write_text('["SERVER.0x10050000"]\nsize = 10\n', encoding="utf-8")
+        """DATA without SECTION in metadata fires W016."""
+        metadata_toml = tmp_path / "rebrew-function.toml"
+        metadata_toml.write_text('["SERVER.0x10050000"]\nsize = 10\n', encoding="utf-8")
         content = """\
 // DATA: SERVER 0x10050000
 char s_hello[] = "hello";
@@ -696,10 +698,10 @@ char s_hello[] = "hello";
         assert any(c == "W016" for _, c, _ in result.warnings)
 
     def test_w016_global_with_section_no_warning(self, tmp_path: Path) -> None:
-        """SECTION from the sidecar should suppress W016 without inline SECTION."""
-        # Write the sidecar with both SIZE and SECTION set
-        sidecar = tmp_path / "rebrew-function.toml"
-        sidecar.write_text(
+        """SECTION from the metadata should suppress W016 without inline SECTION."""
+        # Write the metadata with both SIZE and SECTION set
+        metadata_toml = tmp_path / "rebrew-function.toml"
+        metadata_toml.write_text(
             '["SERVER.0x10050000"]\nsize = 4\nsection = ".bss"\n',
             encoding="utf-8",
         )
@@ -757,7 +759,7 @@ int __cdecl bit_reverse(int x)
         f = _write_c(tmp_path, "bit_reverse.c", content)
         result = lint_file(f)
         assert not any(c == "W017" for _, c, _ in result.warnings)
-        # NOTE is a sidecar key; it fires W019 since it's inline
+        # NOTE is a metadata key; it fires W019 since it's inline
         assert any(c == "W019" and "NOTE" in m for _, c, m in result.warnings)
 
     def test_w017_no_note_no_warning(self, tmp_path: Path) -> None:
@@ -778,11 +780,11 @@ int __cdecl bit_reverse(int x)
 
 
 # ---------------------------------------------------------------------------
-# W019: Inline sidecar key
+# W019: Inline metadata key
 # ---------------------------------------------------------------------------
 
 
-class TestW019InlineSidecarKeys:
+class TestW019InlineMetadataKeys:
     def test_w019_inline_cflags(self, tmp_path: Path) -> None:
         """Inline // CFLAGS: fires W019."""
         content = """\
@@ -807,22 +809,22 @@ int foo(void) { return 0; }
         result = lint_file(f)
         assert any(c == "W019" and "SKIP" in m for _, c, m in result.warnings)
 
-    def test_w019_not_for_sidecar_sourced_key(self, tmp_path: Path) -> None:
-        """A CFLAGS value from the sidecar should NOT fire W019."""
+    def test_w019_not_for_metadata_sourced_key(self, tmp_path: Path) -> None:
+        """A CFLAGS value from the metadata should NOT fire W019."""
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
 int foo(void) { return 0; }
 """
-        # Write a sidecar with CFLAGS for this VA
-        sidecar = tmp_path / "rebrew-function.toml"
-        sidecar.write_text(
+        # Write a metadata with CFLAGS for this VA
+        metadata_toml = tmp_path / "rebrew-function.toml"
+        metadata_toml.write_text(
             '[SERVER."0x10008880"]\ncflags = "/O2"\n',
             encoding="utf-8",
         )
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
-        # No W019 since CFLAGS came from sidecar, not inline
+        # No W019 since CFLAGS came from metadata, not inline
         assert not any(c == "W019" and "CFLAGS" in m for _, c, m in result.warnings)
 
     def test_w019_inline_size(self, tmp_path: Path) -> None:
@@ -848,7 +850,9 @@ class TestFixFile:
     def test_fix_block_comment(self, tmp_path: Path) -> None:
         from rebrew.lint import fix_file
 
-        cfg = _make_cfg()
+        src_sub = tmp_path / "target"
+        src_sub.mkdir()
+        cfg = _make_cfg(reversed_dir=src_sub)
         content = """\
 /* FUNCTION: SERVER 0x10003260 */
 /* STATUS: MATCHING */
@@ -858,7 +862,7 @@ class TestFixFile:
 /* SYMBOL: _AnalyzeInstruction */
 int foo(void) { return 0; }
 """
-        f = _write_c(tmp_path, "test.c", content)
+        f = _write_c(src_sub, "test.c", content)
         assert fix_file(cfg, f)
 
         fixed_text = f.read_text(encoding="utf-8")
@@ -869,7 +873,9 @@ int foo(void) { return 0; }
     def test_fix_javadoc(self, tmp_path: Path) -> None:
         from rebrew.lint import fix_file
 
-        cfg = _make_cfg()
+        src_sub = tmp_path / "target"
+        src_sub.mkdir()
+        cfg = _make_cfg(reversed_dir=src_sub)
         content = """\
 /**
  * @brief Core logging function
@@ -883,7 +889,7 @@ int foo(void) { return 0; }
 
 int LogMessageInternal(void) { return 0; }
 """
-        f = _write_c(tmp_path, "test.c", content)
+        f = _write_c(src_sub, "test.c", content)
         assert fix_file(cfg, f)
 
         fixed_text = f.read_text(encoding="utf-8")
@@ -895,7 +901,9 @@ int LogMessageInternal(void) { return 0; }
         """fix_file should migrate old single-line format to canonical."""
         from rebrew.lint import fix_file
 
-        cfg = _make_cfg()
+        src_sub = tmp_path / "target"
+        src_sub.mkdir()
+        cfg = _make_cfg(reversed_dir=src_sub)
         content = """\
 /* bit_reverse @ 0x10008880 (31B) - /O2 /Gd - EXACT [GAME] */
 int __cdecl bit_reverse(int x)
@@ -903,21 +911,23 @@ int __cdecl bit_reverse(int x)
     return x;
 }
 """
-        f = _write_c(tmp_path, "bit_reverse.c", content)
+        f = _write_c(src_sub, "bit_reverse.c", content)
         assert fix_file(cfg, f)
 
         fixed_text = f.read_text(encoding="utf-8")
         assert fixed_text.startswith("// FUNCTION: SERVER")
         assert "// STATUS: EXACT" in fixed_text
         assert "int __cdecl bit_reverse" in fixed_text
-        # CFLAGS should be routed to sidecar, not inline
+        # CFLAGS should be routed to metadata, not inline
         assert "// CFLAGS:" not in fixed_text
 
-    def test_fix_w019_inline_sidecar_keys(self, tmp_path: Path) -> None:
-        """fix_file should migrate inline sidecar keys to rebrew-function.toml."""
+    def test_fix_w019_inline_metadata_keys(self, tmp_path: Path) -> None:
+        """fix_file should migrate inline metadata keys to rebrew-function.toml."""
         from rebrew.lint import fix_file
 
-        cfg = _make_cfg()
+        src_sub = tmp_path / "target"
+        src_sub.mkdir()
+        cfg = _make_cfg(reversed_dir=src_sub)
         content = """\
 // FUNCTION: SERVER 0x10008880
 // STATUS: EXACT
@@ -925,7 +935,7 @@ int __cdecl bit_reverse(int x)
 // BLOCKER: needs vtable
 int foo(void) { return 0; }
 """
-        f = _write_c(tmp_path, "foo.c", content)
+        f = _write_c(src_sub, "foo.c", content)
         assert fix_file(cfg, f)
 
         fixed_text = f.read_text(encoding="utf-8")
@@ -935,12 +945,12 @@ int foo(void) { return 0; }
         # Marker + STATUS should remain
         assert "// FUNCTION: SERVER 0x10008880" in fixed_text
         assert "// STATUS: EXACT" in fixed_text
-        # Sidecar should have the migrated keys
-        sidecar = tmp_path / "rebrew-function.toml"
-        assert sidecar.exists()
-        sidecar_text = sidecar.read_text(encoding="utf-8")
-        assert "cflags" in sidecar_text
-        assert "blocker" in sidecar_text
+        # Metadata should have the migrated keys (in parent = tmp_path)
+        metadata_toml = tmp_path / "rebrew-function.toml"
+        assert metadata_toml.exists()
+        metadata_text = metadata_toml.read_text(encoding="utf-8")
+        assert "cflags" in metadata_text
+        assert "blocker" in metadata_text
 
 
 # ---------------------------------------------------------------------------
@@ -981,3 +991,266 @@ int func2() { return 0; }
         assert result._status_counts["STUB"] == 1
         assert result._marker_counts["FUNCTION"] == 1
         assert result._marker_counts["STUB"] == 1
+
+
+from pathlib import Path  # noqa: E402
+
+
+def _write_c(tmp_path: Path, filename: str, content: str) -> Path:
+    f = tmp_path / filename
+    f.write_text(content, encoding="utf-8")
+    return f
+
+
+MULTI_BLOCK_FILE = """\
+// FUNCTION: SERVER 0x10008880
+// STATUS: EXACT
+// SIZE: 31
+// CFLAGS: /O2 /Gd
+
+int func1() { return 1; }
+
+// FUNCTION: CLIENT 0x10009990
+// STATUS: EXACT
+// CFLAGS: /O2 /Gd
+
+int func2() { return 2; }
+"""
+
+
+def test_multi_block_linting(tmp_path: Path):
+    """Multi-block file should pass even when a block has no SIZE in source.
+
+    SIZE is metadata-only; E007 is no longer emitted.
+    """
+    f = _write_c(tmp_path, "func1.c", MULTI_BLOCK_FILE)
+    res = lint_file(f)
+    # Both blocks have STATUS — no errors expected
+    assert res.passed
+    assert not any(code == "E007" for _, code, _ in res.errors)
+
+
+def test_multi_block_missing_status(tmp_path: Path):
+    """Multi-block file with a missing STATUS should still error."""
+    content = """\
+// FUNCTION: SERVER 0x10008880
+// STATUS: EXACT
+// CFLAGS: /O2 /Gd
+
+int func1() { return 1; }
+
+// FUNCTION: CLIENT 0x10009990
+// CFLAGS: /O2 /Gd
+
+int func2() { return 2; }
+"""
+    f = _write_c(tmp_path, "func1.c", content)
+    res = lint_file(f)
+    assert not res.passed
+    assert any(code == "E003" for _, code, _ in res.errors)
+
+
+def test_multi_block_all_valid(tmp_path: Path):
+    f = _write_c(tmp_path, "func1.c", MULTI_BLOCK_FILE)
+    res = lint_file(f)
+    assert res.passed
+
+
+"""Tests for rebrew.lint — lint_file and LintResult."""
+
+from pathlib import Path  # noqa: E402
+
+from rebrew.lint import LintResult  # noqa: E402
+
+# -------------------------------------------------------------------------
+# LintResult
+# -------------------------------------------------------------------------
+
+
+class TestLintResult:
+    def test_empty_passes(self) -> None:
+        r = LintResult(filepath=Path("test.c"))
+        assert r.passed is True
+
+    def test_error_fails(self) -> None:
+        r = LintResult(filepath=Path("test.c"))
+        r.error(1, "E001", "bad thing")
+        assert r.passed is False
+        assert len(r.errors) == 1
+
+    def test_warning_still_passes(self) -> None:
+        r = LintResult(filepath=Path("test.c"))
+        r.warning(1, "W001", "minor thing")
+        assert r.passed is True
+        assert len(r.warnings) == 1
+
+    def test_to_dict(self) -> None:
+        r = LintResult(filepath=Path("test.c"))
+        r.error(1, "E001", "msg")
+        r.warning(2, "W001", "msg2")
+        d = r.to_dict()
+        assert d["file"] == "test.c"
+        assert len(d["errors"]) == 1
+        assert len(d["warnings"]) == 1
+
+    def test_display_no_crash(self) -> None:
+        r = LintResult(filepath=Path("test.c"))
+        r.error(1, "E001", "err")
+        r.warning(2, "W001", "warn")
+        assert not r.passed
+        assert len(r.errors) == 1
+        assert len(r.warnings) == 1
+        assert r.errors[0][1] == "E001"
+        assert r.warnings[0][1] == "W001"
+        r.display()  # ensure no exception
+        r.display(quiet=True)
+
+
+# -------------------------------------------------------------------------
+# lint_file
+# -------------------------------------------------------------------------
+
+
+def _make_c_file(tmp_path, name="my_func.c", content=None) -> Path:
+    if content is None:
+        content = (
+            "// STUB: SERVER 0x10001000\n"
+            "// STATUS: STUB\n"
+            "// ORIGIN: GAME\n"
+            "// SIZE: 64\n"
+            "// CFLAGS: /O2 /Gd\n"
+            "// SYMBOL: _my_func\n"
+            "void __cdecl _my_func(void) {\n"
+            "    // stub\n"
+            "}\n"
+        )
+    f = tmp_path / name
+    f.write_text(content, encoding="utf-8")
+    return f
+
+
+class TestLintFile:
+    def test_valid_file(self, tmp_path) -> None:
+        f = _make_c_file(tmp_path)
+        result = lint_file(f)
+        assert result.passed is True
+
+    def test_missing_function_annotation(self, tmp_path) -> None:
+        f = _make_c_file(tmp_path, content="void f() {}\n")
+        result = lint_file(f)
+        assert result.passed is False
+
+    def test_invalid_status(self, tmp_path) -> None:
+        f = _make_c_file(
+            tmp_path,
+            content=(
+                "// FUNCTION: SERVER 0x10001000\n"
+                "// STATUS: INVALID_STATUS\n"
+                "// ORIGIN: GAME\n"
+                "// SIZE: 64\n"
+                "// CFLAGS: /O2 /Gd\n"
+                "// SYMBOL: _my_func\n"
+                "void __cdecl _my_func(void) {}\n"
+            ),
+        )
+        result = lint_file(f)
+        # Invalid status should produce E004
+        assert not result.passed
+        assert any(c == "E004" for _, c, _ in result.errors)
+
+    def test_missing_symbol(self, tmp_path) -> None:
+        """W001 is no longer emitted — SYMBOL is derived from C function definitions."""
+        f = _make_c_file(
+            tmp_path,
+            content=(
+                "// FUNCTION: SERVER 0x10001000\n"
+                "// STATUS: STUB\n"
+                "// ORIGIN: GAME\n"
+                "// SIZE: 64\n"
+                "// CFLAGS: /O2 /Gd\n"
+                "void __cdecl _my_func(void) {}\n"
+            ),
+        )
+        result = lint_file(f)
+        # W001 was removed: symbol is now derived from C function definitions
+        assert not any(c == "W001" for _, c, _ in result.warnings)
+
+    def test_missing_size(self, tmp_path) -> None:
+        f = _make_c_file(
+            tmp_path,
+            content=(
+                "// FUNCTION: SERVER 0x10001000\n"
+                "// STATUS: STUB\n"
+                "// ORIGIN: GAME\n"
+                "// CFLAGS: /O2 /Gd\n"
+                "// SYMBOL: _my_func\n"
+                "void __cdecl _my_func(void) {}\n"
+            ),
+        )
+        result = lint_file(f)
+        assert not result.passed
+
+    def test_duplicate_va_detection(self, tmp_path) -> None:
+        seen_vas: dict[int, str] = {}
+        f1 = _make_c_file(tmp_path, name="func1.c")
+        f2 = _make_c_file(tmp_path, name="func2.c")  # same VA!
+        lint_file(f1, seen_vas=seen_vas)
+        result2 = lint_file(f2, seen_vas=seen_vas)
+        # Second file should get E013 for duplicate VA
+        assert any(c == "E013" for _, c, _ in result2.errors)
+
+    def test_with_config(self, tmp_path) -> None:
+        cfg = ProjectConfig(
+            root=Path("/tmp"),
+            marker="SERVER",
+        )
+        f = _make_c_file(tmp_path)
+        result = lint_file(f, cfg=cfg)
+        assert result.passed
+
+    def test_multiple_functions_in_file(self, tmp_path) -> None:
+        f = _make_c_file(
+            tmp_path,
+            content=(
+                "// FUNCTION: SERVER 0x10001000\n"
+                "// STATUS: STUB\n"
+                "// ORIGIN: GAME\n"
+                "// SIZE: 64\n"
+                "// CFLAGS: /O2 /Gd\n"
+                "// SYMBOL: _func_a\n"
+                "void __cdecl _func_a(void) {}\n"
+                "\n"
+                "// FUNCTION: SERVER 0x10002000\n"
+                "// STATUS: STUB\n"
+                "// ORIGIN: GAME\n"
+                "// SIZE: 128\n"
+                "// CFLAGS: /O2 /Gd\n"
+                "// SYMBOL: _func_b\n"
+                "void __cdecl _func_b(void) {}\n"
+            ),
+        )
+        result = lint_file(f)
+        # Multi-function file should parse both annotations without crash
+        assert isinstance(result, LintResult)
+
+    def test_empty_file(self, tmp_path) -> None:
+        f = _make_c_file(tmp_path, content="")
+        result = lint_file(f)
+        assert not result.passed
+
+    def test_bad_cflags(self, tmp_path) -> None:
+        f = _make_c_file(
+            tmp_path,
+            content=(
+                "// FUNCTION: SERVER 0x10001000\n"
+                "// STATUS: STUB\n"
+                "// ORIGIN: GAME\n"
+                "// SIZE: 64\n"
+                "// CFLAGS: \n"
+                "// SYMBOL: _my_func\n"
+                "void __cdecl _my_func(void) {}\n"
+            ),
+        )
+        result = lint_file(f)
+        # Empty CFLAGS value still parses; file fails for other reasons (E015)
+        assert not result.passed

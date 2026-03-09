@@ -36,10 +36,10 @@ class TestParseStubInfo:
             f"}}\n",
             encoding="utf-8",
         )
-        # SIZE lives in sidecar, not inline
-        sidecar = tmp_path / "rebrew-function.toml"
-        existing = sidecar.read_text(encoding="utf-8") if sidecar.exists() else ""
-        sidecar.write_text(
+        # SIZE lives in metadata, not inline
+        metadata_toml = tmp_path / "rebrew-function.toml"
+        existing = metadata_toml.read_text(encoding="utf-8") if metadata_toml.exists() else ""
+        metadata_toml.write_text(
             existing + f'["SERVER.0x{va:08X}"]\nsize = {size}\n',
             encoding="utf-8",
         )
@@ -49,8 +49,8 @@ class TestParseStubInfo:
         f = self._make_stub_file(tmp_path)
         result = parse_stub_info(f)
         assert len(result) == 1
-        assert result[0]["va"] == "0x10001000"
-        assert result[0]["symbol"] == "_my_func"
+        assert result[0].va == "0x10001000"
+        assert result[0].symbol == "_my_func"
 
     def test_skips_non_stub(self, tmp_path) -> None:
         f = self._make_stub_file(tmp_path, status="EXACT")
@@ -96,10 +96,10 @@ class TestFindAllStubs:
             f"void __cdecl {func_name}(void) {{}}\n",
             encoding="utf-8",
         )
-        # SIZE in sidecar
-        sidecar = d / "rebrew-function.toml"
-        existing = sidecar.read_text(encoding="utf-8") if sidecar.exists() else ""
-        sidecar.write_text(
+        # SIZE in metadata
+        metadata_toml = d / "rebrew-function.toml"
+        existing = metadata_toml.read_text(encoding="utf-8") if metadata_toml.exists() else ""
+        metadata_toml.write_text(
             existing + f'["SERVER.0x{va:08X}"]\nsize = {size}\n',
             encoding="utf-8",
         )
@@ -114,7 +114,7 @@ class TestFindAllStubs:
         self._make_stub(tmp_path, 0x10002000, "_big", size=200)
         self._make_stub(tmp_path, 0x10001000, "_small", size=32)
         stubs = find_all_stubs(tmp_path)
-        assert stubs[0]["size"] <= stubs[1]["size"]
+        assert stubs[0].size <= stubs[1].size
 
     def test_empty_dir(self, tmp_path) -> None:
         stubs = find_all_stubs(tmp_path)
@@ -175,32 +175,41 @@ class TestParseMatchingAll:
     ) -> Path:
         lines = [
             f"// FUNCTION: SERVER 0x{va:08x}",
-            f"// STATUS: {status}",
-            "// SIZE: 100",
-            f"// CFLAGS: {cflags}",
             f"// SYMBOL: _{name}",
         ]
-        if blocker:
-            lines.append(f"// BLOCKER: {blocker}")
         if skip:
             lines.append("// SKIP: reason")
         lines.append(f"int __cdecl {name}(void) {{ return 0; }}")
         path = d / f"{name}.c"
         path.write_text("\n".join(lines), encoding="utf-8")
+        # Write metadata-owned fields to rebrew-function.toml
+        import re
+
+        metadata_toml = d / "rebrew-function.toml"
+        existing = metadata_toml.read_text(encoding="utf-8") if metadata_toml.exists() else ""
+        entry = f'["SERVER.0x{va:08x}"]\nstatus = "{status}"\nsize = 100\ncflags = "{cflags}"\n'
+        if blocker:
+            entry += f'blocker = "{blocker}"\n'
+            m = re.match(r"(\d+)B", blocker)
+            if m:
+                entry += f"blocker_delta = {m.group(1)}\n"
+        if skip:
+            entry += 'skip = "reason"\n'
+        metadata_toml.write_text(existing + entry, encoding="utf-8")
         return path
 
     def test_accepts_matching_without_blocker(self, tmp_path: Path) -> None:
         self._make_c(tmp_path, "FuncA", 0x10001000, "MATCHING")
         result = parse_matching_all(tmp_path / "FuncA.c")
         assert len(result) == 1
-        assert result[0]["va"] == "0x10001000"
-        assert "delta" not in result[0]
+        assert result[0].va == "0x10001000"
+        assert result[0].delta == 9999
 
     def test_accepts_matching_with_blocker(self, tmp_path: Path) -> None:
         self._make_c(tmp_path, "FuncB", 0x10002000, "MATCHING", "3B diff")
         result = parse_matching_all(tmp_path / "FuncB.c")
         assert len(result) == 1
-        assert result[0]["delta"] == 3
+        assert result[0].delta == 3
 
     def test_rejects_stub(self, tmp_path: Path) -> None:
         self._make_c(tmp_path, "FuncC", 0x10003000, "STUB")
@@ -226,7 +235,7 @@ class TestParseMatchingAll:
         self._make_c(tmp_path, "FuncG", 0x10007000, "MATCHING", cflags="/O1 /Gz")
         result = parse_matching_all(tmp_path / "FuncG.c")
         assert len(result) == 1
-        assert result[0]["cflags"] == "/O1 /Gz"
+        assert result[0].cflags == "/O1 /Gz"
 
 
 # -------------------------------------------------------------------------
@@ -246,15 +255,22 @@ class TestFindAllMatching:
     ) -> None:
         lines = [
             f"// FUNCTION: SERVER 0x{va:08x}",
-            f"// STATUS: {status}",
-            f"// SIZE: {size}",
-            "// CFLAGS: /O2 /Gd",
             f"// SYMBOL: _{name}",
+            f"int __cdecl {name}(void) {{ return 0; }}",
         ]
-        if blocker:
-            lines.append(f"// BLOCKER: {blocker}")
-        lines.append(f"int __cdecl {name}(void) {{ return 0; }}")
         (d / f"{name}.c").write_text("\n".join(lines), encoding="utf-8")
+        # Write metadata-owned fields to rebrew-function.toml
+        import re
+
+        metadata_toml = d / "rebrew-function.toml"
+        existing = metadata_toml.read_text(encoding="utf-8") if metadata_toml.exists() else ""
+        entry = f'["SERVER.0x{va:08x}"]\nstatus = "{status}"\nsize = {size}\ncflags = "/O2 /Gd"\n'
+        if blocker:
+            entry += f'blocker = "{blocker}"\n'
+            m = re.match(r"(\d+)B", blocker)
+            if m:
+                entry += f"blocker_delta = {m.group(1)}\n"
+        metadata_toml.write_text(existing + entry, encoding="utf-8")
 
     def test_finds_all_matching(self, tmp_path: Path) -> None:
         self._make_c(tmp_path, "Match1", 0x10001000, "MATCHING", "2B diff")
@@ -263,7 +279,7 @@ class TestFindAllMatching:
         self._make_c(tmp_path, "Exact1", 0x10004000, "EXACT")
 
         results = find_all_matching(tmp_path)
-        names = [r["filepath"].stem for r in results]
+        names = [r.filepath.stem for r in results]
         assert "Match1" in names
         assert "Match2" in names
         assert "Stub1" not in names
@@ -275,7 +291,7 @@ class TestFindAllMatching:
         self._make_c(tmp_path, "SmallDelta", 0x10002000, "MATCHING", "1B diff", size=200)
 
         results = find_all_matching(tmp_path)
-        names = [r["filepath"].stem for r in results]
+        names = [r.filepath.stem for r in results]
         assert names[0] == "SmallDelta"
         assert names[1] == "BigDelta"
         assert names[2] == "NoDelta"
@@ -310,7 +326,7 @@ class TestFindAllMatching:
 
 
 class TestUpdateCflagsAnnotation:
-    """update_cflags_annotation now writes CFLAGS to the sidecar (not inline)."""
+    """update_cflags_annotation now writes CFLAGS to the metadata (not inline)."""
 
     def _make_source(self, tmp_path: Path) -> Path:
         f = tmp_path / "func.c"
@@ -322,22 +338,22 @@ class TestUpdateCflagsAnnotation:
         )
         return f
 
-    def test_updates_cflags_to_sidecar(self, tmp_path: Path) -> None:
-        """update_cflags_annotation writes CFLAGS to the sidecar, not inline."""
+    def test_updates_cflags_to_metadata(self, tmp_path: Path) -> None:
+        """update_cflags_annotation writes CFLAGS to the metadata, not inline."""
         f = self._make_source(tmp_path)
         changed = update_cflags_annotation(f, "/O1 /Gz")
         assert changed is True
-        # Verify sidecar was written
-        sidecar = tmp_path / "rebrew-function.toml"
-        assert sidecar.exists()
-        content = sidecar.read_text(encoding="utf-8")
+        # Verify metadata was written
+        metadata_toml = tmp_path / "rebrew-function.toml"
+        assert metadata_toml.exists()
+        content = metadata_toml.read_text(encoding="utf-8")
         assert "/O1 /Gz" in content
         # Source file itself should be unchanged (no inline CFLAGS written)
         source = f.read_text(encoding="utf-8")
         assert "CFLAGS" not in source
 
     def test_no_change_when_same(self, tmp_path: Path) -> None:
-        """update_cflags_annotation returns False when sidecar already has same value."""
+        """update_cflags_annotation returns False when metadata already has same value."""
         f = self._make_source(tmp_path)
         # Write initial value
         update_cflags_annotation(f, "/O2 /Gd")
@@ -356,7 +372,7 @@ class TestUpdateCflagsAnnotation:
         assert changed is False
 
     def test_preserves_source_file(self, tmp_path: Path) -> None:
-        """The source .c file must not be modified when updating via sidecar."""
+        """The source .c file must not be modified when updating via metadata."""
         f = self._make_source(tmp_path)
         original = f.read_text(encoding="utf-8")
         update_cflags_annotation(f, "/O1 /Gz")

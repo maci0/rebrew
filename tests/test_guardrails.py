@@ -12,8 +12,8 @@ from rebrew.annotation import (
     parse_c_file_multi,
     parse_source_metadata,
 )
+from rebrew.metadata import get_entry, update_source_status
 from rebrew.naming import sanitize_name
-from rebrew.sidecar import get_entry, update_source_status
 from rebrew.test import smart_reloc_compare
 
 # ---------------------------------------------------------------------------
@@ -161,47 +161,47 @@ class TestCflagsValidation:
 
 
 class TestSafeWriteBack:
-    """Verify update_source_status writes to sidecar and leaves .c untouched."""
+    """Verify update_source_status writes to metadata and leaves .c untouched."""
 
     def test_status_updated(self, tmp_path: Path) -> None:
         p = _write_c(tmp_path, "func.c", VALID_HEADER)
-        update_source_status(p, "RELOC", "SERVER", 0x10008880)
+        update_source_status(tmp_path, "RELOC", "SERVER", 0x10008880)
         # .c file must be untouched
         assert "STATUS: EXACT" in p.read_text(encoding="utf-8")
-        # Sidecar has new status
+        # Metadata has new status
         entry = get_entry(tmp_path, 0x10008880, module="SERVER")
         assert entry["status"] == "RELOC"
 
     def test_backup_created(self, tmp_path: Path) -> None:
-        p = _write_c(tmp_path, "func.c", VALID_HEADER)
-        update_source_status(p, "RELOC", "SERVER", 0x10008880)
-        # No .bak file created — status lives in sidecar, not file
+        _write_c(tmp_path, "func.c", VALID_HEADER)
+        update_source_status(tmp_path, "RELOC", "SERVER", 0x10008880)
+        # No .bak file created — status lives in metadata, not file
         bak = tmp_path / "func.c.bak"
         assert not bak.exists()
 
     def test_reparseable_after_update(self, tmp_path: Path) -> None:
         p = _write_c(tmp_path, "func.c", VALID_HEADER)
-        update_source_status(p, "RELOC", "SERVER", 0x10008880)
-        # Read with sidecar_dir to see new status
-        anns = parse_c_file_multi(p, sidecar_dir=tmp_path)
+        update_source_status(tmp_path, "RELOC", "SERVER", 0x10008880)
+        # Read with metadata_dir to see new status
+        anns = parse_c_file_multi(p, metadata_dir=tmp_path)
         assert anns
         assert anns[0].status == "RELOC"
 
     def test_blocker_removed(self, tmp_path: Path) -> None:
         p = _write_c(tmp_path, "stub.c", STUB_HEADER)
-        # Pre-populate sidecar with BLOCKER
-        from rebrew.sidecar import set_field
+        # Pre-populate metadata with BLOCKER
+        from rebrew.metadata import set_field
 
         set_field(tmp_path, 0x10008880, "blocker", "initial decompilation", module="SERVER")
-        update_source_status(p, "RELOC", "SERVER", 0x10008880, clear_blockers=True)
-        # Blocker gone from sidecar
+        update_source_status(tmp_path, "RELOC", "SERVER", 0x10008880, clear_blockers=True)
+        # Blocker gone from metadata
         entry = get_entry(tmp_path, 0x10008880, module="SERVER")
         assert not entry.get("blocker")
         # .c file still has the inline BLOCKER comment (not touched)
         assert "BLOCKER" in p.read_text(encoding="utf-8")
 
     def test_target_va_updates_only_matching_block(self, tmp_path: Path) -> None:
-        """Multi-function file: target_va should only update that block's sidecar entry."""
+        """Multi-function file: target_va should only update that block's metadata entry."""
         multi = (
             "// FUNCTION: SERVER 0x10001000\n"
             "// SYMBOL: _func_a\n"
@@ -212,11 +212,11 @@ class TestSafeWriteBack:
             "void _func_b(void) {}\n"
         )
         p = _write_c(tmp_path, "multi.c", multi)
-        update_source_status(p, "RELOC", "SERVER", 0x10001000)
-        # First VA updated in sidecar
+        update_source_status(tmp_path, "RELOC", "SERVER", 0x10001000)
+        # First VA updated in metadata
         entry1 = get_entry(tmp_path, 0x10001000, module="SERVER")
         assert entry1["status"] == "RELOC"
-        # Second VA NOT in sidecar (untouched)
+        # Second VA NOT in metadata (untouched)
         entry2 = get_entry(tmp_path, 0x10002000, module="SERVER")
         assert "status" not in entry2
         # .c file untouched
@@ -233,8 +233,8 @@ class TestSafeWriteBack:
             "// SYMBOL: _func_b\n"
             "void _func_b(void) {}\n"
         )
-        p = _write_c(tmp_path, "multi.c", multi)
-        update_source_status(p, "EXACT", "SERVER", 0x10001000)
+        _write_c(tmp_path, "multi.c", multi)
+        update_source_status(tmp_path, "EXACT", "SERVER", 0x10001000)
         # Only first VA updated (update_source_status resolves first VA when target_va=None)
         entry1 = get_entry(tmp_path, 0x10001000, module="SERVER")
         assert entry1["status"] == "EXACT"

@@ -21,6 +21,7 @@ def _make_cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
         "arch": "x86_32",
         "compiler_command": "gcc",
         "reversed_dir": tmp_path / "src",
+        "metadata_dir": tmp_path,
         "function_list": tmp_path / "functions.txt",
         "bin_dir": tmp_path / "bin",
         "source_ext": ".c",

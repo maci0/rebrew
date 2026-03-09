@@ -229,3 +229,35 @@ class TestFilterWineStderr:
     def test_filter_no_noise(self) -> None:
         text = "CL : Command line warning D9002 : ignoring unknown option '/bad'"
         assert filter_wine_stderr(text) == text
+
+
+# ---------------------------------------------------------------------------
+# _safe_shlex_split fallback (moved from test_phase3.py)
+# ---------------------------------------------------------------------------
+
+
+class TestSafeShexSplit:
+    def test_normal_string(self) -> None:
+        from rebrew.compile import _safe_shlex_split
+
+        result = _safe_shlex_split("wine /path/to/CL.EXE")
+        assert result == ["wine", "/path/to/CL.EXE"]
+
+    def test_quoted_path(self) -> None:
+        from rebrew.compile import _safe_shlex_split
+
+        result = _safe_shlex_split('wine "/path with spaces/CL.EXE"')
+        assert result == ["wine", "/path with spaces/CL.EXE"]
+
+    def test_malformed_quotes_fallback(self) -> None:
+        from rebrew.compile import _safe_shlex_split
+
+        bad = '/FI"unclosed /c /MT'
+        result = _safe_shlex_split(bad)
+        assert result == ['/FI"unclosed', "/c", "/MT"]
+
+    def test_empty_string(self) -> None:
+        from rebrew.compile import _safe_shlex_split
+
+        result = _safe_shlex_split("")
+        assert result == []
