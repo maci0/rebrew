@@ -45,11 +45,8 @@ rebrew match \
 # Validate all source markers
 rebrew catalog --summary
 
-# Bulk compile and verify all reversed functions
+# Bulk compile and verify all reversed functions (always promotes status)
 rebrew verify
-
-# Auto-update STATUS metadata if it drifts
-rebrew verify --fix-status
 
 # Lint and verify Python health
 uv run ruff check .
@@ -336,8 +333,7 @@ the two implementations, STATUS is updated to `PROVEN`.
 When multiple functions are done, run verify to check all:
 
 ```bash
-rebrew verify
-rebrew verify --fix-status  # update any drifted STATUS entries
+rebrew verify  # also auto-updates any drifted STATUS entries
 ```
 ### 11. Lint and Verify Source Marker Health
 

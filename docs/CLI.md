@@ -130,11 +130,15 @@ Behavior:
 
 | Flag | Description |
 |------|-------------|
-| `--fix-status` | Auto-update `STATUS` in `rebrew-function.toml` metadata based on compile results |
 | `--compare` | Compare against last saved `db/verify_results.json`, detect regressions/improvements; exit code 1 on regression |
 | `--summary` | Show EXACT/RELOC/MATCHING summary table with match percentages |
+| `--full` / `-f` | Force full verification, ignoring cached results (also required after header/include changes) |
+| `-j N` / `--jobs N` | Number of parallel compile jobs (default: from `[project].jobs` or 4) |
 | `--json` | Structured JSON report to stdout |
 | `-o FILE` / `--output FILE` | Write report to specific file |
+
+Status promotion is always-on: after verification, STATUS is promoted/demoted in
+`rebrew-function.toml` metadata. PROVEN status is sticky and never demoted.
 
 Output prefixes for unambiguous parsing:
 
@@ -443,7 +447,7 @@ rebrew sync --pull-data                            # Fetch data labels into rebr
 | `matcher/flags.py` | `FlagSet`/`Checkbox` primitives (compatible with decomp.me) |
 | `matcher/flag_data.py` | Auto-generated MSVC flags + sweep tiers (from `tools/sync_decomp_flags.py`) |
 | `matcher/parsers.py` | COFF `.obj` and PE byte extraction (LIEF-based) |
-| `matcher/mutator.py` | 67 C mutation operators for GA |
+| `matcher/mutator.py` | 79 C mutation operators for GA |
 | `matcher/core.py` | SQLite `BuildCache` + GA checkpointing |
 | `solutions.py` | Cross-function solution transfer database (`.rebrew/solutions.json`) |
 
@@ -484,6 +488,6 @@ that returns a `CompareResult` dataclass used by both `rebrew test` and
 | `compile_and_compare` | `compile.py` | High-level: compile → extract → compare → `CompareResult` |
 | `update_source_status` | `metadata.py` | Canonical STATUS writer — promotes STATUS in `rebrew-function.toml`; never touches `.c` files |
 
-Both `rebrew test` (auto-promote after single test) and `rebrew verify --fix-status`
-(batch promotion) call `update_source_status`.  The `.c` file is **never modified**
+Both `rebrew test` (auto-promote after single test) and `rebrew verify`
+(always-on batch promotion) call `update_source_status`.  The `.c` file is **never modified**
 by either tool's status logic.

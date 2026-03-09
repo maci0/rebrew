@@ -36,8 +36,8 @@ remain in the ``.c`` files for reccmp compatibility.
 Status promotion
 ----------------
 Use :func:`update_source_status` — the single canonical writer — to promote
-a function's STATUS.  Both ``rebrew test`` and ``rebrew verify --fix-status``
-call this function; it never touches the ``.c`` file.
+a function's STATUS.  Both ``rebrew test`` and ``rebrew verify`` call this
+function; it never touches the ``.c`` file.
 
 Merge semantics
 ---------------
@@ -441,7 +441,7 @@ def update_source_status(
     """Write STATUS for (module, va) to the metadata; never touches the .c file.
 
     This is the single canonical place to promote a function's STATUS.  Both
-    ``rebrew test`` and ``rebrew verify --fix-status`` call this function.
+    ``rebrew test`` and ``rebrew verify`` call this function (always-on).
 
     PROVEN is a post-verify promotion from ``rebrew prove`` and is never
     silently demoted.  Callers that need to override this must pass
@@ -452,12 +452,12 @@ def update_source_status(
 
     Args:
         metadata_dir: The metadata root directory (``cfg.reversed_dir``).
-        new_status: New status string (e.g. ``EXACT``, ``RELOC``, ``MATCHING``).
+        new_status: New status string (e.g. ``EXACT``, ``RELOC``, ``NEAR_MATCHING``).
         module: Target module name from the annotation (e.g. ``NP``).
         va: Virtual address of the function.
         clear_blockers: If ``True`` (default), remove ``blocker`` and
             ``blocker_delta`` from the metadata entry (correct for EXACT/RELOC).
-            Pass ``False`` when demoting to MATCHING or MATCHING_RELOC to preserve user-set blockers.
+            Pass ``False`` when demoting to NEAR_MATCHING or NEAR_MATCHING to preserve user-set blockers.
         force: If ``True``, allow demotion from PROVEN.  Default ``False``.
 
     """

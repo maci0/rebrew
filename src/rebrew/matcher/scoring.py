@@ -167,6 +167,13 @@ def score_candidate(
     else:
         byte_score = 0.0
 
+    # Penalize missing bytes as full mismatches (weight 1.0 each).
+    # Without this, deleting N bytes saves ~N×1000 in byte_score but only
+    # costs N×3 via len_diff — making deletion 333× cheaper than fixing
+    # wrong bytes.  Adding len_diff here makes deletion cost ~1003 per byte,
+    # on par with having wrong bytes (~1000 per byte).
+    byte_score += float(len_diff)
+
     # 2. Relocation-aware similarity
     reloc_score = 0.0
     if reloc_offsets is not None:
@@ -187,13 +194,43 @@ def score_candidate(
             nc_arr = np.frombuffer(norm_cand[:min_len], dtype=np.uint8)
             reloc_score = float(np.count_nonzero(nt_arr != nc_arr))
 
-    # 3. Mnemonic similarity
+    # 3. Mnemonic similarity — instruction-aligned scoring
+    #
+    # Instead of a single global ratio, use get_opcodes() to identify
+    # contiguous matching blocks.  This rewards long matching runs and
+    # penalises isolated insertions/deletions more precisely.
+    # A single extra PUSH at the top no longer tanks the entire score.
     md = capstone.Cs(cs_arch, cs_mode)
     target_mnems = [i.mnemonic for i in md.disasm(target_bytes, 0x1000)]
     cand_mnems = [i.mnemonic for i in md.disasm(candidate_bytes, 0x1000)]
 
     sm = difflib.SequenceMatcher(None, target_mnems, cand_mnems)
-    mnemonic_score = (1.0 - sm.ratio()) * 100.0
+
+    # Walk opcodes: reward contiguous equal blocks, penalise diffs
+    total_matched = 0
+    total_diffed = 0
+    longest_run = 0
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            run_len = i2 - i1
+            total_matched += run_len
+            longest_run = max(longest_run, run_len)
+        else:
+            # replace, insert, delete — count both sides
+            total_diffed += max(i2 - i1, j2 - j1)
+
+    total_insns = max(len(target_mnems), len(cand_mnems), 1)
+    # Scale by instruction coverage to prevent small candidates gaming ratio
+    if len(target_mnems) > 0:
+        coverage = min(len(cand_mnems), len(target_mnems)) / len(target_mnems)
+    else:
+        coverage = 1.0
+
+    # Continuity bonus: reward long matching runs (max 20 pts)
+    continuity_bonus = min(20.0, longest_run * 0.5) if longest_run > 4 else 0.0
+
+    mnemonic_score = ((total_diffed / total_insns) * coverage) * 100.0 - continuity_bonus
+    mnemonic_score = max(0.0, mnemonic_score)  # floor at 0
 
     # 4. Prologue bonus
     prologue_bonus = 0.0

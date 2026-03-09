@@ -6,6 +6,7 @@ Supports --fix mode to auto-migrate from old format to new format.
 Inspired by reccmp's decomplint tool.
 """
 
+import contextlib
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -19,6 +20,7 @@ from rich.text import Text
 
 from rebrew.annotation import (
     ALL_KNOWN_KEYS,
+    METADATA_KEYS,
     NEW_FUNC_RE,
     NEW_KV_RE,
     VALID_MARKERS,
@@ -51,6 +53,8 @@ class LintResult:
     # Counters collected during lint for --summary (avoids re-reading files).
     _status_counts: Counter[str] = field(default_factory=Counter)
     _marker_counts: Counter[str] = field(default_factory=Counter)
+    # Collected inline metadata for --fix migration: (module, va_int, key, value)
+    _inline_fixes: list[tuple[str, int, str, str]] = field(default_factory=list)
 
     def error(self, line: int, code: str, msg: str) -> None:
         """Record an error diagnostic at *line*."""
@@ -226,7 +230,7 @@ def _check_E015_marker_consistency(
 
 
 def _check_E017_contradictory(result: LintResult, status: str, marker: str) -> None:
-    if status == "MATCHING" and marker == "STUB":
+    if status == "NEAR_MATCHING" and marker == "STUB":
         result.error(
             result.marker_line, "E017", f"Contradictory: status is {status} but marker is STUB"
         )
@@ -302,6 +306,30 @@ def _check_W017_note_rebrew(result: LintResult, found_keys: dict[str, str]) -> N
             "NOTE starts with '[rebrew]' — this looks like auto-generated sync metadata, "
             "not a human note (likely from a bad pull)",
         )
+
+
+def _check_W019_inline_metadata(
+    result: LintResult,
+    found_keys: dict[str, str],
+    metadata_sourced_keys: set[str],
+    module: str = "",
+    va_int: int | None = None,
+) -> None:
+    """Warn when metadata-owned keys appear as inline // KEY: comments.
+
+    These keys should live exclusively in rebrew-function.toml (or rebrew-data.toml
+    for DATA/GLOBAL markers).  Inline occurrences are deprecated.
+    """
+    for key in found_keys:
+        if key in METADATA_KEYS and key not in metadata_sourced_keys:
+            result.warning(
+                result.marker_line,
+                "W019",
+                f"Inline '// {key}:' is deprecated — use rebrew-function.toml instead",
+            )
+            # Record for --fix migration
+            if module and va_int is not None:
+                result._inline_fixes.append((module, va_int, key, found_keys[key]))
 
 
 def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> None:
@@ -482,6 +510,13 @@ def lint_file(
 
             _check_W015_va_case(result, va_str)
             _check_W016_section(result, marker, found_keys)
+            _check_W019_inline_metadata(
+                result,
+                found_keys,
+                _metadata_sourced_keys,
+                module=mod,
+                va_int=_va_int if mod else None,
+            )
 
     result.context_prefix = ""
     _check_body_rules(result, lines, all_headers[0][1]["has_new"] if all_headers else False)
@@ -552,12 +587,19 @@ W010   Unknown marker key
 
 W018   Missing CFLAGS with no config fallback
 
+W019   Inline metadata key (STATUS, SIZE, etc.) should be in rebrew-function.toml
+
 [dim]Checks for reccmp-style markers in the first 20 lines of each .c file.[/dim]""",
 )
 
 
 @app.callback(invoke_without_command=True)
 def main(
+    fix: bool = typer.Option(
+        False,
+        "--fix",
+        help="Migrate inline metadata to rebrew-function.toml and remove from source",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     quiet: bool = typer.Option(False, help="Only show errors, suppress warnings"),
     files: list[Path] = typer.Option(None, help="Check specific files instead of all *.c"),
@@ -628,6 +670,54 @@ def main(
 
         if summary:
             _print_summary(all_results)
+
+    # Apply --fix: migrate inline metadata to rebrew-function.toml
+    if fix and cfg:
+        from rebrew.annotation import remove_annotation_key
+        from rebrew.metadata import get_entry, set_field
+
+        fix_count = 0
+        for r in all_results:
+            if not r._inline_fixes:
+                continue
+            for module, va, key, value in r._inline_fixes:
+                toml_key = key.lower()
+                # Check if metadata already has this field
+                existing = get_entry(cfg.metadata_dir, va, module)
+                if toml_key not in existing:
+                    if dry_run:
+                        console.print(
+                            f"  [dim]Would migrate[/dim] {r.filepath.name} "
+                            f"// {key}: {value!r} → rebrew-function.toml"
+                        )
+                    else:
+                        # Coerce size to int if possible
+                        write_value: str | int = value
+                        if toml_key == "size":
+                            with contextlib.suppress(ValueError):
+                                write_value = int(value)
+                        set_field(cfg.metadata_dir, va, toml_key, write_value, module=module)
+                else:
+                    if dry_run:
+                        console.print(
+                            f"  [dim]Would remove[/dim] {r.filepath.name} "
+                            f"// {key}: (already in metadata)"
+                        )
+
+                # Strip inline comment from source
+                if not dry_run:
+                    remove_annotation_key(r.filepath, va, key, metadata_dir=cfg.metadata_dir)
+                fix_count += 1
+
+        if not json_output:
+            if dry_run:
+                console.print(
+                    f"\n[yellow]Dry run:[/yellow] {fix_count} inline annotations would be migrated"
+                )
+            elif fix_count > 0:
+                console.print(
+                    f"\n[green]Fixed:[/green] migrated {fix_count} inline annotations to rebrew-function.toml"
+                )
 
     if error_count > 0:
         raise typer.Exit(code=1)

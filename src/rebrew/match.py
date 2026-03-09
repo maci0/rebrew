@@ -10,8 +10,8 @@ Single-function usage:
 
 Batch usage (``rebrew match --all``)::
     rebrew match --all                       Run GA on all STUB functions
-    rebrew match --all --near-miss           Near-miss MATCHING/MATCHING_RELOC functions
-    rebrew match --all --flag-sweep          Batch flag sweep on MATCHING/MATCHING_RELOC
+    rebrew match --all --near-miss           Near-miss NEAR_MATCHING functions
+    rebrew match --all --flag-sweep          Batch flag sweep on NEAR_MATCHING
     rebrew match --all --dry-run             List targets without running
 """
 
@@ -83,14 +83,14 @@ class BinaryMatchingGA:
         cflags: str,
         symbol: str,
         out_dir: Path,
-        pop_size: int = 32,
+        pop_size: int = 64,
         num_generations: int = 100,
-        mutation_prob: float = 0.3,
+        mutation_prob: float = 0.85,
         crossover_prob: float = 0.7,
         elitism: int = 4,
         num_jobs: int = 4,
         mutation_weights: dict[str, float] | None = None,
-        stagnation_limit: int = 20,
+        stagnation_limit: int = 40,
         verbose: int = 1,
         rng_seed: int | None = None,
         compare_obj: bool = True,
@@ -101,6 +101,7 @@ class BinaryMatchingGA:
         compile_cache: CompileCache | None = None,
         compile_timeout: int = 60,
         extra_seeds: list[str] | None = None,
+        collect_pairs_path: Path | None = None,
     ) -> None:
         """Initialize the genetic algorithm matching engine."""
         self.seed_source = seed_source
@@ -125,6 +126,8 @@ class BinaryMatchingGA:
         self.ldflags = ldflags
         self.env = env
         self.compile_timeout = compile_timeout
+        self.collect_pairs_path = collect_pairs_path
+        self._pairs_count = 0
 
         self.rng = random.Random(rng_seed)
         self.mutation_weights = mutation_weights or {}
@@ -192,19 +195,60 @@ class BinaryMatchingGA:
         self.cache.put(src_hash, res)
         return res
 
-    def _compute_fitness(self, res: BuildResult, src_hash: str) -> float:
+    def _compute_fitness(self, res: BuildResult, src_hash: str, src: str) -> float:
         if not res.ok or res.obj_bytes is None:
             console.print(f"[{src_hash}] Error during compilation/parsing: {res.error_msg}")
             return 10000000.0
         obj_bytes = res.obj_bytes
-        if len(obj_bytes) > len(self.target_bytes):
+
+        # Size-ratio floor: reject candidates that are far too small.
+        # The GA sometimes "optimizes" by deleting large code blocks;
+        # this guard prevents it from exploring that neighbourhood.
+        target_len = len(self.target_bytes)
+        if target_len > 0 and len(obj_bytes) < target_len * 0.5:
             console.print(
-                f"[{src_hash}] Candidate {len(obj_bytes)}B > target {len(self.target_bytes)}B, truncating"
+                f"[{src_hash}] Too small: {len(obj_bytes)}B < 50% of target {target_len}B"
             )
-            obj_bytes = obj_bytes[: len(self.target_bytes)]
-        sc = score_candidate(self.target_bytes, obj_bytes, res.reloc_offsets)
-        console.print(f"[{src_hash}] SUCCESS. Score={sc.total} (len_bytes={len(obj_bytes)})")
-        return sc.total
+            return 5000000.0
+
+        # Proportional penalty for oversized candidates instead of silent
+        # truncation.  Score the overlapping region normally but add a
+        # penalty proportional to the excess — teaches the GA to avoid bloat.
+        excess = max(0, len(obj_bytes) - target_len)
+        if excess > 0:
+            console.print(
+                f"[{src_hash}] Candidate {len(obj_bytes)}B > target {target_len}B (+{excess}B excess)"
+            )
+        score_bytes = obj_bytes[:target_len]
+        sc = score_candidate(self.target_bytes, score_bytes, res.reloc_offsets)
+        excess_penalty = excess * 1500.0  # per-byte penalty comparable to byte_score weight
+        total = sc.total + excess_penalty
+        console.print(
+            f"[{src_hash}] SUCCESS. Score={total:.2f} (len_bytes={len(obj_bytes)}, excess={excess})"
+        )
+
+        # Collect source-binary pair for ML training if enabled
+        if self.collect_pairs_path is not None:
+            self._write_pair(src, obj_bytes, total)
+
+        return total
+
+    def _write_pair(self, src: str, obj_bytes: bytes, score: float) -> None:
+        """Append a source-binary pair to the JSONL collection file."""
+        import json as json_mod
+
+        record = {
+            "source": src,
+            "compiled_bytes": obj_bytes.hex(),
+            "target_bytes": self.target_bytes.hex(),
+            "score": round(score, 4),
+            "cflags": self.cflags,
+            "symbol": self.symbol,
+        }
+        assert self.collect_pairs_path is not None
+        with open(self.collect_pairs_path, "a", encoding="utf-8") as f:
+            f.write(json_mod.dumps(record) + "\n")
+        self._pairs_count += 1
 
     def run(self) -> tuple[str | None, float]:
         """Run the GA and return ``(best_source, best_score)``."""
@@ -229,7 +273,9 @@ class BinaryMatchingGA:
                             ok=False, error_msg=f"exception during compilation: {exc}"
                         )
                     src_hash = hashlib.sha256(futures[fut].encode()).hexdigest()[:8]
-                    scored_pop.append((self._compute_fitness(res, src_hash), futures[fut]))
+                    scored_pop.append(
+                        (self._compute_fitness(res, src_hash, futures[fut]), futures[fut])
+                    )
 
             scored_pop.sort(key=lambda x: x[0])
             best_score, best_src = scored_pop[0]
@@ -266,7 +312,13 @@ class BinaryMatchingGA:
                     child = p1
 
                 if self.rng.random() < self.mutation_prob:
-                    child = mutate_code(child, self.rng, mutation_weights=self.mutation_weights)
+                    # Multi-mutation: 30% chance of chaining 2-3 mutations for
+                    # bigger jumps in the search space.
+                    n_muts = 1
+                    if self.rng.random() < 0.3:
+                        n_muts = self.rng.randint(2, 3)
+                    for _ in range(n_muts):
+                        child = mutate_code(child, self.rng, mutation_weights=self.mutation_weights)
 
                 if quick_validate(child):
                     next_pop.append(child)
@@ -286,7 +338,7 @@ class BinaryMatchingGA:
 
 @dataclass
 class StubInfo:
-    """Parsed annotation fields for a STUB or near-miss MATCHING/MATCHING_RELOC function."""
+    """Parsed annotation fields for a STUB or near-miss NEAR_MATCHING function."""
 
     filepath: Path
     va: str
@@ -343,8 +395,8 @@ def _parse_annotations(
             continue
 
         # Pass STUB and PROVEN directly.
-        # MATCHING functions need delta checks:
-        if parsed_status in ("MATCHING", "MATCHING_RELOC"):
+        # NEAR_MATCHING functions need delta checks:
+        if parsed_status in ("NEAR_MATCHING",):
             d = ann.blocker_delta or 9999
             if max_delta is not None and d > max_delta:
                 continue
@@ -375,17 +427,15 @@ def parse_stub_info(filepath: Path, ignored: set[str] | None = None) -> list[Stu
 def parse_matching_info(
     filepath: Path, ignored: set[str] | None = None, max_delta: int = 10
 ) -> list[StubInfo]:
-    """Extract MATCHING/MATCHING_RELOC annotation fields with byte delta <= max_delta."""
+    """Extract NEAR_MATCHING annotation fields with byte delta <= max_delta."""
     return _parse_annotations(
-        filepath, status_filter={"MATCHING", "MATCHING_RELOC"}, max_delta=max_delta, ignored=ignored
+        filepath, status_filter={"NEAR_MATCHING"}, max_delta=max_delta, ignored=ignored
     )
 
 
 def parse_matching_all(filepath: Path, ignored: set[str] | None = None) -> list[StubInfo]:
-    """Extract all MATCHING/MATCHING_RELOC annotations (no delta filter)."""
-    return _parse_annotations(
-        filepath, status_filter={"MATCHING", "MATCHING_RELOC"}, ignored=ignored
-    )
+    """Extract all NEAR_MATCHING annotations (no delta filter)."""
+    return _parse_annotations(filepath, status_filter={"NEAR_MATCHING"}, ignored=ignored)
 
 
 def _collect_with_dedup(
@@ -447,7 +497,7 @@ def find_near_miss(
     cfg: ProjectConfig | None = None,
     warn_duplicates: bool = True,
 ) -> list[StubInfo]:
-    """Find MATCHING/MATCHING_RELOC functions with small byte deltas, sorted by delta ascending."""
+    """Find NEAR_MATCHING functions with small byte deltas, sorted by delta ascending."""
     return _collect_with_dedup(
         reversed_dir,
         cfg,
@@ -463,7 +513,7 @@ def find_all_matching(
     cfg: ProjectConfig | None = None,
     warn_duplicates: bool = True,
 ) -> list[StubInfo]:
-    """Find all MATCHING/MATCHING_RELOC functions, sorted by byte delta then size."""
+    """Find all NEAR_MATCHING functions, sorted by byte delta then size."""
     return _collect_with_dedup(
         reversed_dir,
         cfg,
@@ -537,7 +587,7 @@ def update_stub_to_matched(filepath: Path, best_src: str, stub: StubInfo) -> Non
         update_source_status(filepath.parent, "RELOC", module, va_int)
 
     updated = re.sub(
-        r"^(//\s*)STATUS:\s*(STUB|MATCHING(?:_RELOC)?)",
+        r"^(//\s*)STATUS:\s*(STUB|NEAR_MATCHING(?:_RELOC)?)",
         r"\1STATUS: RELOC",
         original,
         count=1,
@@ -594,8 +644,8 @@ Requires rebrew-project.toml with valid compiler paths.
 
 [bold]Batch mode (--all):[/bold]
   rebrew match --all               GA on all STUB functions
-  rebrew match --all --near-miss   GA on near-miss MATCHING/MATCHING_RELOC functions
-  rebrew match --all --flag-sweep  Batch flag sweep on MATCHING/MATCHING_RELOC functions
+  rebrew match --all --near-miss   GA on near-miss NEAR_MATCHING functions
+  rebrew match --all --flag-sweep  Batch flag sweep on NEAR_MATCHING functions
   rebrew match --all --dry-run     List targets without running[/dim]"""
 
 app = typer.Typer(
@@ -642,7 +692,7 @@ def main(
     ),
     # GA tuning (shared single/batch)
     generations: int = typer.Option(100, "-g", "--generations", help="Number of GA generations"),
-    pop_size: int = typer.Option(32, "-p", "--pop-size", help="Population size per generation"),
+    pop_size: int = typer.Option(64, "-p", "--pop-size", help="Population size per generation"),
     jobs: int | None = typer.Option(
         None, "-j", "--jobs", help="Parallel jobs (default: from config)"
     ),
@@ -651,7 +701,7 @@ def main(
     near_miss: bool = typer.Option(
         False,
         "--near-miss",
-        help="--all: target MATCHING/MATCHING_RELOC near-misses instead of STUBs",
+        help="--all: target NEAR_MATCHING near-misses instead of STUBs",
     ),
     threshold: int = typer.Option(
         10, "--threshold", help="--all: max byte delta for --near-miss mode"
@@ -659,7 +709,7 @@ def main(
     flag_sweep: bool = typer.Option(
         False,
         "--flag-sweep",
-        help="--all: batch flag sweep on MATCHING/MATCHING_RELOC functions (finds optimal CFLAGS)",
+        help="--all: batch flag sweep on NEAR_MATCHING functions (finds optimal CFLAGS)",
     ),
     fix_cflags: bool = typer.Option(
         False,
@@ -680,6 +730,11 @@ def main(
         True,
         "--seed-from-solved/--no-solved",
         help="Seed GA population from similar solved functions",
+    ),
+    collect_pairs: str | None = typer.Option(
+        None,
+        "--collect-pairs",
+        help="Save source-binary pairs to JSONL file for ML training",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -741,6 +796,7 @@ def main(
         json_output,
         extra_seed,
         no_seed,
+        collect_pairs,
     )
 
 
@@ -1109,6 +1165,7 @@ def _run_single_ga(
     json_output: bool,
     extra_seed: list[str] | None,
     no_seed: bool,
+    collect_pairs: str | None = None,
 ) -> None:
     """Run the full GA matching engine for a single source file."""
     out_dir_path = Path(out_dir)
@@ -1142,8 +1199,14 @@ def _run_single_ga(
         compile_timeout=p.cfg.compile_timeout,
         verbose=0 if json_output else 1,
         extra_seeds=loaded_seeds or None,
+        collect_pairs_path=Path(collect_pairs) if collect_pairs else None,
     )
     best_src, best_score = ga.run()
+
+    if collect_pairs and ga._pairs_count > 0:
+        console.print(
+            f"[bold green]Collected {ga._pairs_count} source-binary pairs[/] → {collect_pairs}"
+        )
 
     if json_output:
         ga_payload: dict[str, Any] = {
@@ -1338,7 +1401,7 @@ def _run_all(  # noqa: PLR0913
         stubs = find_all_matching(
             reversed_dir, ignored=ignored, cfg=cfg, warn_duplicates=not json_output
         )
-        mode_label = "MATCHING/MATCHING_RELOC (flag-sweep)"
+        mode_label = "NEAR_MATCHING (flag-sweep)"
     elif near_miss:
         stubs = find_near_miss(
             reversed_dir,
@@ -1347,7 +1410,7 @@ def _run_all(  # noqa: PLR0913
             cfg=cfg,
             warn_duplicates=not json_output,
         )
-        mode_label = "MATCHING/MATCHING_RELOC (near-miss)"
+        mode_label = "NEAR_MATCHING (near-miss)"
     else:
         stubs = find_all_stubs(
             reversed_dir, ignored=ignored, cfg=cfg, warn_duplicates=not json_output
@@ -1493,7 +1556,7 @@ def _run_batch_flag_sweep(
     json_output: bool,
     mode_label: str,
 ) -> None:
-    """Execute batch flag sweep across all discovered MATCHING/MATCHING_RELOC functions."""
+    """Execute batch flag sweep across all discovered NEAR_MATCHING functions."""
     import json as json_mod
 
     from rebrew.annotation import _module_for_va
@@ -1503,7 +1566,7 @@ def _run_batch_flag_sweep(
 
     reversed_dir = cfg.reversed_dir
     print(
-        f"\n[bold green]Running {mode_label} flag sweep for {len(stubs)} MATCHING/MATCHING_RELOC functions with {jobs} workers...[/bold green]"
+        f"\n[bold green]Running {mode_label} flag sweep for {len(stubs)} NEAR_MATCHING functions with {jobs} workers...[/bold green]"
     )
     improved_count = 0
     exact_count = 0

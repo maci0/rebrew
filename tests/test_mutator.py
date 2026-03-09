@@ -11,7 +11,10 @@ from rebrew.matcher.mutator import (
     mut_add_cast,
     mut_add_redundant_parens,
     mut_add_register_keyword,
+    mut_add_volatile_intermediate,
+    mut_array_to_ptr_arith,
     mut_bitand_to_if_false,
+    mut_cast_to_bitmask,
     mut_change_array_index_order,
     mut_change_return_type,
     mut_combine_ptr_arith,
@@ -19,9 +22,12 @@ from rebrew.matcher.mutator import (
     mut_commute_simple_mul,
     mut_comparison_boundary,
     mut_compound_assign_toggle,
+    mut_decouple_index_math,
     mut_demorgan,
     mut_duplicate_loop_body,
     mut_early_return_to_accum,
+    mut_extract_args_to_temps,
+    mut_extract_condition_to_var,
     mut_extract_else_body,
     mut_flatten_nested_if,
     mut_flip_eq_zero,
@@ -31,29 +37,43 @@ from rebrew.matcher.mutator import (
     mut_goto_to_return,
     mut_guard_clause,
     mut_hoist_return,
+    mut_if_chain_to_switch,
     mut_if_false_to_bitand,
     mut_if_to_ternary,
+    mut_inject_dummy_array,
+    mut_inject_dummy_var,
     mut_insert_noop_block,
     mut_int_to_pointer_param,
     mut_introduce_local_alias,
     mut_introduce_temp_for_call,
     mut_invert_loop_direction,
+    mut_loop_condition_extraction,
     mut_merge_cmp_chain,
     mut_merge_declaration_init,
+    mut_merge_nested_ifs,
+    mut_move_switch_default,
     mut_negate_condition,
     mut_pointer_to_int_param,
     mut_postpre_increment,
+    mut_preinit_byte_load,
+    mut_ptr_arith_to_array,
     mut_reassociate_add,
     mut_remove_cast,
     mut_remove_register_keyword,
     mut_remove_temp_var,
     mut_reorder_declarations,
     mut_reorder_elseif,
+    mut_reorder_register_vars,
+    mut_reorder_switch_cases,
     mut_return_to_goto,
+    mut_scope_variable,
     mut_sink_return,
+    mut_split_and_condition,
     mut_split_cmp_chain,
     mut_split_declaration_init,
+    mut_split_or_condition,
     mut_split_ptr_arith,
+    mut_split_switch,
     mut_struct_vs_ptr_access,
     mut_swap_adjacent_declarations,
     mut_swap_adjacent_stmts,
@@ -62,6 +82,10 @@ from rebrew.matcher.mutator import (
     mut_swap_if_else,
     mut_swap_ne_operands,
     mut_swap_or_operands,
+    mut_swap_register_keywords,
+    mut_switch_add_explicit_default,
+    mut_switch_break_to_return,
+    mut_switch_to_if_chain,
     mut_ternary_to_if,
     mut_toggle_bool_not,
     mut_toggle_calling_convention,
@@ -70,6 +94,8 @@ from rebrew.matcher.mutator import (
     mut_toggle_volatile,
     mut_unfold_constant_add,
     mut_while_to_for,
+    mut_while_to_goto_loop,
+    mut_wrap_in_else,
     mut_xor_zero_toggle,
     quick_validate,
 )
@@ -993,3 +1019,408 @@ class TestNegateCondition:
         result = mut_negate_condition("if (x != 5) {}", RNG)
         assert result is not None
         assert "!(x != 5)" in result
+
+
+# -------------------------------------------------------------------------
+# MSVC6-targeted structural mutations (2026-03 batch)
+# -------------------------------------------------------------------------
+
+# (imports moved to top of file)
+
+
+class TestWhileToGotoLoop:
+    def test_basic(self) -> None:
+        src = "void f() { while (i < n) {\n    x = x + 1;\n} }"
+        result = mut_while_to_goto_loop(src, RNG)
+        assert result is not None
+        assert "goto" in result
+        assert "_loop_" in result
+        assert "_end_" in result
+        assert "while" not in result
+
+    def test_no_while(self) -> None:
+        assert mut_while_to_goto_loop("x = 1;", RNG) is None
+
+    def test_preserves_body(self) -> None:
+        src = "void f() { while (cond) {\n    foo();\n    bar();\n} }"
+        result = mut_while_to_goto_loop(src, RNG)
+        if result is not None:
+            assert "foo()" in result
+            assert "bar()" in result
+
+
+class TestInjectDummyVar:
+    def test_basic(self) -> None:
+        src = "int f() {\n    return 0;\n}"
+        result = mut_inject_dummy_var(src, RNG)
+        assert result is not None
+        assert "_dummy_" in result
+        assert "int _dummy_" in result
+
+    def test_no_function(self) -> None:
+        assert mut_inject_dummy_var("// no function", RNG) is None
+
+
+class TestInjectDummyArray:
+    def test_basic(self) -> None:
+        src = "int f() {\n    return 0;\n}"
+        result = mut_inject_dummy_array(src, RNG)
+        assert result is not None
+        assert "_pad_" in result
+        assert "char" in result
+
+    def test_size_is_valid(self) -> None:
+        src = "int f() {\n    return 0;\n}"
+        for seed in range(20):
+            result = mut_inject_dummy_array(src, random.Random(seed))
+            if result is not None:
+                # Should contain one of [4, 8, 12, 16]
+                assert any(f"[{s}]" in result for s in [4, 8, 12, 16])
+
+    def test_no_function(self) -> None:
+        assert mut_inject_dummy_array("// no function", RNG) is None
+
+
+class TestScopeVariable:
+    def test_basic(self) -> None:
+        src = "int f() {\n    int x;\n    x = 5;\n    return x;\n}"
+        result = mut_scope_variable(src, RNG)
+        if result is not None:
+            assert "{" in result
+            assert "int x" in result
+            assert "x = 5" in result
+
+    def test_no_match(self) -> None:
+        assert mut_scope_variable("// no function", RNG) is None
+
+
+class TestArrayToPtrArith:
+    def test_basic(self) -> None:
+        src = "x = arr[i];"
+        result = mut_array_to_ptr_arith(src, RNG)
+        assert result is not None
+        assert "*(" in result
+        assert "+" in result
+
+    def test_no_match(self) -> None:
+        assert mut_array_to_ptr_arith("x = 1;", RNG) is None
+
+
+class TestPtrArithToArray:
+    def test_basic(self) -> None:
+        src = "x = *(p + i);"
+        result = mut_ptr_arith_to_array(src, RNG)
+        if result is not None:
+            assert "[" in result
+            assert "]" in result
+
+    def test_no_match(self) -> None:
+        assert mut_ptr_arith_to_array("x = 1;", RNG) is None
+
+
+class TestDecoupleIndexMath:
+    def test_basic(self) -> None:
+        src = "x = arr[i * 4];"
+        result = mut_decouple_index_math(src, RNG)
+        if result is not None:
+            assert "_off_" in result
+            assert isinstance(result, str)
+
+    def test_no_match(self) -> None:
+        assert mut_decouple_index_math("x = arr[i];", RNG) is None
+
+
+class TestPreinitByteLoad:
+    def test_basic(self) -> None:
+        src = "char c = *ptr;"
+        result = mut_preinit_byte_load(src, RNG)
+        if result is not None:
+            assert "int c = 0" in result
+            assert "c = *ptr" in result
+
+    def test_no_match_int(self) -> None:
+        src = "int x = 5;"
+        assert mut_preinit_byte_load(src, RNG) is None
+
+    def test_no_match_no_init(self) -> None:
+        src = "char c;"
+        assert mut_preinit_byte_load(src, RNG) is None
+
+
+class TestCastToBitmask:
+    def test_no_match(self) -> None:
+        assert mut_cast_to_bitmask("x = 1;", RNG) is None
+
+
+class TestSwapRegisterKeywords:
+    def test_basic(self) -> None:
+        src = "int f() {\n    register int a;\n    int b;\n    return a + b;\n}"
+        result = mut_swap_register_keywords(src, RNG)
+        if result is not None:
+            # register should move from a to b
+            assert "register" in result
+
+    def test_no_register(self) -> None:
+        src = "int f() {\n    int a;\n    int b;\n    return a + b;\n}"
+        assert mut_swap_register_keywords(src, RNG) is None
+
+    def test_single_var(self) -> None:
+        src = "register int a;"
+        assert mut_swap_register_keywords(src, RNG) is None
+
+
+class TestAddVolatileIntermediate:
+    def test_basic(self) -> None:
+        src = "void f() {\n    x = a + b;\n}"
+        result = mut_add_volatile_intermediate(src, RNG)
+        if result is not None:
+            assert "volatile" in result
+            assert "_t_" in result
+
+    def test_no_match(self) -> None:
+        assert mut_add_volatile_intermediate("x = 5;", RNG) is None
+
+
+class TestReorderRegisterVars:
+    def test_basic(self) -> None:
+        src = "int f() {\n    register int a;\n    register int b;\n    return a + b;\n}"
+        result = mut_reorder_register_vars(src, RNG)
+        if result is not None:
+            # Both register vars should still be present
+            assert "register int a" in result
+            assert "register int b" in result
+            # Order should be swapped
+            assert result.index("register int b") < result.index("register int a")
+
+    def test_single_register(self) -> None:
+        src = "register int x;"
+        assert mut_reorder_register_vars(src, RNG) is None
+
+    def test_no_register(self) -> None:
+        src = "int f() {\n    int a;\n    int b;\n    return a + b;\n}"
+        assert mut_reorder_register_vars(src, RNG) is None
+
+
+# ---------------------------------------------------------------------------
+# Switch statement mutations (MSVC6 comparison chain codegen)
+# ---------------------------------------------------------------------------
+
+SWITCH_SOURCE = """\
+void f(int uMsg) {
+    switch (uMsg) {
+        case WM_COMMAND:
+            OnCommand();
+            break;
+        case WM_INITDIALOG:
+            OnInitDialog();
+            break;
+        case WM_INITMENU:
+            OnInitMenu();
+            break;
+        default:
+            return;
+    }
+}
+"""
+
+
+class TestReorderSwitchCases:
+    def test_basic(self) -> None:
+        result = mut_reorder_switch_cases(SWITCH_SOURCE, RNG)
+        assert result is not None
+        assert result != SWITCH_SOURCE
+        assert "WM_COMMAND" in result
+        assert "WM_INITDIALOG" in result
+        assert "WM_INITMENU" in result
+
+    def test_no_match_single_case(self) -> None:
+        src = "void f(int x) { switch(x) { case 1: break; } }"
+        assert mut_reorder_switch_cases(src, RNG) is None
+
+    def test_no_switch(self) -> None:
+        assert mut_reorder_switch_cases("int f() { return 0; }", RNG) is None
+
+
+class TestSwitchToIfChain:
+    def test_basic(self) -> None:
+        result = mut_switch_to_if_chain(SWITCH_SOURCE, RNG)
+        assert result is not None
+        assert "switch" not in result
+        assert "if (" in result
+        assert "else if (" in result
+        assert "WM_COMMAND" in result
+        assert "WM_INITDIALOG" in result
+
+    def test_preserves_default(self) -> None:
+        result = mut_switch_to_if_chain(SWITCH_SOURCE, RNG)
+        assert result is not None
+        assert "else {" in result
+
+    def test_no_switch(self) -> None:
+        assert mut_switch_to_if_chain("int f() { return 0; }", RNG) is None
+
+
+class TestSplitSwitch:
+    def test_basic(self) -> None:
+        result = mut_split_switch(SWITCH_SOURCE, RNG)
+        assert result is not None
+        assert result.count("switch") == 2
+        assert "if (" in result
+        assert "else" in result
+
+    def test_needs_three_cases(self) -> None:
+        two_case = "void f(int x) { switch(x) { case 1: break; case 2: break; } }"
+        assert mut_split_switch(two_case, RNG) is None
+
+    def test_no_switch(self) -> None:
+        assert mut_split_switch("int f() { return 0; }", RNG) is None
+
+
+class TestMoveSwitchDefault:
+    def test_basic(self) -> None:
+        result = mut_move_switch_default(SWITCH_SOURCE, RNG)
+        assert result is not None
+        assert "default" in result
+        assert result != SWITCH_SOURCE
+
+    def test_no_default(self) -> None:
+        no_default = "void f(int x) { switch(x) { case 1: break; case 2: break; } }"
+        assert mut_move_switch_default(no_default, RNG) is None
+
+    def test_no_switch(self) -> None:
+        assert mut_move_switch_default("int f() { return 0; }", RNG) is None
+
+
+class TestIfChainToSwitch:
+    def test_basic(self) -> None:
+        if_chain = "void f(int x) { if (x == 1) { return 1; } else if (x == 2) { return 2; } else { return 3; } }"
+        result = mut_if_chain_to_switch(if_chain, RNG)
+        assert result is not None
+        assert "switch" in result
+        assert "case 1:" in result
+        assert "case 2:" in result
+
+    def test_no_if_chain(self) -> None:
+        assert mut_if_chain_to_switch("int f() { return 0; }", RNG) is None
+
+
+class TestSwitchAddExplicitDefault:
+    def test_basic(self) -> None:
+        no_default = "void f(int x) { switch(x) { case 1: break; case 2: break; } }"
+        result = mut_switch_add_explicit_default(no_default, RNG)
+        assert result is not None
+        assert "default:" in result
+
+    def test_has_default(self) -> None:
+        has_default = "void f(int x) { switch(x) { case 1: break; default: break; } }"
+        assert mut_switch_add_explicit_default(has_default, RNG) is None
+
+    def test_no_switch(self) -> None:
+        assert mut_switch_add_explicit_default("int f() { return 0; }", RNG) is None
+
+
+class TestWrapInElse:
+    def test_basic(self) -> None:
+        ret_early = "void f(int x) { if (x) { return 1; } return 0; }"
+        result = mut_wrap_in_else(ret_early, RNG)
+        assert result is not None
+        assert "else {" in result or "else" in result
+        assert result.count("return 0;") == 1
+
+    def test_no_early_return(self) -> None:
+        assert mut_wrap_in_else("int f() { return 0; }", RNG) is None
+
+
+class TestSwitchBreakToReturn:
+    def test_basic(self) -> None:
+        with_break = "int f(int x) { switch(x) { case 1: break; } return 0; }"
+        result = mut_switch_break_to_return(with_break, RNG)
+        assert result is not None
+        assert "return 0;" in result
+        assert "break;" not in result
+
+    def test_no_break(self) -> None:
+        no_break = "int f(int x) { switch(x) { case 1: return 1; } return 0; }"
+        assert mut_switch_break_to_return(no_break, RNG) is None
+
+
+# (imports moved to top of file)
+
+
+class TestSplitAndCondition:
+    def test_basic(self) -> None:
+        src = "if (a && b) {\n    x = 1;\n}"
+        res = mut_split_and_condition(src, RNG)
+        assert res is not None
+        assert "if (a) {\n        if (b) {\n    x = 1;\n}" in res
+
+    def test_no_match(self) -> None:
+        src = "if (a || b) {\n    x = 1;\n}"
+        assert mut_split_and_condition(src, RNG) is None
+
+
+class TestSplitOrCondition:
+    def test_basic(self) -> None:
+        src = "if (a || b) {\n    x = 1;\n}"
+        res = mut_split_or_condition(src, RNG)
+        assert res is not None
+        assert "if (a) {\n    x = 1;\n}\n    else if (b) {\n    x = 1;\n}" in res
+
+    def test_no_match(self) -> None:
+        src = "if (a && b) {\n    x = 1;\n}"
+        assert mut_split_or_condition(src, RNG) is None
+
+
+class TestMergeNestedIfs:
+    def test_basic(self) -> None:
+        src = "void f() { if (a) {\n    if (b) {\n        x = 1;\n    }\n} }"
+        res = mut_merge_nested_ifs(src, RNG)
+        assert res is not None
+        assert "if ((a) && (b))" in res
+
+
+class TestExtractConditionToVar:
+    def test_basic(self) -> None:
+        src = "int f(int a, int b) {\n    if (a == b) {\n        x = 1;\n    }\n}"
+        res = mut_extract_condition_to_var(src, RNG)
+        assert res is not None
+        assert "int _cond_" in res
+        assert " = (a == b);" in res
+
+
+class TestLoopConditionExtraction:
+    def test_basic(self) -> None:
+        src = "while (a < b) {\n    x = 1;\n}"
+        res = mut_loop_condition_extraction(src, RNG)
+        assert res is not None
+        assert "while (1) {" in res
+        assert "if (!(a < b)) break;" in res
+
+
+# (imports moved to top of file)
+
+
+class TestExtractArgsToTemps:
+    def test_basic(self) -> None:
+        src = "void f() { foo(a + b); }"
+        res = mut_extract_args_to_temps(src, RNG)
+        assert res is not None
+        assert "int _tmp_" in res
+        assert " = a + b;" in res
+        assert "foo(_tmp_" in res
+
+    def test_no_match_simple_arg(self) -> None:
+        src = "void f() { foo(a); }"
+        assert mut_extract_args_to_temps(src, RNG) is None
+
+    def test_no_match_string_literal(self) -> None:
+        src = 'void f() { foo("hello"); }'
+        assert mut_extract_args_to_temps(src, RNG) is None
+
+    def test_multiple_args(self) -> None:
+        src = "void f() { foo(a, x * y, c); }"
+        res = mut_extract_args_to_temps(src, RNG)
+        assert res is not None
+        assert "int _tmp_" in res
+        assert " = x * y;" in res
+        assert "foo(a, _tmp_" in res

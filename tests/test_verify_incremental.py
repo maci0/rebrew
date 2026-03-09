@@ -272,9 +272,10 @@ class TestIncrementalVerify:
         assert full_run.exit_code == 0, full_run.output
         assert sorted(calls) == [0x10001000, 0x10002000]
 
-    def test_fix_status_not_applied_to_cached_results(
+    def test_status_always_promoted_fresh_not_cached(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Verify that status promotion runs on fresh results but not on cached ones."""
         cfg = _make_cfg(tmp_path)
         file_a = cfg.reversed_dir / "func_a.c"
         file_a.write_text("int func_a(void) { return 1; }\n", encoding="utf-8")
@@ -287,7 +288,7 @@ class TestIncrementalVerify:
                 size=16,
                 cflags="",
                 symbol="",
-                status="MATCHING",
+                status="NEAR_MATCHING",
                 marker_type="FUNCTION",
             )
         ]
@@ -325,8 +326,10 @@ class TestIncrementalVerify:
         monkeypatch.setattr("rebrew.verify.build_function_registry", fake_build_registry)
         monkeypatch.setattr("rebrew.verify.verify_entry", fake_verify_entry)
 
-        first = runner.invoke(app, ["--json", "--fix-status"])
+        # First run: promotes status (always-on now, no --fix-status needed)
+        first = runner.invoke(app, ["--json"])
         assert first.exit_code == 0, first.output
 
-        second = runner.invoke(app, ["--json", "--fix-status"])
+        # Second run: cached, status promotion not re-applied for cached results
+        second = runner.invoke(app, ["--json"])
         assert second.exit_code == 0, second.output

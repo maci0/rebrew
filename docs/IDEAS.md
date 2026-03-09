@@ -10,7 +10,7 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 |---|------|-------|
 | 15 | Compile result cache | `compile_cache.py` — SHA-256 hash-based `.obj` caching via `diskcache`. CLI: `rebrew cache stats/clear`. 23 tests. |
 | 17 | Match regression detection | `rebrew verify --compare` — compares verify results against last saved report. Exit code 1 on regressions. |
-| 18 | Batch promote | `rebrew verify --fix-status` — bulk compile, auto-updates STATUS/BLOCKER for all functions. Supports `--fix-status`, `--compare`, `--dry-run`. |
+| 18 | Batch promote | `rebrew verify` — bulk compile, auto-updates STATUS/BLOCKER for all functions (always-on). Supports `--compare`, `--dry-run`. |
 | 1 | CRT source cross-reference tool | `rebrew crt-match` — indexes CRT source directories, matches by name with confidence tiers, auto-writes `// SOURCE:`. 19 tests. |
 | 2 | Data Sync and XREF Pipeline | `rebrew sync --pull-data` — fetches data labels from Ghidra, generates `rebrew_globals.h`. 11 tests. |
 | 16 | Auto-download wibo | `wibo.py` — `download_wibo()`, `find_wibo()`, `ensure_wibo()`. CLI: `rebrew doctor --install-wibo`. 15 tests. |
@@ -25,7 +25,7 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 | — | CRT auto-detection | `rebrew cfg detect-crt` — scans `tools/` for known MSVC CRT source dirs. `detect_crt_sources()` in `config.py`. |
 | — | Dotted key resolution | `rebrew cfg show/set/get` — greedy longest-match resolution for TOML keys containing dots. |
 | — | CLI code audit / deduplication | `normalize_name()` in `naming.py`; `disasm_bytes()` in `asm.py`; `iter_annotations()` in `cli.py`; removed `_find_block_lines` dead code; removed `_make_progress_printer` in favour of `Console(stderr=True)` pattern. All 1735 tests pass. |
-| 4 | GA code layout mutations | `mutator.py` — 67 structural mutations for GA exploration. |
+| 4 | GA code layout mutations | `mutator.py` — 79 structural mutations for GA exploration. |
 | 19 | Cross-function solution transfer | `solutions.py` — GA auto-saves and seeds from `.rebrew/solutions.json`. |
 
 ---
