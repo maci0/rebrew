@@ -327,12 +327,12 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
     """Scan for ``// DATA: MODULE 0xVA`` annotations in source files.
 
     These mark standalone global data objects for tracking in the catalog.
-    SIZE/SECTION/NOTE are overlaid from ``rebrew-data.toml`` sidecar if present.
+    SIZE/SECTION/NOTE are overlaid from ``rebrew-data.toml`` metadata if present.
     Returns a list of dicts with: va, name, size, section, note, filepath.
     """
     from rebrew.annotation import parse_c_file_multi
     from rebrew.cli import iter_sources, rel_display_path, target_marker
-    from rebrew.data_sidecar import merge_into_data_annotation
+    from rebrew.data_metadata import merge_into_data_annotation
 
     entries: list[dict[str, Any]] = []
     if not src_dir.exists():
@@ -341,7 +341,7 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
     for cfile in iter_sources(src_dir, cfg):
         rel_name = rel_display_path(cfile, src_dir)
         for ann in parse_c_file_multi(
-            cfile, target_name=target_marker(cfg), sidecar_dir=cfile.parent
+            cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir if cfg else None
         ):
             if ann.marker_type == "DATA":
                 merge_into_data_annotation(ann, cfile.parent)
@@ -709,13 +709,13 @@ def _render_dispatch(console: Console, tables: list[DispatchTable]) -> None:
 def _generate_bss_fix(report: BssReport, src_dir: Path, origin: str) -> None:
     """Generate a bss_padding.c file with dummy arrays for all detected BSS gaps.
 
-    SIZE, SECTION, and NOTE are written to ``rebrew-data.toml`` sidecar, not inline.
+    SIZE, SECTION, and NOTE are written to ``rebrew-data.toml`` metadata, not inline.
     """
     if not report.gaps:
         print("No BSS gaps detected. Layout is perfect!")
         return
 
-    from rebrew.data_sidecar import set_data_field
+    from rebrew.data_metadata import set_data_field
     from rebrew.utils import atomic_write_text
 
     out_file = src_dir / "bss_padding.c"
@@ -728,7 +728,7 @@ def _generate_bss_fix(report: BssReport, src_dir: Path, origin: str) -> None:
     for gap in sorted(report.gaps, key=lambda g: g.offset):
         lines.append(f"// DATA: {origin} 0x{gap.offset:08x}")
         lines.append(f"char gap_{gap.offset:08x}[{gap.size}];\n")
-        # Write metadata to data sidecar
+        # Write metadata to data metadata
         set_data_field(src_dir, gap.offset, "size", gap.size, origin)
         set_data_field(src_dir, gap.offset, "section", ".bss", origin)
         set_data_field(
@@ -899,7 +899,7 @@ annotations to track data-section coverage.[/dim]""",
 
 
 def _gen_globals_header(cfg: ProjectConfig, src_dir: Path) -> None:
-    """Generate rebrew_globals.h from GLOBAL:/DATA: annotations + data sidecar.
+    """Generate rebrew_globals.h from GLOBAL:/DATA: annotations + data metadata.
 
     Writes ``{src_dir}/rebrew_globals.h`` with ``extern`` declarations for every
     known global, grouped by section (``.data``, ``.rdata``, ``.bss``).  Does not
@@ -909,17 +909,17 @@ def _gen_globals_header(cfg: ProjectConfig, src_dir: Path) -> None:
 
     from rebrew.annotation import parse_c_file_multi
     from rebrew.cli import iter_sources
-    from rebrew.data_sidecar import load_data_sidecar
+    from rebrew.data_metadata import load_data_metadata
 
     marker = getattr(cfg, "marker", cfg.target_name.upper())
-    sidecar = load_data_sidecar(src_dir)
+    metadata = load_data_metadata(src_dir)
 
     rows: list[dict[str, Any]] = []
     seen_va: set[int] = set()
 
     for src in sorted(iter_sources(src_dir, cfg)):
         try:
-            annotations = parse_c_file_multi(src, target_name=marker, sidecar_dir=src.parent)
+            annotations = parse_c_file_multi(src, target_name=marker, metadata_dir=cfg.metadata_dir)
         except Exception:
             continue
         for ann in annotations:
@@ -936,9 +936,9 @@ def _gen_globals_header(cfg: ProjectConfig, src_dir: Path) -> None:
                 raw_name = raw_name[1:]
             name = raw_name or f"g_{va:08x}"
 
-            # Merge from sidecar: section, size, note
+            # Merge from metadata: section, size, note
             sk = (ann.module, va)
-            se = sidecar.get(sk, {})
+            se = metadata.get(sk, {})
             section = ann.section or str(se.get("section", ""))
             size = ann.size or int(se.get("size", 0) or 0)
             note = str(se.get("note", ""))
@@ -1106,7 +1106,7 @@ def main(
         known_functions: dict[int, dict[str, str]] = {}
         for cfile in iter_sources(src_dir, cfg):
             for entry in parse_c_file_multi(
-                cfile, target_name=target_marker(cfg), sidecar_dir=cfile.parent
+                cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
             ):
                 if entry.va:
                     known_functions[entry.va] = {

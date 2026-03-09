@@ -275,7 +275,7 @@ graph LR
     subgraph "Local (.c files)"
         L1["Function names<br/>& signatures"]
         L2["Struct definitions"]
-        L3["STATUS / SIZE<br/>metadata (sidecar)"]
+        L3["STATUS / SIZE<br/>metadata (metadata)"]
     end
 
     subgraph "Ghidra Project"

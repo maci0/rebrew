@@ -51,7 +51,7 @@ Rebrew filters annotations by the active `--target`. Multiple `// FUNCTION: <MOD
 // FUNCTION: BETA10 0x101832f7
 void my_func() {}
 ```
-Each target's `rebrew-function.toml` sidecar holds STATUS, SIZE, CFLAGS for that VA.
+Each target's `rebrew-function.toml` metadata file holds STATUS, SIZE, CFLAGS for that VA.
 
 ## 4. Implement and Test
 
@@ -67,7 +67,7 @@ rebrew test --all --dir src/<target>/ --json    # batch mode, restrict to subdir
 rebrew test --all --dry-run                # preview changes without writing
 ```
 
-`rebrew test` auto-updates STATUS in the sidecar after each run:
+`rebrew test` auto-updates STATUS in the metadata file after each run:
 - **EXACT/RELOC** → updates STATUS and clears auto-generated BLOCKERs
 - **MATCHING** (≥75% byte match) → updates STATUS; preserves user-set BLOCKERs
 - **< 75%** → no STATUS change (don't demote unless you're sure)
@@ -77,12 +77,12 @@ For a byte diff of the current state:
 ```bash
 rebrew diff src/<target>/<file>.c          # byte diff vs target
 rebrew diff src/<target>/<file>.c --mm     # only structural diffs (**)
-rebrew diff src/<target>/<file>.c --fix-blocker  # auto-write BLOCKER to sidecar
+rebrew diff src/<target>/<file>.c --fix-blocker  # auto-write BLOCKER to metadata file
 ```
 
 > [!CAUTION]
 > **Never manually edit `rebrew-function.toml` or `rebrew-data.toml`.**
-> All volatile metadata lives in sidecars managed by CLI tools.
+> All volatile metadata lives in metadata files managed by CLI tools.
 
 For deeper matching (GA engine), see the `rebrew-matching` skill.
 
@@ -110,7 +110,7 @@ rebrew graph --cu-map --json                         # infer TU boundaries
 
 If the function references globals, use the `rebrew-data-analysis` skill for
 `// GLOBAL:` / `// DATA:` annotations and the `rebrew data` tool. Global metadata
-lives in the **`rebrew-data.toml`** sidecar, managed automatically by `rebrew data`,
+lives in the **`rebrew-data.toml`** metadata file, managed automatically by `rebrew data`,
 `rebrew data --fix-bss`, and `rebrew sync --pull`.
 
 ## 7. Prove Stubborn MATCHING Functions

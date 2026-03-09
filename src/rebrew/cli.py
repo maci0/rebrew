@@ -154,6 +154,7 @@ def iter_annotations(
     sources: list[Path],
     *,
     target: str | None = None,
+    metadata_dir: Path | None = None,
 ) -> list[tuple[Path, list[Any]]]:
     """Parse annotations from each source in *sources*, silently skipping failures.
 
@@ -168,14 +169,19 @@ def iter_annotations(
     :param sources: List of paths returned by :func:`iter_sources`.
     :param target:  Optional marker string passed through to
         ``parse_c_file_multi`` (use :func:`target_marker` to obtain it).
+    :param metadata_dir: The ``reversed_dir`` root where ``rebrew-function.toml``
+        lives.  Required for metadata merging.
     """
+    import logging
+
     from rebrew.annotation import parse_c_file_multi  # local import to avoid cycle
 
     results: list[tuple[Path, list[Any]]] = []
     for src in sources:
         try:
-            annos = parse_c_file_multi(src, target_name=target, sidecar_dir=src.parent)
-        except Exception:  # noqa: BLE001
+            annos = parse_c_file_multi(src, target_name=target, metadata_dir=metadata_dir)
+        except ValueError as exc:
+            logging.debug(f"Skipping {src} due to parse error: {exc}")
             continue
         if annos:
             results.append((src, annos))

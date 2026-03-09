@@ -1,8 +1,8 @@
 """Tests for annotation round-trip fidelity (Idea 19).
 
-After the sidecar migration, volatile fields (STATUS, CFLAGS, BLOCKER, NOTE,
+After the metadata migration, volatile fields (STATUS, CFLAGS, BLOCKER, NOTE,
 GLOBALS, SIZE) are stored in rebrew-function.toml rather than in the .c file. Round-trip
-reads must pass ``sidecar_dir`` to ``parse_c_file_multi`` to see them.
+reads must pass ``metadata_dir`` to ``parse_c_file_multi`` to see them.
 """
 
 from pathlib import Path
@@ -37,13 +37,13 @@ def base_file(tmp_path: Path) -> Path:
     ],
 )
 def test_roundtrip_single_value(base_file: Path, key: str, initial_val: str, new_val: str) -> None:
-    """Writing a sidecar field and reading it back preserves the exact string."""
-    # Write — goes to sidecar for sidecar-owned keys
+    """Writing a metadata field and reading it back preserves the exact string."""
+    # Write — goes to metadata for metadata-owned keys
     modified = update_annotation_key(base_file, 0x1000, key, new_val)
     assert modified
 
-    # Read — must pass sidecar_dir to pick up the sidecar entries
-    anns = parse_c_file_multi(base_file, sidecar_dir=base_file.parent)
+    # Read — must pass metadata_dir to pick up the metadata entries
+    anns = parse_c_file_multi(base_file, metadata_dir=base_file.parent)
     assert len(anns) == 1
     ann = anns[0]
 
@@ -68,10 +68,10 @@ def test_roundtrip_multi_target(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    # Update TARGET1 status → goes to sidecar
+    # Update TARGET1 status → goes to metadata
     update_annotation_key(f, 0x1000, "STATUS", "RELOC")
 
-    anns = parse_c_file_multi(f, sidecar_dir=f.parent)
+    anns = parse_c_file_multi(f, metadata_dir=f.parent)
     assert len(anns) == 2
 
     # Verify TARGET1
@@ -85,5 +85,5 @@ def test_roundtrip_multi_target(tmp_path: Path) -> None:
 
 def test_roundtrip_creates_missing_key(base_file: Path) -> None:
     update_annotation_key(base_file, 0x1000, "BLOCKER", "Loop unrolling")
-    anns = parse_c_file_multi(base_file, sidecar_dir=base_file.parent)
+    anns = parse_c_file_multi(base_file, metadata_dir=base_file.parent)
     assert anns[0].blocker == "Loop unrolling"

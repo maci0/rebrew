@@ -261,7 +261,7 @@ def main(
         )
 
     entries = parse_c_file_multi(
-        source_path, target_name=target_marker(cfg), sidecar_dir=source_path.parent
+        source_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
     )
     if len(entries) < 2:
         error_exit(

@@ -116,6 +116,9 @@ class TestArchPresets:
 
 class TestLoadConfigMultiTarget:
     MULTI_TOML = """\
+[project]
+default_target = "server_dll"
+
 [targets.server_dll]
 binary = "original/Server/server.dll"
 format = "pe"
@@ -138,7 +141,17 @@ includes = "/usr/include"
 libs = "/usr/lib"
 """
 
-    def test_default_first_target(self, tmp_path: Path) -> None:
+    def test_missing_default_target_raises(self, tmp_path: Path) -> None:
+        """Missing default_target in [project] should raise KeyError."""
+        toml = """\
+[targets.server_dll]
+binary = "test.exe"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.raises(KeyError, match="default_target"):
+            load_config(root)
+
+    def test_default_target_from_project(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path, self.MULTI_TOML)
         cfg = load_config(root)
         assert cfg.target_name == "server_dll"
@@ -206,6 +219,9 @@ class TestLoadConfigEdgeCases:
 
     def test_minimal_toml(self, tmp_path: Path) -> None:
         toml = """\
+[project]
+default_target = "main"
+
 [targets.main]
 binary = "test.exe"
 """
@@ -220,6 +236,9 @@ binary = "test.exe"
 
     def test_unknown_arch_falls_back(self, tmp_path: Path) -> None:
         toml = """\
+[project]
+default_target = "main"
+
 [targets.main]
 binary = "test.exe"
 arch = "mips32"
@@ -231,6 +250,9 @@ arch = "mips32"
 
     def test_wrong_list_types_fall_back(self, tmp_path: Path) -> None:
         toml = """\
+[project]
+default_target = "main"
+
 [targets.main]
 binary = "test.exe"
 iat_thunks = "0x1000"
@@ -244,6 +266,9 @@ ignored_symbols = "_bad"
 
     def test_wrong_mapping_type_falls_back(self, tmp_path: Path) -> None:
         toml = """\
+[project]
+default_target = "main"
+
 [targets.main]
 binary = "test.exe"
 dll_exports = "not-a-dict"
@@ -257,6 +282,9 @@ dll_exports = "not-a-dict"
 class TestRunnerField:
     def test_runner_from_toml(self, tmp_path: Path) -> None:
         toml = """\
+[project]
+default_target = "main"
+
 [targets.main]
 binary = "test.exe"
 
@@ -271,6 +299,9 @@ command = "tools/MSVC600/VC98/Bin/CL.EXE"
 
     def test_runner_auto_detect_wine(self, tmp_path: Path) -> None:
         toml = """\
+[project]
+default_target = "main"
+
 [targets.main]
 binary = "test.exe"
 
@@ -284,6 +315,9 @@ command = "wine CL.EXE"
 
     def test_runner_auto_detect_wibo(self, tmp_path: Path) -> None:
         toml = """\
+[project]
+default_target = "main"
+
 [targets.main]
 binary = "test.exe"
 
@@ -297,6 +331,9 @@ command = "wibo CL.EXE"
 
     def test_runner_empty_for_native(self, tmp_path: Path) -> None:
         toml = """\
+[project]
+default_target = "main"
+
 [targets.main]
 binary = "test.exe"
 
@@ -311,6 +348,9 @@ command = "cl"
 
     def test_runner_default_no_runner_no_wine(self, tmp_path: Path) -> None:
         toml = """\
+[project]
+default_target = "main"
+
 [targets.main]
 binary = "test.exe"
 
@@ -458,6 +498,9 @@ class TestConfigValidation:
 
     def test_unknown_top_level_key_warns(self, tmp_path: Path) -> None:
         toml = """\
+[project]
+default_target = "main"
+
 [targets.main]
 binary = "test.exe"
 
@@ -470,6 +513,9 @@ foo = "bar"
 
     def test_unknown_target_key_warns(self, tmp_path: Path) -> None:
         toml = """\
+[project]
+default_target = "main"
+
 [targets.main]
 binary = "test.exe"
 typo_field = "oops"
@@ -480,6 +526,9 @@ typo_field = "oops"
 
     def test_unknown_compiler_key_warns(self, tmp_path: Path) -> None:
         toml = """\
+[project]
+default_target = "main"
+
 [targets.main]
 binary = "test.exe"
 
@@ -493,12 +542,13 @@ misspelled_option = "bad"
 
     def test_unknown_project_key_warns(self, tmp_path: Path) -> None:
         toml = """\
-[targets.main]
-binary = "test.exe"
-
 [project]
 name = "test"
+default_target = "main"
 bogus = "oops"
+
+[targets.main]
+binary = "test.exe"
 """
         root = _make_project(tmp_path, toml)
         with pytest.warns(UserWarning, match=r"unrecognized keys.*bogus"):
@@ -506,6 +556,9 @@ bogus = "oops"
 
     def test_unknown_arch_warns(self, tmp_path: Path) -> None:
         toml = """\
+[project]
+default_target = "main"
+
 [targets.main]
 binary = "test.exe"
 arch = "sparc64"
@@ -517,6 +570,9 @@ arch = "sparc64"
 
     def test_unknown_format_warns(self, tmp_path: Path) -> None:
         toml = """\
+[project]
+default_target = "main"
+
 [targets.main]
 binary = "test.exe"
 format = "coff"
@@ -527,6 +583,9 @@ format = "coff"
 
     def test_unknown_profile_warns(self, tmp_path: Path) -> None:
         toml = """\
+[project]
+default_target = "main"
+
 [targets.main]
 binary = "test.exe"
 
@@ -539,6 +598,9 @@ profile = "turbo_c"
 
     def test_valid_config_no_warnings(self, tmp_path: Path) -> None:
         toml = """\
+[project]
+default_target = "main"
+
 [targets.main]
 binary = "test.exe"
 format = "pe"
@@ -559,6 +621,9 @@ command = "wine CL.EXE"
 
     def test_multiple_typos_warn_separately(self, tmp_path: Path) -> None:
         toml = """\
+[project]
+default_target = "main"
+
 [targets.main]
 binary = "test.exe"
 binaryx = "typo"
@@ -572,3 +637,51 @@ formatx = "typo"
 # ---------------------------------------------------------------------------
 # Audit-specific regression tests (Phase 3 hardening — config.py)
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Config key validation (moved from test_phase2.py)
+# ---------------------------------------------------------------------------
+
+
+class TestConfigKeyValidation:
+    """Verify config warns on unrecognized keys."""
+
+    def test_warns_on_unknown_target_key(self, tmp_path: Path) -> None:
+        import contextlib
+        import warnings
+
+        toml_path = tmp_path / "rebrew-project.toml"
+        toml_path.write_text(
+            '[targets.main]\nbinary = "original/server.dll"\ntypo_key = "bad"\n',
+            encoding="utf-8",
+        )
+        from rebrew.config import load_config
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            with contextlib.suppress(Exception):
+                load_config(root=tmp_path)
+            key_warnings = [x for x in w if "unrecognized" in str(x.message)]
+            assert len(key_warnings) >= 1
+            assert "typo_key" in str(key_warnings[0].message)
+
+    def test_warns_on_unknown_top_level_key(self, tmp_path: Path) -> None:
+        import contextlib
+        import warnings
+
+        toml_path = tmp_path / "rebrew-project.toml"
+        toml_path.write_text(
+            '[target]\nbinary = "original/server.dll"\n\n[sources]\nreversed_dir = "src/server.dll"\n\n'
+            '[typo_section]\nfoo = "bar"\n',
+            encoding="utf-8",
+        )
+        from rebrew.config import load_config
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            with contextlib.suppress(Exception):
+                load_config(root=tmp_path)
+            key_warnings = [x for x in w if "unrecognized" in str(x.message)]
+            assert len(key_warnings) >= 1
+            assert "typo_section" in str(key_warnings[0].message)

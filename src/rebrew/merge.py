@@ -125,7 +125,7 @@ def main(
 
     for file_path in input_files:
         annotations = parse_c_file_multi(
-            file_path, target_name=target_marker(cfg), sidecar_dir=file_path.parent
+            file_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
         )
         if not annotations:
             continue

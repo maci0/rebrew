@@ -240,3 +240,78 @@ class TestScanReversedDirExtended:
         (tmp_path / "bad.c").write_text("no annotations here\nint main() {}\n", encoding="utf-8")
         result = scan_reversed_dir(tmp_path)
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Catalog imports and functional tests (moved from test_phase4.py)
+# ---------------------------------------------------------------------------
+
+
+class TestCatalogImports:
+    def test_scan_reversed_dir_importable(self) -> None:
+        from rebrew.catalog import scan_reversed_dir
+
+        assert callable(scan_reversed_dir)
+
+    def test_parse_function_list_importable(self) -> None:
+        from rebrew.catalog import parse_function_list
+
+        assert callable(parse_function_list)
+
+    def test_r2_bogus_vas_config_driven(self) -> None:
+        from rebrew.catalog import _DEFAULT_R2_BOGUS_SIZES
+
+        assert isinstance(_DEFAULT_R2_BOGUS_SIZES, set)
+        assert len(_DEFAULT_R2_BOGUS_SIZES) == 0
+
+
+class TestCatalogFunctional:
+    def test_parse_function_list_parses_correctly(self, tmp_path) -> None:
+        from rebrew.catalog import parse_function_list
+
+        func_list = tmp_path / "functions.txt"
+        func_list.write_text(
+            "0x10001000 64 _my_func\n"
+            "0x10002000 128 _other_func\n"
+            "# comment line\n"
+            "0x10003000 32 _third_func\n",
+            encoding="utf-8",
+        )
+        funcs = parse_function_list(func_list)
+        assert len(funcs) == 3
+        assert funcs[0]["va"] == 0x10001000
+        assert funcs[0]["size"] == 64
+        assert funcs[0]["name"] == "_my_func"
+
+    def test_scan_reversed_dir_finds_annotated_files(self, tmp_path) -> None:
+        from rebrew.catalog import scan_reversed_dir
+
+        c_file = tmp_path / "game_func.c"
+        c_file.write_text(
+            "// FUNCTION: SERVER 0x10001000\n"
+            "// STATUS: STUB\n"
+            "// ORIGIN: GAME\n"
+            "// SIZE: 64\n"
+            "// CFLAGS: /O2 /Gd\n"
+            "// SYMBOL: _my_func\n"
+            "void __cdecl _my_func(void) {}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "readme.txt").write_text("ignore me", encoding="utf-8")
+        entries = scan_reversed_dir(tmp_path)
+        assert len(entries) == 1
+
+    def test_r2_bogus_vas_via_config(self, tmp_path) -> None:
+        from pathlib import Path
+
+        from rebrew.catalog import build_function_registry, make_func_entry
+        from rebrew.config import ProjectConfig
+
+        bogus_va = 0xBEEF0000
+        cfg = ProjectConfig(
+            root=Path("/tmp"), iat_thunks=[], dll_exports={}, r2_bogus_vas=[bogus_va]
+        )
+        funcs = [make_func_entry(bogus_va, 12345, "_bogus")]
+        reg = build_function_registry(funcs, cfg)
+        assert bogus_va in reg
+        assert "list" not in reg[bogus_va]["size_by_tool"]

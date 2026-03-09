@@ -53,7 +53,7 @@ Every `.c` file containing a reversed function must begin with a **marker line**
 ```
 
 That's it. All metadata (STATUS, SIZE, CFLAGS, BLOCKER, etc.) lives in the `rebrew-function.toml`
-sidecar found via walk-up from the source file's directory (rebrew climbs parent dirs
+metadata found via walk-up from the source file's directory (rebrew climbs parent dirs
 until it is found), managed automatically by the CLI tools.
 
 > [!CAUTION]
@@ -104,9 +104,9 @@ Format: `// MARKER: MODULE 0xVA`
 | `SIZE` | **Mandatory** | E007, E008 | Function size in bytes from the original binary |
 | `CFLAGS` | Optional | W018 | Per-function compiler flag override. Falls back to the target's `base_cflags` / `cflags_presets` in `rebrew-project.toml`. Only needed for functions compiled with non-default flags (e.g. a static lib linked with `/O1` into an `/O2` binary). |
 | `SOURCE` | Conditional | W006 | **Required for library origins** — reference file (e.g. `SBHEAP.C:195`, `deflate.c`). Use `rebrew crt-match --fix-source` to auto-populate. |
-| `BLOCKER` | Conditional | W005 | **Required for STUB** — explain why the function doesn't match yet. Now lives in `rebrew-function.toml` sidecar; auto-written by `rebrew diff --fix-blocker`. |
-| `NOTE` | Optional | — | Freeform notes (e.g. `NOTE: uses SSE2 intrinsics`) — lives in sidecar |
-| `GHIDRA` | Optional | — | The Ghidra name, added by `rebrew sync --pull --accept-local` to prevent conflict loops — lives in sidecar |
+| `BLOCKER` | Conditional | W005 | **Required for STUB** — explain why the function doesn't match yet. Now lives in `rebrew-function.toml` metadata; auto-written by `rebrew diff --fix-blocker`. |
+| `NOTE` | Optional | — | Freeform notes (e.g. `NOTE: uses SSE2 intrinsics`) — lives in metadata |
+| `GHIDRA` | Optional | — | The Ghidra name, added by `rebrew sync --pull --accept-local` to prevent conflict loops — lives in metadata |
 | `STRUCT` | Optional | — | Linked structs for this file |
 | `CALLERS` | Optional | — | Incoming cross-references |
 | `GLOBALS` | Optional | — | Comma-separated list of globals referenced (e.g. `g_counter, g_state`) |
@@ -114,7 +114,7 @@ Format: `// MARKER: MODULE 0xVA`
 | `ANALYSIS` | Optional | — | Freeform analysis notes from decompiler or reverse engineer |
 
 > [!CAUTION]
-> **Never manually edit `rebrew-function.toml`.** This sidecar file stores volatile metadata
+> **Never manually edit `rebrew-function.toml`.** This metadata file stores volatile metadata
 > (STATUS, CFLAGS, SIZE, BLOCKER, NOTE, GHIDRA, etc.) and is managed exclusively by
 > Rebrew CLI tools (`rebrew test`, `rebrew match`, `rebrew diff --fix-blocker`, `rebrew sync`, etc.).
 > Manual edits will be silently lost or may corrupt the file.
@@ -169,7 +169,7 @@ Global variables, dispatch tables, const arrays, and string tables live in the d
 ### Format
 
 The **reccmp-compatible marker line** stays in the `.c` file.  All rebrew-specific
-metadata (SIZE, SECTION, NOTE) lives in the **`rebrew-data.toml` sidecar** — the
+metadata (SIZE, SECTION, NOTE) lives in the **`rebrew-data.toml` metadata file** — the
 data analogue of `rebrew-function.toml` (also found via walk-up from the source file's directory).
 
 **`.c` file** (only the stable identity):
@@ -251,7 +251,7 @@ section = ".bss"
 
 > [!NOTE]
 > `DATA` markers are recognized and tracked as first-class citizens by `rebrew data` and `rebrew catalog`.
-> The `rebrew-data.toml` sidecar is created and updated automatically by rebrew tools.
+> The `rebrew-data.toml` metadata file is created and updated automatically by rebrew tools.
 > **Never edit it manually.**
 
 ### Filename Convention
@@ -287,7 +287,7 @@ The linter (W007) will warn if a file defining structs lacks the `// SIZE 0xNN` 
 
 The linter validates annotation headers in all `.c` files under the reversed source directory. It enforces the format described above and catches common mistakes.
 
-Before running validation, the linter loads the **`rebrew-function.toml`** sidecar for each directory and overlays any fields it contains into the annotation being checked. This means that files whose STATUS, SIZE, CFLAGS etc. live only in the sidecar (no inline annotation) will still pass validation correctly — sidecar values count just as much as inline values.
+Before running validation, the linter loads the **`rebrew-function.toml`** metadata file for each directory and overlays any fields it contains into the annotation being checked. This means that files whose STATUS, SIZE, CFLAGS etc. live only in the metadata file (no inline annotation) will still pass validation correctly — metadata values count just as much as inline values.
 
 ```
 Usage:  rebrew lint [OPTIONS]
@@ -359,7 +359,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 |------|-------------|--------------|
 | W008 | CFLAGS differ from preset | `CFLAGS: /O2 /Gd` on a `MSVCRT` function when preset says `/O1` |
 | W018 | Missing CFLAGS with no config fallback | No `// CFLAGS:` line **and** no `base_cflags` in project config — compile may use wrong flags |
-| W019 | Inline sidecar annotation | `// BLOCKER:`, `// NOTE:`, or `// GHIDRA:` inline — run `--fix` to move to `rebrew-function.toml` |
+| W019 | Inline metadata annotation | `// BLOCKER:`, `// NOTE:`, or `// GHIDRA:` inline — run `--fix` to move to `rebrew-function.toml` |
 | W010 | Unknown annotation key | `// FOOBAR: value` — key not in the known set |
 | W015 | Mixed-case VA hex digits | `0x10003Da0` — prefer consistent `0x10003da0` or `0x10003DA0` |
 
@@ -367,7 +367,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 
 | Code | Description | Triggered by |
 |------|-------------|--------------|
-| W016 | DATA/GLOBAL missing `section` in sidecar | `// DATA:` or `// GLOBAL:` marker with no `section` in `rebrew-data.toml` (.data, .rdata, .bss) |
+| W016 | DATA/GLOBAL missing `section` in metadata | `// DATA:` or `// GLOBAL:` marker with no `section` in `rebrew-data.toml` (.data, .rdata, .bss) |
 | W017 | NOTE contains sync metadata | `NOTE: [rebrew] ...` — looks like auto-generated sync metadata, not a human note |
 
 ---

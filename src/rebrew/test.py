@@ -1,7 +1,7 @@
 """Quick compile-and-compare for reversed functions.
 
 By default, after comparing, the STATUS annotation is auto-updated in the
-sidecar (via update_source_status). Use --no-promote to skip this.
+metadata (via update_source_status). Use --no-promote to skip this.
 
 Usage:
     rebrew test <source.c> [symbol] [--va 0xHEX --size N] [--cflags ...]
@@ -26,7 +26,7 @@ from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_c
 from rebrew.config import ProjectConfig
 from rebrew.core import smart_reloc_compare
 from rebrew.matcher.parsers import list_obj_symbols, parse_obj_symbol_bytes
-from rebrew.sidecar import update_source_status
+from rebrew.metadata import update_source_status
 
 console = Console(stderr=True)
 
@@ -83,9 +83,9 @@ rebrew test --all --dry-run                          List batch candidates witho
 
 4. Reports EXACT, RELOC (match after masking relocations), or MISMATCH
 
-5. Updates STATUS in sidecar (EXACT / RELOC / MATCHING) — skip with --no-promote
+5. Updates STATUS in metadata (EXACT / RELOC / MATCHING) — skip with --no-promote
 
-6. If EXACT/RELOC: clears any auto-generated BLOCKER from sidecar
+6. If EXACT/RELOC: clears any auto-generated BLOCKER from metadata
 
 [dim]All parameters can be auto-detected from // FUNCTION, // STATUS, // SIZE,
 and // CFLAGS annotations. Symbol is derived from the C function definition.[/dim]"""
@@ -183,7 +183,7 @@ def main(
 
     # Optional: lint the file first to catch basic annotation errors
     lint_annos = parse_c_file_multi(
-        Path(source), target_name=target_marker(cfg), sidecar_dir=Path(source).parent
+        Path(source), target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
     )
     for anno in lint_annos:
         eval_errs, eval_warns = anno.validate()
@@ -196,7 +196,7 @@ def main(
     # Multi-function support: if no explicit symbol/va/size, test all annotations
     if symbol is None and va is None and size is None:
         annotations = parse_c_file_multi(
-            Path(source), target_name=target_marker(cfg), sidecar_dir=Path(source).parent
+            Path(source), target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
         )
         if len(annotations) > 1:
             _test_multi(
@@ -239,7 +239,7 @@ def main(
         try:
             size_val = int(meta["SIZE"])
         except ValueError:
-            error_exit(f"Invalid SIZE annotation: {meta['SIZE']!r}")
+            error_exit(f"Invalid SIZE metadata: {meta['SIZE']!r}")
 
     cflags_str = cflags or meta.get("CFLAGS", "/O2 /Gd")
     cflags_parts = cflags_str.split()
@@ -336,7 +336,7 @@ def main(
                     for d in diff[:20]:
                         console.print(d)
 
-    # Auto-promote: update STATUS in sidecar from test result (skip with --no-promote)
+    # Auto-promote: update STATUS in metadata from test result (skip with --no-promote)
     if not no_promote and va_str:
         va_int_for_promote = parse_va(va_str, json_mode=json_output)
         # Resolve module from the parsed annotation (already available)
@@ -348,7 +348,7 @@ def main(
         elif matched:
             new_status = "RELOC" if relocs else "EXACT"
             update_source_status(
-                Path(source), new_status, anno_module, va_int_for_promote, clear_blockers=True
+                cfg.metadata_dir, new_status, anno_module, va_int_for_promote, clear_blockers=True
             )
             if not json_output:
                 console.print(f"[dim]STATUS → {new_status}[/dim]")
@@ -357,14 +357,22 @@ def main(
             if match_ratio >= 0.75:
                 # MATCHING — do NOT clear blocker (may be user-set)
                 update_source_status(
-                    Path(source), "MATCHING", anno_module, va_int_for_promote, clear_blockers=False
+                    cfg.metadata_dir,
+                    "MATCHING",
+                    anno_module,
+                    va_int_for_promote,
+                    clear_blockers=False,
                 )
                 if not json_output:
                     console.print("[dim]STATUS → MATCHING[/dim]")
             else:
-                # MISMATCH — demote so sidecar reflects reality
+                # MISMATCH — demote so metadata reflects reality
                 update_source_status(
-                    Path(source), "MISMATCH", anno_module, va_int_for_promote, clear_blockers=False
+                    cfg.metadata_dir,
+                    "MISMATCH",
+                    anno_module,
+                    va_int_for_promote,
+                    clear_blockers=False,
                 )
                 if not json_output:
                     console.print("[dim]STATUS → MISMATCH[/dim]")
@@ -578,27 +586,27 @@ def _test_multi(
             old_status = ann.status or "STUB"
             status_transitions.append((old_status, new_status))
 
-            # Auto-promote: update STATUS in sidecar (mirrors single-function path)
+            # Auto-promote: update STATUS in metadata (mirrors single-function path)
             if not no_promote:
                 if old_status == "PROVEN":
                     if not json_output:
                         console.print("[dim]  STATUS → skipped (PROVEN)[/dim]")
                 elif matched:
                     update_source_status(
-                        Path(source), new_status, ann.module, ann.va, clear_blockers=True
+                        cfg.metadata_dir, new_status, ann.module, ann.va, clear_blockers=True
                     )
                     if not json_output:
                         console.print(f"[dim]  STATUS → {new_status}[/dim]")
                 elif total > 0 and (match_count / total) >= 0.75:
                     update_source_status(
-                        Path(source), "MATCHING", ann.module, ann.va, clear_blockers=False
+                        cfg.metadata_dir, "MATCHING", ann.module, ann.va, clear_blockers=False
                     )
                     if not json_output:
                         console.print("[dim]  STATUS → MATCHING[/dim]")
                 else:
-                    # MISMATCH — demote so sidecar reflects reality
+                    # MISMATCH — demote so metadata reflects reality
                     update_source_status(
-                        Path(source), "MISMATCH", ann.module, ann.va, clear_blockers=False
+                        cfg.metadata_dir, "MISMATCH", ann.module, ann.va, clear_blockers=False
                     )
                     if not json_output:
                         console.print("[dim]  STATUS → MISMATCH[/dim]")
@@ -652,7 +660,7 @@ def _run_all_batch(
         filtered: list[Path] = []
         for s in sources:
             try:
-                annos = parse_c_file_multi(s, sidecar_dir=s.parent)
+                annos = parse_c_file_multi(s, metadata_dir=cfg.metadata_dir)
             except Exception:  # noqa: BLE001
                 continue
             if any(
@@ -683,7 +691,7 @@ def _run_all_batch(
 
         scan = scan_globals(cfg.reversed_dir, cfg)
         for entry in scan.data_annotations:
-            if entry.name:
+            if getattr(entry, "name", None):
                 name_to_va[entry.name] = entry.va
     except Exception:  # noqa: BLE001
         pass
@@ -693,7 +701,7 @@ def _run_all_batch(
 
     for src in sources:
         try:
-            annos = parse_c_file_multi(src, sidecar_dir=src.parent)
+            annos = parse_c_file_multi(src, metadata_dir=cfg.metadata_dir)
         except Exception:  # noqa: BLE001
             annos = []
         # Only include files that have at least one annotation with both symbol and SIZE.
@@ -710,7 +718,7 @@ def _run_all_batch(
         skipped_msg = f", {skipped_no_size} skipped (no SIZE)" if skipped_no_size else ""
         console.print(f"\n[bold]Batch testing {total_testable} file(s)[/bold]{skipped_msg}…\n")
 
-    batch_results: list[dict] = []
+    batch_results: list[dict[str, Any]] = []
     all_transitions: list[tuple[str, str]] = []
 
     for i, (src, annos) in enumerate(testable_sources, 1):

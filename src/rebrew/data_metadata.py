@@ -1,8 +1,15 @@
-"""data_sidecar.py — Per-directory metadata store for DATA/GLOBAL annotations.
+"""data_metadata.py — Per-directory metadata store for DATA/GLOBAL annotations.
 
 Volatile metadata for data annotations (SIZE, SECTION, NOTE) are stored in a
-``rebrew-data.toml`` sidecar file alongside the reversed ``.c`` sources.  This
-mirrors the pattern established by ``sidecar.py`` for function annotations.
+single ``rebrew-data.toml`` metadata file at the ``reversed_dir`` root
+(e.g. ``src/<target>/``).  This mirrors the pattern established by
+``metadata.py`` for function annotations.
+
+Location
+--------
+The metadata file lives **only** at ``cfg.reversed_dir``.  There is no walk-up
+discovery — callers must pass the correct root directory.  Subdirectories
+under ``reversed_dir`` do **not** have their own data metadata files.
 
 The ``.c`` file retains only the stable reccmp-compatible marker line and the
 C declaration::
@@ -21,7 +28,7 @@ All rebrew-specific metadata lives in ``rebrew-data.toml``::
 Key format
 ----------
 Identical to ``rebrew-function.toml``: ``"MODULE.0xVA"`` (qualified key).
-This makes the sidecar unambiguous across multi-target projects.
+This makes the metadata unambiguous across multi-target projects.
 
 Owned fields per entry::
 
@@ -37,6 +44,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import typing
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -53,21 +61,21 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-DATA_SIDECAR_FILENAME = "rebrew-data.toml"
+DATA_METADATA_FILENAME = "rebrew-data.toml"
 
-#: Fields owned by the data sidecar.
-DATA_SIDECAR_FIELDS: frozenset[str] = frozenset({"NAME", "SIZE", "SECTION", "NOTE"})
+#: Fields owned by the data metadata.
+DATA_METADATA_FIELDS: frozenset[str] = frozenset({"NAME", "SIZE", "SECTION", "NOTE"})
 
 # Canonical TOML key order when writing.
 _CANONICAL_ORDER = ["name", "size", "section", "note"]
 
 __all__ = [
-    "DATA_SIDECAR_FILENAME",
-    "DATA_SIDECAR_FIELDS",
-    "is_data_sidecar_key",
-    "data_sidecar_path",
-    "load_data_sidecar",
-    "save_data_sidecar",
+    "DATA_METADATA_FILENAME",
+    "DATA_METADATA_FIELDS",
+    "is_data_metadata_key",
+    "data_metadata_path",
+    "load_data_metadata",
+    "save_data_metadata",
     "get_data_entry",
     "set_data_field",
     "delete_data_field",
@@ -80,22 +88,19 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 
-def is_data_sidecar_key(key: str) -> bool:
-    """Return True if *key* (upper-case annotation KV name) belongs in the data sidecar."""
-    return key.upper() in DATA_SIDECAR_FIELDS
+def is_data_metadata_key(key: str) -> bool:
+    """Return True if *key* (upper-case annotation KV name) belongs in the data metadata."""
+    return key.upper() in DATA_METADATA_FIELDS
 
 
-def data_sidecar_path(source_or_dir: Path) -> Path:
-    """Return the ``rebrew-data.toml`` path for a source file or its parent directory.
+def data_metadata_path(directory: Path) -> Path:
+    """Return the ``rebrew-data.toml`` path for the metadata root directory.
 
     Args:
-        source_or_dir: Either a ``.c`` source file or the directory that
-            contains it.  Both forms are accepted.
+        directory: The ``reversed_dir`` root (e.g. ``src/<target>/``).
 
     """
-    if source_or_dir.is_dir():
-        return source_or_dir / DATA_SIDECAR_FILENAME
-    return source_or_dir.parent / DATA_SIDECAR_FILENAME
+    return directory / DATA_METADATA_FILENAME
 
 
 def _qualified_key(module: str | None, va: int) -> str:
@@ -116,7 +121,7 @@ def _qualified_key(module: str | None, va: int) -> str:
 
 
 def _parse_key(key: str) -> tuple[str, int] | None:
-    """Parse a sidecar TOML key into ``(module, va_int)``.
+    """Parse a metadata TOML key into ``(module, va_int)``.
 
     Only accepts the qualified ``MODULE.0xVA`` form.  Returns ``None`` for
     unrecognised keys.
@@ -140,53 +145,32 @@ def _parse_key(key: str) -> tuple[str, int] | None:
     return None
 
 
-def _find_data_sidecar_dir(start: Path) -> Path:
-    """Return the directory that owns ``rebrew-data.toml`` for *start*.
-
-    Walks *start* → parent → grandparent … until a directory containing
-    ``rebrew-data.toml`` is found.  If no ancestor has the file, returns
-    *start* (so callers that write will create the file there).
-
-    Args:
-        start: Directory to begin the search from (typically ``filepath.parent``).
-
-    """
-    current = start.resolve()
-    parent = current.parent
-    while current != parent:  # filesystem root: parent of root is itself
-        if (current / DATA_SIDECAR_FILENAME).exists():
-            return current
-        current, parent = parent, parent.parent
-    return start
-
-
 # ---------------------------------------------------------------------------
 # Load / Save
 # ---------------------------------------------------------------------------
 
 
-def load_data_sidecar(directory: Path) -> dict[tuple[str, int], dict[str, Any]]:
-    """Load a ``rebrew-data.toml`` for sources in *directory*.
+def load_data_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]:
+    """Load ``rebrew-data.toml`` from *directory*.
 
-    Walks *directory* → parent → … until ``rebrew-data.toml`` is found,
-    then loads and returns its contents.  A single sidecar at a project root
-    is shared by all subdirectories.
+    *directory* must be the metadata root (``cfg.reversed_dir``).  There is
+    no walk-up — the file is expected at exactly ``directory / rebrew-data.toml``.
 
     Returns a mapping of ``{(module, va_int): {field_name: value}}``.
-    Returns an empty dict if no sidecar file is found or it cannot be parsed.
+    Returns an empty dict if no metadata file is found or it cannot be parsed.
 
     Args:
-        directory: Starting directory (typically ``filepath.parent``).
+        directory: The metadata root directory (``cfg.reversed_dir``).
 
     """
-    path = _find_data_sidecar_dir(directory) / DATA_SIDECAR_FILENAME
+    path = directory / DATA_METADATA_FILENAME
     if not path.exists():
         return {}
 
     try:
         doc = tomlkit.parse(path.read_text(encoding="utf-8"))
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Failed to parse data sidecar %s: %s", path, exc)
+        logger.warning("Failed to parse data metadata %s: %s", path, exc)
         return {}
 
     result: dict[tuple[str, int], dict[str, Any]] = {}
@@ -201,7 +185,7 @@ def load_data_sidecar(directory: Path) -> dict[tuple[str, int], dict[str, Any]]:
     return result
 
 
-def save_data_sidecar(
+def save_data_metadata(
     directory: Path,
     data: dict[tuple[str, int], dict[str, Any]],
 ) -> None:
@@ -211,7 +195,7 @@ def save_data_sidecar(
         directory: The directory to write into.
         data: Mapping of ``{(module, va_int): {field: value}}``.
     """
-    path = directory / DATA_SIDECAR_FILENAME
+    path = directory / DATA_METADATA_FILENAME
     doc = tomlkit.document()
 
     for module, va_int in sorted(data, key=lambda k: (k[0], k[1])):
@@ -239,42 +223,41 @@ def save_data_sidecar(
 
 
 def get_data_entry(directory: Path, va: int, module: str) -> dict[str, Any]:
-    """Return data sidecar fields for *(module, va)* in *directory* (or any parent).
+    """Return data metadata fields for *(module, va)* in *directory*.
 
     Returns an empty dict if not found.
 
     Args:
-        directory: Starting directory (typically ``filepath.parent``).
+        directory: The metadata root directory (``cfg.reversed_dir``).
         va: Virtual address integer.
         module: Target module name (e.g. ``"SERVER"``).
 
     """
-    return load_data_sidecar(directory).get((module, va), {})
+    return load_data_metadata(directory).get((module, va), {})
 
 
 def set_data_field(directory: Path, va: int, key: str, value: Any, module: str) -> None:
-    """Set one field for *(module, va)* in the data sidecar.
+    """Set one field for *(module, va)* in the data metadata.
 
-    Walks up from *directory* to find the existing sidecar file.  If no
-    ancestor sidecar exists, creates ``rebrew-data.toml`` in *directory*.
+    Writes directly to ``directory / rebrew-data.toml``.  No walk-up.
     Uses in-place ``tomlkit`` editing to preserve formatting and comments.
 
     Args:
-        directory: Starting directory (typically ``filepath.parent``).
+        directory: The metadata root directory (``cfg.reversed_dir``).
         va: Virtual address integer.
         key: Lower-case TOML key (e.g. ``"size"``, ``"section"``).
         value: Value to write.
         module: Target module name (e.g. ``"SERVER"``).
 
     """
-    path = _find_data_sidecar_dir(directory) / DATA_SIDECAR_FILENAME
+    path = directory / DATA_METADATA_FILENAME
     toml_key = _qualified_key(module, va)
 
     if path.exists():
         try:
             doc = tomlkit.parse(path.read_text(encoding="utf-8"))
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Failed to parse data sidecar %s, starting fresh: %s", path, exc)
+            logger.warning("Failed to parse data metadata %s, starting fresh: %s", path, exc)
             doc = tomlkit.document()
     else:
         doc = tomlkit.document()
@@ -287,18 +270,18 @@ def set_data_field(directory: Path, va: int, key: str, value: Any, module: str) 
 
 
 def delete_data_field(directory: Path, va: int, key: str, module: str) -> None:
-    """Remove *key* from the data sidecar entry for *(module, va)*.  No-op if not present.
+    """Remove *key* from the data metadata entry for *(module, va)*.  No-op if not present.
 
-    Walks up from *directory* to find the sidecar file.
+    Reads/writes directly at ``directory / rebrew-data.toml``.  No walk-up.
 
     Args:
-        directory: Starting directory (typically ``filepath.parent``).
+        directory: The metadata root directory (``cfg.reversed_dir``).
         va: Virtual address integer.
         key: Lower-case TOML key to remove.
         module: Target module name.
 
     """
-    path = _find_data_sidecar_dir(directory) / DATA_SIDECAR_FILENAME
+    path = directory / DATA_METADATA_FILENAME
     if not path.exists():
         return
     toml_key = _qualified_key(module, va)
@@ -306,14 +289,16 @@ def delete_data_field(directory: Path, va: int, key: str, module: str) -> None:
     try:
         doc = tomlkit.parse(path.read_text(encoding="utf-8"))
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Failed to parse data sidecar %s: %s", path, exc)
+        logger.warning("Failed to parse data metadata %s: %s", path, exc)
         return
 
-    if toml_key not in doc:
+    # Use dict access for type checking on tomlkit Container
+    doc_dict = typing.cast(dict[str, Any], doc)
+    if toml_key not in doc_dict:
         return
-    entry = doc[toml_key]
+    entry = typing.cast(dict[str, Any], doc_dict[toml_key])
     if key in entry:
-        del entry[key]  # type: ignore[attr-defined]
+        del entry[key]
         atomic_write_text(path, tomlkit.dumps(doc))
 
 
@@ -323,16 +308,16 @@ def delete_data_field(directory: Path, va: int, key: str, module: str) -> None:
 
 
 def merge_into_data_annotation(ann: Annotation, directory: Path) -> Annotation:
-    """Overlay data sidecar values onto *ann*, returning the same object mutated.
+    """Overlay data metadata values onto *ann*, returning the same object mutated.
 
-    The sidecar wins for every field it defines (SIZE, SECTION, NOTE).
+    The metadata wins for every field it defines (SIZE, SECTION, NOTE).
 
     Lookup uses the qualified key ``(ann.module, ann.va)``.
 
     Args:
         ann: The ``Annotation`` object to mutate (must have ``marker_type``
             of ``DATA`` or ``GLOBAL``).
-        directory: Directory containing ``rebrew-data.toml``.
+        directory: The metadata root directory (``cfg.reversed_dir``).
 
     Returns:
         The mutated *ann* (same object, for chaining convenience).

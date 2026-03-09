@@ -235,7 +235,7 @@ class TestFindAllStubsNested:
         _make_c(tmp_path, "big/func.c", 0x10002000, size=200)
         _make_c(tmp_path, "small/func.c", 0x10001000, size=32)
         stubs = find_all_stubs(tmp_path)
-        assert stubs[0]["size"] <= stubs[1]["size"]
+        assert stubs[0].size <= stubs[1].size
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +252,13 @@ class TestFindNearMissNested:
             "game/near.c",
             0x10001000,
             status="MATCHING",
-            blocker="5 byte diffs at [0, 1, 2, 3, 4]",
+            blocker="5B diff: off at offsets 0, 1, 2, 3, 4",
+        )
+        # Write blocker_delta to metadata so _parse_annotations picks it up
+        md = tmp_path / "game" / "rebrew-function.toml"
+        md.write_text(
+            '["SERVER.0x10001000"]\nblocker_delta = 5\n',
+            encoding="utf-8",
         )
         results = find_near_miss(tmp_path, max_delta=10)
         assert len(results) == 1
@@ -325,7 +331,7 @@ class TestScanDataAnnotationsNested:
         entries = scan_data_annotations(tmp_path)
         assert len(entries) == 1
         # filepath should be relative, not just filename
-        assert entries[0]["filepath"] == "sub/data.c" or "data.c" in entries[0]["filepath"]
+        assert entries[0]["filepath"] == "sub/data.c" or "data.c" in str(entries[0]["filepath"])
 
     def test_mixed_flat_and_nested(self, tmp_path: Path) -> None:
         f1 = tmp_path / "top.c"
@@ -367,7 +373,7 @@ class TestNestedPathUniqueness:
         _make_c(tmp_path, "network/init.c", 0x10002000, size=64)
         stubs = find_all_stubs(tmp_path)
         assert len(stubs) == 2
-        paths = {str(s["filepath"]) for s in stubs}
+        paths = {str(s.filepath) for s in stubs}
         assert any("game" in p for p in paths)
         assert any("network" in p for p in paths)
 

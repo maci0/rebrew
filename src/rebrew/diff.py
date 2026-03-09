@@ -218,11 +218,11 @@ def run_diff(
 
         if fix_blocker:
             from rebrew.annotation import parse_c_file
-            from rebrew.sidecar import delete_field, set_field
+            from rebrew.metadata import remove_field, update_field
 
             seed_path = Path(p.seed_c)
             ann = parse_c_file(seed_path)
-            sidecar_dir = seed_path.parent
+            metadata_dir = seed_path.parent
             va = ann.va if ann else p.va_int
             module = ann.module if ann else ""
 
@@ -231,14 +231,14 @@ def run_diff(
                 delta = sum(
                     1 for a, b in zip(p.target_bytes, obj_bytes, strict=False) if a != b
                 ) + abs(len(p.target_bytes) - len(obj_bytes))
-                set_field(sidecar_dir, va, "blocker", blocker_text, module=module)
+                update_field(metadata_dir, va, "blocker", blocker_text, module=module)
                 if delta > 0:
-                    set_field(sidecar_dir, va, "blocker_delta", delta, module=module)
+                    update_field(metadata_dir, va, "blocker_delta", delta, module=module)
                 if not json_output:
                     typer.echo(f"  Updated BLOCKER: {blocker_text} ({delta}B delta)", err=True)
             else:
-                deleted_b = delete_field(sidecar_dir, va, "blocker", module=module)
-                deleted_d = delete_field(sidecar_dir, va, "blocker_delta", module=module)
+                deleted_b = remove_field(metadata_dir, va, "blocker", module=module)
+                deleted_d = remove_field(metadata_dir, va, "blocker_delta", module=module)
                 if (deleted_b or deleted_d) and not json_output:
                     typer.echo("  Cleared BLOCKER (no structural diffs)", err=True)
 

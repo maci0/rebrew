@@ -192,6 +192,16 @@ class ProjectConfig:
         """Convert VA to raw file offset using .text section constants."""
         return va - self.text_va + self.text_raw_offset
 
+    @property
+    def metadata_dir(self) -> Path:
+        """Directory for rebrew-function.toml and rebrew-data.toml.
+
+        This is the parent of ``reversed_dir`` — e.g. ``src/`` when
+        ``reversed_dir`` is ``src/NP``.  All metadata reads/writes must
+        go through this property so the location is centralized.
+        """
+        return self.reversed_dir.parent
+
 
 def _parse_int_list(values: list[Any] | None, field_name: str) -> list[int]:
     """Parse a list of integers from a toml array, allowing hex strings."""
@@ -425,6 +435,7 @@ _KNOWN_PROJECT_KEYS = {
     "jobs",
     "db_dir",
     "output_dir",
+    "default_target",
 }
 
 _KNOWN_FORMATS = {"pe", "elf", "macho"}
@@ -440,7 +451,8 @@ def load_config(
     Args:
         root: Project root directory.  Auto-detected if ``None``.
         target: Name of the target to load (key under ``[targets]``).
-                Defaults to the first target defined in the file.
+                Defaults to ``project.default_target`` if set, otherwise
+                the first target defined in the file.
 
     """
     root = _find_root(root)
@@ -489,7 +501,13 @@ def load_config(
     compiler_profiles = global_compiler_raw.get("profiles", {})
 
     if target is None:
-        target = all_target_names[0]
+        project_section = raw.get("project", {})
+        target = project_section.get("default_target")
+        if target is None:
+            raise KeyError(
+                "rebrew-project.toml [project] is missing 'default_target'. "
+                f'Add: default_target = "{all_target_names[0]}"'
+            )
     if target not in targets_dict:
         raise KeyError(
             f"Target '{target}' not found in rebrew-project.toml.  Available targets: {all_target_names}"

@@ -129,7 +129,7 @@ def build_graph(
     for cfile in iter_sources(reversed_dir, cfg):
         rel_name = rel_display_path(cfile, reversed_dir)
         for entry in parse_c_file_multi(
-            cfile, target_name=target_marker(cfg), sidecar_dir=cfile.parent
+            cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir if cfg else None
         ):
             if entry.marker_type in ("GLOBAL", "DATA"):
                 continue
