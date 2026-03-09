@@ -2,7 +2,7 @@
 
 Compiles the seed .c file with MSVC6 and shows a side-by-side byte diff
 against the function at the annotated VA.  Optionally auto-writes BLOCKER/
-BLOCKER_DELTA annotations based on structural analysis.
+BLOCKER_DELTA metadata based on structural analysis.
 
 Usage:
     rebrew diff src/game/my_func.c
@@ -275,8 +275,8 @@ rebrew diff src/game/my_func.c --json         JSON structured diff
 1   Structural differences found (** lines)
 2   Build failed
 
-[dim]Compiles source with MSVC6 (annotation CFLAGS) and diffs against the target binary.
-Symbol, VA, and size are auto-detected from // FUNCTION / // SIZE annotations.[/dim]"""
+[dim]Compiles source with MSVC6 (CFLAGS from metadata) and diffs against the target binary.
+Symbol, VA, and size are auto-detected from // FUNCTION / // SIZE markers.[/dim]"""
 
 app = typer.Typer(
     help="Compile and diff a reversed function against the target binary.",
@@ -303,7 +303,7 @@ def main(
     fix_blocker: bool = typer.Option(
         False,
         "--fix-blocker",
-        help="Auto-write BLOCKER/BLOCKER_DELTA annotations from diff classification",
+        help="Auto-write BLOCKER/BLOCKER_DELTA metadata from diff classification",
     ),
     fmt: str = typer.Option(
         "terminal",

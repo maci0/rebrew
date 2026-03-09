@@ -586,7 +586,7 @@ def update_stub_to_matched(filepath: Path, best_src: str, stub: StubInfo) -> Non
 # ---------------------------------------------------------------------------
 
 _EPILOG = """\
-[dim]Auto-reads VA, SIZE, and CFLAGS from source annotations.
+[dim]Auto-reads VA and SIZE from source markers, CFLAGS from metadata.
 Symbol is derived from the C function definition.
 Requires rebrew-project.toml with valid compiler paths.
 
@@ -660,7 +660,7 @@ def main(
     fix_cflags: bool = typer.Option(
         False,
         "--fix-cflags",
-        help="--all --flag-sweep: auto-update CFLAGS annotation on exact match",
+        help="--all --flag-sweep: auto-update CFLAGS metadata on exact match",
     ),
     max_stubs: int = typer.Option(0, "--max-stubs", help="--all: max functions to process (0=all)"),
     min_size: int = typer.Option(10, "--min-size", help="--all: min target size to attempt"),
