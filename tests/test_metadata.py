@@ -132,13 +132,13 @@ class TestLoadSaveMetadata:
 
     def test_round_trip_qualified_keys(self, tmp_path: Path) -> None:
         data = {
-            ("SERVER", 0x01006364): {"size": 80, "cflags": "/O1 /Gd", "status": "NEAR_MATCH"},
+            ("SERVER", 0x01006364): {"size": 80, "cflags": "/O1 /Gd", "status": "MATCHING"},
             ("SERVER", 0x01006400): {"size": 120, "cflags": "/O2 /Gd", "status": "EXACT"},
         }
         save_metadata(tmp_path, data)
         loaded = load_metadata(tmp_path)
         assert loaded[("SERVER", 0x01006364)]["size"] == 80
-        assert loaded[("SERVER", 0x01006364)]["status"] == "NEAR_MATCH"
+        assert loaded[("SERVER", 0x01006364)]["status"] == "MATCHING"
         assert loaded[("SERVER", 0x01006400)]["cflags"] == "/O2 /Gd"
 
     def test_empty_entries_skipped(self, tmp_path: Path) -> None:
@@ -154,7 +154,7 @@ class TestLoadSaveMetadata:
     def test_sorted_output(self, tmp_path: Path) -> None:
         data = {
             ("SERVER", 0x02000000): {"size": 10, "status": "EXACT"},
-            ("SERVER", 0x01000000): {"size": 20, "status": "NEAR_MATCH"},
+            ("SERVER", 0x01000000): {"size": 20, "status": "MATCHING"},
         }
         save_metadata(tmp_path, data)
         text = (tmp_path / METADATA_FILENAME).read_text()
@@ -171,12 +171,12 @@ class TestLoadSaveMetadata:
         """Two different modules at the same VA coexist in one metadata."""
         data = {
             ("SERVER", 0x10008880): {"size": 42, "status": "EXACT"},
-            ("CLIENT", 0x10008880): {"size": 42, "status": "NEAR_MATCH"},
+            ("CLIENT", 0x10008880): {"size": 42, "status": "MATCHING"},
         }
         save_metadata(tmp_path, data)
         loaded = load_metadata(tmp_path)
         assert loaded[("SERVER", 0x10008880)]["status"] == "EXACT"
-        assert loaded[("CLIENT", 0x10008880)]["status"] == "NEAR_MATCH"
+        assert loaded[("CLIENT", 0x10008880)]["status"] == "MATCHING"
 
 
 # ---------------------------------------------------------------------------
@@ -211,22 +211,22 @@ class TestSetField:
         assert entry["status"] == "EXACT"
 
     def test_updates_existing_entry(self, tmp_path: Path) -> None:
-        save_metadata(tmp_path, {("SERVER", 0x01006364): {"size": 80, "status": "NEAR_MATCH"}})
+        save_metadata(tmp_path, {("SERVER", 0x01006364): {"size": 80, "status": "MATCHING"}})
         _set_field(tmp_path, 0x01006364, "status", "EXACT", module="SERVER")
         entry = get_entry(tmp_path, 0x01006364, module="SERVER")
         assert entry["status"] == "EXACT"
         assert entry["size"] == 80  # untouched
 
     def test_adds_new_field_to_existing_entry(self, tmp_path: Path) -> None:
-        save_metadata(tmp_path, {("SERVER", 0x01006364): {"size": 80, "status": "NEAR_MATCH"}})
+        save_metadata(tmp_path, {("SERVER", 0x01006364): {"size": 80, "status": "MATCHING"}})
         _set_field(tmp_path, 0x01006364, "blocker", "1B diff", module="SERVER")
         entry = get_entry(tmp_path, 0x01006364, module="SERVER")
         assert entry["blocker"] == "1B diff"
-        assert entry["status"] == "NEAR_MATCH"
+        assert entry["status"] == "MATCHING"
 
     def test_adds_entry_to_existing_file(self, tmp_path: Path) -> None:
         save_metadata(tmp_path, {("SERVER", 0x01000000): {"size": 10, "status": "EXACT"}})
-        _set_field(tmp_path, 0x02000000, "status", "NEAR_MATCH", module="SERVER")
+        _set_field(tmp_path, 0x02000000, "status", "MATCHING", module="SERVER")
         loaded = load_metadata(tmp_path)
         assert ("SERVER", 0x01000000) in loaded
         assert ("SERVER", 0x02000000) in loaded
@@ -247,15 +247,15 @@ class TestDeleteField:
     def test_removes_field(self, tmp_path: Path) -> None:
         save_metadata(
             tmp_path,
-            {("SERVER", 0x01006364): {"size": 80, "status": "NEAR_MATCH", "blocker": "1B diff"}},
+            {("SERVER", 0x01006364): {"size": 80, "status": "MATCHING", "blocker": "1B diff"}},
         )
         _delete_field(tmp_path, 0x01006364, "blocker", module="SERVER")
         entry = get_entry(tmp_path, 0x01006364, module="SERVER")
         assert "blocker" not in entry
-        assert entry["status"] == "NEAR_MATCH"
+        assert entry["status"] == "MATCHING"
 
     def test_noop_on_missing_key(self, tmp_path: Path) -> None:
-        save_metadata(tmp_path, {("SERVER", 0x01006364): {"size": 80, "status": "NEAR_MATCH"}})
+        save_metadata(tmp_path, {("SERVER", 0x01006364): {"size": 80, "status": "MATCHING"}})
         # Should not raise
         _delete_field(tmp_path, 0x01006364, "blocker", module="SERVER")
 
@@ -274,7 +274,7 @@ class TestDeleteField:
 
 class TestUpdateField:
     def test_updates_non_status_field(self, tmp_path: Path) -> None:
-        save_metadata(tmp_path, {("SERVER", 0x01006364): {"size": 80, "status": "NEAR_MATCH"}})
+        save_metadata(tmp_path, {("SERVER", 0x01006364): {"size": 80, "status": "MATCHING"}})
         update_field(tmp_path, 0x01006364, "blocker", "1B diff", module="SERVER")
         entry = get_entry(tmp_path, 0x01006364, module="SERVER")
         assert entry["blocker"] == "1B diff"
@@ -290,7 +290,7 @@ class TestRemoveField:
     def test_removes_non_status_field(self, tmp_path: Path) -> None:
         save_metadata(
             tmp_path,
-            {("SERVER", 0x01006364): {"size": 80, "status": "NEAR_MATCH", "blocker": "old"}},
+            {("SERVER", 0x01006364): {"size": 80, "status": "MATCHING", "blocker": "old"}},
         )
         remove_field(tmp_path, 0x01006364, "blocker", module="SERVER")
         entry = get_entry(tmp_path, 0x01006364, module="SERVER")
@@ -316,7 +316,7 @@ class TestMergeIntoAnnotation:
                 ("SERVER", 0x01006364): {
                     "size": 80,
                     "cflags": "/O1 /Gd",
-                    "status": "NEAR_MATCH",
+                    "status": "MATCHING",
                     "blocker": "1B diff",
                     "blocker_delta": 1,
                     "note": "check xref",
@@ -329,7 +329,7 @@ class TestMergeIntoAnnotation:
         merge_into_annotation(ann, tmp_path)  # type: ignore[arg-type]
         assert ann.size == 80
         assert ann.cflags == "/O1 /Gd"
-        assert ann.status == "NEAR_MATCH"
+        assert ann.status == "MATCHING"
         assert ann.blocker == "1B diff"
         assert ann.blocker_delta == 1
         assert ann.note == "check xref"
@@ -346,21 +346,21 @@ class TestMergeIntoAnnotation:
 
     def test_metadata_wins_over_inline(self, tmp_path: Path) -> None:
         save_metadata(tmp_path, {("SERVER", 0x01006364): {"status": "EXACT", "size": 90}})
-        ann = _make_annotation(va=0x01006364, module="SERVER", status="NEAR_MATCH", size=80)
+        ann = _make_annotation(va=0x01006364, module="SERVER", status="MATCHING", size=80)
         merge_into_annotation(ann, tmp_path)  # type: ignore[arg-type]
         assert ann.status == "EXACT"
         assert ann.size == 90
 
     def test_no_metadata_leaves_annotation_unchanged(self, tmp_path: Path) -> None:
-        ann = _make_annotation(va=0x01006364, module="SERVER", status="NEAR_MATCH", size=80)
+        ann = _make_annotation(va=0x01006364, module="SERVER", status="MATCHING", size=80)
         merge_into_annotation(ann, tmp_path)  # type: ignore[arg-type]
-        assert ann.status == "NEAR_MATCH"
+        assert ann.status == "MATCHING"
         assert ann.size == 80
 
     def test_partial_entry_leaves_unset_fields_unchanged(self, tmp_path: Path) -> None:
         save_metadata(tmp_path, {("SERVER", 0x01006364): {"status": "EXACT"}})
         ann = _make_annotation(
-            va=0x01006364, module="SERVER", status="NEAR_MATCH", size=80, cflags="/O2 /Gd"
+            va=0x01006364, module="SERVER", status="MATCHING", size=80, cflags="/O2 /Gd"
         )
         merge_into_annotation(ann, tmp_path)  # type: ignore[arg-type]
         assert ann.status == "EXACT"  # metadata wins
@@ -388,9 +388,9 @@ class TestMergeIntoAnnotation:
 
     def test_va_not_in_metadata_is_noop(self, tmp_path: Path) -> None:
         save_metadata(tmp_path, {("SERVER", 0x01006000): {"status": "EXACT"}})
-        ann = _make_annotation(va=0x01006364, module="SERVER", status="NEAR_MATCH")
+        ann = _make_annotation(va=0x01006364, module="SERVER", status="MATCHING")
         merge_into_annotation(ann, tmp_path)  # type: ignore[arg-type]
-        assert ann.status == "NEAR_MATCH"  # not touched
+        assert ann.status == "MATCHING"  # not touched
 
     def test_multi_target_merge_isolated(self, tmp_path: Path) -> None:
         """Two different modules at same VA merge independently."""
@@ -398,7 +398,7 @@ class TestMergeIntoAnnotation:
             tmp_path,
             {
                 ("SERVER", 0x10008880): {"status": "EXACT", "size": 42},
-                ("CLIENT", 0x10008880): {"status": "NEAR_MATCH", "size": 42, "blocker": "regs"},
+                ("CLIENT", 0x10008880): {"status": "MATCHING", "size": 42, "blocker": "regs"},
             },
         )
         ann_server = _make_annotation(va=0x10008880, module="SERVER")
@@ -407,7 +407,7 @@ class TestMergeIntoAnnotation:
         merge_into_annotation(ann_client, tmp_path)  # type: ignore[arg-type]
         assert ann_server.status == "EXACT"
         assert ann_server.blocker == ""  # CLIENT blocker not leaked into SERVER
-        assert ann_client.status == "NEAR_MATCH"
+        assert ann_client.status == "MATCHING"
         assert ann_client.blocker == "regs"
 
 

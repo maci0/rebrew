@@ -34,14 +34,14 @@ SAMPLE_DATA = {
                     "start": 256,
                     "end": 320,
                     "span": 1,
-                    "state": "near_match",
+                    "state": "matching",
                     "functions": ["func_d"],
                 },
                 {
                     "start": 320,
                     "end": 384,
                     "span": 1,
-                    "state": "near_match",
+                    "state": "matching_reloc",
                     "functions": ["func_e"],
                 },
             ],
@@ -264,7 +264,7 @@ class TestBuildDbRoundTrip:
         assert row["total_cells"] == 6
         assert row["exact_count"] == 1
         assert row["reloc_count"] == 1
-        assert row["near_match_count"] == 2
+        assert row["matching_count"] == 2
         assert row["stub_count"] == 1
         assert row["none_count"] == 1
         conn.close()

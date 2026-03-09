@@ -69,7 +69,7 @@ rebrew test --all --dry-run                # preview changes without writing
 
 `rebrew test` auto-updates STATUS in the metadata file after each run:
 - **EXACT/RELOC** → updates STATUS and clears auto-generated BLOCKERs
-- **NEAR_MATCH** (≥75% byte match) → updates STATUS; preserves user-set BLOCKERs
+- **MATCHING / MATCHING_RELOC** (≥60% byte match) → updates STATUS; preserves user-set BLOCKERs
 - **< 75%** → no STATUS change (don't demote unless you're sure)
 
 For a byte diff of the current state:
@@ -113,13 +113,13 @@ If the function references globals, use the `rebrew-data-analysis` skill for
 lives in the **`rebrew-data.toml`** metadata file, managed automatically by `rebrew data`,
 `rebrew data --fix-bss`, and `rebrew sync --pull`.
 
-## 7. Prove Stubborn NEAR_MATCH Functions
+## 7. Prove Stubborn MATCHING Functions
 
-If a function remains NEAR_MATCH after source adjustments (structural blockers like
+If a function remains MATCHING after source adjustments (structural blockers like
 register allocation), use `rebrew prove` for symbolic equivalence:
 
 ```bash
-rebrew prove src/<target>/<file>.c --json               # prove NEAR_MATCH → PROVEN
+rebrew prove src/<target>/<file>.c --json               # prove MATCHING → PROVEN
 rebrew prove src/<target>/<file>.c --dry-run --json      # preview without updating
 rebrew prove my_func --timeout 120 --json                # find by symbol, 2 min timeout
 ```

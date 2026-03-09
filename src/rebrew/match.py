@@ -10,8 +10,8 @@ Single-function usage:
 
 Batch usage (``rebrew match --all``)::
     rebrew match --all                       Run GA on all STUB functions
-    rebrew match --all --near-miss           Near-miss NEAR_MATCH functions
-    rebrew match --all --flag-sweep          Batch flag sweep on NEAR_MATCH
+    rebrew match --all --near-miss           Near-miss MATCHING/MATCHING_RELOC functions
+    rebrew match --all --flag-sweep          Batch flag sweep on MATCHING/MATCHING_RELOC
     rebrew match --all --dry-run             List targets without running
 """
 
@@ -286,7 +286,7 @@ class BinaryMatchingGA:
 
 @dataclass
 class StubInfo:
-    """Parsed annotation fields for a STUB or near-miss NEAR_MATCH function."""
+    """Parsed annotation fields for a STUB or near-miss MATCHING/MATCHING_RELOC function."""
 
     filepath: Path
     va: str
@@ -343,8 +343,8 @@ def _parse_annotations(
             continue
 
         # Pass STUB and PROVEN directly.
-        # NEAR_MATCH functions need delta checks:
-        if parsed_status == "NEAR_MATCH":
+        # MATCHING functions need delta checks:
+        if parsed_status in ("MATCHING", "MATCHING_RELOC"):
             d = ann.blocker_delta or 9999
             if max_delta is not None and d > max_delta:
                 continue
@@ -375,15 +375,17 @@ def parse_stub_info(filepath: Path, ignored: set[str] | None = None) -> list[Stu
 def parse_matching_info(
     filepath: Path, ignored: set[str] | None = None, max_delta: int = 10
 ) -> list[StubInfo]:
-    """Extract NEAR_MATCH annotation fields with byte delta <= max_delta."""
+    """Extract MATCHING/MATCHING_RELOC annotation fields with byte delta <= max_delta."""
     return _parse_annotations(
-        filepath, status_filter={"NEAR_MATCH"}, max_delta=max_delta, ignored=ignored
+        filepath, status_filter={"MATCHING", "MATCHING_RELOC"}, max_delta=max_delta, ignored=ignored
     )
 
 
 def parse_matching_all(filepath: Path, ignored: set[str] | None = None) -> list[StubInfo]:
-    """Extract all NEAR_MATCH annotations (no delta filter)."""
-    return _parse_annotations(filepath, status_filter={"NEAR_MATCH"}, ignored=ignored)
+    """Extract all MATCHING/MATCHING_RELOC annotations (no delta filter)."""
+    return _parse_annotations(
+        filepath, status_filter={"MATCHING", "MATCHING_RELOC"}, ignored=ignored
+    )
 
 
 def _collect_with_dedup(
@@ -445,7 +447,7 @@ def find_near_miss(
     cfg: ProjectConfig | None = None,
     warn_duplicates: bool = True,
 ) -> list[StubInfo]:
-    """Find NEAR_MATCH functions with small byte deltas, sorted by delta ascending."""
+    """Find MATCHING/MATCHING_RELOC functions with small byte deltas, sorted by delta ascending."""
     return _collect_with_dedup(
         reversed_dir,
         cfg,
@@ -461,7 +463,7 @@ def find_all_matching(
     cfg: ProjectConfig | None = None,
     warn_duplicates: bool = True,
 ) -> list[StubInfo]:
-    """Find all NEAR_MATCH functions, sorted by byte delta then size."""
+    """Find all MATCHING/MATCHING_RELOC functions, sorted by byte delta then size."""
     return _collect_with_dedup(
         reversed_dir,
         cfg,
@@ -535,7 +537,7 @@ def update_stub_to_matched(filepath: Path, best_src: str, stub: StubInfo) -> Non
         update_source_status(filepath.parent, "RELOC", module, va_int)
 
     updated = re.sub(
-        r"^(//\s*)STATUS:\s*(STUB|NEAR_MATCH(?:_RELOC)?)",
+        r"^(//\s*)STATUS:\s*(STUB|MATCHING(?:_RELOC)?)",
         r"\1STATUS: RELOC",
         original,
         count=1,
@@ -592,8 +594,8 @@ Requires rebrew-project.toml with valid compiler paths.
 
 [bold]Batch mode (--all):[/bold]
   rebrew match --all               GA on all STUB functions
-  rebrew match --all --near-miss   GA on near-miss NEAR_MATCH functions
-  rebrew match --all --flag-sweep  Batch flag sweep on NEAR_MATCH functions
+  rebrew match --all --near-miss   GA on near-miss MATCHING/MATCHING_RELOC functions
+  rebrew match --all --flag-sweep  Batch flag sweep on MATCHING/MATCHING_RELOC functions
   rebrew match --all --dry-run     List targets without running[/dim]"""
 
 app = typer.Typer(
@@ -647,7 +649,9 @@ def main(
     # Batch-only options
     all_mode: bool = typer.Option(False, "--all", help="Batch mode: run GA on all STUB functions"),
     near_miss: bool = typer.Option(
-        False, "--near-miss", help="--all: target NEAR_MATCH near-misses instead of STUBs"
+        False,
+        "--near-miss",
+        help="--all: target MATCHING/MATCHING_RELOC near-misses instead of STUBs",
     ),
     threshold: int = typer.Option(
         10, "--threshold", help="--all: max byte delta for --near-miss mode"
@@ -655,7 +659,7 @@ def main(
     flag_sweep: bool = typer.Option(
         False,
         "--flag-sweep",
-        help="--all: batch flag sweep on NEAR_MATCH functions (finds optimal CFLAGS)",
+        help="--all: batch flag sweep on MATCHING/MATCHING_RELOC functions (finds optimal CFLAGS)",
     ),
     fix_cflags: bool = typer.Option(
         False,
@@ -1334,7 +1338,7 @@ def _run_all(  # noqa: PLR0913
         stubs = find_all_matching(
             reversed_dir, ignored=ignored, cfg=cfg, warn_duplicates=not json_output
         )
-        mode_label = "NEAR_MATCH (flag-sweep)"
+        mode_label = "MATCHING/MATCHING_RELOC (flag-sweep)"
     elif near_miss:
         stubs = find_near_miss(
             reversed_dir,
@@ -1343,7 +1347,7 @@ def _run_all(  # noqa: PLR0913
             cfg=cfg,
             warn_duplicates=not json_output,
         )
-        mode_label = "NEAR_MATCH (near-miss)"
+        mode_label = "MATCHING/MATCHING_RELOC (near-miss)"
     else:
         stubs = find_all_stubs(
             reversed_dir, ignored=ignored, cfg=cfg, warn_duplicates=not json_output
@@ -1489,7 +1493,7 @@ def _run_batch_flag_sweep(
     json_output: bool,
     mode_label: str,
 ) -> None:
-    """Execute batch flag sweep across all discovered NEAR_MATCH functions."""
+    """Execute batch flag sweep across all discovered MATCHING/MATCHING_RELOC functions."""
     import json as json_mod
 
     from rebrew.annotation import _module_for_va
@@ -1499,7 +1503,7 @@ def _run_batch_flag_sweep(
 
     reversed_dir = cfg.reversed_dir
     print(
-        f"\n[bold green]Running {mode_label} flag sweep for {len(stubs)} NEAR_MATCH functions with {jobs} workers...[/bold green]"
+        f"\n[bold green]Running {mode_label} flag sweep for {len(stubs)} MATCHING/MATCHING_RELOC functions with {jobs} workers...[/bold green]"
     )
     improved_count = 0
     exact_count = 0

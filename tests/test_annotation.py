@@ -231,7 +231,7 @@ class TestNormalizeHelpers:
         assert normalize_status("RELOC MATCH") == "RELOC"
 
     def test_normalize_status_matching(self) -> None:
-        assert normalize_status("NEAR_MATCH") == "NEAR_MATCH"
+        assert normalize_status("MATCHING") == "MATCHING"
 
     def test_normalize_status_matching_reloc(self) -> None:
         # Regression: must NOT mangle RELOC → RELOC (substring order bug)
@@ -337,7 +337,7 @@ class TestMultiFunctionParsing:
             "int func_a(void) { return 0; }",
             "",
             "// FUNCTION: SERVER 0x10002000",
-            "// STATUS: NEAR_MATCH",
+            "// STATUS: MATCHING",
             "// SIZE: 100",
             "// CFLAGS: /O1",
             "// SYMBOL: _func_b",
@@ -351,7 +351,7 @@ class TestMultiFunctionParsing:
         assert results[0].status == "EXACT"
         assert results[1].va == 0x10002000
         assert results[1].symbol == "_func_b"
-        assert results[1].status == "NEAR_MATCH"
+        assert results[1].status == "MATCHING"
         assert results[1].module == "SERVER"
 
     def test_parse_three_with_code_between(self) -> None:
@@ -412,7 +412,7 @@ class TestMultiFunctionParsing:
 int func_a(void) { return 0; }
 
 // FUNCTION: SERVER 0x10002000
-// STATUS: NEAR_MATCH
+// STATUS: MATCHING
 // SIZE: 100
 // CFLAGS: /O2
 
@@ -437,7 +437,7 @@ int func_b(void) { return 1; }
 int func_a(void) { return 0; }
 
 // FUNCTION: SERVER 0x10002000
-// STATUS: NEAR_MATCH
+// STATUS: MATCHING
 // CFLAGS: /O2
 
 int func_b(void) { return 1; }
@@ -471,7 +471,7 @@ int func_b(void) { return 1; }
         from rebrew.annotation import parse_new_format_multi
 
         lines = [
-            "// STATUS: NEAR_MATCH",
+            "// STATUS: MATCHING",
             "// SIZE: 728",
             "// SYMBOL: _ReadVfsDataChecked",
             "// FUNCTION: SERVER 0x10012000",
@@ -480,7 +480,7 @@ int func_b(void) { return 1; }
             "",
             "int __cdecl LoadGraveyardData(int a, int b) { return 0; }",
             "",
-            "// STATUS: NEAR_MATCH",
+            "// STATUS: MATCHING",
             "// SIZE: 346",
             "// SYMBOL: _ReadVfsDataChecked",
             "// FUNCTION: SERVER 0x100122e0",
@@ -552,7 +552,7 @@ int func_b(void) { return 1; }
         from rebrew.annotation import parse_new_format_multi
 
         lines = [
-            "// STATUS: NEAR_MATCH",
+            "// STATUS: MATCHING",
             "// SIZE: 130",
             "// FUNCTION: SERVER 0x1000BD50",
             "// reset_entity_state",
@@ -562,7 +562,7 @@ int func_b(void) { return 1; }
             "{",
             "}",
             "",
-            "// STATUS: NEAR_MATCH",
+            "// STATUS: MATCHING",
             "// SIZE: 109",
             "// FUNCTION: SERVER 0x1000C600",
             "// InitRandomEntity",
@@ -598,7 +598,7 @@ int func_b(void) { return 1; }
         """__stdcall functions should get decorated symbol names (_func@N)."""
         lines = [
             "// FUNCTION: SERVER 0x10009310",
-            "// STATUS: NEAR_MATCH",
+            "// STATUS: MATCHING",
             "// SIZE: 8",
             "",
             "int __stdcall exit_handler(int a, int b, int c)",
@@ -613,7 +613,7 @@ int func_b(void) { return 1; }
         """WINAPI functions should get decorated symbol names (_func@N)."""
         lines = [
             "// FUNCTION: SERVER 0x10002770",
-            "// STATUS: NEAR_MATCH",
+            "// STATUS: MATCHING",
             "// SIZE: 1836",
             "",
             "int WINAPI CrashDumpUnhandledExceptionFilter(EXCEPTION_POINTERS* pExceptionPointers)",
@@ -787,7 +787,7 @@ class TestParseLibraryHeader:
         hfile.write_text(
             "// LIBRARY: SERVER 0x10050000\n"
             "// _deflate\n"
-            "// STATUS: NEAR_MATCH\n"
+            "// STATUS: MATCHING\n"
             "// SIZE: 120\n"
             "// CFLAGS: /O2 /Gd\n"
             "// SOURCE: deflate.c\n"
@@ -802,7 +802,7 @@ class TestParseLibraryHeader:
         # Extended entry
         assert results[0].va == 0x10050000
         assert results[0].symbol == "_deflate"
-        assert results[0].status == "NEAR_MATCH"
+        assert results[0].status == "MATCHING"
         assert results[0].size == 120
         assert results[0].cflags == "/O2 /Gd"
         assert results[0].source == "deflate.c"
@@ -952,7 +952,7 @@ class TestAuditAnnotation:
             "int func_a(void) {}\n"
             "\n"
             "// FUNCTION: SERVER 0x10002000\n"
-            "// STATUS: NEAR_MATCH\n"
+            "// STATUS: MATCHING\n"
             "// SIZE: 100\n"
             "int func_b(void) {}\n"
         )

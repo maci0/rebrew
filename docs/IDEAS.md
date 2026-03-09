@@ -25,18 +25,12 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 | — | CRT auto-detection | `rebrew cfg detect-crt` — scans `tools/` for known MSVC CRT source dirs. `detect_crt_sources()` in `config.py`. |
 | — | Dotted key resolution | `rebrew cfg show/set/get` — greedy longest-match resolution for TOML keys containing dots. |
 | — | CLI code audit / deduplication | `normalize_name()` in `naming.py`; `disasm_bytes()` in `asm.py`; `iter_annotations()` in `cli.py`; removed `_find_block_lines` dead code; removed `_make_progress_printer` in favour of `Console(stderr=True)` pattern. All 1735 tests pass. |
+| 4 | GA code layout mutations | `mutator.py` — 67 structural mutations for GA exploration. |
+| 19 | Cross-function solution transfer | `solutions.py` — GA auto-saves and seeds from `.rebrew/solutions.json`. |
 
 ---
 
 ## Open Ideas
-
-### ~~4. GA code layout mutations~~ ✅
-
-> **Status: Done.** 16 new structural mutations added to `mutator.py` in two batches. Batch 1: `flatten_nested_if`, `extract_else_body`, `for_to_while`/`while_to_for`, `if_to_ternary`/`ternary_to_if`, `hoist_return`/`sink_return`. Batch 2: `swap_adjacent_stmts`, `guard_clause`, `invert_loop_direction`, `compound_assign_toggle`, `demorgan`, `postpre_increment`, `xor_zero_toggle`, `negate_condition`. Total mutations: 67.
-
-### ~~19. Cross-function solution transfer~~ ✅
-
-> **Status: Done.** Solution database added in `solutions.py`. GA auto-saves solution fingerprints (cflags, origin, size) on exact match to `.rebrew/solutions.json`. New GA runs auto-seed from similar solved functions. CLI: `rebrew match --all --no-solved` to disable, `rebrew match --extra-seed FILE --no-seed`.
 
 ### 20. Test watch mode
 
@@ -53,6 +47,22 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 **Proposed**: Given a solved function, find other functions in the binary with similar byte patterns, call structure, or control flow. Useful for prioritizing which STUBs to tackle next.
 
 **Impact**: Medium — helps with prioritization but `rebrew next` already does some of this.
+
+### 22. Deep MATCHING analysis tooling
+
+**Pain**: `MATCHING` functions often get stuck because of internal compiler choices (register allocation, loop rotation, instruction folding).
+
+**Proposed**: Build a specialized diff tool that identifies *exactly* which category of compiler choice is blocking a match, to automatically decide if it's solvable via C code mutations or permanently blocked.
+
+**Impact**: High — would save significant manual investigation time for close matches.
+
+### 23. LLM-assisted GA seed generation
+
+**Pain**: GA mutations are currently generated using fixed deterministic rules in `mutator.py`. These might miss subtle patterns needed to nudge the compiler.
+
+**Proposed**: Integrate an optional LLM call in `rebrew match` that looks at the `MATCHING` assembly diff and suggests specialized C source permutations to seed the genetic algorithm.
+
+**Impact**: High — could break through the "systemic ceiling" of register allocation issues by coming up with creative C constructs.
 
 ---
 
