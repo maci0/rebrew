@@ -1,4 +1,4 @@
-"""Tests for ga.py near-miss MATCHING mode and data.py dispatch table detection."""
+"""Tests for ga.py near-miss NEAR_MATCH mode and data.py dispatch table detection."""
 
 import struct
 
@@ -34,13 +34,13 @@ class TestParseMatchingInfo:
         metadata_toml.write_text(existing + entry, encoding="utf-8")
 
     def test_matching_with_small_delta(self, tmp_path) -> None:
-        self._make_c(tmp_path, "FuncA", 0x10001000, "MATCHING", "2B diff: off by 2 bytes")
+        self._make_c(tmp_path, "FuncA", 0x10001000, "NEAR_MATCH", "2B diff: off by 2 bytes")
         result = parse_matching_info(tmp_path / "FuncA.c", max_delta=10)
         assert len(result) == 1
         assert result[0].delta == 2
 
     def test_matching_large_delta_excluded(self, tmp_path) -> None:
-        self._make_c(tmp_path, "FuncB", 0x10002000, "MATCHING", "50B diff: too big")
+        self._make_c(tmp_path, "FuncB", 0x10002000, "NEAR_MATCH", "50B diff: too big")
         result = parse_matching_info(tmp_path / "FuncB.c", max_delta=10)
         assert result == []
 
@@ -50,12 +50,12 @@ class TestParseMatchingInfo:
         assert result == []
 
     def test_no_blocker_excluded(self, tmp_path) -> None:
-        self._make_c(tmp_path, "FuncD", 0x10004000, "MATCHING")
+        self._make_c(tmp_path, "FuncD", 0x10004000, "NEAR_MATCH")
         result = parse_matching_info(tmp_path / "FuncD.c", max_delta=10)
         assert result == []
 
     def test_skip_excluded(self, tmp_path) -> None:
-        self._make_c(tmp_path, "FuncE", 0x10005000, "MATCHING", "2B diff", skip=True)
+        self._make_c(tmp_path, "FuncE", 0x10005000, "NEAR_MATCH", "2B diff", skip=True)
         result = parse_matching_info(tmp_path / "FuncE.c", max_delta=10)
         assert result == []
 
@@ -82,9 +82,9 @@ class TestFindNearMiss:
         metadata_toml.write_text(existing + entry, encoding="utf-8")
 
     def test_finds_near_miss(self, tmp_path) -> None:
-        self._make_c(tmp_path, "Near1", 0x10001000, "MATCHING", "2B diff")
-        self._make_c(tmp_path, "Near2", 0x10002000, "MATCHING", "5B diff")
-        self._make_c(tmp_path, "Far", 0x10003000, "MATCHING", "50B diff")
+        self._make_c(tmp_path, "Near1", 0x10001000, "NEAR_MATCH", "2B diff")
+        self._make_c(tmp_path, "Near2", 0x10002000, "NEAR_MATCH", "5B diff")
+        self._make_c(tmp_path, "Far", 0x10003000, "NEAR_MATCH", "50B diff")
         self._make_c(tmp_path, "Stub", 0x10004000, "STUB", "2B diff")
 
         results = find_near_miss(tmp_path, max_delta=10)
@@ -95,8 +95,8 @@ class TestFindNearMiss:
         assert "Stub" not in names
 
     def test_sorted_by_delta(self, tmp_path) -> None:
-        self._make_c(tmp_path, "Big", 0x10001000, "MATCHING", "8B diff")
-        self._make_c(tmp_path, "Small", 0x10002000, "MATCHING", "1B diff")
+        self._make_c(tmp_path, "Big", 0x10001000, "NEAR_MATCH", "8B diff")
+        self._make_c(tmp_path, "Small", 0x10002000, "NEAR_MATCH", "1B diff")
         results = find_near_miss(tmp_path, max_delta=10)
         assert results[0].delta <= results[1].delta
 

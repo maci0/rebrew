@@ -48,7 +48,7 @@ console = Console(stderr=True)
 CAT_SETUP = "setup"
 CAT_FIX_NEAR_MISS = "fix-near-miss"
 CAT_FLAG_SWEEP = "flag-sweep"
-CAT_IMPROVE_MATCHING = "improve-matching"
+CAT_IMPROVE_NEAR_MATCH = "improve-near-match"
 CAT_RUN_PROVER = "run-prover"
 CAT_FIX_COMPILE_ERROR = "fix-compile-error"
 CAT_FIX_VERIFY_FAIL = "fix-verify-fail"
@@ -61,7 +61,7 @@ _CATEGORY_COLORS = {
     CAT_SETUP: "bold white",
     CAT_FIX_NEAR_MISS: "green",
     CAT_FLAG_SWEEP: "yellow",
-    CAT_IMPROVE_MATCHING: "yellow",
+    CAT_IMPROVE_NEAR_MATCH: "yellow",
     CAT_RUN_PROVER: "cyan",
     CAT_FIX_COMPILE_ERROR: "red",
     CAT_FIX_VERIFY_FAIL: "red",
@@ -120,7 +120,7 @@ class TodoItem:
 _SCORE_TIERS: dict[str, tuple[float, float, float]] = {
     CAT_FIX_COMPILE_ERROR: (95.0, 90.0, 85.0),
     CAT_FINISH_STUB: (75.0, 70.0, 60.0),
-    CAT_IMPROVE_MATCHING: (55.0, 50.0, 45.0),
+    CAT_IMPROVE_NEAR_MATCH: (55.0, 50.0, 45.0),
     CAT_RUN_PROVER: (40.0, 35.0, 30.0),
     CAT_ADD_ANNOTATIONS: (40.0, 35.0, 30.0),
     CAT_IDENTIFY_LIBRARY: (25.0, 20.0, 15.0),
@@ -319,7 +319,7 @@ def _collect_near_misses(
     items: list[TodoItem] = []
     has_delta: set[int] = set()
     for va, info in existing.items():
-        if info["status"] != "MATCHING":
+        if info["status"] != "NEAR_MATCH":
             continue
         raw_bd = info.get("blocker_delta", "")
         try:
@@ -373,10 +373,10 @@ def _collect_improve_matching(
     size_by_va: dict[int, int],
     has_delta: set[int],
 ) -> list[TodoItem]:
-    """Collect MATCHING functions without parseable delta (need investigation)."""
+    """Collect NEAR_MATCH functions without parseable delta (need investigation)."""
     items: list[TodoItem] = []
     for va, info in existing.items():
-        if info["status"] != "MATCHING":
+        if info["status"] != "NEAR_MATCH":
             continue
         if va in has_delta:
             continue  # Already captured by near-miss or flag-sweep
@@ -384,14 +384,14 @@ def _collect_improve_matching(
         size = size_by_va.get(va) or int(info.get("size", 0))
         filename = info.get("filename", "")
         blocker = info.get("blocker", "")
-        desc = "MATCHING — run diff to find delta"
+        desc = "NEAR_MATCH — run diff to find delta"
         if blocker:
-            desc = f"MATCHING — {blocker[:50]}"
+            desc = f"NEAR_MATCH — {blocker[:50]}"
 
         items.append(
             TodoItem(
-                category=CAT_IMPROVE_MATCHING,
-                roi_score=_score_by_size(CAT_IMPROVE_MATCHING, size),
+                category=CAT_IMPROVE_NEAR_MATCH,
+                roi_score=_score_by_size(CAT_IMPROVE_NEAR_MATCH, size),
                 va=va,
                 name=info.get("symbol", ""),
                 size=size,
@@ -421,7 +421,7 @@ def _collect_prover_candidates(
 
     items: list[TodoItem] = []
     for va, info in existing.items():
-        if info["status"] != "MATCHING":
+        if info["status"] != "NEAR_MATCH":
             continue
         size = size_by_va.get(va) or int(info.get("size", 0))
         if size > 500 or size == 0:
@@ -435,7 +435,7 @@ def _collect_prover_candidates(
                 name=info.get("symbol", ""),
                 size=size,
                 filename=filename,
-                description="MATCHING + small — prove semantic equivalence",
+                description="NEAR_MATCH + small — prove semantic equivalence",
                 command=f"rebrew prove {filename}" if filename else f"rebrew prove 0x{va:08x}",
                 status=info["status"],
             )
@@ -750,13 +750,13 @@ rebrew todo --json                   Machine-readable JSON output
 
 setup              Project setup steps (fresh projects)
 
-fix-near-miss      MATCHING with ≤4B diff — tweak code or padding
+fix-near-miss      NEAR_MATCH with ≤4B diff — tweak code or padding
 
-flag-sweep         MATCHING with 5-20B diff — try compiler flags
+flag-sweep         NEAR_MATCH with 5-20B diff — try compiler flags
 
-improve-matching   MATCHING without known delta — investigate diff
+improve-near-match   NEAR_MATCH without known delta — investigate diff
 
-run-prover         MATCHING + small — prove equivalence via angr
+run-prover         NEAR_MATCH + small — prove equivalence via angr
 
 fix-compile-error  Compile errors from verify cache
 
@@ -809,7 +809,7 @@ def main(
     covered = len(covered_vas)
     exact = status_counts.get("EXACT", 0)
     reloc = status_counts.get("RELOC", 0)
-    matching = status_counts.get("MATCHING", 0)
+    matching = status_counts.get("NEAR_MATCH", 0)
     stub = status_counts.get("STUB", 0)
     pct = round(100.0 * (exact + reloc) / total_funcs, 1) if total_funcs else 0.0
 
@@ -847,7 +847,7 @@ def main(
             f"  [bold]Coverage[/bold]: {covered}/{total_funcs} functions"
             f"  [green]EXACT: {exact}[/green]"
             f"  [cyan]RELOC: {reloc}[/cyan]"
-            f"  [yellow]MATCHING: {matching}[/yellow]"
+            f"  [yellow]NEAR_MATCH: {matching}[/yellow]"
             f"  [dim]STUB: {stub}[/dim]"
             f"  → [bold]{pct}%[/bold] matched"
         )

@@ -14,7 +14,7 @@ from rebrew.todo import (
     CAT_FIX_VERIFY_FAIL,
     CAT_FLAG_SWEEP,
     CAT_IDENTIFY_LIBRARY,
-    CAT_IMPROVE_MATCHING,
+    CAT_IMPROVE_NEAR_MATCH,
     CAT_RUN_PROVER,
     CAT_SETUP,
     CAT_START_FUNCTION,
@@ -110,13 +110,13 @@ class TestScoring:
         assert _score_by_size(CAT_FIX_COMPILE_ERROR, 500) == 85.0
 
     def test_improve_matching_small(self) -> None:
-        assert _score_by_size(CAT_IMPROVE_MATCHING, 50) == 55.0
+        assert _score_by_size(CAT_IMPROVE_NEAR_MATCH, 50) == 55.0
 
     def test_improve_matching_medium(self) -> None:
-        assert _score_by_size(CAT_IMPROVE_MATCHING, 200) == 50.0
+        assert _score_by_size(CAT_IMPROVE_NEAR_MATCH, 200) == 50.0
 
     def test_improve_matching_large(self) -> None:
-        assert _score_by_size(CAT_IMPROVE_MATCHING, 500) == 45.0
+        assert _score_by_size(CAT_IMPROVE_NEAR_MATCH, 500) == 45.0
 
     def test_verify_fail_high_match(self) -> None:
         # >=95% match: flat 33 — stubborn diffs, lowest priority
@@ -204,7 +204,7 @@ class TestCollectors:
     def test_near_misses_splits_by_delta(self) -> None:
         existing = {
             0x1000: {
-                "status": "MATCHING",
+                "status": "NEAR_MATCH",
                 "blocker_delta": "2",
                 "blocker": "",
                 "symbol": "func_a",
@@ -212,7 +212,7 @@ class TestCollectors:
                 "origin": "GAME",
             },
             0x2000: {
-                "status": "MATCHING",
+                "status": "NEAR_MATCH",
                 "blocker_delta": "10",
                 "blocker": "",
                 "symbol": "func_b",
@@ -244,7 +244,7 @@ class TestCollectors:
     def test_near_misses_skips_no_delta(self) -> None:
         existing = {
             0x1000: {
-                "status": "MATCHING",
+                "status": "NEAR_MATCH",
                 "blocker_delta": "",
                 "blocker": "unknown issue",
                 "symbol": "func",
@@ -259,7 +259,7 @@ class TestCollectors:
     def test_improve_matching_catches_no_delta(self) -> None:
         existing = {
             0x1000: {
-                "status": "MATCHING",
+                "status": "NEAR_MATCH",
                 "blocker_delta": "",
                 "blocker": "loop unrolling differs",
                 "symbol": "func_a",
@@ -267,7 +267,7 @@ class TestCollectors:
                 "origin": "GAME",
             },
             0x2000: {
-                "status": "MATCHING",
+                "status": "NEAR_MATCH",
                 "blocker_delta": "3",
                 "blocker": "",
                 "symbol": "func_b",
@@ -281,7 +281,7 @@ class TestCollectors:
         items = _collect_improve_matching(existing, size_by_va, has_delta)
         assert len(items) == 1
         assert items[0].va == 0x1000
-        assert items[0].category == CAT_IMPROVE_MATCHING
+        assert items[0].category == CAT_IMPROVE_NEAR_MATCH
         assert "loop unrolling" in items[0].description
 
     def test_improve_matching_skips_non_matching(self) -> None:
@@ -546,8 +546,8 @@ class TestRoiOrdering:
     def test_finish_stub_ranks_above_improve_matching(self) -> None:
         # size=200: finish_stub→65, improve_matching→50
         matching = TodoItem(
-            category=CAT_IMPROVE_MATCHING,
-            roi_score=_score_by_size(CAT_IMPROVE_MATCHING, 200),
+            category=CAT_IMPROVE_NEAR_MATCH,
+            roi_score=_score_by_size(CAT_IMPROVE_NEAR_MATCH, 200),
             va=0x1000,
             name="a",
             size=200,
@@ -606,12 +606,12 @@ class TestJsonOutput:
             command="",
             byte_delta=2,
             difficulty=3,
-            status="MATCHING",
+            status="NEAR_MATCH",
         )
         d = item.to_dict()
         assert d["byte_delta"] == 2
         assert d["difficulty"] == 3
-        assert d["status"] == "MATCHING"
+        assert d["status"] == "NEAR_MATCH"
 
 
 # ---------------------------------------------------------------------------
@@ -699,12 +699,12 @@ class TestEmptyProject:
 
 
 # ---------------------------------------------------------------------------
-# Integration: collect_all with MATCHING functions
+# Integration: collect_all with NEAR_MATCH functions
 # ---------------------------------------------------------------------------
 
 
 class TestCollectAllMatching:
-    """Ensure MATCHING functions without delta still appear in results."""
+    """Ensure NEAR_MATCH functions without delta still appear in results."""
 
     def test_matching_without_delta_appears(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
@@ -714,7 +714,7 @@ class TestCollectAllMatching:
         ]
         existing = {
             0x1000: {
-                "status": "MATCHING",
+                "status": "NEAR_MATCH",
                 "blocker_delta": "",
                 "blocker": "calling convention",
                 "symbol": "func_a",
@@ -723,7 +723,7 @@ class TestCollectAllMatching:
             },
         }
         items = collect_all(cfg, ghidra_funcs, existing, {0x1000: "a.c"})
-        matching_items = [i for i in items if i.category == CAT_IMPROVE_MATCHING]
+        matching_items = [i for i in items if i.category == CAT_IMPROVE_NEAR_MATCH]
         assert len(matching_items) == 1
 
     def test_stubs_appear_in_results(self, tmp_path: Path) -> None:
@@ -906,7 +906,7 @@ class TestEdgeCases:
         """Near-miss extracted from blocker text like '2B diff'."""
         existing = {
             0x1000: {
-                "status": "MATCHING",
+                "status": "NEAR_MATCH",
                 "blocker_delta": "",
                 "blocker": "2B diff in epilogue",
                 "symbol": "func_a",

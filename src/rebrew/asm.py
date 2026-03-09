@@ -445,7 +445,7 @@ def _parse_annotations(filepath: Path) -> list[dict[str, Any]]:
     entries = parse_c_file_multi(filepath)
     results: list[dict[str, Any]] = []
     for entry in entries:
-        if entry.status not in ("EXACT", "RELOC", "MATCHING", "PROVEN", "STUB"):
+        if entry.status not in ("EXACT", "RELOC", "NEAR_MATCH", "PROVEN", "STUB"):
             continue
         if not entry.size:
             continue

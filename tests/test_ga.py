@@ -199,14 +199,14 @@ class TestParseMatchingAll:
         return path
 
     def test_accepts_matching_without_blocker(self, tmp_path: Path) -> None:
-        self._make_c(tmp_path, "FuncA", 0x10001000, "MATCHING")
+        self._make_c(tmp_path, "FuncA", 0x10001000, "NEAR_MATCH")
         result = parse_matching_all(tmp_path / "FuncA.c")
         assert len(result) == 1
         assert result[0].va == "0x10001000"
         assert result[0].delta == 9999
 
     def test_accepts_matching_with_blocker(self, tmp_path: Path) -> None:
-        self._make_c(tmp_path, "FuncB", 0x10002000, "MATCHING", "3B diff")
+        self._make_c(tmp_path, "FuncB", 0x10002000, "NEAR_MATCH", "3B diff")
         result = parse_matching_all(tmp_path / "FuncB.c")
         assert len(result) == 1
         assert result[0].delta == 3
@@ -222,17 +222,17 @@ class TestParseMatchingAll:
         assert result == []
 
     def test_rejects_skip(self, tmp_path: Path) -> None:
-        self._make_c(tmp_path, "FuncE", 0x10005000, "MATCHING", skip=True)
+        self._make_c(tmp_path, "FuncE", 0x10005000, "NEAR_MATCH", skip=True)
         result = parse_matching_all(tmp_path / "FuncE.c")
         assert result == []
 
     def test_rejects_ignored(self, tmp_path: Path) -> None:
-        self._make_c(tmp_path, "FuncF", 0x10006000, "MATCHING")
+        self._make_c(tmp_path, "FuncF", 0x10006000, "NEAR_MATCH")
         result = parse_matching_all(tmp_path / "FuncF.c", ignored={"_FuncF"})
         assert result == []
 
     def test_preserves_cflags(self, tmp_path: Path) -> None:
-        self._make_c(tmp_path, "FuncG", 0x10007000, "MATCHING", cflags="/O1 /Gz")
+        self._make_c(tmp_path, "FuncG", 0x10007000, "NEAR_MATCH", cflags="/O1 /Gz")
         result = parse_matching_all(tmp_path / "FuncG.c")
         assert len(result) == 1
         assert result[0].cflags == "/O1 /Gz"
@@ -273,8 +273,8 @@ class TestFindAllMatching:
         metadata_toml.write_text(existing + entry, encoding="utf-8")
 
     def test_finds_all_matching(self, tmp_path: Path) -> None:
-        self._make_c(tmp_path, "Match1", 0x10001000, "MATCHING", "2B diff")
-        self._make_c(tmp_path, "Match2", 0x10002000, "MATCHING")
+        self._make_c(tmp_path, "Match1", 0x10001000, "NEAR_MATCH", "2B diff")
+        self._make_c(tmp_path, "Match2", 0x10002000, "NEAR_MATCH")
         self._make_c(tmp_path, "Stub1", 0x10003000, "STUB")
         self._make_c(tmp_path, "Exact1", 0x10004000, "EXACT")
 
@@ -286,9 +286,9 @@ class TestFindAllMatching:
         assert "Exact1" not in names
 
     def test_sorted_by_delta_then_size(self, tmp_path: Path) -> None:
-        self._make_c(tmp_path, "NoDelta", 0x10003000, "MATCHING", size=50)
-        self._make_c(tmp_path, "BigDelta", 0x10001000, "MATCHING", "8B diff", size=100)
-        self._make_c(tmp_path, "SmallDelta", 0x10002000, "MATCHING", "1B diff", size=200)
+        self._make_c(tmp_path, "NoDelta", 0x10003000, "NEAR_MATCH", size=50)
+        self._make_c(tmp_path, "BigDelta", 0x10001000, "NEAR_MATCH", "8B diff", size=100)
+        self._make_c(tmp_path, "SmallDelta", 0x10002000, "NEAR_MATCH", "1B diff", size=200)
 
         results = find_all_matching(tmp_path)
         names = [r.filepath.stem for r in results]
@@ -305,11 +305,11 @@ class TestFindAllMatching:
         assert results == []
 
     def test_duplicate_va_keeps_first(self, tmp_path: Path) -> None:
-        self._make_c(tmp_path, "Dup1", 0x10001000, "MATCHING")
+        self._make_c(tmp_path, "Dup1", 0x10001000, "NEAR_MATCH")
         f2 = tmp_path / "dup2.c"
         f2.write_text(
             "// FUNCTION: SERVER 0x10001000\n"
-            "// STATUS: MATCHING\n"
+            "// STATUS: NEAR_MATCH\n"
             "// SIZE: 100\n"
             "// CFLAGS: /O2 /Gd\n"
             "// SYMBOL: _Dup2\n"
@@ -332,7 +332,7 @@ class TestUpdateCflagsAnnotation:
         f = tmp_path / "func.c"
         f.write_text(
             "// FUNCTION: SERVER 0x10001000\n"
-            "// STATUS: MATCHING\n"
+            "// STATUS: NEAR_MATCH\n"
             "int __cdecl func(void) { return 0; }\n",
             encoding="utf-8",
         )
