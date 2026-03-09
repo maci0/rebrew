@@ -94,7 +94,9 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
     if src_dir.is_dir():
         for cfile in iter_sources(src_dir, cfg):
             try:
-                entries = parse_c_file_multi(cfile, target_name=target_marker(cfg))
+                entries = parse_c_file_multi(
+                    cfile, target_name=target_marker(cfg), sidecar_dir=cfile.parent
+                )
                 for entry in entries:
                     symbol = (entry.symbol or "").lstrip("_")
                     display = symbol or cfile.stem
@@ -440,7 +442,7 @@ def verify_roundtrip(nasm_source: str, original_bytes: bytes) -> tuple[bool, str
 
 def _parse_annotations(filepath: Path) -> list[dict[str, Any]]:
     """Parse reccmp-style annotations from a reversed .c file."""
-    entries = parse_c_file_multi(filepath)
+    entries = parse_c_file_multi(filepath, sidecar_dir=filepath.parent)
     results: list[dict[str, Any]] = []
     for entry in entries:
         if entry.status not in ("EXACT", "RELOC", "MATCHING", "PROVEN", "STUB"):

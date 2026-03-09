@@ -340,7 +340,9 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
 
     for cfile in iter_sources(src_dir, cfg):
         rel_name = rel_display_path(cfile, src_dir)
-        for ann in parse_c_file_multi(cfile, target_name=target_marker(cfg)):
+        for ann in parse_c_file_multi(
+            cfile, target_name=target_marker(cfg), sidecar_dir=cfile.parent
+        ):
             if ann.marker_type == "DATA":
                 merge_into_data_annotation(ann, cfile.parent)
                 entries.append(
@@ -917,7 +919,7 @@ def _gen_globals_header(cfg: ProjectConfig, src_dir: Path) -> None:
 
     for src in sorted(iter_sources(src_dir, cfg)):
         try:
-            annotations = parse_c_file_multi(src, target_name=marker)
+            annotations = parse_c_file_multi(src, target_name=marker, sidecar_dir=src.parent)
         except Exception:
             continue
         for ann in annotations:
@@ -1103,7 +1105,9 @@ def main(
 
         known_functions: dict[int, dict[str, str]] = {}
         for cfile in iter_sources(src_dir, cfg):
-            for entry in parse_c_file_multi(cfile, target_name=target_marker(cfg)):
+            for entry in parse_c_file_multi(
+                cfile, target_name=target_marker(cfg), sidecar_dir=cfile.parent
+            ):
                 if entry.va:
                     known_functions[entry.va] = {
                         "name": entry.name or rel_display_path(cfile, src_dir),

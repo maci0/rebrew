@@ -124,7 +124,9 @@ def main(
     included_inputs: list[Path] = []
 
     for file_path in input_files:
-        annotations = parse_c_file_multi(file_path, target_name=target_marker(cfg))
+        annotations = parse_c_file_multi(
+            file_path, target_name=target_marker(cfg), sidecar_dir=file_path.parent
+        )
         if not annotations:
             continue
 
