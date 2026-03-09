@@ -629,7 +629,7 @@ def main(
         help="Flag sweep tier: targeted (common flags) or exhaustive (all combos)",
     ),
     force: bool = typer.Option(
-        False, "--force", help="Continue even if annotation lint errors exist"
+        False, "--force", help="Continue even if source marker lint errors exist"
     ),
     seed: int | None = typer.Option(None, "--seed", help="RNG seed for reproducible GA runs"),
     extra_seed: list[str] | None = typer.Option(

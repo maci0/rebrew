@@ -37,7 +37,7 @@ libs = "tools/MSVC600/VC98/Lib"
 |-----------|--------|-------------|
 | `target_name` | Key under `[targets]` | Active target name (e.g. `"game_dll"`) |
 | `all_targets` | All keys under `[targets]` | List of all available target names |
-| `marker` | `[targets.<name>].marker` | Module identifier for annotations (default: target name uppercased) |
+| `marker` | `[targets.<name>].marker` | Module identifier for source markers (default: target name uppercased) |
 | `target_binary` | `[targets.<name>].binary` | Resolved path to the target executable/DLL |
 | `image_base` | Auto-detected from PE | `0x10000000` for example DLL |
 | `text_va` | Auto-detected from PE | `.text` section virtual address |
@@ -61,15 +61,15 @@ libs = "tools/MSVC600/VC98/Lib"
 
 ## Target Marker (`marker`)
 
-The `marker` field identifies which target a source file's annotations belong to. It appears as the module name in annotation headers:
+The `marker` field identifies which target a source file's markers belong to. It appears as the module name in marker headers:
 
 ```c
 // FUNCTION: SERVER 0x10008880    ← "SERVER" is the marker
 ```
 
-When a project has multiple targets (e.g. `server.dll` and `client.exe`), the same `.c` file may contain annotations for both targets. Tools use `marker` to filter annotations to the active target — only annotations matching `cfg.marker` are processed.
+When a project has multiple targets (e.g. `server.dll` and `client.exe`), the same `.c` file may contain markers for both targets. Tools use `marker` to filter markers to the active target — only markers matching `cfg.marker` are processed.
 
-By default, `marker` is the target key uppercased — so `[targets.server_dll]` gets marker `SERVER_DLL`. Override it when the annotation prefix differs from the target key:
+By default, `marker` is the target key uppercased — so `[targets.server_dll]` gets marker `SERVER_DLL`. Override it when the marker prefix differs from the target key:
 
 ```toml
 [targets.server_dll]
@@ -94,13 +94,13 @@ void __cdecl MyFunc(void) { ... }
 Each target's `rebrew-function.toml` metadata holds the metadata (STATUS, SIZE, CFLAGS) for the
 corresponding VA.
 
-Running `rebrew test --target server_dll` processes only the `SERVER` annotation block. Running `rebrew test --target client_exe` processes only the `CLIENT` block.
+Running `rebrew test --target server_dll` processes only the `SERVER` marker block. Running `rebrew test --target client_exe` processes only the `CLIENT` block.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `marker` | `string` | target key uppercased | Module identifier used in `// FUNCTION:`, `// LIBRARY:`, `// STUB:` annotations |
+| `marker` | `string` | target key uppercased | Module identifier used in `// FUNCTION:`, `// LIBRARY:`, `// STUB:` markers |
 
-The lint tool (`rebrew lint`) validates that each annotation's module matches the configured marker (error E012).
+The lint tool (`rebrew lint`) validates that each marker's module matches the configured marker (error E012).
 
 ## Compiler Profiles
 
@@ -283,7 +283,7 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 | `skeleton.py` | `reversed_dir` |
 | `extract.py` | `reversed_dir`, `target_binary` |
 | `asm.py` | `target_binary`, `capstone_arch`, `capstone_mode` |
-| `annotation.py` | Canonical annotation parser — used by verify, extract, sync, match |
+| `annotation.py` | Canonical source marker parser — used by verify, extract, sync, match |
 | `binary_loader.py` | LIEF-based binary loading — used by extract, flirt |
 | `matcher/scoring.py` | `capstone_arch`, `capstone_mode` |
 | `matcher/compiler.py` | `compiler_profile` (drives flag axes) |

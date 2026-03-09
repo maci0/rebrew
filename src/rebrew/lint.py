@@ -251,7 +251,7 @@ def _check_W006_source(
         result.warning(
             result.marker_line,
             "W006",
-            f"Library module {module!r} missing // SOURCE: annotation "
+            f"Library module {module!r} missing // SOURCE: marker "
             "(reference file, e.g. SBHEAP.C:195 or deflate.c)",
         )
 
@@ -289,7 +289,7 @@ def _check_W016_section(result: LintResult, marker: str, found_keys: dict[str, s
         result.warning(
             result.marker_line,
             "W016",
-            f"{marker} annotation missing // SECTION: (.data, .rdata, .bss)",
+            f"{marker} marker missing // SECTION: (.data, .rdata, .bss)",
         )
 
 
@@ -333,7 +333,7 @@ def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> No
         result.warning(
             first_struct_line,
             "W007",
-            "File defines struct(s) without // SIZE 0xNN annotation (reccmp recommendation)",
+            "File defines struct(s) without // SIZE 0xNN marker (reccmp recommendation)",
         )
 
 
@@ -361,24 +361,24 @@ def lint_file(
 
     lines = text.splitlines()
     if not lines:
-        result.error(1, "E001", "Empty file, missing FUNCTION/LIBRARY/STUB annotation")
+        result.error(1, "E001", "Empty file, missing FUNCTION/LIBRARY/STUB marker")
         return result
 
     all_headers = _parse_multi_headers(lines)
     if not all_headers:
-        # Totally broken file — no recognisable annotation format found.
+        # Totally broken file — no recognisable marker format found.
         # Synthesise a minimal entry so the loop below can report E001.
         all_headers = [
             ({}, {"has_new": False, "has_old": False, "has_block": False, "has_javadoc": False})
         ]
 
-    # Load the per-directory metadata once so all annotation blocks in this file can use it.
+    # Load the per-directory metadata once so all marker blocks in this file can use it.
     # Keys in the result: (module, va_int) -> {toml_field: value}
     from rebrew.metadata import load_metadata as _load_metadata
 
     _metadata_entries = _load_metadata(cfg.metadata_dir if cfg else filepath.parent)
 
-    # Also load the data metadata for DATA/GLOBAL annotations.
+    # Also load the data metadata for DATA/GLOBAL markers.
     from rebrew.data_metadata import load_data_metadata as _load_data_metadata
 
     _data_metadata_entries = _load_data_metadata(cfg.metadata_dir if cfg else filepath.parent)
@@ -405,10 +405,10 @@ def lint_file(
         mod = found_keys.get("MODULE", "")
         va_str = found_keys.get("VA", "")
 
-        # Overlay metadata fields into found_keys for this annotation block.
+        # Overlay metadata fields into found_keys for this marker block.
         # Metadata always wins for the fields it owns (STATUS, SIZE, CFLAGS, etc.),
         # but we only overlay if the key is not already present inline — this lets
-        # any remaining inline annotation (from files not yet fully migrated) take
+        # any remaining inline marker (from files not yet fully migrated) take
         # precedence so the check accurately reflects what the compiler will see.
         # We also track which keys were supplied by the metadata (vs inline) so
         # that W019 can distinguish between a key that must be migrated and one
@@ -516,7 +516,7 @@ def _print_summary(results: list[LintResult]) -> None:
 
 
 app = typer.Typer(
-    help="Lint annotation standards for decomp C source files.",
+    help="Lint source marker standards for decomp C source files.",
     rich_markup_mode="rich",
     epilog="""\
 [bold]Examples:[/bold]
@@ -533,26 +533,26 @@ rebrew lint --files src/game/foo.c           Lint specific files only
 
 [bold]Error codes:[/bold]
 
-E001   Missing FUNCTION/LIBRARY/STUB annotation
+E001   Missing FUNCTION/LIBRARY/STUB marker
 
 E002   Invalid VA format or range
 
-E003   Missing STATUS annotation
+E003   Missing STATUS metadata
 
 E013   Duplicate VA across files
 
 
 W005   STUB without BLOCKER explanation
 
-W016   DATA/GLOBAL missing SECTION annotation
+W016   DATA/GLOBAL missing SECTION metadata
 
 W017   NOTE contains [rebrew] sync metadata
 
-W010   Unknown annotation key
+W010   Unknown marker key
 
 W018   Missing CFLAGS with no config fallback
 
-[dim]Checks for reccmp-style annotations in the first 20 lines of each .c file.[/dim]""",
+[dim]Checks for reccmp-style markers in the first 20 lines of each .c file.[/dim]""",
 )
 
 
@@ -565,7 +565,7 @@ def main(
     target: str | None = TargetOption,
     summary: bool = typer.Option(False, "--summary", help="Print status/origin breakdown"),
 ) -> None:
-    """Lint annotation standards in decomp C source files."""
+    """Lint source marker standards in decomp C source files."""
     cfg = None
     try:
         cfg = get_config(target=target)

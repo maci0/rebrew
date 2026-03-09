@@ -409,7 +409,7 @@ placeholder function body.  All volatile metadata (STATUS, SIZE, CFLAGS,
 BLOCKER) is written to the ``rebrew-function.toml`` metadata alongside the
 .c file, not into the file itself.
 
-With --append, the annotation block is appended to an existing .c file,
+With --append, the marker block is appended to an existing .c file,
 enabling multi-function compilation units where related functions share a file.
 
 [dim]Reads ghidra_functions.json and existing .c files to determine what's uncovered.
@@ -567,7 +567,7 @@ def main(
 
     module_val = cfg.marker  # Use the project marker as module name
 
-    # --append mode: add annotation block to an existing file
+    # --append mode: add marker block to an existing file
     if append:
         append_path = Path(append)
         if not append_path.is_absolute():

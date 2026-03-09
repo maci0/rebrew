@@ -18,7 +18,7 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 | 6 | XREF context in skeleton | `rebrew skeleton --xrefs` — fetches cross-references via MCP, decompiles callers. 9 tests. |
 | 7 | Ghidra decompilation backend | `fetch_ghidra()` in `decompiler.py` via ReVa MCP `get-decompilation`. 12 tests. |
 | 9 | Validate programPath | `ghidra_program_path` config + `_resolve_program_path()` in `sync.py`. |
-| 12 | Auto-BLOCKER classification | `rebrew match --diff-only --fix-blocker` — `classify_blockers()` auto-writes annotations. 20 tests. |
+| 12 | Auto-BLOCKER classification | `rebrew match --diff-only --fix-blocker` — `classify_blockers()` auto-writes metadata. 20 tests. |
 | 13 | Multi-function file splitting | `rebrew split` + `rebrew merge` — split/merge with preamble preservation. 20 tests. |
 | 14 | Semantic equivalence with angr | `rebrew prove` — symbolic execution + Z3 constraint solving. Optional dep. |
 | — | Coverage dashboard | Sibling project `recoverage` — consumes `data_{target}.json`. |
