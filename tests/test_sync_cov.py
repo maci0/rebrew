@@ -67,14 +67,11 @@ class TestStatusBookmarkCategory:
     def test_matching(self) -> None:
         assert _STATUS_BOOKMARK_CATEGORY["MATCHING"] == "rebrew/matching"
 
-    def test_matching_reloc(self) -> None:
-        assert _STATUS_BOOKMARK_CATEGORY["MATCHING_RELOC"] == "rebrew/matching"
-
     def test_stub(self) -> None:
         assert _STATUS_BOOKMARK_CATEGORY["STUB"] == "rebrew/stub"
 
-    def test_has_five_entries(self) -> None:
-        assert len(_STATUS_BOOKMARK_CATEGORY) == 5
+    def test_has_four_entries(self) -> None:
+        assert len(_STATUS_BOOKMARK_CATEGORY) == 4
 
 
 # ---------------------------------------------------------------------------

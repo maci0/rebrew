@@ -8,6 +8,7 @@ Inspired by reccmp's decomplint tool.
 
 import contextlib
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,7 @@ from rebrew.annotation import (
     BLOCK_KV_RE,
     JAVADOC_ADDR_RE,
     JAVADOC_KV_RE,
+    NEW_FUNC_CAPTURE_RE,
     NEW_FUNC_RE,
     NEW_KV_RE,
     OLD_RE,
@@ -58,6 +60,9 @@ class LintResult:
     warnings: list[tuple[int, str, str]] = field(default_factory=list)
     context_prefix: str = ""
     marker_line: int = 1
+    # Counters collected during lint for --summary (avoids re-reading files).
+    _status_counts: Counter[str] = field(default_factory=Counter)
+    _marker_counts: Counter[str] = field(default_factory=Counter)
 
     def error(self, line: int, code: str, msg: str) -> None:
         """Record an error diagnostic at *line*."""
@@ -125,7 +130,7 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
         bm = BLOCK_KV_RE.match(stripped)
         if bm and legacy_flags["has_block"]:
             legacy_keys[bm.group("key").upper()] = bm.group("value").strip()
-        if JAVADOC_ADDR_RE.match(stripped) or JAVADOC_KV_RE.match(stripped):
+        if JAVADOC_ADDR_RE.search(stripped) or JAVADOC_KV_RE.search(stripped):
             legacy_flags["has_javadoc"] = True
 
     # If it is legacy format, just return the first block we found so `fix` can handle it
@@ -182,92 +187,8 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
     return results
 
 
-def _parse_header(lines: list[str]) -> tuple[dict[str, str], dict[str, bool]]:
-    """Parse annotation header from first 20 lines.
-
-    Returns:
-        (found_keys, format_flags) where format_flags has keys:
-        has_new, has_old, has_block, has_javadoc
-
-    """
-    found_keys: dict[str, str] = {}
-    flags = {"has_new": False, "has_old": False, "has_block": False, "has_javadoc": False}
-
-    pending_kv: dict[str, str] = {}
-
-    for line in lines[:20]:
-        stripped = line.strip()
-        if not stripped:
-            continue
-
-        if NEW_FUNC_RE.match(stripped):
-            flags["has_new"] = True
-            found_keys.update(pending_kv)
-            pending_kv = {}
-            m = _HEADER_MARKER_RE.match(stripped)
-            if m:
-                found_keys["MARKER"] = m.group(1)
-                found_keys["MODULE"] = m.group(2)
-                found_keys["VA"] = m.group(3)
-            continue
-
-        m = NEW_KV_RE.match(stripped)
-        if m:
-            if flags["has_new"]:
-                found_keys[m.group("key").upper()] = m.group("value").strip()
-            else:
-                pending_kv[m.group("key").upper()] = m.group("value").strip()
-            continue
-
-        if BLOCK_FUNC_RE.match(stripped):
-            flags["has_block"] = True
-            bm = BLOCK_FUNC_CAPTURE_RE.match(stripped)
-            if bm:
-                found_keys["MARKER"] = bm.group("type")
-                found_keys["MODULE"] = bm.group("module")
-                found_keys["VA"] = bm.group("va")
-            continue
-
-        bm = BLOCK_KV_RE.match(stripped)
-        if bm and flags["has_block"] and not flags["has_new"]:
-            found_keys[bm.group("key").upper()] = bm.group("value").strip()
-            continue
-
-        jm = JAVADOC_ADDR_RE.search(stripped)
-        if jm:
-            flags["has_javadoc"] = True
-            found_keys["VA"] = jm.group("va")
-            continue
-
-        jm = JAVADOC_KV_RE.match(stripped)
-        if jm and flags["has_javadoc"]:
-            key = jm.group("key").upper()
-            val = jm.group("value").strip()
-            if key == "ADDRESS":
-                found_keys["VA"] = val
-            elif key in (
-                "STATUS",
-                "CFLAGS",
-                "SOURCE",
-                "BLOCKER",
-                "NOTE",
-            ):
-                found_keys[key] = val
-            continue
-
-        if OLD_RE.match(stripped):
-            flags["has_old"] = True
-            break
-
-        if (
-            not stripped.startswith("//")
-            and not stripped.startswith("/*")
-            and not stripped.startswith("*")
-            and not stripped.startswith("*/")
-        ):
-            break
-
-    return found_keys, flags
+# _parse_header was removed — _parse_multi_headers handles all cases,
+# including legacy formats and broken files, in a single code path.
 
 
 def _check_format_warnings(
@@ -350,6 +271,10 @@ def _check_E013_duplicate_va(
 
 
 def _check_E003_E004_status(result: LintResult, found_keys: dict[str, str]) -> None:
+    # STATUS is a special key: it is in REQUIRED_KEYS (not SIDECAR_KEYS), yet
+    # it can be supplied from either the inline annotation OR the rebrew-function.toml
+    # sidecar.  The sidecar overlay in lint_file() injects STATUS into found_keys
+    # before this check runs, so E003 only fires when STATUS is absent from both.
     if "STATUS" not in found_keys:
         result.error(result.marker_line, "E003", "Missing // STATUS: annotation")
     elif found_keys["STATUS"] not in VALID_STATUSES:
@@ -361,18 +286,6 @@ def _check_E003_E004_status(result: LintResult, found_keys: dict[str, str]) -> N
             )
         else:
             result.error(result.marker_line, "E004", f"Invalid STATUS: {found_keys['STATUS']}")
-
-
-def _check_E007_E008_size(result: LintResult, found_keys: dict[str, str]) -> None:
-    if "SIZE" not in found_keys:
-        result.error(result.marker_line, "E007", "Missing // SIZE: annotation")
-    else:
-        try:
-            sz = int(found_keys["SIZE"])
-            if sz <= 0:
-                result.error(result.marker_line, "E008", f"Invalid SIZE: {found_keys['SIZE']}")
-        except ValueError:
-            result.error(result.marker_line, "E008", f"Invalid SIZE: {found_keys['SIZE']}")
 
 
 def _check_W018_cflags(
@@ -409,16 +322,10 @@ def _check_E015_marker_consistency(
 
 
 def _check_E017_contradictory(result: LintResult, status: str, marker: str) -> None:
-    if status in ("MATCHING", "MATCHING_RELOC") and marker == "STUB":
+    if status == "MATCHING" and marker == "STUB":
         result.error(
             result.marker_line, "E017", f"Contradictory: status is {status} but marker is STUB"
         )
-
-
-def _check_W001_symbol(result: LintResult, found_keys: dict[str, str]) -> None:
-    # SYMBOL is now derived from C function definitions — no warning needed.
-    # Kept as a no-op for any callers that reference it.
-    pass
 
 
 def _check_W005_blocker(result: LintResult, status: str, found_keys: dict[str, str]) -> None:
@@ -494,7 +401,8 @@ def _check_W017_note_rebrew(result: LintResult, found_keys: dict[str, str]) -> N
 
 
 # Keys owned by data_sidecar (rebrew-data.toml) rather than the function sidecar.
-_DATA_SIDECAR_KEYS: frozenset[str] = frozenset({"SECTION", "NOTE", "SIZE"})
+# Maps uppercase annotation key -> lowercase TOML field name.
+_DATA_SIDECAR_KEY_MAP: dict[str, str] = {"SIZE": "size", "SECTION": "section", "NOTE": "note"}
 
 
 def _check_W019_inline_sidecar_keys(
@@ -513,9 +421,9 @@ def _check_W019_inline_sidecar_keys(
     for key in SIDECAR_KEYS:
         if key in found_keys and key not in sidecar_sourced_keys:
             # Choose the right sidecar filename for this key.
-            if is_data and key in _DATA_SIDECAR_KEYS:
+            if is_data and key in _DATA_SIDECAR_KEY_MAP:
                 toml_file = "rebrew-data.toml"
-            elif key in _DATA_SIDECAR_KEYS and not is_data:
+            elif key in _DATA_SIDECAR_KEY_MAP and not is_data:
                 # SECTION/NOTE/SIZE on a function marker → still goes to functions sidecar
                 toml_file = "rebrew-function.toml"
             else:
@@ -589,9 +497,11 @@ def lint_file(
 
     all_headers = _parse_multi_headers(lines)
     if not all_headers:
-        # Fallback to standard for totally broken files
-        found_keys, flags = _parse_header(lines)
-        all_headers = [(found_keys, flags)]
+        # Totally broken file — no recognisable annotation format found.
+        # Synthesise a minimal entry so the loop below can report E001.
+        all_headers = [
+            ({}, {"has_new": False, "has_old": False, "has_block": False, "has_javadoc": False})
+        ]
 
     # Load the per-directory sidecar once so all annotation blocks in this file can use it.
     # Keys in the result: (module, va_int) -> {toml_field: value}
@@ -688,6 +598,12 @@ def lint_file(
             module = found_keys.get("MODULE", "")
             status = found_keys.get("STATUS", "")
 
+            # Collect summary data during the lint pass (used by _print_summary).
+            if marker:
+                result._marker_counts[marker] += 1
+            if status:
+                result._status_counts[status] += 1
+
             _check_E015_marker_consistency(result, marker, module, status, cfg)
             _check_W005_blocker(result, status, found_keys)
             _check_W006_source(result, module, found_keys, cfg)
@@ -748,7 +664,7 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
 
                 va_int = int(va_str, 16)
                 _set_field(filepath.parent, va_int, "cflags", cflags, module=cfg.marker)
-            except Exception:  # noqa: BLE001
+            except (OSError, ValueError, KeyError):
                 # Sidecar write failure is non-fatal; fall back to inline for now
                 annotation += f"// CFLAGS: {cflags}\n"
 
@@ -799,7 +715,7 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
                         found_keys[_extra_key],
                         module=module,
                     )
-        except Exception:  # noqa: BLE001
+        except (OSError, ValueError, KeyError):
             # Sidecar write failure: fall back to inline for sidecar keys
             for extra_key in ("CFLAGS", "BLOCKER", "SOURCE", "NOTE", "SKIP"):
                 if extra_key in found_keys:
@@ -854,7 +770,6 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
     # each block's VA and marker type are resolved independently.
     from rebrew.annotation import SIDECAR_KEYS as _SIDECAR_KEYS
 
-    _DATA_KEY_MAP: dict[str, str] = {"SIZE": "size", "SECTION": "section", "NOTE": "note"}
     _drop_lines: set[int] = set()
     _any_migrated = False
 
@@ -876,15 +791,14 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
         _block_ranges.append((_start, _end))
 
     for _bstart, _bend in _block_ranges:
-        # Parse marker line to get type, module, VA.
+        # Parse marker line to get type, module, VA using the canonical regex.
         _marker_line = lines[_bstart].strip()
-        _parts = _marker_line.split(None, 2)  # ["//", "MARKER:", "MODULE 0xVA"]
-        if len(_parts) < 3:
+        _marker_m = NEW_FUNC_CAPTURE_RE.match(_marker_line)
+        if not _marker_m:
             continue
-        _marker_type = _parts[1].rstrip(":").upper()
-        _rest = _parts[2].split()
-        _module = _rest[0] if _rest else ""
-        _va_hex = _rest[1].lower() if len(_rest) > 1 else ""
+        _marker_type = _marker_m.group("type").upper()
+        _module = _marker_m.group("module")
+        _va_hex = _marker_m.group("va").lower()
         if not _module or not _va_hex:
             continue
 
@@ -919,12 +833,14 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
             if _is_data:
                 from rebrew.data_sidecar import set_data_field as _set_data_field
 
-                for _k, _toml_k in _DATA_KEY_MAP.items():
+                for _k, _toml_k in _DATA_SIDECAR_KEY_MAP.items():
                     if _k in _block_sidecar:
                         _set_data_field(
                             filepath.parent, _va_int, _toml_k, _block_sidecar[_k], module=_module
                         )
-                _remaining = {k: v for k, v in _block_sidecar.items() if k not in _DATA_KEY_MAP}
+                _remaining = {
+                    k: v for k, v in _block_sidecar.items() if k not in _DATA_SIDECAR_KEY_MAP
+                }
                 if _remaining:
                     from rebrew.sidecar import set_field as _set_field2
 
@@ -936,14 +852,16 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
                 for _k, _v in _block_sidecar.items():
                     _set_field(filepath.parent, _va_int, _k.lower(), _v, module=_module)
             _any_migrated = True
-        except Exception:  # noqa: BLE001
+        except (OSError, ValueError, KeyError):
             # Sidecar write failure for this block — skip stripping its lines
-            _drop_lines -= set(
+            _drop_lines -= {
                 _li
                 for _li in range(_bstart + 1, _bend)
-                if NEW_KV_RE.match(lines[_li].strip())
-                and NEW_KV_RE.match(lines[_li].strip()).group("key").upper() in _block_sidecar  # type: ignore[union-attr]
-            )
+                if (
+                    (_km2 := NEW_KV_RE.match(lines[_li].strip()))
+                    and _km2.group("key").upper() in _block_sidecar
+                )
+            }
 
     if not _any_migrated:
         return False
@@ -955,30 +873,16 @@ def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
 
 
 def _print_summary(results: list[LintResult]) -> None:
-    """Print a breakdown table by status and marker type."""
-    from collections import Counter
+    """Print a breakdown table by status and marker type.
 
+    Uses counters collected during the lint pass (LintResult._status_counts
+    and _marker_counts) instead of re-reading every file.
+    """
     status_counts: Counter[str] = Counter()
     marker_counts: Counter[str] = Counter()
-
     for r in results:
-        # Re-parse to get fields (lightweight — only header lines)
-        try:
-            text = r.filepath.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        for line in text.splitlines()[:20]:
-            stripped = line.strip()
-            m = NEW_KV_RE.match(stripped)
-            if m:
-                key = m.group("key").upper()
-                val = m.group("value").strip()
-                if key == "STATUS":
-                    status_counts[val] += 1
-            elif NEW_FUNC_RE.match(stripped):
-                m2 = _MARKER_TYPE_RE.match(stripped)
-                if m2:
-                    marker_counts[m2.group(1)] += 1
+        status_counts += r._status_counts
+        marker_counts += r._marker_counts
 
     console.print()
     table = Table(title="Summary", show_lines=False, pad_edge=False)
@@ -1081,7 +985,9 @@ def main(
         would_fix: list[str] = []
         for cfile in c_files:
             result = lint_file(cfile, cfg=cfg)
-            needs_fix = any(code in ("W002", "W012", "W013") for _, code, _ in result.warnings)
+            needs_fix = any(
+                code in ("W002", "W012", "W013", "W019") for _, code, _ in result.warnings
+            )
             if needs_fix:
                 if dry_run:
                     would_fix.append(cfile.name)

@@ -103,7 +103,8 @@ def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, GhidraDataLabel]:
 # Function list parser
 # ---------------------------------------------------------------------------
 
-_FUNC_LINE_RE = re.compile(r"\s*(0x[0-9a-fA-F]+)\s+(\d+)\s+(\S+)")
+_FUNC_LINE_RE_SIZE_FIRST = re.compile(r"^\s*(0x[0-9a-fA-F]+)\s+(\d+)\s+(\S+)")
+_FUNC_LINE_RE_NAME_FIRST = re.compile(r"^\s*(0x[0-9a-fA-F]+)\s+(\S+)\s+(\d+)\s*$")
 
 
 def parse_function_list(path: Path) -> list[dict[str, Any]]:
@@ -116,15 +117,30 @@ def parse_function_list(path: Path) -> list[dict[str, Any]]:
         return funcs
 
     for line in text.splitlines():
-        m = _FUNC_LINE_RE.match(line)
-        if m:
+        if not line.strip() or line.strip().startswith("#"):
+            continue
+
+        m1 = _FUNC_LINE_RE_SIZE_FIRST.match(line)
+        if m1:
             funcs.append(
                 make_func_entry(
-                    va=int(m.group(1), 16),
-                    size=int(m.group(2)),
-                    name=m.group(3),
+                    va=int(m1.group(1), 16),
+                    size=int(m1.group(2)),
+                    name=m1.group(3),
                 )
             )
+            continue
+
+        m2 = _FUNC_LINE_RE_NAME_FIRST.match(line)
+        if m2:
+            funcs.append(
+                make_func_entry(
+                    va=int(m2.group(1), 16),
+                    size=int(m2.group(3)),
+                    name=m2.group(2),
+                )
+            )
+
     return funcs
 
 

@@ -890,3 +890,94 @@ int LogMessageInternal(void) { return 0; }
         assert fixed_text.startswith("// FUNCTION: SERVER")
         assert "// STATUS: RELOC" in fixed_text
         assert "int LogMessageInternal" in fixed_text
+
+    def test_fix_old_format(self, tmp_path: Path) -> None:
+        """fix_file should migrate old single-line format to canonical."""
+        from rebrew.lint import fix_file
+
+        cfg = _make_cfg()
+        content = """\
+/* bit_reverse @ 0x10008880 (31B) - /O2 /Gd - EXACT [GAME] */
+int __cdecl bit_reverse(int x)
+{
+    return x;
+}
+"""
+        f = _write_c(tmp_path, "bit_reverse.c", content)
+        assert fix_file(cfg, f)
+
+        fixed_text = f.read_text(encoding="utf-8")
+        assert fixed_text.startswith("// FUNCTION: SERVER")
+        assert "// STATUS: EXACT" in fixed_text
+        assert "int __cdecl bit_reverse" in fixed_text
+        # CFLAGS should be routed to sidecar, not inline
+        assert "// CFLAGS:" not in fixed_text
+
+    def test_fix_w019_inline_sidecar_keys(self, tmp_path: Path) -> None:
+        """fix_file should migrate inline sidecar keys to rebrew-function.toml."""
+        from rebrew.lint import fix_file
+
+        cfg = _make_cfg()
+        content = """\
+// FUNCTION: SERVER 0x10008880
+// STATUS: EXACT
+// CFLAGS: /O2 /Gd
+// BLOCKER: needs vtable
+int foo(void) { return 0; }
+"""
+        f = _write_c(tmp_path, "foo.c", content)
+        assert fix_file(cfg, f)
+
+        fixed_text = f.read_text(encoding="utf-8")
+        # CFLAGS and BLOCKER should be stripped from source
+        assert "// CFLAGS:" not in fixed_text
+        assert "// BLOCKER:" not in fixed_text
+        # Marker + STATUS should remain
+        assert "// FUNCTION: SERVER 0x10008880" in fixed_text
+        assert "// STATUS: EXACT" in fixed_text
+        # Sidecar should have the migrated keys
+        sidecar = tmp_path / "rebrew-function.toml"
+        assert sidecar.exists()
+        sidecar_text = sidecar.read_text(encoding="utf-8")
+        assert "cflags" in sidecar_text
+        assert "blocker" in sidecar_text
+
+
+# ---------------------------------------------------------------------------
+# _print_summary uses counters collected during lint
+# ---------------------------------------------------------------------------
+
+
+class TestPrintSummary:
+    def test_summary_counters_populated(self, tmp_path: Path) -> None:
+        """LintResult should have status/marker counters populated after lint."""
+        content = """\
+// FUNCTION: SERVER 0x10008880
+// STATUS: EXACT
+
+int __cdecl bit_reverse(int x) { return x; }
+"""
+        f = _write_c(tmp_path, "bit_reverse.c", content)
+        result = lint_file(f)
+        assert result._status_counts["EXACT"] == 1
+        assert result._marker_counts["FUNCTION"] == 1
+
+    def test_summary_counters_multi_block(self, tmp_path: Path) -> None:
+        """Multi-block file should accumulate counters across blocks."""
+        content = """\
+// FUNCTION: SERVER 0x10008880
+// STATUS: EXACT
+
+int func1() { return 1; }
+
+// STUB: SERVER 0x10009990
+// STATUS: STUB
+
+int func2() { return 0; }
+"""
+        f = _write_c(tmp_path, "multi.c", content)
+        result = lint_file(f)
+        assert result._status_counts["EXACT"] == 1
+        assert result._status_counts["STUB"] == 1
+        assert result._marker_counts["FUNCTION"] == 1
+        assert result._marker_counts["STUB"] == 1

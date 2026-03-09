@@ -84,6 +84,7 @@ _COMMAND_PANELS: dict[str, str] = {
     "split": "Development",
     "merge": "Development",
     # Analysis — understanding the binary and progress
+    "status": "Analysis",
     "todo": "Analysis",
     "data": "Analysis",
     "graph": "Analysis",
@@ -120,6 +121,7 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "rebrew.depgraph",
         "Function dependency graph visualization (--cu-map for CU boundaries).",
     ),
+    ("status", "rebrew.status", "At-a-glance reversing progress overview."),
     ("todo", "rebrew.todo", "Prioritized action list: what to work on next."),
     ("crt-match", "rebrew.crt_match", "CRT source cross-reference matcher."),
     ("flirt", "rebrew.flirt", "FLIRT signature scanning."),

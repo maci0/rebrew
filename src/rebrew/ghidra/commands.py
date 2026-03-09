@@ -37,7 +37,6 @@ _STATUS_BOOKMARK_CATEGORY = {
     "EXACT": "rebrew/exact",
     "RELOC": "rebrew/reloc",
     "MATCHING": "rebrew/matching",
-    "MATCHING_RELOC": "rebrew/matching",
     "STUB": "rebrew/stub",
 }
 
