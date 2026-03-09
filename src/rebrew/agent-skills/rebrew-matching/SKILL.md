@@ -1,6 +1,6 @@
 ---
 name: rebrew-matching
-description: Performs byte-level binary matching using diff analysis and the genetic algorithm engine. Use this skill when a function needs structural diff analysis, GA matching, or symbolic equivalence proving to achieve EXACT/RELOC/PROVEN status. Triggers on 'match', 'diff', 'GA', 'genetic algorithm', 'byte diff', 'MATCHING status', 'near-miss', 'BLOCKER', 'structural similarity', 'compiler flags', 'CFLAGS', 'prove', 'symbolic execution', 'angr', or 'semantic equivalence'.
+description: Performs byte-level binary matching using diff analysis and the genetic algorithm engine. Use this skill when a function needs structural diff analysis, GA matching, or symbolic equivalence proving to achieve EXACT/RELOC/PROVEN status. Triggers on 'match', 'diff', 'GA', 'genetic algorithm', 'byte diff', 'NEAR_MATCH status', 'near-miss', 'BLOCKER', 'structural similarity', 'compiler flags', 'CFLAGS', 'prove', 'symbolic execution', 'angr', or 'semantic equivalence'.
 license: MIT
 ---
 
@@ -74,7 +74,7 @@ When diff shows `flag_sensitive: true`, try compiler flag combinations before ru
 ```bash
 rebrew match src/<target>/<file>.c --flag-sweep-only      # single file: targeted flag sweep
 rebrew match src/<target>/<file>.c --flag-sweep-only -S --tier exhaustive  # exhaustive
-rebrew match --all --flag-sweep                           # batch: sweep all MATCHING functions
+rebrew match --all --flag-sweep                           # batch: sweep all NEAR_MATCH functions
 rebrew match --all --flag-sweep --fix-cflags              # auto-update CFLAGS on exact match
 ```
 
@@ -107,7 +107,7 @@ Use this to quickly rule out flag-based solutions before spending time on sweeps
 
 ## 6. Blocker Tracking
 
-When a function is MATCHING but not byte-perfect, blockers live in the `rebrew-function.toml` metadata file:
+When a function is NEAR_MATCH but not byte-perfect, blockers live in the `rebrew-function.toml` metadata file:
 
 ```toml
 ["SERVER.0x<VA>"]
@@ -122,11 +122,11 @@ Use `rebrew diff --fix-blocker` to auto-generate these from diff classification.
 - Always start with `rebrew diff` before running the GA.
 - For library-origin functions (MSVCRT, ZLIB), use `rebrew crt-match` to identify the reference source first.
 - Common CFLAGS presets: `/O2 /Gd` (GAME), `/O1 /Gd` (MSVCRT).
-- If a function remains MATCHING after GA and blockers are structural, use `rebrew prove`.
+- If a function remains NEAR_MATCH after GA and blockers are structural, use `rebrew prove`.
 
 ## 8. Symbolic Equivalence Proving
 
-When stuck at MATCHING due to structural differences (register allocation, instruction reordering,
+When stuck at NEAR_MATCH due to structural differences (register allocation, instruction reordering,
 loop unrolling), use `rebrew prove` to mathematically prove semantic equivalence:
 
 ```bash
@@ -146,9 +146,9 @@ How it works:
 
 Requirements:
 - angr must be installed: `uv pip install -e ".[prove]"`
-- Function must have STATUS: MATCHING or MATCHING_RELOC
+- Function must have STATUS: NEAR_MATCH or NEAR_MATCH_RELOC
 
 Limitations:
 - Floating-point heavy functions may not prove (Z3 struggles with x87/SSE)
 - Complex loops may cause timeout (increase with `--timeout N`)
-- Never produces false positives — if it can't prove, STATUS stays MATCHING
+- Never produces false positives — if it can't prove, STATUS stays NEAR_MATCH

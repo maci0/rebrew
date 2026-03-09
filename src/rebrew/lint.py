@@ -6,7 +6,6 @@ Supports --fix mode to auto-migrate from old format to new format.
 Inspired by reccmp's decomplint tool.
 """
 
-import contextlib
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -20,24 +19,13 @@ from rich.text import Text
 
 from rebrew.annotation import (
     ALL_KNOWN_KEYS,
-    BLOCK_FUNC_CAPTURE_RE,
-    BLOCK_FUNC_RE,
-    BLOCK_KV_RE,
-    JAVADOC_ADDR_RE,
-    JAVADOC_KV_RE,
-    METADATA_KEYS,
-    NEW_FUNC_CAPTURE_RE,
     NEW_FUNC_RE,
     NEW_KV_RE,
-    OLD_RE,
     VALID_MARKERS,
-    VALID_STATUSES,
     marker_for_module,
-    normalize_status,
 )
-from rebrew.cli import TargetOption, error_exit, get_config, json_print
+from rebrew.cli import TargetOption, get_config, json_print
 from rebrew.config import ProjectConfig
-from rebrew.utils import atomic_write_text
 
 console = Console(stderr=True)
 
@@ -103,42 +91,9 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
     Returns a list of tuples: (found_keys, format_flags).
     """
     results = []
-
     current_keys: dict[str, str] = {}
-    current_flags = {"has_new": False, "has_old": False, "has_block": False, "has_javadoc": False}
+    current_flags = {"has_new": False}
     in_block = False
-
-    # Check for legacy formats in the first 20 lines (for compatibility with single-block legacy fixes)
-    legacy_flags = {"has_new": False, "has_old": False, "has_block": False, "has_javadoc": False}
-    legacy_keys: dict[str, str] = {}
-
-    for line in lines[:20]:
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if NEW_FUNC_RE.match(stripped):
-            legacy_flags["has_new"] = True
-        if OLD_RE.search(stripped):
-            legacy_flags["has_old"] = True
-        if BLOCK_FUNC_RE.match(stripped):
-            legacy_flags["has_block"] = True
-            bm = BLOCK_FUNC_CAPTURE_RE.match(stripped)
-            if bm:
-                legacy_keys["MARKER"] = bm.group("type")
-                legacy_keys["MODULE"] = bm.group("module")
-                legacy_keys["VA"] = bm.group("va")
-        bm = BLOCK_KV_RE.match(stripped)
-        if bm and legacy_flags["has_block"]:
-            legacy_keys[bm.group("key").upper()] = bm.group("value").strip()
-        if JAVADOC_ADDR_RE.search(stripped) or JAVADOC_KV_RE.search(stripped):
-            legacy_flags["has_javadoc"] = True
-
-    # If it is legacy format, just return the first block we found so `fix` can handle it
-    if not legacy_flags["has_new"] and (
-        legacy_flags["has_old"] or legacy_flags["has_block"] or legacy_flags["has_javadoc"]
-    ):
-        return [(legacy_keys, legacy_flags)]
-
     pending_kv: dict[str, str] = {}
     seen_code_after_marker: bool = False
 
@@ -155,9 +110,6 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
             pending_kv = {}
             current_flags = {
                 "has_new": True,
-                "has_old": False,
-                "has_block": False,
-                "has_javadoc": False,
             }
             in_block = True
             seen_code_after_marker = False
@@ -187,47 +139,11 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
     return results
 
 
-# _parse_header was removed — _parse_multi_headers handles all cases,
-# including legacy formats and broken files, in a single code path.
-
-
 def _check_format_warnings(
     result: LintResult, found_keys: dict[str, str], flags: dict[str, bool]
 ) -> bool:
     """Check format-level warnings (W002, W012, W013). Returns True if validation should proceed."""
-    has_new = flags["has_new"]
-    has_old = flags["has_old"]
-    has_block = flags["has_block"]
-    has_javadoc = flags["has_javadoc"]
-
-    if has_block and not has_new:
-        result.warning(
-            1,
-            "W012",
-            "Block-comment annotation format detected "
-            "(/* FUNCTION: ... */ — run with --fix to migrate)",
-        )
-        flags["has_new"] = True
-
-    if has_javadoc and not flags["has_new"]:
-        result.warning(
-            result.marker_line,
-            "W013",
-            "Javadoc-style annotation format detected (@address — run with --fix to migrate)",
-        )
-        if "MARKER" not in found_keys:
-            module = found_keys.get("MODULE", "")
-            status = found_keys.get("STATUS", "RELOC")
-            found_keys["MARKER"] = marker_for_module(module, status)
-        flags["has_new"] = True
-
-    if has_old and not flags["has_new"]:
-        result.warning(
-            result.marker_line, "W002", "Old-format header detected (run with --fix to migrate)"
-        )
-        return False
-
-    if not flags["has_new"] and not has_old:
+    if not flags["has_new"]:
         result.error(result.marker_line, "E001", "Missing FUNCTION/LIBRARY/STUB annotation")
         return False
 
@@ -271,21 +187,9 @@ def _check_E013_duplicate_va(
 
 
 def _check_E003_E004_status(result: LintResult, found_keys: dict[str, str]) -> None:
-    # STATUS is a special key: it is in REQUIRED_KEYS (not METADATA_KEYS), yet
-    # it can be supplied from either the inline annotation OR the rebrew-function.toml
-    # metadata.  The metadata overlay in lint_file() injects STATUS into found_keys
-    # before this check runs, so E003 only fires when STATUS is absent from both.
-    if "STATUS" not in found_keys:
-        result.error(result.marker_line, "E003", "Missing // STATUS: annotation")
-    elif found_keys["STATUS"] not in VALID_STATUSES:
-        if "\\n" in found_keys["STATUS"]:
-            result.error(
-                result.marker_line,
-                "E014",
-                f"Corrupted STATUS value contains literal '\\n': {found_keys['STATUS']!r}",
-            )
-        else:
-            result.error(result.marker_line, "E004", f"Invalid STATUS: {found_keys['STATUS']}")
+    # STATUS is now strictly managed in rebrew-function.toml.
+    # We no longer validate it here since it's verified when parsed from the sidecar.
+    pass
 
 
 def _check_W018_cflags(
@@ -322,7 +226,7 @@ def _check_E015_marker_consistency(
 
 
 def _check_E017_contradictory(result: LintResult, status: str, marker: str) -> None:
-    if status == "MATCHING" and marker == "STUB":
+    if status == "NEAR_MATCH" and marker == "STUB":
         result.error(
             result.marker_line, "E017", f"Contradictory: status is {status} but marker is STUB"
         )
@@ -398,41 +302,6 @@ def _check_W017_note_rebrew(result: LintResult, found_keys: dict[str, str]) -> N
             "NOTE starts with '[rebrew]' — this looks like auto-generated sync metadata, "
             "not a human note (likely from a bad pull)",
         )
-
-
-# Keys owned by data_metadata (rebrew-data.toml) rather than the function metadata.
-# Maps uppercase annotation key -> lowercase TOML field name.
-_DATA_METADATA_KEY_MAP: dict[str, str] = {"SIZE": "size", "SECTION": "section", "NOTE": "note"}
-
-
-def _check_W019_inline_metadata_keys(
-    result: LintResult,
-    found_keys: dict[str, str],
-    metadata_sourced_keys: set[str],
-    marker: str = "",
-) -> None:
-    """Warn when a rebrew-specific annotation key appears inline in source.
-
-    These keys must live exclusively in the appropriate metadata TOML file.
-    DATA/GLOBAL annotations write SIZE/SECTION/NOTE to ``rebrew-data.toml``;
-    function annotations write everything else to ``rebrew-function.toml``.
-    """
-    is_data = marker in ("DATA", "GLOBAL")
-    for key in METADATA_KEYS:
-        if key in found_keys and key not in metadata_sourced_keys:
-            # Choose the right metadata filename for this key.
-            if is_data and key in _DATA_METADATA_KEY_MAP:
-                toml_file = "rebrew-data.toml"
-            elif key in _DATA_METADATA_KEY_MAP and not is_data:
-                # SECTION/NOTE/SIZE on a function marker → still goes to functions metadata
-                toml_file = "rebrew-function.toml"
-            else:
-                toml_file = "rebrew-function.toml"
-            result.warning(
-                result.marker_line,
-                "W019",
-                f"Inline // {key}: annotation must move to {toml_file}",
-            )
 
 
 def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> None:
@@ -613,289 +482,11 @@ def lint_file(
 
             _check_W015_va_case(result, va_str)
             _check_W016_section(result, marker, found_keys)
-            _check_W017_note_rebrew(result, found_keys)
-            _check_W019_inline_metadata_keys(result, found_keys, _metadata_sourced_keys, marker)
 
     result.context_prefix = ""
     _check_body_rules(result, lines, all_headers[0][1]["has_new"] if all_headers else False)
 
     return result
-
-
-def fix_file(cfg: ProjectConfig, filepath: Path) -> bool:
-    """Auto-migrate any legacy format to the canonical // KV format.
-
-    Handles:
-      - Old single-line: /* name @ 0xVA (NB) - /flags - STATUS [ORIGIN] */
-      - Block-comment:   /* FUNCTION: SERVER 0xVA */ + /* KEY: value */
-      - Javadoc:         @address 0xVA + @key value
-    """
-    try:
-        text = filepath.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return False
-
-    lines = text.splitlines(keepends=True)
-    if not lines:
-        return False
-
-    first = lines[0].strip()
-
-    # --- Try old single-line format ---
-    m = OLD_RE.match(first)
-    if m:
-        va_str = m.group("va").lower()
-        if not va_str.startswith("0x"):
-            va_str = "0x" + va_str
-        raw_cflags = m.group("cflags").strip()
-        status = normalize_status(m.group("status"))
-        marker = "STUB" if status == "STUB" else "FUNCTION"
-        cflags_parts = raw_cflags.split()
-        if "/Gd" not in cflags_parts:
-            cflags_parts.append("/Gd")
-        cflags = " ".join(cflags_parts)
-        # Write only the marker + STATUS inline; route CFLAGS and other volatile
-        # fields to the metadata so the .c file stays clean.
-        annotation = f"// {marker}: {cfg.marker} {va_str}\n// STATUS: {status}\n"
-        if cflags:
-            # Write CFLAGS to metadata
-            try:
-                from rebrew.metadata import update_field as _update_field
-
-                va_int = int(va_str, 16)
-                _update_field(cfg.metadata_dir, va_int, "cflags", cflags, module=cfg.marker)
-            except (OSError, ValueError, KeyError):
-                # Metadata write failure is non-fatal; fall back to inline for now
-                annotation += f"// CFLAGS: {cflags}\n"
-
-        new_text = annotation + "".join(lines[1:])
-        atomic_write_text(filepath, new_text, encoding="utf-8")
-        return True
-
-    # --- Try block-comment format: /* FUNCTION: SERVER 0x... */ ---
-    bm = BLOCK_FUNC_CAPTURE_RE.match(first)
-    if bm:
-        found_keys: dict[str, str] = {
-            "MARKER": bm.group("type"),
-            "MODULE": bm.group("module"),
-            "VA": bm.group("va").lower(),
-        }
-        header_end = 1
-        for idx, line in enumerate(lines[1:], 1):
-            stripped = line.strip()
-            km = BLOCK_KV_RE.match(stripped)
-            if km:
-                found_keys[km.group("key").upper()] = km.group("value").strip()
-                header_end = idx + 1
-            elif not stripped or stripped.startswith("//"):
-                # Skip blank lines or // comments mixed in
-                if not stripped:
-                    header_end = idx + 1
-                continue
-            else:
-                break
-
-        marker = found_keys.get("MARKER", "FUNCTION")
-        module = found_keys.get("MODULE", cfg.marker)
-        va_str = found_keys.get("VA", "0x0")
-        status = found_keys.get("STATUS", "RELOC")
-        # Build a clean annotation: only marker + STATUS inline.
-        # Route CFLAGS and other metadata fields to rebrew-function.toml.
-        annotation = f"// {marker}: {module} {va_str}\n// STATUS: {status}\n"
-        try:
-            from rebrew.metadata import update_field as _update_field
-
-            va_int = int(va_str, 16)
-            for _extra_key in ("CFLAGS", "BLOCKER", "SOURCE", "NOTE", "SKIP"):
-                if _extra_key in found_keys and found_keys[_extra_key]:
-                    _update_field(
-                        cfg.metadata_dir,
-                        va_int,
-                        _extra_key.lower(),
-                        found_keys[_extra_key],
-                        module=module,
-                    )
-        except (OSError, ValueError, KeyError):
-            # Metadata write failure: fall back to inline for metadata keys
-            for extra_key in ("CFLAGS", "BLOCKER", "SOURCE", "NOTE", "SKIP"):
-                if extra_key in found_keys:
-                    annotation += f"// {extra_key}: {found_keys[extra_key]}\n"
-
-        new_text = annotation + "".join(lines[header_end:])
-        atomic_write_text(filepath, new_text, encoding="utf-8")
-        return True
-    # --- Try javadoc format: /** ... @address 0x... */ ---
-    if first.startswith(("/**", "/*")):
-        found_keys_jd: dict[str, str] = {}
-        header_end = 0
-        in_javadoc = True
-        for idx, line in enumerate(lines):
-            stripped = line.strip()
-            jm = JAVADOC_ADDR_RE.search(stripped)
-            if jm:
-                found_keys_jd["VA"] = jm.group("va").lower()
-            jm2 = JAVADOC_KV_RE.match(stripped.lstrip("* "))
-            if jm2:
-                key = jm2.group("key").upper()
-                val = jm2.group("value").strip()
-                if key not in ("BRIEF",):
-                    found_keys_jd[key] = val
-            if "*/" in stripped:
-                header_end = idx + 1
-                in_javadoc = False
-                break
-
-        if not in_javadoc and "VA" in found_keys_jd:
-            # Successfully parsed javadoc
-            va_str = found_keys_jd.get("VA", "0x0")
-            # Resolve VA from ADDRESS if present
-            if "ADDRESS" in found_keys_jd:
-                va_str = found_keys_jd["ADDRESS"].lower()
-            status = found_keys_jd.get("STATUS", "RELOC").upper()
-            module = found_keys_jd.get("MODULE", cfg.marker)
-            marker = marker_for_module(module, status)
-            cflags = found_keys_jd.get("CFLAGS", "")
-            annotation = f"// {marker}: {cfg.marker} {va_str}\n// STATUS: {status}\n"
-            if cflags:
-                annotation += f"// CFLAGS: {cflags}\n"
-
-            new_text = annotation + "".join(lines[header_end:])
-            atomic_write_text(filepath, new_text, encoding="utf-8")
-            return True
-
-    # --- W019: new-format files with inline metadata keys ---
-    # Segment the file into annotation blocks, then for each block strip any
-    # metadata-owned inline keys and route them to the correct TOML.
-    # This handles multi-annotation files (e.g. globals.c) correctly because
-    # each block's VA and marker type are resolved independently.
-    from rebrew.annotation import METADATA_KEYS as _METADATA_KEYS
-
-    _drop_lines: set[int] = set()
-    _any_migrated = False
-
-    # Split file into annotation blocks. Each block starts at a NEW_FUNC_RE
-    # marker line and its KV lines follow (up to the next marker or blank/code line
-    # that ends the annotation header).
-    _block_start_indices: list[int] = []
-    for _li, _line in enumerate(lines):
-        if NEW_FUNC_RE.match(_line.strip()):
-            _block_start_indices.append(_li)
-
-    if not _block_start_indices:
-        return False  # No new-format markers found; not a new-format file
-
-    # Build per-block ranges: block i spans [_block_start_indices[i], _block_start_indices[i+1])
-    _block_ranges = []
-    for _bi, _start in enumerate(_block_start_indices):
-        _end = _block_start_indices[_bi + 1] if _bi + 1 < len(_block_start_indices) else len(lines)
-        _block_ranges.append((_start, _end))
-
-    for _bstart, _bend in _block_ranges:
-        # Parse marker line to get type, module, VA using the canonical regex.
-        _marker_line = lines[_bstart].strip()
-        _marker_m = NEW_FUNC_CAPTURE_RE.match(_marker_line)
-        if not _marker_m:
-            continue
-        _marker_type = _marker_m.group("type").upper()
-        _module = _marker_m.group("module")
-        _va_hex = _marker_m.group("va").lower()
-        if not _module or not _va_hex:
-            continue
-
-        _va_int: int | None = None
-        with contextlib.suppress(ValueError):
-            _va_int = int(_va_hex, 16)
-        if _va_int is None:
-            continue
-
-        _is_data = _marker_type in ("GLOBAL", "DATA")
-
-        # Collect inline metadata keys within this block's KV lines only.
-        # KV lines are consecutive `// KEY: value` lines immediately after the marker.
-        _block_metadata: dict[str, str] = {}
-        for _li in range(_bstart + 1, _bend):
-            _stripped = lines[_li].strip()
-            if not _stripped or not _stripped.startswith("//"):
-                break  # Blank or code — end of annotation header
-            _km = NEW_KV_RE.match(_stripped)
-            if not _km:
-                break
-            _k = _km.group("key").upper()
-            if _k in _METADATA_KEYS:
-                _block_metadata[_k] = _km.group("value").strip()
-                _drop_lines.add(_li)
-
-        if not _block_metadata:
-            continue
-
-        # Write metadata keys to the appropriate TOML.
-        try:
-            if _is_data:
-                from rebrew.data_metadata import set_data_field as _set_data_field
-
-                for _k, _toml_k in _DATA_METADATA_KEY_MAP.items():
-                    if _k in _block_metadata:
-                        _set_data_field(
-                            cfg.metadata_dir if cfg else filepath.parent,
-                            _va_int,
-                            _toml_k,
-                            _block_metadata[_k],
-                            module=_module,
-                        )
-                _remaining = {
-                    k: v for k, v in _block_metadata.items() if k not in _DATA_METADATA_KEY_MAP
-                }
-                if _remaining:
-                    from rebrew.metadata import update_field as _update_field2
-
-                    for _k, _v in _remaining.items():
-                        if _k == "STATUS":
-                            from rebrew.metadata import update_source_status as _update_status2
-
-                            _update_status2(filepath, _v, _module, _va_int)
-                        else:
-                            _update_field2(
-                                cfg.metadata_dir if cfg else filepath.parent,
-                                _va_int,
-                                _k.lower(),
-                                _v,
-                                module=_module,
-                            )
-            else:
-                from rebrew.metadata import update_field as _update_field
-
-                for _k, _v in _block_metadata.items():
-                    if _k == "STATUS":
-                        from rebrew.metadata import update_source_status as _update_status
-
-                        _update_status(filepath, _v, _module, _va_int)
-                    else:
-                        _update_field(
-                            cfg.metadata_dir if cfg else filepath.parent,
-                            _va_int,
-                            _k.lower(),
-                            _v,
-                            module=_module,
-                        )
-            _any_migrated = True
-        except (OSError, ValueError, KeyError):
-            # Metadata write failure for this block — skip stripping its lines
-            _drop_lines -= {
-                _li
-                for _li in range(_bstart + 1, _bend)
-                if (
-                    (_km2 := NEW_KV_RE.match(lines[_li].strip()))
-                    and _km2.group("key").upper() in _block_metadata
-                )
-            }
-
-    if not _any_migrated:
-        return False
-
-    # Write the stripped source file (remove inline metadata key lines).
-    new_text = "".join(line for li, line in enumerate(lines) if li not in _drop_lines)
-    atomic_write_text(filepath, new_text, encoding="utf-8")
-    return True
 
 
 def _print_summary(results: list[LintResult]) -> None:
@@ -932,10 +523,6 @@ app = typer.Typer(
 
 rebrew lint                                  Lint all .c files in reversed_dir
 
-rebrew lint --fix                            Auto-migrate old-format annotations
-
-rebrew lint --fix --dry-run                  Preview which files would be changed
-
 rebrew lint --quiet                          Errors only, suppress warnings
 
 rebrew lint --json                           Machine-readable JSON output
@@ -961,20 +548,16 @@ W016   DATA/GLOBAL missing SECTION annotation
 
 W017   NOTE contains [rebrew] sync metadata
 
-W019   Inline annotation that must live in rebrew-function.toml metadata
-
 W010   Unknown annotation key
 
 W018   Missing CFLAGS with no config fallback
 
-[dim]Checks for reccmp-style annotations in the first 20 lines of each .c file.
-Supports old-format, block-comment, and javadoc annotation styles (--fix migrates them).[/dim]""",
+[dim]Checks for reccmp-style annotations in the first 20 lines of each .c file.[/dim]""",
 )
 
 
 @app.callback(invoke_without_command=True)
 def main(
-    fix: bool = typer.Option(False, help="Auto-migrate old-format headers to new annotations"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     quiet: bool = typer.Option(False, help="Only show errors, suppress warnings"),
     files: list[Path] = typer.Option(None, help="Check specific files instead of all *.c"),
@@ -1002,37 +585,6 @@ def main(
         c_files = iter_sources(reversed_dir, cfg)
     else:
         c_files = sorted(Path.cwd().rglob(f"*{ext}"))
-
-    if fix:
-        if cfg is None:
-            error_exit("--fix requires a valid rebrew-project.toml config")
-        fixed = 0
-        already_ok = 0
-        would_fix: list[str] = []
-        for cfile in c_files:
-            result = lint_file(cfile, cfg=cfg)
-            needs_fix = any(
-                code in ("W002", "W012", "W013", "W019") for _, code, _ in result.warnings
-            )
-            if needs_fix:
-                if dry_run:
-                    would_fix.append(cfile.name)
-                elif fix_file(cfg, cfile):
-                    fixed += 1
-                else:
-                    print(f"  Could not fix: {cfile.name}")
-            else:
-                already_ok += 1
-        if dry_run:
-            if would_fix:
-                console.print(f"[dim]Would fix {len(would_fix)} files:[/]")
-                for name in would_fix:
-                    console.print(f"  {name}")
-            else:
-                console.print("[green]All files already compliant (nothing to fix)[/]")
-        else:
-            print(f"Fixed {fixed} files, {already_ok} already compliant")
-        return
 
     # Cross-file duplicate VA tracking
     seen_vas: dict[int, str] = {}

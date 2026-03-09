@@ -116,7 +116,7 @@ class DispatchEntry:
 
     target_va: int
     name: str = ""  # resolved function name, or ""
-    status: str = ""  # EXACT / RELOC / MATCHING / STUB / UNKNOWN / ""
+    status: str = ""  # EXACT / RELOC / NEAR_MATCH / STUB / UNKNOWN / ""
 
 
 @dataclass
@@ -687,7 +687,7 @@ def _render_dispatch(console: Console, tables: list[DispatchTable]) -> None:
             status_color = {
                 "EXACT": "green",
                 "RELOC": "blue",
-                "MATCHING": "yellow",
+                "NEAR_MATCH": "yellow",
                 "STUB": "red",
             }.get(entry.status, "dim")
 

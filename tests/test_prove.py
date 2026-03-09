@@ -118,7 +118,7 @@ class TestResolveSource:
 
 
 class TestProveCLIStatusGuard:
-    """The CLI must reject functions that aren't MATCHING / RELOC."""
+    """The CLI must reject functions that aren't NEAR_MATCH / RELOC."""
 
     def _make_project(self, tmp_path: Path, status: str) -> tuple[Path, Path]:
         """Create a minimal rebrew project with one .c file at the given status."""

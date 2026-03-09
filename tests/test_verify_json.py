@@ -277,7 +277,7 @@ class TestVerifyDiff:
     def test_diff_matching_alias(self) -> None:
         previous = {
             "results": [
-                {"va": "0x10008000", "name": "func_alias", "status": "MATCHING", "delta": 3}
+                {"va": "0x10008000", "name": "func_alias", "status": "NEAR_MATCH", "delta": 3}
             ]
         }
         current = {

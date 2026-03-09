@@ -84,20 +84,7 @@ class TestDataAnnotationMarker:
         d = ann.to_dict()
         assert "section" not in d
 
-    def test_data_block_comment_format(self) -> None:
-        """Parse // DATA: in block comment format."""
-        lines = [
-            "/* DATA: SERVER 0x10025000 */",
-            "/* SIZE: 64 */",
-            "/* SECTION: .data */",
-        ]
-        ann = parse_new_format(lines)
-        assert ann is not None
-        assert ann.marker_type == "DATA"
-        assert ann.section == ".data"
 
-
-# ---------------------------------------------------------------------------
 # Idea #14: BSS layout verification
 # ---------------------------------------------------------------------------
 
