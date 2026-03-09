@@ -268,7 +268,9 @@ def _collect_library_annotations(
     library_modules = {m.upper() for m in getattr(cfg, "library_modules", [])}
 
     for source_path in iter_sources(cfg.reversed_dir, cfg):
-        for ann in parse_c_file_multi(source_path, target_name=cfg.marker):
+        for ann in parse_c_file_multi(
+            source_path, target_name=cfg.marker, sidecar_dir=source_path.parent
+        ):
             module_upper = (ann.module or "").upper()
             if ann.marker_type != "LIBRARY" and module_upper not in library_modules:
                 continue
