@@ -311,7 +311,7 @@ def main(
         help="Output format: terminal, csv",
     ),
     force: bool = typer.Option(
-        False, "--force", help="Continue even if annotation lint errors exist"
+        False, "--force", help="Continue even if source marker lint errors exist"
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

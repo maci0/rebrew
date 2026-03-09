@@ -1,11 +1,11 @@
 # Rebrew Metadata Format
 
 This document describes the two-layer metadata system used by rebrew to track
-function and data annotations.
+function and data metadata.
 
 ## Layer 1: Inline reccmp Markers (in `.c` files)
 
-Only **one kind** of annotation line remains inside source files — the
+Only **one kind** of marker line remains inside source files — the
 reccmp-compatible marker line:
 
 ```c

@@ -107,12 +107,12 @@ def _build_output_name(symbol: str, va: int, ext: str) -> str:
     return f"{stem}{ext}"
 
 
-# Matches // CFLAGS: <flags> annotation lines.
+# Matches // CFLAGS: <flags> marker lines.
 _CFLAGS_RE = re.compile(r"^(\s*//\s*CFLAGS:\s*)(.*)$", re.MULTILINE)
 
 
 def _inject_include_parent(block: str) -> str:
-    """Add ``/I..`` to the ``// CFLAGS:`` annotation inside *block*.
+    """Add ``/I..`` to the ``// CFLAGS:`` marker inside *block*.
 
     When a function is extracted into a subdirectory (e.g. ``command_c/``),
     the compiler's ``-I<source_parent>`` points to the subdirectory instead
