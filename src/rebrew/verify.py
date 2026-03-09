@@ -152,7 +152,8 @@ _STATUS_RANK: dict[str, int] = {
     "EXACT": 0,
     "RELOC": 1,
     "STUB": 2,
-    "NEAR_MATCH": 2,
+    "MATCHING_RELOC": 2,
+    "MATCHING": 2,
     "COMPILE_ERROR": 3,
     "MISSING_FILE": 4,
     "FAIL": 5,
@@ -509,7 +510,8 @@ def main(
             "exact": sum(1 for r in results if r["status"] == "EXACT"),
             "reloc": sum(1 for r in results if r["status"] == "RELOC"),
             "stub": sum(1 for r in results if r["status"] == "STUB"),
-            "near_match": sum(1 for r in results if r["status"] == "NEAR_MATCH"),
+            "matching_reloc": sum(1 for r in results if r["status"] == "MATCHING_RELOC"),
+            "matching": sum(1 for r in results if r["status"] == "MATCHING"),
             "compile_error": sum(1 for r in results if r["status"] == "COMPILE_ERROR"),
             "missing_file": sum(1 for r in results if r["status"] == "MISSING_FILE"),
         },
@@ -817,10 +819,11 @@ def _apply_status_fixes(
         current_status = getattr(entry, "status", "")
         if status in ("EXACT", "RELOC") and current_status != status:
             update_source_status(cfg.metadata_dir, status, module, entry.va, clear_blockers=True)
-        elif status in ("STUB", "NEAR_MATCH") and current_status in ("EXACT", "RELOC"):
-            update_source_status(
-                cfg.metadata_dir, "NEAR_MATCH", module, entry.va, clear_blockers=False
-            )
+        elif status in ("STUB", "MATCHING", "MATCHING_RELOC") and current_status in (
+            "EXACT",
+            "RELOC",
+        ):
+            update_source_status(cfg.metadata_dir, status, module, entry.va, clear_blockers=False)
 
 
 def _print_results(
@@ -892,15 +895,19 @@ def _print_results(
                 st_str = "[green]RELOC[/]"
             elif st == "STUB":
                 st_str = "[dim]STUB[/]"
-            elif st == "NEAR_MATCH":
-                st_str = "[yellow]NEAR_MATCH[/]"
+            elif st in ("MATCHING", "MATCHING_RELOC"):
+                st_str = f"[yellow]{st}[/]"
             elif st == "COMPILE_ERROR":
                 st_str = "[red]ERROR[/]"
             else:
                 st_str = f"[red]{st}[/]"
 
-            pct = f"{r['match_percent']:.1f}%" if st in ("STUB", "NEAR_MATCH") else "-"
-            dt = f"{r.get('delta', 0)}B" if st in ("STUB", "NEAR_MATCH") else "-"
+            pct = (
+                f"{r['match_percent']:.1f}%"
+                if st in ("STUB", "MATCHING", "MATCHING_RELOC")
+                else "-"
+            )
+            dt = f"{r.get('delta', 0)}B" if st in ("STUB", "MATCHING", "MATCHING_RELOC") else "-"
             table.add_row(r["va"], r["name"], f"{r['size']}B", st_str, pct, dt)
 
         console.print(table)
@@ -925,10 +932,10 @@ def _print_results(
         stat_table.add_column("Count", justify="right")
         stat_table.add_row("EXACT", str(exact))
         stat_table.add_row("RELOC", str(reloc))
-        stat_table.add_row("NEAR_MATCH (0B delta)", str(mismatch_0b))
-        stat_table.add_row("NEAR_MATCH (1-5B delta)", str(mismatch_1_5))
-        stat_table.add_row("NEAR_MATCH (6-20B delta)", str(mismatch_6_20))
-        stat_table.add_row("NEAR_MATCH (21+B delta)", str(mismatch_21))
+        stat_table.add_row("MATCHING (0B delta)", str(mismatch_0b))
+        stat_table.add_row("MATCHING (1-5B delta)", str(mismatch_1_5))
+        stat_table.add_row("MATCHING (6-20B delta)", str(mismatch_6_20))
+        stat_table.add_row("MATCHING (21+B delta)", str(mismatch_21))
 
         console.print(stat_table)
 
@@ -952,7 +959,7 @@ def _print_results(
             fp = getattr(entry, "filepath", "")
             ln = getattr(entry, "line", 0)
             fp_suffix = f" [dim]({fp}:{ln})[/]" if fp and ln else f" [dim]({fp})[/]" if fp else ""
-            if st in ("STUB", "NEAR_MATCH"):
+            if st in ("STUB", "MATCHING", "MATCHING_RELOC"):
                 match_pct = float(res_dict.get("match_percent", 0.0)) if res_dict else 0.0
                 console.print(
                     rf"  [red bold]\[{match_pct:.1f}%][/] 0x{entry.va:08X} {entry.name}{fp_suffix}: {msg}"

@@ -83,7 +83,7 @@ rebrew test --all --dry-run                          List batch candidates witho
 
 4. Reports EXACT, RELOC (match after masking relocations), or STUB
 
-5. Updates STATUS in metadata (EXACT / RELOC / NEAR_MATCH) — skip with --no-promote (auto-skipped if file is outside project)
+5. Updates STATUS in metadata (EXACT / RELOC / MATCHING) — skip with --no-promote (auto-skipped if file is outside project)
 
 6. If EXACT/RELOC: clears any auto-generated BLOCKER from metadata
 
@@ -314,9 +314,15 @@ def main(
             else:
                 console.print(f"EXACT MATCH: {total}/{total} bytes")
         else:
-            near = total > 0 and (match_count / total) >= 0.75
-            label = "[bold yellow]NEAR_MATCH[/bold yellow]" if near else "[red]STUB[/red]"
-            console.print(f"{label}: {match_count}/{total} bytes")
+            near = total > 0 and (match_count / total) >= 0.60
+            if near:
+                delta = abs(len(target_bytes) - len(obj_bytes)) + (total - match_count)
+                label = "MATCHING_RELOC" if delta <= 5 else "MATCHING"
+                color = "bold yellow"
+            else:
+                label = "STUB"
+                color = "red"
+            console.print(f"[{color}]{label}[/{color}]: {match_count}/{total} bytes")
             console.print(f"\nTarget ({len(target_bytes)}B): {target_bytes.hex()}")
             console.print(f"Output ({len(obj_bytes)}B): {obj_bytes.hex()}")
             if len(obj_bytes) == len(target_bytes):
@@ -361,17 +367,19 @@ def main(
                 console.print(f"[dim]STATUS → {new_status}[/dim]")
         elif total > 0:
             match_ratio = match_count / total
-            if match_ratio >= 0.75:
-                # NEAR_MATCH — do NOT clear blocker (may be user-set)
+            if match_ratio >= 0.60:
+                # MATCHING — do NOT clear blocker (may be user-set)
+                delta = abs(len(target_bytes) - len(obj_bytes)) + (total - match_count)
+                new_status = "MATCHING_RELOC" if delta <= 5 else "MATCHING"
                 update_source_status(
                     cfg.metadata_dir,
-                    "NEAR_MATCH",
+                    new_status,
                     anno_module,
                     va_int_for_promote,
                     clear_blockers=False,
                 )
                 if not json_output:
-                    console.print("[dim]STATUS → NEAR_MATCH[/dim]")
+                    console.print(f"[dim]STATUS → {new_status}[/dim]")
             else:
                 # STUB — demote so metadata reflects reality
                 update_source_status(
@@ -422,8 +430,13 @@ def build_result_dict(
         JSON-serializable dictionary with status, metrics, and mismatches.
 
     """
-    near = not matched and total > 0 and (match_count / total) >= 0.75
-    status = ("RELOC" if relocs else "EXACT") if matched else ("NEAR_MATCH" if near else "STUB")
+    near = not matched and total > 0 and (match_count / total) >= 0.60
+    delta = abs(len(target_bytes) - len(obj_bytes)) + (total - match_count)
+    status = (
+        ("RELOC" if relocs else "EXACT")
+        if matched
+        else (("MATCHING_RELOC" if delta <= 5 else "MATCHING") if near else "STUB")
+    )
 
     mismatches: list[dict[str, str | int]] = []
     invalid_relocs = invalid_relocs or []
@@ -575,20 +588,21 @@ def _test_multi(
                 else:
                     console.print(f"[bold green]EXACT[/bold green] {sym} — {total}/{total}B")
             else:
-                near = total > 0 and (match_count / total) >= 0.97
+                near = total > 0 and (match_count / total) >= 0.60
                 if near:
-                    console.print(
-                        f"[bold yellow]NEAR MATCH[/bold yellow] {sym} — {match_count}/{total}B"
-                    )
+                    delta = abs(len(target_bytes) - len(obj_bytes)) + (total - match_count)
+                    label = "MATCHING_RELOC" if delta <= 5 else "MATCHING"
+                    color = "bold yellow" if (match_count / total) >= 0.97 else "yellow"
+                    console.print(f"[{color}]{label}[/{color}] {sym} — {match_count}/{total}B")
                 else:
-                    label = "NEAR_MATCH" if match_ratio >= 0.75 else "STUB"
-                    console.print(f"[red]{label}[/red] {sym} — {match_count}/{total}B")
+                    console.print(f"[red]STUB[/red] {sym} — {match_count}/{total}B")
 
             # Determine new status from test result
             if matched:
                 new_status = "RELOC" if relocs else "EXACT"
-            elif match_ratio >= 0.75:
-                new_status = "NEAR_MATCH"
+            elif match_ratio >= 0.60:
+                delta = abs(len(target_bytes) - len(obj_bytes)) + (total - match_count)
+                new_status = "MATCHING_RELOC" if delta <= 5 else "MATCHING"
             else:
                 new_status = "STUB"
 
@@ -606,17 +620,17 @@ def _test_multi(
                     )
                     if not json_output:
                         console.print(f"[dim]  STATUS → {new_status}[/dim]")
-                elif total > 0 and (match_count / total) >= 0.75:
-                    if new_status == "NEAR_MATCH":
+                elif total > 0 and (match_count / total) >= 0.60:
+                    if new_status in ("MATCHING", "MATCHING_RELOC"):
                         if not json_output:
                             update_source_status(
                                 cfg.metadata_dir,
-                                "NEAR_MATCH",
+                                new_status,
                                 ann.module,
                                 ann.va,
                                 clear_blockers=False,
                             )
-                            console.print("[dim]  STATUS → NEAR_MATCH[/dim]")
+                            console.print(f"[dim]  STATUS → {new_status}[/dim]")
                     else:
                         # STUB — demote so metadata reflects reality
                         if not json_output:
@@ -772,7 +786,8 @@ def _run_all_batch(
 _RESULT_COLORS: dict[str, str] = {
     "EXACT": "bold green",
     "RELOC": "green",
-    "NEAR_MATCH": "yellow",
+    "MATCHING_RELOC": "yellow",
+    "MATCHING": "yellow",
     "STUB": "red",
     "SKIP": "dim",
 }
@@ -815,7 +830,7 @@ def _print_batch_summary(
         console.print(f"  [dim]{skipped_no_size} file(s) skipped (no SIZE)[/dim]")
     console.print()
 
-    for status in ("EXACT", "RELOC", "NEAR_MATCH", "STUB"):
+    for status in ("EXACT", "RELOC", "MATCHING_RELOC", "MATCHING", "STUB"):
         count = result_counts.get(status, 0)
         if count == 0:
             continue
@@ -826,7 +841,9 @@ def _print_batch_summary(
         console.print(f"  [{color}]{status:12s}  {count:4d}  ({pct:5.1f}%)  {bar}[/{color}]")
 
     # Other statuses not in the standard order
-    for status in sorted(set(result_counts) - {"EXACT", "RELOC", "NEAR_MATCH", "STUB"}):
+    for status in sorted(
+        set(result_counts) - {"EXACT", "RELOC", "MATCHING_RELOC", "MATCHING", "STUB"}
+    ):
         count = result_counts[status]
         console.print(f"  [dim]{status:12s}  {count:4d}[/dim]")
 

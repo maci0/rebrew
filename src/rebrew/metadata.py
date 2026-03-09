@@ -452,12 +452,12 @@ def update_source_status(
 
     Args:
         metadata_dir: The metadata root directory (``cfg.reversed_dir``).
-        new_status: New status string (e.g. ``EXACT``, ``RELOC``, ``NEAR_MATCH``).
+        new_status: New status string (e.g. ``EXACT``, ``RELOC``, ``MATCHING``).
         module: Target module name from the annotation (e.g. ``NP``).
         va: Virtual address of the function.
         clear_blockers: If ``True`` (default), remove ``blocker`` and
             ``blocker_delta`` from the metadata entry (correct for EXACT/RELOC).
-            Pass ``False`` when demoting to NEAR_MATCH to preserve user-set blockers.
+            Pass ``False`` when demoting to MATCHING or MATCHING_RELOC to preserve user-set blockers.
         force: If ``True``, allow demotion from PROVEN.  Default ``False``.
 
     """

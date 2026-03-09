@@ -741,8 +741,8 @@ def main(
             "  3. Ensure C89 compliance: vars at block top, no // comments in body, no for(int ...)"
         )
         console.print("  4. Run the test command above to check match")
-        console.print("  5. Update STATUS from STUB to EXACT/RELOC/NEAR_MATCH based on result")
-        console.print("  6. If NEAR_MATCH, add BLOCKER metadata explaining the difference")
+        console.print("  5. Update STATUS from STUB to EXACT/RELOC/MATCHING based on result")
+        console.print("  6. If MATCHING, add BLOCKER metadata explaining the difference")
 
 
 def main_entry() -> None:
