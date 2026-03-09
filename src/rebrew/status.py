@@ -177,7 +177,7 @@ def _load_verify_statuses(cfg: ProjectConfig) -> dict[int, str]:
     """Load per-VA verify statuses from the verify cache.
 
     Returns a dict mapping VA -> verify status (e.g. "EXACT", "NEAR_MATCH",
-    "COMPILE_ERROR").  Used to override optimistic annotation statuses.
+    "COMPILE_ERROR").  Used to override optimistic source statuses.
     """
     cache_path = cfg.root / ".rebrew" / "verify_cache.json"
     if not cache_path.exists():
@@ -219,9 +219,9 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     """Collect all project health data into a StatusReport.
 
     This is the single testable entry point for status data collection.
-    It reads annotations and function structure but performs no compilation.
+    It reads source markers, metadata, and function structure (no compilation).
 
-    When a verify cache exists, verify results override annotation statuses
+    When a verify cache exists, verify results override source statuses
     so that functions which fail verification (NEAR_MATCH, COMPILE_ERROR) are
     not counted as byte-matched.
     """
@@ -248,12 +248,12 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     src_dir = Path(cfg.reversed_dir)
     report.source_files = len(iter_sources(src_dir, cfg))
 
-    # Load verify cache to override annotation statuses.
-    # Annotations in .c files may be optimistic (e.g. STATUS: RELOC) while
+    # Load verify cache to override source statuses.
+    # Metadata statuses may be optimistic (e.g. STATUS: RELOC) while
     # the actual verify result is STUB.  Verify results are authoritative.
     verify_statuses = _load_verify_statuses(cfg)
 
-    # Status breakdown — use verify result when available, annotation as fallback.
+    # Status breakdown — use verify result when available, metadata as fallback.
     # Exception: PROVEN (from rebrew prove) is a post-verify promotion that
     # takes precedence over verify cache RELOC/EXACT results.
     status_counts: dict[str, int] = {}
@@ -432,7 +432,7 @@ rebrew status --json             Machine-readable JSON output
 
 rebrew status -t client_exe      Status for a specific target
 
-[dim]Reads annotations and function structure, no compilation needed.
+[dim]Reads source markers, metadata, and function structure (no compilation needed).
 Run 'rebrew verify' first for verify stats, or 'rebrew catalog' for function data.[/dim]"""
 
 app = typer.Typer(
