@@ -115,21 +115,6 @@ NEW_KV_RE = re.compile(r"//\s*(?P<key>[A-Z_]+):\s*(?P<value>.*)")
 # may be shared across blocks.
 FUNC_NAME_HINT_RE = re.compile(r"^//\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*$")
 
-# C function definition — extracts the function name and full prototype from a
-# line like ``int __cdecl LoadGraveyardData(int param_1, int param_2)``.
-# Captures everything before '(' to allow extracting name + full signature.
-# Handles return types, calling conventions (__cdecl, __stdcall, __fastcall),
-# declspecs, and macros.
-_C_FUNC_IDENT_RE = re.compile(
-    r"^\s*"  # leading whitespace
-    r"(?!extern\b|typedef\b|__declspec\b)"  # NOT a forward declaration, typedef, or declspec
-    r"(?:(?:static|inline|unsigned|signed|const|volatile|struct|enum|union|void|char|short|int|long|float|double|__int64|BOOL|DWORD|WORD|BYTE|LONG|UINT|ULONG|HRESULT)\s+)*"  # return type qualifiers
-    r"(?:[A-Za-z_][A-Za-z0-9_*\s]*?\s+)?"  # return type (flexible)
-    r"(?:(?:__cdecl|__stdcall|__fastcall|__thiscall|WINAPI|CALLBACK|APIENTRY|REBREW_NAKED)\s+)*"  # calling convention
-    r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)"  # function name
-    r"\s*\(",  # opening paren
-)
-
 
 # ---------------------------------------------------------------------------
 # Section splitting helper (shared by split.py and merge.py)
@@ -809,16 +794,13 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
         # Skip forward declarations (lines ending with ';') — only match
         # actual function definitions (lines ending with '{' or just a signature
         # without a semicolon).
-        if "_C_FUNC_NAME" not in kv:
-            m4 = _C_FUNC_IDENT_RE.match(stripped)
-            if m4 and not stripped.rstrip().endswith(";"):
-                kv["_C_FUNC_NAME"] = m4.group("name")
-                # Extract full prototype: everything up to the closing paren
-                proto_line = stripped.rstrip("{;").strip()
-                kv["_C_FUNC_PROTO"] = proto_line
-            elif m4:
-                # Forward declaration — skip it, keep looking
-                continue
+        if "_C_FUNC_NAME" not in kv and not stripped.rstrip().endswith(";"):
+            from rebrew.c_parser import extract_function_name_from_line
+
+            func_result = extract_function_name_from_line(stripped)
+            if func_result:
+                kv["_C_FUNC_NAME"] = func_result[0]
+                kv["_C_FUNC_PROTO"] = func_result[1]
 
         break
 
@@ -955,12 +937,17 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
         # Try to extract function name from C definition line.
         # Skip forward declarations (lines ending with ';') — only match
         # actual function definitions.
-        if current_marker_type is not None and "_C_FUNC_NAME" not in current_kv:
-            m4 = _C_FUNC_IDENT_RE.match(stripped)
-            if m4 and not stripped.rstrip().endswith(";"):
-                current_kv["_C_FUNC_NAME"] = m4.group("name")
-                proto_line = stripped.rstrip("{;").strip()
-                current_kv["_C_FUNC_PROTO"] = proto_line
+        if (
+            current_marker_type is not None
+            and "_C_FUNC_NAME" not in current_kv
+            and not stripped.rstrip().endswith(";")
+        ):
+            from rebrew.c_parser import extract_function_name_from_line
+
+            func_result = extract_function_name_from_line(stripped)
+            if func_result:
+                current_kv["_C_FUNC_NAME"] = func_result[0]
+                current_kv["_C_FUNC_PROTO"] = func_result[1]
 
         # Non-annotation line — DON'T break scanning (code between blocks)
         # Just skip it and keep looking for the next marker

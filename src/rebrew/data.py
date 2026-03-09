@@ -38,22 +38,9 @@ _GLOBAL_RE = re.compile(r"(?://|/\*)\s*GLOBAL:\s*(?P<module>[A-Z0-9_]+)\s+(?P<va
 # DATA annotation:  // DATA: SERVER 0x10025000
 _DATA_RE = re.compile(r"(?://|/\*)\s*DATA:\s*(?P<module>[A-Z0-9_]+)\s+(?P<va>0x[0-9a-fA-F]+)")
 
-# extern data declarations — we want:
-#   extern int g_foo;
-#   extern unsigned short DAT_100358a0;
-#   extern char s_message_1002d70c[];
-# but NOT function forward-declarations like:
-#   extern int __cdecl func_name(int, int);
-_EXTERN_RE = re.compile(
-    r"^\s*extern\s+"
-    r"(?P<type>.+?)\s*"  # type (non-greedy, allow trailing whitespace)
-    r"(?P<ptr>(?:\*\s*)*)"  # optional pointer asterisk(s)
-    r"(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)"  # identifier
-    r"(?P<array>\[.*\])?"  # optional array suffix
-    r"\s*;"
-)
+# extern data declarations are now parsed by c_parser.find_extern_variables()
+# via tree-sitter AST walking — see scan_globals().
 
-_DECL_NAME_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\[.*\])?\s*;")
 _ARRAY_SIZE_RE = re.compile(r"\[(\d+)\]")
 _ARRAY_STRIP_RE = re.compile(r"\[.*\]")
 
@@ -181,30 +168,16 @@ def classify_section(va: int, sections: dict[str, dict[str, Any]]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _is_function_decl(type_str: str, rest_of_line: str) -> bool:
-    """Heuristic: return True if a line looks like a function decl, not a data global."""
-    if "typedef" in type_str:
-        return False
-    if re.search(
-        r"\(\s*(?:__cdecl\s+|__stdcall\s+|__fastcall\s+|__thiscall\s+)?\*\s*[a-zA-Z_][a-zA-Z0-9_]*(?:\s*\[[^\]]+\])?\s*\)",
-        rest_of_line,
-    ):
-        return False
-    if "(" in rest_of_line:
-        return True
-    # Calling convention keywords imply a function
-    return any(cc in type_str for cc in ("__cdecl", "__stdcall", "__fastcall", "__thiscall"))
-
-
 def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
     """Scan reversed source files for global declarations.
 
     Collects:
     1. ``// GLOBAL: MODULE 0xVA`` reccmp annotations (+ next line for declaration)
-    2. ``extern <type> <name>;`` data globals (filtering out function decls)
+    2. ``extern <type> <name>;`` data globals (via tree-sitter, filtering functions)
 
     Returns a ScanResult with all discovered globals and type conflicts.
     """
+    from rebrew.c_parser import find_extern_variables
     from rebrew.cli import iter_sources, rel_display_path
 
     result = ScanResult()
@@ -216,11 +189,18 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
 
     for cfile in iter_sources(src_dir, cfg):
         try:
-            lines = cfile.read_text(encoding="utf-8", errors="ignore").splitlines()
+            text = cfile.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
 
+        lines = text.splitlines()
         fname = rel_display_path(cfile, src_dir)
+
+        # Pre-compute extern variables from tree-sitter (used for unannotated scan)
+        extern_vars = {v.name: v for v in find_extern_variables(text)}
+
+        # Track which extern names are already handled via GLOBAL annotation
+        annotated_names: set[str] = set()
 
         for i, line in enumerate(lines):
             # 1. Check for // GLOBAL: annotation
@@ -238,23 +218,20 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                 name = "unknown"
                 type_str = ""
 
-                # Try to parse: extern <type> <name>[<array>];
-                em = _EXTERN_RE.match(decl)
-                if em:
-                    name = em.group("name")
-                    arr = em.group("array") or ""
-                    ptr_raw = em.group("ptr") or ""
-                    ptr_depth = ptr_raw.count("*")
-                    type_str = em.group("type").strip()
-                    if ptr_depth:
-                        type_str += f" {'*' * ptr_depth}"
-                    if arr:
-                        type_str += arr
+                # Try to parse declaration via tree-sitter (single line)
+                decl_vars = find_extern_variables(decl)
+                if decl_vars:
+                    ev = decl_vars[0]
+                    name = ev.name
+                    type_str = ev.type_str
                 else:
                     # Fallback: try to grab the last identifier before ;
-                    nm = _DECL_NAME_RE.search(decl)
-                    if nm:
-                        name = nm.group(1)
+                    # (handles non-extern declarations after GLOBAL annotations)
+                    id_match = re.search(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\[.*\])?\s*;", decl)
+                    if id_match:
+                        name = id_match.group(1)
+
+                annotated_names.add(name)
 
                 entry = result.globals.get(name)
                 if entry is None:
@@ -274,40 +251,21 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
 
                 continue
 
-            # 2. Check for extern data declarations (not function decls)
-            em = _EXTERN_RE.match(line)
-            if em:
-                full_line = line.strip()
-                type_str_raw = em.group("type").strip()
+        # 2. Add unannotated extern variables from tree-sitter
+        for ev_name, ev in extern_vars.items():
+            if ev_name in annotated_names:
+                continue  # Already handled via GLOBAL annotation
 
-                # Skip function forward-declarations
-                if _is_function_decl(type_str_raw, full_line):
-                    continue
+            entry = result.globals.get(ev_name)
+            if entry is None:
+                entry = GlobalEntry(name=ev_name, type_str=ev.type_str)
+                result.globals[ev_name] = entry
 
-                name = em.group("name")
-                arr = em.group("array") or ""
-                ptr_raw = em.group("ptr") or ""
-                ptr_depth = ptr_raw.count("*")
-                type_str = type_str_raw
-                if ptr_depth:
-                    type_str += f" {'*' * ptr_depth}"
-                if arr:
-                    type_str += arr
+            if fname not in entry.declared_in:
+                entry.declared_in.append(fname)
 
-                # Skip dllimport functions
-                if "__declspec(dllimport)" in full_line:
-                    continue
-
-                entry = result.globals.get(name)
-                if entry is None:
-                    entry = GlobalEntry(name=name, type_str=type_str)
-                    result.globals[name] = entry
-
-                if fname not in entry.declared_in:
-                    entry.declared_in.append(fname)
-
-                if type_str:
-                    type_by_name[name][type_str].append(fname)
+            if ev.type_str:
+                type_by_name[ev_name][ev.type_str].append(fname)
 
     # Detect type conflicts: same name, different type strings
     for name, types in type_by_name.items():

@@ -151,7 +151,7 @@ Run 'rebrew catalog' first to generate coverage data.[/dim]""",
 _STATUS_RANK: dict[str, int] = {
     "EXACT": 0,
     "RELOC": 1,
-    "MISMATCH": 2,
+    "STUB": 2,
     "NEAR_MATCH": 2,
     "COMPILE_ERROR": 3,
     "MISSING_FILE": 4,
@@ -508,7 +508,8 @@ def main(
             "failed": failed,
             "exact": sum(1 for r in results if r["status"] == "EXACT"),
             "reloc": sum(1 for r in results if r["status"] == "RELOC"),
-            "mismatch": sum(1 for r in results if r["status"] == "MISMATCH"),
+            "stub": sum(1 for r in results if r["status"] == "STUB"),
+            "near_match": sum(1 for r in results if r["status"] == "NEAR_MATCH"),
             "compile_error": sum(1 for r in results if r["status"] == "COMPILE_ERROR"),
             "missing_file": sum(1 for r in results if r["status"] == "MISSING_FILE"),
         },
@@ -816,7 +817,7 @@ def _apply_status_fixes(
         current_status = getattr(entry, "status", "")
         if status in ("EXACT", "RELOC") and current_status != status:
             update_source_status(cfg.metadata_dir, status, module, entry.va, clear_blockers=True)
-        elif status == "MISMATCH" and current_status in ("EXACT", "RELOC"):
+        elif status in ("STUB", "NEAR_MATCH") and current_status in ("EXACT", "RELOC"):
             update_source_status(
                 cfg.metadata_dir, "NEAR_MATCH", module, entry.va, clear_blockers=False
             )
@@ -889,15 +890,17 @@ def _print_results(
                 st_str = "[green]EXACT[/]"
             elif st == "RELOC":
                 st_str = "[green]RELOC[/]"
-            elif st == "MISMATCH":
+            elif st == "STUB":
+                st_str = "[dim]STUB[/]"
+            elif st == "NEAR_MATCH":
                 st_str = "[yellow]NEAR_MATCH[/]"
             elif st == "COMPILE_ERROR":
                 st_str = "[red]ERROR[/]"
             else:
                 st_str = f"[red]{st}[/]"
 
-            pct = f"{r['match_percent']:.1f}%" if st == "MISMATCH" else "-"
-            dt = f"{r.get('delta', 0)}B" if st == "MISMATCH" else "-"
+            pct = f"{r['match_percent']:.1f}%" if st in ("STUB", "NEAR_MATCH") else "-"
+            dt = f"{r.get('delta', 0)}B" if st in ("STUB", "NEAR_MATCH") else "-"
             table.add_row(r["va"], r["name"], f"{r['size']}B", st_str, pct, dt)
 
         console.print(table)
@@ -949,7 +952,7 @@ def _print_results(
             fp = getattr(entry, "filepath", "")
             ln = getattr(entry, "line", 0)
             fp_suffix = f" [dim]({fp}:{ln})[/]" if fp and ln else f" [dim]({fp})[/]" if fp else ""
-            if st == "MISMATCH":
+            if st in ("STUB", "NEAR_MATCH"):
                 match_pct = float(res_dict.get("match_percent", 0.0)) if res_dict else 0.0
                 console.print(
                     rf"  [red bold]\[{match_pct:.1f}%][/] 0x{entry.va:08X} {entry.name}{fp_suffix}: {msg}"
