@@ -2,7 +2,7 @@
 
 Compiles every annotated ``.c`` file and compares object bytes against the
 target binary.  Results are classified by :class:`~rebrew.compile.CompareResult`
-(EXACT, RELOC, MISMATCH, COMPILE_ERROR, …).
+(EXACT, RELOC, STUB, COMPILE_ERROR, …).
 
 With ``--fix-status`` the tool promotes STATUS in ``rebrew-function.toml``
 via :func:`~rebrew.metadata.update_source_status` — the ``.c`` files are
@@ -142,7 +142,7 @@ rebrew verify -t mygame               Verify a specific target
 
 For each .c file in reversed_dir, compiles it, extracts the COFF symbol,
 and compares the output bytes against the original DLL. Reports EXACT,
-RELOC (match after relocation masking), MISMATCH, or COMPILE_ERROR.
+RELOC (match after relocation masking), STUB, or COMPILE_ERROR.
 
 [dim]Requires rebrew-project.toml with valid compiler and target binary paths.
 Run 'rebrew catalog' first to generate coverage data.[/dim]""",
@@ -438,7 +438,7 @@ def main(
         None, "--output", "-o", help="Write JSON report to file (default: db/verify_results.json)"
     ),
     fix_status: bool = typer.Option(
-        False, "--fix-status", help="Auto-update STATUS annotations and BLOCKERs"
+        False, "--fix-status", help="Auto-update STATUS metadata and BLOCKERs"
     ),
     summary: bool = typer.Option(
         False,

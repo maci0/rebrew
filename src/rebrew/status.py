@@ -250,7 +250,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
 
     # Load verify cache to override annotation statuses.
     # Annotations in .c files may be optimistic (e.g. STATUS: RELOC) while
-    # the actual verify result is MISMATCH.  Verify results are authoritative.
+    # the actual verify result is STUB.  Verify results are authoritative.
     verify_statuses = _load_verify_statuses(cfg)
 
     # Status breakdown — use verify result when available, annotation as fallback.
