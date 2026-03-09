@@ -83,7 +83,7 @@ rebrew test --all --dry-run                          List batch candidates witho
 
 4. Reports EXACT, RELOC (match after masking relocations), or STUB
 
-5. Updates STATUS in metadata (EXACT / RELOC / NEAR_MATCH) — skip with --no-promote
+5. Updates STATUS in metadata (EXACT / RELOC / NEAR_MATCH) — skip with --no-promote (auto-skipped if file is outside project)
 
 6. If EXACT/RELOC: clears any auto-generated BLOCKER from metadata
 
@@ -116,7 +116,7 @@ def main(
     no_promote: bool = typer.Option(
         False,
         "--no-promote",
-        help="Skip auto-update of STATUS metadata after test",
+        help="Skip auto-update of STATUS metadata after test (auto-skipped if file is outside project)",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -152,6 +152,13 @@ def main(
 
     """
     cfg = require_config(target=target, json_mode=json_output)
+
+    if source is not None:
+        source_path = Path(source).resolve()
+        # If testing a file outside the project's source tree (e.g. output/ or /tmp),
+        # disable promotion by default to avoid accidentally updating metadata.
+        if not source_path.is_relative_to(cfg.metadata_dir.resolve()):
+            no_promote = True
 
     if all_sources:
         _run_all_batch(cfg, batch_dir, origin, dry_run, no_promote, json_output)
