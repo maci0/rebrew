@@ -576,7 +576,9 @@ def main(
             error_exit(f"--append target does not exist: {append_path}", json_mode=json_output)
 
         if not force:
-            existing_in_file = parse_c_file_multi(append_path, target_name=target_marker(cfg))
+            existing_in_file = parse_c_file_multi(
+                append_path, target_name=target_marker(cfg), sidecar_dir=append_path.parent
+            )
             for entry in existing_in_file:
                 if entry.va == va_int:
                     console.print(

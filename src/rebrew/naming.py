@@ -233,7 +233,9 @@ def load_data(
     existing: dict[int, dict[str, str]] = {}
     covered_vas: dict[int, str] = {}
     for cfile in iter_sources(src_dir, cfg):
-        entries = parse_c_file_multi(cfile, target_name=target_marker(cfg))
+        entries = parse_c_file_multi(
+            cfile, target_name=target_marker(cfg), sidecar_dir=cfile.parent
+        )
         rel_name = rel_display_path(cfile, src_dir)
         for entry in entries:
             if entry.marker_type in ("GLOBAL", "DATA"):
@@ -342,7 +344,9 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
     existing: dict[int, str] = {}
     for cfile in iter_sources(src_path, cfg):
         rel_name = rel_display_path(cfile, src_path)
-        entries = parse_c_file_multi(cfile, target_name=target_marker(cfg))
+        entries = parse_c_file_multi(
+            cfile, target_name=target_marker(cfg), sidecar_dir=cfile.parent
+        )
         for entry in entries:
             if entry.marker_type in ("GLOBAL", "DATA"):
                 continue

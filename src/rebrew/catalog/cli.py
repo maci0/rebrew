@@ -290,7 +290,9 @@ def main(
         updated = 0
         skipped = 0
         for cfile in iter_sources(reversed_dir, cfg):
-            parsed = parse_c_file_multi(cfile, target_name=target_marker(cfg))
+            parsed = parse_c_file_multi(
+                cfile, target_name=target_marker(cfg), sidecar_dir=cfile.parent
+            )
             for ann in parsed:
                 va = ann.va
                 if va not in registry:

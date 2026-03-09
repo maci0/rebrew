@@ -260,7 +260,9 @@ def main(
             "Input must contain at least two function blocks to split", json_mode=json_output
         )
 
-    entries = parse_c_file_multi(source_path, target_name=target_marker(cfg))
+    entries = parse_c_file_multi(
+        source_path, target_name=target_marker(cfg), sidecar_dir=source_path.parent
+    )
     if len(entries) < 2:
         error_exit(
             f"No splittable blocks found for target '{cfg.marker}'",
