@@ -187,7 +187,7 @@ class TestMergeBasic:
             "// CALLERS: _caller\n"
             "// GLOBALS: g1, g2\n"
         )
-        a = _write(tmp_path / "a.c", _single(0x10001000, "_a", extra=extra, status="NEAR_MATCH"))
+        a = _write(tmp_path / "a.c", _single(0x10001000, "_a", extra=extra, status="MATCHING"))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b", status="EXACT"))
         out = tmp_path / "merged.c"
         monkeypatch.setattr(
@@ -197,7 +197,7 @@ class TestMergeBasic:
         result = runner.invoke(app, ["--output", str(out), str(a), str(b)])
         assert result.exit_code == 0
         text = out.read_text(encoding="utf-8")
-        assert "// STATUS: NEAR_MATCH" in text
+        assert "// STATUS: MATCHING" in text
         assert "// ORIGIN: GAME" in text
         assert "// SIZE: 10" in text
         assert "// CFLAGS: /O2" in text

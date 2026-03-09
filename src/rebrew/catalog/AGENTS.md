@@ -67,7 +67,7 @@ sections.py → binary_loader.py, config.py, cli.py (all external)
   ├─ Cell-level mapping (.text: 64B cells, .data: 16B, .bss: 4096B)
   ├─ Gap absorption (jump tables, out-of-line code, tail code ≤64B)
   ├─ Ghidra data label integration (thunk vs data classification)
-  └─ Summary statistics (EXACT/RELOC/NEAR_MATCH/STUB counts, coverage %)
+  └─ Summary statistics (EXACT/RELOC/MATCHING/STUB counts, coverage %)
         │
         ▼
 [Export]

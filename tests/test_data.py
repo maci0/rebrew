@@ -25,7 +25,7 @@ def _write_c(tmp_path: Path, name: str, content: str) -> Path:
 
 ANNOTATED_GLOBAL = """\
 // FUNCTION: SERVER 0x10011790
-// STATUS: NEAR_MATCH
+// STATUS: MATCHING
 // ORIGIN: GAME
 // SIZE: 242
 // CFLAGS: /O2 /Gd

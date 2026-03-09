@@ -79,14 +79,14 @@ def generate_data_json(
     matching_count = sum(
         1
         for vas in fn_vas
-        if any(e["status"] in ("NEAR_MATCH",) for e in vas)
+        if any(e["status"] in ("MATCHING", "MATCHING_RELOC") for e in vas)
         and not any(e["status"] in ("EXACT", "RELOC") for e in vas)
     )
     stub_count = sum(
         1
         for vas in fn_vas
         if any(e["status"] == "STUB" for e in vas)
-        and not any(e["status"] in ("EXACT", "RELOC", "NEAR_MATCH") for e in vas)
+        and not any(e["status"] in ("EXACT", "RELOC", "MATCHING", "MATCHING_RELOC") for e in vas)
     )
 
     covered_bytes = 0
@@ -556,7 +556,7 @@ def generate_data_json(
             "matchedFunctions": len(fn_vas) - stub_count,
             "exactMatches": exact_count,
             "relocMatches": reloc_count,
-            "nearMatchCount": matching_count,
+            "matchingCount": matching_count,
             "stubCount": stub_count,
             "coveredBytes": adjusted_covered,
             "paddingBytes": padding_bytes,

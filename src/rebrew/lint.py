@@ -226,7 +226,7 @@ def _check_E015_marker_consistency(
 
 
 def _check_E017_contradictory(result: LintResult, status: str, marker: str) -> None:
-    if status == "NEAR_MATCH" and marker == "STUB":
+    if status == "MATCHING" and marker == "STUB":
         result.error(
             result.marker_line, "E017", f"Contradictory: status is {status} but marker is STUB"
         )

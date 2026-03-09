@@ -170,7 +170,7 @@ def build_db(
                 COUNT(*) as total_cells,
                 SUM(CASE WHEN state = 'exact' THEN 1 ELSE 0 END) as exact_count,
                 SUM(CASE WHEN state = 'reloc' THEN 1 ELSE 0 END) as reloc_count,
-                SUM(CASE WHEN state = 'near_match' THEN 1 ELSE 0 END) as near_match_count,
+                SUM(CASE WHEN state IN ('matching', 'matching_reloc') THEN 1 ELSE 0 END) as matching_count,
                 SUM(CASE WHEN state = 'stub' THEN 1 ELSE 0 END) as stub_count,
                 SUM(CASE WHEN state = 'padding' THEN 1 ELSE 0 END) as padding_count,
                 SUM(CASE WHEN state = 'data' THEN 1 ELSE 0 END) as data_count,
@@ -312,7 +312,7 @@ def build_db(
                             elif state == "reloc":
                                 reloc_count += 1
                                 reloc_bytes += size
-                            elif state == "near_match":
+                            elif state in ("matching", "matching_reloc"):
                                 matching_bytes += size
                                 stub_bytes += size
                             elif state == "padding":
@@ -322,7 +322,7 @@ def build_db(
                     summary_data[sec_name] = {
                         "exactMatches": exact_count,
                         "relocMatches": reloc_count,
-                        "nearMatchCount": matching_count,
+                        "matchingCount": matching_count,
                         "stubCount": stub_count,
                         "paddingCount": padding_count,
                         "exactBytes": exact_bytes,

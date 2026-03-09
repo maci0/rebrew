@@ -198,8 +198,8 @@ def normalize_status(raw: str) -> str:
     """Map old-format status strings to canonical values.
 
     Check order matters: ``RELOC`` must be tested before both
-    ``NEAR_MATCH`` and ``RELOC`` because it contains both as substrings.
-    Check order matters: ``RELOC`` must be tested before ``NEAR_MATCH``
+    ``MATCHING`` and ``RELOC`` because it contains both as substrings.
+    Check order matters: ``RELOC`` must be tested before ``MATCHING``
     because it contains ``RELOC`` as a substring.
     ``PROVEN`` is an independent canonical value — included before the
     generic fallthrough so old-format strings like ``"PROVEN_MATCH"``
@@ -208,8 +208,8 @@ def normalize_status(raw: str) -> str:
     s = raw.strip().upper()
     if "EXACT" in s:
         return "EXACT"
-    if "NEAR_MATCH" in s:
-        return "NEAR_MATCH"
+    if "MATCHING" in s:
+        return "MATCHING"
     if "RELOC" in s:
         return "RELOC"
     if "STUB" in s:
@@ -450,7 +450,7 @@ class Annotation:
                 "(reference file, e.g. SBHEAP.C:195 or deflate.c)"
             )
 
-        if self.status == "NEAR_MATCH" and self.marker_type == "STUB":
+        if self.status == "MATCHING" and self.marker_type == "STUB":
             warnings.append(f"Contradictory: status is {self.status} but marker is STUB")
 
         return errors, warnings
@@ -1192,7 +1192,7 @@ def parse_library_header(
 
         // LIBRARY: SERVER 0x10050000
         // _deflate
-        // STATUS: NEAR_MATCH
+        // STATUS: MATCHING
         // SIZE: 120
         // CFLAGS: /O2 /Gd
         // SOURCE: deflate.c

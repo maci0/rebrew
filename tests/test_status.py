@@ -53,7 +53,7 @@ class TestStatusReport:
     def test_matched_pct(self) -> None:
         report = StatusReport(
             total_functions=100,
-            status_counts={"EXACT": 20, "RELOC": 10, "NEAR_MATCH": 30, "STUB": 40},
+            status_counts={"EXACT": 20, "RELOC": 10, "MATCHING": 30, "STUB": 40},
         )
         assert report.matched_pct == 30.0
 
@@ -128,7 +128,7 @@ class TestStatusReportJson:
             arch="x86_32",
             total_functions=100,
             covered_functions=60,
-            status_counts={"EXACT": 30, "RELOC": 10, "NEAR_MATCH": 15, "STUB": 5},
+            status_counts={"EXACT": 30, "RELOC": 10, "MATCHING": 15, "STUB": 5},
         )
         d = report.to_dict()
         assert d["status"]["EXACT"] == 30
@@ -189,7 +189,7 @@ class TestCollectStatus:
             encoding="utf-8",
         )
         (src / "func_b.c").write_text(
-            "// FUNCTION: TEST 0x2000\n// STATUS: NEAR_MATCH\nvoid func_b(void) {}\n",
+            "// FUNCTION: TEST 0x2000\n// STATUS: MATCHING\nvoid func_b(void) {}\n",
             encoding="utf-8",
         )
 
@@ -197,7 +197,7 @@ class TestCollectStatus:
         assert report.total_functions == 3
         assert report.covered_functions == 2
         assert report.status_counts.get("EXACT") == 1
-        assert report.status_counts.get("NEAR_MATCH") == 1
+        assert report.status_counts.get("MATCHING") == 1
         assert report.source_files == 2
 
     def test_verify_cache_loaded(self, tmp_path: Path) -> None:

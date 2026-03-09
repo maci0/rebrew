@@ -65,7 +65,7 @@ class TestStatusBookmarkCategory:
         assert _STATUS_BOOKMARK_CATEGORY["RELOC"] == "rebrew/reloc"
 
     def test_matching(self) -> None:
-        assert _STATUS_BOOKMARK_CATEGORY["NEAR_MATCH"] == "rebrew/matching"
+        assert _STATUS_BOOKMARK_CATEGORY["MATCHING"] == "rebrew/matching"
 
     def test_stub(self) -> None:
         assert _STATUS_BOOKMARK_CATEGORY["STUB"] == "rebrew/stub"

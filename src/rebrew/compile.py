@@ -69,7 +69,7 @@ class CompareResult:
 
     Attributes:
         matched: ``True`` when compiled bytes equal target after reloc masking.
-        status: One of ``EXACT``, ``RELOC``, ``NEAR_MATCH``, ``STUB``, ``COMPILE_ERROR``,
+        status: One of ``EXACT``, ``RELOC``, ``MATCHING_RELOC``, ``MATCHING``, ``STUB``, ``COMPILE_ERROR``,
             ``MISSING_SIZE``, ``MISSING_FILE``.
         match_percent: Fraction of non-reloc bytes that match (0–100).
         delta: Absolute byte difference (mismatch count + size delta).
@@ -100,7 +100,7 @@ def classify_compare_result(
 ) -> CompareResult:
     """Classify a raw compile-and-compare outcome into a :class:`CompareResult`.
 
-    Centralises the EXACT / RELOC / NEAR_MATCH / STUB / COMPILE_ERROR classification
+    Centralises the EXACT / RELOC / MATCHING_RELOC / MATCHING / STUB / COMPILE_ERROR classification
     and the ``match_percent`` / ``delta`` calculations that were previously
     duplicated in ``test.py`` and ``verify.py``.
 
@@ -167,7 +167,7 @@ def classify_compare_result(
 
     status = "STUB"
     if match_percent >= 75.0:
-        status = "NEAR_MATCH"
+        status = "MATCHING_RELOC" if delta <= 5 else "MATCHING"
 
     return CompareResult(
         matched=False,
@@ -531,7 +531,7 @@ def compile_and_compare(
                 else (
                     "EXACT MATCH"
                     if matched
-                    else f"NEAR_MATCH/STUB: {_total - _match_count} byte diffs"
+                    else f"MATCHING/STUB: {_total - _match_count} byte diffs"
                 )
             )
             return classify_compare_result(

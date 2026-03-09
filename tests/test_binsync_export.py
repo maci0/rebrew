@@ -76,7 +76,7 @@ class TestBinsyncExportBasic:
         _make_project(
             tmp_path,
             {
-                "bar.c": "// FUNCTION: SERVER 0x20002000\n// STATUS: NEAR_MATCH\ndouble bar() { return 2.0; }\n",
+                "bar.c": "// FUNCTION: SERVER 0x20002000\n// STATUS: MATCHING\ndouble bar() { return 2.0; }\n",
             },
         )
         result, outdir = _invoke(tmp_path)
