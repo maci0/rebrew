@@ -6,7 +6,7 @@
 
 **Compiler-in-the-loop decompilation workbench for binary-matching game reversing.**
 
-Rebrew is a reusable Python tooling package for reconstructing exact C source code from compiled binaries. It provides a genetic algorithm engine, annotation pipeline, verification framework, and CLI tools.
+Rebrew is a reusable Python tooling package for reconstructing exact C source code from compiled binaries. It provides a genetic algorithm engine, source metadata pipeline, verification framework, and CLI tools.
 
 ## ✨ Features
 
@@ -16,7 +16,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 |------|-------------|
 | `rebrew test` | Compile your C and diff it byte-by-byte against the original binary |
 | `rebrew match` | GA engine — single file or batch (`--all`); brute-force compiler flags and mutate source to find exact byte matches |
-| `rebrew verify` | Bulk compile + report match status; `--fix-status` auto-updates annotations; `--compare` for CI regression checks |
+| `rebrew verify` | Bulk compile + report match status; `--fix-status` auto-updates metadata; `--compare` for CI regression checks |
 | `rebrew prove` | Symbolic equivalence via angr + Z3 — mathematically prove MATCHING functions are equivalent |
 
 ### Authoring
@@ -27,7 +27,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | `rebrew rename` | Rename a function across the entire codebase (symbol, filename, cross-references) |
 | `rebrew split` | Break multi-function `.c` files into individual files; `--va` to extract one function |
 | `rebrew merge` | Combine single-function files into one multi-function file |
-| `rebrew lint` | Validate annotation correctness (E000–E017, W001–W017) |
+| `rebrew lint` | Validate source marker correctness (E000–E017, W001–W017) |
 
 ### Analysis
 
@@ -51,9 +51,9 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | `rebrew cache` | Compile cache management (`stats`, `clear`) |
 | `rebrew cfg` | Read/write `rebrew-project.toml` settings |
 | `rebrew extract` | Batch extract function bytes and disassembly |
-| `rebrew binsync-export` | Export annotations to BinSync state directory (IDA/BinNinja import) |
+| `rebrew binsync-export` | Export source markers and metadata to BinSync state directory (IDA/BinNinja import) |
 | `rebrew asm` | Quick offline disassembly |
-| `rebrew sync` | Push/pull annotations, labels, structs, and comments to Ghidra via ReVa MCP |
+| `rebrew sync` | Push/pull source markers, metadata, labels, structs, and comments to Ghidra via ReVa MCP |
 
 ### Design
 
@@ -126,11 +126,11 @@ rebrew todo -c fix-near-miss --json # MATCHING functions sorted by byte delta
 rebrew flirt --json                 # FLIRT scan: identify known library functions
 rebrew crt-match 0x10006c00         # match a single VA against CRT source
 rebrew crt-match --all --origin MSVCRT # match all MSVCRT functions
-rebrew crt-match --fix-source --all  # auto-write // SOURCE: annotations
+rebrew crt-match --fix-source --all  # auto-write // SOURCE: markers
 rebrew crt-match --index            # show CRT source index
 rebrew graph --cu-map               # infer compilation unit boundaries
 rebrew graph --cu-map --json        # JSON output for scripting
-rebrew lint                         # lint annotations in your source files
+rebrew lint                         # lint source markers in your files
 rebrew split src/target_name/multi.c           # split multi-function file into individual files
 rebrew split --va 0x10003DA0 src/target_name/multi.c  # extract one function into multi_c/
 rebrew merge a.c b.c --output merged.c         # merge files into one multi-function file
@@ -139,7 +139,7 @@ rebrew catalog                      # regenerate the function catalog and covera
 rebrew catalog --data-json          # write db/data_<target>.json
 rebrew catalog --export-ghidra-labels  # generate ghidra_data_labels.json from detected tables
 rebrew build-db                     # build SQLite coverage database from catalog
-rebrew binsync-export ./binsync_out # export annotations to BinSync state directory
+rebrew binsync-export ./binsync_out # export source markers and metadata to BinSync state directory
 
 # Matching
 rebrew match --diff-only src/target_name/f.c       # side-by-side disassembly diff
@@ -156,7 +156,7 @@ rebrew prove src/server.dll/calculate_physics.c --json  # JSON output
 rebrew prove my_func --dry-run                        # find by symbol, preview only
 
 # Export & Sync
-rebrew verify --fix-status          # bulk compile and auto-update STATUS/BLOCKER annotations
+rebrew verify --fix-status          # bulk compile and auto-update STATUS/BLOCKER metadata
 rebrew verify --json                # structured JSON report to stdout
 rebrew verify --compare             # detect regressions against last saved report
 rebrew split src/target_name/multi.c --dry-run  # preview split without writing
@@ -169,7 +169,7 @@ rebrew cache stats                  # show compile cache hit rate and size
 rebrew doctor --install-wibo        # auto-download wibo (lightweight Wine alternative)
 
 # Ghidra Sync via ReVa MCP
-rebrew sync --push                  # export annotations and push to Ghidra
+rebrew sync --push                  # export source markers and metadata and push to Ghidra
 rebrew sync --pull                  # fetch Ghidra renames into local files
 rebrew sync --pull --accept-ghidra  # fetch renames and automatically update cross-references
 rebrew sync --pull-signatures       # fetch Ghidra decompilation to update extern prototypes
@@ -220,11 +220,11 @@ Rebrew is part of a broader decompilation ecosystem. These are the notable proje
 | Tool | Role | Integration |
 |------|------|-------------|
 | [decomp.me](https://github.com/decompme/decomp.me) | Collaborative decompilation platform | Flag axes synced via `tools/sync_decomp_flags.py`; powers `rebrew match --flag-sweep` |
-| [reccmp](https://github.com/isledecomp/reccmp) | Binary recompilation comparison framework | Annotation format compatibility; `rebrew catalog --csv` exports reccmp-compatible CSV |
+| [reccmp](https://github.com/isledecomp/reccmp) | Binary recompilation comparison framework | Source marker format compatibility; `rebrew catalog --csv` exports reccmp-compatible CSV |
 | [LIEF](https://github.com/lief-project/LIEF) | Binary format parsing (PE/ELF/Mach-O) | Used for binary loading, format detection, and PE section analysis |
 | [Capstone](https://github.com/capstone-engine/capstone) | Disassembly engine | Powers `rebrew asm`, byte-diff scoring, relocation masking, and mnemonic comparison |
 | [angr](https://github.com/angr/angr) | Binary analysis + symbolic execution | Powers `rebrew prove` for Z3-based semantic equivalence proving (optional dep) |
-| [ReVa](https://github.com/cyberkaida/reverse-engineering-assistant) | Ghidra MCP bridge | `rebrew sync` pushes/pulls annotations, labels, structs, and comments to Ghidra |
+| [ReVa](https://github.com/cyberkaida/reverse-engineering-assistant) | Ghidra MCP bridge | `rebrew sync` pushes/pulls source markers, metadata, labels, structs, and comments to Ghidra |
 
 ### Adjacent Tools
 

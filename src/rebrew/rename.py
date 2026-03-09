@@ -34,7 +34,7 @@ rebrew rename 0x10003da0 new_func                Rename by VA
 
 rebrew rename old_func new_func --file new.c     Custom filename
 
-[dim]Updates FUNCTION annotations, function definitions, extern
+[dim]Updates FUNCTION markers, function definitions, extern
 declarations, and optionally renames the source file.[/dim]""",
 )
 console = Console(stderr=True)

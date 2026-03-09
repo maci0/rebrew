@@ -16,11 +16,11 @@ Run any tool with `--help` to see usage examples and context
 | `rebrew-init` | `init.py` | Scaffold a new project directory and `rebrew-project.toml` |
 | `rebrew-test` | `test.py` | Compile-and-compare; auto-promotes STATUS on EXACT/RELOC; `--no-promote` to skip; `--json` output |
 | `rebrew-asm` | `asm.py` | Dump disassembly (`--format hex`) or NASM (`--format nasm`) from target binary at a VA |
-| `rebrew-diff` | `diff.py` | Side-by-side disassembly diff against target binary; `--fix-blocker` writes BLOCKER annotations |
+| `rebrew-diff` | `diff.py` | Side-by-side disassembly diff against target binary; `--fix-blocker` writes BLOCKER metadata |
 | `rebrew-skeleton` | `skeleton.py` | Generate annotated `.c` skeleton from VA (with `--decomp`, `--xrefs`, `--append` for multi-function files) |
 | `rebrew-catalog` | `catalog/` | Parse annotations, generate catalog + coverage JSON |
-| `rebrew-sync` | `ghidra/cli.py` | Sync annotations, structs, and signatures to/from Ghidra via ReVa MCP (`--push`, `--pull`, `--apply`, `--export`) |
-| `rebrew-lint` | `lint.py` | Lint annotation standards in decomp C files |
+| `rebrew-sync` | `ghidra/cli.py` | Sync source markers, metadata, structs, and signatures to/from Ghidra via ReVa MCP (`--push`, `--pull`, `--apply`, `--export`) |
+| `rebrew-lint` | `lint.py` | Lint source marker standards in decomp C files |
 | `rebrew-extract` | `extract.py` | Batch extract and disassemble functions from binary |
 | `rebrew-match` | `match.py` / `matcher/` | GA matching engine (single-function or `--all` batch); `--fix-blocker`; `--json` structured output |
 | `rebrew-verify` | `verify.py` | Compile all `.c` files and verify byte match against target binary; `--compare` regression detection; `--json` structured reports |
@@ -35,7 +35,7 @@ Run any tool with `--help` to see usage examples and context
 | `rebrew-data` | `data.py` | Global data scanner for .data/.rdata/.bss; `--bss` layout verification; `--dispatch` vtable detection |
 | `rebrew-graph` | `depgraph.py` | Function dependency graph (mermaid, DOT, summary); `--cu-map` infers compilation unit boundaries |
 | `rebrew-doctor` | `doctor.py` | Diagnostic checks for project health (config, compiler, binary, paths); `--install-wibo`; `--json` |
-| `rebrew-binsync-export` | `binsync_export.py` | Export annotations to BinSync state directory (prototype, STATUS/CFLAGS, globals, structs) |
+| `rebrew-binsync-export` | `binsync_export.py` | Export source markers and metadata to BinSync state directory (prototype, STATUS/CFLAGS, globals, structs) |
 | `build_db.py` | (module) | Build SQLite `db/coverage.db` from `data_*.json` ([schema docs](DB_FORMAT.md)) — standalone script, not a `rebrew` subcommand |
 
 ## Tool Flags
@@ -54,9 +54,9 @@ Run any tool with `--help` to see usage examples and context
 | `--mm` / `--mismatches-only` | With `--diff-only`, show only structural (`**`) lines + summary |
 | `--rr` / `--register-aware` | With `--diff-only`, normalize register encodings and mark as `RR` |
 | `--diff-format FORMAT` | Output format for diff: `terminal` (default), `json`, `csv` |
-| `--fix-blocker` | With `--diff-only`, auto-write `BLOCKER`/`BLOCKER_DELTA` annotations from diff classification |
+| `--fix-blocker` | With `--diff-only`, auto-write `BLOCKER`/`BLOCKER_DELTA` metadata from diff classification |
 | `--seed N` | Seed RNG for reproducible GA runs |
-| `--force` | Continue even if annotation linter finds errors |
+| `--force` | Continue even if source marker linter finds errors |
 | `--generations N` | Number of GA generations (default 100) |
 | `--pop-size N` | GA population size (default 32) |
 | `-j N` | Parallel compilation workers |
@@ -76,7 +76,7 @@ Run any tool with `--help` to see usage examples and context
 | `--dir PATH` | With `--all`, restrict to this subdirectory |
 | `--origin TYPE` | With `--all`, filter by origin (GAME, MSVCRT, ZLIB) |
 | `--dry-run` | Preview changes without writing |
-| `--no-promote` | Skip STATUS annotation update |
+| `--no-promote` | Skip STATUS metadata update |
 | `--json` | JSON structured output |
 
 ### `rebrew rename`
@@ -200,7 +200,7 @@ Output prefixes for unambiguous parsing:
 
 | Flag | Description |
 |------|-------------|
-| `--fix` | Auto-migrate old annotation formats |
+| `--fix` | Auto-migrate old source marker formats |
 | `--quiet` | Suppress warnings, show errors only |
 | `--json` | Machine-readable JSON output |
 | `--summary` | Print status/origin breakdown table |
@@ -262,7 +262,7 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 |------|-----------|
 | `VA` | Virtual address to match (positional, optional) |
 | `--all` | Match all functions with library origins (MSVCRT, ZLIB, etc.) |
-| `--fix-source` | Auto-write `// SOURCE:` annotations for matches |
+| `--fix-source` | Auto-write `// SOURCE:` markers for matches |
 | `--index` | Show the CRT source index (files and functions) |
 | `--target NAME` | Select a target from `rebrew-project.toml` |
 | `--json` | Output results as JSON |
@@ -280,7 +280,7 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 
 `rebrew split <source_file> [--va HEX] [--output-dir DIR] [--dry-run] [--force] [--json]`
 
-Split a multi-function `.c` file into individual single-function files. Each output file gets the shared preamble (includes, defines, extern declarations) plus its own annotation block and function body. Filenames are derived from the C function definition name; falls back to `func_<VA>.c` when no function definition is present.
+Split a multi-function `.c` file into individual single-function files. Each output file gets the shared preamble (includes, defines, extern declarations) plus its own marker block and function body. Filenames are derived from the C function definition name; falls back to `func_<VA>.c` when no function definition is present.
 
 With `--va`, extract a **single function** into its own file (into a `source_c/` subdirectory) and remove it from the original. This is useful for isolating a function to iterate on independently.
 
@@ -367,7 +367,7 @@ rebrew todo --stats --json                         # Coverage stats + full JSON 
 # Diff & investigation
 rebrew diff src/target_name/f.c                    # Side-by-side diff
 rebrew diff --mm src/target_name/f.c               # Only structural diffs
-rebrew diff --fix-blocker src/target_name/f.c      # Auto-write BLOCKER annotations
+rebrew diff --fix-blocker src/target_name/f.c      # Auto-write BLOCKER metadata
 rebrew diff --json src/target_name/f.c             # JSON diff
 rebrew match --all                                 # Batch GA on all STUBs
 rebrew match --all --near-miss --threshold 5       # GA on MATCHING with <=5B delta
@@ -421,7 +421,7 @@ rebrew graph --cu-map --json | jq '.clusters | length'  # count clusters
 # CRT source matching
 rebrew crt-match 0x10006c00                     # match a single VA against CRT source
 rebrew crt-match --all --origin MSVCRT           # match all MSVCRT functions
-rebrew crt-match --fix-source --all              # auto-write // SOURCE: annotations
+rebrew crt-match --fix-source --all              # auto-write // SOURCE: markers
 rebrew crt-match --index                         # show CRT source index
 
 # Sync to/from Ghidra
@@ -447,12 +447,12 @@ rebrew sync --pull-data                            # Fetch data labels into rebr
 | `matcher/core.py` | SQLite `BuildCache` + GA checkpointing |
 | `solutions.py` | Cross-function solution transfer database (`.rebrew/solutions.json`) |
 
-### Annotation & Sync
+### Source Markers, Metadata & Sync
 
 | Module | Purpose |
 |--------|---------|
 | `annotation.py` | Canonical annotation parser (`parse_c_file`, `parse_c_file_multi`, `normalize_status`) |
-| `lint.py` | Annotation linter (E000–E017 / W001–W017); `--fix` auto-migrates old formats |
+| `lint.py` | Source marker linter (E000–E017 / W001–W017); `--fix` auto-migrates old formats |
 | `ghidra/cli.py` | Sync annotations to Ghidra via ReVa MCP; skips generic `func_` labels by default |
 
 ### Binary Analysis

@@ -42,13 +42,13 @@ rebrew match \
     --out-dir run_my_func \
     --generations 200 --pop-size 64 -j 16
 
-# Validate all annotations
+# Validate all source markers
 rebrew catalog --summary
 
 # Bulk compile and verify all reversed functions
 rebrew verify
 
-# Auto-update STATUS annotations if they drift
+# Auto-update STATUS metadata if it drifts
 rebrew verify --fix-status
 
 # Lint and verify Python health
@@ -154,7 +154,7 @@ rebrew skeleton 0x<VA> --decomp --decomp-backend r2dec   # radare2 r2dec
 rebrew skeleton 0x<VA> --xrefs                     # with caller context from Ghidra
 ```
 
-This creates `src/target_name/<name>.c` with proper annotations and
+This creates `src/target_name/<name>.c` with proper markers and
 prints the exact test command. Use `--decomp` to embed pseudo-C from
 a decompiler backend (r2ghidra, r2dec, ghidra, or auto).
 
@@ -286,7 +286,7 @@ rebrew match --all --near-miss --threshold 5
 Common flag knobs for MSVC6: `/O1` vs `/O2` (size vs speed), `/Gd` (cdecl),
 `/Oy` vs `/Oy-` (frame pointer), `/Oi` (intrinsics), `/Gy` (COMDAT).
 
-### 8. Update the annotation
+### 8. Update the metadata
 
 Based on test results, **`rebrew test` auto-promotes** STATUS on EXACT or RELOC matches,
 updating `rebrew-function.toml` atomically:
@@ -339,9 +339,9 @@ When multiple functions are done, run verify to check all:
 rebrew verify
 rebrew verify --fix-status  # update any drifted STATUS entries
 ```
-### 11. Lint and Verify Annotation Health
+### 11. Lint and Verify Source Marker Health
 
-Before committing or finishing a batch of functions, ensure your C files have valid headers and annotations. Run the built-in annotation linter (`rebrew lint`) periodically throughout the RE pipeline to catch formatting errors early, especially when collaborating or generating many templates:
+Before committing or finishing a batch of functions, ensure your C files have valid headers and markers. Run the built-in marker linter (`rebrew lint`) periodically throughout the RE pipeline to catch formatting errors early, especially when collaborating or generating many templates:
 
 ```bash
 rebrew lint              # Check for invalid headers, statuses, and origins
@@ -358,9 +358,9 @@ rebrew catalog --summary # View overall RE progress and stats
 
 Always include `/nologo /c /MT` as base flags (added automatically by `rebrew test`).
 
-## Annotation Format
+## Source Marker Format
 
-Every .c file MUST start with an annotation block. See [ANNOTATIONS.md](ANNOTATIONS.md) for the full format reference.
+Every .c file MUST start with a marker block. See [ANNOTATIONS.md](ANNOTATIONS.md) for the full format reference.
 
 Required fields (enforced as linter errors): marker (FUNCTION/LIBRARY/STUB), STATUS, SIZE.
 Optional: CFLAGS (falls back to project config default). Symbol is derived automatically from the C function definition.
@@ -370,7 +370,7 @@ Conditional: SOURCE (for CRT/ZLIB), BLOCKER (for MATCHING/STUB — stored in `re
 > **Never manually edit `rebrew-function.toml`.** Volatile metadata (STATUS, CFLAGS, SIZE, BLOCKER, NOTE, GHIDRA)
 > is managed exclusively by Rebrew CLI tools. Manual edits will be lost or may corrupt the file.
 
-A file may contain **multiple annotation blocks** for multi-function compilation.
+A file may contain **multiple marker blocks** for multi-function compilation.
 See [ANNOTATIONS.md](ANNOTATIONS.md#multi-function-files) for details.
 
 ## Known MSVC6 Codegen Patterns
@@ -418,7 +418,7 @@ Users control the directory structure freely (e.g. `rendering/draw.c`, `crt/mall
 | MSVC6 CRT source | `tools/MSVC600/VC98/CRT/SRC/` | Heap, I/O, startup functions |
 | CRT source (extended) | github.com/shihyu/learn_c/tree/master/vc_lib_src/src | Missing CRT files |
 | zlib 1.1.3 | `references/zlib-1.1.3/` | All zlib functions |
-| reccmp annotations | `tools/reccmp/docs/annotations.md` | Annotation format spec |
+| reccmp markers | `tools/reccmp/docs/annotations.md` | Marker format spec |
 | reccmp recommendations | `tools/reccmp/docs/recommendations.md` | Best practices |
 
 ## Non-Matchable Functions (Skip These)
@@ -509,17 +509,17 @@ src/
   shared/                          # shared implementations (no rebrew headers)
     my_shared_func.c
   server.dll/                      # target 1 wrappers + unique functions
-    my_shared_func.c               # wrapper with SERVER annotations
+    my_shared_func.c               # wrapper with SERVER markers
     server_only_func.c             # unique to server.dll
   Europa1400Gold_TL.exe/           # target 2 wrappers + unique functions
-    my_shared_func.c               # wrapper with CLIENT annotations
+    my_shared_func.c               # wrapper with CLIENT markers
     client_only_func.c             # unique to client
 ```
 
 **`src/shared/my_shared_func.c`** — the single source of truth:
 
 ```c
-/* No rebrew annotation header here */
+/* No rebrew marker header here */
 int __cdecl my_shared_func(int param)
 {
     int result;
@@ -551,7 +551,7 @@ both targets benefit automatically.
 |----------|---------|
 | [BOOTSTRAPPING.md](BOOTSTRAPPING.md) | Adding a new binary to a project from scratch |
 | [MATCH_TYPES.md](MATCH_TYPES.md) | EXACT / RELOC / MATCHING explained with byte-level examples and relocation masking details |
-| [ANNOTATIONS.md](ANNOTATIONS.md) | Full annotation format reference and linter codes (E000–E017, W001–W017) |
+| [ANNOTATIONS.md](ANNOTATIONS.md) | Full marker format reference and linter codes (E000–E017, W001–W017) |
 | [GHIDRA_SYNC.md](GHIDRA_SYNC.md) | Ghidra ↔ Rebrew sync feature matrix and known issues |
 | [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md) | Obtaining, creating, and using FLIRT signatures |
 | [CLI.md](CLI.md) | All 24 CLI commands, flags, and examples |
