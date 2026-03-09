@@ -329,7 +329,7 @@ class TestCollectors:
             "entries": {
                 "0x1000": {
                     "result": {
-                        "status": "MISMATCH",
+                        "status": "STUB",
                         "va": "0x1000",
                         "size": 100,
                         "filepath": "a.c",
@@ -880,7 +880,7 @@ class TestEdgeCases:
                 filepath="b.c",
                 mtime_ns=0,
                 result=VerifyResult(
-                    status="MISMATCH",
+                    status="STUB",
                     va=8192,
                     size=200,
                     filepath="b.c",

@@ -6,7 +6,6 @@ from rebrew.data import (
     BssGap,
     BssReport,
     _generate_bss_fix,
-    _is_function_decl,
     classify_section,
     enrich_with_sections,
     scan_globals,
@@ -201,8 +200,12 @@ class TestScanGlobals:
 
 
 def test_function_pointer_declaration_not_treated_as_function() -> None:
+    from rebrew.c_parser import find_extern_variables
+
+    # Function pointer variable — tree-sitter recognises the function_declarator
+    # and find_extern_variables correctly skips it (it's not a simple variable).
     line = "extern int (__cdecl *g_callback)(int, int);"
-    assert _is_function_decl("int __cdecl", line) is False
+    assert find_extern_variables(line) == []
 
 
 # ---------------------------------------------------------------------------

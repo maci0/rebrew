@@ -16,12 +16,12 @@ import typer
 from rich.console import Console
 
 from rebrew.annotation import (
-    _C_FUNC_IDENT_RE,
     NEW_FUNC_CAPTURE_RE,
     NEW_KV_RE,
     parse_c_file_multi,
     split_annotation_sections,
 )
+from rebrew.c_parser import extract_function_name_from_line
 from rebrew.cli import (
     TargetOption,
     error_exit,
@@ -83,10 +83,10 @@ def _block_metadata(block: str) -> _BlockMeta | None:
             continue
         # Try to extract function name from C definition (same regex as annotation.py).
         # Skip forward declarations (ending with ';').
-        if not c_func_name:
-            m4 = _C_FUNC_IDENT_RE.match(stripped)
-            if m4 and not stripped.rstrip().endswith(";"):
-                c_func_name = m4.group("name")
+        if not c_func_name and not stripped.rstrip().endswith(";"):
+            func_result = extract_function_name_from_line(stripped)
+            if func_result:
+                c_func_name = func_result[0]
         break
 
     # Symbol is derived from C function definition name

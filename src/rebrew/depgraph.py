@@ -47,26 +47,17 @@ def _sanitize_id(name: str) -> str:
     return f"n_{base}_{checksum}"
 
 
-# Pattern matching "extern <type> [<cc>] FuncName(...)"
-# Captures the function name before the opening parenthesis.
-_EXTERN_FUNC_RE = re.compile(
-    r"^extern\s+"  # extern keyword
-    r"[^(]+?"  # return type (non-greedy, anything except open paren)
-    r"\b(\w+)"  # function name (last word before paren)
-    r"\s*\(",  # opening paren
-    re.MULTILINE,
-)
-
-
 def _extract_callees(c_path: Path) -> list[str]:
     """Extract function names from extern declarations in a .c file."""
     try:
         text = c_path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return []
+
+    from rebrew.c_parser import find_extern_function_names
+
     callees = []
-    for m in _EXTERN_FUNC_RE.finditer(text):
-        name = m.group(1)
+    for name in find_extern_function_names(text):
         # Skip common noise: standard library, compiler intrinsics
         if name in (
             "memset",

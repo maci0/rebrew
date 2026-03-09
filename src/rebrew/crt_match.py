@@ -118,10 +118,6 @@ _MSVC6_ASM_FUNCTIONS: set[str] = {
     "_outpd",
 }
 
-_C_FUNCTION_RE = re.compile(
-    r"^\s*(?:[\w\s\*]+?)\s+(?:__cdecl|__stdcall|__fastcall|WINAPI|_CRTIMP)?\s*\b(\w+)\s*\([^{]*?\)\s*(?:\{|$)",
-    re.MULTILINE,
-)
 _ASM_PROC_RE = re.compile(r"^\s*_?(\w+)\s+PROC\b", re.MULTILINE)
 
 
@@ -148,13 +144,14 @@ def build_crt_index(source_dir: Path, module: str) -> list[CrtSourceEntry]:
             continue
 
         if suffix in {".c", ".cpp"}:
-            for match in _C_FUNCTION_RE.finditer(text):
-                line = text.count("\n", 0, match.start()) + 1
+            from rebrew.c_parser import find_c_function_definitions
+
+            for func_name, func_line in find_c_function_definitions(text):
                 entries.append(
                     CrtSourceEntry(
-                        name=match.group(1),
+                        name=func_name,
                         file=rel_file,
-                        line=line,
+                        line=func_line,
                         is_asm=False,
                         module=module,
                     )

@@ -411,8 +411,8 @@ def _render_terminal(report: StatusReport) -> None:
         title="[bold]Rebrew Status[/bold]  " + "  ".join(header_parts),
         subtitle=(
             f"[green]{exact}E[/green] [cyan]{reloc}R[/cyan]"
-            f" [yellow]{near_match}M[/yellow] [dim]{stub}S[/dim]"
-            f" → [bold]{report.matched_pct}%[/bold]"
+            f" [magenta]{proven}P[/magenta] [yellow]{near_match}M[/yellow]"
+            f" [dim]{stub}S[/dim] → [bold]{report.matched_pct}%[/bold]"
         ),
         border_style="blue",
     )
