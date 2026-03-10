@@ -23,6 +23,7 @@ from rich.console import Console
 from rebrew.annotation import Annotation, parse_c_file_multi, parse_source_metadata
 from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import (
+    EXIT_MISMATCH,
     NEAR_MATCH_THRESHOLD,
     TargetOption,
     classify_match_status,
@@ -331,7 +332,7 @@ def main(
                 console.print("Available symbols:")
                 for s in available:
                     console.print(f"  {s}")
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=EXIT_MISMATCH)
 
         if len(obj_bytes) > len(target_bytes):
             console.print(

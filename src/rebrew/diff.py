@@ -21,7 +21,14 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.cli import (
+    EXIT_ERROR,
+    EXIT_MISMATCH,
+    TargetOption,
+    error_exit,
+    json_print,
+    require_config,
+)
 
 console = Console(stderr=True)
 
@@ -140,7 +147,7 @@ def run_diff(
         if json_output:
             error_exit(f"Build failed: {res.error_msg}", json_mode=True)
         console.print(f"Build failed: {res.error_msg}")
-        raise typer.Exit(code=2)
+        raise typer.Exit(code=EXIT_ERROR)
 
     obj_bytes = res.obj_bytes
     if len(obj_bytes) > len(p.target_bytes):
@@ -247,7 +254,7 @@ def run_diff(
         has_structural = isinstance(structural_obj, int | float) and structural_obj > 0
 
     if has_structural:
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=EXIT_MISMATCH)
 
 
 # ---------------------------------------------------------------------------

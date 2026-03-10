@@ -18,7 +18,14 @@ from rebrew.catalog import (
     parse_function_list,
     scan_reversed_dir,
 )
-from rebrew.cli import TargetOption, error_exit, iter_sources, json_print, require_config
+from rebrew.cli import (
+    EXIT_MISMATCH,
+    TargetOption,
+    error_exit,
+    iter_sources,
+    json_print,
+    require_config,
+)
 from rebrew.config import FUNCTION_STRUCTURE_JSON
 from rebrew.ghidra.client import (
     _fetch_all_functions,
@@ -314,7 +321,7 @@ def main(
 
     if summary:
         if ops is None:  # pragma: no cover — guarded by branch above
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=EXIT_MISMATCH)
         by_module: dict[str, list[dict[str, Any]]] = {}
         for e in entries:
             by_module.setdefault(e["module"], []).append(e)
@@ -363,7 +370,7 @@ def main(
 
     if export or push:
         if ops is None:  # pragma: no cover — guarded by branch above
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=EXIT_MISMATCH)
         out_path = cfg.root / "ghidra_commands.json"
         with out_path.open("w", encoding="utf-8") as f:
             json.dump(ops, f, indent=2)
@@ -388,7 +395,7 @@ def main(
         ok, errs = apply_commands_via_mcp(commands, endpoint=endpoint)
         console.print(f"Done: {ok} succeeded, {errs} failed")
         if errs > 0:
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=EXIT_MISMATCH)
 
     if refresh_cache:
         _refresh_structure_cache(cfg, endpoint, program_path, dry_run, json_output)
@@ -435,7 +442,7 @@ def main(
                 ok, errs = apply_commands_via_mcp(all_cmds, endpoint=endpoint)
                 console.print(f"Done: {ok} succeeded, {errs} failed")
                 if errs > 0:
-                    raise typer.Exit(code=1)
+                    raise typer.Exit(code=EXIT_MISMATCH)
 
 
 def _refresh_structure_cache(

@@ -38,7 +38,14 @@ from rebrew.catalog import (
     parse_function_list,
     scan_reversed_dir,
 )
-from rebrew.cli import TargetOption, error_exit, is_matched, json_print, require_config
+from rebrew.cli import (
+    EXIT_MISMATCH,
+    TargetOption,
+    error_exit,
+    is_matched,
+    json_print,
+    require_config,
+)
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 from rebrew.metadata import update_source_status
 from rebrew.utils import atomic_write_text
@@ -546,7 +553,7 @@ def main(
 
             has_regressions = bool(diff_result and diff_result["regressions"])
             if failed > 0 or has_regressions:
-                raise typer.Exit(code=1)
+                raise typer.Exit(code=EXIT_MISMATCH)
             return
 
     _print_results(
@@ -564,7 +571,7 @@ def main(
 
     has_regressions = bool(diff_result and diff_result["regressions"])
     if failed > 0 or has_regressions:
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=EXIT_MISMATCH)
 
 
 # ---------------------------------------------------------------------------
