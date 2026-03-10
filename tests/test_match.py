@@ -96,9 +96,9 @@ class TestBinaryMatchingGAInit:
         assert ga.elitism == 4
 
     def test_stagnation_limit_default(self, tmp_path: Path) -> None:
-        """Default stagnation limit is 20."""
+        """Default stagnation limit is 40."""
         ga = self._make_ga(tmp_path)
-        assert ga.stagnation_limit == 20
+        assert ga.stagnation_limit == 40
 
     def test_env_stored(self, tmp_path: Path) -> None:
         """Custom env dict is stored."""
@@ -126,7 +126,7 @@ class TestComputeFitness:
 
         ga = TestBinaryMatchingGAInit()._make_ga(tmp_path)
         res = BuildResult(ok=False, error_msg="compiler not found")
-        score = ga._compute_fitness(res, "test_hash")
+        score = ga._compute_fitness(res, "test_hash", "int f() { return 0; }")
         assert score == 10000000.0
 
     def test_none_obj_bytes_returns_high_score(self, tmp_path: Path) -> None:
@@ -135,7 +135,7 @@ class TestComputeFitness:
 
         ga = TestBinaryMatchingGAInit()._make_ga(tmp_path)
         res = BuildResult(ok=True, obj_bytes=None)
-        score = ga._compute_fitness(res, "test_hash")
+        score = ga._compute_fitness(res, "test_hash", "int f() { return 0; }")
         assert score == 10000000.0
 
 

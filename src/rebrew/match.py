@@ -312,10 +312,11 @@ class BinaryMatchingGA:
                     child = p1
 
                 if self.rng.random() < self.mutation_prob:
-                    # Multi-mutation: 30% chance of chaining 2-3 mutations for
-                    # bigger jumps in the search space.
+                    # Multi-mutation: 35% chance of chaining 2-3 mutations for
+                    # bigger jumps in the search space.  Bumped from 30% after
+                    # expanding to 116 operators — more combos to explore.
                     n_muts = 1
-                    if self.rng.random() < 0.3:
+                    if self.rng.random() < 0.35:
                         n_muts = self.rng.randint(2, 3)
                     for _ in range(n_muts):
                         child = mutate_code(child, self.rng, mutation_weights=self.mutation_weights)
@@ -644,7 +645,8 @@ Requires rebrew-project.toml with valid compiler paths.
 
 [bold]Batch mode (--all):[/bold]
   rebrew match --all               GA on all STUB functions
-  rebrew match --all --near-miss   GA on near-miss NEAR_MATCHING functions
+  rebrew match --all --improve     GA on all NEAR_MATCHING functions
+  rebrew match --all --near-miss   GA on near-miss NEAR_MATCHING (Δ ≤ threshold)
   rebrew match --all --flag-sweep  Batch flag sweep on NEAR_MATCHING functions
   rebrew match --all --dry-run     List targets without running[/dim]"""
 
@@ -703,6 +705,11 @@ def main(
         "--near-miss",
         help="--all: target NEAR_MATCHING near-misses instead of STUBs",
     ),
+    improve: bool = typer.Option(
+        False,
+        "--improve",
+        help="--all: target all NEAR_MATCHING functions (no delta threshold)",
+    ),
     threshold: int = typer.Option(
         10, "--threshold", help="--all: max byte delta for --near-miss mode"
     ),
@@ -757,6 +764,7 @@ def main(
             max_size=max_size,
             filter_str=filter_str,
             near_miss=near_miss,
+            improve=improve,
             threshold=threshold,
             flag_sweep=flag_sweep,
             fix_cflags=fix_cflags,
@@ -1383,6 +1391,7 @@ def _run_all(  # noqa: PLR0913
     max_size: int,
     filter_str: str,
     near_miss: bool,
+    improve: bool,
     threshold: int,
     flag_sweep: bool,
     fix_cflags: bool,
@@ -1402,6 +1411,11 @@ def _run_all(  # noqa: PLR0913
             reversed_dir, ignored=ignored, cfg=cfg, warn_duplicates=not json_output
         )
         mode_label = "NEAR_MATCHING (flag-sweep)"
+    elif improve:
+        stubs = find_all_matching(
+            reversed_dir, ignored=ignored, cfg=cfg, warn_duplicates=not json_output
+        )
+        mode_label = "NEAR_MATCHING (improve)"
     elif near_miss:
         stubs = find_near_miss(
             reversed_dir,

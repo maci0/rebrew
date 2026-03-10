@@ -146,6 +146,7 @@ rebrew match --diff-only src/target_name/f.c       # side-by-side disassembly di
 rebrew match --diff-only --mm src/target_name/f.c  # show only structural diffs (**)
 rebrew match src/target_name/f.c    # run the Genetic Algorithm Engine to resolve diffs
 rebrew match --all                          # batch GA on all STUB functions
+rebrew match --all --improve                # batch GA on all NEAR_MATCHING functions
 rebrew match --all --near-miss --threshold 5 # batch GA on MATCHING with ≤5B delta
 rebrew match --all --flag-sweep             # batch flag sweep on all MATCHING functions
 rebrew match --all --flag-sweep --fix-cflags  # targeted sweep, auto-update CFLAGS
