@@ -13,6 +13,7 @@ from typing import Any
 from rebrew.annotation import Annotation, parse_c_file_multi, parse_library_header
 from rebrew.catalog.models import FunctionEntry, GhidraDataLabel
 from rebrew.catalog.registry import make_func_entry
+from rebrew.catalog.sections import trim_trailing_padding
 from rebrew.config import ProjectConfig
 
 # ---------------------------------------------------------------------------
@@ -155,11 +156,8 @@ def extract_dll_bytes(bin_path: Path, file_offset: int, size: int) -> bytes | No
         with bin_path.open("rb") as f:
             f.seek(file_offset)
             data = f.read(size)
-        # Trim trailing CC/90 padding (index-based to avoid O(n^2) copies)
-        end = len(data)
-        while end > 0 and data[end - 1] in (0xCC, 0x90):
-            end -= 1
-        return data[:end]
+        # Trim trailing CC/90 padding
+        return data[: trim_trailing_padding(data)]
     except (OSError, ValueError):
         return None
 

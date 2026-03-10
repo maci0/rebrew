@@ -53,6 +53,8 @@ def detect_unmatchable(
     iat_thunks: set[int] | None = None,
     ignored_symbols: set[str] | None = None,
     name: str = "",
+    cs_arch: int | None = None,
+    cs_mode: int | None = None,
 ) -> str | None:
     """Check if a function is unmatchable from C source.
 
@@ -92,7 +94,9 @@ def detect_unmatchable(
         return "SEH handler (fs:[0] access)"
 
     # 3d. ASM-origin CRT patterns (via disassembly to avoid false positives in immediates)
-    md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+    arch = cs_arch if cs_arch is not None else capstone.CS_ARCH_X86
+    mode = cs_mode if cs_mode is not None else capstone.CS_MODE_32
+    md = capstone.Cs(arch, mode)
     for insn in md.disasm(raw, va):
         mnem = insn.mnemonic
         if mnem in ("bt", "bts"):
@@ -271,52 +275,6 @@ def load_data(
             covered_vas[entry.va] = hfile.name
 
     return ghidra_funcs, existing, covered_vas
-
-
-# ---------------------------------------------------------------------------
-# Grouping
-# ---------------------------------------------------------------------------
-
-
-def group_uncovered(
-    uncovered: list[UncoveredItem],
-    max_gap: int = 0x1000,
-) -> list[list[UncoveredItem]]:
-    """Group uncovered functions by address proximity.
-
-    Adjacent functions are grouped when the gap from the *end* of one function
-    to the *start* of the next is within *max_gap* bytes.  This accounts for
-    function body size, not just VA distance.  Groups are sorted by total size
-    (smallest first — easiest batch to tackle).
-    """
-    if not uncovered:
-        return []
-
-    # Sort by VA (index 2) for contiguity detection
-    by_va = sorted(uncovered, key=lambda x: x[2])
-
-    groups: list[list[UncoveredItem]] = []
-    current_group = [by_va[0]]
-
-    for item in by_va[1:]:
-        prev_va = current_group[-1][2]
-        prev_size = current_group[-1][1]
-        curr_va = item[2]
-
-        # Gap from end of previous function to start of current
-        gap = curr_va - (prev_va + prev_size)
-        if gap <= max_gap:
-            current_group.append(item)
-        else:
-            groups.append(current_group)
-            current_group = [item]
-
-    groups.append(current_group)
-
-    # Sort groups by total size (smallest first)
-    groups.sort(key=lambda g: sum(item[1] for item in g))
-
-    return groups
 
 
 # ---------------------------------------------------------------------------

@@ -10,6 +10,9 @@ Multiple targets are supported in `rebrew-project.toml`.
 Tools default to the first target unless `--target <name>` is passed.
 
 ```toml
+[project]
+default_target = "target_name"           # Default target when --target is not passed
+
 [targets.target_name]
 binary = "original/target.dll"          # Target binary (relative to project root)
 format = "pe"                            # Binary format: pe, elf, macho
@@ -18,6 +21,9 @@ arch = "x86_32"                          # Architecture: x86_32, x86_64, arm32, 
 reversed_dir = "src/target_name"         # Where reversed .c files live
 function_list = "src/target_name/functions.txt"
 bin_dir = "bin/target_name"
+# source_ext = ".c"                      # Source file extension (default: ".c")
+# ghidra_program_path = ""               # Ghidra program path for ReVa MCP sync
+# origins = ["GAME", "ZLIB"]             # Origin list for annotation filtering
 
 # Add more targets as needed:
 # [targets.client_exe]

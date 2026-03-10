@@ -45,7 +45,7 @@ Keyed by `MODULE.0xVA`:
 
 ```toml
 [SERVER."0x10008880"]
-status = "MATCHING"
+status = "NEAR_MATCHING"
 cflags = "/O2 /Gd"
 blocker = "needs vtable"
 note = "register allocation differs in inner loop"
@@ -81,16 +81,16 @@ Managed by `rebrew.data_metadata`.
 STATUS values and their progression:
 
 ```
-RELOC → STUB → MATCHING → EXACT → PROVEN
+STUB → NEAR_MATCHING → RELOC → EXACT → PROVEN
 ```
 
-| Status     | Meaning                                         |
-|------------|--------------------------------------------------|
-| `RELOC`    | Default — not yet attempted                      |
-| `STUB`     | Placeholder / blocked                            |
-| `MATCHING` | Byte-match except relocations                    |
-| `EXACT`    | Byte-identical to target                         |
-| `PROVEN`   | Symbolically verified via `rebrew prove`         |
+| Status           | Meaning                                         |
+|------------------|--------------------------------------------------|
+| `STUB`           | Placeholder / blocked                            |
+| `NEAR_MATCHING`  | Partially matching (≥75% similarity)             |
+| `RELOC`          | Byte-match after relocation masking              |
+| `EXACT`          | Byte-identical to target                         |
+| `PROVEN`         | Semantically verified via `rebrew prove`         |
 
 ### PROVEN Guard
 

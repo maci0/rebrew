@@ -16,7 +16,7 @@ that contains the actual binaries, source files, and toolchains.
 uv pip install -e .
 uv sync --all-extras            # with dev deps
 
-# Run ALL tests (~1737 tests)
+# Run ALL tests (~1784 tests)
 uv run pytest tests/ -v
 
 # Run a SINGLE test file
@@ -83,11 +83,12 @@ Blank line between each group. Specific imports preferred over star imports.
 
 ### Error Handling
 
-- **CLI tools**: Use `error_exit(msg)` from `rebrew.cli` (prints + raises `typer.Exit(code=1)`)
+- **CLI tools**: Use `error_exit(msg, json_mode=json_output)` from `rebrew.cli` (prints + raises `typer.Exit(code=1)`)
 - **Library code**: Raise specific exceptions (`ValueError`, `FileNotFoundError`, `KeyError`, `RuntimeError`)
 - **No bare `except:`** or `except Exception` without re-raise
 - **JSON output**: Use `json_print(data)` from `rebrew.cli` for `--json` mode
 - **VA parsing**: Use `parse_va(s)` from `rebrew.cli` for hex/int address strings
+- **Exit codes**: Use `EXIT_OK` (0), `EXIT_MISMATCH` (1), `EXIT_ERROR` (2) from `rebrew.cli` for consistent process exit codes
 
 ### Docstrings
 
@@ -131,7 +132,9 @@ src/rebrew/
 ├── merge.py             # Merge single-function C files into multi-function file
 ├── cli.py               # Shared: TargetOption, get_config(), iter_sources(),
 │                        #   iter_library_headers(), iter_annotations(), error_exit(),
-│                        #   json_print(), parse_va(), source_glob(), target_marker()
+│                        #   json_print(), parse_va(), source_glob(), target_marker(),
+│                        #   EXIT_OK, EXIT_MISMATCH, EXIT_ERROR, NEAR_MATCH_THRESHOLD,
+│                        #   classify_match_status()
 ├── config.py            # ProjectConfig dataclass, rebrew-project.toml loader
 ├── annotation.py        # Annotation parsing (dataclass + comment parsers + library header parser)
 ├── c_parser.py          # Shared tree-sitter C parsing (function defs, extern decls, extern vars)
@@ -161,14 +164,14 @@ src/rebrew/
 │   ├── registry.py      # build_function_registry, canonical size resolution
 │   ├── grid.py          # Coverage grid / data JSON generation
 │   ├── export.py        # Catalog + reccmp CSV generation
-│   ├── sections.py      # PE section helpers (text size, globals)
+│   ├── sections.py      # PE section helpers, shared x86 utils (trim_trailing_padding, has_back_jumps)
 │   └── cli.py           # Typer CLI app
 ├── matcher/             # Core GA engine (see matcher/AGENTS.md)
 │   ├── __init__.py      # Re-exports: build_candidate, score_candidate, mutate_code, ...
 │   ├── core.py          # Data types: Score, BuildResult, BuildCache, GACheckpoint
 │   ├── compiler.py      # MSVC6 compilation + flag sweep (Wine/wibo subprocess)
 │   ├── scoring.py       # Byte-level scoring, structural similarity (capstone + numpy)
-│   ├── mutator.py       # 116 C source mutation operators for GA exploration
+│   ├── mutator.py       # 120 C source mutation operators for GA exploration
 │   ├── parsers.py       # Object file parsing (COFF/ELF/Mach-O via LIEF)
 │   ├── flags.py         # FlagSet/Checkbox primitives (decomp.me compatible)
 │   └── flag_data.py     # Auto-synced MSVC flag definitions

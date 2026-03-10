@@ -91,10 +91,10 @@ METADATA_FIELDS: frozenset[str] = frozenset(
         "ANALYSIS",
         "SKIP",
         "GLOBALS",
-        # ORIGIN and SOURCE are handled differently (SOURCE may stay in .c for library
-        # functions; ORIGIN is derivable from the FUNCTION: marker module field).
-        # They are listed here so callers can ask ``is_metadata_key("SOURCE")``.
+        # ORIGIN is derivable from the FUNCTION: marker module field.
+        # SOURCE may appear in library_*.h files for reccmp compatibility.
         "SOURCE",
+        "PROVE_CONSTRAINTS",
         # NOTE: SECTION is intentionally absent — it is owned by data_metadata.py
         # for DATA/GLOBAL annotations and must not be written to rebrew-function.toml.
     }
@@ -114,6 +114,7 @@ _TOML_TO_ATTR: dict[str, str] = {
     "skip": "skip",
     "globals": "globals_list",
     "source": "source",
+    "prove_constraints": "prove_constraints",
 }
 
 __all__ = [
@@ -451,13 +452,13 @@ def update_source_status(
     calls to minimise I/O and avoid partial-write windows.
 
     Args:
-        metadata_dir: The metadata root directory (``cfg.reversed_dir``).
+        metadata_dir: The metadata root directory (``cfg.metadata_dir``).
         new_status: New status string (e.g. ``EXACT``, ``RELOC``, ``NEAR_MATCHING``).
         module: Target module name from the annotation (e.g. ``NP``).
         va: Virtual address of the function.
         clear_blockers: If ``True`` (default), remove ``blocker`` and
             ``blocker_delta`` from the metadata entry (correct for EXACT/RELOC).
-            Pass ``False`` when demoting to NEAR_MATCHING or NEAR_MATCHING to preserve user-set blockers.
+            Pass ``False`` when demoting to NEAR_MATCHING to preserve user-set blockers.
         force: If ``True``, allow demotion from PROVEN.  Default ``False``.
 
     """
@@ -573,5 +574,10 @@ def merge_into_annotation(ann: Annotation, directory: Path) -> Annotation:
 
     if "source" in entry:
         ann.source = str(entry["source"])
+
+    if "prove_constraints" in entry:
+        raw_pc = entry["prove_constraints"]
+        if isinstance(raw_pc, dict):
+            ann.prove_constraints = dict(raw_pc)
 
     return ann

@@ -654,44 +654,40 @@ int func_b(void) { return 1; }
 class TestHasSkipAnnotation:
     """Tests for has_skip_annotation()."""
 
-    def test_skip_present(self, tmp_path) -> None:
+    def test_skip_present_in_metadata(self, tmp_path) -> None:
         from rebrew.annotation import has_skip_annotation
 
         f = tmp_path / "skipped.c"
-        f.write_text(
-            "// FUNCTION: SERVER 0x10001000\n// SKIP: not matchable\nint x() {}\n", encoding="utf-8"
-        )
-        assert has_skip_annotation(f) is True
+        f.write_text("// FUNCTION: SERVER 0x10001000\nint x() {}\n", encoding="utf-8")
+        meta = tmp_path / "rebrew-function.toml"
+        meta.write_text('["SERVER.0x10001000"]\nskip = "not matchable"\n', encoding="utf-8")
+        assert has_skip_annotation(f, metadata_dir=tmp_path) is True
 
-    def test_skip_block_comment(self, tmp_path) -> None:
-        from rebrew.annotation import has_skip_annotation
-
-        f = tmp_path / "skipped.c"
-        f.write_text("/* SKIP: reason */\nint x() {}\n", encoding="utf-8")
-        assert has_skip_annotation(f) is True
-
-    def test_no_skip(self, tmp_path) -> None:
+    def test_no_skip_in_metadata(self, tmp_path) -> None:
         from rebrew.annotation import has_skip_annotation
 
         f = tmp_path / "normal.c"
-        f.write_text(
-            "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\nint x() {}\n", encoding="utf-8"
-        )
-        assert has_skip_annotation(f) is False
+        f.write_text("// FUNCTION: SERVER 0x10001000\nint x() {}\n", encoding="utf-8")
+        meta = tmp_path / "rebrew-function.toml"
+        meta.write_text('["SERVER.0x10001000"]\nstatus = "EXACT"\n', encoding="utf-8")
+        assert has_skip_annotation(f, metadata_dir=tmp_path) is False
 
-    def test_nonexistent_file(self, tmp_path) -> None:
+    def test_no_metadata_dir(self, tmp_path) -> None:
         from rebrew.annotation import has_skip_annotation
 
-        f = tmp_path / "does_not_exist.c"
+        f = tmp_path / "skipped.c"
+        f.write_text("// FUNCTION: SERVER 0x10001000\nint x() {}\n", encoding="utf-8")
         assert has_skip_annotation(f) is False
 
-    def test_skip_beyond_line_20_ignored(self, tmp_path) -> None:
+    def test_skip_false_values(self, tmp_path) -> None:
         from rebrew.annotation import has_skip_annotation
 
-        f = tmp_path / "late_skip.c"
-        lines = ["// line\n"] * 25 + ["// SKIP: too late\n"]
-        f.write_text("".join(lines), encoding="utf-8")
-        assert has_skip_annotation(f) is False
+        f = tmp_path / "skipped.c"
+        f.write_text("// FUNCTION: SERVER 0x10001000\nint x() {}\n", encoding="utf-8")
+        for val in ("0", "false", "no", ""):
+            meta = tmp_path / "rebrew-function.toml"
+            meta.write_text(f'["SERVER.0x10001000"]\nskip = "{val}"\n', encoding="utf-8")
+            assert has_skip_annotation(f, metadata_dir=tmp_path) is False
 
 
 class TestResolveSymbol:

@@ -832,28 +832,12 @@ def _apply_query_once(
 
 def mut_commute_simple_add(s: str, rng: random.Random) -> str | None:
     """Swap operands of simple identifier addition."""
-    b_source = s.encode("utf-8")
-
-    def _repl(captures: dict[str, ts.Node]) -> bytes:
-        left = b_source[captures["left"].start_byte : captures["left"].end_byte]
-        right = b_source[captures["right"].start_byte : captures["right"].end_byte]
-        return right + b" + " + left
-
-    res = _apply_query_once(b_source, _QUERY_COMMUTE_ADD, _repl, rng)
-    return res.decode("utf-8") if res else None
+    return _commute_operands(s, rng, _QUERY_COMMUTE_ADD, b"+")
 
 
 def mut_commute_simple_mul(s: str, rng: random.Random) -> str | None:
     """Swap operands of simple identifier multiplication."""
-    b_source = s.encode("utf-8")
-
-    def _repl(captures: dict[str, ts.Node]) -> bytes:
-        left = b_source[captures["left"].start_byte : captures["left"].end_byte]
-        right = b_source[captures["right"].start_byte : captures["right"].end_byte]
-        return right + b" * " + left
-
-    res = _apply_query_once(b_source, _QUERY_COMMUTE_MUL, _repl, rng)
-    return res.decode("utf-8") if res else None
+    return _commute_operands(s, rng, _QUERY_COMMUTE_MUL, b"*")
 
 
 def mut_flip_eq_zero(s: str, rng: random.Random) -> str | None:
@@ -903,28 +887,12 @@ def mut_add_redundant_parens(s: str, rng: random.Random) -> str | None:
 
 def mut_swap_eq_operands(s: str, rng: random.Random) -> str | None:
     """Swap A == b to b == a."""
-    b_source = s.encode("utf-8")
-
-    def _repl(captures: dict[str, ts.Node]) -> bytes:
-        left = b_source[captures["left"].start_byte : captures["left"].end_byte]
-        right = b_source[captures["right"].start_byte : captures["right"].end_byte]
-        return right + b" == " + left
-
-    res = _apply_query_once(b_source, _QUERY_SWAP_EQ, _repl, rng)
-    return res.decode("utf-8") if res else None
+    return _commute_operands(s, rng, _QUERY_SWAP_EQ, b"==")
 
 
 def mut_swap_ne_operands(s: str, rng: random.Random) -> str | None:
     """Swap A != b to b != a."""
-    b_source = s.encode("utf-8")
-
-    def _repl(captures: dict[str, ts.Node]) -> bytes:
-        left = b_source[captures["left"].start_byte : captures["left"].end_byte]
-        right = b_source[captures["right"].start_byte : captures["right"].end_byte]
-        return right + b" != " + left
-
-    res = _apply_query_once(b_source, _QUERY_SWAP_NE, _repl, rng)
-    return res.decode("utf-8") if res else None
+    return _commute_operands(s, rng, _QUERY_SWAP_NE, b"!=")
 
 
 def mut_reassociate_add(s: str, rng: random.Random) -> str | None:
@@ -943,38 +911,12 @@ def mut_reassociate_add(s: str, rng: random.Random) -> str | None:
 
 def mut_swap_or_operands(s: str, rng: random.Random) -> str | None:
     """Swap A || b to b || a (changes short-circuit order, affects codegen)."""
-    b_source = s.encode("utf-8")
-
-    def _repl(captures: dict[str, ts.Node]) -> bytes:
-        left = b_source[captures["left"].start_byte : captures["left"].end_byte]
-        right = b_source[captures["right"].start_byte : captures["right"].end_byte]
-        if left == right:
-            return b_source[captures["expr"].start_byte : captures["expr"].end_byte]
-        return right + b" || " + left
-
-    res = _apply_query_once(b_source, _QUERY_SWAP_OR, _repl, rng)
-    if not res:
-        return None
-    res_str = res.decode("utf-8")
-    return res_str if res_str != s else None
+    return _commute_operands(s, rng, _QUERY_SWAP_OR, b"||")
 
 
 def mut_swap_and_operands(s: str, rng: random.Random) -> str | None:
     """Swap A && b to b && a."""
-    b_source = s.encode("utf-8")
-
-    def _repl(captures: dict[str, ts.Node]) -> bytes:
-        left = b_source[captures["left"].start_byte : captures["left"].end_byte]
-        right = b_source[captures["right"].start_byte : captures["right"].end_byte]
-        if left == right:
-            return b_source[captures["expr"].start_byte : captures["expr"].end_byte]
-        return right + b" && " + left
-
-    res = _apply_query_once(b_source, _QUERY_SWAP_AND, _repl, rng)
-    if not res:
-        return None
-    res_str = res.decode("utf-8")
-    return res_str if res_str != s else None
+    return _commute_operands(s, rng, _QUERY_SWAP_AND, b"&&")
 
 
 def mut_toggle_bool_not(s: str, rng: random.Random) -> str | None:
@@ -5072,6 +5014,506 @@ def mut_zero_to_bitand(s: str, rng: random.Random) -> str | None:
     return result.decode("utf-8")
 
 
+# ---------------------------------------------------------------------------
+# Phase 6: MSVC6 high-impact targeted mutations (2026-03)
+# ---------------------------------------------------------------------------
+
+# --- Queries for Phase 6 ---
+
+_QUERY_FUNC_DEF = ts.Query(
+    _C_LANGUAGE,
+    """
+    (function_definition
+        type: (_) @ret_type
+        declarator: (_) @decl
+        body: (compound_statement) @body
+    ) @func
+""",
+)
+
+_QUERY_IF_ELSE_FULL = ts.Query(
+    _C_LANGUAGE,
+    """
+    (if_statement
+        condition: (parenthesized_expression
+            (binary_expression
+                left: (_) @left
+                operator: _ @op
+                right: (_) @right
+            ) @bin
+        ) @cond
+        consequence: (_) @cons
+        alternative: (else_clause (_) @alt)
+    ) @stmt
+""",
+)
+
+_QUERY_DO_WHILE_FULL = ts.Query(
+    _C_LANGUAGE,
+    """
+    (do_statement
+        body: (compound_statement) @body
+        condition: (parenthesized_expression) @cond
+    ) @stmt
+""",
+)
+
+_QUERY_NESTED_CALL_ARG = ts.Query(
+    _C_LANGUAGE,
+    """
+    (call_expression
+        function: (_) @outer_fn
+        arguments: (argument_list
+            (call_expression
+                function: (_) @inner_fn
+                arguments: (argument_list) @inner_args
+            ) @inner_call
+        ) @args
+    ) @stmt
+""",
+)
+
+_QUERY_COMPLEX_ARG = ts.Query(
+    _C_LANGUAGE,
+    """
+    (call_expression
+        function: (_) @fn
+        arguments: (argument_list
+            (binary_expression) @arg
+        ) @args
+    ) @stmt
+""",
+)
+
+
+def mut_pragma_optimize(s: str, rng: random.Random) -> str | None:
+    """Inject ``#pragma optimize`` around function definitions.
+
+    MSVC6's global register allocator (the ``g`` flag) aggressively
+    coalesces variables into shared registers.  Disabling it with
+    ``#pragma optimize("g", off)`` forces strict local allocation,
+    making ``register`` keywords reliable and preventing unwanted CSE.
+
+    Also randomly tests ``"y"`` (frame-pointer omission) and ``""``
+    (full optimisation reset) for wider codegen exploration.
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+
+    cursor = ts.QueryCursor(_QUERY_FUNC_DEF)
+    matches = cursor.matches(tree.root_node)
+
+    if not matches:
+        return None
+
+    match = rng.choice(matches)
+    caps = {k: v[0] for k, v in match[1].items()}
+    func_node = caps["func"]
+
+    # Don't inject if already present
+    before = b_source[max(0, func_node.start_byte - 80) : func_node.start_byte]
+    if b"#pragma optimize" in before:
+        return None
+
+    # Choose a pragma variant
+    variant = rng.choice(
+        [
+            (b'#pragma optimize("g", off)', b'#pragma optimize("", on)'),
+            (b'#pragma optimize("y", off)', b'#pragma optimize("", on)'),
+            (b'#pragma optimize("gy", off)', b'#pragma optimize("", on)'),
+            (b'#pragma optimize("", off)', b'#pragma optimize("", on)'),
+        ]
+    )
+
+    prefix = variant[0] + b"\n"
+    suffix = b"\n" + variant[1]
+
+    result = (
+        b_source[: func_node.start_byte]
+        + prefix
+        + b_source[func_node.start_byte : func_node.end_byte]
+        + suffix
+        + b_source[func_node.end_byte :]
+    )
+    return result.decode("utf-8")
+
+
+def mut_pragma_optimize_remove(s: str, rng: random.Random) -> str | None:
+    """Remove ``#pragma optimize`` directives surrounding a function.
+
+    Reverse of :func:`mut_pragma_optimize`.  Strips both the ``off``
+    line before and the ``on`` line after the function.
+    """
+    b_source = s.encode("utf-8")
+
+    # Find and remove #pragma optimize("...", off) lines
+    pragma_off_re = re.compile(rb"#pragma optimize\([^)]+,\s*off\)\s*\n")
+    pragma_on_re = re.compile(rb"\n#pragma optimize\([^)]+,\s*on\)")
+
+    m_off = pragma_off_re.search(b_source)
+    if not m_off:
+        return None
+
+    result = b_source[: m_off.start()] + b_source[m_off.end() :]
+
+    m_on = pragma_on_re.search(result)
+    if m_on:
+        result = result[: m_on.start()] + result[m_on.end() :]
+
+    result_str = result.decode("utf-8")
+    return result_str if result_str != s else None
+
+
+# Operator inversion map for De Morgan-aware if/else inversion
+_INVERT_OP: dict[bytes, bytes] = {
+    b"==": b"!=",
+    b"!=": b"==",
+    b"<": b">=",
+    b">=": b"<",
+    b">": b"<=",
+    b"<=": b">",
+    b"&&": b"||",
+    b"||": b"&&",
+}
+
+
+def mut_invert_if_else(s: str, rng: random.Random) -> str | None:
+    """Invert if/else with proper operator negation (De Morgan-aware).
+
+    Unlike :func:`mut_swap_if_else` which wraps in ``!()``,  this
+    mutator directly inverts the comparison operator::
+
+        if (a == b) { A } else { B }  →  if (a != b) { B } else { A }
+
+    MSVC6 emits ``je`` vs ``jne`` depending on the condition polarity.
+    Swapping the operator *and* the bodies produces semantically
+    identical code but forces the opposite branch prediction layout
+    and jump instruction.
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+
+    cursor = ts.QueryCursor(_QUERY_IF_ELSE_FULL)
+    matches = cursor.matches(tree.root_node)
+
+    if not matches:
+        return None
+
+    match = rng.choice(matches)
+    caps = {k: v[0] for k, v in match[1].items()}
+
+    op_node = caps["op"]
+    op_text = b_source[op_node.start_byte : op_node.end_byte]
+    inverted_op = _INVERT_OP.get(op_text)
+    if not inverted_op:
+        return None
+
+    left = b_source[caps["left"].start_byte : caps["left"].end_byte]
+    right = b_source[caps["right"].start_byte : caps["right"].end_byte]
+    cons = b_source[caps["cons"].start_byte : caps["cons"].end_byte]
+    alt = b_source[caps["alt"].start_byte : caps["alt"].end_byte]
+
+    stmt_node = caps["stmt"]
+    replacement = (
+        b"if (" + left + b" " + inverted_op + b" " + right + b") " + alt + b" else " + cons
+    )
+    result = b_source[: stmt_node.start_byte] + replacement + b_source[stmt_node.end_byte :]
+    return result.decode("utf-8")
+
+
+# Stack-frame padding sizes that trip MSVC6 push/sub-esp thresholds.
+# 4-byte increments test individual register pushes vs sub esp.
+# Larger sizes (16, 32, 64) test alloca-style frame expansion.
+_STACK_PAD_SIZES = [4, 8, 12, 16, 20, 24, 32, 48, 64]
+
+
+def mut_dummy_stack_vars(s: str, rng: random.Random) -> str | None:
+    """Inject volatile stack padding to trigger MSVC6 frame strategy changes.
+
+    MSVC6 decides between ``push reg`` (small frame) and ``sub esp, N``
+    (larger frame) based on the total size of local variables.  By
+    injecting sized ``volatile`` locals we can cross the threshold that
+    flips the strategy.
+
+    Unlike :func:`mut_inject_dummy_var` (single ``int``), this injects
+    a ``volatile`` local of a specific, randomly-chosen byte size to
+    precisely target the push/sub-esp boundary.
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+
+    q = ts.Query(_C_LANGUAGE, "(function_definition body: (compound_statement) @body)")
+    cursor = ts.QueryCursor(q)
+    matches = cursor.matches(tree.root_node)
+
+    if not matches:
+        return None
+
+    match = rng.choice(matches)
+    caps = {k: v[0] for k, v in match[1].items()}
+    body_node = caps["body"]
+
+    pad_id = rng.randint(0, 99)
+    pad_name = f"_spad_{pad_id}".encode()
+    if pad_name in b_source:
+        return None
+
+    size = rng.choice(_STACK_PAD_SIZES)
+    insert_pos = body_node.start_byte + 1
+
+    if size == 4:
+        decl = b"\n    volatile int " + pad_name + b" = 0;"
+    else:
+        decl = (
+            b"\n    volatile char "
+            + pad_name
+            + f"[{size}]".encode()
+            + b"; "
+            + pad_name
+            + b"[0] = 0;"
+        )
+
+    result = b_source[:insert_pos] + decl + b_source[insert_pos:]
+    return result.decode("utf-8")
+
+
+# --- Category 7: Register Pressure Manipulation ---
+
+
+def mut_inject_dummy_registers(s: str, rng: random.Random) -> str | None:
+    """Inject ``register int`` declarations to consume volatile registers.
+
+    MSVC6 honours the ``register`` keyword and will allocate the
+    requested variables into the volatile registers (eax, ecx, edx)
+    first.  By injecting 1-3 dummy ``register int`` locals at the top
+    of a function body we force subsequent real variables into
+    callee-saved registers (esi, edi, ebx), which changes the
+    prologue/epilogue push/pop sequence and overall code layout.
+
+    The count is randomised (1-3) so the GA can explore different
+    register pressure levels.
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+
+    q = ts.Query(_C_LANGUAGE, "(function_definition body: (compound_statement) @body)")
+    cursor = ts.QueryCursor(q)
+    matches = cursor.matches(tree.root_node)
+
+    if not matches:
+        return None
+
+    match = rng.choice(matches)
+    caps = {k: v[0] for k, v in match[1].items()}
+    body_node = caps["body"]
+
+    count = rng.randint(1, 3)
+    decls: list[bytes] = []
+    for _ in range(count):
+        reg_id = rng.randint(0, 99)
+        name = f"_dummy_reg_{reg_id}".encode()
+        if name in b_source:
+            return None
+        # Guard against duplicates within the batch itself.
+        if name in b"".join(decls):
+            return None
+        decls.append(b"\n    register int " + name + b" = 0;")
+
+    insert_pos = body_node.start_byte + 1
+    payload = b"".join(decls)
+    result = b_source[:insert_pos] + payload + b_source[insert_pos:]
+    return result.decode("utf-8")
+
+
+def mut_loop_convert(s: str, rng: random.Random) -> str | None:
+    """Rotate loop forms: while ↔ do-while-under-if ↔ for.
+
+    MSVC6 generates different jump layouts and register lifetimes
+    depending on the C loop construct used.  This mutator converts
+    between the three semantically equivalent forms:
+
+    * ``while (cond) { body }``
+    * ``if (cond) { do { body } while (cond); }``
+    * ``for (; cond; ) { body }``
+
+    Unlike the existing :func:`mut_while_to_dowhile`,
+    :func:`mut_for_to_while`, and :func:`mut_while_to_for` which are
+    individually selected, this mutator randomly picks one of the
+    conversions in a single GA slot, increasing the chance of finding
+    loop-rotation matches.
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+
+    candidates: list[tuple[str, dict[str, ts.Node]]] = []
+
+    # Collect while loops
+    w_cursor = ts.QueryCursor(_QUERY_WHILE_LOOP)
+    for m in w_cursor.matches(tree.root_node):
+        caps = {k: v[0] for k, v in m[1].items()}
+        candidates.append(("while", caps))
+
+    # Collect do-while loops
+    dw_cursor = ts.QueryCursor(_QUERY_DO_WHILE_FULL)
+    for m in dw_cursor.matches(tree.root_node):
+        caps = {k: v[0] for k, v in m[1].items()}
+        candidates.append(("dowhile", caps))
+
+    # Collect for loops
+    f_cursor = ts.QueryCursor(_QUERY_FOR_LOOP)
+    for m in f_cursor.matches(tree.root_node):
+        caps = {k: v[0] for k, v in m[1].items()}
+        # Only convert simple for(; cond ;) loops (no init/update)
+        has_init = (
+            "init" in caps
+            and (caps["init"][0] if isinstance(caps["init"], list) else caps["init"]).end_byte
+            > (caps["init"][0] if isinstance(caps["init"], list) else caps["init"]).start_byte
+        )
+        has_update = (
+            "update" in caps
+            and (caps["update"][0] if isinstance(caps["update"], list) else caps["update"]).end_byte
+            > (caps["update"][0] if isinstance(caps["update"], list) else caps["update"]).start_byte
+        )
+        if not has_init and not has_update:
+            candidates.append(("for_simple", caps))
+
+    if not candidates:
+        return None
+
+    kind, caps = rng.choice(candidates)
+
+    if kind == "while":
+        cond = b_source[caps["cond"].start_byte : caps["cond"].end_byte]
+        body = b_source[caps["body"].start_byte : caps["body"].end_byte]
+        stmt = caps["stmt"]
+
+        target_form = rng.choice(["dowhile", "for"])
+        if target_form == "dowhile":
+            # while (cond) { body } → if (cond) { do { body } while (cond); }
+            replacement = b"if " + cond + b" {\n    do " + body + b" while " + cond + b";\n    }"
+        else:
+            # while (cond) { body } → for (; cond_inner; ) { body }
+            cond_inner = cond
+            if cond_inner.startswith(b"(") and cond_inner.endswith(b")"):
+                cond_inner = cond_inner[1:-1]
+            replacement = b"for (; " + cond_inner.strip() + b"; ) " + body
+
+        result = b_source[: stmt.start_byte] + replacement + b_source[stmt.end_byte :]
+        return result.decode("utf-8")
+
+    if kind == "dowhile":
+        cond = b_source[caps["cond"].start_byte : caps["cond"].end_byte]
+        body = b_source[caps["body"].start_byte : caps["body"].end_byte]
+        stmt = caps["stmt"]
+
+        target_form = rng.choice(["while", "for"])
+        if target_form == "while":
+            replacement = b"while " + cond + b" " + body
+        else:
+            cond_inner = cond
+            if cond_inner.startswith(b"(") and cond_inner.endswith(b")"):
+                cond_inner = cond_inner[1:-1]
+            replacement = b"for (; " + cond_inner.strip() + b"; ) " + body
+
+        result = b_source[: stmt.start_byte] + replacement + b_source[stmt.end_byte :]
+        return result.decode("utf-8")
+
+    if kind == "for_simple":
+        # for (; cond; ) { body } → while (cond) { body }
+        cond_node = caps["cond"][0] if isinstance(caps["cond"], list) else caps["cond"]
+        body_node = caps["body"][0] if isinstance(caps["body"], list) else caps["body"]
+        stmt_node = caps["stmt"][0] if isinstance(caps["stmt"], list) else caps["stmt"]
+
+        cond = b_source[cond_node.start_byte : cond_node.end_byte]
+        body = b_source[body_node.start_byte : body_node.end_byte]
+
+        replacement = b"while (" + cond + b") " + body
+        result = b_source[: stmt_node.start_byte] + replacement + b_source[stmt_node.end_byte :]
+        return result.decode("utf-8")
+
+    return None
+
+
+def mut_extract_complex_args(s: str, rng: random.Random) -> str | None:
+    """Extract nested calls or complex expressions from function arguments.
+
+    When MSVC6 sees ``foo(a, bar(b))``, it folds the inner call's result
+    directly into the ``push`` sequence for the outer call.  This can
+    produce interleaved ``lea``/``mov``/``push`` patterns that differ
+    from the target.
+
+    Extracting into a temp var forces explicit right-to-left evaluation::
+
+        foo(a, bar(b))  →  int _t42 = bar(b); foo(a, _t42);
+
+    Targets both nested function calls and binary-expression arguments
+    (e.g. ``ptr + offset``).
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+
+    candidates: list[tuple[ts.Node, ts.Node, bytes]] = []
+
+    # Strategy 1: nested function calls in arguments
+    nc_cursor = ts.QueryCursor(_QUERY_NESTED_CALL_ARG)
+    for m in nc_cursor.matches(tree.root_node):
+        caps = {k: v[0] for k, v in m[1].items()}
+        stmt_node = caps["stmt"]
+        inner_call_node = caps["inner_call"]
+        inner_text = b_source[inner_call_node.start_byte : inner_call_node.end_byte]
+        candidates.append((stmt_node, inner_call_node, inner_text))
+
+    # Strategy 2: binary expressions as arguments (ptr arithmetic, shifts, etc.)
+    ca_cursor = ts.QueryCursor(_QUERY_COMPLEX_ARG)
+    for m in ca_cursor.matches(tree.root_node):
+        caps = {k: v[0] for k, v in m[1].items()}
+        stmt_node = caps["stmt"]
+        arg_node = caps["arg"]
+        # Only extract if not trivially simple
+        arg_text = b_source[arg_node.start_byte : arg_node.end_byte]
+        if len(arg_text) > 6:  # skip trivial like "a + 1"
+            candidates.append((stmt_node, arg_node, arg_text))
+
+    if not candidates:
+        return None
+
+    stmt_node, extract_node, extract_text = rng.choice(candidates)
+
+    var_id = rng.randint(0, 999)
+    var_name = f"_t{var_id}".encode()
+    if var_name in b_source:
+        return None
+
+    # C89: hoist declaration to function body top
+    insert_pos = _find_function_body_insert_pos(b_source, stmt_node.start_byte)
+    if insert_pos is None:
+        return None
+
+    hoisted_decl = b"\n    int " + var_name + b";"
+    inline_assign = var_name + b" = " + extract_text + b";\n    "
+
+    # Replace the extracted expression with the temp var in the original call
+    new_stmt = (
+        b_source[stmt_node.start_byte : extract_node.start_byte]
+        + var_name
+        + b_source[extract_node.end_byte : stmt_node.end_byte]
+    )
+
+    # Insert hoisted decl at function body top
+    out = b_source[:insert_pos] + hoisted_decl + b_source[insert_pos:]
+    # Adjust offsets by the hoisted decl length
+    offset = len(hoisted_decl)
+    s_start = stmt_node.start_byte + offset
+    s_end = stmt_node.end_byte + offset
+    e_start = extract_node.start_byte + offset
+    e_end = extract_node.end_byte + offset
+
+    new_stmt = out[s_start:e_start] + var_name + out[e_end:s_end]
+    result = out[:s_start] + inline_assign + new_stmt + out[s_end:]
+
+    return result.decode("utf-8")
+
+
 ALL_MUTATIONS = [
     mut_commute_simple_add,
     mut_commute_simple_mul,
@@ -5194,6 +5636,14 @@ ALL_MUTATIONS = [
     mut_inject_block_register,
     mut_retype_local_equiv,
     mut_zero_to_bitand,
+    # --- Phase 6: MSVC6 codegen quirks (pragma, branch layout, stack padding, loop rotation) ---
+    mut_pragma_optimize,
+    mut_pragma_optimize_remove,
+    mut_invert_if_else,
+    mut_dummy_stack_vars,
+    mut_inject_dummy_registers,
+    mut_loop_convert,
+    mut_extract_complex_args,
 ]
 
 __all__ = [

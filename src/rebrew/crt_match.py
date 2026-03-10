@@ -371,19 +371,14 @@ def _render_match_table(matches: list[CrtMatch]) -> None:
     console.print(table)
 
 
-_EPILOG = """\
-[bold]Examples:[/bold]
-
-rebrew crt-match 0x10006c00                     Match a single VA
-
-rebrew crt-match --all                          Match all LIBRARY-marker functions
-
-rebrew crt-match --fix-source --all             Auto-write // SOURCE: annotations
-
-rebrew crt-match --index                        Show CRT source index
-
-rebrew crt-match --json                         JSON output
-"""
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew crt-match 0x10006c00 · · · · · Match a single VA\n\n"
+    "  rebrew crt-match --all · · · · · · · · Match all LIBRARY-marker functions\n\n"
+    "  rebrew crt-match --fix-source --all · · Auto-write // SOURCE: annotations\n\n"
+    "  rebrew crt-match --index · · · · · · · Show CRT source index\n\n"
+    "  rebrew crt-match --json · · · · · · · · JSON output"
+)
 
 app = typer.Typer(
     help="CRT source cross-reference matcher.",
@@ -500,7 +495,7 @@ def main(
                 updates += 1
 
         if not json_output:
-            typer.echo(f"Updated SOURCE annotations: {updates}", err=True)
+            console.print(f"Updated SOURCE annotations: {updates}")
 
     if json_output:
         json_print(
@@ -512,7 +507,7 @@ def main(
         return
 
     if not matches:
-        typer.echo("No matches found.")
+        console.print("No matches found.")
         return
 
     _render_match_table(matches)

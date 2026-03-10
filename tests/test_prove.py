@@ -1,6 +1,7 @@
 """test_prove.py — Unit tests for rebrew.prove.
 
-Tests cover prototype parsing, resolve_source, and CLI behaviour.
+Tests cover prototype parsing, resolve_source, argument constraints,
+Win32 SimProcedure registry, and CLI behaviour.
 The prove_equivalence() function requires angr (heavy optional dep) and
 cannot be unit-tested without it; those paths are covered by integration
 tests that are skipped when angr is absent.
@@ -10,10 +11,11 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
-from rebrew.prove import _parse_prototype, _resolve_source
+from rebrew.prove import _apply_arg_constraints, _parse_prototype, _resolve_source
 
 # ---------------------------------------------------------------------------
 # _parse_prototype
@@ -174,6 +176,328 @@ class TestProveCLIStatusGuard:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Win32 SimProcedure registry
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    not pytest.importorskip("angr", reason="angr not installed"),  # type: ignore[arg-type]
+    reason="angr not installed",
+)
+class TestWin32SimProcedures:
+    """Verify the Win32 SimProcedure registry is populated correctly."""
+
+    def test_registry_populated(self) -> None:
+        from rebrew.prove import _get_win32_simprocs
+
+        procs = _get_win32_simprocs()
+        assert isinstance(procs, dict)
+        assert len(procs) > 50  # should have ~80+ entries
+
+    def test_common_apis_present(self) -> None:
+        from rebrew.prove import _get_win32_simprocs
+
+        procs = _get_win32_simprocs()
+        for name in (
+            "memcpy",
+            "strlen",
+            "CreateFileA",
+            "SendMessageA",
+            "HeapAlloc",
+            "HeapFree",
+            "GetLastError",
+            "CloseHandle",
+            "EnterCriticalSection",
+            "lstrlenA",
+        ):
+            assert name in procs, f"Missing SimProcedure for {name}"
+
+    def test_all_are_simproc_subclasses(self) -> None:
+        import angr
+
+        from rebrew.prove import _get_win32_simprocs
+
+        procs = _get_win32_simprocs()
+        for name, cls in procs.items():
+            assert issubclass(cls, angr.SimProcedure), (
+                f"{name} -> {cls} is not a SimProcedure subclass"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Argument constraints
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    not pytest.importorskip("angr", reason="angr not installed"),  # type: ignore[arg-type]
+    reason="angr not installed",
+)
+class TestApplyArgConstraints:
+    """Test _apply_arg_constraints with real angr state objects."""
+
+    def _make_state_and_args(self, n_args: int = 4) -> tuple[Any, list[Any]]:
+        import io
+
+        import angr
+        import claripy
+
+        # Minimal x86 blob: ret
+        blob = b"\xc3"
+        proj = angr.Project(
+            io.BytesIO(blob),
+            main_opts={"backend": "blob", "arch": "x86", "base_addr": 0, "entry_point": 0},
+            auto_load_libs=False,
+        )
+        state = proj.factory.blank_state(addr=0)
+        args = [claripy.BVS(f"arg_{i}", 32) for i in range(n_args)]
+        return state, args
+
+    def test_pointer_constraint(self) -> None:
+        state, args = self._make_state_and_args()
+        _apply_arg_constraints(
+            state,
+            args,
+            {
+                "arg0": {"type": "pointer", "struct_size": 16},
+            },
+        )
+        # arg0 should be concretised to the alloc base
+        val = state.solver.eval(args[0])
+        assert val == 0xA000_0000
+
+    def test_range_constraint(self) -> None:
+        state, args = self._make_state_and_args()
+        _apply_arg_constraints(
+            state,
+            args,
+            {
+                "arg1": {"type": "range", "min": 10, "max": 100},
+            },
+        )
+        val = state.solver.eval(args[1])
+        assert 10 <= val <= 100
+
+    def test_null_constraint(self) -> None:
+        state, args = self._make_state_and_args()
+        _apply_arg_constraints(
+            state,
+            args,
+            {
+                "arg2": {"type": "null"},
+            },
+        )
+        val = state.solver.eval(args[2])
+        assert val == 0
+
+    def test_nonzero_constraint(self) -> None:
+        state, args = self._make_state_and_args()
+        _apply_arg_constraints(
+            state,
+            args,
+            {
+                "arg3": {"type": "nonzero"},
+            },
+        )
+        val = state.solver.eval(args[3])
+        assert val != 0
+
+    def test_bitmask_constraint(self) -> None:
+        state, args = self._make_state_and_args()
+        _apply_arg_constraints(
+            state,
+            args,
+            {
+                "arg0": {"type": "bitmask", "mask": "0x0000FFFF"},
+            },
+        )
+        val = state.solver.eval(args[0])
+        assert val <= 0xFFFF
+
+    def test_out_of_range_arg_ignored(self) -> None:
+        """Constraint for arg10 when only 4 args exist should be silently ignored."""
+        state, args = self._make_state_and_args(4)
+        _apply_arg_constraints(
+            state,
+            args,
+            {
+                "arg10": {"type": "null"},
+            },
+        )
+        # No crash, no constraints added
+
+    def test_empty_constraints_noop(self) -> None:
+        state, args = self._make_state_and_args()
+        _apply_arg_constraints(state, args, {})
+        # Should complete without error
+
+    def test_unknown_type_ignored(self) -> None:
+        state, args = self._make_state_and_args()
+        _apply_arg_constraints(
+            state,
+            args,
+            {
+                "arg0": {"type": "bogus_type"},
+            },
+        )
+        # Unknown type is silently ignored
+
+    def test_pointer_with_handle_field(self) -> None:
+        """Deep struct: handle field should be non-zero, non-INVALID."""
+        state, args = self._make_state_and_args()
+        _apply_arg_constraints(
+            state,
+            args,
+            {
+                "arg0": {
+                    "type": "pointer",
+                    "struct_size": 16,
+                    "fields": {
+                        "0x04": {"type": "handle"},
+                    },
+                },
+            },
+        )
+        val = state.solver.eval(args[0])
+        assert val == 0xA000_0000
+        # Read the handle field at offset 0x04
+        handle_val = state.solver.eval(state.memory.load(0xA000_0004, 4, endness="Iend_LE"))
+        assert handle_val != 0
+        assert handle_val != 0xFFFFFFFF
+
+    def test_pointer_with_concrete_field(self) -> None:
+        """Deep struct: concrete field should have exact value."""
+        state, args = self._make_state_and_args()
+        _apply_arg_constraints(
+            state,
+            args,
+            {
+                "arg0": {
+                    "type": "pointer",
+                    "struct_size": 16,
+                    "fields": {
+                        "0x08": {"type": "concrete", "value": 42},
+                    },
+                },
+            },
+        )
+        val = state.solver.eval(state.memory.load(0xA000_0008, 4, endness="Iend_LE"))
+        assert val == 42
+
+    def test_pointer_with_zero_field(self) -> None:
+        """Deep struct: zero field should be 0."""
+        state, args = self._make_state_and_args()
+        _apply_arg_constraints(
+            state,
+            args,
+            {
+                "arg0": {
+                    "type": "pointer",
+                    "struct_size": 16,
+                    "fields": {
+                        "0x00": {"type": "zero"},
+                    },
+                },
+            },
+        )
+        val = state.solver.eval(state.memory.load(0xA000_0000, 4, endness="Iend_LE"))
+        assert val == 0
+
+    def test_pointer_with_range_field(self) -> None:
+        """Deep struct: range field should be within bounds."""
+        state, args = self._make_state_and_args()
+        _apply_arg_constraints(
+            state,
+            args,
+            {
+                "arg0": {
+                    "type": "pointer",
+                    "struct_size": 16,
+                    "fields": {
+                        "0x04": {"type": "range", "min": 10, "max": 50},
+                    },
+                },
+            },
+        )
+        val = state.solver.eval(state.memory.load(0xA000_0004, 4, endness="Iend_LE"))
+        assert 10 <= val <= 50
+
+    def test_pointer_with_nested_pointer_field(self) -> None:
+        """Deep struct: nested pointer should point to a valid allocated region."""
+        state, args = self._make_state_and_args()
+        _apply_arg_constraints(
+            state,
+            args,
+            {
+                "arg0": {
+                    "type": "pointer",
+                    "struct_size": 16,
+                    "fields": {
+                        "0x08": {"type": "pointer", "size": 16},
+                    },
+                },
+            },
+        )
+        # The nested pointer should be a concrete address in the 0xB000_xxxx range
+        nested_ptr = state.solver.eval(state.memory.load(0xA000_0008, 4, endness="Iend_LE"))
+        assert nested_ptr != 0
+        # The nested region should be readable (symbolic, not erroring)
+        state.memory.load(nested_ptr, 4, endness="Iend_LE")
+
+    def test_pointer_without_fields_unchanged(self) -> None:
+        """Pointer constraint without fields should behave as before."""
+        state, args = self._make_state_and_args()
+        _apply_arg_constraints(
+            state,
+            args,
+            {
+                "arg0": {"type": "pointer", "struct_size": 16},
+            },
+        )
+        val = state.solver.eval(args[0])
+        assert val == 0xA000_0000
+
+
+# ---------------------------------------------------------------------------
+# Metadata round-trip for prove_constraints
+# ---------------------------------------------------------------------------
+
+
+class TestProveConstraintsMetadata:
+    """Test that prove_constraints round-trips through metadata."""
+
+    def test_merge_prove_constraints(self, tmp_path: Path) -> None:
+        from rebrew.annotation import Annotation
+        from rebrew.metadata import merge_into_annotation, set_field
+
+        meta_dir = tmp_path
+        # Write a prove_constraints dict to metadata
+        constraints = {"arg0": {"type": "pointer", "struct_size": 24}}
+        set_field(meta_dir, 0x1000, "prove_constraints", constraints, module="GAME")
+
+        # Create an annotation and merge
+        ann = Annotation(va=0x1000, module="GAME")
+        merge_into_annotation(ann, meta_dir)
+        assert ann.prove_constraints == {"arg0": {"type": "pointer", "struct_size": 24}}
+
+    def test_merge_without_constraints_leaves_default(self, tmp_path: Path) -> None:
+        from rebrew.annotation import Annotation
+        from rebrew.metadata import merge_into_annotation, set_field
+
+        meta_dir = tmp_path
+        set_field(meta_dir, 0x1000, "status", "NEAR_MATCHING", module="GAME")
+
+        ann = Annotation(va=0x1000, module="GAME")
+        merge_into_annotation(ann, meta_dir)
+        assert ann.prove_constraints == {}
+
+
+# ---------------------------------------------------------------------------
+# prove_equivalence — pure logic, mocked angr
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.skipif(
     not pytest.importorskip("angr", reason="angr not installed"),  # type: ignore[arg-type]
     reason="angr not installed",
@@ -189,3 +513,53 @@ class TestProveEquivalence:
         blob = bytes.fromhex("5589e531c05dc3")
         proven, msg = prove_equivalence(blob, blob, None, "int __cdecl foo(void)", timeout=30)
         assert proven, msg
+
+    def test_identical_blobs_with_empty_constraints(self) -> None:
+        """Empty arg_constraints should not affect proving."""
+        from rebrew.prove import prove_equivalence
+
+        blob = bytes.fromhex("5589e531c05dc3")
+        proven, msg = prove_equivalence(
+            blob,
+            blob,
+            None,
+            "int __cdecl foo(void)",
+            timeout=30,
+            arg_constraints={},
+        )
+        assert proven, msg
+
+    def test_slice_identical_blobs(self) -> None:
+        """Slicing identical blobs to a sub-range should still prove equivalent."""
+        from rebrew.prove import prove_equivalence
+
+        # push ebp; mov ebp,esp; xor eax,eax; ret; nop; nop
+        blob = bytes.fromhex("5589e531c0c39090")
+        # Prove just the "xor eax,eax; ret" slice (bytes 3-6)
+        proven, msg = prove_equivalence(
+            blob,
+            blob,
+            None,
+            "int __cdecl foo(void)",
+            timeout=30,
+            start_offset=3,
+            end_offset=6,
+        )
+        assert proven, msg
+
+    def test_slice_out_of_range_returns_error(self) -> None:
+        """Slicing beyond blob length should return an error, not crash."""
+        from rebrew.prove import prove_equivalence
+
+        blob = bytes.fromhex("5589e531c05dc3")
+        proven, msg = prove_equivalence(
+            blob,
+            blob,
+            None,
+            "int __cdecl foo(void)",
+            timeout=30,
+            start_offset=0,
+            end_offset=100,
+        )
+        assert not proven
+        assert "out of range" in msg

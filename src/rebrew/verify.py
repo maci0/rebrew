@@ -38,7 +38,7 @@ from rebrew.catalog import (
     parse_function_list,
     scan_reversed_dir,
 )
-from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.cli import TargetOption, error_exit, is_matched, json_print, require_config
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 from rebrew.metadata import update_source_status
 from rebrew.utils import atomic_write_text
@@ -46,6 +46,21 @@ from rebrew.utils import atomic_write_text
 # ---------------------------------------------------------------------------
 # Verification (--verify)
 # ---------------------------------------------------------------------------
+
+
+def _failed_result(status: str, message: str = "") -> "CompareResult":
+    """Create a failed CompareResult with default zero values."""
+    from rebrew.compile import CompareResult
+
+    return CompareResult(
+        matched=False,
+        status=status,
+        match_percent=0.0,
+        delta=0,
+        obj_bytes=None,
+        reloc_offsets=None,
+        message=message or status,
+    )
 
 
 def verify_entry(
@@ -60,40 +75,16 @@ def verify_entry(
     for the same source content + flags — critical for multi-function files
     where the same .c is compiled once and multiple symbols extracted.
     """
-    from rebrew.compile import CompareResult, compile_and_compare
+    from rebrew.compile import compile_and_compare
 
     cfile = cfg.reversed_dir / entry.filepath
     if not cfile.exists():
-        return CompareResult(
-            matched=False,
-            status="MISSING_FILE",
-            match_percent=0.0,
-            delta=0,
-            obj_bytes=None,
-            reloc_offsets=None,
-            message=f"MISSING_FILE: {cfile}",
-        )
+        return _failed_result("MISSING_FILE", f"MISSING_FILE: {cfile}")
 
     if entry.va < 0x1000:
-        return CompareResult(
-            matched=False,
-            status="COMPILE_ERROR",
-            match_percent=0.0,
-            delta=0,
-            obj_bytes=None,
-            reloc_offsets=None,
-            message="INVALID_VA: VA too low",
-        )
+        return _failed_result("COMPILE_ERROR", "INVALID_VA: VA too low")
     if entry.size <= 0:
-        return CompareResult(
-            matched=False,
-            status="MISSING_SIZE",
-            match_percent=0.0,
-            delta=0,
-            obj_bytes=None,
-            reloc_offsets=None,
-            message="MISSING_SIZE: No SIZE annotation",
-        )
+        return _failed_result("MISSING_SIZE", "MISSING_SIZE: No SIZE annotation")
 
     cflags_str = entry.cflags
     cflags = cflags_str if cflags_str else "/O2"
@@ -103,15 +94,7 @@ def verify_entry(
 
     target_bytes = extract_raw_bytes(cfg.target_binary, entry.va, entry.size)
     if not target_bytes:
-        return CompareResult(
-            matched=False,
-            status="COMPILE_ERROR",
-            match_percent=0.0,
-            delta=0,
-            obj_bytes=None,
-            reloc_offsets=None,
-            message="Cannot extract DLL bytes",
-        )
+        return _failed_result("COMPILE_ERROR", "Cannot extract DLL bytes")
 
     return compile_and_compare(cfg, cfile, symbol, target_bytes, cflags, cache=cache)
 
@@ -126,27 +109,26 @@ console = Console(stderr=True)
 app = typer.Typer(
     help="Rebrew verification pipeline: compile each .c and verify bytes match.",
     rich_markup_mode="rich",
-    epilog="""\
-[bold]Examples:[/bold]
-
-rebrew verify                             Verify all .c files (rich progress bar)
-
-rebrew verify --json                      Emit structured JSON report to stdout
-
-rebrew verify -o db/verify_results.json   Write JSON report to file
-
-rebrew verify -j 8                        Use 8 parallel compile jobs
-
-rebrew verify -t mygame               Verify a specific target
-
-[bold]How it works:[/bold]
-
-For each .c file in reversed_dir, compiles it, extracts the COFF symbol,
-and compares the output bytes against the original DLL. Reports EXACT,
-RELOC (match after relocation masking), STUB, or COMPILE_ERROR.
-
-[dim]Requires rebrew-project.toml with valid compiler and target binary paths.
-Run 'rebrew catalog' first to generate coverage data.[/dim]""",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew verify · · · · · · · · · · · · · Verify all .c files (rich progress bar)\n\n"
+        "  rebrew verify --json · · · · · · · · · · Emit structured JSON report to stdout\n\n"
+        "  rebrew verify -o db/verify_results.json · Write JSON report to file\n\n"
+        "  rebrew verify -j 8 · · · · · · · · · · · Use 8 parallel compile jobs\n\n"
+        "  rebrew verify -t mygame · · · · · · · · · Verify a specific target\n\n"
+        "  rebrew verify --compare · · · · · · · · · Compare against last run, detect regressions\n\n"
+        "  rebrew verify --full -j 8 · · · · · · · · Force full re-verify with 8 workers\n\n"
+        "  rebrew verify --summary · · · · · · · · · Show detailed STATUS breakdown table\n\n"
+        "[bold]How it works:[/bold]\n\n"
+        "  For each .c file in reversed_dir, compiles it, extracts the COFF symbol, "
+        "and compares the output bytes against the original DLL. Reports EXACT, "
+        "RELOC (match after relocation masking), STUB, or COMPILE_ERROR.\n\n"
+        "[bold]Exit codes:[/bold]\n\n"
+        "  0   All functions passed verification\n\n"
+        "  1   Failures or regressions detected\n\n"
+        "[dim]Requires rebrew-project.toml with valid compiler and target binary paths. "
+        "Run 'rebrew catalog' first to generate coverage data.[/dim]"
+    ),
 )
 
 _STATUS_RANK: dict[str, int] = {
@@ -312,7 +294,7 @@ def _save_verify_cache(
             "symbol": result.get("symbol", ""),
             "delta": result.get("delta", None),
             "match_percent": result.get("match_percent", None),
-            "passed": result.get("passed", False),  # Added this field
+            "passed": result.get("passed", False),
             "message": result.get("message", ""),
         }
 
@@ -436,7 +418,7 @@ def main(
         help="Number of parallel compile jobs (default: from [project].jobs or 4)",
     ),
     output_path: str | None = typer.Option(
-        None, "--output", "-o", help="Write JSON report to file (default: db/verify_results.json)"
+        None, "-o", "--output", help="Write JSON report to file (default: db/verify_results.json)"
     ),
     summary: bool = typer.Option(
         False,
@@ -452,7 +434,6 @@ def main(
     full: bool = typer.Option(
         False,
         "--full",
-        "-f",
         help=(
             "Force full verification, ignoring cached results "
             "(also required after header/include changes)"
@@ -496,6 +477,26 @@ def main(
 
     results.sort(key=lambda r: r["va"])
 
+    # Overlay PROVEN status from metadata onto results.  PROVEN is a
+    # post-verify promotion (from `rebrew prove`) that byte-level comparison
+    # cannot detect.  We preserve it so the cache, report, and pass/fail
+    # counts all stay consistent.
+    proven_vas: set[str] = {
+        f"0x{entry.va:08x}" for entry in unique_entries if getattr(entry, "status", "") == "PROVEN"
+    }
+    if proven_vas:
+        for r in results:
+            if r["va"] in proven_vas and r["status"] not in ("EXACT", "RELOC"):
+                was_failed = not r.get("passed", False)
+                r["status"] = "PROVEN"
+                r["passed"] = True
+                if was_failed:
+                    passed += 1
+                    failed -= 1
+        # Remove PROVEN functions from fail_details (they may have been
+        # added from stale cache entries before the overlay).
+        fail_details = [(e, m) for e, m in fail_details if f"0x{e.va:08x}" not in proven_vas]
+
     timestamp = datetime.now(UTC).isoformat()
     report = {
         "timestamp": timestamp,
@@ -507,6 +508,7 @@ def main(
             "failed": failed,
             "exact": sum(1 for r in results if r["status"] == "EXACT"),
             "reloc": sum(1 for r in results if r["status"] == "RELOC"),
+            "proven": sum(1 for r in results if r["status"] == "PROVEN"),
             "stub": sum(1 for r in results if r["status"] == "STUB"),
             "matching": sum(1 for r in results if r["status"] == "NEAR_MATCHING"),
             "compile_error": sum(1 for r in results if r["status"] == "COMPILE_ERROR"),
@@ -720,6 +722,7 @@ def run_verification(
     """Run parallel verification and classify results. Returns (passed, failed, fail_details, results, deferred_fixes)."""
     passed = 0
     failed = 0
+    internal_errors = 0
     fail_details: list[tuple[Annotation, str]] = []
     results: list[dict[str, Any]] = []
     deferred_fixes: list[tuple[Annotation, str, int]] = []
@@ -754,13 +757,16 @@ def run_verification(
         with concurrent.futures.ThreadPoolExecutor(max_workers=effective_jobs) as pool:
             futures = {pool.submit(_verify, e): e for e in entries_to_verify}
             for future in concurrent.futures.as_completed(futures):
+                entry = futures[future]
                 try:
-                    entry, result = future.result()
-                except Exception as exc:
-                    typer.echo(
-                        f"WARNING: internal error verifying {getattr(entry, 'name', '?')}: {exc}",
-                        err=True,
-                    )
+                    _entry, result = future.result()
+                except Exception as exc:  # noqa: BLE001
+                    internal_errors += 1
+                    if internal_errors <= 5:
+                        console.print(
+                            f"[yellow]WARNING:[/] internal error verifying "
+                            f"{getattr(entry, 'name', '?')}: {exc}"
+                        )
                     from rebrew.compile import CompareResult
 
                     result = CompareResult(
@@ -798,6 +804,12 @@ def run_verification(
                     }
                 )
 
+    if internal_errors > 0 and not json_output:
+        console.print(
+            f"[yellow]WARNING:[/] {internal_errors} function(s) failed with internal errors "
+            f"(counted as mismatches)"
+        )
+
     return passed, failed, fail_details, results, deferred_fixes
 
 
@@ -824,10 +836,10 @@ def apply_status_updates(
         # PROVEN is sticky — never touch it
         if current_status == "PROVEN":
             continue
-        if status in ("EXACT", "RELOC") and current_status != status:
-            update_source_status(cfg.metadata_dir, status, module, entry.va, clear_blockers=True)
-        elif status in ("STUB", "NEAR_MATCHING") and current_status not in (status,):
-            update_source_status(cfg.metadata_dir, status, module, entry.va, clear_blockers=False)
+        if current_status == status:
+            continue
+        clear = is_matched(status)
+        update_source_status(cfg.metadata_dir, status, module, entry.va, clear_blockers=clear)
 
 
 def _print_results(
@@ -891,20 +903,17 @@ def _print_results(
         table.add_column("Match %", justify="right")
         table.add_column("Delta", justify="right")
 
+        _STATUS_COLORS: dict[str, str] = {
+            "EXACT": "[green]EXACT[/]",
+            "RELOC": "[green]RELOC[/]",
+            "STUB": "[dim]STUB[/]",
+            "PROVEN": "[magenta]PROVEN[/]",
+            "NEAR_MATCHING": "[yellow]NEAR_MATCHING[/]",
+            "COMPILE_ERROR": "[red]ERROR[/]",
+        }
         for r in results:
             st = r["status"]
-            if st == "EXACT":
-                st_str = "[green]EXACT[/]"
-            elif st == "RELOC":
-                st_str = "[green]RELOC[/]"
-            elif st == "STUB":
-                st_str = "[dim]STUB[/]"
-            elif st in ("NEAR_MATCHING",):
-                st_str = f"[yellow]{st}[/]"
-            elif st == "COMPILE_ERROR":
-                st_str = "[red]ERROR[/]"
-            else:
-                st_str = f"[red]{st}[/]"
+            st_str = _STATUS_COLORS.get(st, f"[red]{st}[/]")
 
             pct = f"{r['match_percent']:.1f}%" if st in ("STUB", "NEAR_MATCHING") else "-"
             dt = f"{r.get('delta', 0)}B" if st in ("STUB", "NEAR_MATCHING") else "-"
@@ -914,6 +923,7 @@ def _print_results(
 
         exact = sum(1 for r in results if r["status"] == "EXACT")
         reloc = sum(1 for r in results if r["status"] == "RELOC")
+        proven = sum(1 for r in results if r["status"] == "PROVEN")
         mismatch_0b = sum(
             1 for r in results if r["status"] == "MISMATCH" and r.get("delta", 0) == 0
         )
@@ -932,6 +942,8 @@ def _print_results(
         stat_table.add_column("Count", justify="right")
         stat_table.add_row("EXACT", str(exact))
         stat_table.add_row("RELOC", str(reloc))
+        if proven:
+            stat_table.add_row("PROVEN", str(proven))
         mismatch_total = mismatch_0b + mismatch_1_5 + mismatch_6_20 + mismatch_21
         stat_table.add_row("NEAR_MATCHING", str(mismatch_total))
 

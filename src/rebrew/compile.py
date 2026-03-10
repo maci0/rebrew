@@ -37,7 +37,7 @@ All functions read from ``cfg`` (a ``ProjectConfig`` instance):
 - ``cfg.compiler_includes`` — path to MSVC include directory
 - ``cfg.base_cflags`` — always-on flags (e.g. ``/nologo /c /MT``)
 - ``cfg.compile_timeout`` — seconds before subprocess is killed
-- ``cfg.msvc_env()`` — environment dict with ``LIB`` / ``INCLUDE`` etc.
+- ``msvc_env_from_config(cfg)`` — environment dict with ``LIB`` / ``INCLUDE`` etc.
 """
 
 import contextlib
@@ -49,6 +49,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from rebrew.cli import NEAR_MATCH_THRESHOLD
 from rebrew.compile_cache import CompileCache, compile_cache_key, get_compile_cache
 from rebrew.config import ProjectConfig
 from rebrew.core import msvc_env_from_config, smart_reloc_compare
@@ -69,7 +70,7 @@ class CompareResult:
 
     Attributes:
         matched: ``True`` when compiled bytes equal target after reloc masking.
-        status: One of ``EXACT``, ``RELOC``, ``NEAR_MATCHING``, ``NEAR_MATCHING``, ``STUB``, ``COMPILE_ERROR``,
+        status: One of ``EXACT``, ``RELOC``, ``NEAR_MATCHING``, ``STUB``, ``COMPILE_ERROR``,
             ``MISSING_SIZE``, ``MISSING_FILE``.
         match_percent: Fraction of non-reloc bytes that match (0–100).
         delta: Absolute byte difference (mismatch count + size delta).
@@ -100,7 +101,7 @@ def classify_compare_result(
 ) -> CompareResult:
     """Classify a raw compile-and-compare outcome into a :class:`CompareResult`.
 
-    Centralises the EXACT / RELOC / NEAR_MATCHING / NEAR_MATCHING / STUB / COMPILE_ERROR classification
+    Centralises the EXACT / RELOC / NEAR_MATCHING / STUB / COMPILE_ERROR classification
     and the ``match_percent`` / ``delta`` calculations that were previously
     duplicated in ``test.py`` and ``verify.py``.
 
@@ -166,8 +167,8 @@ def classify_compare_result(
         delta = abs(len(target_bytes) - len(obj_bytes)) + mismatches
 
     status = "STUB"
-    if match_percent >= 75.0:
-        status = "NEAR_MATCHING" if delta <= 5 else "NEAR_MATCHING"
+    if match_percent >= NEAR_MATCH_THRESHOLD * 100:
+        status = "NEAR_MATCHING"
 
     return CompareResult(
         matched=False,
@@ -251,7 +252,7 @@ def resolve_compiler_env(
 
     Returns ``(cl_cmd, inc_dir, msvc_env, compile_cache)`` — the four values
     shared by every compilation-based tool.  Extracted so that ``rebrew match``
-    and ``rebrew match`` don't duplicate this 20-line block.
+    and ``rebrew test`` don't duplicate this 20-line block.
 
     Args:
         cfg: ProjectConfig instance from the project root.

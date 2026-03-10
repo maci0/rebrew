@@ -1,6 +1,6 @@
 # GA Mutation Engine Reference
 
-The Genetic Algorithm (GA) matching engine uses **116 C source mutation operators** to
+The Genetic Algorithm (GA) matching engine uses **120 C source mutation operators** to
 explore the MSVC6 code generation space.  Each mutation transforms syntactically valid
 C89 source into a semantically plausible variant, compiles it with MSVC6 (via Wine/wibo),
 and scores the resulting binary against the target function's bytes.
@@ -14,7 +14,7 @@ by [tree-sitter](https://tree-sitter.github.io/) AST queries — never regex.
 
 ```
 Source (.c) ──→ mutate_code(source, rng)
-                  ├─ Pick random mutation from ALL_MUTATIONS (116 operators)
+                  ├─ Pick random mutation from ALL_MUTATIONS (120 operators)
                   ├─ Apply AST-level transform to source text
                   ├─ Validate syntax (fast_syntax_check)
                   └─ Return (mutated_source, mutation_name) or None
@@ -314,6 +314,21 @@ Structural transforms on compound boolean conditions.
 | `mut_memcpy_to_loop` | `memcpy(d, s, N)` → explicit byte-copy loop | Inline loop vs library call — completely different codegen |
 | `mut_loop_to_memcpy` | Explicit byte-copy loop → `memcpy()` | Inverse — library call may be more compact |
 
+### 20. MSVC6 Codegen Quirks (Phase 6)
+
+Targeted mutations for specific MSVC6 code generation behaviors: pragma-controlled
+optimization, De Morgan branch inversion, stack frame padding, loop rotation, and
+argument evaluation order.
+
+| Mutation | Transform | MSVC6 Rationale |
+|----------|-----------|-----------------|
+| `mut_pragma_optimize` | Wrap function in `#pragma optimize("g", off/on)` | MSVC6 `/Og` (global optimization) flag controls register allocation globally; pragma lets you toggle it per-function, changing whether `ebp` is used as a general register |
+| `mut_pragma_optimize_remove` | Remove existing `#pragma optimize(...)` wrappers | Inverse — restore default optimization for the function |
+| `mut_invert_if_else` | `if (a == b) { X } else { Y }` → `if (a != b) { Y } else { X }` | De Morgan-aware: negates the condition and swaps bodies. Changes `je`/`jne` branch direction, affecting fall-through path and instruction cache behavior |
+| `mut_dummy_stack_vars` | Insert `volatile int __pad_N = 0;` at function top | Grows stack frame past MSVC6 alignment thresholds (4/8/12/16/20/24/32/48/64 bytes), changing prologue strategy between `push ecx`/`push edx` and `sub esp, N` |
+| `mut_loop_convert` | Unified while ↔ do-while-under-if ↔ for rotation | MSVC6 generates different loop headers: `while` tests at top (two jumps), `do-while` tests at bottom (one jump), `for` may inline the update. Loop rotation matches the original compiler's loop form |
+| `mut_extract_complex_args` | `F(g(x), a+b)` → `tmp1 = g(x); tmp2 = a+b; F(tmp1, tmp2);` | Extracting nested calls and complex expressions from function arguments changes C evaluation order, which MSVC6 respects strictly — affects which value is in which register at the `push` sequence |
+
 ---
 
 ## Discovery Origins
@@ -347,7 +362,7 @@ mutated, name = mutate_code(source, rng, mutation_weights=weights)
 Children have a 35% chance of undergoing 2–3 **chained mutations** in a
 single generation step.  This enables larger jumps in the search space
 that single mutations cannot reach.  (Bumped from 30% after expanding
-to 116 operators.)
+to 120 operators.)
 
 ---
 

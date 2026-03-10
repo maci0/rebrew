@@ -24,7 +24,7 @@ Rebrew extends the reccmp baseline with:
 |----------|---------|
 | `DATA` marker | Marks standalone global data (`// DATA: MODULE 0xVA`) |
 | `STUB` marker | Marks incomplete implementations (`STATUS: STUB`) — not a reccmp marker |
-| `STATUS` key | Track match quality (EXACT, RELOC, MATCHING, etc.) |
+| `STATUS` key | Track match quality (EXACT, RELOC, NEAR_MATCHING, etc.) |
 | `CFLAGS` key | Compiler flags needed to reproduce original compilation |
 | `SIZE` key | Function/data size in bytes from the original binary |
 | `SOURCE` key | Reference file for library functions |
@@ -131,8 +131,7 @@ Format: `// MARKER: MODULE 0xVA`
 |--------|---------|
 | `EXACT` | Compiled bytes are identical to the original |
 | `RELOC` | Matches after masking relocation addresses |
-| `MATCHING` | Functionally equivalent but bytes differ |
-| `MATCHING_RELOC` | Functionally equivalent with reloc masking |
+| `NEAR_MATCHING` | Functionally equivalent but bytes differ |
 | `PROVEN` | Semantically equivalent, proven via symbolic execution (angr + Z3) |
 | `STUB` | Placeholder, doesn't match yet |
 
@@ -309,14 +308,14 @@ Errors indicate broken annotations that will cause `rebrew test`, `rebrew verify
 
 | Code | Description | Triggered by |
 |------|-------------|--------------|
-| E003 | Missing `STATUS` | No `// STATUS:` line in header |
-| E004 | Invalid STATUS value | `STATUS: DONE` or other non-standard value (valid: EXACT, RELOC, MATCHING, MATCHING_RELOC, PROVEN, STUB) |
+| E003 | *(deprecated)* | STATUS is metadata-only — no longer validated inline |
+| E004 | *(not implemented)* | Reserved for STATUS value validation |
 | E006 | *(reserved)* | Unused — was ORIGIN validation |
-| E007 | Missing `SIZE` | No `// SIZE:` line in header |
-| E008 | Invalid SIZE value | `SIZE: -1`, `SIZE: 0`, `SIZE: abc` |
-| E014 | Corrupted annotation value | Literal `\n` inside a field value (typically from a line-wrapping bug) |
+| E007 | *(deprecated)* | SIZE is metadata-only — no longer validated inline |
+| E008 | *(not implemented)* | Reserved for SIZE value validation |
+| E014 | *(not implemented)* | Reserved for corrupted annotation value detection |
 | E015 | Marker/module mismatch | `// FUNCTION:` with a library-configured module (expected `LIBRARY`). Library modules defined by `library_origins` config |
-| E017 | Contradictory status/marker | `STATUS: MATCHING` on a `// STUB:` marker |
+| E017 | Contradictory status/marker | `STATUS: NEAR_MATCHING` on a `// STUB:` marker |
 
 #### Config-Aware Errors (require `rebrew-project.toml`)
 
@@ -341,7 +340,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | Code | Description | Triggered by |
 |------|-------------|--------------|
 | W003 | No function implementation | File has annotations but no C code body |
-| W005 | STUB missing `BLOCKER` | `STATUS: STUB` without `// BLOCKER:` explaining why |
+| W005 | STUB missing `BLOCKER` | `STATUS: STUB` without BLOCKER in metadata explaining why |
 | W006 | Library missing `SOURCE` | Library module (per `library_origins` config) without `// SOURCE:` pointing to reference file |
 | W007 | Struct without SIZE annotation | File defines `typedef struct` but lacks `// SIZE 0xNN` comment |
 
@@ -349,17 +348,17 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 
 | Code | Description | Triggered by |
 |------|-------------|--------------|
-| W002 | Old single-line format | `/* func @ 0xVA (NB) - /flags - STATUS */` — run `--fix` |
-| W012 | Block-comment format | `/* FUNCTION: SERVER 0x... */` — run `--fix` |
-| W013 | Javadoc format | `@address 0x...` / `@status RELOC` — run `--fix` |
+| W002 | *(not implemented)* | Reserved for old single-line format migration |
+| W012 | *(not implemented)* | Reserved for block-comment format migration |
+| W013 | *(not implemented)* | Reserved for javadoc format migration |
 
 #### Consistency Warnings
 
 | Code | Description | Triggered by |
 |------|-------------|--------------|
-| W008 | CFLAGS differ from preset | `CFLAGS: /O2 /Gd` on a `MSVCRT` function when preset says `/O1` |
-| W018 | Missing CFLAGS with no config fallback | No `// CFLAGS:` line **and** no `base_cflags` in project config — compile may use wrong flags |
-| W019 | Inline metadata annotation | `// BLOCKER:`, `// NOTE:`, or `// GHIDRA:` inline — run `--fix` to move to `rebrew-function.toml` |
+| W008 | *(not implemented)* | Reserved for CFLAGS preset validation |
+| W018 | Missing CFLAGS with no config fallback | No CFLAGS in metadata **and** no `base_cflags` in project config — compile may use wrong flags |
+| W019 | Inline metadata annotation | `// STATUS:`, `// ORIGIN:`, `// SIZE:`, `// CFLAGS:`, `// BLOCKER:`, `// NOTE:`, `// GHIDRA:`, etc. inline — run `--fix` to move to `rebrew-function.toml` |
 | W010 | Unknown annotation key | `// FOOBAR: value` — key not in the known set |
 | W015 | Mixed-case VA hex digits | `0x10003Da0` — prefer consistent `0x10003da0` or `0x10003DA0` |
 
@@ -368,7 +367,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | Code | Description | Triggered by |
 |------|-------------|--------------|
 | W016 | DATA/GLOBAL missing `section` in metadata | `// DATA:` or `// GLOBAL:` marker with no `section` in `rebrew-data.toml` (.data, .rdata, .bss) |
-| W017 | NOTE contains sync metadata | `NOTE: [rebrew] ...` — looks like auto-generated sync metadata, not a human note |
+| W017 | *(not implemented)* | Reserved for detecting auto-generated sync metadata in NOTE |
 
 ---
 
@@ -456,7 +455,7 @@ Summary
 Category  Value     Count
 STATUS    RELOC       198
 STATUS    STUB        141
-STATUS    MATCHING     63
+STATUS    NEAR_MATCHING     63
 STATUS    EXACT        60
 MARKER    STUB        141
 MARKER    LIBRARY     114
@@ -495,7 +494,7 @@ Run `rebrew lint --fix` to auto-migrate to the new multi-line format.
 
 ```c
 /* FUNCTION: SERVER 0x10003260 */
-/* STATUS: MATCHING */
+/* STATUS: NEAR_MATCHING */
 /* SIZE: 183 */
 /* CFLAGS: /O2 /Gd */
 ```
@@ -525,10 +524,8 @@ If you pass `--target BETA10` to a CLI tool, Rebrew will **automatically ignore*
 
 ```c
 // FUNCTION: LEGO1 0x1009a8c0
-// STATUS: EXACT
 
 // FUNCTION: BETA10 0x101832f7
-// STATUS: MATCHING
 void my_func() {}
 ```
 
@@ -589,8 +586,7 @@ int _wsetenvp(void)
 
 ### Rules
 
-- Each `// FUNCTION:` marker starts a new annotation block
-- Key-value lines (`// STATUS:`, `// SIZE:`, etc.) attach to the most recent marker
+- Each `// FUNCTION:` marker line starts a new annotation block
 - Code lines between blocks are ignored by the parser — they don't terminate scanning
 - `parse_c_file()` returns only the **first** annotation (backward compatible)
 - `parse_c_file_multi()` returns **all** annotations as a list
@@ -675,7 +671,7 @@ add key-value annotation lines **after** the symbol line:
 ```c
 // LIBRARY: SERVER 0x10050000
 // _deflate
-// STATUS: MATCHING
+// STATUS: NEAR_MATCHING
 // SIZE: 120
 // CFLAGS: /O2 /Gd
 // SOURCE: deflate.c

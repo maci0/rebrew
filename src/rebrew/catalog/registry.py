@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 from rebrew.binary_loader import load_binary
+from rebrew.catalog.sections import has_back_jumps, trim_trailing_padding
 from rebrew.config import ProjectConfig
 
 
@@ -72,7 +73,7 @@ _DEFAULT_R2_BOGUS_SIZES: set[int] = set()
 # ---------------------------------------------------------------------------
 
 
-def _is_jump_table(data: bytes, section_va: int, section_size: int) -> bool:
+def is_jump_table(data: bytes, section_va: int, section_size: int) -> bool:
     """Check if *data* looks like a jump/switch table (array of .text pointers).
 
     Skips leading alignment bytes (NOP 0x90, INT3 0xCC, ``mov edi,edi`` 0x8BFF)
@@ -147,57 +148,17 @@ def _resolve_canonical_size(
         return ghidra_size, "ghidra (no extra bytes)"
 
     # Check if extra bytes are NOP/INT3 padding
-    if all(b in (0x90, 0xCC) for b in extra):
+    if trim_trailing_padding(extra) == 0:
         return list_size, "list (includes tail padding)"
 
     # Check if extra bytes are a jump table (array of .text pointers)
-    if _is_jump_table(extra, text_va, text_size):
+    if is_jump_table(extra, text_va, text_size):
         return list_size, "list (includes jump table)"
 
     # Check if extra bytes contain jumps back into the function body
     # (out-of-line code pattern: jmp/jcc targeting func_start..ghidra_end)
     func_start_off = va - text_va
-    has_back_jump = False
-    i = 0
-    while i < len(extra):
-        b = extra[i]
-        # Near relative jmp (E9) or jcc (0F 8x)
-        if b == 0xE9 and i + 5 <= len(extra):
-            rel = struct.unpack_from("<i", extra, i + 1)[0]
-            target = ghidra_end + i + 5 + rel
-            if func_start_off <= target < ghidra_end:
-                has_back_jump = True
-                break
-            i += 5
-            continue
-        if b == 0x0F and i + 6 <= len(extra) and 0x80 <= extra[i + 1] <= 0x8F:
-            rel = struct.unpack_from("<i", extra, i + 2)[0]
-            target = ghidra_end + i + 6 + rel
-            if func_start_off <= target < ghidra_end:
-                has_back_jump = True
-                break
-            i += 6
-            continue
-        # Short jmp (EB) or short jcc (7x)
-        if b == 0xEB and i + 2 <= len(extra):
-            rel = struct.unpack_from("<b", extra, i + 1)[0]
-            target = ghidra_end + i + 2 + rel
-            if func_start_off <= target < ghidra_end:
-                has_back_jump = True
-                break
-            i += 2
-            continue
-        if 0x70 <= b <= 0x7F and i + 2 <= len(extra):
-            rel = struct.unpack_from("<b", extra, i + 1)[0]
-            target = ghidra_end + i + 2 + rel
-            if func_start_off <= target < ghidra_end:
-                has_back_jump = True
-                break
-            i += 2
-            continue
-        i += 1
-
-    if has_back_jump:
+    if has_back_jumps(extra, func_start_off, ghidra_end, base_offset=ghidra_end):
         return list_size, "list (includes out-of-line code)"
 
     # Default: trust Ghidra when we can't identify the extra bytes

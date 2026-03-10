@@ -3,19 +3,9 @@
 Extracts the common annotation-parsing logic used by both lint.py and verify.py
 so that there is a single source of truth for the decomp annotation format.
 
-Supports three annotation formats:
-
-1. **New (reccmp-style)** — the canonical format:
-   ``// FUNCTION: SERVER 0x10008880`` followed by key-value lines
-   like ``// STATUS: EXACT``.  This is what all tools output.
-
-2. **Block-comment variant** — same semantics but wrapped in ``/* ... */``:
-   ``/* FUNCTION: SERVER 0x10003260 */``
-
-3. **Old (legacy)** — single-line shorthand from early decomp work:
-   ``/* name @ 0xVA (NB) - /flags - STATUS */``
-
-The parser always tries the new format first; the old format is a fallback.
+Annotation format (reccmp-compatible):
+   ``// FUNCTION: SERVER 0x10008880`` marker line in ``.c`` files.
+   Volatile metadata (STATUS, SIZE, CFLAGS, etc.) lives in ``rebrew-function.toml``.
 """
 
 from __future__ import annotations
@@ -63,17 +53,16 @@ __all__ = [
 VALID_MARKERS = {"FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"}
 
 # Keys that every function block must declare.
-# SIZE is intentionally excluded: SIZE lives exclusively in the rebrew-function.toml
-# metadata (written by rebrew skeleton / catalog --update-sizes / update_size_annotation).
-# Remaining // SIZE: lines in existing source are parsed as a fallback value (so older
-# files still work with rebrew test), but the key is NOT in OPTIONAL_KEYS — any // SIZE:
-# in source intentionally fires W010 to nudge cleanup.
+# All rebrew-specific metadata lives exclusively in rebrew-function.toml.
+# The only inline annotations accepted in .c files are the reccmp markers
+# (FUNCTION, LIBRARY, STUB, DATA, GLOBAL) and ANALYSIS.
 REQUIRED_KEYS: set[str] = set()  # All annotation metadata now lives in rebrew-function.toml
 # No recommended keys — all annotation metadata is either required or optional.
 RECOMMENDED_KEYS: set[str] = set()
 # OPTIONAL_KEYS: only reccmp-compatible keys that are permitted inline.
-# All rebrew-specific keys (CFLAGS, SKIP, GLOBALS, BLOCKER, SOURCE, NOTE, SECTION,
-# GHIDRA, BLOCKER_DELTA) must live in rebrew-function.toml — see METADATA_KEYS.
+# All rebrew-specific keys (ORIGIN, CFLAGS, SKIP, GLOBALS, BLOCKER, SOURCE,
+# NOTE, SECTION, GHIDRA, BLOCKER_DELTA) must live in rebrew-function.toml
+# — see METADATA_KEYS.
 OPTIONAL_KEYS = {
     "ANALYSIS",  # reccmp compatibility (structural analysis note)
 }
@@ -81,7 +70,8 @@ OPTIONAL_KEYS = {
 # Finding any of these inline fires lint W019.
 METADATA_KEYS: frozenset[str] = frozenset(
     {
-        "STATUS",  # lives in rebrew-function.toml — inline // STATUS: is deprecated
+        "STATUS",
+        "ORIGIN",
         "CFLAGS",
         "SKIP",
         "GLOBALS",
@@ -91,7 +81,7 @@ METADATA_KEYS: frozenset[str] = frozenset(
         "NOTE",
         "SECTION",
         "GHIDRA",
-        "SIZE",  # lives in rebrew-function.toml (functions) or rebrew-data.toml (DATA/GLOBAL)
+        "SIZE",
     }
 )
 ALL_KNOWN_KEYS = REQUIRED_KEYS | OPTIONAL_KEYS | METADATA_KEYS | {"MARKER", "VA"}
@@ -107,7 +97,8 @@ NEW_FUNC_RE = re.compile(r"//\s*(?:FUNCTION|LIBRARY|STUB|GLOBAL|DATA):\s*\S+\s+0
 NEW_FUNC_CAPTURE_RE = re.compile(
     r"//\s*(?P<type>FUNCTION|LIBRARY|STUB|GLOBAL|DATA):\s*(?P<module>\S+)\s+(?P<va>0x[0-9a-fA-F]+)"
 )
-# Key-value pairs: ``// STATUS: EXACT``, ``// SIZE: 31``, etc.
+# Key-value pairs after markers — used by library headers (``// STATUS: EXACT``,
+# ``// SIZE: 120``) and tolerated (but deprecated) in regular ``.c`` files.
 NEW_KV_RE = re.compile(r"//\s*(?P<key>[A-Z_]+):\s*(?P<value>.*)")
 
 # Function name hint — bare ``// FunctionName`` comment after a marker line.
@@ -129,7 +120,7 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
     returning the text before the first marker as the preamble and each
     marker-delimited section as a block string.
 
-    Annotation key-value lines (``// STATUS: EXACT``, ``// SIZE: 160``, etc.)
+    Any key-value comment lines (e.g. from library headers or legacy source)
     immediately preceding a marker are included in that marker's block rather
     than the preamble, so that annotations stay with their function during
     merge/split operations.
@@ -198,10 +189,8 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
 def normalize_status(raw: str) -> str:
     """Map old-format status strings to canonical values.
 
-    Check order matters: ``RELOC`` must be tested before both
-    ``NEAR_MATCHING`` and ``RELOC`` because it contains both as substrings.
     Check order matters: ``RELOC`` must be tested before ``NEAR_MATCHING``
-    because it contains ``RELOC`` as a substring.
+    because ``MATCHING_RELOC`` contains ``RELOC`` as a substring.
     ``PROVEN`` is an independent canonical value — included before the
     generic fallthrough so old-format strings like ``"PROVEN_MATCH"``
     are normalised to ``"PROVEN"`` rather than returned verbatim.
@@ -245,38 +234,20 @@ def marker_for_module(module: str, status: str, library_modules: set[str] | None
 def has_skip_annotation(filepath: Path, metadata_dir: Path | None = None) -> bool:
     """Return True if a function in *filepath* is marked as skippable.
 
-    Checks the ``rebrew-function.toml`` metadata first (preferred — the
-    canonical location per the 2026 annotation migration).  Falls back to
-    scanning the first 20 source lines for a ``// SKIP:`` comment so that
-    files not yet migrated continue to work.
-
-    Args:
-        filepath: Path to the ``.c`` source file.
-        metadata_dir: Root directory for ``rebrew-function.toml``.
-            When ``None``, metadata check is skipped.
+    Checks ``rebrew-function.toml`` metadata for a ``skip`` field.
     """
-    # --- Metadata fast path ---
-    if metadata_dir is not None:
-        try:
-            from rebrew.metadata import load_metadata
-
-            entries = load_metadata(metadata_dir)
-            for _key, entry in entries.items():
-                raw_skip = entry.get("skip", "")
-                if raw_skip and str(raw_skip).strip().lower() not in ("", "0", "false", "no"):
-                    return True
-        except Exception:  # noqa: BLE001 — metadata read failure is non-fatal
-            pass
-
-    # --- Inline fallback (legacy .c files not yet migrated) ---
-    try:
-        text = filepath.read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    if metadata_dir is None:
         return False
-    for line in text.splitlines()[:20]:
-        stripped = line.strip().upper()
-        if stripped.startswith(("// SKIP:", "/* SKIP:")):
-            return True
+    try:
+        from rebrew.metadata import load_metadata
+
+        entries = load_metadata(metadata_dir)
+        for _key, entry in entries.items():
+            raw_skip = entry.get("skip", "")
+            if raw_skip and str(raw_skip).strip().lower() not in ("", "0", "false", "no"):
+                return True
+    except Exception:  # noqa: BLE001 — metadata read failure is non-fatal
+        pass
     return False
 
 
@@ -325,6 +296,7 @@ class Annotation:
     globals_list: list[str] = field(default_factory=list)
     section: str = ""  # .data, .rdata, .bss — used by DATA annotations
     line: int = 0  # 1-based line number of the marker in the source file
+    prove_constraints: dict[str, Any] = field(default_factory=dict)
 
     # -- Dict-like access for backward compat --
 
@@ -382,6 +354,8 @@ class Annotation:
         }
         if self.section:
             d["section"] = self.section
+        if self.prove_constraints:
+            d["prove_constraints"] = self.prove_constraints
         return d
 
     def validate(
@@ -828,9 +802,8 @@ def parse_c_file(
 ) -> Annotation | None:
     """Parse a decomp .c file for annotations.
 
-    Format disambiguation: tries the new (multi-line ``// KEY: value``)
-    format first against the first 20 lines, then falls back to the
-    old single-line legacy format on line 1 only.
+    Parses ``// FUNCTION: MODULE 0xVA`` marker lines from the first 20 lines.
+    Metadata (STATUS, SIZE, CFLAGS, etc.) comes from ``rebrew-function.toml``.
 
     Sets ``filepath`` on the returned Annotation for downstream use.
     When *base_dir* is given the stored path is relative to it (e.g.
@@ -954,9 +927,9 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
         # Just skip it and keep looking for the next marker
         if current_marker_type is not None:
             seen_code_after_marker = True
-        # Keep pending_kv intact — annotations before code (like STATUS,
-        # ORIGIN, SIZE at the top of a file) need to survive through
-        # #include, extern, and typedef lines to reach the FUNCTION marker.
+        # Keep pending_kv intact — annotations before code need to survive
+        # through #include, extern, and typedef lines to reach the FUNCTION
+        # marker.
 
     # Flush the last block
     _flush()
@@ -1080,11 +1053,9 @@ def update_annotation_key(
 ) -> bool:
     """Update or add an annotation key for a specific VA.
 
-    For metadata-owned keys (STATUS, SIZE, CFLAGS, BLOCKER, NOTE, GHIDRA, …)
-    the value is written to the ``rebrew-function.toml`` metadata at *metadata_dir*,
-    leaving the ``.c`` file untouched.  For non-metadata keys
-    (ORIGIN, SOURCE for library functions) the existing in-file edit logic
-    applies.
+    For metadata-owned keys (STATUS, SIZE, CFLAGS, ORIGIN, BLOCKER, NOTE,
+    GHIDRA, …) the value is written to the ``rebrew-function.toml`` metadata
+    at *metadata_dir*, leaving the ``.c`` file untouched.
 
     Args:
         filepath: Path to the ``.c`` source file.

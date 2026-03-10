@@ -204,7 +204,7 @@ def _load_verify_statuses(cfg: ProjectConfig) -> dict[int, str]:
 
 
 def _compute_text_size(cfg: ProjectConfig) -> int:
-    """Compute .text section size from binary headers if available."""
+    """Compute .text section size from binary headers. Returns 0 if unavailable."""
     if not cfg.target_binary.exists():
         return 0
     try:
@@ -423,17 +423,14 @@ def _render_terminal(report: StatusReport) -> None:
 # CLI
 # ---------------------------------------------------------------------------
 
-_EPILOG = """\
-[bold]Examples:[/bold]
-
-rebrew status                    Quick project overview
-
-rebrew status --json             Machine-readable JSON output
-
-rebrew status -t client_exe      Status for a specific target
-
-[dim]Reads source markers, metadata, and function structure (no compilation needed).
-Run 'rebrew verify' first for verify stats, or 'rebrew catalog' for function data.[/dim]"""
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew status · · · · · · · Quick project overview\n\n"
+    "  rebrew status --json · · · · Machine-readable JSON output\n\n"
+    "  rebrew status -t client_exe · Status for a specific target\n\n"
+    "[dim]Reads source markers, metadata, and function structure (no compilation needed). "
+    "Run 'rebrew verify' first for verify stats, or 'rebrew catalog' for function data.[/dim]"
+)
 
 app = typer.Typer(
     help="At-a-glance reversing progress overview.",

@@ -8,6 +8,7 @@ from rebrew.matcher.mutator import (
     mut_commute_bit_xor,
     mut_commute_mul_general,
     mut_inject_block_register,
+    mut_inject_dummy_registers,
     mut_retype_local_equiv,
     mut_zero_to_bitand,
 )
@@ -185,7 +186,59 @@ class TestPhase5Registration:
             "mut_commute_add_general",
             "mut_commute_mul_general",
             "mut_inject_block_register",
+            "mut_inject_dummy_registers",
             "mut_retype_local_equiv",
             "mut_zero_to_bitand",
         }
         assert expected.issubset(names), f"Missing: {expected - names}"
+
+
+# ---------------------------------------------------------------------------
+# 6. Register pressure manipulation — mut_inject_dummy_registers
+# ---------------------------------------------------------------------------
+
+
+class TestInjectDummyRegisters:
+    def test_injects_register_int(self) -> None:
+        src = "int foo(int a, int b) {\n    return a + b;\n}"
+        res = mut_inject_dummy_registers(src, random.Random(42))
+        assert res is not None
+        assert "register int _dummy_reg_" in res
+        assert "= 0;" in res
+
+    def test_injects_1_to_3_declarations(self) -> None:
+        src = "int foo(int a) {\n    return a;\n}"
+        # Run several seeds and check we get varying counts
+        counts = set()
+        for seed in range(100):
+            res = mut_inject_dummy_registers(src, random.Random(seed))
+            if res is not None:
+                n = res.count("register int _dummy_reg_")
+                assert 1 <= n <= 3
+                counts.add(n)
+        # With 100 seeds we should see at least 2 different counts
+        assert len(counts) >= 2
+
+    def test_no_duplicate_names(self) -> None:
+        src = "int foo() {\n    return 0;\n}"
+        for seed in range(50):
+            res = mut_inject_dummy_registers(src, random.Random(seed))
+            if res is not None:
+                # Extract all _dummy_reg_NN names
+                import re
+
+                names = re.findall(r"_dummy_reg_\d+", res)
+                assert len(names) == len(set(names)), f"Duplicate names in seed {seed}: {names}"
+
+    def test_skips_if_name_collision(self) -> None:
+        src = "int foo() {\n    register int _dummy_reg_42 = 0;\n    return 0;\n}"
+        # Should still work — just picks different names
+        res = mut_inject_dummy_registers(src, random.Random(42))
+        # Either None (all names collided) or valid with different names
+        if res is not None:
+            assert res.count("_dummy_reg_") >= 2  # at least original + 1 new
+
+    def test_no_function_returns_none(self) -> None:
+        src = "int x = 5;"
+        res = mut_inject_dummy_registers(src, random.Random(42))
+        assert res is None

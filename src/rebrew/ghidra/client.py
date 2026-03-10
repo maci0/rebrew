@@ -1,4 +1,8 @@
-"""Module docstring."""
+"""ghidra/client.py — Low-level HTTP client for ReVa MCP endpoint communication.
+
+Handles MCP session initialization, JSON-RPC tool invocation, bulk function
+fetching, and batch command application with retry logic for struct definitions.
+"""
 
 import contextlib
 import json
@@ -6,10 +10,12 @@ import time
 from typing import Any
 
 import httpx
-import typer
+from rich.console import Console
 
 from rebrew.cli import error_exit
 from rebrew.ghidra.models import JsonRpcResponse, McpToolResult
+
+console = Console(stderr=True)
 
 _MCP_HEADERS = {
     "Content-Type": "application/json",
@@ -337,7 +343,7 @@ def apply_commands_via_mcp(
                 pass
 
         if not session_id:
-            typer.echo("WARNING: No session ID received, proceeding without one", err=True)
+            console.print("[yellow]WARNING:[/] No session ID received, proceeding without one")
 
         headers = {
             "Accept": "application/json, text/event-stream",
@@ -407,7 +413,7 @@ def apply_commands_via_mcp(
             tool = cmd["tool"]
             if tool != current_phase:
                 if current_phase:
-                    print()  # newline after previous phase progress
+                    console.print()  # newline after previous phase progress
                 phase_labels = {
                     "create-function": "Creating functions",
                     "create-label": "Setting labels",
@@ -416,7 +422,7 @@ def apply_commands_via_mcp(
                     "parse-c-structure": "Pushing struct definitions",
                     "set-function-prototype": "Setting function prototypes",
                 }
-                print(f"  {phase_labels.get(tool, tool)}...")
+                console.print(f"  {phase_labels.get(tool, tool)}...")
                 current_phase = tool
 
             try:
@@ -429,23 +435,23 @@ def apply_commands_via_mcp(
                     errors += 1
                     va = cmd["args"].get("addressOrSymbol", cmd["args"].get("address", "?"))
                     if errors <= 30:
-                        print(f"  ERROR at {va} ({cmd['tool']}): {error_msg}")
+                        console.print(f"  ERROR at {va} ({cmd['tool']}): {error_msg}")
                     elif errors == 31:
-                        print("  ... suppressing further errors")
+                        console.print("  ... suppressing further errors")
             except httpx.HTTPError as exc:
                 if tool == "parse-c-structure":
                     struct_failures.append(cmd)
                 errors += 1
                 va = cmd["args"].get("addressOrSymbol", cmd["args"].get("address", "?"))
                 if errors <= 30:
-                    print(f"  ERROR at {va} ({cmd['tool']}): {exc}")
+                    console.print(f"  ERROR at {va} ({cmd['tool']}): {exc}")
                 elif errors == 31:
-                    print("  ... suppressing further errors")
+                    console.print("  ... suppressing further errors")
 
             # Progress indicator
             if (i + 1) % 50 == 0 or i == total - 1:
                 pct = (i + 1) * 100 // total
-                print(f"  [{pct:3d}%] {i + 1}/{total} operations applied", end="\r")
+                console.print(f"  [{pct:3d}%] {i + 1}/{total} operations applied", end="\r")
 
             # Rate limiting — don't overwhelm the server
             if (i + 1) % 100 == 0:
@@ -456,7 +462,9 @@ def apply_commands_via_mcp(
         for retry in range(max_retries):
             if not struct_failures:
                 break
-            print(f"\n  Retrying {len(struct_failures)} struct definitions (pass {retry + 2})...")
+            console.print(
+                f"\n  Retrying {len(struct_failures)} struct definitions (pass {retry + 2})..."
+            )
             still_failing: list[dict[str, Any]] = []
             for cmd in struct_failures:
                 try:
@@ -468,15 +476,15 @@ def apply_commands_via_mcp(
                         still_failing.append(cmd)
                         if retry == max_retries - 1:
                             defn = cmd["args"].get("cDefinition", "")[:80]
-                            print(f"  PERMANENT FAIL: {error_msg} | {defn}")
+                            console.print(f"  PERMANENT FAIL: {error_msg} | {defn}")
                 except httpx.HTTPError:
                     still_failing.append(cmd)
             resolved = len(struct_failures) - len(still_failing)
             if resolved > 0:
-                print(f"  Resolved {resolved} definitions on retry pass {retry + 2}")
+                console.print(f"  Resolved {resolved} definitions on retry pass {retry + 2}")
             struct_failures = still_failing
             if struct_failures and not resolved:
                 break
 
-    print()  # newline after progress
+    console.print()  # newline after progress
     return success, errors

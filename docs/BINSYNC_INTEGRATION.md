@@ -28,7 +28,7 @@ structured comment at the function's address:
 [rebrew] STATUS=EXACT CFLAGS=/O1 /Gd/Oy
 ```
 
-If a `// NOTE:` or `// GHIDRA:` annotation is present, a separate comment is
+If a NOTE or GHIDRA field is present in metadata, a separate comment is
 added at `va + 1` (offset, to avoid collision):
 
 ```
@@ -101,7 +101,7 @@ rebrew binsync-export ./binsync_state --json
 | Status | Name | Prototype | Metadata comment |
 |--------|------|-----------|-----------------|
 | EXACT / RELOC / PROVEN | ✅ | ✅ (if annotated) | ✅ |
-| MATCHING / MATCHING_RELOC | ✅ | ✅ (if annotated) | ✅ |
+| NEAR_MATCHING | ✅ | ✅ (if annotated) | ✅ |
 | STUB / EXACT_STUB | ✅ | ✅ (if annotated) | ✅ |
 | LIBRARY | ✅ | ✅ (if annotated) | ✅ |
 | (no STATUS) | ✅ | ✅ (if annotated) | omitted |

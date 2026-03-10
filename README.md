@@ -17,7 +17,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | `rebrew test` | Compile your C and diff it byte-by-byte against the original binary |
 | `rebrew match` | GA engine — single file or batch (`--all`); brute-force compiler flags and mutate source to find exact byte matches |
 | `rebrew verify` | Bulk compile + report match status; always auto-updates metadata; `--compare` for CI regression checks |
-| `rebrew prove` | Symbolic equivalence via angr + Z3 — mathematically prove MATCHING functions are equivalent |
+| `rebrew prove` | Symbolic equivalence via angr + Z3 — mathematically prove NEAR_MATCHING functions are equivalent |
 
 ### Authoring
 
@@ -34,7 +34,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | Tool | What it does |
 |------|-------------|
 | `rebrew todo` | Prioritized action list: what to work on next |
-| `rebrew status` | Per-target breakdown of EXACT / RELOC / MATCHING / STUB counts |
+| `rebrew status` | Per-target breakdown of EXACT / RELOC / NEAR_MATCHING / STUB counts |
 | `rebrew graph` | Call graph from `extern` declarations (mermaid, DOT, summary) |
 | `rebrew data` | Inventory `.data`/`.rdata`/`.bss` globals; detect dispatch tables and vtables |
 | `rebrew flirt` | Identify known library functions via FLIRT signatures — no IDA required |
@@ -122,7 +122,7 @@ rebrew skeleton 0x10003DA0 --xrefs  # skeleton with Ghidra cross-reference conte
 rebrew test src/target_name/f.c     # test implementation against target
 rebrew todo                         # see highest ROI action items
 rebrew todo --stats                 # show overall progress statistics
-rebrew todo -c fix-near-miss --json # MATCHING functions sorted by byte delta
+rebrew todo -c fix-near-miss --json # NEAR_MATCHING functions sorted by byte delta
 rebrew flirt --json                 # FLIRT scan: identify known library functions
 rebrew crt-match 0x10006c00         # match a single VA against CRT source
 rebrew crt-match --all --origin MSVCRT # match all MSVCRT functions
@@ -147,12 +147,12 @@ rebrew match --diff-only --mm src/target_name/f.c  # show only structural diffs 
 rebrew match src/target_name/f.c    # run the Genetic Algorithm Engine to resolve diffs
 rebrew match --all                          # batch GA on all STUB functions
 rebrew match --all --improve                # batch GA on all NEAR_MATCHING functions
-rebrew match --all --near-miss --threshold 5 # batch GA on MATCHING with ≤5B delta
-rebrew match --all --flag-sweep             # batch flag sweep on all MATCHING functions
+rebrew match --all --near-miss --threshold 5 # batch GA on NEAR_MATCHING with ≤5B delta
+rebrew match --all --flag-sweep             # batch flag sweep on all NEAR_MATCHING functions
 rebrew match --all --flag-sweep --fix-cflags  # targeted sweep, auto-update CFLAGS
 
 # Semantic Equivalence (requires angr: uv pip install -e ".[prove]")
-rebrew prove src/server.dll/calculate_physics.c      # prove MATCHING function equivalent
+rebrew prove src/server.dll/calculate_physics.c      # prove NEAR_MATCHING function equivalent
 rebrew prove src/server.dll/calculate_physics.c --json  # JSON output
 rebrew prove my_func --dry-run                        # find by symbol, preview only
 
@@ -202,7 +202,7 @@ rebrew sync --pull --dry-run        # preview pull without modifying files
 ```bash
 cd rebrew/
 uv sync --all-extras       # install dev dependencies
-uv run pytest tests/ -v    # run tests (~1737 tests)
+uv run pytest tests/ -v    # run tests (~1784 tests)
 uv run ruff check .        # lint
 uv run ruff format .       # format
 python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me

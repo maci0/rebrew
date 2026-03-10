@@ -31,7 +31,16 @@ from rebrew.catalog.loaders import scan_reversed_dir
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 
 app = typer.Typer(
-    help="Export rebrew annotations to a BinSync state directory.", rich_markup_mode="rich"
+    help="Export rebrew annotations to a BinSync state directory.",
+    rich_markup_mode="rich",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew binsync-export ./binsync_state · · · · · · Export all annotations\n\n"
+        "  rebrew binsync-export ./state --dry-run · · · · · Preview without writing\n\n"
+        "  rebrew binsync-export ./state --json · · · · · · · Machine-readable output\n\n"
+        "[dim]Produces BinSync-compatible TOML layout: functions/, global_vars.toml. "
+        "Rebrew-specific metadata (STATUS, CFLAGS) is preserved in [rebrew] comments.[/dim]"
+    ),
 )
 
 console = Console(stderr=True)

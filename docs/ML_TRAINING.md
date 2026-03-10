@@ -300,7 +300,7 @@ os.environ["KERAS_BACKEND"] = "jax"
 import keras
 from keras import layers
 
-NUM_MUTATIONS = 116  # len(ALL_MUTATIONS)
+NUM_MUTATIONS = 120  # len(ALL_MUTATIONS)
 
 src_input = keras.Input(shape=(4096,), dtype="int32", name="source")
 bin_input = keras.Input(shape=(2048,), dtype="int32", name="target")

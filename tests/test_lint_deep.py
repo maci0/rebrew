@@ -60,7 +60,7 @@ class TestLintFileEdgeCases:
         assert not any((code == "E005" for _, code, _ in result.errors))
 
     def test_invalid_origin(self, tmp_path) -> None:
-        """ORIGIN is no longer a validated field — it triggers W010 (unknown key)."""
+        """ORIGIN is metadata-only — triggers W019 (inline metadata); SYMBOL triggers W010."""
         f = _write(
             tmp_path,
             "bad_origin.c",

@@ -12,10 +12,10 @@
 
 | Document | Description |
 |----------|-------------|
-| [CLI.md](CLI.md) | All 24 CLI commands — flags, examples, internal modules |
+| [CLI.md](CLI.md) | All 26 CLI commands — flags, examples, internal modules |
 | [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, config loader, arch presets, compiler profiles |
-| [ANNOTATIONS.md](ANNOTATIONS.md) | Annotation format (`// FUNCTION:`, `// STATUS:`), linter codes E000–E017 / W001–W017 |
-| [MATCH_TYPES.md](MATCH_TYPES.md) | EXACT / RELOC / MATCHING explained with byte-level examples |
+| [ANNOTATIONS.md](ANNOTATIONS.md) | Annotation format (`// FUNCTION:` markers + `rebrew-function.toml` metadata), linter codes E000–E017 / W001–W019 |
+| [MATCH_TYPES.md](MATCH_TYPES.md) | EXACT / RELOC / NEAR_MATCHING explained with byte-level examples |
 | [DB_FORMAT.md](DB_FORMAT.md) | SQLite schema for `coverage.db`, JSON intermediate format, REST API |
 | [NAME_NORMALIZATION.md](NAME_NORMALIZATION.md) | Cross-tool function name normalization (Ghidra/r2/IDA → canonical `func_` form) |
 | [TOOLCHAIN.md](TOOLCHAIN.md) | External tools (Ghidra, r2, MSVC6), Python dependencies |
