@@ -1,4 +1,9 @@
-"""Module docstring."""
+"""ReVa MCP command builder for Ghidra integration.
+
+Constructs and sends HTTP requests to the ReVa MCP server to synchronize
+annotations, function names, types, and decompilation data between rebrew
+source files and a running Ghidra instance.
+"""
 
 import json
 import re
@@ -9,7 +14,6 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from rebrew.catalog.registry import RegistryEntry
 import httpx
-import typer
 from rich.console import Console
 
 from rebrew.annotation import Annotation, update_annotation_key
@@ -81,11 +85,10 @@ def _validate_program_path(
         return program_path
 
     if ghidra_path != program_path:
-        typer.echo(
-            f"Ghidra has '{ghidra_path}' open, but rebrew derived '{program_path}'. "
+        console.print(
+            f"[yellow]Warning:[/] Ghidra has '{ghidra_path}' open, but rebrew derived '{program_path}'. "
             f'Add ghidra_program_path = "{ghidra_path}" to [targets.X] in '
-            "rebrew-project.toml to fix.",
-            err=True,
+            "rebrew-project.toml to fix."
         )
     return ghidra_path
 
@@ -364,7 +367,7 @@ def build_sync_commands(
             )
 
     if skipped_labels > 0:
-        print(f"  Skipped {skipped_labels} generic labels (func_XXXXXXXX)")
+        console.print(f"  Skipped {skipped_labels} generic labels (func_XXXXXXXX)")
 
     return commands
 
@@ -446,7 +449,7 @@ def pull_ghidra_renames(
     result = PullResult()
 
     if not dry_run:
-        print("Fetching function, data, and comment lists from Ghidra via ReVa MCP...")
+        console.print("Fetching function, data, and comment lists from Ghidra via ReVa MCP...")
     functions: list[Any] = []
     data_labels: list[Any] = []
     plate_comments: list[Any] = []
@@ -489,8 +492,8 @@ def pull_ghidra_renames(
                 session_id=session_id,
             )
         except httpx.RequestError as e:
-            typer.echo(f"Warning: Could not connect to ReVa MCP ({e}).", err=True)
-            typer.echo("Falling back to local caches...", err=True)
+            console.print(f"[yellow]Warning:[/] Could not connect to ReVa MCP ({e}).")
+            console.print("Falling back to local caches...")
 
     if not functions:
         ghidra_json_path = cfg.reversed_dir / FUNCTION_STRUCTURE_JSON
@@ -498,13 +501,12 @@ def pull_ghidra_renames(
             try:
                 functions = json.loads(ghidra_json_path.read_text(encoding="utf-8"))
                 if not dry_run:
-                    print(f"Loaded {len(functions)} functions from {ghidra_json_path.name}")
+                    console.print(f"Loaded {len(functions)} functions from {ghidra_json_path.name}")
             except (json.JSONDecodeError, OSError) as e:
-                typer.echo(f"Error reading cache: {e}", err=True)
+                console.print(f"[red]Error reading cache:[/] {e}")
         else:
-            typer.echo(
-                f"Could not fetch functions from MCP and {ghidra_json_path.name} not found.",
-                err=True,
+            console.print(
+                f"[yellow]Warning:[/] Could not fetch functions from MCP and {ghidra_json_path.name} not found."
             )
 
     if not data_labels:
@@ -513,7 +515,9 @@ def pull_ghidra_renames(
             try:
                 data_labels = json.loads(data_json_path.read_text(encoding="utf-8"))
                 if not dry_run:
-                    print(f"Loaded {len(data_labels)} data labels from {data_json_path.name}")
+                    console.print(
+                        f"Loaded {len(data_labels)} data labels from {data_json_path.name}"
+                    )
             except (json.JSONDecodeError, OSError):
                 pass
 
@@ -605,7 +609,7 @@ def pull_ghidra_renames(
                         result.changes.append(change)
                         result.updated += 1
                         if not json_output:
-                            print(
+                            console.print(
                                 f"  Added GHIDRA: {ghidra_name} for 0x{va:08x} (kept {local_name})"
                             )
                         skip_name_update = True
@@ -627,7 +631,7 @@ def pull_ghidra_renames(
                             result.changes.append(change)
                             result.conflicts += 1
                             if not json_output:
-                                print(
+                                console.print(
                                     f"  CONFLICT 0x{va:08x}: local={local_name} vs ghidra={ghidra_name}"
                                 )
                             skip_name_update = True
@@ -645,10 +649,14 @@ def pull_ghidra_renames(
                         result.changes.append(change)
                         result.updated += 1
                         if not json_output:
-                            print(f"  Would update 0x{va:08x}: {local_name} -> {ghidra_name}")
+                            console.print(
+                                f"  Would update 0x{va:08x}: {local_name} -> {ghidra_name}"
+                            )
                     else:
                         if not json_output:
-                            print(f"  Updating VA 0x{va:08x}: {local_name} -> {ghidra_name}")
+                            console.print(
+                                f"  Updating VA 0x{va:08x}: {local_name} -> {ghidra_name}"
+                            )
 
                         if entry.get("marker_type", "FUNCTION") == "FUNCTION":
                             from rebrew.rename import rename_function_everywhere
@@ -713,7 +721,7 @@ def pull_ghidra_renames(
                     result.changes.append(change)
                     result.updated += 1
                     if not json_output:
-                        print(f"  Would update NOTE at 0x{va:08x}")
+                        console.print(f"  Would update NOTE at 0x{va:08x}")
                 else:
                     marker_type = entry.get("marker_type", "FUNCTION")
                     if marker_type in ("DATA", "GLOBAL"):
@@ -734,7 +742,7 @@ def pull_ghidra_renames(
                             result.changes.append(change)
                             result.updated += 1
                             if not json_output:
-                                print(f"  Updated NOTE in rebrew-data.toml at 0x{va:08x}")
+                                console.print(f"  Updated NOTE in rebrew-data.toml at 0x{va:08x}")
                     elif update_annotation_key(
                         filepath, va, "NOTE", sanitized, metadata_dir=cfg.metadata_dir
                     ):
@@ -749,17 +757,17 @@ def pull_ghidra_renames(
                         result.changes.append(change)
                         result.updated += 1
                         if not json_output:
-                            print(f"  Updated NOTE at 0x{va:08x}")
+                            console.print(f"  Updated NOTE at 0x{va:08x}")
 
     if json_output:
         json_print(result.to_dict())
     elif result.updated == 0 and result.conflicts == 0:
-        print("No new data to pull from Ghidra.")
+        console.print("No new data to pull from Ghidra.")
     else:
         verb = "Would pull" if dry_run else "Successfully pulled"
-        print(f"{verb} {result.updated} updates from Ghidra.")
+        console.print(f"{verb} {result.updated} updates from Ghidra.")
         if result.conflicts > 0:
-            print(
+            console.print(
                 f"  {result.conflicts} conflict(s) skipped "
                 "(both sides have meaningful names — resolve manually)"
             )
@@ -862,8 +870,7 @@ def _pull_prototypes(
         try:
             session_id = _init_mcp_session(client, endpoint)
         except httpx.RequestError as e:
-            console.print(f"[red]Error connecting to MCP: {e}[/red]")
-            return
+            error_exit(f"Error connecting to MCP: {e}")
 
         updated_count = 0
 
@@ -1004,8 +1011,7 @@ def _pull_structs(cfg: ProjectConfig, endpoint: str, program_path: str, dry_run:
         try:
             session_id = _init_mcp_session(client, endpoint)
         except httpx.RequestError as e:
-            console.print(f"[red]Error connecting to MCP: {e}[/red]")
-            return
+            error_exit(f"Error connecting to MCP: {e}")
 
         structs_list = _fetch_mcp_tool_raw(
             client,
@@ -1140,8 +1146,7 @@ def _pull_comments(
         try:
             session_id = _init_mcp_session(client, endpoint)
         except httpx.RequestError as e:
-            console.print(f"[red]Error connecting to MCP: {e}[/red]")
-            return
+            error_exit(f"Error connecting to MCP: {e}")
 
         result = _fetch_mcp_tool_raw(
             client,

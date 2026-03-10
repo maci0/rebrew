@@ -1,6 +1,6 @@
 # CLI Reference
 
-All 24 CLI commands are registered under the unified `rebrew` entry point in `main.py`.
+All 26 CLI commands are registered under the unified `rebrew` entry point in `main.py`.
 Every tool supports `--target / -t` to select a target from `rebrew-project.toml` and
 reads defaults (binary path, reversed_dir, compiler settings) from the project config.
 
@@ -36,7 +36,7 @@ Run any tool with `--help` to see usage examples and context
 | `rebrew-graph` | `depgraph.py` | Function dependency graph (mermaid, DOT, summary); `--cu-map` infers compilation unit boundaries |
 | `rebrew-doctor` | `doctor.py` | Diagnostic checks for project health (config, compiler, binary, paths); `--install-wibo`; `--json` |
 | `rebrew-binsync-export` | `binsync_export.py` | Export source markers and metadata to BinSync state directory (prototype, STATUS/CFLAGS, globals, structs) |
-| `build_db.py` | (module) | Build SQLite `db/coverage.db` from `data_*.json` ([schema docs](DB_FORMAT.md)) — standalone script, not a `rebrew` subcommand |
+| `rebrew-build-db` | `build_db.py` | Build SQLite `db/coverage.db` from `data_*.json` ([schema docs](DB_FORMAT.md)) |
 
 ## Tool Flags
 
@@ -58,7 +58,7 @@ Run any tool with `--help` to see usage examples and context
 | `--seed N` | Seed RNG for reproducible GA runs |
 | `--force` | Continue even if source marker linter finds errors |
 | `--generations N` | Number of GA generations (default 100) |
-| `--pop-size N` | GA population size (default 32) |
+| `--pop-size N` | GA population size (default 64) |
 | `-j N` | Parallel compilation workers |
 | `--out-dir DIR` | Output directory for GA results |
 | `--compare-obj` / `--no-compare-obj` | Use object comparison instead of full link (default: true) |
@@ -131,7 +131,7 @@ Behavior:
 | Flag | Description |
 |------|-------------|
 | `--compare` | Compare against last saved `db/verify_results.json`, detect regressions/improvements; exit code 1 on regression |
-| `--summary` | Show EXACT/RELOC/MATCHING summary table with match percentages |
+| `--summary` | Show EXACT/RELOC/NEAR_MATCHING summary table with match percentages |
 | `--full` / `-f` | Force full verification, ignoring cached results (also required after header/include changes) |
 | `-j N` / `--jobs N` | Number of parallel compile jobs (default: from `[project].jobs` or 4) |
 | `--json` | Structured JSON report to stdout |
@@ -156,13 +156,13 @@ Output prefixes for unambiguous parsing:
 | `--all` | Enable batch mode (required for all flags below) |
 | `--max-stubs N` | Max functions to process, 0=all (default 0) |
 | `--generations N` / `-g N` | GA generations per function (default 100) |
-| `--pop-size N` / `-p N` | GA population size (default 32) |
+| `--pop-size N` / `-p N` | GA population size (default 64) |
 | `-j N` / `--jobs N` | Parallel jobs (default: from `[project].jobs`) |
 | `--timeout-min N` | Per-function GA timeout in minutes (default 30) |
 | `--min-size N` | Min target size to attempt |
 | `--max-size N` | Max target size to attempt |
 | `--filter STR` | Only process functions matching this substring |
-| `--near-miss` | Target MATCHING functions instead of STUBs |
+| `--near-miss` | Target NEAR_MATCHING functions instead of STUBs |
 | `--improve` | Target all NEAR_MATCHING functions (no delta threshold) |
 | `--threshold N` | Max byte delta for `--near-miss` mode (default 10) |
 | `--dry-run` | Preview changes without writing |
@@ -243,7 +243,7 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 | `--sync-data` / `--no-sync-data` | Push data segment labels (default: sync) |
 | `--pull` | Fetch Ghidra renames and comments and update local `.c` files |
 | `--accept-ghidra` | With `--pull`, accept Ghidra renames for all conflicts (updates cross-references) |
-| `--accept-local` | With `--pull`, keep local names for all conflicts (adds `// GHIDRA:`) |
+| `--accept-local` | With `--pull`, keep local names for all conflicts (records GHIDRA in metadata) |
 | `--pull-signatures` | Pull function prototypes from Ghidra and update extern declarations |
 | `--pull-structs` | Pull struct definitions from Ghidra into `types.h` |
 | `--pull-comments` | Pull Ghidra analysis comments into source files |
@@ -276,7 +276,7 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 
 | Flag / Arg | Description |
 |------------|-------------|
-| `COMMAND` | `list`, `extract`, or `batch N` (positional argument) |
+| `COMMAND` | `list`, `show` (or `extract`), or `batch N` (positional argument) |
 | `--min-size N` | Minimum function size to extract (default 8) |
 | `--max-size N` | Maximum function size to extract (default 50000) |
 | `--json` | Output results as JSON |
@@ -301,7 +301,7 @@ With `--va`, extract a **single function** into its own file (into a `source_c/`
 
 `rebrew prove <source> [--target NAME] [--json] [--timeout N] [--loop-bound N] [--dry-run]`
 
-Prove semantic equivalence of a MATCHING function via angr symbolic execution + Z3 constraint solving. Requires the optional `angr` dependency (`uv pip install -e ".[prove]"`).
+Prove semantic equivalence of a NEAR_MATCHING function via angr symbolic execution + Z3 constraint solving. Requires the optional `angr` dependency (`uv pip install -e ".[prove]"`).
 
 | Flag | Description |
 |------|-------------|
@@ -312,7 +312,7 @@ Prove semantic equivalence of a MATCHING function via angr symbolic execution + 
 | `--loop-bound N` | Max loop iterations for angr's LoopSeer (default: 10) |
 | `--dry-run` | Preview changes without writing |
 
-On success, updates `STATUS` from `MATCHING` → `PROVEN`. On failure (timeout, path explosion, or Z3 finds a distinguishing input), status remains unchanged.
+On success, updates `STATUS` from `NEAR_MATCHING` → `PROVEN`. On failure (timeout, path explosion, or Z3 finds a distinguishing input), status remains unchanged.
 
 ### `rebrew merge`
 
@@ -376,7 +376,7 @@ rebrew diff --fix-blocker src/target_name/f.c      # Auto-write BLOCKER metadata
 rebrew diff --json src/target_name/f.c             # JSON diff
 rebrew match --all                                 # Batch GA on all STUBs
 rebrew match --all --improve                       # Batch GA on all NEAR_MATCHING
-rebrew match --all --near-miss --threshold 5       # GA on MATCHING with <=5B delta
+rebrew match --all --near-miss --threshold 5       # GA on NEAR_MATCHING with <=5B delta
 rebrew match --all --dry-run                       # List candidates only
 
 # Verification & status
@@ -409,7 +409,7 @@ rebrew merge a.c b.c -o merged.c                    # merge into one file
 rebrew merge multi_c/ multi.c -o multi.c --force --delete  # merge extracted function back
 
 # Semantic equivalence proving
-rebrew prove src/target_name/calculate_physics.c     # prove MATCHING → PROVEN
+rebrew prove src/target_name/calculate_physics.c     # prove NEAR_MATCHING → PROVEN
 rebrew prove src/target_name/calculate_physics.c --json  # JSON output
 rebrew prove my_func --dry-run                        # find by symbol, preview only
 rebrew prove src/target_name/func.c --timeout 120     # allow 2 min for complex functions
@@ -449,7 +449,7 @@ rebrew sync --pull-data                            # Fetch data labels into rebr
 | `matcher/flags.py` | `FlagSet`/`Checkbox` primitives (compatible with decomp.me) |
 | `matcher/flag_data.py` | Auto-generated MSVC flags + sweep tiers (from `tools/sync_decomp_flags.py`) |
 | `matcher/parsers.py` | COFF `.obj` and PE byte extraction (LIEF-based) |
-| `matcher/mutator.py` | 116 C mutation operators for GA |
+| `matcher/mutator.py` | 120 C mutation operators for GA |
 | `matcher/core.py` | SQLite `BuildCache` + GA checkpointing |
 | `solutions.py` | Cross-function solution transfer database (`.rebrew/solutions.json`) |
 

@@ -421,9 +421,10 @@ class TestToolImports:
         assert "root" in sig.parameters or "target" in sig.parameters
 
     def test_import_cli(self) -> None:
-        from rebrew.cli import get_config
+        from rebrew.cli import is_matched, require_config
 
-        assert callable(get_config)
+        assert callable(require_config)
+        assert callable(is_matched)
 
     def test_import_matcher_scoring(self) -> None:
         from rebrew.matcher.scoring import score_candidate

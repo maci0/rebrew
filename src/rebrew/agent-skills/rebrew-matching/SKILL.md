@@ -58,7 +58,7 @@ rebrew match src/<target>/<file>.c --generations 200 --pop-size 64 -j 16
 ```
 
 - `--generations N` — GA generations (default: 100)
-- `--pop-size N` — population size (default: 32)
+- `--pop-size N` — population size (default: 64)
 - `-j N` — parallel compilation jobs (default: 4)
 - `--seed N` — RNG seed for reproducibility
 - `--out-dir DIR` — output directory for GA results (default: `output/ga_run`)
@@ -73,7 +73,7 @@ When diff shows `flag_sensitive: true`, try compiler flag combinations before ru
 
 ```bash
 rebrew match src/<target>/<file>.c --flag-sweep-only      # single file: targeted flag sweep
-rebrew match src/<target>/<file>.c --flag-sweep-only -S --tier exhaustive  # exhaustive
+rebrew match src/<target>/<file>.c --flag-sweep-only --tier exhaustive     # exhaustive
 rebrew match --all --flag-sweep                           # batch: sweep all NEAR_MATCHING functions
 rebrew match --all --flag-sweep --fix-cflags              # auto-update CFLAGS on exact match
 ```

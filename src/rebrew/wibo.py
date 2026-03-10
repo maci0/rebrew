@@ -8,14 +8,14 @@ downloads and verifies the latest release asset from GitHub.
 from __future__ import annotations
 
 import hashlib
-import json
 import platform
 import shutil
 import stat
 import sys
-import urllib.request
 from pathlib import Path
 from typing import Any
+
+import httpx
 
 _WIBO_API_URL = "https://api.github.com/repos/decompals/wibo/releases/latest"
 _WIBO_DEFAULT_PATH = Path("tools/wibo")
@@ -43,17 +43,16 @@ _NETWORK_TIMEOUT_S = 30  # Fail fast rather than hang indefinitely in CI/automat
 
 def _read_release_metadata() -> dict[str, Any]:
     """Fetch and parse latest release metadata from GitHub."""
-    with urllib.request.urlopen(_WIBO_API_URL, timeout=_NETWORK_TIMEOUT_S) as response:
-        payload = response.read().decode("utf-8")
-    data = json.loads(payload)
+    resp = httpx.get(_WIBO_API_URL, timeout=_NETWORK_TIMEOUT_S, follow_redirects=True)
+    resp.raise_for_status()
+    data = resp.json()
     if not isinstance(data, dict):
         raise RuntimeError("Invalid wibo release metadata response")
     return data
 
 
-def download_wibo(dest: Path, *, quiet: bool = False) -> str:
+def download_wibo(dest: Path) -> str:
     """Download latest wibo release binary to dest and return release tag_name."""
-    del quiet
 
     release = _read_release_metadata()
     tag_name = str(release.get("tag_name", ""))
@@ -80,8 +79,9 @@ def download_wibo(dest: Path, *, quiet: bool = False) -> str:
     expected_sha256 = digest.removeprefix("sha256:")
 
     dest.parent.mkdir(parents=True, exist_ok=True)
-    with urllib.request.urlopen(download_url, timeout=_NETWORK_TIMEOUT_S) as resp:
-        dest.write_bytes(resp.read())
+    resp = httpx.get(download_url, timeout=_NETWORK_TIMEOUT_S, follow_redirects=True)
+    resp.raise_for_status()
+    dest.write_bytes(resp.content)
 
     actual_sha256 = hashlib.sha256(dest.read_bytes()).hexdigest()
     if actual_sha256 != expected_sha256:
@@ -110,12 +110,12 @@ def find_wibo(project_root: Path | None = None) -> Path | None:
     return None
 
 
-def ensure_wibo(project_root: Path, *, quiet: bool = False) -> Path:
+def ensure_wibo(project_root: Path) -> Path:
     """Find wibo or download it to project_root/tools/wibo."""
     found = find_wibo(project_root)
     if found is not None:
         return found
 
     dest = project_root / _WIBO_DEFAULT_PATH
-    download_wibo(dest, quiet=quiet)
+    download_wibo(dest)
     return dest

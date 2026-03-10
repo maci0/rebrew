@@ -51,8 +51,8 @@ Stores details regarding decompiled and original functions.
 | `vaStart` | `TEXT` | Hex string representation of the starting virtual address. |
 | `size` | `INTEGER` | Byte size of the function (canonical: prefer Ghidra > r2). |
 | `fileOffset` | `INTEGER` | Physical file offset of the function in the binary. |
-| `status` | `TEXT` | Match status: `EXACT`, `RELOC`, `MATCHING`, `MATCHING_RELOC`, `STUB`. |
-| `origin` | `TEXT` | Origin module/library — config-driven (e.g., `GAME`, `ZLIB`, `MSVCRT`). |
+| `status` | `TEXT` | Match status: `EXACT`, `RELOC`, `NEAR_MATCHING`, `STUB`. |
+| `module` | `TEXT` | Origin module/library — config-driven (e.g., `GAME`, `ZLIB`, `MSVCRT`). |
 | `cflags` | `TEXT` | Compilation flags (if any). |
 | `symbol` | `TEXT` | The raw mangled or internal symbol name. |
 | `markerType` | `TEXT` | Annotation marker type: `FUNCTION`, `STUB`, `GLOBAL`, `DATA`. |
@@ -74,7 +74,7 @@ Stores details regarding decompiled and original functions.
 **Indexes**:
 - `idx_functions_name` on `(target, name)`
 - `idx_functions_status` on `(target, status)`
-- `idx_functions_origin` on `(target, origin)`
+- `idx_functions_module` on `(target, module)`
 
 ### `globals` Table
 Tracks global variables mapped during the decompilation effort.
@@ -86,7 +86,7 @@ Tracks global variables mapped during the decompilation effort.
 | `name` | `TEXT` | Variable name. Indexed. |
 | `decl` | `TEXT` | Variable C/C++ declaration syntax. |
 | `files` | `TEXT` | JSON array of associated source files. |
-| `origin` | `TEXT` | Origin module (from `// GLOBAL: MODULE 0xVA` annotation). |
+| `module` | `TEXT` | Origin module (from `// GLOBAL: MODULE 0xVA` annotation). |
 | `size` | `INTEGER` | Estimated size in bytes (default: 4 for pointer-sized). |
 
 **Primary Key**: `(target, va)`
@@ -133,7 +133,6 @@ Represents chunks (cells) of memory to be rendered in the UI coverage map.
 | `exact` | Byte-identical match | Green |
 | `reloc` | Match after relocation normalization | Cyan |
 | `matching` | Functionally matching (not byte-identical) | Yellow |
-| `matching_reloc` | Matching after relocation normalization | Yellow |
 | `stub` | Stub implementation (placeholder) | Red |
 | `padding` | NOP/INT3 alignment padding | Silver |
 | `data` | Non-code data in .text (residual switch tables, etc.) | Purple |
@@ -191,7 +190,7 @@ A SQLite view aggregating matching metrics to quickly pull total/exact/stub cell
 | `total_cells` | Total number of cells |
 | `exact_count` | Cells with `state = 'exact'` |
 | `reloc_count` | Cells with `state = 'reloc'` |
-| `matching_count` | Cells with `state IN ('matching', 'matching_reloc')` |
+| `matching_count` | Cells with `state = 'matching'` |
 | `stub_count` | Cells with `state = 'stub'` |
 | `padding_count` | Cells with `state = 'padding'` |
 | `data_count` | Cells with `state = 'data'` |
@@ -223,7 +222,7 @@ Each `data_<target>.json` file is the output of `rebrew catalog --data-json`. It
   "functions": {
     "func_name": {
       "name": "func_name", "vaStart": "0x10001000", "size": 302,
-      "status": "EXACT", "origin": "GAME", "cflags": "/O2",
+      "status": "EXACT", "module": "GAME", "cflags": "/O2",
       "symbol": "_func_name", "markerType": "FUNCTION",
       "fileOffset": 4096, "textOffset": 0, "sha256": "abcd...",
       "files": ["func_name.c"],

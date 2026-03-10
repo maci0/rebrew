@@ -24,7 +24,7 @@ from rich.console import Console
 from rich.table import Table
 
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va, load_binary
-from rebrew.catalog import _is_jump_table, build_function_registry, parse_function_list
+from rebrew.catalog import build_function_registry, is_jump_table, parse_function_list
 from rebrew.catalog.registry import RegistryEntry
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
@@ -69,7 +69,7 @@ def _classify_gap(
         return "padding"
 
     # Jump table?
-    if _is_jump_table(data, text_va, text_size):
+    if is_jump_table(data, text_va, text_size):
         return "jump_table"
 
     # Size-based threshold

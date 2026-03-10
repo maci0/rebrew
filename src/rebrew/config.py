@@ -10,16 +10,16 @@ across all targets.
 
 Usage in any tool::
 
-    from rebrew.config import cfg
+    from rebrew.config import load_config
 
-    bin_path = cfg.target_binary        # Path object
-    src_dir  = cfg.reversed_dir         # Path object
-    arch     = cfg.arch                 # "x86_32"
-    base     = cfg.image_base           # int, e.g. 0x10000000
+    cfg = load_config()                  # default target
+    bin_path = cfg.target_binary         # Path object
+    src_dir  = cfg.reversed_dir          # Path object
+    arch     = cfg.arch                  # "x86_32"
+    base     = cfg.image_base            # int, e.g. 0x10000000
 
 To load a specific target::
 
-    from rebrew.config import load_config
     cfg = load_config(target="client_exe")
 """
 

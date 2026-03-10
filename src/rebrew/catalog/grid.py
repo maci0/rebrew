@@ -6,7 +6,6 @@ detection, gap absorption, padding classification, and thunk identification.
 
 import hashlib
 import math
-import struct
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -15,8 +14,8 @@ if TYPE_CHECKING:
 
 from rebrew.annotation import Annotation
 from rebrew.catalog.loaders import extract_dll_bytes, load_ghidra_data_labels
-from rebrew.catalog.registry import RegistryEntry, _is_jump_table
-from rebrew.catalog.sections import get_globals, get_sections
+from rebrew.catalog.registry import RegistryEntry, is_jump_table
+from rebrew.catalog.sections import get_globals, get_sections, has_back_jumps, trim_trailing_padding
 
 # Maximum trailing gap (in bytes) that can be absorbed into the preceding function
 _MAX_TAIL_ABSORB = 64
@@ -70,25 +69,21 @@ def generate_data_json(
         if any(e.get("marker_type") not in ("GLOBAL", "DATA") for e in vas)
     ]
 
-    exact_count = sum(1 for vas in fn_vas if any(e["status"] == "EXACT" for e in vas))
-    reloc_count = sum(
-        1
-        for vas in fn_vas
-        if any(e["status"] == "RELOC" for e in vas) and not any(e["status"] == "EXACT" for e in vas)
-    )
-    matching_count = sum(
-        1
-        for vas in fn_vas
-        if any(e["status"] in ("NEAR_MATCHING",) for e in vas)
-        and not any(e["status"] in ("EXACT", "RELOC") for e in vas)
-    )
-    stub_count = sum(
-        1
-        for vas in fn_vas
-        if any(e["status"] == "STUB" for e in vas)
-        and not any(
-            e["status"] in ("EXACT", "RELOC", "NEAR_MATCHING", "NEAR_MATCHING") for e in vas
-        )
+    # Count functions by highest-priority status present
+    _STATUS_PRIORITY = ("EXACT", "RELOC", "NEAR_MATCHING", "STUB")
+    exact_count = reloc_count = matching_count = stub_count = 0
+    _counters = {"EXACT": 0, "RELOC": 0, "NEAR_MATCHING": 0, "STUB": 0}
+    for vas in fn_vas:
+        statuses = {e["status"] for e in vas}
+        for status in _STATUS_PRIORITY:
+            if status in statuses:
+                _counters[status] += 1
+                break
+    exact_count, reloc_count, matching_count, stub_count = (
+        _counters["EXACT"],
+        _counters["RELOC"],
+        _counters["NEAR_MATCHING"],
+        _counters["STUB"],
     )
 
     covered_bytes = 0
@@ -287,19 +282,17 @@ def generate_data_json(
                             label_end_off = (label_va + dl_info.size) - sec_va
                             absorb_size = min(label_end_off, next_func_off) - func_end_off
                             is_switch_data = True
-                    elif _is_jump_table(gap_bytes, sec_va, sec_size):
+                    elif is_jump_table(gap_bytes, sec_va, sec_size):
                         is_switch_data = True
 
                     if is_switch_data:
                         # Absorb entire gap up to next function, trimming
                         # only trailing NOP/INT3 padding (switch tables include
                         # both pointer arrays and index/lookup tables)
-                        absorb_size = len(gap_bytes)
-                        while absorb_size > 0 and gap_bytes[absorb_size - 1] in (0x90, 0xCC):
-                            absorb_size -= 1
+                        absorb_size = trim_trailing_padding(gap_bytes)
 
                     # Check for out-of-line code (jumps back into function body)
-                    if absorb_size == 0 and not all(b in (0x90, 0xCC) for b in gap_bytes):
+                    if absorb_size == 0 and trim_trailing_padding(gap_bytes) > 0:
                         func_start_off = None
                         for ioff, idata in items_by_off.items():
                             if (
@@ -308,55 +301,10 @@ def generate_data_json(
                             ):
                                 func_start_off = ioff
                                 break
-                        if func_start_off is not None:
-                            has_back_jump = False
-                            i = 0
-                            while i < len(gap_bytes):
-                                b = gap_bytes[i]
-                                if b == 0xE9 and i + 5 <= len(gap_bytes):
-                                    rel = struct.unpack_from("<i", gap_bytes, i + 1)[0]
-                                    target = func_end_off + i + 5 + rel
-                                    if func_start_off <= target < func_end_off:
-                                        has_back_jump = True
-                                        break
-                                    i += 5
-                                    continue
-                                if (
-                                    b == 0x0F
-                                    and i + 6 <= len(gap_bytes)
-                                    and 0x80 <= gap_bytes[i + 1] <= 0x8F
-                                ):
-                                    rel = struct.unpack_from("<i", gap_bytes, i + 2)[0]
-                                    target = func_end_off + i + 6 + rel
-                                    if func_start_off <= target < func_end_off:
-                                        has_back_jump = True
-                                        break
-                                    i += 6
-                                    continue
-                                if b == 0xEB and i + 2 <= len(gap_bytes):
-                                    rel = struct.unpack_from("<b", gap_bytes, i + 1)[0]
-                                    target = func_end_off + i + 2 + rel
-                                    if func_start_off <= target < func_end_off:
-                                        has_back_jump = True
-                                        break
-                                    i += 2
-                                    continue
-                                if 0x70 <= b <= 0x7F and i + 2 <= len(gap_bytes):
-                                    rel = struct.unpack_from("<b", gap_bytes, i + 1)[0]
-                                    target = func_end_off + i + 2 + rel
-                                    if func_start_off <= target < func_end_off:
-                                        has_back_jump = True
-                                        break
-                                    i += 2
-                                    continue
-                                i += 1
-                            if has_back_jump:
-                                absorb_size = len(gap_bytes)
-                                while absorb_size > 0 and gap_bytes[absorb_size - 1] in (
-                                    0x90,
-                                    0xCC,
-                                ):
-                                    absorb_size -= 1
+                        if func_start_off is not None and has_back_jumps(
+                            gap_bytes, func_start_off, func_end_off, base_offset=func_end_off
+                        ):
+                            absorb_size = trim_trailing_padding(gap_bytes)
 
                     # Catch-all: small non-padding gaps that follow a function
                     # and weren't detected as separate functions by any tool.
@@ -365,11 +313,9 @@ def generate_data_json(
                     if (
                         absorb_size == 0
                         and len(gap_bytes) <= _MAX_TAIL_ABSORB
-                        and not all(b in (0x90, 0xCC) for b in gap_bytes)
+                        and trim_trailing_padding(gap_bytes) > 0
                     ):
-                        absorb_size = len(gap_bytes)
-                        while absorb_size > 0 and gap_bytes[absorb_size - 1] in (0x90, 0xCC):
-                            absorb_size -= 1
+                        absorb_size = trim_trailing_padding(gap_bytes)
 
                     if absorb_size > 0:
                         parent_name = func_end_to_name[func_end_off]
@@ -418,7 +364,7 @@ def generate_data_json(
             gap_parent: str | None = None
             if sec_name == ".text" and text_data is not None:
                 gap_bytes = text_data[off:gap_end]
-                if gap_bytes and all(b in (0x90, 0xCC) for b in gap_bytes):
+                if gap_bytes and trim_trailing_padding(gap_bytes) == 0:
                     gap_state = "padding"
                 else:
                     dl_result = _find_ghidra_data_label(sec_va + off, ghidra_data_labels)
@@ -437,7 +383,7 @@ def generate_data_json(
                             thunk_size = registry[sec_va + off].get("canonical_size", 0)
                             if thunk_size > 0:
                                 gap_end = min(sec_size, off + thunk_size, next_off)
-                    elif _is_jump_table(gap_bytes, sec_va, sec_size):
+                    elif is_jump_table(gap_bytes, sec_va, sec_size):
                         gap_state = "data"
 
                 # Auto-detect parent function (gap starts where a function ends)
@@ -467,8 +413,8 @@ def generate_data_json(
                 # Trim trailing padding bytes (0x90/0xCC) from the absorbed region
                 absorb_end = gap_end
                 if gap_state == "none" and text_data is not None:
-                    while absorb_end > off and text_data[absorb_end - 1] in (0x90, 0xCC):
-                        absorb_end -= 1
+                    trimmed = trim_trailing_padding(text_data[off:absorb_end])
+                    absorb_end = off + trimmed if trimmed > 0 else off
                 if absorb_end > off:
                     prev = segments[-1]
                     segments[-1] = (prev[0], absorb_end, "data", [], prev[4], prev[5])

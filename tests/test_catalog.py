@@ -259,7 +259,7 @@ class TestCatalogImports:
         assert callable(parse_function_list)
 
     def test_r2_bogus_vas_config_driven(self) -> None:
-        from rebrew.catalog import _DEFAULT_R2_BOGUS_SIZES
+        from rebrew.catalog.registry import _DEFAULT_R2_BOGUS_SIZES
 
         assert isinstance(_DEFAULT_R2_BOGUS_SIZES, set)
         assert len(_DEFAULT_R2_BOGUS_SIZES) == 0

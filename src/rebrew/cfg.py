@@ -33,7 +33,7 @@ import typer
 from rich.console import Console
 
 from rebrew.binary_loader import detect_format_and_arch as _bl_detect_format_and_arch
-from rebrew.cli import error_exit
+from rebrew.cli import error_exit, json_print
 from rebrew.config import _find_root as _config_find_root
 from rebrew.utils import atomic_write_text
 
@@ -140,9 +140,7 @@ def _resolve_target(doc: tomlkit.TOMLDocument, target: str | None) -> str:
     if not targets:
         error_exit("No [targets] section in rebrew-project.toml.")
     if target is None:
-        target_str = next(iter(targets))
-        assert isinstance(target_str, str)
-        target = target_str
+        target = next(iter(targets))
     if target not in targets:
         error_exit(f"Target '{target}' not found. Available: {list(targets)}")
     return target
@@ -176,41 +174,54 @@ def _detect_format_and_arch(path: Path) -> tuple[str, str | None]:
 app = typer.Typer(
     help="Read and edit rebrew-project.toml programmatically.",
     rich_markup_mode="rich",
-    epilog="""\
-[bold]Examples:[/bold]
-
-rebrew cfg get compiler.command            Read a config value
-
-rebrew cfg set compiler.timeout 120        Set a config value
-
-rebrew cfg get targets.main.binary         Read target-specific setting
-
-rebrew cfg raw                             Dump rebrew-project.toml as JSON
-
-rebrew cfg raw --format toml               Dump as TOML
-
-rebrew cfg path                            Print path to rebrew-project.toml
-
-[dim]Useful for scripting and automation. Supports dotted key paths
-for nested TOML tables (e.g. 'targets.main.binary').[/dim]""",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew cfg show compiler.command · · · · Read a config value\n\n"
+        "  rebrew cfg set compiler.timeout 120 · · · Set a config value\n\n"
+        "  rebrew cfg show targets.main.binary · · · Read target-specific setting\n\n"
+        "  rebrew cfg raw · · · · · · · · · · · · · Dump rebrew-project.toml as JSON\n\n"
+        "  rebrew cfg raw --format toml · · · · · · Dump as TOML\n\n"
+        "  rebrew cfg path · · · · · · · · · · · · · Print path to rebrew-project.toml\n\n"
+        "[dim]Useful for scripting and automation. Supports dotted key paths "
+        "for nested TOML tables (e.g. 'targets.main.binary').[/dim]"
+    ),
 )
 
 
 @app.command("list-targets")
-def list_targets() -> None:
+def list_targets(
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+) -> None:
     """List all targets defined in rebrew-project.toml."""
     doc, _ = _load_toml()
     targets = doc.get("targets", {})
     if not targets:
-        console.print("No targets defined.")
+        if json_output:
+            json_print({"targets": []})
+        else:
+            console.print("No targets defined.")
         return
-    for i, name in enumerate(targets):
-        tgt = targets[name]
-        binary = tgt.get("binary", "?")
-        arch = tgt.get("arch", "?")
-        marker = "→" if i == 0 else " "
-        console.print(f"  {marker} {name}  ({arch}, {binary})")
-    console.print("\n  [dim]→ = default target[/dim]")
+    if json_output:
+        result = []
+        for i, name in enumerate(targets):
+            tgt = targets[name]
+            result.append(
+                {
+                    "name": name,
+                    "binary": tgt.get("binary", "?"),
+                    "arch": tgt.get("arch", "?"),
+                    "default": i == 0,
+                }
+            )
+        json_print({"targets": result})
+    else:
+        for i, name in enumerate(targets):
+            tgt = targets[name]
+            binary = tgt.get("binary", "?")
+            arch = tgt.get("arch", "?")
+            marker = "→" if i == 0 else " "
+            console.print(f"  {marker} {name}  ({arch}, {binary})")
+        console.print("\n  [dim]→ = default target[/dim]")
 
 
 @app.command("show")
@@ -218,6 +229,7 @@ def show(
     key: str | None = typer.Argument(
         None, help="Dot-separated key to show, e.g. 'compiler.cflags'"
     ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = typer.Option(
         None, "--target", "-t", help="Target name (for target-scoped keys)."
     ),
@@ -226,17 +238,27 @@ def show(
     doc, _ = _load_toml()
 
     if key is None:
-        # Print the whole file
-        print(tomlkit.dumps(doc))
+        if json_output:
+            import tomllib
+
+            raw_doc = tomllib.loads(tomlkit.dumps(doc))
+            json_print(raw_doc)
+        else:
+            print(tomlkit.dumps(doc))
         return
 
     # Resolve dotted key path (handles keys containing dots like target names)
     parent, final_key, _ = _resolve_dotted_key(doc, key)
     if not isinstance(parent, dict) or final_key not in parent:
-        error_exit(f"Key '{key}' not found.")
+        error_exit(f"Key '{key}' not found.", json_mode=json_output)
     current = parent[final_key]
 
-    if isinstance(current, (dict, list)):
+    if json_output:
+        import tomllib
+
+        raw_val = tomllib.loads(tomlkit.dumps(current)) if isinstance(current, dict) else current
+        json_print({"key": key, "value": raw_val})
+    elif isinstance(current, (dict, list)):
         print(tomlkit.dumps(current) if isinstance(current, dict) else str(current))
     else:
         print(str(current))

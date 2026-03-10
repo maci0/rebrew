@@ -8,7 +8,7 @@ its own file while the block is removed from the original source.
 
 from __future__ import annotations
 
-import re
+import shutil
 from pathlib import Path
 from typing import TypedDict
 
@@ -39,6 +39,16 @@ console = Console(stderr=True)
 app = typer.Typer(
     help="Split multi-function C files into single-function files.",
     rich_markup_mode="rich",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew split src/game/funcs.c · · · · · · · · Split all functions into individual files\n\n"
+        "  rebrew split src/game/funcs.c --va 0x10003da0 · Extract one function by VA\n\n"
+        "  rebrew split src/game/funcs.c --dry-run · · · · Preview without writing files\n\n"
+        "  rebrew split src/game/funcs.c --output-dir out · Custom output directory\n\n"
+        "  rebrew split src/game/funcs.c --force · · · · · Overwrite existing output files\n\n"
+        "[dim]Each output file gets the shared preamble (includes, typedefs) plus one function. "
+        "With --va, the function is extracted and removed from the original source.[/dim]"
+    ),
 )
 
 
@@ -107,29 +117,6 @@ def _build_output_name(symbol: str, va: int, ext: str) -> str:
     return f"{stem}{ext}"
 
 
-# Matches // CFLAGS: <flags> marker lines.
-_CFLAGS_RE = re.compile(r"^(\s*//\s*CFLAGS:\s*)(.*)$", re.MULTILINE)
-
-
-def _inject_include_parent(block: str) -> str:
-    """Add ``/I..`` to the ``// CFLAGS:`` marker inside *block*.
-
-    When a function is extracted into a subdirectory (e.g. ``command_c/``),
-    the compiler's ``-I<source_parent>`` points to the subdirectory instead
-    of the original parent.  Adding ``/I..`` tells ``compile.py`` to also
-    search the parent of the subdirectory, restoring the original include
-    resolution without touching the preamble (which must stay identical for
-    clean ``rebrew merge`` round-trips).
-    """
-    m = _CFLAGS_RE.search(block)
-    if m:
-        existing = m.group(2).strip()
-        if "/I.." not in existing:
-            new_cflags = f"{existing} /I.."
-            return block[: m.start(2)] + new_cflags + block[m.end(2) :]
-    return block
-
-
 @app.callback(invoke_without_command=True)
 def main(
     source: str | None = typer.Argument(None, help="Path to a multi-function source file"),
@@ -189,7 +176,7 @@ def main(
                 continue
             if cfg.marker and meta["module"].lower() != cfg.marker.lower():
                 continue
-            if int(meta["va"]) == target_va:
+            if meta["va"] == target_va:
                 matched_block = block
                 matched_meta = meta
                 matched_idx = idx
@@ -224,17 +211,15 @@ def main(
 
         if not dry_run:
             va_out_dir.mkdir(parents=True, exist_ok=True)
-            # Inject /I.. into CFLAGS so the compiler searches the original
-            # parent directory for relative #include paths.
-            adjusted_block = (
-                _inject_include_parent(matched_block) if output_dir is None else matched_block
-            )
-            atomic_write_text(out_path, preamble + adjusted_block, encoding="utf-8")
+            atomic_write_text(out_path, preamble + matched_block, encoding="utf-8")
             # Remove the extracted block from the source file (by index, not identity)
             remaining = [b for i, b in enumerate(blocks) if i != matched_idx]
             if remaining:
                 atomic_write_text(source_path, preamble + "".join(remaining), encoding="utf-8")
             else:
+                # Back up the original before removing (recoverable via .bak)
+                bak_path = source_path.with_suffix(source_path.suffix + ".bak")
+                shutil.copy2(source_path, bak_path)
                 source_path.unlink()
 
         if json_output:

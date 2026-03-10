@@ -23,19 +23,15 @@ logger = logging.getLogger(__name__)
 app = typer.Typer(
     help="Rename a function and update cross-references.",
     rich_markup_mode="rich",
-    epilog="""\
-[bold]Examples:[/bold]
-
-rebrew rename old_func new_func                  Rename function
-
-rebrew rename src/game/old.c new_func            Rename by file path
-
-rebrew rename 0x10003da0 new_func                Rename by VA
-
-rebrew rename old_func new_func --file new.c     Custom filename
-
-[dim]Updates FUNCTION markers, function definitions, extern
-declarations, and optionally renames the source file.[/dim]""",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew rename old_func new_func · · · · · · Rename function\n\n"
+        "  rebrew rename src/game/old.c new_func · · · Rename by file path\n\n"
+        "  rebrew rename 0x10003da0 new_func · · · · · Rename by VA\n\n"
+        "  rebrew rename old_func new_func --file new.c  Custom filename\n\n"
+        "[dim]Updates FUNCTION markers, function definitions, extern "
+        "declarations, and optionally renames the source file.[/dim]"
+    ),
 )
 console = Console(stderr=True)
 
@@ -57,7 +53,25 @@ def rename_function_everywhere(
     updated_files = 0
 
     if dry_run:
-        return 1  # Just a fake count
+        # Preview mode: count files that would be modified without writing
+        preview_count = 0
+        pattern = re.compile(r"\b" + re.escape(actual_old_name) + r"\b")
+        try:
+            content = filepath.read_text(encoding="utf-8")
+            if pattern.search(content):
+                preview_count += 1
+        except OSError:
+            pass
+        for src_file in iter_sources(cfg.reversed_dir, cfg):
+            if src_file == filepath:
+                continue
+            try:
+                content = src_file.read_text(encoding="utf-8")
+                if pattern.search(content):
+                    preview_count += 1
+            except OSError:
+                pass
+        return preview_count
 
     # 1. Symbol is now derived from C function definition — no SYMBOL annotation update needed
     # The function definition rename at step 2 handles symbol derivation automatically

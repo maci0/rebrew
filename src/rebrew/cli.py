@@ -34,6 +34,46 @@ from rebrew.config import ProjectConfig, load_config
 
 verbosity: int = 0  # -1 = quiet, 0 = normal, 1+ = verbose
 
+# ---------------------------------------------------------------------------
+# Standardised exit codes
+# ---------------------------------------------------------------------------
+
+EXIT_OK = 0  # Success (all functions matched / no errors)
+EXIT_MISMATCH = 1  # Actionable failure (fix your code)
+EXIT_ERROR = 2  # Infrastructure error (build/config broken)
+
+# Match-quality threshold for NEAR_MATCHING vs STUB classification.
+# A function that matches >= 60 % of bytes is NEAR_MATCHING; below is STUB.
+NEAR_MATCH_THRESHOLD = 0.60
+
+
+def is_matched(status: str) -> bool:
+    """True when *status* indicates a fully matched function (EXACT or RELOC)."""
+    return status in ("EXACT", "RELOC")
+
+
+def classify_match_status(
+    matched: bool,
+    match_count: int,
+    total: int,
+    relocs: list[int] | tuple[()] = (),
+) -> str:
+    """Determine the canonical status string from match results.
+
+    Centralises the EXACT / RELOC / NEAR_MATCHING / STUB decision that was
+    previously scattered across test.py, verify.py, and compile.py.
+
+    :param matched: True when all non-reloc bytes match.
+    :param match_count: Number of matching bytes.
+    :param total: Total byte count considered.
+    :param relocs: Relocation offsets (non-empty → RELOC instead of EXACT).
+    """
+    if matched:
+        return "RELOC" if relocs else "EXACT"
+    if total > 0 and (match_count / total) >= NEAR_MATCH_THRESHOLD:
+        return "NEAR_MATCHING"
+    return "STUB"
+
 
 # Re-usable Typer option for --target
 TargetOption: str | None = typer.Option(
@@ -42,11 +82,6 @@ TargetOption: str | None = typer.Option(
     "-t",
     help="Target name from rebrew-project.toml (default: first target).",
 )
-
-
-def get_config(target: str | None = None) -> ProjectConfig:
-    """Load the project config for the given target."""
-    return load_config(target=target)
 
 
 def require_config(target: str | None = None, *, json_mode: bool = False) -> ProjectConfig:

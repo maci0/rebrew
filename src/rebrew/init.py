@@ -18,44 +18,27 @@ console = Console(stderr=True)
 app = typer.Typer(
     help="Initialize a new rebrew project directory.",
     rich_markup_mode="rich",
-    epilog="""\
-[bold]Examples:[/bold]
-
-rebrew init                                        Defaults (msvc6, program.exe)
-
-rebrew init --target mygame --binary mygame.exe    Name the target and binary
-
-rebrew init --compiler msvc7                       Use MSVC 7.x compiler profile
-
-rebrew init --compiler gcc                         Use GCC (ELF targets)
-
-[bold]What it creates:[/bold]
-
-rebrew-project.toml            Project configuration (compiler, paths, targets)
-
-AGENTS.md              AI agent instructions for the project
-
-original/              Place your original binaries here
-
-src/<target>/           Directory for reversed .c files
-
-bin/<target>/           Directory for extracted .bin files
-
-[bold]Compiler profiles:[/bold]
-
-msvc400  MSVC 4.0 (C89, PE/x86_32) — via Wine (or wibo)
-
-msvc420  MSVC 4.2 (C89, PE/x86_32) — via Wine (or wibo)
-
-msvc6    MSVC 6.0 (C89, PE/x86_32) — via Wine (or wibo)
-
-msvc7    MSVC 7.x (C99 subset, PE/x86_32) — via Wine (or wibo)
-
-gcc      GCC (C99, ELF/x86_64)
-
-clang    Clang (C99, ELF/x86_64)
-
-[dim]Run this once in an empty directory, then place your binary in original/.[/dim]""",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew init · · · · · · · · · · · · · · · · · Defaults (msvc6, program.exe)\n\n"
+        "  rebrew init --target mygame --binary mygame.exe  Name the target and binary\n\n"
+        "  rebrew init --compiler msvc7 · · · · · · · · · Use MSVC 7.x compiler profile\n\n"
+        "  rebrew init --compiler gcc · · · · · · · · · · Use GCC (ELF targets)\n\n"
+        "[bold]What it creates:[/bold]\n\n"
+        "  rebrew-project.toml · · · Project configuration (compiler, paths, targets)\n\n"
+        "  AGENTS.md · · · · · · · · AI agent instructions for the project\n\n"
+        "  original/ · · · · · · · · Place your original binaries here\n\n"
+        "  src/<target>/ · · · · · · Directory for reversed .c files\n\n"
+        "  bin/<target>/ · · · · · · Directory for extracted .bin files\n\n"
+        "[bold]Compiler profiles:[/bold]\n\n"
+        "  msvc400 · MSVC 4.0 (C89, PE/x86_32) — via Wine (or wibo)\n\n"
+        "  msvc420 · MSVC 4.2 (C89, PE/x86_32) — via Wine (or wibo)\n\n"
+        "  msvc6 · · MSVC 6.0 (C89, PE/x86_32) — via Wine (or wibo)\n\n"
+        "  msvc7 · · MSVC 7.x (C99 subset, PE/x86_32) — via Wine (or wibo)\n\n"
+        "  gcc · · · GCC (C99, ELF/x86_64)\n\n"
+        "  clang · · Clang (C99, ELF/x86_64)\n\n"
+        "[dim]Run this once in an empty directory, then place your binary in original/.[/dim]"
+    ),
 )
 
 DEFAULT_REBREW_TOML = """# rebrew project configuration

@@ -18,6 +18,28 @@ from .core import Score, StructuralSimilarity
 _DEFAULT_CS_ARCH = capstone.CS_ARCH_X86
 _DEFAULT_CS_MODE = capstone.CS_MODE_32
 
+# ---------------------------------------------------------------------------
+# Scoring weights — tuned empirically for MSVC6 x86 binary matching.
+# ---------------------------------------------------------------------------
+# Prologue bytes receive extra weight because matching the function entry
+# point is a strong positive signal (calling convention, stack frame setup).
+_PROLOGUE_LEN = 20  # first N bytes weighted as prologue
+_PROLOGUE_WEIGHT = 3.0  # per-byte weight multiplier for prologue region
+_PROLOGUE_BONUS = -100.0  # score bonus when first 20 bytes match exactly
+
+# Continuity bonus caps the reward for long matching mnemonic runs,
+# preventing a single long match from overwhelming all other signals.
+_CONTINUITY_CAP = 20.0  # maximum continuity bonus (points)
+_CONTINUITY_PER_INSN = 0.5  # bonus per instruction in longest matching run
+_CONTINUITY_MIN_RUN = 4  # minimum run length to qualify for bonus
+
+# Final score = weighted sum of component scores.  Lower is better.
+# These weights control the relative importance of each signal:
+_WEIGHT_LEN_DIFF = 3.0  # per missing/extra byte
+_WEIGHT_BYTE = 1000.0  # per raw byte difference (weighted)
+_WEIGHT_RELOC = 500.0  # per reloc-normalized byte difference
+_WEIGHT_MNEMONIC = 200.0  # per mnemonic-level difference (0-100 scale)
+
 
 def _normalize_with_reloc_offsets(
     code: bytes, reloc_offsets: dict[int, str] | list[int] | None, pointer_size: int = 4
@@ -162,7 +184,7 @@ def score_candidate(
     # 1. Byte similarity (weighted towards prologue)
     if min_len > 0:
         weights = np.ones(min_len, dtype=np.float64)
-        weights[: min(20, min_len)] = 3.0
+        weights[: min(_PROLOGUE_LEN, min_len)] = _PROLOGUE_WEIGHT
         byte_score = float(np.dot(diff_mask.astype(np.float64), weights))
     else:
         byte_score = 0.0
@@ -226,22 +248,26 @@ def score_candidate(
     else:
         coverage = 1.0
 
-    # Continuity bonus: reward long matching runs (max 20 pts)
-    continuity_bonus = min(20.0, longest_run * 0.5) if longest_run > 4 else 0.0
+    # Continuity bonus: reward long matching runs
+    continuity_bonus = (
+        min(_CONTINUITY_CAP, longest_run * _CONTINUITY_PER_INSN)
+        if longest_run > _CONTINUITY_MIN_RUN
+        else 0.0
+    )
 
     mnemonic_score = ((total_diffed / total_insns) * coverage) * 100.0 - continuity_bonus
     mnemonic_score = max(0.0, mnemonic_score)  # floor at 0
 
     # 4. Prologue bonus
     prologue_bonus = 0.0
-    if min_len >= 20 and target_bytes[:20] == candidate_bytes[:20]:
-        prologue_bonus = -100.0
+    if min_len >= _PROLOGUE_LEN and target_bytes[:_PROLOGUE_LEN] == candidate_bytes[:_PROLOGUE_LEN]:
+        prologue_bonus = _PROLOGUE_BONUS
 
     total = (
-        (len_diff * 3.0)
-        + (byte_score * 1000.0)
-        + (reloc_score * 500.0)
-        + (mnemonic_score * 200.0)
+        (len_diff * _WEIGHT_LEN_DIFF)
+        + (byte_score * _WEIGHT_BYTE)
+        + (reloc_score * _WEIGHT_RELOC)
+        + (mnemonic_score * _WEIGHT_MNEMONIC)
         + prologue_bonus
     )
 
@@ -267,7 +293,7 @@ def diff_functions(
     cs_mode: int = _DEFAULT_CS_MODE,
     pointer_size: int = 4,
 ) -> dict[str, Any] | None:
-    r"""Print a side-by-side diff of target and candidate disassembly.
+    """Print a side-by-side diff of target and candidate disassembly.
 
     Args:
         target_bytes: Ground-truth target bytes.

@@ -1,7 +1,9 @@
 """lint.py - Annotation linter for rebrew decomp C files.
 
-Check that all .c files in the reversed directory have proper reccmp-style annotations.
-Supports --fix mode to auto-migrate from old format to new format.
+Check that all .c files in the reversed directory have proper reccmp-style
+annotations (``// FUNCTION: MODULE 0xVA`` markers) and that volatile metadata
+(STATUS, SIZE, CFLAGS, etc.) lives in ``rebrew-function.toml``.
+Supports ``--fix`` to migrate inline metadata keys to the TOML metadata file.
 
 Inspired by reccmp's decomplint tool.
 """
@@ -26,8 +28,8 @@ from rebrew.annotation import (
     VALID_MARKERS,
     marker_for_module,
 )
-from rebrew.cli import TargetOption, get_config, json_print
-from rebrew.config import ProjectConfig
+from rebrew.cli import TargetOption, json_print
+from rebrew.config import ProjectConfig, load_config
 
 console = Console(stderr=True)
 
@@ -40,9 +42,9 @@ _MARKER_TYPE_RE = re.compile(r"//\s*(\w+):")
 class LintResult:
     """Accumulated lint errors and warnings for a single source file.
 
-    Why a custom linter? Standard C linters don't understand our `// STATUS:` and
-    other rebrew annotations. We need strict validation of these metadata fields
-    to ensure the CI pipeline and other tools (like `rebrew test`) can parse them.
+    Why a custom linter? Standard C linters don't understand rebrew's
+    annotation markers and metadata. We need strict validation to ensure
+    the CI pipeline and other tools (like `rebrew test`) can parse them.
     """
 
     filepath: Path
@@ -146,7 +148,7 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
 def _check_format_warnings(
     result: LintResult, found_keys: dict[str, str], flags: dict[str, bool]
 ) -> bool:
-    """Check format-level warnings (W002, W012, W013). Returns True if validation should proceed."""
+    """Check format-level errors (E001). Returns True if validation should proceed."""
     if not flags["has_new"]:
         result.error(result.marker_line, "E001", "Missing FUNCTION/LIBRARY/STUB annotation")
         return False
@@ -190,12 +192,6 @@ def _check_E013_duplicate_va(
             seen_vas[va_int] = rel_display_path(filepath)
 
 
-def _check_E003_E004_status(result: LintResult, found_keys: dict[str, str]) -> None:
-    # STATUS is now strictly managed in rebrew-function.toml.
-    # We no longer validate it here since it's verified when parsed from the sidecar.
-    pass
-
-
 def _check_W018_cflags(
     result: LintResult, found_keys: dict[str, str], cfg: ProjectConfig | None
 ) -> None:
@@ -206,7 +202,9 @@ def _check_W018_cflags(
     has_config_default = bool(getattr(cfg, "base_cflags", "") if cfg else "")
     if not has_config_default:
         result.warning(
-            result.marker_line, "W018", "Missing // CFLAGS: and no default cflags in project config"
+            result.marker_line,
+            "W018",
+            "Missing CFLAGS in metadata and no default cflags in project config",
         )
 
 
@@ -294,17 +292,6 @@ def _check_W016_section(result: LintResult, marker: str, found_keys: dict[str, s
             result.marker_line,
             "W016",
             f"{marker} marker missing // SECTION: (.data, .rdata, .bss)",
-        )
-
-
-def _check_W017_note_rebrew(result: LintResult, found_keys: dict[str, str]) -> None:
-    note = found_keys.get("NOTE", "")
-    if note.startswith("[rebrew]"):
-        result.warning(
-            result.marker_line,
-            "W017",
-            "NOTE starts with '[rebrew]' — this looks like auto-generated sync metadata, "
-            "not a human note (likely from a bad pull)",
         )
 
 
@@ -396,9 +383,7 @@ def lint_file(
     if not all_headers:
         # Totally broken file — no recognisable marker format found.
         # Synthesise a minimal entry so the loop below can report E001.
-        all_headers = [
-            ({}, {"has_new": False, "has_old": False, "has_block": False, "has_javadoc": False})
-        ]
+        all_headers = [({}, {"has_new": False})]
 
     # Load the per-directory metadata once so all marker blocks in this file can use it.
     # Keys in the result: (module, va_int) -> {toml_field: value}
@@ -477,7 +462,6 @@ def lint_file(
                 _check_E013_duplicate_va(result, va_int, va_str, filepath, seen_vas)
 
             if marker not in ("GLOBAL", "DATA"):
-                _check_E003_E004_status(result, found_keys)
                 _check_W018_cflags(result, found_keys, cfg)
                 # SIZE check removed: // SIZE: is now metadata-only, not required in source.
             else:
@@ -553,43 +537,26 @@ def _print_summary(results: list[LintResult]) -> None:
 app = typer.Typer(
     help="Lint source marker standards for decomp C source files.",
     rich_markup_mode="rich",
-    epilog="""\
-[bold]Examples:[/bold]
-
-rebrew lint                                  Lint all .c files in reversed_dir
-
-rebrew lint --quiet                          Errors only, suppress warnings
-
-rebrew lint --json                           Machine-readable JSON output
-
-rebrew lint --summary                        Show status/origin breakdown table
-
-rebrew lint --files src/game/foo.c           Lint specific files only
-
-[bold]Error codes:[/bold]
-
-E001   Missing FUNCTION/LIBRARY/STUB marker
-
-E002   Invalid VA format or range
-
-E003   Missing STATUS metadata
-
-E013   Duplicate VA across files
-
-
-W005   STUB without BLOCKER explanation
-
-W016   DATA/GLOBAL missing SECTION metadata
-
-W017   NOTE contains [rebrew] sync metadata
-
-W010   Unknown marker key
-
-W018   Missing CFLAGS with no config fallback
-
-W019   Inline metadata key (STATUS, SIZE, etc.) should be in rebrew-function.toml
-
-[dim]Checks for reccmp-style markers in the first 20 lines of each .c file.[/dim]""",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew lint · · · · · · · · · · · · Lint all .c files in reversed_dir\n\n"
+        "  rebrew lint --quiet · · · · · · · · Errors only, suppress warnings\n\n"
+        "  rebrew lint --json · · · · · · · · · Machine-readable JSON output\n\n"
+        "  rebrew lint --summary · · · · · · · Show status/origin breakdown table\n\n"
+        "  rebrew lint --files src/game/foo.c · Lint specific files only\n\n"
+        "[bold]Error codes:[/bold]\n\n"
+        "  E001   Missing FUNCTION/LIBRARY/STUB marker\n\n"
+        "  E002   Invalid VA format or range\n\n"
+        "  E003   (deprecated — STATUS is metadata-only)\n\n"
+        "  E013   Duplicate VA across files\n\n"
+        "  W005   STUB without BLOCKER explanation\n\n"
+        "  W016   DATA/GLOBAL missing SECTION metadata\n\n"
+        "  W017   NOTE contains [rebrew] sync metadata\n\n"
+        "  W010   Unknown marker key\n\n"
+        "  W018   Missing CFLAGS with no config fallback\n\n"
+        "  W019   Inline metadata key (STATUS, SIZE, etc.) should be in rebrew-function.toml\n\n"
+        "[dim]Checks for reccmp-style markers in the first 20 lines of each .c file.[/dim]"
+    ),
 )
 
 
@@ -603,14 +570,14 @@ def main(
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     quiet: bool = typer.Option(False, help="Only show errors, suppress warnings"),
     files: list[Path] = typer.Option(None, help="Check specific files instead of all *.c"),
+    summary: bool = typer.Option(False, "--summary", help="Print status/origin breakdown"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
-    summary: bool = typer.Option(False, "--summary", help="Print status/origin breakdown"),
 ) -> None:
     """Lint source marker standards in decomp C source files."""
     cfg = None
     try:
-        cfg = get_config(target=target)
+        cfg = load_config(target=target)
     except FileNotFoundError:
         pass  # No config file — lint without config-aware rules
     except (KeyError, ValueError) as exc:

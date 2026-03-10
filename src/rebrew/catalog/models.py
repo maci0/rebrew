@@ -1,4 +1,9 @@
-"""Module docstring."""
+"""Data models for function entries and Ghidra data labels.
+
+Provides :class:`FunctionEntry` for discovered function boundaries (from Ghidra,
+r2, rizin, or function_structure.json) and :class:`GhidraDataLabel` for data
+labels exported from Ghidra.
+"""
 
 from dataclasses import dataclass
 from typing import Any
@@ -31,7 +36,11 @@ class FunctionEntry:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "FunctionEntry":
-        """Docstring."""
+        """Build from a dict (e.g. function_structure.json entry).
+
+        Required keys: ``va``, ``size`` (int or hex string).
+        Falls back to ``ghidra_name`` / ``tool_name`` for ``name``.
+        """
         va = d.get("va")
         size = d.get("size")
         if va is None or size is None:
@@ -48,7 +57,7 @@ class FunctionEntry:
 
 @dataclass
 class GhidraDataLabel:
-    """Docstring."""
+    """A data label exported from Ghidra (global variable, string, vtable, etc.)."""
 
     va: int
     size: int
@@ -57,7 +66,7 @@ class GhidraDataLabel:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "GhidraDataLabel":
-        """Docstring."""
+        """Build from a Ghidra export dict. All fields have safe defaults."""
         return cls(
             va=d.get("va", 0),
             size=d.get("size", 0),

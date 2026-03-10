@@ -104,11 +104,6 @@ def _find_child(node: Any, *types: str) -> Any | None:
     return None
 
 
-def _find_children(node: Any, *types: str) -> list[Any]:
-    """Return all children matching any of *types*."""
-    return [child for child in node.children if child.type in types]
-
-
 def _find_function_name(declarator: Any, source_bytes: bytes) -> str | None:
     """Recursively walk a declarator to find the function name identifier."""
     if declarator.type == "function_declarator":

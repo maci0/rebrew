@@ -37,7 +37,7 @@ rebrew sync --pull --dry-run            # preview pull without modifying files
 **Push -> Ghidra:**
 - Function labels (skips generic `func_XXXXXXXX` names)
 - Plate comments with `[rebrew]` metadata (status, origin, size, cflags)
-- Pre-comments from `// NOTE:` annotations
+- Pre-comments from NOTE metadata (rebrew-function.toml)
 - Bookmarks by status category (`rebrew/exact`, `rebrew/reloc`, etc.)
 - Struct definitions -> Ghidra Data Type Manager under `/rebrew` category
 - Function prototypes (parsed from local C files)
@@ -49,7 +49,7 @@ rebrew sync --pull --dry-run            # preview pull without modifying files
 - Structs (`--pull-structs` writes `types.h` from Ghidra)
 - Comments (`--pull-comments` writes EOL/post comments as `// ANALYSIS:`)
 - **Data label names** → written to `rebrew-data.toml` metadata file as `name` field (not inline in `.c`)
-- Plate and pre-comments for functions (updates `// NOTE:` locally)
+- Plate and pre-comments for functions (updates NOTE in rebrew-function.toml)
 - **Data label comments** → written to `rebrew-data.toml` metadata file as `note` field (not inline in `.c`)
 - Data labels (`--pull-data` fetches Ghidra data labels via MCP and generates `rebrew_globals.h` with typed extern declarations grouped by PE section)
 

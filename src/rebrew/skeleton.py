@@ -9,13 +9,13 @@ All volatile metadata (STATUS, SIZE, CFLAGS, BLOCKER) is written to the
 ``rebrew-function.toml`` metadata by this generator, not into the .c file.
 
 Usage:
-    rebrew skeleton 0x10003da0                    # Auto-detect origin
-    rebrew skeleton 0x10003da0 --origin GAME      # Force origin
+    rebrew skeleton 0x10003da0                    # Generate skeleton
     rebrew skeleton 0x10003da0 --name my_func     # Custom name
     rebrew skeleton 0x10003da0 --output path.c    # Custom output path
-    rebrew skeleton --list                        # List all uncovered functions
-    rebrew skeleton --list --origin GAME          # List uncovered GAME functions
+    rebrew skeleton --batch 10                    # Generate 10 skeletons at once
 """
+
+from __future__ import annotations
 
 import importlib
 from pathlib import Path
@@ -356,7 +356,7 @@ def generate_diff_command(
 
 
 def list_uncovered(
-    ghidra_funcs: list["FunctionEntry"],
+    ghidra_funcs: list[FunctionEntry],
     existing_vas: dict[int, str],
     cfg: ProjectConfig,
     min_size: int = 10,
@@ -383,37 +383,20 @@ def list_uncovered(
     return uncovered
 
 
-_EPILOG = """\
-[bold]Examples:[/bold]
-
-rebrew skeleton 0x10003da0                     Generate skeleton for one function
-
-rebrew skeleton 0x10003da0 --name my_func      Custom function name
-
-rebrew skeleton 0x10003da0 --origin MSVCRT      Set origin (default: auto-detect)
-
-rebrew skeleton 0x10003da0 --append crt_env.c  Append to existing multi-function file
-
-rebrew skeleton --batch 10                     Generate 10 skeletons at once
-
-rebrew skeleton --batch 10 --origin GAME       Batch, filtered by origin
-
-rebrew skeleton --list                         List uncovered functions
-
-rebrew skeleton --list --origin ZLIB           List uncovered ZLIB functions
-
-[bold]What it creates:[/bold]
-
-A .c file with a single marker line (``// FUNCTION: MODULE 0xVA``) and a
-placeholder function body.  All volatile metadata (STATUS, SIZE, CFLAGS,
-BLOCKER) is written to the ``rebrew-function.toml`` metadata alongside the
-.c file, not into the file itself.
-
-With --append, the marker block is appended to an existing .c file,
-enabling multi-function compilation units where related functions share a file.
-
-[dim]Reads ghidra_functions.json and existing .c files to determine what's uncovered.
-Uses rebrew-project.toml for compiler flags and origin presets.[/dim]"""
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew skeleton 0x10003da0 · · · · · · · · Generate skeleton for one function\n\n"
+    "  rebrew skeleton 0x10003da0 --name my_func · Custom function name\n\n"
+    "  rebrew skeleton 0x10003da0 --append crt_env.c  Append to existing multi-function file\n\n"
+    "  rebrew skeleton --batch 10 · · · · · · · · Generate 10 skeletons at once\n\n"
+    "[bold]What it creates:[/bold]\n\n"
+    "  A .c file with a FUNCTION marker and placeholder body. All volatile metadata "
+    "(STATUS, SIZE, CFLAGS, BLOCKER) is written to rebrew-function.toml, not into "
+    "the file itself. With --append, the marker block is appended to an existing "
+    ".c file for multi-function compilation units.\n\n"
+    "[dim]See also: 'rebrew todo' for a prioritized action list with ROI scoring. "
+    "Reads ghidra_functions.json and existing .c files to determine what's uncovered.[/dim]"
+)
 
 app = typer.Typer(
     help="Generate .c skeleton files for uncovered functions in the target binary.",
@@ -422,260 +405,29 @@ app = typer.Typer(
 )
 
 
-@app.callback(invoke_without_command=True)
-def main(
-    va_arg: str | None = typer.Argument(None, help="Function VA in hex (e.g. 0x10003da0)"),
-    name: str | None = typer.Option(None, help="Custom function name"),
-    output: str | None = typer.Option(None, "--output", "-o", help="Output file path"),
-    batch: int | None = typer.Option(None, help="Generate N skeletons (smallest first)"),
-    min_size: int = typer.Option(10, help="Minimum function size"),
-    max_size: int = typer.Option(9999, help="Maximum function size"),
-    force: bool = typer.Option(False, help="Overwrite existing files"),
-    append: str | None = typer.Option(
-        None,
-        "--append",
-        help="Append function to an existing .c file (multi-function file)",
-    ),
-    decomp: bool = typer.Option(False, "--decomp", help="Embed decompilation in skeleton"),
-    decomp_backend: str = typer.Option(
-        "auto",
-        "--decomp-backend",
-        help="Decompiler backend: auto, r2ghidra, r2dec, ghidra",
-    ),
-    xrefs: bool = typer.Option(
-        False,
-        "--xrefs",
-        help="Fetch cross-references from Ghidra and embed in skeleton",
-    ),
-    endpoint: str = typer.Option(
-        "http://localhost:8080/mcp/message",
-        help="ReVa MCP endpoint URL",
-    ),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
-    target: str | None = TargetOption,
-) -> None:
-    """Generate .c skeleton files for uncovered target binary functions."""
-    va_str = va_arg
-    cfg = require_config(target=target, json_mode=json_output)
-    src_dir = cfg.reversed_dir
-    root = cfg.root
+def _fetch_extras(
+    cfg: ProjectConfig,
+    va: int,
+    decomp: bool,
+    decomp_backend: str,
+    xrefs: bool,
+    endpoint: str,
+) -> tuple[str | None, str, str | None]:
+    """Fetch optional decompilation and cross-reference context for a VA.
 
-    ghidra_json = src_dir / FUNCTION_STRUCTURE_JSON
-    ghidra_funcs = load_function_structure(ghidra_json)
-    existing_vas = load_existing_vas(src_dir, cfg=cfg)
-
-    # --batch mode
-    if batch:
-        uncovered = list_uncovered(ghidra_funcs, existing_vas, cfg, min_size, max_size)
-        if not uncovered:
-            console.print("No uncovered functions found matching criteria.")
-            return
-
-        count = min(batch, len(uncovered))
-        created = []
-        for va_val, size_val, name_val in uncovered[:count]:
-            filename = make_filename(va_val, name_val, cfg=cfg)
-            filepath = src_dir / filename
-            rel_path = rel_display_path(filepath, root)
-
-            if filepath.exists() and not force:
-                console.print(f"[yellow]SKIP[/] {rel_path} (already exists)")
-                continue
-
-            d_code = None
-            d_backend = ""
-            xref_context_val = None
-            if decomp:
-                d_code, d_backend = fetch_decompilation(
-                    decomp_backend,
-                    cfg.target_binary,
-                    va_val,
-                    cfg.root,
-                    endpoint=endpoint,
-                )
-            if xrefs:
-                _sync_mod = importlib.import_module("rebrew.ghidra")
-                _resolve = _sync_mod._resolve_program_path
-                resolved_path = _resolve(cfg)
-                xref_context_val = fetch_xref_context(
-                    endpoint,
-                    resolved_path,
-                    va_val,
-                )
-                if xref_context_val:
-                    console.print("  [dim]XREFs:[/] fetched caller context")
-                else:
-                    console.print("  [dim]XREFs:[/] unavailable (MCP unreachable or no callers)")
-            content = generate_skeleton(
-                cfg,
-                va_val,
-                size_val,
-                name_val,
-                xref_context=xref_context_val,
-                decomp_code=d_code,
-                decomp_backend=d_backend,
-            )
-            atomic_write_text(filepath, content, encoding="utf-8")
-
-            symbol_val = "_" + sanitize_name(name_val)
-            cflags_val = cfg.base_cflags or "/O2 /Gd"
-            test_cmd = generate_test_command(rel_path, symbol_val, va_val, size_val, cflags_val)
-
-            console.print(f"[bold green]CREATED[/] {rel_path} ({size_val}B)")
-            console.print(f"  [dim]TEST:[/] {test_cmd}")
-            created.append(
-                {
-                    "file": str(rel_path),
-                    "va": f"0x{va_val:08x}",
-                    "size": size_val,
-                    "symbol": symbol_val,
-                    "test_command": test_cmd,
-                }
-            )
-
-        if json_output:
-            json_print({"created": created, "count": len(created)})
-        else:
-            console.print(f"\n[bold]Created {len(created)} skeleton files.[/]")
-        return
-
-    # Single VA mode
-    if not va_str:
-        error_exit("VA required for single mode.", json_mode=json_output)
-
-    va_int = parse_va(va_str, json_mode=json_output)
-
-    # Find in Ghidra functions
-    ghidra_entry = None
-    for func in ghidra_funcs:
-        if func.va == va_int:
-            ghidra_entry = func
-            break
-
-    if not ghidra_entry:
-        error_exit(f"VA 0x{va_int:08x} not found in ghidra_functions.json", json_mode=json_output)
-
-    size = ghidra_entry.size
-
-    ghidra_name = ghidra_entry.name if ghidra_entry.name else f"FUN_{va_int:08x}"
-
-    # Check if already covered
-    if va_int in existing_vas and not force and not append:
-        console.print(f"Already covered by: {existing_vas[va_int]}")
-        console.print("Use [cyan]--force[/] to overwrite.")
-        raise typer.Exit(code=0)
-
-    module_val = cfg.marker  # Use the project marker as module name
-
-    # --append mode: add marker block to an existing file
-    if append:
-        append_path = Path(append)
-        if not append_path.is_absolute():
-            append_path = src_dir / append_path
-        if not append_path.exists():
-            error_exit(f"--append target does not exist: {append_path}", json_mode=json_output)
-
-        if not force:
-            existing_in_file = parse_c_file_multi(
-                append_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
-            )
-            for entry in existing_in_file:
-                if entry.va == va_int:
-                    console.print(
-                        f"VA 0x{va_int:08x} already in {append_path.name}. "
-                        f"Use [cyan]--force[/] to append anyway."
-                    )
-                    raise typer.Exit(code=0)
-
-        decomp_code_val = None
-        decomp_backend_name = ""
-        xref_context_val = None
-        if decomp:
-            decomp_code_val, decomp_backend_name = fetch_decompilation(
-                decomp_backend,
-                cfg.target_binary,
-                va_int,
-                cfg.root,
-                endpoint=endpoint,
-            )
-        if xrefs:
-            _sync_mod = importlib.import_module("rebrew.ghidra")
-            _resolve = _sync_mod._resolve_program_path
-            resolved_path = _resolve(cfg)
-            xref_context_val = fetch_xref_context(
-                endpoint,
-                resolved_path,
-                va_int,
-            )
-            if xref_context_val:
-                console.print("  [dim]XREFs:[/] fetched caller context")
-            else:
-                console.print("  [dim]XREFs:[/] unavailable (MCP unreachable or no callers)")
-
-        block = generate_annotation_block(
-            cfg,
-            va_int,
-            size,
-            ghidra_name,
-            module_val,
-            name,
-            xref_context=xref_context_val,
-            decomp_code=decomp_code_val,
-            decomp_backend=decomp_backend_name,
-        )
-
-        # Ensure there's a blank line separator before the new block
-        existing_text = append_path.read_text(encoding="utf-8")
-        separator = (
-            ""
-            if existing_text.endswith("\n\n")
-            else "\n"
-            if existing_text.endswith("\n")
-            else "\n\n"
-        )
-        atomic_write_text(append_path, existing_text + separator + block, encoding="utf-8")
-
-        rel_path_val = rel_display_path(append_path, root)
-        symbol_val = "_" + name if name else "_" + sanitize_name(ghidra_name)
-        console.print(f"[bold green]APPENDED[/] to {rel_path_val}:")
-        console.print(f"  VA:     [cyan]0x{va_int:08x}[/]")
-        console.print(f"  Size:   {size}B")
-        console.print(f"  Symbol: [magenta]{symbol_val}[/]")
-        console.print()
-        console.print("Test all functions in this file:")
-        console.print(f"  [dim]rebrew test {rel_path_val}[/]")
-        if json_output:
-            json_print(
-                {
-                    "action": "appended",
-                    "file": str(rel_path_val),
-                    "va": f"0x{va_int:08x}",
-                    "size": size,
-                    "symbol": symbol_val,
-                    "test_command": f"rebrew test {rel_path_val}",
-                }
-            )
-        return
-
-    filename_val = make_filename(va_int, ghidra_name, name, cfg=cfg)
-    filepath_val = Path(output) if output else src_dir / filename_val
-    rel_path_val = rel_display_path(filepath_val, root)
-
-    decomp_code_val = None
-    decomp_backend_name = ""
-    xref_context_val = None
+    Returns (decomp_code, decomp_backend_name, xref_context).
+    """
+    d_code: str | None = None
+    d_backend = ""
+    xref_context_val: str | None = None
     if decomp:
-        decomp_code_val, decomp_backend_name = fetch_decompilation(
+        d_code, d_backend = fetch_decompilation(
             decomp_backend,
             cfg.target_binary,
-            va_int,
+            va,
             cfg.root,
             endpoint=endpoint,
         )
-        if decomp_code_val:
-            console.print(f"  [dim]Decompiler:[/] {decomp_backend_name}")
-        else:
-            console.print("  [dim]Decompiler:[/] no output (backend unavailable or failed)")
     if xrefs:
         _sync_mod = importlib.import_module("rebrew.ghidra")
         _resolve = _sync_mod._resolve_program_path
@@ -683,12 +435,208 @@ def main(
         xref_context_val = fetch_xref_context(
             endpoint,
             resolved_path,
-            va_int,
+            va,
         )
         if xref_context_val:
             console.print("  [dim]XREFs:[/] fetched caller context")
         else:
             console.print("  [dim]XREFs:[/] unavailable (MCP unreachable or no callers)")
+    return d_code, d_backend, xref_context_val
+
+
+def _run_batch_mode(
+    cfg: ProjectConfig,
+    ghidra_funcs: list[FunctionEntry],
+    existing_vas: dict[int, str],
+    batch: int,
+    min_size: int,
+    max_size: int,
+    force: bool,
+    decomp: bool,
+    decomp_backend: str,
+    xrefs: bool,
+    endpoint: str,
+    json_output: bool,
+) -> None:
+    """Generate skeleton files in batch for the smallest uncovered functions."""
+    root = cfg.root
+    src_dir = cfg.reversed_dir
+    uncovered = list_uncovered(ghidra_funcs, existing_vas, cfg, min_size, max_size)
+    if not uncovered:
+        console.print("No uncovered functions found matching criteria.")
+        return
+
+    count = min(batch, len(uncovered))
+    created: list[dict[str, str | int]] = []
+    for va_val, size_val, name_val in uncovered[:count]:
+        filename = make_filename(va_val, name_val, cfg=cfg)
+        filepath = src_dir / filename
+        rel_path = rel_display_path(filepath, root)
+
+        if filepath.exists() and not force:
+            console.print(f"[yellow]SKIP[/] {rel_path} (already exists)")
+            continue
+
+        d_code, d_backend, xref_context_val = _fetch_extras(
+            cfg,
+            va_val,
+            decomp,
+            decomp_backend,
+            xrefs,
+            endpoint,
+        )
+        content = generate_skeleton(
+            cfg,
+            va_val,
+            size_val,
+            name_val,
+            xref_context=xref_context_val,
+            decomp_code=d_code,
+            decomp_backend=d_backend,
+        )
+        atomic_write_text(filepath, content, encoding="utf-8")
+
+        symbol_val = "_" + sanitize_name(name_val)
+        cflags_val = cfg.base_cflags or "/O2 /Gd"
+        test_cmd = generate_test_command(rel_path, symbol_val, va_val, size_val, cflags_val)
+
+        console.print(f"[bold green]CREATED[/] {rel_path} ({size_val}B)")
+        console.print(f"  [dim]TEST:[/] {test_cmd}")
+        created.append(
+            {
+                "file": str(rel_path),
+                "va": f"0x{va_val:08x}",
+                "size": size_val,
+                "symbol": symbol_val,
+                "test_command": test_cmd,
+            }
+        )
+
+    if json_output:
+        json_print({"created": created, "count": len(created)})
+    else:
+        console.print(f"\n[bold]Created {len(created)} skeleton files.[/]")
+
+
+def _run_append_mode(
+    cfg: ProjectConfig,
+    va_int: int,
+    size: int,
+    ghidra_name: str,
+    module_val: str,
+    append: str,
+    name: str | None,
+    force: bool,
+    decomp: bool,
+    decomp_backend: str,
+    xrefs: bool,
+    endpoint: str,
+    json_output: bool,
+) -> None:
+    """Append a function annotation block to an existing .c file."""
+    root = cfg.root
+    src_dir = cfg.reversed_dir
+    append_path = Path(append)
+    if not append_path.is_absolute():
+        append_path = src_dir / append_path
+    if not append_path.exists():
+        error_exit(f"--append target does not exist: {append_path}", json_mode=json_output)
+
+    if not force:
+        existing_in_file = parse_c_file_multi(
+            append_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
+        )
+        for entry in existing_in_file:
+            if entry.va == va_int:
+                console.print(
+                    f"VA 0x{va_int:08x} already in {append_path.name}. "
+                    f"Use [cyan]--force[/] to append anyway."
+                )
+                raise typer.Exit(code=0)
+
+    decomp_code_val, decomp_backend_name, xref_context_val = _fetch_extras(
+        cfg,
+        va_int,
+        decomp,
+        decomp_backend,
+        xrefs,
+        endpoint,
+    )
+
+    block = generate_annotation_block(
+        cfg,
+        va_int,
+        size,
+        ghidra_name,
+        module_val,
+        name,
+        xref_context=xref_context_val,
+        decomp_code=decomp_code_val,
+        decomp_backend=decomp_backend_name,
+    )
+
+    # Ensure there's a blank line separator before the new block
+    existing_text = append_path.read_text(encoding="utf-8")
+    separator = (
+        "" if existing_text.endswith("\n\n") else "\n" if existing_text.endswith("\n") else "\n\n"
+    )
+    atomic_write_text(append_path, existing_text + separator + block, encoding="utf-8")
+
+    rel_path_val = rel_display_path(append_path, root)
+    symbol_val = "_" + name if name else "_" + sanitize_name(ghidra_name)
+    console.print(f"[bold green]APPENDED[/] to {rel_path_val}:")
+    console.print(f"  VA:     [cyan]0x{va_int:08x}[/]")
+    console.print(f"  Size:   {size}B")
+    console.print(f"  Symbol: [magenta]{symbol_val}[/]")
+    console.print()
+    console.print("Test all functions in this file:")
+    console.print(f"  [dim]rebrew test {rel_path_val}[/]")
+    if json_output:
+        json_print(
+            {
+                "action": "appended",
+                "file": str(rel_path_val),
+                "va": f"0x{va_int:08x}",
+                "size": size,
+                "symbol": symbol_val,
+                "test_command": f"rebrew test {rel_path_val}",
+            }
+        )
+
+
+def _run_single_va_mode(
+    cfg: ProjectConfig,
+    va_int: int,
+    size: int,
+    ghidra_name: str,
+    module_val: str,
+    name: str | None,
+    output: str | None,
+    decomp: bool,
+    decomp_backend: str,
+    xrefs: bool,
+    endpoint: str,
+    json_output: bool,
+) -> None:
+    """Create a new single-function .c skeleton file."""
+    root = cfg.root
+    src_dir = cfg.reversed_dir
+    filename_val = make_filename(va_int, ghidra_name, name, cfg=cfg)
+    filepath_val = Path(output) if output else src_dir / filename_val
+    rel_path_val = rel_display_path(filepath_val, root)
+
+    decomp_code_val, decomp_backend_name, xref_context_val = _fetch_extras(
+        cfg,
+        va_int,
+        decomp,
+        decomp_backend,
+        xrefs,
+        endpoint,
+    )
+    if decomp and decomp_code_val:
+        console.print(f"  [dim]Decompiler:[/] {decomp_backend_name}")
+    elif decomp:
+        console.print("  [dim]Decompiler:[/] no output (backend unavailable or failed)")
 
     content_val = generate_skeleton(
         cfg,
@@ -743,6 +691,128 @@ def main(
         console.print("  4. Run the test command above to check match")
         console.print("  5. Update STATUS from STUB to EXACT/RELOC/NEAR_MATCHING based on result")
         console.print("  6. If NEAR_MATCHING, add BLOCKER metadata explaining the difference")
+
+
+@app.callback(invoke_without_command=True)
+def main(
+    va_arg: str | None = typer.Argument(None, help="Function VA in hex (e.g. 0x10003da0)"),
+    name: str | None = typer.Option(None, help="Custom function name"),
+    output: str | None = typer.Option(None, "--output", "-o", help="Output file path"),
+    batch: int | None = typer.Option(None, help="Generate N skeletons (smallest first)"),
+    min_size: int = typer.Option(10, help="Minimum function size"),
+    max_size: int = typer.Option(9999, help="Maximum function size"),
+    force: bool = typer.Option(False, help="Overwrite existing files"),
+    append: str | None = typer.Option(
+        None,
+        "--append",
+        help="Append function to an existing .c file (multi-function file)",
+    ),
+    decomp: bool = typer.Option(False, "--decomp", help="Embed decompilation in skeleton"),
+    decomp_backend: str = typer.Option(
+        "auto",
+        "--decomp-backend",
+        help="Decompiler backend: auto, r2ghidra, r2dec, ghidra",
+    ),
+    xrefs: bool = typer.Option(
+        False,
+        "--xrefs",
+        help="Fetch cross-references from Ghidra and embed in skeleton",
+    ),
+    endpoint: str = typer.Option(
+        "http://localhost:8080/mcp/message",
+        help="ReVa MCP endpoint URL",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Generate .c skeleton files for uncovered target binary functions."""
+    va_str = va_arg
+    cfg = require_config(target=target, json_mode=json_output)
+    src_dir = cfg.reversed_dir
+
+    ghidra_json = src_dir / FUNCTION_STRUCTURE_JSON
+    ghidra_funcs = load_function_structure(ghidra_json)
+    existing_vas = load_existing_vas(src_dir, cfg=cfg)
+
+    # --batch mode
+    if batch:
+        _run_batch_mode(
+            cfg,
+            ghidra_funcs,
+            existing_vas,
+            batch,
+            min_size,
+            max_size,
+            force,
+            decomp,
+            decomp_backend,
+            xrefs,
+            endpoint,
+            json_output,
+        )
+        return
+
+    # Single VA or append — both require a VA argument
+    if not va_str:
+        error_exit("VA required for single mode.", json_mode=json_output)
+
+    va_int = parse_va(va_str, json_mode=json_output)
+
+    # Find in Ghidra functions
+    ghidra_entry = None
+    for func in ghidra_funcs:
+        if func.va == va_int:
+            ghidra_entry = func
+            break
+
+    if not ghidra_entry:
+        error_exit(f"VA 0x{va_int:08x} not found in ghidra_functions.json", json_mode=json_output)
+
+    size = ghidra_entry.size
+    ghidra_name = ghidra_entry.name if ghidra_entry.name else f"FUN_{va_int:08x}"
+
+    # Check if already covered
+    if va_int in existing_vas and not force and not append:
+        console.print(f"Already covered by: {existing_vas[va_int]}")
+        console.print("Use [cyan]--force[/] to overwrite.")
+        raise typer.Exit(code=0)
+
+    module_val = cfg.marker  # Use the project marker as module name
+
+    # --append mode: add marker block to an existing file
+    if append:
+        _run_append_mode(
+            cfg,
+            va_int,
+            size,
+            ghidra_name,
+            module_val,
+            append,
+            name,
+            force,
+            decomp,
+            decomp_backend,
+            xrefs,
+            endpoint,
+            json_output,
+        )
+        return
+
+    # Default: single VA mode — create a new skeleton file
+    _run_single_va_mode(
+        cfg,
+        va_int,
+        size,
+        ghidra_name,
+        module_val,
+        name,
+        output,
+        decomp,
+        decomp_backend,
+        xrefs,
+        endpoint,
+        json_output,
+    )
 
 
 def main_entry() -> None:
