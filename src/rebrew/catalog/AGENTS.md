@@ -12,7 +12,7 @@ generates cell-level coverage grids, and exports CATALOG.md / reccmp CSV.
 | `registry.py` | Merges function sources, resolves canonical sizes | `build_function_registry()`, `make_func_entry()`, `make_ghidra_func()` |
 | `grid.py` | Cell-level coverage grid generation | `generate_data_json()` |
 | `export.py` | Output generation (CATALOG.md, reccmp CSV) | `generate_catalog()`, `generate_reccmp_csv()` |
-| `sections.py` | Binary section parsing, global variable scanning | `get_sections()`, `get_globals()`, `get_text_section_size()` |
+| `sections.py` | Binary section parsing, global variable scanning, shared x86 utils | `get_sections()`, `get_globals()`, `get_text_section_size()`, `trim_trailing_padding()`, `has_back_jumps()`, `PADDING_BYTES` |
 | `cli.py` | Typer CLI orchestrator | `app`, `main`, `main_entry` |
 
 ## Dependency Graph
@@ -37,7 +37,7 @@ registry.py
 
 grid.py
 ├── loaders.py (extract_dll_bytes, load_ghidra_data_labels)
-├── registry.py (_is_jump_table)
+├── registry.py (is_jump_table)
 ├── sections.py (get_globals, get_sections)
 └── binary_loader.py (external — load_binary)
 
@@ -67,7 +67,7 @@ sections.py → binary_loader.py, config.py, cli.py (all external)
   ├─ Cell-level mapping (.text: 64B cells, .data: 16B, .bss: 4096B)
   ├─ Gap absorption (jump tables, out-of-line code, tail code ≤64B)
   ├─ Ghidra data label integration (thunk vs data classification)
-  └─ Summary statistics (EXACT/RELOC/MATCHING/STUB counts, coverage %)
+  └─ Summary statistics (EXACT/RELOC/NEAR_MATCHING/STUB counts, coverage %)
         │
         ▼
 [Export]

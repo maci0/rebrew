@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TypedDict
 
 import typer
+from rich.console import Console
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.cli import (
@@ -28,6 +29,8 @@ from rebrew.cli import (
     target_marker,
 )
 from rebrew.config import ProjectConfig
+
+console = Console(stderr=True)
 
 
 class NodeInfo(TypedDict):
@@ -335,33 +338,22 @@ def render_summary(nodes: dict[str, NodeInfo], edges: list[tuple[str, str]]) -> 
     return "\n".join(lines)
 
 
-_EPILOG = """\
-[bold]Examples:[/bold]
-
-rebrew graph                                  Mermaid diagram of all functions
-
-rebrew graph --format dot                     Graphviz DOT format
-
-rebrew graph --format summary                 Text summary only
-
-rebrew graph --origin GAME                    Only GAME-origin functions
-
-rebrew graph --focus _my_func --depth 2       Neighbourhood around one function
-
-rebrew graph -o graph.md                      Write output to file
-
-rebrew graph --cu-map                         Compilation unit boundary map
-
-[bold]Output formats:[/bold]
-
-mermaid    Mermaid flowchart (default; paste into docs)
-
-dot        Graphviz DOT (pipe to 'dot -Tpng')
-
-summary    Text breakdown by component
-
-[dim]Scans reversed .c files for call targets to build the dependency graph.
-Uses annotations to determine function origins and status.[/dim]"""
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew graph · · · · · · · · · · · · · · Mermaid diagram of all functions\n\n"
+    "  rebrew graph --format dot · · · · · · · · Graphviz DOT format\n\n"
+    "  rebrew graph --format summary · · · · · · Text summary only\n\n"
+    "  rebrew graph --origin GAME · · · · · · · · Only GAME-origin functions\n\n"
+    "  rebrew graph --focus _my_func --depth 2 · · Neighbourhood around one function\n\n"
+    "  rebrew graph -o graph.md · · · · · · · · · Write output to file\n\n"
+    "  rebrew graph --cu-map · · · · · · · · · · Compilation unit boundary map\n\n"
+    "[bold]Output formats:[/bold]\n\n"
+    "  mermaid · · Mermaid flowchart (default; paste into docs)\n\n"
+    "  dot · · · · Graphviz DOT (pipe to 'dot -Tpng')\n\n"
+    "  summary · · Text breakdown by component\n\n"
+    "[dim]Scans reversed .c files for call targets to build the dependency graph. "
+    "Uses annotations to determine function origins and status.[/dim]"
+)
 
 app = typer.Typer(
     help="Generate function dependency graph from reversed .c files.",
@@ -439,7 +431,7 @@ def main(
 
     if output:
         Path(output).write_text(result + "\n", encoding="utf-8")
-        typer.echo(f"Written to {output}", err=True)
+        console.print(f"Written to {output}")
     else:
         print(result)
 

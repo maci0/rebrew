@@ -26,11 +26,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = [
-    "ruff>=0.3",
-    "pytest>=8.0",
-    "slipcover>=1.0.17",
-]
 prove = [
     "angr>=9.2",
 ]

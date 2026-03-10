@@ -10,9 +10,13 @@ Architecture
 1. Extract target bytes from the DLL and compiled bytes from the .obj
 2. Load both into separate angr Projects using the ``blob`` backend
 3. Parse the ``// PROTOTYPE:`` annotation for calling convention + arg count
-4. Hook external call relocations with ``ReturnUnconstrained``
-5. Run symbolic execution on both with ``LoopSeer`` and timeout limits
-6. Compare EAX (return register) formulas via Z3 — if no satisfying
+4. Hook IAT-indirect calls with Win32 API-aware SimProcedures (constrained
+   return values) to prevent path explosion from API calls.  Falls back to
+   ``ReturnUnconstrained`` for unknown APIs.
+5. Apply user-specified argument constraints from ``prove_constraints``
+   metadata (e.g. "arg3 is a pointer to a 24-byte struct")
+6. Run symbolic execution on both with ``LoopSeer`` and timeout limits
+7. Compare EAX (return register) formulas via Z3 — if no satisfying
    assignment makes them differ, the functions are proven equivalent
 
 angr is an optional dependency (~500 MB).  Import is guarded with a clear
@@ -21,6 +25,7 @@ error message directing users to ``uv pip install -e ".[prove]"``.
 
 from __future__ import annotations
 
+import contextlib
 import re
 import struct
 import tempfile
@@ -61,6 +66,402 @@ def _require_angr() -> None:
         import angr  # noqa: F401
     except ImportError:
         raise ImportError(_ANGR_MISSING_MSG)
+
+
+# ---------------------------------------------------------------------------
+# Win32 API SimProcedures
+# ---------------------------------------------------------------------------
+#
+# Common Win32 APIs that cause path explosion when symbolically executed.
+# Each returns a fresh symbolic value of the correct width.  Memory-writing
+# APIs (memcpy, memset) are modelled to update symbolic memory.
+
+_WIN32_SIMPROCS: dict[str, type] | None = None  # lazily populated
+
+
+def _get_win32_simprocs() -> dict[str, type]:
+    """Build and cache the Win32 SimProcedure registry (requires angr)."""
+    global _WIN32_SIMPROCS  # noqa: PLW0603
+    if _WIN32_SIMPROCS is not None:
+        return _WIN32_SIMPROCS
+
+    import angr
+    import claripy
+
+    class ReturnSymbolicDword(angr.SimProcedure):
+        """Generic: return a fresh unconstrained 32-bit symbolic value."""
+
+        def run(self, *args: Any, **kwargs: Any) -> Any:
+            return self.state.solver.BVS("api_retval", 32)
+
+    class ReturnSymbolicHandle(angr.SimProcedure):
+        """Return a symbolic HANDLE (non-zero, non-INVALID_HANDLE_VALUE)."""
+
+        def run(self, *args: Any, **kwargs: Any) -> Any:
+            h = self.state.solver.BVS("handle", 32)
+            self.state.solver.add(h != 0)
+            self.state.solver.add(h != 0xFFFFFFFF)
+            return h
+
+    class ReturnSymbolicBool(angr.SimProcedure):
+        """Return 0 or 1 (symbolic BOOL)."""
+
+        def run(self, *args: Any, **kwargs: Any) -> Any:
+            b = self.state.solver.BVS("bool_ret", 32)
+            self.state.solver.add(claripy.ULE(b, 1))
+            return b
+
+    class ReturnZero(angr.SimProcedure):
+        """Return 0 (S_OK / ERROR_SUCCESS)."""
+
+        def run(self, *args: Any, **kwargs: Any) -> Any:
+            return claripy.BVV(0, 32)
+
+    class ReturnVoid(angr.SimProcedure):
+        """Void return — no value, no side effects."""
+
+        def run(self, *args: Any, **kwargs: Any) -> None:
+            return
+
+    class SimMemcpy(angr.SimProcedure):
+        """Model memcpy: copy src→dst symbolically, return dst."""
+
+        def run(self, dst: Any, src: Any, n: Any) -> Any:
+            # Concretise length to avoid explosion; cap at 1024
+            try:
+                length = self.state.solver.eval(n)
+            except Exception:
+                length = 0
+            length = min(length, 1024)
+            if length > 0:
+                data = self.state.memory.load(src, length)
+                self.state.memory.store(dst, data)
+            return dst
+
+    class SimMemset(angr.SimProcedure):
+        """Model memset: fill dst with byte value, return dst."""
+
+        def run(self, dst: Any, val: Any, n: Any) -> Any:
+            try:
+                length = self.state.solver.eval(n)
+            except Exception:
+                length = 0
+            length = min(length, 1024)
+            if length > 0:
+                byte_val = claripy.Extract(7, 0, val)
+                for i in range(length):
+                    self.state.memory.store(dst + i, byte_val)
+            return dst
+
+    class SimStrlen(angr.SimProcedure):
+        """Model strlen: return symbolic non-negative length."""
+
+        def run(self, s: Any) -> Any:
+            result = self.state.solver.BVS("strlen_ret", 32)
+            self.state.solver.add(claripy.ULE(result, 0x10000))  # bound to 64K
+            return result
+
+    # Registry: map Win32/CRT names to SimProcedure classes
+    _WIN32_SIMPROCS = {}
+
+    # --- CRT functions with semantic models ---
+    for name in ("memcpy", "_memcpy"):
+        _WIN32_SIMPROCS[name] = SimMemcpy
+    for name in ("memset", "_memset"):
+        _WIN32_SIMPROCS[name] = SimMemset
+    for name in ("strlen", "_strlen", "lstrlenA"):
+        _WIN32_SIMPROCS[name] = SimStrlen
+
+    # --- File I/O ---
+    for name in ("CreateFileA", "CreateFileW", "_lopen", "_lcreat"):
+        _WIN32_SIMPROCS[name] = ReturnSymbolicHandle
+    for name in (
+        "ReadFile",
+        "WriteFile",
+        "CloseHandle",
+        "FlushFileBuffers",
+        "SetEndOfFile",
+        "SetFilePointer",
+        "DeleteFileA",
+        "DeleteFileW",
+    ):
+        _WIN32_SIMPROCS[name] = ReturnSymbolicBool
+
+    # --- Memory allocation ---
+    for name in (
+        "HeapAlloc",
+        "HeapReAlloc",
+        "LocalAlloc",
+        "GlobalAlloc",
+        "LocalReAlloc",
+        "GlobalReAlloc",
+        "VirtualAlloc",
+        "malloc",
+        "_malloc",
+        "calloc",
+        "_calloc",
+        "realloc",
+        "_realloc",
+    ):
+        _WIN32_SIMPROCS[name] = ReturnSymbolicHandle  # non-zero pointer
+    for name in ("HeapFree", "LocalFree", "GlobalFree", "VirtualFree", "free", "_free"):
+        _WIN32_SIMPROCS[name] = ReturnVoid
+
+    # --- Window / GDI ---
+    for name in ("GetDC", "CreateCompatibleDC", "GetWindowDC"):
+        _WIN32_SIMPROCS[name] = ReturnSymbolicHandle
+    for name in (
+        "ReleaseDC",
+        "DeleteDC",
+        "InvalidateRect",
+        "UpdateWindow",
+        "ShowWindow",
+        "EnableWindow",
+        "DestroyWindow",
+        "PostMessageA",
+        "PostMessageW",
+        "IsWindow",
+        "IsWindowVisible",
+        "IsWindowEnabled",
+    ):
+        _WIN32_SIMPROCS[name] = ReturnSymbolicBool
+    for name in (
+        "SendMessageA",
+        "SendMessageW",
+        "SendDlgItemMessageA",
+        "SendDlgItemMessageW",
+        "DefWindowProcA",
+        "DefWindowProcW",
+        "CallWindowProcA",
+        "CallWindowProcW",
+        "GetDlgItem",
+        "GetDlgItemInt",
+        "GetDlgItemTextA",
+        "GetDlgItemTextW",
+        "SetDlgItemTextA",
+        "SetDlgItemTextW",
+        "SetDlgItemInt",
+        "DialogBoxParamA",
+        "DialogBoxParamW",
+        "GetDlgCtrlID",
+        "ChildWindowFromPoint",
+        "GetCursorPos",
+        "ScreenToClient",
+        "WinHelpA",
+        "WinHelpW",
+        "GetSaveFileNameA",
+        "GetSaveFileNameW",
+        "MessageBoxA",
+        "MessageBoxW",
+    ):
+        _WIN32_SIMPROCS[name] = ReturnSymbolicDword
+
+    # --- Registry ---
+    for name in (
+        "RegOpenKeyExA",
+        "RegOpenKeyExW",
+        "RegQueryValueExA",
+        "RegQueryValueExW",
+        "RegSetValueExA",
+        "RegSetValueExW",
+        "RegCloseKey",
+        "RegCreateKeyExA",
+        "RegCreateKeyExW",
+        "RegDeleteKeyA",
+        "RegDeleteValueA",
+    ):
+        _WIN32_SIMPROCS[name] = ReturnSymbolicDword  # LONG error code
+
+    # --- String ---
+    for name in ("lstrcpyA", "lstrcpyW", "lstrcatA", "lstrcatW"):
+        _WIN32_SIMPROCS[name] = ReturnSymbolicDword
+    for name in (
+        "lstrcmpA",
+        "lstrcmpW",
+        "lstrcmpiA",
+        "lstrcmpiW",
+        "CompareStringA",
+        "CompareStringW",
+    ):
+        _WIN32_SIMPROCS[name] = ReturnSymbolicDword
+    for name in ("lstrlenW", "wcslen", "_wcslen"):
+        _WIN32_SIMPROCS[name] = SimStrlen
+
+    # --- Synchronisation ---
+    for name in (
+        "EnterCriticalSection",
+        "LeaveCriticalSection",
+        "InitializeCriticalSection",
+        "DeleteCriticalSection",
+    ):
+        _WIN32_SIMPROCS[name] = ReturnVoid
+
+    # --- Misc OS ---
+    for name in (
+        "GetLastError",
+        "SetLastError",
+        "GetTickCount",
+        "GetCurrentThreadId",
+        "GetCurrentProcessId",
+        "GetModuleHandleA",
+        "GetModuleHandleW",
+        "GetProcAddress",
+        "LoadLibraryA",
+        "LoadLibraryW",
+        "FreeLibrary",
+        "LoadCursorA",
+        "LoadCursorW",
+        "LoadIconA",
+        "LoadIconW",
+        "GetStockObject",
+        "GetSystemMetrics",
+        "GetDeviceCaps",
+    ):
+        _WIN32_SIMPROCS[name] = ReturnSymbolicDword
+
+    # --- Format / print (avoid deep execution) ---
+    for name in (
+        "wsprintfA",
+        "wsprintfW",
+        "sprintf",
+        "_sprintf",
+        "wvsprintfA",
+        "wvsprintfW",
+        "_snprintf",
+    ):
+        _WIN32_SIMPROCS[name] = ReturnSymbolicDword
+
+    return _WIN32_SIMPROCS
+
+
+# ---------------------------------------------------------------------------
+# Argument constraint support
+# ---------------------------------------------------------------------------
+
+
+def _apply_arg_constraints(
+    state: Any,
+    sym_args: list[Any],
+    constraints: dict[str, Any],
+) -> None:
+    """Apply user-specified constraints to symbolic function arguments.
+
+    Constraint spec is a dict like::
+
+        {"arg0": {"type": "pointer", "struct_size": 24},
+         "arg1": {"type": "range", "min": 0, "max": 255}}
+
+    Supported types:
+        - ``pointer``: Allocate a concrete region and point the arg at it.
+          Optional ``struct_size`` (default 32 bytes).  When a ``fields``
+          dict is present, specific offsets within the allocated struct are
+          initialised to constrained symbolic values (overriding the generic
+          fill).  Field types:
+
+          - ``handle``: Non-zero, non-INVALID_HANDLE_VALUE 32-bit symbolic.
+          - ``pointer``: Concrete pointer to a secondary allocated region
+            filled with symbolic bytes (``size`` subkey, default 32).
+          - ``dword``: Unconstrained 32-bit symbolic (already handled by
+            the generic fill — listed for completeness).
+          - ``word``: Unconstrained 16-bit symbolic (stored as 32-bit LE).
+          - ``byte``: Unconstrained 8-bit symbolic (stored as 32-bit LE).
+          - ``zero``: Concrete zero (32-bit).
+          - ``nonzero``: Non-zero 32-bit symbolic.
+          - ``range``: Constrained to [min, max] (unsigned).
+          - ``concrete``: A specific concrete value (``value`` subkey).
+
+        - ``range``: Constrain to unsigned [min, max].
+        - ``bitmask``: Only bits in ``mask`` may be set.
+        - ``null``: Force arg == 0.
+        - ``nonzero``: Force arg != 0.
+    """
+    import claripy
+
+    for key, spec in constraints.items():
+        m = re.match(r"arg(\d+)", key)
+        if not m or int(m.group(1)) >= len(sym_args):
+            continue
+        idx = int(m.group(1))
+        arg = sym_args[idx]
+
+        if not isinstance(spec, dict):
+            continue
+        constraint_type = spec.get("type", "unconstrained")
+
+        if constraint_type == "pointer":
+            struct_size = int(spec.get("struct_size", 32))
+            alloc_base = 0xA000_0000 + idx * 0x1000
+            state.solver.add(arg == alloc_base)
+            # Fill the pointed-to region with symbolic bytes
+            for off in range(0, struct_size, 4):
+                sym_field = claripy.BVS(f"arg{idx}_field_{off:#x}", 32)
+                state.memory.store(alloc_base + off, sym_field, endness="Iend_LE")
+
+            # Deep field initialization — override specific offsets with
+            # constrained symbolic values when a "fields" dict is present.
+            fields = spec.get("fields")
+            if fields and isinstance(fields, dict):
+                for off_str, field_spec in fields.items():
+                    off = int(str(off_str), 0)  # parse "0x04" or "4"
+                    if not isinstance(field_spec, dict):
+                        continue
+                    ftype = field_spec.get("type", "dword")
+                    addr = alloc_base + off
+
+                    if ftype == "handle":
+                        h = claripy.BVS(f"arg{idx}_handle_{off:#x}", 32)
+                        state.solver.add(h != 0)
+                        state.solver.add(h != 0xFFFFFFFF)
+                        state.memory.store(addr, h, endness="Iend_LE")
+                    elif ftype == "pointer":
+                        # Allocate a secondary region for nested pointer
+                        nested_base = 0xB000_0000 + idx * 0x1000 + off * 0x100
+                        p = claripy.BVV(nested_base, 32)
+                        state.memory.store(addr, p, endness="Iend_LE")
+                        # Fill nested region with symbolic bytes
+                        nested_size = int(field_spec.get("size", 32))
+                        for noff in range(0, nested_size, 4):
+                            sym_nested = claripy.BVS(f"arg{idx}_nested_{off:#x}_{noff:#x}", 32)
+                            state.memory.store(nested_base + noff, sym_nested, endness="Iend_LE")
+                    elif ftype == "word":
+                        w = claripy.BVS(f"arg{idx}_word_{off:#x}", 16)
+                        state.memory.store(addr, w.zero_extend(16), endness="Iend_LE")
+                    elif ftype == "byte":
+                        b = claripy.BVS(f"arg{idx}_byte_{off:#x}", 8)
+                        state.memory.store(addr, b.zero_extend(24), endness="Iend_LE")
+                    elif ftype == "zero":
+                        state.memory.store(addr, claripy.BVV(0, 32), endness="Iend_LE")
+                    elif ftype == "nonzero":
+                        nz = claripy.BVS(f"arg{idx}_nz_{off:#x}", 32)
+                        state.solver.add(nz != 0)
+                        state.memory.store(addr, nz, endness="Iend_LE")
+                    elif ftype == "range":
+                        r = claripy.BVS(f"arg{idx}_range_{off:#x}", 32)
+                        lo = int(field_spec.get("min", 0))
+                        hi = int(field_spec.get("max", 0xFFFF_FFFF))
+                        state.solver.add(claripy.UGE(r, lo))
+                        state.solver.add(claripy.ULE(r, hi))
+                        state.memory.store(addr, r, endness="Iend_LE")
+                    elif ftype == "concrete":
+                        val = int(str(field_spec.get("value", 0)), 0)
+                        state.memory.store(addr, claripy.BVV(val, 32), endness="Iend_LE")
+                    # "dword" is already handled by the generic fill above
+
+        elif constraint_type == "range":
+            lo = int(spec.get("min", 0))
+            hi = int(spec.get("max", 0xFFFF_FFFF))
+            state.solver.add(claripy.UGE(arg, lo))
+            state.solver.add(claripy.ULE(arg, hi))
+
+        elif constraint_type == "bitmask":
+            mask = int(str(spec.get("mask", "0xFFFFFFFF")), 0)
+            state.solver.add((arg & ~mask) == 0)
+
+        elif constraint_type == "null":
+            state.solver.add(arg == 0)
+
+        elif constraint_type == "nonzero":
+            state.solver.add(arg != 0)
 
 
 # ---------------------------------------------------------------------------
@@ -114,6 +515,9 @@ def prove_equivalence(
     timeout: int = 60,
     loop_bound: int = 10,
     binary_path: Path | None = None,
+    arg_constraints: dict[str, Any] | None = None,
+    start_offset: int = 0,
+    end_offset: int = 0,
 ) -> tuple[bool, str]:
     """Prove semantic equivalence of two function byte blobs via symbolic execution.
 
@@ -125,6 +529,8 @@ def prove_equivalence(
         arch: Architecture string (default "x86").
         timeout: Seconds before giving up.
         loop_bound: Max loop iterations for angr's LoopSeer.
+        binary_path: Path to the target PE binary (for IAT-based API hooking).
+        arg_constraints: Per-argument constraints from metadata (see _apply_arg_constraints).
 
     Returns:
         (proven, message) — proven is True if semantic equivalence was proved.
@@ -139,6 +545,7 @@ def prove_equivalence(
     STUB_BASE = 0xDEAD0000
     RETURN_SENTINEL = 0xBAADF00D  # Concrete return address pushed on stack
     iat_stub_map_orig: dict[int, int] = {}  # IAT_addr -> stub_addr
+    iat_api_names: dict[int, str] = {}  # stub_addr -> API name (for smart hooks)
     if binary_path is not None:
         try:
             import lief
@@ -150,6 +557,8 @@ def prove_equivalence(
                         iat_va = fn.iat_address + pe.optional_header.imagebase
                         stub_addr = (STUB_BASE + len(iat_stub_map_orig) * 4) & 0xFFFFFFFF
                         iat_stub_map_orig[iat_va] = stub_addr
+                        if fn.name:
+                            iat_api_names[stub_addr] = fn.name
         except Exception:
             pass  # LIEF import scan is best-effort
 
@@ -246,20 +655,49 @@ def prove_equivalence(
                     patched_orig[offset : offset + 4] = struct.pack("<I", disp)
                 stub_hooks.append(stub_addr)
 
+    # Slice to target range if specified
+    if end_offset > 0:
+        if start_offset >= len(patched_orig) or end_offset > len(patched_orig):
+            return (
+                False,
+                f"Slice [{start_offset}:{end_offset}] out of range for original ({len(patched_orig)}B)",
+            )
+        if start_offset >= len(patched_comp) or end_offset > len(patched_comp):
+            return (
+                False,
+                f"Slice [{start_offset}:{end_offset}] out of range for compiled ({len(patched_comp)}B)",
+            )
+        patched_orig = bytearray(patched_orig[start_offset:end_offset])
+        patched_comp = bytearray(patched_comp[start_offset:end_offset])
+        # Filter and adjust reloc_offsets to only include relocations within the slice
+        if reloc_offsets:
+            adjusted_relocs: dict[int, str] = {}
+            for off, sym in reloc_offsets.items():
+                if start_offset <= off < end_offset:
+                    adjusted_relocs[off - start_offset] = sym
+            reloc_offsets = adjusted_relocs if adjusted_relocs else None
+        # Filter stub_hooks to only stubs within the sliced range
+        # (stubs at STUB_BASE are external targets, always keep them)
+
     try:
         proj_orig = _make_project(bytes(patched_orig))
         proj_comp = _make_project(bytes(patched_comp))
     except Exception as e:
         return False, f"Failed to create angr projects: {e}"
 
-    # Hook all stub addresses on both blobs as ReturnUnconstrained.
+    # Hook all stub addresses on both blobs.  Prefer specific Win32
+    # SimProcedures (constrained return values) over generic ReturnUnconstrained
+    # to reduce path explosion from API calls.
     _ret_unc = angr.SIM_PROCEDURES["stubs"]["ReturnUnconstrained"]
+    win32_procs = _get_win32_simprocs()
     for stub_addr in stub_hooks:
+        api_name = iat_api_names.get(stub_addr, "")
+        simproc_cls = win32_procs.get(api_name, _ret_unc)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             try:
-                proj_comp.hook(stub_addr, _ret_unc(), length=1)
-                proj_orig.hook(stub_addr, _ret_unc(), length=1)
+                proj_comp.hook(stub_addr, simproc_cls(), length=1)
+                proj_orig.hook(stub_addr, simproc_cls(), length=1)
             except Exception:
                 pass
 
@@ -281,6 +719,11 @@ def prove_equivalence(
         state_orig.memory.store(iat_addr, claripy.BVV(stub_addr, 32), endness="Iend_LE")
 
     state_comp = _setup_state(proj_comp, "compiled")
+
+    # Apply user-specified argument constraints to reduce path explosion
+    if arg_constraints:
+        _apply_arg_constraints(state_orig, sym_args, arg_constraints)
+        _apply_arg_constraints(state_comp, sym_args, arg_constraints)
 
     def _run_simulation(proj: angr.Project, state: angr.SimState) -> list[Any]:
         """Run symbolic execution and return satisfiable states."""
@@ -306,13 +749,6 @@ def prove_equivalence(
                 "Symbolic execution timed out — using partial states",
                 stacklevel=2,
             )
-            # The user's provided edit was syntactically incorrect and did not align with the instruction.
-            # I am making a minimal change to remove the `type: ignore` from the decorator as per the instruction
-            # "Fix untyped decorators", assuming the intent was to remove the ignore comment.
-            # The provided "Code Edit" snippet was malformed and placed a line of code inside a function call.
-            # I am ignoring the malformed snippet and applying the most reasonable interpretation of "Fix untyped decorators".
-            # If the user intended to add a specific line of code, it needs to be provided in a syntactically correct manner.
-            # For now, I will only address the `type: ignore[untyped-decorator]` line.
         # Prefer fully-terminated states (PathTerminator at RETURN_SENTINEL);
         # fall back to unconstrained (if sentinel hook missed) or active.
         terminal = list(sm.deadended)
@@ -370,31 +806,23 @@ def prove_equivalence(
 # CLI
 # ---------------------------------------------------------------------------
 
-_EPILOG = """\
-[bold]Examples:[/bold]
-
-rebrew prove src/mygame/calculate_physics.c       Prove equivalence
-
-rebrew prove src/mygame/calculate_physics.c --json JSON output
-
-rebrew prove src/mygame/calculate_physics.c --dry-run  Don't update annotations
-
-rebrew prove my_func                                  Find by symbol name
-
-[bold]How it works:[/bold]
-
-1. Validates the function status is NEAR_MATCHING or NEAR_MATCHING (byte-diff but structurally close)
-
-2. Extracts target bytes from the DLL and compiles the C source
-
-3. Loads both byte blobs into angr's symbolic execution engine
-
-4. Proves EAX equivalence via Z3 constraint solving
-
-5. If proven: updates STATUS from NEAR_MATCHING → PROVEN
-
-[dim]angr is a heavy optional dependency (~500 MB).
-Install with: uv pip install -e ".[prove]"[/dim]"""
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew prove src/mygame/calculate_physics.c · Prove equivalence\n\n"
+    "  rebrew prove 0x01006364 · · · · · · · · · · · Find by VA\n\n"
+    "  rebrew prove my_func · · · · · · · · · · · · · Find by symbol name\n\n"
+    "  rebrew prove src/mygame/func.c --dry-run · · · Don't update annotations\n\n"
+    "  rebrew prove --all · · · · · · · · · · · · · · Prove all eligible functions\n\n"
+    "  rebrew prove my_func --start-offset 0 --end-offset 48  Prove a specific block\n\n"
+    "[bold]How it works:[/bold]\n\n"
+    "  1. Validates the function status is NEAR_MATCHING or RELOC (byte-diff but structurally close)\n\n"
+    "  2. Extracts target bytes from the DLL and compiles the C source\n\n"
+    "  3. Loads both byte blobs into angr's symbolic execution engine\n\n"
+    "  4. Proves EAX equivalence via Z3 constraint solving\n\n"
+    "  5. If proven: updates STATUS from NEAR_MATCHING \u2192 PROVEN\n\n"
+    "[dim]angr is a heavy optional dependency (~500 MB). "
+    'Install with: uv pip install -e ".[prove]"[/dim]'
+)
 
 app = typer.Typer(
     help="Prove semantic equivalence of NEAR_MATCHING functions via symbolic execution.",
@@ -408,15 +836,33 @@ console = Console(stderr=True)
 def _resolve_source(source_arg: str, cfg: ProjectConfig) -> Path:
     """Resolve a source argument to a Path.
 
-    Accepts either a direct file path or a symbol name to search for.
+    Accepts a direct file path, a symbol name, or a hex VA (e.g. 0x01006364).
     """
     p = Path(source_arg)
     if p.exists() and p.is_file():
         return p
 
-    # Try searching for a matching .c file by stem
+    # Try hex VA lookup — search annotations for a matching VA
+    va_int: int | None = None
+    stripped = source_arg.strip().lower()
+    if stripped.startswith("0x"):
+        with contextlib.suppress(ValueError):
+            va_int = int(stripped, 16)
+
     from rebrew.cli import iter_sources
 
+    if va_int is not None:
+        tm = target_marker(cfg)
+        for src in iter_sources(cfg.reversed_dir, cfg):
+            try:
+                annos = parse_c_file_multi(src, target_name=tm, metadata_dir=cfg.metadata_dir)
+            except Exception:  # noqa: BLE001
+                continue
+            for a in annos:
+                if a.va == va_int:
+                    return src
+
+    # Try searching for a matching .c file by stem (symbol name)
     for src in iter_sources(cfg.reversed_dir, cfg):
         if src.stem == source_arg or src.stem == source_arg.lstrip("_"):
             return src
@@ -426,15 +872,21 @@ def _resolve_source(source_arg: str, cfg: ProjectConfig) -> Path:
 
 @app.callback(invoke_without_command=True)
 def main(
-    source: str = typer.Argument(None, help="C source file or symbol name"),
+    source: str = typer.Argument(None, help="C source file, symbol name, or VA (hex)"),
     all_sources: bool = typer.Option(False, "--all", help="Prove all NEAR_MATCHING functions"),
     timeout: int = typer.Option(60, "--timeout", help="Seconds before giving up"),
     loop_bound: int = typer.Option(10, "--loop-bound", help="Max loop iterations for angr"),
+    start_offset: int = typer.Option(
+        0, "--start-offset", help="Start byte offset within the function (0-based)"
+    ),
+    end_offset: int = typer.Option(
+        0, "--end-offset", help="End byte offset within the function (0 = full function)"
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Prove semantic equivalence of a NEAR_MATCHING or NEAR_MATCHING function via symbolic execution."""
+    """Prove semantic equivalence of a NEAR_MATCHING or RELOC function via symbolic execution."""
     # Guard angr import early
     try:
         _require_angr()
@@ -473,7 +925,7 @@ def main(
 
     if ann.status not in ("NEAR_MATCHING", "RELOC"):
         error_exit(
-            f"Status is '{ann.status}', expected NEAR_MATCHING, NEAR_MATCHING or RELOC. "
+            f"Status is '{ann.status}', expected NEAR_MATCHING or RELOC. "
             "Only NEAR_MATCHING/RELOC functions need symbolic equivalence proving.",
             json_mode=json_output,
         )
@@ -507,6 +959,7 @@ def main(
             error_exit(f"Symbol '{symbol}' not found in compiled .obj", json_mode=json_output)
 
     prototype = ann.prototype or ""
+    arg_constraints = ann.prove_constraints if ann.prove_constraints else None
 
     # Run the prover
     if not json_output:
@@ -516,6 +969,10 @@ def main(
         )
         console.print(f"  Prototype: {prototype or '(none — assuming void f(void))'}")
         console.print(f"  Timeout: {timeout}s, loop bound: {loop_bound}")
+        if start_offset or end_offset:
+            console.print(f"  Slice: [{start_offset}:{end_offset}] ({end_offset - start_offset}B)")
+        if arg_constraints:
+            console.print(f"  Constraints: {', '.join(arg_constraints.keys())}")
 
     proven, message = prove_equivalence(
         target_bytes,
@@ -525,6 +982,9 @@ def main(
         timeout=timeout,
         loop_bound=loop_bound,
         binary_path=cfg.target_binary,
+        arg_constraints=arg_constraints,
+        start_offset=start_offset,
+        end_offset=end_offset,
     )
 
     # Build result
@@ -539,6 +999,8 @@ def main(
         "target_bytes_len": len(target_bytes),
         "compiled_bytes_len": len(obj_bytes),
     }
+    if start_offset or end_offset:
+        result["slice"] = {"start": start_offset, "end": end_offset}
 
     if proven and not dry_run:
         from rebrew.metadata import update_source_status
@@ -583,6 +1045,9 @@ def _prove_single(
     loop_bound: int,
     dry_run: bool,
     json_output: bool,
+    *,
+    start_offset: int = 0,
+    end_offset: int = 0,
 ) -> tuple[bool, str]:
     """Prove a single function and return (proven, message)."""
     symbol = resolve_symbol(ann, source_path)
@@ -609,6 +1074,7 @@ def _prove_single(
             return False, f"Symbol '{symbol}' not found in compiled .obj"
 
     prototype = ann.prototype or ""
+    arg_constraints = ann.prove_constraints if ann.prove_constraints else None
 
     proven, message = prove_equivalence(
         target_bytes,
@@ -618,6 +1084,9 @@ def _prove_single(
         timeout=timeout,
         loop_bound=loop_bound,
         binary_path=cfg.target_binary,
+        arg_constraints=arg_constraints,
+        start_offset=start_offset,
+        end_offset=end_offset,
     )
 
     if proven and not dry_run:
@@ -675,7 +1144,15 @@ def _run_all_batch(
 
         try:
             proven, message = _prove_single(
-                cfg, src, ann, timeout, loop_bound, dry_run, json_output
+                cfg,
+                src,
+                ann,
+                timeout,
+                loop_bound,
+                dry_run,
+                json_output,
+                start_offset=0,
+                end_offset=0,
             )
         except Exception as e:  # noqa: BLE001
             proven, message = False, f"Error: {e}"

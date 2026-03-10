@@ -27,7 +27,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.cli import NEAR_MATCH_THRESHOLD, TargetOption, error_exit, json_print, require_config
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 from rebrew.naming import (
     detect_unmatchable,
@@ -391,10 +391,13 @@ def _collect_prover_candidates(
 
     items: list[TodoItem] = []
     for va, info in existing.items():
-        # Prefer verify cache status over annotation/metadata status
+        ann_status = info.get("status", "STUB")
+        # PROVEN is a post-verify promotion that wins over verify cache
+        if ann_status in ("EXACT", "RELOC", "PROVEN"):
+            continue
         va_key = f"0x{va:08x}"
         cached = verify_entries.get(va_key)
-        effective_status = cached.result.status if cached else info["status"]
+        effective_status = cached.result.status if cached else ann_status
         if effective_status != "NEAR_MATCHING":
             continue
         size = size_by_va.get(va) or int(info.get("size", 0))
@@ -411,7 +414,7 @@ def _collect_prover_candidates(
                 # Prover is most useful at high match% (few diffs to prove).
                 # Give it a bonus so it wins dedup over improve-match/fix-delta.
                 roi_score=calculate_roi(size, match_pct, None, "NEAR_MATCHING")
-                + (10.0 if match_pct and match_pct >= 60 else -10.0),
+                + (10.0 if match_pct and match_pct >= NEAR_MATCH_THRESHOLD * 100 else -10.0),
                 va=va,
                 name=info.get("symbol", ""),
                 size=size,
@@ -474,7 +477,16 @@ def _collect_new_functions(
         if size < 10:
             continue
 
-        reason = detect_unmatchable(va, size, binary_info, iat_set, ignored, name)
+        reason = detect_unmatchable(
+            va,
+            size,
+            binary_info,
+            iat_set,
+            ignored,
+            name,
+            cs_arch=getattr(cfg, "capstone_arch", None),
+            cs_mode=getattr(cfg, "capstone_mode", None),
+        )
         if reason:
             continue
 
@@ -502,35 +514,6 @@ def _collect_new_functions(
             )
         )
 
-    return items
-
-
-def _collect_missing_annotations(
-    existing: dict[int, dict[str, str]],
-    size_by_va: dict[int, int],
-) -> list[TodoItem]:
-    """Collect files with missing symbol (no C function definition to derive from)."""
-    items: list[TodoItem] = []
-    for va, info in existing.items():
-        symbol = info.get("symbol", "")
-        if symbol:
-            continue
-
-        size = size_by_va.get(va) or int(info.get("size", 0))
-        filename = info.get("filename", "")
-        items.append(
-            TodoItem(
-                category=CAT_MISSING_ANNOTATION,
-                roi_score=max(10.0, calculate_roi(size, 0.0, None, "MISSING") - 5.0),
-                va=va,
-                name=f"FUN_{va:08x}",
-                size=size,
-                filename=filename,
-                description="Missing: symbol (add C function definition)",
-                command=f"rebrew lint {filename}" if filename else "rebrew lint",
-                status=info.get("status", ""),
-            )
-        )
     return items
 
 
@@ -618,38 +601,24 @@ def collect_all(
 # CLI
 # ---------------------------------------------------------------------------
 
-_EPILOG = """\
-[bold]Examples:[/bold]
-
-rebrew todo                          Top 20 actions by ROI (size + similarity to target)
-
-rebrew todo --count 50               Show top 50
-
-rebrew todo -c fix-delta             Filter to quick-win near-misses (<= 20B diff)
-
-rebrew todo -c improve-match         Filter to functions needing general work
-
-rebrew todo --json                   Machine-readable JSON output
-
-[bold]Categories (interleaved globally by continuous ROI score):[/bold]
-
-setup               Project setup steps (fresh projects)
-
-compile-error       Failed verify syntax/includes
-
-fix-delta           Known tiny byte diffs (<= 20B) — flag sweeps, padding, GA
-
-improve-match       Functions in-progress without a known small delta
-
-start-function      Uncovered functions, ranked by difficulty
-
-missing-annotation  Found in Ghidra but missing C body
-
-identify-library    Uncovered library-origin functions
-
-run-prover          Small nearly-matching functions (angr equivalence)
-
-[dim]Reads from ghidra_functions.json, source files, and .rebrew/verify_cache.json.[/dim]"""
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew todo · · · · · · · · · · Top 20 actions by ROI (size + similarity to target)\n\n"
+    "  rebrew todo --count 50 · · · · · Show top 50\n\n"
+    "  rebrew todo -c fix-delta · · · · Filter to quick-win near-misses (<= 20B diff)\n\n"
+    "  rebrew todo -c improve-match · · Filter to functions needing general work\n\n"
+    "  rebrew todo --json · · · · · · · Machine-readable JSON output\n\n"
+    "[bold]Categories (interleaved globally by continuous ROI score):[/bold]\n\n"
+    "  setup · · · · · · · · · Project setup steps (fresh projects)\n\n"
+    "  compile-error · · · · · Failed verify syntax/includes\n\n"
+    "  fix-delta · · · · · · · Known tiny byte diffs (<= 20B) — flag sweeps, padding, GA\n\n"
+    "  improve-match · · · · · Functions in-progress without a known small delta\n\n"
+    "  start-function · · · · · Uncovered functions, ranked by difficulty\n\n"
+    "  missing-annotation · · · Found in Ghidra but missing C body\n\n"
+    "  identify-library · · · · Uncovered library-origin functions\n\n"
+    "  run-prover · · · · · · · Small nearly-matching functions (angr equivalence)\n\n"
+    "[dim]Reads from ghidra_functions.json, source files, and .rebrew/verify_cache.json.[/dim]"
+)
 
 app = typer.Typer(
     help="Prioritized action list: what to work on next for highest ROI.",

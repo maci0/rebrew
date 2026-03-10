@@ -6,7 +6,7 @@ candidates.
 
 Usage:
     rebrew extract list                # List un-reversed candidates
-    rebrew extract extract 0x10001860  # Extract + disasm one VA
+    rebrew extract show 0x10001860     # Extract + disasm one VA
     rebrew extract batch 20            # Extract first 20 smallest
     rebrew extract batch 20 --start 10 # Offset into sorted list
 """
@@ -256,25 +256,21 @@ def cmd_batch(
 app = typer.Typer(
     help="Extract and disassemble functions from the target binary.",
     rich_markup_mode="rich",
-    epilog="""\
-[bold]Examples:[/bold]
-
-rebrew extract list                       List un-reversed candidates
-
-rebrew extract extract 0x10001860         Extract + disassemble one VA
-
-rebrew extract batch 20                   Extract first 20 smallest
-
-rebrew extract batch 20 --start 10        Offset into sorted list
-
-[dim]Reads function list from functions.txt or .json and auto-detects
-already-reversed VAs. Outputs .bin and .asm files to the configured bin_dir.[/dim]""",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew extract list · · · · · · · · List un-reversed candidates\n\n"
+        "  rebrew extract show 0x10001860 · · · Extract + disassemble one VA\n\n"
+        "  rebrew extract batch 20 · · · · · · Extract first 20 smallest\n\n"
+        "  rebrew extract batch 20 --start 10 · Offset into sorted list\n\n"
+        "[dim]Reads function list from functions.txt or .json and auto-detects "
+        "already-reversed VAs. Outputs .bin and .asm files to the configured bin_dir.[/dim]"
+    ),
 )
 
 
 @app.callback(invoke_without_command=True)
 def main(
-    command: str = typer.Argument(help="Command: list, extract, or batch"),
+    command: str = typer.Argument(help="Command: list, show (or extract), or batch"),
     batch_target: str | None = typer.Argument(
         None, help="VA (hex) for extract, or count for batch"
     ),
@@ -341,7 +337,7 @@ def main(
             json_print({"count": len(candidates), "candidates": items})
             return
         cmd_list(candidates)
-    elif command == "extract":
+    elif command in ("extract", "show"):
         if not batch_target:
             msg = "extract requires a VA argument (e.g. 0x10001860)"
             error_exit(msg, json_mode=json_output)
@@ -357,7 +353,7 @@ def main(
         binary_info = load_binary(exe_path)
         cmd_batch(binary_info, candidates, count, start, bin_dir, cfg=cfg, json_output=json_output)
     else:
-        msg = f"Unknown command '{command}'. Use list, extract, or batch."
+        msg = f"Unknown command '{command}'. Use list, show (or extract), or batch."
         error_exit(msg, json_mode=json_output)
 
 

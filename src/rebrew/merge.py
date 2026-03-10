@@ -29,6 +29,15 @@ console = Console(stderr=True)
 app = typer.Typer(
     help="Merge single-function C files into one multi-function file.",
     rich_markup_mode="rich",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew merge src/game/func1.c src/game/func2.c -o merged.c · Merge two files\n\n"
+        "  rebrew merge src/game/ -o all_funcs.c · · · · · · · · · · · Merge entire directory\n\n"
+        "  rebrew merge src/game/ -o merged.c --delete · · · · · · · · Merge and delete originals\n\n"
+        "  rebrew merge src/game/ -o merged.c --dry-run · · · · · · · · Preview without writing\n\n"
+        "[dim]Shared preambles (includes, typedefs) are deduplicated. "
+        "Each function block retains its // FUNCTION: marker.[/dim]"
+    ),
 )
 
 
@@ -146,7 +155,7 @@ def main(
             module = str(meta["module"])
             if cfg.marker and module.lower() != cfg.marker.lower():
                 continue
-            va = int(meta["va"])
+            va = meta["va"]
             blocks_with_va.append((va, block.strip("\n")))
 
     if len(blocks_with_va) < 2:

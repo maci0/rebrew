@@ -1,16 +1,88 @@
 """catalog/sections.py - Binary section and globals helpers.
 
-Provides section parsing from binary headers and global variable
-scanning from annotated source files.
+Provides section parsing from binary headers, global variable
+scanning from annotated source files, and shared x86 code-analysis
+utilities (back-jump detection, padding trimming).
 """
 
 import re
+import struct
 import warnings
 from pathlib import Path
 from typing import Any
 
 from rebrew.binary_loader import load_binary
 from rebrew.config import ProjectConfig
+
+# Padding opcodes that can be trimmed from function tails (INT3 and NOP).
+PADDING_BYTES: tuple[int, ...] = (0xCC, 0x90)
+
+
+def trim_trailing_padding(data: bytes, padding: tuple[int, ...] = PADDING_BYTES) -> int:
+    """Return the length of *data* after stripping trailing padding bytes.
+
+    >>> trim_trailing_padding(b'\\x55\\x89\\xe5\\xcc\\xcc')
+    3
+    >>> trim_trailing_padding(b'\\xcc\\xcc\\xcc')
+    0
+    """
+    end = len(data)
+    while end > 0 and data[end - 1] in padding:
+        end -= 1
+    return end
+
+
+def has_back_jumps(
+    data: bytes,
+    func_start_off: int,
+    func_end_off: int,
+    base_offset: int,
+) -> bool:
+    """Check if *data* (starting at *base_offset*) contains jumps targeting
+    the range [*func_start_off*, *func_end_off*).
+
+    Detects x86 near jmp (E9), near jcc (0F 8x), short jmp (EB), and
+    short jcc (70-7F).  Used to identify out-of-line code that belongs
+    to the preceding function.
+    """
+    i = 0
+    while i < len(data):
+        b = data[i]
+        # Near relative jmp (E9)
+        if b == 0xE9 and i + 5 <= len(data):
+            rel = struct.unpack_from("<i", data, i + 1)[0]
+            target = base_offset + i + 5 + rel
+            if func_start_off <= target < func_end_off:
+                return True
+            i += 5
+            continue
+        # Near jcc (0F 80-8F)
+        if b == 0x0F and i + 6 <= len(data) and 0x80 <= data[i + 1] <= 0x8F:
+            rel = struct.unpack_from("<i", data, i + 2)[0]
+            target = base_offset + i + 6 + rel
+            if func_start_off <= target < func_end_off:
+                return True
+            i += 6
+            continue
+        # Short jmp (EB)
+        if b == 0xEB and i + 2 <= len(data):
+            rel = struct.unpack_from("<b", data, i + 1)[0]
+            target = base_offset + i + 2 + rel
+            if func_start_off <= target < func_end_off:
+                return True
+            i += 2
+            continue
+        # Short jcc (70-7F)
+        if 0x70 <= b <= 0x7F and i + 2 <= len(data):
+            rel = struct.unpack_from("<b", data, i + 1)[0]
+            target = base_offset + i + 2 + rel
+            if func_start_off <= target < func_end_off:
+                return True
+            i += 2
+            continue
+        i += 1
+    return False
+
 
 _GLOBAL_COMMENT_RE = re.compile(r"(?://|/\*)\s*GLOBAL:\s*(?P<target>[A-Z0-9_]+)\s+(0x[0-9a-fA-F]+)")
 _DECL_NAME_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\[.*\])?\s*;")

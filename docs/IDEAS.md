@@ -24,8 +24,8 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 | — | Coverage dashboard | Sibling project `recoverage` — consumes `data_{target}.json`. |
 | — | CRT auto-detection | `rebrew cfg detect-crt` — scans `tools/` for known MSVC CRT source dirs. `detect_crt_sources()` in `config.py`. |
 | — | Dotted key resolution | `rebrew cfg show/set/get` — greedy longest-match resolution for TOML keys containing dots. |
-| — | CLI code audit / deduplication | `normalize_name()` in `naming.py`; `disasm_bytes()` in `asm.py`; `iter_annotations()` in `cli.py`; removed `_find_block_lines` dead code; removed `_make_progress_printer` in favour of `Console(stderr=True)` pattern. All 1735 tests pass. |
-| 4 | GA code layout mutations | `mutator.py` — 106 structural mutations for GA exploration. |
+| — | CLI code audit / deduplication | `normalize_name()` in `naming.py`; `disasm_bytes()` in `asm.py`; `iter_annotations()` in `cli.py`; removed `_find_block_lines` dead code; removed `_make_progress_printer` in favour of `Console(stderr=True)` pattern. All 1784 tests pass. |
+| 4 | GA code layout mutations | `mutator.py` — 120 structural mutations for GA exploration. |
 | 19 | Cross-function solution transfer | `solutions.py` — GA auto-saves and seeds from `.rebrew/solutions.json`. |
 
 ---
@@ -48,9 +48,9 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 
 **Impact**: Medium — helps with prioritization but `rebrew next` already does some of this.
 
-### 22. Deep MATCHING analysis tooling
+### 22. Deep NEAR_MATCHING analysis tooling
 
-**Pain**: `MATCHING` functions often get stuck because of internal compiler choices (register allocation, loop rotation, instruction folding).
+**Pain**: `NEAR_MATCHING` functions often get stuck because of internal compiler choices (register allocation, loop rotation, instruction folding).
 
 **Proposed**: Build a specialized diff tool that identifies *exactly* which category of compiler choice is blocking a match, to automatically decide if it's solvable via C code mutations or permanently blocked.
 
@@ -60,7 +60,7 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 
 **Pain**: GA mutations are currently generated using fixed deterministic rules in `mutator.py`. These might miss subtle patterns needed to nudge the compiler.
 
-**Proposed**: Integrate an optional LLM call in `rebrew match` that looks at the `MATCHING` assembly diff and suggests specialized C source permutations to seed the genetic algorithm.
+**Proposed**: Integrate an optional LLM call in `rebrew match` that looks at the `NEAR_MATCHING` assembly diff and suggests specialized C source permutations to seed the genetic algorithm.
 
 **Impact**: High — could break through the "systemic ceiling" of register allocation issues by coming up with creative C constructs.
 
@@ -70,9 +70,9 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 
 Patterns and insights from RE work — not actionable tool ideas, but useful context.
 
-### Close MATCHING analysis (0-3B delta)
+### Close NEAR_MATCHING analysis (0-3B delta)
 
-GA mutations (100 gen, pop 30) consistently fail to improve close MATCHING functions. All blockers are compiler-internal decisions that C source mutations cannot influence.
+GA mutations (100 gen, pop 30) consistently fail to improve close NEAR_MATCHING functions. All blockers are compiler-internal decisions that C source mutations cannot influence.
 
 Common uncontrollable blocker categories:
 1. **Register allocation** — ebx vs edi, eax vs ecx swaps (most common)

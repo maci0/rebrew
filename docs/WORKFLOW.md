@@ -74,7 +74,7 @@ rebrew todo --stats --json | jq '.coverage_pct'
 # List prioritized action items as JSON
 rebrew todo --json -n 10 | jq '.items[] | {category, roi_score, name}'
 
-# List MATCHING functions sorted by byte delta
+# List NEAR_MATCHING functions sorted by byte delta
 rebrew todo -c fix-near-miss --json | jq '.items[] | select(.byte_delta != null and .byte_delta <= 5)'
 
 # Structured diff output
@@ -124,7 +124,7 @@ graph TD
     Done --> Lint[Lint & verify<br/>rebrew lint]
     Diff --> Flags{Unsure about flags?}
     Sweep --> Write
-    Flags -->|No| Prove{Still MATCHING?}
+    Flags -->|No| Prove{Still NEAR_MATCHING?}
     Prove -->|Yes| Symbolic[Prove equivalence<br/>rebrew prove]
     Symbolic -->|PROVEN| Lint
     Symbolic -->|Not proven| Write
@@ -241,7 +241,7 @@ rebrew test src/target_name/my_func.c
 |--------|---------|--------|
 | `EXACT MATCH` | Byte-for-byte identical | Set STATUS: EXACT |
 | `RELOC-NORMALIZED MATCH` | Identical except relocation addresses | Set STATUS: RELOC |
-| `MISMATCH` with same size | Logic matches but some bytes differ | Set STATUS: MATCHING, investigate diffs |
+| `MISMATCH` with same size | Logic matches but some bytes differ | Set STATUS: NEAR_MATCHING, investigate diffs |
 | `MISMATCH` with different size | Significantly different code generation | Investigate with diff mode |
 | `COMPILE ERROR` | C code doesn't compile | Fix syntax errors |
 | `Symbol not found` | Wrong symbol name | Check the decorated name |
@@ -271,12 +271,12 @@ Use `rebrew match --diff-only` first to understand the byte delta, then run a fl
 rebrew diff src/target_name/my_func.c
 
 # Run the GA with flag sweep (brute-forces compiler flag combinations)
-rebrew match src/target_name/my_func.c --generations 100 --pop-size 32
+rebrew match src/target_name/my_func.c --generations 100 --pop-size 64
 
-# Batch flag sweep on all MATCHING functions, auto-update CFLAGS on improvement
+# Batch flag sweep on all NEAR_MATCHING functions, auto-update CFLAGS on improvement
 rebrew match --all --flag-sweep --fix-cflags
 
-# Near-miss batch — focus on MATCHING functions with ≤5B delta
+# Near-miss batch — focus on NEAR_MATCHING functions with ≤5B delta
 rebrew match --all --near-miss --threshold 5
 ```
 
@@ -295,7 +295,7 @@ rebrew test src/target_name/my_func.c --no-promote  # compile without updating S
 
 The `.c` file only ever contains the stable `// FUNCTION: MODULE 0xVA` marker line. STATUS, SIZE, CFLAGS all live in the metadata.
 
-If STATUS is MATCHING, auto-classify and write the BLOCKER to the metadata:
+If STATUS is NEAR_MATCHING, auto-classify and write the BLOCKER to the metadata:
 ```bash
 rebrew diff --fix-blocker src/target_name/my_func.c
 ```
@@ -303,12 +303,12 @@ rebrew diff --fix-blocker src/target_name/my_func.c
 This writes to `rebrew-function.toml` (found via walk-up):
 ```toml
 ["SERVER.0x<VA>"]
-status = "MATCHING"
+status = "NEAR_MATCHING"
 blocker = "register allocation, jump condition swap"
 blocker_delta = 3
 ```
 
-### 9. If still MATCHING — prove semantic equivalence
+### 9. If still NEAR_MATCHING — prove semantic equivalence
 
 blockers are purely structural (register allocation, instruction reordering), use
 `rebrew prove` to mathematically verify equivalence:
@@ -360,7 +360,7 @@ Every .c file MUST start with a marker block. See [ANNOTATIONS.md](ANNOTATIONS.m
 
 Required fields (enforced as linter errors): marker (FUNCTION/LIBRARY/STUB), STATUS, SIZE.
 Optional: CFLAGS (falls back to project config default). Symbol is derived automatically from the C function definition.
-Conditional: SOURCE (for CRT/ZLIB), BLOCKER (for MATCHING/STUB — stored in `rebrew-function.toml` metadata).
+Conditional: SOURCE (for CRT/ZLIB), BLOCKER (for NEAR_MATCHING/STUB — stored in `rebrew-function.toml` metadata).
 
 > [!CAUTION]
 > **Never manually edit `rebrew-function.toml`.** Volatile metadata (STATUS, CFLAGS, SIZE, BLOCKER, NOTE, GHIDRA)
@@ -387,7 +387,7 @@ These affect whether your code produces matching bytes:
 | `signed` vs `unsigned` shift | `(int)x >> n` = `sar`, `(unsigned)x >> n` = `shr` | Check target's shift instructions |
 | `>= N` vs `> N-1` constants | `x >= 1` → `cmp ecx,1; jl` (exact constant); `0 < x` → `test ecx,ecx; jle` (optimized away) | Always use `>=`/`<=` with the EXACT constant from the target binary |
 | `<= 0` vs `< 1` encoding | `<= 0` → `test reg,reg; setle` (2B test); `< 1` → `cmp reg,1; setl` (3B cmp) | `<= 0` saves 1 byte; check target for `test` vs `cmp ,1` |
-| Byte param zero-extend | `mov dl,[reg+off]` vs `xor edx,edx; mov dl,[reg+off]` — compiler decides based on register liveness | NOT controllable from C; causes 2B diff per occurrence; accept as MATCHING blocker |
+| Byte param zero-extend | `mov dl,[reg+off]` vs `xor edx,edx; mov dl,[reg+off]` — compiler decides based on register liveness | NOT controllable from C; causes 2B diff per occurrence; accept as NEAR_MATCHING blocker |
 | `if/else` nesting order | First checked condition becomes the fallthrough path; reversing nesting changes branch targets | Match the original nesting order exactly — `if (ptr != NULL)` first, not `if (ptr == NULL) { } else` |
 | `unsigned char *` vs `char *` | `char *` → `MOVSX` (sign-extend), `unsigned char *` → `AND reg, 0xFF` (zero-extend) | Check target for `movsx` vs `and 0xff` to determine signedness |
 | Short vs far branch encoding | Small target offsets (≤127B) use `jne rel8` (2B); larger use `je rel32` (6B) — 4B diff per branch | Opposite condition with far jump is 4B larger; reorder blocks to minimize branch distance |
@@ -546,10 +546,10 @@ both targets benefit automatically.
 | Document | Content |
 |----------|---------|
 | [BOOTSTRAPPING.md](BOOTSTRAPPING.md) | Adding a new binary to a project from scratch |
-| [MATCH_TYPES.md](MATCH_TYPES.md) | EXACT / RELOC / MATCHING explained with byte-level examples and relocation masking details |
+| [MATCH_TYPES.md](MATCH_TYPES.md) | EXACT / RELOC / NEAR_MATCHING explained with byte-level examples and relocation masking details |
 | [ANNOTATIONS.md](ANNOTATIONS.md) | Full marker format reference and linter codes (E000–E017, W001–W017) |
 | [GHIDRA_SYNC.md](GHIDRA_SYNC.md) | Ghidra ↔ Rebrew sync feature matrix and known issues |
 | [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md) | Obtaining, creating, and using FLIRT signatures |
-| [CLI.md](CLI.md) | All 24 CLI commands, flags, and examples |
+| [CLI.md](CLI.md) | All 26 CLI commands, flags, and examples |
 | [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, arch presets, compiler profiles |
 | [TOOLCHAIN.md](TOOLCHAIN.md) | External tools, MSVC6 toolchain, Python dependencies |

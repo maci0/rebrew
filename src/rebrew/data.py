@@ -12,6 +12,7 @@ Also provides:
 
 """
 
+import logging
 import re
 import struct
 import warnings
@@ -670,7 +671,7 @@ def _generate_bss_fix(report: BssReport, src_dir: Path, origin: str) -> None:
     SIZE, SECTION, and NOTE are written to ``rebrew-data.toml`` metadata, not inline.
     """
     if not report.gaps:
-        print("No BSS gaps detected. Layout is perfect!")
+        console.print("No BSS gaps detected. Layout is perfect!")
         return
 
     from rebrew.data_metadata import set_data_field
@@ -694,8 +695,8 @@ def _generate_bss_fix(report: BssReport, src_dir: Path, origin: str) -> None:
         )
 
     atomic_write_text(out_file, "\n".join(lines), encoding="utf-8")
-    print(f"Generated {out_file.name} with {len(report.gaps)} padding array(s).")
-    print("Metadata written to rebrew-data.toml. Compile this file to fix .bss alignment.")
+    console.print(f"Generated {out_file.name} with {len(report.gaps)} padding array(s).")
+    console.print("Metadata written to rebrew-data.toml. Compile this file to fix .bss alignment.")
 
 
 def _render_bss(console: Console, report: BssReport) -> None:
@@ -829,30 +830,33 @@ def _render_summary(
 # CLI
 # ---------------------------------------------------------------------------
 
+console = Console(stderr=True)
+
 app = typer.Typer(
     help="Global data scanner — inventory .data/.rdata/.bss globals.",
     rich_markup_mode="rich",
-    epilog="""\
-[bold]Examples:[/bold]
-
-rebrew data                                Scan all data sections
-
-rebrew data --section .rdata               Scan only .rdata section
-
-rebrew data --section .data                Scan only .data section
-
-rebrew data --section .bss                 Scan only .bss section
-
-rebrew data --json                         Output as JSON
-
-rebrew data --annotate                     Generate .c annotation stubs for globals
-
-rebrew data 0x10008000                     Show details for specific address
-
-
-[dim]Analyzes PE data sections to find global variables, string tables,
-vtables, and other data structures. Cross-references with existing
-annotations to track data-section coverage.[/dim]""",
+    epilog=(
+        "[bold]Modes:[/bold]\n\n"
+        "  [dim](default)[/dim] · · · · Scan reversed sources for GLOBAL:/extern declarations\n\n"
+        "  --conflicts · · · · Show only globals with type conflicts across files\n\n"
+        "  --summary · · · · · Show section-level summary (counts per .data/.rdata/.bss)\n\n"
+        "  --dispatch · · · · · Detect dispatch tables / vtables in .data/.rdata sections\n\n"
+        "  --bss · · · · · · · Verify .bss layout and detect gaps between globals\n\n"
+        "  --fix-bss · · · · · Auto-generate bss_padding.c with dummy arrays for gaps\n\n"
+        "  --gen-header · · · · Generate rebrew_globals.h from annotations (no Ghidra)\n\n"
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew data · · · · · · · · · · · · · Scan all globals (default mode)\n\n"
+        "  rebrew data --conflicts · · · · · · · · Show type conflicts across files\n\n"
+        "  rebrew data --summary · · · · · · · · · Section-level overview\n\n"
+        "  rebrew data --dispatch · · · · · · · · · Detect vtables in data sections\n\n"
+        "  rebrew data --bss · · · · · · · · · · · Verify .bss layout and gaps\n\n"
+        "  rebrew data --fix-bss · · · · · · · · · Generate bss_padding.c for gaps\n\n"
+        "  rebrew data --gen-header · · · · · · · · Generate rebrew_globals.h\n\n"
+        "  rebrew data --json · · · · · · · · · · · Output as JSON\n\n"
+        "[dim]Scans reversed .c files for GLOBAL:/DATA: annotations and extern "
+        "declarations, cross-references with binary data sections, and detects "
+        "type conflicts across files.[/dim]"
+    ),
 )
 
 
@@ -878,7 +882,8 @@ def _gen_globals_header(cfg: ProjectConfig, src_dir: Path) -> None:
     for src in sorted(iter_sources(src_dir, cfg)):
         try:
             annotations = parse_c_file_multi(src, target_name=marker, metadata_dir=cfg.metadata_dir)
-        except Exception:
+        except Exception:  # noqa: BLE001 — non-fatal; skip unparseable files
+            logging.debug("Skipping %s: annotation parse failed", src)
             continue
         for ann in annotations:
             if ann.marker_type not in ("GLOBAL", "DATA"):
@@ -963,7 +968,6 @@ def _gen_globals_header(cfg: ProjectConfig, src_dir: Path) -> None:
     out = src_dir / "rebrew_globals.h"
     out.write_text("\n".join(header_lines), encoding="utf-8")
 
-    console = Console(stderr=True)
     console.print(f"[green]Wrote {out.name}[/green] with {len(rows)} globals")
     for sec in section_order:
         items = by_section.get(sec or "")
@@ -1033,7 +1037,6 @@ def main(
         if json_output:
             json_print(bss_report.to_dict())
         else:
-            console = Console(stderr=True)
             console.print()
             _render_bss(console, bss_report)
         return
@@ -1077,7 +1080,6 @@ def main(
         if json_output:
             json_print([t.to_dict() for t in tables])
         else:
-            console = Console(stderr=True)
             console.print()
             _render_dispatch(console, tables)
         return
@@ -1092,7 +1094,6 @@ def main(
         return
 
     # Rich output
-    console = Console(stderr=True)
     console.print()
 
     if summary:

@@ -31,35 +31,23 @@ console = Console(stderr=True)
 app = typer.Typer(
     help="Rebrew validation pipeline: parse annotations, generate catalog and coverage data.",
     rich_markup_mode="rich",
-    epilog="""\
-[bold]Examples:[/bold]
-
-rebrew catalog                              Validate and summarize (default)
-
-rebrew catalog --data-json                  Write db/data_<target>.json (feeds build-db)
-
-rebrew catalog --catalog                    Generate CATALOG.md in reversed_dir
-
-rebrew catalog --data-json --catalog        Write both JSON and CATALOG.md
-
-rebrew catalog --json                       Machine-readable summary to stdout
-
-rebrew catalog -t mygame                    Catalog a specific target
-
-[bold]What it does:[/bold]
-
-1. Scans reversed_dir for .c files with reccmp-style annotations
-
-2. Cross-references with function_structure.json and function list
-
-3. Builds function registry merging all detection sources
-
-4. Generates cell-level coverage data for the .text section
-
-5. Outputs structured data and/or CATALOG.md
-
-[dim]Run 'rebrew catalog --data-json && rebrew build-db' to populate the
-recoverage SQLite database.[/dim]""",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew catalog · · · · · · · · · · · · Validate and summarize (default)\n\n"
+        "  rebrew catalog --data-json · · · · · · · Write db/data_<target>.json (feeds build-db)\n\n"
+        "  rebrew catalog --catalog · · · · · · · · Generate CATALOG.md in reversed_dir\n\n"
+        "  rebrew catalog --data-json --catalog · · Write both JSON and CATALOG.md\n\n"
+        "  rebrew catalog --json · · · · · · · · · Machine-readable summary to stdout\n\n"
+        "  rebrew catalog -t mygame · · · · · · · · Catalog a specific target\n\n"
+        "[bold]What it does:[/bold]\n\n"
+        "  1. Scans reversed_dir for .c files with reccmp-style annotations\n\n"
+        "  2. Cross-references with function_structure.json and function list\n\n"
+        "  3. Builds function registry merging all detection sources\n\n"
+        "  4. Generates cell-level coverage data for the .text section\n\n"
+        "  5. Outputs structured data and/or CATALOG.md\n\n"
+        "[dim]Run 'rebrew catalog --data-json && rebrew build-db' to populate the "
+        "recoverage SQLite database.[/dim]"
+    ),
 )
 
 
@@ -80,7 +68,7 @@ def main(
     fix_sizes: bool = typer.Option(
         False,
         "--fix-sizes",
-        help="Update // SIZE: annotations in .c files to match canonical sizes",
+        help="Update SIZE in rebrew-function.toml metadata to match canonical sizes",
     ),
     root: Path | None = typer.Option(
         None,
@@ -226,7 +214,7 @@ def main(
             and "list" in r["size_by_tool"]
             and r["size_by_tool"]["ghidra"] != r["size_by_tool"]["list"]
         )
-        print(f"  Size disagree: {size_mismatches}")
+        console.print(f"  Size disagree: {size_mismatches}")
 
     from rebrew.utils import atomic_write_text
 

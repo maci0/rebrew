@@ -14,17 +14,23 @@ from rebrew.wibo import _WIBO_API_URL, _wibo_asset_name, download_wibo, ensure_w
 
 
 class _FakeHTTPResponse:
-    def __init__(self, payload: str | bytes) -> None:
-        self._payload = payload if isinstance(payload, bytes) else payload.encode("utf-8")
+    """Minimal mock for httpx.Response."""
 
-    def read(self) -> bytes:
-        return self._payload
+    def __init__(self, payload: str | bytes, status_code: int = 200) -> None:
+        if isinstance(payload, str):
+            self.content = payload.encode("utf-8")
+            self.text = payload
+        else:
+            self.content = payload
+            self.text = payload.decode("utf-8", errors="replace")
+        self.status_code = status_code
 
-    def __enter__(self) -> "_FakeHTTPResponse":
-        return self
+    def json(self) -> dict:  # type: ignore[type-arg]
+        return json.loads(self.text)
 
-    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
-        del exc_type, exc, tb
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
 
 
 class TestWiboAssetName:
@@ -93,12 +99,12 @@ class TestDownloadWibo:
         monkeypatch.setattr(sys, "platform", "linux", raising=False)
         monkeypatch.setattr("platform.machine", lambda: "x86_64")
 
-        def _fake_urlopen(url: str, **kwargs: object) -> _FakeHTTPResponse:
+        def _fake_httpx_get(url: str, **kwargs: object) -> _FakeHTTPResponse:
             if url == _WIBO_API_URL:
                 return _FakeHTTPResponse(payload)
             return _FakeHTTPResponse(fake_binary)
 
-        monkeypatch.setattr("rebrew.wibo.urllib.request.urlopen", _fake_urlopen)
+        monkeypatch.setattr("rebrew.wibo.httpx.get", _fake_httpx_get)
 
         version = download_wibo(dest)
         assert version == "v0.9.0"
@@ -127,12 +133,12 @@ class TestDownloadWibo:
         monkeypatch.setattr(sys, "platform", "linux", raising=False)
         monkeypatch.setattr("platform.machine", lambda: "x86_64")
 
-        def _fake_urlopen(url: str, **kwargs: object) -> _FakeHTTPResponse:
+        def _fake_httpx_get(url: str, **kwargs: object) -> _FakeHTTPResponse:
             if url == _WIBO_API_URL:
                 return _FakeHTTPResponse(payload)
             return _FakeHTTPResponse(b"wrong-binary")
 
-        monkeypatch.setattr("rebrew.wibo.urllib.request.urlopen", _fake_urlopen)
+        monkeypatch.setattr("rebrew.wibo.httpx.get", _fake_httpx_get)
 
         with pytest.raises(RuntimeError, match="SHA256 mismatch"):
             download_wibo(dest)
@@ -145,7 +151,7 @@ class TestDownloadWibo:
         monkeypatch.setattr(sys, "platform", "linux", raising=False)
         monkeypatch.setattr("platform.machine", lambda: "x86_64")
         monkeypatch.setattr(
-            "rebrew.wibo.urllib.request.urlopen",
+            "rebrew.wibo.httpx.get",
             lambda _url, **kwargs: _FakeHTTPResponse(payload),
         )
 

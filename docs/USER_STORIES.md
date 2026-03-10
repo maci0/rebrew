@@ -109,7 +109,7 @@ graph TD
 ### Acceptance Criteria
 - `rebrew todo` shows prioritized list of uncovered functions
 - `rebrew skeleton` creates annotated `.c` file
-- `rebrew test` classifies result as EXACT / RELOC / MATCHING / MISMATCH
+- `rebrew test` classifies result as EXACT / RELOC / NEAR_MATCHING / MISMATCH
 - Annotation header updated with correct STATUS and BLOCKER (if any)
 
 ```mermaid
@@ -141,18 +141,18 @@ graph TD
 
 ## 5. GA-Assisted Matching (Workflow B)
 
-> **As an RE Dev**, I want to hand off a MATCHING function to the genetic algorithm so that it can brute-force the last few byte differences without me manually tweaking comparison operators.
+> **As an RE Dev**, I want to hand off a NEAR_MATCHING function to the genetic algorithm so that it can brute-force the last few byte differences without me manually tweaking comparison operators.
 
 ### Acceptance Criteria
 - GA accepts my `.c` file as seed
-- 106 mutation operators applied (if-swaps, loop transforms, operand commutation, code layout, expression rewriting, MSVC6-targeted stack/register/zero-extension mutations, parameter register toggling, loop break manipulation, call-arg ternary collapse, common-tail hoisting)
+- 120 mutation operators applied (if-swaps, loop transforms, operand commutation, code layout, expression rewriting, MSVC6-targeted stack/register/zero-extension mutations, parameter register toggling, loop break manipulation, call-arg ternary collapse, common-tail hoisting, pragma optimize, loop rotation, argument extraction)
 - Results cached in SQLite `BuildCache` to prevent duplicate compilations
 - GA finds EXACT/RELOC or reports stagnation after N generations
 
 ```mermaid
 graph TD
-    A["Function at STATUS: MATCHING<br/>(small byte delta)"] --> B["rebrew match func.c<br/>--generations 200 --pop-size 64"]
-    B --> C["GA mutates C AST<br/>(40+ operators)"]
+    A["Function at STATUS: NEAR_MATCHING<br/>(small byte delta)"] --> B["rebrew match func.c<br/>--generations 200 --pop-size 64"]
+    B --> C["GA mutates C AST<br/>(120 operators)"]
     C --> D["Compile each candidate<br/>(MSVC6 via Wine)"]
     D --> E{"Fitness improved?"}
     E -->|"EXACT / RELOC"| F["✅ Match found!<br/>Update annotation"]
@@ -193,11 +193,11 @@ sequenceDiagram
 
     loop Up to N iterations
         O->>T: Compile & compare
-        T-->>O: Result (EXACT/RELOC/MATCHING)
+        T-->>O: Result (EXACT/RELOC/NEAR_MATCHING)
         alt EXACT or RELOC
             O->>DB: Ingest new match into RAG
             Note over O: Done ✅
-        else MATCHING / MISMATCH
+        else NEAR_MATCHING / MISMATCH
             O->>LLM: Diff feedback + corrections
             LLM-->>O: Revised C source
         end
@@ -236,7 +236,7 @@ graph TD
     WE --> Result
 
     Result -->|"EXACT / RELOC"| Stage["Write to staging/<br/>score gate check"]
-    Result -->|MATCHING| Requeue["Update state<br/>re-queue"]
+    Result -->|NEAR_MATCHING| Requeue["Update state<br/>re-queue"]
     Result -->|STALLED| Log["Log for<br/>human review"]
 
     Stage --> Regression["rebrew verify<br/>regression gate"]
@@ -338,7 +338,7 @@ graph TD
     H --> I["LLM generates<br/>tiny leaf functions"]
     I --> J{"rebrew test"}
     J -->|"EXACT/RELOC"| G
-    J -->|"MATCHING"| K["GA refinement"]
+    J -->|"NEAR_MATCHING"| K["GA refinement"]
     K -->|Success| G
     K -->|Stalled| L["Diff resolver<br/>(Workflow C)"]
     L --> J
@@ -367,7 +367,7 @@ graph TD
 graph TD
     A["Check project status"] --> S["rebrew status"]
     S --> B["rebrew next --stats"]
-    B --> C["Coverage summary:<br/>EXACT / RELOC / MATCHING / STUB"]
+    B --> C["Coverage summary:<br/>EXACT / RELOC / NEAR_MATCHING / STUB"]
 
     D["Verify integrity"] --> E["rebrew verify"]
     E --> F{"All files compile<br/>& match?"}
@@ -451,22 +451,22 @@ graph TD
 
 ## 13. Improving Existing Decompilations (Workflow E)
 
-> **As an AI Operator**, I want the LLM to take a fresh pass at existing MATCHING functions so that functions close to RELOC can be pushed over the finish line.
+> **As an AI Operator**, I want the LLM to take a fresh pass at existing NEAR_MATCHING functions so that functions close to RELOC can be pushed over the finish line.
 
 ### Acceptance Criteria
 - Existing `.c` file + diff fed to LLM with BLOCKER context
 - Targeted fixes (swap if/else, adjust comparisons) without full rewrite
-- If still MATCHING after LLM, hand off to GA (Workflow B)
+- If still NEAR_MATCHING after LLM, hand off to GA (Workflow B)
 - Score must improve or change is rejected
 
 ```mermaid
 graph TD
-    A["MATCHING function<br/>(existing .c file)"] --> B["rebrew test<br/>capture current diff"]
+    A["NEAR_MATCHING function<br/>(existing .c file)"] --> B["rebrew test<br/>capture current diff"]
     B --> C["Feed to LLM:<br/>source + diff + BLOCKER"]
     C --> D["LLM suggests<br/>targeted fixes"]
     D --> E{"rebrew test<br/>re-check"}
     E -->|"EXACT / RELOC"| F["✅ Promoted!"]
-    E -->|"Improved MATCHING"| G["Accept improvement<br/>optionally → GA"]
+    E -->|"Improved NEAR_MATCHING"| G["Accept improvement<br/>optionally → GA"]
     E -->|"Same / Worse"| H["Reject change"]
     G --> I["rebrew match func.c<br/>(Workflow B)"]
     I -->|"EXACT / RELOC"| F

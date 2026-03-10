@@ -19,29 +19,31 @@ from rebrew import cli
 app = typer.Typer(
     help="Compiler-in-the-loop decompilation workbench for binary-matching reversing.",
     rich_markup_mode="rich",
-    epilog="""\
-[bold]Typical workflow:[/bold]
-
-rebrew todo                  See what needs work (prioritized by ROI)
-
-rebrew skeleton 0x<VA>       Generate a .c skeleton from address
-
-rebrew test src/<func>.c     Compile, byte-compare, and auto-update STATUS
-
-rebrew diff src/f.c          Show byte diff for near-misses
-
-rebrew verify                Bulk-verify all reversed functions
-
-[bold]Exit codes:[/bold]
-
-0   Success (all functions matched / no errors)
-
-1   Mismatch or test failure (actionable — fix your code)
-
-2   Build error or config error (something is broken)
-
-[dim]All subcommands read project settings from rebrew-project.toml.
-Run 'rebrew init' to create a new project, or 'rebrew <cmd> --help' for details.[/dim]""",
+    epilog=(
+        "[bold]Typical workflow:[/bold]\n\n"
+        "rebrew todo · · · · · · · · See what needs work (prioritized by ROI)\n\n"
+        "rebrew skeleton 0x<VA> · · · Generate a .c skeleton from address\n\n"
+        "rebrew test src/<func>.c · · Compile, byte-compare, and auto-update STATUS\n\n"
+        "rebrew diff src/f.c · · · · Show byte diff for near-misses\n\n"
+        "rebrew verify · · · · · · · Bulk-verify all reversed functions\n\n"
+        "[bold]test vs verify vs match:[/bold]\n\n"
+        "rebrew test <file> · · · · · Single function — compile, compare, auto-promote STATUS\n\n"
+        "rebrew test --all · · · · ·  Batch — same as verify but always recompiles\n\n"
+        "rebrew verify · · · · · · ·  Batch — incremental verify with caching (--compare for CI)\n\n"
+        "rebrew match <file> · · · ·  GA engine — iteratively mutate source to find byte match\n\n"
+        "[bold]Status ladder (best → worst):[/bold]\n\n"
+        "PROVEN · · · · · Symbolically verified equivalent (via rebrew prove)\n\n"
+        "EXACT · · · · · · 100% byte match\n\n"
+        "RELOC · · · · · · Match after masking relocation records\n\n"
+        "NEAR_MATCHING · · ≥60% match — use rebrew diff to find structural differences\n\n"
+        "STUB · · · · · · <60% match — rewrite needed\n\n"
+        "[bold]Exit codes:[/bold]\n\n"
+        "0 — Success (all functions matched / no errors)\n\n"
+        "1 — Mismatch or test failure (actionable — fix your code)\n\n"
+        "2 — Build error or config error (something is broken)\n\n"
+        "[dim]All subcommands read project settings from rebrew-project.toml. "
+        "Run 'rebrew init' to create a new project, or 'rebrew <cmd> --help' for details.[/dim]"
+    ),
 )
 
 # ---------------------------------------------------------------------------
@@ -49,8 +51,24 @@ Run 'rebrew init' to create a new project, or 'rebrew <cmd> --help' for details.
 # ---------------------------------------------------------------------------
 
 
+def _version_callback(value: bool) -> None:
+    """Print version and exit."""
+    if value:
+        from importlib.metadata import version
+
+        typer.echo(f"rebrew {version('rebrew')}")
+        raise typer.Exit()
+
+
 @app.callback()
 def _global_options(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show version and exit.",
+    ),
     verbose: int = typer.Option(
         0, "--verbose", "-v", count=True, help="Increase output verbosity."
     ),
@@ -98,6 +116,7 @@ _COMMAND_PANELS: dict[str, str] = {
     "prove": "Matching",
     # Export & Sync — generating data and syncing with external tools
     "catalog": "Export & Sync",
+    "build-db": "Export & Sync",
     "sync": "Export & Sync",
     "binsync-export": "Export & Sync",
 }
@@ -129,6 +148,7 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("split", "rebrew.split", "Split multi-function C files into single-function files."),
     ("merge", "rebrew.merge", "Merge single-function C files into one multi-function file."),
     ("prove", "rebrew.prove", "Prove semantic equivalence via symbolic execution."),
+    ("build-db", "rebrew.build_db", "Build SQLite coverage database from data JSON."),
     (
         "binsync-export",
         "rebrew.binsync_export",

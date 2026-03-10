@@ -21,6 +21,11 @@ except ImportError:
 
 console = Console(stderr=True)
 
+_MAX_FUNC_SCAN = 4096  # max bytes to scan for function end patterns
+_MIN_MATCH_WINDOW = 32  # FLIRT needs at least this many bytes to match
+_FUNC_ALIGNMENT = 16  # standard x86 function alignment stride
+_MAX_AMBIGUOUS = 3  # skip matches with more unique names than this
+
 
 def load_signatures(sig_dir: str, json_output: bool = False) -> list[Any]:
     """Load all ``.sig`` and ``.pat`` FLIRT signature files from *sig_dir*."""
@@ -54,7 +59,7 @@ def load_signatures(sig_dir: str, json_output: bool = False) -> list[Any]:
 def find_func_size(code_data: bytes, offset: int) -> int:
     """Estimate function size by scanning for common end patterns."""
     # Look for ret (0xC3), ret imm16 (0xC2), or int3 padding (0xCC)
-    max_scan = min(4096, len(code_data) - offset)
+    max_scan = min(_MAX_FUNC_SCAN, len(code_data) - offset)
     scan_end = offset + max_scan
     for i in range(offset, scan_end):
         b = code_data[i]
@@ -77,25 +82,19 @@ def iter_match_offsets(code_size: int, *, stride: int = 16, min_window: int = 32
 app = typer.Typer(
     help="FLIRT signature scanner for binaries.",
     rich_markup_mode="rich",
-    epilog="""\
-[bold]Examples:[/bold]
-
-rebrew flirt                                  Scan with default .sig files
-
-rebrew flirt sigs/                            Use custom signature directory
-
-rebrew flirt --json                           Output matches as JSON
-
-rebrew flirt --min-size 32                    Only report functions ≥32 bytes
-
-[bold]How it works:[/bold]
-
-Scans the target binary using FLIRT (Fast Library Identification and
-Recognition Technology) signatures to identify known library functions
-(MSVCRT, DirectX, Zlib, etc.).
-
-[dim]Requires .sig/.pat signature files in the project or passed via --sig-dir.
-Reads target binary path from rebrew-project.toml.[/dim]""",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew flirt · · · · · · · · · · Scan with default .sig files\n\n"
+        "  rebrew flirt sigs/ · · · · · · · Use custom signature directory\n\n"
+        "  rebrew flirt --json · · · · · · · Output matches as JSON\n\n"
+        "  rebrew flirt --min-size 32 · · · · Only report functions ≥32 bytes\n\n"
+        "[bold]How it works:[/bold]\n\n"
+        "  Scans the target binary using FLIRT (Fast Library Identification and "
+        "Recognition Technology) signatures to identify known library functions "
+        "(MSVCRT, DirectX, Zlib, etc.).\n\n"
+        "[dim]Requires .sig/.pat signature files in the project or passed via --sig-dir. "
+        "Reads target binary path from rebrew-project.toml.[/dim]"
+    ),
 )
 
 
@@ -103,13 +102,15 @@ Reads target binary path from rebrew-project.toml.[/dim]""",
 def main(
     sig_dir: Path | None = typer.Argument(None, help="Directory containing .sig/.pat files"),
     exe: Path | None = typer.Option(None, help="Target PE file (default: from config)"),
-    min_size: int = typer.Option(16, help="Minimum function size in bytes to report (default: 16)"),
+    min_size: int = typer.Option(16, help="Minimum function size in bytes to report"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """FLIRT signature scanner for binaries.."""
+    """FLIRT signature scanner for binaries."""
     if flirt is None:
-        error_exit("flirt module not found. Run 'uv sync' to install dependencies.")
+        error_exit(
+            "flirt module not found. Run 'uv sync' to install dependencies.", json_mode=json_output
+        )
     cfg = require_config(target=target, json_mode=json_output)
 
     final_sig_dir = sig_dir or (cfg.root / "flirt_sigs")
@@ -145,11 +146,11 @@ def main(
     found = 0
     skipped = 0
     matches_list: list[dict[str, Any]] = []
-    stride = 16  # standard function alignment
-    max_ambiguous = 3  # if more unique names match, it's noise
+    stride = _FUNC_ALIGNMENT
+    max_ambiguous = _MAX_AMBIGUOUS
 
-    # Guard: FLIRT signatures need at least 32 bytes to match against
-    if len(code_data) < 32:
+    # Guard: FLIRT signatures need at least _MIN_MATCH_WINDOW bytes to match
+    if len(code_data) < _MIN_MATCH_WINDOW:
         console.print(
             f"Warning: .text section too small ({len(code_data)} bytes) for FLIRT matching"
         )
@@ -166,7 +167,7 @@ def main(
             )
         return
 
-    for offset in iter_match_offsets(len(code_data), stride=stride, min_window=32):
+    for offset in iter_match_offsets(len(code_data), stride=stride, min_window=_MIN_MATCH_WINDOW):
         # Estimate the function size at this offset
         func_size = find_func_size(code_data, offset)
         if func_size < min_size:
@@ -196,7 +197,7 @@ def main(
                     }
                 )
             else:
-                print(f"[+] 0x{va:08x} ({func_size:4d}B): {', '.join(names)}")
+                console.print(f"[+] 0x{va:08x} ({func_size:4d}B): {', '.join(names)}")
             found += 1
 
     if json_output:
@@ -212,9 +213,9 @@ def main(
         }
         json_print(output)
     else:
-        print(f"\nTotal matches found: {found}")
+        console.print(f"\nTotal matches found: {found}")
         if skipped:
-            print(f"Skipped {skipped} ambiguous matches (>{max_ambiguous} candidate names)")
+            console.print(f"Skipped {skipped} ambiguous matches (>{max_ambiguous} candidate names)")
 
 
 def main_entry() -> None:

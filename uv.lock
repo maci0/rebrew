@@ -1249,11 +1249,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "ruff" },
-    { name = "slipcover" },
-]
 prove = [
     { name = "angr" },
 ]
@@ -1276,19 +1271,16 @@ requires-dist = [
     { name = "lief", specifier = ">=0.17.4" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pycparser", specifier = ">=2.21" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "python-flirt", specifier = ">=0.9.10" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "reccmp", git = "https://github.com/isledecomp/reccmp.git" },
     { name = "rich", specifier = ">=13.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.3" },
-    { name = "slipcover", marker = "extra == 'dev'", specifier = ">=1.0.17" },
     { name = "tomlkit", specifier = ">=0.12" },
     { name = "tree-sitter", specifier = ">=0.25.2" },
     { name = "tree-sitter-c", specifier = ">=0.24.1" },
     { name = "typer", specifier = ">=0.9" },
 ]
-provides-extras = ["dev", "prove"]
+provides-extras = ["prove"]
 
 [package.metadata.requires-dev]
 dev = [

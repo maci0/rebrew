@@ -313,8 +313,8 @@ def build_db(
                                 reloc_count += 1
                                 reloc_bytes += size
                             elif state in ("matching", "matching_reloc"):
+                                matching_count += 1
                                 matching_bytes += size
-                                stub_bytes += size
                             elif state == "padding":
                                 padding_count += 1
                                 padding_bytes += size
@@ -595,25 +595,18 @@ def _generate_catalogs(
 app = typer.Typer(
     help="Build SQLite coverage database from catalog JSON.",
     rich_markup_mode="rich",
-    epilog="""\
-[bold]Examples:[/bold]
-
-rebrew build-db                          Build db/coverage.db from db/data_*.json
-
-rebrew build-db --root /path/to/project  Specify project root explicitly
-
-[bold]Prerequisites:[/bold]
-
-Run 'rebrew catalog --json' first to generate db/data_*.json files.
-
-[bold]What it creates:[/bold]
-
-db/coverage.db          SQLite database with functions, globals, sections, cells
-
-src/<target>/CATALOG.md  Markdown catalog of all reversed functions
-
-[dim]The database is used by recoverage (coverage dashboard) and can be queried
-directly for reports. Schema version is stamped in the metadata table.[/dim]""",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew build-db · · · · · · · · · · · Build db/coverage.db from db/data_*.json\n\n"
+        "  rebrew build-db --root /path/to/project  Specify project root explicitly\n\n"
+        "[bold]Prerequisites:[/bold]\n\n"
+        "  Run 'rebrew catalog --json' first to generate db/data_*.json files.\n\n"
+        "[bold]What it creates:[/bold]\n\n"
+        "  db/coverage.db · · · · · · SQLite database with functions, globals, sections, cells\n\n"
+        "  src/<target>/CATALOG.md · · Markdown catalog of all reversed functions\n\n"
+        "[dim]The database is used by recoverage (coverage dashboard) and can be queried "
+        "directly for reports. Schema version is stamped in the metadata table.[/dim]"
+    ),
 )
 
 

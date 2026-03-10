@@ -13,9 +13,8 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-# x86 padding bytes used to trim trailing filler from compiled functions.
-# 0xCC = int3 (breakpoint), 0x90 = nop
-_PADDING_BYTES = (0xCC, 0x90)
+from rebrew.catalog.sections import PADDING_BYTES as _PADDING_BYTES
+
 _PADDING_STRIP = bytes(_PADDING_BYTES)
 
 

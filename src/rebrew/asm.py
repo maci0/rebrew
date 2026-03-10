@@ -350,14 +350,12 @@ def generate_inline_c(
     symbol: str | None,
 ) -> str:
     """Generate a C file with inline assembly using rebrew annotations."""
-    cflags = cfg.base_cflags or "/O2 /Gd"
     marker = cfg.marker if cfg.marker else "TARGET"
     sym = symbol or f"_func_{va:08x}"
     func_name = sym.lstrip("_")
 
     lines: list[str] = []
     lines.append(f"// FUNCTION: {marker} 0x{va:08x}")
-    lines.append(f"// CFLAGS: {cflags}")
     lines.append("")
     lines.append(f"void __declspec(naked) {func_name}(void)")
     lines.append("{")
@@ -527,32 +525,21 @@ def batch_extract_nasm(
 # CLI
 # ---------------------------------------------------------------------------
 
-_EPILOG = """\
-[bold]Examples:[/bold]
-
-rebrew asm 0x10003ca0 --size 77             Disassemble (hex format, default)
-
-rebrew asm --va 0x10003ca0 --size 77        Using named option
-
-rebrew asm 0x10003ca0 --no-annotate         Skip call/jmp name annotations
-
-rebrew asm --va 0x10003ca0 --size 77 --format nasm        NASM output
-
-rebrew asm --va 0x10003ca0 --size 77 --format nasm --verify  Verify round-trip
-
-rebrew asm --va 0x10003ca0 --size 77 --format nasm --inline-c -o f.c  Inline C
-
-rebrew asm --all --out-dir output/asm/ --format nasm      Batch NASM extract
-
-rebrew asm 0x10003ca0 --size 77 --json                    JSON output
-
-[bold]Formats:[/bold]
-
-hex    Capstone disassembly with hex dump and call annotation (default)
-
-nasm   NASM-reassembleable source with optional round-trip verification
-
-[dim]Uses capstone for x86 disassembly. Reads binary and arch from rebrew-project.toml.[/dim]"""
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew asm 0x10003ca0 --size 77 · · · · · · · · · · · Disassemble (hex format, default)\n\n"
+    "  rebrew asm --va 0x10003ca0 --size 77 · · · · · · · · · Using named option\n\n"
+    "  rebrew asm 0x10003ca0 --no-annotate · · · · · · · · · Skip call/jmp name annotations\n\n"
+    "  rebrew asm --va 0x10003ca0 --size 77 --format nasm · · NASM output\n\n"
+    "  rebrew asm --va 0x10003ca0 --size 77 --format nasm --verify  Verify round-trip\n\n"
+    "  rebrew asm --va 0x10003ca0 --size 77 --format nasm --inline-c -o f.c  Inline C\n\n"
+    "  rebrew asm --all --out-dir output/asm/ --format nasm · · Batch NASM extract\n\n"
+    "  rebrew asm 0x10003ca0 --size 77 --json · · · · · · · · JSON output\n\n"
+    "[bold]Formats:[/bold]\n\n"
+    "  hex · · Capstone disassembly with hex dump and call annotation (default)\n\n"
+    "  nasm · · NASM-reassembleable source with optional round-trip verification\n\n"
+    "[dim]Uses capstone for x86 disassembly. Reads binary and arch from rebrew-project.toml.[/dim]"
+)
 
 app = typer.Typer(
     help="Disassemble a function from the target binary (hex dump or NASM source).",
@@ -564,7 +551,9 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def main(
     va_hex: str | None = typer.Argument(None, help="Function VA in hex"),
-    va: str | None = typer.Option(None, "--va", help="Function VA in hex"),
+    va: str | None = typer.Option(
+        None, "--va", help="Function VA in hex (alternative to positional argument, for scripting)"
+    ),
     size: int | None = typer.Option(None, help="Function size in bytes"),
     fmt: str = typer.Option("hex", "--format", "-f", help="Output format: hex, nasm"),
     annotate: bool = typer.Option(
@@ -625,13 +614,16 @@ def main(
     # --- nasm format ---
     if bin_file:
         code = extract_from_bin(bin_file)
-        computed_base_va = parse_va(base_va)
+        computed_base_va = parse_va(base_va, json_mode=json_output)
         computed_label = label or bin_file.stem
     elif va_str and effective_size:
-        computed_va = parse_va(va_str)
+        computed_va = parse_va(va_str, json_mode=json_output)
         code = extract_raw_bytes(cfg.target_binary, computed_va, effective_size)
         if code is None:
-            error_exit(f"Could not extract {effective_size} bytes at VA 0x{computed_va:08X}")
+            error_exit(
+                f"Could not extract {effective_size} bytes at VA 0x{computed_va:08X}",
+                json_mode=json_output,
+            )
         computed_base_va = computed_va
         computed_label = label or f"func_{computed_va:08X}"
     else:
@@ -642,7 +634,7 @@ def main(
     try:
         nasm_src, run_stats = disassemble_to_nasm(code, computed_base_va, computed_label)
     except RuntimeError as e:
-        error_exit(str(e))
+        error_exit(str(e), json_mode=json_output)
 
     if inline_c:
         out_src = generate_inline_c(nasm_src, cfg, computed_base_va, len(code), computed_label)

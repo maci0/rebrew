@@ -24,8 +24,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from rebrew.cli import TargetOption, get_config, json_print, require_config
-from rebrew.config import ProjectConfig
+from rebrew.cli import TargetOption, json_print, require_config
+from rebrew.config import ProjectConfig, load_config
 
 console = Console(stderr=True)
 
@@ -114,7 +114,7 @@ def check_config_parse(
 ) -> tuple[CheckResult, ProjectConfig | None]:
     """Check that rebrew-project.toml exists and parses without errors."""
     try:
-        cfg = get_config(target=target)
+        cfg = load_config(target=target)
         return (
             CheckResult(
                 name="rebrew-project.toml",
@@ -542,17 +542,14 @@ def run_doctor(target: str | None = None) -> DoctorReport:
 # CLI
 # ---------------------------------------------------------------------------
 
-_EPILOG = """\
-[bold]Example:[/bold]
-
-rebrew doctor                    Check default target
-
-rebrew doctor --target mygame     Check specific target
-
-rebrew doctor --json             Machine-readable output
-
-[dim]Validates: rebrew-project.toml, target binary, compiler toolchain, include/lib
-paths, function list, and source directory.[/dim]"""
+_EPILOG = (
+    "[bold]Example:[/bold]\n\n"
+    "  rebrew doctor · · · · · · · · · Check default target\n\n"
+    "  rebrew doctor --target mygame · · Check specific target\n\n"
+    "  rebrew doctor --json · · · · · · Machine-readable output\n\n"
+    "[dim]Validates: rebrew-project.toml, target binary, compiler toolchain, include/lib "
+    "paths, function list, and source directory.[/dim]"
+)
 
 _STATUS_ICONS = {
     _PASS: "\u2705",

@@ -235,7 +235,7 @@ class BinaryMatchingGA:
 
     def _write_pair(self, src: str, obj_bytes: bytes, score: float) -> None:
         """Append a source-binary pair to the JSONL collection file."""
-        import json as json_mod
+        import json
 
         record = {
             "source": src,
@@ -245,9 +245,10 @@ class BinaryMatchingGA:
             "cflags": self.cflags,
             "symbol": self.symbol,
         }
-        assert self.collect_pairs_path is not None
+        if self.collect_pairs_path is None:
+            return
         with open(self.collect_pairs_path, "a", encoding="utf-8") as f:
-            f.write(json_mod.dumps(record) + "\n")
+            f.write(json.dumps(record) + "\n")
         self._pairs_count += 1
 
     def run(self) -> tuple[str | None, float]:
@@ -313,8 +314,7 @@ class BinaryMatchingGA:
 
                 if self.rng.random() < self.mutation_prob:
                     # Multi-mutation: 35% chance of chaining 2-3 mutations for
-                    # bigger jumps in the search space.  Bumped from 30% after
-                    # expanding to 116 operators — more combos to explore.
+                    # bigger jumps in the search space.  Not empirically tuned.
                     n_muts = 1
                     if self.rng.random() < 0.35:
                         n_muts = self.rng.randint(2, 3)
@@ -462,10 +462,9 @@ def _collect_with_dedup(
             va_str = info.va
             if va_str in seen_vas:
                 if warn_duplicates:
-                    typer.echo(
-                        f"  WARNING: Duplicate VA {va_str} found in {rel_name} "
-                        f"(already in {seen_vas[va_str]}), skipping",
-                        err=True,
+                    console.print(
+                        f"  [yellow]WARNING:[/] Duplicate VA {va_str} found in {rel_name} "
+                        f"(already in {seen_vas[va_str]}), skipping"
                     )
                 continue
             seen_vas[va_str] = rel_name
@@ -638,17 +637,21 @@ def update_stub_to_matched(filepath: Path, best_src: str, stub: StubInfo) -> Non
 # CLI
 # ---------------------------------------------------------------------------
 
-_EPILOG = """\
-[dim]Auto-reads VA and SIZE from source markers, CFLAGS from metadata.
-Symbol is derived from the C function definition.
-Requires rebrew-project.toml with valid compiler paths.
-
-[bold]Batch mode (--all):[/bold]
-  rebrew match --all               GA on all STUB functions
-  rebrew match --all --improve     GA on all NEAR_MATCHING functions
-  rebrew match --all --near-miss   GA on near-miss NEAR_MATCHING (Δ ≤ threshold)
-  rebrew match --all --flag-sweep  Batch flag sweep on NEAR_MATCHING functions
-  rebrew match --all --dry-run     List targets without running[/dim]"""
+_EPILOG = (
+    "[dim]Auto-reads VA and SIZE from source markers, CFLAGS from metadata. "
+    "Symbol is derived from the C function definition. "
+    "Requires rebrew-project.toml with valid compiler paths.[/dim]\n\n"
+    "[bold]Batch mode (--all):[/bold]\n\n"
+    "  rebrew match --all · · · · · · · · · GA on all STUB functions\n\n"
+    "  rebrew match --all --improve · · · · · GA on all NEAR_MATCHING functions\n\n"
+    "  rebrew match --all --near-miss · · · · GA on near-miss NEAR_MATCHING (Δ ≤ threshold)\n\n"
+    "  rebrew match --all --flag-sweep · · · · Batch flag sweep on NEAR_MATCHING functions\n\n"
+    "  rebrew match --all --dry-run · · · · · List targets without running\n\n"
+    "[bold]Exit codes:[/bold]\n\n"
+    "  0   Match found (EXACT or RELOC)\n\n"
+    "  1   No match found (structural diffs remain)\n\n"
+    "  2   Build or config error"
+)
 
 app = typer.Typer(
     help="GA matching engine — single file or batch (--all).",
@@ -661,87 +664,172 @@ app = typer.Typer(
 def main(
     seed_c: str | None = typer.Argument(None, help="Seed source file (.c) — omit for --all mode"),
     # Single-function options
-    cl: str | None = typer.Option(None, help="CL.EXE command (auto from rebrew-project.toml)"),
-    inc: str | None = typer.Option(None, help="Include dir (auto from rebrew-project.toml)"),
-    cflags: str | None = typer.Option(None, help="Compiler flags (auto from source)"),
-    symbol: str | None = typer.Option(None, "-s", help="Symbol to match (auto from source)"),
-    target_va: str | None = typer.Option(None, help="Target VA hex (auto from source)"),
-    target_size: int | None = typer.Option(None, help="Target size (auto from source)"),
-    out_dir: str = typer.Option("output/ga_run", help="Output dir"),
-    compare_obj: bool = typer.Option(True, help="Use object comparison instead of full link"),
-    link: str | None = typer.Option(None, help="LINK.EXE command"),
-    lib: str | None = typer.Option(None, help="Lib dir"),
-    ldflags: str | None = typer.Option(None, help="Linker flags"),
+    cl: str | None = typer.Option(
+        None,
+        help="CL.EXE command (auto from rebrew-project.toml)",
+        rich_help_panel="Single-Function",
+    ),
+    inc: str | None = typer.Option(
+        None, help="Include dir (auto from rebrew-project.toml)", rich_help_panel="Single-Function"
+    ),
+    cflags: str | None = typer.Option(
+        None, help="Compiler flags (auto from source)", rich_help_panel="Single-Function"
+    ),
+    symbol: str | None = typer.Option(
+        None,
+        "--symbol",
+        help="Symbol to match (auto from source)",
+        rich_help_panel="Single-Function",
+    ),
+    target_va: str | None = typer.Option(
+        None, help="Target VA hex (auto from source)", rich_help_panel="Single-Function"
+    ),
+    target_size: int | None = typer.Option(
+        None, help="Target size (auto from source)", rich_help_panel="Single-Function"
+    ),
+    out_dir: str = typer.Option(
+        "output/ga_run", help="Output dir", rich_help_panel="Single-Function"
+    ),
+    compare_obj: bool = typer.Option(
+        True, help="Use object comparison instead of full link", rich_help_panel="Single-Function"
+    ),
+    link: str | None = typer.Option(
+        None, help="LINK.EXE command", rich_help_panel="Single-Function"
+    ),
+    lib: str | None = typer.Option(None, help="Lib dir", rich_help_panel="Single-Function"),
+    ldflags: str | None = typer.Option(
+        None, help="Linker flags", rich_help_panel="Single-Function"
+    ),
     flag_sweep_only: bool = typer.Option(
         False,
         "--flag-sweep-only",
-        "-S",
         help="Run MSVC compiler flag sweep instead of GA (tries flag combos to find exact match)",
+        rich_help_panel="Single-Function",
     ),
     tier: str = typer.Option(
         "targeted",
         help="Flag sweep tier: targeted (common flags) or exhaustive (all combos)",
+        rich_help_panel="Single-Function",
     ),
     force: bool = typer.Option(
-        False, "--force", help="Continue even if source marker lint errors exist"
+        False,
+        "--force",
+        help="Continue even if source marker lint errors exist",
+        rich_help_panel="Single-Function",
     ),
-    seed: int | None = typer.Option(None, "--seed", help="RNG seed for reproducible GA runs"),
+    seed: int | None = typer.Option(
+        None, "--seed", help="RNG seed for reproducible GA runs", rich_help_panel="Single-Function"
+    ),
     extra_seed: list[str] | None = typer.Option(
-        None, "--extra-seed", help="Extra .c file(s) to seed GA population from solved functions"
+        None,
+        "--extra-seed",
+        help="Extra .c file(s) to seed GA population from solved functions",
+        rich_help_panel="Single-Function",
     ),
     no_seed: bool = typer.Option(
-        False, "--no-seed", help="Disable cross-function solution seeding"
+        False,
+        "--no-seed",
+        help="Disable cross-function solution seeding",
+        rich_help_panel="Single-Function",
     ),
     # GA tuning (shared single/batch)
-    generations: int = typer.Option(100, "-g", "--generations", help="Number of GA generations"),
-    pop_size: int = typer.Option(64, "-p", "--pop-size", help="Population size per generation"),
+    generations: int = typer.Option(
+        100, "-g", "--generations", help="Number of GA generations", rich_help_panel="GA Tuning"
+    ),
+    pop_size: int = typer.Option(
+        64, "-p", "--pop-size", help="Population size per generation", rich_help_panel="GA Tuning"
+    ),
     jobs: int | None = typer.Option(
-        None, "-j", "--jobs", help="Parallel jobs (default: from config)"
+        None,
+        "-j",
+        "--jobs",
+        help="Parallel jobs (default: from config)",
+        rich_help_panel="GA Tuning",
     ),
     # Batch-only options
-    all_mode: bool = typer.Option(False, "--all", help="Batch mode: run GA on all STUB functions"),
+    all_mode: bool = typer.Option(
+        False,
+        "--all",
+        help="Batch mode: run GA on all STUB functions (use --near-miss for NEAR_MATCHING)",
+        rich_help_panel="Batch Mode",
+    ),
     near_miss: bool = typer.Option(
         False,
         "--near-miss",
         help="--all: target NEAR_MATCHING near-misses instead of STUBs",
+        rich_help_panel="Batch Mode",
     ),
     improve: bool = typer.Option(
         False,
         "--improve",
         help="--all: target all NEAR_MATCHING functions (no delta threshold)",
+        rich_help_panel="Batch Mode",
     ),
     threshold: int = typer.Option(
-        10, "--threshold", help="--all: max byte delta for --near-miss mode"
+        10,
+        "--threshold",
+        help="--all: max byte delta for --near-miss mode",
+        rich_help_panel="Batch Mode",
     ),
     flag_sweep: bool = typer.Option(
         False,
         "--flag-sweep",
         help="--all: batch flag sweep on NEAR_MATCHING functions (finds optimal CFLAGS)",
+        rich_help_panel="Batch Mode",
     ),
     fix_cflags: bool = typer.Option(
         False,
         "--fix-cflags",
         help="--all --flag-sweep: auto-update CFLAGS metadata on exact match",
+        rich_help_panel="Batch Mode",
     ),
-    max_stubs: int = typer.Option(0, "--max-stubs", help="--all: max functions to process (0=all)"),
-    min_size: int = typer.Option(10, "--min-size", help="--all: min target size to attempt"),
-    max_size: int = typer.Option(9999, "--max-size", help="--all: max target size to attempt"),
+    max_stubs: int = typer.Option(
+        0,
+        "--max-stubs",
+        help="--all: max functions to process (0=all)",
+        rich_help_panel="Batch Mode",
+    ),
+    min_size: int = typer.Option(
+        10,
+        "--min-size",
+        help="--all: min target size to attempt",
+        rich_help_panel="Batch Mode",
+    ),
+    max_size: int = typer.Option(
+        9999,
+        "--max-size",
+        help="--all: max target size to attempt",
+        rich_help_panel="Batch Mode",
+    ),
     filter_str: str = typer.Option(
-        "", "--filter", help="--all: only process functions matching substring"
+        "",
+        "--filter",
+        help="--all: only process functions matching substring",
+        rich_help_panel="Batch Mode",
     ),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Preview changes without writing",
+        rich_help_panel="Batch Mode",
+    ),
     timeout_min: int = typer.Option(
-        30, "--timeout-min", help="--all: per-function GA timeout (minutes)"
+        30,
+        "--timeout-min",
+        help="--all: per-function GA timeout (minutes)",
+        rich_help_panel="Batch Mode",
     ),
     seed_from_solved: bool = typer.Option(
         True,
         "--seed-from-solved/--no-solved",
         help="Seed GA population from similar solved functions",
+        rich_help_panel="Batch Mode",
     ),
     collect_pairs: str | None = typer.Option(
         None,
         "--collect-pairs",
         help="Save source-binary pairs to JSONL file for ML training",
+        rich_help_panel="Batch Mode",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -937,12 +1025,10 @@ def resolve_build_params(
             for w in eval_warns:
                 console.print(f"[bold yellow]LINT WARNING:[/bold yellow] {w}")
         if eval_errs and not force:
-            if json_output:
-                error_exit("Lint errors", json_mode=True)
-            else:
-                error_exit(
-                    "Aborting due to annotation errors. Fix them or use --force to override."
-                )
+            error_exit(
+                "Aborting due to annotation errors. Fix them or use --force to override.",
+                json_mode=json_output,
+            )
 
     meta = parse_source_metadata(seed_c)
     compile_cfg = cfg
@@ -993,7 +1079,7 @@ def resolve_build_params(
         try:
             target_size = int(meta["SIZE"])
         except ValueError:
-            error_exit(f"Invalid SIZE metadata: {meta['SIZE']!r}")
+            error_exit(f"Invalid SIZE metadata: {meta['SIZE']!r}", json_mode=json_output)
 
     if target_va and target_size:
         va_int = parse_va(target_va, json_mode=json_output)
@@ -1233,9 +1319,9 @@ def _run_single_ga(
             ga_payload["best_source_path"] = str(best_path)
         json_print(ga_payload)
     else:
-        typer.echo(f"\nDone. Best score: {best_score:.2f}", err=True)
+        console.print(f"\nDone. Best score: {best_score:.2f}")
         if best_score < 0.1:
-            typer.echo("EXACT MATCH", err=True)
+            console.print("[bold green]EXACT MATCH[/]")
 
     if best_score < 0.1:
         _save_solution(
@@ -1401,8 +1487,6 @@ def _run_all(  # noqa: PLR0913
     tier: str,
 ) -> None:
     """Batch driver: run GA or flag sweep across all discovered functions."""
-    import json as json_mod
-
     reversed_dir = cfg.reversed_dir
     ignored = set(cfg.ignored_symbols or [])
 
@@ -1467,12 +1551,7 @@ def _run_all(  # noqa: PLR0913
                 if stub.delta != 9999:
                     item["delta"] = stub.delta
                 items.append(item)
-            print(
-                json_mod.dumps(
-                    {"mode": mode_label, "dry_run": True, "count": len(stubs), "items": items},
-                    indent=2,
-                )
-            )
+            json_print({"mode": mode_label, "dry_run": True, "count": len(stubs), "items": items})
         else:
             console.print("Dry run — exiting.")
         return
@@ -1541,17 +1620,14 @@ def _run_all(  # noqa: PLR0913
         ga_results.append(result_entry)
 
     if json_output:
-        print(
-            json_mod.dumps(
-                {
-                    "mode": mode_label,
-                    "matched": matched_count,
-                    "failed": failed_count,
-                    "total": len(stubs),
-                    "results": ga_results,
-                },
-                indent=2,
-            )
+        json_print(
+            {
+                "mode": mode_label,
+                "matched": matched_count,
+                "failed": failed_count,
+                "total": len(stubs),
+                "results": ga_results,
+            }
         )
     else:
         console.print(f"\n[bold]{'=' * 60}[/]")
@@ -1571,15 +1647,13 @@ def _run_batch_flag_sweep(
     mode_label: str,
 ) -> None:
     """Execute batch flag sweep across all discovered NEAR_MATCHING functions."""
-    import json as json_mod
-
     from rebrew.annotation import _module_for_va
     from rebrew.cli import rel_display_path
     from rebrew.metadata import update_source_status
     from rebrew.solutions import SolutionEntry, save_solution
 
     reversed_dir = cfg.reversed_dir
-    print(
+    console.print(
         f"\n[bold green]Running {mode_label} flag sweep for {len(stubs)} NEAR_MATCHING functions with {jobs} workers...[/bold green]"
     )
     improved_count = 0
@@ -1657,18 +1731,15 @@ def _run_batch_flag_sweep(
         sweep_results.append(result_entry)
 
     if json_output:
-        print(
-            json_mod.dumps(
-                {
-                    "mode": mode_label,
-                    "tier": tier,
-                    "exact": exact_count,
-                    "compilable": improved_count,
-                    "total": len(stubs),
-                    "results": sweep_results,
-                },
-                indent=2,
-            )
+        json_print(
+            {
+                "mode": mode_label,
+                "tier": tier,
+                "exact": exact_count,
+                "compilable": improved_count,
+                "total": len(stubs),
+                "results": sweep_results,
+            }
         )
     else:
         console.print(f"\n[bold]{'=' * 60}[/]")

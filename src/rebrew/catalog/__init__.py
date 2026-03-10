@@ -16,10 +16,9 @@ from rebrew.catalog.loaders import load_function_structure as load_function_stru
 from rebrew.catalog.loaders import load_ghidra_data_labels as load_ghidra_data_labels
 from rebrew.catalog.loaders import parse_function_list as parse_function_list
 from rebrew.catalog.loaders import scan_reversed_dir as scan_reversed_dir
-from rebrew.catalog.registry import _DEFAULT_R2_BOGUS_SIZES as _DEFAULT_R2_BOGUS_SIZES
 from rebrew.catalog.registry import RegistryEntry as RegistryEntry
-from rebrew.catalog.registry import _is_jump_table as _is_jump_table
 from rebrew.catalog.registry import build_function_registry as build_function_registry
+from rebrew.catalog.registry import is_jump_table as is_jump_table
 from rebrew.catalog.registry import make_func_entry as make_func_entry
 from rebrew.catalog.registry import make_ghidra_func as make_ghidra_func
 from rebrew.catalog.sections import get_globals as get_globals

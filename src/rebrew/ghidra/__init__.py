@@ -1,4 +1,4 @@
-"""Module docstring."""
+"""ghidra — Bidirectional sync between rebrew annotations and Ghidra via ReVa MCP."""
 
 from rebrew.ghidra.cli import app
 from rebrew.ghidra.client import (

@@ -11,6 +11,7 @@ from typing import Any
 
 import httpx
 import typer
+from rich.console import Console
 
 from rebrew.catalog import (
     build_function_registry,
@@ -38,58 +39,39 @@ from rebrew.ghidra.commands import (
     pull_ghidra_renames,
 )
 
+console = Console(stderr=True)
+
 app = typer.Typer(
     help="Sync annotations between decomp C files and Ghidra.",
     rich_markup_mode="rich",
-    epilog="""\
-[bold]Examples:[/bold]
-
-rebrew sync --summary                  Show what would be synced (dry run)
-
-rebrew sync --push                     Export + apply labels/comments to Ghidra
-
-rebrew sync --push --dry-run           Preview push without applying
-
-rebrew sync --pull                     Fetch Ghidra renames/comments into local files
-
-rebrew sync --pull --dry-run           Preview pull without modifying files
-
-rebrew sync --pull --json              Pull with structured JSON output
-
-rebrew sync --export                   Generate ghidra_commands.json only
-
-rebrew sync --apply                    Apply ghidra_commands.json via ReVa MCP
-
-[bold]Typical workflow:[/bold]
-
-1. rebrew sync --pull --dry-run         Preview incoming changes from Ghidra
-
-2. rebrew sync --pull                   Apply Ghidra renames/comments locally
-
-3. rebrew sync --summary               Preview outgoing changes to Ghidra
-
-4. rebrew sync --push                   Push annotations to Ghidra
-
-[bold]What it syncs:[/bold]
-
-[bold]Push →[/bold] labels, plate comments, pre-comments (NOTE), bookmarks,
-struct definitions (/rebrew DTM category), function prototypes,
-DATA/GLOBAL labels, function sizes, new functions
-
-[bold]Pull ←[/bold] function renames, data label names, plate/pre comments (as NOTE)
-
-[bold]Safety:[/bold]
-
-- Generic names (FUN_/DAT_/func_/switchdata) are never overwritten
-
-- Conflicts (both sides have meaningful names) are reported, not overwritten
-
-- [rebrew] plate comments are never pulled back (our own metadata)
-
-- Use --dry-run to preview any operation before applying
-
-[dim]Requires Ghidra + ReVa extension running for MCP operations.
-Falls back to local JSON caches (ghidra_functions.json, ghidra_data_labels.json) when offline.[/dim]""",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew sync --summary · · · · · · Show what would be synced (dry run)\n\n"
+        "  rebrew sync --push · · · · · · · · Export + apply labels/comments to Ghidra\n\n"
+        "  rebrew sync --push --dry-run · · · Preview push without applying\n\n"
+        "  rebrew sync --pull · · · · · · · · Fetch Ghidra renames/comments into local files\n\n"
+        "  rebrew sync --pull --dry-run · · · Preview pull without modifying files\n\n"
+        "  rebrew sync --pull --json · · · · · Pull with structured JSON output\n\n"
+        "  rebrew sync --export · · · · · · · Generate ghidra_commands.json only\n\n"
+        "  rebrew sync --apply · · · · · · · · Apply ghidra_commands.json via ReVa MCP\n\n"
+        "[bold]Typical workflow:[/bold]\n\n"
+        "  1. rebrew sync --pull --dry-run · · Preview incoming changes from Ghidra\n\n"
+        "  2. rebrew sync --pull · · · · · · · Apply Ghidra renames/comments locally\n\n"
+        "  3. rebrew sync --summary · · · · · Preview outgoing changes to Ghidra\n\n"
+        "  4. rebrew sync --push · · · · · · · Push annotations to Ghidra\n\n"
+        "[bold]What it syncs:[/bold]\n\n"
+        "  [bold]Push \u2192[/bold] labels, plate comments, pre-comments (NOTE), bookmarks, "
+        "struct definitions (/rebrew DTM category), function prototypes, "
+        "DATA/GLOBAL labels, function sizes, new functions\n\n"
+        "  [bold]Pull \u2190[/bold] function renames, data label names, plate/pre comments (as NOTE)\n\n"
+        "[bold]Safety:[/bold]\n\n"
+        "  - Generic names (FUN_/DAT_/func_/switchdata) are never overwritten\n\n"
+        "  - Conflicts (both sides have meaningful names) are reported, not overwritten\n\n"
+        "  - [rebrew] plate comments are never pulled back (our own metadata)\n\n"
+        "  - Use --dry-run to preview any operation before applying\n\n"
+        "[dim]Requires Ghidra + ReVa extension running for MCP operations. "
+        "Falls back to local JSON caches (ghidra_functions.json, ghidra_data_labels.json) when offline.[/dim]"
+    ),
 )
 
 
@@ -137,7 +119,9 @@ def main(
         help="Accept Ghidra names for all conflicts (with cross-ref updates)",
     ),
     accept_local: bool = typer.Option(
-        False, "--accept-local", help="Keep local names for all conflicts (adds // GHIDRA:)"
+        False,
+        "--accept-local",
+        help="Keep local names for all conflicts (records GHIDRA in metadata)",
     ),
     filter_module: str = typer.Option(
         None, "--module", help="Only apply pull updates to this module (e.g. MSVCRT)"
@@ -184,7 +168,8 @@ def main(
         or refresh_cache
     ):
         error_exit(
-            "No action specified. Use --summary, --export, --apply, --push, --pull, or --refresh-cache."
+            "No action specified. Use --summary, --export, --apply, --push, --pull, or --refresh-cache.",
+            json_mode=json_output,
         )
 
     cfg = require_config(target=target)
@@ -230,7 +215,7 @@ def main(
                 filter_origin=filter_module,
             )
             if pull_result.conflicts > 0 and not dry_run:
-                print(
+                console.print(
                     "Conflicts detected during name pull. Continuing with other pull operations if any."
                 )
 
@@ -359,20 +344,22 @@ def main(
                 }
             )
         else:
-            print(f"Annotations: {len(entries)} entries, {len(by_va)} unique VAs")
+            console.print(f"Annotations: {len(entries)} entries, {len(by_va)} unique VAs")
             for module in sorted(by_module):
-                print(f"  {module}: {len(by_module[module])}")
-            print(f"If exported, would generate {len(ops)} operations:")
+                console.print(f"  {module}: {len(by_module[module])}")
+            console.print(f"If exported, would generate {len(ops)} operations:")
             if create_fns:
-                print(f"  - Create {len(create_fns)} functions (create-function)")
-            print(f"  - Set {len(labels)} labels (create-label)")
-            print(f"  - Add {len(comments)} plate comments (set-comment)")
-            print(f"  - Add {len(bookmarks)} bookmarks (set-bookmark)")
+                console.print(f"  - Create {len(create_fns)} functions (create-function)")
+            console.print(f"  - Set {len(labels)} labels (create-label)")
+            console.print(f"  - Add {len(comments)} plate comments (set-comment)")
+            console.print(f"  - Add {len(bookmarks)} bookmarks (set-bookmark)")
             if structs_op:
-                print(f"  - Push {len(structs_op)} struct definitions (parse-c-structure)")
+                console.print(f"  - Push {len(structs_op)} struct definitions (parse-c-structure)")
             if sigs_op:
-                print(f"  - Set {len(sigs_op)} function prototypes (set-function-prototype)")
-            print(f"  Total: {len(ops)} operations")
+                console.print(
+                    f"  - Set {len(sigs_op)} function prototypes (set-function-prototype)"
+                )
+            console.print(f"  Total: {len(ops)} operations")
 
     if export or push:
         if ops is None:  # pragma: no cover — guarded by branch above
@@ -380,24 +367,26 @@ def main(
         out_path = cfg.root / "ghidra_commands.json"
         with out_path.open("w", encoding="utf-8") as f:
             json.dump(ops, f, indent=2)
-        print(f"Exported {len(ops)} operations to {out_path}")
+        console.print(f"Exported {len(ops)} operations to {out_path}")
 
     if apply or push:
         if dry_run:
             if ops is not None:
-                print(f"Dry run: would apply {len(ops)} operations to Ghidra via {endpoint}")
+                console.print(
+                    f"Dry run: would apply {len(ops)} operations to Ghidra via {endpoint}"
+                )
             return
         cmds_path = cfg.root / "ghidra_commands.json"
         if not cmds_path.exists():
-            error_exit(f"{cmds_path} not found. Run --export first.")
+            error_exit(f"{cmds_path} not found. Run --export first.", json_mode=json_output)
         try:
             with cmds_path.open(encoding="utf-8") as f:
                 commands = json.load(f)
         except (json.JSONDecodeError, OSError) as exc:
-            error_exit(f"Failed to read {cmds_path}: {exc}")
-        print(f"Applying {len(commands)} operations to Ghidra via {endpoint}...")
+            error_exit(f"Failed to read {cmds_path}: {exc}", json_mode=json_output)
+        console.print(f"Applying {len(commands)} operations to Ghidra via {endpoint}...")
         ok, errs = apply_commands_via_mcp(commands, endpoint=endpoint)
-        print(f"Done: {ok} succeeded, {errs} failed")
+        console.print(f"Done: {ok} succeeded, {errs} failed")
         if errs > 0:
             raise typer.Exit(code=1)
 
@@ -417,10 +406,10 @@ def main(
 
         if sync_sizes:
             size_cmds = build_size_sync_commands(registry, program_path, iat_thunk_set)
-            print(f"Size sync: {len(size_cmds)} functions need boundary expansion")
+            console.print(f"Size sync: {len(size_cmds)} functions need boundary expansion")
             for cmd in size_cmds:
                 meta = cmd.pop("_meta", {})
-                print(
+                console.print(
                     f"  {cmd['args']['address']}: "
                     f"{meta.get('ghidra_size', '?')} → {meta.get('canonical_size', '?')} "
                     f"({meta.get('reason', '')})"
@@ -429,22 +418,22 @@ def main(
 
         if sync_new_functions:
             new_cmds = build_new_function_commands(registry, program_path, iat_thunk_set)
-            print(f"New functions: {len(new_cmds)} list-only functions to create in Ghidra")
+            console.print(f"New functions: {len(new_cmds)} list-only functions to create in Ghidra")
             for cmd in new_cmds:
                 meta = cmd.pop("_meta", {})
-                print(f"  {cmd['args']['address']}: list size {meta.get('list_size', '?')}")
+                console.print(f"  {cmd['args']['address']}: list size {meta.get('list_size', '?')}")
             all_cmds.extend(new_cmds)
 
         if all_cmds:
             out_path = cfg.root / "ghidra_size_commands.json"
             with out_path.open("w", encoding="utf-8") as f:
                 json.dump(all_cmds, f, indent=2)
-            print(f"Exported {len(all_cmds)} operations to {out_path}")
+            console.print(f"Exported {len(all_cmds)} operations to {out_path}")
 
             if push:
-                print(f"Applying {len(all_cmds)} size operations via {endpoint}...")
+                console.print(f"Applying {len(all_cmds)} size operations via {endpoint}...")
                 ok, errs = apply_commands_via_mcp(all_cmds, endpoint=endpoint)
-                print(f"Done: {ok} succeeded, {errs} failed")
+                console.print(f"Done: {ok} succeeded, {errs} failed")
                 if errs > 0:
                     raise typer.Exit(code=1)
 
@@ -469,13 +458,15 @@ def _refresh_structure_cache(
     try:
         with httpx.Client(timeout=30.0) as client:
             session_id = _init_mcp_session(client, endpoint)
-            print(f"Fetching functions from Ghidra ({program_path})...")
+            console.print(f"Fetching functions from Ghidra ({program_path})...")
             raw_funcs = _fetch_all_functions(client, endpoint, program_path, session_id)
     except (httpx.HTTPError, OSError) as exc:
-        error_exit(f"Failed to fetch functions from Ghidra MCP: {exc}")
+        error_exit(f"Failed to fetch functions from Ghidra MCP: {exc}", json_mode=json_output)
 
     if not raw_funcs:
-        error_exit("No functions returned from Ghidra MCP. Is the program open?")
+        error_exit(
+            "No functions returned from Ghidra MCP. Is the program open?", json_mode=json_output
+        )
 
     # Normalize to tool-agnostic schema
     entries = []
@@ -493,14 +484,14 @@ def _refresh_structure_cache(
             entry["tool_name"] = tool_name
         entries.append(entry)
 
-    print(f"  Fetched {len(entries)} functions")
+    console.print(f"  Fetched {len(entries)} functions")
 
     if json_output:
         json_print(entries)
         return
 
     if dry_run:
-        print(f"  Would write {len(entries)} entries to {out_path}")
+        console.print(f"  Would write {len(entries)} entries to {out_path}")
         return
 
     # Atomic write: write to tmp file in same directory, then rename
@@ -513,7 +504,7 @@ def _refresh_structure_cache(
             json.dump(entries, tmp_f, indent=2)
             tmp_f.write("\n")
         os.replace(tmp_path, str(out_path))
-        print(f"  Wrote {out_path}")
+        console.print(f"  Wrote {out_path}")
     except BaseException:
         # Clean up tmp file on any error
         with contextlib.suppress(OSError):

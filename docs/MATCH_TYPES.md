@@ -6,20 +6,17 @@ The `.c` file contains only the stable `// FUNCTION: MODULE 0xVA` marker line.
 ## Status Overview
 
 ```
-UNDOCUMENTED  →  STUB  →  MATCHING  →  RELOC  →  EXACT
-                                  ↘             ↗
-                               MATCHING_RELOC
+UNDOCUMENTED  →  STUB  →  NEAR_MATCHING  →  RELOC  →  EXACT
                                   ↓
-                               PROVEN (from MATCHING or MATCHING_RELOC via rebrew prove)
+                               PROVEN (from NEAR_MATCHING via rebrew prove)
                                SKIP   (parallel track — intentionally unmatchable)
 ```
 
 | Status | Byte match | Set by | Counts in coverage |
 |--------|-----------|--------|-------------------|
 | `UNDOCUMENTED` | — | Automatic (no .c file) | ❌ No |
-| `STUB` | <75% | `rebrew test` (demotion) | ❌ No |
-| `MATCHING` | ≥75% | `rebrew test` | ⚠️ Partial |
-| `MATCHING_RELOC` | Near-reloc | `rebrew test` | ⚠️ Partial |
+| `STUB` | <60% | `rebrew test` (demotion) | ❌ No |
+| `NEAR_MATCHING` | ≥60% | `rebrew test` | ⚠️ Partial |
 | `RELOC` | 100% (masked) | `rebrew test` | ✅ Yes |
 | `EXACT` | 100% (raw) | `rebrew test` | ✅ Yes |
 | `PROVEN` | Semantic | `rebrew prove` | ✅ Yes |
@@ -45,11 +42,11 @@ No metadata entry exists yet. Coverage dashboard shows these as "untouched".
 ## STUB
 
 A `.c` file exists but the implementation is a placeholder — either empty, contains
-`TODO`, or compiles to something radically different from the target (< 75% byte match,
+`TODO`, or compiles to something radically different from the target (< 60% byte match,
 or wrong size).
 
 Also assigned automatically by `rebrew test` when a previously-matching function
-regresses below the 75% match threshold (demotion).
+regresses below the 60% match threshold (demotion).
 
 ```toml
 ["SERVER.0x10008880"]
@@ -63,9 +60,9 @@ wrong calling convention, completely wrong algorithm structure.
 
 ---
 
-## MATCHING
+## NEAR_MATCHING
 
-The compiled output is ≥ 75% byte-similar to the target but has structural differences
+The compiled output is ≥ 60% byte-similar to the target but has structural differences
 that persist after relocation masking — different register allocation, different loop
 structure, different branch ordering.
 
@@ -73,35 +70,18 @@ structure, different branch ordering.
 
 ```toml
 ["SERVER.0x10008880"]
-status = "MATCHING"
+status = "NEAR_MATCHING"
 size = 130
 blocker = "register allocation (esi/edi swap)"
 blocker_delta = 7
 ```
 
 Common blockers: register allocation, loop peeling, branch inversion, code block
-reordering, stack frame choice.
+reordering, stack frame choice, operand swaps, small byte deltas.
 
 **Next steps**: Iterate code structure, or run `rebrew match` (GA engine) to explore
 permutations. For near-miss cases (small delta), try `rebrew match --all --near-miss`.
-
----
-
-## MATCHING_RELOC
-
-Like MATCHING but the structural differences are very small (typically 1–5 bytes) and
-the remainder matches after relocation masking. An intermediate milestone worth tracking
-separately — these are prime candidates for the GA engine.
-
-```toml
-["SERVER.0x10008880"]
-status = "MATCHING_RELOC"
-size = 128
-blocker = "operand swap in one instruction, 2B delta"
-blocker_delta = 2
-```
-
-**Next steps**: Strong candidate for `rebrew match` or `rebrew prove`.
+Strong candidates for `rebrew prove` when the delta is very small.
 
 ---
 
@@ -158,7 +138,7 @@ symbolic execution + Z3 constraint solving. The compiled bytes differ structural
 (different register allocation, instruction reordering, loop unrolling), but for **all
 possible inputs**, the return value and observable side-effects are identical.
 
-Used when a function is stuck on MATCHING due to compiler jitter that can't be
+Used when a function is stuck on NEAR_MATCHING due to compiler jitter that can't be
 resolved by flag sweeps or code restructuring.
 
 ```toml
@@ -216,10 +196,9 @@ flowchart TD
     F --> G{masked target == masked output?}
     G -- Yes --> H[RELOC]
     G -- No --> I[Compute similarity score]
-    I --> J{score >= 75%?}
-    J -- "Yes, small delta" --> K[MATCHING_RELOC]
-    J -- "Yes, larger delta" --> L[MATCHING]
-    J -- No --> M[STUB demotion]
+    I --> J{score >= 60%?}
+    J -- Yes --> K[NEAR_MATCHING]
+    J -- No --> L[STUB demotion]
 ```
 
 ```text
@@ -229,9 +208,8 @@ flowchart TD
 4. Compare:
    a. target_bytes == output_bytes               → EXACT
    b. masked_target == masked_output             → RELOC
-   c. similarity >= 75%, delta <= threshold      → MATCHING_RELOC
-   d. similarity >= 75%, delta > threshold       → MATCHING
-   e. similarity < 75% or wrong size             → STUB (demotion)
+   c. similarity >= 60%                          → NEAR_MATCHING
+   d. similarity < 60% or wrong size             → STUB (demotion)
 ```
 
 ## Relocation Masking Details

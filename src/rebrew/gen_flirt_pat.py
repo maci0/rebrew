@@ -29,7 +29,10 @@ def parse_archive(lib_path: str) -> Iterator[tuple[str, bytes]]:
 
         header = data[pos : pos + 60]
         name_field = header[0:16].rstrip(b" ")
-        size = int(header[48:58].strip())
+        try:
+            size = int(header[48:58].strip())
+        except ValueError:
+            break
 
         pos += 60
         member_data = data[pos : pos + size]

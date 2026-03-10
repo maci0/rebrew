@@ -235,12 +235,12 @@ def run_diff(
                 if delta > 0:
                     update_field(metadata_dir, va, "blocker_delta", delta, module=module)
                 if not json_output:
-                    typer.echo(f"  Updated BLOCKER: {blocker_text} ({delta}B delta)", err=True)
+                    console.print(f"  Updated BLOCKER: {blocker_text} ({delta}B delta)")
             else:
                 deleted_b = remove_field(metadata_dir, va, "blocker", module=module)
                 deleted_d = remove_field(metadata_dir, va, "blocker_delta", module=module)
                 if (deleted_b or deleted_d) and not json_output:
-                    typer.echo("  Cleared BLOCKER (no structural diffs)", err=True)
+                    console.print("  Cleared BLOCKER (no structural diffs)")
 
         summary_obj = summary.get("summary", {})
         structural_obj = summary_obj.get("structural", 0) if isinstance(summary_obj, dict) else 0
@@ -254,29 +254,21 @@ def run_diff(
 # CLI
 # ---------------------------------------------------------------------------
 
-_EPILOG = """\
-[bold]Examples:[/bold]
-
-rebrew diff src/game/my_func.c                Show full byte diff
-
-rebrew diff src/game/my_func.c --mm           Show only structural mismatches (**)
-
-rebrew diff src/game/my_func.c --rr           Normalize register encodings (mark as RR)
-
-rebrew diff src/game/my_func.c --fix-blocker  Auto-write BLOCKER from diff analysis
-
-rebrew diff src/game/my_func.c --format csv   CSV output
-
-rebrew diff src/game/my_func.c --json         JSON structured diff
-
-[bold]Exit codes:[/bold]
-
-0   No structural differences
-1   Structural differences found (** lines)
-2   Build failed
-
-[dim]Compiles source with MSVC6 (CFLAGS from metadata) and diffs against the target binary.
-Symbol, VA, and size are auto-detected from // FUNCTION / // SIZE markers.[/dim]"""
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew diff src/game/my_func.c · · · · · · · · Show full byte diff\n\n"
+    "  rebrew diff src/game/my_func.c --mm · · · · · · Show only structural mismatches (**)\n\n"
+    "  rebrew diff src/game/my_func.c --rr · · · · · · Normalize register encodings (mark as RR)\n\n"
+    "  rebrew diff src/game/my_func.c --fix-blocker · · Auto-write BLOCKER from diff analysis\n\n"
+    "  rebrew diff src/game/my_func.c --format csv · · · CSV output\n\n"
+    "  rebrew diff src/game/my_func.c --json · · · · · JSON structured diff\n\n"
+    "[bold]Exit codes:[/bold]\n\n"
+    "  0   No structural differences\n\n"
+    "  1   Structural differences found (** lines)\n\n"
+    "  2   Build failed\n\n"
+    "[dim]Compiles source with MSVC6 (CFLAGS from metadata) and diffs against the target binary. "
+    "Symbol, VA, and size are auto-detected from // FUNCTION markers and rebrew-function.toml metadata.[/dim]"
+)
 
 app = typer.Typer(
     help="Compile and diff a reversed function against the target binary.",
@@ -308,6 +300,7 @@ def main(
     fmt: str = typer.Option(
         "terminal",
         "--format",
+        "-f",
         help="Output format: terminal, csv",
     ),
     force: bool = typer.Option(
@@ -318,7 +311,7 @@ def main(
 ) -> None:
     """Compile a reversed function and show a byte diff against the target."""
     if fmt not in ("terminal", "csv"):
-        error_exit("--format must be 'terminal' or 'csv'")
+        error_exit("--format must be 'terminal' or 'csv'", json_mode=json_output)
 
     csv_output = fmt == "csv"
 

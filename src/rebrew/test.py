@@ -12,7 +12,6 @@ Usage:
 """
 
 import json
-import re
 import sys
 import tempfile
 from pathlib import Path
@@ -23,7 +22,17 @@ from rich.console import Console
 
 from rebrew.annotation import Annotation, parse_c_file_multi, parse_source_metadata
 from rebrew.binary_loader import extract_raw_bytes
-from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config, target_marker
+from rebrew.cli import (
+    NEAR_MATCH_THRESHOLD,
+    TargetOption,
+    classify_match_status,
+    error_exit,
+    is_matched,
+    json_print,
+    parse_va,
+    require_config,
+    target_marker,
+)
 from rebrew.config import ProjectConfig
 from rebrew.core import smart_reloc_compare
 from rebrew.matcher.parsers import list_obj_symbols, parse_obj_symbol_bytes
@@ -31,12 +40,10 @@ from rebrew.metadata import update_source_status
 
 console = Console(stderr=True)
 
-# Regex for detecting FUNCTION/LIBRARY/STUB marker lines (used by update_source_status)
-_MARKER_RE = re.compile(r"^(//|/\*)\s*(?:FUNCTION|LIBRARY|STUB):\s*\S+\s+(0x[0-9a-fA-F]+)")
-_STATUS_RE = re.compile(r"^(//|/\*)\s*STATUS:")
-_BLOCKER_RE = re.compile(r"^(//|/\*)\s*BLOCKER:")
-# Matches any annotation key-value comment line (// KEY: ... or /* KEY: ... */)
-_ANY_KV_LINE_RE = re.compile(r"^(?://|/\*)\s*[A-Z][A-Z_0-9]*:")
+
+def _expand_reloc_offsets(relocs: list[int], limit: int) -> set[int]:
+    """Expand 4-byte relocation start offsets into a set of individual byte offsets."""
+    return {r + j for r in relocs for j in range(4) if r + j < limit}
 
 
 def _patch_verify_cache(
@@ -78,7 +85,7 @@ def _patch_verify_cache(
     result["status"] = new_status
     match_pct = round(100.0 * match_count / total, 1) if total > 0 else 0.0
     result["match_percent"] = match_pct
-    result["passed"] = new_status in ("EXACT", "RELOC")
+    result["passed"] = is_matched(new_status)
     if total > 0:
         result["delta"] = total - match_count
     entry["result"] = result
@@ -105,45 +112,32 @@ def compile_obj(
     return compile_to_obj(cfg, source_path, cflags, workdir)
 
 
-_EPILOG = """\
-[bold]Examples:[/bold]
-
-rebrew test src/game_dll/my_func.c                  Auto-detect symbol, VA, size from source
-
-rebrew test src/game_dll/my_func.c _my_func         Explicit symbol name
-
-rebrew test f.c _sym --va 0x10009310 --size 42      Override VA and size from CLI
-
-rebrew test f.c _sym --cflags "/O1 /Gd"             Override compiler flags
-
-rebrew test src/game_dll/my_func.c --no-promote     Skip STATUS metadata update
-
-rebrew test src/game_dll/my_func.c --json            Machine-readable JSON output
-
-rebrew test --all                                    Batch test all reversed functions
-
-rebrew test --all --origin GAME                      Only GAME-origin functions
-
-rebrew test --all --dir src/game_dll/                Restrict batch to a subdirectory
-
-rebrew test --all --dry-run                          List batch candidates without testing
-
-[bold]Auto-promote (default behaviour):[/bold]
-
-1. Compiles the .c file with MSVC6 (via Wine) using CFLAGS from metadata
-
-2. Extracts the named COFF symbol from the .obj
-
-3. Compares compiled bytes against the original DLL bytes at the given VA
-
-4. Reports EXACT, RELOC (match after masking relocations), or STUB
-
-5. Updates STATUS in metadata (EXACT / RELOC / NEAR_MATCHING) — skip with --no-promote (auto-skipped if file is outside project)
-
-6. If EXACT/RELOC: clears any auto-generated BLOCKER from metadata
-
-[dim]Parameters are auto-detected from // FUNCTION and // SIZE markers in source,
-plus STATUS and CFLAGS from rebrew-function.toml metadata.[/dim]"""
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew test src/game_dll/my_func.c · · · · · · Auto-detect symbol, VA, size from source\n\n"
+    "  rebrew test src/game_dll/my_func.c _my_func · · Explicit symbol name\n\n"
+    "  rebrew test f.c _sym --va 0x10009310 --size 42 · Override VA and size from CLI\n\n"
+    '  rebrew test f.c _sym --cflags "/O1 /Gd" · · · · Override compiler flags\n\n'
+    "  rebrew test src/game_dll/my_func.c --no-promote  Skip STATUS metadata update\n\n"
+    "  rebrew test src/game_dll/my_func.c --json · · · · Machine-readable JSON output\n\n"
+    "  rebrew test --all · · · · · · · · · · · · · · · Batch test all reversed functions\n\n"
+    "  rebrew test --all --origin GAME · · · · · · · · Only GAME-origin functions\n\n"
+    "  rebrew test --all --dir src/game_dll/ · · · · · Restrict batch to a subdirectory\n\n"
+    "  rebrew test --all --dry-run · · · · · · · · · · List batch candidates without testing\n\n"
+    "[bold]Auto-promote (default behaviour):[/bold]\n\n"
+    "  1. Compiles the .c file with MSVC6 (via Wine) using CFLAGS from metadata\n\n"
+    "  2. Extracts the named COFF symbol from the .obj\n\n"
+    "  3. Compares compiled bytes against the original DLL bytes at the given VA\n\n"
+    "  4. Reports EXACT, RELOC (match after masking relocations), or STUB\n\n"
+    "  5. Updates STATUS in metadata (EXACT / RELOC / NEAR_MATCHING) — skip with --no-promote (auto-skipped if file is outside project)\n\n"
+    "  6. If EXACT/RELOC: clears any auto-generated BLOCKER from metadata\n\n"
+    "[bold]Exit codes:[/bold]\n\n"
+    "  0   EXACT or RELOC match (bytes identical or match after relocation masking)\n\n"
+    "  1   NEAR_MATCHING or STUB (code needs improvement)\n\n"
+    "  2   Build error (compilation failed)\n\n"
+    "[dim]Parameters are auto-detected from // FUNCTION markers in source, "
+    "plus STATUS, SIZE, and CFLAGS from rebrew-function.toml metadata.[/dim]"
+)
 
 app = typer.Typer(
     help="Compile-and-compare for reversed functions (auto-updates STATUS by default).",
@@ -284,9 +278,9 @@ def main(
         if lint_anno and lint_anno.symbol:
             symbol = lint_anno.symbol
     if not symbol:
-        if json_output:
-            error_exit("Symbol not provided", json_mode=True)
-        error_exit("Could not derive symbol from C function definition or CLI args")
+        error_exit(
+            "Could not derive symbol from C function definition or CLI args", json_mode=json_output
+        )
 
     va_str = va
     if not va_str:
@@ -304,7 +298,7 @@ def main(
         try:
             size_val = int(meta["SIZE"])
         except ValueError:
-            error_exit(f"Invalid SIZE metadata: {meta['SIZE']!r}")
+            error_exit(f"Invalid SIZE metadata: {meta['SIZE']!r}", json_mode=json_output)
 
     cflags_str = cflags or meta.get("CFLAGS", "/O2 /Gd")
     cflags_parts = cflags_str.split()
@@ -317,9 +311,10 @@ def main(
         if size_val is not None:
             target_bytes = target_bytes[:size_val]
     else:
-        if json_output:
-            error_exit("No VA/SIZE or target_bin", json_mode=True)
-        error_exit("Specify either target_bin or (VA and SIZE) via args or source metadata")
+        error_exit(
+            "Specify either target_bin or (VA and SIZE) via args or source metadata",
+            json_mode=json_output,
+        )
 
     with tempfile.TemporaryDirectory(prefix="test_func_") as workdir:
         obj_path, err = compile_obj(cfg, source, cflags_parts, workdir)
@@ -372,10 +367,9 @@ def main(
             else:
                 console.print(f"EXACT MATCH: {total}/{total} bytes")
         else:
-            near = total > 0 and (match_count / total) >= 0.60
+            near = total > 0 and (match_count / total) >= NEAR_MATCH_THRESHOLD
             if near:
-                delta = abs(len(target_bytes) - len(obj_bytes)) + (total - match_count)
-                label = "NEAR_MATCHING" if delta <= 5 else "NEAR_MATCHING"
+                label = "NEAR_MATCHING"
                 color = "bold yellow"
             else:
                 label = "STUB"
@@ -384,16 +378,8 @@ def main(
             console.print(f"\nTarget ({len(target_bytes)}B): {target_bytes.hex()}")
             console.print(f"Output ({len(obj_bytes)}B): {obj_bytes.hex()}")
             if len(obj_bytes) == len(target_bytes):
-                reloc_set: set[int] = set()
-                for r in relocs:
-                    for j in range(4):
-                        if r + j < len(target_bytes):
-                            reloc_set.add(r + j)
-                inv_reloc_set: set[int] = set()
-                for r in inv_relocs:
-                    for j in range(4):
-                        if r + j < len(target_bytes):
-                            inv_reloc_set.add(r + j)
+                reloc_set = _expand_reloc_offsets(relocs, len(target_bytes))
+                inv_reloc_set = _expand_reloc_offsets(inv_relocs, len(target_bytes))
                 diff: list[str] = []
                 for i in range(len(target_bytes)):
                     if (
@@ -410,50 +396,31 @@ def main(
     # Auto-promote: update STATUS in metadata from test result (skip with --no-promote)
     if not no_promote and va_str:
         va_int_for_promote = parse_va(va_str, json_mode=json_output)
-        # Resolve module from the parsed annotation (already available)
         anno_module = lint_annos[0].module if lint_annos else ""
         old_status = lint_annos[0].status if lint_annos else ""
+        new_status = classify_match_status(matched, match_count, total, relocs)
         if old_status == "PROVEN":
             if not json_output:
                 console.print("[dim]STATUS → skipped (PROVEN)[/dim]")
-        elif matched:
-            new_status = "RELOC" if relocs else "EXACT"
+        else:
+            clear = is_matched(new_status)
             update_source_status(
-                cfg.metadata_dir, new_status, anno_module, va_int_for_promote, clear_blockers=True
+                cfg.metadata_dir,
+                new_status,
+                anno_module,
+                va_int_for_promote,
+                clear_blockers=clear,
             )
             _patch_verify_cache(
-                cfg, va_int_for_promote, new_status, match_count, total, len(relocs)
+                cfg,
+                va_int_for_promote,
+                new_status,
+                match_count,
+                total,
+                len(relocs) if matched else 0,
             )
             if not json_output:
                 console.print(f"[dim]STATUS → {new_status}[/dim]")
-        elif total > 0:
-            match_ratio = match_count / total
-            if match_ratio >= 0.60:
-                # NEAR_MATCHING — do NOT clear blocker (may be user-set)
-                delta = abs(len(target_bytes) - len(obj_bytes)) + (total - match_count)
-                new_status = "NEAR_MATCHING" if delta <= 5 else "NEAR_MATCHING"
-                update_source_status(
-                    cfg.metadata_dir,
-                    new_status,
-                    anno_module,
-                    va_int_for_promote,
-                    clear_blockers=False,
-                )
-                _patch_verify_cache(cfg, va_int_for_promote, new_status, match_count, total)
-                if not json_output:
-                    console.print(f"[dim]STATUS → {new_status}[/dim]")
-            else:
-                # STUB — demote so metadata reflects reality
-                update_source_status(
-                    cfg.metadata_dir,
-                    "STUB",
-                    anno_module,
-                    va_int_for_promote,
-                    clear_blockers=False,
-                )
-                _patch_verify_cache(cfg, va_int_for_promote, "STUB", match_count, total)
-                if not json_output:
-                    console.print("[dim]STATUS → STUB[/dim]")
 
 
 def build_result_dict(
@@ -493,27 +460,14 @@ def build_result_dict(
         JSON-serializable dictionary with status, metrics, and mismatches.
 
     """
-    near = not matched and total > 0 and (match_count / total) >= 0.60
-    delta = abs(len(target_bytes) - len(obj_bytes)) + (total - match_count)
-    status = (
-        ("RELOC" if relocs else "EXACT")
-        if matched
-        else (("NEAR_MATCHING" if delta <= 5 else "NEAR_MATCHING") if near else "STUB")
-    )
+    status = classify_match_status(matched, match_count, total, relocs)
 
     mismatches: list[dict[str, str | int]] = []
     invalid_relocs = invalid_relocs or []
-    inv_reloc_set = set()
-    for r in invalid_relocs:
-        for j in range(4):
-            inv_reloc_set.add(r + j)
     if not matched:
         min_len = min(len(obj_bytes), len(target_bytes))
-        reloc_set: set[int] = set()
-        for r in relocs:
-            for j in range(4):
-                if r + j < min_len:
-                    reloc_set.add(r + j)
+        reloc_set = _expand_reloc_offsets(relocs, min_len)
+        inv_reloc_set = _expand_reloc_offsets(invalid_relocs, min_len)
         for i in range(min_len):
             if i not in reloc_set and (i in inv_reloc_set or obj_bytes[i] != target_bytes[i]):
                 mismatches.append(
@@ -625,7 +579,6 @@ def _test_multi(
             matched, match_count, total, relocs, inv_relocs = smart_reloc_compare(
                 obj_bytes, target_bytes, coff_relocs, name_to_va=name_to_va
             )
-            match_ratio = match_count / total if total > 0 else 0.0
 
             if json_output:
                 results_list.append(
@@ -651,7 +604,7 @@ def _test_multi(
                 else:
                     console.print(f"[bold green]EXACT[/bold green] {sym} — {total}/{total}B")
             else:
-                near = total > 0 and (match_count / total) >= 0.60
+                near = total > 0 and (match_count / total) >= NEAR_MATCH_THRESHOLD
                 if near:
                     label = "NEAR_MATCHING"
                     color = "bold yellow" if (match_count / total) >= 0.97 else "yellow"
@@ -660,61 +613,35 @@ def _test_multi(
                     console.print(f"[red]STUB[/red] {sym} — {match_count}/{total}B")
 
             # Determine new status from test result
-            if matched:
-                new_status = "RELOC" if relocs else "EXACT"
-            elif match_ratio >= 0.60:
-                new_status = "NEAR_MATCHING"
-            else:
-                new_status = "STUB"
-
+            new_status = classify_match_status(matched, match_count, total, relocs)
             old_status = ann.status or "STUB"
 
             # Auto-promote: update STATUS in metadata (mirrors single-function path)
             if not no_promote:
                 if old_status == "PROVEN":
-                    # PROVEN is sticky — don't demote or record a transition
                     status_transitions.append((old_status, old_status))
                     if not json_output:
                         console.print("[dim]  STATUS → skipped (PROVEN)[/dim]")
-                elif matched:
+                else:
+                    clear = is_matched(new_status)
                     update_source_status(
-                        cfg.metadata_dir, new_status, ann.module, ann.va, clear_blockers=True
+                        cfg.metadata_dir,
+                        new_status,
+                        ann.module,
+                        ann.va,
+                        clear_blockers=clear,
                     )
-                    _patch_verify_cache(cfg, ann.va, new_status, match_count, total, len(relocs))
+                    _patch_verify_cache(
+                        cfg,
+                        ann.va,
+                        new_status,
+                        match_count,
+                        total,
+                        len(relocs) if matched else 0,
+                    )
                     status_transitions.append((old_status, new_status))
                     if not json_output:
                         console.print(f"[dim]  STATUS → {new_status}[/dim]")
-                elif total > 0 and (match_count / total) >= 0.60:
-                    if new_status in ("NEAR_MATCHING",):
-                        update_source_status(
-                            cfg.metadata_dir,
-                            new_status,
-                            ann.module,
-                            ann.va,
-                            clear_blockers=False,
-                        )
-                        _patch_verify_cache(cfg, ann.va, new_status, match_count, total)
-                        status_transitions.append((old_status, new_status))
-                        if not json_output:
-                            console.print(f"[dim]  STATUS → {new_status}[/dim]")
-                    else:
-                        # STUB — demote so metadata reflects reality
-                        update_source_status(
-                            cfg.metadata_dir, "STUB", ann.module, ann.va, clear_blockers=False
-                        )
-                        _patch_verify_cache(cfg, ann.va, "STUB", match_count, total)
-                        status_transitions.append((old_status, "STUB"))
-                        if not json_output:
-                            console.print("[dim]  STATUS → STUB[/dim]")
-                else:
-                    # Below threshold — demote to STUB
-                    update_source_status(
-                        cfg.metadata_dir, "STUB", ann.module, ann.va, clear_blockers=False
-                    )
-                    _patch_verify_cache(cfg, ann.va, "STUB", match_count, total)
-                    status_transitions.append((old_status, "STUB"))
-                    if not json_output:
-                        console.print("[dim]  STATUS → STUB[/dim]")
             else:
                 status_transitions.append((old_status, new_status))
 
