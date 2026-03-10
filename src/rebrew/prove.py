@@ -40,6 +40,7 @@ from rich.console import Console
 from rebrew.annotation import parse_c_file_multi, resolve_symbol
 from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import (
+    EXIT_MISMATCH,
     TargetOption,
     error_exit,
     iter_sources,
@@ -1029,7 +1030,7 @@ def main(
             console.print(f"[dim]STATUS unchanged — function remains {ann.status}[/dim]")
 
     if not proven:
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=EXIT_MISMATCH)
 
 
 # ---------------------------------------------------------------------------

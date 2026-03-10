@@ -24,7 +24,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from rebrew.cli import TargetOption, json_print, require_config
+from rebrew.cli import EXIT_MISMATCH, TargetOption, json_print, require_config
 from rebrew.config import ProjectConfig, load_config
 
 console = Console(stderr=True)
@@ -653,7 +653,7 @@ def main(
             console.print("[red]  Issues found. Fix the failures above and re-run.[/red]")
 
     if not report.passed:
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=EXIT_MISMATCH)
 
 
 def main_entry() -> None:
