@@ -145,7 +145,7 @@ graph TD
 
 ### Acceptance Criteria
 - GA accepts my `.c` file as seed
-- 79 mutation operators applied (if-swaps, loop transforms, operand commutation, code layout, expression rewriting, MSVC6-targeted stack/register/zero-extension mutations)
+- 106 mutation operators applied (if-swaps, loop transforms, operand commutation, code layout, expression rewriting, MSVC6-targeted stack/register/zero-extension mutations, parameter register toggling, loop break manipulation, call-arg ternary collapse, common-tail hoisting)
 - Results cached in SQLite `BuildCache` to prevent duplicate compilations
 - GA finds EXACT/RELOC or reports stagnation after N generations
 

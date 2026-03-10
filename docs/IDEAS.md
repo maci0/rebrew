@@ -25,7 +25,7 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 | — | CRT auto-detection | `rebrew cfg detect-crt` — scans `tools/` for known MSVC CRT source dirs. `detect_crt_sources()` in `config.py`. |
 | — | Dotted key resolution | `rebrew cfg show/set/get` — greedy longest-match resolution for TOML keys containing dots. |
 | — | CLI code audit / deduplication | `normalize_name()` in `naming.py`; `disasm_bytes()` in `asm.py`; `iter_annotations()` in `cli.py`; removed `_find_block_lines` dead code; removed `_make_progress_printer` in favour of `Console(stderr=True)` pattern. All 1735 tests pass. |
-| 4 | GA code layout mutations | `mutator.py` — 79 structural mutations for GA exploration. |
+| 4 | GA code layout mutations | `mutator.py` — 106 structural mutations for GA exploration. |
 | 19 | Cross-function solution transfer | `solutions.py` — GA auto-saves and seeds from `.rebrew/solutions.json`. |
 
 ---

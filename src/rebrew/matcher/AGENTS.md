@@ -11,7 +11,7 @@ target binaries, and mutates source code to converge on exact matches.
 | `core.py` | Data types (pure, no logic) | `Score`, `BuildResult`, `BuildCache`, `GACheckpoint`, `StructuralSimilarity` |
 | `compiler.py` | Compilation backend | `build_candidate()`, `build_candidate_obj_only(cache=)`, `flag_sweep(cache=)`, `generate_flag_combinations()` |
 | `scoring.py` | Binary comparison (pure, no I/O) | `score_candidate()`, `diff_functions()`, `structural_similarity()` |
-| `mutator.py` | C source mutations (pure, no I/O) | `mutate_code()`, `crossover()`, `compute_population_diversity()`, 79 `mut_*` operators |
+| `mutator.py` | C source mutations (pure, no I/O) | `mutate_code()`, `crossover()`, `compute_population_diversity()`, 106 `mut_*` operators |
 | `parsers.py` | Object file parsing (read-only) | `parse_obj_symbol_bytes()`, `list_obj_symbols()`, `extract_function_from_binary()` |
 | `flags.py` | Flag primitives | `FlagSet`, `Checkbox` (frozen dataclasses), `Flags` (type alias) |
 | `flag_data.py` | MSVC flag definitions | `MSVC6_FLAGS`, `COMMON_MSVC_FLAGS`, `MSVC_SWEEP_TIERS` |
@@ -63,7 +63,7 @@ Source (.c) ──→ compiler.build_candidate()
                         │
                         ▼
               mutator.mutate_code(source, rng)
-                  ├─ Pick random mutation from ALL_MUTATIONS (79 operators)
+                  ├─ Pick random mutation from ALL_MUTATIONS (106 operators)
                   ├─ Apply mutation, validate syntax
                   └─ Return (mutated_source, mutation_name)
                         │
@@ -97,21 +97,22 @@ checkpoints when GA parameters change.
 
 ## Mutation Operators
 
-79 operators in `mutator.py`, all named `mut_*`. Categories:
+106 operators in `mutator.py`, all named `mut_*`. Categories:
 
 - **Commutative / logic**: `mut_commute_simple_add`, `mut_commute_simple_mul`, `mut_swap_eq_operands`, `mut_swap_ne_operands`, `mut_swap_or_operands`, `mut_swap_and_operands`, `mut_reassociate_add`, `mut_demorgan`
 - **Comparison / boolean**: `mut_flip_eq_zero`, `mut_flip_lt_ge`, `mut_comparison_boundary`, `mut_toggle_bool_not`, `mut_negate_condition`
 - **Control flow**: `mut_swap_if_else`, `mut_reorder_elseif`, `mut_flatten_nested_if`, `mut_extract_else_body`, `mut_guard_clause`, `mut_split_cmp_chain`, `mut_merge_cmp_chain`, `mut_hoist_return`, `mut_sink_return`, `mut_return_to_goto`, `mut_goto_to_return`, `mut_while_to_goto_loop`
-- **Loop transforms**: `mut_for_to_while`, `mut_while_to_for`, `mut_while_to_dowhile`, `mut_dowhile_to_while`, `mut_duplicate_loop_body`, `mut_invert_loop_direction`
-- **Ternary / branch**: `mut_if_to_ternary`, `mut_ternary_to_if`, `mut_if_false_to_bitand`, `mut_bitand_to_if_false`
+- **Loop transforms**: `mut_for_to_while`, `mut_while_to_for`, `mut_while_to_dowhile`, `mut_dowhile_to_while`, `mut_duplicate_loop_body`, `mut_invert_loop_direction`, `mut_remove_loop_break`, `mut_add_loop_break`
+- **Ternary / branch**: `mut_if_to_ternary`, `mut_ternary_to_if`, `mut_if_false_to_bitand`, `mut_bitand_to_if_false`, `mut_if_else_call_to_ternary_arg`, `mut_ternary_arg_to_if_else_call`
 - **Cast / type**: `mut_add_cast`, `mut_remove_cast`, `mut_toggle_signedness`, `mut_toggle_char_signedness`, `mut_change_return_type`
 - **Variable layout**: `mut_swap_adjacent_declarations`, `mut_reorder_declarations`, `mut_split_declaration_init`, `mut_merge_declaration_init`, `mut_swap_adjacent_stmts`
 - **Expression rewrite**: `mut_compound_assign_toggle`, `mut_postpre_increment`, `mut_xor_zero_toggle`, `mut_add_redundant_parens`, `mut_fold_constant_add`, `mut_unfold_constant_add`, `mut_combine_ptr_arith`, `mut_split_ptr_arith`
 - **Pointer / array**: `mut_change_array_index_order`, `mut_struct_vs_ptr_access`, `mut_array_to_ptr_arith`, `mut_ptr_arith_to_array`, `mut_decouple_index_math`
-- **Calling / params**: `mut_toggle_calling_convention`, `mut_change_param_order`, `mut_pointer_to_int_param`, `mut_int_to_pointer_param`
+- **Calling / params**: `mut_toggle_calling_convention`, `mut_change_param_order`, `mut_pointer_to_int_param`, `mut_int_to_pointer_param`, `mut_register_param`, `mut_unregister_param`
 - **Stack frame (MSVC6)**: `mut_inject_dummy_var`, `mut_inject_dummy_array`, `mut_scope_variable`
 - **Register pressure (MSVC6)**: `mut_toggle_volatile`, `mut_add_register_keyword`, `mut_remove_register_keyword`, `mut_swap_register_keywords`, `mut_add_volatile_intermediate`, `mut_reorder_register_vars`
 - **Zero-extension (MSVC6)**: `mut_preinit_byte_load`, `mut_cast_to_bitmask`
+- **Branch merging (MSVC6)**: `mut_hoist_common_tail`, `mut_sink_common_tail`
 - **Misc**: `mut_introduce_temp_for_call`, `mut_remove_temp_var`, `mut_introduce_local_alias`, `mut_insert_noop_block`, `mut_early_return_to_accum`, `mut_accum_to_early_return`
 
 Selected uniformly at random by default. `mutate_code()` accepts optional

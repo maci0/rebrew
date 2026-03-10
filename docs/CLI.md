@@ -163,6 +163,7 @@ Output prefixes for unambiguous parsing:
 | `--max-size N` | Max target size to attempt |
 | `--filter STR` | Only process functions matching this substring |
 | `--near-miss` | Target MATCHING functions instead of STUBs |
+| `--improve` | Target all NEAR_MATCHING functions (no delta threshold) |
 | `--threshold N` | Max byte delta for `--near-miss` mode (default 10) |
 | `--dry-run` | Preview changes without writing |
 | `--seed-from-solved` / `--no-solved` | Seed GA population from similar solved functions (default: on) |
@@ -374,6 +375,7 @@ rebrew diff --mm src/target_name/f.c               # Only structural diffs
 rebrew diff --fix-blocker src/target_name/f.c      # Auto-write BLOCKER metadata
 rebrew diff --json src/target_name/f.c             # JSON diff
 rebrew match --all                                 # Batch GA on all STUBs
+rebrew match --all --improve                       # Batch GA on all NEAR_MATCHING
 rebrew match --all --near-miss --threshold 5       # GA on MATCHING with <=5B delta
 rebrew match --all --dry-run                       # List candidates only
 
@@ -447,7 +449,7 @@ rebrew sync --pull-data                            # Fetch data labels into rebr
 | `matcher/flags.py` | `FlagSet`/`Checkbox` primitives (compatible with decomp.me) |
 | `matcher/flag_data.py` | Auto-generated MSVC flags + sweep tiers (from `tools/sync_decomp_flags.py`) |
 | `matcher/parsers.py` | COFF `.obj` and PE byte extraction (LIEF-based) |
-| `matcher/mutator.py` | 79 C mutation operators for GA |
+| `matcher/mutator.py` | 116 C mutation operators for GA |
 | `matcher/core.py` | SQLite `BuildCache` + GA checkpointing |
 | `solutions.py` | Cross-function solution transfer database (`.rebrew/solutions.json`) |
 
