@@ -28,7 +28,7 @@ from rebrew.annotation import (
     VALID_MARKERS,
     marker_for_module,
 )
-from rebrew.cli import TargetOption, json_print
+from rebrew.cli import EXIT_MISMATCH, TargetOption, json_print
 from rebrew.config import ProjectConfig, load_config
 
 console = Console(stderr=True)
@@ -687,7 +687,7 @@ def main(
                 )
 
     if error_count > 0:
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=EXIT_MISMATCH)
 
 
 def main_entry() -> None:

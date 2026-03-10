@@ -22,7 +22,6 @@ import re
 import shlex
 import shutil
 import subprocess
-import sys
 import tempfile
 import time
 from collections.abc import Callable
@@ -41,7 +40,15 @@ from rebrew.annotation import (
     resolve_symbol,
 )
 from rebrew.binary_loader import extract_raw_bytes
-from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config, target_marker
+from rebrew.cli import (
+    EXIT_MISMATCH,
+    TargetOption,
+    error_exit,
+    json_print,
+    parse_va,
+    require_config,
+    target_marker,
+)
 from rebrew.compile import resolve_compiler_env
 from rebrew.compile_cache import CompileCache
 from rebrew.config import ProjectConfig
@@ -1185,7 +1192,7 @@ def _run_single_flag_sweep(
 
     if best_score < 0.1:
         return
-    raise typer.Exit(code=1)
+    raise typer.Exit(code=EXIT_MISMATCH)
 
 
 def run_flag_sweep(
@@ -1575,7 +1582,7 @@ def _run_all(  # noqa: PLR0913
             )
             console.print(f"[bold]{'=' * 60}[/]")
         else:
-            print(f"[{i}/{len(stubs)}] {display} ({stub.size}B)", file=sys.stderr)
+            console.print(f"\\[{i}/{len(stubs)}] {display} ({stub.size}B)")
 
         extra_ga_paths: list[str] = []
         if seed_from_solved:
@@ -1670,7 +1677,7 @@ def _run_batch_flag_sweep(
             console.print(f"  Current flags: [dim]{stub.cflags}[/]")
             console.print(f"[bold]{'=' * 60}[/]")
         else:
-            print(f"[{i}/{len(stubs)}] {display} ({stub.size}B)", file=sys.stderr)
+            console.print(f"\\[{i}/{len(stubs)}] {display} ({stub.size}B)")
 
         best_score, best_flags, all_results = run_flag_sweep(stub, cfg, tier=tier, jobs=jobs)
 

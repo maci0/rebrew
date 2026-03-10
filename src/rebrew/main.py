@@ -170,7 +170,7 @@ def _make_stub_cmd(mod_name: str, err: Exception) -> Callable[[], None]:
 
     def _stub() -> None:
         typer.echo(f"Error: could not load '{mod_name}': {err}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=2)
 
     return _stub
 
@@ -182,7 +182,7 @@ def _make_stub_app(mod_name: str, err: Exception) -> typer.Typer:
     @stub.callback(invoke_without_command=True)
     def _stub_main() -> None:
         typer.echo(f"Error: could not load '{mod_name}': {err}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=2)
 
     return stub
 
