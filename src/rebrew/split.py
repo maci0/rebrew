@@ -209,6 +209,12 @@ def main(
             "output": rel_display_path(out_path, va_out_dir),
         }
 
+        if not dry_run and not force:
+            typer.confirm(
+                f"Extract will remove 0x{target_va:08x} from {source_path.name}. Continue?",
+                abort=True,
+            )
+
         if not dry_run:
             va_out_dir.mkdir(parents=True, exist_ok=True)
             atomic_write_text(out_path, preamble + matched_block, encoding="utf-8")

@@ -535,7 +535,9 @@ def find_all_matching(
 # ---------------------------------------------------------------------------
 
 
-def update_cflags_annotation(filepath: Path, new_cflags: str) -> bool:
+def update_cflags_annotation(
+    filepath: Path, new_cflags: str, metadata_dir: Path | None = None
+) -> bool:
     """Update the ``cflags`` for a function — writes to the metadata.
 
     Returns True if the metadata was updated, False on failure.
@@ -548,30 +550,27 @@ def update_cflags_annotation(filepath: Path, new_cflags: str) -> bool:
         return False
 
     m = re.search(
-        r"(?://|/\*)\\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\\s*(\\S+)\\s+(0x[0-9a-fA-F]+)",
+        r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*(\S+)\s+(0x[0-9a-fA-F]+)",
         text,
     )
-    if m is None:
-        # Try without the escaped form (real regex)
-        m = re.search(
-            r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*(\S+)\s+(0x[0-9a-fA-F]+)",
-            text,
-        )
     if m is None:
         return False
 
     module = m.group(1)
     va_int = int(m.group(2), 16)
 
-    entry = get_entry(filepath.parent, va_int, module=module)
+    meta_root = metadata_dir or filepath.parent
+    entry = get_entry(meta_root, va_int, module=module)
     if entry.get("cflags", "") == new_cflags:
         return False
 
-    update_field(filepath.parent, va_int, "cflags", new_cflags, module=module)
+    update_field(meta_root, va_int, "cflags", new_cflags, module=module)
     return True
 
 
-def update_stub_to_matched(filepath: Path, best_src: str, stub: StubInfo) -> None:
+def update_stub_to_matched(
+    filepath: Path, best_src: str, stub: StubInfo, metadata_dir: Path | None = None
+) -> None:
     """Replace STUB source with matched source and update STATUS.
 
     Validates the transformed content before writing, then uses
@@ -591,7 +590,8 @@ def update_stub_to_matched(filepath: Path, best_src: str, stub: StubInfo) -> Non
         va_int = int(stub.va, 16)
         from rebrew.metadata import update_source_status
 
-        update_source_status(filepath.parent, "RELOC", module, va_int)
+        meta_root = metadata_dir or filepath.parent
+        update_source_status(meta_root, "RELOC", module, va_int)
 
     updated = re.sub(
         r"^(//\s*)STATUS:\s*(STUB|NEAR_MATCHING(?:_RELOC)?)",
@@ -718,9 +718,9 @@ def main(
         help="Flag sweep tier: targeted (common flags) or exhaustive (all combos)",
         rich_help_panel="Single-Function",
     ),
-    force: bool = typer.Option(
+    ignore_lint: bool = typer.Option(
         False,
-        "--force",
+        "--ignore-lint",
         help="Continue even if source marker lint errors exist",
         rich_help_panel="Single-Function",
     ),
@@ -878,7 +878,7 @@ def main(
         )
 
     params = resolve_build_params(
-        cfg, seed_c, cl, inc, cflags, symbol, target_va, target_size, force, json_output
+        cfg, seed_c, cl, inc, cflags, symbol, target_va, target_size, ignore_lint, json_output
     )
 
     if flag_sweep_only:
@@ -998,7 +998,7 @@ def resolve_build_params(
     symbol: str | None,
     target_va: str | None,
     target_size: int | None,
-    force: bool,
+    ignore_lint: bool,
     json_output: bool,
 ) -> _BuildParams:
     """Resolve config, annotations, compiler, and target bytes into build params."""
@@ -1031,9 +1031,9 @@ def resolve_build_params(
                 console.print(f"[bold red]LINT ERROR:[/bold red] {e}")
             for w in eval_warns:
                 console.print(f"[bold yellow]LINT WARNING:[/bold yellow] {w}")
-        if eval_errs and not force:
+        if eval_errs and not ignore_lint:
             error_exit(
-                "Aborting due to annotation errors. Fix them or use --force to override.",
+                "Aborting due to annotation errors. Fix them or use --ignore-lint to override.",
                 json_mode=json_output,
             )
 
@@ -1445,7 +1445,7 @@ def _run_one_stub_ga(
             best_c = out_dir / "best.c"
             if best_c.exists():
                 try:
-                    update_stub_to_matched(filepath, best_src, stub)
+                    update_stub_to_matched(filepath, best_src, stub, metadata_dir=cfg.metadata_dir)
                 except (RuntimeError, OSError) as e:
                     console.print(
                         f"  [yellow]WARNING:[/yellow] GA matched but failed to update source: {e}"
@@ -1698,10 +1698,12 @@ def _run_batch_flag_sweep(
         if is_exact:
             exact_count += 1
             if fix_cflags and best_flags:
-                cflags_updated = update_cflags_annotation(stub.filepath, best_flags)
+                cflags_updated = update_cflags_annotation(
+                    stub.filepath, best_flags, metadata_dir=cfg.metadata_dir
+                )
                 result_entry["cflags_updated"] = cflags_updated
                 update_source_status(
-                    stub.filepath,
+                    cfg.metadata_dir,
                     "EXACT",
                     module=_module_for_va(stub.filepath, int(stub.va, 16)),
                     va=int(stub.va, 16),

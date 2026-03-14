@@ -135,7 +135,7 @@ def find_similar(
         size_diff = abs(e.size - size)
         # Cflags similarity: 0 if prefix matches, 1 otherwise
         e_cflags = _normalize_cflags(e.cflags)
-        cflags_match = 0 if cflags_norm and e_cflags == cflags_norm else 1
+        cflags_match = 0 if e_cflags == cflags_norm else 1
         return (size_diff, cflags_match)
 
     all_entries.sort(key=_sort_key)

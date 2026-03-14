@@ -271,7 +271,10 @@ def main(
         console.print(f"Wrote {csv_path} ({len(csv_text.splitlines()) - 6} functions)", style="dim")
 
     if fix_sizes:
-        console.print("[yellow]Warning: --fix-sizes will modify .c files in-place[/]")
+        typer.confirm(
+            "--fix-sizes will modify rebrew-function.toml metadata files in-place. Continue?",
+            abort=True,
+        )
         from rebrew.annotation import update_size_annotation
         from rebrew.cli import iter_sources, target_marker
 

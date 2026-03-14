@@ -124,6 +124,20 @@ def _get_win32_simprocs() -> dict[str, type]:
         def run(self, *args: Any, **kwargs: Any) -> None:
             return
 
+    class SimLocalAlloc(angr.SimProcedure):
+        def run(self, uFlags, uBytes):
+            ptr = self.state.heap.allocate(256)
+            for i in range(256):
+                self.state.memory.store(ptr + i, claripy.BVV(0, 8))
+            return ptr
+
+    class SimGlobalLock(angr.SimProcedure):
+        def run(self, hMem):
+            ptr = self.state.heap.allocate(256)
+            for i in range(256):
+                self.state.memory.store(ptr + i, claripy.BVV(0, 8))
+            return ptr
+
     class SimMemcpy(angr.SimProcedure):
         """Model memcpy: copy src→dst symbolically, return dst."""
 
@@ -192,7 +206,6 @@ def _get_win32_simprocs() -> dict[str, type]:
     for name in (
         "HeapAlloc",
         "HeapReAlloc",
-        "LocalAlloc",
         "GlobalAlloc",
         "LocalReAlloc",
         "GlobalReAlloc",
@@ -254,6 +267,8 @@ def _get_win32_simprocs() -> dict[str, type]:
         "GetSaveFileNameW",
         "MessageBoxA",
         "MessageBoxW",
+        "CreateDCW",
+        "GlobalUnlock",
     ):
         _WIN32_SIMPROCS[name] = ReturnSymbolicDword
 
@@ -332,6 +347,8 @@ def _get_win32_simprocs() -> dict[str, type]:
     ):
         _WIN32_SIMPROCS[name] = ReturnSymbolicDword
 
+    _WIN32_SIMPROCS["GlobalLock"] = SimGlobalLock
+    _WIN32_SIMPROCS["LocalAlloc"] = SimLocalAlloc
     return _WIN32_SIMPROCS
 
 

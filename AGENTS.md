@@ -130,11 +130,11 @@ Key libraries and what they provide:
 src/rebrew/
 ├── main.py              # Umbrella CLI (`rebrew` command)
 ├── merge.py             # Merge single-function C files into multi-function file
-├── cli.py               # Shared: TargetOption, get_config(), iter_sources(),
+├── cli.py               # Shared: TargetOption, require_config(), iter_sources(),
 │                        #   iter_library_headers(), iter_annotations(), error_exit(),
 │                        #   json_print(), parse_va(), source_glob(), target_marker(),
 │                        #   EXIT_OK, EXIT_MISMATCH, EXIT_ERROR, NEAR_MATCH_THRESHOLD,
-│                        #   classify_match_status()
+│                        #   classify_match_status(), is_matched(), rel_display_path()
 ├── config.py            # ProjectConfig dataclass, rebrew-project.toml loader
 ├── annotation.py        # Annotation parsing (dataclass + comment parsers + library header parser)
 ├── c_parser.py          # Shared tree-sitter C parsing (function defs, extern decls, extern vars)
@@ -214,10 +214,10 @@ if __name__ == "__main__":
 - Uses `@app.callback(invoke_without_command=True)` so the function works both
   as a standalone entry point (`rebrew-<cmd>`) and as a flat subcommand when
   registered via `app.command()` in `main.py`.
-- `TargetOption` + `require_config()` from `rebrew.cli` — never build config manually. Use `get_config()` only when optional config loading is intentional (e.g. `lint.py`, `doctor.py` diagnostics).
+- `TargetOption` + `require_config()` from `rebrew.cli` — never build config manually. Use `load_config()` from `rebrew.config` only when optional config loading is intentional (e.g. `lint.py`, `doctor.py` diagnostics).
 - `main_entry()` registered in `pyproject.toml` `[project.scripts]`.
 - Most tools support `--json` for machine-readable output. Always use `--json` when executing these CLI tools yourself to receive structured output.
-- The multi-command modules are `cfg.py` (subcommands: `list-targets`, `show`, `add-target`, `remove-target`, `set`, `set-cflags`, `raw`, `path`, `detect-crt`) and `cache_cli.py` (subcommands: `stats`, `clear`), both registered via `add_typer()` in `main.py`.
+- The multi-command modules are `cfg.py` (subcommands: `list-targets`, `show`, `add-target`, `remove-target`, `add-module`, `remove-module`, `set`, `set-cflags`, `raw`, `path`, `detect-crt`) and `cache_cli.py` (subcommands: `stats`, `clear`), both registered via `add_typer()` in `main.py`.
 
 ### CLI Conventions
 
@@ -250,5 +250,5 @@ All CLI tools follow these conventions for a consistent user experience:
 - **No wheel reinvention**: If an imported library provides the functionality, use it
 - **No backward compat**: One canonical name per function — no aliases, no shims, no legacy wrappers
 - **Metadata for volatile metadata**: Volatile fields (STATUS, CFLAGS, BLOCKER, NOTE, GHIDRA) live in `rebrew-function.toml` per-directory metadata, managed via `rebrew.metadata`. **Never manually edit `rebrew-function.toml`**
-- **Status promotion via metadata only**: Call `update_source_status(path, status, module, va)` from `rebrew.metadata` to promote STATUS. Both `rebrew test` and `rebrew verify` always call this function. **Never write STATUS inline into `.c` files.**
+- **Status promotion via metadata only**: Call `update_source_status(metadata_dir, new_status, module, va)` from `rebrew.metadata` to promote STATUS (pass `cfg.metadata_dir` as the first argument). Both `rebrew test` and `rebrew verify` always call this function. **Never write STATUS inline into `.c` files.**
 - **Compile result type**: `compile_and_compare` and `verify_entry` return `CompareResult` from `rebrew.compile`. Consume `.matched`, `.status`, `.delta`, `.match_percent` — never unpack as a tuple.

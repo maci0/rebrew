@@ -440,6 +440,8 @@ def _load_verify_entries(cfg: ProjectConfig) -> dict[str, "VerifyCacheEntry"]:
         data = VerifyCache.from_dict(json.loads(cache_path.read_text(encoding="utf-8")))
     except (json.JSONDecodeError, OSError, ValueError, AttributeError, ImportError):
         return {}
+    if data.version != 1:
+        return {}
     return data.entries
 
 
@@ -634,7 +636,7 @@ def main(
         None,
         "--category",
         "-c",
-        help="Filter by category (fix-near-miss, flag-sweep, start-function, ...)",
+        help="Filter by category (fix-delta, start-function, compile-error, ...)",
     ),
     stats: bool = typer.Option(False, "--stats", "-s", help="Show coverage stats header"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

@@ -151,7 +151,7 @@ class TestMergeBasic:
             "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
         )
 
-        result = runner.invoke(app, ["--output", str(out), "--delete", str(a), str(b)])
+        result = runner.invoke(app, ["--output", str(out), "--delete", "--force", str(a), str(b)])
         assert result.exit_code == 0
         assert out.exists()
         assert not a.exists()
