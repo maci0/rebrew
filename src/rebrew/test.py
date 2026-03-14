@@ -29,6 +29,7 @@ from rebrew.cli import (
     classify_match_status,
     error_exit,
     is_matched,
+    is_status_sticky,
     json_print,
     parse_va,
     require_config,
@@ -255,9 +256,7 @@ def main(
 
     # Multi-function support: if no explicit symbol/va/size, test all annotations
     if symbol is None and va is None and size is None:
-        annotations = parse_c_file_multi(
-            Path(source), target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
-        )
+        annotations = lint_annos
         if len(annotations) > 1:
             _test_multi(
                 cfg,
@@ -400,9 +399,9 @@ def main(
         anno_module = lint_annos[0].module if lint_annos else ""
         old_status = lint_annos[0].status if lint_annos else ""
         new_status = classify_match_status(matched, match_count, total, relocs)
-        if old_status == "PROVEN":
+        if is_status_sticky(old_status):
             if not json_output:
-                console.print("[dim]STATUS → skipped (PROVEN)[/dim]")
+                console.print(f"[dim]STATUS → skipped ({old_status})[/dim]")
         else:
             clear = is_matched(new_status)
             update_source_status(
@@ -502,27 +501,25 @@ def _test_multi(
     name_to_va: dict[str, int] | None = None,
     no_promote: bool = False,
     json_output: bool = False,
-) -> list[tuple[str, str]]:
+) -> None:
     """Test all functions in a multi-function .c file.
 
     Compiles the file once, then extracts and compares each annotated
     symbol independently.
 
-    Returns a list of ``(old_status, new_status)`` tuples for each tested
-    function (used by batch mode for aggregate stats).
+    Compiles once and compares each annotated symbol independently.
     """
     # Use cflags from first annotation as compile flags (all should share the same)
     cflags_str = cflags_override or annotations[0].cflags or "/O2 /Gd"
     cflags_parts = cflags_str.split()
 
     results_list: list[dict[str, Any]] = []
-    status_transitions: list[tuple[str, str]] = []
 
     with tempfile.TemporaryDirectory(prefix="test_multi_") as workdir:
         obj_path, err = compile_obj(cfg, source, cflags_parts, workdir)
         if obj_path is None:
             error_exit(f"COMPILE ERROR:\n{err}", json_mode=json_output)
-            return status_transitions  # unreachable, but keeps type checker happy
+            return  # unreachable, but keeps type checker happy
 
         for ann in annotations:
             sym = ann.symbol
@@ -619,10 +616,9 @@ def _test_multi(
 
             # Auto-promote: update STATUS in metadata (mirrors single-function path)
             if not no_promote:
-                if old_status == "PROVEN":
-                    status_transitions.append((old_status, old_status))
+                if is_status_sticky(old_status):
                     if not json_output:
-                        console.print("[dim]  STATUS → skipped (PROVEN)[/dim]")
+                        console.print(f"[dim]  STATUS → skipped ({old_status})[/dim]")
                 else:
                     clear = is_matched(new_status)
                     update_source_status(
@@ -640,16 +636,13 @@ def _test_multi(
                         total,
                         len(relocs) if matched else 0,
                     )
-                    status_transitions.append((old_status, new_status))
                     if not json_output:
                         console.print(f"[dim]  STATUS → {new_status}[/dim]")
-            else:
-                status_transitions.append((old_status, new_status))
 
         if json_output:
             json_print({"source": source, "results": results_list})
 
-    return status_transitions
+    return
 
 
 def _run_all_batch(
@@ -758,14 +751,15 @@ def _run_all_batch(
     if not no_promote and deferred:
         apply_status_updates(deferred, cfg)
 
-    # Build transitions for summary display (only include actual changes)
+    # Build transitions for summary display
     transitions: list[tuple[str, str]] = []
     for entry, status, _delta in deferred:
         old_status = getattr(entry, "status", "") or "STUB"
-        # PROVEN is sticky — verification result doesn't change it
-        if old_status == "PROVEN":
-            continue
-        transitions.append((old_status, status))
+        # Sticky statuses (PROVEN) keep their status regardless of byte-level result
+        if is_status_sticky(old_status):
+            transitions.append((old_status, old_status))
+        else:
+            transitions.append((old_status, status))
 
     # Count unique files for the summary
     unique_files = len({getattr(e, "filepath", "") for e in unique_entries})
@@ -790,6 +784,7 @@ def _run_all_batch(
 _RESULT_COLORS: dict[str, str] = {
     "EXACT": "bold green",
     "RELOC": "green",
+    "PROVEN": "bold cyan",
     "NEAR_MATCHING": "yellow",
     "STUB": "red",
     "SKIP": "dim",
@@ -833,7 +828,7 @@ def _print_batch_summary(
         console.print(f"  [dim]{skipped_no_size} file(s) skipped (no SIZE)[/dim]")
     console.print()
 
-    for status in ("EXACT", "RELOC", "NEAR_MATCHING", "STUB"):
+    for status in ("EXACT", "RELOC", "PROVEN", "NEAR_MATCHING", "STUB"):
         count = result_counts.get(status, 0)
         if count == 0:
             continue
@@ -844,7 +839,9 @@ def _print_batch_summary(
         console.print(f"  [{color}]{status:12s}  {count:4d}  ({pct:5.1f}%)  {bar}[/{color}]")
 
     # Other statuses not in the standard order
-    for status in sorted(set(result_counts) - {"EXACT", "RELOC", "NEAR_MATCHING", "STUB"}):
+    for status in sorted(
+        set(result_counts) - {"EXACT", "RELOC", "PROVEN", "NEAR_MATCHING", "STUB"}
+    ):
         count = result_counts[status]
         console.print(f"  [dim]{status:12s}  {count:4d}[/dim]")
 

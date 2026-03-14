@@ -354,6 +354,13 @@ def _cluster_to_dict(
 app = typer.Typer(
     help="Infer compilation unit boundaries from .text layout and call graph.",
     rich_markup_mode="rich",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew graph --cu-map · · · · · · · · · · Show inferred compilation units\n\n"
+        "  rebrew graph --cu-map --json · · · · · · · JSON output for scripting\n\n"
+        "[dim]Groups adjacent functions into probable translation units using gap analysis "
+        "and call-graph signals (static functions calling only within their cluster).[/dim]"
+    ),
 )
 
 

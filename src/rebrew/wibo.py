@@ -83,7 +83,7 @@ def download_wibo(dest: Path) -> str:
     resp.raise_for_status()
     dest.write_bytes(resp.content)
 
-    actual_sha256 = hashlib.sha256(dest.read_bytes()).hexdigest()
+    actual_sha256 = hashlib.sha256(resp.content).hexdigest()
     if actual_sha256 != expected_sha256:
         dest.unlink(missing_ok=True)
         raise RuntimeError(

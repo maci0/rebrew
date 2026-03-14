@@ -803,7 +803,8 @@ def parse_c_file(
     """Parse a decomp .c file for annotations.
 
     Parses ``// FUNCTION: MODULE 0xVA`` marker lines from the first 20 lines.
-    Metadata (STATUS, SIZE, CFLAGS, etc.) comes from ``rebrew-function.toml``.
+    Does **not** merge metadata from ``rebrew-function.toml`` — use
+    ``parse_c_file_multi()`` with *metadata_dir* for metadata overlay.
 
     Sets ``filepath`` on the returned Annotation for downstream use.
     When *base_dir* is given the stored path is relative to it (e.g.
@@ -1295,7 +1296,7 @@ def remove_annotation_key(
     modified = False
     escaped_key = re.escape(key)
     _marker_pattern = re.compile(
-        r"(?://|/\*)\s*(FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*[A-Z0-9_]+\s+(0x[0-9a-fA-F]+)"
+        r"(?://|/\*)\s*(FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*\S+\s+(0x[0-9a-fA-F]+)"
     )
     _key_pattern = re.compile(r"((?://|/\*)\s*" + escaped_key + r":\s*)(.*?)(?=\s*(?:\*/|\n|$))")
 

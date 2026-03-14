@@ -43,6 +43,7 @@ from rebrew.cli import (
     TargetOption,
     error_exit,
     is_matched,
+    is_status_sticky,
     json_print,
     require_config,
 )
@@ -610,7 +611,7 @@ def _load_previous_report(
 
 
 def prepare_entries(
-    cfg: Any,
+    cfg: ProjectConfig,
     full: bool,
     json_output: bool,
 ) -> tuple[list[Annotation], int, int, list[tuple[Annotation, str]], list[dict[str, Any]], int]:
@@ -840,8 +841,8 @@ def apply_status_updates(
         if not module:
             continue
         current_status = getattr(entry, "status", "")
-        # PROVEN is sticky — never touch it
-        if current_status == "PROVEN":
+        # Sticky statuses (PROVEN) are never demoted
+        if is_status_sticky(current_status):
             continue
         if current_status == status:
             continue
@@ -914,7 +915,7 @@ def _print_results(
             "EXACT": "[green]EXACT[/]",
             "RELOC": "[green]RELOC[/]",
             "STUB": "[dim]STUB[/]",
-            "PROVEN": "[magenta]PROVEN[/]",
+            "PROVEN": "[bold cyan]PROVEN[/]",
             "NEAR_MATCHING": "[yellow]NEAR_MATCHING[/]",
             "COMPILE_ERROR": "[red]ERROR[/]",
         }

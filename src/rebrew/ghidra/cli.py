@@ -179,7 +179,7 @@ def main(
             json_mode=json_output,
         )
 
-    cfg = require_config(target=target)
+    cfg = require_config(target=target, json_mode=json_output)
     reversed_dir = cfg.reversed_dir
     program_path = _resolve_program_path(cfg)
 

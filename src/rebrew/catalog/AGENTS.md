@@ -8,11 +8,11 @@ generates cell-level coverage grids, and exports CATALOG.md / reccmp CSV.
 
 | Module | Role | Key Exports |
 |--------|------|-------------|
-| `loaders.py` | File I/O (Ghidra JSON, function lists, DLL bytes, source + library header scanning) | `load_ghidra_functions()`, `load_ghidra_data_labels()`, `parse_function_list()`, `scan_reversed_dir()`, `extract_dll_bytes()` |
+| `loaders.py` | File I/O (Ghidra JSON, function lists, DLL bytes, source + library header scanning) | `load_function_structure()`, `load_ghidra_data_labels()`, `parse_function_list()`, `scan_reversed_dir()`, `extract_dll_bytes()` |
 | `registry.py` | Merges function sources, resolves canonical sizes | `build_function_registry()`, `make_func_entry()`, `make_ghidra_func()` |
-| `grid.py` | Cell-level coverage grid generation | `generate_data_json()` |
+| `grid.py` | Cell-level coverage grid generation | `generate_data_json()`, `merge_ranges()` |
 | `export.py` | Output generation (CATALOG.md, reccmp CSV) | `generate_catalog()`, `generate_reccmp_csv()` |
-| `sections.py` | Binary section parsing, global variable scanning, shared x86 utils | `get_sections()`, `get_globals()`, `get_text_section_size()`, `trim_trailing_padding()`, `has_back_jumps()`, `PADDING_BYTES` |
+| `sections.py` | Binary section parsing, global variable scanning, shared x86 utils | `get_sections()`, `get_globals()`, `get_text_section_size()`, `trim_trailing_padding()`, `has_back_jumps()` |
 | `cli.py` | Typer CLI orchestrator | `app`, `main`, `main_entry` |
 
 ## Dependency Graph
@@ -51,7 +51,7 @@ sections.py → binary_loader.py, config.py, cli.py (all external)
 [Input Sources]
   ├─ Reversed .c files + library_*.h → loaders.scan_reversed_dir() → list[Annotation]
   ├─ functions.txt     → loaders.parse_function_list() → list[dict]
-  ├─ ghidra JSON       → loaders.load_ghidra_functions() → list[dict]
+  ├─ ghidra JSON       → loaders.load_function_structure() → list[FunctionEntry]
   └─ PE binary         → binary_loader.load_binary() → BinaryInfo
         │
         ▼

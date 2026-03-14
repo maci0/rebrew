@@ -37,7 +37,7 @@ _STATUS_COLORS: dict[str, str] = {
     "RELOC": "cyan",
     "NEAR_MATCHING": "yellow",
     "STUB": "dim",
-    "PROVEN": "green",
+    "PROVEN": "bold cyan",
     "COMPILE_ERROR": "red",
     "MISSING_FILE": "red",
 }
@@ -141,6 +141,9 @@ def _load_verify_info(cfg: ProjectConfig) -> VerifyInfo | None:
     try:
         raw = json.loads(cache_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
+        return None
+
+    if raw.get("version") != 1:
         return None
 
     entries = raw.get("entries", {})

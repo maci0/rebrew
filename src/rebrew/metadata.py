@@ -2,14 +2,14 @@
 
 Volatile annotation fields (STATUS, SIZE, CFLAGS, BLOCKER, NOTE, GHIDRA, …)
 are stored in a single ``rebrew-function.toml`` metadata file at the
-``reversed_dir`` root (e.g. ``src/<target>/``), rather than as comment
-annotations inside ``.c`` source files.
+``metadata_dir`` root (``cfg.metadata_dir``, i.e. ``reversed_dir.parent``),
+rather than as comment annotations inside ``.c`` source files.
 
 Location
 --------
-The metadata file lives **only** at ``cfg.reversed_dir``.  There is no walk-up
+The metadata file lives **only** at ``cfg.metadata_dir``.  There is no walk-up
 discovery — callers must pass the correct root directory.  Subdirectories
-under ``reversed_dir`` do **not** have their own metadata files.
+under ``metadata_dir`` do **not** have their own metadata files.
 
 Key format
 ----------
@@ -147,7 +147,7 @@ def metadata_path(directory: Path) -> Path:
     """Return the ``rebrew-function.toml`` path for the metadata root directory.
 
     Args:
-        directory: The ``reversed_dir`` root (e.g. ``src/<target>/``).
+        directory: The metadata root directory (``cfg.metadata_dir``).
 
     """
     return directory / METADATA_FILENAME
@@ -203,14 +203,14 @@ def _parse_key(key: str) -> tuple[str, int] | None:
 def load_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]:
     """Load ``rebrew-function.toml`` from *directory*.
 
-    *directory* must be the metadata root (``cfg.reversed_dir``).  There is
+    *directory* must be the metadata root (``cfg.metadata_dir``).  There is
     no walk-up — the file is expected at exactly ``directory / rebrew-function.toml``.
 
     Returns a mapping of ``{(module, va_int): {field_name: value}}``.
     Returns an empty dict if no metadata file is found or it cannot be parsed.
 
     Args:
-        directory: The metadata root directory (``cfg.reversed_dir``).
+        directory: The metadata root directory (``cfg.metadata_dir``).
 
     """
     path = directory / METADATA_FILENAME
@@ -292,7 +292,7 @@ def get_entry(directory: Path, va: int, module: str) -> dict[str, Any]:
     Returns an empty dict if not found.
 
     Args:
-        directory: The metadata root directory (``cfg.reversed_dir``).
+        directory: The metadata root directory (``cfg.metadata_dir``).
         va: Virtual address integer.
         module: Target module name (e.g. ``"SERVER"``).
 
@@ -366,7 +366,7 @@ def update_field(directory: Path, va: int, key: str, value: Any, module: str) ->
     - STATUS writes are blocked; callers must use :func:`update_source_status`.
 
     Args:
-        directory: The metadata root directory (``cfg.reversed_dir``).
+        directory: The metadata root directory (``cfg.metadata_dir``).
         va: Virtual address integer.
         key: Lower-case TOML key (e.g. ``"cflags"``, ``"blocker"``).
         value: Value to write.
@@ -391,7 +391,7 @@ def set_field(directory: Path, va: int, key: str, value: Any, module: str) -> No
     data migration scripts).
 
     Args:
-        directory: The metadata root directory (``cfg.reversed_dir``).
+        directory: The metadata root directory (``cfg.metadata_dir``).
         va: Virtual address integer.
         key: Lower-case TOML key (e.g. ``"cflags"``, ``"status"``).
         value: Value to write.
@@ -408,7 +408,7 @@ def remove_field(directory: Path, va: int, key: str, module: str) -> bool:
     ``rebrew-function.toml``.
 
     Args:
-        directory: The metadata root directory (``cfg.reversed_dir``).
+        directory: The metadata root directory (``cfg.metadata_dir``).
         va: Virtual address integer.
         key: Lower-case TOML key to remove.
         module: Target module name.
@@ -492,7 +492,9 @@ def update_source_status(
         return
 
     # PROVEN is a post-verify promotion from rebrew prove — never silently demote.
-    if current_status == "PROVEN" and new_status != "PROVEN" and not force:
+    from rebrew.cli import is_status_sticky
+
+    if is_status_sticky(current_status) and new_status != current_status and not force:
         return
 
     # Mutate in-place
@@ -523,7 +525,7 @@ def merge_into_annotation(ann: Annotation, directory: Path) -> Annotation:
 
     Args:
         ann: The ``Annotation`` object to mutate.
-        directory: The metadata root directory (``cfg.reversed_dir``).
+        directory: The metadata root directory (``cfg.metadata_dir``).
 
     Returns:
         The mutated *ann* (same object, for chaining convenience).

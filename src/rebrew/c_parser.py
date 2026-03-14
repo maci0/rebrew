@@ -13,6 +13,7 @@ regex patterns.
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Any
 
@@ -43,6 +44,7 @@ _CALLING_CONVENTIONS = frozenset(
 
 _parser: Any = None
 _language: Any = None
+_parser_lock = threading.Lock()
 
 
 def _get_parser() -> tuple[Any, Any]:
@@ -51,18 +53,23 @@ def _get_parser() -> tuple[Any, Any]:
     if _parser is not None:
         return _parser, _language
 
-    try:
-        import tree_sitter_c
-        from tree_sitter import Language, Parser
-    except ImportError:
-        raise ImportError(
-            "tree-sitter and tree-sitter-c are required.  "
-            "Install with: uv pip install tree-sitter tree-sitter-c"
-        )
+    with _parser_lock:
+        # Double-check after acquiring lock
+        if _parser is not None:
+            return _parser, _language
 
-    _language = Language(tree_sitter_c.language())
-    _parser = Parser(_language)
-    return _parser, _language
+        try:
+            import tree_sitter_c
+            from tree_sitter import Language, Parser
+        except ImportError:
+            raise ImportError(
+                "tree-sitter and tree-sitter-c are required.  "
+                "Install with: uv pip install tree-sitter tree-sitter-c"
+            )
+
+        _language = Language(tree_sitter_c.language())
+        _parser = Parser(_language)
+        return _parser, _language
 
 
 def _parse(source: str | bytes) -> Any:
