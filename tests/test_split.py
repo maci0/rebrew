@@ -91,8 +91,12 @@ class TestSplitBasic:
 
         result = runner.invoke(app, [str(src)])
         assert result.exit_code == 0
-        assert "#include <stdio.h>" in (tmp_path / "a.c").read_text(encoding="utf-8")
-        assert "#define MAGIC 7" in (tmp_path / "b.c").read_text(encoding="utf-8")
+        a_text = (tmp_path / "a.c").read_text(encoding="utf-8")
+        b_text = (tmp_path / "b.c").read_text(encoding="utf-8")
+        assert "#include <stdio.h>" in a_text
+        assert "#define MAGIC 7" in a_text
+        assert "#include <stdio.h>" in b_text
+        assert "#define MAGIC 7" in b_text
 
     def test_uses_symbol_for_filename(self, tmp_path: Path, monkeypatch: Any) -> None:
         src = _write(tmp_path / "multi.c", _multi_two())
@@ -263,7 +267,7 @@ class TestSplitExtractVA:
             "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
         )
 
-        result = runner.invoke(app, ["--va", "0x10001000", str(src)])
+        result = runner.invoke(app, ["--va", "0x10001000", "--force", str(src)])
         assert result.exit_code == 0
         out = tmp_path / "multi_c" / "func_a.c"
         assert out.exists()
@@ -278,7 +282,7 @@ class TestSplitExtractVA:
             "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
         )
 
-        result = runner.invoke(app, ["--va", "0x10001000", str(src)])
+        result = runner.invoke(app, ["--va", "0x10001000", "--force", str(src)])
         assert result.exit_code == 0
         remaining = src.read_text(encoding="utf-8")
         assert "0x10001000" not in remaining
@@ -352,7 +356,7 @@ class TestSplitExtractVA:
             "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
         )
 
-        result = runner.invoke(app, ["--va", "0x10001000", str(src)])
+        result = runner.invoke(app, ["--va", "0x10001000", "--force", str(src)])
         assert result.exit_code == 0
         assert (tmp_path / "single_c" / "only.c").exists()
         assert not src.exists()  # source deleted when no blocks remain
@@ -366,7 +370,7 @@ class TestSplitExtractVA:
         )
         monkeypatch.setattr("rebrew.split.json_print", lambda data: payloads.append(data))
 
-        result = runner.invoke(app, ["--json", "--va", "0x10001000", str(src)])
+        result = runner.invoke(app, ["--json", "--va", "0x10001000", "--force", str(src)])
         assert result.exit_code == 0
         assert len(payloads) == 1
         payload = payloads[0]
@@ -385,7 +389,7 @@ class TestSplitExtractVA:
         )
 
         result = runner.invoke(
-            app, ["--va", "0x10001000", "--output-dir", str(custom_dir), str(src)]
+            app, ["--va", "0x10001000", "--force", "--output-dir", str(custom_dir), str(src)]
         )
         assert result.exit_code == 0
         assert (custom_dir / "func_a.c").exists()

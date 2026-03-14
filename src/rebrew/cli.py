@@ -52,6 +52,15 @@ def is_matched(status: str) -> bool:
     return status in ("EXACT", "RELOC")
 
 
+def is_status_sticky(current_status: str) -> bool:
+    """True when *current_status* should never be demoted by test/verify.
+
+    PROVEN is a post-verify promotion from ``rebrew prove`` — byte-level
+    comparison cannot reproduce it, so test/verify must preserve it.
+    """
+    return current_status == "PROVEN"
+
+
 def classify_match_status(
     matched: bool,
     match_count: int,

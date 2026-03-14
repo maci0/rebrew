@@ -438,9 +438,9 @@ def verify_roundtrip(nasm_source: str, original_bytes: bytes) -> tuple[bool, str
     return False, f"FAIL: {len(diffs)} byte diffs at offsets {diffs[:10]}"
 
 
-def _parse_annotations(filepath: Path) -> list[dict[str, Any]]:
+def _parse_annotations(filepath: Path, metadata_dir: Path | None = None) -> list[dict[str, Any]]:
     """Parse reccmp-style annotations from a reversed .c file."""
-    entries = parse_c_file_multi(filepath)
+    entries = parse_c_file_multi(filepath, metadata_dir=metadata_dir)
     results: list[dict[str, Any]] = []
     for entry in entries:
         if entry.status not in ("EXACT", "RELOC", "NEAR_MATCHING", "PROVEN", "STUB"):
@@ -471,7 +471,7 @@ def batch_extract_nasm(
 
     entries = []
     for cfile in iter_sources(reversed_dir, cfg):
-        for info in _parse_annotations(cfile):
+        for info in _parse_annotations(cfile, metadata_dir=cfg.metadata_dir):
             if info["size"] < 6:
                 continue
             if stubs_only and info["status"] != "STUB":

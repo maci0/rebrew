@@ -42,6 +42,46 @@ rebrew match --all --collect-pairs project_pairs.jsonl \
     --generations 50 --pop-size 64
 ```
 
+### Sourcing Code for Large-Scale Datasets
+
+To train a highly capable model, you need hundreds of thousands or millions of functions. Relying solely on manual decompilation projects is too slow. Here are strategies to source that volume of C code:
+
+#### 1. Scraping decomp.me
+Decomp.me hosts thousands of community-matched functions, many specifically targeting MSVC6, GCC, and MWCC for old games.
+- **API Access**: Use the decomp.me APIs to fetch completed or near-completed scratches.
+- **Filtering**: Filter by compiler (e.g., `msvc6.0`, `msvc6.0sp5`).
+- **Data format**: Extract the C source code, target assembly, and exact compiler flags.
+- **Integration**: Create an automated script that feeds the scraped C source into your local rebrew pipeline. Compile the source locally with the scraped flags to verify the target binary, then use this as ground truth for GA collection.
+
+#### 2. Historical Open-Source Repositories
+Since rebrew focuses on MSVC6/Win32, modern C11/C99 code might not compile or represent the target distribution well.
+- **Search Criteria**: Search GitHub for C/C++ repositories created or last significantly updated between 1998–2005.
+- **Notable Targets**: Open-sourced game engines (Quake, Doom, Half-Life SDKs), old Windows utilities, and libraries (zlib, early SQLite).
+- **Process**: Auto-generate a dummy `rebrew-project.toml` that attempts to compile every `.c` function in the repo with standard MSVC6 flags (`/O1`, `/O2`, `/Gz`). Any function that compiles successfully becomes a ground-truth target.
+
+#### 3. Synthetic Code Generation
+Use a modern LLM (like Claude 3.5 Sonnet or GPT-4o) to generate massive amounts of synthetic, MSVC6-compatible C code.
+- **Prompting**: "Write a random C function that performs [math operations / array sorting / state machine logic]. Use only C89 features compatible with MSVC6. Do not use standard library includes; use only pointers, structs, and basic types."
+- **Verification**: If the generated code compiles with MSVC6, it enters the dataset.
+
+#### 4. Existing Decompilation Datasets
+Leverage large datasets from other decompilation research:
+- **AnghaBench**: ~1 million compilable C functions mined from GitHub.
+- **LLM4Decompile Dataset**: Millions of compiled C functions.
+- **Recompilation**: You must recompile these datasets using your specific MSVC6 toolchain via wibo/Wine to get the exact bytes and AST patterns expected by your model.
+
+### Bootstrapping the GA Dataset from Sourced Code
+
+Once you have raw C source code from the above methods, how do you turn it into a dataset of *mutations* and *binary pairs*?
+
+1. **Compile Ground Truth**: Compile the sourced C function with MSVC6 to generate the `target_bytes`. This is your perfect match.
+2. **Create a Starting Point**: You need an imperfect starting point for the GA to optimize. You can either:
+   - Pass the compiled binary through Ghidra/IDA to generate raw pseudo-code (highly realistic).
+   - Or apply random "destructive" mutations to the original source (e.g., change `for` to `while`, alter types, flatten structs).
+3. **Run the GA**: Feed the imperfect source and the `target_bytes` into the rebrew GA engine with `--collect-pairs`.
+   - The GA will explore the mutation space, attempting to reconstruct the binary.
+   - Every compile attempt (both good and bad) is recorded, creating a rich dataset of how specific source transformations affect the compiled output and match score.
+
 ### Multi-Project Aggregation
 
 To build a truly large dataset, run collection across multiple rebrew projects
@@ -263,7 +303,7 @@ model.summary()
 
 # --- Train ---
 model.fit(
-    [src_data[train_idx], bin_data[train_idx].astype("int32")],
+    [src_data[train_idx].astype("int32"), bin_data[train_idx].astype("int32")],
     norm_scores[train_idx],
     validation_data=(
         [src_data[val_idx], bin_data[val_idx].astype("int32")],
@@ -300,7 +340,7 @@ os.environ["KERAS_BACKEND"] = "jax"
 import keras
 from keras import layers
 
-NUM_MUTATIONS = 120  # len(ALL_MUTATIONS)
+NUM_MUTATIONS = 121  # len(ALL_MUTATIONS)
 
 src_input = keras.Input(shape=(4096,), dtype="int32", name="source")
 bin_input = keras.Input(shape=(2048,), dtype="int32", name="target")

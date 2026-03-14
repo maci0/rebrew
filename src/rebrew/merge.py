@@ -168,6 +168,9 @@ def main(
     sorted_blocks = [block for _, block in sorted(blocks_with_va, key=lambda x: x[0])]
     merged_text = merged_preamble + "\n\n".join(sorted_blocks) + "\n"
 
+    if delete and not dry_run and not force:
+        typer.confirm(f"Delete {len(included_inputs)} input file(s) after merge?", abort=True)
+
     if not dry_run:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(output_path, merged_text, encoding="utf-8")

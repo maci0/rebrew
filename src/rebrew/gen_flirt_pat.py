@@ -3,14 +3,30 @@
 This reads the object files inside a .lib archive, extracts every
 public function symbol with its COFF relocations, and emits a
 .pat-format line for each one with relocation bytes masked as '..'.
-
-Usage: uv run python -m rebrew.gen_flirt_pat tools/MSVC600/VC98/Lib/LIBCMT.LIB -o flirt_sigs/libcmt_vc6.pat
 """
 
-import argparse
 import struct
 from collections.abc import Iterator
 from pathlib import Path
+
+import typer
+from rich.console import Console
+
+from rebrew.cli import error_exit, json_print
+
+console = Console(stderr=True)
+
+app = typer.Typer(
+    help="Generate FLIRT .pat files from COFF .lib archives.",
+    rich_markup_mode="rich",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew gen-flirt-pat tools/MSVC600/VC98/Lib/LIBCMT.LIB\n\n"
+        "  rebrew gen-flirt-pat LIBCMT.LIB -o flirt_sigs/libcmt_vc6.pat\n\n"
+        "[dim]Reads COFF .obj members from a .lib archive, extracts public function "
+        "symbols with relocations, and emits FLIRT .pat-format signatures.[/dim]"
+    ),
+)
 
 
 def parse_archive(lib_path: str) -> Iterator[tuple[str, bytes]]:
@@ -153,30 +169,28 @@ def bytes_to_pat_line(
     return f"{lead} {crc_len:02X} {crc:04X} {total_size:04X} :0000 {name}"
 
 
-def main() -> None:
-    """CLI entry point for generating FLIRT .pat files from COFF .lib archives."""
-    parser = argparse.ArgumentParser(description="Generate FLIRT .pat from COFF .lib")
-    parser.add_argument("lib_path", help="Path to .lib file")
-    parser.add_argument("-o", "--output", help="Output .pat file path")
-    args = parser.parse_args()
+@app.callback(invoke_without_command=True)
+def main(
+    lib_path: str = typer.Argument(..., help="Path to .lib file"),
+    output: str | None = typer.Option(None, "--output", "-o", help="Output .pat file path"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+) -> None:
+    """Generate FLIRT .pat files from COFF .lib archives."""
+    lib_file = Path(lib_path)
+    if not lib_file.exists():
+        error_exit(f"{lib_file} not found", json_mode=json_output)
 
-    lib_path = Path(args.lib_path)
-    if not lib_path.exists():
-        from rebrew.cli import error_exit
-
-        error_exit(f"ERROR: {lib_path} not found")
-
-    lib_name = lib_path.stem.lower()
-    out_path = Path(args.output) if args.output else Path(f"flirt_sigs/{lib_name}_vc6.pat")
+    lib_name = lib_file.stem.lower()
+    out_path = Path(output) if output else Path(f"flirt_sigs/{lib_name}_vc6.pat")
 
     if out_path.parent != Path("."):
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    pat_lines = []
-    seen = set()
+    pat_lines: list[str] = []
+    seen: set[str] = set()
 
     skipped = 0
-    for _member_name, obj_data in parse_archive(str(lib_path)):
+    for _member_name, obj_data in parse_archive(str(lib_file)):
         try:
             for sym_name, code, relocs in parse_coff_obj(obj_data):
                 if sym_name not in seen and len(code) >= 4:
@@ -191,11 +205,27 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    msg = f"Generated {out_path}: {len(pat_lines)} signatures from {lib_path}"
+    if json_output:
+        json_print(
+            {
+                "output": str(out_path),
+                "signatures": len(pat_lines),
+                "source": str(lib_file),
+                "skipped_members": skipped,
+            }
+        )
+        return
+
+    msg = f"Generated {out_path}: {len(pat_lines)} signatures from {lib_file}"
     if skipped:
         msg += f" ({skipped} corrupt members skipped)"
-    print(msg)
+    console.print(msg)
+
+
+def main_entry() -> None:
+    """Run the Typer CLI application."""
+    app()
 
 
 if __name__ == "__main__":
-    main()
+    main_entry()

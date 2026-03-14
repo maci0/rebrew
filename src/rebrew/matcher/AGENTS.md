@@ -32,7 +32,7 @@ scoring.py
 ├── capstone (external)
 └── numpy (external)
 
-mutator.py → NO internal imports (self-contained)
+mutator.py → ast_engine (internal: _C_LANGUAGE, ASTMutator, parse_c_ast)
 core.py    → diskcache (external), NO internal imports
 parsers.py → lief (external), NO internal imports
 flags.py   → NO imports (pure dataclasses)
@@ -97,7 +97,7 @@ checkpoints when GA parameters change.
 
 ## Mutation Operators
 
-120 operators in `mutator.py`, all named `mut_*`. Categories:
+121 operators in `mutator.py`, all named `mut_*`. Categories:
 
 - **Commutative / logic**: `mut_commute_simple_add`, `mut_commute_simple_mul`, `mut_swap_eq_operands`, `mut_swap_ne_operands`, `mut_swap_or_operands`, `mut_swap_and_operands`, `mut_reassociate_add`, `mut_demorgan`
 - **Comparison / boolean**: `mut_flip_eq_zero`, `mut_flip_lt_ge`, `mut_comparison_boundary`, `mut_toggle_bool_not`, `mut_negate_condition`

@@ -229,7 +229,7 @@ def run_diff(
 
             seed_path = Path(p.seed_c)
             ann = parse_c_file(seed_path)
-            metadata_dir = seed_path.parent
+            metadata_dir = p.cfg.metadata_dir
             va = ann.va if ann else p.va_int
             module = ann.module if ann else ""
 
@@ -310,8 +310,8 @@ def main(
         "-f",
         help="Output format: terminal, csv",
     ),
-    force: bool = typer.Option(
-        False, "--force", help="Continue even if source marker lint errors exist"
+    ignore_lint: bool = typer.Option(
+        False, "--ignore-lint", help="Continue even if source marker lint errors exist"
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -328,7 +328,7 @@ def main(
     from rebrew.match import resolve_build_params
 
     params = resolve_build_params(
-        cfg, seed_c, None, None, None, None, None, None, force, json_output
+        cfg, seed_c, None, None, None, None, None, None, ignore_lint, json_output
     )
 
     run_diff(seed_c, mismatches_only, register_aware, csv_output, fix_blocker, json_output, params)

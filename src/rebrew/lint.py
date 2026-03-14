@@ -427,6 +427,7 @@ def lint_file(
         # that W019 can distinguish between a key that must be migrated and one
         # that is correctly metadata-only.
         _metadata_sourced_keys: set[str] = set()
+        _va_int: int | None = None
         if mod and va_str:
             try:
                 _va_int = int(va_str, 16)
