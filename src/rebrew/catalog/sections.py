@@ -19,7 +19,7 @@ PADDING_BYTES: tuple[int, ...] = (0xCC, 0x90)
 
 
 def trim_trailing_padding(data: bytes, padding: tuple[int, ...] = PADDING_BYTES) -> int:
-    """Return the length of *data* after stripping trailing padding bytes.
+    r"""Return the length of *data* after stripping trailing padding bytes.
 
     >>> trim_trailing_padding(b'\\x55\\x89\\xe5\\xcc\\xcc')
     3

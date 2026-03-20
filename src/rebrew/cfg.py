@@ -33,7 +33,7 @@ import typer
 from rich.console import Console
 
 from rebrew.binary_loader import detect_format_and_arch as _bl_detect_format_and_arch
-from rebrew.cli import error_exit, json_print
+from rebrew.cli import TargetOption, error_exit, json_print
 from rebrew.config import _find_root as _config_find_root
 from rebrew.utils import atomic_write_text
 
@@ -230,9 +230,7 @@ def show(
         None, help="Dot-separated key to show, e.g. 'compiler.cflags'"
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
-    target: str | None = typer.Option(
-        None, "--target", "-t", help="Target name (for target-scoped keys)."
-    ),
+    target: str | None = TargetOption,
 ) -> None:
     """Show the current config, or a specific key."""
     doc, _ = _load_toml()
@@ -412,7 +410,7 @@ def add_target(
     console.print(f"[green]  Format: {fmt}, Arch: {arch} (auto-detected)[/green]")
     console.print(f"[green]  Language: {detected_lang} ({source_ext})[/green]")
     console.print(f"[green]  Created src/{name}/ and bin/{name}/[/green]")
-    console.print(f'\nNext: rebrew next --target "{name}" --stats')
+    console.print(f'\nNext: rebrew todo --target "{name}" --stats')
 
 
 @app.command("remove-target")
@@ -464,7 +462,7 @@ def set_value(
 @app.command("add-module")
 def add_module(
     module: str = typer.Argument(..., help="Module name to add (e.g. 'ZLIB')."),
-    target: str | None = typer.Option(None, "--target", "-t", help="Target name."),
+    target: str | None = TargetOption,
 ) -> None:
     """Add a module to a target's origins list."""
     doc, toml_path = _load_toml()
@@ -492,7 +490,7 @@ def add_module(
 @app.command("remove-module")
 def remove_module(
     module: str = typer.Argument(..., help="Module name to remove."),
-    target: str | None = typer.Option(None, "--target", "-t", help="Target name."),
+    target: str | None = TargetOption,
 ) -> None:
     """Remove a module from a target's origins list (idempotent)."""
     doc, toml_path = _load_toml()
@@ -561,9 +559,7 @@ def detect_crt(
     write: bool = typer.Option(
         False, "--write", "-w", help="Write detected paths into rebrew-project.toml."
     ),
-    target: str | None = typer.Option(
-        None, "--target", "-t", help="Target to write crt_sources into (default: first target)."
-    ),
+    target: str | None = TargetOption,
 ) -> None:
     """Auto-detect CRT source directories from MSVC tools in the project tree."""
     from rebrew.config import detect_crt_sources

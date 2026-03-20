@@ -22,7 +22,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from rebrew.cli import TargetOption, json_print, require_config
+from rebrew.cli import STATUS_COLORS, TargetOption, json_print, require_config
 from rebrew.config import ProjectConfig
 
 console = Console(stderr=True)
@@ -32,15 +32,7 @@ console = Console(stderr=True)
 # ---------------------------------------------------------------------------
 
 _STATUS_ORDER = ["EXACT", "RELOC", "NEAR_MATCHING", "STUB", "PROVEN"]
-_STATUS_COLORS: dict[str, str] = {
-    "EXACT": "green",
-    "RELOC": "cyan",
-    "NEAR_MATCHING": "yellow",
-    "STUB": "dim",
-    "PROVEN": "bold cyan",
-    "COMPILE_ERROR": "red",
-    "MISSING_FILE": "red",
-}
+_STATUS_COLORS = STATUS_COLORS
 
 
 @dataclass
@@ -79,13 +71,14 @@ class StatusReport:
     # Derived percentages
     @property
     def coverage_pct(self) -> float:
+        """Percentage of total functions that have a C source file (covered)."""
         if self.total_functions == 0:
             return 0.0
         return round(100.0 * self.covered_functions / self.total_functions, 1)
 
     @property
     def matched_pct(self) -> float:
-        """Percentage of total functions that are EXACT or RELOC (byte-matched)."""
+        """Percentage of total functions that are EXACT, RELOC, or PROVEN (byte-matched)."""
         if self.total_functions == 0:
             return 0.0
         exact = self.status_counts.get("EXACT", 0)
@@ -95,6 +88,7 @@ class StatusReport:
 
     @property
     def byte_coverage_pct(self) -> float:
+        """Percentage of total binary bytes that are EXACT, RELOC, or PROVEN."""
         if self.total_text_bytes == 0:
             return 0.0
         return round(100.0 * self.matched_bytes / self.total_text_bytes, 1)

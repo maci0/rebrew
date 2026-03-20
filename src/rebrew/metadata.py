@@ -244,6 +244,7 @@ def save_metadata(
     Args:
         directory: The directory to write into.
         data: Mapping of ``{(module, va_int): {field: value}}``.
+
     """
     path = directory / METADATA_FILENAME
     doc = tomlkit.document()

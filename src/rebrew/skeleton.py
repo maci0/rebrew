@@ -207,7 +207,7 @@ def fetch_xref_context(
 
     Returns a formatted comment block string, or None if MCP is unavailable.
     """
-    _sync_mod = importlib.import_module("rebrew.ghidra")
+    _sync_mod = importlib.import_module("rebrew.ghidra.client")
     _fetch_mcp_tool_raw = _sync_mod._fetch_mcp_tool_raw
     _init_mcp_session = _sync_mod._init_mcp_session
 
@@ -429,7 +429,7 @@ def _fetch_extras(
             endpoint=endpoint,
         )
     if xrefs:
-        _sync_mod = importlib.import_module("rebrew.ghidra")
+        _sync_mod = importlib.import_module("rebrew.ghidra.commands")
         _resolve = _sync_mod._resolve_program_path
         resolved_path = _resolve(cfg)
         xref_context_val = fetch_xref_context(

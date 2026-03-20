@@ -96,62 +96,26 @@ class TestResolveClCommand:
 
 
 class TestCompileAndCompareEdgeCases:
-    """Test edge-case logic in compile_and_compare without invoking a real compiler."""
+    """Test edge-case logic using actual production functions."""
 
-    def test_cflags_string_split(self) -> None:
-        """Verify cflags string→list conversion logic matches compile_and_compare."""
-        # This tests the internal logic: isinstance(cflags, str) → .split()
-        cflags_str = "/O2 /Gd /MT"
-        result = cflags_str.split() if isinstance(cflags_str, str) else list(cflags_str)
-        assert result == ["/O2", "/Gd", "/MT"]
+    def test_cflags_string_split_via_safe_shlex(self) -> None:
+        """Verify cflags string→list conversion uses _safe_shlex_split."""
+        from rebrew.compile import _safe_shlex_split
 
-    def test_cflags_list_passthrough(self) -> None:
-        """List cflags pass through unchanged."""
-        cflags_list = ["/O2", "/Gd"]
-        result = cflags_list.split() if isinstance(cflags_list, str) else list(cflags_list)
-        assert result == ["/O2", "/Gd"]
+        assert _safe_shlex_split("/O2 /Gd /MT") == ["/O2", "/Gd", "/MT"]
 
-    def test_reloc_masking_logic(self) -> None:
-        """Reloc masking with pointer_size=4 expands each offset to 4 bytes."""
-        pointer_size = 4
-        reloc_offsets = [2, 10]
-        reloc_set: set[int] = set()
-        for ro in reloc_offsets:
-            for j in range(pointer_size):
-                reloc_set.add(ro + j)
-        assert reloc_set == {2, 3, 4, 5, 10, 11, 12, 13}
+    def test_cflags_list_passthrough_via_safe_shlex(self) -> None:
+        """List-like cflags as a single string pass through _safe_shlex_split."""
+        from rebrew.compile import _safe_shlex_split
 
-    def test_reloc_masking_clamped_to_bounds(self) -> None:
-        """Reloc bytes beyond obj_bytes length are still in set but skipped during comparison."""
-        obj_bytes = b"\x55\x8b\xec\x83"  # 4 bytes
-        pointer_size = 4
-        reloc_offsets = [2]  # bytes 2,3,4,5 — but only 2,3 are in range
-        reloc_set: set[int] = set()
-        for ro in reloc_offsets:
-            for j in range(pointer_size):
-                if 0 <= ro + j < len(obj_bytes):
-                    reloc_set.add(ro + j)
-        assert reloc_set == {2, 3}
+        assert _safe_shlex_split("/O2 /Gd") == ["/O2", "/Gd"]
 
-    def test_exact_match_detection(self) -> None:
-        """Identical bytes with no relocs → EXACT MATCH."""
-        target = b"\x55\x8b\xec\xc3"
-        candidate = b"\x55\x8b\xec\xc3"
-        mismatches = [i for i in range(len(candidate)) if candidate[i] != target[i]]
-        assert mismatches == []
+    def test_cflags_with_forced_include(self) -> None:
+        """Quoted paths in cflags are handled by _safe_shlex_split."""
+        from rebrew.compile import _safe_shlex_split
 
-    def test_mismatch_detection(self) -> None:
-        """Different bytes → mismatches list populated."""
-        target = b"\x55\x8b\xec\xc3"
-        candidate = b"\x55\x8b\xed\xc3"
-        mismatches = [i for i in range(len(candidate)) if candidate[i] != target[i]]
-        assert mismatches == [2]
-
-    def test_size_mismatch_short_circuits(self) -> None:
-        """Different lengths should be detected before byte comparison."""
-        target = b"\x55\x8b\xec\xc3"
-        candidate = b"\x55\x8b\xec"
-        assert len(candidate) != len(target)
+        result = _safe_shlex_split('/FI"forced.h" /nologo')
+        assert result == ["/FIforced.h", "/nologo"]
 
 
 class TestCompileToObj:

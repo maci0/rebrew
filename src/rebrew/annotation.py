@@ -511,6 +511,7 @@ def update_size_annotation(
         target_va: VA of the specific function to update.
         metadata_dir: Root directory for ``rebrew-function.toml``.
             When ``None``, falls back to ``filepath.parent``.
+
     """
     from rebrew.metadata import get_entry, update_field
 
@@ -1010,6 +1011,7 @@ def parse_source_metadata(
         source_path: Path to the ``.c`` source file.
         metadata_dir: Directory containing ``rebrew-function.toml``.
             When ``None``, metadata merging is skipped.
+
     """
     annos = parse_c_file_multi(Path(source_path), metadata_dir=metadata_dir)
     anno = annos[0] if annos else None
@@ -1067,6 +1069,7 @@ def update_annotation_key(
             Required for metadata-owned keys.
 
     Returns True if any write was made, False otherwise.
+
     """
     from rebrew.metadata import is_metadata_key, update_field, update_source_status
 
@@ -1277,6 +1280,7 @@ def remove_annotation_key(
             Required for metadata-owned keys.
 
     Returns True if any change was made, False otherwise.
+
     """
     from rebrew.metadata import is_metadata_key, remove_field
 

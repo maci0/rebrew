@@ -46,6 +46,19 @@ EXIT_ERROR = 2  # Infrastructure error (build/config broken)
 # A function that matches >= 60 % of bytes is NEAR_MATCHING; below is STUB.
 NEAR_MATCH_THRESHOLD = 0.60
 
+# Canonical Rich colour tags for status strings — used by test.py, verify.py,
+# and status.py for consistent formatting.
+STATUS_COLORS: dict[str, str] = {
+    "EXACT": "bold green",
+    "RELOC": "green",
+    "PROVEN": "bold cyan",
+    "NEAR_MATCHING": "yellow",
+    "STUB": "dim",
+    "COMPILE_ERROR": "red",
+    "MISSING_FILE": "red",
+    "SKIP": "dim",
+}
+
 
 def is_matched(status: str) -> bool:
     """True when *status* indicates a fully matched function (EXACT or RELOC)."""

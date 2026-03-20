@@ -53,7 +53,6 @@ def _read_release_metadata() -> dict[str, Any]:
 
 def download_wibo(dest: Path) -> str:
     """Download latest wibo release binary to dest and return release tag_name."""
-
     release = _read_release_metadata()
     tag_name = str(release.get("tag_name", ""))
     asset_name = _wibo_asset_name()

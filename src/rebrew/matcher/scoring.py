@@ -293,7 +293,7 @@ def diff_functions(
     cs_mode: int = _DEFAULT_CS_MODE,
     pointer_size: int = 4,
 ) -> dict[str, Any] | None:
-    """Print a side-by-side diff of target and candidate disassembly.
+    r"""Print a side-by-side diff of target and candidate disassembly.
 
     Args:
         target_bytes: Ground-truth target bytes.
