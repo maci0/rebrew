@@ -1,24 +1,15 @@
-"""ghidra — Bidirectional sync between rebrew annotations and Ghidra via ReVa MCP."""
+"""ghidra — Bidirectional sync between rebrew annotations and Ghidra via ReVa MCP.
+
+Public API: CLI app, MCP operations, sync command builders, and pull results.
+Internal helpers (_-prefixed) in submodules are accessed directly by consumers
+that need them (decompiler.py, skeleton.py) via importlib — not re-exported here.
+"""
 
 from rebrew.ghidra.cli import app
 from rebrew.ghidra.client import (
-    _fetch_mcp_tool,
-    _fetch_mcp_tool_raw,
-    _init_mcp_session,
     apply_commands_via_mcp,
 )
 from rebrew.ghidra.commands import (
-    _STATUS_BOOKMARK_CATEGORY,
-    _ghidra_name_to_symbol,
-    _is_generic_name,
-    _is_meaningful_name,
-    _parse_va,
-    _pull_comments,
-    _pull_data,
-    _pull_prototypes,
-    _pull_structs,
-    _resolve_program_path,
-    _validate_program_path,
     build_new_function_commands,
     build_size_sync_commands,
     build_sync_commands,
@@ -28,21 +19,7 @@ from rebrew.ghidra.models import PullChange, PullResult
 
 __all__ = [
     "app",
-    "_fetch_mcp_tool",
-    "_fetch_mcp_tool_raw",
-    "_init_mcp_session",
     "apply_commands_via_mcp",
-    "_STATUS_BOOKMARK_CATEGORY",
-    "_ghidra_name_to_symbol",
-    "_is_generic_name",
-    "_is_meaningful_name",
-    "_parse_va",
-    "_pull_comments",
-    "_pull_data",
-    "_pull_prototypes",
-    "_pull_structs",
-    "_resolve_program_path",
-    "_validate_program_path",
     "build_new_function_commands",
     "build_size_sync_commands",
     "build_sync_commands",

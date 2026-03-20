@@ -2,7 +2,7 @@ import sys
 from types import SimpleNamespace
 from typing import Any
 
-from rebrew.ghidra import _pull_data
+from rebrew.ghidra.commands import _pull_data
 
 
 class _FakeClient:

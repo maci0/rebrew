@@ -549,6 +549,8 @@ def prove_equivalence(
         loop_bound: Max loop iterations for angr's LoopSeer.
         binary_path: Path to the target PE binary (for IAT-based API hooking).
         arg_constraints: Per-argument constraints from metadata (see _apply_arg_constraints).
+        start_offset: Start byte offset within the function (for block-level proving).
+        end_offset: End byte offset within the function (for block-level proving).
 
     Returns:
         (proven, message) — proven is True if semantic equivalence was proved.

@@ -120,7 +120,7 @@ def find_similar(
 
     Similarity heuristic (simple, deterministic, no ML):
       1. Closest function size (absolute difference)
-      2. Tie-break: prefer matching cflags prefix
+      2. Tie-break: prefer matching cflags (exact match after normalization)
 
     Returns up to *top_k* entries, sorted by similarity (best first).
     """
@@ -128,12 +128,12 @@ def find_similar(
     if not all_entries:
         return []
 
-    # Normalize cflags for prefix matching
+    # Normalize cflags for comparison
     cflags_norm = _normalize_cflags(cflags)
 
     def _sort_key(e: SolutionEntry) -> tuple[int, int]:
         size_diff = abs(e.size - size)
-        # Cflags similarity: 0 if prefix matches, 1 otherwise
+        # Cflags similarity: 0 if exact match, 1 otherwise
         e_cflags = _normalize_cflags(e.cflags)
         cflags_match = 0 if e_cflags == cflags_norm else 1
         return (size_diff, cflags_match)

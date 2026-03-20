@@ -126,7 +126,7 @@ def fetch_ghidra(
     endpoint: str = kwargs.get("endpoint") or _DEFAULT_MCP_ENDPOINT
     program_path: str | None = kwargs.get("program_path")
 
-    _sync_mod = importlib.import_module("rebrew.ghidra")
+    _sync_mod = importlib.import_module("rebrew.ghidra.client")
     _fetch_raw = _sync_mod._fetch_mcp_tool_raw
     _init_session = _sync_mod._init_mcp_session
 

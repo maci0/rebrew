@@ -25,6 +25,7 @@ from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import (
     EXIT_MISMATCH,
     NEAR_MATCH_THRESHOLD,
+    STATUS_COLORS,
     TargetOption,
     classify_match_status,
     error_exit,
@@ -35,6 +36,7 @@ from rebrew.cli import (
     require_config,
     target_marker,
 )
+from rebrew.compile import compile_to_obj
 from rebrew.config import ProjectConfig
 from rebrew.core import smart_reloc_compare
 from rebrew.matcher.parsers import list_obj_symbols, parse_obj_symbol_bytes
@@ -102,18 +104,6 @@ def _patch_verify_cache(
         pass  # Best-effort — don't crash test on cache write failure
 
 
-def compile_obj(
-    cfg: ProjectConfig, source_path: str, cflags: list[str], workdir: str
-) -> tuple[str | None, str]:
-    """Compile .c to .obj using MSVC6 under Wine.
-
-    Delegates to the unified ``rebrew.compile`` module.
-    """
-    from rebrew.compile import compile_to_obj
-
-    return compile_to_obj(cfg, source_path, cflags, workdir)
-
-
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
     "  rebrew test src/game_dll/my_func.c · · · · · · Auto-detect symbol, VA, size from source\n\n"
@@ -146,6 +136,17 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=_EPILOG,
 )
+
+
+# Note: Typer CLI functions dynamically infer argument definitions,
+# but providing a docstring helps with API documentation.
+def _main_docs() -> None:
+    """
+    Args:
+        jobs: Number of parallel compile jobs (with --all).
+        no_promote: Skip auto-update of STATUS metadata after test.
+    """
+    pass
 
 
 @app.callback(invoke_without_command=True)
@@ -317,7 +318,7 @@ def main(
         )
 
     with tempfile.TemporaryDirectory(prefix="test_func_") as workdir:
-        obj_path, err = compile_obj(cfg, source, cflags_parts, workdir)
+        obj_path, err = compile_to_obj(cfg, source, cflags_parts, workdir)
         if obj_path is None:
             error_exit(f"COMPILE ERROR:\n{err}", json_mode=json_output)
 
@@ -506,8 +507,6 @@ def _test_multi(
 
     Compiles the file once, then extracts and compares each annotated
     symbol independently.
-
-    Compiles once and compares each annotated symbol independently.
     """
     # Use cflags from first annotation as compile flags (all should share the same)
     cflags_str = cflags_override or annotations[0].cflags or "/O2 /Gd"
@@ -516,7 +515,7 @@ def _test_multi(
     results_list: list[dict[str, Any]] = []
 
     with tempfile.TemporaryDirectory(prefix="test_multi_") as workdir:
-        obj_path, err = compile_obj(cfg, source, cflags_parts, workdir)
+        obj_path, err = compile_to_obj(cfg, source, cflags_parts, workdir)
         if obj_path is None:
             error_exit(f"COMPILE ERROR:\n{err}", json_mode=json_output)
             return  # unreachable, but keeps type checker happy
@@ -781,14 +780,7 @@ def _run_all_batch(
 # Batch summary
 # ---------------------------------------------------------------------------
 
-_RESULT_COLORS: dict[str, str] = {
-    "EXACT": "bold green",
-    "RELOC": "green",
-    "PROVEN": "bold cyan",
-    "NEAR_MATCHING": "yellow",
-    "STUB": "red",
-    "SKIP": "dim",
-}
+_RESULT_COLORS = STATUS_COLORS
 
 
 def _print_batch_summary(

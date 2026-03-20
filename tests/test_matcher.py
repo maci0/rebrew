@@ -1,7 +1,5 @@
-import os
 import random
 import struct
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -87,109 +85,74 @@ def _make_minimal_coff_obj(symbol_name: str, code: bytes) -> bytes:
     return file_header + section_header + code + symbol_entry + string_table
 
 
-def test_parse_coff_obj_basic() -> None:
+def test_parse_coff_obj_basic(tmp_path: Path) -> None:
     """Test COFF parser with a minimal synthetic .obj."""
     code = b"\x55\x8b\xec\x33\xc0\x5d\xc3"  # push ebp; mov ebp,esp; xor eax,eax; pop ebp; ret
     obj_data = _make_minimal_coff_obj("_myfunc", code)
+    obj_path = tmp_path / "test.obj"
+    obj_path.write_bytes(obj_data)
 
-    with tempfile.NamedTemporaryFile(suffix=".obj", delete=False) as f:
-        f.write(obj_data)
-        f.flush()
-        obj_path = Path(f.name)
-
-    try:
-        code_result, relocs = parse_obj_symbol_bytes(obj_path, "_myfunc")
-        assert code_result is not None
-        assert code_result == code
-        assert relocs is not None
-    finally:
-        obj_path.unlink()
+    code_result, relocs = parse_obj_symbol_bytes(obj_path, "_myfunc")
+    assert code_result is not None
+    assert code_result == code
+    assert relocs is not None
 
 
-def test_parse_coff_obj_long_name() -> None:
+def test_parse_coff_obj_long_name(tmp_path: Path) -> None:
     """Test COFF parser with symbol name longer than 8 chars (string table)."""
     code = b"\xc2\x0c\x00"  # ret 0xC
     obj_data = _make_minimal_coff_obj("_DllMainCRTStartup@12", code)
+    obj_path = tmp_path / "test.obj"
+    obj_path.write_bytes(obj_data)
 
-    with tempfile.NamedTemporaryFile(suffix=".obj", delete=False) as f:
-        f.write(obj_data)
-        f.flush()
-        obj_path = Path(f.name)
-
-    try:
-        code_result, relocs = parse_obj_symbol_bytes(obj_path, "_DllMainCRTStartup@12")
-        assert code_result is not None
-        assert code_result == code
-    finally:
-        obj_path.unlink()
+    code_result, relocs = parse_obj_symbol_bytes(obj_path, "_DllMainCRTStartup@12")
+    assert code_result is not None
+    assert code_result == code
 
 
-def test_parse_coff_obj_symbol_not_found() -> None:
+def test_parse_coff_obj_symbol_not_found(tmp_path: Path) -> None:
     """Test COFF parser returns None for missing symbol."""
     code = b"\xc3"
     obj_data = _make_minimal_coff_obj("_other", code)
+    obj_path = tmp_path / "test.obj"
+    obj_path.write_bytes(obj_data)
 
-    with tempfile.NamedTemporaryFile(suffix=".obj", delete=False) as f:
-        f.write(obj_data)
-        f.flush()
-        obj_path = Path(f.name)
-
-    try:
-        code_result, relocs = parse_obj_symbol_bytes(obj_path, "_nothere")
-        assert code_result is None
-    finally:
-        obj_path.unlink()
+    code_result, relocs = parse_obj_symbol_bytes(obj_path, "_nothere")
+    assert code_result is None
 
 
-def test_list_obj_symbols() -> None:
+def test_list_obj_symbols(tmp_path: Path) -> None:
     """Test listing symbols from a synthetic .obj."""
     code = b"\xc3"
     obj_data = _make_minimal_coff_obj("_myfunc", code)
+    obj_path = tmp_path / "test.obj"
+    obj_path.write_bytes(obj_data)
 
-    with tempfile.NamedTemporaryFile(suffix=".obj", delete=False) as f:
-        f.write(obj_data)
-        f.flush()
-        obj_path = Path(f.name)
-
-    try:
-        names = list_obj_symbols(obj_path)
-        assert "_myfunc" in names
-    finally:
-        obj_path.unlink()
+    names = list_obj_symbols(obj_path)
+    assert "_myfunc" in names
 
 
-def test_parse_coff_obj_trims_padding() -> None:
+def test_parse_coff_obj_trims_padding(tmp_path: Path) -> None:
     """Test that trailing 0xCC/0x90 is trimmed but not 0x00."""
     code = b"\x55\x8b\xec\xc2\x0c\x00\xcc\xcc\x90"
     obj_data = _make_minimal_coff_obj("_func", code)
+    obj_path = tmp_path / "test.obj"
+    obj_path.write_bytes(obj_data)
 
-    with tempfile.NamedTemporaryFile(suffix=".obj", delete=False) as f:
-        f.write(obj_data)
-        f.flush()
-        obj_path = Path(f.name)
-
-    try:
-        code_result, relocs = parse_obj_symbol_bytes(obj_path, "_func")
-        assert code_result is not None
-        # Should keep 0x00 (part of ret 0xC) but trim 0xCC and 0x90
-        assert code_result == b"\x55\x8b\xec\xc2\x0c\x00"
-    finally:
-        obj_path.unlink()
+    code_result, relocs = parse_obj_symbol_bytes(obj_path, "_func")
+    assert code_result is not None
+    # Should keep 0x00 (part of ret 0xC) but trim 0xCC and 0x90
+    assert code_result == b"\x55\x8b\xec\xc2\x0c\x00"
 
 
-def test_parse_coff_obj_too_small() -> None:
+def test_parse_coff_obj_too_small(tmp_path: Path) -> None:
     """Test that files smaller than COFF header return None gracefully."""
-    with tempfile.NamedTemporaryFile(suffix=".obj", delete=False) as f:
-        f.write(b"\x00" * 10)
-        f.flush()
-        obj_path = Path(f.name)
+    obj_path = tmp_path / "tiny.obj"
+    obj_path.write_bytes(b"\x00" * 10)
 
-    try:
-        code, relocs = parse_obj_symbol_bytes(obj_path, "_func")
-        assert code is None
-        assert relocs is None
-    finally:
-        obj_path.unlink()
+    code, relocs = parse_obj_symbol_bytes(obj_path, "_func")
+    assert code is None
+    assert relocs is None
 
 
 # -------------------------
@@ -231,58 +194,56 @@ def test_generate_flag_combinations_full_axes() -> None:
 # -------------------------
 
 
-def test_checkpoint_round_trip() -> None:
+def test_checkpoint_round_trip(tmp_path: Path) -> None:
     """Test save/load checkpoint preserves all fields."""
-    with tempfile.TemporaryDirectory() as td:
-        ckpt_path = os.path.join(td, "ckpt.json")
-        rng = random.Random(42)
-        pop = ["int main(){return 0;}", "int main(){return 1;}"]
-        args_hash = "abc123"
+    ckpt_path = tmp_path / "ckpt.json"
+    rng = random.Random(42)
+    pop = ["int main(){return 0;}", "int main(){return 1;}"]
+    args_hash = "abc123"
 
-        ckpt = GACheckpoint(
-            generation=10,
-            best_score=42.5,
-            best_source="int main(){return 0;}",
-            population=pop,
-            rng_state=rng.getstate(),
-            stagnant_gens=3,
-            elapsed_sec=123.4,
-            args_hash=args_hash,
-        )
-        save_checkpoint(ckpt_path, ckpt)
+    ckpt = GACheckpoint(
+        generation=10,
+        best_score=42.5,
+        best_source="int main(){return 0;}",
+        population=pop,
+        rng_state=rng.getstate(),
+        stagnant_gens=3,
+        elapsed_sec=123.4,
+        args_hash=args_hash,
+    )
+    save_checkpoint(str(ckpt_path), ckpt)
 
-        assert os.path.exists(ckpt_path)
+    assert ckpt_path.exists()
 
-        loaded = load_checkpoint(ckpt_path, args_hash)
-        assert loaded is not None
-        assert loaded.generation == 10
-        assert loaded.best_score == 42.5
-        assert loaded.best_source == "int main(){return 0;}"
-        assert loaded.population == pop
-        assert loaded.stagnant_gens == 3
-        assert loaded.elapsed_sec == 123.4
-        assert loaded.args_hash == args_hash
+    loaded = load_checkpoint(str(ckpt_path), args_hash)
+    assert loaded is not None
+    assert loaded.generation == 10
+    assert loaded.best_score == 42.5
+    assert loaded.best_source == "int main(){return 0;}"
+    assert loaded.population == pop
+    assert loaded.stagnant_gens == 3
+    assert loaded.elapsed_sec == 123.4
+    assert loaded.args_hash == args_hash
 
 
-def test_checkpoint_wrong_hash() -> None:
+def test_checkpoint_wrong_hash(tmp_path: Path) -> None:
     """Test that mismatched args_hash returns None."""
-    with tempfile.TemporaryDirectory() as td:
-        ckpt_path = os.path.join(td, "ckpt.json")
-        rng = random.Random(1)
-        ckpt = GACheckpoint(
-            generation=5,
-            best_score=10.0,
-            best_source="x",
-            population=["x"],
-            rng_state=rng.getstate(),
-            stagnant_gens=0,
-            elapsed_sec=1.0,
-            args_hash="hash_a",
-        )
-        save_checkpoint(ckpt_path, ckpt)
-        with pytest.warns(UserWarning, match="args hash mismatch"):
-            loaded = load_checkpoint(ckpt_path, "hash_b")
-        assert loaded is None
+    ckpt_path = tmp_path / "ckpt.json"
+    rng = random.Random(1)
+    ckpt = GACheckpoint(
+        generation=5,
+        best_score=10.0,
+        best_source="x",
+        population=["x"],
+        rng_state=rng.getstate(),
+        stagnant_gens=0,
+        elapsed_sec=1.0,
+        args_hash="hash_a",
+    )
+    save_checkpoint(str(ckpt_path), ckpt)
+    with pytest.warns(UserWarning, match="args hash mismatch"):
+        loaded = load_checkpoint(str(ckpt_path), "hash_b")
+    assert loaded is None
 
 
 def test_checkpoint_missing_file() -> None:
@@ -291,15 +252,13 @@ def test_checkpoint_missing_file() -> None:
     assert loaded is None
 
 
-def test_checkpoint_corrupt_json() -> None:
+def test_checkpoint_corrupt_json(tmp_path: Path) -> None:
     """Test that corrupt JSON returns None."""
-    with tempfile.TemporaryDirectory() as td:
-        ckpt_path = os.path.join(td, "ckpt.json")
-        with open(ckpt_path, "w", encoding="utf-8") as f:
-            f.write("not valid json{{{")
-        with pytest.warns(UserWarning, match="Failed to load checkpoint"):
-            loaded = load_checkpoint(ckpt_path, "hash")
-        assert loaded is None
+    ckpt_path = tmp_path / "ckpt.json"
+    ckpt_path.write_text("not valid json{{{", encoding="utf-8")
+    with pytest.warns(UserWarning, match="Failed to load checkpoint"):
+        loaded = load_checkpoint(str(ckpt_path), "hash")
+    assert loaded is None
 
 
 def test_compute_args_hash() -> None:

@@ -7,7 +7,7 @@ Usage::
 
     rebrew todo                     Top 20 actions by ROI
     rebrew todo --count 50          Show top 50
-    rebrew todo -c fix-near-miss    Filter by category
+    rebrew todo -c fix-delta        Filter by category
     rebrew todo --stats             Show coverage stats header
     rebrew todo --json              Machine-readable output
 """

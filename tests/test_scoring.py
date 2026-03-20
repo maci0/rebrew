@@ -322,12 +322,13 @@ class TestScoringFuzzing:
         """Fuzz with completely random byte sequences of various lengths."""
         import random
 
+        rng = random.Random(42)  # fixed seed for deterministic CI runs
         # 100 iterations of random lengths and bytes
         for _ in range(100):
-            len1 = random.randint(0, 200)
-            len2 = random.randint(0, 200)
-            b1 = random.randbytes(len1)
-            b2 = random.randbytes(len2)
+            len1 = rng.randint(0, 200)
+            len2 = rng.randint(0, 200)
+            b1 = rng.randbytes(len1)
+            b2 = rng.randbytes(len2)
 
             # Score and similarity must not crash on malformed/random bytes
             score = score_candidate(b1, b2)

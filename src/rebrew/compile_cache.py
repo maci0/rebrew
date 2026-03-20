@@ -58,6 +58,7 @@ class CompileCache:
                 Created automatically if it does not exist.
             size_limit: Maximum on-disk footprint in bytes.  Oldest entries
                 are evicted by ``diskcache`` when the limit is exceeded (LRU).
+
         """
         self._cache = diskcache.Cache(str(cache_dir), size_limit=size_limit)
 

@@ -3,7 +3,8 @@
 from types import SimpleNamespace
 from typing import Any
 
-from rebrew.ghidra import _fetch_mcp_tool, apply_commands_via_mcp
+from rebrew.ghidra import apply_commands_via_mcp
+from rebrew.ghidra.client import _fetch_mcp_tool
 from rebrew.ghidra.commands import (
     _STATUS_BOOKMARK_CATEGORY,
     _ghidra_name_to_symbol,

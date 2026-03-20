@@ -20,7 +20,7 @@ Entry points in order of abstraction:
     High-level — compile, extract symbol bytes, compare to *target_bytes*,
     and return a :class:`CompareResult`.
 
-``classify_compare_result(matched, msg, obj_bytes, target_bytes, reloc_offsets)``
+``classify_compare_result(matched, msg, target_bytes, obj_bytes, reloc_offsets, inv_reloc_offsets=None)``
     Pure helper — classifies raw comparison outputs into a :class:`CompareResult`
     (status string, match %, delta).  Used internally by ``compile_and_compare``.
 
@@ -79,6 +79,7 @@ class CompareResult:
         reloc_offsets: Relocation start offsets (4-byte spans each),
             or ``None`` on failure.
         message: Human-readable detail string (compiler error, mismatch counts, …).
+
     """
 
     matched: bool

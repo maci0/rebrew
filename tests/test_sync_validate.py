@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from rebrew.config import load_config
-from rebrew.ghidra import _resolve_program_path, _validate_program_path
+from rebrew.ghidra.commands import _resolve_program_path, _validate_program_path
 
 
 class TestResolveProgramPath:

@@ -13,6 +13,7 @@ from rebrew.annotation import (
     parse_library_header,
     parse_new_format,
     split_annotation_sections,
+    update_annotation_key,
 )
 
 # ---------------------------------------------------------------------------
@@ -1094,11 +1095,6 @@ class TestSplitAnnotationSections:
         preamble, blocks = split_annotation_sections(text)
         assert preamble == ""
         assert len(blocks) == 3
-
-
-from pathlib import Path  # noqa: E402
-
-from rebrew.annotation import update_annotation_key  # noqa: E402
 
 
 def test_update_annotation_key_multiple_funcs(tmp_path: Path):

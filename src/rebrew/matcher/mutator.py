@@ -397,6 +397,7 @@ _QUERY_CALL_ARG = ts.Query(
 
 
 def mut_extract_args_to_temps(s: str, rng: random.Random) -> str | None:
+    """Mutator operation."""
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
     cursor = ts.QueryCursor(_QUERY_CALL_ARG)
@@ -1435,6 +1436,7 @@ def mut_duplicate_loop_body(s: str, rng: random.Random) -> str | None:
 
 
 def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
+    """Mutator operation."""
     b_source = s.encode("utf-8")
     cursor = ts.QueryCursor(_QUERY_CONST_ADD_FOLD)
 
@@ -1471,6 +1473,7 @@ def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
 
 
 def mut_unfold_constant_add(s: str, rng: random.Random) -> str | None:
+    """Mutator operation."""
     b_source = s.encode("utf-8")
     cursor = ts.QueryCursor(_QUERY_CONST_ADD_UNFOLD)
 
@@ -1501,6 +1504,7 @@ def mut_unfold_constant_add(s: str, rng: random.Random) -> str | None:
 
 
 def mut_change_array_index_order(s: str, rng: random.Random) -> str | None:
+    """Mutator operation."""
     b_source = s.encode("utf-8")
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
@@ -1513,6 +1517,7 @@ def mut_change_array_index_order(s: str, rng: random.Random) -> str | None:
 
 
 def mut_struct_vs_ptr_access(s: str, rng: random.Random) -> str | None:
+    """Mutator operation."""
     b_source = s.encode("utf-8")
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
@@ -1525,6 +1530,7 @@ def mut_struct_vs_ptr_access(s: str, rng: random.Random) -> str | None:
 
 
 def mut_change_return_type(s: str, rng: random.Random) -> str | None:
+    """Mutator operation."""
     b_source = s.encode("utf-8")
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
@@ -1541,6 +1547,7 @@ def mut_change_return_type(s: str, rng: random.Random) -> str | None:
 
 
 def mut_split_cmp_chain(s: str, rng: random.Random) -> str | None:
+    """Mutator operation."""
     b_source = s.encode("utf-8")
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
@@ -1554,6 +1561,7 @@ def mut_split_cmp_chain(s: str, rng: random.Random) -> str | None:
 
 
 def mut_merge_cmp_chain(s: str, rng: random.Random) -> str | None:
+    """Mutator operation."""
     b_source = s.encode("utf-8")
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
@@ -1567,6 +1575,7 @@ def mut_merge_cmp_chain(s: str, rng: random.Random) -> str | None:
 
 
 def mut_combine_ptr_arith(s: str, rng: random.Random) -> str | None:
+    """Mutator operation."""
     b_source = s.encode("utf-8")
     cursor = ts.QueryCursor(_QUERY_COMBINE_PTR_ARITH)
 
@@ -1600,6 +1609,7 @@ def mut_combine_ptr_arith(s: str, rng: random.Random) -> str | None:
 
 
 def mut_split_ptr_arith(s: str, rng: random.Random) -> str | None:
+    """Mutator operation."""
     b_source = s.encode("utf-8")
     cursor = ts.QueryCursor(_QUERY_SPLIT_PTR_ARITH)
 
@@ -1647,6 +1657,7 @@ def mut_split_ptr_arith(s: str, rng: random.Random) -> str | None:
 
 
 def mut_change_param_order(s: str, rng: random.Random) -> str | None:
+    """Mutator operation."""
     b_source = s.encode("utf-8")
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
@@ -1664,6 +1675,7 @@ def mut_change_param_order(s: str, rng: random.Random) -> str | None:
 
 
 def mut_toggle_calling_convention(s: str, rng: random.Random) -> str | None:
+    """Mutator operation."""
     b_source = s.encode("utf-8")
 
     def _repl_existing(captures: dict[str, ts.Node]) -> bytes:
@@ -1689,6 +1701,7 @@ def mut_toggle_calling_convention(s: str, rng: random.Random) -> str | None:
 
 
 def mut_toggle_char_signedness(s: str, rng: random.Random) -> str | None:
+    """Mutator operation."""
     b_source = s.encode("utf-8")
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
@@ -1705,6 +1718,7 @@ def mut_toggle_char_signedness(s: str, rng: random.Random) -> str | None:
 
 
 def mut_comparison_boundary(s: str, rng: random.Random) -> str | None:
+    """Mutator operation."""
     b_source = s.encode("utf-8")
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
@@ -3364,6 +3378,7 @@ def mut_move_switch_default(s: str, rng: random.Random) -> str | None:
 
 
 def mut_if_chain_to_switch(s: str, rng: random.Random) -> str | None:
+    """Mutator operation."""
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
@@ -3464,6 +3479,7 @@ def mut_if_chain_to_switch(s: str, rng: random.Random) -> str | None:
 
 
 def mut_switch_add_explicit_default(s: str, rng: random.Random) -> str | None:
+    """Mutator operation."""
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
@@ -3509,6 +3525,7 @@ def mut_switch_add_explicit_default(s: str, rng: random.Random) -> str | None:
 
 
 def mut_wrap_in_else(s: str, rng: random.Random) -> str | None:
+    """Mutator operation."""
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
@@ -3580,6 +3597,7 @@ def mut_wrap_in_else(s: str, rng: random.Random) -> str | None:
 
 
 def mut_switch_break_to_return(s: str, rng: random.Random) -> str | None:
+    """Mutator operation."""
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
@@ -3642,6 +3660,7 @@ def mut_switch_break_to_return(s: str, rng: random.Random) -> str | None:
 
 
 def mut_split_and_condition(s: str, rng: random.Random) -> str | None:
+    """Mutator operation."""
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
@@ -3698,6 +3717,7 @@ def mut_split_and_condition(s: str, rng: random.Random) -> str | None:
 
 
 def mut_split_or_condition(s: str, rng: random.Random) -> str | None:
+    """Mutator operation."""
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
@@ -3755,6 +3775,7 @@ def mut_split_or_condition(s: str, rng: random.Random) -> str | None:
 
 
 def mut_merge_nested_ifs(s: str, rng: random.Random) -> str | None:
+    """Mutator operation."""
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
@@ -3816,6 +3837,7 @@ def mut_merge_nested_ifs(s: str, rng: random.Random) -> str | None:
 
 
 def mut_extract_condition_to_var(s: str, rng: random.Random) -> str | None:
+    """Mutator operation."""
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
@@ -3883,6 +3905,7 @@ def mut_extract_condition_to_var(s: str, rng: random.Random) -> str | None:
 
 
 def mut_loop_condition_extraction(s: str, rng: random.Random) -> str | None:
+    """Mutator operation."""
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)

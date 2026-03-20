@@ -40,6 +40,7 @@ from rebrew.catalog import (
 )
 from rebrew.cli import (
     EXIT_MISMATCH,
+    STATUS_COLORS,
     TargetOption,
     error_exit,
     is_matched,
@@ -911,17 +912,10 @@ def _print_results(
         table.add_column("Match %", justify="right")
         table.add_column("Delta", justify="right")
 
-        _STATUS_COLORS: dict[str, str] = {
-            "EXACT": "[green]EXACT[/]",
-            "RELOC": "[green]RELOC[/]",
-            "STUB": "[dim]STUB[/]",
-            "PROVEN": "[bold cyan]PROVEN[/]",
-            "NEAR_MATCHING": "[yellow]NEAR_MATCHING[/]",
-            "COMPILE_ERROR": "[red]ERROR[/]",
-        }
         for r in results:
             st = r["status"]
-            st_str = _STATUS_COLORS.get(st, f"[red]{st}[/]")
+            color = STATUS_COLORS.get(st, "red")
+            st_str = f"[{color}]{st}[/{color}]"
 
             pct = f"{r['match_percent']:.1f}%" if st in ("STUB", "NEAR_MATCHING") else "-"
             dt = f"{r.get('delta', 0)}B" if st in ("STUB", "NEAR_MATCHING") else "-"
@@ -932,18 +926,8 @@ def _print_results(
         exact = sum(1 for r in results if r["status"] == "EXACT")
         reloc = sum(1 for r in results if r["status"] == "RELOC")
         proven = sum(1 for r in results if r["status"] == "PROVEN")
-        mismatch_0b = sum(
-            1 for r in results if r["status"] == "MISMATCH" and r.get("delta", 0) == 0
-        )
-        mismatch_1_5 = sum(
-            1 for r in results if r["status"] == "MISMATCH" and 1 <= r.get("delta", 0) <= 5
-        )
-        mismatch_6_20 = sum(
-            1 for r in results if r["status"] == "MISMATCH" and 6 <= r.get("delta", 0) <= 20
-        )
-        mismatch_21 = sum(
-            1 for r in results if r["status"] == "MISMATCH" and r.get("delta", 0) > 20
-        )
+        near_matching = sum(1 for r in results if r["status"] == "NEAR_MATCHING")
+        stub = sum(1 for r in results if r["status"] == "STUB")
 
         stat_table = Table(title="STATUS Breakdown", show_header=False)
         stat_table.add_column("Category", style="cyan")
@@ -952,8 +936,8 @@ def _print_results(
         stat_table.add_row("RELOC", str(reloc))
         if proven:
             stat_table.add_row("PROVEN", str(proven))
-        mismatch_total = mismatch_0b + mismatch_1_5 + mismatch_6_20 + mismatch_21
-        stat_table.add_row("NEAR_MATCHING", str(mismatch_total))
+        stat_table.add_row("NEAR_MATCHING", str(near_matching))
+        stat_table.add_row("STUB", str(stub))
 
         console.print(stat_table)
 
