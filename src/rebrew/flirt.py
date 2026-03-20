@@ -21,10 +21,10 @@ except ImportError:
 
 console = Console(stderr=True)
 
-_MAX_FUNC_SCAN = 4096  # max bytes to scan for function end patterns
-_MIN_MATCH_WINDOW = 32  # FLIRT needs at least this many bytes to match
-_FUNC_ALIGNMENT = 16  # standard x86 function alignment stride
-_MAX_AMBIGUOUS = 3  # skip matches with more unique names than this
+_MAX_FUNC_SCAN = 4096
+_MIN_MATCH_WINDOW = 32
+_FUNC_ALIGNMENT = 16
+_MAX_AMBIGUOUS = 3
 
 
 def load_signatures(sig_dir: str, json_output: bool = False) -> list[Any]:
@@ -101,8 +101,8 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def main(
     sig_dir: Path | None = typer.Argument(None, help="Directory containing .sig/.pat files"),
-    exe: Path | None = typer.Option(None, help="Target PE file (default: from config)"),
-    min_size: int = typer.Option(16, help="Minimum function size in bytes to report"),
+    exe: Path | None = typer.Option(None, "--exe", help="Target PE file (default: from config)"),
+    min_size: int = typer.Option(16, "--min-size", help="Minimum function size in bytes to report"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:

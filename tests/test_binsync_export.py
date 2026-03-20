@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
 import tomlkit
 from typer.testing import CliRunner
 
@@ -37,15 +37,11 @@ def _make_project(tmp_path: Path, files: dict[str, str]) -> Path:
     return tmp_path
 
 
-def _invoke(tmp_path: Path, *extra_args: str) -> Any:
+def _invoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *extra_args: str) -> Any:
     """Run `rebrew binsync-export <outdir> [extra_args]` from tmp_path."""
     outdir = tmp_path / "binsync_out"
-    cwd = os.getcwd()
-    os.chdir(tmp_path)
-    try:
-        result = runner.invoke(app, ["binsync-export", str(outdir), *extra_args])
-    finally:
-        os.chdir(cwd)
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["binsync-export", str(outdir), *extra_args])
     return result, outdir
 
 
@@ -55,14 +51,14 @@ def _invoke(tmp_path: Path, *extra_args: str) -> Any:
 
 
 class TestBinsyncExportBasic:
-    def test_name_and_addr(self, tmp_path: Path) -> None:
+    def test_name_and_addr(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _make_project(
             tmp_path,
             {
                 "foo.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 31\nint foo() { return 1; }\n",
             },
         )
-        result, outdir = _invoke(tmp_path)
+        result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0, result.output
         toml_file = outdir / "functions" / "10001000.toml"
         assert toml_file.exists()
@@ -72,31 +68,33 @@ class TestBinsyncExportBasic:
         assert info["name"] == "_foo"
         assert info["size"] == 31
 
-    def test_size_omitted_when_zero(self, tmp_path: Path) -> None:
+    def test_size_omitted_when_zero(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _make_project(
             tmp_path,
             {
                 "bar.c": "// FUNCTION: SERVER 0x20002000\n// STATUS: NEAR_MATCHING\ndouble bar() { return 2.0; }\n",
             },
         )
-        result, outdir = _invoke(tmp_path)
+        result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0
         doc = tomlkit.loads((outdir / "functions" / "20002000.toml").read_text())
         assert "size" not in cast(dict[str, Any], doc["info"])
 
-    def test_fallback_name_when_no_symbol(self, tmp_path: Path) -> None:
+    def test_fallback_name_when_no_symbol(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         _make_project(
             tmp_path,
             {
                 "stub.c": "// FUNCTION: SERVER 0x30003000\n// STATUS: STUB\nvoid stub(void);\n",
             },
         )
-        result, outdir = _invoke(tmp_path)
+        result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0
         doc = tomlkit.loads((outdir / "functions" / "30003000.toml").read_text())
         name = cast(dict[str, Any], doc["info"])["name"]
         # Stub with no body: falls back to symbol from declaration or func_ prefix
-        assert name  # just ensure something is written
+        assert isinstance(name, str) and len(name) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +103,9 @@ class TestBinsyncExportBasic:
 
 
 class TestBinsyncExportPrototype:
-    def test_prototype_written_to_header(self, tmp_path: Path) -> None:
+    def test_prototype_written_to_header(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         _make_project(
             tmp_path,
             {
@@ -118,7 +118,7 @@ class TestBinsyncExportPrototype:
                 ),
             },
         )
-        result, outdir = _invoke(tmp_path)
+        result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0
         doc = tomlkit.loads((outdir / "functions" / "10001000.toml").read_text())
         assert "header" in doc
@@ -127,7 +127,9 @@ class TestBinsyncExportPrototype:
         assert header_type == "int __cdecl Calc(int x, int y)"
         assert "{" not in header_type
 
-    def test_header_strips_body_for_inline_definitions(self, tmp_path: Path) -> None:
+    def test_header_strips_body_for_inline_definitions(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Inline function definitions (no // PROTOTYPE: annotation) still get a
         stripped [header].type with no function body."""
         _make_project(
@@ -136,7 +138,7 @@ class TestBinsyncExportPrototype:
                 "f.c": "// FUNCTION: SERVER 0x10002000\n// STATUS: EXACT\n// SIZE: 5\nvoid f(void) {}\n"
             },
         )
-        result, outdir = _invoke(tmp_path)
+        result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0
         doc = tomlkit.loads((outdir / "functions" / "10002000.toml").read_text())
         # prototype is always derived from the C source; body must be stripped
@@ -152,7 +154,9 @@ class TestBinsyncExportPrototype:
 
 
 class TestBinsyncExportComments:
-    def test_status_and_cflags_in_comment(self, tmp_path: Path) -> None:
+    def test_status_and_cflags_in_comment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         _make_project(
             tmp_path,
             {
@@ -165,7 +169,7 @@ class TestBinsyncExportComments:
                 ),
             },
         )
-        result, outdir = _invoke(tmp_path)
+        result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0
         doc = tomlkit.loads((outdir / "functions" / "10010000.toml").read_text())
         assert "comments" in doc
@@ -174,7 +178,9 @@ class TestBinsyncExportComments:
         assert "STATUS=RELOC" in comments[str(0x10010000)]
         assert "CFLAGS=/O1 /Gd" in comments[str(0x10010000)]
 
-    def test_note_written_at_va_plus_one(self, tmp_path: Path) -> None:
+    def test_note_written_at_va_plus_one(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         _make_project(
             tmp_path,
             {
@@ -187,7 +193,7 @@ class TestBinsyncExportComments:
                 ),
             },
         )
-        result, outdir = _invoke(tmp_path)
+        result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0
         doc = tomlkit.loads((outdir / "functions" / "10020000.toml").read_text())
         comments = cast(dict[str, Any], doc["comments"])
@@ -212,7 +218,9 @@ class TestBinsyncExportComments:
 
 
 class TestBinsyncExportGlobals:
-    def test_global_vars_toml_written(self, tmp_path: Path) -> None:
+    def test_global_vars_toml_written(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         _make_project(
             tmp_path,
             {
@@ -220,7 +228,7 @@ class TestBinsyncExportGlobals:
                 "data.c": ("// GLOBAL: SERVER 0x01008000\n// SIZE: 64\nchar g_szBuffer[64];\n"),
             },
         )
-        result, outdir = _invoke(tmp_path)
+        result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0
         gv_path = outdir / "global_vars.toml"
         assert gv_path.exists()
@@ -229,14 +237,16 @@ class TestBinsyncExportGlobals:
         entry = cast(dict[str, Any], doc[str(0x01008000)])
         assert entry["addr"] == 0x01008000
 
-    def test_no_global_vars_toml_when_no_globals(self, tmp_path: Path) -> None:
+    def test_no_global_vars_toml_when_no_globals(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         _make_project(
             tmp_path,
             {
                 "func.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nvoid func(void) {}\n"
             },
         )
-        result, outdir = _invoke(tmp_path)
+        result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0
         assert not (outdir / "global_vars.toml").exists()
 
@@ -247,26 +257,28 @@ class TestBinsyncExportGlobals:
 
 
 class TestBinsyncExportDryRun:
-    def test_dry_run_writes_nothing(self, tmp_path: Path) -> None:
+    def test_dry_run_writes_nothing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _make_project(
             tmp_path,
             {
                 "f.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nvoid f(void) {}\n"
             },
         )
-        result, outdir = _invoke(tmp_path, "--dry-run")
+        result, outdir = _invoke(tmp_path, monkeypatch, "--dry-run")
         assert result.exit_code == 0
         # Nothing should exist on disk
         assert not outdir.exists()
 
-    def test_dry_run_json_reports_counts(self, tmp_path: Path) -> None:
+    def test_dry_run_json_reports_counts(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         _make_project(
             tmp_path,
             {
                 "f.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nvoid f(void) {}\n"
             },
         )
-        result, outdir = _invoke(tmp_path, "--dry-run", "--json")
+        result, outdir = _invoke(tmp_path, monkeypatch, "--dry-run", "--json")
         assert result.exit_code == 0
         import json
 
@@ -282,14 +294,14 @@ class TestBinsyncExportDryRun:
 
 
 class TestBinsyncExportJson:
-    def test_json_output_structure(self, tmp_path: Path) -> None:
+    def test_json_output_structure(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _make_project(
             tmp_path,
             {
                 "f.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nvoid f(void) {}\n"
             },
         )
-        result, outdir = _invoke(tmp_path, "--json")
+        result, outdir = _invoke(tmp_path, monkeypatch, "--json")
         assert result.exit_code == 0
         import json
 

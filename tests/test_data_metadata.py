@@ -70,10 +70,6 @@ class TestConstants:
     def test_metadata_path_from_dir(self, tmp_path: Path) -> None:
         assert data_metadata_path(tmp_path) == tmp_path / "rebrew-data.toml"
 
-    def test_metadata_path_from_file(self, tmp_path: Path) -> None:
-        # data_metadata_path now expects a directory (cfg.reversed_dir)
-        assert data_metadata_path(tmp_path) == tmp_path / "rebrew-data.toml"
-
 
 # ---------------------------------------------------------------------------
 # Load / Save

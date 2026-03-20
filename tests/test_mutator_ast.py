@@ -1,3 +1,5 @@
+"""Tests for AST-based mutation operators in rebrew.matcher.mutator."""
+
 import random
 
 from rebrew.matcher.mutator import (
@@ -55,7 +57,7 @@ from rebrew.matcher.mutator import (
 )
 
 
-def test_mut_ast_commute_simple_add():
+def test_mut_ast_commute_simple_add() -> None:
     source = "int main() { return a + b; }"
     rng = random.Random(42)
     # The mutator selects a random match (only one here) and swaps left and right
@@ -63,14 +65,14 @@ def test_mut_ast_commute_simple_add():
     assert res == "int main() { return b + a; }"
 
 
-def test_mut_ast_commute_simple_mul():
+def test_mut_ast_commute_simple_mul() -> None:
     source = "int main() { return a * b; }"
     rng = random.Random(42)
     res = mut_commute_simple_mul(source, rng)
     assert res == "int main() { return b * a; }"
 
 
-def test_mut_ast_flip_eq_zero():
+def test_mut_ast_flip_eq_zero() -> None:
     source = "int main() { if (a == 0) return 0; if (b != 0) return 1; }"
     rng = random.Random(
         42
@@ -87,14 +89,14 @@ def test_mut_ast_flip_eq_zero():
     assert "int main() { if (a == 0) return 0; if (!!b) return 1; }" in results
 
 
-def test_mut_ast_flip_lt_ge():
+def test_mut_ast_flip_lt_ge() -> None:
     source = "int main() { if (a < b) return 0; }"
     rng = random.Random(42)
     res = mut_flip_lt_ge(source, rng)
     assert res == "int main() { if (!(a >= b)) return 0; }"
 
 
-def test_mut_ast_add_redundant_parens():
+def test_mut_ast_add_redundant_parens() -> None:
     source = "int main() { return a + b; }"
     rng = random.Random(42)
     # The identifier query will find 'main', 'a', 'b'.
@@ -109,49 +111,49 @@ def test_mut_ast_add_redundant_parens():
     )
 
 
-def test_mut_ast_swap_eq_operands():
+def test_mut_ast_swap_eq_operands() -> None:
     source = "int main() { if (a == b) return 0; }"
     rng = random.Random(42)
     res = mut_swap_eq_operands(source, rng)
     assert res == "int main() { if (b == a) return 0; }"
 
 
-def test_mut_ast_swap_ne_operands():
+def test_mut_ast_swap_ne_operands() -> None:
     source = "int main() { if (a != b) return 0; }"
     rng = random.Random(42)
     res = mut_swap_ne_operands(source, rng)
     assert res == "int main() { if (b != a) return 0; }"
 
 
-def test_mut_ast_reassociate_add():
+def test_mut_ast_reassociate_add() -> None:
     source = "int main() { return (a + b) + c; }"
     rng = random.Random(42)
     res = mut_reassociate_add(source, rng)
     assert res == "int main() { return a + (b + c); }"
 
 
-def test_mut_ast_swap_or_operands():
+def test_mut_ast_swap_or_operands() -> None:
     source = "int main() { if (a || b) return 0; }"
     rng = random.Random(42)
     res = mut_swap_or_operands(source, rng)
     assert res == "int main() { if (b || a) return 0; }"
 
 
-def test_mut_ast_swap_and_operands():
+def test_mut_ast_swap_and_operands() -> None:
     source = "int main() { if (a && b) return 0; }"
     rng = random.Random(42)
     res = mut_swap_and_operands(source, rng)
     assert res == "int main() { if (b && a) return 0; }"
 
 
-def test_mut_ast_toggle_bool_not():
+def test_mut_ast_toggle_bool_not() -> None:
     source = "int main() { if (!!a) return 0; }"
     rng = random.Random(42)
     res = mut_toggle_bool_not(source, rng)
     assert res == "int main() { if (a) return 0; }"
 
 
-def test_mut_ast_return_to_goto():
+def test_mut_ast_return_to_goto() -> None:
     source = "int foo() { if (a) { return 0; } return 1; }"
     rng = random.Random(42)
     res = mut_return_to_goto(source, rng)
@@ -159,35 +161,35 @@ def test_mut_ast_return_to_goto():
     assert "ret_false:" in res
 
 
-def test_mut_ast_goto_to_return():
+def test_mut_ast_goto_to_return() -> None:
     source = "int main() {\n    goto ret_false;\nret_false:\n    return 0;\n}"
     rng = random.Random(42)
     res = mut_goto_to_return(source, rng)
     assert res == "int main() {\n    return 0;\n    return 0;\n}"
 
 
-def test_mut_ast_swap_if_else():
+def test_mut_ast_swap_if_else() -> None:
     source = "int main() { if (a < b) { return 1; } else { return 0; } }"
     rng = random.Random(42)
     res = mut_swap_if_else(source, rng)
     assert res == "int main() { if (!(a < b)) { return 0; } else { return 1; } }"
 
 
-def test_mut_ast_add_cast():
+def test_mut_ast_add_cast() -> None:
     source = "void foo() { int a = b; }"
     rng = random.Random(42)
     res = mut_add_cast(source, rng)
     assert "(int)b" in res or "(unsigned int)b" in res
 
 
-def test_mut_ast_remove_cast():
+def test_mut_ast_remove_cast() -> None:
     source = "void foo() { int a = (DWORD)b; }"
     rng = random.Random(42)
     res = mut_remove_cast(source, rng)
     assert res == "void foo() { int a = b; }"
 
 
-def test_mut_ast_toggle_volatile():
+def test_mut_ast_toggle_volatile() -> None:
     source1 = "int a;"
     rng = random.Random(42)
     res1 = mut_toggle_volatile(source1, rng)
@@ -204,56 +206,56 @@ def test_mut_ast_toggle_volatile():
     assert "int a;" in results
 
 
-def test_mut_ast_add_register_keyword():
+def test_mut_ast_add_register_keyword() -> None:
     source = "int a;"
     rng = random.Random(42)
     res = mut_add_register_keyword(source, rng)
     assert res == "register int a;"
 
 
-def test_mut_ast_remove_register_keyword():
+def test_mut_ast_remove_register_keyword() -> None:
     source = "register int a;"
     rng = random.Random(42)
     res = mut_remove_register_keyword(source, rng)
     assert res == "int a;"
 
 
-def test_mut_ast_if_false_to_bitand():
+def test_mut_ast_if_false_to_bitand() -> None:
     source = "int main() { if (!a) { b = 0; } }"
     rng = random.Random(42)
     res = mut_if_false_to_bitand(source, rng)
     assert res == "int main() { b &= a; }"
 
 
-def test_mut_ast_reorder_elseif():
+def test_mut_ast_reorder_elseif() -> None:
     source = "int main() { if (a) { return 0; } else if (b) { return 1; } }"
     rng = random.Random(42)
     res = mut_reorder_elseif(source, rng)
     assert "if (b)" in res and "else if (a)" in res
 
 
-def test_mut_ast_bitand_to_if_false():
+def test_mut_ast_bitand_to_if_false() -> None:
     source = "int main() { a &= foo(); }"
     rng = random.Random(42)
     res = mut_bitand_to_if_false(source, rng)
     assert res == "int main() { if (!(foo()))\n            a = 0; }"
 
 
-def test_mut_ast_introduce_temp_for_call():
+def test_mut_ast_introduce_temp_for_call() -> None:
     source = "int main() { a = foo(); }"
     rng = random.Random(42)
     res = mut_introduce_temp_for_call(source, rng)
     assert res == "int main() {\n    BOOL tmp; tmp = foo();\n    a = tmp; }"
 
 
-def test_mut_ast_remove_temp_var():
+def test_mut_ast_remove_temp_var() -> None:
     source = "int main() { tmp = foo(); a = tmp; }"
     rng = random.Random(42)
     res = mut_remove_temp_var(source, rng)
     assert res == "int main() { a = foo(); }"
 
 
-def test_mut_ast_toggle_signedness():
+def test_mut_ast_toggle_signedness() -> None:
     source = "int main() { unsigned int a; }"
     rng = random.Random(42)
     res = mut_toggle_signedness(source, rng)
@@ -264,7 +266,7 @@ def test_mut_ast_toggle_signedness():
     assert res2 == "int main() { unsigned int b; }"
 
 
-def test_mut_ast_swap_adjacent_declarations():
+def test_mut_ast_swap_adjacent_declarations() -> None:
     source = "int main() { int a; int b; c = 0; }"
     rng = random.Random(42)
     res = mut_swap_adjacent_declarations(source, rng)
@@ -272,7 +274,7 @@ def test_mut_ast_swap_adjacent_declarations():
     assert "int b; int a;" in res
 
 
-def test_mut_ast_split_declaration_init():
+def test_mut_ast_split_declaration_init() -> None:
     source = "int main() { int a = 5; }"
     rng = random.Random(42)
     res = mut_split_declaration_init(source, rng)
@@ -280,7 +282,7 @@ def test_mut_ast_split_declaration_init():
     assert "int a;\n    a = 5;" in res
 
 
-def test_mut_ast_merge_declaration_init():
+def test_mut_ast_merge_declaration_init() -> None:
     source = "int main() { int a;\n    a = 5; }"
     rng = random.Random(42)
     res = mut_merge_declaration_init(source, rng)
@@ -288,7 +290,7 @@ def test_mut_ast_merge_declaration_init():
     assert "int a = 5;" in res
 
 
-def test_mut_ast_while_to_dowhile():
+def test_mut_ast_while_to_dowhile() -> None:
     source = "int main() { while (a < 5) { a++; } }"
     rng = random.Random(42)
     res = mut_while_to_dowhile(source, rng)
@@ -296,7 +298,7 @@ def test_mut_ast_while_to_dowhile():
     assert "if (a < 5) {\n    do { a++; } while (a < 5);\n    }" in res
 
 
-def test_mut_ast_dowhile_to_while():
+def test_mut_ast_dowhile_to_while() -> None:
     source = "int main() { do { a++; } while (a < 5); }"
     rng = random.Random(42)
     res = mut_dowhile_to_while(source, rng)
@@ -304,7 +306,7 @@ def test_mut_ast_dowhile_to_while():
     assert "while (a < 5) { a++; }" in res
 
 
-def test_mut_ast_early_return_to_accum():
+def test_mut_ast_early_return_to_accum() -> None:
     source = "int main() { int ret; if (!foo()) return 0; return ret; }"
     rng = random.Random(42)
     res = mut_early_return_to_accum(source, rng)
@@ -312,7 +314,7 @@ def test_mut_ast_early_return_to_accum():
     assert "ret &= foo();" in res
 
 
-def test_mut_ast_accum_to_early_return():
+def test_mut_ast_accum_to_early_return() -> None:
     source = "int main() { int ret; ret &= foo(); }"
     rng = random.Random(42)
     res = mut_accum_to_early_return(source, rng)
@@ -320,7 +322,7 @@ def test_mut_ast_accum_to_early_return():
     assert "if (!(foo()))\n        return 0;" in res
 
 
-def test_mut_ast_pointer_to_int_param():
+def test_mut_ast_pointer_to_int_param() -> None:
     source = "void foo(int *a) { }"
     rng = random.Random(42)
     res = mut_pointer_to_int_param(source, rng)
@@ -328,7 +330,7 @@ def test_mut_ast_pointer_to_int_param():
     assert "void foo(int a) { }" in res
 
 
-def test_mut_ast_int_to_pointer_param():
+def test_mut_ast_int_to_pointer_param() -> None:
     source = "void foo(int a) { }"
     rng = random.Random(42)
     res = mut_int_to_pointer_param(source, rng)
@@ -336,7 +338,7 @@ def test_mut_ast_int_to_pointer_param():
     assert "void foo(char *a) { }" in res
 
 
-def test_mut_ast_duplicate_loop_body():
+def test_mut_ast_duplicate_loop_body() -> None:
     source = "int main() { while (a < 5) { a++; } }"
     rng = random.Random(42)
     res = mut_duplicate_loop_body(source, rng)
@@ -344,42 +346,42 @@ def test_mut_ast_duplicate_loop_body():
     assert "{\n    a++;\n    a++;\n}" in res
 
 
-def test_mut_ast_fold_constant_add():
+def test_mut_ast_fold_constant_add() -> None:
     source = "int main() { x = x + 1; x = x + 2; }"
     rng = random.Random(42)
     res = mut_fold_constant_add(source, rng)
     assert "x = x + 3;" in res, res
 
 
-def test_mut_ast_unfold_constant_add():
+def test_mut_ast_unfold_constant_add() -> None:
     source = "int main() { x = x + 3; }"
     rng = random.Random(42)
     res = mut_unfold_constant_add(source, rng)
     assert res == "int main() { x = x + 1; x = x + 1; x = x + 1; }"
 
 
-def test_mut_ast_change_array_index_order():
+def test_mut_ast_change_array_index_order() -> None:
     source = "int main() { arr[0] = 1; arr[idx] = 2; }"
     rng = random.Random(42)
     res = mut_change_array_index_order(source, rng)
     assert "0[arr]" in res or "idx[arr]" in res
 
 
-def test_mut_ast_struct_vs_ptr_access():
+def test_mut_ast_struct_vs_ptr_access() -> None:
     source = "int main() { ptr->field = 1; }"
     rng = random.Random(42)
     res = mut_struct_vs_ptr_access(source, rng)
     assert res == "int main() { (*ptr).field = 1; }"
 
 
-def test_mut_ast_change_return_type():
+def test_mut_ast_change_return_type() -> None:
     source = "int main() { return 0; }"
     rng = random.Random(42)
     res = mut_change_return_type(source, rng)
     assert "char main()" in res or "short main()" in res or "long main()" in res
 
 
-def test_mut_ast_split_cmp_chain():
+def test_mut_ast_split_cmp_chain() -> None:
     source = "int main() { if (a && b) { return; } }"
     rng = random.Random(42)
     res = mut_split_cmp_chain(source, rng)
@@ -387,7 +389,7 @@ def test_mut_ast_split_cmp_chain():
     assert "if (a) { if (b) { return; } }" in res
 
 
-def test_mut_ast_merge_cmp_chain():
+def test_mut_ast_merge_cmp_chain() -> None:
     source = "int main() { if (a) { if (b) { return; } } }"
     rng = random.Random(42)
     res = mut_merge_cmp_chain(source, rng)
@@ -395,7 +397,7 @@ def test_mut_ast_merge_cmp_chain():
     assert "if ((a) && (b))" in res
 
 
-def test_mut_ast_combine_ptr_arith():
+def test_mut_ast_combine_ptr_arith() -> None:
     source = "int main() { p = p + 2; p = p + 3; }"
     rng = random.Random(42)
     res = mut_combine_ptr_arith(source, rng)
@@ -403,7 +405,7 @@ def test_mut_ast_combine_ptr_arith():
     assert "p = p + 5;" in res
 
 
-def test_mut_ast_split_ptr_arith():
+def test_mut_ast_split_ptr_arith() -> None:
     source = "int main() { p = p + 5; }"
     rng = random.Random(42)
     res = mut_split_ptr_arith(source, rng)
@@ -411,7 +413,7 @@ def test_mut_ast_split_ptr_arith():
     assert "p = p + 2; p = p + 3;" in res
 
 
-def test_mut_ast_change_param_order():
+def test_mut_ast_change_param_order() -> None:
     source = "void foo(int a, int b) {}"
     rng = random.Random(42)
     res = mut_change_param_order(source, rng)
@@ -419,7 +421,7 @@ def test_mut_ast_change_param_order():
     assert "void foo(int b, int a)" in res
 
 
-def test_mut_ast_toggle_calling_convention():
+def test_mut_ast_toggle_calling_convention() -> None:
     source = "int __cdecl main() {}"
     rng = random.Random(42)
     res = mut_toggle_calling_convention(source, rng)
@@ -427,7 +429,7 @@ def test_mut_ast_toggle_calling_convention():
     assert "int __stdcall main() {}" in res
 
 
-def test_mut_ast_toggle_char_signedness():
+def test_mut_ast_toggle_char_signedness() -> None:
     source = "unsigned char x;"
     rng = random.Random(42)
     res = mut_toggle_char_signedness(source, rng)
@@ -435,7 +437,7 @@ def test_mut_ast_toggle_char_signedness():
     assert "signed char x;" in res
 
 
-def test_mut_ast_comparison_boundary():
+def test_mut_ast_comparison_boundary() -> None:
     source = "if (x > 0) {}"
     rng = random.Random(42)
     res = mut_comparison_boundary(source, rng)
@@ -443,7 +445,7 @@ def test_mut_ast_comparison_boundary():
     assert "if (x >= 1)" in res
 
 
-def test_mut_ast_insert_noop_block():
+def test_mut_ast_insert_noop_block() -> None:
     source = "int main() { x = 1; }"
     rng = random.Random(42)
     res = mut_insert_noop_block(source, rng)
@@ -451,7 +453,7 @@ def test_mut_ast_insert_noop_block():
     assert "if (0) {}" in res
 
 
-def test_mut_ast_introduce_local_alias():
+def test_mut_ast_introduce_local_alias() -> None:
     source = "int main() { x = y; }"
     rng = random.Random(42)
     res = mut_introduce_local_alias(source, rng)
@@ -459,7 +461,7 @@ def test_mut_ast_introduce_local_alias():
     assert "_alias_y" in res
 
 
-def test_mut_ast_reorder_declarations():
+def test_mut_ast_reorder_declarations() -> None:
     source = "int main() { int a; int b; }"
     rng = random.Random(42)
     res = mut_reorder_declarations(source, rng)
@@ -470,23 +472,23 @@ def test_mut_ast_reorder_declarations():
 from rebrew.matcher.ast_engine import ASTMutator, parse_c_ast, quick_validate_ast  # noqa: E402
 
 
-def test_parse_c_ast():
+def test_parse_c_ast() -> None:
     source = b"int main() { return 0; }"
     tree = parse_c_ast(source)
     assert tree.root_node.type == "translation_unit"
     assert not tree.root_node.has_error
 
 
-def test_quick_validate_ast_valid():
+def test_quick_validate_ast_valid() -> None:
     assert quick_validate_ast(b"int main() { return 0; }")
 
 
-def test_quick_validate_ast_invalid():
+def test_quick_validate_ast_invalid() -> None:
     # Missing closing brace
     assert not quick_validate_ast(b"int main() { return 0;")
 
 
-def test_replace_node():
+def test_replace_node() -> None:
     source = b"int main() { return 0; }"
     tree = parse_c_ast(source)
     # The return statement is the child of the compound statement, which is the 2nd child of function_definition

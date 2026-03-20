@@ -75,7 +75,7 @@ def clear(
         count = cache.count
         if not force and not json_output:
             console.print(f"About to delete {count} cached entries from {cache_dir}")
-            typer.confirm("Continue?", abort=True)
+            typer.confirm(f"Delete {count} cached compile results?", abort=True)
         cache.clear()
         if json_output:
             json_print({"cleared": count, "cache_dir": str(cache_dir)})

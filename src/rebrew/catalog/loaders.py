@@ -25,24 +25,20 @@ def load_function_structure(path: Path) -> list[FunctionEntry]:
     """Load the function structure cache (``function_structure.json``).
 
     Returns an empty list if the file does not exist.
-    Aborts the program with an error if the file exists but is corrupted.
+    Raises ``ValueError`` if the file is corrupt, ``OSError`` on I/O failure.
     """
     if not path.exists():
         return []
 
-    from rebrew.cli import error_exit
-
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data, list):
-            error_exit(
+            raise ValueError(
                 f"Corrupt structure JSON at {path.name}: Expected a JSON array, got {type(data).__name__}"
             )
         return [FunctionEntry.from_dict(d) for d in data if isinstance(d, dict)]
     except json.JSONDecodeError as e:
-        error_exit(f"Corrupt structure JSON at {path.name}: {e}")
-    except OSError as e:
-        error_exit(f"Cannot read structure JSON at {path.name}: {e}")
+        raise ValueError(f"Corrupt structure JSON at {path.name}: {e}") from e
 
 
 def _classify_ghidra_label(label: str) -> str:
@@ -59,10 +55,10 @@ def _classify_ghidra_label(label: str) -> str:
 
 
 def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, GhidraDataLabel]:
-    """Load Ghidra data labels → {va: {"size": int, "label": str, "state": str}}.
+    """Load Ghidra data labels → {va: GhidraDataLabel}.
 
     Tries ghidra_data_labels.json first, falls back to ghidra_switchdata.json
-    for backward compatibility.
+    (older format).
 
     ghidra_data_labels.json format:
         [{"va": int, "size": int, "label": "switchdataD_10002e9c"}, ...]

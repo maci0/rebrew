@@ -45,7 +45,7 @@ class TestBinaryInfo:
         assert info.format == "pe"
         assert info.image_base == 0x10000000
 
-    def test_data_lazy_load(self, tmp_path) -> None:
+    def test_data_lazy_load(self, tmp_path: Path) -> None:
         f = tmp_path / "test.bin"
         f.write_bytes(b"\x00" * 100)
         info = BinaryInfo(path=f, format="pe")
@@ -64,7 +64,7 @@ class TestBinaryInfo:
 
 
 class TestExtractBytesAtVa:
-    def test_basic_extraction(self, tmp_path) -> None:
+    def test_basic_extraction(self, tmp_path: Path) -> None:
         # Create a fake binary with known bytes
         f = tmp_path / "test.bin"
         content = b"\x00" * 0x400 + b"\xab\xcd\xef\x12" + b"\x00" * 100
@@ -88,7 +88,7 @@ class TestExtractBytesAtVa:
         assert len(result) == 4
         assert result == b"\xab\xcd\xef\x12"
 
-    def test_clamps_to_raw_size(self, tmp_path) -> None:
+    def test_clamps_to_raw_size(self, tmp_path: Path) -> None:
         """extract_bytes_at_va should not read beyond section raw_size."""
         f = tmp_path / "test.bin"
         # 0x400 bytes of header + 0x100 bytes of real section data + sentinel
@@ -111,9 +111,9 @@ class TestExtractBytesAtVa:
         # Request 0x200 bytes but only 0x100 of raw data available
         result = extract_bytes_at_va(info, 0x10001000, 0x200)
         assert result is not None
-        assert len(result) <= 0x100  # clamped to raw_size
+        assert len(result) == 0x100  # clamped to raw_size
 
-    def test_trim_padding_default(self, tmp_path) -> None:
+    def test_trim_padding_default(self, tmp_path: Path) -> None:
         """Default behavior strips trailing 0xCC/0x90 padding bytes."""
         f = tmp_path / "test.bin"
         # 4 real bytes + 4 INT3 padding bytes
@@ -137,7 +137,7 @@ class TestExtractBytesAtVa:
         assert result is not None
         assert result == b"\x55\x8b\xec\xc3"  # padding stripped
 
-    def test_trim_padding_false_preserves_bytes(self, tmp_path) -> None:
+    def test_trim_padding_false_preserves_bytes(self, tmp_path: Path) -> None:
         """trim_padding=False returns exact bytes including trailing padding.
 
         Regression test for Phase 1 fix: callers doing byte-level scoring
@@ -165,7 +165,7 @@ class TestExtractBytesAtVa:
         assert len(result) == 8
         assert result == b"\x55\x8b\xec\xc3" + b"\xcc" * 4  # padding preserved
 
-    def test_va_not_in_section(self, tmp_path) -> None:
+    def test_va_not_in_section(self, tmp_path: Path) -> None:
         f = tmp_path / "test.bin"
         f.write_bytes(b"\x00" * 100)
         info = BinaryInfo(
@@ -262,23 +262,8 @@ class TestDetectFormat:
 
 
 # ---------------------------------------------------------------------------
-# load_binary bounded cache (moved from test_phase3.py)
+# load_binary bounded cache
 # ---------------------------------------------------------------------------
-
-import struct as _struct_cache  # noqa: E402
-
-
-def _make_pe_stub_for_cache(path: Path) -> Path:
-    """Build a minimal PE file that LIEF recognises."""
-    buf = bytearray(256)
-    buf[0:2] = b"MZ"
-    _struct_cache.pack_into("<I", buf, 60, 128)
-    buf[128:132] = b"PE\x00\x00"
-    _struct_cache.pack_into("<H", buf, 132, 0x14C)
-    _struct_cache.pack_into("<H", buf, 148, 96)
-    _struct_cache.pack_into("<H", buf, 152, 0x10B)
-    path.write_bytes(bytes(buf))
-    return path
 
 
 class TestLoadBinaryCache:
@@ -295,7 +280,7 @@ class TestLoadBinaryCache:
     def test_cache_hit(self, tmp_path: Path) -> None:
         from rebrew.binary_loader import load_binary
 
-        f = _make_pe_stub_for_cache(tmp_path / "test.exe")
+        f = _make_pe_stub(tmp_path / "test.exe")
         info1 = load_binary(f)
         info2 = load_binary(f)
         assert info1 is info2
@@ -303,7 +288,7 @@ class TestLoadBinaryCache:
     def test_cache_stores_entry(self, tmp_path: Path) -> None:
         from rebrew.binary_loader import _load_binary_cache, load_binary
 
-        f = _make_pe_stub_for_cache(tmp_path / "test.exe")
+        f = _make_pe_stub(tmp_path / "test.exe")
         load_binary(f)
         assert len(_load_binary_cache) == 1
 
@@ -312,11 +297,11 @@ class TestLoadBinaryCache:
 
         paths = []
         for i in range(_LOAD_BINARY_CACHE_MAX):
-            p = _make_pe_stub_for_cache(tmp_path / f"test_{i}.exe")
+            p = _make_pe_stub(tmp_path / f"test_{i}.exe")
             paths.append(p)
             load_binary(p)
         assert len(_load_binary_cache) == _LOAD_BINARY_CACHE_MAX
-        overflow = _make_pe_stub_for_cache(tmp_path / "overflow.exe")
+        overflow = _make_pe_stub(tmp_path / "overflow.exe")
         load_binary(overflow)
         assert len(_load_binary_cache) == _LOAD_BINARY_CACHE_MAX
         first_key = (str(paths[0].resolve()), "auto")

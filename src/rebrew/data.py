@@ -29,6 +29,8 @@ from rich.table import Table
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
 
+console = Console(stderr=True)
+
 # ---------------------------------------------------------------------------
 # Regexes
 # ---------------------------------------------------------------------------
@@ -177,6 +179,8 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
     2. ``extern <type> <name>;`` data globals (via tree-sitter, filtering functions)
 
     Returns a ScanResult with all discovered globals and type conflicts.
+    Mutates ``entry.type_str`` by appending ``" ⚠ CONFLICT"`` when conflicting
+    type declarations are found across files.
     """
     from rebrew.c_parser import find_extern_variables
     from rebrew.cli import iter_sources, rel_display_path
@@ -830,8 +834,6 @@ def _render_summary(
 # CLI
 # ---------------------------------------------------------------------------
 
-console = Console(stderr=True)
-
 app = typer.Typer(
     help="Global data scanner — inventory .data/.rdata/.bss globals.",
     rich_markup_mode="rich",
@@ -883,7 +885,7 @@ def _gen_globals_header(cfg: ProjectConfig, src_dir: Path) -> None:
         try:
             annotations = parse_c_file_multi(src, target_name=marker, metadata_dir=cfg.metadata_dir)
         except Exception:  # noqa: BLE001 — non-fatal; skip unparseable files
-            logging.debug("Skipping %s: annotation parse failed", src)
+            logging.debug("Skipping %s: annotation parse failed", src, exc_info=True)
             continue
         for ann in annotations:
             if ann.marker_type not in ("GLOBAL", "DATA"):

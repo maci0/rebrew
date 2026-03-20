@@ -33,7 +33,7 @@ from rebrew.cli import (
 console = Console(stderr=True)
 
 # ---------------------------------------------------------------------------
-# Shared: blocker classification (re-exported to match.py callers)
+# Shared: blocker classification (used by match.py)
 # ---------------------------------------------------------------------------
 
 
@@ -54,10 +54,8 @@ def classify_blockers(diff_summary: dict[str, Any]) -> list[str]:
         if match_char not in ("**", "RR"):
             continue
 
-        t_obj = row.get("target") or {}
-        c_obj = row.get("candidate") or {}
-        t = t_obj if isinstance(t_obj, dict) else {}
-        c = c_obj if isinstance(c_obj, dict) else {}
+        t = row.get("target") or {}
+        c = row.get("candidate") or {}
         t_asm = t.get("disasm", "")
         c_asm = c.get("disasm", "")
 
@@ -97,7 +95,7 @@ def classify_blockers(diff_summary: dict[str, Any]) -> list[str]:
     return sorted(blockers)
 
 
-def _print_structural_similarity(sim: Any) -> None:
+def print_structural_similarity(sim: Any) -> None:
     verdict = "flag sweep MAY help" if sim.flag_sensitive else "flags unlikely to help"
     console.print(f"\nStructural similarity ({verdict}):")
     console.print(
@@ -123,7 +121,7 @@ def run_diff(
     csv_output: bool,
     fix_blocker: bool,
     json_output: bool,
-    # resolved build params from match._resolve_build_params
+    # resolved build params from match.resolve_build_params
     p: Any,
 ) -> None:
     """Compile seed and show byte diff vs target. Shared with match.py."""
@@ -144,10 +142,7 @@ def run_diff(
         timeout=p.cfg.compile_timeout,
     )
     if not (res.ok and res.obj_bytes):
-        if json_output:
-            error_exit(f"Build failed: {res.error_msg}", json_mode=True)
-        console.print(f"Build failed: {res.error_msg}")
-        raise typer.Exit(code=EXIT_ERROR)
+        error_exit(f"Build failed: {res.error_msg}", json_mode=json_output, code=EXIT_ERROR)
 
     obj_bytes = res.obj_bytes
     if len(obj_bytes) > len(p.target_bytes):
@@ -221,7 +216,7 @@ def run_diff(
                 console.print("\nAuto-classified blockers:")
                 for b in blockers:
                     console.print(f"  - {b}")
-            _print_structural_similarity(sim)
+            print_structural_similarity(sim)
 
         if fix_blocker:
             from rebrew.annotation import parse_c_file

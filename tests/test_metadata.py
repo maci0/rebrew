@@ -116,7 +116,9 @@ class TestKeyHelpers:
     def test_parse_unrecognised_key(self) -> None:
         assert _parse_key("not_a_key") is None
         assert _parse_key("SERVER") is None
-        assert _parse_key("0x01006364") is None  # bare key no longer supported
+        assert (
+            _parse_key("0x01006364") is None
+        )  # bare VA keys require module prefix (e.g. "SERVER.0x01006364")
         assert _parse_key("junk.junk") is None
 
 
@@ -412,7 +414,7 @@ class TestMergeIntoAnnotation:
 
 
 # ---------------------------------------------------------------------------
-# Idempotent status updates (moved from test_phase2.py)
+# Idempotent status updates
 # ---------------------------------------------------------------------------
 
 

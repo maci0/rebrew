@@ -325,12 +325,14 @@ class TestApplyArgConstraints:
                 "arg10": {"type": "null"},
             },
         )
-        # No crash, no constraints added
+        # Smoke test: verifies no crash on edge case input
+        assert state.solver.satisfiable()
 
     def test_empty_constraints_noop(self) -> None:
         state, args = self._make_state_and_args()
         _apply_arg_constraints(state, args, {})
-        # Should complete without error
+        # Smoke test: verifies no crash on edge case input
+        assert state.solver.satisfiable()
 
     def test_unknown_type_ignored(self) -> None:
         state, args = self._make_state_and_args()
@@ -341,7 +343,8 @@ class TestApplyArgConstraints:
                 "arg0": {"type": "bogus_type"},
             },
         )
-        # Unknown type is silently ignored
+        # Smoke test: verifies no crash on edge case input
+        assert state.solver.satisfiable()
 
     def test_pointer_with_handle_field(self) -> None:
         """Deep struct: handle field should be non-zero, non-INVALID."""

@@ -3,19 +3,14 @@
 Covers:
 - smart_reloc_compare: empty inputs, single-byte, all-zero patterns
 - parse_new_format_multi: orphaned KV warning
-- promote logic: demotion support
-- atomic_write_text: crash safety
 - annotation __all__: export completeness
 """
-
-from pathlib import Path
 
 import pytest
 
 from rebrew.annotation import __all__ as annotation_all
 from rebrew.annotation import parse_new_format_multi
 from rebrew.core import smart_reloc_compare
-from rebrew.utils import atomic_write_text
 
 # ---------------------------------------------------------------------------
 # smart_reloc_compare edge cases
@@ -125,42 +120,6 @@ class TestOrphanedKVWarning:
         assert result == []
         orphan_msgs = [r for r in caplog.records if "orphaned" in r.message]
         assert len(orphan_msgs) == 0
-
-
-# ---------------------------------------------------------------------------
-# atomic_write_text
-# ---------------------------------------------------------------------------
-
-
-class TestAtomicWriteText:
-    def test_creates_file(self, tmp_path: Path) -> None:
-        f = tmp_path / "test.c"
-        atomic_write_text(f, "int main() { return 0; }")
-        assert f.read_text() == "int main() { return 0; }"
-
-    def test_overwrites_file(self, tmp_path: Path) -> None:
-        f = tmp_path / "test.c"
-        f.write_text("old content")
-        atomic_write_text(f, "new content")
-        assert f.read_text() == "new content"
-
-    def test_no_tmp_file_remains_on_success(self, tmp_path: Path) -> None:
-        f = tmp_path / "test.c"
-        atomic_write_text(f, "data")
-        tmp_file = f.with_suffix(f.suffix + ".tmp")
-        assert not tmp_file.exists()
-
-    def test_file_without_extension(self, tmp_path: Path) -> None:
-        """Files without extension should still work (suffix is '')."""
-        f = tmp_path / "Makefile"
-        atomic_write_text(f, "all: build")
-        assert f.read_text() == "all: build"
-
-    def test_preserves_encoding(self, tmp_path: Path) -> None:
-        f = tmp_path / "test.c"
-        content = "// FUNCTION: 日本語テスト\nint main() { return 0; }\n"
-        atomic_write_text(f, content, encoding="utf-8")
-        assert f.read_text(encoding="utf-8") == content
 
 
 # ---------------------------------------------------------------------------

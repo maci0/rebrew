@@ -227,6 +227,11 @@ def main(
                 bak_path = source_path.with_suffix(source_path.suffix + ".bak")
                 shutil.copy2(source_path, bak_path)
                 source_path.unlink()
+                if not json_output:
+                    console.print(
+                        f"  [dim]Backed up {source_path.name} → {bak_path.name} "
+                        f"(no remaining functions)[/dim]"
+                    )
 
         if json_output:
             json_print(
@@ -248,7 +253,9 @@ def main(
     # Full split mode: split ALL functions into individual files
     if len(blocks) < 2:
         error_exit(
-            "Input must contain at least two function blocks to split", json_mode=json_output
+            "Input must contain at least two // FUNCTION: blocks to split. "
+            "Use --va to extract a single function instead.",
+            json_mode=json_output,
         )
 
     entries = parse_c_file_multi(

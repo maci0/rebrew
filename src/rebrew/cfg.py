@@ -34,7 +34,7 @@ from rich.console import Console
 
 from rebrew.binary_loader import detect_format_and_arch as _bl_detect_format_and_arch
 from rebrew.cli import TargetOption, error_exit, json_print
-from rebrew.config import _find_root as _config_find_root
+from rebrew.config import find_root as _config_find_root
 from rebrew.utils import atomic_write_text
 
 console = Console(stderr=True)
@@ -45,7 +45,7 @@ console = Console(stderr=True)
 
 
 def _resolve_dotted_key(
-    doc: dict[str, Any], key: str, *, create_missing: bool = False
+    doc: dict[str, Any], key: str, *, create_missing: bool = False, json_mode: bool = False
 ) -> tuple[dict[str, Any], str, list[str]]:
     """Resolve a dotted key path against a TOML document, handling keys with dots.
 
@@ -58,6 +58,7 @@ def _resolve_dotted_key(
         key: Dot-separated key path, e.g. ``targets.mygame.arch``.
         create_missing: If ``True``, create intermediate tables that don't exist
             (used by ``set``).  If ``False``, error on missing keys.
+        json_mode: If ``True``, format error output as JSON.
 
     Returns:
         ``(parent, final_key, resolved_parts)`` where *parent* is the innermost
@@ -72,7 +73,10 @@ def _resolve_dotted_key(
 
     while i < len(parts) - 1:
         if not isinstance(current, dict):
-            error_exit(f"Key '{'.'.join(resolved)}' is not a table; cannot descend further.")
+            error_exit(
+                f"Key '{'.'.join(resolved)}' is a scalar value, not a section — cannot look up nested keys inside it.",
+                json_mode=json_mode,
+            )
 
         # Try longest match first (greedy): combine parts[i..j] and check
         matched = False
@@ -97,7 +101,8 @@ def _resolve_dotted_key(
                 current = current[part]
             else:
                 error_exit(
-                    f"Key '{key}' not found (no match for '{part}' in '{'.'.join(resolved) or '<root>'}')."
+                    f"Key '{key}' not found (no match for '{part}' in '{'.'.join(resolved) or '<root>'}').",
+                    json_mode=json_mode,
                 )
             i += 1
 
@@ -106,7 +111,7 @@ def _resolve_dotted_key(
     return current, final_key, resolved
 
 
-def _find_root() -> Path:
+def _find_root(*, json_mode: bool = False) -> Path:
     """Walk up from cwd to find rebrew-project.toml; exit with message on failure."""
     try:
         return _config_find_root()
@@ -114,17 +119,20 @@ def _find_root() -> Path:
         error_exit(
             "Could not find rebrew-project.toml in any parent directory.\n"
             "Run this command from within a rebrew project, or use 'rebrew init' first.",
+            json_mode=json_mode,
         )
         raise AssertionError("unreachable")
 
 
-def _load_toml(root: Path | None = None) -> tuple[tomlkit.TOMLDocument, Path]:
+def _load_toml(
+    root: Path | None = None, *, json_mode: bool = False
+) -> tuple[tomlkit.TOMLDocument, Path]:
     """Load rebrew-project.toml as a tomlkit document, preserving formatting."""
     if root is None:
-        root = _find_root()
+        root = _find_root(json_mode=json_mode)
     toml_path = root / "rebrew-project.toml"
     if not toml_path.exists():
-        error_exit(f"{toml_path} not found.")
+        error_exit(f"{toml_path} not found.", json_mode=json_mode)
     doc = tomlkit.parse(toml_path.read_text(encoding="utf-8"))
     return doc, toml_path
 
@@ -134,15 +142,20 @@ def _save_toml(doc: tomlkit.TOMLDocument, path: Path) -> None:
     atomic_write_text(path, tomlkit.dumps(doc), encoding="utf-8")
 
 
-def _resolve_target(doc: tomlkit.TOMLDocument, target: str | None) -> str:
+def _resolve_target(
+    doc: tomlkit.TOMLDocument, target: str | None, *, json_mode: bool = False
+) -> str:
     """Resolve a target name: use given name, or default to first target."""
     targets = doc.get("targets", {})
     if not targets:
-        error_exit("No [targets] section in rebrew-project.toml.")
+        error_exit(
+            "No [targets] section in rebrew-project.toml. Add one with 'rebrew cfg add-target'.",
+            json_mode=json_mode,
+        )
     if target is None:
         target = next(iter(targets))
     if target not in targets:
-        error_exit(f"Target '{target}' not found. Available: {list(targets)}")
+        error_exit(f"Target '{target}' not found. Available: {list(targets)}", json_mode=json_mode)
     return target
 
 
@@ -157,12 +170,12 @@ def _detect_format_and_arch(path: Path) -> tuple[str, str | None]:
         return _bl_detect_format_and_arch(path)
     except OSError:
         console.print(
-            f"[yellow]Warning:[/] cannot read '{path}' for format detection, defaulting to PE"
+            f"[yellow]warning:[/yellow] cannot read '{path}' for format detection, defaulting to PE"
         )
         return "pe", None
     except ValueError:
         console.print(
-            f"[yellow]Warning:[/] unrecognized binary format for '{path}', defaulting to PE"
+            f"[yellow]warning:[/yellow] unrecognized binary format for '{path}', defaulting to PE"
         )
         return "pe", None
 
@@ -193,7 +206,7 @@ def list_targets(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """List all targets defined in rebrew-project.toml."""
-    doc, _ = _load_toml()
+    doc, _ = _load_toml(json_mode=json_output)
     targets = doc.get("targets", {})
     if not targets:
         if json_output:
@@ -233,7 +246,7 @@ def show(
     target: str | None = TargetOption,
 ) -> None:
     """Show the current config, or a specific key."""
-    doc, _ = _load_toml()
+    doc, _ = _load_toml(json_mode=json_output)
 
     if key is None:
         if json_output:
@@ -246,7 +259,7 @@ def show(
         return
 
     # Resolve dotted key path (handles keys containing dots like target names)
-    parent, final_key, _ = _resolve_dotted_key(doc, key)
+    parent, final_key, _ = _resolve_dotted_key(doc, key, json_mode=json_output)
     if not isinstance(parent, dict) or final_key not in parent:
         error_exit(f"Key '{key}' not found.", json_mode=json_output)
     current = parent[final_key]
@@ -416,6 +429,7 @@ def add_target(
 @app.command("remove-target")
 def remove_target(
     name: str = typer.Argument(..., help="Target name to remove."),
+    force: bool = typer.Option(False, "--force", help="Skip confirmation prompt"),
 ) -> None:
     """Remove a target section from rebrew-project.toml (idempotent)."""
     doc, toml_path = _load_toml()
@@ -424,6 +438,8 @@ def remove_target(
         console.print(f"[yellow]Target '{name}' not found (already removed).[/yellow]")
         return
 
+    if not force:
+        typer.confirm(f"Remove target '{name}' from rebrew-project.toml?", abort=True)
     del targets[name]
     _save_toml(doc, toml_path)
     console.print(f'[green]Removed [targets."{name}"] from rebrew-project.toml[/green]')
@@ -490,6 +506,7 @@ def add_module(
 @app.command("remove-module")
 def remove_module(
     module: str = typer.Argument(..., help="Module name to remove."),
+    force: bool = typer.Option(False, "--force", help="Skip confirmation prompt"),
     target: str | None = TargetOption,
 ) -> None:
     """Remove a module from a target's origins list (idempotent)."""
@@ -505,6 +522,8 @@ def remove_module(
         )
         return
 
+    if not force:
+        typer.confirm(f"Remove module '{module.upper()}' from target '{target}'?", abort=True)
     origins.remove(module.upper())
     _save_toml(doc, toml_path)
     console.print(

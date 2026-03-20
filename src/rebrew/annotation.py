@@ -1,6 +1,6 @@
 """annotation.py - Shared annotation parsing for rebrew.
 
-Extracts the common annotation-parsing logic used by both lint.py and verify.py
+Extracts the common annotation-parsing logic used across rebrew tools
 so that there is a single source of truth for the decomp annotation format.
 
 Annotation format (reccmp-compatible):
@@ -11,6 +11,7 @@ Annotation format (reccmp-compatible):
 from __future__ import annotations
 
 import contextlib
+import functools
 import logging
 import re
 import warnings
@@ -27,11 +28,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _PARSE_LOOKAHEAD_LINES: Final[int] = 20
-"""Maximum lines scanned from file start when looking for a new-format annotation marker.
-
-Keeping this small avoids large readaheads on files with deeply-nested preambles.
-Increasing it would allow markers buried further down the file to be found by
-``parse_c_file``; ``parse_c_file_multi`` already scans the full file instead.
+"""Maximum lines scanned from file start for single-function parsing
+(``parse_c_file``).  The multi-block parser (``parse_c_file_multi``)
+scans the entire file instead.
 """
 
 __all__ = [
@@ -39,6 +38,7 @@ __all__ = [
     "VALID_MARKERS",
     "METADATA_KEYS",
     "has_skip_annotation",
+    "module_for_va",
     "parse_c_file",
     "parse_c_file_multi",
     "parse_source_metadata",
@@ -53,10 +53,9 @@ __all__ = [
 VALID_MARKERS = {"FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"}
 
 # Keys that every function block must declare.
-# All rebrew-specific metadata lives exclusively in rebrew-function.toml.
-# The only inline annotations accepted in .c files are the reccmp markers
-# (FUNCTION, LIBRARY, STUB, DATA, GLOBAL) and ANALYSIS.
-REQUIRED_KEYS: set[str] = set()  # All annotation metadata now lives in rebrew-function.toml
+# All rebrew-specific metadata lives in rebrew-function.toml; the parser
+# still recognises them inline for migration/compat but lint fires W019.
+REQUIRED_KEYS: set[str] = set()  # All metadata lives in rebrew-function.toml
 # No recommended keys — all annotation metadata is either required or optional.
 RECOMMENDED_KEYS: set[str] = set()
 # OPTIONAL_KEYS: only reccmp-compatible keys that are permitted inline.
@@ -97,8 +96,9 @@ NEW_FUNC_RE = re.compile(r"//\s*(?:FUNCTION|LIBRARY|STUB|GLOBAL|DATA):\s*\S+\s+0
 NEW_FUNC_CAPTURE_RE = re.compile(
     r"//\s*(?P<type>FUNCTION|LIBRARY|STUB|GLOBAL|DATA):\s*(?P<module>\S+)\s+(?P<va>0x[0-9a-fA-F]+)"
 )
-# Key-value pairs after markers — used by library headers (``// STATUS: EXACT``,
-# ``// SIZE: 120``) and tolerated (but deprecated) in regular ``.c`` files.
+# Key-value comment lines (``// KEY: value``) — used by library headers
+# (``// STATUS: EXACT``, ``// SIZE: 120``).  Metadata-owned fields are
+# written to ``rebrew-function.toml``, not inline.
 NEW_KV_RE = re.compile(r"//\s*(?P<key>[A-Z_]+):\s*(?P<value>.*)")
 
 # Function name hint — bare ``// FunctionName`` comment after a marker line.
@@ -106,6 +106,27 @@ NEW_KV_RE = re.compile(r"//\s*(?P<key>[A-Z_]+):\s*(?P<value>.*)")
 # Used to capture the actual function name in multi-function files where SYMBOL
 # may be shared across blocks.
 FUNC_NAME_HINT_RE = re.compile(r"^//\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*$")
+
+# Module-level compiled patterns for annotation mutation helpers.
+# These were previously compiled inside functions on every call.
+_MARKER_VA_RE = re.compile(
+    r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*([\w.]+)\s+(0x[0-9a-fA-F]+)",
+    re.IGNORECASE,
+)
+_MARKER_BLOCK_RE = re.compile(
+    r"(?://|/\*)\s*(FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*\S+\s+(0x[0-9a-fA-F]+)"
+)
+_VA_ONLY_RE = re.compile(
+    r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*\S+\s+(0x[0-9a-fA-F]+)"
+)
+_STDCALL_RE = re.compile(r"\b(?:__stdcall|WINAPI|CALLBACK|APIENTRY)\b")
+
+
+@functools.lru_cache(maxsize=64)
+def _compile_key_pattern(key: str) -> re.Pattern[str]:
+    """Return a compiled regex for matching an annotation key line."""
+    escaped = re.escape(key)
+    return re.compile(r"((?://|/\*)\s*" + escaped + r":\s*)(.*?)(?=\s*(?:\*/|\n|$))")
 
 
 # ---------------------------------------------------------------------------
@@ -189,10 +210,13 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
 def normalize_status(raw: str) -> str:
     """Map old-format status strings to canonical values.
 
-    Check order matters: ``RELOC`` must be tested before ``NEAR_MATCHING``
-    because ``MATCHING_RELOC`` contains ``RELOC`` as a substring.
-    ``PROVEN`` is an independent canonical value — included before the
-    generic fallthrough so old-format strings like ``"PROVEN_MATCH"``
+    Check order matters for strings that are substrings of each other:
+    ``EXACT`` must be tested first so that e.g. ``"EXACT_MATCH"`` maps to
+    ``"EXACT"`` and not ``"RELOC"``.  ``NEAR_MATCHING`` is tested before
+    ``RELOC`` so that it is not accidentally matched by the ``"RELOC"``
+    substring check (``"NEAR_MATCHING"`` does not contain ``"RELOC"`` but
+    the ordering is preserved for safety).  ``PROVEN`` is included before
+    the generic fallthrough so old-format strings like ``"PROVEN_MATCH"``
     are normalised to ``"PROVEN"`` rather than returned verbatim.
     """
     s = raw.strip().upper()
@@ -247,7 +271,7 @@ def has_skip_annotation(filepath: Path, metadata_dir: Path | None = None) -> boo
             if raw_skip and str(raw_skip).strip().lower() not in ("", "0", "false", "no"):
                 return True
     except Exception:  # noqa: BLE001 — metadata read failure is non-fatal
-        pass
+        logger.debug("Metadata read failed for skip check", exc_info=True)
     return False
 
 
@@ -271,8 +295,8 @@ _FIELD_ALIASES: Final[dict[str, str]] = {"globals": "globals_list"}
 class Annotation:
     """Parsed function annotation from a decomp .c file.
 
-    Supports dict-like access (``ann.va``, ``ann.status = "EXACT"``)
-    for backward compatibility with code that operated on raw dicts.
+    Supports dict-like access (``ann["va"]``, ``ann["status"] = "EXACT"``)
+    for interoperability with generic dict-processing code.
     """
 
     va: int = 0
@@ -378,15 +402,6 @@ class Annotation:
         if self.va < 0x1000:
             errors.append(f"VA 0x{self.va:x} is suspicious (below 0x1000)")
 
-        # The `normalize_status` function already handles canonicalization and
-        # implicitly defines the valid statuses. If a status is present and
-        # after normalization it's not one of the known canonical forms, it's invalid.
-        # However, without a predefined list, we can't validate against it here.
-        # The `normalize_status` function itself acts as the validator by returning
-        # one of the canonical forms or the original string if it doesn't match.
-        # If the intent was to strictly validate, a list of valid statuses would be needed.
-        # For now, removing the check as per instruction.
-
         if self.size <= 0:
             errors.append(f"Invalid SIZE: {self.size}")
 
@@ -471,22 +486,18 @@ def make_func_entry(
 # ---------------------------------------------------------------------------
 
 
-def _module_for_va(filepath: Path, va: int) -> str:
+def module_for_va(filepath: Path, va: int) -> str:
     """Scan *filepath* for a marker line for *va* and return its module name.
 
     Returns the module name (e.g. ``"SERVER"``) or an empty string if not found.
     Used by annotation mutation helpers to route metadata writes to the correct key.
     """
-    _marker_re = re.compile(
-        r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*([\w.]+)\s+(0x[0-9a-fA-F]+)",
-        re.IGNORECASE,
-    )
     try:
         text = filepath.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return ""
     for line in text.splitlines():
-        m = _marker_re.search(line)
+        m = _MARKER_VA_RE.search(line)
         if m and int(m.group(2), 16) == va:
             return m.group(1)
     return ""
@@ -518,16 +529,13 @@ def update_size_annotation(
     # Resolve VA if not provided — scan file for the first marker line
     va = target_va
     if va is None:
-        marker_re = re.compile(
-            r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*\S+\s+(0x[0-9a-fA-F]+)"
-        )
         try:
             text = filepath.read_text(encoding="utf-8", errors="replace")
         except OSError as e:
             warnings.warn(f"Cannot read {filepath} for size update: {e}", stacklevel=2)
             return False
         for line in text.splitlines():
-            m = marker_re.search(line)
+            m = _VA_ONLY_RE.search(line)
             if m:
                 va = int(m.group(1), 16)
                 break
@@ -535,7 +543,7 @@ def update_size_annotation(
     if va is None:
         return False
 
-    module = _module_for_va(filepath, va)
+    module = module_for_va(filepath, va)
     _dir = metadata_dir if metadata_dir is not None else filepath.parent
     entry = get_entry(_dir, va, module=module)
     old_size = int(entry.get("size", 0))
@@ -635,11 +643,13 @@ def _kv_to_annotation(
     2. ``_FUNC_NAME_HINT`` — bare ``// FunctionName`` comment after the marker
     3. Empty string (downstream code will fall back to filename stem)
 
-    Symbol is always derived as ``"_" + name`` (standard __cdecl convention).
+    Symbol is derived as ``"_" + name`` for __cdecl (default), or
+    ``"_" + name + "@N"`` for __stdcall/WINAPI functions where N is the
+    parameter stack size.
     Prototype is extracted from the actual C function definition line when
     available.
 
-    ``// SYMBOL:`` and ``// PROTOTYPE:`` annotations are no longer supported;
+    ``// SYMBOL:`` and ``// PROTOTYPE:`` inline annotations are not supported;
     they are ignored during parsing and will trigger W010 (unknown key) in lint.
     """
     c_func_name = kv.get("_C_FUNC_NAME", "")
@@ -656,13 +666,11 @@ def _kv_to_annotation(
 
     # Derive symbol: "_" + name for __cdecl (default), "_" + name + "@N" for __stdcall/WINAPI
     symbol = "_" + name if name else ""
-    if name and c_func_proto:
-        _stdcall_re = re.compile(r"\b(?:__stdcall|WINAPI|CALLBACK|APIENTRY)\b")
-        if _stdcall_re.search(c_func_proto):
-            # Calculate parameter stack size from prototype for decorated name
-            param_size = _calc_stdcall_param_size(c_func_proto)
-            if param_size is not None:
-                symbol = f"_{name}@{param_size}"
+    if name and c_func_proto and _STDCALL_RE.search(c_func_proto):
+        # Calculate parameter stack size from prototype for decorated name
+        param_size = _calc_stdcall_param_size(c_func_proto)
+        if param_size is not None:
+            symbol = f"_{name}@{param_size}"
 
     # Derive prototype from C definition
     prototype = c_func_proto
@@ -710,11 +718,12 @@ def _kv_to_annotation(
 def parse_new_format(lines: list[str]) -> Annotation | None:
     """Try to parse new reccmp-style annotations from first lines.
 
-    State machine: scans up to 20 lines looking for a marker line
+    State machine: scans the provided *lines* looking for a marker line
     (``// FUNCTION: SERVER 0x...``), then collects subsequent key-value
-    comment lines until a non-annotation line is hit. Non-annotation
-    preamble lines before the marker are tolerated. Returns None if
-    no valid marker line is found.
+    comment lines until a non-annotation line is hit.  Non-annotation
+    preamble lines before the marker are tolerated.  Returns None if
+    no valid marker line is found.  (The caller typically limits *lines*
+    to the first ``_PARSE_LOOKAHEAD_LINES`` of the file.)
     """
     marker_type = None
     va = None
@@ -1056,7 +1065,7 @@ def update_annotation_key(
 ) -> bool:
     """Update or add an annotation key for a specific VA.
 
-    For metadata-owned keys (STATUS, SIZE, CFLAGS, ORIGIN, BLOCKER, NOTE,
+    For metadata-owned keys (STATUS, SIZE, CFLAGS, BLOCKER, NOTE,
     GHIDRA, …) the value is written to the ``rebrew-function.toml`` metadata
     at *metadata_dir*, leaving the ``.c`` file untouched.
 
@@ -1074,7 +1083,7 @@ def update_annotation_key(
     from rebrew.metadata import is_metadata_key, update_field, update_source_status
 
     if is_metadata_key(key):
-        module = _module_for_va(filepath, va)
+        module = module_for_va(filepath, va)
         _dir = metadata_dir if metadata_dir is not None else filepath.parent
         if key.upper() == "STATUS":
             update_source_status(_dir, new_value, module, va, force=True)
@@ -1091,15 +1100,11 @@ def update_annotation_key(
     in_target_block = False
     last_annotation_idx = -1
     modified = False
-    escaped_key = re.escape(key)
-    _marker_pattern = re.compile(
-        r"(?://|/\*)\s*(FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*\S+\s+(0x[0-9a-fA-F]+)"
-    )
-    _key_pattern = re.compile(r"((?://|/\*)\s*" + escaped_key + r":\s*)(.*?)(?=\s*(?:\*/|\n|$))")
+    _key_pattern = _compile_key_pattern(key)
 
     for i, line in enumerate(lines):
         # Check for marker: // FUNCTION: GAME 0x1000 or STUB or DATA etc.
-        marker_match = _marker_pattern.search(line)
+        marker_match = _MARKER_BLOCK_RE.search(line)
         if marker_match:
             found_va = int(marker_match.group(2), 16)
             if in_target_block and found_va != va:
@@ -1177,9 +1182,8 @@ def parse_library_header(
     are invisible to it.  Rebrew captures them to support library functions
     that are actively compiled and matched from reference source.
 
-    Returns a list of Annotations with marker_type=LIBRARY and origin
-    inferred from the filename.  Entries without explicit STATUS default
-    to EXACT.
+    Returns a list of Annotations with marker_type=LIBRARY.  Entries
+    without explicit STATUS default to EXACT.
     """
     try:
         text = filepath.read_text(encoding="utf-8", errors="replace")
@@ -1285,7 +1289,7 @@ def remove_annotation_key(
     from rebrew.metadata import is_metadata_key, remove_field
 
     if is_metadata_key(key):
-        module = _module_for_va(filepath, va)
+        module = module_for_va(filepath, va)
         _dir = metadata_dir if metadata_dir is not None else filepath.parent
         remove_field(_dir, va, key.lower(), module=module)
         return True
@@ -1298,21 +1302,19 @@ def remove_annotation_key(
     lines = text.splitlines(keepends=True)
     in_target_block = False
     modified = False
-    escaped_key = re.escape(key)
-    _marker_pattern = re.compile(
-        r"(?://|/\*)\s*(FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*\S+\s+(0x[0-9a-fA-F]+)"
-    )
-    _key_pattern = re.compile(r"((?://|/\*)\s*" + escaped_key + r":\s*)(.*?)(?=\s*(?:\*/|\n|$))")
+    _key_pattern = _compile_key_pattern(key)
 
     new_lines = []
     for line in lines:
-        marker_match = _marker_pattern.search(line)
+        marker_match = _MARKER_BLOCK_RE.search(line)
         if marker_match:
             found_va = int(marker_match.group(2), 16)
-            # Ternary: if we are already in the target block and the new VA is
-            # different, we've crossed into a sibling block — stop removal there.
-            # Otherwise set in_target_block based on whether this VA matches.
-            in_target_block = False if in_target_block and found_va != va else found_va == va
+            # If we're in the target block and hit a different VA, we've crossed
+            # into a sibling block — stop removal.  Otherwise match on VA.
+            if in_target_block and found_va != va:  # noqa: SIM108
+                in_target_block = False
+            else:
+                in_target_block = found_va == va
 
         if in_target_block:
             sym_match = _key_pattern.search(line)

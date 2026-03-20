@@ -27,24 +27,22 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import FUNCTION_STRUCTURE_JSON
+from rebrew.ghidra import commands as sync_commands
 from rebrew.ghidra.client import (
-    _fetch_all_functions,
-    _init_mcp_session,
     apply_commands_via_mcp,
+    fetch_all_functions,
+    init_mcp_session,
 )
 from rebrew.ghidra.commands import (
-    _is_generic_name,
-    _pull_comments,
-    _pull_data,
-    _pull_prototypes,
-    _pull_structs,
-    _resolve_program_path,
-    _validate_program_path,
     build_new_function_commands,
     build_size_sync_commands,
     build_sync_commands,
+    is_generic_name,
     pull_ghidra_renames,
+    resolve_program_path,
+    validate_program_path,
 )
+from rebrew.utils import atomic_write_text
 
 console = Console(stderr=True)
 
@@ -84,15 +82,21 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    export: bool = typer.Option(False, help="Export Ghidra commands to ghidra_commands.json"),
-    summary: bool = typer.Option(False, help="Show sync summary without exporting"),
-    apply: bool = typer.Option(False, help="Apply ghidra_commands.json to Ghidra via ReVa MCP"),
-    push: bool = typer.Option(False, help="Export and apply in one step"),
+    export: bool = typer.Option(
+        False, "--export", help="Export Ghidra commands to ghidra_commands.json"
+    ),
+    summary: bool = typer.Option(False, "--summary", help="Show sync summary without exporting"),
+    apply: bool = typer.Option(
+        False, "--apply", help="Apply ghidra_commands.json to Ghidra via ReVa MCP"
+    ),
+    push: bool = typer.Option(False, "--push", help="Export and apply in one step"),
     create_functions: bool = typer.Option(
-        True, help="Prepend create-function ops for all annotated VAs (skips IAT thunks)"
+        True,
+        "--create-functions/--no-create-functions",
+        help="Generate create-function operations for all annotated VAs (skips IAT thunks)",
     ),
     skip_generic: bool = typer.Option(
-        True, help="Skip pushing generic func_XXXXXXXX labels (default: True)"
+        True, "--skip-generic/--no-skip-generic", help="Skip pushing generic func_XXXXXXXX labels"
     ),
     sync_sizes: bool = typer.Option(
         False, "--sync-sizes", help="Push corrected function sizes to Ghidra (expand boundaries)"
@@ -155,7 +159,9 @@ def main(
         "--dry-run",
         help="Preview changes without writing",
     ),
-    endpoint: str = typer.Option("http://localhost:8080/mcp/message", help="ReVa MCP endpoint URL"),
+    endpoint: str = typer.Option(
+        "http://localhost:8080/mcp/message", "--endpoint", help="ReVa MCP endpoint URL"
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -175,13 +181,17 @@ def main(
         or refresh_cache
     ):
         error_exit(
-            "No action specified. Use --summary, --export, --apply, --push, --pull, or --refresh-cache.",
+            "No action specified. Available actions:\n"
+            "  Preview:  --summary\n"
+            "  Export:   --export, --apply\n"
+            "  Sync:    --push, --pull\n"
+            "  Cache:   --refresh-cache",
             json_mode=json_output,
         )
 
     cfg = require_config(target=target, json_mode=json_output)
     reversed_dir = cfg.reversed_dir
-    program_path = _resolve_program_path(cfg)
+    program_path = resolve_program_path(cfg)
 
     entries_raw = scan_reversed_dir(reversed_dir, cfg=cfg)
     entries: list[dict[str, Any]] = [e if isinstance(e, dict) else e.to_dict() for e in entries_raw]
@@ -198,8 +208,8 @@ def main(
     ):
         try:
             with httpx.Client(timeout=10.0) as probe_client:
-                probe_session = _init_mcp_session(probe_client, endpoint)
-                program_path = _validate_program_path(
+                probe_session = init_mcp_session(probe_client, endpoint)
+                program_path = validate_program_path(
                     probe_client,
                     endpoint,
                     program_path,
@@ -228,13 +238,13 @@ def main(
 
         if pull_signatures or pull_structs or pull_comments or pull_data:
             if pull_signatures:
-                _pull_prototypes(entries, cfg, endpoint, program_path, dry_run)
+                sync_commands.pull_prototypes(entries, cfg, endpoint, program_path, dry_run)
             if pull_structs:
-                _pull_structs(cfg, endpoint, program_path, dry_run)
+                sync_commands.pull_structs(cfg, endpoint, program_path, dry_run)
             if pull_comments:
-                _pull_comments(entries, cfg, endpoint, program_path, dry_run)
+                sync_commands.pull_comments(entries, cfg, endpoint, program_path, dry_run)
             if pull_data:
-                _pull_data(cfg, endpoint, program_path, dry_run)
+                sync_commands.pull_data(cfg, endpoint, program_path, dry_run)
 
         return
 
@@ -287,7 +297,7 @@ def main(
                 if e.get("marker_type") in ("DATA", "GLOBAL"):
                     continue
                 name = e.get("symbol") or e.get("name")
-                if name and not _is_generic_name(name):
+                if name and not is_generic_name(name):
                     va_hex = f"0x{e['va']:08X}"
                     name_to_va[name] = va_hex
                     if name.startswith("_"):
@@ -372,8 +382,7 @@ def main(
         if ops is None:  # pragma: no cover — guarded by branch above
             raise typer.Exit(code=EXIT_MISMATCH)
         out_path = cfg.root / "ghidra_commands.json"
-        with out_path.open("w", encoding="utf-8") as f:
-            json.dump(ops, f, indent=2)
+        atomic_write_text(out_path, json.dumps(ops, indent=2), encoding="utf-8")
         console.print(f"Exported {len(ops)} operations to {out_path}")
 
     if apply or push:
@@ -391,10 +400,12 @@ def main(
                 commands = json.load(f)
         except (json.JSONDecodeError, OSError) as exc:
             error_exit(f"Failed to read {cmds_path}: {exc}", json_mode=json_output)
-        console.print(f"Applying {len(commands)} operations to Ghidra via {endpoint}...")
+        total_cmds = len(commands)
+        console.print(f"Applying {total_cmds} operations to Ghidra via {endpoint}...")
         ok, errs = apply_commands_via_mcp(commands, endpoint=endpoint)
-        console.print(f"Done: {ok} succeeded, {errs} failed")
+        console.print(f"Applied {ok}/{total_cmds} operations successfully")
         if errs > 0:
+            console.print(f"[red]{errs} operations failed[/red]")
             raise typer.Exit(code=EXIT_MISMATCH)
 
     if refresh_cache:
@@ -433,15 +444,16 @@ def main(
 
         if all_cmds:
             out_path = cfg.root / "ghidra_size_commands.json"
-            with out_path.open("w", encoding="utf-8") as f:
-                json.dump(all_cmds, f, indent=2)
+            atomic_write_text(out_path, json.dumps(all_cmds, indent=2), encoding="utf-8")
             console.print(f"Exported {len(all_cmds)} operations to {out_path}")
 
             if push:
-                console.print(f"Applying {len(all_cmds)} size operations via {endpoint}...")
+                total_size_cmds = len(all_cmds)
+                console.print(f"Applying {total_size_cmds} size operations via {endpoint}...")
                 ok, errs = apply_commands_via_mcp(all_cmds, endpoint=endpoint)
-                console.print(f"Done: {ok} succeeded, {errs} failed")
+                console.print(f"Applied {ok}/{total_size_cmds} operations successfully")
                 if errs > 0:
+                    console.print(f"[red]{errs} operations failed[/red]")
                     raise typer.Exit(code=EXIT_MISMATCH)
 
 
@@ -464,9 +476,9 @@ def _refresh_structure_cache(
 
     try:
         with httpx.Client(timeout=30.0) as client:
-            session_id = _init_mcp_session(client, endpoint)
+            session_id = init_mcp_session(client, endpoint)
             console.print(f"Fetching functions from Ghidra ({program_path})...")
-            raw_funcs = _fetch_all_functions(client, endpoint, program_path, session_id)
+            raw_funcs = fetch_all_functions(client, endpoint, program_path, session_id)
     except (httpx.HTTPError, OSError) as exc:
         error_exit(f"Failed to fetch functions from Ghidra MCP: {exc}", json_mode=json_output)
 

@@ -6,15 +6,17 @@ optional dependencies don't prevent the entire CLI from loading.
 Single-command modules are registered as flat ``app.command()`` entries,
 avoiding the Typer "group" behaviour of ``add_typer()`` which expects a
 ``COMMAND [ARGS]...`` token after callback arguments.  Only true
-multi-command modules (currently only ``cfg``) use ``add_typer()``.
+multi-command modules (``cfg``, ``cache``, ``catalog``) use ``add_typer()``.
 """
 
 import importlib
+import logging
 from collections.abc import Callable
 
 import typer
 
 from rebrew import cli
+from rebrew.cli import EXIT_ERROR
 
 app = typer.Typer(
     help="Compiler-in-the-loop decompilation workbench for binary-matching reversing.",
@@ -77,8 +79,19 @@ def _global_options(
     """Compiler-in-the-loop decompilation workbench."""
     if quiet:
         cli.verbosity = -1
-    elif verbose:
+        log_level = logging.WARNING
+    elif verbose >= 2:
         cli.verbosity = verbose
+        log_level = logging.DEBUG
+    elif verbose == 1:
+        cli.verbosity = verbose
+        log_level = logging.INFO
+    else:
+        log_level = logging.WARNING
+    logging.basicConfig(
+        format="%(levelname)s %(name)s: %(message)s",
+        level=log_level,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +183,7 @@ def _make_stub_cmd(mod_name: str, err: Exception) -> Callable[[], None]:
 
     def _stub() -> None:
         typer.echo(f"Error: could not load '{mod_name}': {err}", err=True)
-        raise typer.Exit(code=2)
+        raise typer.Exit(code=EXIT_ERROR)
 
     return _stub
 
@@ -182,7 +195,7 @@ def _make_stub_app(mod_name: str, err: Exception) -> typer.Typer:
     @stub.callback(invoke_without_command=True)
     def _stub_main() -> None:
         typer.echo(f"Error: could not load '{mod_name}': {err}", err=True)
-        raise typer.Exit(code=2)
+        raise typer.Exit(code=EXIT_ERROR)
 
     return stub
 

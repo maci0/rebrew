@@ -25,9 +25,9 @@ Entry points in order of abstraction:
     (status string, match %, delta).  Used internally by ``compile_and_compare``.
 
 :class:`CompareResult`
-    Structured return type shared by ``compile_and_compare`` and ``verify_entry``.
-    Fields: ``matched``, ``status``, ``match_percent``, ``delta``, ``obj_bytes``,
-    ``reloc_offsets``, ``message``.
+    Structured return type returned by ``compile_and_compare`` and consumed by
+    verify/test tools.  Fields: ``matched``, ``status``, ``match_percent``,
+    ``delta``, ``obj_bytes``, ``reloc_offsets``, ``inv_reloc_offsets``, ``message``.
 
 Configuration
 ~~~~~~~~~~~~~
@@ -72,12 +72,15 @@ class CompareResult:
         matched: ``True`` when compiled bytes equal target after reloc masking.
         status: One of ``EXACT``, ``RELOC``, ``NEAR_MATCHING``, ``STUB``, ``COMPILE_ERROR``,
             ``MISSING_SIZE``, ``MISSING_FILE``.
-        match_percent: Fraction of non-reloc bytes that match (0–100).
+        match_percent: Percentage of bytes that match (0–100).  On mismatch,
+            computed as a raw byte-by-byte comparison without reloc masking.
         delta: Absolute byte difference (mismatch count + size delta).
         obj_bytes: Compiled bytes extracted from the ``.obj`` file, or ``None``
             on compile/extract failure.
         reloc_offsets: Relocation start offsets (4-byte spans each),
             or ``None`` on failure.
+        inv_reloc_offsets: Invalid/mismatched relocation offsets found during
+            comparison (empty list by default).
         message: Human-readable detail string (compiler error, mismatch counts, …).
 
     """
@@ -102,7 +105,8 @@ def classify_compare_result(
 ) -> CompareResult:
     """Classify a raw compile-and-compare outcome into a :class:`CompareResult`.
 
-    Centralises the EXACT / RELOC / NEAR_MATCHING / STUB / COMPILE_ERROR classification
+    Centralises the EXACT / RELOC / NEAR_MATCHING / STUB / COMPILE_ERROR /
+    MISSING_SIZE / MISSING_FILE classification
     and the ``match_percent`` / ``delta`` calculations that were previously
     duplicated in ``test.py`` and ``verify.py``.
 
@@ -252,8 +256,7 @@ def resolve_compiler_env(
     """Resolve compiler command, include dir, MSVC env, and compile cache from config.
 
     Returns ``(cl_cmd, inc_dir, msvc_env, compile_cache)`` — the four values
-    shared by every compilation-based tool.  Extracted so that ``rebrew match``
-    and ``rebrew test`` don't duplicate this 20-line block.
+    typically needed for compilation workflows.
 
     Args:
         cfg: ProjectConfig instance from the project root.
@@ -324,7 +327,8 @@ def compile_to_obj(
         use_cache: Set to ``False`` to bypass the cache entirely.
 
     Returns:
-        (obj_path, error_msg) — obj_path is None on failure.
+        (obj_path, error_msg) — obj_path is ``None`` on failure;
+        error_msg is an empty string on success.
 
     """
     source_path = Path(source_path)
@@ -410,7 +414,7 @@ def compile_to_obj(
 
     # --- Cache miss: compile via subprocess ---
 
-    # Build full command: [wine, cl.exe] + base + user flags + includes + output + source
+    # Build full command: [wine, cl.exe] + base + user flags + includes + output + source file
     # Include the source file's original parent dir so that relative
     # #include "../../..." paths still resolve after the copy.
     cmd = (

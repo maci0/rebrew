@@ -261,7 +261,7 @@ class TestToDict:
         assert "type_conflicts" in d
         assert "summary" in d
         assert d["summary"]["annotated"] == 2
-        assert d["summary"]["total"] >= 2
+        assert d["summary"]["total"] == 2
 
 
 # ---------------------------------------------------------------------------

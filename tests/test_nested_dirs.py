@@ -211,7 +211,7 @@ class TestLoadExistingVasNested:
 
 
 # ---------------------------------------------------------------------------
-# 4. find_all_stubs (ga.py) — discovers nested stubs
+# 4. find_all_stubs (match.py) — discovers nested stubs
 # ---------------------------------------------------------------------------
 
 
@@ -224,7 +224,7 @@ class TestFindAllStubsNested:
         stubs = find_all_stubs(tmp_path)
         assert len(stubs) == 2
 
-    def test_duplicate_va_across_nested_dirs(self, tmp_path: Path, capsys: object) -> None:
+    def test_duplicate_va_across_nested_dirs(self, tmp_path: Path) -> None:
         """Duplicate VA across nested dirs — only the first (sorted) is kept."""
         _make_c(tmp_path, "aaa/func.c", 0x10001000, symbol="_dup_a")
         _make_c(tmp_path, "zzz/func.c", 0x10001000, symbol="_dup_b")
@@ -239,7 +239,7 @@ class TestFindAllStubsNested:
 
 
 # ---------------------------------------------------------------------------
-# 5. find_near_miss (ga.py) — discovers nested NEAR_MATCHING files
+# 5. find_near_miss (match.py) — discovers nested NEAR_MATCHING files
 # ---------------------------------------------------------------------------
 
 
@@ -331,7 +331,7 @@ class TestScanDataAnnotationsNested:
         entries = scan_data_annotations(tmp_path)
         assert len(entries) == 1
         # filepath should be relative, not just filename
-        assert entries[0]["filepath"] == "sub/data.c" or "data.c" in str(entries[0]["filepath"])
+        assert "data.c" in str(entries[0]["filepath"])
 
     def test_mixed_flat_and_nested(self, tmp_path: Path) -> None:
         f1 = tmp_path / "top.c"

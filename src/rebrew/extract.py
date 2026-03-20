@@ -1,7 +1,7 @@
 """extract.py - Extract and disassemble functions from the target binary.
 
 Reads a function list (functions.txt or .json), auto-detects already-reversed VAs from
-the projects src directory, and lets you list/extract/batch the remaining
+the project's src directory, and lets you list/extract/batch the remaining
 candidates.
 
 Usage:
@@ -83,7 +83,7 @@ def load_functions(cfg: ProjectConfig) -> list[dict[str, int | str]]:
             for fn in raw
         ]
 
-    error_exit(f"No function list found at {txt_path} or {json_path}")
+    raise FileNotFoundError(f"No function list found at {txt_path} or {json_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +121,7 @@ def cmd_extract(
                 if json_output:
                     json_print({"status": "ERROR", "error": msg})
                 else:
-                    console.print(f"[red]ERROR[/] {msg}")
+                    console.print(f"[red bold]error:[/red bold] {msg}")
                 return
             try:
                 asm_text = disasm_bytes(code, va, cfg=cfg)
@@ -129,7 +129,7 @@ def cmd_extract(
                 if json_output:
                     json_print({"status": "ERROR", "error": str(e)})
                 else:
-                    console.print(f"[red]ERROR[/] {e}")
+                    console.print(f"[red bold]error:[/red bold] {e}")
                 return
 
             # Save .bin
@@ -162,7 +162,7 @@ def cmd_extract(
             {"status": "ERROR", "error": f"VA 0x{target_va:08X} not found in candidate list"}
         )
         return
-    console.print(f"[red]VA 0x{target_va:08X} not found in candidate list[/]")
+    console.print(f"[red bold]error:[/red bold] VA 0x{target_va:08X} not found in candidate list")
 
 
 def cmd_batch(
@@ -193,7 +193,7 @@ def cmd_batch(
                     }
                 )
                 continue
-            console.print(f"[red]ERROR[/] Failed to extract bytes at VA 0x{va:08X}")
+            console.print(f"[red bold]error:[/red bold] Failed to extract bytes at VA 0x{va:08X}")
             continue
 
         try:
@@ -210,7 +210,7 @@ def cmd_batch(
                     }
                 )
                 continue
-            console.print(f"[red]ERROR[/] {e}")
+            console.print(f"[red bold]error:[/red bold] {e}")
             return
 
         bin_path = bin_dir / f"func_0x{va:08X}.bin"
@@ -263,7 +263,7 @@ app = typer.Typer(
         "  rebrew extract batch 20 · · · · · · Extract first 20 smallest\n\n"
         "  rebrew extract batch 20 --start 10 · Offset into sorted list\n\n"
         "[dim]Reads function list from functions.txt or .json and auto-detects "
-        "already-reversed VAs. Outputs .bin and .asm files to the configured bin_dir.[/dim]"
+        "already-reversed VAs. Outputs .bin files to the configured bin_dir.[/dim]"
     ),
 )
 
@@ -274,10 +274,10 @@ def main(
     batch_target: str | None = typer.Argument(
         None, help="VA (hex) for extract, or count for batch"
     ),
-    exe: Path | None = typer.Option(None, help="Path to DLL/EXE (default: from config)"),
-    start: int = typer.Option(0, help="Start offset for batch mode"),
-    min_size: int = typer.Option(8, help="Minimum function size"),
-    max_size: int = typer.Option(50000, help="Maximum function size"),
+    exe: Path | None = typer.Option(None, "--exe", help="Path to DLL/EXE (default: from config)"),
+    start: int = typer.Option(0, "--start", help="Start offset for batch mode"),
+    min_size: int = typer.Option(8, "--min-size", help="Minimum function size"),
+    max_size: int = typer.Option(50000, "--max-size", help="Maximum function size"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -291,7 +291,7 @@ def main(
     for automation consumers.
 
     Args:
-        command: One of ``list``, ``extract``, or ``batch``.
+        command: One of ``list``, ``extract`` (alias ``show``), or ``batch``.
         batch_target: VA (hex) for ``extract`` or count for ``batch``.
         exe: Optional binary path override.
         start: Start offset into sorted candidates for batch mode.
@@ -308,14 +308,17 @@ def main(
     bin_dir = cfg.bin_dir
 
     # Load functions
-    funcs = load_functions(cfg)
+    try:
+        funcs = load_functions(cfg)
+    except FileNotFoundError as exc:
+        error_exit(str(exc), json_mode=json_output)
 
     # Auto-detect already-reversed VAs
     reversed_vas = detect_reversed_vas(src_dir, cfg=cfg)
     if not json_output:
         console.print(f"Found {len(reversed_vas)} already-reversed functions")
 
-    # Filter candidates — cast dict values to expected types for type safety
+    # Filter and type-cast candidates
     candidates: list[tuple[int, int, str]] = []
     for fn in funcs:
         va = int(fn["va"])

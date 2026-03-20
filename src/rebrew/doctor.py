@@ -446,10 +446,10 @@ def check_source_files(cfg: ProjectConfig) -> CheckResult:
 
 
 def check_metadata_files(cfg: ProjectConfig) -> CheckResult:
-    """Check that rebrew-function.toml and rebrew-data.toml exist in reversed_dir."""
-    reversed_dir: Path = cfg.metadata_dir
-    func_toml = reversed_dir / "rebrew-function.toml"
-    data_toml = reversed_dir / "rebrew-data.toml"
+    """Check that rebrew-function.toml and rebrew-data.toml exist in metadata_dir."""
+    metadata_dir: Path = cfg.metadata_dir
+    func_toml = metadata_dir / "rebrew-function.toml"
+    data_toml = metadata_dir / "rebrew-data.toml"
     missing: list[str] = []
     if not func_toml.exists():
         missing.append("rebrew-function.toml")
@@ -460,13 +460,13 @@ def check_metadata_files(cfg: ProjectConfig) -> CheckResult:
         return CheckResult(
             name="Metadata TOML",
             status=_WARN,
-            message=f"Missing in {reversed_dir}: {', '.join(missing)}",
-            fix=f"Create with: touch {' '.join(str(reversed_dir / f) for f in missing)}",
+            message=f"Missing in {metadata_dir}: {', '.join(missing)}",
+            fix=f"Create with: touch {' '.join(str(metadata_dir / f) for f in missing)}",
         )
     return CheckResult(
         name="Metadata TOML",
         status=_PASS,
-        message=f"rebrew-function.toml + rebrew-data.toml in {reversed_dir}",
+        message=f"rebrew-function.toml + rebrew-data.toml in {metadata_dir}",
     )
 
 
@@ -567,9 +567,9 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
+    install_wibo: bool = typer.Option(False, "--install-wibo", help="Download wibo to tools/wibo."),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
-    install_wibo: bool = typer.Option(False, "--install-wibo", help="Download wibo to tools/wibo."),
 ) -> None:
     """Run diagnostic checks on the rebrew project."""
     if install_wibo:

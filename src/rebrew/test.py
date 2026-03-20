@@ -1,10 +1,10 @@
-"""Quick compile-and-compare for reversed functions.
+"""Compile-and-compare for reversed functions (single and batch modes).
 
 By default, after comparing, STATUS is auto-updated in the per-directory
 metadata (via update_source_status). Use --no-promote to skip this.
 
 Usage:
-    rebrew test <source.c> [symbol] [--va 0xHEX --size N] [--cflags ...]
+    rebrew test <source.c> [--symbol NAME] [--va 0xHEX --size N] [--cflags ...]
     rebrew test <source.c> --no-promote   # skip STATUS update
     rebrew test --all                     # batch test all reversed functions
     rebrew test --all --origin GAME       # batch mode, filter by origin
@@ -12,7 +12,6 @@ Usage:
 """
 
 import json
-import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -107,9 +106,9 @@ def _patch_verify_cache(
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
     "  rebrew test src/game_dll/my_func.c · · · · · · Auto-detect symbol, VA, size from source\n\n"
-    "  rebrew test src/game_dll/my_func.c _my_func · · Explicit symbol name\n\n"
-    "  rebrew test f.c _sym --va 0x10009310 --size 42 · Override VA and size from CLI\n\n"
-    '  rebrew test f.c _sym --cflags "/O1 /Gd" · · · · Override compiler flags\n\n'
+    "  rebrew test src/game_dll/my_func.c --symbol _my_func · · Explicit symbol name\n\n"
+    "  rebrew test f.c --symbol _sym --va 0x10009310 --size 42 · Override VA and size from CLI\n\n"
+    '  rebrew test f.c --symbol _sym --cflags "/O1 /Gd" · · · · Override compiler flags\n\n'
     "  rebrew test src/game_dll/my_func.c --no-promote  Skip STATUS metadata update\n\n"
     "  rebrew test src/game_dll/my_func.c --json · · · · Machine-readable JSON output\n\n"
     "  rebrew test --all · · · · · · · · · · · · · · · Batch test all reversed functions\n\n"
@@ -138,25 +137,14 @@ app = typer.Typer(
 )
 
 
-# Note: Typer CLI functions dynamically infer argument definitions,
-# but providing a docstring helps with API documentation.
-def _main_docs() -> None:
-    """
-    Args:
-        jobs: Number of parallel compile jobs (with --all).
-        no_promote: Skip auto-update of STATUS metadata after test.
-    """
-    pass
-
-
 @app.callback(invoke_without_command=True)
 def main(
     source: str | None = typer.Argument(None, help="C source file (omit with --all)"),
-    va: str | None = typer.Option(None, help="VA in hex (e.g. 0x10009310)"),
+    va: str | None = typer.Option(None, "--va", help="VA in hex (e.g. 0x10009310)"),
     symbol: str | None = typer.Option(None, "--symbol", help="COFF symbol name (e.g. _funcname)"),
     target_bin: str | None = typer.Option(None, "--target-bin", help="Target .bin file"),
-    size: int | None = typer.Option(None, help="Size in bytes"),
-    cflags: str | None = typer.Option(None, help="Compiler flags"),
+    size: int | None = typer.Option(None, "--size", help="Size in bytes"),
+    cflags: str | None = typer.Option(None, "--cflags", help="Compiler flags"),
     all_sources: bool = typer.Option(False, "--all", help="Batch test all reversed .c files"),
     batch_dir: str | None = typer.Option(
         None, "--dir", help="With --all, restrict to this subdirectory"
@@ -210,8 +198,7 @@ def main(
 
     if source is not None:
         source_path = Path(source).resolve()
-        # If testing a file outside the project's source tree (e.g. output/ or /tmp),
-        # disable promotion by default to avoid accidentally updating metadata.
+        # Safety: disable promotion for files outside the project source tree.
         if not source_path.is_relative_to(cfg.metadata_dir.resolve()):
             no_promote = True
 
@@ -239,9 +226,9 @@ def main(
         for name, glob in scan.globals.items():
             if glob.va:
                 name_to_va[name] = glob.va
-    except (ImportError, OSError, ValueError, KeyError, AttributeError) as exc:
+    except (ImportError, OSError, ValueError, KeyError, AttributeError):
         # Log scan failure so users aren't surprised by missing reloc validation
-        print(f"rebrew test: skipping reloc validation (scan_globals: {exc})", file=sys.stderr)
+        console.print("[dim]Skipping relocation validation (global data scan unavailable)[/dim]")
 
     # Optional: lint the file first to catch basic annotation errors
     lint_annos = parse_c_file_multi(
@@ -325,7 +312,7 @@ def main(
         obj_bytes, coff_relocs = parse_obj_symbol_bytes(obj_path, symbol)
         if obj_bytes is None:
             if json_output:
-                error_exit(f"Symbol '{symbol}' not found in .obj", json_mode=True)
+                error_exit(f"Symbol '{symbol}' not found in .obj", json_mode=json_output)
             console.print(f"Symbol '{symbol}' not found in .obj")
             available = list_obj_symbols(obj_path)
             if available:
@@ -336,7 +323,7 @@ def main(
 
         if len(obj_bytes) > len(target_bytes):
             console.print(
-                f"[yellow]WARNING:[/yellow] compiled output ({len(obj_bytes)}B) "
+                f"[yellow]warning:[/yellow] compiled output ({len(obj_bytes)}B) "
                 f"longer than target ({len(target_bytes)}B) — truncating"
             )
             obj_bytes = obj_bytes[: len(target_bytes)]

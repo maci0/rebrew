@@ -113,26 +113,3 @@ class TestClassifyBlockersEdgeCases:
         result = classify_blockers(summary)
         assert "register allocation" in result
         assert len(result) == 1
-
-
-# ---------------------------------------------------------------------------
-# Blocker delta calculation (pure logic, no I/O)
-# ---------------------------------------------------------------------------
-
-
-class TestBlockerDeltaCalculation:
-    def test_single_byte_diff(self) -> None:
-        target = b"\x55\x8b\xec\x33\xc0\xc3"
-        obj = b"\x55\x8b\xec\x31\xc0\xc3"
-        delta = sum(1 for a, b in zip(target, obj, strict=False) if a != b) + abs(
-            len(target) - len(obj)
-        )
-        assert delta == 1
-
-    def test_size_difference_adds_to_delta(self) -> None:
-        target = b"\x55\x8b\xec\x33\xc0\xc3"
-        obj = b"\x55\x8b\xec\xc3"
-        delta = sum(1 for a, b in zip(target, obj, strict=False) if a != b) + abs(
-            len(target) - len(obj)
-        )
-        assert delta == 3

@@ -258,6 +258,7 @@ class TestBuildResultDict:
 
 
 class TestNextJsonSchemas:
+    # Schema contract test — validates expected structure
     """Validate JSON schema shapes for rebrew-next modes."""
 
     def test_stats_schema(self) -> None:
@@ -371,6 +372,7 @@ class TestNextJsonSchemas:
 
 
 class TestAsmJsonSchema:
+    # Schema contract test — validates expected structure
     """Validate JSON schema shape for rebrew-asm."""
 
     def test_asm_schema(self) -> None:
@@ -415,6 +417,7 @@ class TestAsmJsonSchema:
 
 
 class TestFlirtJsonSchema:
+    # Schema contract test — validates expected structure
     """Validate JSON schema shapes for rebrew-flirt --json output."""
 
     def test_full_output_schema(self) -> None:
@@ -446,6 +449,7 @@ class TestFlirtJsonSchema:
         assert required_keys == set(parsed.keys())
 
     def test_match_entry_structure(self) -> None:
+        # Schema contract test — documents expected shape of a match entry
         """Each match entry should have va, size, and names."""
         entry = {"va": "0x10003da0", "size": 160, "names": ["_malloc", "__alloca"]}
         assert isinstance(entry["va"], str)
@@ -506,6 +510,7 @@ class TestFlirtJsonSchema:
 
 
 class TestPromoteJsonSchema:
+    # Schema contract test — validates expected structure
     """Validate JSON schema shapes for rebrew promote --json output."""
 
     def test_promote_success_schema(self) -> None:
@@ -565,6 +570,7 @@ class TestPromoteJsonSchema:
 
 
 class TestTriageJsonSchema:
+    # Schema contract test — validates expected structure
     """Validate JSON schema shapes for rebrew triage --json output."""
 
     def test_triage_full_schema(self) -> None:
@@ -630,18 +636,3 @@ class TestTriageJsonSchema:
         }
         parsed = json.loads(json.dumps(output))
         assert parsed["flirt_matches"] == 25
-
-    def test_triage_coverage_keys(self) -> None:
-        required_keys = {
-            "total",
-            "covered",
-            "coverage_pct",
-            "exact",
-            "reloc",
-            "matching",
-            "stub",
-            "unmatchable",
-            "actionable",
-        }
-        coverage = {k: 0 for k in required_keys}
-        assert required_keys == set(coverage.keys())

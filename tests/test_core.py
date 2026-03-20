@@ -1,6 +1,7 @@
 """Tests for rebrew.matcher.core — Score, BuildResult, BuildCache, GACheckpoint."""
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -56,7 +57,7 @@ class TestBuildResult:
 
 
 class TestBuildCache:
-    def test_put_get(self, tmp_path) -> None:
+    def test_put_get(self, tmp_path: Path) -> None:
         db = str(tmp_path / "test_cache.db")
         cache = BuildCache(db_path=db)
         result = BuildResult(ok=True, obj_bytes=b"\x55\x8b")
@@ -69,13 +70,13 @@ class TestBuildCache:
         assert got.error_msg == ""
         cache._cache.close()
 
-    def test_get_missing(self, tmp_path) -> None:
+    def test_get_missing(self, tmp_path: Path) -> None:
         db = str(tmp_path / "test_cache.db")
         cache = BuildCache(db_path=db)
         assert cache.get("nonexistent") is None
         cache._cache.close()
 
-    def test_overwrite(self, tmp_path) -> None:
+    def test_overwrite(self, tmp_path: Path) -> None:
         db = str(tmp_path / "test_cache.db")
         cache = BuildCache(db_path=db)
         r1 = BuildResult(ok=True, error_msg="first")
@@ -93,7 +94,7 @@ class TestBuildCache:
 
 
 class TestGACheckpoint:
-    def test_save_load(self, tmp_path) -> None:
+    def test_save_load(self, tmp_path: Path) -> None:
         path = str(tmp_path / "ckpt.json")
         ckpt = GACheckpoint(
             generation=10,
@@ -118,7 +119,7 @@ class TestGACheckpoint:
         assert loaded.stagnant_gens == 5
         assert loaded.elapsed_sec == 30.0
 
-    def test_load_wrong_hash(self, tmp_path) -> None:
+    def test_load_wrong_hash(self, tmp_path: Path) -> None:
         path = str(tmp_path / "ckpt.json")
         ckpt = GACheckpoint(
             generation=1,
@@ -135,11 +136,11 @@ class TestGACheckpoint:
             loaded = load_checkpoint(path, "wrong_hash")
         assert loaded is None
 
-    def test_load_nonexistent(self, tmp_path) -> None:
+    def test_load_nonexistent(self, tmp_path: Path) -> None:
         path = str(tmp_path / "nonexistent.json")
         assert load_checkpoint(path, "hash") is None
 
-    def test_rng_state_roundtrip(self, tmp_path) -> None:
+    def test_rng_state_roundtrip(self, tmp_path: Path) -> None:
         """rng_state with nested tuple must survive JSON serialization."""
         import random
 
@@ -191,7 +192,7 @@ class TestComputeArgsHash:
 
 
 # ---------------------------------------------------------------------------
-# Audit-specific regression tests (Phase 3 hardening — matcher/core.py)
+# Regression tests
 # ---------------------------------------------------------------------------
 
 
@@ -199,7 +200,7 @@ class TestAuditCheckpoint:
     """Tests added during the formal code audit to verify load_checkpoint
     gracefully rejects corrupted rng_state without crashing the GA loop."""
 
-    def test_corrupt_rng_state_wrong_length_returns_none(self, tmp_path) -> None:
+    def test_corrupt_rng_state_wrong_length_returns_none(self, tmp_path: Path) -> None:
         """rng_state with len != 3 must return None with a UserWarning (not crash)."""
         import json
 
@@ -218,13 +219,11 @@ class TestAuditCheckpoint:
         with open(path, "w") as fh:
             json.dump(data, fh)
 
-        import pytest
-
         with pytest.warns(UserWarning, match="unexpected structure"):
             loaded = load_checkpoint(path, "myhash")
         assert loaded is None
 
-    def test_corrupt_rng_state_bad_internal_type_returns_none(self, tmp_path) -> None:
+    def test_corrupt_rng_state_bad_internal_type_returns_none(self, tmp_path: Path) -> None:
         """rng_state with non-list internal state must return None (not crash Random.setstate)."""
         import json
 
@@ -243,13 +242,11 @@ class TestAuditCheckpoint:
         with open(path, "w") as fh:
             json.dump(data, fh)
 
-        import pytest
-
         with pytest.warns(UserWarning, match="unexpected structure"):
             loaded = load_checkpoint(path, "myhash2")
         assert loaded is None
 
-    def test_corrupt_rng_state_non_int_elements_returns_none(self, tmp_path) -> None:
+    def test_corrupt_rng_state_non_int_elements_returns_none(self, tmp_path: Path) -> None:
         """rng_state internal state with non-coercible elements must return None gracefully."""
         import json
 
@@ -267,8 +264,6 @@ class TestAuditCheckpoint:
         }
         with open(path, "w") as fh:
             json.dump(data, fh)
-
-        import pytest
 
         with pytest.warns(UserWarning):
             loaded = load_checkpoint(path, "myhash3")

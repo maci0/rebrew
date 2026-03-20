@@ -17,6 +17,7 @@ for CI / pre-commit hooks).
 import concurrent.futures
 import hashlib
 import json
+import logging
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -52,8 +53,10 @@ from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 from rebrew.metadata import update_source_status
 from rebrew.utils import atomic_write_text
 
+log = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
-# Verification (--verify)
+# Verification
 # ---------------------------------------------------------------------------
 
 
@@ -177,7 +180,7 @@ class VerifyResult:
     symbol: str = ""
     delta: int | None = None
     match_percent: float | None = None
-    passed: bool = False  # Added this field
+    passed: bool = False
     message: str = ""
 
     @classmethod
@@ -192,7 +195,7 @@ class VerifyResult:
             symbol=str(d.get("symbol", "")),
             delta=d.get("delta"),
             match_percent=d.get("match_percent"),
-            passed=bool(d.get("passed", False)),  # Added this field
+            passed=bool(d.get("passed", False)),
             message=str(d.get("message", "")),
         )
 
@@ -531,7 +534,7 @@ def main(
         _save_verify_cache(cache_path, cfg, results, unique_entries)
     except (OSError, TypeError):
         if not json_output:
-            console.print(f"[yellow]Warning:[/] Could not write verify cache to {cache_path}")
+            console.print(f"[yellow]warning:[/yellow] Could not write verify cache to {cache_path}")
 
     diff_result: dict[str, Any] | None = None
     if diff_mode and previous_report is not None:
@@ -586,7 +589,7 @@ def _load_previous_report(
     diff_mode: bool,
     json_output: bool,
 ) -> tuple[dict[str, Any] | None, str | None]:
-    """Load previous verify report for --diff mode."""
+    """Load previous verify report for --compare mode."""
     if not diff_mode:
         return None, None
 
@@ -606,7 +609,7 @@ def _load_previous_report(
             diff_warning = f"Could not read previous verify report at {out_file}: {exc}"
 
     if diff_warning and not json_output:
-        console.print(f"[yellow]Warning:[/] {diff_warning}")
+        console.print(f"[yellow]warning:[/yellow] {diff_warning}")
 
     return previous_report, diff_warning
 
@@ -771,9 +774,14 @@ def run_verification(
                     _entry, result = future.result()
                 except Exception as exc:  # noqa: BLE001
                     internal_errors += 1
+                    log.debug(
+                        "Internal error verifying %s",
+                        getattr(entry, "name", "?"),
+                        exc_info=True,
+                    )
                     if internal_errors <= 5:
                         console.print(
-                            f"[yellow]WARNING:[/] internal error verifying "
+                            f"[yellow]warning:[/yellow] internal error verifying "
                             f"{getattr(entry, 'name', '?')}: {exc}"
                         )
                     from rebrew.compile import CompareResult
@@ -815,7 +823,7 @@ def run_verification(
 
     if internal_errors > 0 and not json_output:
         console.print(
-            f"[yellow]WARNING:[/] {internal_errors} function(s) failed with internal errors "
+            f"[yellow]warning:[/yellow] {internal_errors} function(s) failed with internal errors "
             f"(counted as mismatches)"
         )
 

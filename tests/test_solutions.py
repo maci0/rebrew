@@ -40,7 +40,7 @@ class TestSolutionEntry:
 
     def test_defaults(self) -> None:
         e = SolutionEntry(symbol="_f", cflags="/O2", size=10, source_file="f.c")
-        assert e.solved_at  # should have a timestamp
+        assert isinstance(e.solved_at, str) and len(e.solved_at) > 0
 
 
 # -------------------------------------------------------------------------

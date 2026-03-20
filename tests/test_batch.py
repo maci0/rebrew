@@ -203,19 +203,3 @@ class TestBatchTypeSafety:
         assert isinstance(funcs[0]["name"], str)
         assert funcs[0]["va"] == 0x10001000
         assert funcs[0]["size"] == 64
-
-    def test_int_cast_handles_string_va(self) -> None:
-        """int() cast should handle string VA from JSON."""
-        fn = {"va": "268439552", "size": "64", "name": "func_a"}
-        va = int(fn["va"])
-        size = int(fn["size"])
-        name = str(fn["name"])
-        assert va == 268439552
-        assert size == 64
-        assert name == "func_a"
-
-    def test_int_cast_handles_hex_string(self) -> None:
-        """int() with base 16 should handle hex string VA."""
-        va_str = "0x10001000"
-        va = int(va_str, 16)
-        assert va == 0x10001000

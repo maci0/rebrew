@@ -20,10 +20,9 @@ def parse_c_ast(source: bytes | str) -> ts.Tree:
 
 
 def quick_validate_ast(source: bytes | str) -> bool:
-    """Validate C source code using tree-sitter instead of regex.
+    """Validate C source code using tree-sitter.
 
-    This replaces the old `quick_validate` which relied on heuristics.
-    Returns True if the code has no gross syntax errors.
+    Returns True if the code parses without syntax errors.
     """
     tree = parse_c_ast(source)
     return not tree.root_node.has_error

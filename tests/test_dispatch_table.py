@@ -1,91 +1,74 @@
-"""Tests for ga.py near-miss NEAR_MATCHING mode and data.py dispatch table detection."""
+"""Tests for rebrew.match near-miss NEAR_MATCHING mode and rebrew.data dispatch table detection."""
 
+import re
 import struct
+from pathlib import Path
 
 from rebrew.data import DispatchEntry, DispatchTable, find_dispatch_tables
 from rebrew.match import find_near_miss, parse_matching_info
 
+
+def _make_c(d, name, va, status, blocker="", skip=False) -> None:
+    """Create a C source file with annotations and metadata TOML entry."""
+    lines = [
+        f"// FUNCTION: SERVER 0x{va:08x}",
+        f"// SYMBOL: _{name}",
+        f"int __cdecl {name}(void) {{ return 0; }}",
+    ]
+    (d / f"{name}.c").write_text("\n".join(lines), encoding="utf-8")
+    # Write metadata-owned fields to rebrew-function.toml
+    metadata_toml = d / "rebrew-function.toml"
+    existing = metadata_toml.read_text(encoding="utf-8") if metadata_toml.exists() else ""
+    entry = f'["SERVER.0x{va:08x}"]\nstatus = "{status}"\nsize = 100\ncflags = "/O2 /Gd"\n'
+    if blocker:
+        entry += f'blocker = "{blocker}"\n'
+        m = re.match(r"(\d+)B", blocker)
+        if m:
+            entry += f"blocker_delta = {m.group(1)}\n"
+    if skip:
+        entry += 'skip = "reason"\n'
+    metadata_toml.write_text(existing + entry, encoding="utf-8")
+
+
 # ---------------------------------------------------------------------------
-# Tests for ga.py near-miss mode (#6)
+# Tests for rebrew.match near-miss mode (#6)
 # ---------------------------------------------------------------------------
 
 
 class TestParseMatchingInfo:
-    def _make_c(self, d, name, va, status, blocker="", skip=False) -> None:
-        import re
-
-        lines = [
-            f"// FUNCTION: SERVER 0x{va:08x}",
-            f"// SYMBOL: _{name}",
-            f"int __cdecl {name}(void) {{ return 0; }}",
-        ]
-        (d / f"{name}.c").write_text("\n".join(lines), encoding="utf-8")
-        # Write metadata-owned fields to rebrew-function.toml
-        metadata_toml = d / "rebrew-function.toml"
-        existing = metadata_toml.read_text(encoding="utf-8") if metadata_toml.exists() else ""
-        entry = f'["SERVER.0x{va:08x}"]\nstatus = "{status}"\nsize = 100\ncflags = "/O2 /Gd"\n'
-        if blocker:
-            entry += f'blocker = "{blocker}"\n'
-            m = re.match(r"(\d+)B", blocker)
-            if m:
-                entry += f"blocker_delta = {m.group(1)}\n"
-        if skip:
-            entry += 'skip = "reason"\n'
-        metadata_toml.write_text(existing + entry, encoding="utf-8")
-
-    def test_matching_with_small_delta(self, tmp_path) -> None:
-        self._make_c(tmp_path, "FuncA", 0x10001000, "NEAR_MATCHING", "2B diff: off by 2 bytes")
+    def test_matching_with_small_delta(self, tmp_path: Path) -> None:
+        _make_c(tmp_path, "FuncA", 0x10001000, "NEAR_MATCHING", "2B diff: off by 2 bytes")
         result = parse_matching_info(tmp_path / "FuncA.c", max_delta=10)
         assert len(result) == 1
         assert result[0].delta == 2
 
-    def test_matching_large_delta_excluded(self, tmp_path) -> None:
-        self._make_c(tmp_path, "FuncB", 0x10002000, "NEAR_MATCHING", "50B diff: too big")
+    def test_matching_large_delta_excluded(self, tmp_path: Path) -> None:
+        _make_c(tmp_path, "FuncB", 0x10002000, "NEAR_MATCHING", "50B diff: too big")
         result = parse_matching_info(tmp_path / "FuncB.c", max_delta=10)
         assert result == []
 
-    def test_stub_excluded(self, tmp_path) -> None:
-        self._make_c(tmp_path, "FuncC", 0x10003000, "STUB", "2B diff")
+    def test_stub_excluded(self, tmp_path: Path) -> None:
+        _make_c(tmp_path, "FuncC", 0x10003000, "STUB", "2B diff")
         result = parse_matching_info(tmp_path / "FuncC.c", max_delta=10)
         assert result == []
 
-    def test_no_blocker_excluded(self, tmp_path) -> None:
-        self._make_c(tmp_path, "FuncD", 0x10004000, "NEAR_MATCHING")
+    def test_no_blocker_excluded(self, tmp_path: Path) -> None:
+        _make_c(tmp_path, "FuncD", 0x10004000, "NEAR_MATCHING")
         result = parse_matching_info(tmp_path / "FuncD.c", max_delta=10)
         assert result == []
 
-    def test_skip_excluded(self, tmp_path) -> None:
-        self._make_c(tmp_path, "FuncE", 0x10005000, "NEAR_MATCHING", "2B diff", skip=True)
+    def test_skip_excluded(self, tmp_path: Path) -> None:
+        _make_c(tmp_path, "FuncE", 0x10005000, "NEAR_MATCHING", "2B diff", skip=True)
         result = parse_matching_info(tmp_path / "FuncE.c", max_delta=10)
         assert result == []
 
 
 class TestFindNearMiss:
-    def _make_c(self, d, name, va, status, blocker="") -> None:
-        import re
-
-        lines = [
-            f"// FUNCTION: SERVER 0x{va:08x}",
-            f"// SYMBOL: _{name}",
-            f"int __cdecl {name}(void) {{ return 0; }}",
-        ]
-        (d / f"{name}.c").write_text("\n".join(lines), encoding="utf-8")
-        # Write metadata-owned fields to rebrew-function.toml
-        metadata_toml = d / "rebrew-function.toml"
-        existing = metadata_toml.read_text(encoding="utf-8") if metadata_toml.exists() else ""
-        entry = f'["SERVER.0x{va:08x}"]\nstatus = "{status}"\nsize = 100\ncflags = "/O2 /Gd"\n'
-        if blocker:
-            entry += f'blocker = "{blocker}"\n'
-            m = re.match(r"(\d+)B", blocker)
-            if m:
-                entry += f"blocker_delta = {m.group(1)}\n"
-        metadata_toml.write_text(existing + entry, encoding="utf-8")
-
-    def test_finds_near_miss(self, tmp_path) -> None:
-        self._make_c(tmp_path, "Near1", 0x10001000, "NEAR_MATCHING", "2B diff")
-        self._make_c(tmp_path, "Near2", 0x10002000, "NEAR_MATCHING", "5B diff")
-        self._make_c(tmp_path, "Far", 0x10003000, "NEAR_MATCHING", "50B diff")
-        self._make_c(tmp_path, "Stub", 0x10004000, "STUB", "2B diff")
+    def test_finds_near_miss(self, tmp_path: Path) -> None:
+        _make_c(tmp_path, "Near1", 0x10001000, "NEAR_MATCHING", "2B diff")
+        _make_c(tmp_path, "Near2", 0x10002000, "NEAR_MATCHING", "5B diff")
+        _make_c(tmp_path, "Far", 0x10003000, "NEAR_MATCHING", "50B diff")
+        _make_c(tmp_path, "Stub", 0x10004000, "STUB", "2B diff")
 
         results = find_near_miss(tmp_path, max_delta=10)
         names = [r.filepath.stem for r in results]
@@ -94,9 +77,9 @@ class TestFindNearMiss:
         assert "Far" not in names
         assert "Stub" not in names
 
-    def test_sorted_by_delta(self, tmp_path) -> None:
-        self._make_c(tmp_path, "Big", 0x10001000, "NEAR_MATCHING", "8B diff")
-        self._make_c(tmp_path, "Small", 0x10002000, "NEAR_MATCHING", "1B diff")
+    def test_sorted_by_delta(self, tmp_path: Path) -> None:
+        _make_c(tmp_path, "Big", 0x10001000, "NEAR_MATCHING", "8B diff")
+        _make_c(tmp_path, "Small", 0x10002000, "NEAR_MATCHING", "1B diff")
         results = find_near_miss(tmp_path, max_delta=10)
         assert results[0].delta <= results[1].delta
 

@@ -173,7 +173,7 @@ class TestSplitBasic:
 
         result = runner.invoke(app, [str(src)])
         assert result.exit_code != 0
-        assert "at least two function blocks" in result.output
+        assert "at least two // FUNCTION: blocks" in result.output
 
     def test_errors_when_output_exists_without_force(
         self, tmp_path: Path, monkeypatch: Any

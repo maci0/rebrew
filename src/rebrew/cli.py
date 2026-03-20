@@ -11,8 +11,8 @@ Usage in a tool::
 
     app = typer.Typer()
 
-    @app.command()
-    def main(target: str = TargetOption) -> None:
+    @app.callback(invoke_without_command=True)
+    def main(target: str | None = TargetOption) -> None:
         cfg = require_config(target)
         ...
 """
@@ -46,8 +46,8 @@ EXIT_ERROR = 2  # Infrastructure error (build/config broken)
 # A function that matches >= 60 % of bytes is NEAR_MATCHING; below is STUB.
 NEAR_MATCH_THRESHOLD = 0.60
 
-# Canonical Rich colour tags for status strings — used by test.py, verify.py,
-# and status.py for consistent formatting.
+# Canonical Rich colour tags for status strings — used across CLI tools
+# for consistent output formatting.
 STATUS_COLORS: dict[str, str] = {
     "EXACT": "bold green",
     "RELOC": "green",
@@ -82,8 +82,8 @@ def classify_match_status(
 ) -> str:
     """Determine the canonical status string from match results.
 
-    Centralises the EXACT / RELOC / NEAR_MATCHING / STUB decision that was
-    previously scattered across test.py, verify.py, and compile.py.
+    Centralises the EXACT / RELOC / NEAR_MATCHING / STUB decision for
+    raw match results.
 
     :param matched: True when all non-reloc bytes match.
     :param match_count: Number of matching bytes.
@@ -226,7 +226,7 @@ def iter_annotations(
     :param sources: List of paths returned by :func:`iter_sources`.
     :param target:  Optional marker string passed through to
         ``parse_c_file_multi`` (use :func:`target_marker` to obtain it).
-    :param metadata_dir: The ``reversed_dir`` root where ``rebrew-function.toml``
+    :param metadata_dir: Parent of ``reversed_dir`` where ``rebrew-function.toml``
         lives.  Required for metadata merging.
     """
     import logging
@@ -237,8 +237,8 @@ def iter_annotations(
     for src in sources:
         try:
             annos = parse_c_file_multi(src, target_name=target, metadata_dir=metadata_dir)
-        except ValueError as exc:
-            logging.debug(f"Skipping {src} due to parse error: {exc}")
+        except ValueError:
+            logging.debug("Skipping %s due to parse error", src, exc_info=True)
             continue
         if annos:
             results.append((src, annos))

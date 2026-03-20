@@ -29,17 +29,17 @@ Use ``rebrew cache clear`` for manual invalidation after header edits.
 
 from __future__ import annotations
 
+import atexit
 import hashlib
 import threading
 from pathlib import Path
 
 import diskcache
 
-# Bump when key semantics change to avoid stale hits across upgrades.
+# Bump on key semantics changes to invalidate stale entries.
 CACHE_SCHEMA_VERSION = 1
 
-# Default size limit: 500 MB.  Most .obj files are 1-10 KB, so this
-# holds 50K+ entries with LRU eviction when the limit is reached.
+# Default size limit: 500 MB with LRU eviction when the limit is reached.
 _DEFAULT_SIZE_LIMIT = 500 * 1024 * 1024
 
 
@@ -122,10 +122,13 @@ def compile_cache_key(
     - **cflags** — all compiler flags in order (base + user + include)
     - **include_dirs** — ordered list of ``/I`` directory paths
     - **toolchain_id** — identifies the compiler binary and runner
-      (e.g. ``"wine:/abs/path/CL.EXE"``)
+      (e.g. ``"wine /abs/path/CL.EXE"``)
     - **source_ext** — file extension (``.c``, ``.cpp``)
 
     Returns a 64-char hex digest string.
+
+    .. note:: Callers must include ``base_cflags`` in the *cflags* list —
+       this function does not automatically prepend them.
     """
     h = hashlib.sha256()
     h.update(f"v{CACHE_SCHEMA_VERSION}\0".encode())
@@ -164,8 +167,11 @@ def get_compile_cache(project_root: Path) -> CompileCache:
 
 
 def close_all_caches() -> None:
-    """Close all open cache instances (for clean shutdown in tests)."""
+    """Close all open cache instances (for clean shutdown)."""
     with _caches_lock:
         for cache in _caches.values():
             cache.close()
         _caches.clear()
+
+
+atexit.register(close_all_caches)

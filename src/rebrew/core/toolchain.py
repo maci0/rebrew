@@ -1,4 +1,9 @@
-"""Toolchain environment construction and resolution for rebrew compilers."""
+"""MSVC environment setup for rebrew compiler invocation under Wine/wibo.
+
+Provides ``msvc_env_from_config()`` to construct subprocess environment
+variables (INCLUDE, LIB, PATH, WINEPATH, WINEDEBUG) from a project
+configuration.
+"""
 
 import os
 import shlex
@@ -12,9 +17,10 @@ if TYPE_CHECKING:
 def msvc_env_from_config(cfg: "ProjectConfig") -> dict[str, str]:
     """Return a subprocess env dict with MSVC6 VCVARS-equivalent variables.
 
-    Sets INCLUDE, LIB, PATH (for DLL resolution), and WINEDEBUG=-all.
-    This is the equivalent of running ``BIN/VCVARS32.BAT x86`` before
-    invoking CL.EXE under Wine.
+    Derives INCLUDE, LIB, PATH, and WINEPATH from the compiler configuration.
+    Sets WINEDEBUG=-all when the runner is Wine/wibo, and
+    REBREW_COMPILER_RUNNER to the detected/configured runner name.
+    Approximates ``VCVARS32.BAT`` for invoking CL.EXE under Wine.
     """
     env = {**os.environ}
     runner = cfg.compiler_runner

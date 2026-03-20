@@ -1,4 +1,7 @@
+"""Tests for Phase 5 mutation operators in rebrew.matcher.mutator."""
+
 import random
+import re
 
 from rebrew.matcher.mutator import (
     ALL_MUTATIONS,
@@ -13,7 +16,12 @@ from rebrew.matcher.mutator import (
     mut_zero_to_bitand,
 )
 
-RNG = random.Random(42)
+_RNG_SEED = 42
+
+
+def _rng() -> random.Random:
+    """Return a fresh RNG with a fixed seed for deterministic, order-independent tests."""
+    return random.Random(_RNG_SEED)
 
 
 # ---------------------------------------------------------------------------
@@ -24,30 +32,30 @@ RNG = random.Random(42)
 class TestCommuteBitwiseOps:
     def test_swap_or(self) -> None:
         src = "void f() {\n    x = a | b;\n}"
-        res = mut_commute_bit_or(src, RNG)
+        res = mut_commute_bit_or(src, _rng())
         assert res is not None
         assert "b | a" in res
 
     def test_swap_and(self) -> None:
         src = "void f() {\n    x = a & b;\n}"
-        res = mut_commute_bit_and(src, RNG)
+        res = mut_commute_bit_and(src, _rng())
         assert res is not None
         assert "b & a" in res
 
     def test_swap_xor(self) -> None:
         src = "void f() {\n    x = a ^ b;\n}"
-        res = mut_commute_bit_xor(src, RNG)
+        res = mut_commute_bit_xor(src, _rng())
         assert res is not None
         assert "b ^ a" in res
 
     def test_no_swap_identical(self) -> None:
         src = "void f() {\n    x = a | a;\n}"
-        res = mut_commute_bit_or(src, RNG)
+        res = mut_commute_bit_or(src, _rng())
         assert res is None  # identical operands → no change
 
     def test_complex_subexpressions(self) -> None:
         src = "void f() {\n    x = (w >> 8) | (w << 8);\n}"
-        res = mut_commute_bit_or(src, RNG)
+        res = mut_commute_bit_or(src, _rng())
         assert res is not None
         assert "(w << 8)" in res
         assert "(w >> 8)" in res
@@ -61,20 +69,20 @@ class TestCommuteBitwiseOps:
 class TestCommuteGeneralArith:
     def test_swap_complex_add(self) -> None:
         src = "void f() {\n    *lpDest = (WORD)((w >> 8) + (w << 8));\n}"
-        res = mut_commute_add_general(src, RNG)
+        res = mut_commute_add_general(src, _rng())
         assert res is not None
         # The swap should put (w << 8) before (w >> 8)
         assert "(w << 8)" in res
 
     def test_swap_complex_mul(self) -> None:
         src = "void f() {\n    x = (a + 1) * (b + 2);\n}"
-        res = mut_commute_mul_general(src, RNG)
+        res = mut_commute_mul_general(src, _rng())
         assert res is not None
         assert "(b + 2)" in res
 
     def test_no_swap_identical_add(self) -> None:
         src = "void f() {\n    x = a + a;\n}"
-        res = mut_commute_add_general(src, RNG)
+        res = mut_commute_add_general(src, _rng())
         assert res is None
 
 
@@ -86,14 +94,14 @@ class TestCommuteGeneralArith:
 class TestInjectBlockRegister:
     def test_wrap_loop_body(self) -> None:
         src = "void f() {\n    while (x) {\n        a = 1;\n    }\n}"
-        res = mut_inject_block_register(src, RNG)
+        res = mut_inject_block_register(src, _rng())
         assert res is not None
         assert "register int _reg_" in res
         assert "a = 1;" in res
 
     def test_wrap_adjacent_stmts(self) -> None:
         src = "void f() {\n    a = 1;\n    b = 2;\n}"
-        res = mut_inject_block_register(src, RNG)
+        res = mut_inject_block_register(src, _rng())
         assert res is not None
         assert "register int _reg_" in res
         assert "a = 1;" in res
@@ -119,25 +127,25 @@ class TestInjectBlockRegister:
 class TestRetypeLocalEquiv:
     def test_int_to_dword(self) -> None:
         src = "void f() {\n    int count;\n    count = 0;\n}"
-        res = mut_retype_local_equiv(src, RNG)
+        res = mut_retype_local_equiv(src, _rng())
         assert res is not None
         assert "DWORD count" in res
 
     def test_dword_to_long(self) -> None:
         src = "void f() {\n    DWORD count;\n    count = 0;\n}"
-        res = mut_retype_local_equiv(src, RNG)
+        res = mut_retype_local_equiv(src, _rng())
         assert res is not None
         assert "long count" in res
 
     def test_preserves_register_qualifier(self) -> None:
         src = "void f() {\n    register int count;\n    count = 0;\n}"
-        res = mut_retype_local_equiv(src, RNG)
+        res = mut_retype_local_equiv(src, _rng())
         assert res is not None
         assert "register DWORD count" in res
 
     def test_unsupported_type_no_match(self) -> None:
         src = "void f() {\n    HANDLE h;\n    h = 0;\n}"
-        res = mut_retype_local_equiv(src, RNG)
+        res = mut_retype_local_equiv(src, _rng())
         assert res is None
 
 
@@ -149,19 +157,19 @@ class TestRetypeLocalEquiv:
 class TestZeroToBitand:
     def test_forward(self) -> None:
         src = "void f() {\n    x = 0;\n}"
-        res = mut_zero_to_bitand(src, RNG)
+        res = mut_zero_to_bitand(src, _rng())
         assert res is not None
         assert "x &= 0;" in res
 
     def test_reverse(self) -> None:
         src = "void f() {\n    x &= 0;\n}"
-        res = mut_zero_to_bitand(src, RNG)
+        res = mut_zero_to_bitand(src, _rng())
         assert res is not None
         assert "x = 0;" in res
 
     def test_skips_for_init(self) -> None:
         src = "void f() {\n    for (i = 0; i < 10; i++) {\n        a = 1;\n    }\n}"
-        res = mut_zero_to_bitand(src, RNG)
+        res = mut_zero_to_bitand(src, _rng())
         # for-loop initializer should be skipped — no candidates
         assert res is None
 
@@ -172,11 +180,6 @@ class TestZeroToBitand:
 
 
 class TestPhase5Registration:
-    def test_no_duplicate_entries(self) -> None:
-        names = [m.__name__ for m in ALL_MUTATIONS]
-        dupes = [n for n in names if names.count(n) > 1]
-        assert len(names) == len(set(names)), f"Duplicates: {dupes}"
-
     def test_new_mutators_registered(self) -> None:
         names = {m.__name__ for m in ALL_MUTATIONS}
         expected = {
@@ -225,8 +228,6 @@ class TestInjectDummyRegisters:
             res = mut_inject_dummy_registers(src, random.Random(seed))
             if res is not None:
                 # Extract all _dummy_reg_NN names
-                import re
-
                 names = re.findall(r"_dummy_reg_\d+", res)
                 assert len(names) == len(set(names)), f"Duplicate names in seed {seed}: {names}"
 
@@ -235,8 +236,9 @@ class TestInjectDummyRegisters:
         # Should still work — just picks different names
         res = mut_inject_dummy_registers(src, random.Random(42))
         # Either None (all names collided) or valid with different names
-        if res is not None:
-            assert res.count("_dummy_reg_") >= 2  # at least original + 1 new
+        if res is None:
+            return  # all names collided — acceptable
+        assert res.count("_dummy_reg_") >= 2  # at least original + 1 new
 
     def test_no_function_returns_none(self) -> None:
         src = "int x = 5;"

@@ -4,51 +4,51 @@ from types import SimpleNamespace
 from typing import Any
 
 from rebrew.ghidra import apply_commands_via_mcp
-from rebrew.ghidra.client import _fetch_mcp_tool
+from rebrew.ghidra.client import fetch_mcp_tool
 from rebrew.ghidra.commands import (
     _STATUS_BOOKMARK_CATEGORY,
-    _ghidra_name_to_symbol,
-    _is_generic_name,
-    _is_meaningful_name,
-    _parse_va,
     build_new_function_commands,
     build_size_sync_commands,
     build_sync_commands,
+    ghidra_name_to_symbol,
+    is_generic_name,
+    is_meaningful_name,
+    parse_ghidra_va,
 )
 from rebrew.ghidra.models import PullChange, PullResult
 
 # ---------------------------------------------------------------------------
-# _is_generic_name
+# is_generic_name
 # ---------------------------------------------------------------------------
 
 
 class TestIsGenericName:
-    """Tests for the _is_generic_name() helper."""
+    """Tests for the is_generic_name() helper."""
 
     def test_lowercase_generic(self) -> None:
-        assert _is_generic_name("func_10006c00") is True
+        assert is_generic_name("func_10006c00") is True
 
     def test_uppercase_generic(self) -> None:
-        assert _is_generic_name("FUN_10006C00") is True
+        assert is_generic_name("FUN_10006C00") is True
 
     def test_real_name(self) -> None:
-        assert _is_generic_name("inflate_init") is False
+        assert is_generic_name("inflate_init") is False
 
     def test_underscore_prefix(self) -> None:
-        assert _is_generic_name("_malloc") is False
+        assert is_generic_name("_malloc") is False
 
     def test_empty_string(self) -> None:
-        assert _is_generic_name("") is False
+        assert is_generic_name("") is False
 
     def test_partial_match(self) -> None:
         """func_ prefix but non-hex suffix is not generic."""
-        assert _is_generic_name("func_main_loop") is False
+        assert is_generic_name("func_main_loop") is False
 
     def test_fun_prefix_hex(self) -> None:
-        assert _is_generic_name("FUN_DEADBEEF") is True
+        assert is_generic_name("FUN_DEADBEEF") is True
 
     def test_func_prefix_mixed_case_hex(self) -> None:
-        assert _is_generic_name("func_aAbBcCdD") is True
+        assert is_generic_name("func_aAbBcCdD") is True
 
 
 # ---------------------------------------------------------------------------
@@ -531,83 +531,83 @@ class TestBuildSyncCommandsSignatures:
 
 
 # ---------------------------------------------------------------------------
-# _parse_va
+# parse_ghidra_va
 # ---------------------------------------------------------------------------
 
 
 class TestParseVA:
-    """Tests for the _parse_va() helper."""
+    """Tests for the parse_ghidra_va() helper."""
 
     def test_hex_string(self) -> None:
-        assert _parse_va("0x10001000") == 0x10001000
+        assert parse_ghidra_va("0x10001000") == 0x10001000
 
     def test_hex_string_uppercase(self) -> None:
-        assert _parse_va("0x1000ABCD") == 0x1000ABCD
+        assert parse_ghidra_va("0x1000ABCD") == 0x1000ABCD
 
     def test_int_passthrough(self) -> None:
-        assert _parse_va(0x10001000) == 0x10001000
+        assert parse_ghidra_va(0x10001000) == 0x10001000
 
     def test_decimal_string(self) -> None:
-        assert _parse_va("268439552") == 268439552
+        assert parse_ghidra_va("268439552") == 268439552
 
     def test_none_returns_none(self) -> None:
-        assert _parse_va(None) is None
+        assert parse_ghidra_va(None) is None
 
     def test_invalid_hex_returns_none(self) -> None:
-        assert _parse_va("0xGGGG") is None
+        assert parse_ghidra_va("0xGGGG") is None
 
     def test_invalid_string_returns_none(self) -> None:
-        assert _parse_va("not_a_number") is None
+        assert parse_ghidra_va("not_a_number") is None
 
     def test_empty_string_returns_none(self) -> None:
-        assert _parse_va("") is None
+        assert parse_ghidra_va("") is None
 
     def test_zero(self) -> None:
-        assert _parse_va(0) == 0
+        assert parse_ghidra_va(0) == 0
 
     def test_float_truncates_to_int(self) -> None:
-        assert _parse_va(3.14) == 3
+        assert parse_ghidra_va(3.14) == 3
 
 
 # ---------------------------------------------------------------------------
-# _is_meaningful_name
+# is_meaningful_name
 # ---------------------------------------------------------------------------
 
 
 class TestIsMeaningfulName:
-    """Tests for the _is_meaningful_name() helper."""
+    """Tests for the is_meaningful_name() helper."""
 
     def test_real_name(self) -> None:
-        assert _is_meaningful_name("inflate_init") is True
+        assert is_meaningful_name("inflate_init") is True
 
     def test_underscore_prefix(self) -> None:
-        assert _is_meaningful_name("_malloc") is True
+        assert is_meaningful_name("_malloc") is True
 
     def test_empty_string(self) -> None:
-        assert _is_meaningful_name("") is False
+        assert is_meaningful_name("") is False
 
     def test_fun_prefix(self) -> None:
-        assert _is_meaningful_name("FUN_10006C00") is False
+        assert is_meaningful_name("FUN_10006C00") is False
 
     def test_dat_prefix(self) -> None:
-        assert _is_meaningful_name("DAT_10008000") is False
+        assert is_meaningful_name("DAT_10008000") is False
 
     def test_func_generic(self) -> None:
-        assert _is_meaningful_name("func_10006c00") is False
+        assert is_meaningful_name("func_10006c00") is False
 
     def test_switchdata_prefix(self) -> None:
-        assert _is_meaningful_name("switchdata_100abc") is False
+        assert is_meaningful_name("switchdata_100abc") is False
 
     def test_switchdata_exact(self) -> None:
-        assert _is_meaningful_name("switchdata") is False
+        assert is_meaningful_name("switchdata") is False
 
     def test_dat_short(self) -> None:
         """DAT_ prefix is always non-meaningful regardless of suffix."""
-        assert _is_meaningful_name("DAT_") is False
+        assert is_meaningful_name("DAT_") is False
 
     def test_meaningful_with_fun_substring(self) -> None:
         """Name containing FUN_ in the middle is still meaningful."""
-        assert _is_meaningful_name("setup_FUN_handler") is True
+        assert is_meaningful_name("setup_FUN_handler") is True
 
 
 # ---------------------------------------------------------------------------
@@ -710,12 +710,12 @@ class TestPullResult:
 
 
 # ---------------------------------------------------------------------------
-# _fetch_mcp_tool
+# fetch_mcp_tool
 # ---------------------------------------------------------------------------
 
 
 class _FakeMCPResponse:
-    """Fake HTTP response for _fetch_mcp_tool tests."""
+    """Fake HTTP response for fetch_mcp_tool tests."""
 
     def __init__(self, status_code: int, body: dict[str, Any]) -> None:
         import json as _json
@@ -743,7 +743,7 @@ class _FakeMCPClient:
 
 
 class TestFetchMcpTool:
-    """Tests for the _fetch_mcp_tool() helper."""
+    """Tests for the fetch_mcp_tool() helper."""
 
     def test_successful_parse(self) -> None:
         import json as _json
@@ -756,30 +756,30 @@ class TestFetchMcpTool:
             }
         }
         client = _FakeMCPClient(_FakeMCPResponse(200, body))
-        result = _fetch_mcp_tool(client, "http://fake/mcp", "get-functions", {}, 1)
+        result = fetch_mcp_tool(client, "http://fake/mcp", "get-functions", {}, 1)
         assert len(result) == 1
         assert result[0]["name"] == "foo"
 
     def test_non_200_returns_empty(self) -> None:
         client = _FakeMCPClient(_FakeMCPResponse(500, {}))
-        result = _fetch_mcp_tool(client, "http://fake/mcp", "get-functions", {}, 1)
+        result = fetch_mcp_tool(client, "http://fake/mcp", "get-functions", {}, 1)
         assert result == []
 
     def test_no_result_key_returns_empty(self) -> None:
         client = _FakeMCPClient(_FakeMCPResponse(200, {"error": "boom"}))
-        result = _fetch_mcp_tool(client, "http://fake/mcp", "get-functions", {}, 1)
+        result = fetch_mcp_tool(client, "http://fake/mcp", "get-functions", {}, 1)
         assert result == []
 
     def test_no_text_content_returns_empty(self) -> None:
         body = {"result": {"content": [{"type": "image", "data": "abc"}]}}
         client = _FakeMCPClient(_FakeMCPResponse(200, body))
-        result = _fetch_mcp_tool(client, "http://fake/mcp", "get-functions", {}, 1)
+        result = fetch_mcp_tool(client, "http://fake/mcp", "get-functions", {}, 1)
         assert result == []
 
     def test_invalid_json_in_text_returns_empty(self) -> None:
         body = {"result": {"content": [{"type": "text", "text": "not valid json{{{"}]}}
         client = _FakeMCPClient(_FakeMCPResponse(200, body))
-        result = _fetch_mcp_tool(client, "http://fake/mcp", "get-functions", {}, 1)
+        result = fetch_mcp_tool(client, "http://fake/mcp", "get-functions", {}, 1)
         assert result == []
 
 
@@ -822,70 +822,70 @@ class TestBuildSyncCommandsNote:
 
 
 # ---------------------------------------------------------------------------
-# _ghidra_name_to_symbol
+# ghidra_name_to_symbol
 # ---------------------------------------------------------------------------
 
 
 class TestGhidraNameToSymbol:
-    """Tests for the _ghidra_name_to_symbol() helper."""
+    """Tests for the ghidra_name_to_symbol() helper."""
 
     def test_already_has_underscore(self) -> None:
         """Name already starting with _ is returned unchanged."""
-        assert _ghidra_name_to_symbol("_AllocGameObject", {}) == "_AllocGameObject"
+        assert ghidra_name_to_symbol("_AllocGameObject", {}) == "_AllocGameObject"
 
     def test_empty_string(self) -> None:
-        assert _ghidra_name_to_symbol("", {}) == ""
+        assert ghidra_name_to_symbol("", {}) == ""
 
     def test_adds_underscore_for_cdecl_entry(self) -> None:
         """When entry has symbol with _ prefix, adds _ to Ghidra name."""
         entry = {"symbol": "_old_func", "cflags": "/O2 /Gd"}
-        assert _ghidra_name_to_symbol("AllocGameObject", entry) == "_AllocGameObject"
+        assert ghidra_name_to_symbol("AllocGameObject", entry) == "_AllocGameObject"
 
     def test_no_underscore_for_stdcall(self) -> None:
         """When CFLAGS contain /Gz (stdcall), no underscore is added."""
         entry = {"symbol": "", "cflags": "/O2 /Gz"}
-        assert _ghidra_name_to_symbol("WinMainCRTStartup", entry) == "WinMainCRTStartup"
+        assert ghidra_name_to_symbol("WinMainCRTStartup", entry) == "WinMainCRTStartup"
 
     def test_default_adds_underscore(self) -> None:
         """When no hints are available, default to adding _ (cdecl is most common)."""
-        assert _ghidra_name_to_symbol("AllocGameObject", {}) == "_AllocGameObject"
+        assert ghidra_name_to_symbol("AllocGameObject", {}) == "_AllocGameObject"
 
     def test_cfg_symbol_prefix_takes_priority(self) -> None:
         """cfg.symbol_prefix overrides entry-level heuristics."""
         cfg = SimpleNamespace(symbol_prefix="_")
-        assert _ghidra_name_to_symbol("AllocGameObject", {}, cfg=cfg) == "_AllocGameObject"
+        assert ghidra_name_to_symbol("AllocGameObject", {}, cfg=cfg) == "_AllocGameObject"
 
     def test_cfg_empty_symbol_prefix(self) -> None:
         """cfg.symbol_prefix='' (e.g. x86_64) means no prefix added from config."""
         cfg = SimpleNamespace(symbol_prefix="")
         # Falls through to entry-level heuristic — default adds _
-        assert _ghidra_name_to_symbol("AllocGameObject", {}, cfg=cfg) == "_AllocGameObject"
+        assert ghidra_name_to_symbol("AllocGameObject", {}, cfg=cfg) == "_AllocGameObject"
 
     def test_annotation_object_entry(self) -> None:
         """Works with Annotation-like objects (attribute access, not dict)."""
         entry = SimpleNamespace(symbol="_my_func", cflags="/O2 /Gd")
-        assert _ghidra_name_to_symbol("NewName", entry) == "_NewName"
+        assert ghidra_name_to_symbol("NewName", entry) == "_NewName"
 
     def test_generic_local_symbol_no_underscore(self) -> None:
         """When local symbol is generic (no _), still default-adds _ for cdecl."""
         entry = {"symbol": "func_10001000", "cflags": "/O2 /Gd"}
-        assert _ghidra_name_to_symbol("GameInit", entry) == "_GameInit"
+        assert ghidra_name_to_symbol("GameInit", entry) == "_GameInit"
 
 
 # ---------------------------------------------------------------------------
-# _is_meaningful_name — thunk_ prefix
+# is_meaningful_name — thunk_ prefix
 # ---------------------------------------------------------------------------
 
 
 class TestIsMeaningfulNameThunk:
-    """Tests for thunk_ prefix filtering in _is_meaningful_name()."""
+    """Tests for thunk_ prefix filtering in is_meaningful_name()."""
 
     def test_thunk_prefix(self) -> None:
-        assert _is_meaningful_name("thunk_FUN_10001000") is False
+        assert is_meaningful_name("thunk_FUN_10001000") is False
 
     def test_thunk_bare(self) -> None:
-        assert _is_meaningful_name("thunk_") is False
+        assert is_meaningful_name("thunk_") is False
 
     def test_not_thunk(self) -> None:
         """Names that happen to contain 'thunk' elsewhere are meaningful."""
-        assert _is_meaningful_name("setup_thunk_handler") is True
+        assert is_meaningful_name("setup_thunk_handler") is True

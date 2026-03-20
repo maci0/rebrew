@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from rebrew.catalog.models import FunctionEntry
+    from rebrew.catalog import FunctionEntry
     from rebrew.verify import VerifyCacheEntry
 
 import typer

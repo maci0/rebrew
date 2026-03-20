@@ -1,3 +1,5 @@
+"""Tests for Phase 3 mutation operators in rebrew.matcher.mutator."""
+
 import random
 import re
 
@@ -18,7 +20,12 @@ from rebrew.matcher.mutator import (
     mut_widen_local_type,
 )
 
-RNG = random.Random(42)
+_RNG_SEED = 42
+
+
+def _rng() -> random.Random:
+    """Return a fresh RNG with a fixed seed for deterministic, order-independent tests."""
+    return random.Random(_RNG_SEED)
 
 
 def _decl_before_first_stmt(result: str, decl_pattern: str) -> bool:
@@ -48,31 +55,31 @@ def _decl_before_first_stmt(result: str, decl_pattern: str) -> bool:
 class TestSplitAndCondition:
     def test_basic(self) -> None:
         src = "if (a && b) {\n    x = 1;\n}"
-        res = mut_split_and_condition(src, RNG)
+        res = mut_split_and_condition(src, _rng())
         assert res is not None
         assert "if (a) {\n        if (b) {\n    x = 1;\n}" in res
 
     def test_no_match(self) -> None:
         src = "if (a || b) {\n    x = 1;\n}"
-        assert mut_split_and_condition(src, RNG) is None
+        assert mut_split_and_condition(src, _rng()) is None
 
 
 class TestSplitOrCondition:
     def test_basic(self) -> None:
         src = "if (a || b) {\n    x = 1;\n}"
-        res = mut_split_or_condition(src, RNG)
+        res = mut_split_or_condition(src, _rng())
         assert res is not None
         assert "if (a) {\n    x = 1;\n}\n    else if (b) {\n    x = 1;\n}" in res
 
     def test_no_match(self) -> None:
         src = "if (a && b) {\n    x = 1;\n}"
-        assert mut_split_or_condition(src, RNG) is None
+        assert mut_split_or_condition(src, _rng()) is None
 
 
 class TestMergeNestedIfs:
     def test_basic(self) -> None:
         src = "if (a) {\n    if (b) {\n        x = 1;\n    }\n}"
-        res = mut_merge_nested_ifs(src, RNG)
+        res = mut_merge_nested_ifs(src, _rng())
         assert res is not None
         assert "if ((a) && (b))" in res
 
@@ -80,7 +87,7 @@ class TestMergeNestedIfs:
 class TestExtractConditionToVar:
     def test_basic(self) -> None:
         src = "int f(int a, int b) {\n    if (a == b) {\n        x = 1;\n    }\n}"
-        res = mut_extract_condition_to_var(src, RNG)
+        res = mut_extract_condition_to_var(src, _rng())
         assert res is not None
         assert "int _cond_" in res
         assert " = (a == b);" in res
@@ -88,7 +95,7 @@ class TestExtractConditionToVar:
     def test_c89_decl_hoisted(self) -> None:
         """Declaration must be at function body top, not inline before the if."""
         src = "int f(int a, int b) {\n    x = 0;\n    if (a == b) {\n        x = 1;\n    }\n}"
-        res = mut_extract_condition_to_var(src, RNG)
+        res = mut_extract_condition_to_var(src, _rng())
         assert res is not None
         assert _decl_before_first_stmt(res, r"int _cond_\d+;")
 
@@ -105,16 +112,16 @@ class TestExtractConditionToVar:
             "    }\n"
             "}"
         )
-        res = mut_extract_condition_to_var(src, RNG)
-        if res is not None:
-            # The declaration should be hoisted to the function body, not inside switch
-            assert _decl_before_first_stmt(res, r"int _cond_\d+;")
+        res = mut_extract_condition_to_var(src, _rng())
+        assert res is not None
+        # The declaration should be hoisted to the function body, not inside switch
+        assert _decl_before_first_stmt(res, r"int _cond_\d+;")
 
 
 class TestLoopConditionExtraction:
     def test_basic(self) -> None:
         src = "while (a < b) {\n    x = 1;\n}"
-        res = mut_loop_condition_extraction(src, RNG)
+        res = mut_loop_condition_extraction(src, _rng())
         assert res is not None
         assert "while (1) {" in res
         assert "if (!(a < b)) break;" in res
@@ -129,7 +136,7 @@ class TestC89ExtractArgsToTemps:
     def test_decl_hoisted(self) -> None:
         """int _tmp_X; must appear at function body top, not before the call."""
         src = "int f(int a, int b) {\n    x = 0;\n    foo(a + b);\n}"
-        res = mut_extract_args_to_temps(src, RNG)
+        res = mut_extract_args_to_temps(src, _rng())
         assert res is not None
         assert "int _tmp_" in res
         assert _decl_before_first_stmt(res, r"int _tmp_\d+;")
@@ -138,34 +145,34 @@ class TestC89ExtractArgsToTemps:
 
     def test_no_match_on_literal(self) -> None:
         src = "int f() {\n    foo(42);\n}"
-        assert mut_extract_args_to_temps(src, RNG) is None
+        assert mut_extract_args_to_temps(src, _rng()) is None
 
 
 class TestC89IntroduceTempForCall:
     def test_decl_hoisted(self) -> None:
         """BOOL tmp; must appear at function body top."""
         src = "int f() {\n    x = 0;\n    result = FuncA(a, b);\n    return result;\n}"
-        res = mut_introduce_temp_for_call(src, RNG)
-        if res is not None:
-            if "BOOL tmp;" in res:
-                assert _decl_before_first_stmt(res, r"BOOL tmp;")
-            # The assignment should be inline
-            assert "tmp = FuncA(a, b);" in res
+        res = mut_introduce_temp_for_call(src, _rng())
+        assert res is not None
+        if "BOOL tmp;" in res:
+            assert _decl_before_first_stmt(res, r"BOOL tmp;")
+        # The assignment should be inline
+        assert "tmp = FuncA(a, b);" in res
 
     def test_existing_tmp_no_double_decl(self) -> None:
         """If 'tmp' already exists, no new declaration should be added."""
         src = "int f() {\n    int tmp;\n    result = FuncA(a, b);\n    return result;\n}"
-        res = mut_introduce_temp_for_call(src, RNG)
-        if res is not None:
-            # Should NOT have a second declaration of tmp
-            assert res.count("BOOL tmp;") == 0
+        res = mut_introduce_temp_for_call(src, _rng())
+        assert res is not None
+        # Should NOT have a second declaration of tmp
+        assert res.count("BOOL tmp;") == 0
 
 
 class TestC89VolatileIntermediate:
     def test_decl_hoisted(self) -> None:
         """volatile int _t_N; must appear at function body top."""
         src = "int f(int a, int b) {\n    int x;\n    x = a + b;\n    return x;\n}"
-        res = mut_add_volatile_intermediate(src, RNG)
+        res = mut_add_volatile_intermediate(src, _rng())
         assert res is not None
         assert re.search(r"volatile int _t_\d+;", res)
         assert _decl_before_first_stmt(res, r"volatile int _t_\d+;")
@@ -181,44 +188,44 @@ class TestC89VolatileIntermediate:
 class TestWidenLocalType:
     def test_short_to_int(self) -> None:
         src = "void f() {\n    short x = 0;\n    x = 1;\n}"
-        res = mut_widen_local_type(src, RNG)
+        res = mut_widen_local_type(src, _rng())
         assert res is not None
         assert "int x = 0;" in res
 
     def test_byte_to_dword(self) -> None:
         src = "void f() {\n    BYTE val = 0;\n}"
-        res = mut_widen_local_type(src, RNG)
+        res = mut_widen_local_type(src, _rng())
         assert res is not None
         assert "DWORD val = 0;" in res
 
     def test_no_match(self) -> None:
         src = "void f() {\n    long x = 0;\n}"
-        assert mut_widen_local_type(src, RNG) is None
+        assert mut_widen_local_type(src, _rng()) is None
 
 
 class TestToggleDllimport:
     def test_remove_dllimport(self) -> None:
         src = "extern __declspec(dllimport) int GetFoo(int a);\nvoid f() {\n    GetFoo(1);\n}"
-        res = mut_toggle_dllimport(src, RNG)
+        res = mut_toggle_dllimport(src, _rng())
         assert res is not None
         assert "__declspec(dllimport)" not in res
         assert "extern" in res
 
     def test_add_dllimport(self) -> None:
         src = "extern int GetFoo(int a);\nvoid f() {\n    GetFoo(1);\n}"
-        res = mut_toggle_dllimport(src, RNG)
+        res = mut_toggle_dllimport(src, _rng())
         assert res is not None
         assert "__declspec(dllimport)" in res
 
     def test_no_match(self) -> None:
         src = "void f() {\n    int x = 1;\n}"
-        assert mut_toggle_dllimport(src, RNG) is None
+        assert mut_toggle_dllimport(src, _rng()) is None
 
 
 class TestMemcpyToLoop:
     def test_basic(self) -> None:
         src = "void f(char *dst, char *src) {\n    memcpy(dst, src, 16);\n}"
-        res = mut_memcpy_to_loop(src, RNG)
+        res = mut_memcpy_to_loop(src, _rng())
         assert res is not None
         assert "memcpy" not in res
         assert "for (" in res
@@ -227,39 +234,39 @@ class TestMemcpyToLoop:
     def test_c89_decl_hoisted(self) -> None:
         """Loop counter declared at function body top."""
         src = "void f(char *dst, char *src) {\n    int x = 0;\n    memcpy(dst, src, 8);\n}"
-        res = mut_memcpy_to_loop(src, RNG)
+        res = mut_memcpy_to_loop(src, _rng())
         assert res is not None
         assert re.search(r"int _ci_\d+;", res)
         assert _decl_before_first_stmt(res, r"int _ci_\d+;")
 
     def test_no_match(self) -> None:
         src = "void f() {\n    int x = 1;\n}"
-        assert mut_memcpy_to_loop(src, RNG) is None
+        assert mut_memcpy_to_loop(src, _rng()) is None
 
 
 class TestLoopToMemcpy:
     def test_basic(self) -> None:
         src = "void f() {\n    for (_ci_0 = 0; _ci_0 < 16; _ci_0++) ((char*)dst)[_ci_0] = ((char*)src)[_ci_0];\n}"
-        res = mut_loop_to_memcpy(src, RNG)
+        res = mut_loop_to_memcpy(src, _rng())
         assert res is not None
         assert "memcpy(dst, src, 16);" in res
 
     def test_no_match(self) -> None:
         src = "void f() {\n    for (i = 0; i < 10; i++) x[i] = 0;\n}"
-        assert mut_loop_to_memcpy(src, RNG) is None
+        assert mut_loop_to_memcpy(src, _rng()) is None
 
 
 class TestCommuteFloatOperands:
     def test_swap_float_mul(self) -> None:
         src = "void f() {\n    float result = flt_a * flt_b;\n}"
-        res = mut_commute_float_operands(src, RNG)
+        res = mut_commute_float_operands(src, _rng())
         assert res is not None
         assert "flt_b * flt_a" in res
 
     def test_no_match_integer(self) -> None:
         """Should not swap integer operations without float hints."""
         src = "void f() {\n    int x = a * b;\n}"
-        assert mut_commute_float_operands(src, RNG) is None
+        assert mut_commute_float_operands(src, _rng()) is None
 
 
 class TestAllMutationsNoDuplicates:

@@ -2,8 +2,8 @@
 
 Walks the AST of a C file and yields ``(function_name, signature_string)``
 tuples for each function definition found.  The signature includes the return
-type, calling convention, name, and parameter list, terminated with a semicolon
-so it can be passed directly to Ghidra's ``set-function-prototype`` command.
+type, name, and parameter list, without a trailing semicolon, ready to be
+passed to Ghidra's ``set-function-prototype`` command.
 """
 
 import re
@@ -12,20 +12,24 @@ from pathlib import Path
 from typing import Any
 
 _PTR_NOSPACE_RE = re.compile(r"([a-zA-Z0-9_])\*")
-_CALLING_CONV_RE = re.compile(r"\b__(?:cdecl|stdcall|fastcall)\b\s*")
+_CALLING_CONV_RE = re.compile(r"\b__(?:cdecl|stdcall|fastcall|thiscall)\b\s*")
 _DECLSPEC_RE = re.compile(r"__declspec\s*\(\s*\w+\s*\)\s*")
 _MULTI_SPACE_RE = re.compile(r"  +")
+_RBW_RE = re.compile(r"\bRBW_\w+\b\s*")
+_CONST_RE = re.compile(r"\bconst\b\s*")
+_VOLATILE_RE = re.compile(r"\bvolatile\b\s*")
+_FUNCPTR_RE = re.compile(r"\w[\w\s\*]*\(\*\s*(\w+)\)\s*\([^)]*\)")
 
 
 def _normalize_signature(sig: str) -> str:
-    """Strip MSVC-specific syntax that Ghidra's CParser does not accept."""
+    """Strip syntax that Ghidra's CParser does not accept (MSVC extensions, const/volatile, function pointers)."""
     sig = _DECLSPEC_RE.sub("", sig)
     sig = _CALLING_CONV_RE.sub("", sig)
-    sig = re.sub(r"\bRBW_\w+\b\s*", "", sig)
-    sig = re.sub(r"\bconst\b\s*", "", sig)
-    sig = re.sub(r"\bvolatile\b\s*", "", sig)
+    sig = _RBW_RE.sub("", sig)
+    sig = _CONST_RE.sub("", sig)
+    sig = _VOLATILE_RE.sub("", sig)
     # Inline function-pointer params -> void * (CParser doesn't handle them)
-    sig = re.sub(r"\w[\w\s\*]*\(\*\s*(\w+)\)\s*\([^)]*\)", r"void * \1", sig)
+    sig = _FUNCPTR_RE.sub(r"void * \1", sig)
     sig = _PTR_NOSPACE_RE.sub(r"\1 *", sig)
     sig = sig.rstrip("; ")
     sig = sig.replace("\n", " ").replace("\r", "")
@@ -33,16 +37,35 @@ def _normalize_signature(sig: str) -> str:
     return sig.strip()
 
 
-def extract_function_signatures(filepath: Path) -> Iterator[tuple[str, str]]:
-    """Parse a C file using tree-sitter and yield (function_name, signature_string)."""
+_ts_parser: Any = None
+_ts_language: Any = None
+
+
+def _get_ts_parser() -> tuple[Any, Any] | None:
+    """Return a cached (parser, language) pair, or None if tree-sitter is unavailable."""
+    global _ts_parser, _ts_language  # noqa: PLW0603
+    if _ts_parser is not None:
+        return _ts_parser, _ts_language
     try:
         import tree_sitter_c
         from tree_sitter import Language, Parser
     except ImportError:
-        return
+        return None
+    _ts_language = Language(tree_sitter_c.language())
+    _ts_parser = Parser(_ts_language)
+    return _ts_parser, _ts_language
 
-    C_LANGUAGE = Language(tree_sitter_c.language())
-    parser = Parser(C_LANGUAGE)
+
+def extract_function_signatures(filepath: Path) -> Iterator[tuple[str, str]]:
+    """Parse a C file using tree-sitter and yield (function_name, signature_string).
+
+    Signatures are normalized (MSVC extensions stripped) for Ghidra CParser
+    compatibility.  Returns empty if tree-sitter is unavailable or file unreadable.
+    """
+    result = _get_ts_parser()
+    if result is None:
+        return
+    parser, _ = result
 
     try:
         code_bytes = filepath.read_bytes()

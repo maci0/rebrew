@@ -99,9 +99,18 @@ class TestAnnotationDataclass:
         )
         d = ann.to_dict()
         assert d["va"] == 0x10001000
+        assert d["size"] == 42
         assert d["name"] == "foo"
+        assert d["symbol"] == "_foo"
+        assert d["status"] == "EXACT"
+        assert d["module"] == "SERVER"
+        assert d["cflags"] == "/O2"
+        assert d["marker_type"] == "FUNCTION"
+        assert d["filepath"] == "foo.c"
         assert d["globals"] == ["g1"]
-        assert isinstance(d, dict)
+        assert d["source"] == ""
+        assert d["blocker"] == ""
+        assert d["note"] == ""
 
     def test_make_func_entry_returns_annotation(self) -> None:
         ann = make_func_entry(
@@ -189,7 +198,7 @@ class TestAnnotationValidation:
             marker_type="FUNCTION",
         )
         _, warnings = ann.validate()
-        assert not any("SYMBOL" in w for w in warnings)
+        assert warnings == [], f"Expected no warnings, got: {warnings}"
 
     def test_stub_without_blocker_warning(self) -> None:
         ann = Annotation(
@@ -287,7 +296,7 @@ class TestParseNewFormat:
 
 
 class TestParseCFile:
-    def test_parse_new_format_file(self, tmp_path) -> None:
+    def test_parse_new_format_file(self, tmp_path: Path) -> None:
         content = """\
 // FUNCTION: SERVER 0x10001234
 // STATUS: EXACT
@@ -307,11 +316,11 @@ int myfunc(void) { return 0; }
         assert result["symbol"] == "_myfunc"
         assert result["filepath"] == "myfunc.c"
 
-    def test_parse_nonexistent_file(self, tmp_path) -> None:
+    def test_parse_nonexistent_file(self, tmp_path: Path) -> None:
         f = tmp_path / "does_not_exist.c"
         assert parse_c_file(f) is None
 
-    def test_parse_empty_file(self, tmp_path) -> None:
+    def test_parse_empty_file(self, tmp_path: Path) -> None:
         f = tmp_path / "empty.c"
         f.write_text("", encoding="utf-8")
         assert parse_c_file(f) is None
@@ -401,7 +410,7 @@ class TestMultiFunctionParsing:
         assert len(results) == 1
         assert results[0].va == 0x10001000
 
-    def test_parse_c_file_multi_returns_all(self, tmp_path) -> None:
+    def test_parse_c_file_multi_returns_all(self, tmp_path: Path) -> None:
         from rebrew.annotation import parse_c_file_multi
 
         content = """\
@@ -428,7 +437,7 @@ int func_b(void) { return 1; }
         assert results[1].va == 0x10002000
         assert results[1].filepath == "multi.c"
 
-    def test_parse_c_file_still_returns_first(self, tmp_path) -> None:
+    def test_parse_c_file_still_returns_first(self, tmp_path: Path) -> None:
         """parse_c_file returns the first annotation; SIZE comes from metadata via parse_c_file_multi."""
         content = """\
 // FUNCTION: SERVER 0x10001000
@@ -639,7 +648,7 @@ int func_b(void) { return 1; }
         assert result is not None
         assert result.symbol == "_NoArgsFunc@0"
 
-    def test_empty_file_returns_empty_list(self, tmp_path) -> None:
+    def test_empty_file_returns_empty_list(self, tmp_path: Path) -> None:
         from rebrew.annotation import parse_c_file_multi
 
         f = tmp_path / "empty.c"
@@ -655,7 +664,7 @@ int func_b(void) { return 1; }
 class TestHasSkipAnnotation:
     """Tests for has_skip_annotation()."""
 
-    def test_skip_present_in_metadata(self, tmp_path) -> None:
+    def test_skip_present_in_metadata(self, tmp_path: Path) -> None:
         from rebrew.annotation import has_skip_annotation
 
         f = tmp_path / "skipped.c"
@@ -664,7 +673,7 @@ class TestHasSkipAnnotation:
         meta.write_text('["SERVER.0x10001000"]\nskip = "not matchable"\n', encoding="utf-8")
         assert has_skip_annotation(f, metadata_dir=tmp_path) is True
 
-    def test_no_skip_in_metadata(self, tmp_path) -> None:
+    def test_no_skip_in_metadata(self, tmp_path: Path) -> None:
         from rebrew.annotation import has_skip_annotation
 
         f = tmp_path / "normal.c"
@@ -673,14 +682,14 @@ class TestHasSkipAnnotation:
         meta.write_text('["SERVER.0x10001000"]\nstatus = "EXACT"\n', encoding="utf-8")
         assert has_skip_annotation(f, metadata_dir=tmp_path) is False
 
-    def test_no_metadata_dir(self, tmp_path) -> None:
+    def test_no_metadata_dir(self, tmp_path: Path) -> None:
         from rebrew.annotation import has_skip_annotation
 
         f = tmp_path / "skipped.c"
         f.write_text("// FUNCTION: SERVER 0x10001000\nint x() {}\n", encoding="utf-8")
         assert has_skip_annotation(f) is False
 
-    def test_skip_false_values(self, tmp_path) -> None:
+    def test_skip_false_values(self, tmp_path: Path) -> None:
         from rebrew.annotation import has_skip_annotation
 
         f = tmp_path / "skipped.c"
@@ -694,19 +703,19 @@ class TestHasSkipAnnotation:
 class TestResolveSymbol:
     """Tests for resolve_symbol()."""
 
-    def test_symbol_present(self, tmp_path) -> None:
+    def test_symbol_present(self, tmp_path: Path) -> None:
         from rebrew.annotation import Annotation, resolve_symbol
 
         ann = Annotation(symbol="_my_func")
         assert resolve_symbol(ann, tmp_path / "my_func.c") == "_my_func"
 
-    def test_question_mark_fallback(self, tmp_path) -> None:
+    def test_question_mark_fallback(self, tmp_path: Path) -> None:
         from rebrew.annotation import Annotation, resolve_symbol
 
         ann = Annotation(symbol="?")
         assert resolve_symbol(ann, tmp_path / "my_func.c") == "_my_func"
 
-    def test_empty_symbol_fallback(self, tmp_path) -> None:
+    def test_empty_symbol_fallback(self, tmp_path: Path) -> None:
         from rebrew.annotation import Annotation, resolve_symbol
 
         ann = Annotation(symbol="")
@@ -721,7 +730,7 @@ class TestResolveSymbol:
 class TestParseLibraryHeader:
     """Verify parse_library_header() for library_*.h files."""
 
-    def test_parse_msvc_header(self, tmp_path) -> None:
+    def test_parse_msvc_header(self, tmp_path: Path) -> None:
         hfile = tmp_path / "library_msvc.h"
         hfile.write_text(
             "#ifdef 0\n"
@@ -745,7 +754,7 @@ class TestParseLibraryHeader:
         assert results[1].symbol == "__fclose_lk"
         assert results[1].module == "SERVER"
 
-    def test_parse_zlib_header(self, tmp_path) -> None:
+    def test_parse_zlib_header(self, tmp_path: Path) -> None:
         hfile = tmp_path / "library_zlib.h"
         hfile.write_text("// LIBRARY: SERVER 0x10050000\n// _deflate\n")
         results = parse_library_header(hfile)
@@ -753,7 +762,7 @@ class TestParseLibraryHeader:
         assert results[0].va == 0x10050000
         assert results[0].symbol == "_deflate"
 
-    def test_target_filter(self, tmp_path) -> None:
+    def test_target_filter(self, tmp_path: Path) -> None:
         hfile = tmp_path / "library_msvc.h"
         hfile.write_text(
             "// LIBRARY: SERVER 0x1001A18A\n"
@@ -765,20 +774,20 @@ class TestParseLibraryHeader:
         assert len(results) == 1
         assert results[0].va == 0x1001A18A
 
-    def test_empty_file(self, tmp_path) -> None:
+    def test_empty_file(self, tmp_path: Path) -> None:
         hfile = tmp_path / "library_msvc.h"
         hfile.write_text("")
         results = parse_library_header(hfile)
         assert results == []
 
-    def test_unknown_library_module(self, tmp_path) -> None:
+    def test_unknown_library_module(self, tmp_path: Path) -> None:
         hfile = tmp_path / "library_openssl.h"
         hfile.write_text("// LIBRARY: SERVER 0x10060000\n// _SSL_init\n")
         results = parse_library_header(hfile)
         assert len(results) == 1
         assert results[0].module == "SERVER"
 
-    def test_extended_kv_annotations(self, tmp_path) -> None:
+    def test_extended_kv_annotations(self, tmp_path: Path) -> None:
         """KV lines after symbol are captured (rebrew extension, invisible to reccmp)."""
         hfile = tmp_path / "library_zlib.h"
         hfile.write_text(
@@ -812,7 +821,7 @@ class TestParseLibraryHeader:
         assert results[1].size == 0
         assert results[1].cflags == ""
 
-    def test_kv_module_preserved(self, tmp_path) -> None:
+    def test_kv_module_preserved(self, tmp_path: Path) -> None:
         """Module (target name) in LIBRARY marker is stored in annotation.module."""
         hfile = tmp_path / "library_msvc.h"
         hfile.write_text("// LIBRARY: MYTARGET 0x10060000\n// _custom_alloc\n")
@@ -822,15 +831,14 @@ class TestParseLibraryHeader:
 
 
 # ---------------------------------------------------------------------------
-# Audit-specific regression tests (Phase 3 hardening)
+# Regression tests
 # ---------------------------------------------------------------------------
 
 
 class TestAuditAnnotation:
-    """Tests added during the formal Phase 1/2/3 code audit to cover
-    branches that were not previously exercised."""
+    """Tests for annotation edge cases and regression coverage."""
 
-    # normalize_status: PROVEN branch (audit finding — was falling through to raw return)
+    # normalize_status: PROVEN branch — old-format variants must normalise to "PROVEN"
     def test_normalize_status_proven(self) -> None:
         """'PROVEN' must map to the canonical status string, not pass through verbatim."""
         assert normalize_status("PROVEN") == "PROVEN"
@@ -838,7 +846,7 @@ class TestAuditAnnotation:
         assert normalize_status("proven_match") == "PROVEN"
         assert normalize_status("PROVEN_OK") == "PROVEN"
 
-    # update_size_annotation: target_va parameter (previously untested branch)
+    # update_size_annotation: target_va parameter routes size to metadata, not .c file
     def test_update_size_annotation_target_va_match(self, tmp_path: Path) -> None:
         """When target_va is provided, size is written to metadata (not .c file)."""
         from rebrew.annotation import update_size_annotation
@@ -861,7 +869,7 @@ class TestAuditAnnotation:
 
         # .c file must be untouched
         original = f.read_text(encoding="utf-8")
-        assert "// SIZE: 20" in original  # func_b still has old value in file
+        assert "// SIZE: 20" in original  # .c file must remain untouched; size goes to metadata
 
         # Metadata must have new value for func_b only
         entry_b = get_entry(tmp_path, 0x10002000, module="SERVER")
@@ -884,7 +892,7 @@ class TestAuditAnnotation:
         changed = update_size_annotation(f, 99, target_va=0x10001000)
         assert changed is False
 
-    def test_update_size_annotation_no_shrink(self, tmp_path) -> None:
+    def test_update_size_annotation_no_shrink(self, tmp_path: Path) -> None:
         """update_size_annotation never reduces size (safety invariant).
 
         The metadata must be pre-populated with the existing size; the .c file's
@@ -1042,7 +1050,7 @@ class TestAuditAnnotation:
 
 
 # ---------------------------------------------------------------------------
-# split_annotation_sections (moved from test_phase3.py)
+# split_annotation_sections
 # ---------------------------------------------------------------------------
 
 
@@ -1097,7 +1105,7 @@ class TestSplitAnnotationSections:
         assert len(blocks) == 3
 
 
-def test_update_annotation_key_multiple_funcs(tmp_path: Path):
+def test_update_annotation_key_multiple_funcs(tmp_path: Path) -> None:
     cfile = tmp_path / "test.c"
     cfile.write_text(
         """// FUNCTION: GAME 0x1000

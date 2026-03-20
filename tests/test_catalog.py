@@ -100,8 +100,10 @@ class TestBuildFunctionRegistry:
         assert bogus_va in reg
         # Size should NOT be recorded for bogus VAs
         assert "list" not in reg[bogus_va]["size_by_tool"]
+        # Effective size should be 0 (not the bogus 999999)
+        assert reg[bogus_va].get("size", 0) == 0
 
-    def test_with_ghidra(self, tmp_path) -> None:
+    def test_with_ghidra(self, tmp_path: Path) -> None:
         funcs = [make_func_entry(0x10001000, 64, "_func_a")]
         ghidra_json = tmp_path / "function_structure.json"
         ghidra_data = [
@@ -155,15 +157,31 @@ class TestGenerateCatalog:
                 cflags="/O2",
                 marker_type="FUNCTION",
             ),
+            Annotation(
+                va=0x10002000,
+                name="func_b",
+                status="STUB",
+                size=32,
+                symbol="_func_b",
+                filepath="/src/func_b.c",
+                cflags="/O2",
+                marker_type="FUNCTION",
+            ),
         ]
-        funcs = [make_func_entry(0x10001000, 64, "_func_a")]
+        funcs = [
+            make_func_entry(0x10001000, 64, "_func_a"),
+            make_func_entry(0x10002000, 32, "_func_b"),
+        ]
         md = generate_catalog(entries, funcs, text_size=1000)
         assert isinstance(md, str)
         assert "func_a" in md
+        assert "func_b" in md
+        assert len(md) > 50
 
     def test_empty(self) -> None:
         md = generate_catalog([], [], text_size=1000)
         assert isinstance(md, str)
+        assert "0 of" in md or "0%" in md or "0.0%" in md  # should report zero coverage
 
 
 # -------------------------------------------------------------------------
@@ -196,28 +214,33 @@ class TestGenerateDataJson:
     def test_empty_data(self) -> None:
         data = generate_data_json([], [], text_size=0)
         assert isinstance(data, dict)
+        assert "sections" in data
+        assert "summary" in data
+        assert "functions" in data
         assert data["summary"]["totalFunctions"] == 0
+        assert data["summary"]["exactMatches"] == 0
+        assert len(data["functions"]) == 0
 
 
 # -------------------------------------------------------------------------
-# parse_function_list (already tested in phase4, additional cases)
+# parse_function_list (additional cases)
 # -------------------------------------------------------------------------
 
 
 class TestParseFunctionListExtended:
-    def test_empty_file(self, tmp_path) -> None:
+    def test_empty_file(self, tmp_path: Path) -> None:
         f = tmp_path / "empty.txt"
         f.write_text("", encoding="utf-8")
         result = parse_function_list(f)
         assert result == []
 
-    def test_missing_file(self, tmp_path) -> None:
+    def test_missing_file(self, tmp_path: Path) -> None:
         f = tmp_path / "nonexistent.txt"
         with pytest.warns(UserWarning, match="Cannot read"):
             result = parse_function_list(f)
         assert result == []
 
-    def test_malformed_lines(self, tmp_path) -> None:
+    def test_malformed_lines(self, tmp_path: Path) -> None:
         f = tmp_path / "bad.txt"
         f.write_text("not a valid line\n0x10001000\nfoo bar baz\n", encoding="utf-8")
         result = parse_function_list(f)
@@ -230,43 +253,25 @@ class TestParseFunctionListExtended:
 
 
 class TestScanReversedDirExtended:
-    def test_ignores_non_c(self, tmp_path) -> None:
+    def test_ignores_non_c(self, tmp_path: Path) -> None:
         (tmp_path / "readme.txt").write_text("ignore me", encoding="utf-8")
         (tmp_path / "notes.md").write_text("also ignore me", encoding="utf-8")
         result = scan_reversed_dir(tmp_path)
         assert result == []
 
-    def test_ignores_bad_c(self, tmp_path) -> None:
+    def test_ignores_bad_c(self, tmp_path: Path) -> None:
         (tmp_path / "bad.c").write_text("no annotations here\nint main() {}\n", encoding="utf-8")
         result = scan_reversed_dir(tmp_path)
         assert result == []
 
 
 # ---------------------------------------------------------------------------
-# Catalog imports and functional tests (moved from test_phase4.py)
+# Catalog imports and functional tests
 # ---------------------------------------------------------------------------
 
 
-class TestCatalogImports:
-    def test_scan_reversed_dir_importable(self) -> None:
-        from rebrew.catalog import scan_reversed_dir
-
-        assert callable(scan_reversed_dir)
-
-    def test_parse_function_list_importable(self) -> None:
-        from rebrew.catalog import parse_function_list
-
-        assert callable(parse_function_list)
-
-    def test_r2_bogus_vas_config_driven(self) -> None:
-        from rebrew.catalog.registry import _DEFAULT_R2_BOGUS_SIZES
-
-        assert isinstance(_DEFAULT_R2_BOGUS_SIZES, set)
-        assert len(_DEFAULT_R2_BOGUS_SIZES) == 0
-
-
 class TestCatalogFunctional:
-    def test_parse_function_list_parses_correctly(self, tmp_path) -> None:
+    def test_parse_function_list_parses_correctly(self, tmp_path: Path) -> None:
         from rebrew.catalog import parse_function_list
 
         func_list = tmp_path / "functions.txt"
@@ -283,7 +288,7 @@ class TestCatalogFunctional:
         assert funcs[0]["size"] == 64
         assert funcs[0]["name"] == "_my_func"
 
-    def test_scan_reversed_dir_finds_annotated_files(self, tmp_path) -> None:
+    def test_scan_reversed_dir_finds_annotated_files(self, tmp_path: Path) -> None:
         from rebrew.catalog import scan_reversed_dir
 
         c_file = tmp_path / "game_func.c"
@@ -301,7 +306,7 @@ class TestCatalogFunctional:
         entries = scan_reversed_dir(tmp_path)
         assert len(entries) == 1
 
-    def test_r2_bogus_vas_via_config(self, tmp_path) -> None:
+    def test_r2_bogus_vas_via_config(self, tmp_path: Path) -> None:
         from pathlib import Path
 
         from rebrew.catalog import build_function_registry, make_func_entry

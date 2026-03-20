@@ -6,14 +6,14 @@ from rebrew.config import ProjectConfig
 from rebrew.lint import lint_file
 
 
-def _write(tmp_path, name, content) -> Path:
+def _write(tmp_path: Path, name: str, content: str) -> Path:
     f = tmp_path / name
     f.write_text(content, encoding="utf-8")
     return f
 
 
 class TestLintFileEdgeCases:
-    def test_unreadable_file(self, tmp_path) -> None:
+    def test_unreadable_file(self, tmp_path: Path) -> None:
         f = tmp_path / "unreadable.c"
         f.write_text("data", encoding="utf-8")
         f.chmod(0)
@@ -21,7 +21,7 @@ class TestLintFileEdgeCases:
         assert not result.passed
         f.chmod(420)
 
-    def test_old_format_header(self, tmp_path) -> None:
+    def test_old_format_header(self, tmp_path: Path) -> None:
         f = _write(
             tmp_path,
             "old.c",
@@ -32,7 +32,7 @@ class TestLintFileEdgeCases:
         has_missing_error = any((code == "E001" for _, code, _ in result.errors))
         assert has_old_warning or has_missing_error
 
-    def test_invalid_va(self, tmp_path) -> None:
+    def test_invalid_va(self, tmp_path: Path) -> None:
         f = _write(
             tmp_path,
             "bad_va.c",
@@ -41,7 +41,7 @@ class TestLintFileEdgeCases:
         result = lint_file(f)
         assert not result.passed
 
-    def test_suspicious_va(self, tmp_path) -> None:
+    def test_suspicious_va(self, tmp_path: Path) -> None:
         f = _write(
             tmp_path,
             "sus_va.c",
@@ -50,7 +50,8 @@ class TestLintFileEdgeCases:
         result = lint_file(f)
         assert any((code == "E002" for _, code, _ in result.errors))
 
-    def test_missing_origin(self, tmp_path) -> None:
+    def test_missing_origin(self, tmp_path: Path) -> None:
+        # Verifies missing ORIGIN is not flagged as an error
         f = _write(
             tmp_path,
             "no_origin.c",
@@ -59,7 +60,7 @@ class TestLintFileEdgeCases:
         result = lint_file(f)
         assert not any((code == "E005" for _, code, _ in result.errors))
 
-    def test_invalid_origin(self, tmp_path) -> None:
+    def test_invalid_origin(self, tmp_path: Path) -> None:
         """ORIGIN is metadata-only — triggers W019 (inline metadata); SYMBOL triggers W010."""
         f = _write(
             tmp_path,
@@ -69,7 +70,8 @@ class TestLintFileEdgeCases:
         result = lint_file(f)
         assert any((code == "W010" for _, code, _ in result.warnings))
 
-    def test_invalid_size_negative(self, tmp_path) -> None:
+    def test_invalid_size_negative(self, tmp_path: Path) -> None:
+        # Verifies negative SIZE does not trigger this specific error
         f = _write(
             tmp_path,
             "neg_size.c",
@@ -78,7 +80,8 @@ class TestLintFileEdgeCases:
         result = lint_file(f)
         assert not any((code == "E008" for _, code, _ in result.errors))
 
-    def test_invalid_size_text(self, tmp_path) -> None:
+    def test_invalid_size_text(self, tmp_path: Path) -> None:
+        # Verifies text SIZE does not trigger this specific error
         f = _write(
             tmp_path,
             "text_size.c",
@@ -87,7 +90,7 @@ class TestLintFileEdgeCases:
         result = lint_file(f)
         assert not any((code == "E008" for _, code, _ in result.errors))
 
-    def test_missing_cflags(self, tmp_path) -> None:
+    def test_missing_cflags(self, tmp_path: Path) -> None:
         f = _write(
             tmp_path,
             "no_cflags.c",
@@ -96,7 +99,7 @@ class TestLintFileEdgeCases:
         result = lint_file(f)
         assert any((code == "W018" for _, code, _ in result.warnings))
 
-    def test_unknown_annotation_key(self, tmp_path) -> None:
+    def test_unknown_annotation_key(self, tmp_path: Path) -> None:
         f = _write(
             tmp_path,
             "unk_key.c",
@@ -105,7 +108,7 @@ class TestLintFileEdgeCases:
         result = lint_file(f)
         assert any((code == "W010" for _, code, _ in result.warnings))
 
-    def test_duplicate_va_tracking(self, tmp_path) -> None:
+    def test_duplicate_va_tracking(self, tmp_path: Path) -> None:
         seen_vas: dict[int, str] = {}
         f1 = _write(
             tmp_path,
@@ -121,7 +124,7 @@ class TestLintFileEdgeCases:
         result2 = lint_file(f2, seen_vas=seen_vas)
         assert any((code == "E013" for _, code, _ in result2.errors))
 
-    def test_struct_without_size(self, tmp_path) -> None:
+    def test_struct_without_size(self, tmp_path: Path) -> None:
         f = _write(
             tmp_path,
             "struct.c",
@@ -130,7 +133,7 @@ class TestLintFileEdgeCases:
         result = lint_file(f)
         assert any((code == "W007" for _, code, _ in result.warnings))
 
-    def test_stub_without_blocker(self, tmp_path) -> None:
+    def test_stub_without_blocker(self, tmp_path: Path) -> None:
         f = _write(
             tmp_path,
             "stub.c",
@@ -139,7 +142,7 @@ class TestLintFileEdgeCases:
         result = lint_file(f)
         assert any((code == "W005" for _, code, _ in result.warnings))
 
-    def test_crt_without_source(self, tmp_path) -> None:
+    def test_crt_without_source(self, tmp_path: Path) -> None:
         """Library module without SOURCE triggers W006 when cfg identifies it as library."""
         cfg = ProjectConfig(root=Path("/tmp"), library_modules={"SERVER"})
         f = _write(
@@ -150,7 +153,7 @@ class TestLintFileEdgeCases:
         result = lint_file(f, cfg=cfg)
         assert any((code == "W006" for _, code, _ in result.warnings))
 
-    def test_file_with_no_code(self, tmp_path) -> None:
+    def test_file_with_no_code(self, tmp_path: Path) -> None:
         f = _write(
             tmp_path,
             "header_only.c",
@@ -159,7 +162,7 @@ class TestLintFileEdgeCases:
         result = lint_file(f)
         assert any((code == "W003" for _, code, _ in result.warnings))
 
-    def test_config_module_mismatch(self, tmp_path) -> None:
+    def test_config_module_mismatch(self, tmp_path: Path) -> None:
         cfg = ProjectConfig(root=Path("/tmp"), marker="GAME_DLL")
         f = _write(
             tmp_path,
@@ -169,7 +172,7 @@ class TestLintFileEdgeCases:
         result = lint_file(f, cfg=cfg)
         assert any((code == "E012" for _, code, _ in result.errors))
 
-    def test_config_marker_match(self, tmp_path) -> None:
+    def test_config_marker_match(self, tmp_path: Path) -> None:
         """Matching module to cfg.marker produces no E012 error."""
         cfg = ProjectConfig(root=Path("/tmp"), marker="SERVER")
         f = _write(
@@ -180,7 +183,7 @@ class TestLintFileEdgeCases:
         result = lint_file(f, cfg=cfg)
         assert not any((code == "E012" for _, code, _ in result.errors))
 
-    def test_to_dict_roundtrip(self, tmp_path) -> None:
+    def test_to_dict_roundtrip(self, tmp_path: Path) -> None:
         f = _write(
             tmp_path,
             "f.c",

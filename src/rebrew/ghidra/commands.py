@@ -1,8 +1,8 @@
 """ReVa MCP command builder for Ghidra integration.
 
-Constructs and sends HTTP requests to the ReVa MCP server to synchronize
-annotations, function names, types, and decompilation data between rebrew
-source files and a running Ghidra instance.
+Constructs MCP commands and orchestrates Ghidra sync operations, including
+command building for push operations and direct MCP communication for pull
+operations.
 """
 
 import json
@@ -17,16 +17,16 @@ import httpx
 from rich.console import Console
 
 from rebrew.annotation import Annotation, update_annotation_key
-from rebrew.cli import error_exit, iter_sources, json_print
+from rebrew.cli import iter_sources, json_print
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 from rebrew.ghidra.client import (
-    _MCP_HEADERS,
-    _MCP_REQUEST_TIMEOUT_S,
-    _fetch_all_functions,
-    _fetch_all_symbols,
-    _fetch_mcp_tool,
-    _fetch_mcp_tool_raw,
-    _init_mcp_session,
+    MCP_HEADERS,
+    MCP_REQUEST_TIMEOUT_S,
+    fetch_all_functions,
+    fetch_all_symbols,
+    fetch_mcp_tool,
+    fetch_mcp_tool_raw,
+    init_mcp_session,
 )
 from rebrew.ghidra.models import PullChange, PullResult
 from rebrew.utils import atomic_write_text
@@ -45,12 +45,12 @@ _STATUS_BOOKMARK_CATEGORY = {
 }
 
 
-def _is_generic_name(name: str) -> bool:
+def is_generic_name(name: str) -> bool:
     """Return True if *name* is a default auto-generated name like func_10006c00."""
     return bool(_GENERIC_NAME_RE.match(name))
 
 
-def _resolve_program_path(cfg: ProjectConfig) -> str:
+def resolve_program_path(cfg: ProjectConfig) -> str:
     """Return the Ghidra program path from config or derive from binary name."""
     configured = getattr(cfg, "ghidra_program_path", "")
     if configured:
@@ -58,7 +58,7 @@ def _resolve_program_path(cfg: ProjectConfig) -> str:
     return f"/{cfg.target_binary.name}"
 
 
-def _validate_program_path(
+def validate_program_path(
     client: httpx.Client,
     endpoint: str,
     program_path: str,
@@ -66,7 +66,7 @@ def _validate_program_path(
 ) -> str:
     """Best-effort validation of derived programPath against current Ghidra project."""
     try:
-        result = _fetch_mcp_tool_raw(
+        result = fetch_mcp_tool_raw(
             client,
             endpoint,
             "get-current-program",
@@ -86,7 +86,7 @@ def _validate_program_path(
 
     if ghidra_path != program_path:
         console.print(
-            f"[yellow]Warning:[/] Ghidra has '{ghidra_path}' open, but rebrew derived '{program_path}'. "
+            f"[yellow]warning:[/yellow] Ghidra has '{ghidra_path}' open, but rebrew derived '{program_path}'. "
             f'Add ghidra_program_path = "{ghidra_path}" to [targets.X] in '
             "rebrew-project.toml to fix."
         )
@@ -157,9 +157,9 @@ def build_sync_commands(
             )
 
     # Phase 2: set-function-prototype for functions with parsed C signatures.
-    # Must run BEFORE create-label — Ghidra's createLabel() produces a
-    # secondary LABEL-type symbol that blocks function.setName() with a
-    # DuplicateNameException.
+    # Must run BEFORE create-label — setting the prototype also sets the name,
+    # so a subsequent createLabel() would produce a secondary LABEL-type symbol
+    # that triggers DuplicateNameException.
     sig_vas: set[int] = set()
     if signatures:
         for sig_info in signatures:
@@ -186,7 +186,7 @@ def build_sync_commands(
 
         # Skip labels for VAs where set-function-prototype already set the name
         # (avoids creating secondary LABEL symbols that trigger DuplicateNameException).
-        if va in sig_vas or skip_generic_labels and _is_generic_name(name):
+        if va in sig_vas or skip_generic_labels and is_generic_name(name):
             skipped_labels += 1
         else:
             commands.append(
@@ -262,7 +262,7 @@ def build_sync_commands(
             va_hex = f"0x{g_entry.va:08X}"
 
             # Label
-            if not skip_generic_labels or not _is_generic_name(name):
+            if not skip_generic_labels or not is_generic_name(name):
                 commands.append(
                     {
                         "tool": "create-label",
@@ -311,13 +311,13 @@ def build_sync_commands(
                 }
             )
 
-        # Push raw // DATA: annotations that might not be in globals (e.g. inline assemblies)
+        # Push raw // DATA: annotations that might not be in globals
         for d_entry in data_scan.data_annotations:
             va_hex = d_entry["va"]
             name = d_entry["name"]
 
             # Label
-            if not skip_generic_labels or not _is_generic_name(name):
+            if not skip_generic_labels or not is_generic_name(name):
                 commands.append(
                     {
                         "tool": "create-label",
@@ -372,8 +372,8 @@ def build_sync_commands(
     return commands
 
 
-def _parse_va(va_raw: str | int | None) -> int | None:
-    """Normalize a VA value (hex string or int) to int, or None if invalid."""
+def parse_ghidra_va(va_raw: str | int | None) -> int | None:
+    """Normalize a VA value (hex string, decimal string, or int) to int, or None if invalid."""
     if va_raw is None:
         return None
     if isinstance(va_raw, int):
@@ -389,10 +389,10 @@ def _parse_va(va_raw: str | int | None) -> int | None:
         return None
 
 
-def _is_meaningful_name(name: str) -> bool:
-    """Return True if a name carries real semantic information (not auto-generated)."""
+def is_meaningful_name(name: str) -> bool:
+    """Return True if a name carries real semantic information (not auto-generated by Ghidra/r2)."""
     return bool(name) and not (
-        _is_generic_name(name)
+        is_generic_name(name)
         or name.startswith("FUN_")
         or name.startswith("DAT_")
         or name.startswith("switchdata")
@@ -400,7 +400,7 @@ def _is_meaningful_name(name: str) -> bool:
     )
 
 
-def _ghidra_name_to_symbol(
+def ghidra_name_to_symbol(
     ghidra_name: str, entry: Annotation | dict[str, str], cfg: ProjectConfig | None = None
 ) -> str:
     """Convert a Ghidra function name to a C symbol name based on calling convention and config."""
@@ -469,13 +469,13 @@ def pull_ghidra_renames(
         session_id = ""
         try:
             init_resp = client.post(
-                endpoint, json=init_payload, headers=_MCP_HEADERS, timeout=_MCP_REQUEST_TIMEOUT_S
+                endpoint, json=init_payload, headers=MCP_HEADERS, timeout=MCP_REQUEST_TIMEOUT_S
             )
             session_id = init_resp.headers.get("Mcp-Session-Id", "")
 
-            functions = _fetch_all_functions(client, endpoint, program_path, session_id)
-            data_labels = _fetch_all_symbols(client, endpoint, program_path, session_id)
-            plate_comments = _fetch_mcp_tool(
+            functions = fetch_all_functions(client, endpoint, program_path, session_id)
+            data_labels = fetch_all_symbols(client, endpoint, program_path, session_id)
+            plate_comments = fetch_mcp_tool(
                 client,
                 endpoint,
                 "get-comments",
@@ -483,7 +483,7 @@ def pull_ghidra_renames(
                 3,
                 session_id=session_id,
             )
-            pre_comments = _fetch_mcp_tool(
+            pre_comments = fetch_mcp_tool(
                 client,
                 endpoint,
                 "get-comments",
@@ -492,7 +492,7 @@ def pull_ghidra_renames(
                 session_id=session_id,
             )
         except httpx.RequestError as e:
-            console.print(f"[yellow]Warning:[/] Could not connect to ReVa MCP ({e}).")
+            console.print(f"[yellow]warning:[/yellow] Could not connect to ReVa MCP ({e}).")
             console.print("Falling back to local caches...")
 
     if not functions:
@@ -503,10 +503,10 @@ def pull_ghidra_renames(
                 if not dry_run:
                     console.print(f"Loaded {len(functions)} functions from {ghidra_json_path.name}")
             except (json.JSONDecodeError, OSError) as e:
-                console.print(f"[red]Error reading cache:[/] {e}")
+                console.print(f"[red bold]error:[/red bold] reading cache: {e}")
         else:
             console.print(
-                f"[yellow]Warning:[/] Could not fetch functions from MCP and {ghidra_json_path.name} not found."
+                f"[yellow]warning:[/yellow] Could not fetch functions from MCP and {ghidra_json_path.name} not found."
             )
 
     if not data_labels:
@@ -526,26 +526,26 @@ def pull_ghidra_renames(
 
     ghidra_names_by_va: dict[int, str] = {}
     for f in functions:
-        va = _parse_va(f.get("va") or f.get("address"))
+        va = parse_ghidra_va(f.get("va") or f.get("address"))
         gname = f.get("tool_name") or f.get("ghidra_name") or f.get("name")
         if va is not None and gname:
             ghidra_names_by_va[va] = gname
 
     for d in data_labels:
-        va = _parse_va(d.get("va") or d.get("address"))
+        va = parse_ghidra_va(d.get("va") or d.get("address"))
         name = d.get("name") or d.get("label") or d.get("ghidra_name")
         if va is not None and name:
             ghidra_names_by_va[va] = name
 
     ghidra_comments_by_va: dict[int, str] = {}
     for c in plate_comments:
-        va = _parse_va(c.get("address"))
+        va = parse_ghidra_va(c.get("address"))
         comment = c.get("comment")
         if va is not None and comment and not comment.startswith("[rebrew]"):
             ghidra_comments_by_va[va] = comment.strip()
 
     for c in pre_comments:
-        va = _parse_va(c.get("address"))
+        va = parse_ghidra_va(c.get("address"))
         comment = c.get("comment")
         if va is not None and comment and not comment.startswith("[rebrew]"):
             ghidra_comments_by_va.setdefault(va, comment.strip())
@@ -556,7 +556,7 @@ def pull_ghidra_renames(
     all_entries.extend(scan_data_annotations(cfg.reversed_dir, cfg=cfg))
 
     for entry in all_entries:
-        va = _parse_va(entry.get("va"))
+        va = parse_ghidra_va(entry.get("va"))
         if va is None:
             continue
 
@@ -572,11 +572,11 @@ def pull_ghidra_renames(
             continue
 
         ghidra_name = ghidra_names_by_va.get(va)
-        if ghidra_name and _is_meaningful_name(ghidra_name):
+        if ghidra_name and is_meaningful_name(ghidra_name):
             local_name = entry.get("symbol") or entry.get("name") or f"func_{va:08x}"
-            ghidra_as_symbol = _ghidra_name_to_symbol(ghidra_name, entry, cfg)
+            ghidra_as_symbol = ghidra_name_to_symbol(ghidra_name, entry, cfg)
             if local_name != ghidra_as_symbol:
-                local_is_meaningful = _is_meaningful_name(local_name)
+                local_is_meaningful = is_meaningful_name(local_name)
                 skip_name_update = False
 
                 if local_name.lstrip("_") == ghidra_name.lstrip("_"):
@@ -850,7 +850,7 @@ def build_new_function_commands(
     return commands
 
 
-def _pull_prototypes(
+def pull_prototypes(
     entries: list[Any],
     cfg: ProjectConfig,
     endpoint: str,
@@ -868,19 +868,19 @@ def _pull_prototypes(
 
     with httpx.Client(timeout=30.0) as client:
         try:
-            session_id = _init_mcp_session(client, endpoint)
+            session_id = init_mcp_session(client, endpoint)
         except httpx.RequestError as e:
-            error_exit(f"Error connecting to MCP: {e}")
+            raise RuntimeError(f"Error connecting to MCP: {e}") from e
 
         updated_count = 0
 
-        # Paginate through all functions (default page size is 100)
+        # Paginate through all functions
         all_funcs: list[Any] = []
         start_index = 0
         page_size = 200
         request_id = 1
         while True:
-            page = _fetch_mcp_tool_raw(
+            page = fetch_mcp_tool_raw(
                 client,
                 endpoint,
                 "get-functions",
@@ -896,7 +896,7 @@ def _pull_prototypes(
             )
             if not isinstance(page, list) or not page:
                 break
-            # First item is the header with pagination metadata
+            # ReVa MCP may return pagination metadata as the first item
             header = (
                 page[0] if page and isinstance(page[0], dict) and "totalCount" in page[0] else None
             )
@@ -936,7 +936,7 @@ def _pull_prototypes(
             sig = ghidra_sigs.get(va)
             if not sig:
                 # Fallback to get-decompilation if signature isn't in get-functions
-                res = _fetch_mcp_tool_raw(
+                res = fetch_mcp_tool_raw(
                     client,
                     endpoint,
                     "get-decompilation",
@@ -1003,17 +1003,17 @@ def _pull_prototypes(
         console.print(f"Successfully pulled {updated_count} prototypes.")
 
 
-def _pull_structs(cfg: ProjectConfig, endpoint: str, program_path: str, dry_run: bool) -> None:
+def pull_structs(cfg: ProjectConfig, endpoint: str, program_path: str, dry_run: bool) -> None:
     """Pull struct definitions from Ghidra into types.h using list-structures + get-structure-info."""
     console.print("Pulling struct definitions from Ghidra...")
 
     with httpx.Client(timeout=30.0) as client:
         try:
-            session_id = _init_mcp_session(client, endpoint)
+            session_id = init_mcp_session(client, endpoint)
         except httpx.RequestError as e:
-            error_exit(f"Error connecting to MCP: {e}")
+            raise RuntimeError(f"Error connecting to MCP: {e}") from e
 
-        structs_list = _fetch_mcp_tool_raw(
+        structs_list = fetch_mcp_tool_raw(
             client,
             endpoint,
             "list-structures",
@@ -1064,7 +1064,7 @@ def _pull_structs(cfg: ProjectConfig, endpoint: str, program_path: str, dry_run:
             if not name or name.startswith("_") and name.count("_") > 2:
                 continue
 
-            info = _fetch_mcp_tool_raw(
+            info = fetch_mcp_tool_raw(
                 client,
                 endpoint,
                 "get-structure-info",
@@ -1126,7 +1126,7 @@ def _pull_structs(cfg: ProjectConfig, endpoint: str, program_path: str, dry_run:
             console.print("[yellow]No exportable structures found.[/yellow]")
 
 
-def _pull_comments(
+def pull_comments(
     entries: list[Any], cfg: ProjectConfig, endpoint: str, program_path: str, dry_run: bool
 ) -> None:
     """Pull Ghidra analysis comments into source files."""
@@ -1144,11 +1144,11 @@ def _pull_comments(
 
     with httpx.Client(timeout=60.0) as client:
         try:
-            session_id = _init_mcp_session(client, endpoint)
+            session_id = init_mcp_session(client, endpoint)
         except httpx.RequestError as e:
-            error_exit(f"Error connecting to MCP: {e}")
+            raise RuntimeError(f"Error connecting to MCP: {e}") from e
 
-        result = _fetch_mcp_tool_raw(
+        result = fetch_mcp_tool_raw(
             client,
             endpoint,
             "get-comments",
@@ -1237,7 +1237,7 @@ def _pull_comments(
         console.print(f"Successfully pulled comments for {updated_count} functions.")
 
 
-def _pull_data(
+def pull_data(
     cfg: ProjectConfig,
     endpoint: str,
     program_path: str,
@@ -1249,10 +1249,6 @@ def _pull_data(
     then queries data type info for each (get-data), and writes a header file
     with extern declarations.
     """
-    try:
-        httpx = __import__("httpx")
-    except ImportError:
-        error_exit("httpx is required for --pull-data. Install with: uv pip install httpx")
 
     def _canonical_section_name(section_name: str) -> str:
         name = section_name.lower()
@@ -1365,17 +1361,17 @@ def _pull_data(
         binary_info = load_binary(cfg.target_binary, getattr(cfg, "format", "auto"))
         sections = list(binary_info.sections.values())
     except (ImportError, OSError, ValueError, AttributeError) as e:
-        console.print(f"[yellow]Warning: Could not load binary sections: {e}[/yellow]")
+        console.print(f"[yellow]warning:[/yellow] Could not load binary sections: {e}")
 
     with httpx.Client(timeout=30.0) as client:
         try:
-            session_id = _init_mcp_session(client, endpoint)
+            session_id = init_mcp_session(client, endpoint)
         except httpx.RequestError as e:
-            console.print(f"[yellow]Warning: Could not connect to MCP endpoint: {e}[/yellow]")
+            console.print(f"[yellow]warning:[/yellow] Could not connect to MCP endpoint: {e}")
             return
 
         try:
-            count_result = _fetch_mcp_tool_raw(
+            count_result = fetch_mcp_tool_raw(
                 client,
                 endpoint,
                 "get-symbols-count",
@@ -1387,7 +1383,7 @@ def _pull_data(
                 session_id=session_id,
             )
         except httpx.RequestError as e:
-            console.print(f"[yellow]Warning: Could not fetch symbols count: {e}[/yellow]")
+            console.print(f"[yellow]warning:[/yellow] Could not fetch symbols count: {e}")
             return
 
         total_count = 0
@@ -1403,7 +1399,7 @@ def _pull_data(
 
         while True:
             try:
-                page = _fetch_mcp_tool_raw(
+                page = fetch_mcp_tool_raw(
                     client,
                     endpoint,
                     "get-symbols",
@@ -1417,7 +1413,7 @@ def _pull_data(
                     session_id=session_id,
                 )
             except httpx.RequestError as e:
-                console.print(f"[yellow]Warning: Could not fetch symbols page: {e}[/yellow]")
+                console.print(f"[yellow]warning:[/yellow] Could not fetch symbols page: {e}")
                 return
 
             request_id += 1
@@ -1446,7 +1442,7 @@ def _pull_data(
                 continue
 
             try:
-                data_info = _fetch_mcp_tool_raw(
+                data_info = fetch_mcp_tool_raw(
                     client,
                     endpoint,
                     "get-data",
@@ -1458,7 +1454,7 @@ def _pull_data(
                     session_id=session_id,
                 )
             except httpx.RequestError as e:
-                console.print(f"[yellow]Warning: get-data failed at {sym_addr}: {e}[/yellow]")
+                console.print(f"[yellow]warning:[/yellow] get-data failed at {sym_addr}: {e}")
                 continue
 
             request_id += 1
@@ -1466,7 +1462,7 @@ def _pull_data(
                 continue
 
             address = str(data_info.get("address") or sym_addr)
-            va = _parse_va(address)
+            va = parse_ghidra_va(address)
             if va is None:
                 continue
 

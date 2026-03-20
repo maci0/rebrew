@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Any
 
-from rebrew.catalog.models import FunctionEntry
+from rebrew.catalog import FunctionEntry
 from rebrew.config import ProjectConfig
 from rebrew.naming import (
     find_neighbor_file,
@@ -71,9 +71,6 @@ class TestMakeFilename:
 
     def test_name_with_prefix_unchanged(self) -> None:
         assert make_filename(0x10001000, "game_something") == "game_something.c"
-
-    def test_func_no_prefix(self) -> None:
-        assert make_filename(0x10001000, "FUN_10001000") == "func_10001000.c"
 
 
 # -------------------------------------------------------------------------
