@@ -76,7 +76,7 @@ def disasm_bytes(code_bytes: bytes, va: int, cfg: ProjectConfig | None = None) -
 
 
 # ---------------------------------------------------------------------------
-# Hex / capstone mode helpers (former asm.py)
+# Hex / capstone mode helpers
 # ---------------------------------------------------------------------------
 
 
@@ -114,7 +114,7 @@ def _run_hex_mode(
     annotate: bool,
     json_output: bool,
 ) -> None:
-    """Capstone hex-dump disassembly (former asm.py behaviour)."""
+    """Capstone hex-dump disassembly (default format)."""
     bin_path = cfg.target_binary
     if not bin_path.exists():
         error_exit(f"Binary not found at {bin_path}", json_mode=json_output)
@@ -173,7 +173,7 @@ def _run_hex_mode(
 
         except ImportError:
             if json_output:
-                error_exit("capstone not installed", json_mode=True)
+                error_exit("capstone not installed", json_mode=json_output)
             console.print("[yellow](capstone not installed, showing hex dump)[/]")
             for i in range(0, len(data), 16):
                 chunk = data[i : i + 16]
@@ -186,7 +186,7 @@ def _run_hex_mode(
 
 
 # ---------------------------------------------------------------------------
-# NASM mode helpers (former nasm.py)
+# NASM mode helpers
 # ---------------------------------------------------------------------------
 
 
@@ -554,19 +554,21 @@ def main(
     va: str | None = typer.Option(
         None, "--va", help="Function VA in hex (alternative to positional argument, for scripting)"
     ),
-    size: int | None = typer.Option(None, help="Function size in bytes"),
+    size: int | None = typer.Option(None, "--size", help="Function size in bytes"),
     fmt: str = typer.Option("hex", "--format", "-f", help="Output format: hex, nasm"),
     annotate: bool = typer.Option(
         True, "--annotate/--no-annotate", help="(hex) Annotate calls with known function names"
     ),
     # nasm-specific options
     bin_file: Path | None = typer.Option(None, "--bin", help="(nasm) Raw .bin file"),
-    label: str | None = typer.Option(None, help="(nasm) Label name for the function"),
+    label: str | None = typer.Option(None, "--label", help="(nasm) Label name for the function"),
     output: Path | None = typer.Option(
         None, "--output", "-o", help="Output file (default: stdout)"
     ),
-    verify: bool = typer.Option(False, help="(nasm) Verify round-trip: assemble and compare"),
-    stats: bool = typer.Option(False, help="(nasm) Print stats only, no ASM output"),
+    verify: bool = typer.Option(
+        False, "--verify", help="(nasm) Verify round-trip: assemble and compare"
+    ),
+    stats: bool = typer.Option(False, "--stats", help="(nasm) Print stats only, no ASM output"),
     inline_c: bool = typer.Option(
         False, "--inline-c", help="(nasm) Output a C file with inline ASM"
     ),
@@ -575,7 +577,7 @@ def main(
         False, "--batch-stubs", help="(nasm) Batch: STUB functions only"
     ),
     out_dir: Path | None = typer.Option(None, "--out-dir", help="(nasm) Output dir for batch mode"),
-    base_va: str = typer.Option("0", help="(nasm) Base VA for --bin files"),
+    base_va: str = typer.Option("0", "--base-va", help="(nasm) Base VA for --bin files"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:

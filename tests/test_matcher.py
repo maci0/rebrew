@@ -1,3 +1,5 @@
+"""Tests for rebrew.matcher core, compiler, scoring, and parsers."""
+
 import random
 import struct
 from pathlib import Path
@@ -164,7 +166,7 @@ def test_generate_flag_combinations_basic() -> None:
     """Test flag combination generation returns non-empty list of strings."""
     combos = generate_flag_combinations()
     assert isinstance(combos, list)
-    assert len(combos) > 0
+    assert len(combos) >= 2
     for c in combos:
         assert isinstance(c, str)
 
@@ -176,10 +178,13 @@ def test_generate_flag_combinations_dedup() -> None:
 
 
 def test_generate_flag_combinations_max_limit() -> None:
-    """Test that quick tier produces a bounded number of combinations."""
+    """Test that quick tier produces a bounded number of combinations.
+
+    The 2000 upper bound prevents combinatorial explosion from silently
+    degrading GA sweep performance.
+    """
     combos = generate_flag_combinations()  # defaults to "quick"
-    # Quick tier should be bounded — well under 2000 combos
-    assert len(combos) < 2000
+    assert len(combos) < 2000, f"Quick tier produced {len(combos)} combos (limit: 2000)"
 
 
 def test_generate_flag_combinations_full_axes() -> None:

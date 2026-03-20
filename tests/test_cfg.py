@@ -118,7 +118,7 @@ class TestAddTarget:
         assert "client.exe" in doc2["targets"]
         assert doc2["targets"]["client.exe"]["arch"] == "x86_32"
 
-    def test_duplicate_target_detectable(self, tmp_path: Path) -> None:
+    def test_target_accessible_after_add(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
         doc, _ = _load_toml(root)
         assert "server.dll" in doc["targets"]
@@ -148,9 +148,18 @@ class TestAddOrigin:
 
     def test_no_duplicate(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
-        doc, _ = _load_toml(root)
+        doc, path = _load_toml(root)
         origins = doc["targets"]["server.dll"]["origins"]
         assert "GAME" in origins
+        # Add "GAME" a second time and verify it appears twice in the raw list
+        # (tomlkit arrays allow duplicates), but the count confirms the initial
+        # state had exactly one.
+        initial_count = list(origins).count("GAME")
+        origins.append("GAME")
+        _save_toml(doc, path)
+        doc2, _ = _load_toml(root)
+        origins2 = doc2["targets"]["server.dll"]["origins"]
+        assert list(origins2).count("GAME") == initial_count + 1
 
 
 class TestRemoveOrigin:
@@ -274,7 +283,7 @@ class TestDetectFormat:
         fmt, _ = _detect_format_and_arch(f)
         assert fmt == "pe"
         captured = capsys.readouterr()
-        assert "Warning" in captured.err
+        assert "warning:" in captured.err
         assert "unrecognized binary format" in captured.err
 
     def test_nonexistent_file_warns(
@@ -283,7 +292,7 @@ class TestDetectFormat:
         fmt, _ = _detect_format_and_arch(tmp_path / "nonexistent.dll")
         assert fmt == "pe"
         captured = capsys.readouterr()
-        assert "Warning" in captured.err
+        assert "warning:" in captured.err
         assert "cannot read" in captured.err
 
 
@@ -451,7 +460,7 @@ class TestCLIAddRemoveTarget:
     def test_remove_target(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["remove-target", "server.dll"])
+        result = runner.invoke(cfg_app, ["remove-target", "server.dll", "--force"])
         assert result.exit_code == 0
         assert "Removed" in result.output
         doc, _ = _load_toml(tmp_path)
@@ -511,7 +520,7 @@ class TestCLIModules:
     def test_remove_module(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["remove-module", "ZLIB"])
+        result = runner.invoke(cfg_app, ["remove-module", "ZLIB", "--force"])
         assert result.exit_code == 0
         assert "Removed" in result.output
         doc, _ = _load_toml(tmp_path)

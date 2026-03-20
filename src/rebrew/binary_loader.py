@@ -20,6 +20,8 @@ from pathlib import Path
 
 import lief
 
+_MAX_BINARY_SIZE = 512 * 1024 * 1024  # 512 MB safety limit
+
 # ---------------------------------------------------------------------------
 # Data types
 # ---------------------------------------------------------------------------
@@ -67,7 +69,7 @@ class BinaryInfo:
         """
         if self._data is None:
             raw = self.path.read_bytes()
-            if len(raw) > 512 * 1024 * 1024:  # 512 MB safety limit
+            if len(raw) > _MAX_BINARY_SIZE:
                 raise ValueError(
                     f"Binary file too large ({len(raw) / 1024 / 1024:.0f} MB): {self.path}"
                 )
@@ -179,12 +181,12 @@ def _load_macho(fat_or_binary: lief.MachO.FatBinary | lief.MachO.Binary, path: P
     """Extract layout information from a Mach-O binary.
 
     LIEF's ``lief.MachO.parse()`` returns a ``FatBinary`` even for thin
-    binaries.  We always take the first slice.
+    binaries.  We always take the first slice (architecture selection for
+    fat binaries is not supported).
     """
     if isinstance(fat_or_binary, lief.MachO.FatBinary):
-        # Always use first slice — fat Mach-O architecture selection is not
-        # yet implemented.  For multi-arch fat binaries, only the first
-        # architecture slice is accessible.
+        # Always use first slice — architecture selection for fat binaries
+        # is not supported.
         binary = fat_or_binary.at(0)
     else:
         binary = fat_or_binary
@@ -273,8 +275,7 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     path = Path(path)
 
     # Bounded cache keyed on resolved path + format to avoid re-parsing.
-    # Lock protects concurrent reads/writes from ThreadPoolExecutor workers
-    # in verify.py and matcher/compiler.py flag_sweep.
+    # Lock protects concurrent reads/writes from multiple workers.
     cache_key = (str(path.resolve()), fmt)
     with _load_binary_lock:
         cached = _load_binary_cache.get(cache_key)

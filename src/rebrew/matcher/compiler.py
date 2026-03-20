@@ -6,6 +6,7 @@ and extracting function bytes from the resulting object/executable.
 """
 
 import contextlib
+import functools
 import itertools
 import logging
 import os
@@ -13,7 +14,6 @@ import re
 import shlex
 import shutil
 import subprocess
-import sys
 import tempfile
 import warnings
 from pathlib import Path
@@ -29,20 +29,33 @@ log = logging.getLogger(__name__)
 
 
 def _filter_wine_stderr(text: str) -> str:
-    """Lazy-import wrapper to avoid circular import with rebrew.compile."""
+    """Filter Wine noise from stderr text (lazy-imported to break circular dep)."""
     from rebrew.compile import filter_wine_stderr
 
     return filter_wine_stderr(text)
 
 
-# Fallback function size when neither LIEF nor MAP heuristics produce a result
+# Fallback function size when both LIEF symbol table and MAP heuristics fail
 _DEFAULT_SYMBOL_SIZE = 1000
+
+# Warn when flag sweep produces more than this many combinations
+_MAX_SWEEP_COMBOS = 100_000
 
 # Pre-compiled regex for MAP file symbol parsing
 _MAP_SYM_RE = re.compile(
     r"^\s*\d+:[0-9a-fA-F]+\s+\S+\s+([0-9a-fA-F]+)",
     re.MULTILINE,
 )
+
+
+@functools.lru_cache(maxsize=32)
+def _map_symbol_re(symbol: str) -> re.Pattern[str]:
+    """Return a compiled regex for looking up *symbol* in a MAP file."""
+    return re.compile(
+        r"^\s*\d+:[0-9a-fA-F]+\s+" + re.escape(symbol) + r"\s+([0-9a-fA-F]+)",
+        re.MULTILINE,
+    )
+
 
 # Map of profiles → synced Flags lists
 _FLAGS_MAP: dict[str, Flags] = {
@@ -84,7 +97,8 @@ def _get_pe_symbol_size(exe_path: Path, symbol: str) -> int | None:
 
     Looks up the symbol in the PE's COFF symbol table and returns the
     distance to the next symbol in the same section. Returns None if
-    the symbol cannot be found or LIEF is not available.
+    the symbol cannot be found, the section is unresolvable, or LIEF
+    is not available.
     """
     try:
         import lief
@@ -131,7 +145,7 @@ def generate_flag_combinations(tier: str = "targeted", profile: str = "msvc6") -
     """Generate flag combinations for the given compiler profile.
 
     Args:
-        tier: Sweep effort level — "quick", "normal", "thorough", or "full".
+        tier: Sweep effort level — "quick", "targeted", "normal", "thorough", or "full".
               Controls how many flag axes are included.
         profile: Compiler profile name — "msvc6", "msvc7", or "msvc".
 
@@ -148,7 +162,7 @@ def generate_flag_combinations(tier: str = "targeted", profile: str = "msvc6") -
         flags_str = " ".join(f for f in combo if f)
         combos.add(flags_str)
 
-    if len(combos) > 100_000:
+    if len(combos) > _MAX_SWEEP_COMBOS:
         warnings.warn(
             f"Flag sweep tier '{tier}' produces {len(combos):,} combinations. "
             f"This may use significant memory. Consider 'quick' or 'targeted' tier.",
@@ -172,9 +186,9 @@ def build_candidate_obj_only(
     """Compile source to .obj and extract symbol bytes (no linking).
 
     When *cache* is provided, the raw ``.obj`` bytes are cached on disk
-    keyed by ``(source_code, cflags, cl_cmd, inc_dir)``.  On cache hit
-    only the fast LIEF symbol extraction runs, skipping the 200-500 ms
-    Wine/wibo subprocess entirely.
+    keyed by ``(source_content, source_filename, cflags, include_dirs,
+    toolchain_id, source_ext)``.  On cache hit only the fast LIEF symbol
+    extraction runs, skipping the 200-500 ms Wine/wibo subprocess entirely.
     """
     src_name = f"cand{source_ext}"
     all_flags = shlex.split(cflags)
@@ -303,11 +317,7 @@ def build_candidate(
         map_text = map_path.read_text(encoding="utf-8")
 
         # MSVC MAP format: "  SSSS:OOOOOOOO  _symbol  VVVVVVVV  f  obj"
-        sym_re = re.compile(
-            r"^\s*\d+:[0-9a-fA-F]+\s+" + re.escape(symbol) + r"\s+([0-9a-fA-F]+)",
-            re.MULTILINE,
-        )
-        m = sym_re.search(map_text)
+        m = _map_symbol_re(symbol).search(map_text)
         if not m:
             return BuildResult(ok=False, error_msg=f"Symbol {symbol} not found in MAP")
 
@@ -354,7 +364,7 @@ def flag_sweep(
         base_cflags: Minimum flags required.
         symbol: Symbol name to extract.
         n_jobs: Thread count.
-        tier: Sweep effort level — "quick", "normal", "thorough", or "full".
+        tier: Sweep effort level — "quick", "targeted", "normal", "thorough", or "full".
         env: MSVC environment.
         source_ext: Extension of the source file.
         cache: Optional ``CompileCache`` for cross-run persistence.
@@ -363,10 +373,13 @@ def flag_sweep(
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    from .scoring import score_candidate
+    from .scoring import precompute_target, score_candidate
 
     combos = generate_flag_combinations(tier=tier)
-    print(f"Sweeping {len(combos)} flag combinations (tier={tier})...", file=sys.stderr)
+    log.info("Sweeping %d flag combinations (tier=%s)...", len(combos), tier)
+
+    # Pre-compute target normalization and mnemonics once for all workers
+    pre_norm_target, pre_target_mnems = precompute_target(target_bytes)
 
     results = []
 
@@ -384,7 +397,13 @@ def flag_sweep(
             timeout=timeout,
         )
         if res.ok and res.obj_bytes:
-            score = score_candidate(target_bytes, res.obj_bytes, res.reloc_offsets)
+            score = score_candidate(
+                target_bytes,
+                res.obj_bytes,
+                res.reloc_offsets,
+                _pre_norm_target=pre_norm_target,
+                _pre_target_mnems=pre_target_mnems,
+            )
             return score.total, flags
         return float("inf"), flags
 

@@ -4,6 +4,8 @@ import struct
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from rebrew.cu_map import (
     TUCluster,
     _call_graph_boost,
@@ -158,6 +160,9 @@ class TestContiguityScore:
 class TestScanCallTargets:
     def test_extracts_call_targets(self) -> None:
         """Synthetic x86 bytes with E8 rel32 CALL instruction."""
+        pytest.importorskip("capstone")
+        from capstone import CS_ARCH_X86, CS_MODE_32
+
         # Function at VA 0x1000, size 10
         # E8 rel32: call 0x100A (target = 0x1000 + 5 + rel32)
         # We want target = 0x100A, so rel32 = 0x100A - (0x1000 + 5) = 5
@@ -176,19 +181,10 @@ class TestScanCallTargets:
         }
 
         cfg = SimpleNamespace(
-            capstone_arch=None,
-            capstone_mode=None,
+            capstone_arch=CS_ARCH_X86,
+            capstone_mode=CS_MODE_32,
             padding_bytes=[0xCC, 0x90],
         )
-
-        # Need capstone for this test
-        try:
-            from capstone import CS_ARCH_X86, CS_MODE_32
-
-            cfg.capstone_arch = CS_ARCH_X86
-            cfg.capstone_mode = CS_MODE_32
-        except ImportError:
-            return  # Skip if capstone not available
 
         result = _scan_call_targets(info, registry, cfg)  # type: ignore[arg-type]
         # 0x1000 should call 0x100A

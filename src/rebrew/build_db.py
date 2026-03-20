@@ -12,9 +12,12 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from rich.console import Console
 
 from rebrew.cli import TargetOption, error_exit, json_print
 from rebrew.utils import atomic_write_text
+
+console = Console(stderr=True)
 
 
 def build_db(
@@ -32,6 +35,9 @@ def build_db(
         c: sqlite3.Cursor = conn.cursor()
         # Enable WAL mode for better concurrency during regen
         c.execute("PRAGMA journal_mode=WAL")
+        c.execute("PRAGMA synchronous=NORMAL")
+        c.execute("PRAGMA cache_size=-64000")
+        c.execute("PRAGMA temp_store=MEMORY")
 
         # Snapshot existing function statuses for history tracking
         old_statuses: dict[tuple[str, int], str] = {}
@@ -192,7 +198,7 @@ def build_db(
 
         for json_path in json_files:
             target_name = json_path.stem.removeprefix("data_")
-            typer.echo(f"Processing {target_name}...", err=True)
+            console.print(f"Processing {target_name}...")
 
             with json_path.open(encoding="utf-8") as f:
                 data = json.load(f)
@@ -470,7 +476,7 @@ def build_db(
                 }
             )
         else:
-            print(f"Database built successfully at {db_path}")
+            console.print(f"[green]Database built successfully at {db_path}[/green]")
     except BaseException:
         if conn is not None:
             with contextlib.suppress(sqlite3.Error):
@@ -587,7 +593,7 @@ def _generate_catalogs(
         atomic_write_text(catalog_path, catalog_text, encoding="utf-8")
         catalog_paths.append(catalog_path)
         if not json_output:
-            print(f"Generated {catalog_path}")
+            console.print(f"Generated {catalog_path}")
 
     return catalog_paths
 

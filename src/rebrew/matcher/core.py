@@ -1,6 +1,6 @@
 """core.py – Data types and caching for the GA matching engine.
 
-Defines Score, BuildResult, BuildCache (SQLite-backed), and GACheckpoint
+Defines Score, BuildResult, BuildCache (disk-backed), and GACheckpoint
 for persisting GA state across runs.
 """
 
@@ -67,7 +67,10 @@ class BuildCache:
     """Disk-backed cache mapping source hashes to build results."""
 
     def __init__(self, db_path: str | Path = "build_cache.db") -> None:
-        """Open (or create) the disk-backed build cache at *db_path*."""
+        """Open (or create) the disk-backed build cache.
+
+        Cache directory is derived from *db_path* (suffix ``.db`` replaced with ``_cache/``).
+        """
         cache_dir = str(db_path).removesuffix(".db") + "_cache"
         self._cache = diskcache.Cache(cache_dir)
 

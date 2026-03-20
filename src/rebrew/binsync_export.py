@@ -222,7 +222,9 @@ def main(
 
     written_structs: list[str] = []
     for sname in sorted(struct_names):
-        spath = outdir / "structs" / f"{sname}.toml"
+        # Sanitize struct name to prevent path traversal from parsed data
+        safe_name = sname.replace("/", "_").replace("\\", "_").replace("..", "_")
+        spath = outdir / "structs" / f"{safe_name}.toml"
         if not dry_run:
             _write_struct_toml(spath, sname)
         written_structs.append(str(spath))

@@ -1,10 +1,11 @@
-"""Generate FLIRT .pat files from MSVC6 COFF .lib archives.
+"""Generate FLIRT .pat files from COFF .lib archives.
 
 This reads the object files inside a .lib archive, extracts every
 public function symbol with its COFF relocations, and emits a
 .pat-format line for each one with relocation bytes masked as '..'.
 """
 
+import bisect
 import struct
 from collections.abc import Iterator
 from pathlib import Path
@@ -90,6 +91,14 @@ def parse_coff_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
     if coff is None:
         return
 
+    # Pre-build per-section sorted symbol offsets to avoid O(n^2) scans
+    section_sym_offsets: dict[str, list[int]] = {}
+    for sym in coff.symbols:
+        if sym.section is not None and not sym.name.startswith("$"):
+            section_sym_offsets.setdefault(sym.section.name, []).append(sym.value)
+    for offsets in section_sym_offsets.values():
+        offsets.sort()
+
     for sym in coff.symbols:
         # Only external function symbols in code sections
         if sym.storage_class != lief.COFF.Symbol.STORAGE_CLASS.EXTERNAL or sym.section is None:
@@ -104,16 +113,11 @@ def parse_coff_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
         func_start = sym.value
         func_end = len(content)
 
-        # Find the next symbol in the same section to bound this function
-        for other in coff.symbols:
-            if (
-                other.section is not None
-                and other.section.name == section.name
-                and other.value > func_start
-                and other.value < func_end
-                and not other.name.startswith("$")
-            ):
-                func_end = other.value
+        # Find the next symbol in the same section via sorted offsets (O(log n))
+        offsets = section_sym_offsets.get(section.name, [])
+        idx = bisect.bisect_right(offsets, func_start)
+        if idx < len(offsets):
+            func_end = offsets[idx]
 
         if func_start >= func_end or func_end > len(content):
             continue
@@ -143,12 +147,10 @@ def bytes_to_pat_line(
     Relocation bytes are masked with '..' in the leading portion.
     """
     lead_len = min(len(code_bytes), max_lead)
-    lead = ""
+    lead_parts: list[str] = []
     for i in range(lead_len):
-        if i in reloc_offsets:
-            lead += ".."
-        else:
-            lead += f"{code_bytes[i]:02X}"
+        lead_parts.append(".." if i in reloc_offsets else f"{code_bytes[i]:02X}")
+    lead = "".join(lead_parts)
 
     # CRC16 of non-reloc bytes after the leading portion
     crc_start = lead_len

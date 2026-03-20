@@ -464,7 +464,6 @@ def lint_file(
 
             if marker not in ("GLOBAL", "DATA"):
                 _check_W018_cflags(result, found_keys, cfg)
-                # SIZE check removed: // SIZE: is now metadata-only, not required in source.
             else:
                 # For DATA/GLOBAL: overlay data metadata fields (size, section, note)
                 if va_int is not None and mod:
@@ -548,15 +547,14 @@ app = typer.Typer(
         "[bold]Error codes:[/bold]\n\n"
         "  E001   Missing FUNCTION/LIBRARY/STUB marker\n\n"
         "  E002   Invalid VA format or range\n\n"
-        "  E003   (deprecated — STATUS is metadata-only)\n\n"
+        "  E003   (removed — STATUS is metadata-only)\n\n"
         "  E013   Duplicate VA across files\n\n"
         "  W005   STUB without BLOCKER explanation\n\n"
         "  W016   DATA/GLOBAL missing SECTION metadata\n\n"
-        "  W017   NOTE contains [rebrew] sync metadata\n\n"
         "  W010   Unknown marker key\n\n"
         "  W018   Missing CFLAGS with no config fallback\n\n"
         "  W019   Inline metadata key (STATUS, SIZE, etc.) should be in rebrew-function.toml\n\n"
-        "[dim]Checks for reccmp-style markers in the first 20 lines of each .c file.[/dim]"
+        "[dim]Checks for reccmp-style markers in each .c file.[/dim]"
     ),
 )
 
@@ -569,8 +567,10 @@ def main(
         help="Migrate inline metadata to rebrew-function.toml and remove from source",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
-    quiet: bool = typer.Option(False, help="Only show errors, suppress warnings"),
-    files: list[Path] = typer.Option(None, help="Check specific files instead of all *.c"),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Only show errors, suppress warnings"),
+    files: list[Path] = typer.Option(
+        None, "--files", help="Check specific files instead of all *.c"
+    ),
     summary: bool = typer.Option(False, "--summary", help="Print status/origin breakdown"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -582,7 +582,9 @@ def main(
     except FileNotFoundError:
         pass  # No config file — lint without config-aware rules
     except (KeyError, ValueError) as exc:
-        console.print(f"[yellow]Warning: config error ({exc}); config-aware rules disabled[/]")
+        console.print(
+            f"[yellow]warning:[/yellow] config error ({exc}); config-aware rules disabled"
+        )
 
     reversed_dir = cfg.reversed_dir if cfg else None
 

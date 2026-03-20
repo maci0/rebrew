@@ -6,7 +6,7 @@ rebrew skeleton when the ``--decomp`` flag is set.
 
 Both radare2 (``r2``) and rizin (``rz``) are supported transparently —
 the first one found on PATH is used.  The ``ghidra`` backend connects to a
-running Ghidra instance through the ReVa MCP bridge (requires ``httpx``).
+running Ghidra instance through the ReVa MCP bridge.
 
 Usage (internal)::
 
@@ -31,10 +31,12 @@ import httpx
 # ANSI escape code stripper
 _ANSI_RE = re.compile(r"\x1B\[[0-9;]*[a-zA-Z]")
 
-# Known backends in auto-probe order (ghidra excluded — requires MCP server)
+# Auto-probe order when backend="auto" (ghidra is available for explicit
+# use but not auto-probed; use backend='ghidra' with MCP configuration)
 BACKENDS = ("r2ghidra", "r2dec")
 
 _DEFAULT_MCP_ENDPOINT = "http://localhost:8080/mcp/message"
+_MCP_TIMEOUT_S = 30.0
 
 
 def _strip_ansi(text: str) -> str:
@@ -66,11 +68,17 @@ def _find_re_tool() -> str | None:
     return None
 
 
+_ALLOWED_RE_CMDS = frozenset({"pdg", "pdd"})
+
+
 def _run_re(binary: Path, va: int, cmd: str, root: Path) -> str | None:
     """Run a radare2/rizin command and return cleaned output.
 
     Automatically detects whether ``rz`` or ``r2`` is on PATH.
+    ``cmd`` must be one of the allowed radare2 commands (pdg, pdd).
     """
+    if cmd not in _ALLOWED_RE_CMDS:
+        raise ValueError(f"disallowed radare2 command: {cmd!r}")
     tool = _find_re_tool()
     if tool is None:
         return None
@@ -121,20 +129,20 @@ def fetch_ghidra(
 ) -> str | None:
     """Fetch decompilation from Ghidra via ReVa MCP ``get-decompilation`` tool.
 
-    Requires ``httpx`` and a running ReVa MCP server connected to Ghidra.
+    Requires a running ReVa MCP server connected to Ghidra.
     """
     endpoint: str = kwargs.get("endpoint") or _DEFAULT_MCP_ENDPOINT
     program_path: str | None = kwargs.get("program_path")
 
     _sync_mod = importlib.import_module("rebrew.ghidra.client")
-    _fetch_raw = _sync_mod._fetch_mcp_tool_raw
-    _init_session = _sync_mod._init_mcp_session
+    _fetch_raw = _sync_mod.fetch_mcp_tool_raw
+    _init_session = _sync_mod.init_mcp_session
 
     if program_path is None:
         program_path = f"/{binary.name}"
 
     try:
-        with httpx.Client(timeout=30.0) as client:
+        with httpx.Client(timeout=_MCP_TIMEOUT_S) as client:
             session_id = _init_session(client, endpoint)
             result = _fetch_raw(
                 client,
@@ -185,12 +193,14 @@ def fetch_decompilation(
         va: Virtual address of the function.
         root: Project root directory.
         endpoint: ReVa MCP endpoint URL (used by ``ghidra`` backend only).
-        program_path: Path to the generic program within ReVa MCP.
+        program_path: Ghidra project path for the binary within ReVa MCP.
 
     Returns:
         A tuple of ``(decompiled_code, backend_name)`` where backend_name is
         the name of the backend that produced the output (useful for ``auto``).
-        If decompilation failed, ``(None, backend_name)`` is returned.
+        If decompilation failed, ``(None, backend_name)`` is returned — where
+        backend_name is ``"auto"`` when no auto-mode backend succeeded, or
+        the requested backend name when a specific backend was requested.
 
     """
     if backend == "auto":

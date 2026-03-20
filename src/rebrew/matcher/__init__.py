@@ -1,7 +1,6 @@
 """matcher – Core GA engine for binary matching.
 
-Re-exports the public API: compilation backend, scoring, mutation operators,
-flag sweep, build cache, checkpointing, and COFF/PE parsers.
+Re-exports the public API from all matcher submodules.
 """
 
 from .compiler import (
@@ -62,6 +61,15 @@ from .parsers import (
 from .parsers import (
     parse_obj_symbol_bytes as parse_obj_symbol_bytes,
 )
-from .scoring import diff_functions as diff_functions
-from .scoring import score_candidate as score_candidate
-from .scoring import structural_similarity as structural_similarity
+from .scoring import (
+    diff_functions as diff_functions,
+)
+from .scoring import (
+    precompute_target as precompute_target,
+)
+from .scoring import (
+    score_candidate as score_candidate,
+)
+from .scoring import (
+    structural_similarity as structural_similarity,
+)

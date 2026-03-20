@@ -1,7 +1,12 @@
 """mutator.py – Unified C source mutation engine for GA-based binary matching.
 
 Provides mutation functions that transform C89 source code to explore
-the MSVC6 code generation space.  Uses tree-sitter AST for all mutations.
+the MSVC6 code generation space.  Uses tree-sitter AST for most mutations,
+with regex fallback for complex multi-statement patterns.
+
+Public API: ``mutate_code(source, rng, track_mutation=False)`` applies a random
+mutation.  When ``track_mutation=True``, returns ``(mutated_source, mutation_name)``
+instead of just str.  Returns original source unchanged if all attempts fail.
 """
 
 import random
@@ -12,6 +17,15 @@ from typing import Literal, overload
 import tree_sitter as ts
 
 from rebrew.matcher.ast_engine import _C_LANGUAGE, ASTMutator, parse_c_ast
+
+# Max attempts to find a valid mutation before giving up and returning source unchanged.
+_MUTATION_ATTEMPTS = 10
+
+
+def _first_caps(capture_dict: dict[str, list[ts.Node]]) -> dict[str, ts.Node]:
+    """Extract the first node from each capture group in a tree-sitter match."""
+    return {k: v[0] for k, v in capture_dict.items()}
+
 
 # --- Query Definitions ---
 # We define tree-sitter queries here for performance
@@ -310,13 +324,6 @@ _QUERY_ACCUM = ts.Query(
 """,
 )
 
-_QUERY_PTR_PARAM = ts.Query(
-    _C_LANGUAGE,
-    """
-    (parameter_declaration type: (_) @type declarator: (pointer_declarator declarator: (identifier) @var) @ptr_decl) @stmt
-""",
-)
-
 _QUERY_INT_PARAM = ts.Query(
     _C_LANGUAGE,
     """
@@ -397,7 +404,7 @@ _QUERY_CALL_ARG = ts.Query(
 
 
 def mut_extract_args_to_temps(s: str, rng: random.Random) -> str | None:
-    """Mutator operation."""
+    """Extract a complex call argument into a temporary variable."""
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
     cursor = ts.QueryCursor(_QUERY_CALL_ARG)
@@ -453,13 +460,6 @@ def mut_extract_args_to_temps(s: str, rng: random.Random) -> str | None:
 
     return (out[:stmt_start] + inline_assign + new_stmt_str + out[stmt_end:]).decode("utf-8")
 
-
-_QUERY_WHILE_LOOP = ts.Query(
-    _C_LANGUAGE,
-    """
-    (while_statement condition: (_) @cond body: (compound_statement) @body) @stmt
-""",
-)
 
 _QUERY_SPLIT_CMP_CHAIN = ts.Query(
     _C_LANGUAGE,
@@ -817,7 +817,7 @@ def _apply_query_once(
 
     # captures is a dict mapping capture name (e.g. "expr") to a list of Nodes
     # We assume one node per capture name in our queries
-    single_captures = {k: v[0] for k, v in captures.items()}
+    single_captures = _first_caps(captures)
 
     target_node = single_captures.get("stmt") or single_captures.get("expr")
     if not target_node:
@@ -950,8 +950,6 @@ def mut_return_to_goto(s: str, rng: random.Random) -> str | None:
 
     # Needs to add ret_false: before the last return statement
     # We will use regex for the fallback label injection for now since it operates on the whole block
-    import re
-
     _RE_FINAL_RET = re.compile(
         r"(\s+return[^;]+;[ \t]*\n[ \t]*\}(?:\s*|//.*)*)$(?![\s\S]*\})", re.MULTILINE
     )
@@ -983,8 +981,6 @@ def mut_goto_to_return(s: str, rng: random.Random) -> str | None:
 
     # Remove the label if no more gotos reference it
     if "goto ret_false" not in result:
-        import re
-
         result = re.sub(r"^[ \t]*ret_false:[ \t]*\n", "", result, flags=re.MULTILINE)
         result = re.sub(r"^[ \t]*ret_false:[ \t]*", "", result, flags=re.MULTILINE)
 
@@ -1017,7 +1013,7 @@ def mut_swap_if_else(s: str, rng: random.Random) -> str | None:
 
 
 def mut_add_cast(s: str, rng: random.Random) -> str | None:
-    """Wrap an expression in (BOOL) or (int) cast."""
+    """Wrap an expression in (int) or (unsigned int) cast."""
     b_source = s.encode("utf-8")
     casts = [b"(int)", b"(unsigned int)"]
     cast = rng.choice(casts)
@@ -1184,7 +1180,7 @@ def mut_introduce_temp_for_call(s: str, rng: random.Random) -> str | None:
         return None
 
     _, captures = rng.choice(matches)
-    single_captures = {k: v[0] for k, v in captures.items()}
+    single_captures = _first_caps(captures)
 
     target_node = single_captures.get("expr")
     if not target_node:
@@ -1230,7 +1226,7 @@ def mut_remove_temp_var(s: str, rng: random.Random) -> str | None:
         return None
 
     match = rng.choice(matches)
-    captures = {k: v[0] for k, v in match[1].items()}
+    captures = _first_caps(match[1])
 
     stmt1 = captures["stmt1"]
     stmt2 = captures["stmt2"]
@@ -1274,7 +1270,7 @@ def mut_swap_adjacent_declarations(s: str, rng: random.Random) -> str | None:
         return None
 
     match = rng.choice(matches)
-    captures = {k: v[0] for k, v in match[1].items()}
+    captures = _first_caps(match[1])
 
     d1 = captures["d1"]
     d2 = captures["d2"]
@@ -1315,7 +1311,7 @@ def mut_merge_declaration_init(s: str, rng: random.Random) -> str | None:
         return None
 
     match = rng.choice(matches)
-    captures = {k: v[0] for k, v in match[1].items()}
+    captures = _first_caps(match[1])
 
     d1 = captures["d1"]
     d2 = captures["d2"]
@@ -1436,7 +1432,7 @@ def mut_duplicate_loop_body(s: str, rng: random.Random) -> str | None:
 
 
 def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
-    """Mutator operation."""
+    """Fold two consecutive constant additions into a single statement."""
     b_source = s.encode("utf-8")
     cursor = ts.QueryCursor(_QUERY_CONST_ADD_FOLD)
 
@@ -1445,7 +1441,7 @@ def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
 
     valid_matches = []
     for match in matches:
-        captures = {k: v[0] for k, v in match[1].items()}
+        captures = _first_caps(match[1])
         if captures["stmt1"].next_named_sibling == captures["stmt2"]:
             try:
                 n1 = int(
@@ -1473,7 +1469,7 @@ def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
 
 
 def mut_unfold_constant_add(s: str, rng: random.Random) -> str | None:
-    """Mutator operation."""
+    """Expand a constant addition into repeated increment-by-one statements."""
     b_source = s.encode("utf-8")
     cursor = ts.QueryCursor(_QUERY_CONST_ADD_UNFOLD)
 
@@ -1482,7 +1478,7 @@ def mut_unfold_constant_add(s: str, rng: random.Random) -> str | None:
 
     valid_matches = []
     for match in matches:
-        captures = {k: v[0] for k, v in match[1].items()}
+        captures = _first_caps(match[1])
         try:
             n = int(b_source[captures["n"].start_byte : captures["n"].end_byte].decode("utf-8"))
             if 1 < n <= 16:
@@ -1504,7 +1500,7 @@ def mut_unfold_constant_add(s: str, rng: random.Random) -> str | None:
 
 
 def mut_change_array_index_order(s: str, rng: random.Random) -> str | None:
-    """Mutator operation."""
+    """Swap array and index in a subscript expression (arr[i] to i[arr])."""
     b_source = s.encode("utf-8")
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
@@ -1517,7 +1513,7 @@ def mut_change_array_index_order(s: str, rng: random.Random) -> str | None:
 
 
 def mut_struct_vs_ptr_access(s: str, rng: random.Random) -> str | None:
-    """Mutator operation."""
+    """Convert ptr->field arrow access to (*ptr).field dereference form."""
     b_source = s.encode("utf-8")
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
@@ -1530,7 +1526,7 @@ def mut_struct_vs_ptr_access(s: str, rng: random.Random) -> str | None:
 
 
 def mut_change_return_type(s: str, rng: random.Random) -> str | None:
-    """Mutator operation."""
+    """Replace the function return type with a random integer type."""
     b_source = s.encode("utf-8")
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
@@ -1547,7 +1543,7 @@ def mut_change_return_type(s: str, rng: random.Random) -> str | None:
 
 
 def mut_split_cmp_chain(s: str, rng: random.Random) -> str | None:
-    """Mutator operation."""
+    """Split an if(a && b) into nested if(a) { if(b) ... } blocks."""
     b_source = s.encode("utf-8")
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
@@ -1561,7 +1557,7 @@ def mut_split_cmp_chain(s: str, rng: random.Random) -> str | None:
 
 
 def mut_merge_cmp_chain(s: str, rng: random.Random) -> str | None:
-    """Mutator operation."""
+    """Merge nested if(a) { if(b) } into a single if(a && b) condition."""
     b_source = s.encode("utf-8")
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
@@ -1575,7 +1571,7 @@ def mut_merge_cmp_chain(s: str, rng: random.Random) -> str | None:
 
 
 def mut_combine_ptr_arith(s: str, rng: random.Random) -> str | None:
-    """Mutator operation."""
+    """Combine two consecutive pointer arithmetic additions into one."""
     b_source = s.encode("utf-8")
     cursor = ts.QueryCursor(_QUERY_COMBINE_PTR_ARITH)
 
@@ -1584,7 +1580,7 @@ def mut_combine_ptr_arith(s: str, rng: random.Random) -> str | None:
 
     valid_matches: list[tuple[dict[str, ts.Node], int, int]] = []
     for match in matches:
-        captures = {k: v[0] for k, v in match[1].items()}
+        captures = _first_caps(match[1])
         try:
             n1 = int(b_source[captures["n1"].start_byte : captures["n1"].end_byte].decode("utf-8"))
             n2 = int(b_source[captures["n2"].start_byte : captures["n2"].end_byte].decode("utf-8"))
@@ -1609,7 +1605,7 @@ def mut_combine_ptr_arith(s: str, rng: random.Random) -> str | None:
 
 
 def mut_split_ptr_arith(s: str, rng: random.Random) -> str | None:
-    """Mutator operation."""
+    """Split a single pointer addition into two smaller additions."""
     b_source = s.encode("utf-8")
     cursor = ts.QueryCursor(_QUERY_SPLIT_PTR_ARITH)
 
@@ -1620,7 +1616,7 @@ def mut_split_ptr_arith(s: str, rng: random.Random) -> str | None:
     for match in matches:
         if not match[1]:
             continue
-        captures = {k: v[0] for k, v in match[1].items()}
+        captures = _first_caps(match[1])
         if "n1" not in captures or "v1" not in captures:
             continue
         try:
@@ -1657,7 +1653,7 @@ def mut_split_ptr_arith(s: str, rng: random.Random) -> str | None:
 
 
 def mut_change_param_order(s: str, rng: random.Random) -> str | None:
-    """Mutator operation."""
+    """Swap two parameters in a function definition's parameter list."""
     b_source = s.encode("utf-8")
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
@@ -1675,7 +1671,7 @@ def mut_change_param_order(s: str, rng: random.Random) -> str | None:
 
 
 def mut_toggle_calling_convention(s: str, rng: random.Random) -> str | None:
-    """Mutator operation."""
+    """Toggle between __cdecl and __stdcall calling conventions."""
     b_source = s.encode("utf-8")
 
     def _repl_existing(captures: dict[str, ts.Node]) -> bytes:
@@ -1701,7 +1697,7 @@ def mut_toggle_calling_convention(s: str, rng: random.Random) -> str | None:
 
 
 def mut_toggle_char_signedness(s: str, rng: random.Random) -> str | None:
-    """Mutator operation."""
+    """Cycle char type signedness: char -> unsigned -> signed -> char."""
     b_source = s.encode("utf-8")
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
@@ -1718,7 +1714,7 @@ def mut_toggle_char_signedness(s: str, rng: random.Random) -> str | None:
 
 
 def mut_comparison_boundary(s: str, rng: random.Random) -> str | None:
-    """Mutator operation."""
+    """Adjust comparison boundary by toggling between > 0 and >= 1 forms."""
     b_source = s.encode("utf-8")
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
@@ -1758,7 +1754,7 @@ def mut_insert_noop_block(s: str, rng: random.Random) -> str | None:
     if not matches:
         return None
     match = rng.choice(matches)
-    captures = {k: v[0] for k, v in match[1].items()}
+    captures = _first_caps(match[1])
     stmt_node = captures["stmt"]
     noop = b"if (0) {} "
     start = stmt_node.start_byte
@@ -1779,7 +1775,7 @@ def mut_introduce_local_alias(s: str, rng: random.Random) -> str | None:
     if not matches:
         return None
     match = rng.choice(matches)
-    captures = {k: v[0] for k, v in match[1].items()}
+    captures = _first_caps(match[1])
     var_node = captures["var"]
     stmt_node = captures["stmt"]
     var_name = b_source[var_node.start_byte : var_node.end_byte]
@@ -1812,7 +1808,7 @@ def mut_reorder_declarations(s: str, rng: random.Random) -> str | None:
     if not matches:
         return None
     match = rng.choice(matches)
-    captures = {k: v[0] for k, v in match[1].items()}
+    captures = _first_caps(match[1])
     d1 = captures["d1"]
     d2 = captures["d2"]
     d1_text = b_source[d1.start_byte : d1.end_byte]
@@ -1930,7 +1926,7 @@ def mut_flatten_nested_if(s: str, rng: random.Random) -> str | None:
     # Filter: outer body must contain ONLY the inner if (no other stmts)
     valid = []
     for match in matches:
-        caps = {k: v[0] for k, v in match[1].items()}
+        caps = _first_caps(match[1])
         outer_body = caps["outer_body"]
         # Count named children that are actual statements (not just braces)
         stmts = [c for c in outer_body.named_children]
@@ -1964,7 +1960,7 @@ def mut_extract_else_body(s: str, rng: random.Random) -> str | None:
         return None
 
     match = rng.choice(matches)
-    caps = {k: v[0] for k, v in match[1].items()}
+    caps = _first_caps(match[1])
 
     cond = b_source[caps["cond"].start_byte + 1 : caps["cond"].end_byte - 1]
     if_body = b_source[caps["if_body"].start_byte + 1 : caps["if_body"].end_byte - 1]
@@ -1998,7 +1994,7 @@ def mut_for_to_while(s: str, rng: random.Random) -> str | None:
         return None
 
     match = rng.choice(matches)
-    caps = {k: v[0] for k, v in match[1].items()}
+    caps = _first_caps(match[1])
 
     init = b_source[caps["init"].start_byte : caps["init"].end_byte] if "init" in caps else b""
     cond = b_source[caps["cond"].start_byte : caps["cond"].end_byte] if "cond" in caps else b""
@@ -2065,7 +2061,7 @@ def mut_if_to_ternary(s: str, rng: random.Random) -> str | None:
     # Filter: both assignments must target the same variable
     valid = []
     for match in matches:
-        caps = {k: v[0] for k, v in match[1].items()}
+        caps = _first_caps(match[1])
         var1 = b_source[caps["var1"].start_byte : caps["var1"].end_byte]
         var2 = b_source[caps["var2"].start_byte : caps["var2"].end_byte]
         if var1 == var2:
@@ -2099,7 +2095,7 @@ def mut_ternary_to_if(s: str, rng: random.Random) -> str | None:
         return None
 
     match = rng.choice(matches)
-    caps = {k: v[0] for k, v in match[1].items()}
+    caps = _first_caps(match[1])
 
     var = b_source[caps["var"].start_byte : caps["var"].end_byte]
     cond = b_source[caps["cond"].start_byte : caps["cond"].end_byte]
@@ -2142,7 +2138,7 @@ def mut_hoist_return(s: str, rng: random.Random) -> str | None:
         return None
 
     match = rng.choice(matches)
-    caps = {k: v[0] for k, v in match[1].items()}
+    caps = _first_caps(match[1])
     val = b_source[caps["val"].start_byte : caps["val"].end_byte]
     stmt = caps["stmt"]
 
@@ -2205,7 +2201,7 @@ def mut_swap_adjacent_stmts(s: str, rng: random.Random) -> str | None:
     # Filter: only swap assignment statements, check no dependencies
     valid = []
     for match in matches:
-        caps = {k: v[0] for k, v in match[1].items()}
+        caps = _first_caps(match[1])
         s1 = caps["s1"]
         s2 = caps["s2"]
         s1_text = b_source[s1.start_byte : s1.end_byte]
@@ -2290,7 +2286,7 @@ def mut_invert_loop_direction(s: str, rng: random.Random) -> str | None:
         return None
 
     match = rng.choice(matches)
-    caps = {k: v[0] for k, v in match[1].items()}
+    caps = _first_caps(match[1])
 
     var = b_source[caps["var"].start_byte : caps["var"].end_byte]
     limit = b_source[caps["limit"].start_byte : caps["limit"].end_byte]
@@ -2316,7 +2312,7 @@ def mut_compound_assign_toggle(s: str, rng: random.Random) -> str | None:
     short_cursor = ts.QueryCursor(_QUERY_EXPANDED_COMPOUND)
     short_matches = []
     for m in short_cursor.matches(tree.root_node):
-        caps = {k: v[0] for k, v in m[1].items()}
+        caps = _first_caps(m[1])
         var = b_source[caps["var"].start_byte : caps["var"].end_byte]
         var2 = b_source[caps["var2"].start_byte : caps["var2"].end_byte]
         if var == var2:
@@ -2327,7 +2323,7 @@ def mut_compound_assign_toggle(s: str, rng: random.Random) -> str | None:
         return None
 
     match, direction = rng.choice(all_matches)
-    caps = {k: v[0] for k, v in match[1].items()}
+    caps = _first_caps(match[1])
 
     var = b_source[caps["var"].start_byte : caps["var"].end_byte]
     op = b_source[caps["op"].start_byte : caps["op"].end_byte]
@@ -2372,7 +2368,7 @@ def mut_demorgan(s: str, rng: random.Random) -> str | None:
         return None
 
     match, kind = rng.choice(all_matches)
-    caps = {k: v[0] for k, v in match[1].items()}
+    caps = _first_caps(match[1])
 
     a = b_source[caps["a"].start_byte : caps["a"].end_byte]
     b = b_source[caps["b"].start_byte : caps["b"].end_byte]
@@ -2397,7 +2393,7 @@ def mut_postpre_increment(s: str, rng: random.Random) -> str | None:
     for q in [_QUERY_POST_INCREMENT, _QUERY_POST_DECREMENT]:
         cursor = ts.QueryCursor(q)
         for m in cursor.matches(tree.root_node):
-            caps = {k: v[0] for k, v in m[1].items()}
+            caps = _first_caps(m[1])
             expr_node = caps["expr"]
             var = b_source[caps["var"].start_byte : caps["var"].end_byte]
             text = b_source[expr_node.start_byte : expr_node.end_byte]
@@ -2429,7 +2425,7 @@ def mut_xor_zero_toggle(s: str, rng: random.Random) -> str | None:
 
     zero_cursor = ts.QueryCursor(_QUERY_ASSIGN_ZERO)
     for m in zero_cursor.matches(tree.root_node):
-        caps = {k: v[0] for k, v in m[1].items()}
+        caps = _first_caps(m[1])
         # Skip if inside a for-loop initializer
         parent = caps["expr"].parent
         if parent and parent.type == "for_statement":
@@ -2441,7 +2437,7 @@ def mut_xor_zero_toggle(s: str, rng: random.Random) -> str | None:
 
     xor_cursor = ts.QueryCursor(_QUERY_XOR_SELF)
     for m in xor_cursor.matches(tree.root_node):
-        caps = {k: v[0] for k, v in m[1].items()}
+        caps = _first_caps(m[1])
         var = b_source[caps["var"].start_byte : caps["var"].end_byte]
         candidates.append((caps, var + b" = 0;", "expr"))
 
@@ -2467,7 +2463,7 @@ def mut_negate_condition(s: str, rng: random.Random) -> str | None:
         return None
 
     match = rng.choice(matches)
-    caps = {k: v[0] for k, v in match[1].items()}
+    caps = _first_caps(match[1])
     cond_node = caps["cond"]
     cond = b_source[cond_node.start_byte + 1 : cond_node.end_byte - 1].strip()
 
@@ -2507,18 +2503,6 @@ _QUERY_BIN_COND_IF = ts.Query(
             left: (_) @left
             right: (_) @right) @bin)
         consequence: (_) @body) @stmt
-""",
-)
-
-_QUERY_NESTED_IF_P3 = ts.Query(
-    _C_LANGUAGE,
-    """
-    (if_statement
-        condition: (parenthesized_expression) @cond1
-        consequence: (compound_statement
-            (if_statement
-                condition: (parenthesized_expression) @cond2
-                consequence: (_) @body) @inner_if) @outer_body) @stmt
 """,
 )
 
@@ -2626,7 +2610,7 @@ def mut_while_to_goto_loop(s: str, rng: random.Random) -> str | None:
         return None
 
     match = rng.choice(matches)
-    caps = {k: v[0] for k, v in match[1].items()}
+    caps = _first_caps(match[1])
 
     cond = b_source[caps["cond"].start_byte : caps["cond"].end_byte]
     body = b_source[caps["body"].start_byte : caps["body"].end_byte]
@@ -2689,7 +2673,7 @@ def mut_inject_dummy_var(s: str, rng: random.Random) -> str | None:
         return None
 
     match = rng.choice(matches)
-    caps = {k: v[0] for k, v in match[1].items()}
+    caps = _first_caps(match[1])
     body_node = caps["body"]
 
     dummy_id = rng.randint(0, 99)
@@ -2720,7 +2704,7 @@ def mut_inject_dummy_array(s: str, rng: random.Random) -> str | None:
         return None
 
     match = rng.choice(matches)
-    caps = {k: v[0] for k, v in match[1].items()}
+    caps = _first_caps(match[1])
     body_node = caps["body"]
 
     pad_id = rng.randint(0, 99)
@@ -2762,7 +2746,7 @@ def mut_scope_variable(s: str, rng: random.Random) -> str | None:
         return None
 
     match = rng.choice(matches)
-    caps = {k: v[0] for k, v in match[1].items()}
+    caps = _first_caps(match[1])
 
     d1 = caps["d1"]
     next_stmt = caps["next_stmt"]
@@ -2830,7 +2814,7 @@ def mut_decouple_index_math(s: str, rng: random.Random) -> str | None:
         idx_left = b_source[captures["idx_left"].start_byte : captures["idx_left"].end_byte]
         idx_right = b_source[captures["idx_right"].start_byte : captures["idx_right"].end_byte]
 
-        off_id = random.randint(0, 99)
+        off_id = rng.randint(0, 99)
         off_name = f"_off_{off_id}".encode()
         if off_name in b_source:
             return b_source[captures["expr"].start_byte : captures["expr"].end_byte]
@@ -2864,7 +2848,7 @@ def mut_preinit_byte_load(s: str, rng: random.Random) -> str | None:
         return None
 
     match = rng.choice(matches)
-    caps = {k: v[0] for k, v in match[1].items()}
+    caps = _first_caps(match[1])
 
     var = b_source[caps["var"].start_byte : caps["var"].end_byte]
     init_expr = b_source[caps["init"].start_byte : caps["init"].end_byte]
@@ -2933,7 +2917,7 @@ def mut_swap_register_keywords(s: str, rng: random.Random) -> str | None:
     reg_decls = []
     non_reg_decls = []
     for m in all_decls:
-        caps = {k: v[0] for k, v in m[1].items()}
+        caps = _first_caps(m[1])
         decl_node = caps["decl"]
         text = b_source[decl_node.start_byte : decl_node.end_byte]
         if b"register " in text:
@@ -3021,7 +3005,7 @@ def mut_add_volatile_intermediate(s: str, rng: random.Random) -> str | None:
         return None
 
     match = rng.choice(matches)
-    caps = {k: v[0] for k, v in match[1].items()}
+    caps = _first_caps(match[1])
 
     var = b_source[caps["var"].start_byte : caps["var"].end_byte]
     rhs = b_source[caps["rhs"].start_byte : caps["rhs"].end_byte]
@@ -3065,7 +3049,7 @@ def mut_reorder_register_vars(s: str, rng: random.Random) -> str | None:
     # Collect all register declarations
     reg_nodes: list[ts.Node] = []
     for m in matches:
-        caps = {k: v[0] for k, v in m[1].items()}
+        caps = _first_caps(m[1])
         reg_nodes.append(caps["stmt"])
 
     if len(reg_nodes) < 2:
@@ -3378,7 +3362,7 @@ def mut_move_switch_default(s: str, rng: random.Random) -> str | None:
 
 
 def mut_if_chain_to_switch(s: str, rng: random.Random) -> str | None:
-    """Mutator operation."""
+    """Convert an if/else-if equality chain into a switch statement."""
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
@@ -3479,7 +3463,7 @@ def mut_if_chain_to_switch(s: str, rng: random.Random) -> str | None:
 
 
 def mut_switch_add_explicit_default(s: str, rng: random.Random) -> str | None:
-    """Mutator operation."""
+    """Add an explicit default case to a switch that lacks one."""
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
@@ -3525,7 +3509,7 @@ def mut_switch_add_explicit_default(s: str, rng: random.Random) -> str | None:
 
 
 def mut_wrap_in_else(s: str, rng: random.Random) -> str | None:
-    """Mutator operation."""
+    """Wrap statements after an early-exit if into an else block."""
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
@@ -3597,7 +3581,7 @@ def mut_wrap_in_else(s: str, rng: random.Random) -> str | None:
 
 
 def mut_switch_break_to_return(s: str, rng: random.Random) -> str | None:
-    """Mutator operation."""
+    """Replace switch break statements with the trailing return statement."""
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
@@ -3660,7 +3644,7 @@ def mut_switch_break_to_return(s: str, rng: random.Random) -> str | None:
 
 
 def mut_split_and_condition(s: str, rng: random.Random) -> str | None:
-    """Mutator operation."""
+    """Split an if(a && b) into nested if(a) { if(b) ... } blocks."""
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
@@ -3717,7 +3701,7 @@ def mut_split_and_condition(s: str, rng: random.Random) -> str | None:
 
 
 def mut_split_or_condition(s: str, rng: random.Random) -> str | None:
-    """Mutator operation."""
+    """Split if(a || b) into separate if(a) ... else if(b) ... blocks."""
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
@@ -3775,7 +3759,7 @@ def mut_split_or_condition(s: str, rng: random.Random) -> str | None:
 
 
 def mut_merge_nested_ifs(s: str, rng: random.Random) -> str | None:
-    """Mutator operation."""
+    """Merge nested if(a) { if(b) } into a single if(a && b) condition."""
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
@@ -3837,7 +3821,7 @@ def mut_merge_nested_ifs(s: str, rng: random.Random) -> str | None:
 
 
 def mut_extract_condition_to_var(s: str, rng: random.Random) -> str | None:
-    """Mutator operation."""
+    """Hoist an if-condition into a temporary variable assignment."""
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
@@ -3905,7 +3889,7 @@ def mut_extract_condition_to_var(s: str, rng: random.Random) -> str | None:
 
 
 def mut_loop_condition_extraction(s: str, rng: random.Random) -> str | None:
-    """Mutator operation."""
+    """Rewrite while(cond) as while(1) { if(!cond) break; ... }."""
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
@@ -4254,7 +4238,7 @@ def mut_register_param(s: str, rng: random.Random) -> str | None:
     # Collect params that don't already have 'register'
     valid = []
     for match in matches:
-        caps = {k: v[0] for k, v in match[1].items()}
+        caps = _first_caps(match[1])
         param = caps["param"]
         text = b_source[param.start_byte : param.end_byte]
         if b"register" not in text and b"..." not in text:
@@ -4278,7 +4262,7 @@ def mut_unregister_param(s: str, rng: random.Random) -> str | None:
 
     valid = []
     for match in matches:
-        caps = {k: v[0] for k, v in match[1].items()}
+        caps = _first_caps(match[1])
         param = caps["param"]
         text = b_source[param.start_byte : param.end_byte]
         if b"register " in text:
@@ -4335,7 +4319,7 @@ def mut_remove_loop_break(s: str, rng: random.Random) -> str | None:
         return None
 
     match = rng.choice(matches)
-    caps = {k: v[0] for k, v in match[1].items()}
+    caps = _first_caps(match[1])
     brk = caps["brk"]
 
     # Remove the break statement and any trailing whitespace/newline
@@ -4362,7 +4346,7 @@ def mut_add_loop_break(s: str, rng: random.Random) -> str | None:
         return None
 
     match = rng.choice(matches)
-    caps = {k: v[0] for k, v in match[1].items()}
+    caps = _first_caps(match[1])
     body = caps["body"]
 
     # Don't add if there's already a break as the last statement
@@ -4413,7 +4397,7 @@ def mut_if_else_call_to_ternary_arg(s: str, rng: random.Random) -> str | None:
 
     valid = []
     for match in matches:
-        caps = {k: v[0] for k, v in match[1].items()}
+        caps = _first_caps(match[1])
         fn1 = b_source[caps["fn1"].start_byte : caps["fn1"].end_byte]
         fn2 = b_source[caps["fn2"].start_byte : caps["fn2"].end_byte]
         if fn1 != fn2:
@@ -4492,7 +4476,7 @@ def mut_ternary_arg_to_if_else_call(s: str, rng: random.Random) -> str | None:
         return None
 
     match = rng.choice(matches)
-    caps = {k: v[0] for k, v in match[1].items()}
+    caps = _first_caps(match[1])
 
     fn = b_source[caps["fn"].start_byte : caps["fn"].end_byte]
     cond = b_source[caps["cond"].start_byte : caps["cond"].end_byte]
@@ -4568,7 +4552,7 @@ def mut_hoist_common_tail(s: str, rng: random.Random) -> str | None:
 
     valid = []
     for match in matches:
-        caps = {k: v[0] for k, v in match[1].items()}
+        caps = _first_caps(match[1])
         if_body = caps["if_body"]
         else_body = caps["else_body"]
 
@@ -4677,7 +4661,7 @@ def mut_sink_common_tail(s: str, rng: random.Random) -> str | None:
         return None
 
     match = rng.choice(matches)
-    caps = {k: v[0] for k, v in match[1].items()}
+    caps = _first_caps(match[1])
     if_body = caps["if_body"]
     else_body = caps["else_body"]
     next_stmt = caps["next_stmt"]
@@ -4877,10 +4861,10 @@ def mut_inject_block_register(s: str, rng: random.Random) -> str | None:
 
     candidates: list[tuple[str, dict[str, ts.Node]]] = []
     for m in loop_matches:
-        caps = {k: v[0] for k, v in m[1].items()}
+        caps = _first_caps(m[1])
         candidates.append(("loop", caps))
     for m in adj_matches:
-        caps = {k: v[0] for k, v in m[1].items()}
+        caps = _first_caps(m[1])
         candidates.append(("adj", caps))
 
     if not candidates:
@@ -5011,7 +4995,7 @@ def mut_zero_to_bitand(s: str, rng: random.Random) -> str | None:
     # Forward: var = 0 → var &= 0
     zero_cursor = ts.QueryCursor(_QUERY_ASSIGN_ZERO)
     for m in zero_cursor.matches(tree.root_node):
-        caps = {k: v[0] for k, v in m[1].items()}
+        caps = _first_caps(m[1])
         # Skip if inside a for-loop initializer
         parent = caps["expr"].parent
         if parent and parent.type == "for_statement":
@@ -5024,7 +5008,7 @@ def mut_zero_to_bitand(s: str, rng: random.Random) -> str | None:
     # Reverse: var &= 0 → var = 0
     bitand_cursor = ts.QueryCursor(_QUERY_BITAND_ZERO)
     for m in bitand_cursor.matches(tree.root_node):
-        caps = {k: v[0] for k, v in m[1].items()}
+        caps = _first_caps(m[1])
         var = b_source[caps["var"].start_byte : caps["var"].end_byte]
         candidates.append((caps, var + b" = 0;", "expr"))
 
@@ -5130,7 +5114,7 @@ def mut_pragma_optimize(s: str, rng: random.Random) -> str | None:
         return None
 
     match = rng.choice(matches)
-    caps = {k: v[0] for k, v in match[1].items()}
+    caps = _first_caps(match[1])
     func_node = caps["func"]
 
     # Don't inject if already present
@@ -5223,7 +5207,7 @@ def mut_invert_if_else(s: str, rng: random.Random) -> str | None:
         return None
 
     match = rng.choice(matches)
-    caps = {k: v[0] for k, v in match[1].items()}
+    caps = _first_caps(match[1])
 
     op_node = caps["op"]
     op_text = b_source[op_node.start_byte : op_node.end_byte]
@@ -5273,7 +5257,7 @@ def mut_dummy_stack_vars(s: str, rng: random.Random) -> str | None:
         return None
 
     match = rng.choice(matches)
-    caps = {k: v[0] for k, v in match[1].items()}
+    caps = _first_caps(match[1])
     body_node = caps["body"]
 
     pad_id = rng.randint(0, 99)
@@ -5327,7 +5311,7 @@ def mut_inject_dummy_registers(s: str, rng: random.Random) -> str | None:
         return None
 
     match = rng.choice(matches)
-    caps = {k: v[0] for k, v in match[1].items()}
+    caps = _first_caps(match[1])
     body_node = caps["body"]
 
     count = rng.randint(1, 3)
@@ -5373,19 +5357,19 @@ def mut_loop_convert(s: str, rng: random.Random) -> str | None:
     # Collect while loops
     w_cursor = ts.QueryCursor(_QUERY_WHILE_LOOP)
     for m in w_cursor.matches(tree.root_node):
-        caps = {k: v[0] for k, v in m[1].items()}
+        caps = _first_caps(m[1])
         candidates.append(("while", caps))
 
     # Collect do-while loops
     dw_cursor = ts.QueryCursor(_QUERY_DO_WHILE_FULL)
     for m in dw_cursor.matches(tree.root_node):
-        caps = {k: v[0] for k, v in m[1].items()}
+        caps = _first_caps(m[1])
         candidates.append(("dowhile", caps))
 
     # Collect for loops
     f_cursor = ts.QueryCursor(_QUERY_FOR_LOOP)
     for m in f_cursor.matches(tree.root_node):
-        caps = {k: v[0] for k, v in m[1].items()}
+        caps = _first_caps(m[1])
         # Only convert simple for(; cond ;) loops (no init/update)
         has_init = (
             "init" in caps
@@ -5480,7 +5464,7 @@ def mut_extract_complex_args(s: str, rng: random.Random) -> str | None:
     # Strategy 1: nested function calls in arguments
     nc_cursor = ts.QueryCursor(_QUERY_NESTED_CALL_ARG)
     for m in nc_cursor.matches(tree.root_node):
-        caps = {k: v[0] for k, v in m[1].items()}
+        caps = _first_caps(m[1])
         stmt_node = caps["stmt"]
         inner_call_node = caps["inner_call"]
         inner_text = b_source[inner_call_node.start_byte : inner_call_node.end_byte]
@@ -5489,7 +5473,7 @@ def mut_extract_complex_args(s: str, rng: random.Random) -> str | None:
     # Strategy 2: binary expressions as arguments (ptr arithmetic, shifts, etc.)
     ca_cursor = ts.QueryCursor(_QUERY_COMPLEX_ARG)
     for m in ca_cursor.matches(tree.root_node):
-        caps = {k: v[0] for k, v in m[1].items()}
+        caps = _first_caps(m[1])
         stmt_node = caps["stmt"]
         arg_node = caps["arg"]
         # Only extract if not trivially simple
@@ -5705,6 +5689,9 @@ def mutate_code(
 ) -> str | tuple[str, str]:
     """Apply a random mutation to the source code.
 
+    Attempts up to ``_MUTATION_ATTEMPTS`` mutations to find a syntactically
+    valid change.  Returns original source unchanged if all attempts fail.
+
     When *mutation_weights* is provided, it maps mutation function names
     (e.g. ``"mut_swap_if_else"``) to relative weights.  Mutations not
     listed default to weight 1.0.
@@ -5717,7 +5704,7 @@ def mutate_code(
         if not any(w > 0 for w in weights):
             weights = None
 
-    for _ in range(10):
+    for _ in range(_MUTATION_ATTEMPTS):
         if weights:
             mut_func = rng.choices(ALL_MUTATIONS, weights=weights, k=1)[0]
         else:

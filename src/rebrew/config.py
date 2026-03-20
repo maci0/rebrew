@@ -5,8 +5,8 @@ simple attributes so that tool scripts no longer need to hardcode paths,
 image-base addresses, or compiler flags.
 
 The configuration supports **multiple targets**.  Each target has its own
-binary, source directory, and function list.  Compiler settings are shared
-across all targets.
+binary, source directory, and function list.  Compiler settings default to
+the global ``[compiler]`` section but can be overridden per target.
 
 Usage in any tool::
 
@@ -174,8 +174,7 @@ class ProjectConfig:
         import capstone
 
         preset = _ARCH_PRESETS.get(self.arch)
-        raw_name = preset.get("capstone_arch", "CS_ARCH_X86") if preset else "CS_ARCH_X86"
-        name = raw_name if isinstance(raw_name, str) else "CS_ARCH_X86"
+        name = preset.get("capstone_arch", "CS_ARCH_X86") if preset else "CS_ARCH_X86"
         return int(getattr(capstone, name))
 
     @property
@@ -184,8 +183,7 @@ class ProjectConfig:
         import capstone
 
         preset = _ARCH_PRESETS.get(self.arch)
-        raw_name = preset.get("capstone_mode", "CS_MODE_32") if preset else "CS_MODE_32"
-        name = raw_name if isinstance(raw_name, str) else "CS_MODE_32"
+        name = preset.get("capstone_mode", "CS_MODE_32") if preset else "CS_MODE_32"
         return int(getattr(capstone, name))
 
     def va_to_file_offset(self, va: int) -> int:
@@ -318,7 +316,7 @@ def _detect_binary_layout(bin_path: Path, fmt: str = "auto") -> dict[str, int]:
 
 
 # Well-known MSVC CRT source directory patterns (relative to project root).
-# Each tuple is (glob_pattern_under_tools, origin_name).
+# Each tuple is (relative_path_from_tools, origin_name).
 _CRT_SOURCE_PATTERNS: list[tuple[str, str]] = [
     ("MSVC600/VC98/CRT/SRC", "MSVCRT"),
     ("MSVC400/CRT/SRC", "MSVCRT"),
@@ -367,7 +365,7 @@ def detect_crt_sources(root: Path) -> dict[str, str]:
     return found
 
 
-def _find_root(start: Path | None = None) -> Path:
+def find_root(start: Path | None = None) -> Path:
     """Walk up from *start* (or cwd) to find rebrew-project.toml.
 
     Since rebrew is an installable package, __file__ may point into
@@ -455,7 +453,7 @@ def load_config(
                 the first target defined in the file.
 
     """
-    root = _find_root(root)
+    root = find_root(root)
     toml_path = root / "rebrew-project.toml"
     if not toml_path.exists():
         raise FileNotFoundError(f"Config not found: {toml_path}")
@@ -553,9 +551,9 @@ def load_config(
 
     project_raw = raw.get("project", {})
 
-    # _resolve() never returns None here: .get() always supplies a non-None default.
+    # _resolve() can return None even with a non-None input; defensive checks follow.
     reversed_dir = _resolve(root, sources.get("reversed_dir", f"src/{target}"))
-    if reversed_dir is None:  # pragma: no cover — always has non-None default
+    if reversed_dir is None:  # pragma: no cover
         raise ValueError(f"Failed to resolve reversed_dir for target '{target}'")
     function_list = _resolve(root, sources.get("function_list", f"src/{target}/functions.txt"))
     if function_list is None:  # pragma: no cover
@@ -576,7 +574,7 @@ def load_config(
     if compiler_libs is None:  # pragma: no cover
         raise ValueError("Failed to resolve compiler libs path")
 
-    # cflags_presets: reserved for future per-origin flag lookup (not yet wired into ProjectConfig)
+    # cflags_presets: parsed from TOML into cfg.compiler_profiles (not exposed as cflags_presets)
 
     cfg = ProjectConfig(
         root=root,

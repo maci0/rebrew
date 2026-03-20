@@ -12,7 +12,6 @@ Usage:
 
 import argparse
 import importlib.util
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -191,8 +190,7 @@ def main():
     )
 
     print("Cloning decomp.me (sparse, depth-1)...")
-    tmp_dir = tempfile.mkdtemp(prefix="decomp_sync_")
-    try:
+    with tempfile.TemporaryDirectory(prefix="decomp_sync_") as tmp_dir:
         repo_dir = clone_decomp_me(tmp_dir)
         print(f"  → Cloned to {repo_dir}")
 
@@ -226,9 +224,6 @@ def main():
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(source)
             print(f"\nWrote {output_path}")
-
-    finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

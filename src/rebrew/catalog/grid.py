@@ -4,6 +4,7 @@ Builds cell-level coverage maps for binary sections, handling jump table
 detection, gap absorption, padding classification, and thunk identification.
 """
 
+import bisect
 import hashlib
 import math
 from pathlib import Path
@@ -13,12 +14,18 @@ if TYPE_CHECKING:
     from rebrew.catalog.models import GhidraDataLabel
 
 from rebrew.annotation import Annotation
-from rebrew.catalog.loaders import extract_dll_bytes, load_ghidra_data_labels
+from rebrew.catalog.loaders import load_ghidra_data_labels
 from rebrew.catalog.registry import RegistryEntry, is_jump_table
 from rebrew.catalog.sections import get_globals, get_sections, has_back_jumps, trim_trailing_padding
 
 # Maximum trailing gap (in bytes) that can be absorbed into the preceding function
 _MAX_TAIL_ABSORB = 64
+
+# Grid cell sizes per section type (bytes per cell unit)
+_TEXT_CELL_BYTES = 64
+_BSS_CELL_BYTES = 4096
+_DEFAULT_CELL_BYTES = 16
+_GRID_COLUMNS = 64
 
 
 def merge_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
@@ -36,10 +43,73 @@ def merge_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
     return result
 
 
+def _build_section_index(
+    sections: dict[str, Any],
+) -> tuple[list[int], list[tuple[str, int, int, int]]]:
+    """Build sorted section boundaries for O(log n) VA → section lookup.
+
+    Returns (sorted_starts, section_info) where section_info[i] is
+    (name, va_start, va_end, file_offset) for the section whose start is
+    sorted_starts[i].
+    """
+    starts: list[int] = []
+    info: list[tuple[str, int, int, int]] = []
+    for sname, sdata in sections.items():
+        s = sdata["va"]
+        starts.append(s)
+        info.append((sname, s, s + sdata["size"], sdata["fileOffset"]))
+    # Sort by VA start
+    paired = sorted(zip(starts, info, strict=True))
+    return [p[0] for p in paired], [p[1] for p in paired]
+
+
+def _lookup_section(
+    va: int,
+    sorted_starts: list[int],
+    section_info: list[tuple[str, int, int, int]],
+) -> tuple[str, int, int] | None:
+    """O(log n) section lookup via bisect.
+
+    Returns (section_name, file_offset, text_offset) or None.
+    """
+    idx = bisect.bisect_right(sorted_starts, va) - 1
+    if idx < 0:
+        return None
+    sname, s_va, s_end, s_file_off = section_info[idx]
+    if va < s_end:
+        return sname, s_file_off + (va - s_va), va - s_va
+    return None
+
+
+def _build_label_index(
+    data_labels: dict[int, "GhidraDataLabel"],
+) -> tuple[list[int], list[tuple[int, "GhidraDataLabel"]]]:
+    """Build sorted label boundaries for O(log n) lookup."""
+    items = sorted(data_labels.items())
+    starts = [va for va, _ in items]
+    info = [(va, dl) for va, dl in items]
+    return starts, info
+
+
 def _find_ghidra_data_label(
-    va: int, data_labels: dict[int, "GhidraDataLabel"]
+    va: int,
+    data_labels: dict[int, "GhidraDataLabel"],
+    _label_index: tuple[list[int], list[tuple[int, "GhidraDataLabel"]]] | None = None,
 ) -> tuple[int, "GhidraDataLabel"] | None:
-    """Return (label_va, label_dict) if *va* falls inside a known Ghidra data label region."""
+    """Return (label_va, label_dict) if *va* falls inside a known Ghidra data label region.
+
+    When *_label_index* is provided (pre-built sorted index), uses O(log n)
+    bisect lookup instead of linear scan.
+    """
+    if _label_index is not None:
+        starts, info = _label_index
+        idx = bisect.bisect_right(starts, va) - 1
+        if idx >= 0:
+            dl_va, dl_info = info[idx]
+            if dl_va <= va < dl_va + dl_info.size:
+                return dl_va, dl_info
+        return None
+    # Fallback to linear scan
     for dl_va, dl_info in data_labels.items():
         if dl_va <= va < dl_va + dl_info.size:
             return dl_va, dl_info
@@ -55,7 +125,11 @@ def generate_data_json(
     src_dir: Path | None = None,
     root_dir: Path | None = None,
 ) -> dict[str, Any]:
-    """Generate db/data.json structure."""
+    """Generate the coverage database structure (db/data.json).
+
+    Builds function coverage maps, cell-level grids per section, and gap
+    classification from annotations and the target binary.
+    """
     by_va: dict[int, list[Annotation]] = {}
     for e in entries:
         by_va.setdefault(e.va, []).append(e)
@@ -103,6 +177,7 @@ def generate_data_json(
             sections[k] = dict(v)
     globals_dict = get_globals(src_dir) if src_dir else {}
     ghidra_data_labels = load_ghidra_data_labels(src_dir)
+    label_index = _build_label_index(ghidra_data_labels) if ghidra_data_labels else None
 
     # Build thunk offset set from registry
     thunk_offsets: dict[int, str] = {}
@@ -116,6 +191,7 @@ def generate_data_json(
     image_base = 0
     text_raw_offset = 0
     text_data: bytes | None = None
+    _bin_data: bytes | None = None  # Full binary bytes for batch function extraction
     if bin_path and bin_path.exists():
         from rebrew.binary_loader import load_binary
 
@@ -123,10 +199,11 @@ def generate_data_json(
             info = load_binary(bin_path)
             image_base = info.image_base
             text_raw_offset = info.text_raw_offset
+            _bin_data = info.data  # Cache full binary for O(1) function byte extraction
             # Capture raw .text section bytes for padding detection
             if ".text" in info.sections:
                 sec = info.sections[".text"]
-                text_data = info.data[sec.file_offset : sec.file_offset + sec.size]
+                text_data = _bin_data[sec.file_offset : sec.file_offset + sec.size]
         except (OSError, KeyError, ValueError):
             pass
 
@@ -138,23 +215,22 @@ def generate_data_json(
             "fileOffset": text_raw_offset,
         }
 
+    # Pre-build section index for O(log n) VA lookups
+    sec_sorted_starts, sec_info = _build_section_index(sections)
+
     functions = {}
     for va in sorted(unique_vas):
         elist = by_va[va]
         e = elist[0]
 
-        # Find which section this VA belongs to
+        # Find which section this VA belongs to (O(log n) via bisect)
         sec_name = ".text"
         file_off = 0
         text_off = 0
-        found_in_section = False
-        for sname, sdata in sections.items():
-            if sdata["va"] <= va < sdata["va"] + sdata["size"]:
-                sec_name = sname
-                file_off = sdata["fileOffset"] + (va - sdata["va"])
-                text_off = va - sdata["va"]
-                found_in_section = True
-                break
+        sec_result = _lookup_section(va, sec_sorted_starts, sec_info)
+        found_in_section = sec_result is not None
+        if sec_result is not None:
+            sec_name, file_off, text_off = sec_result
 
         # Fallback if not found in any section
         if not found_in_section and image_base:
@@ -172,8 +248,10 @@ def generate_data_json(
             continue
 
         fn_hash = ""
-        if bin_path and bin_path.exists():
-            raw = extract_dll_bytes(bin_path, file_off, canonical_size)
+        if _bin_data is not None:
+            raw = _bin_data[file_off : file_off + canonical_size]
+            # Trim trailing CC/90 padding (same as extract_dll_bytes)
+            raw = raw[: trim_trailing_padding(raw)] if raw else b""
             if raw:
                 fn_hash = hashlib.sha256(raw).hexdigest()
 
@@ -206,12 +284,12 @@ def generate_data_json(
         sec_va = sec_data["va"]
         sec_size = sec_data["size"]
         if sec_name == ".text":
-            unit_bytes = 64
+            unit_bytes = _TEXT_CELL_BYTES
         elif sec_name == ".bss":
-            unit_bytes = 4096
+            unit_bytes = _BSS_CELL_BYTES
         else:
-            unit_bytes = 16
-        columns = 64
+            unit_bytes = _DEFAULT_CELL_BYTES
+        columns = _GRID_COLUMNS
 
         items_by_off = {}
         if sec_name == ".text":
@@ -245,26 +323,26 @@ def generate_data_json(
                 end_off = item_off + item_data["size"]
                 func_end_to_name[end_off] = item_data["name"]
 
-        # --- Pre-pass: absorb jump table / out-of-line gaps into parent functions ---
+        # --- Pre-pass: absorb jump table / out-of-line gaps into parent functions
+        #     by extending function sizes in items_by_off (iterates until stable) ---
         if sec_name == ".text" and text_data is not None:
             absorbed_any = True
             while absorbed_any:
                 absorbed_any = False
-                # Rebuild func_end_to_name after each round (sizes may have changed)
+                # Rebuild func_end_to_name and reverse lookup after each round
                 func_end_to_name.clear()
+                name_end_to_start: dict[tuple[str, int], int] = {}
                 for item_off, item_data in items_by_off.items():
                     end_off = item_off + item_data["size"]
                     func_end_to_name[end_off] = item_data["name"]
+                    name_end_to_start[(item_data["name"], end_off)] = item_off
 
                 for func_end_off in sorted(func_end_to_name):
                     if func_end_off >= sec_size:
                         continue
-                    # Find next function start after this end
-                    next_func_off = sec_size
-                    for s in item_starts:
-                        if s > func_end_off:
-                            next_func_off = s
-                            break
+                    # Find next function start after this end (O(log n) via bisect)
+                    bis_idx = bisect.bisect_right(item_starts, func_end_off)
+                    next_func_off = item_starts[bis_idx] if bis_idx < len(item_starts) else sec_size
 
                     # Check what's in the gap
                     gap_bytes = text_data[func_end_off:next_func_off]
@@ -274,7 +352,9 @@ def generate_data_json(
                     absorb_size = 0
 
                     # Check Ghidra data labels at gap start
-                    dl_result = _find_ghidra_data_label(sec_va + func_end_off, ghidra_data_labels)
+                    dl_result = _find_ghidra_data_label(
+                        sec_va + func_end_off, ghidra_data_labels, _label_index=label_index
+                    )
                     is_switch_data = False
                     if dl_result is not None:
                         label_va, dl_info = dl_result
@@ -293,14 +373,9 @@ def generate_data_json(
 
                     # Check for out-of-line code (jumps back into function body)
                     if absorb_size == 0 and trim_trailing_padding(gap_bytes) > 0:
-                        func_start_off = None
-                        for ioff, idata in items_by_off.items():
-                            if (
-                                idata["name"] == func_end_to_name[func_end_off]
-                                and ioff + idata["size"] == func_end_off
-                            ):
-                                func_start_off = ioff
-                                break
+                        func_start_off = name_end_to_start.get(
+                            (func_end_to_name[func_end_off], func_end_off)
+                        )
                         if func_start_off is not None and has_back_jumps(
                             gap_bytes, func_start_off, func_end_off, base_offset=func_end_off
                         ):
@@ -319,19 +394,14 @@ def generate_data_json(
 
                     if absorb_size > 0:
                         parent_name = func_end_to_name[func_end_off]
-                        # Find the parent in items_by_off
-                        for ioff, idata in items_by_off.items():
-                            if (
-                                idata["name"] == parent_name
-                                and ioff + idata["size"] == func_end_off
-                            ):
-                                idata["size"] += absorb_size
-                                # Also update the functions dict if present
-                                fn_key = parent_name
-                                if fn_key in functions:
-                                    functions[fn_key]["size"] += absorb_size
-                                absorbed_any = True
-                                break
+                        # Find the parent via pre-built reverse lookup (O(1))
+                        parent_off = name_end_to_start.get((parent_name, func_end_off))
+                        if parent_off is not None and parent_off in items_by_off:
+                            items_by_off[parent_off]["size"] += absorb_size
+                            # Also update the functions dict if present
+                            if parent_name in functions:
+                                functions[parent_name]["size"] += absorb_size
+                            absorbed_any = True
 
                 if absorbed_any:
                     item_starts = sorted(items_by_off)
@@ -358,7 +428,7 @@ def generate_data_json(
 
             next_off = item_starts[idx] if idx < len(item_starts) else sec_size
             gap_end = min(sec_size, off + unit_bytes, next_off)
-            # Classify gap: padding > ghidra label > thunk > data > none
+            # Classify gap via conditional checks (padding → ghidra label → thunk → jump table → none)
             gap_state = "none"
             gap_label: str | None = None
             gap_parent: str | None = None
@@ -367,7 +437,9 @@ def generate_data_json(
                 if gap_bytes and trim_trailing_padding(gap_bytes) == 0:
                     gap_state = "padding"
                 else:
-                    dl_result = _find_ghidra_data_label(sec_va + off, ghidra_data_labels)
+                    dl_result = _find_ghidra_data_label(
+                        sec_va + off, ghidra_data_labels, _label_index=label_index
+                    )
                     if dl_result is not None:
                         label_va, dl_info = dl_result
                         gap_state = dl_info.state

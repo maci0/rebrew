@@ -106,10 +106,16 @@ class TestCompileCacheKey:
         assert len(key) == 64
         int(key, 16)  # validates hex
 
-    def test_schema_version_in_key(self) -> None:
-        k = compile_cache_key("src", "f.c", ["/O2"], ["/inc"], "wine CL")
-        assert isinstance(k, str)
-        assert CACHE_SCHEMA_VERSION == 1
+    def test_schema_version_in_key(self, monkeypatch) -> None:
+        k1 = compile_cache_key("src", "f.c", ["/O2"], ["/inc"], "wine CL")
+        assert isinstance(k1, str)
+        # Changing the schema version must produce a different cache key,
+        # proving the version is incorporated into the hash.
+        import rebrew.compile_cache as cc_mod
+
+        monkeypatch.setattr(cc_mod, "CACHE_SCHEMA_VERSION", CACHE_SCHEMA_VERSION + 1)
+        k2 = compile_cache_key("src", "f.c", ["/O2"], ["/inc"], "wine CL")
+        assert k1 != k2
 
 
 class TestGetCompileCache:

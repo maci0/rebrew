@@ -7,14 +7,16 @@ function bytes from linked binaries (PE, ELF, Mach-O).
 All format parsing is backed by LIEF.
 """
 
+import bisect
 import struct
 import warnings
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from rebrew.catalog.sections import PADDING_BYTES as _PADDING_BYTES
-
+# Padding opcodes that can be trimmed from function tails (INT3 and NOP).
+# Duplicated here to avoid an upward dependency on catalog.sections.
+_PADDING_BYTES: tuple[int, ...] = (0xCC, 0x90)
 _PADDING_STRIP = bytes(_PADDING_BYTES)
 
 
@@ -103,17 +105,18 @@ def _parse_coff_symbol_bytes(
     content = bytes(section.content)
     func_start = target_sym.value
 
-    # Find the end of this function: next symbol in same section with higher offset
+    # Build sorted offsets for this section to find func_end in O(log n)
+    sec_offsets = sorted(
+        sym.value
+        for sym in coff.symbols
+        if sym.section is not None
+        and sym.section.name == section.name
+        and not str(sym.name).startswith("$")
+    )
     func_end = len(content)
-    for sym in coff.symbols:
-        if (
-            sym.section is not None
-            and sym.section.name == section.name
-            and sym.value > func_start
-            and sym.value < func_end
-            and not str(sym.name).startswith("$")
-        ):
-            func_end = sym.value
+    idx = bisect.bisect_right(sec_offsets, func_start)
+    if idx < len(sec_offsets):
+        func_end = sec_offsets[idx]
 
     code = content[func_start:func_end].rstrip(_PADDING_STRIP)
     reloc_offsets = _collect_reloc_offsets(section.relocations, func_start, func_end)
@@ -180,20 +183,23 @@ def _parse_elf_symbol_bytes(
     if target_sym.size > 0:
         func_end = func_start + target_sym.size
     else:
+        # Build sorted offsets for this section to find func_end in O(log n)
+        sec_offsets = sorted(
+            sym.value
+            for sym in elf.symbols
+            if hasattr(sym, "section")
+            and sym.section is not None
+            and sym.section.name == section.name
+        )
         func_end = len(content)
-        for sym in elf.symbols:
-            if (
-                hasattr(sym, "section")
-                and sym.section is not None
-                and sym.section.name == section.name
-                and sym.value > func_start
-                and sym.value < func_end
-            ):
-                func_end = sym.value
+        idx = bisect.bisect_right(sec_offsets, func_start)
+        if idx < len(sec_offsets):
+            func_end = sec_offsets[idx]
 
     code = content[func_start:func_end].rstrip(_PADDING_STRIP)
 
-    # ELF relocations are global — filter to our section before collecting
+    # ELF relocations are global — filter to our section to avoid collecting
+    # relocations from unrelated code that would corrupt offset calculations
     section_relocs = (
         r
         for r in elf.relocations
@@ -272,17 +278,19 @@ def _parse_macho_symbol_bytes(
     if func_start < 0 or func_start >= len(content):
         return None, None
 
-    # Determine function end by finding the next symbol after func_start
+    # Build sorted offsets for this section to find func_end in O(log n)
+    sec_name = getattr(section, "name", None)
+    sec_offsets = sorted(
+        sym.value - section.virtual_address
+        for sym in binary.symbols
+        if hasattr(sym, "section")
+        and sym.section is not None
+        and getattr(sym.section, "name", None) == sec_name
+    )
     func_end = len(content)
-    for sym in binary.symbols:
-        if (
-            hasattr(sym, "section")
-            and sym.section is not None
-            and getattr(sym.section, "name", None) == getattr(section, "name", None)
-        ):
-            sym_off = sym.value - section.virtual_address
-            if sym_off > func_start and sym_off < func_end:
-                func_end = sym_off
+    idx = bisect.bisect_right(sec_offsets, func_start)
+    if idx < len(sec_offsets):
+        func_end = sec_offsets[idx]
 
     code = content[func_start:func_end].rstrip(_PADDING_STRIP)
     reloc_offsets = _collect_reloc_offsets(section.relocations, func_start, func_end)

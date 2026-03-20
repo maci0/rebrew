@@ -34,8 +34,6 @@ try:
 except ImportError:
     mut_change_param_order = None
 
-RNG = random.Random(42)
-
 FULL_SOURCE = """\
 #include <windows.h>
 
@@ -65,11 +63,13 @@ int __cdecl my_func(int a, int b) {
 
 class TestMutateCode:
     def test_basic(self) -> None:
-        result = mutate_code(FULL_SOURCE, RNG)
+        result = mutate_code(FULL_SOURCE, random.Random(42))
         assert isinstance(result, str)
+        assert result != ""
+        assert len(result) > 0
 
     def test_with_tracking(self) -> None:
-        result = mutate_code(FULL_SOURCE, RNG, track_mutation=True)
+        result = mutate_code(FULL_SOURCE, random.Random(42), track_mutation=True)
         assert isinstance(result, tuple)
         assert len(result) == 2
         src, name = result
@@ -79,12 +79,13 @@ class TestMutateCode:
     def test_idempotent_on_trivial(self) -> None:
         # Trivial source where most mutations can't apply
         trivial = "int f() {\n  return 0;\n}"
-        result = mutate_code(trivial, RNG)
+        result = mutate_code(trivial, random.Random(42))
         assert isinstance(result, str)
+        assert len(result) > 0
 
     def test_no_mutation_tracking(self) -> None:
         trivial = "int f() { return 0; }"
-        result = mutate_code(trivial, RNG, track_mutation=True)
+        result = mutate_code(trivial, random.Random(42), track_mutation=True)
         src, name = result
         # Should either mutate or return "none"
         assert isinstance(name, str)
@@ -96,43 +97,48 @@ class TestMutateCode:
         # fall through to "none").
         result = mutate_code(
             FULL_SOURCE,
-            RNG,
+            random.Random(42),
             mutation_weights={"mut_swap_if_else": 100.0},
         )
         assert isinstance(result, str)
+        assert len(result) > 0
 
     def test_mutation_weights_empty_dict(self) -> None:
         """Empty weights dict should behave like no weights (uniform)."""
-        result = mutate_code(FULL_SOURCE, RNG, mutation_weights={})
+        result = mutate_code(FULL_SOURCE, random.Random(42), mutation_weights={})
         assert isinstance(result, str)
+        assert len(result) > 0
 
     def test_mutation_weights_with_tracking(self) -> None:
         """Weighted mutations should work with track_mutation=True."""
         result = mutate_code(
             FULL_SOURCE,
-            RNG,
+            random.Random(42),
             track_mutation=True,
             mutation_weights={"mut_swap_if_else": 10.0},
         )
         assert isinstance(result, tuple)
         src, name = result
         assert isinstance(src, str)
+        assert len(src) > 0
         assert isinstance(name, str)
 
     def test_mutation_weights_all_zero(self) -> None:
         """All-zero weights should fall back to uniform selection, not crash."""
         weights = {m.__name__: 0.0 for m in ALL_MUTATIONS}
-        result = mutate_code(FULL_SOURCE, RNG, mutation_weights=weights)
+        result = mutate_code(FULL_SOURCE, random.Random(42), mutation_weights=weights)
         assert isinstance(result, str)
+        assert len(result) > 0
 
     def test_mutation_weights_unknown_names(self) -> None:
         """Weights for unknown mutation names should be ignored gracefully."""
         result = mutate_code(
             FULL_SOURCE,
-            RNG,
+            random.Random(42),
             mutation_weights={"nonexistent_mutation": 100.0},
         )
         assert isinstance(result, str)
+        assert len(result) > 0
 
 
 # -------------------------------------------------------------------------
@@ -150,14 +156,16 @@ class TestAllMutations:
 
     def test_all_return_str_or_none(self) -> None:
         """Run every mutation against a rich source and check return types."""
+        failures: list[str] = []
         for m in ALL_MUTATIONS:
             try:
-                result = m(FULL_SOURCE, RNG)
+                result = m(FULL_SOURCE, random.Random(42))
                 assert result is None or isinstance(result, str), (
                     f"{m.__name__} returned {type(result)}"
                 )
-            except Exception:
-                pass  # some mutations may fail on this input, that's OK
+            except Exception as exc:
+                failures.append(f"{m.__name__}: {exc!r}")
+        assert not failures, "Mutations raised exceptions:\n" + "\n".join(failures)
 
 
 # -------------------------------------------------------------------------
@@ -168,21 +176,21 @@ class TestAllMutations:
 class TestWhileDoWhile:
     def test_while_to_dowhile(self) -> None:
         src = "while (i < 10) {\n    x = x + 1;\n}"
-        result = mut_while_to_dowhile(src, RNG)
+        result = mut_while_to_dowhile(src, random.Random(42))
         assert result is not None
         assert "do" in result
 
     def test_dowhile_to_while(self) -> None:
         src = "do {\n    x = x + 1;\n} while (i < 10);"
-        result = mut_dowhile_to_while(src, RNG)
+        result = mut_dowhile_to_while(src, random.Random(42))
         assert result is not None
         assert "while" in result
 
     def test_no_while(self) -> None:
-        assert mut_while_to_dowhile("return 0;", RNG) is None
+        assert mut_while_to_dowhile("return 0;", random.Random(42)) is None
 
     def test_no_dowhile(self) -> None:
-        assert mut_dowhile_to_while("return 0;", RNG) is None
+        assert mut_dowhile_to_while("return 0;", random.Random(42)) is None
 
 
 # -------------------------------------------------------------------------
@@ -193,7 +201,7 @@ class TestWhileDoWhile:
 class TestSwapIfElseDeep:
     def test_with_full_source(self) -> None:
         src = "if (x > 0) {\n    a = 1;\n    b = 2;\n} else {\n    a = 3;\n    b = 4;\n}"
-        result = mut_swap_if_else(src, RNG)
+        result = mut_swap_if_else(src, random.Random(42))
         assert result is not None, "swap_if_else should succeed on valid if/else"
         # Condition should be negated, bodies should be swapped
         assert "!(x > 0)" in result or "x > 0" in result
@@ -201,10 +209,10 @@ class TestSwapIfElseDeep:
 
     def test_nested_if(self) -> None:
         src = "if (a) {\n  if (b) {\n    x = 1;\n  }\n} else {\n  x = 2;\n}"
-        result = mut_swap_if_else(src, RNG)
-        if result is not None:
-            assert result != src
-            assert result.count("{") == result.count("}")
+        result = mut_swap_if_else(src, random.Random(42))
+        assert result is not None, "swap_if_else should succeed on nested if/else"
+        assert result != src
+        assert result.count("{") == result.count("}")
 
 
 class TestReorderElseIfDeep:
@@ -213,11 +221,11 @@ class TestReorderElseIfDeep:
             "if (a == 1) {\n  x = 1;\n} else if (a == 2) {\n  x = 2;\n} "
             "else if (a == 3) {\n  x = 3;\n} else {\n  x = 0;\n}"
         )
-        result = mut_reorder_elseif(src, RNG)
-        if result is not None:
-            # Should still have all branches, possibly reordered
-            assert "a == 1" in result or "a == 2" in result
-            assert "else" in result
+        result = mut_reorder_elseif(src, random.Random(42))
+        assert result is not None, "reorder_elseif should succeed on 3-branch else-if chain"
+        # Should still have all branches, possibly reordered
+        assert "a == 1" in result or "a == 2" in result
+        assert "else" in result
 
 
 # -------------------------------------------------------------------------
@@ -227,16 +235,16 @@ class TestReorderElseIfDeep:
 
 class TestDeclarationMutationsDeep:
     def test_swap_adjacent_no_decls(self) -> None:
-        assert mut_swap_adjacent_declarations("return 0;", RNG) is None
+        assert mut_swap_adjacent_declarations("return 0;", random.Random(42)) is None
 
     def test_split_no_init(self) -> None:
         src = "int f() {\n  int x;\n  return x;\n}"
-        result = mut_split_declaration_init(src, RNG)
+        result = mut_split_declaration_init(src, random.Random(42))
         assert result is None  # no initialized declaration
 
     def test_merge_separate_decl_and_assign(self) -> None:
         src = "int f() {\n  int x;\n  x = 5;\n  return x;\n}"
-        result = mut_merge_declaration_init(src, RNG)
+        result = mut_merge_declaration_init(src, random.Random(42))
         if result is not None:
             assert "int x = 5" in result
 
@@ -248,20 +256,20 @@ class TestDeclarationMutationsDeep:
 
 class TestDeepAlias:
     def test_alias_with_multiple_uses(self) -> None:
-        src = "int f(int param1) {\n  int x = param1 + param1;\n  x = x + param1;\n  return x;\n}"
-        result = mut_introduce_local_alias(src, RNG)
-        if result is not None:
-            assert "param1" in result
+        src = "int f(int param1) {\n  int x;\n  x = param1;\n  return x;\n}"
+        result = mut_introduce_local_alias(src, random.Random(42))
+        assert result is not None
+        assert "_alias_param1" in result
 
     def test_return_goto_full(self) -> None:
         src = "int f() {\n  if (err) return 0;\n  if (bad) return FALSE;\n  return 1;\n}"
-        result = mut_return_to_goto(src, RNG)
+        result = mut_return_to_goto(src, random.Random(42))
         assert result is not None, "return_to_goto should succeed on source with return 0/FALSE"
         assert "goto" in result
 
     def test_goto_to_return_present(self) -> None:
         src = "int f() {\n  goto ret_false;\nret_false:\n  return FALSE;\n}"
-        result = mut_goto_to_return(src, RNG)
+        result = mut_goto_to_return(src, random.Random(42))
         # Mutation requires specific label+return pattern; may not match all variants
         if result is not None:
             assert "return" in result
@@ -276,16 +284,16 @@ class TestDeepAlias:
 class TestTempVarDeep:
     def test_introduce_with_call(self) -> None:
         src = "int f() {\n  result = FuncA(a, b);\n  return result;\n}"
-        result = mut_introduce_temp_for_call(src, RNG)
-        # Regex may not match depending on exact format; permissive check
+        result = mut_introduce_temp_for_call(src, random.Random(42))
+        # Mutation may genuinely not apply: regex may not match depending on exact format
         if result is not None:
             assert "FuncA" in result
             assert isinstance(result, str)
 
     def test_remove_temp_present(self) -> None:
         src = "int f() {\n  tmp = GetValue();\n  var = tmp;\n}"
-        result = mut_remove_temp_var(src, RNG)
-        # Regex needs specific pattern; permissive check
+        result = mut_remove_temp_var(src, random.Random(42))
+        # Mutation may genuinely not apply: regex needs specific pattern
         if result is not None:
             assert "var" in result
             assert isinstance(result, str)
@@ -326,7 +334,9 @@ class TestCrossoverDeep:
         p2 = "int f(int a) {\n  a = 10;\n  return a;\n}"
         for seed in range(10):
             child = crossover(p1, p2, random.Random(seed))
-            assert "return" in child or "int" in child
+            assert "int" in child
+            # Crossover may drop return from shorter parent's slice
+            assert "a =" in child or "return" in child
 
 
 # -------------------------------------------------------------------------
@@ -391,14 +401,14 @@ class TestQuickValidateDeep:
 class TestWhileNestedParens:
     def test_while_with_func_call_in_condition(self) -> None:
         src = "while (check(a, b)) {\n    x = x + 1;\n}"
-        result = mut_while_to_dowhile(src, RNG)
+        result = mut_while_to_dowhile(src, random.Random(42))
         assert result is not None
         assert "do" in result
         assert "check(a, b)" in result
 
     def test_duplicate_body_with_func_call_condition(self) -> None:
         src = "while (check(a)) {\n    x = x + 1;\n}"
-        result = mut_duplicate_loop_body(src, RNG)
+        result = mut_duplicate_loop_body(src, random.Random(42))
         assert result is not None
         assert result.count("x + 1") >= 2
 
@@ -420,7 +430,7 @@ class TestRedundantParensKeywords:
 
     def test_wraps_identifier(self) -> None:
         src = "x = myvar + 1;"
-        result = mut_add_redundant_parens(src, RNG)
+        result = mut_add_redundant_parens(src, random.Random(42))
         assert result is not None
         assert "(" in result
 
@@ -433,13 +443,13 @@ class TestRedundantParensKeywords:
 class TestSplitCmpChainBalanced:
     def test_two_conditions_balanced(self) -> None:
         src = "if (a && b) {\n  x = 1;\n}"
-        result = mut_split_cmp_chain(src, RNG)
+        result = mut_split_cmp_chain(src, random.Random(42))
         assert result is not None
         assert result.count("{") == result.count("}")
 
     def test_three_conditions_balanced(self) -> None:
         src = "if (a && b && c) {\n  x = 1;\n}"
-        result = mut_split_cmp_chain(src, RNG)
+        result = mut_split_cmp_chain(src, random.Random(42))
         assert result is not None
         assert result.count("{") == result.count("}")
         # At least one split should happen
@@ -447,19 +457,19 @@ class TestSplitCmpChainBalanced:
 
 
 # -------------------------------------------------------------------------
-# mut_unfold_constant_add — capped at 16 (regression)
+# mut_unfold_constant_add — capped at 16 to prevent exponential code bloat
 # -------------------------------------------------------------------------
 
 
 class TestUnfoldConstantAddCap:
     def test_large_constant_returns_none(self) -> None:
         src = "x = x + 256;"
-        result = mut_unfold_constant_add(src, RNG)
+        result = mut_unfold_constant_add(src, random.Random(42))
         assert result is None, "Should refuse to unroll constants > 16"
 
     def test_small_constant_unfolds(self) -> None:
         src = "x = x + 3;"
-        result = mut_unfold_constant_add(src, RNG)
+        result = mut_unfold_constant_add(src, random.Random(42))
         assert result is not None
         assert result.count("x = x + 1") == 3
 
@@ -472,7 +482,7 @@ class TestUnfoldConstantAddCap:
 class TestEarlyReturnNestedCalls:
     def test_nested_func_call(self) -> None:
         src = "int f() {\n  int ret = 1;\n  if (!validate(get_val(x))) return 0;\n  return ret;\n}"
-        result = mut_early_return_to_accum(src, RNG)
+        result = mut_early_return_to_accum(src, random.Random(42))
         if result is not None:
             assert "&=" in result
             assert "validate" in result

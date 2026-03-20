@@ -1,9 +1,7 @@
 """c_parser.py – Shared tree-sitter C parsing utilities for rebrew.
 
 Provides AST-based extraction of C function definitions, extern function
-declarations, and extern variable declarations.  Replaces the fragile regex
-parsers that previously lived in annotation.py, crt_match.py, depgraph.py,
-and data.py.
+declarations, and extern variable declarations.
 
 Tree-sitter natively distinguishes function definitions from declarations,
 and function declarators from variable declarators, eliminating all heuristic
@@ -13,6 +11,7 @@ regex patterns.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from dataclasses import dataclass
 from typing import Any
@@ -37,6 +36,9 @@ _CALLING_CONVENTIONS = frozenset(
         "_CRTIMP",
     }
 )
+
+# Pre-compiled regex for stripping calling conventions (used by _strip_cc).
+_CC_PATTERN = re.compile(r"\b(" + "|".join(re.escape(cc) for cc in _CALLING_CONVENTIONS) + r")\b")
 
 # ---------------------------------------------------------------------------
 # Lazy tree-sitter initialisation
@@ -64,7 +66,7 @@ def _get_parser() -> tuple[Any, Any]:
         except ImportError:
             raise ImportError(
                 "tree-sitter and tree-sitter-c are required.  "
-                "Install with: uv pip install tree-sitter tree-sitter-c"
+                "Install with: pip install tree-sitter tree-sitter-c"
             )
 
         _language = Language(tree_sitter_c.language())
@@ -73,7 +75,7 @@ def _get_parser() -> tuple[Any, Any]:
 
 
 def _parse(source: str | bytes) -> Any:
-    """Parse C source and return the tree-sitter Tree."""
+    """Parse C source and return (tree, source_bytes) as a tuple."""
     parser, _ = _get_parser()
     if isinstance(source, str):
         source = source.encode("utf-8")
@@ -91,16 +93,12 @@ def _node_text(node: Any, source_bytes: bytes) -> str:
 
 
 def _strip_cc(source: str) -> str:
-    """Remove MSVC calling conventions from C source so tree-sitter can parse it.
+    """Remove MSVC calling conventions from C source before tree-sitter parsing.
 
-    Tree-sitter's standard C grammar doesn't recognise ``__cdecl`` etc.,
-    so they confuse the parser.  We strip them before feeding the source
-    to tree-sitter when we need a structural parse.
+    Tree-sitter's standard C grammar doesn't recognise ``__cdecl``,
+    ``__stdcall``, etc., causing parse errors.
     """
-    import re
-
-    pattern = r"\b(" + "|".join(re.escape(cc) for cc in _CALLING_CONVENTIONS) + r")\b"
-    return re.sub(pattern, "", source)
+    return _CC_PATTERN.sub("", source)
 
 
 def _find_child(node: Any, *types: str) -> Any | None:
@@ -142,7 +140,7 @@ def _find_declarator_name(declarator: Any, source_bytes: bytes) -> str | None:
     if declarator.type == "identifier":
         return _node_text(declarator, source_bytes)
     if declarator.type == "array_declarator":
-        # int foo[10] — name is in the first child
+        # int foo[10] — name is an identifier child of the array_declarator
         for child in declarator.children:
             if child.type == "identifier":
                 return _node_text(child, source_bytes)
@@ -237,7 +235,6 @@ def extract_function_name_and_proto(source: str) -> tuple[str, str] | None:
     is found.  The prototype includes the return type, calling convention, name,
     and parameter list (without the body).
 
-    Replaces ``_C_FUNC_IDENT_RE`` in ``annotation.py``.
     """
     try:
         tree, src_bytes = _parse(source)
@@ -282,8 +279,7 @@ def extract_function_name_from_line(line: str) -> tuple[str, str] | None:
     """Try to extract a function name and prototype from a single code line.
 
     Appends ``{}`` to the line so tree-sitter can recognize it as a function
-    definition.  This replaces the ``_C_FUNC_IDENT_RE`` regex in annotation
-    parsers where code is examined line-by-line.
+    definition.
 
     Returns ``(name, prototype)`` or ``None``.  The *prototype* is the cleaned
     original line (with calling conventions preserved) without trailing ``{``.
@@ -303,7 +299,7 @@ def extract_function_name_from_line(line: str) -> tuple[str, str] | None:
 def find_c_function_definitions(source: str) -> list[tuple[str, int]]:
     """Find all C function definitions and return ``[(name, line), ...]``.
 
-    *line* is 1-based.  Replaces ``_C_FUNCTION_RE`` in ``crt_match.py``.
+    *line* is 1-based.
     """
     try:
         tree, src_bytes = _parse(_strip_cc(source))
@@ -331,8 +327,7 @@ def find_c_function_definitions(source: str) -> list[tuple[str, int]]:
 def find_extern_function_names(source: str) -> list[str]:
     """Find function names from ``extern`` function declarations.
 
-    Returns a list of function names.  Replaces ``_EXTERN_FUNC_RE`` in
-    ``depgraph.py``.
+    Returns a list of function names.
     """
     try:
         tree, src_bytes = _parse(_strip_cc(source))
@@ -370,7 +365,7 @@ def find_extern_function_names(source: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Extern variable parsing (replaces _EXTERN_RE + _is_function_decl in data.py)
+# Extern variable parsing
 # ---------------------------------------------------------------------------
 
 
@@ -389,9 +384,6 @@ def find_extern_variables(source: str) -> list[ExternVar]:
     Tree-sitter naturally distinguishes function declarations (which have
     ``function_declarator`` nodes) from variable declarations (which have
     plain ``identifier`` or ``pointer_declarator`` + ``identifier``).
-    This eliminates the ``_is_function_decl()`` heuristic entirely.
-
-    Replaces ``_EXTERN_RE`` + ``_is_function_decl()`` in ``data.py``.
     """
     try:
         tree, src_bytes = _parse(_strip_cc(source))

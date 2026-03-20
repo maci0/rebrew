@@ -3,7 +3,7 @@
 Given a VA address, generates a properly annotated .c file skeleton with:
 - reccmp-style marker line (FUNCTION/LIBRARY/STUB:  MODULE 0xVA)
 - A placeholder function body
-- The exact rebrew test command to verify it
+- Prints the exact rebrew test command to verify it
 
 All volatile metadata (STATUS, SIZE, CFLAGS, BLOCKER) is written to the
 ``rebrew-function.toml`` metadata by this generator, not into the .c file.
@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from rebrew.catalog.models import FunctionEntry
+    from rebrew.catalog import FunctionEntry
 
 import httpx
 import jinja2
@@ -129,7 +129,7 @@ def generate_skeleton(
 
     """
     lib_modules = cfg.library_modules or set()
-    marker = marker_for_module(module, "MATCHED", lib_modules)
+    marker = marker_for_module(module, "RELOC", lib_modules)
     cflags = cfg.base_cflags or "/O2 /Gd"
 
     # Determine symbol name
@@ -172,7 +172,7 @@ def generate_annotation_block(
     Produces a compact block suitable for appending after existing code.
     """
     lib_modules = cfg.library_modules or set()
-    marker = marker_for_module(module, "MATCHED", lib_modules)
+    marker = marker_for_module(module, "RELOC", lib_modules)
     cflags = cfg.base_cflags or "/O2 /Gd"
 
     symbol = "_" + custom_name if custom_name else "_" + sanitize_name(ghidra_name)
@@ -208,11 +208,11 @@ def fetch_xref_context(
     Returns a formatted comment block string, or None if MCP is unavailable.
     """
     _sync_mod = importlib.import_module("rebrew.ghidra.client")
-    _fetch_mcp_tool_raw = _sync_mod._fetch_mcp_tool_raw
-    _init_mcp_session = _sync_mod._init_mcp_session
+    _fetch_mcp_tool_raw = _sync_mod.fetch_mcp_tool_raw
+    _init_mcp_session = _sync_mod.init_mcp_session
 
     try:
-        with httpx.Client(timeout=30.0) as client:
+        with httpx.Client(timeout=_sync_mod.MCP_REQUEST_TIMEOUT_S) as client:
             session_id = _init_mcp_session(client, endpoint)
             xrefs = _fetch_mcp_tool_raw(
                 client,
@@ -345,7 +345,7 @@ def fetch_xref_context(
 
 def generate_test_command(filepath: str, symbol: str, va: int, size: int, cflags: str) -> str:
     """Generate the rebrew test command to verify this function."""
-    return f'rebrew test {filepath} {symbol} --va 0x{va:08x} --size {size} --cflags "{cflags}"'
+    return f'rebrew test {filepath} --symbol {symbol} --va 0x{va:08x} --size {size} --cflags "{cflags}"'
 
 
 def generate_diff_command(
@@ -430,7 +430,7 @@ def _fetch_extras(
         )
     if xrefs:
         _sync_mod = importlib.import_module("rebrew.ghidra.commands")
-        _resolve = _sync_mod._resolve_program_path
+        _resolve = _sync_mod.resolve_program_path
         resolved_path = _resolve(cfg)
         xref_context_val = fetch_xref_context(
             endpoint,
@@ -689,19 +689,19 @@ def _run_single_va_mode(
             "  3. Ensure C89 compliance: vars at block top, no // comments in body, no for(int ...)"
         )
         console.print("  4. Run the test command above to check match")
-        console.print("  5. Update STATUS from STUB to EXACT/RELOC/NEAR_MATCHING based on result")
+        console.print("  5. Run 'rebrew test' which auto-promotes STATUS based on result")
         console.print("  6. If NEAR_MATCHING, add BLOCKER metadata explaining the difference")
 
 
 @app.callback(invoke_without_command=True)
 def main(
     va_arg: str | None = typer.Argument(None, help="Function VA in hex (e.g. 0x10003da0)"),
-    name: str | None = typer.Option(None, help="Custom function name"),
+    name: str | None = typer.Option(None, "--name", help="Custom function name"),
     output: str | None = typer.Option(None, "--output", "-o", help="Output file path"),
-    batch: int | None = typer.Option(None, help="Generate N skeletons (smallest first)"),
-    min_size: int = typer.Option(10, help="Minimum function size"),
-    max_size: int = typer.Option(9999, help="Maximum function size"),
-    force: bool = typer.Option(False, help="Overwrite existing files"),
+    batch: int | None = typer.Option(None, "--batch", help="Generate N skeletons (smallest first)"),
+    min_size: int = typer.Option(10, "--min-size", help="Minimum function size"),
+    max_size: int = typer.Option(9999, "--max-size", help="Maximum function size"),
+    force: bool = typer.Option(False, "--force", help="Overwrite existing files"),
     append: str | None = typer.Option(
         None,
         "--append",
@@ -720,6 +720,7 @@ def main(
     ),
     endpoint: str = typer.Option(
         "http://localhost:8080/mcp/message",
+        "--endpoint",
         help="ReVa MCP endpoint URL",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

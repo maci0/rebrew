@@ -1,8 +1,6 @@
 """ghidra — Bidirectional sync between rebrew annotations and Ghidra via ReVa MCP.
 
 Public API: CLI app, MCP operations, sync command builders, and pull results.
-Internal helpers (_-prefixed) in submodules are accessed directly by consumers
-that need them (decompiler.py, skeleton.py) via importlib — not re-exported here.
 """
 
 from rebrew.ghidra.cli import app

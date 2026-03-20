@@ -6,22 +6,23 @@ fetching, and batch command application with retry logic for struct definitions.
 
 import contextlib
 import json
+import logging
 import time
 from typing import Any
 
 import httpx
 from rich.console import Console
 
-from rebrew.cli import error_exit
 from rebrew.ghidra.models import JsonRpcResponse, McpToolResult
 
 console = Console(stderr=True)
+logger = logging.getLogger(__name__)
 
-_MCP_HEADERS = {
+MCP_HEADERS = {
     "Content-Type": "application/json",
     "Accept": "application/json, text/event-stream",
 }
-_MCP_REQUEST_TIMEOUT_S = 30
+MCP_REQUEST_TIMEOUT_S = 30
 
 
 def _parse_sse_response(text: str) -> JsonRpcResponse | None:
@@ -40,7 +41,7 @@ def _parse_sse_response(text: str) -> JsonRpcResponse | None:
     return None
 
 
-def _fetch_mcp_tool(
+def fetch_mcp_tool(
     client: httpx.Client,
     endpoint: str,
     tool_name: str,
@@ -48,17 +49,20 @@ def _fetch_mcp_tool(
     request_id: int,
     session_id: str = "",
 ) -> list[Any]:
-    """Call a ReVa MCP tool and return parsed JSON list from text content."""
+    """Call a ReVa MCP tool and return parsed JSON list from text content.
+
+    Returns an empty list on HTTP errors or JSON parse failures.
+    """
     payload = {
         "jsonrpc": "2.0",
         "id": request_id,
         "method": "tools/call",
         "params": {"name": tool_name, "arguments": arguments},
     }
-    headers = dict(_MCP_HEADERS)
+    headers = dict(MCP_HEADERS)
     if session_id:
         headers["Mcp-Session-Id"] = session_id
-    resp = client.post(endpoint, json=payload, headers=headers, timeout=_MCP_REQUEST_TIMEOUT_S)
+    resp = client.post(endpoint, json=payload, headers=headers, timeout=MCP_REQUEST_TIMEOUT_S)
     if resp.status_code != 200:
         return []
     ct = resp.headers.get("content-type", "")
@@ -98,7 +102,7 @@ def _fetch_mcp_tool(
     return []
 
 
-def _fetch_mcp_tool_raw(
+def fetch_mcp_tool_raw(
     client: httpx.Client,
     endpoint: str,
     tool_name: str,
@@ -108,7 +112,7 @@ def _fetch_mcp_tool_raw(
 ) -> Any:
     """Call a ReVa MCP tool and return parsed JSON result (raw, not list-wrapped).
 
-    Unlike ``_fetch_mcp_tool`` which always returns ``list[Any]``, this returns
+    Unlike ``fetch_mcp_tool`` which always returns ``list[Any]``, this returns
     the parsed value directly — dict, list, str, or None on failure.  Used by
     the extended pull operations (prototypes, structs, comments).
     """
@@ -118,10 +122,10 @@ def _fetch_mcp_tool_raw(
         "method": "tools/call",
         "params": {"name": tool_name, "arguments": arguments},
     }
-    headers = dict(_MCP_HEADERS)
+    headers = dict(MCP_HEADERS)
     if session_id:
         headers["Mcp-Session-Id"] = session_id
-    resp = client.post(endpoint, json=payload, headers=headers, timeout=_MCP_REQUEST_TIMEOUT_S)
+    resp = client.post(endpoint, json=payload, headers=headers, timeout=MCP_REQUEST_TIMEOUT_S)
     if resp.status_code != 200:
         return None
     ct = resp.headers.get("content-type", "")
@@ -158,7 +162,7 @@ def _fetch_mcp_tool_raw(
     return None
 
 
-def _init_mcp_session(client: Any, endpoint: str) -> str:
+def init_mcp_session(client: Any, endpoint: str) -> str:
     """Initialize an MCP session and return the session ID."""
     init_payload = {
         "jsonrpc": "2.0",
@@ -171,12 +175,12 @@ def _init_mcp_session(client: Any, endpoint: str) -> str:
         },
     }
     resp = client.post(
-        endpoint, json=init_payload, headers=_MCP_HEADERS, timeout=_MCP_REQUEST_TIMEOUT_S
+        endpoint, json=init_payload, headers=MCP_HEADERS, timeout=MCP_REQUEST_TIMEOUT_S
     )
     return str(resp.headers.get("Mcp-Session-Id", ""))
 
 
-def _fetch_all_symbols(
+def fetch_all_symbols(
     client: httpx.Client,
     endpoint: str,
     program_path: str,
@@ -185,7 +189,7 @@ def _fetch_all_symbols(
 ) -> list[dict[str, Any]]:
     """Fetch all non-default symbols from ReVa MCP with pagination.
 
-    Similar to ``_fetch_all_functions`` but uses ``get-symbols``.
+    Similar to ``fetch_all_functions`` but uses ``get-symbols``.
     Returns dicts with ``address`` and ``name`` keys.
     """
     all_syms: list[dict[str, Any]] = []
@@ -193,7 +197,7 @@ def _fetch_all_symbols(
     request_id = 200
 
     while True:
-        raw = _fetch_mcp_tool(
+        raw = fetch_mcp_tool(
             client,
             endpoint,
             "get-symbols",
@@ -230,7 +234,7 @@ def _fetch_all_symbols(
     return all_syms
 
 
-def _fetch_all_functions(
+def fetch_all_functions(
     client: httpx.Client,
     endpoint: str,
     program_path: str,
@@ -241,14 +245,14 @@ def _fetch_all_functions(
 
     ReVa's ``get-functions`` returns at most *maxCount* entries per call.
     This helper pages through the full list and normalises the field names
-    to the format expected by ``pull_ghidra_renames`` (``va``, ``ghidra_name``).
+    to the format expected by ``pull_ghidra_renames`` (``va``, ``tool_name``, ``size``).
     """
     all_funcs: list[dict[str, Any]] = []
     start = 0
     request_id = 100
 
     while True:
-        raw = _fetch_mcp_tool(
+        raw = fetch_mcp_tool(
             client,
             endpoint,
             "get-functions",
@@ -304,60 +308,31 @@ def apply_commands_via_mcp(
     errors = 0
     total = len(commands)
 
-    with httpx.Client(timeout=30.0) as client:
-        # Initialize MCP session
-        init_payload = {
-            "jsonrpc": "2.0",
-            "id": 0,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2025-03-26",
-                "capabilities": {},
-                "clientInfo": {"name": "rebrew sync", "version": "1.0.0"},
-            },
-        }
+    with httpx.Client(timeout=MCP_REQUEST_TIMEOUT_S) as client:
+        # Initialize MCP session (reuse shared helper)
         try:
-            resp = client.post(
-                endpoint,
-                json=init_payload,
-                headers={
-                    "Accept": "application/json, text/event-stream",
-                    "Content-Type": "application/json",
-                },
-                timeout=_MCP_REQUEST_TIMEOUT_S,
-            )
-            resp.raise_for_status()
+            session_id = init_mcp_session(client, endpoint)
         except httpx.HTTPError as exc:
-            error_exit(f"Failed to initialize MCP session: {exc}")
-
-        # Extract session ID from response header
-        session_id = resp.headers.get("mcp-session-id", "")
-        if not session_id:
-            # Try to parse from SSE response body
-            body = resp.text
-            # Some servers return session ID in the JSON response
-            try:
-                data = json.loads(body)
-                session_id = data.get("sessionId", "")
-            except ValueError:
-                pass
+            raise RuntimeError(f"Failed to initialize MCP session: {exc}") from exc
 
         if not session_id:
-            console.print("[yellow]WARNING:[/] No session ID received, proceeding without one")
+            console.print(
+                "[yellow]warning:[/yellow] No session ID received, proceeding without one"
+            )
 
         headers = {
             "Accept": "application/json, text/event-stream",
             "Content-Type": "application/json",
         }
         if session_id:
-            headers["mcp-session-id"] = session_id
+            headers["Mcp-Session-Id"] = session_id
 
         # Send initialized notification
         client.post(
             endpoint,
             json={"jsonrpc": "2.0", "method": "notifications/initialized"},
             headers=headers,
-            timeout=_MCP_REQUEST_TIMEOUT_S,
+            timeout=MCP_REQUEST_TIMEOUT_S,
         )
 
         def _send_cmd(
@@ -372,7 +347,7 @@ def apply_commands_via_mcp(
                 "params": {"name": cmd["tool"], "arguments": cmd["args"]},
             }
             resp = client.post(
-                endpoint, json=payload, headers=headers, timeout=_MCP_REQUEST_TIMEOUT_S
+                endpoint, json=payload, headers=headers, timeout=MCP_REQUEST_TIMEOUT_S
             )
             resp.raise_for_status()
             body = resp.text.strip()

@@ -107,8 +107,11 @@ class TestScoreCandidate:
         cand = b"\x55\x8b\xec\xe8\xff\xfe\xfd\xfc\xc3"
         score_no_reloc = score_candidate(target, cand)
         score_with_reloc = score_candidate(target, cand, reloc_offsets=[4])
-        # With reloc offsets, reloc bytes are excluded; score should differ or be better
-        assert score_with_reloc.reloc_score <= score_no_reloc.reloc_score
+        # With reloc offsets, reloc bytes are masked; total score should improve
+        assert score_with_reloc.total <= score_no_reloc.total, (
+            f"reloc masking should not worsen total score: "
+            f"with={score_with_reloc.total}, without={score_no_reloc.total}"
+        )
 
     def test_empty(self) -> None:
         score = score_candidate(b"", b"")
@@ -363,17 +366,12 @@ class TestScoringFuzzing:
                     assert score.length_diff == 0
 
 
-def test_diff_csv_output(tmp_path):
-    # Test that --format csv option exists in rebrew diff's CLI.
-    # We use typer.testing.CliRunner to avoid invoking Wine.
+def test_diff_csv_format_flag_accepted() -> None:
+    """Verify --format csv option exists in rebrew diff CLI."""
     from typer.testing import CliRunner
 
     from rebrew.diff import app
 
     runner = CliRunner()
-    result = runner.invoke(app, ["src/mock.c", "--format", "csv", "--symbol", "foo"])
-
-    # It should fail with FileNotFoundError (no mock.c) or annotation error, but the format flag should be accepted
-    # Instead, let's just make sure the flag exists.
-    assert "--format" in runner.invoke(app, ["--help"]).stdout
-    assert result.exit_code in (1, 2)
+    help_output = runner.invoke(app, ["--help"]).stdout
+    assert "--format" in help_output

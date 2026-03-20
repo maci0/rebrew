@@ -71,16 +71,6 @@ class TestResolveClCommand:
         assert result[0] == "wine"
         assert "MS VC" in result[1]
 
-    def test_returns_list(self, tmp_path: Path) -> None:
-        """Result is always a list of strings."""
-        cfg = ProjectConfig(
-            root=tmp_path,
-            compiler_command="wine tools/CL.EXE",
-        )
-        result = resolve_cl_command(cfg)
-        assert isinstance(result, list)
-        assert all(isinstance(x, str) for x in result)
-
     def test_keeps_extra_tokens_after_compiler(self, tmp_path: Path) -> None:
         cfg = ProjectConfig(
             root=tmp_path,
@@ -95,8 +85,8 @@ class TestResolveClCommand:
 # ---------------------------------------------------------------------------
 
 
-class TestCompileAndCompareEdgeCases:
-    """Test edge-case logic using actual production functions."""
+class TestSafeShlex:
+    """Test _safe_shlex_split for cflags parsing."""
 
     def test_cflags_string_split_via_safe_shlex(self) -> None:
         """Verify cflags string→list conversion uses _safe_shlex_split."""
@@ -193,35 +183,3 @@ class TestFilterWineStderr:
     def test_filter_no_noise(self) -> None:
         text = "CL : Command line warning D9002 : ignoring unknown option '/bad'"
         assert filter_wine_stderr(text) == text
-
-
-# ---------------------------------------------------------------------------
-# _safe_shlex_split fallback (moved from test_phase3.py)
-# ---------------------------------------------------------------------------
-
-
-class TestSafeShexSplit:
-    def test_normal_string(self) -> None:
-        from rebrew.compile import _safe_shlex_split
-
-        result = _safe_shlex_split("wine /path/to/CL.EXE")
-        assert result == ["wine", "/path/to/CL.EXE"]
-
-    def test_quoted_path(self) -> None:
-        from rebrew.compile import _safe_shlex_split
-
-        result = _safe_shlex_split('wine "/path with spaces/CL.EXE"')
-        assert result == ["wine", "/path with spaces/CL.EXE"]
-
-    def test_malformed_quotes_fallback(self) -> None:
-        from rebrew.compile import _safe_shlex_split
-
-        bad = '/FI"unclosed /c /MT'
-        result = _safe_shlex_split(bad)
-        assert result == ['/FI"unclosed', "/c", "/MT"]
-
-    def test_empty_string(self) -> None:
-        from rebrew.compile import _safe_shlex_split
-
-        result = _safe_shlex_split("")
-        assert result == []

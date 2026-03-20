@@ -7,7 +7,6 @@ unreversed nodes and their match status.
 Usage:
     rebrew graph                          # Mermaid output to stdout
     rebrew graph --format dot             # DOT output
-    rebrew graph --origin GAME            # Filter to GAME functions
     rebrew graph --focus FuncName         # Show only neighbours of FuncName
     rebrew graph --output graph.md        # Write to file
 """
@@ -50,12 +49,17 @@ def _sanitize_id(name: str) -> str:
     return f"n_{base}_{checksum}"
 
 
-def _extract_callees(c_path: Path) -> list[str]:
-    """Extract function names from extern declarations in a .c file."""
-    try:
-        text = c_path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return []
+def _extract_callees(c_path: Path, text: str | None = None) -> list[str]:
+    """Extract function names from extern declarations in a .c file.
+
+    Filters out common C library functions to reduce graph noise.
+    When *text* is provided, the file is not re-read from disk.
+    """
+    if text is None:
+        try:
+            text = c_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return []
 
     from rebrew.c_parser import find_extern_function_names
 
@@ -113,15 +117,24 @@ def build_graph(
     nodes: dict[str, NodeInfo] = {}
     edges: list[tuple[str, str]] = []
     name_lookup: dict[str, str] = {}  # symbol -> display name
-    # Store (cfile, display_name) for second-pass edge extraction
-    file_callers: list[tuple[Path, str]] = []
+    # Store (cfile, display_name, cached_text) for edge extraction
+    file_callers: list[tuple[Path, str, str]] = []
 
-    # Single pass: collect all reversed functions and prepare edge extraction.
+    # Single pass: collect all reversed functions and cache file text.
     # Uses parse_c_file_multi to capture every annotation in multi-function files.
     from rebrew.cli import rel_display_path
 
+    # Cache file text so _extract_callees doesn't re-read from disk
+    _file_text_cache: dict[Path, str] = {}
+
     for cfile in iter_sources(reversed_dir, cfg):
         rel_name = rel_display_path(cfile, reversed_dir)
+        # Read file once and cache for both annotation parsing and callee extraction
+        if cfile not in _file_text_cache:
+            try:
+                _file_text_cache[cfile] = cfile.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
         for entry in parse_c_file_multi(
             cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir if cfg else None
         ):
@@ -139,11 +152,11 @@ def build_graph(
             if entry.symbol:
                 name_lookup[entry.symbol.lstrip("_")] = display
                 name_lookup[entry.symbol] = display
-            file_callers.append((cfile, display))
+            file_callers.append((cfile, display, _file_text_cache.get(cfile, "")))
 
-    # Extract extern callees and build edges (uses cached file list)
-    for cfile, caller in file_callers:
-        callees = _extract_callees(cfile)
+    # Extract extern callees and build edges (reuses cached file text)
+    for cfile, caller, cached_text in file_callers:
+        callees = _extract_callees(cfile, text=cached_text)
         for callee in callees:
             callee_display = name_lookup.get(callee, callee)
             # Add unknown callee as an unreversed node
@@ -343,7 +356,6 @@ _EPILOG = (
     "  rebrew graph · · · · · · · · · · · · · · Mermaid diagram of all functions\n\n"
     "  rebrew graph --format dot · · · · · · · · Graphviz DOT format\n\n"
     "  rebrew graph --format summary · · · · · · Text summary only\n\n"
-    "  rebrew graph --origin GAME · · · · · · · · Only GAME-origin functions\n\n"
     "  rebrew graph --focus _my_func --depth 2 · · Neighbourhood around one function\n\n"
     "  rebrew graph -o graph.md · · · · · · · · · Write output to file\n\n"
     "  rebrew graph --cu-map · · · · · · · · · · Compilation unit boundary map\n\n"
@@ -372,8 +384,8 @@ def main(
     ),
     depth: int = typer.Option(1, "--depth", help="Neighbourhood depth for --focus"),
     cu_map: bool = typer.Option(False, "--cu-map", help="Show compilation unit boundary map"),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     output: str | None = typer.Option(None, "--output", "-o", help="Output file (default: stdout)"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Generate function dependency graph from reversed .c files."""

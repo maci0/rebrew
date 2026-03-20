@@ -41,7 +41,7 @@ def test_atomic_write_text_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
 
 # ---------------------------------------------------------------------------
-# _filter_wine_stderr wrapper (moved from test_phase3.py)
+# _filter_wine_stderr wrapper
 # ---------------------------------------------------------------------------
 
 

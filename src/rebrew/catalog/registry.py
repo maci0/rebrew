@@ -16,8 +16,10 @@ from rebrew.config import ProjectConfig
 class RegistryEntry(TypedDict, total=False):
     """Type-safe schema for a single function in the registry.
 
-    Fields marked as required via the factory ``_new_registry_entry`` are always
-    present; ``size_reason`` is added during the canonical-size resolution pass.
+    All fields are technically optional (``total=False``), but
+    ``_new_registry_entry`` always sets: ``detected_by``, ``size_by_tool``,
+    ``list_name``, ``ghidra_name``, ``is_thunk``, ``is_export``, ``canonical_size``.
+    ``size_reason`` is added during the canonical-size resolution pass.
     """
 
     detected_by: list[str]
@@ -63,8 +65,7 @@ def make_ghidra_func(va: int, size: int, name: str) -> dict[str, int | str]:
     return {"va": va, "size": size, "ghidra_name": name}
 
 
-# Default r2 entries with known bogus sizes (analysis artifacts).
-# Projects should define their own via r2_bogus_vas in rebrew-project.toml.
+# Default is empty; projects override via r2_bogus_vas in rebrew-project.toml.
 _DEFAULT_R2_BOGUS_SIZES: set[int] = set()
 
 
@@ -85,7 +86,7 @@ def is_jump_table(data: bytes, section_va: int, section_size: int) -> bool:
     off = 0
     while off < len(data) and data[off] in (0x90, 0xCC):
         off += 1
-    # Also skip ``mov edi, edi`` (8B FF) used as 2-byte NOP
+    # Also skip ``mov edi, edi`` (8B FF) — common MSVC hotpatch 2-byte NOP
     if off + 1 < len(data) and data[off] == 0x8B and data[off + 1] == 0xFF:
         off += 2
     remaining = data[off:]
@@ -114,9 +115,10 @@ def _resolve_canonical_size(
     text_va: int,
     text_size: int,
 ) -> tuple[int, str]:
-    """When list_size > ghidra_size, check if extra bytes are jump table / padding.
+    """Resolve canonical size when multiple sources disagree.
 
-    Returns (canonical_size, reason_string).
+    Handles missing sources and, when list_size > ghidra_size, checks if
+    the extra bytes are jump table / padding.  Returns (canonical_size, reason_string).
     """
     ghidra_size = sizes.get("ghidra", 0)
     list_size = sizes.get("list", 0)
@@ -185,6 +187,7 @@ def build_function_registry(
         is_thunk: bool
         is_export: bool
         canonical_size: best-known size
+        size_reason: explanation for chosen canonical size
     """
     registry: dict[int, RegistryEntry] = {}
 

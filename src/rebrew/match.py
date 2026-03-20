@@ -10,6 +10,7 @@ Single-function usage:
 
 Batch usage (``rebrew match --all``)::
     rebrew match --all                       Run GA on all STUB functions
+    rebrew match --all --improve             GA on all NEAR_MATCHING functions
     rebrew match --all --near-miss           Near-miss NEAR_MATCHING functions
     rebrew match --all --flag-sweep          Batch flag sweep on NEAR_MATCHING
     rebrew match --all --dry-run             List targets without running
@@ -53,7 +54,7 @@ from rebrew.compile import resolve_compiler_env
 from rebrew.compile_cache import CompileCache
 from rebrew.config import ProjectConfig
 from rebrew.core import msvc_env_from_config
-from rebrew.diff import _print_structural_similarity
+from rebrew.diff import print_structural_similarity
 from rebrew.matcher import (
     BuildCache,
     BuildResult,
@@ -63,10 +64,10 @@ from rebrew.matcher import (
     crossover,
     flag_sweep,
     mutate_code,
+    quick_validate,
     score_candidate,
     structural_similarity,
 )
-from rebrew.matcher.mutator import quick_validate
 from rebrew.utils import atomic_write_text
 
 log = logging.getLogger(__name__)
@@ -79,7 +80,7 @@ console = Console(stderr=True)
 
 
 class BinaryMatchingGA:
-    """Genetic algorithm engine for finding byte-identical C source matches."""
+    """Genetic algorithm engine for finding byte-identical or relocation-equivalent C source matches."""
 
     def __init__(
         self,
@@ -148,6 +149,11 @@ class BinaryMatchingGA:
         self.cache = BuildCache(str(self.out_dir / "build_cache.db"))
         self.compile_cache = compile_cache
         self.extra_seeds = extra_seeds or []
+
+        # Pre-compute target normalization and mnemonics once for scoring hot path
+        from rebrew.matcher.scoring import precompute_target
+
+        self._pre_norm_target, self._pre_target_mnems = precompute_target(target_bytes)
 
         self._init_population()
 
@@ -227,7 +233,13 @@ class BinaryMatchingGA:
                 f"[{src_hash}] Candidate {len(obj_bytes)}B > target {target_len}B (+{excess}B excess)"
             )
         score_bytes = obj_bytes[:target_len]
-        sc = score_candidate(self.target_bytes, score_bytes, res.reloc_offsets)
+        sc = score_candidate(
+            self.target_bytes,
+            score_bytes,
+            res.reloc_offsets,
+            _pre_norm_target=self._pre_norm_target,
+            _pre_target_mnems=self._pre_target_mnems,
+        )
         excess_penalty = excess * 1500.0  # per-byte penalty comparable to byte_score weight
         total = sc.total + excess_penalty
         console.print(
@@ -321,7 +333,7 @@ class BinaryMatchingGA:
 
                 if self.rng.random() < self.mutation_prob:
                     # Multi-mutation: 35% chance of chaining 2-3 mutations for
-                    # bigger jumps in the search space.  Not empirically tuned.
+                    # bigger jumps in the search space.
                     n_muts = 1
                     if self.rng.random() < 0.35:
                         n_muts = self.rng.randint(2, 3)
@@ -358,7 +370,6 @@ class StubInfo:
     delta: int = 9999
 
 
-# Match function definition start: return type at start of line.
 _FUNC_START_RE = re.compile(
     r"^(?:BOOL|int|void|char|short|long|unsigned|signed|float|double|"
     r"DWORD|HANDLE|LPVOID|LPCSTR|LPSTR|HRESULT|UINT|ULONG|BYTE|WORD|"
@@ -453,11 +464,12 @@ def _collect_with_dedup(
     sort_key: "Callable[[StubInfo], Any]",
     warn_duplicates: bool = True,
 ) -> list[StubInfo]:
-    """Collect StubInfo dicts from source files, deduplicating by VA."""
+    """Collect StubInfo entries from source files, deduplicating by VA."""
     from rebrew.cli import iter_sources, rel_display_path
 
     results: list[StubInfo] = []
     seen_vas: dict[str, str] = {}
+    dup_warnings: list[str] = []
 
     if not reversed_dir.exists():
         return results
@@ -469,13 +481,16 @@ def _collect_with_dedup(
             va_str = info.va
             if va_str in seen_vas:
                 if warn_duplicates:
-                    console.print(
-                        f"  [yellow]WARNING:[/] Duplicate VA {va_str} found in {rel_name} "
+                    dup_warnings.append(
+                        f"  [yellow]warning:[/yellow] Duplicate VA {va_str} found in {rel_name} "
                         f"(already in {seen_vas[va_str]}), skipping"
                     )
                 continue
             seen_vas[va_str] = rel_name
             results.append(info)
+
+    for w in dup_warnings:
+        console.print(w)
 
     results.sort(key=sort_key)
     return results
@@ -703,7 +718,9 @@ def main(
     link: str | None = typer.Option(
         None, help="LINK.EXE command", rich_help_panel="Single-Function"
     ),
-    lib: str | None = typer.Option(None, help="Lib dir", rich_help_panel="Single-Function"),
+    lib: str | None = typer.Option(
+        None, "--lib", help="Lib dir", rich_help_panel="Single-Function"
+    ),
     ldflags: str | None = typer.Option(
         None, help="Linker flags", rich_help_panel="Single-Function"
     ),
@@ -1188,7 +1205,7 @@ def _run_single_flag_sweep(
         for score, flags_str in results[:10]:
             console.print(f"{score:.2f}: {flags_str}")
         if sim_res is not None:
-            _print_structural_similarity(sim_res)
+            print_structural_similarity(sim_res)
 
     if best_score < 0.1:
         return
@@ -1448,7 +1465,7 @@ def _run_one_stub_ga(
                     update_stub_to_matched(filepath, best_src, stub, metadata_dir=cfg.metadata_dir)
                 except (RuntimeError, OSError) as e:
                     console.print(
-                        f"  [yellow]WARNING:[/yellow] GA matched but failed to update source: {e}"
+                        f"  [yellow]warning:[/yellow] GA matched but failed to update source: {e}"
                     )
             _save_solution(
                 cfg,
@@ -1654,7 +1671,7 @@ def _run_batch_flag_sweep(
     mode_label: str,
 ) -> None:
     """Execute batch flag sweep across all discovered NEAR_MATCHING functions."""
-    from rebrew.annotation import _module_for_va
+    from rebrew.annotation import module_for_va
     from rebrew.cli import rel_display_path
     from rebrew.metadata import update_source_status
     from rebrew.solutions import SolutionEntry, save_solution
@@ -1705,7 +1722,7 @@ def _run_batch_flag_sweep(
                 update_source_status(
                     cfg.metadata_dir,
                     "EXACT",
-                    module=_module_for_va(stub.filepath, int(stub.va, 16)),
+                    module=module_for_va(stub.filepath, int(stub.va, 16)),
                     va=int(stub.va, 16),
                     clear_blockers=True,
                 )

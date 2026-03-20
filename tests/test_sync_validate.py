@@ -1,9 +1,11 @@
+"""Tests for rebrew sync validation and config loading."""
+
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 from rebrew.config import load_config
-from rebrew.ghidra.commands import _resolve_program_path, _validate_program_path
+from rebrew.ghidra.commands import resolve_program_path, validate_program_path
 
 
 class TestResolveProgramPath:
@@ -12,15 +14,15 @@ class TestResolveProgramPath:
             target_binary=Path("/tmp/server.dll"),
             ghidra_program_path="/Server/server.dll",
         )
-        assert _resolve_program_path(cfg) == "/Server/server.dll"
+        assert resolve_program_path(cfg) == "/Server/server.dll"
 
     def test_derives_from_binary_name_when_missing(self) -> None:
         cfg = SimpleNamespace(target_binary=Path("/tmp/server.dll"))
-        assert _resolve_program_path(cfg) == "/server.dll"
+        assert resolve_program_path(cfg) == "/server.dll"
 
     def test_derives_from_binary_name_when_empty(self) -> None:
         cfg = SimpleNamespace(target_binary=Path("/tmp/server.dll"), ghidra_program_path="")
-        assert _resolve_program_path(cfg) == "/server.dll"
+        assert resolve_program_path(cfg) == "/server.dll"
 
 
 class TestValidateProgramPath:
@@ -38,10 +40,8 @@ class TestValidateProgramPath:
                 "language": "x86:LE:32:default",
             }
 
-        monkeypatch.setattr("rebrew.ghidra.commands._fetch_mcp_tool_raw", mock_fetch)
-        result = _validate_program_path(
-            None, "http://localhost:8080/mcp/message", "/server.dll", ""
-        )
+        monkeypatch.setattr("rebrew.ghidra.commands.fetch_mcp_tool_raw", mock_fetch)
+        result = validate_program_path(None, "http://localhost:8080/mcp/message", "/server.dll", "")
         assert result == "/server.dll"
 
     def test_validate_mismatch_warns_and_uses_ghidra_path(
@@ -60,10 +60,8 @@ class TestValidateProgramPath:
                 "language": "x86:LE:32:default",
             }
 
-        monkeypatch.setattr("rebrew.ghidra.commands._fetch_mcp_tool_raw", mock_fetch)
-        result = _validate_program_path(
-            None, "http://localhost:8080/mcp/message", "/server.dll", ""
-        )
+        monkeypatch.setattr("rebrew.ghidra.commands.fetch_mcp_tool_raw", mock_fetch)
+        result = validate_program_path(None, "http://localhost:8080/mcp/message", "/server.dll", "")
         captured = capsys.readouterr()
         assert result == "/Server/server.dll"
         assert "Ghidra has '/Server/server.dll' open" in captured.err
@@ -80,10 +78,8 @@ class TestValidateProgramPath:
         ) -> dict[str, Any]:
             raise RuntimeError("mcp unavailable")
 
-        monkeypatch.setattr("rebrew.ghidra.commands._fetch_mcp_tool_raw", mock_fetch)
-        result = _validate_program_path(
-            None, "http://localhost:8080/mcp/message", "/server.dll", ""
-        )
+        monkeypatch.setattr("rebrew.ghidra.commands.fetch_mcp_tool_raw", mock_fetch)
+        result = validate_program_path(None, "http://localhost:8080/mcp/message", "/server.dll", "")
         assert result == "/server.dll"
 
     def test_validate_none_result_returns_original(self, monkeypatch: Any) -> None:
@@ -97,10 +93,8 @@ class TestValidateProgramPath:
         ) -> None:
             return None
 
-        monkeypatch.setattr("rebrew.ghidra.commands._fetch_mcp_tool_raw", mock_fetch)
-        result = _validate_program_path(
-            None, "http://localhost:8080/mcp/message", "/server.dll", ""
-        )
+        monkeypatch.setattr("rebrew.ghidra.commands.fetch_mcp_tool_raw", mock_fetch)
+        result = validate_program_path(None, "http://localhost:8080/mcp/message", "/server.dll", "")
         assert result == "/server.dll"
 
 

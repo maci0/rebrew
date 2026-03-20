@@ -6,6 +6,7 @@ Uses capstone for x86 disassembly and numpy for vectorized byte comparison.
 """
 
 import difflib
+import functools
 from typing import Any
 
 import capstone
@@ -17,6 +18,19 @@ from .core import Score, StructuralSimilarity
 # parameters so callers can override without circular config imports.
 _DEFAULT_CS_ARCH = capstone.CS_ARCH_X86
 _DEFAULT_CS_MODE = capstone.CS_MODE_32
+
+
+@functools.lru_cache(maxsize=4)
+def _get_cs(cs_arch: int, cs_mode: int, *, detail: bool = False) -> capstone.Cs:
+    """Return a cached Capstone disassembler instance.
+
+    Instances are cached by (arch, mode, detail) tuple.  This avoids
+    re-creating Capstone objects on every call in the GA scoring hot path.
+    """
+    md = capstone.Cs(cs_arch, cs_mode)
+    md.detail = detail
+    return md
+
 
 # ---------------------------------------------------------------------------
 # Scoring weights — tuned empirically for MSVC6 x86 binary matching.
@@ -44,7 +58,12 @@ _WEIGHT_MNEMONIC = 200.0  # per mnemonic-level difference (0-100 scale)
 def _normalize_with_reloc_offsets(
     code: bytes, reloc_offsets: dict[int, str] | list[int] | None, pointer_size: int = 4
 ) -> bytes:
-    """Zero relocation slots described by explicit relocation offsets."""
+    """Zero relocation slots described by explicit relocation offsets.
+
+    For each offset, zeros ``pointer_size`` consecutive bytes starting at
+    that position.  When *reloc_offsets* is a dict, only the integer keys
+    are used; the symbol-name values are ignored.
+    """
     if reloc_offsets is None:
         return code
     out = bytearray(code)
@@ -62,8 +81,7 @@ def _normalize_reloc_x86_32(
     cs_mode: int = _DEFAULT_CS_MODE,
 ) -> bytes:
     """Zero out relocatable fields in x86-32 machine code."""
-    md = capstone.Cs(cs_arch, cs_mode)
-    md.detail = True
+    md = _get_cs(cs_arch, cs_mode, detail=True)
     out = bytearray(code)
 
     for insn in md.disasm(code, 0):
@@ -136,8 +154,7 @@ def _mask_registers_x86_32(
     cs_mode: int = _DEFAULT_CS_MODE,
 ) -> bytes:
     """Mask out register encodings in ModR/M and opcode bytes for register-aware diff."""
-    md = capstone.Cs(cs_arch, cs_mode)
-    md.detail = True
+    md = _get_cs(cs_arch, cs_mode, detail=True)
     out = bytearray(code)
 
     for insn in md.disasm(code, 0):
@@ -168,8 +185,16 @@ def score_candidate(
     cs_arch: int = _DEFAULT_CS_ARCH,
     cs_mode: int = _DEFAULT_CS_MODE,
     pointer_size: int = 4,
+    *,
+    _pre_norm_target: bytes | None = None,
+    _pre_target_mnems: list[str] | None = None,
 ) -> Score:
-    """Score a candidate against the target bytes."""
+    """Score a candidate against the target bytes.
+
+    Optional keyword-only args for hot-path callers (GA engine):
+        _pre_norm_target: Pre-computed ``_normalize_reloc_x86_32(target_bytes)``.
+        _pre_target_mnems: Pre-computed mnemonic list from target disassembly.
+    """
     len_diff = abs(len(target_bytes) - len(candidate_bytes))
     min_len = min(len(target_bytes), len(candidate_bytes))
 
@@ -208,8 +233,12 @@ def score_candidate(
                         reloc_mask[idx] = True
             reloc_score = float(np.count_nonzero(diff_mask & ~reloc_mask))
     else:
-        # Fallback to heuristic normalization
-        norm_target = _normalize_reloc_x86_32(target_bytes, cs_arch, cs_mode)
+        # Fallback to heuristic normalization — reuse pre-computed target if available
+        norm_target = (
+            _pre_norm_target
+            if _pre_norm_target is not None
+            else _normalize_reloc_x86_32(target_bytes, cs_arch, cs_mode)
+        )
         norm_cand = _normalize_reloc_x86_32(candidate_bytes, cs_arch, cs_mode)
         if min_len > 0:
             nt_arr = np.frombuffer(norm_target[:min_len], dtype=np.uint8)
@@ -222,8 +251,13 @@ def score_candidate(
     # contiguous matching blocks.  This rewards long matching runs and
     # penalises isolated insertions/deletions more precisely.
     # A single extra PUSH at the top no longer tanks the entire score.
-    md = capstone.Cs(cs_arch, cs_mode)
-    target_mnems = [i.mnemonic for i in md.disasm(target_bytes, 0x1000)]
+    md = _get_cs(cs_arch, cs_mode)
+    # Reuse pre-computed target mnemonics if available (GA hot path)
+    target_mnems = (
+        _pre_target_mnems
+        if _pre_target_mnems is not None
+        else [i.mnemonic for i in md.disasm(target_bytes, 0x1000)]
+    )
     cand_mnems = [i.mnemonic for i in md.disasm(candidate_bytes, 0x1000)]
 
     sm = difflib.SequenceMatcher(None, target_mnems, cand_mnems)
@@ -281,6 +315,22 @@ def score_candidate(
     )
 
 
+def precompute_target(
+    target_bytes: bytes,
+    cs_arch: int = _DEFAULT_CS_ARCH,
+    cs_mode: int = _DEFAULT_CS_MODE,
+) -> tuple[bytes, list[str]]:
+    """Pre-compute target normalization and mnemonics for GA hot path.
+
+    Returns (norm_target, target_mnems) to pass as ``_pre_norm_target``
+    and ``_pre_target_mnems`` to ``score_candidate()``.
+    """
+    norm_target = _normalize_reloc_x86_32(target_bytes, cs_arch, cs_mode)
+    md = _get_cs(cs_arch, cs_mode)
+    target_mnems = [i.mnemonic for i in md.disasm(target_bytes, 0x1000)]
+    return norm_target, target_mnems
+
+
 def diff_functions(
     target_bytes: bytes,
     candidate_bytes: bytes,
@@ -293,7 +343,11 @@ def diff_functions(
     cs_mode: int = _DEFAULT_CS_MODE,
     pointer_size: int = 4,
 ) -> dict[str, Any] | None:
-    r"""Print a side-by-side diff of target and candidate disassembly.
+    r"""Diff target and candidate disassembly side-by-side.
+
+    When ``as_dict`` is False (default), prints the diff to stdout and
+    returns ``None``.  When ``as_dict`` is True, suppresses printing and
+    returns a structured dict.
 
     Args:
         target_bytes: Ground-truth target bytes.
@@ -312,10 +366,10 @@ def diff_functions(
         A dict with diff data when ``as_dict`` is True, otherwise None.
 
     """
-    md = capstone.Cs(cs_arch, cs_mode)
+    md = _get_cs(cs_arch, cs_mode)
 
-    # Use base address 0 so instruction addresses equal byte offsets
-    # (matches _normalize_reloc_x86_32 which also disassembles at base 0).
+    # Disassemble at base 0 so instruction addresses equal byte offsets
+    # in the human-readable diff output.
     target_insns = list(md.disasm(target_bytes, 0))
     cand_insns = list(md.disasm(candidate_bytes, 0))
 
@@ -332,7 +386,7 @@ def diff_functions(
 
     # Build rows with match markers.  When as_dict is True we collect
     # structured dicts and simple counters instead of formatted lines.
-    rows: list[tuple[str, str]] = []  # (match_char, formatted_line) — print mode only
+    rows: list[tuple[str, str]] = []  # (match_char, formatted_line) — populated in print mode
     insn_data: list[dict[str, Any]] = []  # populated only when as_dict=True
     exact_count = 0
     reloc_count = 0
@@ -499,7 +553,7 @@ def structural_similarity(
     reg = s["reg"]
     structural = s["structural"]
 
-    md = capstone.Cs(cs_arch, cs_mode)
+    md = _get_cs(cs_arch, cs_mode)
     target_mnems = [i.mnemonic for i in md.disasm(target_bytes, 0)]
     cand_mnems = [i.mnemonic for i in md.disasm(candidate_bytes, 0)]
     sm = difflib.SequenceMatcher(None, target_mnems, cand_mnems)

@@ -195,7 +195,7 @@ _PRINCIPLES_SRC = Path(__file__).parent / "PRINCIPLES.md"
 def _copy_agent_skills(dest: Path, target_name: str) -> None:
     """Copy bundled agent-skills/ into the project under .agents/skills, substituting <target>."""
     if not _AGENT_SKILLS_SRC.is_dir():
-        console.print("[yellow]Warning: agent-skills not found in package; skipping.[/]")
+        console.print("[yellow]warning:[/yellow] agent-skills not found in package; skipping.")
         return
 
     dest_skills = dest / ".agents" / "skills"
@@ -219,10 +219,10 @@ def main(
     compiler_profile: str = typer.Option(
         "msvc6", "--compiler", "-c", help="Compiler profile to use."
     ),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     install_wibo: bool = typer.Option(
         False, "--install-wibo", help="Download wibo runner to tools/wibo."
     ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Initialize a new rebrew project in the current directory.
 
@@ -352,6 +352,7 @@ def main(
         console.print("3. Run 'rebrew todo' to get started!")
 
 
+# Alias so main.py can register the command as ``init`` without renaming the callback.
 init = main
 
 

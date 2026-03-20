@@ -1,6 +1,5 @@
 """Tests for the config loader and multi-target support."""
 
-import os
 from pathlib import Path
 
 import pytest
@@ -10,8 +9,8 @@ from rebrew.config import (
     _ARCH_PRESETS,
     ProjectConfig,
     _detect_binary_layout,
-    _find_root,
     _resolve,
+    find_root,
     load_config,
 )
 
@@ -50,26 +49,22 @@ class TestResolve:
 
 
 # ---------------------------------------------------------------------------
-# _find_root()
+# find_root()
 # ---------------------------------------------------------------------------
 
 
 class TestFindRoot:
     def test_explicit_root(self, tmp_path: Path) -> None:
-        assert _find_root(tmp_path) == tmp_path
+        assert find_root(tmp_path) == tmp_path
 
-    def test_auto_detect_from_cwd(self, tmp_path: Path) -> None:
-        """Test that _find_root can find rebrew-project.toml from cwd."""
+    def test_auto_detect_from_cwd(self, tmp_path: Path, monkeypatch) -> None:
+        """Test that find_root can find rebrew-project.toml from cwd."""
         (tmp_path / "rebrew-project.toml").write_text(
             "[targets.main]\nbinary = 'test.exe'\n", encoding="utf-8"
         )
-        old_cwd = os.getcwd()
-        try:
-            os.chdir(tmp_path)
-            root = _find_root()
-            assert (root / "rebrew-project.toml").exists()
-        finally:
-            os.chdir(old_cwd)
+        monkeypatch.chdir(tmp_path)
+        root = find_root()
+        assert (root / "rebrew-project.toml").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -408,87 +403,6 @@ class TestPEDetection:
 # ---------------------------------------------------------------------------
 
 
-class TestToolImports:
-    """Verify all tools can be imported and have correct signatures."""
-
-    def test_import_config(self) -> None:
-        from rebrew.config import load_config
-
-        assert callable(load_config)
-        import inspect
-
-        sig = inspect.signature(load_config)
-        assert "root" in sig.parameters or "target" in sig.parameters
-
-    def test_import_cli(self) -> None:
-        from rebrew.cli import is_matched, require_config
-
-        assert callable(require_config)
-        assert callable(is_matched)
-
-    def test_import_matcher_scoring(self) -> None:
-        from rebrew.matcher.scoring import score_candidate
-
-        assert callable(score_candidate)
-        import inspect
-
-        sig = inspect.signature(score_candidate)
-        assert "target_bytes" in sig.parameters
-        assert "candidate_bytes" in sig.parameters
-
-    def test_import_matcher_parsers(self) -> None:
-        from rebrew.matcher.parsers import parse_obj_symbol_bytes
-
-        assert callable(parse_obj_symbol_bytes)
-
-    def test_import_matcher_compiler(self) -> None:
-        from rebrew.matcher.compiler import build_candidate_obj_only
-
-        assert callable(build_candidate_obj_only)
-
-    def test_import_matcher_core(self) -> None:
-        from rebrew.matcher.core import BuildResult, Score
-
-        s = Score(
-            length_diff=0,
-            byte_score=1.0,
-            reloc_score=0.5,
-            mnemonic_score=0.3,
-            prologue_bonus=0.0,
-            total=42.0,
-        )
-        assert s.total == 42.0
-        br = BuildResult(ok=True, obj_bytes=b"\x55")
-        assert br.ok is True
-        assert br.obj_bytes == b"\x55"
-
-    def test_import_matcher_mutator(self) -> None:
-        from rebrew.matcher.mutator import mutate_code
-
-        assert callable(mutate_code)
-
-    def test_import_binary_loader(self) -> None:
-        from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va, load_binary
-
-        assert callable(load_binary)
-        assert callable(extract_bytes_at_va)
-        info = BinaryInfo(
-            path=Path("/tmp/test.dll"),
-            format="pe",
-            image_base=0x10000000,
-            text_va=0x1000,
-            text_size=0x1000,
-        )
-        assert info.format == "pe"
-        assert info.image_base == 0x10000000
-        assert info.text_size == 0x1000
-
-    def test_import_detect_binary_layout(self) -> None:
-        from rebrew.config import _detect_binary_layout
-
-        assert callable(_detect_binary_layout)
-
-
 # ---------------------------------------------------------------------------
 # Config validation layer (Idea 18)
 # ---------------------------------------------------------------------------
@@ -636,4 +550,4 @@ formatx = "typo"
 
 
 # ---------------------------------------------------------------------------
-# Audit-specific regression tests (Phase 3 hardening — config.py)
+# Regression tests

@@ -4,7 +4,7 @@ Provides function classification (difficulty estimation,
 unmatchable detection), naming conventions (filename generation, sanitization),
 and data loading helpers shared across multiple CLI tools.
 
-Extracted from skeleton.py and next.py to eliminate circular dependencies.
+Extracted from skeleton.py and todo.py to eliminate circular dependencies.
 """
 
 import bisect
@@ -15,13 +15,15 @@ from typing import TYPE_CHECKING
 import capstone
 
 if TYPE_CHECKING:
-    from rebrew.catalog.models import FunctionEntry
+    from rebrew.catalog import FunctionEntry
 
 from rebrew.annotation import parse_c_file_multi, parse_library_header
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 
-# 7-tuple: (difficulty, size, va, name, reason, neighbor_file, similarity)
+# (difficulty, size, va, name, reason, neighbor_file, similarity)
+# difficulty: estimated matching difficulty (lower = easier)
+# similarity: 0.0-1.0 similarity to nearest matched neighbor
 UncoveredItem = tuple[int, int, int, str, str, str | None, float]
 
 # ---------------------------------------------------------------------------
@@ -220,7 +222,7 @@ def load_data(
 
     Returns (ghidra_funcs, existing, covered_vas) where:
     - ghidra_funcs: list of FunctionEntry objects
-    - existing: dict mapping VA -> {filename, status, origin, blocker, symbol}
+    - existing: dict mapping VA -> {filename, size, status, blocker, blocker_delta, symbol}
     - covered_vas: dict mapping VA -> filename (for find_neighbor_file)
     """
     from rebrew.catalog import load_function_structure

@@ -9,7 +9,7 @@ Architecture
 ~~~~~~~~~~~~
 1. Extract target bytes from the DLL and compiled bytes from the .obj
 2. Load both into separate angr Projects using the ``blob`` backend
-3. Parse the ``// PROTOTYPE:`` annotation for calling convention + arg count
+3. Read the ``PROTOTYPE`` field from rebrew-function.toml metadata for calling convention + arg count
 4. Hook IAT-indirect calls with Win32 API-aware SimProcedures (constrained
    return values) to prevent path explosion from API calls.  Falls back to
    ``ReturnUnconstrained`` for unknown APIs.
@@ -19,13 +19,14 @@ Architecture
 7. Compare EAX (return register) formulas via Z3 — if no satisfying
    assignment makes them differ, the functions are proven equivalent
 
-angr is an optional dependency (~500 MB).  Import is guarded with a clear
-error message directing users to ``uv pip install -e ".[prove]"``.
+angr is an optional dependency.  Import is guarded with a clear error
+message directing users to ``uv pip install -e ".[prove]"``.
 """
 
 from __future__ import annotations
 
 import contextlib
+import logging
 import re
 import struct
 import tempfile
@@ -51,6 +52,8 @@ from rebrew.cli import (
 from rebrew.compile import compile_to_obj
 from rebrew.config import ProjectConfig
 from rebrew.matcher.parsers import parse_obj_symbol_bytes
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Guarded angr import
@@ -579,8 +582,8 @@ def prove_equivalence(
                         iat_stub_map_orig[iat_va] = stub_addr
                         if fn.name:
                             iat_api_names[stub_addr] = fn.name
-        except Exception:
-            pass  # LIEF import scan is best-effort
+        except Exception:  # noqa: BLE001
+            log.debug("LIEF import scan failed (best-effort)", exc_info=True)
 
     cc, arg_count = _parse_prototype(prototype)
 
@@ -718,8 +721,8 @@ def prove_equivalence(
             try:
                 proj_comp.hook(stub_addr, simproc_cls(), length=1)
                 proj_orig.hook(stub_addr, simproc_cls(), length=1)
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001
+                log.debug("Failed to hook stub at 0x%x (%s)", stub_addr, api_name, exc_info=True)
 
     # Hook the return sentinel address so states that reach it land in
     # deadended (clean termination) instead of unconstrained.
@@ -729,8 +732,8 @@ def prove_equivalence(
         try:
             proj_comp.hook(RETURN_SENTINEL, _path_terminator(), length=0)
             proj_orig.hook(RETURN_SENTINEL, _path_terminator(), length=0)
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001
+            log.debug("Failed to hook return sentinel", exc_info=True)
 
     # Seed IAT slot memory in the original blob's initial state so
     # indirect calls (via register or memory) resolve to our stubs.
@@ -877,6 +880,7 @@ def _resolve_source(source_arg: str, cfg: ProjectConfig) -> Path:
             try:
                 annos = parse_c_file_multi(src, target_name=tm, metadata_dir=cfg.metadata_dir)
             except Exception:  # noqa: BLE001
+                log.debug("Skipping %s: annotation parse failed", src, exc_info=True)
                 continue
             for a in annos:
                 if a.va == va_int:
@@ -1134,6 +1138,7 @@ def _run_all_batch(
         try:
             annos = parse_c_file_multi(src, target_name=tm, metadata_dir=cfg.metadata_dir)
         except Exception:  # noqa: BLE001
+            log.debug("Skipping %s: annotation parse failed", src, exc_info=True)
             continue
         for a in annos:
             if a.status in ("NEAR_MATCHING", "RELOC") and a.size:
@@ -1175,6 +1180,7 @@ def _run_all_batch(
                 end_offset=0,
             )
         except Exception as e:  # noqa: BLE001
+            log.debug("Prove failed for %s", src, exc_info=True)
             proven, message = False, f"Error: {e}"
 
         if proven:

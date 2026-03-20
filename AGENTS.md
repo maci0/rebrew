@@ -67,7 +67,7 @@ No conftest.py — tests use `tmp_path` fixture and inline helpers.
 - **Every function signature** must have parameter and return type annotations
 - **PEP 604 unions**: `T | None` not `Optional[T]`; `str | Path` not `Union[str, Path]`
 - **Specific generics**: `dict[int, str]` not bare `dict`; `list[tuple[int, str]]` not `list[tuple]`
-- **Named aliases** for complex types: `UncoveredItem = tuple[int, int, int, str, str, str, str | None, float]`
+- **Named aliases** for complex types: `UncoveredItem = tuple[int, int, int, str, str, str | None, float]`
 - **Config params**: Type as `ProjectConfig` (from `rebrew.config`), use `getattr(cfg, "field", default)` for defensive access
 - **`Any` over `object`**: `object` is too restrictive (no attribute access)
 
@@ -147,19 +147,40 @@ src/rebrew/
 ├── signature_parser.py  # Extract function signatures from C source via tree-sitter
 ├── split.py             # Split multi-function C files into individual files
 ├── struct_parser.py     # Extract struct/typedef definitions from C source via tree-sitter
-├── utils.py             # Shared utilities (Wine stderr filtering, path helpers)
+├── utils.py             # Shared utilities (atomic_write_text)
 ├── wibo.py              # Auto-download + verify wibo (lightweight Wine alternative)
 ├── compile_cache.py     # Disk-backed compile result cache (diskcache, SHA-256 keyed)
 ├── metadata.py          # Per-directory rebrew-function.toml metadata loader/writer; update_source_status is the canonical STATUS writer
+├── data_metadata.py     # Per-directory data metadata (global/BSS variable annotations)
+├── solutions.py         # Semantic equivalence solution transfer database
 ├── crt_match.py         # CRT source cross-reference matcher (index, match, ASM detection)
 ├── cache_cli.py         # `rebrew cache stats` / `rebrew cache clear` CLI
 ├── prove.py             # Symbolic equivalence prover via angr (optional dep)
 ├── cu_map.py            # Compilation unit boundary inference (contiguity + call graph)
 ├── todo.py              # Prioritized action list: what to work on next
 ├── match.py             # GA engine — single file or batch (--all); absorbs old ga.py
-├── [tool].py            # Each CLI tool (test, verify, diff, lint, etc.)
+│
+├── # --- CLI tools (each exports app, main, main_entry) ---
+├── test.py              # Compile, byte-compare, auto-update STATUS annotation
+├── verify.py            # Bulk verification (incremental, cached)
+├── diff.py              # Compile and diff against target binary
+├── asm.py               # Disassemble function (hex dump or NASM source)
+├── skeleton.py          # Generate skeleton C files for matching
+├── lint.py              # Lint C annotations
+├── rename.py            # Rename function and update all cross-references
+├── init.py              # Initialize a new rebrew project
+├── doctor.py            # Diagnostic checks for project health
+├── status.py            # At-a-glance reversing progress overview
+├── data.py              # Global data scanner for .data/.rdata/.bss sections
+├── depgraph.py          # Function dependency graph visualization
+├── flirt.py             # FLIRT signature scanning
+├── build_db.py          # Build SQLite coverage database from data JSON
+├── binsync_export.py    # Export annotations to BinSync state directory
+├── cfg.py               # Multi-command: list-targets, show, add-target, set, set-cflags, etc.
+│
 ├── catalog/             # Function catalog package (see catalog/AGENTS.md)
 │   ├── __init__.py      # Re-exports all public names
+│   ├── models.py        # Data types (FunctionEntry, etc.)
 │   ├── loaders.py       # Ghidra JSON + text function list parsers, DLL bytes, library header scanning
 │   ├── registry.py      # build_function_registry, canonical size resolution
 │   ├── grid.py          # Coverage grid / data JSON generation
@@ -171,10 +192,21 @@ src/rebrew/
 │   ├── core.py          # Data types: Score, BuildResult, BuildCache, GACheckpoint
 │   ├── compiler.py      # MSVC6 compilation + flag sweep (Wine/wibo subprocess)
 │   ├── scoring.py       # Byte-level scoring, structural similarity (capstone + numpy)
-│   ├── mutator.py       # 120 C source mutation operators for GA exploration
+│   ├── mutator.py       # 120+ C source mutation operators for GA exploration
+│   ├── ast_engine.py    # tree-sitter AST mutation helpers
 │   ├── parsers.py       # Object file parsing (COFF/ELF/Mach-O via LIEF)
 │   ├── flags.py         # FlagSet/Checkbox primitives (decomp.me compatible)
 │   └── flag_data.py     # Auto-synced MSVC flag definitions
+├── ghidra/              # Ghidra sync package (ReVa MCP communication)
+│   ├── __init__.py      # Re-exports public API
+│   ├── models.py        # Data types (PullResult, PullChange, etc.)
+│   ├── client.py        # MCP HTTP communication (httpx)
+│   ├── commands.py      # Sync command builders (push, pull, rename, size-sync)
+│   └── cli.py           # Typer CLI app (`rebrew sync`)
+├── core/                # Core subsystem — matching and toolchain utilities
+│   ├── __init__.py      # Re-exports: smart_reloc_compare, msvc_env_from_config
+│   ├── matching.py      # smart_reloc_compare (relocation-aware byte comparison)
+│   └── toolchain.py     # msvc_env_from_config (MSVC environment setup)
 └── agent-skills/        # AI agent workflow skills (SKILL.md per skill)
     ├── rebrew-intake/   # Binary onboarding, FLIRT scan, catalog, triage
     ├── rebrew-workflow/  # End-to-end reversing loop

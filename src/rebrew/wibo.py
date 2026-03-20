@@ -7,11 +7,14 @@ downloads and verifies the latest release asset from GitHub.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import os
 import platform
 import shutil
 import stat
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -52,7 +55,11 @@ def _read_release_metadata() -> dict[str, Any]:
 
 
 def download_wibo(dest: Path) -> str:
-    """Download latest wibo release binary to dest and return release tag_name."""
+    """Download latest wibo release binary to *dest* and return release tag_name.
+
+    Raises RuntimeError if the asset is not found, download fails,
+    or SHA-256 verification fails.
+    """
     release = _read_release_metadata()
     tag_name = str(release.get("tag_name", ""))
     asset_name = _wibo_asset_name()
@@ -80,17 +87,24 @@ def download_wibo(dest: Path) -> str:
     dest.parent.mkdir(parents=True, exist_ok=True)
     resp = httpx.get(download_url, timeout=_NETWORK_TIMEOUT_S, follow_redirects=True)
     resp.raise_for_status()
-    dest.write_bytes(resp.content)
 
     actual_sha256 = hashlib.sha256(resp.content).hexdigest()
     if actual_sha256 != expected_sha256:
-        dest.unlink(missing_ok=True)
         raise RuntimeError(
             f"SHA256 mismatch for downloaded wibo: expected {expected_sha256}, got {actual_sha256}"
         )
 
-    # Owner read+execute only — wibo is a static binary, never needs modification
-    dest.chmod(stat.S_IRUSR | stat.S_IXUSR)
+    # Write via tempfile + os.replace for crash-safe placement
+    fd, tmp_path = tempfile.mkstemp(dir=str(dest.parent), prefix=".wibo_")
+    try:
+        os.write(fd, resp.content)
+        os.close(fd)
+        os.chmod(tmp_path, stat.S_IRUSR | stat.S_IXUSR)
+        os.replace(tmp_path, str(dest))
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path)
+        raise
     return tag_name
 
 

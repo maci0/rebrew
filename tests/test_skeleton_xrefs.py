@@ -1,3 +1,5 @@
+"""Tests for skeleton cross-reference generation via Ghidra MCP."""
+
 import importlib
 from pathlib import Path
 
@@ -35,7 +37,7 @@ class TestFetchXrefContext:
 
         monkeypatch.setattr(importlib, "import_module", _make_import_mock(sync_mod))
         monkeypatch.setattr(httpx, "Client", _DummyClient)
-        monkeypatch.setattr(sync_mod, "_init_mcp_session", lambda client, endpoint: "sid")
+        monkeypatch.setattr(sync_mod, "init_mcp_session", lambda client, endpoint: "sid")
 
         def _mock_fetch(client, endpoint, tool_name, arguments, request_id, session_id=""):
             if tool_name == "find-cross-references":
@@ -61,7 +63,7 @@ class TestFetchXrefContext:
                 return "int caller_fn(void) {\n    MyFunc(arg);\n    return 0;\n}"
             return None
 
-        monkeypatch.setattr(sync_mod, "_fetch_mcp_tool_raw", _mock_fetch)
+        monkeypatch.setattr(sync_mod, "fetch_mcp_tool_raw", _mock_fetch)
 
         result = fetch_xref_context("http://localhost:8080/mcp/message", "/server.dll", 0x00401000)
         assert result is not None
@@ -75,9 +77,9 @@ class TestFetchXrefContext:
 
         monkeypatch.setattr(importlib, "import_module", _make_import_mock(sync_mod))
         monkeypatch.setattr(httpx, "Client", _DummyClient)
-        monkeypatch.setattr(sync_mod, "_init_mcp_session", lambda client, endpoint: "sid")
+        monkeypatch.setattr(sync_mod, "init_mcp_session", lambda client, endpoint: "sid")
         monkeypatch.setattr(
-            sync_mod, "_fetch_mcp_tool_raw", lambda *args, **kwargs: {"referencesTo": []}
+            sync_mod, "fetch_mcp_tool_raw", lambda *args, **kwargs: {"referencesTo": []}
         )
 
         result = fetch_xref_context("http://localhost:8080/mcp/message", "/server.dll", 0x00401000)
@@ -92,7 +94,7 @@ class TestFetchXrefContext:
         def _raise(*args, **kwargs):
             raise RuntimeError("mcp down")
 
-        monkeypatch.setattr(sync_mod, "_init_mcp_session", _raise)
+        monkeypatch.setattr(sync_mod, "init_mcp_session", _raise)
 
         result = fetch_xref_context("http://localhost:8080/mcp/message", "/server.dll", 0x00401000)
         assert result is None
@@ -102,7 +104,7 @@ class TestFetchXrefContext:
 
         monkeypatch.setattr(importlib, "import_module", _make_import_mock(sync_mod))
         monkeypatch.setattr(httpx, "Client", _DummyClient)
-        monkeypatch.setattr(sync_mod, "_init_mcp_session", lambda client, endpoint: "sid")
+        monkeypatch.setattr(sync_mod, "init_mcp_session", lambda client, endpoint: "sid")
 
         calls: list[str] = []
 
@@ -136,7 +138,7 @@ class TestFetchXrefContext:
                 return f"void f(void) {{ {target}; }}"
             return None
 
-        monkeypatch.setattr(sync_mod, "_fetch_mcp_tool_raw", _mock_fetch)
+        monkeypatch.setattr(sync_mod, "fetch_mcp_tool_raw", _mock_fetch)
 
         result = fetch_xref_context(
             "http://localhost:8080/mcp/message", "/server.dll", 0x00401000, max_callers=2
@@ -151,7 +153,7 @@ class TestFetchXrefContext:
 
         monkeypatch.setattr(importlib, "import_module", _make_import_mock(sync_mod))
         monkeypatch.setattr(httpx, "Client", _DummyClient)
-        monkeypatch.setattr(sync_mod, "_init_mcp_session", lambda client, endpoint: "sid")
+        monkeypatch.setattr(sync_mod, "init_mcp_session", lambda client, endpoint: "sid")
 
         def _mock_fetch(client, endpoint, tool_name, arguments, request_id, session_id=""):
             if tool_name == "find-cross-references":
@@ -168,7 +170,7 @@ class TestFetchXrefContext:
                 }
             return None
 
-        monkeypatch.setattr(sync_mod, "_fetch_mcp_tool_raw", _mock_fetch)
+        monkeypatch.setattr(sync_mod, "fetch_mcp_tool_raw", _mock_fetch)
 
         result = fetch_xref_context("http://localhost:8080/mcp/message", "/server.dll", 0x00401000)
         assert result is not None
@@ -183,7 +185,7 @@ class TestSkeletonWithXrefs:
         cfg.cflags_presets = {"GAME": "/O2 /Gd"}
         return cfg
 
-    def test_xref_context_in_template(self, tmp_path) -> None:
+    def test_xref_context_in_template(self) -> None:
         cfg = self._cfg()
         xref_block = "/* === Cross-references (1 callers) ===\n * Caller 1: main (0x00401000)\n */"
         content = generate_skeleton(
@@ -196,12 +198,12 @@ class TestSkeletonWithXrefs:
         )
         assert xref_block in content
 
-    def test_xref_context_none_omitted(self, tmp_path) -> None:
+    def test_xref_context_none_omitted(self) -> None:
         cfg = self._cfg()
         content = generate_skeleton(cfg, 0x10001000, 64, "FUN_10001000", "GAME", xref_context=None)
         assert "Cross-references" not in content
 
-    def test_both_xrefs_and_decomp(self, tmp_path) -> None:
+    def test_both_xrefs_and_decomp(self) -> None:
         cfg = self._cfg()
         xref_block = "/* === Cross-references (1 callers) ===\n * Caller 1: main (0x00401000)\n */"
         content = generate_skeleton(

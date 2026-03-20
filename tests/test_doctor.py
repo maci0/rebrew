@@ -3,6 +3,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from rebrew.doctor import (
     _FAIL,
     _PASS,
@@ -112,33 +114,21 @@ class TestDoctorReport:
 
 
 class TestCheckConfigParse:
-    def test_valid_config(self, tmp_path: Path) -> None:
-        import os
-
+    def test_valid_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _make_project(
             tmp_path, "[project]\ndefault_target = 'main'\n\n[targets.main]\nbinary = 'test.exe'\n"
         )
-        old = os.getcwd()
-        try:
-            os.chdir(tmp_path)
-            result, cfg = check_config_parse(root=None, target=None)
-            assert result.status == _PASS
-            assert cfg is not None
-        finally:
-            os.chdir(old)
+        monkeypatch.chdir(tmp_path)
+        result, cfg = check_config_parse(root=None, target=None)
+        assert result.status == _PASS
+        assert cfg is not None
 
-    def test_missing_config(self, tmp_path: Path) -> None:
-        import os
-
-        old = os.getcwd()
-        try:
-            os.chdir(tmp_path)
-            result, cfg = check_config_parse(root=None, target=None)
-            assert result.status == _FAIL
-            assert cfg is None
-            assert result.fix
-        finally:
-            os.chdir(old)
+    def test_missing_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        result, cfg = check_config_parse(root=None, target=None)
+        assert result.status == _FAIL
+        assert cfg is None
+        assert result.fix
 
 
 class TestCheckTargetBinary:
@@ -256,32 +246,20 @@ class TestCheckBinDir:
 
 
 class TestRunDoctor:
-    def test_full_run_missing_toml(self, tmp_path: Path) -> None:
-        import os
+    def test_full_run_missing_toml(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        report = run_doctor()
+        assert not report.passed
+        assert report.fail_count >= 1
 
-        old = os.getcwd()
-        try:
-            os.chdir(tmp_path)
-            report = run_doctor()
-            assert not report.passed
-            assert report.fail_count >= 1
-        finally:
-            os.chdir(old)
-
-    def test_full_run_with_toml(self, tmp_path: Path) -> None:
-        import os
-
+    def test_full_run_with_toml(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _make_project(
             tmp_path, "[project]\ndefault_target = 'main'\n\n[targets.main]\nbinary = 'test.exe'\n"
         )
-        old = os.getcwd()
-        try:
-            os.chdir(tmp_path)
-            report = run_doctor()
-            assert report.target == "main"
-            assert len(report.checks) >= 5
-            d = report.to_dict()
-            assert "checks" in d
-            assert "summary" in d
-        finally:
-            os.chdir(old)
+        monkeypatch.chdir(tmp_path)
+        report = run_doctor()
+        assert report.target == "main"
+        assert len(report.checks) >= 5
+        d = report.to_dict()
+        assert "checks" in d
+        assert "summary" in d

@@ -29,6 +29,8 @@ from rebrew.catalog.registry import RegistryEntry
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 
+console = Console(stderr=True)
+
 # ---------------------------------------------------------------------------
 # Data types
 # ---------------------------------------------------------------------------
@@ -36,13 +38,22 @@ from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 
 @dataclass
 class TUCluster:
-    """A group of functions inferred to belong to the same translation unit."""
+    """A group of functions inferred to belong to the same translation unit.
+
+    Attributes:
+        cluster_id: Unique cluster identifier.
+        functions: Sorted list of function VAs in this cluster.
+        gap_classes: Classification of each inter-function gap
+            (``'padding'``, ``'jump_table'``, ``'small_nonpadding'``, ``'large_nonpadding'``).
+        confidence: Confidence score 0.0–1.0; higher means stronger TU evidence.
+        evidence: Human-readable justifications for the clustering decision.
+    """
 
     cluster_id: int
-    functions: list[int]  # sorted VAs
-    gap_classes: list[str]  # per inter-function gap classification
-    confidence: float  # 0.0–1.0
-    evidence: list[str]  # human-readable justifications
+    functions: list[int]
+    gap_classes: list[str]
+    confidence: float
+    evidence: list[str]
 
 
 # ---------------------------------------------------------------------------
@@ -426,7 +437,6 @@ def main(
         return
 
     # Rich table output
-    console = Console(stderr=True)
     console.print(
         f"\n[bold]Compilation Unit Map[/bold]  "
         f"({clustered_count}/{total_funcs} functions in {len(clusters)} clusters)\n"

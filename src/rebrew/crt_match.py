@@ -7,7 +7,7 @@ extraction from C source, and known ASM-only function detection.
 Usage:
     rebrew crt-match 0x10006c00              Match a single VA
     rebrew crt-match --all                   Match all LIBRARY-marker functions
-    rebrew crt-match --fix-source            Auto-write // SOURCE: annotations
+    rebrew crt-match --fix-source --all      Auto-write // SOURCE: annotations
 """
 
 from __future__ import annotations
@@ -38,7 +38,15 @@ console = Console(stderr=True)
 
 @dataclass
 class CrtSourceEntry:
-    """A function found in a reference source file."""
+    """A function found in a reference source file.
+
+    Attributes:
+        name: Function name.
+        file: Source file path containing this function.
+        line: Line number where function is defined.
+        is_asm: True if function is ASM-only (cannot be compiled from C).
+        module: Origin module name (e.g. ``'MSVCRT'``, ``'zlib'``).
+    """
 
     name: str
     file: str
@@ -49,7 +57,17 @@ class CrtSourceEntry:
 
 @dataclass
 class CrtMatch:
-    """A match between a binary function and reference source."""
+    """A match between a binary function and a reference source.
+
+    Attributes:
+        va: Virtual address in the target binary.
+        binary_name: Name in the binary (from annotations or Ghidra).
+        binary_size: Function size in the binary.
+        source: Matching CrtSourceEntry.
+        confidence: Confidence score 0.0–1.0.
+        reason: Human-readable explanation (e.g. ``'name_match'``).
+        is_asm_only: True if matched to an ASM-only reference function.
+    """
 
     va: int
     binary_name: str
@@ -396,10 +414,10 @@ def main(
         "--fix-source",
         help="Auto-write // SOURCE: annotations",
     ),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     index_only: bool = typer.Option(
         False, "--index", help="Show CRT source index without matching"
     ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """CRT source cross-reference matcher."""

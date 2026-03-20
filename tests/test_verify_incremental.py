@@ -1,3 +1,5 @@
+"""Tests for incremental verification logic in rebrew.verify."""
+
 import json
 import os
 import time
@@ -329,6 +331,8 @@ class TestIncrementalVerify:
         # First run: promotes status (always-on now, no --fix-status needed)
         first = runner.invoke(app, ["--json"])
         assert first.exit_code == 0, first.output
+        # Verify the output includes match result
+        assert "EXACT" in first.output
 
         # Second run: cached, status promotion not re-applied for cached results
         second = runner.invoke(app, ["--json"])

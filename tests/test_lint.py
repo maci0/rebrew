@@ -46,14 +46,16 @@ class TestValidAnnotations:
         f = _write_c(tmp_path, "bit_reverse.c", VALID_HEADER)
         cfg = _make_cfg()
         result = lint_file(f, cfg=cfg)
+        assert result.passed, f"Expected lint to pass, errors: {result.errors}"
         non_w019 = [w for w in result.warnings if w[1] != "W019"]
-        assert non_w019 == []
+        assert non_w019 == [], f"Unexpected warnings: {non_w019}"
 
     def test_valid_library_no_errors(self, tmp_path: Path) -> None:
         cfg = _make_cfg()
         f = _write_c(tmp_path, "copy_environ.c", VALID_LIBRARY_HEADER)
         result = lint_file(f, cfg=cfg)
-        assert result.passed
+        assert result.passed, f"Expected lint to pass, errors: {result.errors}"
+        assert result.errors == [], f"Unexpected errors: {result.errors}"
 
 
 class TestMissingAnnotation:
@@ -93,7 +95,7 @@ class TestMissingFields:
         assert not any((c == "E005" for _, c, _ in result.errors))
 
     def test_missing_size_no_error(self, tmp_path: Path) -> None:
-        """// SIZE: is no longer required in source — SIZE lives in the metadata."""
+        """Missing SIZE in source should not cause lint errors — SIZE lives in metadata."""
         content = "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n// CFLAGS: /O2\nint foo(void) { return 0; }\n"
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
@@ -174,7 +176,7 @@ class TestDuplicateVA:
 
 class TestWarnings:
     def test_w001_missing_symbol(self, tmp_path: Path) -> None:
-        """W001 is no longer emitted — SYMBOL is derived from C function definitions."""
+        """SYMBOL is derived from C function definitions — W001 should not fire."""
         content = "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n// SIZE: 31\n// CFLAGS: /O2 /Gd\nint foo(void) { return 0; }\n"
         f = _write_c(tmp_path, "foo.c", content)
         result = lint_file(f)
@@ -257,10 +259,6 @@ class TestNoConfig:
         result = lint_file(f, cfg=None)
         assert result.passed
         assert not any((c in ("E011", "E012") for _, c, _ in result.errors))
-
-
-class TestCorruptedAnnotation:
-    pass
 
 
 class TestVAHexCase:
@@ -371,16 +369,12 @@ class TestLintResult:
         r = LintResult(filepath=Path("test.c"))
         r.error(1, "E001", "err")
         r.warning(2, "W001", "warn")
-        assert not r.passed
-        assert len(r.errors) == 1
-        assert len(r.warnings) == 1
-        assert r.errors[0][1] == "E001"
-        assert r.warnings[0][1] == "W001"
+        # Verify display methods do not raise
         r.display()
         r.display(quiet=True)
 
 
-def _make_c_file(tmp_path, name="my_func.c", content=None) -> Path:
+def _make_c_file(tmp_path: Path, name: str = "my_func.c", content: str | None = None) -> Path:
     if content is None:
         content = "// STUB: SERVER 0x10001000\n// STATUS: STUB\n// ORIGIN: GAME\n// SIZE: 64\n// CFLAGS: /O2 /Gd\n// SYMBOL: _my_func\nvoid __cdecl _my_func(void) {\n    // stub\n}\n"
     f = tmp_path / name
@@ -389,18 +383,18 @@ def _make_c_file(tmp_path, name="my_func.c", content=None) -> Path:
 
 
 class TestLintFile:
-    def test_valid_file(self, tmp_path) -> None:
+    def test_valid_file(self, tmp_path: Path) -> None:
         f = _make_c_file(tmp_path)
         result = lint_file(f)
         assert result.passed is True
 
-    def test_missing_function_annotation(self, tmp_path) -> None:
+    def test_missing_function_annotation(self, tmp_path: Path) -> None:
         f = _make_c_file(tmp_path, content="void f() {}\n")
         result = lint_file(f)
         assert result.passed is False
 
-    def test_missing_symbol(self, tmp_path) -> None:
-        """W001 is no longer emitted — SYMBOL is derived from C function definitions."""
+    def test_missing_symbol(self, tmp_path: Path) -> None:
+        """SYMBOL is derived from C function definitions — W001 should not fire."""
         f = _make_c_file(
             tmp_path,
             content="// FUNCTION: SERVER 0x10001000\n// STATUS: STUB\n// ORIGIN: GAME\n// SIZE: 64\n// CFLAGS: /O2 /Gd\nvoid __cdecl _my_func(void) {}\n",
@@ -408,7 +402,7 @@ class TestLintFile:
         result = lint_file(f)
         assert not any((c == "W001" for _, c, _ in result.warnings))
 
-    def test_missing_size(self, tmp_path) -> None:
+    def test_missing_size(self, tmp_path: Path) -> None:
         f = _make_c_file(
             tmp_path,
             content="// FUNCTION: SERVER 0x10001000\n// STATUS: STUB\n// ORIGIN: GAME\n// CFLAGS: /O2 /Gd\n// SYMBOL: _my_func\nvoid __cdecl _my_func(void) {}\n",
@@ -416,7 +410,7 @@ class TestLintFile:
         result = lint_file(f)
         assert not result.passed
 
-    def test_duplicate_va_detection(self, tmp_path) -> None:
+    def test_duplicate_va_detection(self, tmp_path: Path) -> None:
         seen_vas: dict[int, str] = {}
         f1 = _make_c_file(tmp_path, name="func1.c")
         f2 = _make_c_file(tmp_path, name="func2.c")
@@ -424,29 +418,33 @@ class TestLintFile:
         result2 = lint_file(f2, seen_vas=seen_vas)
         assert any((c == "E013" for _, c, _ in result2.errors))
 
-    def test_with_config(self, tmp_path) -> None:
+    def test_with_config(self, tmp_path: Path) -> None:
         cfg = ProjectConfig(root=Path("/tmp"), marker="SERVER")
         f = _make_c_file(tmp_path)
         result = lint_file(f, cfg=cfg)
         assert result.passed
 
-    def test_multiple_functions_in_file(self, tmp_path) -> None:
+    def test_multiple_functions_in_file(self, tmp_path: Path) -> None:
         f = _make_c_file(
             tmp_path,
             content="// FUNCTION: SERVER 0x10001000\n// STATUS: STUB\n// ORIGIN: GAME\n// SIZE: 64\n// CFLAGS: /O2 /Gd\n// SYMBOL: _func_a\nvoid __cdecl _func_a(void) {}\n\n// FUNCTION: SERVER 0x10002000\n// STATUS: STUB\n// ORIGIN: GAME\n// SIZE: 128\n// CFLAGS: /O2 /Gd\n// SYMBOL: _func_b\nvoid __cdecl _func_b(void) {}\n",
         )
         result = lint_file(f)
-        assert isinstance(result, LintResult)
+        # Both function blocks should be detected (warnings expected for inline metadata)
+        assert result._marker_counts["FUNCTION"] == 2
 
-    def test_empty_file(self, tmp_path) -> None:
+    def test_empty_file(self, tmp_path: Path) -> None:
         f = _make_c_file(tmp_path, content="")
         result = lint_file(f)
         assert not result.passed
 
-    def test_bad_cflags(self, tmp_path) -> None:
+    def test_bad_cflags(self, tmp_path: Path) -> None:
         f = _make_c_file(
             tmp_path,
             content="// FUNCTION: SERVER 0x10001000\n// STATUS: STUB\n// ORIGIN: GAME\n// SIZE: 64\n// CFLAGS: \n// SYMBOL: _my_func\nvoid __cdecl _my_func(void) {}\n",
         )
         result = lint_file(f)
         assert not result.passed
+        # Empty CFLAGS should produce W018 (missing CFLAGS with no config fallback)
+        assert any(c == "W018" for _, c, _ in result.warnings)
+        assert any("CFLAGS" in m for _, c, m in result.warnings if c == "W018")

@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from rebrew.catalog.models import FunctionEntry
+from rebrew.catalog import FunctionEntry
 from rebrew.todo import (
     CAT_COMPILE_ERROR,
     CAT_FIX_DELTA,

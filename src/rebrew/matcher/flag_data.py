@@ -4,7 +4,7 @@ Source: https://github.com/decompme/decomp.me.git
   File: backend/coreapp/flags.py
 Synced: 2026-02-23
 
-Do not edit manually — re-run tools/sync_decomp_flags.py to update.
+Base data auto-synced from decomp.me; sweep tiers are manually maintained.
 """
 
 from rebrew.matcher.flags import Checkbox, Flags, FlagSet
