@@ -42,11 +42,10 @@ def load_function_structure(path: Path) -> list[FunctionEntry]:
 
 
 def _classify_ghidra_label(label: str) -> str:
-    """Classify a Ghidra data label name into a cell state.
+    """Classify a Ghidra data label name into a grid cell state string.
 
-    Known patterns:
-        thunk_*  → "thunk"
-        default  → "data"  (switch tables are absorbed into parent functions)
+    Returns ``"thunk"`` for ``thunk_*`` prefixed labels, ``"data"`` otherwise
+    (switch tables are absorbed into parent functions during grid generation).
     """
     low = label.lower()
     if low.startswith("thunk_"):
@@ -164,14 +163,15 @@ def extract_dll_bytes(bin_path: Path, file_offset: int, size: int) -> bytes | No
 
 
 def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> list[Annotation]:
-    """Scan target dir source files and parse annotations from each.
+    """Scan source files and ``library_*.h`` headers under *reversed_dir*.
 
     Supports multi-function files: a single source file may contain multiple
     ``// FUNCTION:`` blocks, each generating a separate entry.
 
-    Merges data from each directory's ``rebrew-function.toml`` metadata so that volatile
-    metadata (STATUS, CFLAGS, SIZE, BLOCKER, etc.) stored outside the .c file
-    is visible to catalog tools.
+    When *cfg* is provided, merges each directory's ``rebrew-function.toml``
+    metadata so that volatile fields (STATUS, CFLAGS, SIZE, BLOCKER, etc.)
+    are visible to catalog tools.  When *cfg* is None, volatile metadata is
+    not loaded.
     """
     from rebrew.cli import iter_library_headers, iter_sources, target_marker
 

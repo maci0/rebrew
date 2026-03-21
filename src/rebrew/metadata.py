@@ -43,7 +43,8 @@ Merge semantics
 ---------------
 When a rebrew tool reads an ``Annotation`` from ``parse_c_file_multi()``, it
 calls ``merge_into_annotation(ann, directory)`` which overlays *metadata* values
-on top.  Metadata always wins for the fields it owns.
+on top.  Metadata always wins for the fields it owns.  The legacy ``analysis``
+field is mapped to ``note`` when the annotation has no explicit note.
 
 Atomicity
 ---------
@@ -92,7 +93,6 @@ METADATA_FIELDS: frozenset[str] = frozenset(
         "SKIP",
         "GLOBALS",
         # ORIGIN is derivable from the FUNCTION: marker module field.
-        # SOURCE may appear in library_*.h files for reccmp compatibility.
         "SOURCE",
         "PROVE_CONSTRAINTS",
         # NOTE: SECTION is intentionally absent — it is owned by data_metadata.py
@@ -450,7 +450,7 @@ def update_source_status(
     ``force=True``.
 
     Uses a single read-modify-write cycle instead of separate get/set/delete
-    calls to minimise I/O and avoid partial-write windows.
+    calls to minimise I/O.  Atomicity is provided by ``atomic_write_text``.
 
     Args:
         metadata_dir: The metadata root directory (``cfg.metadata_dir``).

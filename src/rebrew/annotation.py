@@ -55,7 +55,7 @@ VALID_MARKERS = {"FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"}
 # Keys that every function block must declare.
 # All rebrew-specific metadata lives in rebrew-function.toml; the parser
 # still recognises them inline for migration/compat but lint fires W019.
-REQUIRED_KEYS: set[str] = set()  # All metadata lives in rebrew-function.toml
+REQUIRED_KEYS: set[str] = set()  # No required inline keys; metadata lives in rebrew-function.toml
 # No recommended keys — all annotation metadata is either required or optional.
 RECOMMENDED_KEYS: set[str] = set()
 # OPTIONAL_KEYS: only reccmp-compatible keys that are permitted inline.
@@ -120,6 +120,10 @@ _VA_ONLY_RE = re.compile(
     r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*\S+\s+(0x[0-9a-fA-F]+)"
 )
 _STDCALL_RE = re.compile(r"\b(?:__stdcall|WINAPI|CALLBACK|APIENTRY)\b")
+
+# Pre-compiled patterns for CFLAGS validation and template stripping.
+_CFLAGS_GLUED_RE = re.compile(r"^/\w+/\w+")
+_TEMPLATE_STRIP_RE = re.compile(r"<[^<>]*>")
 
 
 @functools.lru_cache(maxsize=64)
@@ -259,6 +263,7 @@ def has_skip_annotation(filepath: Path, metadata_dir: Path | None = None) -> boo
     """Return True if a function in *filepath* is marked as skippable.
 
     Checks ``rebrew-function.toml`` metadata for a ``skip`` field.
+    Returns ``False`` immediately when *metadata_dir* is ``None``.
     """
     if metadata_dir is None:
         return False
@@ -399,8 +404,10 @@ class Annotation:
                 f"Multiple annotations found on the same line: '{self.inline_error}' (please separate them into different lines)"
             )
 
-        if self.va < 0x1000:
-            errors.append(f"VA 0x{self.va:x} is suspicious (below 0x1000)")
+        from rebrew.cli import MIN_VALID_VA
+
+        if self.va < MIN_VALID_VA:
+            errors.append(f"VA 0x{self.va:x} is suspicious (below 0x{MIN_VALID_VA:x})")
 
         if self.size <= 0:
             errors.append(f"Invalid SIZE: {self.size}")
@@ -416,7 +423,7 @@ class Annotation:
                     )
             # Detect common typo: flags glued together like "/O2/Gd"
             for flag in flags:
-                if re.match(r"^/\w+/\w+", flag):
+                if _CFLAGS_GLUED_RE.match(flag):
                     warnings.append(
                         f"CFLAGS token '{flag}' looks like multiple flags "
                         "glued together (missing space?)"
@@ -612,7 +619,7 @@ def _calc_stdcall_param_size(proto: str) -> int | None:
     prev = None
     while prev != params_str:
         prev = params_str
-        params_str = re.sub(r"<[^<>]*>", "", params_str)
+        params_str = _TEMPLATE_STRIP_RE.sub("", params_str)
 
     total = 0
     for param in params_str.split(","):
@@ -934,13 +941,11 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
                 current_kv["_C_FUNC_NAME"] = func_result[0]
                 current_kv["_C_FUNC_PROTO"] = func_result[1]
 
-        # Non-annotation line — DON'T break scanning (code between blocks)
-        # Just skip it and keep looking for the next marker
+        # Non-annotation line: mark that we've seen code, but keep pending_kv
+        # so annotations survive through #include/extern/typedef lines until
+        # the next FUNCTION marker.
         if current_marker_type is not None:
             seen_code_after_marker = True
-        # Keep pending_kv intact — annotations before code need to survive
-        # through #include, extern, and typedef lines to reach the FUNCTION
-        # marker.
 
     # Flush the last block
     _flush()

@@ -2,8 +2,11 @@
 
 Walks the AST of a C file and yields ``(function_name, signature_string)``
 tuples for each function definition found.  The signature includes the return
-type, name, and parameter list, without a trailing semicolon, ready to be
-passed to Ghidra's ``set-function-prototype`` command.
+type, name, and parameter list, without a trailing semicolon.
+
+Signatures are normalised for Ghidra's CParser: MSVC calling conventions
+(``__cdecl``, ``__stdcall``, etc.), ``__declspec``, ``const``/``volatile``
+qualifiers, and function-pointer parameters are stripped or simplified.
 """
 
 import re

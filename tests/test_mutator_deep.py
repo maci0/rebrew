@@ -66,7 +66,6 @@ class TestMutateCode:
         result = mutate_code(FULL_SOURCE, random.Random(42))
         assert isinstance(result, str)
         assert result != ""
-        assert len(result) > 0
 
     def test_with_tracking(self) -> None:
         result = mutate_code(FULL_SOURCE, random.Random(42), track_mutation=True)
@@ -155,7 +154,12 @@ class TestAllMutations:
             assert callable(m), f"{m} is not callable"
 
     def test_all_return_str_or_none(self) -> None:
-        """Run every mutation against a rich source and check return types."""
+        """Run every mutation against a rich source and check return types.
+
+        When a mutation returns a non-None string it must differ from the
+        input — returning the input unchanged is a bug (the mutation should
+        return None if it can't apply).
+        """
         failures: list[str] = []
         for m in ALL_MUTATIONS:
             try:
@@ -163,6 +167,10 @@ class TestAllMutations:
                 assert result is None or isinstance(result, str), (
                     f"{m.__name__} returned {type(result)}"
                 )
+                if result is not None:
+                    assert result != FULL_SOURCE, (
+                        f"{m.__name__} returned the input unchanged (should return None if it can't apply)"
+                    )
             except Exception as exc:
                 failures.append(f"{m.__name__}: {exc!r}")
         assert not failures, "Mutations raised exceptions:\n" + "\n".join(failures)

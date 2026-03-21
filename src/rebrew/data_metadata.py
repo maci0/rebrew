@@ -1,6 +1,6 @@
 """data_metadata.py — Per-directory metadata store for DATA/GLOBAL annotations.
 
-Volatile metadata for data annotations (SIZE, SECTION, NOTE) are stored in a
+Volatile metadata for data annotations (NAME, SIZE, SECTION, NOTE) are stored in a
 single ``rebrew-data.toml`` metadata file at the ``reversed_dir`` root
 (e.g. ``src/<target>/``).  This mirrors the pattern established by
 ``metadata.py`` for function annotations.
@@ -32,7 +32,7 @@ This makes the metadata unambiguous across multi-target projects.
 
 Owned fields per entry::
 
-    size, section, note
+    name, size, section, note
 
 Atomicity
 ---------

@@ -49,7 +49,7 @@ def _config_warn(msg: str) -> None:
 # ---------------------------------------------------------------------------
 
 FUNCTION_STRUCTURE_JSON = "function_structure.json"
-"""Tool-agnostic structural cache: ``[{va, size, tool_name?}]``.
+"""Tool-agnostic structural cache: ``[{va, size, name?}]``.
 
 This file stores function *boundaries* (VA + size) discovered by any RE
 tool (Ghidra, radare2, rizin).  Names are optional hints used only when

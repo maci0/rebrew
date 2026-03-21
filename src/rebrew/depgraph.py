@@ -31,6 +31,9 @@ from rebrew.config import ProjectConfig
 
 console = Console(stderr=True)
 
+# Pre-compiled regex for graph node ID sanitization.
+_NODE_ID_RE = re.compile(r"[^a-zA-Z0-9_]")
+
 
 class NodeInfo(TypedDict):
     """Type-safe node info for dependency graph nodes."""
@@ -42,7 +45,7 @@ class NodeInfo(TypedDict):
 
 def _sanitize_id(name: str) -> str:
     """Sanitize a function name for use as a graph node ID."""
-    base = re.sub(r"[^a-zA-Z0-9_]", "_", name).strip("_")
+    base = _NODE_ID_RE.sub("_", name).strip("_")
     if not base:
         base = "node"
     checksum = f"{sum((i + 1) * ord(ch) for i, ch in enumerate(name)) & 0xFFFFFFFF:08x}"

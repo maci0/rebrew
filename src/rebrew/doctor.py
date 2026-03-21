@@ -575,7 +575,7 @@ def main(
     if install_wibo:
         from rebrew.wibo import download_wibo
 
-        cfg = require_config(target=target)
+        cfg = require_config(target=target, json_mode=json_output)
         wibo_path = cfg.root / "tools" / "wibo"
         tag_name = download_wibo(wibo_path)
         console.print(f"Downloaded wibo {tag_name} to {wibo_path}")

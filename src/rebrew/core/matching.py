@@ -13,15 +13,23 @@ def smart_reloc_compare(
 ) -> tuple[bool, int, int, list[int], list[int]]:
     """Compare bytes with relocation masking and target validation.
 
-    Uses COFF relocation records if available, falls back to zero-span detection.
-    If name_to_va is provided and coff_relocs is a dict, it will resolve the
-    target symbol and ensure its mapped VA matches the actual target_bytes
-    offset, catching when C code references the wrong global variable.
+    Operates in two modes depending on *coff_relocs*:
+
+    - **list[int]**: Plain offsets — 4 bytes at each offset are masked as valid
+      relocations without symbol resolution.
+    - **dict[int, str]**: Offset → symbol name mapping — when *name_to_va* is
+      also provided, resolves each symbol's expected VA and validates it against
+      the actual 32-bit value in *target_bytes*, catching wrong-global-variable
+      references.
+
+    Falls back to zero-span detection (scanning for ``00 00 00 00`` runs in
+    *obj_bytes* aligned with non-zero *target_bytes*) when *coff_relocs* is
+    ``None``.
 
     Args:
         obj_bytes: The compiled output bytes to verify.
         target_bytes: The original target bytes to compare against.
-        coff_relocs: Offset list OR dict mapping `offset` -> `symbol_name`.
+        coff_relocs: Offset list OR dict mapping offset → symbol name.
         name_to_va: Global VA lookup table from the active Data Catalog.
 
     Returns:

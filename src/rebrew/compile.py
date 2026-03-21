@@ -110,6 +110,12 @@ def classify_compare_result(
     and the ``match_percent`` / ``delta`` calculations that were previously
     duplicated in ``test.py`` and ``verify.py``.
 
+    Classification precedence:
+    - ``matched=True`` → EXACT (no relocs) or RELOC (with relocs).
+    - ``obj_bytes is None`` or ``"COMPILE_ERROR"`` in *msg* → COMPILE_ERROR.
+    - ``"MISSING"`` in *msg* → MISSING_SIZE or MISSING_FILE (by substring).
+    - Otherwise → NEAR_MATCHING or STUB (by match percentage threshold).
+
     Args:
         matched: Whether the byte comparison succeeded after reloc masking.
         msg: Raw message from the compare step.
@@ -226,8 +232,10 @@ def filter_wine_stderr(text: str) -> str:
 def resolve_cl_command(cfg: ProjectConfig) -> list[str]:
     """Build the base CL.EXE command list from config.
 
-    Handles both runner-prefixed and bare ``cl.exe`` formats,
-    resolving relative paths against the project root.
+    Handles both runner-prefixed (``cfg.compiler_runner``) and bare ``cl.exe``
+    formats.  If the runner appears as the first element of
+    ``cfg.compiler_command``, it is stripped and re-prepended to avoid
+    duplication.  Relative compiler paths are resolved against ``cfg.root``.
 
     Returns:
         List of command parts, e.g. ``["wine", "/abs/path/CL.EXE"]``.

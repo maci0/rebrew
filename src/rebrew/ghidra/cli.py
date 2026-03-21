@@ -7,6 +7,7 @@ All network operations use httpx against the ReVa MCP endpoint.
 
 import contextlib
 import json
+import logging
 from typing import Any
 
 import httpx
@@ -44,6 +45,7 @@ from rebrew.ghidra.commands import (
 )
 from rebrew.utils import atomic_write_text
 
+log = logging.getLogger(__name__)
 console = Console(stderr=True)
 
 app = typer.Typer(
@@ -215,8 +217,8 @@ def main(
                     program_path,
                     probe_session,
                 )
-        except (httpx.HTTPError, OSError, RuntimeError, ValueError):
-            pass
+        except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
+            log.debug("MCP probe failed (will use cached data): %s", exc)
 
     if pull or pull_signatures or pull_structs or pull_comments or pull_data:
         if pull:
@@ -387,10 +389,11 @@ def main(
 
     if apply or push:
         if dry_run:
-            if ops is not None:
-                console.print(
-                    f"Dry run: would apply {len(ops)} operations to Ghidra via {endpoint}"
-                )
+            count = len(ops) if ops is not None else 0
+            if json_output:
+                json_print({"dry_run": True, "operations": count, "endpoint": endpoint})
+            else:
+                console.print(f"Dry run: would apply {count} operations to Ghidra via {endpoint}")
             return
         cmds_path = cfg.root / "ghidra_commands.json"
         if not cmds_path.exists():

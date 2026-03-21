@@ -43,6 +43,9 @@ from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 
 console = Console(stderr=True)
 
+# Pre-compiled regex for sanitizing NASM labels (used in disassemble_to_nasm).
+_NASM_LABEL_RE = re.compile(r"[^a-zA-Z0-9_]")
+
 # ---------------------------------------------------------------------------
 # Shared disassembly helper
 # ---------------------------------------------------------------------------
@@ -56,9 +59,8 @@ def disasm_bytes(code_bytes: bytes, va: int, cfg: ProjectConfig | None = None) -
     Uses ``cfg.capstone_arch``/``cfg.capstone_mode`` when *cfg* is provided;
     falls back to 32-bit x86.
 
-    Shared by :mod:`rebrew.extract` and any other module that needs a quick
-    human-readable disassembly representation without the full hex-mode output
-    of :func:`_run_hex_mode`.
+    Shared by any module that needs a quick human-readable disassembly
+    representation without the full hex-mode output of :func:`_run_hex_mode`.
     """
     try:
         from capstone import CS_ARCH_X86, CS_MODE_32, Cs
@@ -227,7 +229,7 @@ def disassemble_to_nasm(
 
     safe_label = None
     if label:
-        safe_label = re.sub(r"[^a-zA-Z0-9_]", "_", label.lstrip("_"))
+        safe_label = _NASM_LABEL_RE.sub("_", label.lstrip("_"))
         if not safe_label or not safe_label[0].isalpha():
             safe_label = "func_" + safe_label
 
@@ -287,29 +289,35 @@ def _find_bad_instructions_individually(
     base_va: int,
     code: bytes,
 ) -> set[int]:
-    """Test each instruction by embedding it in a db-padded file."""
+    """Test each instruction by embedding it in a db-padded file.
+
+    Reuses a single temporary directory for all NASM invocations to avoid
+    the overhead of creating/destroying one per instruction.
+    """
     bad: set[int] = set()
     total_insn_size = sum(e["size"] for e in insn_data)
     trailing = code[total_insn_size:]
-    for idx, entry in enumerate(insn_data):
-        src_lines = ["bits 32", f"org 0x{base_va:08X}"]
-        for j, e in enumerate(insn_data):
-            if j == idx:
-                src_lines.append(e["nasm"])
-            else:
-                db_hex = ", ".join(f"0x{b:02X}" for b in e["raw"])
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        for idx, entry in enumerate(insn_data):
+            src_lines = ["bits 32", f"org 0x{base_va:08X}"]
+            for j, e in enumerate(insn_data):
+                if j == idx:
+                    src_lines.append(e["nasm"])
+                else:
+                    db_hex = ", ".join(f"0x{b:02X}" for b in e["raw"])
+                    src_lines.append(f"db {db_hex}")
+            if trailing:
+                db_hex = ", ".join(f"0x{b:02X}" for b in trailing)
                 src_lines.append(f"db {db_hex}")
-        if trailing:
-            db_hex = ", ".join(f"0x{b:02X}" for b in trailing)
-            src_lines.append(f"db {db_hex}")
-        result = _run_nasm("\n".join(src_lines))
-        if result is None or len(result) != len(code):
-            bad.add(idx)
-            continue
-        off = entry["offset"]
-        sz = entry["size"]
-        if result[off : off + sz] != entry["raw"]:
-            bad.add(idx)
+            result = _run_nasm("\n".join(src_lines), tmpdir=tmp)
+            if result is None or len(result) != len(code):
+                bad.add(idx)
+                continue
+            off = entry["offset"]
+            sz = entry["size"]
+            if result[off : off + sz] != entry["raw"]:
+                bad.add(idx)
     return bad
 
 
@@ -403,10 +411,14 @@ def generate_inline_c(
     return "\n".join(lines)
 
 
-def _run_nasm(source: str) -> bytes | None:
-    """Run nasm on source text, return binary output or None."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp = Path(tmpdir)
+def _run_nasm(source: str, *, tmpdir: Path | None = None) -> bytes | None:
+    """Run nasm on source text, return binary output or None.
+
+    When *tmpdir* is provided the caller owns the directory lifetime and
+    this function reuses it (avoids creating/destroying a temp dir per call).
+    """
+
+    def _assemble(tmp: Path) -> bytes | None:
         asm_path = tmp / "input.asm"
         bin_path = tmp / "output.bin"
         asm_path.write_text(source, encoding="utf-8")
@@ -423,6 +435,11 @@ def _run_nasm(source: str) -> bytes | None:
             return None
         except (subprocess.TimeoutExpired, FileNotFoundError):
             return None
+
+    if tmpdir is not None:
+        return _assemble(tmpdir)
+    with tempfile.TemporaryDirectory() as td:
+        return _assemble(Path(td))
 
 
 def verify_roundtrip(nasm_source: str, original_bytes: bytes) -> tuple[bool, str]:

@@ -11,11 +11,8 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-from rebrew.binary_loader import load_binary
+from rebrew.binary_loader import PADDING_BYTES, load_binary
 from rebrew.config import ProjectConfig
-
-# Padding opcodes that can be trimmed from function tails (INT3 and NOP).
-PADDING_BYTES: tuple[int, ...] = (0xCC, 0x90)
 
 
 def trim_trailing_padding(data: bytes, padding: tuple[int, ...] = PADDING_BYTES) -> int:
@@ -38,8 +35,10 @@ def has_back_jumps(
     func_end_off: int,
     base_offset: int,
 ) -> bool:
-    """Check if *data* (starting at *base_offset*) contains jumps targeting
-    the range [*func_start_off*, *func_end_off*).
+    """Check if *data* contains relative jumps targeting [*func_start_off*, *func_end_off*).
+
+    *base_offset* is the VA/file offset where *data* begins, used to compute
+    absolute jump targets from relative displacements.
 
     Detects x86 near jmp (E9), near jcc (0F 8x), short jmp (EB), and
     short jcc (70-7F).  Used to identify out-of-line code that belongs
@@ -119,7 +118,10 @@ def get_sections(bin_path: Path) -> dict[str, dict[str, int]]:
 
 
 def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, dict[str, Any]]:
-    """Scan annotated sources and return globals keyed by VA."""
+    """Scan annotated sources and return globals keyed by VA.
+
+    Each value is a dict with keys: va, name, decl, files, module, size.
+    """
     globals_dict: dict[int, dict[str, Any]] = {}
     from rebrew.cli import iter_sources
 

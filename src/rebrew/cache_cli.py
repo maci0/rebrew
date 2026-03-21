@@ -29,7 +29,7 @@ def stats(
     target: str | None = TargetOption,
 ) -> None:
     """Show compile cache statistics."""
-    cfg = require_config(target=target)
+    cfg = require_config(target=target, json_mode=json_output)
 
     cache_dir = cfg.root / ".rebrew" / "compile_cache"
     if not cache_dir.exists():
@@ -60,7 +60,7 @@ def clear(
     target: str | None = TargetOption,
 ) -> None:
     """Delete all cached .obj files."""
-    cfg = require_config(target=target)
+    cfg = require_config(target=target, json_mode=json_output)
 
     cache_dir = cfg.root / ".rebrew" / "compile_cache"
     if not cache_dir.exists():
