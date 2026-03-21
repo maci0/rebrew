@@ -36,6 +36,9 @@ console = Console(stderr=True)
 # Pattern matching generic auto-names that shouldn't overwrite Ghidra renames
 _GENERIC_NAME_RE = re.compile(r"^_?(func_|FUN_)[0-9a-fA-F]+(@\d+)?$")
 
+# Pre-compiled regex for normalizing symbol names (strips non-identifier chars).
+_NORMALIZE_NAME_RE = re.compile(r"[^A-Za-z0-9_]")
+
 # Status → bookmark category prefix for visual distinction
 _STATUS_BOOKMARK_CATEGORY = {
     "EXACT": "rebrew/exact",
@@ -106,7 +109,9 @@ def build_sync_commands(
 ) -> list[dict[str, Any]]:
     """Build a list of ReVa MCP commands from annotation entries.
 
-    If data_scan (ScanResult) is provided, also generates commands for globals.
+    Generates commands for function labels, prototypes, comments, and optionally
+    struct definitions.  If *data_scan* (ScanResult) is provided, also generates
+    commands for globals.
     """
     by_va: dict[int, list[dict[str, Any]]] = {}
     for e in entries:
@@ -373,7 +378,7 @@ def build_sync_commands(
 
 
 def parse_ghidra_va(va_raw: str | int | None) -> int | None:
-    """Normalize a VA value (hex string, decimal string, or int) to int, or None if invalid."""
+    """Normalize a VA from hex string, decimal string, or int to int.  Returns None if invalid."""
     if va_raw is None:
         return None
     if isinstance(va_raw, int):
@@ -403,7 +408,11 @@ def is_meaningful_name(name: str) -> bool:
 def ghidra_name_to_symbol(
     ghidra_name: str, entry: Annotation | dict[str, str], cfg: ProjectConfig | None = None
 ) -> str:
-    """Convert a Ghidra function name to a C symbol name based on calling convention and config."""
+    """Convert a Ghidra function name to a C symbol name.
+
+    Applies underscore prefix rules based on the config's symbol_prefix,
+    the entry's existing symbol or calling convention (``/Gz`` = __stdcall).
+    """
     if not ghidra_name:
         return ""
     if ghidra_name.startswith("_"):
@@ -780,7 +789,7 @@ def build_size_sync_commands(
     program_path: str,
     iat_thunks: set[int] | None = None,
 ) -> list[dict[str, Any]]:
-    """Generate commands to expand function boundaries in Ghidra where list > ghidra."""
+    """Generate commands to expand function boundaries where function list size exceeds Ghidra size."""
     commands: list[dict[str, Any]] = []
     thunk_set = iat_thunks or set()
 
@@ -820,7 +829,7 @@ def build_new_function_commands(
     program_path: str,
     iat_thunks: set[int] | None = None,
 ) -> list[dict[str, Any]]:
-    """Generate create-function commands for functions list found but Ghidra missed."""
+    """Generate create-function commands for functions in the list but not detected by Ghidra."""
     commands: list[dict[str, Any]] = []
     thunk_set = iat_thunks or set()
 
@@ -860,9 +869,15 @@ def pull_prototypes(
 ) -> None:
     """Pull function prototypes from Ghidra and update local files.
 
-    When replace_externs is False (default), only writes // PROTOTYPE: annotations.
-    When True, also replaces extern declarations across the project (WARNING: Ghidra
-    types like uint/byte/undefined are not valid C89/MSVC6 — use with caution).
+    Args:
+        entries: Annotation entries to match against Ghidra functions.
+        cfg: Project configuration.
+        endpoint: ReVa MCP endpoint URL.
+        program_path: Ghidra program path for MCP requests.
+        dry_run: If True, report changes without writing files.
+        replace_externs: When False (default), only writes ``// PROTOTYPE:``
+            annotations.  When True, also replaces extern declarations
+            (WARNING: Ghidra types like uint/byte may not be valid C89/MSVC6).
     """
     console.print("Pulling function prototypes from Ghidra...")
 
@@ -1004,7 +1019,11 @@ def pull_prototypes(
 
 
 def pull_structs(cfg: ProjectConfig, endpoint: str, program_path: str, dry_run: bool) -> None:
-    """Pull struct definitions from Ghidra into types.h using list-structures + get-structure-info."""
+    """Pull struct definitions from Ghidra into types.h.
+
+    Fetches structure names via ``list-structures``, retrieves each definition
+    via ``get-structure-info``, and writes a consolidated header file.
+    """
     console.print("Pulling struct definitions from Ghidra...")
 
     with httpx.Client(timeout=30.0) as client:
@@ -1129,7 +1148,11 @@ def pull_structs(cfg: ProjectConfig, endpoint: str, program_path: str, dry_run: 
 def pull_comments(
     entries: list[Any], cfg: ProjectConfig, endpoint: str, program_path: str, dry_run: bool
 ) -> None:
-    """Pull Ghidra analysis comments into source files."""
+    """Pull Ghidra analysis comments into source files.
+
+    Fetches comments in the VA range covered by *entries* and writes them
+    as ``// ANALYSIS:`` annotations into the corresponding ``.c`` files.
+    """
     console.print("Pulling comments from Ghidra...")
 
     # Determine address range from entries
@@ -1274,7 +1297,7 @@ def pull_data(
 
     def _normalize_name(raw_name: str, fallback_addr: str) -> str:
         candidate = raw_name or f"g_{fallback_addr.lower().replace('0x', '')}"
-        candidate = re.sub(r"[^A-Za-z0-9_]", "_", candidate)
+        candidate = _NORMALIZE_NAME_RE.sub("_", candidate)
         if not candidate:
             candidate = f"g_{fallback_addr.lower().replace('0x', '')}"
         if candidate[0].isdigit():

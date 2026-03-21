@@ -767,8 +767,6 @@ def _run_all_batch(
 # Batch summary
 # ---------------------------------------------------------------------------
 
-_RESULT_COLORS = STATUS_COLORS
-
 
 def _print_batch_summary(
     transitions: list[tuple[str, str]],
@@ -811,7 +809,7 @@ def _print_batch_summary(
         count = result_counts.get(status, 0)
         if count == 0:
             continue
-        color = _RESULT_COLORS.get(status, "white")
+        color = STATUS_COLORS.get(status, "white")
         pct = round(100.0 * count / len(transitions), 1)
         bar_len = int(20 * count / len(transitions))
         bar = "█" * max(bar_len, 1)
@@ -829,8 +827,8 @@ def _print_batch_summary(
         console.print()
         console.print("  [bold]Status changes:[/bold]")
         for (old, new), count in sorted(transition_counts.items(), key=lambda x: -x[1]):
-            old_color = _RESULT_COLORS.get(old, "dim")
-            new_color = _RESULT_COLORS.get(new, "dim")
+            old_color = STATUS_COLORS.get(old, "dim")
+            new_color = STATUS_COLORS.get(new, "dim")
             console.print(
                 f"    [{old_color}]{old}[/{old_color}] → [{new_color}]{new}[/{new_color}]  ×{count}"
             )

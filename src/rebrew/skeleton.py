@@ -351,7 +351,7 @@ def generate_test_command(filepath: str, symbol: str, va: int, size: int, cflags
 def generate_diff_command(
     cfg: ProjectConfig, filepath: str, symbol: str, va: int, size: int, cflags: str
 ) -> str:
-    """Generate the rebrew match diff command."""
+    """Generate the rebrew match command with diff-only output."""
     return f'rebrew match {filepath} --diff-only --symbol "{symbol}" --cflags "{cflags}"'
 
 

@@ -41,6 +41,7 @@ from rebrew.catalog import (
 )
 from rebrew.cli import (
     EXIT_MISMATCH,
+    MIN_VALID_VA,
     STATUS_COLORS,
     TargetOption,
     error_exit,
@@ -93,7 +94,7 @@ def verify_entry(
     if not cfile.exists():
         return _failed_result("MISSING_FILE", f"MISSING_FILE: {cfile}")
 
-    if entry.va < 0x1000:
+    if entry.va < MIN_VALID_VA:
         return _failed_result("COMPILE_ERROR", "INVALID_VA: VA too low")
     if entry.size <= 0:
         return _failed_result("MISSING_SIZE", "MISSING_SIZE: No SIZE annotation")
@@ -619,7 +620,10 @@ def prepare_entries(
     full: bool,
     json_output: bool,
 ) -> tuple[list[Annotation], int, int, list[tuple[Annotation, str]], list[dict[str, Any]], int]:
-    """Scan reversed_dir, filter entries, check cache. Returns (unique_entries, passed, failed, fail_details, results, cached_count)."""
+    """Scan reversed_dir, deduplicate entries, and check the verify cache.
+
+    Returns (unique_entries, passed, failed, fail_details, results, cached_count).
+    """
     reversed_dir = cfg.reversed_dir
     func_list_path = cfg.function_list
     ghidra_json_path = reversed_dir / FUNCTION_STRUCTURE_JSON

@@ -70,7 +70,7 @@ def extract_structs_from_file(filepath: Path) -> Iterator[str]:
 def extract_type_definitions(filepath: Path) -> Iterator[str]:
     """Parse a C file and yield all type definitions (typedefs AND structs).
 
-    Superset of extract_structs_from_file that also captures standalone typedefs
+    Unlike :func:`extract_structs_from_file`, also captures standalone typedefs
     like ``typedef unsigned int uint32_t;`` that don't contain struct bodies.
     """
     result = _get_ts_parser()

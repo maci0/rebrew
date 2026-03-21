@@ -6,6 +6,7 @@ detection, gap absorption, padding classification, and thunk identification.
 
 import bisect
 import hashlib
+import logging
 import math
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -17,6 +18,8 @@ from rebrew.annotation import Annotation
 from rebrew.catalog.loaders import load_ghidra_data_labels
 from rebrew.catalog.registry import RegistryEntry, is_jump_table
 from rebrew.catalog.sections import get_globals, get_sections, has_back_jumps, trim_trailing_padding
+
+log = logging.getLogger(__name__)
 
 # Maximum trailing gap (in bytes) that can be absorbed into the preceding function
 _MAX_TAIL_ABSORB = 64
@@ -128,7 +131,8 @@ def generate_data_json(
     """Generate the coverage database structure (db/data.json).
 
     Builds function coverage maps, cell-level grids per section, and gap
-    classification from annotations and the target binary.
+    classification from annotations and the target binary.  Includes
+    absorption of jump tables and out-of-line code into parent functions.
     """
     by_va: dict[int, list[Annotation]] = {}
     for e in entries:
@@ -316,18 +320,27 @@ def generate_data_json(
         off = 0
         idx = 0
 
-        # Build func_end_to_name mapping for parent function detection
+        # Reverse lookup: function end offset → name (for absorption detection)
         func_end_to_name: dict[int, str] = {}
         if sec_name == ".text":
             for item_off, item_data in items_by_off.items():
                 end_off = item_off + item_data["size"]
                 func_end_to_name[end_off] = item_data["name"]
 
-        # --- Pre-pass: absorb jump table / out-of-line gaps into parent functions
-        #     by extending function sizes in items_by_off (iterates until stable) ---
+        # Iteratively absorb jump tables and out-of-line code into parent functions
         if sec_name == ".text" and text_data is not None:
+            _MAX_ABSORB_ROUNDS = 50  # safety guard against runaway absorption
             absorbed_any = True
+            _absorb_round = 0
             while absorbed_any:
+                if _absorb_round >= _MAX_ABSORB_ROUNDS:
+                    log.warning(
+                        "Absorption loop hit %d iterations for section %s — breaking",
+                        _MAX_ABSORB_ROUNDS,
+                        sec_name,
+                    )
+                    break
+                _absorb_round += 1
                 absorbed_any = False
                 # Rebuild func_end_to_name and reverse lookup after each round
                 func_end_to_name.clear()
@@ -428,7 +441,7 @@ def generate_data_json(
 
             next_off = item_starts[idx] if idx < len(item_starts) else sec_size
             gap_end = min(sec_size, off + unit_bytes, next_off)
-            # Classify gap via conditional checks (padding → ghidra label → thunk → jump table → none)
+            # Classify gap: padding, ghidra label, thunk, jump table, or unclassified
             gap_state = "none"
             gap_label: str | None = None
             gap_parent: str | None = None

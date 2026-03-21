@@ -1,11 +1,11 @@
-"""Tests for rebrew.solutions — cross-function solution transfer database."""
+"""Tests for rebrew.matcher.solutions — cross-function solution transfer database."""
 
 import json
 from pathlib import Path
 
 import pytest
 
-from rebrew.solutions import (
+from rebrew.matcher.solutions import (
     SolutionEntry,
     _normalize_cflags,
     find_similar,
@@ -156,7 +156,7 @@ class TestFindSimilar:
     def test_sorts_by_size_distance(self, project_root: Path) -> None:
         self._seed_db(project_root)
         results = find_similar(project_root, 100, top_k=10)
-        # _game_o1 (100B) should be first, then _crt_func (64B, dist 36), then _medium (128B, dist 28)
+        # _game_o1 (100B, dist 0) should be first, then _medium (128B, dist 28), then _crt_func (64B, dist 36)
         assert results[0].symbol == "_game_o1"
 
     def test_top_k_limits(self, project_root: Path) -> None:

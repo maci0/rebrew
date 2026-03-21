@@ -378,6 +378,11 @@ _FUNC_START_RE = re.compile(
     re.MULTILINE,
 )
 
+# Pre-compiled regex for inline STATUS and BLOCKER rewriting during match results.
+_STATUS_REWRITE_RE = re.compile(r"^(//\s*)STATUS:\s*(STUB|NEAR_MATCHING(?:_RELOC)?)", re.MULTILINE)
+_BLOCKER_LINE_RE = re.compile(r"//\s*BLOCKER:[^\n]*\n?")
+_BLOCKER_BLOCK_RE = re.compile(r"/\*\s*BLOCKER:.*?\*/[ \t]*\n?")
+
 
 def _parse_annotations(
     filepath: Path,
@@ -608,16 +613,10 @@ def update_stub_to_matched(
         meta_root = metadata_dir or filepath.parent
         update_source_status(meta_root, "RELOC", module, va_int)
 
-    updated = re.sub(
-        r"^(//\s*)STATUS:\s*(STUB|NEAR_MATCHING(?:_RELOC)?)",
-        r"\1STATUS: RELOC",
-        original,
-        count=1,
-        flags=re.MULTILINE,
-    )
+    updated = _STATUS_REWRITE_RE.sub(r"\1STATUS: RELOC", original, count=1)
     if "BLOCKER:" in updated:
-        updated = re.sub(r"//\s*BLOCKER:[^\n]*\n?", "", updated, count=1)
-        updated = re.sub(r"/\*\s*BLOCKER:.*?\*/[ \t]*\n?", "", updated, count=1)
+        updated = _BLOCKER_LINE_RE.sub("", updated, count=1)
+        updated = _BLOCKER_BLOCK_RE.sub("", updated, count=1)
 
     body_start = _FUNC_START_RE.search(updated)
     best_body = _FUNC_START_RE.search(best_src)
@@ -1364,7 +1363,7 @@ def _save_solution(
 ) -> None:
     """Save an exact-match solution to the solutions database."""
     try:
-        from rebrew.solutions import SolutionEntry, save_solution
+        from rebrew.matcher.solutions import SolutionEntry, save_solution
 
         entry = SolutionEntry(
             symbol=symbol,
@@ -1604,7 +1603,7 @@ def _run_all(  # noqa: PLR0913
         extra_ga_paths: list[str] = []
         if seed_from_solved:
             try:
-                from rebrew.solutions import find_similar
+                from rebrew.matcher.solutions import find_similar
 
                 similar = find_similar(cfg.root, size=stub.size, cflags=stub.cflags, top_k=3)
                 for sol in similar:
@@ -1673,8 +1672,8 @@ def _run_batch_flag_sweep(
     """Execute batch flag sweep across all discovered NEAR_MATCHING functions."""
     from rebrew.annotation import module_for_va
     from rebrew.cli import rel_display_path
+    from rebrew.matcher.solutions import SolutionEntry, save_solution
     from rebrew.metadata import update_source_status
-    from rebrew.solutions import SolutionEntry, save_solution
 
     reversed_dir = cfg.reversed_dir
     console.print(

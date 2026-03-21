@@ -21,6 +21,10 @@ from rebrew.matcher.ast_engine import _C_LANGUAGE, ASTMutator, parse_c_ast
 # Max attempts to find a valid mutation before giving up and returning source unchanged.
 _MUTATION_ATTEMPTS = 10
 
+# Pre-compiled regex for ret_false label removal (used in GA hot path).
+_RE_RET_FALSE_LABEL_NL = re.compile(r"^[ \t]*ret_false:[ \t]*\n", flags=re.MULTILINE)
+_RE_RET_FALSE_LABEL = re.compile(r"^[ \t]*ret_false:[ \t]*", flags=re.MULTILINE)
+
 
 def _first_caps(capture_dict: dict[str, list[ts.Node]]) -> dict[str, ts.Node]:
     """Extract the first node from each capture group in a tree-sitter match."""
@@ -981,8 +985,8 @@ def mut_goto_to_return(s: str, rng: random.Random) -> str | None:
 
     # Remove the label if no more gotos reference it
     if "goto ret_false" not in result:
-        result = re.sub(r"^[ \t]*ret_false:[ \t]*\n", "", result, flags=re.MULTILINE)
-        result = re.sub(r"^[ \t]*ret_false:[ \t]*", "", result, flags=re.MULTILINE)
+        result = _RE_RET_FALSE_LABEL_NL.sub("", result)
+        result = _RE_RET_FALSE_LABEL.sub("", result)
 
     return result
 
@@ -1710,7 +1714,11 @@ def mut_toggle_char_signedness(s: str, rng: random.Random) -> str | None:
         return mapping.get(t, t)
 
     res = _apply_query_once(b_source, _QUERY_CHAR_TYPE, _repl, rng)
-    return res.decode("utf-8") if res is not None else None
+    # _QUERY_CHAR_TYPE matches all primitive_type nodes (including int), so the
+    # random pick may land on a non-char type and produce a no-op replacement.
+    if res is None or res == b_source:
+        return None
+    return res.decode("utf-8")
 
 
 def mut_comparison_boundary(s: str, rng: random.Random) -> str | None:

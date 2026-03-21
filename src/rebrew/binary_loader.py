@@ -22,6 +22,10 @@ import lief
 
 _MAX_BINARY_SIZE = 512 * 1024 * 1024  # 512 MB safety limit
 
+# x86 padding opcodes inserted by MSVC linker for alignment (INT3 and NOP).
+# Shared across catalog, matcher, and binary loader for consistent trimming.
+PADDING_BYTES: tuple[int, ...] = (0xCC, 0x90)
+
 # ---------------------------------------------------------------------------
 # Data types
 # ---------------------------------------------------------------------------
@@ -281,7 +285,7 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
         cached = _load_binary_cache.get(cache_key)
         if cached is not None:
             # LRU refresh: pop and re-insert so this entry moves to the end.
-            # Python 3.7+ dicts are insertion-ordered; next(iter(cache)) always
+            # Python 3.7+ dicts are insertion-ordered; next(iter(...)) always
             # yields the oldest entry.  Re-inserting makes this the newest.
             _load_binary_cache[cache_key] = _load_binary_cache.pop(cache_key)
             return cached
@@ -339,7 +343,7 @@ def extract_bytes_at_va(
     info: BinaryInfo,
     va: int,
     size: int,
-    padding_bytes: tuple[int, ...] | list[int] = (0xCC, 0x90),
+    padding_bytes: tuple[int, ...] | list[int] = PADDING_BYTES,
     *,
     trim_padding: bool = True,
 ) -> bytes | None:

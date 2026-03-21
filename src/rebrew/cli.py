@@ -46,6 +46,11 @@ EXIT_ERROR = 2  # Infrastructure error (build/config broken)
 # A function that matches >= 60 % of bytes is NEAR_MATCHING; below is STUB.
 NEAR_MATCH_THRESHOLD = 0.60
 
+# Minimum plausible virtual address.  VAs below this threshold are almost
+# certainly invalid (PE image base is typically 0x10000000 or higher).
+# Used across verify, annotation, and naming to reject bad entries early.
+MIN_VALID_VA = 0x1000
+
 # Canonical Rich colour tags for status strings — used across CLI tools
 # for consistent output formatting.
 STATUS_COLORS: dict[str, str] = {
@@ -144,9 +149,9 @@ def json_print(data: dict[str, Any] | list[Any]) -> None:
 
 
 def parse_va(va_str: str, *, json_mode: bool = False) -> int:
-    """Parse a hex virtual-address string, exiting on invalid input.
+    """Parse a hexadecimal virtual-address string, exiting on invalid input.
 
-    Accepts ``0x``-prefixed or bare hex strings.
+    Always interprets as base-16 (with or without ``0x`` prefix).
     """
     try:
         return int(va_str.strip(), 16)
@@ -227,7 +232,8 @@ def iter_annotations(
     :param target:  Optional marker string passed through to
         ``parse_c_file_multi`` (use :func:`target_marker` to obtain it).
     :param metadata_dir: Parent of ``reversed_dir`` where ``rebrew-function.toml``
-        lives.  Required for metadata merging.
+        lives.  When ``None``, metadata is not merged (only source annotations
+        are parsed).
     """
     import logging
 

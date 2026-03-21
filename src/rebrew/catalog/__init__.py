@@ -64,3 +64,28 @@ from rebrew.catalog.sections import (
 from rebrew.catalog.sections import (
     get_text_section_size as get_text_section_size,
 )
+
+__all__ = [
+    "FunctionEntry",
+    "GhidraDataLabel",
+    "RegistryEntry",
+    "app",
+    "build_function_registry",
+    "extract_dll_bytes",
+    "generate_catalog",
+    "generate_data_json",
+    "generate_reccmp_csv",
+    "get_globals",
+    "get_sections",
+    "get_text_section_size",
+    "is_jump_table",
+    "load_function_structure",
+    "load_ghidra_data_labels",
+    "main",
+    "main_entry",
+    "make_func_entry",
+    "make_ghidra_func",
+    "merge_ranges",
+    "parse_function_list",
+    "scan_reversed_dir",
+]

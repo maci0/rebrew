@@ -35,7 +35,11 @@ def _filter_wine_stderr(text: str) -> str:
     return filter_wine_stderr(text)
 
 
-# Fallback function size when both LIEF symbol table and MAP heuristics fail
+# Fallback function size (in bytes) when both LIEF symbol table and MAP
+# heuristics fail to determine the actual size.  1000 bytes is a conservative
+# upper bound that covers most MSVC6 game functions without reading too far
+# past the function boundary — excess bytes are trimmed later by
+# trim_trailing_padding() in scoring.py.
 _DEFAULT_SYMBOL_SIZE = 1000
 
 # Warn when flag sweep produces more than this many combinations
@@ -63,6 +67,22 @@ _FLAGS_MAP: dict[str, Flags] = {
     "msvc7": COMMON_MSVC_FLAGS,
     "msvc6": MSVC6_FLAGS,  # excludes MSVC 7.x+ only flags (/fp:*, /GS-)
 }
+
+
+def _ensure_wine_env(env: dict[str, str] | None, cmd: list[str]) -> dict[str, str]:
+    """Return an env dict with WINEDEBUG=-all when running under Wine/wibo.
+
+    If *env* is already provided, returns it unchanged.  Otherwise copies
+    ``os.environ`` and suppresses Wine diagnostic noise when the first
+    command token is ``wine`` or ``wibo``.
+    """
+    if env is not None:
+        return env
+    env = {**os.environ}
+    cmd_head = cmd[0].lower() if cmd else ""
+    if cmd_head in {"wine", "wibo"}:
+        env["WINEDEBUG"] = "-all"
+    return env
 
 
 def _compiler_cmd_parts(cl_cmd: str, env: dict[str, str] | None) -> list[str]:
@@ -225,11 +245,7 @@ def build_candidate_obj_only(
             + all_flags
             + ["/c", f"/I{inc_dir}", f"/Fo{obj_name}", src_name]
         )
-        if env is None:
-            env = {**os.environ}
-            cmd_head = cmd[0].lower() if cmd else ""
-            if cmd_head in {"wine", "wibo"}:
-                env["WINEDEBUG"] = "-all"
+        env = _ensure_wine_env(env, cmd)
 
         try:
             r = subprocess.run(cmd, capture_output=True, cwd=workdir, env=env, timeout=timeout)
@@ -291,11 +307,7 @@ def build_candidate(
             + [f"/LIBPATH:{lib_dir}", f"/OUT:{exe_name}", f"/MAP:{map_name}"]
         )
 
-        if env is None:
-            env = {**os.environ}
-            cmd_head = cmd[0].lower() if cmd else ""
-            if cmd_head in {"wine", "wibo"}:
-                env["WINEDEBUG"] = "-all"
+        env = _ensure_wine_env(env, cmd)
         try:
             r = subprocess.run(cmd, capture_output=True, cwd=workdir, env=env, timeout=timeout)
         except subprocess.TimeoutExpired:

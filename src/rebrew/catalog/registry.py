@@ -65,7 +65,7 @@ def make_ghidra_func(va: int, size: int, name: str) -> dict[str, int | str]:
     return {"va": va, "size": size, "ghidra_name": name}
 
 
-# Default is empty; projects override via r2_bogus_vas in rebrew-project.toml.
+# VAs where radare2 reports spurious functions; projects customize via r2_bogus_vas config.
 _DEFAULT_R2_BOGUS_SIZES: set[int] = set()
 
 
@@ -192,9 +192,7 @@ def build_function_registry(
     registry: dict[int, RegistryEntry] = {}
 
     # --- Function list ---
-    r2_bogus = (
-        set(cfg.r2_bogus_vas) if cfg and hasattr(cfg, "r2_bogus_vas") else _DEFAULT_R2_BOGUS_SIZES
-    )
+    r2_bogus = set(getattr(cfg, "r2_bogus_vas", [])) if cfg else _DEFAULT_R2_BOGUS_SIZES
     for func in funcs:
         va = int(func["va"])
         entry = registry.setdefault(va, _new_registry_entry(va, cfg))

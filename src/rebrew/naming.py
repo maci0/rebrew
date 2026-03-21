@@ -8,6 +8,7 @@ Extracted from skeleton.py and todo.py to eliminate circular dependencies.
 """
 
 import bisect
+import functools
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -19,11 +20,20 @@ if TYPE_CHECKING:
 
 from rebrew.annotation import parse_c_file_multi, parse_library_header
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va
+from rebrew.cli import MIN_VALID_VA
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 
-# (difficulty, size, va, name, reason, neighbor_file, similarity)
-# difficulty: estimated matching difficulty (lower = easier)
-# similarity: 0.0-1.0 similarity to nearest matched neighbor
+#: Uncovered function descriptor for triage/ranking.
+#:
+#: Fields: ``(difficulty, size, va, name, reason, neighbor_file, similarity)``
+#:
+#: - *difficulty*: estimated matching difficulty (lower = easier)
+#: - *size*: function byte size
+#: - *va*: virtual address
+#: - *name*: function name (from Ghidra or auto-generated)
+#: - *reason*: why the function is uncovered
+#: - *neighbor_file*: source file of nearest matched neighbor, or ``None``
+#: - *similarity*: 0.0–1.0 byte similarity to nearest matched neighbor
 UncoveredItem = tuple[int, int, int, str, str, str | None, float]
 
 # ---------------------------------------------------------------------------
@@ -46,6 +56,16 @@ _ASM_BT = bytes([0x0F, 0xA3])
 _ASM_BTS = bytes([0x0F, 0xAB])
 _ASM_REPNE_SCASB = bytes([0xF2, 0xAE])
 _ASM_REP_MOVS = (bytes([0xF3, 0xA4]), bytes([0xF3, 0xA5]))
+
+# Pre-compiled regex for sanitize_name (used in loops by todo/skeleton).
+_SANITIZE_NON_ALNUM_RE = re.compile(r"[^a-zA-Z0-9_]")
+_SANITIZE_MULTI_UNDERSCORE_RE = re.compile(r"_+")
+
+
+@functools.lru_cache(maxsize=4)
+def _get_capstone(arch: int, mode: int) -> capstone.Cs:
+    """Return a cached capstone disassembler instance."""
+    return capstone.Cs(arch, mode)
 
 
 def detect_unmatchable(
@@ -98,7 +118,7 @@ def detect_unmatchable(
     # 3d. ASM-origin CRT patterns (via disassembly to avoid false positives in immediates)
     arch = cs_arch if cs_arch is not None else capstone.CS_ARCH_X86
     mode = cs_mode if cs_mode is not None else capstone.CS_MODE_32
-    md = capstone.Cs(arch, mode)
+    md = _get_capstone(arch, mode)
     for insn in md.disasm(raw, va):
         mnem = insn.mnemonic
         if mnem in ("bt", "bts"):
@@ -246,7 +266,7 @@ def load_data(
         for entry in entries:
             if entry.marker_type in ("GLOBAL", "DATA"):
                 continue
-            if entry.va < 0x1000:
+            if entry.va < MIN_VALID_VA:
                 continue
             existing[entry.va] = {
                 "filename": rel_name,
@@ -264,7 +284,7 @@ def load_data(
     for hfile in iter_library_headers(src_dir):
         lib_entries = parse_library_header(hfile, target_name=target_marker(cfg))
         for entry in lib_entries:
-            if entry.va < 0x1000:
+            if entry.va < MIN_VALID_VA:
                 continue
             existing[entry.va] = {
                 "filename": hfile.name,
@@ -380,12 +400,12 @@ def sanitize_name(ghidra_name: str) -> str:
     # Strip FUN_ prefix
     name = ghidra_name
     if name.startswith("FUN_"):
-        # Use the address as the name
+        # Convert FUN_<hex> prefix to func_<hex>
         return "func_" + name[4:].lower()
     # Clean up special chars
-    name = re.sub(r"[^a-zA-Z0-9_]", "_", name)
+    name = _SANITIZE_NON_ALNUM_RE.sub("_", name)
     # Collapse consecutive underscores
-    name = re.sub(r"_+", "_", name)
+    name = _SANITIZE_MULTI_UNDERSCORE_RE.sub("_", name)
     # Strip leading/trailing underscores
     name = name.strip("_")
     # Ensure no leading digit (invalid C identifier)

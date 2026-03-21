@@ -152,7 +152,6 @@ src/rebrew/
 ├── compile_cache.py     # Disk-backed compile result cache (diskcache, SHA-256 keyed)
 ├── metadata.py          # Per-directory rebrew-function.toml metadata loader/writer; update_source_status is the canonical STATUS writer
 ├── data_metadata.py     # Per-directory data metadata (global/BSS variable annotations)
-├── solutions.py         # Semantic equivalence solution transfer database
 ├── crt_match.py         # CRT source cross-reference matcher (index, match, ASM detection)
 ├── cache_cli.py         # `rebrew cache stats` / `rebrew cache clear` CLI
 ├── prove.py             # Symbolic equivalence prover via angr (optional dep)
@@ -196,7 +195,8 @@ src/rebrew/
 │   ├── ast_engine.py    # tree-sitter AST mutation helpers
 │   ├── parsers.py       # Object file parsing (COFF/ELF/Mach-O via LIEF)
 │   ├── flags.py         # FlagSet/Checkbox primitives (decomp.me compatible)
-│   └── flag_data.py     # Auto-synced MSVC flag definitions
+│   ├── flag_data.py     # Auto-synced MSVC flag definitions
+│   └── solutions.py     # GA solution transfer database (cross-function cflags seeding)
 ├── ghidra/              # Ghidra sync package (ReVa MCP communication)
 │   ├── __init__.py      # Re-exports public API
 │   ├── models.py        # Data types (PullResult, PullChange, etc.)

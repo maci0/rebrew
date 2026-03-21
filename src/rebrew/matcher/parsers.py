@@ -14,9 +14,8 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-# Padding opcodes that can be trimmed from function tails (INT3 and NOP).
-# Duplicated here to avoid an upward dependency on catalog.sections.
-_PADDING_BYTES: tuple[int, ...] = (0xCC, 0x90)
+from rebrew.binary_loader import PADDING_BYTES as _PADDING_BYTES
+
 _PADDING_STRIP = bytes(_PADDING_BYTES)
 
 
@@ -67,8 +66,7 @@ def _detect_obj_format(obj_path: str) -> str:
         b"\xcf\xfa\xed\xfe",
     ):
         return "macho"
-    # COFF: check for valid machine type in first 2 bytes
-    # i386=0x14c, AMD64=0x8664, ARM=0x1c0, ARM64=0xaa64
+    # COFF: validate machine type in first 2 bytes (multiple architectures)
     if len(magic) >= 2:
         (machine,) = struct.unpack_from("<H", magic, 0)
         if machine in (0x14C, 0x8664, 0x1C0, 0xAA64):
@@ -198,8 +196,7 @@ def _parse_elf_symbol_bytes(
 
     code = content[func_start:func_end].rstrip(_PADDING_STRIP)
 
-    # ELF relocations are global — filter to our section to avoid collecting
-    # relocations from unrelated code that would corrupt offset calculations
+    # Filter to section-local relocations (ELF exposes all relocations globally)
     section_relocs = (
         r
         for r in elf.relocations

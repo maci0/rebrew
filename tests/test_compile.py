@@ -86,22 +86,22 @@ class TestResolveClCommand:
 
 
 class TestSafeShlex:
-    """Test _safe_shlex_split for cflags parsing."""
+    """Tests for internal cflags shlex-splitting helper."""
 
-    def test_cflags_string_split_via_safe_shlex(self) -> None:
-        """Verify cflags string→list conversion uses _safe_shlex_split."""
+    def test_simple_flags_split(self) -> None:
+        """Space-separated cflags are split into individual tokens."""
         from rebrew.compile import _safe_shlex_split
 
         assert _safe_shlex_split("/O2 /Gd /MT") == ["/O2", "/Gd", "/MT"]
 
-    def test_cflags_list_passthrough_via_safe_shlex(self) -> None:
-        """List-like cflags as a single string pass through _safe_shlex_split."""
+    def test_two_flags_split(self) -> None:
+        """Two-flag string is split correctly."""
         from rebrew.compile import _safe_shlex_split
 
         assert _safe_shlex_split("/O2 /Gd") == ["/O2", "/Gd"]
 
-    def test_cflags_with_forced_include(self) -> None:
-        """Quoted paths in cflags are handled by _safe_shlex_split."""
+    def test_quoted_forced_include_path(self) -> None:
+        """Quoted /FI paths with spaces are handled without crashing."""
         from rebrew.compile import _safe_shlex_split
 
         result = _safe_shlex_split('/FI"forced.h" /nologo')

@@ -46,6 +46,7 @@ _DATA_RE = re.compile(r"(?://|/\*)\s*DATA:\s*(?P<module>[A-Z0-9_]+)\s+(?P<va>0x[
 
 _ARRAY_SIZE_RE = re.compile(r"\[(\d+)\]")
 _ARRAY_STRIP_RE = re.compile(r"\[.*\]")
+_DECL_IDENT_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\[.*\])?\s*;")
 
 
 # ---------------------------------------------------------------------------
@@ -232,7 +233,7 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                 else:
                     # Fallback: try to grab the last identifier before ;
                     # (handles non-extern declarations after GLOBAL annotations)
-                    id_match = re.search(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\[.*\])?\s*;", decl)
+                    id_match = _DECL_IDENT_RE.search(decl)
                     if id_match:
                         name = id_match.group(1)
 
@@ -348,7 +349,7 @@ def find_dispatch_tables(
 
     Args:
         binary_data: Raw binary file bytes.
-        image_base: Image base VA of the binary (reserved for future use).
+        image_base: Image base VA of the binary (currently unused; sections carry absolute VAs).
         sections: Section dict from binary_loader ({name: {va, size, file_offset, raw_size}}).
         known_functions: Map of VA -> {"name": str, "status": str} for reversed funcs.
         ptr_size: Pointer size in bytes (4 for 32-bit PE).

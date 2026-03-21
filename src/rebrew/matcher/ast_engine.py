@@ -1,7 +1,7 @@
-"""ast_engine.py - Core infrastructure for AST-based mutations.
+"""ast_engine.py - AST-based mutation infrastructure for the GA engine.
 
-Uses tree-sitter to parse C code into an AST and provides utilities
-for manipulating it.
+Provides tree-sitter C parsing, node extraction, and source-level
+manipulation helpers used by :mod:`rebrew.matcher.mutator`.
 """
 
 import tree_sitter as ts
@@ -29,7 +29,7 @@ def quick_validate_ast(source: bytes | str) -> bool:
 
 
 class ASTMutator:
-    """Base class/namespace for AST-based mutations.
+    """Namespace for AST-based mutation helpers.
 
     Provides helpers to replace nodes in the source.
     """

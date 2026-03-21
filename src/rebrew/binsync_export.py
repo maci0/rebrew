@@ -222,8 +222,8 @@ def main(
 
     written_structs: list[str] = []
     for sname in sorted(struct_names):
-        # Sanitize struct name to prevent path traversal from parsed data
-        safe_name = sname.replace("/", "_").replace("\\", "_").replace("..", "_")
+        # Sanitize struct name: whitelist alphanumeric + _ - to prevent path traversal
+        safe_name = "".join(c if c.isalnum() or c in "_-" else "_" for c in sname) or "unnamed"
         spath = outdir / "structs" / f"{safe_name}.toml"
         if not dry_run:
             _write_struct_toml(spath, sname)

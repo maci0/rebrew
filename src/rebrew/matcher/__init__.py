@@ -73,3 +73,47 @@ from .scoring import (
 from .scoring import (
     structural_similarity as structural_similarity,
 )
+from .solutions import (
+    SolutionEntry as SolutionEntry,
+)
+from .solutions import (
+    find_similar as find_similar,
+)
+from .solutions import (
+    load_solutions as load_solutions,
+)
+from .solutions import (
+    save_solution as save_solution,
+)
+
+__all__ = [
+    "BuildCache",
+    "BuildResult",
+    "Checkbox",
+    "COMMON_MSVC_FLAGS",
+    "FlagSet",
+    "Flags",
+    "GACheckpoint",
+    "MSVC6_FLAGS",
+    "MSVC_SWEEP_TIERS",
+    "Score",
+    "SolutionEntry",
+    "StructuralSimilarity",
+    "build_candidate",
+    "build_candidate_obj_only",
+    "compute_args_hash",
+    "diff_functions",
+    "extract_function_from_binary",
+    "find_similar",
+    "flag_sweep",
+    "generate_flag_combinations",
+    "list_obj_symbols",
+    "load_checkpoint",
+    "load_solutions",
+    "parse_obj_symbol_bytes",
+    "precompute_target",
+    "save_checkpoint",
+    "save_solution",
+    "score_candidate",
+    "structural_similarity",
+]
