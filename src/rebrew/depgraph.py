@@ -334,8 +334,7 @@ def render_summary(nodes: dict[str, NodeInfo], edges: list[tuple[str, str]]) -> 
     ]
     if leaves:
         lines.append(f"\nLeaf functions (reversed, no outgoing calls): {len(leaves)}")
-        for name in sorted(leaves)[:10]:
-            lines.append(f"  - {name} [{nodes[name]['status']}]")
+        lines.extend(f"  - {name} [{nodes[name]['status']}]" for name in sorted(leaves)[:10])
         if len(leaves) > 10:
             lines.append(f"  ... and {len(leaves) - 10} more")
 

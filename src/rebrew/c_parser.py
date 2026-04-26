@@ -423,9 +423,11 @@ def find_extern_variables(source: str) -> list[ExternVar]:
                     return  # This is a function declaration, not a variable
 
             # Extract type specifiers
-            type_parts: list[str] = []
-            for child in node.children:
-                if child.type in (
+            type_parts: list[str] = [
+                _node_text(child, src_bytes)
+                for child in node.children
+                if child.type
+                in (
                     "type_qualifier",
                     "primitive_type",
                     "sized_type_specifier",
@@ -433,8 +435,8 @@ def find_extern_variables(source: str) -> list[ExternVar]:
                     "struct_specifier",
                     "enum_specifier",
                     "union_specifier",
-                ):
-                    type_parts.append(_node_text(child, src_bytes))
+                )
+            ]
 
             type_str = " ".join(type_parts) if type_parts else ""
 

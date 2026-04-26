@@ -1,7 +1,7 @@
 """ghidra/client.py — Low-level HTTP client for ReVa MCP endpoint communication.
 
-Handles MCP session initialization, JSON-RPC tool invocation, bulk function
-fetching, and batch command application with retry logic for struct definitions.
+Handles MCP session initialization, JSON-RPC tool invocation, and bulk function
+and data fetching via ReVa HTTP endpoints.
 """
 
 import contextlib
@@ -277,14 +277,14 @@ def fetch_all_functions(
             elif "address" in item or "name" in item:
                 page_funcs.append(item)
 
-        for f in page_funcs:
-            all_funcs.append(
-                {
-                    "va": f.get("address", f.get("va")),
-                    "tool_name": f.get("name", f.get("ghidra_name") or f.get("tool_name", "")),
-                    "size": f.get("sizeInBytes", f.get("size", 0)),
-                }
-            )
+        all_funcs.extend(
+            {
+                "va": f.get("address", f.get("va")),
+                "tool_name": f.get("name", f.get("ghidra_name") or f.get("tool_name", "")),
+                "size": f.get("sizeInBytes", f.get("size", 0)),
+            }
+            for f in page_funcs
+        )
 
         if metadata is None or len(page_funcs) == 0:
             break

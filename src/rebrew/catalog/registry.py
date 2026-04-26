@@ -19,7 +19,7 @@ class RegistryEntry(TypedDict, total=False):
     All fields are technically optional (``total=False``), but
     ``_new_registry_entry`` always sets: ``detected_by``, ``size_by_tool``,
     ``list_name``, ``ghidra_name``, ``is_thunk``, ``is_export``, ``canonical_size``.
-    ``size_reason`` is added during the canonical-size resolution pass.
+    ``size_reason`` is set alongside ``canonical_size`` during registry construction.
     """
 
     detected_by: list[str]
@@ -221,7 +221,7 @@ def build_function_registry(
 
     # --- Exports ---
     exports: dict[int, str] = cfg.dll_exports if cfg else {}
-    for va, _name in exports.items():
+    for va in exports:
         entry = registry.setdefault(va, _new_registry_entry(va, cfg, is_export=True))
         if "exports" not in entry["detected_by"]:
             entry["detected_by"].append("exports")

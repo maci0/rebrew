@@ -89,8 +89,7 @@ def generate_catalog(
     lines.append(f"\n## Unmatched Functions ({len(unmatched)} remaining)\n")
     lines.append("| VA | Size | Name |")
     lines.append("|-----|------|---------|")
-    for f in unmatched:
-        lines.append(f"| 0x{f['va']:08X} | {f['size']}B | {f['name']} |")
+    lines.extend(f"| 0x{f['va']:08X} | {f['size']}B | {f['name']} |" for f in unmatched)
 
     lines.append("")
     return "\n".join(lines)

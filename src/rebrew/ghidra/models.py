@@ -1,4 +1,4 @@
-"""models.py - Data access classes for Ghidra MCP responses."""
+"""models.py - Data models for Ghidra/ReVa MCP responses and JSON-RPC protocol."""
 
 from dataclasses import dataclass, field
 from typing import Any

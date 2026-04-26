@@ -147,9 +147,9 @@ def bytes_to_pat_line(
     Relocation bytes are masked with '..' in the leading portion.
     """
     lead_len = min(len(code_bytes), max_lead)
-    lead_parts: list[str] = []
-    for i in range(lead_len):
-        lead_parts.append(".." if i in reloc_offsets else f"{code_bytes[i]:02X}")
+    lead_parts: list[str] = [
+        ".." if i in reloc_offsets else f"{code_bytes[i]:02X}" for i in range(lead_len)
+    ]
     lead = "".join(lead_parts)
 
     # CRC16 of non-reloc bytes after the leading portion

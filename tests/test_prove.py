@@ -9,6 +9,7 @@ tests that are skipped when angr is absent.
 
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -16,6 +17,8 @@ from typing import Any
 import pytest
 
 from rebrew.prove import _apply_arg_constraints, _parse_prototype, _resolve_source
+
+has_angr = importlib.util.find_spec("angr") is not None
 
 # ---------------------------------------------------------------------------
 # _parse_prototype
@@ -182,7 +185,7 @@ class TestProveCLIStatusGuard:
 
 
 @pytest.mark.skipif(
-    not pytest.importorskip("angr", reason="angr not installed"),  # type: ignore[arg-type]
+    not has_angr,
     reason="angr not installed",
 )
 class TestWin32SimProcedures:
@@ -231,7 +234,7 @@ class TestWin32SimProcedures:
 
 
 @pytest.mark.skipif(
-    not pytest.importorskip("angr", reason="angr not installed"),  # type: ignore[arg-type]
+    not has_angr,
     reason="angr not installed",
 )
 class TestApplyArgConstraints:
@@ -502,7 +505,7 @@ class TestProveConstraintsMetadata:
 
 
 @pytest.mark.skipif(
-    not pytest.importorskip("angr", reason="angr not installed"),  # type: ignore[arg-type]
+    not has_angr,
     reason="angr not installed",
 )
 class TestProveEquivalence:
