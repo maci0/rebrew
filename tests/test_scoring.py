@@ -1,5 +1,7 @@
 """Tests for rebrew.matcher.scoring — score_candidate, diff_functions."""
 
+import pytest
+
 from rebrew.matcher.core import Score, StructuralSimilarity
 from rebrew.matcher.scoring import (
     _mask_registers_x86_32,
@@ -88,6 +90,9 @@ class TestScoreCandidate:
         assert isinstance(score, Score)
         assert score.length_diff == 0
         assert score.byte_score == 0.0
+        assert score.reloc_score == 0.0
+        assert score.mnemonic_score == 0.0
+        assert score.total <= 0.0  # prologue_bonus can make it negative
 
     def test_different_code(self) -> None:
         target = b"\x55\x8b\xec\x83\xec\x10\xc3"
@@ -96,10 +101,11 @@ class TestScoreCandidate:
         assert score.byte_score > 0.0
 
     def test_different_length(self) -> None:
-        target = b"\x55\x8b\xec\xc3"
-        cand = b"\x55\x8b\xec\x83\xec\x10\xc3"
+        target = b"\x55\x8b\xec\xc3"  # 4 bytes
+        cand = b"\x55\x8b\xec\x83\xec\x10\xc3"  # 7 bytes
         score = score_candidate(target, cand)
-        assert score.length_diff > 0
+        assert score.length_diff == 3
+        assert score.total > 0.0  # length penalty must push total positive
 
     def test_with_reloc_offsets(self) -> None:
         # call near with different displacement — should score better with relocs
@@ -118,6 +124,7 @@ class TestScoreCandidate:
         assert isinstance(score, Score)
         assert score.length_diff == 0
         assert score.byte_score == 0.0
+        assert score.total <= 0.0
 
     def test_prologue_bonus_for_matching_start(self) -> None:
         # First 20 bytes identical → prologue_bonus should be negative (bonus)
@@ -145,7 +152,7 @@ class TestScoreCandidate:
             + score.mnemonic_score * 200.0
             + score.prologue_bonus
         )
-        assert abs(score.total - expected) < 0.01
+        assert score.total == pytest.approx(expected, abs=0.01)
 
     def test_negative_reloc_offsets_ignored(self) -> None:
         code = b"\x55\x8b\xec\xe8\x01\x02\x03\x04\xc3"
@@ -276,7 +283,7 @@ class TestStructuralSimilarity:
         sim = structural_similarity(target, cand)
         assert sim.structural > 0
         assert sim.structural_ratio > 0.0
-        assert sim.total_insns > 0
+        assert sim.total_insns >= 4  # push, mov, sub, ret
 
     def test_reloc_only_not_structural(self) -> None:
         # call near with different displacement — reloc only
@@ -337,9 +344,15 @@ class TestScoringFuzzing:
             score = score_candidate(b1, b2)
             assert isinstance(score, Score)
             assert score.length_diff == abs(len1 - len2)
+            assert score.length_diff >= 0
+            assert score.byte_score >= 0.0
+            assert isinstance(score.total, float)
 
             sim = structural_similarity(b1, b2)
             assert isinstance(sim, StructuralSimilarity)
+            assert sim.total_insns >= 0
+            assert 0.0 <= sim.mnemonic_match_ratio <= 1.0
+            assert 0.0 <= sim.structural_ratio <= 1.0
 
     def test_extreme_edge_cases(self) -> None:
         """Test with extreme edge cases (all zeros, all 0xFF, size mismatches)."""
@@ -356,9 +369,15 @@ class TestScoringFuzzing:
             for cand in cases:
                 score = score_candidate(tgt, cand)
                 assert isinstance(score, Score)
+                assert score.length_diff >= 0
+                assert score.byte_score >= 0.0
+                assert isinstance(score.total, float)
 
                 sim = structural_similarity(tgt, cand)
                 assert isinstance(sim, StructuralSimilarity)
+                assert sim.total_insns >= 0
+                assert 0.0 <= sim.mnemonic_match_ratio <= 1.0
+                assert 0.0 <= sim.structural_ratio <= 1.0
 
                 if tgt == cand:
                     assert score.byte_score == 0.0

@@ -24,8 +24,7 @@ class TestCompilerDefaults:
     """Tests for the COMPILER_DEFAULTS constant."""
 
     def test_has_expected_profiles(self) -> None:
-        # At least the known profiles should be present
-        assert len(COMPILER_DEFAULTS) >= 6
+        assert len(COMPILER_DEFAULTS) == 6
 
     def test_known_profiles(self) -> None:
         assert set(COMPILER_DEFAULTS.keys()) == {
@@ -90,7 +89,9 @@ class TestTemplateRendering:
     """Tests for DEFAULT_REBREW_TOML template string."""
 
     def test_toml_template_renders(self) -> None:
-        """Template renders without KeyError."""
+        """Template renders without KeyError and produces valid TOML."""
+        import tomllib
+
         result = DEFAULT_REBREW_TOML.format(
             project_name="myproject",
             target_name="game.exe",
@@ -101,7 +102,8 @@ class TestTemplateRendering:
             compiler_libs="tools/lib",
             cflags="/O2 /Gd",
         )
-        assert "myproject" in result
+        parsed = tomllib.loads(result)
+        assert parsed["project"]["name"] == "myproject"
         assert "game.exe" in result
 
     def test_toml_template_has_project_section(self) -> None:
@@ -167,7 +169,7 @@ class TestConstraints:
 
 
 @pytest.fixture(autouse=True)
-def mock_download_wibo(monkeypatch) -> None:
+def mock_download_wibo(monkeypatch: pytest.MonkeyPatch) -> None:
     """Prevent tests from hitting GitHub API rate limits."""
     monkeypatch.setattr("rebrew.wibo.download_wibo", lambda *args, **kwargs: "v1.2.3")
 
@@ -175,7 +177,7 @@ def mock_download_wibo(monkeypatch) -> None:
 class TestInit:
     """Tests for the init() function using tmp_path."""
 
-    def test_creates_rebrew_toml(self, tmp_path: Path, monkeypatch) -> None:
+    def test_creates_rebrew_toml(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """init() creates rebrew-project.toml in cwd."""
         monkeypatch.chdir(tmp_path)
         init(target_name="server", binary_name="server.dll", compiler_profile="msvc6")
@@ -185,7 +187,7 @@ class TestInit:
         assert "server" in content
         assert "server.dll" in content
 
-    def test_creates_agents_md(self, tmp_path: Path, monkeypatch) -> None:
+    def test_creates_agents_md(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """init() creates AGENTS.md."""
         monkeypatch.chdir(tmp_path)
         init(target_name="main", binary_name="prog.exe", compiler_profile="msvc6")
@@ -194,7 +196,7 @@ class TestInit:
         content = agents_path.read_text()
         assert "prog.exe" in content
 
-    def test_creates_directories(self, tmp_path: Path, monkeypatch) -> None:
+    def test_creates_directories(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """init() creates original/, src/<target>/, bin/<target>/."""
         monkeypatch.chdir(tmp_path)
         init(target_name="game", binary_name="game.exe", compiler_profile="gcc")
@@ -202,34 +204,40 @@ class TestInit:
         assert (tmp_path / "src" / "game").is_dir()
         assert (tmp_path / "bin" / "game").is_dir()
 
-    def test_creates_function_list(self, tmp_path: Path, monkeypatch) -> None:
+    def test_creates_function_list(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """init() creates an empty functions.txt."""
         monkeypatch.chdir(tmp_path)
         init(target_name="t", binary_name="t.exe", compiler_profile="clang")
         func_list = tmp_path / "src" / "t" / "functions.txt"
         assert func_list.exists()
 
-    def test_idempotency_guard(self, tmp_path: Path, monkeypatch) -> None:
+    def test_idempotency_guard(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """init() exits with code 1 if rebrew-project.toml already exists."""
         monkeypatch.chdir(tmp_path)
         (tmp_path / "rebrew-project.toml").write_text("existing", encoding="utf-8")
         with pytest.raises(Exit):
             init(target_name="t", binary_name="t.exe", compiler_profile="msvc6")
 
-    def test_unknown_compiler_profile(self, tmp_path: Path, monkeypatch) -> None:
+    def test_unknown_compiler_profile(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """init() exits with code 1 for unknown compiler profile."""
         monkeypatch.chdir(tmp_path)
         with pytest.raises(Exit):
             init(target_name="t", binary_name="t.exe", compiler_profile="borland")
 
-    def test_msvc7_uses_msvc7_constraints(self, tmp_path: Path, monkeypatch) -> None:
+    def test_msvc7_uses_msvc7_constraints(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """msvc7 profile generates AGENTS.md with C99 constraints."""
         monkeypatch.chdir(tmp_path)
         init(target_name="t", binary_name="t.exe", compiler_profile="msvc7")
         agents = (tmp_path / "AGENTS.md").read_text()
         assert "C99" in agents
 
-    def test_gcc_uses_gcc_constraints(self, tmp_path: Path, monkeypatch) -> None:
+    def test_gcc_uses_gcc_constraints(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """gcc profile generates AGENTS.md with ELF constraints."""
         monkeypatch.chdir(tmp_path)
         init(target_name="t", binary_name="t.exe", compiler_profile="gcc")

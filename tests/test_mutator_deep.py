@@ -29,11 +29,6 @@ from rebrew.matcher.mutator import (
     quick_validate,
 )
 
-try:
-    from rebrew.matcher.mutator import mut_change_param_order
-except ImportError:
-    mut_change_param_order = None
-
 FULL_SOURCE = """\
 #include <windows.h>
 

@@ -40,7 +40,10 @@ class TestSolutionEntry:
 
     def test_defaults(self) -> None:
         e = SolutionEntry(symbol="_f", cflags="/O2", size=10, source_file="f.c")
-        assert isinstance(e.solved_at, str) and len(e.solved_at) > 0
+        assert isinstance(e.solved_at, str)
+        assert len(e.solved_at) > 0
+        assert e.score == 0.0
+        assert e.generations == 0
 
 
 # -------------------------------------------------------------------------

@@ -99,6 +99,7 @@ class TestDiffFunctionsAsDict:
         result = diff_functions(target, candidate, as_dict=True)
         assert result is not None
         s = result["summary"]
+        assert s["total"] > 0
         assert s["exact"] + s["reloc"] + s["structural"] == s["total"]
 
     def test_instruction_count_matches_total(self) -> None:
