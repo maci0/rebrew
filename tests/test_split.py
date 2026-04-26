@@ -389,7 +389,7 @@ class TestSplitExtractVA:
         )
 
         result = runner.invoke(
-            app, ["--va", "0x10001000", "--force", "--output-dir", str(custom_dir), str(src)]
+            app, ["--va", "0x10001000", "--force", "--out-dir", str(custom_dir), str(src)]
         )
         assert result.exit_code == 0
         assert (custom_dir / "func_a.c").exists()

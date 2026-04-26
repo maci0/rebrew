@@ -43,6 +43,10 @@ from rebrew.metadata import update_source_status
 
 console = Console(stderr=True)
 
+# At this match ratio, NEAR_MATCHING output is shown in bold yellow instead of
+# plain yellow — visually distinguishing "almost there" from "far off".
+_NEAR_MATCHING_BOLD_THRESHOLD = 0.97
+
 
 def _expand_reloc_offsets(relocs: list[int], limit: int) -> set[int]:
     """Expand 4-byte relocation start offsets into a set of individual byte offsets."""
@@ -154,7 +158,7 @@ def main(
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     jobs: int | None = typer.Option(
-        None, "-j", "--jobs", help="Number of parallel compile jobs (with --all)"
+        None, "--jobs", "-j", help="Number of parallel compile jobs (with --all)"
     ),
     no_promote: bool = typer.Option(
         False,
@@ -368,14 +372,12 @@ def main(
             if len(obj_bytes) == len(target_bytes):
                 reloc_set = _expand_reloc_offsets(relocs, len(target_bytes))
                 inv_reloc_set = _expand_reloc_offsets(inv_relocs, len(target_bytes))
-                diff: list[str] = []
-                for i in range(len(target_bytes)):
-                    if (
-                        target_bytes[i] != obj_bytes[i] or i in inv_reloc_set
-                    ) and i not in reloc_set:
-                        diff.append(
-                            f"  [{i:3d}] target={target_bytes[i]:02x} got={obj_bytes[i]:02x}"
-                        )
+                diff: list[str] = [
+                    f"  [{i:3d}] target={target_bytes[i]:02x} got={obj_bytes[i]:02x}"
+                    for i in range(len(target_bytes))
+                    if (target_bytes[i] != obj_bytes[i] or i in inv_reloc_set)
+                    and i not in reloc_set
+                ]
                 if diff:
                     console.print("Diffs (non-reloc):")
                     for d in diff[:20]:
@@ -456,15 +458,15 @@ def build_result_dict(
         min_len = min(len(obj_bytes), len(target_bytes))
         reloc_set = _expand_reloc_offsets(relocs, min_len)
         inv_reloc_set = _expand_reloc_offsets(invalid_relocs, min_len)
-        for i in range(min_len):
-            if i not in reloc_set and (i in inv_reloc_set or obj_bytes[i] != target_bytes[i]):
-                mismatches.append(
-                    {
-                        "offset": i,
-                        "target": f"0x{target_bytes[i]:02x}",
-                        "got": f"0x{obj_bytes[i]:02x}",
-                    }
-                )
+        mismatches.extend(
+            {
+                "offset": i,
+                "target": f"0x{target_bytes[i]:02x}",
+                "got": f"0x{obj_bytes[i]:02x}",
+            }
+            for i in range(min_len)
+            if i not in reloc_set and (i in inv_reloc_set or obj_bytes[i] != target_bytes[i])
+        )
 
     return {
         "source": source,
@@ -505,7 +507,6 @@ def _test_multi(
         obj_path, err = compile_to_obj(cfg, source, cflags_parts, workdir)
         if obj_path is None:
             error_exit(f"COMPILE ERROR:\n{err}", json_mode=json_output)
-            return  # unreachable, but keeps type checker happy
 
         for ann in annotations:
             sym = ann.symbol
@@ -591,7 +592,11 @@ def _test_multi(
                 near = total > 0 and (match_count / total) >= NEAR_MATCH_THRESHOLD
                 if near:
                     label = "NEAR_MATCHING"
-                    color = "bold yellow" if (match_count / total) >= 0.97 else "yellow"
+                    color = (
+                        "bold yellow"
+                        if (match_count / total) >= _NEAR_MATCHING_BOLD_THRESHOLD
+                        else "yellow"
+                    )
                     console.print(f"[{color}]{label}[/{color}] {sym} — {match_count}/{total}B")
                 else:
                     console.print(f"[red]STUB[/red] {sym} — {match_count}/{total}B")
@@ -683,9 +688,7 @@ def _run_all_batch(
         unique_entries = [
             e
             for e in unique_entries
-            if str((cfg.reversed_dir / getattr(e, "filepath", "")).resolve()).startswith(
-                batch_root_str
-            )
+            if str((cfg.reversed_dir / e.filepath).resolve()).startswith(batch_root_str)
         ]
 
     # Filter by origin if specified
@@ -711,7 +714,7 @@ def _run_all_batch(
             json_print(
                 {
                     "count": total,
-                    "files": sorted({getattr(e, "filepath", "") for e in unique_entries}),
+                    "files": sorted({e.filepath for e in unique_entries}),
                 }
             )
         else:
@@ -748,7 +751,7 @@ def _run_all_batch(
             transitions.append((old_status, status))
 
     # Count unique files for the summary
-    unique_files = len({getattr(e, "filepath", "") for e in unique_entries})
+    unique_files = len({e.filepath for e in unique_entries})
 
     if json_output:
         json_print(

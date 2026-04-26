@@ -123,7 +123,7 @@ def main(
     va: str | None = typer.Option(
         None, "--va", help="Extract a single function by VA (hex) into its own file"
     ),
-    output_dir: str | None = typer.Option(None, "--output-dir", help="Output directory"),
+    output_dir: str | None = typer.Option(None, "--out-dir", help="Output directory"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     force: bool = typer.Option(False, "--force", help="Overwrite existing output files"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -165,7 +165,6 @@ def main(
             target_va = int(va_cleaned, 16)
         except ValueError:
             error_exit(f"Invalid VA (must be hex): {va}", json_mode=json_output)
-            return  # unreachable — makes type-checker happy
 
         matched_block: str | None = None
         matched_meta: _BlockMeta | None = None
@@ -187,7 +186,6 @@ def main(
                 f"No function block found for VA 0x{target_va:08x} in {source_path.name}",
                 json_mode=json_output,
             )
-            return  # unreachable — makes type-checker happy
 
         symbol = matched_meta["symbol"]
         out_name = _build_output_name(symbol, target_va, cfg.source_ext)
