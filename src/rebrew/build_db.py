@@ -52,8 +52,8 @@ def build_db(
         c.execute("DROP TABLE IF EXISTS functions")
         c.execute("""
             CREATE TABLE functions (
-                target TEXT,
-                va INTEGER,
+                target TEXT NOT NULL,
+                va INTEGER NOT NULL,
                 name TEXT,
                 vaStart TEXT,
                 size INTEGER,
@@ -65,8 +65,8 @@ def build_db(
                 markerType TEXT,
                 ghidra_name TEXT,
                 list_name TEXT,
-                is_thunk BOOLEAN,
-                is_export BOOLEAN,
+                is_thunk BOOLEAN NOT NULL DEFAULT 0 CHECK (is_thunk IN (0, 1)),
+                is_export BOOLEAN NOT NULL DEFAULT 0 CHECK (is_export IN (0, 1)),
                 sha256 TEXT,
                 files TEXT,
                 detected_by TEXT,
@@ -83,8 +83,8 @@ def build_db(
         c.execute("DROP TABLE IF EXISTS globals")
         c.execute("""
             CREATE TABLE globals (
-                target TEXT,
-                va INTEGER,
+                target TEXT NOT NULL,
+                va INTEGER NOT NULL,
                 name TEXT,
                 decl TEXT,
                 files TEXT,
@@ -97,8 +97,8 @@ def build_db(
         c.execute("DROP TABLE IF EXISTS sections")
         c.execute("""
             CREATE TABLE sections (
-                target TEXT,
-                name TEXT,
+                target TEXT NOT NULL,
+                name TEXT NOT NULL,
                 va INTEGER,
                 size INTEGER,
                 fileOffset INTEGER,
@@ -112,12 +112,12 @@ def build_db(
         c.execute("""
             CREATE TABLE cells (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                target TEXT,
-                section_name TEXT,
+                target TEXT NOT NULL,
+                section_name TEXT NOT NULL,
                 start INTEGER,
                 end INTEGER,
                 span INTEGER,
-                state TEXT,
+                state TEXT NOT NULL,
                 functions TEXT,
                 label TEXT,
                 parent_function TEXT
@@ -127,8 +127,8 @@ def build_db(
         c.execute("DROP TABLE IF EXISTS metadata")
         c.execute("""
             CREATE TABLE metadata (
-                target TEXT,
-                key TEXT,
+                target TEXT NOT NULL,
+                key TEXT NOT NULL,
                 value TEXT,
                 PRIMARY KEY (target, key)
             )
@@ -137,6 +137,9 @@ def build_db(
         c.execute("CREATE INDEX IF NOT EXISTS idx_functions_name ON functions(target, name)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_functions_status ON functions(target, status)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_functions_module ON functions(target, module)")
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_functions_marker ON functions(target, markerType)"
+        )
         c.execute("CREATE INDEX IF NOT EXISTS idx_globals_name ON globals(target, name)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_cells_section ON cells(target, section_name)")
         c.execute(
@@ -146,20 +149,20 @@ def build_db(
         c.execute("""
             CREATE TABLE IF NOT EXISTS history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                target TEXT,
-                va INTEGER,
+                target TEXT NOT NULL,
+                va INTEGER NOT NULL,
                 old_status TEXT,
                 new_status TEXT,
-                changed_at TEXT
+                changed_at TEXT NOT NULL
             )
         """)
         c.execute("CREATE INDEX IF NOT EXISTS idx_history_target_va ON history(target, va)")
 
         c.execute("""
             CREATE TABLE IF NOT EXISTS verify_results (
-                target TEXT,
-                va INTEGER,
-                verified_at TEXT,
+                target TEXT NOT NULL,
+                va INTEGER NOT NULL,
+                verified_at TEXT NOT NULL,
                 byte_delta INTEGER,
                 diff_lines INTEGER,
                 PRIMARY KEY (target, va)
@@ -176,7 +179,7 @@ def build_db(
                 COUNT(*) as total_cells,
                 SUM(CASE WHEN state = 'exact' THEN 1 ELSE 0 END) as exact_count,
                 SUM(CASE WHEN state = 'reloc' THEN 1 ELSE 0 END) as reloc_count,
-                SUM(CASE WHEN state IN ('matching', 'matching_reloc') THEN 1 ELSE 0 END) as matching_count,
+                SUM(CASE WHEN state = 'near_match' THEN 1 ELSE 0 END) as near_match_count,
                 SUM(CASE WHEN state = 'stub' THEN 1 ELSE 0 END) as stub_count,
                 SUM(CASE WHEN state = 'padding' THEN 1 ELSE 0 END) as padding_count,
                 SUM(CASE WHEN state = 'data' THEN 1 ELSE 0 END) as data_count,
@@ -291,12 +294,12 @@ def build_db(
                 if sec_name != ".text":
                     exact_count: int = 0
                     reloc_count: int = 0
-                    matching_count: int = 0
+                    near_match_count: int = 0
                     stub_count: int = 0
                     padding_count: int = 0
                     exact_bytes: int = 0
                     reloc_bytes: int = 0
-                    matching_bytes: int = 0
+                    near_match_bytes: int = 0
                     stub_bytes: int = 0
                     padding_bytes: int = 0
                     covered_bytes: int = 0
@@ -318,9 +321,9 @@ def build_db(
                             elif state == "reloc":
                                 reloc_count += 1
                                 reloc_bytes += size
-                            elif state in ("matching", "matching_reloc"):
-                                matching_count += 1
-                                matching_bytes += size
+                            elif state == "near_match":
+                                near_match_count += 1
+                                near_match_bytes += size
                             elif state == "padding":
                                 padding_count += 1
                                 padding_bytes += size
@@ -328,12 +331,12 @@ def build_db(
                     summary_data[sec_name] = {
                         "exactMatches": exact_count,
                         "relocMatches": reloc_count,
-                        "matchingCount": matching_count,
+                        "nearMatchCount": near_match_count,
                         "stubCount": stub_count,
                         "paddingCount": padding_count,
                         "exactBytes": exact_bytes,
                         "relocBytes": reloc_bytes,
-                        "matchingBytes": matching_bytes,
+                        "nearMatchBytes": near_match_bytes,
                         "stubBytes": stub_bytes,
                         "paddingBytes": padding_bytes,
                         "coveredBytes": covered_bytes,
