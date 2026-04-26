@@ -109,13 +109,9 @@ yara /tmp/test.yar target.dll
 | **capstone** | x86 disassembly in matcher scoring |
 | **diskcache** | Persistent caching for GA compilation results (`matcher/core.py`) |
 | **httpx** | HTTP client for Ghidra/ReVa MCP communication (`ghidra/cli.py`, `skeleton.py`, `decompiler.py`) |
-| **jinja2** | Template rendering for skeleton generation (`skeleton.py`) |
 | **lief** | PE/ELF/Mach-O parsing — core dependency for `binary_loader.py`, `matcher/parsers.py`, `test.py` |
 | **numpy** | Numeric computation |
-| **pycparser** | C AST parser for AST-aware GA mutations |
 | **python-flirt** | FLIRT signature matching for library identification (`flirt.py`) |
-| **pyyaml** | YAML parsing (for `reccmp-project.yml`) |
-| **reccmp** | Decomp project compatibility — annotation format, CSV export |
 | **rich** | Terminal formatting |
 | **tomlkit** | Comment-preserving TOML editing (`cfg.py`) |
 | **tree-sitter** | C source AST parsing for signature and struct extraction |
@@ -174,7 +170,7 @@ are normalized.
 4. Use **yara** rules for bulk pattern identification of CRT/zlib functions
 
 ### For Byte Comparison
-1. `rebrew match --diff-only` for side-by-side disassembly (add `--mm` for structural diffs only)
+1. `rebrew diff` for side-by-side disassembly (add `--mm` for structural diffs only)
 2. **objconv** to verify comp.id on compiled .obj files
 3. **DUMPBIN /DISASM** for quick .obj inspection
 
