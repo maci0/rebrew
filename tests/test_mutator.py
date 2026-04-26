@@ -8,6 +8,7 @@ from rebrew.matcher.mutator import (
     _split_preamble_body,
     compute_population_diversity,
     crossover,
+    mut_accum_to_early_return,
     mut_add_cast,
     mut_add_redundant_parens,
     mut_add_register_keyword,
@@ -99,12 +100,6 @@ from rebrew.matcher.mutator import (
     mut_xor_zero_toggle,
     quick_validate,
 )
-
-try:
-    from rebrew.matcher.mutator import mut_accum_to_early_return
-except ImportError:
-    mut_accum_to_early_return = None
-
 
 _RNG_SEED = 42
 
