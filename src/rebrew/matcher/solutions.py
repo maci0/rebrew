@@ -143,9 +143,12 @@ def find_similar(
 
 
 def _normalize_cflags(cflags: str) -> str:
-    """Normalize cflags for comparison: strip /nologo /c, sort remainder."""
+    """Normalize cflags for comparison: strip /nologo /c /fo* /fe*, sort remainder case-insensitively."""
     parts = cflags.split()
-    # Remove build-noise flags that don't affect codegen
+    # Remove build-noise flags that don't affect codegen (case-insensitive)
     skip = {"/nologo", "/c"}
-    meaningful = sorted(p for p in parts if p not in skip and not p.startswith(("/Fo", "/Fe")))
+    meaningful = sorted(
+        (p for p in parts if p.lower() not in skip and not p.lower().startswith(("/fo", "/fe"))),
+        key=str.lower,
+    )
     return " ".join(meaningful)

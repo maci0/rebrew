@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 
 
 def _filter_wine_stderr(text: str) -> str:
-    """Filter Wine noise from stderr text (lazy-imported to break circular dep)."""
+    """Filter Wine noise from stderr text (lazy-imported from rebrew.compile)."""
     from rebrew.compile import filter_wine_stderr
 
     return filter_wine_stderr(text)
@@ -39,7 +39,7 @@ def _filter_wine_stderr(text: str) -> str:
 # heuristics fail to determine the actual size.  1000 bytes is a conservative
 # upper bound that covers most MSVC6 game functions without reading too far
 # past the function boundary — excess bytes are trimmed later by
-# trim_trailing_padding() in scoring.py.
+# trim_trailing_padding() in catalog/sections.py.
 _DEFAULT_SYMBOL_SIZE = 1000
 
 # Warn when flag sweep produces more than this many combinations
@@ -52,7 +52,7 @@ _MAP_SYM_RE = re.compile(
 )
 
 
-@functools.lru_cache(maxsize=32)
+@functools.lru_cache(maxsize=256)
 def _map_symbol_re(symbol: str) -> re.Pattern[str]:
     """Return a compiled regex for looking up *symbol* in a MAP file."""
     return re.compile(
