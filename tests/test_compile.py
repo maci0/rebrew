@@ -90,19 +90,19 @@ class TestSafeShlex:
 
     def test_simple_flags_split(self) -> None:
         """Space-separated cflags are split into individual tokens."""
-        from rebrew.compile import _safe_shlex_split
+        from rebrew.utils import safe_shlex_split as _safe_shlex_split
 
         assert _safe_shlex_split("/O2 /Gd /MT") == ["/O2", "/Gd", "/MT"]
 
     def test_two_flags_split(self) -> None:
         """Two-flag string is split correctly."""
-        from rebrew.compile import _safe_shlex_split
+        from rebrew.utils import safe_shlex_split as _safe_shlex_split
 
         assert _safe_shlex_split("/O2 /Gd") == ["/O2", "/Gd"]
 
     def test_quoted_forced_include_path(self) -> None:
         """Quoted /FI paths with spaces are handled without crashing."""
-        from rebrew.compile import _safe_shlex_split
+        from rebrew.utils import safe_shlex_split as _safe_shlex_split
 
         result = _safe_shlex_split('/FI"forced.h" /nologo')
         assert result == ["/FIforced.h", "/nologo"]

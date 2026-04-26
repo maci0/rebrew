@@ -6,9 +6,10 @@ configuration.
 """
 
 import os
-import shlex
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from rebrew.utils import safe_shlex_split
 
 if TYPE_CHECKING:
     from rebrew.config import ProjectConfig
@@ -23,25 +24,14 @@ def msvc_env_from_config(cfg: "ProjectConfig") -> dict[str, str]:
     Approximates ``VCVARS32.BAT`` for invoking CL.EXE under Wine.
     """
     env = {**os.environ}
+    parts = safe_shlex_split(cfg.compiler_command)
     runner = cfg.compiler_runner
-    if not runner:
-        try:
-            parts = shlex.split(cfg.compiler_command)
-        except ValueError:
-            parts = cfg.compiler_command.split()
-        if parts and parts[0] in {"wine", "wibo"}:
-            runner = parts[0]
-    if runner.lower() in {"wine", "wibo"}:
+    if not runner and parts and parts[0] in {"wine", "wibo"}:
+        runner = parts[0]
+    if runner and runner.lower() in {"wine", "wibo"}:
         env["WINEDEBUG"] = "-all"
     if runner:
         env["REBREW_COMPILER_RUNNER"] = runner
-
-    # Derive bin_dir from the compiler command path.
-    # e.g. "wine tools/MSVC600/VC98/Bin/CL.EXE" → "tools/MSVC600/VC98/Bin"
-    try:
-        parts = shlex.split(cfg.compiler_command)
-    except ValueError:
-        parts = cfg.compiler_command.split()
     # Skip the runner prefix (wine/wibo) to find the CL.EXE path
     cl_parts = [p for p in parts if p.lower() not in {"wine", "wibo"}]
     if cl_parts:

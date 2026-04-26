@@ -42,18 +42,20 @@ All functions read from ``cfg`` (a ``ProjectConfig`` instance):
 
 import contextlib
 import re
-import shlex
 import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
+
 from rebrew.cli import NEAR_MATCH_THRESHOLD
 from rebrew.compile_cache import CompileCache, compile_cache_key, get_compile_cache
 from rebrew.config import ProjectConfig
 from rebrew.core import msvc_env_from_config, smart_reloc_compare
 from rebrew.matcher.parsers import parse_obj_symbol_bytes
+from rebrew.utils import safe_shlex_split
 
 # ---------------------------------------------------------------------------
 # Shared result type
@@ -172,9 +174,10 @@ def classify_compare_result(
     if target_bytes and obj_bytes:
         min_len = min(len(target_bytes), len(obj_bytes))
         max_len = max(len(target_bytes), len(obj_bytes))
-        mismatches = sum(1 for i in range(min_len) if target_bytes[i] != obj_bytes[i])
-        if max_len > 0:
-            match_percent = ((min_len - mismatches) / max_len) * 100
+        t_arr = np.frombuffer(target_bytes[:min_len], dtype=np.uint8)
+        o_arr = np.frombuffer(obj_bytes[:min_len], dtype=np.uint8)
+        mismatches = int(np.count_nonzero(t_arr != o_arr))
+        match_percent = ((min_len - mismatches) / max_len) * 100
         delta = abs(len(target_bytes) - len(obj_bytes)) + mismatches
 
     status = "STUB"
@@ -191,14 +194,6 @@ def classify_compare_result(
         message=msg,
         inv_reloc_offsets=inv,
     )
-
-
-def _safe_shlex_split(s: str) -> list[str]:
-    """Split a shell command string, falling back to whitespace split on parse errors."""
-    try:
-        return shlex.split(s)
-    except ValueError:
-        return s.split()
 
 
 # ---------------------------------------------------------------------------
@@ -241,7 +236,7 @@ def resolve_cl_command(cfg: ProjectConfig) -> list[str]:
         List of command parts, e.g. ``["wine", "/abs/path/CL.EXE"]``.
 
     """
-    cmd_parts = _safe_shlex_split(cfg.compiler_command)
+    cmd_parts = safe_shlex_split(cfg.compiler_command)
 
     runner = str(getattr(cfg, "compiler_runner", "")).strip()
     if runner and cmd_parts and cmd_parts[0].lower() == runner.lower() and len(cmd_parts) > 1:
@@ -274,7 +269,7 @@ def resolve_compiler_env(
         may be None if the cache database cannot be opened.
 
     """
-    cl_parts = _safe_shlex_split(cfg.compiler_command)
+    cl_parts = safe_shlex_split(cfg.compiler_command)
     cl_res: list[str] = []
     for part in cl_parts:
         p = cfg.root / part
@@ -300,6 +295,34 @@ def resolve_compiler_env(
 # ---------------------------------------------------------------------------
 # Object file compilation
 # ---------------------------------------------------------------------------
+
+
+def _resolve_include_flags(flags: list[str], src_parent: Path, cfg_root: Path) -> list[str]:
+    """Resolve relative /I include paths against src_parent then cfg_root.
+
+    The source file is copied into a Wine-compatible workdir, so relative /I
+    paths must be made absolute before passing to the compiler.
+    """
+    resolved: list[str] = []
+    for flag in flags:
+        if flag.startswith(("/I", "-I")):
+            prefix = flag[:2]
+            inc_dir = flag[2:].strip('"').strip("'")
+            p = Path(inc_dir)
+            if not p.is_absolute():
+                from_src = (src_parent / p).resolve()
+                from_root = (cfg_root / p).resolve()
+                if from_src.is_dir():
+                    resolved.append(f"{prefix}{from_src}")
+                elif from_root.is_dir():
+                    resolved.append(f"{prefix}{from_root}")
+                else:
+                    resolved.append(flag)
+            else:
+                resolved.append(flag)
+        else:
+            resolved.append(flag)
+    return resolved
 
 
 def compile_to_obj(
@@ -356,7 +379,7 @@ def compile_to_obj(
     # Prepend base_cflags from config (e.g. /nologo /c /MT).
     # This ensures every compile invocation has consistent core flags
     # without requiring callers to remember them.
-    base_flags = _safe_shlex_split(cfg.base_cflags)
+    base_flags = safe_shlex_split(cfg.base_cflags)
     use_timeout = cfg.compile_timeout
 
     # Resolve relative /I paths in BOTH base_cflags and user cflags.
@@ -365,30 +388,8 @@ def compile_to_obj(
     # directory.  Try the source file's parent first, then the project root.
     src_parent = source_path.resolve().parent
 
-    def _resolve_inc_flags(flags: list[str]) -> list[str]:
-        resolved: list[str] = []
-        for flag in flags:
-            if flag.startswith(("/I", "-I")):
-                prefix = flag[:2]
-                inc_dir = flag[2:].strip('"').strip("'")
-                p = Path(inc_dir)
-                if not p.is_absolute():
-                    from_src = (src_parent / p).resolve()
-                    from_root = (cfg.root / p).resolve()
-                    if from_src.is_dir():
-                        resolved.append(f"{prefix}{from_src}")
-                    elif from_root.is_dir():
-                        resolved.append(f"{prefix}{from_root}")
-                    else:
-                        resolved.append(flag)
-                else:
-                    resolved.append(flag)
-            else:
-                resolved.append(flag)
-        return resolved
-
-    base_flags = _resolve_inc_flags(base_flags)
-    resolved_cflags = _resolve_inc_flags(cflags)
+    base_flags = _resolve_include_flags(base_flags, src_parent, cfg.root)
+    resolved_cflags = _resolve_include_flags(cflags, src_parent, cfg.root)
 
     # --- Compile cache lookup ---
     cc = cache
@@ -500,7 +501,7 @@ def compile_and_compare(
         :class:`CompareResult` with status, metrics, and byte data.
 
     """
-    cflags_list = _safe_shlex_split(cflags) if isinstance(cflags, str) else list(cflags)
+    cflags_list = safe_shlex_split(cflags) if isinstance(cflags, str) else list(cflags)
 
     try:
         with tempfile.TemporaryDirectory(prefix="rebrew_cmp_") as workdir:
@@ -533,7 +534,7 @@ def compile_and_compare(
                     f"SIZE_MISMATCH: Size {len(obj_bytes)}B vs {len(target_bytes)}B",
                     target_bytes,
                     obj_bytes,
-                    reloc_offsets,
+                    list(reloc_offsets.keys()) if reloc_offsets else None,
                 )
 
             matched, _match_count, _total, relocs, inv_relocs = smart_reloc_compare(

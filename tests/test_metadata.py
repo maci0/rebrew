@@ -5,11 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from rebrew.metadata import (
     METADATA_FILENAME,
     _delete_field,
-    _parse_key,
-    _qualified_key,
     _set_field,
     get_entry,
     is_metadata_key,
@@ -20,6 +20,8 @@ from rebrew.metadata import (
     save_metadata,
     update_field,
 )
+from rebrew.utils import parse_metadata_key as _parse_key
+from rebrew.utils import qualified_key as _qualified_key
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -52,11 +54,10 @@ def _make_annotation(**kwargs: object) -> SimpleNamespace:
 
 
 class TestMetadataPath:
-    def test_from_file(self, tmp_path: Path) -> None:
-        assert metadata_path(tmp_path) == tmp_path / METADATA_FILENAME
-
-    def test_from_directory(self, tmp_path: Path) -> None:
-        assert metadata_path(tmp_path) == tmp_path / METADATA_FILENAME
+    def test_returns_toml_in_directory(self, tmp_path: Path) -> None:
+        result = metadata_path(tmp_path)
+        assert result == tmp_path / METADATA_FILENAME
+        assert result.name == METADATA_FILENAME
 
 
 # ---------------------------------------------------------------------------
@@ -282,8 +283,6 @@ class TestUpdateField:
         assert entry["blocker"] == "1B diff"
 
     def test_status_blocked_via_update_field(self, tmp_path: Path) -> None:
-        import pytest
-
         with pytest.raises(ValueError, match="update_source_status"):
             update_field(tmp_path, 0x01006364, "status", "EXACT", module="SERVER")
 
@@ -299,8 +298,6 @@ class TestRemoveField:
         assert "blocker" not in entry
 
     def test_status_blocked_via_remove_field(self, tmp_path: Path) -> None:
-        import pytest
-
         with pytest.raises(ValueError, match="Cannot delete STATUS"):
             remove_field(tmp_path, 0x01006364, "status", module="SERVER")
 
