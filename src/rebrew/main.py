@@ -14,9 +14,13 @@ import logging
 from collections.abc import Callable
 
 import typer
+from rich.console import Console
 
 from rebrew import cli
 from rebrew.cli import EXIT_ERROR
+
+console = Console(stderr=True)
+_stdout_console = Console()
 
 app = typer.Typer(
     help="Compiler-in-the-loop decompilation workbench for binary-matching reversing.",
@@ -58,7 +62,7 @@ def _version_callback(value: bool) -> None:
     if value:
         from importlib.metadata import version
 
-        typer.echo(f"rebrew {version('rebrew')}")
+        _stdout_console.print(f"rebrew {version('rebrew')}")
         raise typer.Exit()
 
 
@@ -142,7 +146,6 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("skeleton", "rebrew.skeleton", "Generate skeleton C files for matching."),
     ("sync", "rebrew.ghidra.cli", "Sync annotations between decomp C files and Ghidra."),
     ("lint", "rebrew.lint", "Lint C annotations."),
-    ("extract", "rebrew.extract", "Extract and disassemble functions from binary."),
     ("match", "rebrew.match", "GA matching engine — single file or batch (--all)."),
     ("diff", "rebrew.diff", "Compile and diff a reversed function against the target binary."),
     ("asm", "rebrew.asm", "Disassemble a function (hex dump or NASM source)."),
@@ -167,14 +170,19 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "rebrew.binsync_export",
         "Export annotations to an experimental BinSync state directory.",
     ),
+    (
+        "catalog",
+        "rebrew.catalog",
+        "Build coverage catalog, data JSON, CSV/Ghidra exports, and DB.",
+    ),
 ]
 
 # Multi-command modules – registered as groups via app.add_typer().
 # Only modules with multiple @app.command() subcommands belong here.
 _MULTI_COMMANDS: list[tuple[str, str, str]] = [
+    ("extract", "rebrew.extract", "Extract and disassemble functions from binary."),
     ("cfg", "rebrew.cfg", "Read and edit rebrew-project.toml programmatically."),
     ("cache", "rebrew.cache_cli", "Manage the compile result cache."),
-    ("catalog", "rebrew.catalog", "Build coverage catalog, data JSON, CSV/Ghidra exports, and DB."),
 ]
 
 
@@ -182,7 +190,7 @@ def _make_stub_cmd(mod_name: str, err: Exception) -> Callable[[], None]:
     """Create a stub command function that reports a missing dependency."""
 
     def _stub() -> None:
-        typer.echo(f"Error: could not load '{mod_name}': {err}", err=True)
+        console.print(f"[red]Error:[/red] could not load '{mod_name}': {err}")
         raise typer.Exit(code=EXIT_ERROR)
 
     return _stub
@@ -194,7 +202,7 @@ def _make_stub_app(mod_name: str, err: Exception) -> typer.Typer:
 
     @stub.callback(invoke_without_command=True)
     def _stub_main() -> None:
-        typer.echo(f"Error: could not load '{mod_name}': {err}", err=True)
+        console.print(f"[red]Error:[/red] could not load '{mod_name}': {err}")
         raise typer.Exit(code=EXIT_ERROR)
 
     return stub

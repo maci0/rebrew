@@ -285,13 +285,13 @@ def main(
     mismatches_only: bool = typer.Option(
         False,
         "--mismatches-only",
-        "--mm",
+        "-m",
         help="Show only structural diff (**) lines",
     ),
     register_aware: bool = typer.Option(
         False,
         "--register-aware",
-        "--rr",
+        "-r",
         help="Normalize register encodings and mark differences as RR",
     ),
     fix_blocker: bool = typer.Option(

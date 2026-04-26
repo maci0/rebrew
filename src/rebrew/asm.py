@@ -192,11 +192,6 @@ def _run_hex_mode(
 # ---------------------------------------------------------------------------
 
 
-def extract_from_bin(bin_path: Path) -> bytes:
-    """Load raw bytes from a binary blob file."""
-    return bin_path.read_bytes()
-
-
 def _get_capstone_x86() -> tuple[int, int, int, Any]:
     """Import capstone x86 constants/classes lazily."""
     try:
@@ -374,12 +369,7 @@ def generate_inline_c(
         lines.append("    __asm__(")
         for line in nasm_src.splitlines():
             line = line.strip()
-            if (
-                not line
-                or line.startswith("bits 32")
-                or line.startswith("org")
-                or line.endswith(":")
-            ):
+            if not line or line.startswith(("bits 32", "org")) or line.endswith(":"):
                 continue
             lines.append(f'        "{line}\\n"')
         lines.append("    );")
@@ -387,12 +377,7 @@ def generate_inline_c(
         lines.append("    __asm {")
         for line in nasm_src.splitlines():
             line = line.strip()
-            if (
-                not line
-                or line.startswith("bits 32")
-                or line.startswith("org")
-                or line.endswith(":")
-            ):
+            if not line or line.startswith(("bits 32", "org")) or line.endswith(":"):
                 continue
             if ";" in line:
                 line = line.split(";", 1)[0].strip()
@@ -545,11 +530,10 @@ def batch_extract_nasm(
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
     "  rebrew asm 0x10003ca0 --size 77 · · · · · · · · · · · Disassemble (hex format, default)\n\n"
-    "  rebrew asm --va 0x10003ca0 --size 77 · · · · · · · · · Using named option\n\n"
     "  rebrew asm 0x10003ca0 --no-annotate · · · · · · · · · Skip call/jmp name annotations\n\n"
-    "  rebrew asm --va 0x10003ca0 --size 77 --format nasm · · NASM output\n\n"
-    "  rebrew asm --va 0x10003ca0 --size 77 --format nasm --verify  Verify round-trip\n\n"
-    "  rebrew asm --va 0x10003ca0 --size 77 --format nasm --inline-c -o f.c  Inline C\n\n"
+    "  rebrew asm 0x10003ca0 --size 77 --format nasm · · NASM output\n\n"
+    "  rebrew asm 0x10003ca0 --size 77 --format nasm --verify  Verify round-trip\n\n"
+    "  rebrew asm 0x10003ca0 --size 77 --format nasm --inline-c -o f.c  Inline C\n\n"
     "  rebrew asm --all --out-dir output/asm/ --format nasm · · Batch NASM extract\n\n"
     "  rebrew asm 0x10003ca0 --size 77 --json · · · · · · · · JSON output\n\n"
     "[bold]Formats:[/bold]\n\n"
@@ -567,10 +551,7 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    va_hex: str | None = typer.Argument(None, help="Function VA in hex"),
-    va: str | None = typer.Option(
-        None, "--va", help="Function VA in hex (alternative to positional argument, for scripting)"
-    ),
+    va: str | None = typer.Argument(None, help="Function VA in hex"),
     size: int | None = typer.Option(None, "--size", help="Function size in bytes"),
     fmt: str = typer.Option("hex", "--format", "-f", help="Output format: hex, nasm"),
     annotate: bool = typer.Option(
@@ -614,25 +595,23 @@ def main(
         return
 
     # --- Resolve VA ---
-    va_str = va or va_hex
+    va_str = va
     if not va_str and not bin_file:
-        error_exit(
-            "Specify VA as a positional argument, --va HEX, or --bin FILE", json_mode=json_output
-        )
+        error_exit("Specify VA as a positional argument or --bin FILE", json_mode=json_output)
 
     effective_size = size or 32
 
     # --- hex format ---
     if fmt == "hex":
         if not va_str:
-            error_exit("--format hex requires a VA (positional or --va)", json_mode=json_output)
+            error_exit("--format hex requires a VA as a positional argument", json_mode=json_output)
         va_int = parse_va(va_str, json_mode=json_output)
         _run_hex_mode(va_int, effective_size, cfg, annotate, json_output)
         return
 
     # --- nasm format ---
     if bin_file:
-        code = extract_from_bin(bin_file)
+        code = bin_file.read_bytes()
         computed_base_va = parse_va(base_va, json_mode=json_output)
         computed_label = label or bin_file.stem
     elif va_str and effective_size:
@@ -646,9 +625,7 @@ def main(
         computed_base_va = computed_va
         computed_label = label or f"func_{computed_va:08X}"
     else:
-        error_exit(
-            "Specify --va HEX --size N or --bin FILE for --format nasm", json_mode=json_output
-        )
+        error_exit("Specify VA HEX --size N or --bin FILE for --format nasm", json_mode=json_output)
 
     try:
         nasm_src, run_stats = disassemble_to_nasm(code, computed_base_va, computed_label)

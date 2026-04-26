@@ -33,9 +33,8 @@ console = Console(stderr=True)
 
 
 def extract_bytes(binary_info: BinaryInfo, va: int, size: int) -> bytes:
-    """Extract raw bytes from binary at given VA."""
-    data = extract_bytes_at_va(binary_info, va, size)
-    return data if data is not None else b""
+    """Extract raw bytes from binary at given VA, returning empty bytes on failure."""
+    return extract_bytes_at_va(binary_info, va, size) or b""
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +114,7 @@ def cmd_extract(
     """Extract and disassemble a single function."""
     for va, size, name in candidates:
         if va == target_va:
-            code = extract_bytes(binary_info, va, size)
+            code = extract_bytes_at_va(binary_info, va, size) or b""
             if code == b"":
                 msg = f"Failed to extract bytes at VA 0x{va:08X}"
                 if json_output:
@@ -180,7 +179,7 @@ def cmd_batch(
     batch = candidates[start : start + count]
     items: list[dict[str, str | int]] = []
     for va, size, name in batch:
-        code = extract_bytes(binary_info, va, size)
+        code = extract_bytes_at_va(binary_info, va, size) or b""
         if code == b"":
             if json_output:
                 items.append(
@@ -249,9 +248,51 @@ def cmd_batch(
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Main Setup
 # ---------------------------------------------------------------------------
 
+
+def _setup_candidates(
+    target: str | None,
+    json_output: bool,
+    exe: Path | None,
+    min_size: int,
+    max_size: int,
+) -> tuple[ProjectConfig, list[tuple[int, int, str]], Path]:
+    cfg = require_config(target=target, json_mode=json_output)
+
+    exe_path = exe or cfg.target_binary
+    src_dir = cfg.reversed_dir
+
+    try:
+        funcs = load_functions(cfg)
+    except FileNotFoundError as exc:
+        error_exit(str(exc), json_mode=json_output)
+
+    reversed_vas = detect_reversed_vas(src_dir, cfg=cfg)
+    if not json_output:
+        console.print(f"Found {len(reversed_vas)} already-reversed functions")
+
+    candidates: list[tuple[int, int, str]] = []
+    for fn in funcs:
+        va = int(fn["va"])
+        size = int(fn["size"])
+        name = str(fn["name"])
+
+        if va in reversed_vas:
+            continue
+        if size < min_size or size > max_size:
+            continue
+
+        candidates.append((va, size, name))
+
+    candidates.sort(key=lambda x: x[1])  # Sort by size
+    return cfg, candidates, exe_path
+
+
+# ---------------------------------------------------------------------------
+# CLI Application
+# ---------------------------------------------------------------------------
 
 app = typer.Typer(
     help="Extract and disassemble functions from the target binary.",
@@ -268,96 +309,62 @@ app = typer.Typer(
 )
 
 
-@app.callback(invoke_without_command=True)
-def main(
-    command: str = typer.Argument(help="Command: list, show (or extract), or batch"),
-    batch_target: str | None = typer.Argument(
-        None, help="VA (hex) for extract, or count for batch"
-    ),
+@app.callback()
+def main() -> None:
+    """Extract and disassemble functions from the target binary."""
+
+
+@app.command("list")
+def list_candidates(
     exe: Path | None = typer.Option(None, "--exe", help="Path to DLL/EXE (default: from config)"),
-    start: int = typer.Option(0, "--start", help="Start offset for batch mode"),
     min_size: int = typer.Option(8, "--min-size", help="Minimum function size"),
     max_size: int = typer.Option(50000, "--max-size", help="Maximum function size"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """List and extract unreversed function candidates from configured binary metadata.
+    """List un-reversed candidates."""
+    cfg, candidates, exe_path = _setup_candidates(target, json_output, exe, min_size, max_size)
+    if json_output:
+        items = [{"va": f"0x{va:08x}", "size": sz, "name": nm} for va, sz, nm in candidates]
+        json_print({"count": len(candidates), "candidates": items})
+        return
+    cmd_list(candidates)
 
-    This command reads the configured function list, removes already-reversed VAs
-    discovered from source annotations, and then performs one of three actions:
-    ``list`` candidates, ``extract`` a single VA, or ``batch`` extract a range.
 
-    ``--json`` is supported for all commands and emits structured payloads suitable
-    for automation consumers.
+@app.command("show")
+def show_candidate(
+    va: str = typer.Argument(..., help="VA (hex) to extract and disassemble"),
+    exe: Path | None = typer.Option(None, "--exe", help="Path to DLL/EXE (default: from config)"),
+    min_size: int = typer.Option(8, "--min-size", help="Minimum function size"),
+    max_size: int = typer.Option(50000, "--max-size", help="Maximum function size"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Extract and disassemble a single VA."""
+    cfg, candidates, exe_path = _setup_candidates(target, json_output, exe, min_size, max_size)
+    binary_info = load_binary(exe_path)
+    target_va = parse_va(va, json_mode=json_output)
+    cmd_extract(binary_info, candidates, target_va, cfg.bin_dir, cfg=cfg, json_output=json_output)
 
-    Args:
-        command: One of ``list``, ``extract`` (alias ``show``), or ``batch``.
-        batch_target: VA (hex) for ``extract`` or count for ``batch``.
-        exe: Optional binary path override.
-        start: Start offset into sorted candidates for batch mode.
-        min_size: Minimum function size to include.
-        max_size: Maximum function size to include.
-        json_output: Emit machine-readable JSON output.
-        target: Optional target profile from ``rebrew-project.toml``.
 
-    """
-    cfg = require_config(target=target, json_mode=json_output)
+@app.command("batch")
+def batch_candidates(
+    count: int = typer.Argument(20, help="Number of functions to extract"),
+    start: int = typer.Option(0, "--start", help="Start offset for batch mode"),
+    exe: Path | None = typer.Option(None, "--exe", help="Path to DLL/EXE (default: from config)"),
+    min_size: int = typer.Option(8, "--min-size", help="Minimum function size"),
+    max_size: int = typer.Option(50000, "--max-size", help="Maximum function size"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Extract and disassemble a batch of functions."""
+    cfg, candidates, exe_path = _setup_candidates(target, json_output, exe, min_size, max_size)
+    binary_info = load_binary(exe_path)
+    cmd_batch(binary_info, candidates, count, start, cfg.bin_dir, cfg=cfg, json_output=json_output)
 
-    exe_path = exe or cfg.target_binary
-    src_dir = cfg.reversed_dir
-    bin_dir = cfg.bin_dir
 
-    # Load functions
-    try:
-        funcs = load_functions(cfg)
-    except FileNotFoundError as exc:
-        error_exit(str(exc), json_mode=json_output)
-
-    # Auto-detect already-reversed VAs
-    reversed_vas = detect_reversed_vas(src_dir, cfg=cfg)
-    if not json_output:
-        console.print(f"Found {len(reversed_vas)} already-reversed functions")
-
-    # Filter and type-cast candidates
-    candidates: list[tuple[int, int, str]] = []
-    for fn in funcs:
-        va = int(fn["va"])
-        size = int(fn["size"])
-        name = str(fn["name"])
-
-        if va in reversed_vas:
-            continue
-        if size < min_size or size > max_size:
-            continue
-
-        candidates.append((va, size, name))
-
-    candidates.sort(key=lambda x: x[1])  # Sort by size
-
-    if command == "list":
-        if json_output:
-            items = [{"va": f"0x{va:08x}", "size": sz, "name": nm} for va, sz, nm in candidates]
-            json_print({"count": len(candidates), "candidates": items})
-            return
-        cmd_list(candidates)
-    elif command in ("extract", "show"):
-        if not batch_target:
-            msg = "extract requires a VA argument (e.g. 0x10001860)"
-            error_exit(msg, json_mode=json_output)
-        binary_info = load_binary(exe_path)
-        target_va = parse_va(batch_target, json_mode=json_output)
-        cmd_extract(binary_info, candidates, target_va, bin_dir, cfg=cfg, json_output=json_output)
-    elif command == "batch":
-        try:
-            count = int(batch_target) if batch_target else 20
-        except ValueError:
-            msg = f"Invalid count '{batch_target}'"
-            error_exit(msg, json_mode=json_output)
-        binary_info = load_binary(exe_path)
-        cmd_batch(binary_info, candidates, count, start, bin_dir, cfg=cfg, json_output=json_output)
-    else:
-        msg = f"Unknown command '{command}'. Use list, show (or extract), or batch."
-        error_exit(msg, json_mode=json_output)
+# Add extract as an alias to show
+app.command("extract", hidden=True)(show_candidate)
 
 
 def main_entry() -> None:

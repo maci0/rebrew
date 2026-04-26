@@ -16,6 +16,8 @@ Batch usage (``rebrew match --all``)::
     rebrew match --all --dry-run             List targets without running
 """
 
+from __future__ import annotations
+
 import hashlib
 import logging
 import random
@@ -298,6 +300,8 @@ class BinaryMatchingGA:
                     )
 
             scored_pop.sort(key=lambda x: x[0])
+            if not scored_pop:
+                continue
             best_score, best_src = scored_pop[0]
             diversity = compute_population_diversity(self.population)
 
@@ -349,6 +353,16 @@ class BinaryMatchingGA:
             self.population = next_pop
 
         return self.best_source, self.best_score
+
+    def close(self) -> None:
+        """Close the build cache (releases SQLite connection)."""
+        self.cache.close()
+
+    def __enter__(self) -> BinaryMatchingGA:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
 
 
 # ---------------------------------------------------------------------------
@@ -465,8 +479,8 @@ def parse_matching_all(filepath: Path, ignored: set[str] | None = None) -> list[
 def _collect_with_dedup(
     reversed_dir: Path,
     cfg: ProjectConfig | None,
-    parser_fn: "Callable[[Path], list[StubInfo]]",
-    sort_key: "Callable[[StubInfo], Any]",
+    parser_fn: Callable[[Path], list[StubInfo]],
+    sort_key: Callable[[StubInfo], Any],
     warn_duplicates: bool = True,
 ) -> list[StubInfo]:
     """Collect StubInfo entries from source files, deduplicating by VA."""
@@ -703,10 +717,10 @@ def main(
         rich_help_panel="Single-Function",
     ),
     target_va: str | None = typer.Option(
-        None, help="Target VA hex (auto from source)", rich_help_panel="Single-Function"
+        None, "--va", help="Target VA hex (auto from source)", rich_help_panel="Single-Function"
     ),
     target_size: int | None = typer.Option(
-        None, help="Target size (auto from source)", rich_help_panel="Single-Function"
+        None, "--size", help="Target size (auto from source)", rich_help_panel="Single-Function"
     ),
     out_dir: str = typer.Option(
         "output/ga_run", help="Output dir", rich_help_panel="Single-Function"
@@ -731,7 +745,7 @@ def main(
     ),
     tier: str = typer.Option(
         "targeted",
-        help="Flag sweep tier: targeted (common flags) or exhaustive (all combos)",
+        help="Flag sweep tier: quick, targeted, normal, thorough, or full",
         rich_help_panel="Single-Function",
     ),
     ignore_lint: bool = typer.Option(
@@ -757,15 +771,15 @@ def main(
     ),
     # GA tuning (shared single/batch)
     generations: int = typer.Option(
-        100, "-g", "--generations", help="Number of GA generations", rich_help_panel="GA Tuning"
+        100, "--generations", "-g", help="Number of GA generations", rich_help_panel="GA Tuning"
     ),
     pop_size: int = typer.Option(
-        64, "-p", "--pop-size", help="Population size per generation", rich_help_panel="GA Tuning"
+        64, "--pop-size", "-p", help="Population size per generation", rich_help_panel="GA Tuning"
     ),
     jobs: int | None = typer.Option(
         None,
-        "-j",
         "--jobs",
+        "-j",
         help="Parallel jobs (default: from config)",
         rich_help_panel="GA Tuning",
     ),
@@ -844,7 +858,7 @@ def main(
     ),
     seed_from_solved: bool = typer.Option(
         True,
-        "--seed-from-solved/--no-solved",
+        "--seed-from-solved/--no-seed-from-solved",
         help="Seed GA population from similar solved functions",
         rich_help_panel="Batch Mode",
     ),
@@ -951,7 +965,7 @@ class _BuildParams:
         link: str | None,
         lib: str | None,
         ldflags: str | None,
-    ) -> "_BuildParams":
+    ) -> _BuildParams:
         """Create parameters from a STUB function using the source file metadata."""
         from rebrew.metadata import get_entry
 
@@ -1318,7 +1332,10 @@ def _run_single_ga(
         extra_seeds=loaded_seeds or None,
         collect_pairs_path=Path(collect_pairs) if collect_pairs else None,
     )
-    best_src, best_score = ga.run()
+    try:
+        best_src, best_score = ga.run()
+    finally:
+        ga.close()
 
     if collect_pairs and ga._pairs_count > 0:
         console.print(
@@ -1478,6 +1495,7 @@ def _run_one_stub_ga(
     except TimeoutError:
         return False, "TIMEOUT"
     finally:
+        ga.close()
         signal.alarm(0)
         signal.signal(signal.SIGALRM, old_handler)
 
