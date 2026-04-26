@@ -66,12 +66,30 @@ from typing import TYPE_CHECKING, Any
 
 import tomlkit
 
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, parse_metadata_key, qualified_key
 
 if TYPE_CHECKING:
     from rebrew.annotation import Annotation
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# In-memory cache for load_metadata() — avoids re-parsing the same TOML file
+# hundreds of times during batch operations (verify, status, merge).
+# Keyed by resolved Path; invalidated by mtime_ns change or explicit clear.
+# ---------------------------------------------------------------------------
+
+_metadata_cache: dict[Path, tuple[int, dict[tuple[str, int], dict[str, Any]]]] = {}
+
+
+def clear_metadata_cache() -> None:
+    """Clear the in-memory metadata cache.
+
+    Call between top-level CLI commands if running multiple in-process,
+    or after writing metadata to ensure subsequent reads see fresh data.
+    """
+    _metadata_cache.clear()
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -120,6 +138,7 @@ _TOML_TO_ATTR: dict[str, str] = {
 __all__ = [
     "METADATA_FILENAME",
     "METADATA_FIELDS",
+    "clear_metadata_cache",
     "is_metadata_key",
     "metadata_path",
     "load_metadata",
@@ -153,48 +172,6 @@ def metadata_path(directory: Path) -> Path:
     return directory / METADATA_FILENAME
 
 
-def _qualified_key(module: str | None, va: int) -> str:
-    """Return the canonical TOML key for *(module, va)*.
-
-    Examples::
-
-        >>> _qualified_key("SERVER", 0x01006364)
-        'SERVER.0x01006364'
-        >>> _qualified_key(None, 0x01006364)  # legacy / unknown module
-        '0x01006364'
-
-    """
-    va_hex = f"0x{va:08x}"
-    if module:
-        return f"{module}.{va_hex}"
-    return va_hex
-
-
-def _parse_key(key: str) -> tuple[str, int] | None:
-    """Parse a metadata TOML key into ``(module, va_int)``.
-
-    Only accepts the qualified ``MODULE.0xVA`` form.  Returns ``None`` for
-    unrecognised keys.
-
-    Examples::
-
-        >>> _parse_key("SERVER.0x01006364")
-        ('SERVER', 16803684)
-        >>> _parse_key("not_a_key") is None
-        True
-
-    """
-    if ".0x" in key:
-        dot = key.index(".0x")
-        module = key[:dot]
-        hex_part = key[dot + 1 :]  # includes leading 0x
-        try:
-            return module, int(hex_part, 16)
-        except ValueError:
-            return None
-    return None
-
-
 # ---------------------------------------------------------------------------
 # Load / Save
 # ---------------------------------------------------------------------------
@@ -209,6 +186,9 @@ def load_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]:
     Returns a mapping of ``{(module, va_int): {field_name: value}}``.
     Returns an empty dict if no metadata file is found or it cannot be parsed.
 
+    Results are cached in-memory keyed by resolved path and file mtime.
+    Call :func:`clear_metadata_cache` to force a re-read.
+
     Args:
         directory: The metadata root directory (``cfg.metadata_dir``).
 
@@ -216,6 +196,16 @@ def load_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]:
     path = directory / METADATA_FILENAME
     if not path.exists():
         return {}
+
+    # Fast mtime-based cache check — avoids re-parsing the same TOML file
+    # hundreds of times during batch operations (verify, status, match --all).
+    try:
+        current_mtime = path.stat().st_mtime_ns
+    except OSError:
+        current_mtime = 0
+    cached = _metadata_cache.get(path)
+    if cached is not None and cached[0] == current_mtime:
+        return cached[1]
 
     try:
         doc = tomlkit.parse(path.read_text(encoding="utf-8"))
@@ -225,13 +215,14 @@ def load_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]:
 
     result: dict[tuple[str, int], dict[str, Any]] = {}
     for key, value in doc.items():
-        parsed = _parse_key(key)
+        parsed = parse_metadata_key(key)
         if parsed is None:
             continue
         module, va_int = parsed
         if isinstance(value, dict):
             result[(module, va_int)] = dict(value)
 
+    _metadata_cache[path] = (current_mtime, result)
     return result
 
 
@@ -254,7 +245,7 @@ def save_metadata(
         entry = data[(module, va_int)]
         if not entry:
             continue
-        toml_key = _qualified_key(module, va_int)
+        toml_key = qualified_key(module, va_int)
         tbl = tomlkit.table()
         canonical_order = [
             "size",
@@ -280,6 +271,7 @@ def save_metadata(
         doc[toml_key] = tbl
 
     atomic_write_text(path, tomlkit.dumps(doc))
+    _metadata_cache.pop(path, None)
 
 
 # ---------------------------------------------------------------------------
@@ -309,7 +301,7 @@ def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> N
     Uses in-place ``tomlkit`` editing to preserve formatting and comments.
     """
     path = directory / METADATA_FILENAME
-    toml_key = _qualified_key(module, va)
+    toml_key = qualified_key(module, va)
 
     if path.exists():
         try:
@@ -325,6 +317,7 @@ def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> N
 
     doc[toml_key][key] = value  # type: ignore[index]
     atomic_write_text(path, tomlkit.dumps(doc))
+    _metadata_cache.pop(path, None)
 
 
 def _delete_field(directory: Path, va: int, key: str, module: str) -> bool:
@@ -337,7 +330,7 @@ def _delete_field(directory: Path, va: int, key: str, module: str) -> bool:
     path = directory / METADATA_FILENAME
     if not path.exists():
         return False
-    toml_key = _qualified_key(module, va)
+    toml_key = qualified_key(module, va)
 
     try:
         doc = tomlkit.parse(path.read_text(encoding="utf-8"))
@@ -353,6 +346,7 @@ def _delete_field(directory: Path, va: int, key: str, module: str) -> bool:
     if key in entry:
         del entry[key]
         atomic_write_text(path, tomlkit.dumps(doc))
+        _metadata_cache.pop(path, None)
         return True
     return False
 
@@ -467,7 +461,7 @@ def update_source_status(
         return
 
     path = metadata_dir / METADATA_FILENAME
-    toml_key = _qualified_key(module, va)
+    toml_key = qualified_key(module, va)
 
     # Single read
     if path.exists():
@@ -508,6 +502,7 @@ def update_source_status(
 
     # Single write
     atomic_write_text(path, tomlkit.dumps(doc))
+    _metadata_cache.pop(path, None)
 
 
 # ---------------------------------------------------------------------------
