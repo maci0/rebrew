@@ -25,6 +25,23 @@ _MUTATION_ATTEMPTS = 10
 _RE_RET_FALSE_LABEL_NL = re.compile(r"^[ \t]*ret_false:[ \t]*\n", flags=re.MULTILINE)
 _RE_RET_FALSE_LABEL = re.compile(r"^[ \t]*ret_false:[ \t]*", flags=re.MULTILINE)
 
+# Pre-compiled regex for mut_return_to_goto (GA hot path).
+_RE_FINAL_RET = re.compile(
+    r"(\s+return[^;]+;[ \t]*\n[ \t]*\}(?:\s*|//.*)*)$(?![\s\S]*\})", re.MULTILINE
+)
+
+# Pre-compiled regex for mut_sink_return (GA hot path).
+_RE_SINK_RETURN = re.compile(rb"(\w+)\s*=\s*([^;]+);\s*\n\s*goto\s+end\s*;")
+
+# Pre-compiled regex for mut_guard_clause (GA hot path).
+_RE_GUARD_CLAUSE = re.compile(
+    rb"([ \t]*)if\s*\(([^)]+)\)\s*\{([^}]+)return\s+([^;]+);\s*\}\s*\n\s*\1return\s+([^;]+);"
+)
+
+# Pre-compiled regex for mut_pragma_optimize_remove (GA hot path).
+_RE_PRAGMA_OFF = re.compile(rb"#pragma optimize\([^)]+,\s*off\)\s*\n")
+_RE_PRAGMA_ON = re.compile(rb"\n#pragma optimize\([^)]+,\s*on\)")
+
 
 def _first_caps(capture_dict: dict[str, list[ts.Node]]) -> dict[str, ts.Node]:
     """Extract the first node from each capture group in a tree-sitter match."""
@@ -796,7 +813,7 @@ def _find_function_body_insert_pos(source: bytes, ref_byte: int) -> int | None:
             parent = node.parent
             if parent is not None and parent.type == "function_definition":
                 # Return position right after the opening brace
-                return node.start_byte + 1
+                return int(node.start_byte) + 1
         node = node.parent
     return None
 
@@ -954,9 +971,6 @@ def mut_return_to_goto(s: str, rng: random.Random) -> str | None:
 
     # Needs to add ret_false: before the last return statement
     # We will use regex for the fallback label injection for now since it operates on the whole block
-    _RE_FINAL_RET = re.compile(
-        r"(\s+return[^;]+;[ \t]*\n[ \t]*\}(?:\s*|//.*)*)$(?![\s\S]*\})", re.MULTILINE
-    )
     final_ret = _RE_FINAL_RET.search(result)
     if final_ret:
         pos = final_ret.start(1)
@@ -1937,7 +1951,7 @@ def mut_flatten_nested_if(s: str, rng: random.Random) -> str | None:
         caps = _first_caps(match[1])
         outer_body = caps["outer_body"]
         # Count named children that are actual statements (not just braces)
-        stmts = [c for c in outer_body.named_children]
+        stmts = list(outer_body.named_children)
         if len(stmts) == 1 and stmts[0].type == "if_statement":
             valid.append(caps)
 
@@ -2179,8 +2193,7 @@ def mut_sink_return(s: str, rng: random.Random) -> str | None:
         return None
 
     # Use regex since this is a multi-statement pattern
-    pat = re.compile(rb"(\w+)\s*=\s*([^;]+);\s*\n\s*goto\s+end\s*;")
-    all_m = list(pat.finditer(b_source))
+    all_m = list(_RE_SINK_RETURN.finditer(b_source))
     if not all_m:
         return None
 
@@ -2245,10 +2258,7 @@ def mut_guard_clause(s: str, rng: random.Random) -> str | None:
     """
     b_source = s.encode("utf-8")
     # Use regex for this complex multi-statement pattern
-    pat = re.compile(
-        rb"([ \t]*)if\s*\(([^)]+)\)\s*\{([^}]+)return\s+([^;]+);\s*\}\s*\n\s*\1return\s+([^;]+);"
-    )
-    all_m = list(pat.finditer(b_source))
+    all_m = list(_RE_GUARD_CLAUSE.finditer(b_source))
     if not all_m:
         return None
 
@@ -2496,12 +2506,7 @@ _QUERY_IF_STMT = ts.Query(_C_LANGUAGE, "(if_statement) @if_stmt")
 
 # --- Queries for new mutations ---
 
-_QUERY_SUBSCRIPT_EXPR = ts.Query(
-    _C_LANGUAGE,
-    """
-    (subscript_expression argument: (_) @arr index: (_) @idx) @expr
-""",
-)
+_QUERY_SUBSCRIPT_EXPR = _QUERY_ARRAY_INDEX
 
 _QUERY_BIN_COND_IF = ts.Query(
     _C_LANGUAGE,
@@ -2513,19 +2518,6 @@ _QUERY_BIN_COND_IF = ts.Query(
         consequence: (_) @body) @stmt
 """,
 )
-
-_QUERY_NESTED_IF_P3 = ts.Query(
-    _C_LANGUAGE,
-    """
-    (if_statement
-        condition: (parenthesized_expression) @cond1
-        consequence: (compound_statement
-            (if_statement
-                condition: (parenthesized_expression) @cond2
-                consequence: (_) @body) @inner_if) @outer_body) @stmt
-""",
-)
-
 
 _QUERY_WHILE_LOOP = ts.Query(
     _C_LANGUAGE,
@@ -3526,7 +3518,7 @@ def mut_wrap_in_else(s: str, rng: random.Random) -> str | None:
 
     valid_ifs = []
 
-    def contains_early_exit(node) -> bool:
+    def contains_early_exit(node: ts.Node) -> bool:
         if node.type in (
             "return_statement",
             "goto_statement",
@@ -3615,9 +3607,9 @@ def mut_switch_break_to_return(s: str, rng: random.Random) -> str | None:
         if not body or body.type != "compound_statement":
             continue
 
-        break_nodes = []
+        break_nodes: list[ts.Node] = []
 
-        def find_breaks(n, bn) -> None:
+        def find_breaks(n: ts.Node, bn: list[ts.Node]) -> None:
             if n.type == "break_statement":
                 bn.append(n)
             elif n.type not in (
@@ -5162,16 +5154,13 @@ def mut_pragma_optimize_remove(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
 
     # Find and remove #pragma optimize("...", off) lines
-    pragma_off_re = re.compile(rb"#pragma optimize\([^)]+,\s*off\)\s*\n")
-    pragma_on_re = re.compile(rb"\n#pragma optimize\([^)]+,\s*on\)")
-
-    m_off = pragma_off_re.search(b_source)
+    m_off = _RE_PRAGMA_OFF.search(b_source)
     if not m_off:
         return None
 
     result = b_source[: m_off.start()] + b_source[m_off.end() :]
 
-    m_on = pragma_on_re.search(result)
+    m_on = _RE_PRAGMA_ON.search(result)
     if m_on:
         result = result[: m_on.start()] + result[m_on.end() :]
 

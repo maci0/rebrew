@@ -30,6 +30,8 @@ from rebrew.annotation import (
 )
 from rebrew.cli import EXIT_MISMATCH, TargetOption, json_print
 from rebrew.config import ProjectConfig, load_config
+from rebrew.data_metadata import load_data_metadata
+from rebrew.metadata import load_metadata
 
 console = Console(stderr=True)
 
@@ -334,7 +336,12 @@ def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> No
             and not stripped.startswith("*")
         ):
             has_code = True
-        if "typedef struct" in stripped or "struct " in stripped:
+        if (
+            ("typedef struct" in stripped or "struct " in stripped)
+            and not stripped.startswith("//")
+            and not stripped.startswith("/*")
+            and not stripped.startswith("*")
+        ):
             if not has_struct:
                 first_struct_line = i
             has_struct = True
@@ -356,6 +363,8 @@ def lint_file(
     filepath: Path,
     cfg: ProjectConfig | None = None,
     seen_vas: dict[int, str] | None = None,
+    preloaded_metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
+    preloaded_data_metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
 ) -> LintResult:
     """Lint a single C file.
 
@@ -364,6 +373,8 @@ def lint_file(
         cfg: Optional ProjectConfig for config-aware checks.
         seen_vas: Optional dict mapping VA → filename for duplicate detection.
                   Will be mutated (VAs from this file are added).
+        preloaded_metadata: Pre-loaded metadata dict (avoids per-file I/O in batch).
+        preloaded_data_metadata: Pre-loaded data metadata dict (avoids per-file I/O in batch).
 
     """
     result = LintResult(filepath)
@@ -385,16 +396,18 @@ def lint_file(
         # Synthesise a minimal entry so the loop below can report E001.
         all_headers = [({}, {"has_new": False})]
 
-    # Load the per-directory metadata once so all marker blocks in this file can use it.
-    # Keys in the result: (module, va_int) -> {toml_field: value}
-    from rebrew.metadata import load_metadata as _load_metadata
-
-    _metadata_entries = _load_metadata(cfg.metadata_dir if cfg else filepath.parent)
-
-    # Also load the data metadata for DATA/GLOBAL markers.
-    from rebrew.data_metadata import load_data_metadata as _load_data_metadata
-
-    _data_metadata_entries = _load_data_metadata(cfg.metadata_dir if cfg else filepath.parent)
+    # Load per-directory metadata (keys: (module, va_int) -> {toml_field: value}).
+    # Accept pre-loaded dicts from callers that process many files in the same directory
+    # (avoids repeated I/O for the common batch-lint case).
+    _metadata_dir = cfg.metadata_dir if cfg else filepath.parent
+    _metadata_entries = (
+        preloaded_metadata if preloaded_metadata is not None else load_metadata(_metadata_dir)
+    )
+    _data_metadata_entries = (
+        preloaded_data_metadata
+        if preloaded_data_metadata is not None
+        else load_data_metadata(_metadata_dir)
+    )
 
     # TOML field name -> uppercase found_keys name mapping
     _METADATA_TO_FOUND: dict[str, str] = {
@@ -543,11 +556,11 @@ app = typer.Typer(
         "  rebrew lint --quiet · · · · · · · · Errors only, suppress warnings\n\n"
         "  rebrew lint --json · · · · · · · · · Machine-readable JSON output\n\n"
         "  rebrew lint --summary · · · · · · · Show status/origin breakdown table\n\n"
-        "  rebrew lint --files src/game/foo.c · Lint specific files only\n\n"
+        "  rebrew lint src/game/foo.c · · · · · Lint specific files only\n\n"
         "[bold]Error codes:[/bold]\n\n"
         "  E001   Missing FUNCTION/LIBRARY/STUB marker\n\n"
         "  E002   Invalid VA format or range\n\n"
-        "  E003   (removed — STATUS is metadata-only)\n\n"
+        "  E012   Module doesn't match configured marker\n\n"
         "  E013   Duplicate VA across files\n\n"
         "  W005   STUB without BLOCKER explanation\n\n"
         "  W016   DATA/GLOBAL missing SECTION metadata\n\n"
@@ -568,14 +581,16 @@ def main(
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Only show errors, suppress warnings"),
-    files: list[Path] = typer.Option(
-        None, "--files", help="Check specific files instead of all *.c"
+    files: list[Path] | None = typer.Argument(
+        None, help="Specific files to check (defaults to all *.c in project)"
     ),
     summary: bool = typer.Option(False, "--summary", help="Print status/origin breakdown"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Lint source marker standards in decomp C source files."""
+    # Intentionally use load_config (not require_config) — lint degrades
+    # gracefully when no config is present (e.g. linting standalone files).
     cfg = None
     try:
         cfg = load_config(target=target)
@@ -601,6 +616,13 @@ def main(
     # Cross-file duplicate VA tracking
     seen_vas: dict[int, str] = {}
 
+    # Pre-load metadata once for the whole batch (avoids per-file I/O).
+    _preloaded_metadata: dict[tuple[str, int], dict[str, Any]] | None = None
+    _preloaded_data_metadata: dict[tuple[str, int], dict[str, Any]] | None = None
+    if cfg:
+        _preloaded_metadata = load_metadata(cfg.metadata_dir)
+        _preloaded_data_metadata = load_data_metadata(cfg.metadata_dir)
+
     total = 0
     passed = 0
     error_count = 0
@@ -609,7 +631,13 @@ def main(
 
     for cfile in c_files:
         total += 1
-        result = lint_file(cfile, cfg=cfg, seen_vas=seen_vas)
+        result = lint_file(
+            cfile,
+            cfg=cfg,
+            seen_vas=seen_vas,
+            preloaded_metadata=_preloaded_metadata,
+            preloaded_data_metadata=_preloaded_data_metadata,
+        )
         all_results.append(result)
         if result.passed:
             passed += 1

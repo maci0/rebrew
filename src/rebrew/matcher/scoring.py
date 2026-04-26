@@ -39,7 +39,7 @@ def _get_cs(cs_arch: int, cs_mode: int, *, detail: bool = False) -> capstone.Cs:
 # point is a strong positive signal (calling convention, stack frame setup).
 _PROLOGUE_LEN = 20  # first N bytes weighted as prologue
 _PROLOGUE_WEIGHT = 3.0  # per-byte weight multiplier for prologue region
-_PROLOGUE_BONUS = -100.0  # score bonus when first 20 bytes match exactly
+_PROLOGUE_BONUS = -100.0  # score reduction (improvement) when first 20 bytes match exactly
 
 # Continuity bonus caps the reward for long matching mnemonic runs,
 # preventing a single long match from overwhelming all other signals.
@@ -67,11 +67,12 @@ def _normalize_with_reloc_offsets(
     if reloc_offsets is None:
         return code
     out = bytearray(code)
+    code_len = len(out)
     for ro in reloc_offsets:
-        for j in range(pointer_size):
-            idx = ro + j
-            if 0 <= idx < len(out):
-                out[idx] = 0
+        start = max(0, ro)
+        end = min(ro + pointer_size, code_len)
+        if start < end:
+            out[start:end] = b"\x00" * (end - start)
     return bytes(out)
 
 
@@ -227,10 +228,10 @@ def score_candidate(
         if min_len > 0:
             reloc_mask = np.zeros(min_len, dtype=bool)
             for ro in reloc_offsets:
-                for j in range(pointer_size):
-                    idx = ro + j
-                    if 0 <= idx < min_len:
-                        reloc_mask[idx] = True
+                start = max(0, ro)
+                end = min(ro + pointer_size, min_len)
+                if start < end:
+                    reloc_mask[start:end] = True
             reloc_score = float(np.count_nonzero(diff_mask & ~reloc_mask))
     else:
         # Fallback to heuristic normalization — reuse pre-computed target if available

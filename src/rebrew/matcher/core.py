@@ -4,6 +4,8 @@ Defines Score, BuildResult, BuildCache (disk-backed), and GACheckpoint
 for persisting GA state across runs.
 """
 
+from __future__ import annotations
+
 import dataclasses
 import hashlib
 import json
@@ -82,6 +84,16 @@ class BuildCache:
     def put(self, key: str, result: BuildResult) -> None:
         """Store a build result in the cache under *key*."""
         self._cache.set(key, result)
+
+    def close(self) -> None:
+        """Close the underlying diskcache store."""
+        self._cache.close()
+
+    def __enter__(self) -> BuildCache:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
 
 
 @dataclass

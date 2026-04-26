@@ -426,12 +426,12 @@ def main(
     ),
     jobs: int | None = typer.Option(
         None,
-        "-j",
         "--jobs",
+        "-j",
         help="Number of parallel compile jobs (default: from [project].jobs or 4)",
     ),
     output_path: str | None = typer.Option(
-        None, "-o", "--output", help="Write JSON report to file (default: db/verify_results.json)"
+        None, "--output", "-o", help="Write JSON report to file (default: db/verify_results.json)"
     ),
     summary: bool = typer.Option(
         False,
@@ -471,8 +471,9 @@ def main(
 
     total = len(unique_entries)
 
+    cached_vas = {r["va"] for r in results}
     v_passed, v_failed, v_fail_details, v_results, deferred = run_verification(
-        [e for e in unique_entries if not any(r["va"] == f"0x{e.va:08x}" for r in results)],
+        [e for e in unique_entries if f"0x{e.va:08x}" not in cached_vas],
         cfg,
         jobs,
         total,
@@ -511,6 +512,11 @@ def main(
         fail_details = [(e, m) for e, m in fail_details if f"0x{e.va:08x}" not in proven_vas]
 
     timestamp = datetime.now(UTC).isoformat()
+    # Single-pass status counting instead of 7 separate iterations.
+    _status_counts: dict[str, int] = {}
+    for _r in results:
+        _s = _r["status"]
+        _status_counts[_s] = _status_counts.get(_s, 0) + 1
     report = {
         "timestamp": timestamp,
         "target": cfg.target_name,
@@ -519,13 +525,13 @@ def main(
             "total": total,
             "passed": passed,
             "failed": failed,
-            "exact": sum(1 for r in results if r["status"] == "EXACT"),
-            "reloc": sum(1 for r in results if r["status"] == "RELOC"),
-            "proven": sum(1 for r in results if r["status"] == "PROVEN"),
-            "stub": sum(1 for r in results if r["status"] == "STUB"),
-            "matching": sum(1 for r in results if r["status"] == "NEAR_MATCHING"),
-            "compile_error": sum(1 for r in results if r["status"] == "COMPILE_ERROR"),
-            "missing_file": sum(1 for r in results if r["status"] == "MISSING_FILE"),
+            "exact": _status_counts.get("EXACT", 0),
+            "reloc": _status_counts.get("RELOC", 0),
+            "proven": _status_counts.get("PROVEN", 0),
+            "stub": _status_counts.get("STUB", 0),
+            "matching": _status_counts.get("NEAR_MATCHING", 0),
+            "compile_error": _status_counts.get("COMPILE_ERROR", 0),
+            "missing_file": _status_counts.get("MISSING_FILE", 0),
         },
         "results": results,
     }

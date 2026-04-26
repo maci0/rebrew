@@ -52,12 +52,6 @@ __all__ = [
 
 VALID_MARKERS = {"FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"}
 
-# Keys that every function block must declare.
-# All rebrew-specific metadata lives in rebrew-function.toml; the parser
-# still recognises them inline for migration/compat but lint fires W019.
-REQUIRED_KEYS: set[str] = set()  # No required inline keys; metadata lives in rebrew-function.toml
-# No recommended keys — all annotation metadata is either required or optional.
-RECOMMENDED_KEYS: set[str] = set()
 # OPTIONAL_KEYS: only reccmp-compatible keys that are permitted inline.
 # All rebrew-specific keys (ORIGIN, CFLAGS, SKIP, GLOBALS, BLOCKER, SOURCE,
 # NOTE, SECTION, GHIDRA, BLOCKER_DELTA) must live in rebrew-function.toml
@@ -83,7 +77,7 @@ METADATA_KEYS: frozenset[str] = frozenset(
         "SIZE",
     }
 )
-ALL_KNOWN_KEYS = REQUIRED_KEYS | OPTIONAL_KEYS | METADATA_KEYS | {"MARKER", "VA"}
+ALL_KNOWN_KEYS = OPTIONAL_KEYS | METADATA_KEYS | {"MARKER", "VA"}
 
 # ---------------------------------------------------------------------------
 # Regex patterns
@@ -145,7 +139,7 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
     returning the text before the first marker as the preamble and each
     marker-delimited section as a block string.
 
-    Any key-value comment lines (e.g. from library headers or legacy source)
+    Any key-value comment lines (e.g. from library headers or preceding comments)
     immediately preceding a marker are included in that marker's block rather
     than the preamble, so that annotations stay with their function during
     merge/split operations.
@@ -251,6 +245,9 @@ def marker_for_module(module: str, status: str, library_modules: set[str] | None
         library_modules: Set of module names that should use LIBRARY marker.
                          Defaults to empty set if not provided.
 
+    Returns:
+        ``"STUB"`` if status is STUB, ``"LIBRARY"`` if module is in
+        *library_modules*, otherwise ``"FUNCTION"``.
     """
     if status == "STUB":
         return "STUB"
@@ -271,7 +268,7 @@ def has_skip_annotation(filepath: Path, metadata_dir: Path | None = None) -> boo
         from rebrew.metadata import load_metadata
 
         entries = load_metadata(metadata_dir)
-        for _key, entry in entries.items():
+        for entry in entries.values():
             raw_skip = entry.get("skip", "")
             if raw_skip and str(raw_skip).strip().lower() not in ("", "0", "false", "no"):
                 return True
@@ -327,7 +324,7 @@ class Annotation:
     line: int = 0  # 1-based line number of the marker in the source file
     prove_constraints: dict[str, Any] = field(default_factory=dict)
 
-    # -- Dict-like access for backward compat --
+    # -- Dict-like access and field aliases --
 
     def __getitem__(self, key: str) -> Any:
         """Return the field value for *key* (supports field aliases)."""
@@ -345,10 +342,15 @@ class Annotation:
         else:
             raise KeyError(key)
 
+    # Class-level cache for field names — computed once, not per __contains__ call.
+    _field_names: frozenset[str] | None = None
+
     def __contains__(self, key: str) -> bool:
         """Return True if *key* (or its alias) is a field of this Annotation."""
         attr = _FIELD_ALIASES.get(key, key)
-        return attr in {f.name for f in fields(self)}
+        if Annotation._field_names is None:
+            Annotation._field_names = frozenset(f.name for f in fields(self))
+        return attr in Annotation._field_names
 
     def get(self, key: str, default: Any = None) -> Any:
         """Return the value for *key*, or *default* if not present."""
@@ -358,7 +360,7 @@ class Annotation:
             return default
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize to a plain dict (for JSON output or legacy code)."""
+        """Serialize to a plain dict for JSON output and generic dict processing."""
         d = {
             "va": self.va,
             "size": self.size,
@@ -415,19 +417,18 @@ class Annotation:
         # Validate CFLAGS format if present (not required — falls back to target default)
         if self.cflags.strip():
             flags = self.cflags.strip().split()
-            for flag in flags:
-                if not flag.startswith("/") and not flag.startswith("-"):
-                    warnings.append(
-                        f"CFLAGS token '{flag}' doesn't start with '/' or '-' "
-                        "(expected MSVC-style flags like /O2 /Gd)"
-                    )
+            warnings.extend(
+                f"CFLAGS token '{flag}' doesn't start with '/' or '-' "
+                "(expected MSVC-style flags like /O2 /Gd)"
+                for flag in flags
+                if not flag.startswith("/") and not flag.startswith("-")
+            )
             # Detect common typo: flags glued together like "/O2/Gd"
-            for flag in flags:
-                if _CFLAGS_GLUED_RE.match(flag):
-                    warnings.append(
-                        f"CFLAGS token '{flag}' looks like multiple flags "
-                        "glued together (missing space?)"
-                    )
+            warnings.extend(
+                f"CFLAGS token '{flag}' looks like multiple flags glued together (missing space?)"
+                for flag in flags
+                if _CFLAGS_GLUED_RE.match(flag)
+            )
 
         # Check marker consistency against module name
         _lib = library_modules or set()
@@ -703,7 +704,7 @@ def _kv_to_annotation(
         name=name,
         symbol=symbol,
         module=module,
-        status=kv.get("STATUS", "RELOC"),
+        status=kv.get("STATUS", "STUB"),
         cflags=kv.get("CFLAGS", ""),
         marker_type=marker_type,
         filepath="",

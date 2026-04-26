@@ -28,26 +28,34 @@ class TestSmartRelocCompareEdgeCases:
         assert invalid == []
 
     def test_single_byte_match(self) -> None:
-        matched, count, total, _, _ = smart_reloc_compare(b"\x90", b"\x90")
+        matched, count, total, valid, invalid = smart_reloc_compare(b"\x90", b"\x90")
         assert matched is True
         assert count == 1
+        assert valid == []
+        assert invalid == []
 
     def test_single_byte_mismatch(self) -> None:
-        matched, count, total, _, _ = smart_reloc_compare(b"\x90", b"\x91")
+        matched, count, total, valid, invalid = smart_reloc_compare(b"\x90", b"\x91")
         assert matched is False
         assert count == 0
+        assert valid == []
+        assert invalid == []
 
     def test_length_mismatch_shorter_obj(self) -> None:
         """When obj is shorter than target, non-matching bytes remain."""
-        matched, count, total, _, _ = smart_reloc_compare(b"\x90", b"\x90\x91")
+        matched, count, total, valid, invalid = smart_reloc_compare(b"\x90", b"\x90\x91")
         assert matched is False  # length mismatch
         assert total == 2
+        assert isinstance(valid, list)
+        assert isinstance(invalid, list)
 
     def test_length_mismatch_longer_obj(self) -> None:
         """When obj is longer than target, non-matching bytes remain."""
-        matched, count, total, _, _ = smart_reloc_compare(b"\x90\x91", b"\x90")
+        matched, count, total, valid, invalid = smart_reloc_compare(b"\x90\x91", b"\x90")
         assert matched is False
         assert total == 2
+        assert isinstance(valid, list)
+        assert isinstance(invalid, list)
 
     def test_reloc_masking_with_dict(self) -> None:
         """COFF relocation dict format: {offset: symbol_name}."""

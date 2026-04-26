@@ -1,8 +1,12 @@
 """Core matching and relocation handling logic.
 
-This module provides the central logic for comparing compiled bytes against
-target binary bytes, handling COFF relocation masking, and classifying diffs.
+Provides byte-level comparison of compiled bytes against target binary bytes
+with COFF relocation masking, using NumPy vectorization for performance.
 """
+
+import struct
+
+import numpy as np
 
 
 def smart_reloc_compare(
@@ -13,7 +17,7 @@ def smart_reloc_compare(
 ) -> tuple[bool, int, int, list[int], list[int]]:
     """Compare bytes with relocation masking and target validation.
 
-    Operates in two modes depending on *coff_relocs*:
+    Operates in three modes depending on *coff_relocs*:
 
     - **list[int]**: Plain offsets — 4 bytes at each offset are masked as valid
       relocations without symbol resolution.
@@ -21,10 +25,8 @@ def smart_reloc_compare(
       also provided, resolves each symbol's expected VA and validates it against
       the actual 32-bit value in *target_bytes*, catching wrong-global-variable
       references.
-
-    Falls back to zero-span detection (scanning for ``00 00 00 00`` runs in
-    *obj_bytes* aligned with non-zero *target_bytes*) when *coff_relocs* is
-    ``None``.
+    - **None**: Falls back to zero-span detection (scanning for ``00 00 00 00``
+      runs in *obj_bytes* aligned with non-zero *target_bytes*).
 
     Args:
         obj_bytes: The compiled output bytes to verify.
@@ -36,8 +38,6 @@ def smart_reloc_compare(
         (matched, match_count, total_bytes, valid_relocs, invalid_relocs)
 
     """
-    import struct
-
     min_len = min(len(obj_bytes), len(target_bytes))
     max_len = max(len(obj_bytes), len(target_bytes))
 
@@ -78,9 +78,7 @@ def smart_reloc_compare(
                         invalid_relocs.append(r)
         else:
             # List branch: plain offset list (no symbol resolution needed)
-            for r in coff_relocs:
-                if r + 4 <= min_len:
-                    valid_relocs.append(r)
+            valid_relocs.extend(r for r in coff_relocs if r + 4 <= min_len)
     else:
         i = 0
         while i <= min_len - 4:
@@ -93,19 +91,19 @@ def smart_reloc_compare(
             else:
                 i += 1
 
-    reloc_set = set()
+    # Vectorized comparison: build a boolean relocation mask and use NumPy
+    # for the byte-level match instead of a Python-level per-byte loop.
+    reloc_mask = np.zeros(min_len, dtype=bool)
     for r in valid_relocs:
-        for j in range(4):
-            if r + j < min_len:
-                reloc_set.add(r + j)
+        end = min(r + 4, min_len)
+        if r < min_len:
+            reloc_mask[r:end] = True
 
-    match_count = 0
-    mismatches = []
-    for i in range(min_len):
-        if i in reloc_set or obj_bytes[i] == target_bytes[i]:
-            match_count += 1
-        else:
-            mismatches.append(i)
+    obj_arr = np.frombuffer(obj_bytes[:min_len], dtype=np.uint8)
+    target_arr = np.frombuffer(target_bytes[:min_len], dtype=np.uint8)
+    match_mask = reloc_mask | (obj_arr == target_arr)
+    match_count = int(np.count_nonzero(match_mask))
+    has_mismatch = not np.all(match_mask)
 
-    masked_match = not mismatches and len(obj_bytes) == len(target_bytes)
+    masked_match = not has_mismatch and len(obj_bytes) == len(target_bytes)
     return masked_match, match_count, max_len, valid_relocs, invalid_relocs

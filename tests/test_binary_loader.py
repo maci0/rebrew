@@ -50,8 +50,10 @@ class TestBinaryInfo:
         f.write_bytes(b"\x00" * 100)
         info = BinaryInfo(path=f, format="pe")
         assert info._data is None
-        data = info.data
-        assert len(data) == 100
+        data1 = info.data
+        assert len(data1) == 100
+        data2 = info.data
+        assert data1 is data2  # cached, not reloaded
 
     def test_sections_default_empty(self) -> None:
         info = BinaryInfo(path=Path("/tmp/test"), format="pe")

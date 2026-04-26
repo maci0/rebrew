@@ -32,7 +32,6 @@ console = Console(stderr=True)
 # ---------------------------------------------------------------------------
 
 _STATUS_ORDER = ["EXACT", "RELOC", "NEAR_MATCHING", "STUB", "PROVEN"]
-_STATUS_COLORS = STATUS_COLORS
 
 
 @dataclass
@@ -205,9 +204,9 @@ def _compute_text_size(cfg: ProjectConfig) -> int:
     if not cfg.target_binary.exists():
         return 0
     try:
-        from rebrew.catalog.sections import text_section_size
+        from rebrew.catalog.sections import get_text_section_size
 
-        return text_section_size(cfg.target_binary)
+        return get_text_section_size(cfg.target_binary)
     except (ImportError, OSError, ValueError):
         return 0
 
@@ -250,25 +249,19 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     # the actual verify result is STUB.  Verify results are authoritative.
     verify_statuses = _load_verify_statuses(cfg)
 
-    # Status breakdown — use verify result when available, metadata as fallback.
+    # Single pass: status breakdown + byte-level coverage.
     # Exception: PROVEN (from rebrew prove) is a post-verify promotion that
     # takes precedence over verify cache RELOC/EXACT results.
     status_counts: dict[str, int] = {}
-    for va, info in existing.items():
-        ann_status = info.get("status", "STUB")
-        s = "PROVEN" if ann_status == "PROVEN" else verify_statuses.get(va, ann_status)
-        status_counts[s] = status_counts.get(s, 0) + 1
-    report.status_counts = status_counts
-
-    # Byte-level coverage: sum sizes of matched functions (EXACT + RELOC + PROVEN)
-    # Uses the effective status (verify-overridden, but PROVEN wins)
     size_by_va: dict[int, int] = {f.va: f.size for f in ghidra_funcs}
     matched_bytes = 0
     for va, info in existing.items():
-        ann_status = info.get("status")
+        ann_status = info.get("status", "STUB")
         effective = "PROVEN" if ann_status == "PROVEN" else verify_statuses.get(va, ann_status)
+        status_counts[effective] = status_counts.get(effective, 0) + 1
         if effective in ("EXACT", "RELOC", "PROVEN"):
             matched_bytes += size_by_va.get(va, 0)
+    report.status_counts = status_counts
     report.matched_bytes = matched_bytes
     report.total_text_bytes = _compute_text_size(cfg)
 
@@ -281,14 +274,6 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
 # ---------------------------------------------------------------------------
 # Rich output
 # ---------------------------------------------------------------------------
-
-_STATUS_LABELS: dict[str, str] = {
-    "EXACT": "✅ EXACT",
-    "RELOC": "🔗 RELOC",
-    "PROVEN": "🔒 PROVEN",
-    "NEAR_MATCHING": "🔶 NEAR_MATCHING",
-    "STUB": "📝 STUB",
-}
 
 
 def _render_terminal(report: StatusReport) -> None:
@@ -336,12 +321,11 @@ def _render_terminal(report: StatusReport) -> None:
         if count == 0:
             continue
         pct = round(100.0 * count / report.total_functions, 1) if report.total_functions else 0.0
-        color = _STATUS_COLORS.get(status, "white")
-        label = _STATUS_LABELS.get(status, status)
+        color = STATUS_COLORS.get(status, "white")
         mini_bar_len = int(20 * count / max(report.total_functions, 1))
         mini_bar = "█" * max(mini_bar_len, 1)
         status_table.add_row(
-            f"[{color}]{label}[/{color}]",
+            f"[{color}]{status}[/{color}]",
             f"[{color}]{count}[/{color}]",
             f"[{color}]{pct}%[/{color}]",
             f"[{color}]{mini_bar}[/{color}]",
@@ -354,7 +338,7 @@ def _render_terminal(report: StatusReport) -> None:
         if count == 0:
             continue
         pct = round(100.0 * count / report.total_functions, 1) if report.total_functions else 0.0
-        color = _STATUS_COLORS.get(status, "red")
+        color = STATUS_COLORS.get(status, "red")
         status_table.add_row(
             f"[{color}]{status}[/{color}]",
             f"[{color}]{count}[/{color}]",
