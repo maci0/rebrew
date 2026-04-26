@@ -403,7 +403,7 @@ def extract_raw_bytes(binary_path: Path, va: int, size: int) -> bytes:
 
     Supports VAs in any section by using section-aware extraction.
     Falls back to a simple file-offset calculation if the VA is not in
-    any known section. Trims padding by default via `extract_bytes_at_va`.
+    any known section. The fallback path does not trim trailing padding.
     """
     info = load_binary(binary_path)
     data = extract_bytes_at_va(info, va, size)

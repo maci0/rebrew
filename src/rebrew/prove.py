@@ -77,8 +77,8 @@ def _require_angr() -> None:
 # ---------------------------------------------------------------------------
 #
 # Common Win32 APIs that cause path explosion when symbolically executed.
-# Each returns a fresh symbolic value of the correct width.  Memory-writing
-# APIs (memcpy, memset) are modelled to update symbolic memory.
+# Each is modelled with an appropriate return value (symbolic, zero, or void).
+# Memory-writing APIs (memcpy, memset) are modelled to update symbolic memory.
 
 _WIN32_SIMPROCS: dict[str, type] | None = None  # lazily populated
 
@@ -92,13 +92,13 @@ def _get_win32_simprocs() -> dict[str, type]:
     import angr
     import claripy
 
-    class ReturnSymbolicDword(angr.SimProcedure):
+    class ReturnSymbolicDword(angr.SimProcedure):  # type: ignore[misc]
         """Generic: return a fresh unconstrained 32-bit symbolic value."""
 
         def run(self, *args: Any, **kwargs: Any) -> Any:
             return self.state.solver.BVS("api_retval", 32)
 
-    class ReturnSymbolicHandle(angr.SimProcedure):
+    class ReturnSymbolicHandle(angr.SimProcedure):  # type: ignore[misc]
         """Return a symbolic HANDLE (non-zero, non-INVALID_HANDLE_VALUE)."""
 
         def run(self, *args: Any, **kwargs: Any) -> Any:
@@ -107,7 +107,7 @@ def _get_win32_simprocs() -> dict[str, type]:
             self.state.solver.add(h != 0xFFFFFFFF)
             return h
 
-    class ReturnSymbolicBool(angr.SimProcedure):
+    class ReturnSymbolicBool(angr.SimProcedure):  # type: ignore[misc]
         """Return 0 or 1 (symbolic BOOL)."""
 
         def run(self, *args: Any, **kwargs: Any) -> Any:
@@ -115,33 +115,33 @@ def _get_win32_simprocs() -> dict[str, type]:
             self.state.solver.add(claripy.ULE(b, 1))
             return b
 
-    class ReturnZero(angr.SimProcedure):
+    class ReturnZero(angr.SimProcedure):  # type: ignore[misc]
         """Return 0 (S_OK / ERROR_SUCCESS)."""
 
         def run(self, *args: Any, **kwargs: Any) -> Any:
             return claripy.BVV(0, 32)
 
-    class ReturnVoid(angr.SimProcedure):
+    class ReturnVoid(angr.SimProcedure):  # type: ignore[misc]
         """Void return — no value, no side effects."""
 
         def run(self, *args: Any, **kwargs: Any) -> None:
             return
 
-    class SimLocalAlloc(angr.SimProcedure):
-        def run(self, uFlags, uBytes):
+    class SimLocalAlloc(angr.SimProcedure):  # type: ignore[misc]  # type: ignore[misc]
+        def run(self, *args: Any, **kwargs: Any) -> Any:
             ptr = self.state.heap.allocate(256)
             for i in range(256):
                 self.state.memory.store(ptr + i, claripy.BVV(0, 8))
             return ptr
 
-    class SimGlobalLock(angr.SimProcedure):
-        def run(self, hMem):
+    class SimGlobalLock(angr.SimProcedure):  # type: ignore[misc]  # type: ignore[misc]
+        def run(self, *args: Any, **kwargs: Any) -> Any:
             ptr = self.state.heap.allocate(256)
             for i in range(256):
                 self.state.memory.store(ptr + i, claripy.BVV(0, 8))
             return ptr
 
-    class SimMemcpy(angr.SimProcedure):
+    class SimMemcpy(angr.SimProcedure):  # type: ignore[misc]
         """Model memcpy: copy src→dst symbolically, return dst."""
 
         def run(self, dst: Any, src: Any, n: Any) -> Any:
@@ -156,7 +156,7 @@ def _get_win32_simprocs() -> dict[str, type]:
                 self.state.memory.store(dst, data)
             return dst
 
-    class SimMemset(angr.SimProcedure):
+    class SimMemset(angr.SimProcedure):  # type: ignore[misc]
         """Model memset: fill dst with byte value, return dst."""
 
         def run(self, dst: Any, val: Any, n: Any) -> Any:
@@ -171,7 +171,7 @@ def _get_win32_simprocs() -> dict[str, type]:
                     self.state.memory.store(dst + i, byte_val)
             return dst
 
-    class SimStrlen(angr.SimProcedure):
+    class SimStrlen(angr.SimProcedure):  # type: ignore[misc]
         """Model strlen: return symbolic non-negative length."""
 
         def run(self, s: Any) -> Any:
@@ -1140,9 +1140,9 @@ def _run_all_batch(
         except Exception:  # noqa: BLE001
             log.debug("Skipping %s: annotation parse failed", src, exc_info=True)
             continue
-        for a in annos:
-            if a.status in ("NEAR_MATCHING", "RELOC") and a.size:
-                candidates.append((src, a))
+        candidates.extend(
+            (src, a) for a in annos if a.status in ("NEAR_MATCHING", "RELOC") and a.size
+        )
 
     if not candidates:
         if json_output:

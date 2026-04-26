@@ -5,7 +5,6 @@ Ghidra renames/comments into local C files), and bulk cache refresh.
 All network operations use httpx against the ReVa MCP endpoint.
 """
 
-import contextlib
 import json
 import logging
 from typing import Any
@@ -467,13 +466,7 @@ def _refresh_structure_cache(
     dry_run: bool,
     json_output: bool,
 ) -> None:
-    """Fetch all functions from Ghidra MCP and write function_structure.json.
-
-    Uses an atomic write pattern (tmp file + rename) to avoid corruption.
-    """
-    import os
-    import tempfile
-
+    """Fetch all functions from Ghidra MCP and write function_structure.json."""
     reversed_dir = cfg.reversed_dir
     out_path = reversed_dir / FUNCTION_STRUCTURE_JSON
 
@@ -516,22 +509,9 @@ def _refresh_structure_cache(
         console.print(f"  Would write {len(entries)} entries to {out_path}")
         return
 
-    # Atomic write: write to tmp file in same directory, then rename
     reversed_dir.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(
-        suffix=".tmp", prefix="function_structure_", dir=str(reversed_dir)
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as tmp_f:
-            json.dump(entries, tmp_f, indent=2)
-            tmp_f.write("\n")
-        os.replace(tmp_path, str(out_path))
-        console.print(f"  Wrote {out_path}")
-    except BaseException:
-        # Clean up tmp file on any error
-        with contextlib.suppress(OSError):
-            os.unlink(tmp_path)
-        raise
+    atomic_write_text(out_path, json.dumps(entries, indent=2) + "\n")
+    console.print(f"  Wrote {out_path}")
 
 
 def main_entry() -> None:

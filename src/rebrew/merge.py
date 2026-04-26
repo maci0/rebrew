@@ -60,8 +60,8 @@ def _merge_preambles(preambles: list[str]) -> str:
 
     for preamble in preambles:
         for line in preamble.splitlines():
-            if line.strip() == "":
-                if merged_lines and merged_lines[-1] != "":
+            if not line.strip():
+                if merged_lines and merged_lines[-1]:
                     merged_lines.append("")
                 continue
             if line in seen:
@@ -69,7 +69,7 @@ def _merge_preambles(preambles: list[str]) -> str:
             seen.add(line)
             merged_lines.append(line)
 
-    while merged_lines and merged_lines[-1] == "":
+    while merged_lines and not merged_lines[-1]:
         merged_lines.pop()
 
     if not merged_lines:

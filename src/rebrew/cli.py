@@ -66,8 +66,8 @@ STATUS_COLORS: dict[str, str] = {
 
 
 def is_matched(status: str) -> bool:
-    """True when *status* indicates a fully matched function (EXACT or RELOC)."""
-    return status in ("EXACT", "RELOC")
+    """True when *status* indicates a fully matched function (EXACT, RELOC, or PROVEN)."""
+    return status in ("EXACT", "RELOC", "PROVEN")
 
 
 def is_status_sticky(current_status: str) -> bool:

@@ -51,12 +51,6 @@ _NOP = 0x90
 # SEH prologue using fs segment: 64 A1 00 00 00 00 (mov eax, fs:[0])
 _SEH_FS = bytes([0x64, 0xA1, 0x00, 0x00, 0x00, 0x00])
 
-# ASM CRT patterns
-_ASM_BT = bytes([0x0F, 0xA3])
-_ASM_BTS = bytes([0x0F, 0xAB])
-_ASM_REPNE_SCASB = bytes([0xF2, 0xAE])
-_ASM_REP_MOVS = (bytes([0xF3, 0xA4]), bytes([0xF3, 0xA5]))
-
 # Pre-compiled regex for sanitize_name (used in loops by todo/skeleton).
 _SANITIZE_NON_ALNUM_RE = re.compile(r"[^a-zA-Z0-9_]")
 _SANITIZE_MULTI_UNDERSCORE_RE = re.compile(r"_+")
@@ -208,7 +202,13 @@ def estimate_difficulty(
     ignored: set[str] | None = None,
     cfg: ProjectConfig | None = None,
 ) -> tuple[int, str]:
-    """Estimate difficulty (1-5) and reason."""
+    """Estimate difficulty and reason.
+
+    Returns a ``(level, reason)`` pair where *level* is:
+
+    - ``0`` — ignored symbol (ASM builtin or in the *ignored* set); skip.
+    - ``1``–``5`` — estimated effort from trivial (tiny getter) to very large.
+    """
     if ignored and name in ignored:
         return 0, "ASM builtin / ignored symbol (skip)"
 
@@ -305,8 +305,9 @@ def load_data(
 
 
 def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> dict[int, str]:
-    """Load VAs already covered by source files. Returns {va: rel_path}.
+    """Load VAs already covered by source files and library headers. Returns {va: rel_path}.
 
+    Scans both source files (via ``iter_sources``) and ``library_*.h`` headers.
     Supports multi-function files: a single source file may contain multiple
     annotation blocks, each registering a separate VA.
 

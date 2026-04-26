@@ -39,7 +39,7 @@ class FunctionEntry:
         """Build from a dict (e.g. function_structure.json entry).
 
         Required keys: ``va``, ``size`` (int or hex string).
-        Falls back to ``ghidra_name`` / ``tool_name`` for ``name``.
+        Falls back: ``name`` → ``ghidra_name`` → ``tool_name`` (empty string).
         """
         va = d.get("va")
         size = d.get("size")
