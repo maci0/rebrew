@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     from rebrew.catalog import FunctionEntry
 
 import httpx
-import jinja2
 import typer
 from rich.console import Console
 
@@ -54,53 +53,62 @@ from rebrew.utils import atomic_write_text
 
 console = Console(stderr=True)
 
-_SKELETON_TEMPLATE = jinja2.Template(
-    """\
-// {{ marker }}: {{ cfg_marker }} 0x{{ '%08x' % va }}
 
-{% if origin_comment -%}
-/* {{ origin_comment }} */
-{% endif %}
-{% if xref_context -%}
-{{ xref_context }}
-{% endif %}
-{% if decomp_code -%}
-/* === Decompilation ({{ decomp_backend }}) === */
-{{ decomp_code }}
-/* === End decompilation === */
-{% else -%}
-int __cdecl {{ func_name }}(void)
-{
-    /* TODO: {{ todo }} */
-    /* Ghidra name: {{ ghidra_name }} */
-    return 0;
-}
-{% endif %}
-""",
-    keep_trailing_newline=True,
-)
+def _render_skeleton(
+    marker: str,
+    cfg_marker: str,
+    va: int,
+    origin_comment: str,
+    xref_context: str | None,
+    decomp_code: str | None,
+    decomp_backend: str,
+    func_name: str,
+    todo: str,
+    ghidra_name: str,
+) -> str:
+    lines = [f"// {marker}: {cfg_marker} 0x{va:08x}\n"]
+    if origin_comment:
+        lines.append(f"/* {origin_comment} */\n")
+    if xref_context:
+        lines.append(f"{xref_context}\n")
+    if decomp_code:
+        lines.append(f"/* === Decompilation ({decomp_backend}) === */\n")
+        lines.append(f"{decomp_code}\n")
+        lines.append("/* === End decompilation === */\n")
+    else:
+        lines.append(f"int __cdecl {func_name}(void)\n")
+        lines.append("{\n")
+        lines.append(f"    /* TODO: {todo} */\n")
+        lines.append(f"    /* Ghidra name: {ghidra_name} */\n")
+        lines.append("    return 0;\n")
+        lines.append("}\n")
+    return "".join(lines)
 
-_ANNOTATION_BLOCK_TEMPLATE = jinja2.Template(
-    """\
-// {{ marker }}: {{ cfg_marker }} 0x{{ '%08x' % va }}
 
-{% if xref_context -%}
-{{ xref_context }}
-{% endif %}
-{% if decomp_code -%}
-/* === Decompilation ({{ decomp_backend }}) === */
-{{ decomp_code }}
-/* === End decompilation === */
-{% else -%}
-int __cdecl {{ func_name }}(void)
-{
-    /* TODO: Implement — Ghidra name: {{ ghidra_name }} */
-    return 0;
-}
-{% endif %}
-""",
-    keep_trailing_newline=True,
-)
+def _render_annotation_block(
+    marker: str,
+    cfg_marker: str,
+    va: int,
+    xref_context: str | None,
+    decomp_code: str | None,
+    decomp_backend: str,
+    func_name: str,
+    ghidra_name: str,
+) -> str:
+    lines = [f"// {marker}: {cfg_marker} 0x{va:08x}\n"]
+    if xref_context:
+        lines.append(f"{xref_context}\n")
+    if decomp_code:
+        lines.append(f"/* === Decompilation ({decomp_backend}) === */\n")
+        lines.append(f"{decomp_code}\n")
+        lines.append("/* === End decompilation === */\n")
+    else:
+        lines.append(f"int __cdecl {func_name}(void)\n")
+        lines.append("{\n")
+        lines.append(f"    /* TODO: Implement — Ghidra name: {ghidra_name} */\n")
+        lines.append("    return 0;\n")
+        lines.append("}\n")
+    return "".join(lines)
 
 
 def generate_skeleton(
@@ -130,7 +138,6 @@ def generate_skeleton(
     """
     lib_modules = cfg.library_modules or set()
     marker = marker_for_module(module, "RELOC", lib_modules)
-    cflags = cfg.base_cflags or "/O2 /Gd"
 
     # Determine symbol name
     symbol = "_" + custom_name if custom_name else "_" + sanitize_name(ghidra_name)
@@ -139,14 +146,11 @@ def generate_skeleton(
     todo = "Implement based on Ghidra decompilation"
     origin_comment = ""
 
-    return _SKELETON_TEMPLATE.render(
+    return _render_skeleton(
         marker=marker,
         cfg_marker=cfg.marker,
         va=va,
         origin_comment=origin_comment,
-        size=size,
-        cflags=cflags,
-        symbol=symbol,
         func_name=func_name,
         ghidra_name=ghidra_name,
         xref_context=xref_context,
@@ -173,18 +177,14 @@ def generate_annotation_block(
     """
     lib_modules = cfg.library_modules or set()
     marker = marker_for_module(module, "RELOC", lib_modules)
-    cflags = cfg.base_cflags or "/O2 /Gd"
 
     symbol = "_" + custom_name if custom_name else "_" + sanitize_name(ghidra_name)
     func_name = symbol.lstrip("_")
 
-    return _ANNOTATION_BLOCK_TEMPLATE.render(
+    return _render_annotation_block(
         marker=marker,
         cfg_marker=cfg.marker,
         va=va,
-        size=size,
-        cflags=cflags,
-        symbol=symbol,
         func_name=func_name,
         ghidra_name=ghidra_name,
         xref_context=xref_context,
@@ -314,9 +314,11 @@ def fetch_xref_context(
             for idx, (caller_name, caller_addr, caller_context) in enumerate(callers, start=1):
                 lines.append(f" * Caller {idx}: {caller_name} ({caller_addr})")
                 if caller_context:
-                    for ctx_line in caller_context.splitlines():
-                        if ctx_line.strip():
-                            lines.append(f" *   {ctx_line.strip()}")
+                    lines.extend(
+                        f" *   {ctx_line.strip()}"
+                        for ctx_line in caller_context.splitlines()
+                        if ctx_line.strip()
+                    )
                 else:
                     lines.append(" *   (no call-site context)")
                 lines.append(" *")
@@ -332,8 +334,7 @@ def fetch_xref_context(
                 if not ctext:
                     continue
                 lines.append(f" * === Caller: {caller_name} ({caller_addr}) - decompilation ===")
-                for dec_line in ctext.splitlines():
-                    lines.append(f" * {dec_line}")
+                lines.extend(f" * {dec_line}" for dec_line in ctext.splitlines())
                 lines.append(" *")
 
             lines.append(" * === End cross-references ===")
@@ -351,8 +352,8 @@ def generate_test_command(filepath: str, symbol: str, va: int, size: int, cflags
 def generate_diff_command(
     cfg: ProjectConfig, filepath: str, symbol: str, va: int, size: int, cflags: str
 ) -> str:
-    """Generate the rebrew match command with diff-only output."""
-    return f'rebrew match {filepath} --diff-only --symbol "{symbol}" --cflags "{cflags}"'
+    """Generate the rebrew diff command for byte-level comparison."""
+    return f'rebrew diff {filepath} --symbol "{symbol}" --cflags "{cflags}"'
 
 
 def list_uncovered(
@@ -695,7 +696,7 @@ def _run_single_va_mode(
 
 @app.callback(invoke_without_command=True)
 def main(
-    va_arg: str | None = typer.Argument(None, help="Function VA in hex (e.g. 0x10003da0)"),
+    va: str | None = typer.Argument(None, help="Function VA in hex (e.g. 0x10003da0)"),
     name: str | None = typer.Option(None, "--name", help="Custom function name"),
     output: str | None = typer.Option(None, "--output", "-o", help="Output file path"),
     batch: int | None = typer.Option(None, "--batch", help="Generate N skeletons (smallest first)"),
@@ -727,7 +728,7 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Generate .c skeleton files for uncovered target binary functions."""
-    va_str = va_arg
+    va_str = va
     cfg = require_config(target=target, json_mode=json_output)
     src_dir = cfg.reversed_dir
 

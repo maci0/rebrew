@@ -94,7 +94,7 @@ class TestGenerateDiffCommand:
     def test_basic(self) -> None:
         cfg = ProjectConfig(root=Path("/tmp"), target_name="server.dll")
         cmd = generate_diff_command(cfg, "src/game_func.c", "_my_func", 0x10001000, 64, "/O2")
-        assert "rebrew match" in cmd
+        assert "rebrew diff" in cmd
         assert "src/game_func.c" in cmd
 
 
@@ -104,7 +104,7 @@ class TestGenerateDiffCommand:
 
 
 class TestLoadExistingVas:
-    def test_scans_files(self, tmp_path) -> None:
+    def test_scans_files(self, tmp_path: Path) -> None:
         c_file = tmp_path / "game_func.c"
         c_file.write_text(
             "// FUNCTION: SERVER 0x10001000\n"
@@ -119,7 +119,7 @@ class TestLoadExistingVas:
         result = load_existing_vas(str(tmp_path))
         assert 0x10001000 in result
 
-    def test_empty_dir(self, tmp_path) -> None:
+    def test_empty_dir(self, tmp_path: Path) -> None:
         result = load_existing_vas(str(tmp_path))
         assert result == {}
 
@@ -143,8 +143,10 @@ class TestListUncovered:
         ]
         existing = {0x10001000: "func_a.c"}
         result = list_uncovered(ghidra, existing, self.cfg)
-        assert all(va != 0x10001000 for va, _, _ in result)
-        assert any(va == 0x10002000 for va, _, _ in result)
+        result_vas = {va for va, _, _ in result}
+        assert 0x10001000 not in result_vas
+        assert 0x10002000 in result_vas
+        assert len(result) == 1
 
     def test_size_filter(self) -> None:
         ghidra = [

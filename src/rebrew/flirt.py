@@ -4,20 +4,15 @@ Usage: rebrew flirt [sig_dir]
 """
 
 import warnings
-from importlib import import_module
 from pathlib import Path
 from typing import Any
 
+import flirt
 import typer
 from rich.console import Console
 
 from rebrew.binary_loader import load_binary
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
-
-try:
-    flirt: Any | None = import_module("flirt")
-except ImportError:
-    flirt = None
 
 console = Console(stderr=True)
 
@@ -29,9 +24,6 @@ _MAX_AMBIGUOUS = 3
 
 def load_signatures(sig_dir: str, json_output: bool = False) -> list[Any]:
     """Load all ``.sig`` and ``.pat`` FLIRT signature files from *sig_dir*."""
-    if flirt is None:
-        return []
-
     console.print(f"Loading signatures from {sig_dir}...")
     sigs: list[Any] = []
 
@@ -107,10 +99,6 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """FLIRT signature scanner for binaries."""
-    if flirt is None:
-        error_exit(
-            "flirt module not found. Run 'uv sync' to install dependencies.", json_mode=json_output
-        )
     cfg = require_config(target=target, json_mode=json_output)
 
     final_sig_dir = sig_dir or (cfg.root / "flirt_sigs")
