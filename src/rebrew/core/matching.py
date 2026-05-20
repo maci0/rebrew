@@ -24,6 +24,30 @@ class UnresolvedSymbolError(Exception):
         self.symbol = symbol
 
 
+def build_symbol_resolver(
+    funcs_by_va: dict[int, str],
+    data_by_name: dict[str, int],
+) -> Callable[[str], int | None]:
+    """Compose a symbol → VA resolver from the function catalog + data metadata.
+
+    Function names win on collision: a data label can never shadow a function
+    name (caught in lint elsewhere). MSVC-style leading underscores in the
+    caller's query are stripped on lookup.
+    """
+    by_name = {name: va for va, name in funcs_by_va.items()}
+
+    def resolve(symbol: str) -> int | None:
+        candidates = (symbol, symbol.lstrip("_") if symbol.startswith("_") else symbol)
+        for s in candidates:
+            if s in by_name:
+                return by_name[s]
+            if s in data_by_name:
+                return data_by_name[s]
+        return None
+
+    return resolve
+
+
 def apply_coff_relocations(
     text: bytes,
     relocs: list[CoffRelocRecord],

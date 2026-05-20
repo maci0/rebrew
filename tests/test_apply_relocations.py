@@ -4,7 +4,11 @@ import struct
 
 import pytest
 
-from rebrew.core.matching import UnresolvedSymbolError, apply_coff_relocations
+from rebrew.core.matching import (
+    UnresolvedSymbolError,
+    apply_coff_relocations,
+    build_symbol_resolver,
+)
 from rebrew.matcher.parsers import CoffRelocRecord
 
 
@@ -50,3 +54,23 @@ def test_unsupported_reloc_type_raises() -> None:
         apply_coff_relocations(
             bytes(text), relocs, _resolve, image_base=0x10000000, section_va=0x10001000
         )
+
+
+def test_build_symbol_resolver_unions_funcs_and_data() -> None:
+    funcs = {0x10001000: "DoThing", 0x10001500: "OtherFunc"}
+    data = {"g_var": 0x10025000, "g_table": 0x10026000}
+    resolve = build_symbol_resolver(funcs, data)
+
+    assert resolve("DoThing") == 0x10001000
+    assert resolve("_DoThing") == 0x10001000  # MSVC underscore prefix tolerated
+    assert resolve("g_var") == 0x10025000
+    assert resolve("does_not_exist") is None
+
+
+def test_build_symbol_resolver_function_wins_on_collision() -> None:
+    # If both maps have the same key (rare but possible), function VA wins —
+    # data labels can shadow function names but never the other way.
+    funcs = {0x10001000: "shared"}
+    data = {"shared": 0x10025000}
+    resolve = build_symbol_resolver(funcs, data)
+    assert resolve("shared") == 0x10001000
