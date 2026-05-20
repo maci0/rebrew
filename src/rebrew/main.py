@@ -131,6 +131,7 @@ _COMMAND_PANELS: dict[str, str] = {
     "extract": "Matching",
     "asm": "Matching",
     "prove": "Matching",
+    "round-trip": "Matching",
     # Export & Sync — generating data and syncing with external tools
     "catalog": "Export & Sync",
     "build-db": "Export & Sync",
@@ -164,6 +165,7 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("split", "rebrew.split", "Split multi-function C files into single-function files."),
     ("merge", "rebrew.merge", "Merge single-function C files into one multi-function file."),
     ("prove", "rebrew.prove", "Prove semantic equivalence via symbolic execution."),
+    ("round-trip", "rebrew.round_trip", "Splice matched functions back into target PE and verify."),
     ("build-db", "rebrew.build_db", "Build SQLite coverage database from data JSON."),
     (
         "binsync-export",
