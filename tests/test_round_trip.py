@@ -55,7 +55,7 @@ class TestSplicePipeline:
         """No matched functions → reasm == original → exit 0."""
         cfg = _make_fake_cfg(tmp_path)
         # Stub enumeration + catalog loading — neither has annotated sources to walk.
-        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([], []))
+        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([], [], 0))
         monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
 
         code = _run_round_trip(cfg, out=None, no_write=True, symbol_filter=None, json_output=False)
@@ -76,7 +76,7 @@ class TestSplicePipeline:
             module="FAKE",
             cflags=["/O2"],
         )
-        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], []))
+        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0))
         monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
         # _compile_and_extract returns (text, relocs, ok, detail).
         monkeypatch.setattr(
@@ -101,7 +101,7 @@ class TestSplicePipeline:
             module="FAKE",
             cflags=["/O2"],
         )
-        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], []))
+        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0))
         monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
         # Identical bytes (no relocs) → splice is a byte-level no-op.
         original_slice = cfg.target_binary.read_bytes()[0x100:0x105]
