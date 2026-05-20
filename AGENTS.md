@@ -175,6 +175,7 @@ src/rebrew/
 ├── flirt.py             # FLIRT signature scanning
 ├── build_db.py          # Build SQLite coverage database from data JSON
 ├── binsync_export.py    # Export annotations to BinSync state directory
+├── round_trip.py        # Splice matched functions back into PE, verify byte equality
 ├── cfg.py               # Multi-command: list-targets, show, add-target, set, set-cflags, etc.
 │
 ├── catalog/             # Function catalog package (see catalog/AGENTS.md)
