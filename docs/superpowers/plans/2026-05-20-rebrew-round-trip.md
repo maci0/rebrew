@@ -17,11 +17,14 @@ The implementer should pattern-match these into Task 5 verbatim — earlier draf
 | Reversed-source directory | `cfg.reversed_dir` | `config.py:120` |
 | PE image base | `cfg.image_base` (validate non-zero) | `config.py:148` |
 | Per-VA exports (one source of names) | `cfg.dll_exports: dict[int, str]` | `config.py:155` |
-| Read function metadata | `get_entry(directory, va, module)` — note arg order: `va` before `module` | `metadata.py:282` |
-| Annotation fields | `ann.va`, `ann.module`, `ann.symbol`, `ann.name` | `annotation.py:297` |
-| Compile to .obj (returns path) | `compile_to_obj(...) -> (obj_path: Path \| None, err: str)` | `compile.py:328` |
+| Read function metadata | `get_entry(directory, va, module)` — arg order is `va` before `module` | `metadata.py:282` |
+| Metadata dir (always use the property, do not compute `.parent` manually) | `cfg.metadata_dir` | `config.py:194` |
+| Annotation fields | `ann.va`, `ann.module`, `ann.symbol`, `ann.name`, `ann.cflags` (only populated when `metadata_dir` is passed to `iter_annotations`) | `annotation.py:297` |
+| Marker string for annotation filtering (NOT `cfg.target_name` — projects can set a custom `marker`) | `target_marker(cfg)` | `cli.py:173` |
+| `iter_annotations` signature — **must pass `metadata_dir=cfg.metadata_dir`** to populate `ann.cflags` / `ann.status` | `iter_annotations(sources, *, target=target_marker(cfg), metadata_dir=cfg.metadata_dir)` | `cli.py:215` |
+| Compile to .obj | `compile_to_obj(cfg, source_path, cflags: list[str], workdir, *, cache=None, use_cache=True) -> (str \| None, str)` — note: `cfg` is **first**, `cflags` is a list of strings, return path is a `str` not `Path` | `compile.py:328` |
 | `CompareResult` fields | `matched, status, match_percent, delta, obj_bytes, reloc_offsets, message, inv_reloc_offsets` (no `obj_path`!) | `compile.py:66` |
-| VA → file offset | `va_to_file_offset(info: BinaryInfo, va: int)` — already exists, no new helper needed | `binary_loader.py:389` |
+| VA → file offset (does NOT raise — falls back to .text math) | `va_to_file_offset(info: BinaryInfo, va: int)` — already exists | `binary_loader.py:389` |
 | Load PE once | `load_binary(path) -> BinaryInfo` (cache the result, do not re-call per-function) | `binary_loader.py:266` |
 | Object byte extraction | `parse_obj_symbol_bytes(obj_path, symbol) -> (bytes, dict[int, str])` (loses reloc type — that's what Task 1 fixes) | `matcher/parsers.py:320` |
 
@@ -633,7 +636,7 @@ class TestSplicePipeline:
         cfg = _make_fake_cfg(tmp_path)
         fn = SimpleNamespace(
             symbol="_myfunc", va=0x10000100, size=5, status="EXACT",
-            path=cfg.reversed_dir / "myfunc.c", module="FAKE",
+            path=cfg.reversed_dir / "myfunc.c", module="FAKE", cflags=["/O2"],
         )
         monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], []))
         monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
@@ -653,7 +656,7 @@ class TestSplicePipeline:
         cfg = _make_fake_cfg(tmp_path)
         fn = SimpleNamespace(
             symbol="_myfunc", va=0x10000100, size=5, status="EXACT",
-            path=cfg.reversed_dir / "myfunc.c", module="FAKE",
+            path=cfg.reversed_dir / "myfunc.c", module="FAKE", cflags=["/O2"],
         )
         monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], []))
         monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
@@ -692,13 +695,12 @@ import tempfile
 from dataclasses import dataclass
 
 from rebrew.binary_loader import BinaryInfo, load_binary, va_to_file_offset
-from rebrew.cli import iter_annotations, iter_sources
+from rebrew.cli import iter_annotations, iter_sources, target_marker
 from rebrew.compile import compile_to_obj
 from rebrew.core.matching import (
     UnresolvedSymbolError,
     apply_coff_relocations,
     build_symbol_resolver,
-    smart_reloc_compare,
 )
 from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
 from rebrew.metadata import get_entry
@@ -712,25 +714,29 @@ class _SpliceFn:
     status: str
     path: Path
     module: str
+    cflags: list[str]
 
 
 def _collect_splice_set(cfg, symbol_filter: str | None) -> tuple[list[_SpliceFn], list[_SpliceFn]]:
     """Walk every annotated function, partition into splice set and PROVEN-skip set."""
     splice: list[_SpliceFn] = []
     proven: list[_SpliceFn] = []
-    metadata_dir = cfg.reversed_dir.parent  # walk-up rule: rebrew-function.toml lives at the source root
     for path, annotations in iter_annotations(
-        iter_sources(cfg.reversed_dir, cfg), target=cfg.target_name
+        iter_sources(cfg.reversed_dir, cfg),
+        target=target_marker(cfg),
+        metadata_dir=cfg.metadata_dir,
     ):
         for ann in annotations:
             if symbol_filter and symbol_filter not in ann.symbol:
                 continue
-            md = get_entry(metadata_dir, ann.va, ann.module)  # canonical arg order: (dir, va, module)
+            md = get_entry(cfg.metadata_dir, ann.va, ann.module)  # canonical: (dir, va, module)
             status = md.get("status", "STUB")
+            cflags_str = md.get("cflags", "") or getattr(ann, "cflags", "") or ""
             fn = _SpliceFn(
                 symbol=ann.symbol, va=ann.va,
                 size=int(md.get("size", 0) or 0),
                 status=status, path=path, module=ann.module,
+                cflags=cflags_str.split(),
             )
             if status in ("EXACT", "RELOC"):
                 splice.append(fn)
@@ -740,12 +746,12 @@ def _collect_splice_set(cfg, symbol_filter: str | None) -> tuple[list[_SpliceFn]
 
 
 def _compile_and_extract(cfg, fn: _SpliceFn, work_dir: Path):
-    """Compile fn.path inside ``work_dir`` and pull out (text_bytes, reloc_records, matched).
+    """Compile fn.path inside ``work_dir`` and pull out (text, relocs, ok, detail).
 
-    Returns ``(text, relocs, matched, detail)``. On compile failure ``matched`` is False
-    and ``detail`` carries the compiler error message; ``text`` is empty and ``relocs`` is [].
+    Returns ``(text_bytes, reloc_records, ok, detail)``. On compile failure ``ok`` is
+    False and ``detail`` carries the compiler error; ``text`` is empty and ``relocs`` is [].
     """
-    obj_path, err = compile_to_obj(fn.path, cfg, out_dir=work_dir)
+    obj_path, err = compile_to_obj(cfg, fn.path, fn.cflags, work_dir)
     if obj_path is None:
         return b"", [], False, err or "compile failed"
 
@@ -791,14 +797,12 @@ def _run_round_trip(cfg, *, out, no_write, symbol_filter, json_output) -> int:
             except NotImplementedError as exc:
                 mismatches.append(_mismatch(fn, "reloc_application_failed", str(exc)))
                 continue
-            try:
-                offset = va_to_file_offset(info, fn.va)
-            except ValueError:
-                mismatches.append(_mismatch(fn, "rva_out_of_range", None))
-                continue
             if fn.size <= 0:
                 mismatches.append(_mismatch(fn, "oversize", "size <= 0 in metadata"))
                 continue
+            # va_to_file_offset does not raise; it falls back to (va - text_va + text_raw_offset).
+            # The downstream oversize check catches any VA that would write outside the buffer.
+            offset = va_to_file_offset(info, fn.va)
             end = offset + fn.size
             if end > len(reasm) or len(patched) < fn.size:
                 mismatches.append(_mismatch(fn, "oversize", None))
@@ -852,29 +856,27 @@ def _load_catalogs(cfg) -> tuple[dict[int, str], dict[str, int]]:
         ``cfg.reversed_dir`` (annotations are the canonical inter-function name source
         for the active target).
       • Data names: union of every ``rebrew-data.toml`` reachable from the source tree,
-        filtered to the active target's module markers.
+        filtered to the active target's marker (``ann.module``).
     """
     from rebrew.data_metadata import load_data_metadata
 
-    funcs: dict[int, str] = dict(cfg.dll_exports)  # base layer: exports
-    for _, annotations in iter_annotations(
-        iter_sources(cfg.reversed_dir, cfg), target=cfg.target_name
+    marker = target_marker(cfg)  # honors cfg.marker overrides
+    funcs: dict[int, str] = dict(cfg.dll_exports)  # base layer: PE exports
+    annotated_dirs: set[Path] = set()
+    for path, annotations in iter_annotations(
+        iter_sources(cfg.reversed_dir, cfg),
+        target=marker,
+        metadata_dir=cfg.metadata_dir,
     ):
+        annotated_dirs.add(path.parent)
         for ann in annotations:
-            if ann.module == cfg.target_name and ann.name:
+            if ann.module == marker and ann.name:
                 funcs[ann.va] = ann.name
 
     data: dict[str, int] = {}
-    seen_dirs: set[Path] = set()
-    for path, _ in iter_annotations(
-        iter_sources(cfg.reversed_dir, cfg), target=cfg.target_name
-    ):
-        d = path.parent
-        if d in seen_dirs:
-            continue
-        seen_dirs.add(d)
+    for d in annotated_dirs:
         for (mod, va), meta in load_data_metadata(d).items():
-            if mod == cfg.target_name and meta.get("name"):
+            if mod == marker and meta.get("name"):
                 data[meta["name"]] = va
     return funcs, data
 
