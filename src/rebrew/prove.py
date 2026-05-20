@@ -708,6 +708,35 @@ def prove_equivalence(
     except Exception as e:
         return False, f"Failed to create angr projects: {e}"
 
+    # Shared registry of return-value symbols per stub address. Both
+    # projects' SimProcedures look up the same BV when hitting the
+    # same stub, so external call returns are constrained-equal
+    # across the equivalence check. Without this, ReturnUnconstrained
+    # creates fresh symbols per project, and Z3 finds counterexamples
+    # where two wrappers return "different" nondet values for the same
+    # external call — making RELOC wrapper functions unprovable.
+    shared_stub_returns: dict[int, Any] = {}
+
+    class SharedReturnStub(angr.SimProcedure):
+        """SimProcedure that returns a shared 32-bit BV per stub address.
+
+        Looks up the stub_addr in *shared_stub_returns*. If unseen,
+        creates a new claripy BVS and stores it. Returns the stored BV.
+        Both projects' invocations at the same stub_addr therefore
+        return the same symbol — Z3 then deduces external-call return
+        equivalence.
+        """
+
+        ARGS_MISMATCH = True
+
+        def run(self, *args, **kwargs):  # noqa: ARG002
+            stub_addr = self.addr
+            bv = shared_stub_returns.get(stub_addr)
+            if bv is None:
+                bv = claripy.BVS(f"shared_ret_0x{stub_addr:x}", 32)
+                shared_stub_returns[stub_addr] = bv
+            return bv
+
     # Hook all stub addresses on both blobs.  Prefer specific Win32
     # SimProcedures (constrained return values) over generic ReturnUnconstrained
     # to reduce path explosion from API calls.
@@ -715,12 +744,19 @@ def prove_equivalence(
     win32_procs = _get_win32_simprocs()
     for stub_addr in stub_hooks:
         api_name = iat_api_names.get(stub_addr, "")
-        simproc_cls = win32_procs.get(api_name, _ret_unc)
+        if api_name and api_name in win32_procs:
+            simproc_cls = win32_procs[api_name]
+            ret_proc_orig = simproc_cls()
+            ret_proc_comp = simproc_cls()
+        else:
+            # Use shared-return stub so both projects see equal returns
+            ret_proc_orig = SharedReturnStub()
+            ret_proc_comp = SharedReturnStub()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             try:
-                proj_comp.hook(stub_addr, simproc_cls(), length=1)
-                proj_orig.hook(stub_addr, simproc_cls(), length=1)
+                proj_comp.hook(stub_addr, ret_proc_comp, length=1)
+                proj_orig.hook(stub_addr, ret_proc_orig, length=1)
             except Exception:  # noqa: BLE001
                 log.debug("Failed to hook stub at 0x%x (%s)", stub_addr, api_name, exc_info=True)
 
