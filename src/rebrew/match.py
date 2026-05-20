@@ -112,12 +112,14 @@ class BinaryMatchingGA:
         compile_timeout: int = 60,
         extra_seeds: list[str] | None = None,
         collect_pairs_path: Path | None = None,
+        extra_include_dirs: list[str] | None = None,
     ) -> None:
         """Initialize the genetic algorithm matching engine."""
         self.seed_source = seed_source
         self.target_bytes = target_bytes
         self.cl_cmd = cl_cmd
         self.inc_dir = inc_dir
+        self.extra_include_dirs = extra_include_dirs or []
         self.cflags = cflags
         self.symbol = symbol
         self.out_dir = Path(out_dir)
@@ -191,6 +193,7 @@ class BinaryMatchingGA:
                 env=self.env,
                 cache=self.compile_cache,
                 timeout=self.compile_timeout,
+                extra_include_dirs=self.extra_include_dirs,
             )
         else:
             if not self.lib_dir or not self.ldflags:
@@ -1067,7 +1070,7 @@ def resolve_build_params(
                 json_mode=json_output,
             )
 
-    meta = parse_source_metadata(seed_c)
+    meta = parse_source_metadata(seed_c, metadata_dir=cfg.metadata_dir)
     compile_cfg = cfg
     msvc_env = msvc_env_from_config(compile_cfg)
 
@@ -1331,6 +1334,7 @@ def _run_single_ga(
         verbose=0 if json_output else 1,
         extra_seeds=loaded_seeds or None,
         collect_pairs_path=Path(collect_pairs) if collect_pairs else None,
+        extra_include_dirs=[str(p.seed_c.parent.resolve())],
     )
     try:
         best_src, best_score = ga.run()

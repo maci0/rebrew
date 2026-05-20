@@ -140,6 +140,7 @@ def run_diff(
         env=p.msvc_env,
         cache=p.cc,
         timeout=p.cfg.compile_timeout,
+        extra_include_dirs=[str(p.seed_c.parent.resolve())],
     )
     if not (res.ok and res.obj_bytes):
         error_exit(f"Build failed: {res.error_msg}", json_mode=json_output, code=EXIT_ERROR)

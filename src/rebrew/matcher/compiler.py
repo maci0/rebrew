@@ -202,6 +202,7 @@ def build_candidate_obj_only(
     source_ext: str = ".c",
     cache: CompileCache | None = None,
     timeout: int = 60,
+    extra_include_dirs: list[str] | None = None,
 ) -> BuildResult:
     """Compile source to .obj and extract symbol bytes (no linking).
 
@@ -212,6 +213,7 @@ def build_candidate_obj_only(
     """
     src_name = f"cand{source_ext}"
     all_flags = shlex.split(cflags)
+    extra_inc = extra_include_dirs or []
 
     cache_key: str | None = None
     if cache is not None:
@@ -221,7 +223,7 @@ def build_candidate_obj_only(
             source_content=source_code,
             source_filename=src_name,
             cflags=all_flags + ["/c"],
-            include_dirs=[inc_dir],
+            include_dirs=[inc_dir, *extra_inc],
             toolchain_id=toolchain_id,
             source_ext=source_ext,
         )
@@ -243,7 +245,9 @@ def build_candidate_obj_only(
         cmd = (
             _compiler_cmd_parts(cl_cmd, env)
             + all_flags
-            + ["/c", f"/I{inc_dir}", f"/Fo{obj_name}", src_name]
+            + ["/c", f"/I{inc_dir}"]
+            + [f"/I{d}" for d in extra_inc]
+            + [f"/Fo{obj_name}", src_name]
         )
         env = _ensure_wine_env(env, cmd)
 
