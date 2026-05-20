@@ -731,7 +731,9 @@ def _collect_splice_set(cfg, symbol_filter: str | None) -> tuple[list[_SpliceFn]
                 continue
             md = get_entry(cfg.metadata_dir, ann.va, ann.module)  # canonical: (dir, va, module)
             status = md.get("status", "STUB")
-            cflags_str = md.get("cflags", "") or getattr(ann, "cflags", "") or ""
+            # iter_annotations(..., metadata_dir=...) already merges cflags into the
+            # annotation, so prefer ann.cflags as the single source of truth.
+            cflags_str = getattr(ann, "cflags", "") or md.get("cflags", "") or ""
             fn = _SpliceFn(
                 symbol=ann.symbol, va=ann.va,
                 size=int(md.get("size", 0) or 0),
@@ -898,7 +900,7 @@ def _render_rich(report: dict) -> None:
         )
 ```
 
-> **Implementation note:** the Task 4 stub returned a placeholder JSON with `"stub": true`. Remove that line when wiring this step — the final schema is the `report` dict above. Also delete the stub branch in `_run_round_trip` (the `if json_output: json_print({...stub...})` block).
+> **Implementation note:** Task 4's `_run_round_trip` body is just `return EXIT_OK`. Replace it wholesale with the implementation above.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -1003,20 +1005,20 @@ Catches relocation-application bugs and padding regressions that per-function
 
 - [ ] **Step 3: Add to the matching skill quick-reference**
 
-In `src/rebrew/agent-skills/rebrew-matching/SKILL.md`, append a short section before the prove section:
+In `src/rebrew/agent-skills/rebrew-matching/SKILL.md`, append a short section before the prove section. Use plain triple-backticks in the actual file (escaping shown here only so the snippet survives this markdown plan):
 
-```markdown
+````markdown
 ## 9. End-to-End Round-Trip
 
 After `rebrew verify` reports all EXACT/RELOC, run round-trip to confirm
 the matches actually splice back into a byte-identical PE:
 
-\`\`\`bash
+```bash
 rebrew round-trip --json
-\`\`\`
+```
 
 Exit 1 if anything mismatches. Use this in CI alongside `verify --compare`.
-```
+````
 
 - [ ] **Step 4: Commit**
 
