@@ -34,6 +34,7 @@ prove = [
 
 [project.scripts]
 rebrew = "rebrew.main:main"
+rebrew-round-trip = "rebrew.round_trip:main_entry"
 
 [tool.setuptools.package-data]
 rebrew = ["agent-skills/**/*.md", "*.template"]
