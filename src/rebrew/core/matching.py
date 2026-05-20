@@ -5,8 +5,67 @@ with COFF relocation masking, using NumPy vectorization for performance.
 """
 
 import struct
+from collections.abc import Callable
 
 import numpy as np
+
+from rebrew.matcher.parsers import CoffRelocRecord
+
+# IMAGE_REL_I386_*
+_REL_DIR32 = 0x0006
+_REL_REL32 = 0x0014
+
+
+class UnresolvedSymbolError(Exception):
+    """Raised when a relocation references a symbol with no VA in the catalog."""
+
+    def __init__(self, symbol: str) -> None:
+        super().__init__(symbol)
+        self.symbol = symbol
+
+
+def apply_coff_relocations(
+    text: bytes,
+    relocs: list[CoffRelocRecord],
+    resolve_va: Callable[[str], int | None],
+    *,
+    image_base: int,
+    section_va: int,
+) -> bytes:
+    """Apply COFF relocations to a .text byte blob.
+
+    For each relocation, read the addend at ``relocs[i].offset``, resolve the
+    target VA via ``resolve_va(symbol)``, compute the patched value per the
+    relocation type, and write it back as little-endian 32-bit.
+
+    :param text: Raw bytes for a single function as compiled.
+    :param relocs: Relocation records from ``parse_obj_relocs_full``.
+    :param resolve_va: Callable mapping symbol → absolute VA (None if unknown).
+    :param image_base: PE ImageBase (e.g. 0x10000000 for an MSVC6 DLL).
+    :param section_va: VA of the function's start (used for REL32 PC-relative arithmetic).
+
+    :raises UnresolvedSymbolError: Symbol not in the catalog.
+    :raises NotImplementedError: Unsupported relocation type.
+    """
+    buf = bytearray(text)
+    for r in relocs:
+        sym = r.symbol.lstrip("_") if r.symbol.startswith("_") else r.symbol
+        target_va = resolve_va(r.symbol) or resolve_va(sym)
+        if target_va is None:
+            raise UnresolvedSymbolError(r.symbol)
+
+        addend = struct.unpack_from("<I", buf, r.offset)[0]
+        if r.type == _REL_DIR32:
+            value = (target_va + addend) & 0xFFFFFFFF
+        elif r.type == _REL_REL32:
+            pc = section_va + r.offset + 4
+            value = (target_va + addend - pc) & 0xFFFFFFFF
+        else:
+            raise NotImplementedError(f"IMAGE_REL_I386_* type 0x{r.type:04x} not supported")
+
+        struct.pack_into("<I", buf, r.offset, value)
+
+    return bytes(buf)
 
 
 def smart_reloc_compare(
