@@ -261,7 +261,7 @@ def main(
             )
             return
 
-    meta = parse_source_metadata(source)
+    meta = parse_source_metadata(source, metadata_dir=cfg.metadata_dir)
 
     # Derive symbol from annotation (C function definition)
     if not symbol:
