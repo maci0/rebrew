@@ -183,3 +183,14 @@ Limitations:
 - Complex loops may cause timeout (raise `--timeout` or `--loop-bound`)
 - Never produces false positives — if it can't prove, STATUS stays NEAR_MATCHING
 - Use `--start-offset`/`--end-offset` to prove tail-call or partial-block equivalence
+
+## 9. End-to-End Round-Trip
+
+After `rebrew verify` reports all EXACT/RELOC, run round-trip to confirm
+the matches actually splice back into a byte-identical PE:
+
+```bash
+rebrew round-trip --json
+```
+
+Exit 1 if anything mismatches. Use this in CI alongside `verify --compare`.

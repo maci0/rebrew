@@ -438,6 +438,22 @@ rebrew sync --pull                                 # Pull renames/comments from 
 rebrew sync --pull-data                            # Fetch data labels into rebrew_globals.h
 ```
 
+## `rebrew round-trip`
+
+End-to-end correctness check: splice every EXACT/RELOC function's freshly
+compiled bytes back into a copy of the target PE and verify byte equality.
+
+```bash
+rebrew round-trip                       # splice + write reasm + exit 1 on mismatch
+rebrew round-trip --json                # machine-readable report
+rebrew round-trip --out path/to/file    # override output PE path
+rebrew round-trip --no-write            # in-memory only
+rebrew round-trip --filter SUBSTR       # restrict to matching symbols
+```
+
+Catches relocation-application bugs and padding regressions that per-function
+`rebrew verify` cannot expose. PROVEN functions are deliberately skipped.
+
 ## Internal Modules
 
 ### Matcher Engine
