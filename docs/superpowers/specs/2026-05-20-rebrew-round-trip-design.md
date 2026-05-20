@@ -47,7 +47,7 @@ New CLI command:
 ```bash
 rebrew round-trip                       # splice + hash + write reasm; exit 1 on mismatch
 rebrew round-trip --json                # machine-readable report
-rebrew round-trip --out path/to/file    # override default <binary>.reasm path
+rebrew round-trip --out path/to/file    # override output PE path (default: sibling of target.binary, named <binary>.reasm)
 rebrew round-trip --no-write            # in-memory only; report still emitted
 rebrew round-trip --filter SUBSTR       # only round-trip functions matching symbol substring
 rebrew round-trip --target NAME         # standard TargetOption
@@ -69,7 +69,7 @@ The set of functions whose bytes get re-patched is partitioned three ways:
 |--------|--------|-----------|
 | `EXACT` | Splice compiled bytes | Should be byte-identical by definition. |
 | `RELOC` | Splice compiled bytes after applying relocations | Exercises reloc-application code path; this is the novel signal. |
-| `PROVEN` | Skip (leave original bytes in place); report as `skipped_proven` | PROVEN means semantic equivalence with *different* bytes (reg alloc, instruction order). Splicing would guarantee mismatch by design. |
+| `PROVEN` | Skip; PROVEN regions are bytewise untouched (no patch, no normalization, no padding adjustment); report as `skipped_proven` | PROVEN means semantic equivalence with *different* bytes (reg alloc, instruction order). Splicing would guarantee mismatch by design. |
 | `NEAR_MATCHING`, `STUB`, missing, etc. | Untouched | Out of scope. |
 
 The `LIBRARY` status (CRT-source-derived) is treated the same as its
@@ -152,7 +152,7 @@ def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     out: Path | None = typer.Option(None, "--out", help="Override output PE path"),
     no_write: bool = typer.Option(False, "--no-write", help="Skip writing reasm PE"),
-    filter: str | None = typer.Option(None, "--filter", help="Only round-trip functions matching symbol substring"),
+    symbol_filter: str | None = typer.Option(None, "--filter", help="Only round-trip functions matching symbol substring"),
     target: str | None = TargetOption,
 ) -> None:
     cfg = require_config(target=target)
@@ -196,9 +196,13 @@ def apply_coff_relocations(
 ```
 
 The resolver closes over the active target's function catalog (for code
-references) and `rebrew-data.toml` (for data references). Both are already
-loaded by existing tooling (`catalog.registry`, `data_metadata`); a thin
-wrapper composes them into a single `resolve_va`.
+references) and the union of every `rebrew-data.toml` reachable from
+`cfg.source_dirs` (for data references). Both are already loaded by
+existing tooling (`catalog.registry`, `data_metadata`); a thin wrapper
+composes them into a single `resolve_va`. Data-metadata iteration uses
+the same walk-up + glob policy as `rebrew data` (one `rebrew-data.toml`
+per source-tree directory; later overrides earlier on duplicate keys is
+treated as a config error).
 
 ### `rva_to_file_offset(pe, rva) -> int`
 
@@ -240,7 +244,7 @@ necessary — matches the project's "use what we import" rule.
 ```
 
 `reason` enum: `compile_drift`, `unresolved_symbol`, `oversize`,
-`byte_mismatch`, `reloc_application_failed`.
+`byte_mismatch`, `reloc_application_failed`, `rva_out_of_range`.
 
 Non-JSON output is a Rich table mirroring the same fields, plus a one-line
 verdict (`✔ round-trip clean: 142 functions, sha 8f3c…` /
@@ -296,8 +300,11 @@ pattern (`tests/test_<module>.py`):
     `compile_drift`.
 
 The end-to-end fixture lives entirely in-memory via `tmp_path`; no MSVC6
-needed in CI. `compile_and_compare` is mocked at the seam — tests inject
-a precomputed `CompareResult` rather than running Wine.
+needed in CI. `compile_and_compare` is mocked at the seam via
+`monkeypatch.setattr("rebrew.round_trip.compile_and_compare", fake)` —
+matches how existing tests stub MSVC invocations. Tests inject a
+precomputed `CompareResult` plus the `.obj` bytes the splice path
+consumes.
 
 ## Future Work (Out of Scope)
 
