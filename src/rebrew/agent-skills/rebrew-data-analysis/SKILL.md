@@ -8,6 +8,11 @@ license: MIT
 
 Inspect global variables and detect type conflicts across translation units.
 
+## When NOT to use this skill
+
+- Function bodies / disassembly / matching → use `rebrew-workflow` or `rebrew-matching`
+- Pulling data labels back from Ghidra → use `rebrew-ghidra-sync` (`rebrew sync --pull-data`)
+
 ## Commands
 
 ```bash
@@ -16,8 +21,13 @@ rebrew data --summary --json            # section-level summary (sizes, counts)
 rebrew data --conflicts --json          # type conflicts: same VA, different types across files
 rebrew data --dispatch --json           # detect dispatch tables / vtables in .data/.rdata
 rebrew data --bss --json                # verify .bss layout, detect gaps from missing externs
-rebrew data --fix-bss                   # auto-generate bss_padding.c + write SIZE/SECTION/NOTE to metadata file
+rebrew data --fix-bss                   # auto-generate bss_padding.c + write SIZE/SECTION/NOTE to metadata
+rebrew data --gen-header                # write rebrew_globals.h from local // GLOBAL: / // DATA: annotations (no Ghidra)
 ```
+
+Use `--gen-header` when working offline or before any Ghidra sync — it emits typed
+`extern` declarations grouped by PE section. `rebrew sync --pull-data` overwrites
+this header with Ghidra-sourced labels when available.
 
 ## DATA Annotations
 

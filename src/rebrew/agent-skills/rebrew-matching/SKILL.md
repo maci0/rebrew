@@ -9,19 +9,26 @@ license: MIT
 Deep dive into diff analysis and the GA engine.
 For the overall reversing workflow, see the `rebrew-workflow` skill.
 
+## When NOT to use this skill
+
+- Picking which function to work on → use `rebrew-workflow` (`rebrew todo`)
+- Generating skeletons / editing source / verifying STATUS → use `rebrew-workflow`
+- Fixing missing globals / `~~` diffs caused by BSS gaps → use `rebrew-data-analysis`
+
 ## 1. Diff Analysis (Always Start Here)
 
 ```bash
-rebrew diff src/<target>/<file>.c --json        # structured diff + structural similarity
-rebrew diff src/<target>/<file>.c --mm --json   # structural diffs only (**)
-rebrew diff src/<target>/<file>.c --format csv  # CSV for spreadsheet analysis
+rebrew diff src/<target>/<file>.c --json         # structured diff + structural similarity
+rebrew diff src/<target>/<file>.c -m --json      # mismatches only (** lines)
+rebrew diff src/<target>/<file>.c -r --json      # register-aware (mark RR encoding diffs)
+rebrew diff src/<target>/<file>.c --format csv   # CSV for spreadsheet analysis
 ```
 
 ### Diff Markers
 
 - `==` identical bytes
 - `~~` relocation difference (acceptable — counts as RELOC)
-- `RR` register encoding difference (with `--rr` / `--register-aware`)
+- `RR` register encoding difference (only with `-r` / `--register-aware`)
 - `**` structural difference (needs fixing)
 - `XX` invalid relocation difference (wrong target VA — counts as MISMATCH)
 
@@ -41,7 +48,7 @@ Use `--rr` to see if remaining `**` diffs are register allocation differences.
 Use `--fix-blocker` to auto-write these to the `rebrew-function.toml` metadata file:
 
 ```bash
-rebrew diff --fix-blocker src/<target>/<file>.c       # auto-write BLOCKER to metadata file
+rebrew diff --fix-blocker src/<target>/<file>.c        # auto-write BLOCKER to metadata file
 rebrew diff --fix-blocker --json src/<target>/<file>.c # with JSON output
 ```
 
@@ -49,7 +56,7 @@ When no structural diffs remain, `--fix-blocker` clears existing BLOCKER/BLOCKER
 
 Use this to quickly rule out structural issues before running the GA.
 
-## 2. GA Engine
+## 2. GA Engine (Single File)
 
 For automated matching when manual tuning and diffs are insufficient:
 
@@ -57,12 +64,17 @@ For automated matching when manual tuning and diffs are insufficient:
 rebrew match src/<target>/<file>.c --generations 200 --pop-size 64 -j 16
 ```
 
-- `--generations N` — GA generations (default: 100)
-- `--pop-size N` — population size (default: 64)
-- `-j N` — parallel compilation jobs (default: 4)
+- `-g / --generations N` — GA generations (default: 100)
+- `-p / --pop-size N` — population size (default: 64)
+- `-j / --jobs N` — parallel compilation jobs (default: from config)
 - `--seed N` — RNG seed for reproducibility
-- `--out-dir DIR` — output directory for GA results (default: `output/ga_run`)
-- `--force` — continue even if annotation linter finds errors
+- `--extra-seed FILE` — additional `.c` file(s) to seed initial population
+- `--no-seed` — disable cross-function solution seeding
+- `--seed-from-solved / --no-seed-from-solved` — seed from solutions DB (default on)
+- `--out-dir DIR` — output directory (default: `output/ga_run`)
+- `--compare-obj / --no-compare-obj` — use object-level comparison
+- `--ignore-lint` — continue even if annotation linter finds errors
+- `--collect-pairs FILE` — record `(source, binary)` pairs for ML training
 
 The GA mutates C source (variable types, casts, loop structures) and scores
 each variant against the target bytes. Best source is written to the file.
@@ -72,10 +84,25 @@ each variant against the target bytes. Best source is written to the file.
 When diff shows `flag_sensitive: true`, try compiler flag combinations before running the GA:
 
 ```bash
-rebrew match src/<target>/<file>.c --flag-sweep-only      # single file: targeted flag sweep
-rebrew match src/<target>/<file>.c --flag-sweep-only --tier exhaustive     # exhaustive
-rebrew match --all --flag-sweep                           # batch: sweep all NEAR_MATCHING functions
-rebrew match --all --flag-sweep --fix-cflags              # auto-update CFLAGS on exact match
+rebrew match src/<target>/<file>.c --flag-sweep-only                       # targeted sweep
+rebrew match src/<target>/<file>.c --flag-sweep-only --tier exhaustive     # full sweep
+rebrew match --all --flag-sweep                                            # batch: all NEAR_MATCHING
+rebrew match --all --flag-sweep --fix-cflags                               # auto-update CFLAGS on hit
+```
+
+Tiers: `quick` (default), `standard`, `exhaustive`.
+
+### Batch GA Mode (`--all`)
+
+```bash
+rebrew match --all --near-miss                            # only run on near-misses
+rebrew match --all --improve                              # try to improve any non-EXACT
+rebrew match --all --threshold 8                          # only target functions ≤8 byte delta
+rebrew match --all --max-stubs 10                         # cap how many stubs to attempt
+rebrew match --all --min-size 32 --max-size 512           # filter by target function size
+rebrew match --all --filter "MyClass::"                   # substring match on symbol names
+rebrew match --all --timeout-min 5                        # per-function wall-clock budget
+rebrew match --all --dry-run                              # plan without compiling
 ```
 
 ## 4. Scoring (lower = better)
@@ -130,10 +157,13 @@ When stuck at NEAR_MATCHING due to structural differences (register allocation, 
 loop unrolling), use `rebrew prove` to mathematically prove semantic equivalence:
 
 ```bash
-rebrew prove src/<target>/<file>.c --json               # prove and update STATUS → PROVEN
-rebrew prove src/<target>/<file>.c --dry-run --json      # preview without updating
-rebrew prove src/<target>/<file>.c --timeout 120 --json  # allow 2 min for complex funcs
-rebrew prove my_func --json                              # find by symbol name
+rebrew prove src/<target>/<file>.c --json                 # prove and update STATUS → PROVEN
+rebrew prove src/<target>/<file>.c --dry-run --json       # preview without updating
+rebrew prove src/<target>/<file>.c --timeout 120 --json   # allow 2 min for complex funcs
+rebrew prove src/<target>/<file>.c --loop-bound 50        # raise LoopSeer ceiling (default 10)
+rebrew prove my_func --start-offset 0 --end-offset 48     # prove only a byte slice of the function
+rebrew prove --all --json                                 # batch: prove every NEAR_MATCHING function
+rebrew prove my_func --json                               # find by symbol name
 ```
 
 How it works:
@@ -150,5 +180,6 @@ Requirements:
 
 Limitations:
 - Floating-point heavy functions may not prove (Z3 struggles with x87/SSE)
-- Complex loops may cause timeout (increase with `--timeout N`)
+- Complex loops may cause timeout (raise `--timeout` or `--loop-bound`)
 - Never produces false positives — if it can't prove, STATUS stays NEAR_MATCHING
+- Use `--start-offset`/`--end-offset` to prove tail-call or partial-block equivalence
