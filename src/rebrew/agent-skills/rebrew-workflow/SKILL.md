@@ -9,21 +9,31 @@ license: MIT
 All commands run from a directory containing `rebrew-project.toml`. Use `--json` for structured output.
 For annotation syntax details, see `references/annotation-format.md`.
 
+## When NOT to use this skill
+
+- New binary onboarding (FLIRT scan, catalog, triage) → use `rebrew-intake`
+- Deep byte-level matching / GA / flag sweep / prove → use `rebrew-matching`
+- Global variables, `.bss` gaps, dispatch tables → use `rebrew-data-analysis`
+- Ghidra push/pull operations → use `rebrew-ghidra-sync`
+
 ## 1. Pick a Function
 
 ```bash
-rebrew todo --json                      # Primary: get highest ROI action items
-rebrew todo -c start-function --json    # Only new functions to start
+rebrew status --json                    # Quick overview: counts per STATUS, % coverage
+rebrew todo --json                      # Primary: highest ROI action items
+rebrew todo -c start-function --json    # Filter category: start-function | fix-delta | compile-error | ...
 rebrew flirt --json                     # FLIRT scan: identify known library functions (fast wins)
-rebrew crt-match --all --json # find matching CRT source files
+rebrew crt-match --all --json           # Find matching CRT source files for LIBRARY functions
 ```
 
-**Always default to `rebrew todo --json`.** It evaluates the whole project and suggests tasks by these tiers:
-1. Compile errors and verifier regressions (blocks progress)
+**Default to `rebrew todo --json`.** Tiered by ROI:
+1. Compile errors / verifier regressions (blocks progress)
 2. Near-misses (1-4 byte deltas, fast wins)
 3. Stubs that need finishing
-4. New function starts (ranked by similarity and size)
+4. New function starts (ranked by similarity + size)
 5. Automated tasks (prove, data fixups)
+
+Use `rebrew status` first if the project state is unfamiliar — it's read-only and cheap.
 
 ## 2. Generate Skeleton
 
@@ -60,11 +70,14 @@ Iteratively edit source and compile-compare against the target binary:
 ```bash
 rebrew test src/<target>/<file>.c          # compile + byte-compare; auto-updates STATUS
 rebrew test src/<target>/<file>.c --json   # JSON output
-rebrew test src/<target>/<file>.c --no-promote  # skip STATUS update
+rebrew test src/<target>/<file>.c --no-promote          # skip STATUS update
+rebrew test src/<target>/<file>.c --va 0x10001000 \
+    --symbol _myfunc --size 64 --cflags "/O1 /Gd"        # override metadata for ad-hoc tests
 rebrew test --all --json                   # batch test all reversed .c files
 rebrew test --all --origin GAME --json     # batch mode, filter by origin
-rebrew test --all --dir src/<target>/ --json    # batch mode, restrict to subdir
-rebrew test --all --dry-run                # preview changes without writing
+rebrew test --all --dir src/<target>/ --json    # restrict to subdir
+rebrew test --all -j 8 --json              # parallel compile (default from config)
+rebrew test --all --dry-run                # preview without writing
 ```
 
 `rebrew test` auto-updates STATUS in the metadata file after each run:
@@ -75,9 +88,11 @@ rebrew test --all --dry-run                # preview changes without writing
 For a byte diff of the current state:
 
 ```bash
-rebrew diff src/<target>/<file>.c          # byte diff vs target
-rebrew diff src/<target>/<file>.c --mm     # only structural diffs (**)
-rebrew diff src/<target>/<file>.c --fix-blocker  # auto-write BLOCKER to metadata file
+rebrew diff src/<target>/<file>.c                # byte diff vs target
+rebrew diff src/<target>/<file>.c -m             # mismatches only (** lines)
+rebrew diff src/<target>/<file>.c -r             # register-aware (mark RR encoding diffs)
+rebrew diff src/<target>/<file>.c --fix-blocker  # auto-write BLOCKER to rebrew-function.toml
+rebrew diff src/<target>/<file>.c --format csv   # CSV for spreadsheet analysis
 ```
 
 > [!CAUTION]
@@ -133,11 +148,14 @@ For details, see the `rebrew-matching` skill.
 rebrew doctor                           # check toolchain/config health
 rebrew verify --summary                 # summary table with match %
 rebrew verify --json                    # bulk compile + diff all reversed functions
-rebrew verify -j 8 -o report.json      # parallel compile, save report to file
+rebrew verify -j 8 -o report.json       # parallel compile, save report to file
 rebrew verify --compare --json          # compare against last saved report, detect regressions
+rebrew verify --full --json             # ignore cache, force full re-verification
 rebrew lint --json                      # check annotation correctness
-rebrew lint --fix                       # auto-migrate old annotation formats
+rebrew lint --fix                       # auto-migrate inline metadata to rebrew-function.toml
+rebrew lint --fix --dry-run             # preview migrations without writing
 rebrew lint --summary                   # status/origin breakdown table
+rebrew lint --quiet                     # errors only, suppress warnings
 ```
 
 ### Coverage Database

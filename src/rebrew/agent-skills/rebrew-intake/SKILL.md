@@ -8,6 +8,14 @@ license: MIT
 
 Onboard a new binary into a rebrew project and produce an initial assessment.
 
+## When NOT to use this skill
+
+- Day-to-day reversing on an already-onboarded target → use `rebrew-workflow`
+- Adding a new function inside an existing target → use `rebrew-workflow`
+- Deep matching for a single function → use `rebrew-matching`
+
+Use this skill exactly once per new target. Re-run individual steps later if needed.
+
 ## Prerequisites
 
 A `rebrew-project.toml` must exist with the new target configured. If starting from scratch:
@@ -61,13 +69,15 @@ since the original source is often available.
 
 ```bash
 rebrew catalog --data-json              # write db/data_<target>.json
+rebrew catalog --fix-sizes              # backfill SIZE in rebrew-function.toml from catalog
 rebrew build-db                         # build SQLite coverage database
 ```
 
 ### 4. Initial Triage
 
 ```bash
-rebrew todo --json                      # prioritized action items overview
+rebrew status --json                    # high-level overview: STATUS counts, % coverage
+rebrew todo --json                      # prioritized action items
 rebrew data --dispatch --json           # detect dispatch tables / vtables
 ```
 
@@ -129,9 +139,12 @@ Intake Progress:
 - [ ] Binary placed at configured path
 - [ ] rebrew cfg confirms target
 - [ ] FLIRT scan complete
-- [ ] Catalog and coverage DB built (rebrew catalog --data-json && rebrew build-db)
-- [ ] Triage report reviewed (rebrew todo)
+- [ ] Catalog + coverage DB built (rebrew catalog --data-json && rebrew build-db)
+- [ ] SIZE backfilled (rebrew catalog --fix-sizes)
+- [ ] Status + triage reviewed (rebrew status / rebrew todo)
 - [ ] Compilation units inferred (rebrew graph --cu-map)
 - [ ] First skeletons generated
 - [ ] Ghidra synced (if available)
 ```
+
+After intake completes, hand off to the `rebrew-workflow` skill for the iterative reversing loop.

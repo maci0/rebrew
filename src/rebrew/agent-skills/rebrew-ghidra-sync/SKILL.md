@@ -8,28 +8,59 @@ license: MIT
 
 Synchronize annotations and symbols between rebrew source files and a running Ghidra instance via ReVa MCP.
 
+## When NOT to use this skill
+
+- Editing C source / running tests / picking functions → use `rebrew-workflow`
+- Updating local `// GLOBAL:` / `// DATA:` annotations without Ghidra → use `rebrew-data-analysis`
+- Onboarding a brand-new binary → use `rebrew-intake` first (Ghidra sync is the last step)
+
 ## 1. Program Path Validation
 
 Before sync operations, confirm Ghidra target selection in project config:
 
 - Ensure `ghidra_program_path` is set for the active target in `rebrew-project.toml`
 - Ensure the same program is open in Ghidra via ReVa MCP
+- Default endpoint: `http://localhost:8089`. Override with `--endpoint URL`.
 
 If `ghidra_program_path` is missing or mismatched, fix config before running pull/push.
 
 ## 2. Sync Commands
 
+### Preview / inspect
+
 ```bash
 rebrew sync --summary --json            # preview what would be synced
-rebrew sync --push                      # export + apply labels/comments to Ghidra
-rebrew sync --push --dry-run            # preview push without applying
-rebrew sync --pull                      # fetch Ghidra renames/comments and update local C files
-rebrew sync --pull --accept-ghidra      # fetch renames and automatically update cross-references
-rebrew sync --pull-signatures           # fetch Ghidra decompilation to update extern prototypes
-rebrew sync --pull-structs              # export Ghidra structs into types.h
-rebrew sync --pull-comments             # fetch Ghidra EOL/post analysis comments into source
-rebrew sync --pull-data                 # fetch Ghidra data labels into rebrew_globals.h
-rebrew sync --pull --dry-run            # preview pull without modifying files
+rebrew sync --refresh-cache             # re-fetch ghidra_functions.json from MCP (no writes)
+```
+
+### Push (rebrew → Ghidra)
+
+```bash
+rebrew sync --push                              # combined export + apply
+rebrew sync --push --dry-run                    # preview without applying
+rebrew sync --export                            # write ghidra_commands.json only
+rebrew sync --apply                             # apply a previously-written ghidra_commands.json
+rebrew sync --push --no-sync-data               # skip pushing // DATA: labels
+rebrew sync --push --no-sync-structs            # skip pushing local structs to Ghidra DTM
+rebrew sync --push --no-sync-signatures         # skip pushing C function prototypes
+rebrew sync --push --sync-sizes                 # also push corrected function sizes
+rebrew sync --push --sync-new-functions         # create new Ghidra functions for local-only entries
+rebrew sync --push --no-create-functions        # don't auto-create missing Ghidra functions
+rebrew sync --push --no-skip-generic            # also push generic auto-names (rarely wanted)
+```
+
+### Pull (Ghidra → rebrew)
+
+```bash
+rebrew sync --pull                              # function renames + plate/pre comments
+rebrew sync --pull --dry-run                    # preview without writing
+rebrew sync --pull --accept-ghidra              # accept all Ghidra names + rewrite cross-refs
+rebrew sync --pull --accept-local               # keep local names, record GHIDRA in metadata
+rebrew sync --pull --module MSVCRT              # restrict to one origin module
+rebrew sync --pull-signatures                   # update extern prototypes from Ghidra decomp
+rebrew sync --pull-structs                      # export Ghidra structs into types.h
+rebrew sync --pull-comments                     # write Ghidra EOL/post comments as // ANALYSIS:
+rebrew sync --pull-data                         # generate rebrew_globals.h from Ghidra data labels
 ```
 
 ## 3. What Gets Synced
@@ -56,7 +87,17 @@ rebrew sync --pull --dry-run            # preview pull without modifying files
 ## 4. Safety Guarantees
 
 - **No accidental overwrites**: Generic auto-names (`FUN_`, `DAT_`, `func_`, `switchdata`) are never pulled
-- **Conflict detection**: When both local and Ghidra have meaningful (non-generic) names that differ, pull reports a CONFLICT and skips rename
+- **Conflict detection**: When both local and Ghidra have meaningful (non-generic) names that differ, pull reports a CONFLICT and skips rename — resolve with `--accept-ghidra` or `--accept-local`
 - **`[rebrew]` comments filtered**: Auto-generated plate comments are not pulled back
 - **Dry-run support**: Use `--dry-run` to preview changes before applying
 - **Idempotent behavior**: Re-running sync is safe and produces stable results
+- **Offline fallback**: Pull operations fall back to cached `ghidra_functions.json` / `ghidra_data_labels.json` if the MCP endpoint is unreachable. Run `--refresh-cache` while Ghidra is up to refresh.
+
+## 5. Typical Round-Trip
+
+```bash
+rebrew sync --pull --dry-run          # 1. preview incoming Ghidra changes
+rebrew sync --pull                    # 2. apply Ghidra renames + comments locally
+rebrew sync --summary                 # 3. preview outgoing changes to Ghidra
+rebrew sync --push                    # 4. push annotations to Ghidra
+```
