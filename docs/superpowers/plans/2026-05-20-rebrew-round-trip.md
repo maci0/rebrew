@@ -4,7 +4,26 @@
 
 **Goal:** Add `rebrew round-trip` — splice every matched (EXACT/RELOC) function's freshly-compiled bytes back into a copy of the original PE, hash the result against the original, exit non-zero on mismatch. Provides end-to-end ground truth that `rebrew verify`'s per-function comparison cannot.
 
-**Architecture:** New CLI module `src/rebrew/round_trip.py` driving four stages: (1) enumerate matched functions via existing `iter_sources` / `iter_annotations` / `metadata`, (2) compile each via existing `compile_and_compare`, (3) apply COFF relocations and splice into a PE byte copy at the function's file offset, (4) hash + write reasm + report. Two helpers added — `core/matching.apply_coff_relocations` and `matcher/parsers.parse_obj_relocs_full` — to expose relocation type info that the existing `parse_obj_symbol_bytes` discards.
+**Architecture:** New CLI module `src/rebrew/round_trip.py` driving four stages: (1) enumerate matched functions via existing `iter_sources` / `iter_annotations` / `metadata.get_entry`, (2) compile each via existing `compile_to_obj` inside a per-call temp dir (so the `.obj` path stays alive long enough to extract relocs), (3) apply COFF relocations and splice into a PE byte copy at the function's file offset, (4) hash + write reasm + report. Two helpers added — `core/matching.apply_coff_relocations` and `matcher/parsers.parse_obj_relocs_full` — to expose relocation type info that the existing `parse_obj_symbol_bytes` discards.
+
+## Canonical API Reference (Read Before Implementing)
+
+The implementer should pattern-match these into Task 5 verbatim — earlier drafts of this plan used invented field names that don't exist.
+
+| What the plan needs | Canonical name | Location |
+|--------------------|----------------|----------|
+| Target name string (e.g. `"SERVER"`) | `cfg.target_name` | `config.py:112` |
+| Target PE path | `cfg.target_binary` | `config.py:115` |
+| Reversed-source directory | `cfg.reversed_dir` | `config.py:120` |
+| PE image base | `cfg.image_base` (validate non-zero) | `config.py:148` |
+| Per-VA exports (one source of names) | `cfg.dll_exports: dict[int, str]` | `config.py:155` |
+| Read function metadata | `get_entry(directory, va, module)` — note arg order: `va` before `module` | `metadata.py:282` |
+| Annotation fields | `ann.va`, `ann.module`, `ann.symbol`, `ann.name` | `annotation.py:297` |
+| Compile to .obj (returns path) | `compile_to_obj(...) -> (obj_path: Path \| None, err: str)` | `compile.py:328` |
+| `CompareResult` fields | `matched, status, match_percent, delta, obj_bytes, reloc_offsets, message, inv_reloc_offsets` (no `obj_path`!) | `compile.py:66` |
+| VA → file offset | `va_to_file_offset(info: BinaryInfo, va: int)` — already exists, no new helper needed | `binary_loader.py:389` |
+| Load PE once | `load_binary(path) -> BinaryInfo` (cache the result, do not re-call per-function) | `binary_loader.py:266` |
+| Object byte extraction | `parse_obj_symbol_bytes(obj_path, symbol) -> (bytes, dict[int, str])` (loses reloc type — that's what Task 1 fixes) | `matcher/parsers.py:320` |
 
 **Tech Stack:** Python 3.12+, Typer, LIEF (COFF + PE parsing), Rich, pytest, monkeypatch seam at `compile_and_compare`.
 
@@ -523,10 +542,12 @@ def main(
 def _run_round_trip(
     cfg, *, out: Path | None, no_write: bool, symbol_filter: str | None, json_output: bool
 ) -> int:
-    """Top-level orchestration. Returns the process exit code."""
-    # Placeholder — filled in Task 5.
-    if json_output:
-        json_print({"target": cfg.target, "spliced": 0, "match": True, "stub": True})
+    """Top-level orchestration. Returns the process exit code.
+
+    Stub until Task 5 wires the splice pipeline. Returns EXIT_OK silently so
+    the help / arg-surface tests in this task can assert flag presence without
+    depending on a real project tree.
+    """
     return EXIT_OK
 
 
@@ -572,18 +593,22 @@ from rebrew.round_trip import _run_round_trip
 
 
 def _make_fake_cfg(tmp_path: Path) -> SimpleNamespace:
-    """Minimal ProjectConfig stand-in for round-trip tests."""
+    """Minimal ProjectConfig stand-in for round-trip tests.
+
+    Field names match the canonical ones in ``config.py`` so that production
+    code paths can read them without translation.
+    """
     binary = tmp_path / "fake.dll"
     # 1 KiB blob with one function at offset 0x100 starting with NOPs.
     binary.write_bytes(b"\x00" * 0x100 + b"\x90\x90\x90\x90\xc3" + b"\x00" * 0xfb)
-    src_dir = tmp_path / "src"
-    src_dir.mkdir()
+    src_dir = tmp_path / "src" / "FAKE"
+    src_dir.mkdir(parents=True)
     return SimpleNamespace(
-        target="FAKE",
-        binary=binary,
-        source_dir=src_dir,
-        metadata_dir=tmp_path,
+        target_name="FAKE",
+        target_binary=binary,
+        reversed_dir=src_dir,
         image_base=0x10000000,
+        dll_exports={},
     )
 
 
@@ -593,8 +618,9 @@ class TestSplicePipeline:
     ) -> None:
         """No matched functions → reasm == original → exit 0."""
         cfg = _make_fake_cfg(tmp_path)
-        # Stub the enumeration step to return zero functions.
+        # Stub enumeration + catalog loading — neither has annotated sources to walk.
         monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([], []))
+        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
 
         code = _run_round_trip(cfg, out=None, no_write=True, symbol_filter=None, json_output=False)
         assert code == EXIT_OK
@@ -602,22 +628,19 @@ class TestSplicePipeline:
     def test_compile_drift_marks_mismatch(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A function in the splice set whose compile result fails to match
-        the target bytes must be reported and exit 1."""
+        """A function in the splice set whose compile result fails must be
+        reported and exit non-zero."""
         cfg = _make_fake_cfg(tmp_path)
         fn = SimpleNamespace(
             symbol="_myfunc", va=0x10000100, size=5, status="EXACT",
-            path=cfg.source_dir / "myfunc.c",
+            path=cfg.reversed_dir / "myfunc.c", module="FAKE",
         )
         monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], []))
-        # Compile produces bytes that DON'T match the original (different ret encoding).
-        fake_result = SimpleNamespace(
-            matched=False, status="MISMATCH",
-            obj_bytes=b"", text_bytes=b"\xc3" * 5,
-        )
+        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        # _compile_and_extract returns (text, relocs, ok, detail).
         monkeypatch.setattr(
             "rebrew.round_trip._compile_and_extract",
-            lambda cfg, fn: (fake_result, b"\xc3" * 5, []),
+            lambda cfg, fn, work_dir: (b"", [], False, "cl.exe failed"),
         )
 
         code = _run_round_trip(cfg, out=None, no_write=True, symbol_filter=None, json_output=False)
@@ -626,28 +649,31 @@ class TestSplicePipeline:
     def test_clean_round_trip_writes_reasm(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Identical compile bytes → reasm hash == original hash → exit 0 and reasm file written."""
+        """Identical compile bytes + correct file offset → reasm hash equals original."""
         cfg = _make_fake_cfg(tmp_path)
         fn = SimpleNamespace(
             symbol="_myfunc", va=0x10000100, size=5, status="EXACT",
-            path=cfg.source_dir / "myfunc.c",
+            path=cfg.reversed_dir / "myfunc.c", module="FAKE",
         )
         monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], []))
-        # Identical bytes — splice should be a no-op at the byte level.
-        original_slice = cfg.binary.read_bytes()[0x100:0x105]
-        fake_result = SimpleNamespace(matched=True, status="EXACT")
+        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        # Identical bytes (no relocs) → splice is a byte-level no-op.
+        original_slice = cfg.target_binary.read_bytes()[0x100:0x105]
         monkeypatch.setattr(
             "rebrew.round_trip._compile_and_extract",
-            lambda cfg, fn: (fake_result, original_slice, []),
+            lambda cfg, fn, work_dir: (original_slice, [], True, ""),
         )
-        # File-offset resolver returns 0x100 for our fake VA.
-        monkeypatch.setattr("rebrew.round_trip._va_to_offset", lambda cfg, va: 0x100)
+        # Stub the PE loader so we don't need a real PE to compute file offset.
+        from types import SimpleNamespace as SN
+        fake_info = SN()
+        monkeypatch.setattr("rebrew.round_trip.load_binary", lambda p: fake_info)
+        monkeypatch.setattr("rebrew.round_trip.va_to_file_offset", lambda info, va: 0x100)
 
         out = tmp_path / "fake.reasm"
         code = _run_round_trip(cfg, out=out, no_write=False, symbol_filter=None, json_output=False)
         assert code == EXIT_OK
         assert out.exists()
-        assert out.read_bytes() == cfg.binary.read_bytes()
+        assert out.read_bytes() == cfg.target_binary.read_bytes()
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -659,21 +685,23 @@ Expected: FAIL — internals (`_collect_splice_set`, `_compile_and_extract`, `_v
 
 - [ ] **Step 3: Wire the splice pipeline**
 
-Replace the `_run_round_trip` body in `src/rebrew/round_trip.py`:
+Replace the `_run_round_trip` body in `src/rebrew/round_trip.py`. The pipeline calls `compile_to_obj` directly (not `compile_and_compare`) inside a single `TemporaryDirectory` so the `.obj` path stays alive for both reloc extraction and byte comparison.
 
 ```python
+import tempfile
 from dataclasses import dataclass
 
-from rebrew.binary_loader import load_binary, va_to_file_offset
+from rebrew.binary_loader import BinaryInfo, load_binary, va_to_file_offset
 from rebrew.cli import iter_annotations, iter_sources
-from rebrew.compile import compile_and_compare
+from rebrew.compile import compile_to_obj
 from rebrew.core.matching import (
     UnresolvedSymbolError,
     apply_coff_relocations,
     build_symbol_resolver,
+    smart_reloc_compare,
 )
-from rebrew.matcher.parsers import parse_obj_relocs_full
-from rebrew.metadata import read_function_metadata  # canonical reader from metadata.py
+from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
+from rebrew.metadata import get_entry
 
 
 @dataclass
@@ -683,20 +711,27 @@ class _SpliceFn:
     size: int
     status: str
     path: Path
+    module: str
 
 
 def _collect_splice_set(cfg, symbol_filter: str | None) -> tuple[list[_SpliceFn], list[_SpliceFn]]:
     """Walk every annotated function, partition into splice set and PROVEN-skip set."""
     splice: list[_SpliceFn] = []
     proven: list[_SpliceFn] = []
-    for path, annotations in iter_annotations(iter_sources(cfg.source_dir, cfg), target=cfg.target):
+    metadata_dir = cfg.reversed_dir.parent  # walk-up rule: rebrew-function.toml lives at the source root
+    for path, annotations in iter_annotations(
+        iter_sources(cfg.reversed_dir, cfg), target=cfg.target_name
+    ):
         for ann in annotations:
             if symbol_filter and symbol_filter not in ann.symbol:
                 continue
-            md = read_function_metadata(cfg.metadata_dir, ann.module, ann.va)
+            md = get_entry(metadata_dir, ann.va, ann.module)  # canonical arg order: (dir, va, module)
             status = md.get("status", "STUB")
-            fn = _SpliceFn(symbol=ann.symbol, va=ann.va,
-                          size=md.get("size", 0), status=status, path=path)
+            fn = _SpliceFn(
+                symbol=ann.symbol, va=ann.va,
+                size=int(md.get("size", 0) or 0),
+                status=status, path=path, module=ann.module,
+            )
             if status in ("EXACT", "RELOC"):
                 splice.append(fn)
             elif status == "PROVEN":
@@ -704,75 +739,84 @@ def _collect_splice_set(cfg, symbol_filter: str | None) -> tuple[list[_SpliceFn]
     return splice, proven
 
 
-def _compile_and_extract(cfg, fn: _SpliceFn):
-    """Compile fn.path, return (CompareResult, function .text bytes, reloc records)."""
-    result = compile_and_compare(fn.path, cfg)
-    if not result.matched:
-        return result, b"", []
-    text, _ = result.obj_text_and_relocs        # canonical (text_bytes, reloc_dict) tuple
-    relocs = parse_obj_relocs_full(result.obj_path, fn.symbol)
-    return result, text, relocs
+def _compile_and_extract(cfg, fn: _SpliceFn, work_dir: Path):
+    """Compile fn.path inside ``work_dir`` and pull out (text_bytes, reloc_records, matched).
 
+    Returns ``(text, relocs, matched, detail)``. On compile failure ``matched`` is False
+    and ``detail`` carries the compiler error message; ``text`` is empty and ``relocs`` is [].
+    """
+    obj_path, err = compile_to_obj(fn.path, cfg, out_dir=work_dir)
+    if obj_path is None:
+        return b"", [], False, err or "compile failed"
 
-def _va_to_offset(cfg, va: int) -> int:
-    info = load_binary(cfg.binary)
-    return va_to_file_offset(info, va)
+    text, _reloc_offsets = parse_obj_symbol_bytes(obj_path, fn.symbol)
+    if text is None:
+        return b"", [], False, f"symbol {fn.symbol} not found in .obj"
+    relocs = parse_obj_relocs_full(obj_path, fn.symbol)
+    return bytes(text), relocs, True, ""
 
 
 def _run_round_trip(cfg, *, out, no_write, symbol_filter, json_output) -> int:
+    if cfg.image_base == 0:
+        error_exit("round-trip requires a non-zero image_base in rebrew-project.toml",
+                   json_mode=json_output)
     try:
-        original = cfg.binary.read_bytes()
+        original = cfg.target_binary.read_bytes()
     except FileNotFoundError:
-        error_exit(f"target binary missing: {cfg.binary}", json_mode=json_output)
+        error_exit(f"target binary missing: {cfg.target_binary}", json_mode=json_output)
 
     reasm = bytearray(original)
-    mismatches: list[dict] = []
+    info: BinaryInfo = load_binary(cfg.target_binary)  # hoisted: load PE once
 
     splice_set, proven_set = _collect_splice_set(cfg, symbol_filter)
-
-    # Build the VA resolver once — same for every function.
     funcs_by_va, data_by_name = _load_catalogs(cfg)
     resolve_va = build_symbol_resolver(funcs_by_va, data_by_name)
 
-    for fn in splice_set:
-        result, text, relocs = _compile_and_extract(cfg, fn)
-        if not result.matched:
-            mismatches.append(_mismatch(fn, "compile_drift", None))
-            continue
-        try:
-            patched = apply_coff_relocations(
-                text, relocs, resolve_va,
-                image_base=cfg.image_base, section_va=fn.va,
-            )
-        except UnresolvedSymbolError as exc:
-            mismatches.append(_mismatch(fn, "unresolved_symbol", exc.symbol))
-            continue
-        except NotImplementedError as exc:
-            mismatches.append(_mismatch(fn, "reloc_application_failed", str(exc)))
-            continue
-        try:
-            offset = _va_to_offset(cfg, fn.va)
-        except ValueError:
-            mismatches.append(_mismatch(fn, "rva_out_of_range", None))
-            continue
-        end = offset + fn.size
-        if end > len(reasm) or len(patched) < fn.size:
-            mismatches.append(_mismatch(fn, "oversize", None))
-            continue
-        reasm[offset:end] = patched[: fn.size]
+    mismatches: list[dict] = []
+    with tempfile.TemporaryDirectory(prefix="rebrew-rt-") as td:
+        work_dir = Path(td)
+        for fn in splice_set:
+            text, relocs, ok, detail = _compile_and_extract(cfg, fn, work_dir)
+            if not ok:
+                mismatches.append(_mismatch(fn, "compile_drift", detail))
+                continue
+            try:
+                patched = apply_coff_relocations(
+                    text, relocs, resolve_va,
+                    image_base=cfg.image_base, section_va=fn.va,
+                )
+            except UnresolvedSymbolError as exc:
+                mismatches.append(_mismatch(fn, "unresolved_symbol", exc.symbol))
+                continue
+            except NotImplementedError as exc:
+                mismatches.append(_mismatch(fn, "reloc_application_failed", str(exc)))
+                continue
+            try:
+                offset = va_to_file_offset(info, fn.va)
+            except ValueError:
+                mismatches.append(_mismatch(fn, "rva_out_of_range", None))
+                continue
+            if fn.size <= 0:
+                mismatches.append(_mismatch(fn, "oversize", "size <= 0 in metadata"))
+                continue
+            end = offset + fn.size
+            if end > len(reasm) or len(patched) < fn.size:
+                mismatches.append(_mismatch(fn, "oversize", None))
+                continue
+            reasm[offset:end] = patched[: fn.size]
 
     sha_original = hashlib.sha256(bytes(original)).hexdigest()
     sha_reasm = hashlib.sha256(bytes(reasm)).hexdigest()
     match = not mismatches and sha_original == sha_reasm
 
-    out_path = out or cfg.binary.with_suffix(cfg.binary.suffix + ".reasm")
+    out_path = out or cfg.target_binary.with_suffix(cfg.target_binary.suffix + ".reasm")
     if not no_write:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(bytes(reasm))
 
     report = {
-        "target": cfg.target,
-        "binary": str(cfg.binary),
+        "target": cfg.target_name,
+        "binary": str(cfg.target_binary),
         "out": str(out_path) if not no_write else None,
         "sha256_original": sha_original,
         "sha256_reasm": sha_reasm,
@@ -801,19 +845,36 @@ def _mismatch(fn: _SpliceFn, reason: str, detail: str | None) -> dict:
 
 
 def _load_catalogs(cfg) -> tuple[dict[int, str], dict[str, int]]:
-    """Function catalog (VA → name) + union of every rebrew-data.toml (name → VA)."""
-    from rebrew.catalog.registry import build_function_registry
+    """Build the function ``{va: name}`` map + the data ``{name: va}`` map.
+
+    Sources, in priority order:
+      • Function VAs: union of ``cfg.dll_exports`` and every annotated function in
+        ``cfg.reversed_dir`` (annotations are the canonical inter-function name source
+        for the active target).
+      • Data names: union of every ``rebrew-data.toml`` reachable from the source tree,
+        filtered to the active target's module markers.
+    """
     from rebrew.data_metadata import load_data_metadata
 
-    funcs: dict[int, str] = {
-        e["va"]: e["name"]
-        for e in build_function_registry(cfg).values()
-        if "va" in e and "name" in e
-    }
+    funcs: dict[int, str] = dict(cfg.dll_exports)  # base layer: exports
+    for _, annotations in iter_annotations(
+        iter_sources(cfg.reversed_dir, cfg), target=cfg.target_name
+    ):
+        for ann in annotations:
+            if ann.module == cfg.target_name and ann.name:
+                funcs[ann.va] = ann.name
+
     data: dict[str, int] = {}
-    for path, _ in iter_annotations(iter_sources(cfg.source_dir, cfg), target=cfg.target):
-        for (mod, va), meta in load_data_metadata(path.parent).items():
-            if mod == cfg.target and "name" in meta:
+    seen_dirs: set[Path] = set()
+    for path, _ in iter_annotations(
+        iter_sources(cfg.reversed_dir, cfg), target=cfg.target_name
+    ):
+        d = path.parent
+        if d in seen_dirs:
+            continue
+        seen_dirs.add(d)
+        for (mod, va), meta in load_data_metadata(d).items():
+            if mod == cfg.target_name and meta.get("name"):
                 data[meta["name"]] = va
     return funcs, data
 
@@ -829,11 +890,13 @@ def _render_rich(report: dict) -> None:
         return
     console.print(f"[bold red]✗[/] {len(report['mismatches'])} unexpected mismatches")
     for m in report["mismatches"]:
-        console.print(f"  [yellow]{m['symbol']}[/] @ {m['va']} → {m['reason']}"
-                      + (f" ({m['detail']})" if m.get("detail") else ""))
+        console.print(
+            f"  [yellow]{m['symbol']}[/] @ {m['va']} → {m['reason']}"
+            + (f" ({m['detail']})" if m.get("detail") else "")
+        )
 ```
 
-> **Implementation note:** `CompareResult.obj_text_and_relocs` and `read_function_metadata` may not exist under those exact names. Match the canonical readers in `rebrew/compile.py` and `rebrew/metadata.py` respectively — adjust imports during this step. If the function bytes are not exposed by `CompareResult`, call `parse_obj_symbol_bytes(result.obj_path, fn.symbol)` directly to get them.
+> **Implementation note:** the Task 4 stub returned a placeholder JSON with `"stub": true`. Remove that line when wiring this step — the final schema is the `report` dict above. Also delete the stub branch in `_run_round_trip` (the `if json_output: json_print({...stub...})` block).
 
 - [ ] **Step 4: Run test to verify it passes**
 
