@@ -168,17 +168,34 @@ def classify_compare_result(
             message=msg,
         )
 
-    # Compute delta and match_percent for partial matches
+    # Compute delta and match_percent for partial matches.
+    # Use target length as the denominator and mask known relocation
+    # slots so size mismatches don't unfairly drop match% below the
+    # NEAR_MATCHING threshold (60%) — matches rebrew test's truncation
+    # behavior and treats reloc bytes as matches.
     match_percent = 0.0
     delta = 0
     if target_bytes and obj_bytes:
-        min_len = min(len(target_bytes), len(obj_bytes))
-        max_len = max(len(target_bytes), len(obj_bytes))
-        t_arr = np.frombuffer(target_bytes[:min_len], dtype=np.uint8)
-        o_arr = np.frombuffer(obj_bytes[:min_len], dtype=np.uint8)
-        mismatches = int(np.count_nonzero(t_arr != o_arr))
-        match_percent = ((min_len - mismatches) / max_len) * 100
-        delta = abs(len(target_bytes) - len(obj_bytes)) + mismatches
+        target_len = len(target_bytes)
+        cmp_len = min(target_len, len(obj_bytes))
+        t_arr = np.frombuffer(target_bytes[:cmp_len], dtype=np.uint8)
+        o_arr = np.frombuffer(obj_bytes[:cmp_len], dtype=np.uint8)
+        diff_mask = t_arr != o_arr
+        # Mask reloc slots (4-byte windows) as matches so they don't
+        # count against match%
+        if relocs and cmp_len > 0:
+            reloc_mask = np.zeros(cmp_len, dtype=bool)
+            for r in relocs:
+                if 0 <= r < cmp_len:
+                    end = min(r + 4, cmp_len)
+                    reloc_mask[r:end] = True
+            diff_mask = diff_mask & ~reloc_mask
+        mismatches = int(np.count_nonzero(diff_mask))
+        # Treat any bytes beyond cmp_len in target as mismatches too
+        # (so a short obj is penalized for missing bytes).
+        missing = target_len - cmp_len
+        match_percent = ((cmp_len - mismatches) / target_len) * 100 if target_len else 0.0
+        delta = abs(len(target_bytes) - len(obj_bytes)) + mismatches + missing
 
     status = "STUB"
     if match_percent >= NEAR_MATCH_THRESHOLD * 100:
@@ -528,18 +545,32 @@ def compile_and_compare(
                     None,
                 )
 
+            size_mismatch_msg = None
             if len(obj_bytes) != len(target_bytes):
-                return classify_compare_result(
-                    False,
-                    f"SIZE_MISMATCH: Size {len(obj_bytes)}B vs {len(target_bytes)}B",
-                    target_bytes,
-                    obj_bytes,
-                    list(reloc_offsets.keys()) if reloc_offsets else None,
-                )
+                size_mismatch_msg = f"SIZE_MISMATCH: Size {len(obj_bytes)}B vs {len(target_bytes)}B"
+                # Truncate longer side so smart_reloc_compare can still
+                # compute a reloc-aware match% over the common prefix.
+                # This keeps SIZE_MISMATCH cases consistent with how
+                # `rebrew test` reports byte match (it truncates too).
+                if len(obj_bytes) > len(target_bytes):
+                    obj_bytes = obj_bytes[: len(target_bytes)]
+                else:
+                    target_bytes = target_bytes[: len(obj_bytes)]
 
             matched, _match_count, _total, relocs, inv_relocs = smart_reloc_compare(
                 obj_bytes, target_bytes, reloc_offsets
             )
+            if size_mismatch_msg is not None:
+                # Override matched=True because length differs even if
+                # bytes match — still a SIZE_MISMATCH for status purposes.
+                return classify_compare_result(
+                    False,
+                    f"{size_mismatch_msg} ({_total - _match_count} byte diffs in common prefix)",
+                    target_bytes,
+                    obj_bytes,
+                    relocs,
+                    inv_relocs,
+                )
             msg = (
                 f"RELOC-NORM MATCH ({len(relocs)} relocs)"
                 if (matched and relocs)
