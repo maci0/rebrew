@@ -35,6 +35,7 @@ from rebrew.cli import (
     target_marker,
 )
 from rebrew.compile import compile_to_obj
+from rebrew.config import ProjectConfig
 from rebrew.core.matching import (
     UnresolvedSymbolError,
     apply_coff_relocations,
@@ -84,10 +85,17 @@ class _SpliceFn:
     cflags: list[str]
 
 
-def _collect_splice_set(cfg, symbol_filter: str | None) -> tuple[list[_SpliceFn], list[_SpliceFn]]:
-    """Walk every annotated function, partition into splice set and PROVEN-skip set."""
+def _collect_splice_set(
+    cfg: ProjectConfig, symbol_filter: str | None
+) -> tuple[list[_SpliceFn], list[_SpliceFn], int]:
+    """Walk every annotated function, partition into splice set, PROVEN-skip set, and other count.
+
+    Returns (splice_list, proven_list, other_count) where other_count includes functions
+    with metadata but status not in {EXACT, RELOC, PROVEN} (e.g. NEAR_MATCHING, STUB, missing).
+    """
     splice: list[_SpliceFn] = []
     proven: list[_SpliceFn] = []
+    other_count = 0
     for path, anns in iter_annotations(
         iter_sources(cfg.reversed_dir, cfg),
         target=target_marker(cfg),
@@ -114,10 +122,12 @@ def _collect_splice_set(cfg, symbol_filter: str | None) -> tuple[list[_SpliceFn]
                 splice.append(fn)
             elif status == "PROVEN":
                 proven.append(fn)
-    return splice, proven
+            else:
+                other_count += 1
+    return splice, proven, other_count
 
 
-def _compile_and_extract(cfg, fn: _SpliceFn, work_dir: Path):
+def _compile_and_extract(cfg: ProjectConfig, fn: _SpliceFn, work_dir: Path):
     """Compile fn.path inside ``work_dir`` and pull out (text, relocs, ok, detail).
 
     Returns ``(text_bytes, reloc_records, ok, detail)``. On compile failure ``ok`` is
@@ -135,7 +145,12 @@ def _compile_and_extract(cfg, fn: _SpliceFn, work_dir: Path):
 
 
 def _run_round_trip(
-    cfg, *, out: Path | None, no_write: bool, symbol_filter: str | None, json_output: bool
+    cfg: ProjectConfig,
+    *,
+    out: Path | None,
+    no_write: bool,
+    symbol_filter: str | None,
+    json_output: bool,
 ) -> int:
     """Top-level orchestration. Returns the process exit code."""
     if cfg.image_base == 0:
@@ -154,7 +169,7 @@ def _run_round_trip(
     # is empty or every entry fails compilation.
     info: BinaryInfo | None = None
 
-    splice_set, proven_set = _collect_splice_set(cfg, symbol_filter)
+    splice_set, proven_set, other_count = _collect_splice_set(cfg, symbol_filter)
     funcs_by_va, data_by_name = _load_catalogs(cfg)
     resolve_va = build_symbol_resolver(funcs_by_va, data_by_name)
 
@@ -212,7 +227,7 @@ def _run_round_trip(
         "match": match,
         "spliced": len(splice_set) - len(mismatches),
         "skipped_proven": len(proven_set),
-        "skipped_other": 0,
+        "skipped_other": other_count,
         "mismatches": mismatches,
     }
     if json_output:
@@ -233,7 +248,7 @@ def _mismatch(fn: _SpliceFn, reason: str, detail: str | None) -> dict:
     }
 
 
-def _load_catalogs(cfg) -> tuple[dict[int, str], dict[str, int]]:
+def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:
     """Build the function ``{va: name}`` map + the data ``{name: va}`` map.
 
     Sources, in priority order:
