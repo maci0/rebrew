@@ -11,6 +11,7 @@ import bisect
 import struct
 import warnings
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +47,70 @@ def _collect_reloc_offsets(
         if func_start <= rva < func_end:
             offsets[rva - func_start] = _extract_reloc_name(reloc) or ""
     return offsets
+
+
+# ---------------------------------------------------------------------------
+# Type-aware COFF relocation extraction
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CoffRelocRecord:
+    """One COFF relocation entry with its IMAGE_REL_I386_* type preserved."""
+
+    offset: int  # byte offset inside the function's .text slice
+    type: int  # IMAGE_REL_I386_* (0x06=DIR32, 0x14=REL32, ...)
+    symbol: str  # target symbol name (with leading underscore on MSVC)
+
+
+def parse_obj_relocs_full(obj_path: str | Path, symbol: str) -> list[CoffRelocRecord]:
+    """Extract type-aware relocation records for ``symbol`` from a COFF .obj.
+
+    Unlike ``parse_obj_symbol_bytes``, this preserves the IMAGE_REL_I386_*
+    type so callers can apply (not just mask) relocations.
+    """
+    import lief
+
+    coff = lief.COFF.parse(str(obj_path))
+    if coff is None:
+        return []
+
+    target_sym = next(
+        (s for s in coff.symbols if s.name == symbol and s.section is not None),
+        None,
+    )
+    if target_sym is None:
+        return []
+
+    section = target_sym.section
+    func_start = target_sym.value
+    sec_offsets = sorted(
+        s.value
+        for s in coff.symbols
+        if s.section is not None
+        and s.section.name == section.name
+        and not str(s.name).startswith("$")
+    )
+    func_end = len(bytes(section.content))
+    idx = bisect.bisect_right(sec_offsets, func_start)
+    if idx < len(sec_offsets):
+        func_end = sec_offsets[idx]
+
+    records: list[CoffRelocRecord] = []
+    for r in section.relocations:
+        rva = r.address
+        if func_start <= rva < func_end:
+            # LIEF encodes the type as (machine_type << 16) | raw_IMAGE_REL_type.
+            # Mask to 16 bits to recover the raw IMAGE_REL_I386_* value.
+            raw_type = int(r.type) & 0xFFFF
+            records.append(
+                CoffRelocRecord(
+                    offset=rva - func_start,
+                    type=raw_type,
+                    symbol=_extract_reloc_name(r),
+                )
+            )
+    return records
 
 
 # ---------------------------------------------------------------------------
