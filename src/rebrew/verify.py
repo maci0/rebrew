@@ -165,6 +165,30 @@ def _compiler_config_hash(cfg: ProjectConfig) -> str:
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
 
+def _headers_hash(cfg: ProjectConfig) -> str:
+    """SHA256 of every header file reachable from the project's source tree.
+
+    Headers are not in any compile cache key today; if a shared header changes,
+    every translation unit that includes it must be recompiled.  Returns a stable
+    hash that captures the union of all .h files under cfg.reversed_dir.
+    """
+    src_dir = Path(cfg.reversed_dir)
+    if not src_dir.exists():
+        return ""
+    h = hashlib.sha256()
+    # Sorted for stable hashing across runs / platforms.
+    for hfile in sorted(src_dir.rglob("*.h")):
+        try:
+            rel = hfile.relative_to(src_dir).as_posix()
+            h.update(rel.encode("utf-8"))
+            h.update(b"\x00")  # separator to prevent path/content collision
+            h.update(hfile.read_bytes())
+            h.update(b"\x01")  # entry separator
+        except OSError:
+            continue
+    return h.hexdigest()
+
+
 def _source_hash(filepath: Path) -> str:
     return hashlib.sha256(filepath.read_bytes()).hexdigest()
 
@@ -237,6 +261,7 @@ class VerifyCache:
     compiler_hash: str
     target: str
     entries: dict[str, VerifyCacheEntry]
+    headers_hash: str = ""  # SHA256 of all .h files under reversed_dir; "" means unchecked
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "VerifyCache":
@@ -245,6 +270,7 @@ class VerifyCache:
             version=int(d.get("version", 0)),
             compiler_hash=str(d.get("compiler_hash", "")),
             target=str(d.get("target", "")),
+            headers_hash=str(d.get("headers_hash", "")),
             entries={
                 str(k): VerifyCacheEntry.from_dict(v)
                 for k, v in d.get("entries", {}).items()
@@ -269,6 +295,8 @@ def _load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> VerifyCache | No
     if data.target != cfg.target_name:
         return None
     if data.compiler_hash != _compiler_config_hash(cfg):
+        return None
+    if data.headers_hash != _headers_hash(cfg):
         return None
     return data
 
@@ -321,6 +349,7 @@ def _save_verify_cache(
     cache_data = VerifyCache(
         version=1,
         compiler_hash=_compiler_config_hash(cfg),
+        headers_hash=_headers_hash(cfg),
         target=cfg.target_name,
         entries={str(k): VerifyCacheEntry.from_dict(v) for k, v in cache_entries.items()},
     )
@@ -449,7 +478,7 @@ def main(
         "--full",
         help=(
             "Force full verification, ignoring cached results "
-            "(also required after header/include changes)"
+            "(also required to force full reverification ignoring cache)"
         ),
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
