@@ -871,6 +871,22 @@ app = typer.Typer(
 )
 
 
+def _emit_extern_decl(row: dict[str, Any]) -> str:
+    """Format an `extern` declaration honoring an explicit `type` when given.
+
+    Uses `unsigned char <name>[]` as the fallback when no type is specified.
+    For array-style types (ending with `[]` or `[N]`), emits as-is; otherwise
+    emits a scalar declaration.
+    """
+    type_str = (row.get("type") or "").strip()
+    name = row["name"]
+    if not type_str:
+        return f"extern unsigned char {name}[];"
+    if "*" in type_str or type_str.endswith("[]") or "[" in type_str:
+        return f"extern {type_str} {name};"
+    return f"extern {type_str} {name};"
+
+
 def _gen_globals_header(
     cfg: ProjectConfig,
     src_dir: Path,
@@ -898,7 +914,7 @@ def _gen_globals_header(
     from rebrew.data_metadata import load_data_metadata
 
     marker = getattr(cfg, "marker", cfg.target_name.upper())
-    metadata = load_data_metadata(src_dir)
+    metadata = load_data_metadata(cfg.metadata_dir)
 
     rows: list[dict[str, Any]] = []
     seen_va: set[int] = set()
@@ -917,20 +933,31 @@ def _gen_globals_header(
                 continue
             seen_va.add(va)
 
-            # Prefer annotation name/symbol; fall back to address-based name
-            raw_name = ann.name or ann.symbol or ""
+            # Merge from metadata: section, size, note, name, type
+            sk = (ann.module, va)
+            se = metadata.get(sk, {})
+
+            # Prefer annotation name; fall back to metadata name; then to address-based
+            raw_name = ann.name or ann.symbol or str(se.get("name", "")) or ""
             if raw_name.startswith("_"):
                 raw_name = raw_name[1:]
             name = raw_name or f"g_{va:08x}"
 
-            # Merge from metadata: section, size, note
-            sk = (ann.module, va)
-            se = metadata.get(sk, {})
             section = ann.section or str(se.get("section", ""))
             size = ann.size or int(se.get("size", 0) or 0)
             note = str(se.get("note", ""))
+            type_str = str(se.get("type", ""))
 
-            rows.append({"va": va, "name": name, "section": section, "size": size, "note": note})
+            rows.append(
+                {
+                    "va": va,
+                    "name": name,
+                    "section": section,
+                    "size": size,
+                    "note": note,
+                    "type": type_str,
+                }
+            )
 
     rows.sort(key=lambda x: int(x["va"]))
 
@@ -965,9 +992,8 @@ def _gen_globals_header(
                 note_parts.append(f"{row['size']} bytes")
             if row["note"]:
                 note_parts.append(row["note"])
-            header_lines.append(
-                f"extern unsigned char {row['name']}[]; /* {', '.join(note_parts)} */"
-            )
+            decl = _emit_extern_decl(row)
+            header_lines.append(f"{decl} /* {', '.join(note_parts)} */")
         header_lines.append("")
         emitted.add(sec)
 
@@ -982,9 +1008,8 @@ def _gen_globals_header(
                 note_parts.append(f"{row['size']} bytes")
             if row["note"]:
                 note_parts.append(row["note"])
-            header_lines.append(
-                f"extern unsigned char {row['name']}[]; /* {', '.join(note_parts)} */"
-            )
+            decl = _emit_extern_decl(row)
+            header_lines.append(f"{decl} /* {', '.join(note_parts)} */")
         header_lines.append("")
 
     header_lines += ["#endif /* REBREW_GLOBALS_H */", ""]
