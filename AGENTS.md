@@ -264,6 +264,27 @@ All CLI tools follow these conventions for a consistent user experience:
 - **`if __name__` guard**: Every CLI module ends with `if __name__ == "__main__": main_entry()`
 - **Error handling in JSON mode**: Pass `json_mode=json_output` to `error_exit()` so errors are JSON-formatted when `--json` is active
 
+### Adding a New GA Mutation
+
+GA mutations live in [`src/rebrew/matcher/mutator.py`](src/rebrew/matcher/mutator.py).
+All mutation functions use the `mut_` prefix (see Naming rules above) and operate on
+source text via tree-sitter AST queries — never regex.
+
+1. **Write the function** in `mutator.py`:
+   ```python
+   def mut_my_transform(s: str, rng: random.Random) -> str | None:
+       """One-line docstring of what it does."""
+       # Use tree-sitter query to find matches
+       # Return modified source string, or None if no match
+   ```
+
+2. **Register** it in `ALL_MUTATIONS` list (bottom of file)
+
+3. **Add tests** in `tests/test_mutator_p*.py`
+
+4. **Update the reference doc** — add a row to the appropriate category table in
+   [`docs/GA_MUTATIONS.md`](docs/GA_MUTATIONS.md)
+
 ### Test Patterns
 
 - No conftest.py — each test file is self-contained
