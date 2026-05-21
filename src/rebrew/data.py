@@ -863,17 +863,30 @@ app = typer.Typer(
 )
 
 
-def _gen_globals_header(cfg: ProjectConfig, src_dir: Path) -> None:
+def _gen_globals_header(
+    cfg: ProjectConfig,
+    src_dir: Path,
+    out_path: Path | None = None,
+    force: bool = False,
+) -> None:
     """Generate rebrew_globals.h from GLOBAL:/DATA: annotations + data metadata.
 
-    Writes ``{src_dir}/rebrew_globals.h`` with ``extern`` declarations for every
-    known global, grouped by section (``.data``, ``.rdata``, ``.bss``).  Does not
-    require Ghidra — uses local annotation data only.
+    Writes ``{out_path}`` (default: ``{src_dir}/rebrew_globals.h``) with
+    ``extern`` declarations for every known global, grouped by section
+    (``.data``, ``.rdata``, ``.bss``).  Does not require Ghidra — uses local
+    annotation data only.
+
+    Args:
+        cfg: Project configuration.
+        src_dir: Reversed sources directory (used for annotation scanning).
+        out_path: Output file path.  Defaults to ``src_dir/rebrew_globals.h``.
+        force: When False (default), refuses to overwrite an existing file and
+            exits with an error message.  Pass True to allow overwriting.
     """
     import time
 
     from rebrew.annotation import parse_c_file_multi
-    from rebrew.cli import iter_sources
+    from rebrew.cli import error_exit, iter_sources
     from rebrew.data_metadata import load_data_metadata
 
     marker = getattr(cfg, "marker", cfg.target_name.upper())
@@ -968,7 +981,13 @@ def _gen_globals_header(cfg: ProjectConfig, src_dir: Path) -> None:
 
     header_lines += ["#endif /* REBREW_GLOBALS_H */", ""]
 
-    out = src_dir / "rebrew_globals.h"
+    out = out_path if out_path is not None else src_dir / "rebrew_globals.h"
+    if out.exists() and not force:
+        error_exit(
+            f"{out} already exists. Use --force to overwrite.",
+            json_mode=False,
+        )
+
     out.write_text("\n".join(header_lines), encoding="utf-8")
 
     console.print(f"[green]Wrote {out.name}[/green] with {len(rows)} globals")
@@ -998,6 +1017,16 @@ def main(
         "--gen-header",
         help="Generate rebrew_globals.h from GLOBAL:/DATA: annotations (no Ghidra needed)",
     ),
+    gen_header_out: Path | None = typer.Option(
+        None,
+        "--gen-header-out",
+        help="Output path for --gen-header (default: {reversed_dir}/rebrew_globals.h)",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Overwrite existing output file when using --gen-header",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -1009,7 +1038,7 @@ def main(
 
     # --gen-header: generate rebrew_globals.h from annotations (no Ghidra)
     if gen_header:
-        _gen_globals_header(cfg, src_dir)
+        _gen_globals_header(cfg, src_dir, out_path=gen_header_out, force=force)
         return
 
     # Scan source files
