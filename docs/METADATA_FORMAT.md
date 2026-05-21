@@ -1,5 +1,11 @@
 # Rebrew Metadata Format
 
+> **Scope:** This document covers the **TOML metadata files** (`rebrew-function.toml`,
+> `rebrew-data.toml`) that store volatile per-function fields (STATUS, CFLAGS, BLOCKER,
+> NOTE, GHIDRA) and data section metadata (SIZE, SECTION, NOTE).
+> For the source-file marker format (`// FUNCTION: MODULE 0xVA`) and `library_*.h`
+> headers see [ANNOTATIONS.md](ANNOTATIONS.md).
+
 This document describes the two-layer metadata system used by rebrew to track
 function and data metadata.
 
