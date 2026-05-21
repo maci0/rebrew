@@ -20,7 +20,7 @@ Before sync operations, confirm Ghidra target selection in project config:
 
 - Ensure `ghidra_program_path` is set for the active target in `rebrew-project.toml`
 - Ensure the same program is open in Ghidra via ReVa MCP
-- Default endpoint: `http://localhost:8089`. Override with `--endpoint URL`.
+- Default endpoint: `http://localhost:8080/mcp/message`. Override with `--endpoint URL`.
 
 If `ghidra_program_path` is missing or mismatched, fix config before running pull/push.
 
