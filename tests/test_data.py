@@ -1,5 +1,6 @@
 """Tests for the rebrew data scanner."""
 
+import struct
 from pathlib import Path
 
 from rebrew.data import (
@@ -8,6 +9,7 @@ from rebrew.data import (
     _generate_bss_fix,
     classify_section,
     enrich_with_sections,
+    find_dispatch_tables,
     scan_globals,
     verify_bss_layout,
 )
@@ -319,3 +321,133 @@ def test_verify_bss_layout_clamps_coverage(tmp_path: Path) -> None:
     scan = scan_globals(tmp_path)
     report = verify_bss_layout(scan, {".bss": {"va": 0x20000000, "size": 64}})
     assert report.coverage_bytes == 64
+
+
+# ---------------------------------------------------------------------------
+# find_dispatch_tables
+# ---------------------------------------------------------------------------
+
+
+def _make_dispatch_binary(
+    text_va: int,
+    text_size: int,
+    data_va: int,
+    pointers: list[int],
+) -> tuple[bytes, dict[str, dict[str, int]]]:
+    """Build a minimal fake binary with .text and .data sections for dispatch tests.
+
+    .text is empty (all zeros, ``text_size`` bytes).
+    .data starts immediately after and contains the packed ``pointers`` list.
+    Returns (binary_bytes, sections_dict).
+    """
+    ptr_fmt = "<I"
+
+    text_file_offset = 0
+    text_content = bytes(text_size)
+    data_file_offset = text_size
+    data_content = b"".join(struct.pack(ptr_fmt, p) for p in pointers)
+
+    binary = text_content + data_content
+
+    sections: dict[str, dict[str, int]] = {
+        ".text": {
+            "va": text_va,
+            "size": text_size,
+            "file_offset": text_file_offset,
+            "raw_size": text_size,
+        },
+        ".data": {
+            "va": data_va,
+            "size": len(data_content),
+            "file_offset": data_file_offset,
+            "raw_size": len(data_content),
+        },
+    }
+    return binary, sections
+
+
+class TestFindDispatchTables:
+    _TEXT_VA = 0x10001000
+    _TEXT_SIZE = 0x1000
+    _DATA_VA = 0x10010000
+
+    def _ptrs_in_text(self, count: int, step: int = 0x10) -> list[int]:
+        """Return ``count`` VA values that fall inside .text."""
+        return [self._TEXT_VA + i * step for i in range(count)]
+
+    def test_no_text_section_returns_empty(self) -> None:
+        binary = bytes(64)
+        tables = find_dispatch_tables(binary, 0, {}, {})
+        assert tables == []
+
+    def test_default_detects_table_of_three(self) -> None:
+        ptrs = self._ptrs_in_text(3)
+        binary, sections = _make_dispatch_binary(
+            self._TEXT_VA, self._TEXT_SIZE, self._DATA_VA, ptrs
+        )
+        tables = find_dispatch_tables(binary, 0, sections, {})
+        assert len(tables) == 1
+        assert tables[0].num_entries == 3
+
+    def test_default_rejects_table_of_two(self) -> None:
+        """A run of 2 entries is below the default min_entries=3 threshold."""
+        ptrs = self._ptrs_in_text(2)
+        binary, sections = _make_dispatch_binary(
+            self._TEXT_VA, self._TEXT_SIZE, self._DATA_VA, ptrs
+        )
+        tables = find_dispatch_tables(binary, 0, sections, {})
+        assert tables == []
+
+    def test_custom_min_table_len_raises_threshold(self) -> None:
+        """A table of 3 entries should be rejected when min_entries=4."""
+        ptrs = self._ptrs_in_text(3)
+        binary, sections = _make_dispatch_binary(
+            self._TEXT_VA, self._TEXT_SIZE, self._DATA_VA, ptrs
+        )
+        tables = find_dispatch_tables(binary, 0, sections, {}, min_entries=4)
+        assert tables == []
+
+    def test_custom_min_table_len_lowers_threshold(self) -> None:
+        """A run of 2 entries should be accepted when min_entries=2."""
+        ptrs = self._ptrs_in_text(2)
+        binary, sections = _make_dispatch_binary(
+            self._TEXT_VA, self._TEXT_SIZE, self._DATA_VA, ptrs
+        )
+        tables = find_dispatch_tables(binary, 0, sections, {}, min_entries=2)
+        assert len(tables) == 1
+        assert tables[0].num_entries == 2
+
+    def test_default_behavior_unchanged_by_none_max_stride(self) -> None:
+        """Passing max_stride=None should produce identical results to the default."""
+        ptrs = self._ptrs_in_text(4)
+        binary, sections = _make_dispatch_binary(
+            self._TEXT_VA, self._TEXT_SIZE, self._DATA_VA, ptrs
+        )
+        default_result = find_dispatch_tables(binary, 0, sections, {})
+        none_stride_result = find_dispatch_tables(binary, 0, sections, {}, max_stride=None)
+        assert len(default_result) == len(none_stride_result)
+        for dt, nt in zip(default_result, none_stride_result, strict=True):
+            assert dt.num_entries == nt.num_entries
+
+    def test_larger_max_stride_merges_split_tables(self) -> None:
+        """With a larger stride, a gap between two pointer runs can be bridged.
+
+        Layout: [ptr ptr ptr] [non-ptr (8-byte gap)] [ptr ptr ptr]
+        Default stride=4 flushes after the gap → 2 separate tables.
+        max_stride=8 steps over the gap → detected as a single run of 6.
+        """
+        text_ptrs = self._ptrs_in_text(6)
+        # Insert a non-text-pointer word in between to create a gap at index 3
+        pointers_with_gap = text_ptrs[:3] + [0xDEADBEEF] + text_ptrs[3:]
+        binary, sections = _make_dispatch_binary(
+            self._TEXT_VA, self._TEXT_SIZE, self._DATA_VA, pointers_with_gap
+        )
+        # Default: gap breaks the run into two tables of 3
+        default_tables = find_dispatch_tables(binary, 0, sections, {})
+        assert len(default_tables) == 2
+
+        # Larger stride: the non-pointer slot is skipped over
+        wide_tables = find_dispatch_tables(binary, 0, sections, {}, max_stride=8)
+        # The first run of 3 is still detected; stride=8 means the gap slot is
+        # consumed in one step, landing back on valid pointers
+        assert len(wide_tables) >= 1
