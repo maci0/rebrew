@@ -85,7 +85,11 @@ to a running Ghidra instance via the ReVa MCP server.
 - `--pull` updates local function names from Ghidra (with cross-ref
   rewrites).
 - `--pull-signatures` updates externs from Ghidra prototypes.
-- `--pull-structs` writes Ghidra struct definitions into `types.h`.
+- `--pull-structs` writes Ghidra struct definitions into `types.h` (default).
+  Use `--types-out PATH` to override the output path (single-file mode).
+  Use `--by-module` to split output into per-module files (`types_server.h`,
+  `types_client.h`, `types_shared.h` for unattributed structs).
+  `--types-out` and `--by-module` are mutually exclusive.
 - `--pull-comments` imports Ghidra analysis comments as NOTE metadata.
 - `--pull-data` imports data labels and (re)generates `rebrew_globals.h`.
 - Conflict resolution:
@@ -170,6 +174,8 @@ rebrew sync [OPTIONS]
       --module TEXT
       --pull-signatures
       --pull-structs
+      --types-out PATH
+      --by-module
       --pull-comments
       --pull-data
   Runtime
@@ -207,8 +213,8 @@ rebrew binsync-export OUTDIR
   install. (See gap report.)
 - `rebrew sync` does not currently support pulling Ghidra *bookmarks*
   back into source; the push direction is one-way for bookmarks.
-- `--pull-structs` writes into a single `types.h` file; multi-module
-  separation of struct sources would require additional flags.
+- `--pull-structs --by-module` splits structs into per-module files; structs
+  with no namespace/category in Ghidra land in `types_shared.h`.
 - BinSync export is one-directional (export only). Importing BinSync
   state back into rebrew annotations is not yet supported.
 - Conflict reporting in `--pull` uses the same JSON schema for "Ghidra
