@@ -597,6 +597,51 @@ def set_cflags(
     console.print(f'[green]Set {scope}.cflags_presets.{module.upper()} = "{flags}"[/green]')
 
 
+@app.command("set-compiler")
+def set_compiler(
+    target: str = typer.Argument(..., help="Target name (e.g. 'mygame')."),
+    profile: str = typer.Argument(..., help="Compiler profile: msvc6, msvc7, clang, gcc."),
+) -> None:
+    """Set the compiler profile for a target.
+
+    Writes ``targets.<TARGET>.compiler.command``,
+    ``targets.<TARGET>.compiler.includes``, and
+    ``targets.<TARGET>.compiler.libs`` from the named profile preset.
+    Existing values for that target are overwritten.
+
+    Known profiles: msvc6, msvc7, clang, gcc.
+    """
+    # Import profile presets from init (single source of truth)
+    from rebrew.init import COMPILER_DEFAULTS
+
+    known = sorted(COMPILER_DEFAULTS)
+    if profile not in COMPILER_DEFAULTS:
+        error_exit(f"Unknown compiler profile '{profile}'. Valid profiles: {', '.join(known)}")
+
+    doc, toml_path = _load_toml()
+    target_name = _resolve_target(doc, target)
+
+    preset = COMPILER_DEFAULTS[profile]
+
+    targets_table: Any = doc["targets"]
+    tgt: Any = targets_table[target_name]
+
+    compiler_tbl = tgt.get("compiler")
+    if compiler_tbl is None:
+        compiler_tbl = tomlkit.table()
+        tgt["compiler"] = compiler_tbl
+
+    compiler_tbl["command"] = preset["command"]
+    compiler_tbl["includes"] = preset["includes"]
+    compiler_tbl["libs"] = preset["libs"]
+
+    _save_toml(doc, toml_path)
+    console.print(f'[green]Set compiler profile "{profile}" on target "{target_name}".[/green]')
+    console.print(f"  command  = {preset['command']}")
+    console.print(f"  includes = {preset['includes']}")
+    console.print(f"  libs     = {preset['libs']}")
+
+
 @app.command("detect-crt")
 def detect_crt(
     write: bool = typer.Option(
