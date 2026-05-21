@@ -568,3 +568,76 @@ class TestBuildDbTargetFiltering:
 
         with pytest.raises(ClickExit):
             build_db(tmp_path, target="nonexistent")
+
+
+# ---------------------------------------------------------------------------
+# E6: --force recreates on schema-version mismatch
+# ---------------------------------------------------------------------------
+
+
+def _write_stale_db(db_path: "Path", stale_version: str = "0") -> None:
+    """Write a minimal DB with an outdated db_version stamp."""
+    import sqlite3 as _sqlite3
+
+    conn = _sqlite3.connect(db_path)
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS metadata (
+            target TEXT NOT NULL,
+            key TEXT NOT NULL,
+            value TEXT,
+            PRIMARY KEY (target, key)
+        )
+    """)
+    c.execute(
+        "INSERT OR REPLACE INTO metadata VALUES (?, ?, ?)",
+        ("_schema", "db_version", json.dumps(stale_version)),
+    )
+    conn.commit()
+    conn.close()
+
+
+class TestBuildDbForceFlag:
+    """Verify --force behaviour on schema-version mismatch."""
+
+    def test_mismatch_without_force_raises(self, tmp_path: Path) -> None:
+        """A stale DB without --force must raise Exit (error message)."""
+        from click.exceptions import Exit as ClickExit
+
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        (db_dir / "data_testbin.json").write_text(json.dumps(SAMPLE_DATA), encoding="utf-8")
+
+        db_path = db_dir / "coverage.db"
+        _write_stale_db(db_path, stale_version="0")
+
+        with pytest.raises(ClickExit):
+            build_db(tmp_path, force=False)
+
+    def test_mismatch_with_force_recreates(self, tmp_path: Path) -> None:
+        """With --force the stale DB is deleted and rebuilt from scratch."""
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        (db_dir / "data_testbin.json").write_text(json.dumps(SAMPLE_DATA), encoding="utf-8")
+
+        db_path = db_dir / "coverage.db"
+        _write_stale_db(db_path, stale_version="0")
+
+        build_db(tmp_path, force=True)
+
+        # DB must exist and have the current version
+        assert db_path.exists()
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        c.execute("SELECT value FROM metadata WHERE key = 'db_version' LIMIT 1")
+        row = c.fetchone()
+        conn.close()
+        assert row is not None
+        assert json.loads(row[0]) == "3"
+
+    def test_no_mismatch_force_not_needed(self, project_root: Path) -> None:
+        """When schema matches, build proceeds without --force (no error)."""
+        build_db(project_root)  # Creates with current version
+        # Second run: schema matches — should not error even without --force
+        build_db(project_root, force=False)
+        assert (project_root / "db" / "coverage.db").exists()
