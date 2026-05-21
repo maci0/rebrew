@@ -430,6 +430,31 @@ class TestApplyCommandsViaMcp:
         assert success == 0
         assert errors == 1
 
+    def test_malformed_tool_response_counts_as_failure(self, monkeypatch) -> None:
+        responses = [
+            _FakeResponse('{"jsonrpc":"2.0","id":0,"result":{}}', {"mcp-session-id": "abc"}),
+            _FakeResponse('{"jsonrpc":"2.0","result":{}}'),
+            _FakeResponse("not valid json"),
+        ]
+        monkeypatch.setattr(
+            "rebrew.ghidra.client.httpx.Client", lambda timeout: _FakeClient(responses, timeout)
+        )
+        monkeypatch.setattr("rebrew.ghidra.client.httpx.HTTPError", _FakeHTTPError)
+
+        commands = [
+            {
+                "tool": "create-label",
+                "args": {
+                    "programPath": "/server.dll",
+                    "addressOrSymbol": "0x00001000",
+                    "labelName": "game_pool_alloc",
+                },
+            }
+        ]
+        success, errors = apply_commands_via_mcp(commands)
+        assert success == 0
+        assert errors == 1
+
 
 class TestBuildSyncCommandsData:
     def test_skips_create_function_for_data(self) -> None:

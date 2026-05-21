@@ -149,8 +149,7 @@ Each successful match becomes context for harder functions — creating a
 
 Decide on the origin categories for your binary and configure them in `rebrew-project.toml`.
 For a typical game DLL, the origins might be `GAME`, `MSVCRT`, and `ZLIB`. Define
-your own via the `origins`, `library_origins`, `cflags_presets`, and
-`origin_comments` config keys.
+your own via the `origins`, `library_modules`, and `cflags_presets` config keys.
 
 The `.c` file contains **only the marker line**:
 

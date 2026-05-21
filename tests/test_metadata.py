@@ -259,15 +259,22 @@ class TestDeleteField:
 
     def test_noop_on_missing_key(self, tmp_path: Path) -> None:
         save_metadata(tmp_path, {("SERVER", 0x01006364): {"size": 80, "status": "NEAR_MATCHING"}})
-        # Should not raise
         _delete_field(tmp_path, 0x01006364, "blocker", module="SERVER")
+        # Existing fields untouched.
+        entry = get_entry(tmp_path, 0x01006364, module="SERVER")
+        assert entry["size"] == 80
+        assert entry["status"] == "NEAR_MATCHING"
 
     def test_noop_on_missing_va(self, tmp_path: Path) -> None:
         save_metadata(tmp_path, {("SERVER", 0x01006364): {"size": 80}})
-        _delete_field(tmp_path, 0x99999999, "status", module="SERVER")  # no-op
+        _delete_field(tmp_path, 0x99999999, "status", module="SERVER")
+        # Untouched key still has its original field.
+        assert get_entry(tmp_path, 0x01006364, module="SERVER")["size"] == 80
 
     def test_noop_when_no_file(self, tmp_path: Path) -> None:
-        _delete_field(tmp_path, 0x01006364, "status", module="SERVER")  # no error
+        _delete_field(tmp_path, 0x01006364, "status", module="SERVER")
+        # No metadata file is created on a no-op delete.
+        assert not (tmp_path / METADATA_FILENAME).exists()
 
 
 # ---------------------------------------------------------------------------

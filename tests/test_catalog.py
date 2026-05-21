@@ -221,6 +221,25 @@ class TestGenerateDataJson:
         assert data["summary"]["exactMatches"] == 0
         assert len(data["functions"]) == 0
 
+    def test_near_matching_status_counted(self) -> None:
+        entries = [
+            Annotation(
+                va=0x10001000,
+                name="func_a",
+                status="NEAR_MATCHING",
+                size=64,
+                symbol="_func_a",
+                filepath="/src/func_a.c",
+                cflags="/O2",
+                marker_type="FUNCTION",
+            ),
+        ]
+        funcs = [make_func_entry(0x10001000, 64, "_func_a")]
+        data = generate_data_json(entries, funcs, text_size=1000)
+
+        assert data["summary"]["nearMatchCount"] == 1
+        assert data["summary"]["stubCount"] == 0
+
 
 # -------------------------------------------------------------------------
 # parse_function_list (additional cases)

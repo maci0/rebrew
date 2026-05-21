@@ -19,6 +19,7 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Final
 
+from rebrew.cli import MIN_VALID_VA
 from rebrew.utils import atomic_write_text
 
 logger = logging.getLogger(__name__)
@@ -147,7 +148,12 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
     lines = text.splitlines(keepends=True)
     marker_indexes: list[int] = []
     for idx, line in enumerate(lines):
-        if NEW_FUNC_CAPTURE_RE.match(line.strip()):
+        # Marker regex requires a leading `//` — quick reject avoids the
+        # `.strip()` + regex on the vast majority of source lines.
+        stripped = line.lstrip()
+        if not stripped.startswith("//"):
+            continue
+        if NEW_FUNC_CAPTURE_RE.match(stripped.rstrip()):
             marker_indexes.append(idx)
 
     if not marker_indexes:
@@ -405,8 +411,6 @@ class Annotation:
             errors.append(
                 f"Multiple annotations found on the same line: '{self.inline_error}' (please separate them into different lines)"
             )
-
-        from rebrew.cli import MIN_VALID_VA
 
         if self.va < MIN_VALID_VA:
             errors.append(f"VA 0x{self.va:x} is suspicious (below 0x{MIN_VALID_VA:x})")
@@ -744,8 +748,12 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
         if not stripped:
             continue
 
+        # Fast pre-filter: marker/KV/hint regexes all start with `//`; most
+        # source lines are C code and can skip the regex calls entirely.
+        is_comment = stripped.startswith("//")
+
         # Check for marker
-        m = NEW_FUNC_CAPTURE_RE.match(stripped)
+        m = NEW_FUNC_CAPTURE_RE.match(stripped) if is_comment else None
         if m:
             new_type = m.group("type")
             # If we already found a code-bearing marker (FUNCTION/LIBRARY/STUB),
@@ -766,7 +774,7 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
             continue
 
         # Check for key-value
-        m2 = NEW_KV_RE.match(stripped)
+        m2 = NEW_KV_RE.match(stripped) if is_comment else None
         if m2:
             key = m2.group("key").upper()
             val = m2.group("value").strip()
@@ -774,7 +782,7 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
             continue
 
         # Check for function name hint: bare "// FunctionName" after marker
-        if in_annotation_block and "_FUNC_NAME_HINT" not in kv:
+        if is_comment and in_annotation_block and "_FUNC_NAME_HINT" not in kv:
             m3 = FUNC_NAME_HINT_RE.match(stripped)
             if m3:
                 kv["_FUNC_NAME_HINT"] = m3.group("name")
@@ -887,8 +895,12 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
         if not stripped:
             continue
 
+        # Fast pre-filter: marker/KV/hint regexes all require a leading `//`;
+        # most C source lines are code and can skip the regex calls entirely.
+        is_comment = stripped.startswith("//")
+
         # Check for a new marker line (starts a new block)
-        m = NEW_FUNC_CAPTURE_RE.match(stripped)
+        m = NEW_FUNC_CAPTURE_RE.match(stripped) if is_comment else None
         if m and m.group("type") in ("FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"):
             # Save pending KV before flush (flush clears pending_kv)
             saved_pending = dict(pending_kv)
@@ -908,7 +920,7 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
             continue
 
         # Collect key-value lines
-        m2 = NEW_KV_RE.match(stripped)
+        m2 = NEW_KV_RE.match(stripped) if is_comment else None
         if m2:
             key = m2.group("key").upper()
             val = m2.group("value").strip()
@@ -921,7 +933,7 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
             continue
 
         # Check for function name hint: bare "// FunctionName" after marker
-        if current_marker_type is not None and not seen_code_after_marker:
+        if is_comment and current_marker_type is not None and not seen_code_after_marker:
             m3 = FUNC_NAME_HINT_RE.match(stripped)
             if m3 and "_FUNC_NAME_HINT" not in current_kv:
                 current_kv["_FUNC_NAME_HINT"] = m3.group("name")

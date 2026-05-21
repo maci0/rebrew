@@ -36,7 +36,7 @@ def generate_catalog(
             exact_count += 1
         elif "RELOC" in statuses:
             reloc_count += 1
-        elif "STUB" in statuses and "NEAR_MATCHING" not in statuses:
+        elif "STUB" in statuses and not statuses.intersection({"NEAR_MATCHING", "NEAR_MATCH"}):
             stub_count += 1
 
     # Coverage bytes

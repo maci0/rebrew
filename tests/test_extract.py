@@ -1,9 +1,13 @@
 """Tests for rebrew.extract — candidate list building and show command."""
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
+
+import pytest
+import typer
 
 from rebrew.extract import cmd_extract, detect_reversed_vas, load_functions
 
@@ -150,3 +154,27 @@ class TestCmdExtractSizeOverride:
             )
 
         assert extracted == [(0x1000, 64)]
+
+
+class TestCmdExtractErrors:
+    def test_missing_va_exits_nonzero_in_json_mode(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        cfg = _make_cfg(tmp_path)
+        mock_binary = MagicMock()
+
+        with pytest.raises(typer.Exit) as exc_info:
+            cmd_extract(
+                mock_binary,
+                [(0x2000, 50, "func_b")],
+                0x1000,
+                tmp_path / "bin",
+                cfg=cfg,  # type: ignore[arg-type]
+                json_output=True,
+            )
+
+        assert exc_info.value.exit_code == 1
+        captured = capsys.readouterr()
+        payload = json.loads(captured.out)
+        assert payload["status"] == "ERROR"
+        assert "0x00001000" in payload["error"]

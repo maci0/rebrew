@@ -176,6 +176,22 @@ class TestMergeBasic:
         assert "inputs" in payload
         assert "vas" in payload
 
+    def test_delete_json_requires_force(self, tmp_path: Path, monkeypatch: Any) -> None:
+        a = _write(tmp_path / "a.c", _single(0x10001000, "_a"))
+        b = _write(tmp_path / "b.c", _single(0x10002000, "_b"))
+        out = tmp_path / "merged.c"
+        monkeypatch.setattr(
+            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
+
+        result = runner.invoke(app, ["--output", str(out), "--delete", "--json", str(a), str(b)])
+
+        assert result.exit_code != 0
+        assert "Pass --force" in result.output
+        assert a.exists()
+        assert b.exists()
+        assert not out.exists()
+
     def test_preserves_all_annotation_keys(self, tmp_path: Path, monkeypatch: Any) -> None:
         extra = (
             "// BLOCKER: manual\n"

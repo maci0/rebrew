@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import rebrew.wibo as wibo_mod
 from rebrew.doctor import _PASS, _WARN, check_runner
 from rebrew.wibo import _WIBO_API_URL, _wibo_asset_name, download_wibo, ensure_wibo, find_wibo
 
@@ -157,6 +158,66 @@ class TestDownloadWibo:
 
         with pytest.raises(RuntimeError, match="asset not found"):
             download_wibo(dest)
+
+    def test_invalid_release_json_has_context(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        dest = tmp_path / "tools" / "wibo"
+        monkeypatch.setattr(
+            "rebrew.wibo.httpx.get",
+            lambda _url, **kwargs: _FakeHTTPResponse("{not json"),
+        )
+
+        with pytest.raises(RuntimeError, match="Invalid JSON in wibo release metadata"):
+            download_wibo(dest)
+
+    def test_temp_fd_closed_when_fdopen_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        dest = tmp_path / "tools" / "wibo"
+        fake_binary = b"fake-wibo-binary"
+        digest = hashlib.sha256(fake_binary).hexdigest()
+        payload = json.dumps(
+            {
+                "tag_name": "v0.9.0",
+                "assets": [
+                    {
+                        "name": "wibo-x86_64",
+                        "browser_download_url": "https://example.invalid/wibo-x86_64",
+                        "digest": f"sha256:{digest}",
+                    }
+                ],
+            }
+        )
+
+        monkeypatch.setattr(sys, "platform", "linux", raising=False)
+        monkeypatch.setattr("platform.machine", lambda: "x86_64")
+
+        def _fake_httpx_get(url: str, **kwargs: object) -> _FakeHTTPResponse:
+            if url == _WIBO_API_URL:
+                return _FakeHTTPResponse(payload)
+            return _FakeHTTPResponse(fake_binary)
+
+        real_close = wibo_mod.os.close
+        closed_fds: list[int] = []
+
+        def _fake_fdopen(_fd: int, _mode: str) -> object:
+            raise OSError("fdopen failed")
+
+        def _recording_close(fd: int) -> None:
+            closed_fds.append(fd)
+            real_close(fd)
+
+        monkeypatch.setattr("rebrew.wibo.httpx.get", _fake_httpx_get)
+        monkeypatch.setattr("rebrew.wibo.os.fdopen", _fake_fdopen)
+        monkeypatch.setattr("rebrew.wibo.os.close", _recording_close)
+
+        with pytest.raises(OSError, match="fdopen failed"):
+            download_wibo(dest)
+
+        assert closed_fds
+        assert not dest.exists()
+        assert not list(dest.parent.glob(".wibo_*"))
 
 
 class TestEnsureWibo:

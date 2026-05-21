@@ -1,5 +1,6 @@
 """Tests for rebrew-cfg (programmatic config editor)."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -42,6 +43,23 @@ GAME = "/O2 /Gd"
 MSVCRT = "/O1"
 """
 
+TOML_WITH_DEFAULT_TARGET = """\
+[project]
+default_target = "client"
+
+[targets.server]
+binary = "server.exe"
+format = "pe"
+arch = "x86_32"
+reversed_dir = "src/server"
+
+[targets.client]
+binary = "client.exe"
+format = "pe"
+arch = "x86_32"
+reversed_dir = "src/client"
+"""
+
 
 def _make_project(tmp_path: Path, toml_content: str = SAMPLE_TOML) -> Path:
     (tmp_path / "rebrew-project.toml").write_text(toml_content, encoding="utf-8")
@@ -77,6 +95,11 @@ class TestResolveTarget:
         root = _make_project(tmp_path)
         doc, _ = _load_toml(root)
         assert _resolve_target(doc, None) == "server.dll"
+
+    def test_project_default_target(self, tmp_path: Path) -> None:
+        root = _make_project(tmp_path, TOML_WITH_DEFAULT_TARGET)
+        doc, _ = _load_toml(root)
+        assert _resolve_target(doc, None) == "client"
 
     def test_explicit_target(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
@@ -394,6 +417,15 @@ class TestCLIListTargets:
         assert result.exit_code == 0
         assert "No targets defined" in result.output
 
+    def test_list_targets_marks_project_default(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path, TOML_WITH_DEFAULT_TARGET)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["list-targets", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        defaults = [item["name"] for item in data["targets"] if item["default"]]
+        assert defaults == ["client"]
+
 
 class TestCLIShow:
     def test_show_all(self, tmp_path: Path, monkeypatch) -> None:
@@ -630,6 +662,13 @@ class TestCLIDump:
         result = runner.invoke(cfg_app, ["raw", "--format", "toml"])
         assert result.exit_code == 0
         assert "[compiler]" in result.output
+
+    def test_dump_unknown_format_rejected(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["raw", "--format", "yaml"])
+        assert result.exit_code != 0
+        assert "Unknown format" in result.output
 
 
 class TestCLIPath:

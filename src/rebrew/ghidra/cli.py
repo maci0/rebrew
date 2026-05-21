@@ -440,8 +440,17 @@ def main(
             raise typer.Exit(code=EXIT_MISMATCH)
 
     if refresh_cache:
-        _refresh_structure_cache(cfg, endpoint, program_path, dry_run, json_output)
-        _refresh_data_labels_cache(cfg, endpoint, program_path, dry_run, json_output)
+        functions = _refresh_structure_cache(cfg, endpoint, program_path, dry_run, json_output)
+        data_labels = _refresh_data_labels_cache(cfg, endpoint, program_path, dry_run, json_output)
+        if json_output:
+            json_print(
+                {
+                    "functions": functions,
+                    "data_labels": data_labels,
+                    "function_count": len(functions),
+                    "data_label_count": len(data_labels),
+                }
+            )
 
     if sync_sizes or sync_new_functions:
         # Build registry to compare function list vs ghidra sizes
@@ -495,7 +504,7 @@ def _refresh_structure_cache(
     program_path: str,
     dry_run: bool,
     json_output: bool,
-) -> None:
+) -> list[dict[str, Any]]:
     """Fetch all functions from Ghidra MCP and write function_structure.json."""
     reversed_dir = cfg.reversed_dir
     out_path = reversed_dir / FUNCTION_STRUCTURE_JSON
@@ -532,16 +541,16 @@ def _refresh_structure_cache(
     console.print(f"  Fetched {len(entries)} functions")
 
     if json_output:
-        json_print(entries)
-        return
+        return entries
 
     if dry_run:
         console.print(f"  Would write {len(entries)} entries to {out_path}")
-        return
+        return entries
 
     reversed_dir.mkdir(parents=True, exist_ok=True)
     atomic_write_text(out_path, json.dumps(entries, indent=2) + "\n")
     console.print(f"  Wrote {out_path}")
+    return entries
 
 
 def _refresh_data_labels_cache(
@@ -550,7 +559,7 @@ def _refresh_data_labels_cache(
     program_path: str,
     dry_run: bool,
     json_output: bool,
-) -> None:
+) -> list[Any]:
     """Fetch all data labels from Ghidra MCP and write ghidra_data_labels.json."""
     from rebrew.ghidra.client import fetch_all_symbols
 
@@ -568,16 +577,16 @@ def _refresh_data_labels_cache(
     console.print(f"  Fetched {len(raw_syms)} symbols")
 
     if json_output:
-        json_print(raw_syms)
-        return
+        return raw_syms
 
     if dry_run:
         console.print(f"  Would write {len(raw_syms)} entries to {out_path}")
-        return
+        return raw_syms
 
     reversed_dir.mkdir(parents=True, exist_ok=True)
     atomic_write_text(out_path, json.dumps(raw_syms, indent=2) + "\n")
     console.print(f"  Wrote {out_path}")
+    return raw_syms
 
 
 def main_entry() -> None:

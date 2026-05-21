@@ -15,12 +15,62 @@ import typer
 from rich.console import Console
 
 from rebrew.cli import TargetOption, error_exit, json_print
+from rebrew.config import load_config
 from rebrew.utils import atomic_write_text
 
 console = Console(stderr=True)
 
 
-_CURRENT_DB_VERSION = "3"
+_CURRENT_DB_VERSION = "4"
+_SQLITE_TIMEOUT_SECONDS = 30.0
+
+
+def _parse_int(value: Any, default: int = 0) -> int:
+    """Parse an integer from JSON-ish input, returning *default* on invalid values."""
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value, 0)
+        except ValueError:
+            return default
+    return default
+
+
+def _normalize_cell_row(
+    target_name: str, sec_name: str, cell: dict[str, Any]
+) -> tuple[str, str, int, int, int, str, str, str | None, str | None]:
+    """Return a DB-safe cell row from generated coverage JSON."""
+    start = max(0, _parse_int(cell.get("start"), 0))
+    end = max(start, _parse_int(cell.get("end"), start))
+    span = max(1, _parse_int(cell.get("span"), 1))
+    state = str(cell.get("state") or "none")
+    functions = cell.get("functions", [])
+    if not isinstance(functions, list):
+        functions = []
+    label = cell.get("label")
+    parent_function = cell.get("parent_function")
+    return (
+        target_name,
+        sec_name,
+        start,
+        end,
+        span,
+        state,
+        json.dumps(functions),
+        str(label) if label is not None else None,
+        str(parent_function) if parent_function is not None else None,
+    )
+
+
+def _resolve_db_dir(root_dir: Path, *, json_output: bool = False) -> Path:
+    """Return the configured database directory, falling back when no config exists."""
+    if not (root_dir / "rebrew-project.toml").exists():
+        return root_dir / "db"
+    try:
+        return load_config(root_dir).db_dir
+    except (FileNotFoundError, KeyError, ValueError, TypeError) as exc:
+        error_exit(f"Config error: {exc}", json_mode=json_output)
 
 
 def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool = False) -> None:
@@ -32,11 +82,10 @@ def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool =
     if not db_path.exists():
         return
     try:
-        conn = sqlite3.connect(db_path)
-        c = conn.cursor()
-        c.execute("SELECT value FROM metadata WHERE key = 'db_version' LIMIT 1")
-        row = c.fetchone()
-        conn.close()
+        with contextlib.closing(sqlite3.connect(db_path, timeout=_SQLITE_TIMEOUT_SECONDS)) as conn:
+            c = conn.cursor()
+            c.execute("SELECT value FROM metadata WHERE key = 'db_version' LIMIT 1")
+            row = c.fetchone()
         if row is None:
             stored_version = "<unknown>"
         else:
@@ -69,9 +118,9 @@ def build_db(
     json_output: bool = False,
     force: bool = False,
 ) -> None:
-    """Aggregate ``data_*.json`` files into ``db/coverage.db``."""
+    """Aggregate ``data_*.json`` files into the configured coverage database."""
     root_dir = Path(project_root).resolve() if project_root else Path.cwd().resolve()
-    db_dir = root_dir / "db"
+    db_dir = _resolve_db_dir(root_dir, json_output=json_output)
     db_dir.mkdir(parents=True, exist_ok=True)
     db_path = db_dir / "coverage.db"
 
@@ -79,9 +128,11 @@ def build_db(
 
     conn: sqlite3.Connection | None = None
     try:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=_SQLITE_TIMEOUT_SECONDS)
         c: sqlite3.Cursor = conn.cursor()
-        # Enable WAL mode for better concurrency during regen
+        # WAL + relaxed sync trade durability for throughput on a rebuildable
+        # cache DB; foreign_keys=ON enforces the cells→sections cascade.
+        c.execute("PRAGMA foreign_keys=ON")
         c.execute("PRAGMA journal_mode=WAL")
         c.execute("PRAGMA synchronous=NORMAL")
         c.execute("PRAGMA cache_size=-64000")
@@ -97,33 +148,36 @@ def build_db(
         # Start an exclusive transaction
         c.execute("BEGIN IMMEDIATE")
 
+        c.execute("DROP VIEW IF EXISTS section_cell_stats")
+        c.execute("DROP TABLE IF EXISTS cells")
         c.execute("DROP TABLE IF EXISTS functions")
         c.execute("""
             CREATE TABLE functions (
                 target TEXT NOT NULL,
-                va INTEGER NOT NULL,
-                name TEXT,
-                vaStart TEXT,
-                size INTEGER,
-                fileOffset INTEGER,
-                status TEXT,
-                module TEXT,
+                va INTEGER NOT NULL CHECK (va >= 0),
+                name TEXT NOT NULL DEFAULT '',
+                vaStart TEXT NOT NULL DEFAULT '',
+                size INTEGER CHECK (size IS NULL OR size >= 0),
+                fileOffset INTEGER CHECK (fileOffset IS NULL OR fileOffset >= 0),
+                status TEXT NOT NULL DEFAULT 'UNKNOWN',
+                module TEXT NOT NULL DEFAULT '',
                 cflags TEXT,
                 symbol TEXT,
-                markerType TEXT,
+                markerType TEXT NOT NULL DEFAULT 'FUNCTION'
+                    CHECK (markerType IN ('FUNCTION', 'LIBRARY', 'STUB', 'GLOBAL', 'DATA')),
                 ghidra_name TEXT,
                 list_name TEXT,
-                is_thunk BOOLEAN NOT NULL DEFAULT 0 CHECK (is_thunk IN (0, 1)),
-                is_export BOOLEAN NOT NULL DEFAULT 0 CHECK (is_export IN (0, 1)),
+                is_thunk INTEGER NOT NULL DEFAULT 0 CHECK (is_thunk IN (0, 1)),
+                is_export INTEGER NOT NULL DEFAULT 0 CHECK (is_export IN (0, 1)),
                 sha256 TEXT,
-                files TEXT,
-                detected_by TEXT,
-                size_by_tool TEXT,
-                textOffset INTEGER,
+                files TEXT NOT NULL DEFAULT '[]',
+                detected_by TEXT NOT NULL DEFAULT '[]',
+                size_by_tool TEXT NOT NULL DEFAULT '{}',
+                textOffset INTEGER CHECK (textOffset IS NULL OR textOffset >= 0),
                 blocker TEXT,
-                blockerDelta INTEGER,
+                blockerDelta INTEGER CHECK (blockerDelta IS NULL OR blockerDelta >= 0),
                 size_reason TEXT,
-                similarity REAL,
+                similarity REAL CHECK (similarity IS NULL OR (similarity >= 0.0 AND similarity <= 1.0)),
                 PRIMARY KEY (target, va)
             )
         """)
@@ -132,12 +186,12 @@ def build_db(
         c.execute("""
             CREATE TABLE globals (
                 target TEXT NOT NULL,
-                va INTEGER NOT NULL,
-                name TEXT,
-                decl TEXT,
-                files TEXT,
-                module TEXT,
-                size INTEGER,
+                va INTEGER NOT NULL CHECK (va >= 0),
+                name TEXT NOT NULL DEFAULT '',
+                decl TEXT NOT NULL DEFAULT '',
+                files TEXT NOT NULL DEFAULT '[]',
+                module TEXT NOT NULL DEFAULT '',
+                size INTEGER NOT NULL DEFAULT 4 CHECK (size >= 0),
                 PRIMARY KEY (target, va)
             )
         """)
@@ -147,28 +201,30 @@ def build_db(
             CREATE TABLE sections (
                 target TEXT NOT NULL,
                 name TEXT NOT NULL,
-                va INTEGER,
-                size INTEGER,
-                fileOffset INTEGER,
-                unitBytes INTEGER,
-                columns INTEGER,
+                va INTEGER CHECK (va IS NULL OR va >= 0),
+                size INTEGER CHECK (size IS NULL OR size >= 0),
+                fileOffset INTEGER CHECK (fileOffset IS NULL OR fileOffset >= 0),
+                unitBytes INTEGER CHECK (unitBytes IS NULL OR unitBytes > 0),
+                columns INTEGER CHECK (columns IS NULL OR columns > 0),
                 PRIMARY KEY (target, name)
             )
         """)
 
-        c.execute("DROP TABLE IF EXISTS cells")
         c.execute("""
             CREATE TABLE cells (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 target TEXT NOT NULL,
                 section_name TEXT NOT NULL,
-                start INTEGER,
-                end INTEGER,
-                span INTEGER,
+                start INTEGER NOT NULL CHECK (start >= 0),
+                end INTEGER NOT NULL CHECK (end >= start),
+                span INTEGER NOT NULL DEFAULT 1 CHECK (span > 0),
                 state TEXT NOT NULL,
-                functions TEXT,
+                functions TEXT NOT NULL DEFAULT '[]',
                 label TEXT,
-                parent_function TEXT
+                parent_function TEXT,
+                FOREIGN KEY (target, section_name)
+                    REFERENCES sections(target, name)
+                    ON DELETE CASCADE
             )
         """)
 
@@ -218,7 +274,6 @@ def build_db(
         """)
 
         # Create views for pre-computed aggregate stats (used by both UIs)
-        c.execute("DROP VIEW IF EXISTS section_cell_stats")
         c.execute("""
             CREATE VIEW section_cell_stats AS
             SELECT
@@ -227,7 +282,7 @@ def build_db(
                 COUNT(*) as total_cells,
                 SUM(CASE WHEN state = 'exact' THEN 1 ELSE 0 END) as exact_count,
                 SUM(CASE WHEN state = 'reloc' THEN 1 ELSE 0 END) as reloc_count,
-                SUM(CASE WHEN state = 'near_match' THEN 1 ELSE 0 END) as near_match_count,
+                SUM(CASE WHEN state IN ('near_match', 'near_matching') THEN 1 ELSE 0 END) as near_match_count,
                 SUM(CASE WHEN state = 'stub' THEN 1 ELSE 0 END) as stub_count,
                 SUM(CASE WHEN state = 'padding' THEN 1 ELSE 0 END) as padding_count,
                 SUM(CASE WHEN state = 'data' THEN 1 ELSE 0 END) as data_count,
@@ -238,12 +293,12 @@ def build_db(
         """)
 
         # Process data_*.json files, optionally filtered by target
-        json_files = list((root_dir / "db").glob("data_*.json"))
+        json_files = list(db_dir.glob("data_*.json"))
         if target:
             json_files = [f for f in json_files if f.stem.removeprefix("data_") == target]
         if not json_files:
             error_exit(
-                "No data_*.json files found in db/. Run 'rebrew catalog --json' first.",
+                f"No data_*.json files found in {db_dir}. Run 'rebrew catalog --json' first.",
                 json_mode=json_output,
             )
 
@@ -273,23 +328,24 @@ def build_db(
                         except ValueError:
                             va_int = 0
 
+                va_start_text = str(fn.get("vaStart") or (f"0x{va_int:08x}" if va_int else ""))
                 fn_rows.append(
                     (
                         target_name,
                         va_int,
-                        fn.get("name"),
-                        fn.get("vaStart"),
+                        str(fn.get("name") or ""),
+                        va_start_text,
                         fn.get("size"),
                         fn.get("fileOffset"),
-                        fn.get("status"),
-                        fn.get("module"),
+                        str(fn.get("status") or "UNKNOWN"),
+                        str(fn.get("module") or fn.get("origin") or ""),
                         fn.get("cflags"),
                         fn.get("symbol"),
-                        fn.get("markerType"),
+                        str(fn.get("markerType") or "FUNCTION"),
                         fn.get("ghidra_name"),
                         fn.get("list_name"),
-                        fn.get("is_thunk", False),
-                        fn.get("is_export", False),
+                        int(bool(fn.get("is_thunk", False))),
+                        int(bool(fn.get("is_export", False))),
                         fn.get("sha256"),
                         json.dumps(fn.get("files", [])),
                         json.dumps(fn.get("detected_by", [])),
@@ -303,7 +359,12 @@ def build_db(
                 )
 
             c.executemany(
-                "INSERT INTO functions VALUES "
+                "INSERT INTO functions "
+                "(target, va, name, vaStart, size, fileOffset, status, module, cflags, "
+                "symbol, markerType, ghidra_name, list_name, is_thunk, is_export, sha256, "
+                "files, detected_by, size_by_tool, textOffset, blocker, blockerDelta, "
+                "size_reason, similarity) "
+                "VALUES "
                 "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 fn_rows,
             )
@@ -319,17 +380,18 @@ def build_db(
                     (
                         target_name,
                         va_int,
-                        g.get("name"),
-                        g.get("decl"),
+                        str(g.get("name") or ""),
+                        str(g.get("decl") or ""),
                         json.dumps(g.get("files", [])),
-                        g.get("module"),
-                        g.get("size", 4),
+                        str(g.get("module") or g.get("origin") or ""),
+                        g.get("size") if g.get("size") is not None else 4,
                     )
                 )
 
             c.executemany(
                 """
-                INSERT INTO globals VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO globals (target, va, name, decl, files, module, size)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
                 g_rows,
             )
@@ -356,9 +418,9 @@ def build_db(
                     for cell in sec.get("cells", []):
                         state = cell.get("state")
                         if state != "none":
-                            start = int(cell.get("start", 0) or 0)
-                            end = int(cell.get("end", 0) or 0)
-                            size = max(0, end - start)
+                            start = max(0, _parse_int(cell.get("start"), 0))
+                            end = max(start, _parse_int(cell.get("end"), start))
+                            size = end - start
                             covered_bytes += size
                             funcs = cell.get("functions", [])
                             total_items += len(funcs) if funcs else 0
@@ -369,7 +431,7 @@ def build_db(
                             elif state == "reloc":
                                 reloc_count += 1
                                 reloc_bytes += size
-                            elif state == "near_match":
+                            elif state in ("near_match", "near_matching"):
                                 near_match_count += 1
                                 near_match_bytes += size
                             elif state == "padding":
@@ -394,7 +456,8 @@ def build_db(
 
                 c.execute(
                     """
-                    INSERT INTO sections VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO sections (target, name, va, size, fileOffset, unitBytes, columns)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         target_name,
@@ -409,18 +472,9 @@ def build_db(
 
                 # Insert cells
                 cell_rows = [
-                    (
-                        target_name,
-                        sec_name,
-                        cell.get("start"),
-                        cell.get("end"),
-                        cell.get("span"),
-                        cell.get("state"),
-                        json.dumps(cell.get("functions", [])),
-                        cell.get("label"),
-                        cell.get("parent_function"),
-                    )
+                    _normalize_cell_row(target_name, sec_name, cell)
                     for cell in sec.get("cells", [])
+                    if isinstance(cell, dict)
                 ]
 
                 c.executemany(
@@ -510,7 +564,7 @@ def build_db(
             # Schema version stamp
             c.execute(
                 "INSERT OR REPLACE INTO metadata VALUES (?, ?, ?)",
-                (target_name, "db_version", json.dumps("3")),
+                (target_name, "db_version", json.dumps(_CURRENT_DB_VERSION)),
             )
 
         c.execute("COMMIT")
@@ -543,6 +597,7 @@ def _generate_catalogs(
 ) -> list[Path]:
     """Generate CATALOG.md files from DB data (DB is single source of truth)."""
     catalog_paths: list[Path] = []
+    db_dir = _resolve_db_dir(root_dir, json_output=json_output)
     c: sqlite3.Cursor = conn.cursor()
     c.execute("SELECT DISTINCT target FROM functions")
     targets = [row[0] for row in c.fetchall()]
@@ -638,7 +693,7 @@ def _generate_catalogs(
         catalog_text = "\n".join(lines) + "\n"
 
         # Write to reversed_dir if known, otherwise db/
-        out_dir = target_dirs.get(target_name, root_dir / "db")
+        out_dir = target_dirs.get(target_name, db_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
         catalog_path = out_dir / "CATALOG.md"
         atomic_write_text(catalog_path, catalog_text, encoding="utf-8")

@@ -44,7 +44,7 @@ app = typer.Typer(
         "  rebrew split src/game/funcs.c · · · · · · · · Split all functions into individual files\n\n"
         "  rebrew split src/game/funcs.c --va 0x10003da0 · Extract one function by VA\n\n"
         "  rebrew split src/game/funcs.c --dry-run · · · · Preview without writing files\n\n"
-        "  rebrew split src/game/funcs.c --output-dir out · Custom output directory\n\n"
+        "  rebrew split src/game/funcs.c --out-dir out · · Custom output directory\n\n"
         "  rebrew split src/game/funcs.c --force · · · · · Overwrite existing output files\n\n"
         "[dim]Each output file gets the shared preamble (includes, typedefs) plus one function. "
         "With --va, the function is extracted and removed from the original source.[/dim]"
@@ -208,6 +208,12 @@ def main(
         }
 
         if not dry_run and not force:
+            if json_output:
+                error_exit(
+                    "--va removes the extracted block from the source file. "
+                    "Pass --force to apply it in --json mode, or use --dry-run to preview.",
+                    json_mode=True,
+                )
             typer.confirm(
                 f"Extract will remove 0x{target_va:08x} from {source_path.name}. Continue?",
                 abort=True,

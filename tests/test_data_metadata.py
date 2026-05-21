@@ -208,7 +208,9 @@ class TestDeleteDataField:
         assert get_data_entry(tmp_path, 0x10025000, "SERVER")["size"] == 256
 
     def test_delete_missing_file_noop(self, tmp_path: Path) -> None:
-        delete_data_field(tmp_path, 0x10025000, "size", "SERVER")  # no-op, no crash
+        delete_data_field(tmp_path, 0x10025000, "size", "SERVER")
+        # Delete on a missing metadata file must not create one.
+        assert not (tmp_path / DATA_METADATA_FILENAME).exists()
 
     def test_delete_missing_va_noop(self, tmp_path: Path) -> None:
         save_data_metadata(tmp_path, {("SERVER", 0x10030000): {"size": 4}})

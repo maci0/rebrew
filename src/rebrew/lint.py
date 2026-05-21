@@ -28,7 +28,7 @@ from rebrew.annotation import (
     VALID_MARKERS,
     marker_for_module,
 )
-from rebrew.cli import EXIT_MISMATCH, TargetOption, json_print
+from rebrew.cli import EXIT_MISMATCH, TargetOption, iter_sources, json_print, rel_display_path
 from rebrew.config import ProjectConfig, load_config
 from rebrew.data_metadata import load_data_metadata
 from rebrew.metadata import load_metadata
@@ -37,7 +37,6 @@ console = Console(stderr=True)
 
 _HEADER_MARKER_RE = re.compile(r"//\s*(\w+):\s*(\S+)\s+(0x[0-9a-fA-F]+)")
 _SIZE_ANNOTATION_RE = re.compile(r"//\s*SIZE\s+0x[0-9a-fA-F]+")
-_MARKER_TYPE_RE = re.compile(r"//\s*(\w+):")
 
 
 @dataclass
@@ -108,6 +107,13 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
     for line_idx, line in enumerate(lines):
         stripped = line.strip()
         if not stripped:
+            continue
+
+        # Both NEW_FUNC_RE and NEW_KV_RE require a leading `//`; skip the
+        # regex calls on non-comment lines (the bulk of source files).
+        if not stripped.startswith("//"):
+            if in_block:
+                seen_code_after_marker = True
             continue
 
         if NEW_FUNC_RE.match(stripped):
@@ -189,8 +195,6 @@ def _check_E013_duplicate_va(
                 result.marker_line, "E013", f"Duplicate VA {va_str} — also in {seen_vas[va_int]}"
             )
         else:
-            from rebrew.cli import rel_display_path
-
             seen_vas[va_int] = rel_display_path(filepath)
 
 
@@ -603,8 +607,6 @@ def main(
         )
 
     reversed_dir = cfg.reversed_dir if cfg else None
-
-    from rebrew.cli import iter_sources
 
     ext = cfg.source_ext if cfg else ".c"
     if files:

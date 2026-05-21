@@ -1,3 +1,15 @@
+"""detect_cycles.py — find import cycles within the ``rebrew`` package.
+
+Parses every ``.py`` file under ``src/rebrew`` for top-level
+``import rebrew.*`` / ``from rebrew.* import ...`` references, builds a module
+dependency graph, and runs Tarjan's strongly-connected-components algorithm
+to report any cycles.
+
+Run from the repo root::
+
+    python tools/detect_cycles.py
+"""
+
 import ast
 import os
 from collections import defaultdict

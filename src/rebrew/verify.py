@@ -448,7 +448,7 @@ def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str,
 
 @app.callback(invoke_without_command=True)
 def main(
-    root: Path = typer.Option(
+    root: Path | None = typer.Option(
         None,
         "--root",
         help="Project root directory (auto-detected from rebrew-project.toml if omitted)",
@@ -457,10 +457,13 @@ def main(
         None,
         "--jobs",
         "-j",
-        help="Number of parallel compile jobs (default: from [project].jobs or 4)",
+        help="Number of parallel compile jobs (default: from project.jobs or 4)",
     ),
     output_path: str | None = typer.Option(
-        None, "--output", "-o", help="Write JSON report to file (default: db/verify_results.json)"
+        None,
+        "--output",
+        "-o",
+        help="Write JSON report to file (default: project db_dir/verify_results.json)",
     ),
     summary: bool = typer.Option(
         False,
@@ -485,11 +488,11 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Rebrew verification pipeline: compile each .c and verify bytes match."""
-    cfg = require_config(target=target, json_mode=json_output)
+    cfg = require_config(target=target, json_mode=json_output, root=root)
     if jobs is None:
         jobs = cfg.default_jobs
 
-    out_file = Path(output_path) if output_path else cfg.root / "db" / "verify_results.json"
+    out_file = Path(output_path) if output_path else cfg.db_dir / "verify_results.json"
     previous_report, diff_warning = _load_previous_report(out_file, diff_mode, json_output)
 
     unique_entries, passed, failed, fail_details, results, cached_count = prepare_entries(
@@ -669,12 +672,19 @@ def prepare_entries(
     registry = build_function_registry(funcs, cfg, ghidra_json_path)
 
     unique_vas = {e.va for e in entries}
-    ghidra_count = sum(1 for r in registry.values() if "ghidra" in r["detected_by"])
-    list_count = sum(1 for r in registry.values() if "list" in r["detected_by"])
-    both_count = sum(
-        1 for r in registry.values() if "ghidra" in r["detected_by"] and "list" in r["detected_by"]
-    )
-    thunk_count = sum(1 for r in registry.values() if r["is_thunk"])
+    ghidra_count = list_count = both_count = thunk_count = 0
+    for r in registry.values():
+        detected = r["detected_by"]
+        has_ghidra = "ghidra" in detected
+        has_list = "list" in detected
+        if has_ghidra:
+            ghidra_count += 1
+        if has_list:
+            list_count += 1
+        if has_ghidra and has_list:
+            both_count += 1
+        if r["is_thunk"]:
+            thunk_count += 1
     console.print(
         f"Found {len(entries)} annotations ({len(unique_vas)} unique VAs) "
         f"from {len(registry)} total functions "
