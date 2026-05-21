@@ -800,3 +800,58 @@ class TestCLIAddTargetMissingBinary:
         assert result.exit_code == 0
         doc, _ = _load_toml(tmp_path)
         assert "client" in doc["targets"]
+
+
+# ---------------------------------------------------------------------------
+# E3: set-compiler shortcut
+# ---------------------------------------------------------------------------
+
+
+class TestCLISetCompiler:
+    def test_set_compiler_msvc6(self, tmp_path: Path, monkeypatch) -> None:
+        """set-compiler writes command/includes/libs for known profile."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "msvc6"])
+        assert result.exit_code == 0
+        doc, _ = _load_toml(tmp_path)
+        compiler_tbl = doc["targets"]["server.dll"]["compiler"]
+        assert "CL.EXE" in compiler_tbl["command"]
+        assert "Include" in compiler_tbl["includes"] or "include" in compiler_tbl["includes"]
+
+    def test_set_compiler_gcc(self, tmp_path: Path, monkeypatch) -> None:
+        """set-compiler writes correct gcc profile."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "gcc"])
+        assert result.exit_code == 0
+        doc, _ = _load_toml(tmp_path)
+        assert doc["targets"]["server.dll"]["compiler"]["command"] == "gcc"
+
+    def test_set_compiler_unknown_profile_rejected(self, tmp_path: Path, monkeypatch) -> None:
+        """set-compiler rejects unknown profiles with a list of valid choices."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "boguscompiler"])
+        assert result.exit_code != 0
+        combined = result.output + (result.stderr or "")
+        assert "Unknown" in combined or "unknown" in combined
+        # Must list valid options
+        assert "msvc6" in combined or "gcc" in combined or "clang" in combined
+
+    def test_set_compiler_missing_target_rejected(self, tmp_path: Path, monkeypatch) -> None:
+        """set-compiler on a non-existent target must fail."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set-compiler", "nonexistent", "msvc6"])
+        assert result.exit_code != 0
+
+    def test_set_compiler_overwrites_existing(self, tmp_path: Path, monkeypatch) -> None:
+        """set-compiler replaces a previously set compiler stanza."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        runner.invoke(cfg_app, ["set-compiler", "server.dll", "gcc"])
+        result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "msvc6"])
+        assert result.exit_code == 0
+        doc, _ = _load_toml(tmp_path)
+        assert "CL.EXE" in doc["targets"]["server.dll"]["compiler"]["command"]
