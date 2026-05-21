@@ -501,24 +501,33 @@ _PROTO_RE = re.compile(
 )
 
 
-def _parse_prototype(proto: str) -> tuple[str, int]:
-    """Parse a C prototype string into (calling_convention, arg_count).
+def _parse_prototype(proto: str) -> tuple[str, int, int]:
+    """Parse a C prototype string into (calling_convention, arg_count, return_width_bits).
 
-    Returns ("cdecl", 0) as default if parsing fails.
+    Returns ("cdecl", 0, 32) as default if parsing fails.
+
+    ``return_width_bits`` is 64 when the return type is a 64-bit integer
+    (``long long``, ``__int64``, ``int64_t``, ``uint64_t``, or
+    ``long double`` — conservative), 32 otherwise.
     """
     m = _PROTO_RE.match(proto.strip())
     if not m:
-        return "cdecl", 0
+        return "cdecl", 0, 32
 
     cc = (m.group("cc") or "__cdecl").lstrip("_").lower()
     args_str = m.group("args").strip()
+    ret_type = (m.group("ret") or "").strip()
+
+    # Detect 64-bit return types
+    _64BIT_RETURN_TOKENS = ("long long", "__int64", "int64_t", "uint64_t", "long double")
+    return_width = 64 if any(tok in ret_type for tok in _64BIT_RETURN_TOKENS) else 32
 
     if not args_str or args_str.lower() == "void":
-        return cc, 0
+        return cc, 0, return_width
 
     # Count args by splitting on commas (handles pointer types with *)
     args = [a.strip() for a in args_str.split(",") if a.strip()]
-    return cc, len(args)
+    return cc, len(args), return_width
 
 
 # ---------------------------------------------------------------------------
@@ -539,6 +548,7 @@ def prove_equivalence(
     arg_constraints: dict[str, Any] | None = None,
     start_offset: int = 0,
     end_offset: int = 0,
+    check_edx: bool = False,
 ) -> tuple[bool, str]:
     """Prove semantic equivalence of two function byte blobs via symbolic execution.
 
@@ -554,6 +564,9 @@ def prove_equivalence(
         arg_constraints: Per-argument constraints from metadata (see _apply_arg_constraints).
         start_offset: Start byte offset within the function (for block-level proving).
         end_offset: End byte offset within the function (for block-level proving).
+        check_edx: Also compare EDX register in addition to EAX.  Auto-enabled
+            when the prototype's return type is 64-bit (``long long``, ``__int64``,
+            ``int64_t``, ``uint64_t``, ``long double``).
 
     Returns:
         (proven, message) — proven is True if semantic equivalence was proved.
@@ -585,7 +598,10 @@ def prove_equivalence(
         except Exception:  # noqa: BLE001
             log.debug("LIEF import scan failed (best-effort)", exc_info=True)
 
-    cc, arg_count = _parse_prototype(prototype)
+    cc, arg_count, return_width = _parse_prototype(prototype)
+
+    # Auto-enable EDX check when the return type is 64-bit (EDX:EAX pair)
+    check_edx = check_edx or (return_width == 64)
 
     # Create symbolic arguments
     sym_args = [claripy.BVS(f"arg_{i}", 32) for i in range(arg_count)]
@@ -826,23 +842,37 @@ def prove_equivalence(
     if not states_comp:
         return False, "No terminal states reached for compiled code (timeout or path explosion)"
 
-    # Compare EAX (return register) across all terminal state pairs
-    # For equivalence: for ALL pairs of (orig, comp) states, EAX must be provably equal
+    # TODO(E9 v2): also compare selected memory writes. Today we only check
+    # return registers (EAX, optionally EDX). Functions that write to globals
+    # or output-pointer arguments can be falsely promoted to PROVEN if their
+    # memory side effects differ. v2: thread a list of "watched" VAs through
+    # prove_equivalence and compare memory at those addresses across state pairs.
+
+    # Compare return register(s) across all terminal state pairs.
+    # For equivalence: for ALL pairs of (orig, comp) states, the checked
+    # registers must be provably equal.
+    # When check_edx is True (either via flag or 64-bit return auto-detection),
+    # EDX is included in the comparison (EDX:EAX = 64-bit return convention).
     for s_orig in states_orig:
         eax_orig = s_orig.regs.eax
+        edx_orig = s_orig.regs.edx
         can_differ = False  # True if we found at least one (orig, comp) pair that can differ
         for s_comp in states_comp:
             eax_comp = s_comp.regs.eax
+            edx_comp = s_comp.regs.edx
 
-            # Check if there exists an input that makes them differ
-            # Build constraint from both states' symbolic variables
+            # Check if there exists an input that makes them differ.
+            # Build constraint from both states' symbolic variables.
             solver = claripy.Solver()
             # Copy constraints from both states
             for expr in s_orig.solver.constraints:
                 solver.add(expr)
             for expr in s_comp.solver.constraints:
                 solver.add(expr)
-            solver.add(eax_orig != eax_comp)
+            if check_edx:
+                solver.add(claripy.Or(eax_orig != eax_comp, edx_orig != edx_comp))
+            else:
+                solver.add(eax_orig != eax_comp)
 
             if solver.satisfiable():
                 # Found an assignment where return values differ — not equivalent
@@ -850,13 +880,15 @@ def prove_equivalence(
                 break
 
         if can_differ:
+            regs_checked = "EAX+EDX" if check_edx else "EAX"
             return False, (
-                "Z3 found a satisfying assignment where return values differ "
+                f"Z3 found a satisfying assignment where {regs_checked} differs "
                 f"(checked {len(states_orig)} x {len(states_comp)} state pairs)"
             )
 
+    regs_checked = "EAX+EDX" if check_edx else "EAX"
     return True, (
-        f"Proven equivalent ({len(states_orig)} original state(s), "
+        f"Proven equivalent ({regs_checked}; {len(states_orig)} original state(s), "
         f"{len(states_comp)} compiled state(s))"
     )
 
@@ -942,6 +974,11 @@ def main(
     end_offset: int = typer.Option(
         0, "--end-offset", help="End byte offset within the function (0 = full function)"
     ),
+    check_edx: bool = typer.Option(
+        False,
+        "--check-edx",
+        help="Also compare EDX register (forced on when return type is 64-bit)",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -956,7 +993,7 @@ def main(
     cfg = require_config(target=target, json_mode=json_output)
 
     if all_sources:
-        _run_all_batch(cfg, timeout, loop_bound, dry_run, json_output)
+        _run_all_batch(cfg, timeout, loop_bound, dry_run, json_output, check_edx=check_edx)
         return
 
     if source is None:
@@ -1021,6 +1058,11 @@ def main(
     prototype = ann.prototype or ""
     arg_constraints = ann.prove_constraints if ann.prove_constraints else None
 
+    # Determine whether EDX will be checked — also detect from prototype
+    _cc, _nargs, return_width = _parse_prototype(prototype)
+    edx_auto_detected = (return_width == 64) and not check_edx
+    effective_check_edx = check_edx or (return_width == 64)
+
     # Run the prover
     if not json_output:
         console.print(
@@ -1029,6 +1071,9 @@ def main(
         )
         console.print(f"  Prototype: {prototype or '(none — assuming void f(void))'}")
         console.print(f"  Timeout: {timeout}s, loop bound: {loop_bound}")
+        if effective_check_edx:
+            note = " [dim](auto-detected 64-bit return)[/dim]" if edx_auto_detected else ""
+            console.print(f"  Registers: EAX+EDX{note}")
         if start_offset or end_offset:
             console.print(f"  Slice: [{start_offset}:{end_offset}] ({end_offset - start_offset}B)")
         if arg_constraints:
@@ -1045,6 +1090,7 @@ def main(
         arg_constraints=arg_constraints,
         start_offset=start_offset,
         end_offset=end_offset,
+        check_edx=check_edx,
     )
 
     # Build result
@@ -1058,7 +1104,10 @@ def main(
         "message": message,
         "target_bytes_len": len(target_bytes),
         "compiled_bytes_len": len(obj_bytes),
+        "check_edx": effective_check_edx,
     }
+    if edx_auto_detected:
+        result["auto_detected"] = True
     if start_offset or end_offset:
         result["slice"] = {"start": start_offset, "end": end_offset}
 
@@ -1108,6 +1157,7 @@ def _prove_single(
     *,
     start_offset: int = 0,
     end_offset: int = 0,
+    check_edx: bool = False,
 ) -> tuple[bool, str]:
     """Prove a single function and return (proven, message)."""
     symbol = resolve_symbol(ann, source_path)
@@ -1136,6 +1186,10 @@ def _prove_single(
     prototype = ann.prototype or ""
     arg_constraints = ann.prove_constraints if ann.prove_constraints else None
 
+    # Auto-enable EDX check based on prototype return width
+    _cc, _nargs, return_width = _parse_prototype(prototype)
+    effective_check_edx = check_edx or (return_width == 64)
+
     proven, message = prove_equivalence(
         target_bytes,
         obj_bytes,
@@ -1147,6 +1201,7 @@ def _prove_single(
         arg_constraints=arg_constraints,
         start_offset=start_offset,
         end_offset=end_offset,
+        check_edx=effective_check_edx,
     )
 
     if proven and not dry_run:
@@ -1163,6 +1218,8 @@ def _run_all_batch(
     loop_bound: int,
     dry_run: bool,
     json_output: bool,
+    *,
+    check_edx: bool = False,
 ) -> None:
     """Batch-prove all NEAR_MATCHING/RELOC functions."""
     sources = list(iter_sources(cfg.reversed_dir, cfg))
@@ -1214,6 +1271,7 @@ def _run_all_batch(
                 json_output,
                 start_offset=0,
                 end_offset=0,
+                check_edx=check_edx,
             )
         except Exception as e:  # noqa: BLE001
             log.debug("Prove failed for %s", src, exc_info=True)

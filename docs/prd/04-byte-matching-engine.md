@@ -206,9 +206,12 @@ rebrew prove [SOURCE]
 
 - The GA explores deterministic mutations; novel "creative" rewrites
   (e.g. changing data structures) require a human edit before re-seeding.
-- `rebrew prove` only checks `EAX` equivalence today (function return
-  register); functions with side effects in memory or other registers
-  may need manual verification.
+- `rebrew prove` now checks `EAX` by default and `EDX:EAX` when
+  `--check-edx` is passed or when the `PROTOTYPE` annotation declares a
+  64-bit return type (`long long`, `__int64`, `int64_t`, `uint64_t`).
+  EDX checking is auto-enabled from the prototype (E9 v1, partially addressed).
+  Remaining work: memory side-effect checking — functions that write to globals
+  or output-pointer arguments can still be falsely promoted if those writes differ.
 - angr is a heavy optional dependency (~500 MB) and must be installed via
   the `prove` extra (`uv pip install -e ".[prove]"`).
 - The flag-sweep tier definitions are MSVC-specific (`matcher/flag_data.py`);

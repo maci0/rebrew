@@ -333,7 +333,7 @@ With `--va`, extract a **single function** into its own file (into a `source_c/`
 
 ### `rebrew prove`
 
-`rebrew prove <source> [--target NAME] [--json] [--timeout N] [--loop-bound N] [--dry-run]`
+`rebrew prove <source> [--target NAME] [--json] [--timeout N] [--loop-bound N] [--check-edx] [--dry-run]`
 
 Prove semantic equivalence of a NEAR_MATCHING function via angr symbolic execution + Z3 constraint solving. Requires the optional `angr` dependency (`uv pip install -e ".[prove]"`).
 
@@ -344,9 +344,12 @@ Prove semantic equivalence of a NEAR_MATCHING function via angr symbolic executi
 | `--json` | JSON structured output |
 | `--timeout N` | Seconds before giving up (default: 60) |
 | `--loop-bound N` | Max loop iterations for angr's LoopSeer (default: 10) |
+| `--check-edx` | Also compare EDX register (auto-enabled when return type is `long long` / `__int64` / `int64_t` / `uint64_t`) |
 | `--dry-run` | Preview changes without writing |
 
 On success, updates `STATUS` from `NEAR_MATCHING` → `PROVEN`. On failure (timeout, path explosion, or Z3 finds a distinguishing input), status remains unchanged.
+
+**64-bit returns**: Functions that return `long long`, `__int64`, `int64_t`, or `uint64_t` use the EDX:EAX register pair for their return value. `rebrew prove` auto-detects this from the `PROTOTYPE` annotation and enables EDX comparison automatically — no flag needed. Pass `--check-edx` explicitly to force EDX checking even when the heuristic does not trigger.
 
 ### `rebrew merge`
 
