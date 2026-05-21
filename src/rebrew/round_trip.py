@@ -112,7 +112,16 @@ def _collect_splice_set(
             status = md.get("status", "STUB")
             # iter_annotations(..., metadata_dir=...) already merges cflags into the
             # annotation, so prefer ann.cflags as the single source of truth.
-            cflags_str = getattr(ann, "cflags", "") or md.get("cflags", "") or ""
+            # Fall back to the project-default cflags (e.g. ``/O2 /Gd``) — without
+            # this fallback, functions whose metadata has no explicit ``cflags`` key
+            # would compile with only ``base_cflags`` (missing ``/O2``), producing
+            # frame-pointer prologues that don't match the original optimized code.
+            cflags_str = (
+                getattr(ann, "cflags", "")
+                or md.get("cflags", "")
+                or getattr(cfg, "cflags", "")
+                or ""
+            )
             fn = _SpliceFn(
                 symbol=ann.symbol,
                 va=ann.va,
