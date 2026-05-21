@@ -20,12 +20,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import typer
-from rich.console import Console
+from rich.console import Console, Group
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
 
 from rebrew.binary_loader import BinaryInfo, load_binary, va_to_file_offset
 from rebrew.cli import (
     EXIT_MISMATCH,
     EXIT_OK,
+    STATUS_COLORS,
     TargetOption,
     error_exit,
     iter_annotations,
@@ -221,6 +225,7 @@ def _run_round_trip(
     report = {
         "target": cfg.target_name,
         "binary": str(cfg.target_binary),
+        "arch": getattr(cfg, "arch", ""),
         "out": str(out_path) if not no_write else None,
         "sha256_original": sha_original,
         "sha256_reasm": sha_reasm,
@@ -282,20 +287,106 @@ def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:
 
 
 def _render_rich(report: dict) -> None:
-    """Compact Rich summary mirroring `rebrew verify --summary`."""
-    if report["match"]:
-        console.print(
-            f"[bold green]✔[/] round-trip clean: "
-            f"{report['spliced']} functions spliced, "
-            f"{report['skipped_proven']} PROVEN skipped"
-        )
-        return
-    console.print(f"[bold red]✗[/] {len(report['mismatches'])} unexpected mismatches")
-    for m in report["mismatches"]:
-        console.print(
-            f"  [yellow]{m['symbol']}[/] @ {m['va']} → {m['reason']}"
-            + (f" ({m['detail']})" if m.get("detail") else "")
-        )
+    """Rich panel + table summary, aligned with ``rebrew status`` and ``rebrew verify --summary``."""
+    binary_path = report.get("binary", "")
+    binary_name = Path(binary_path).name if binary_path else ""
+    arch = report.get("arch", "")
+    match = report.get("match", False)
+    mismatches = report.get("mismatches", [])
+    spliced = report.get("spliced", 0)
+    skipped_proven = report.get("skipped_proven", 0)
+    skipped_other = report.get("skipped_other", 0)
+    sha_orig = report.get("sha256_original", "")
+    sha_reasm = report.get("sha256_reasm", "")
+    out_path = report.get("out")
+
+    # --- Panel header ---
+    header_parts: list[str] = []
+    if binary_name:
+        header_parts.append(f"[bold]{binary_name}[/bold]")
+    if binary_path:
+        header_parts.append(f"[dim]{binary_path}[/dim]")
+    if arch:
+        header_parts.append(f"[dim]({arch})[/dim]")
+    title = "[bold]Rebrew Round-Trip[/bold]"
+    if header_parts:
+        title += "  " + "  ".join(header_parts)
+
+    # --- Coverage bar ---
+    total = spliced + skipped_proven + skipped_other + len(mismatches)
+    bar_items: list[Text] = []
+    if total > 0:
+        bar_width = 40
+        filled = int(bar_width * spliced / total)
+        bar_text = Text()
+        bar_text.append("  Spliced  ", style="bold")
+        bar_text.append("█" * filled, style="green")
+        bar_text.append("░" * (bar_width - filled), style="dim")
+        bar_text.append(f"  {spliced}/{total}", style="bold")
+        bar_items.append(bar_text)
+
+    # --- Stats line ---
+    stats_parts: list[str] = [
+        f"[green]spliced: {spliced}[/green]",
+        f"[cyan]proven skipped: {skipped_proven}[/cyan]",
+        f"[dim]other skipped: {skipped_other}[/dim]",
+    ]
+    if mismatches:
+        stats_parts.append(f"[red]mismatches: {len(mismatches)}[/red]")
+    stats_text = Text.from_markup("  " + "  ·  ".join(stats_parts))
+
+    # --- SHA lines ---
+    sha_orig_disp = sha_orig[:16] if sha_orig else "-"
+    sha_reasm_disp = sha_reasm[:16] if sha_reasm else "-"
+    sha_orig_text = Text.from_markup(f"  [dim]Original:[/dim] [cyan]{sha_orig_disp}[/cyan]")
+    sha_reasm_text = Text.from_markup(f"  [dim]Reasm:   [/dim] [cyan]{sha_reasm_disp}[/cyan]")
+
+    summary_items: list[Text] = [
+        *bar_items,
+        Text(""),  # spacer
+        stats_text,
+        sha_orig_text,
+        sha_reasm_text,
+    ]
+
+    if out_path:
+        summary_items.append(Text.from_markup(f"  [dim]Output:[/dim] {out_path}"))
+
+    # --- Mismatch table ---
+    table_items: list[Table] = []
+    if mismatches:
+        summary_items.append(Text(""))  # spacer before table
+        table = Table(title="Mismatches", show_header=True, header_style="bold")
+        table.add_column("VA", style="cyan", no_wrap=True)
+        table.add_column("Symbol", style="magenta")
+        table.add_column("Status", style="bold")
+        table.add_column("Reason")
+        table.add_column("Detail")
+        for m in mismatches:
+            st = m.get("status", "")
+            color = STATUS_COLORS.get(st, "red")
+            st_str = f"[{color}]{st}[/{color}]" if st else "-"
+            reason = m.get("reason", "")
+            detail = m.get("detail") or "-"
+            table.add_row(m.get("va", "-"), m.get("symbol", "-"), st_str, reason, detail)
+        table_items.append(table)
+
+    # --- Subtitle (verdict) ---
+    if match:
+        subtitle = "[bold green]✔ match[/bold green]"
+    else:
+        n = len(mismatches)
+        subtitle = f"[bold red]✗ {n} mismatch{'es' if n != 1 else ''}[/bold red]"
+
+    # --- Assemble panel ---
+    all_content: list[Text | Table] = [*summary_items, *table_items]
+    panel = Panel(
+        Group(*all_content),
+        title=title,
+        subtitle=subtitle,
+        border_style="blue",
+    )
+    console.print(panel)
 
 
 def main_entry() -> None:
