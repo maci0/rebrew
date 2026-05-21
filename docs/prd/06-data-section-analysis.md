@@ -93,8 +93,8 @@ verification, and `rebrew_globals.h` generation.
 
 - Generates `bss_padding.c` with `static char _pad_<VA>[N];` arrays for
   each detected gap.
-- Writes SIZE/SECTION/NOTE metadata back to `rebrew-function.toml` (more
-  precisely the per-directory data metadata file).
+- Writes SIZE/SECTION/NOTE metadata back to `rebrew-data.toml` (the per-directory
+  data metadata file, distinct from `rebrew-function.toml` which tracks function status).
 - Idempotent on re-run.
 
 ### `--gen-header`
