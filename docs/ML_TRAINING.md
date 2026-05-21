@@ -1,5 +1,10 @@
 # ML Training: Binary-Source Pair Collection & Model Training
 
+> **Status: ASPIRATIONAL** — None of the ML training pipeline described here is shipped.
+> The GA engine is real and can collect pairs, but the dataset-generation infrastructure,
+> data-sourcing scripts, and model training are design notes, not implemented features.
+> Do not treat this document as a how-to; treat it as a design sketch.
+
 This guide covers generating a large-scale dataset of (C source, compiled binary) pairs
 using the rebrew GA engine, then training an ML model to predict source transformations
 that produce target binaries.
