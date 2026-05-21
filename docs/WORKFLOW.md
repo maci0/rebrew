@@ -469,7 +469,7 @@ SEH helper functions in MSVCRT are **not matchable from pure C89 source**. These
 - Has `__local_unwind` or `except` in the call graph
 
 ...then it's likely an SEH helper. Mark as STUB and move on.
-> `rebrew next` auto-detects functions starting with `mov eax, fs:[0]` (`64 A1 00 00 00 00`) and filters them.
+> `rebrew todo` auto-detects functions starting with `mov eax, fs:[0]` (`64 A1 00 00 00 00`) and filters them.
 
 ## Working with Multiple Binaries
 
@@ -547,9 +547,9 @@ both targets benefit automatically.
 |----------|---------|
 | [BOOTSTRAPPING.md](BOOTSTRAPPING.md) | Adding a new binary to a project from scratch |
 | [MATCH_TYPES.md](MATCH_TYPES.md) | EXACT / RELOC / NEAR_MATCHING explained with byte-level examples and relocation masking details |
-| [ANNOTATIONS.md](ANNOTATIONS.md) | Full marker format reference and linter codes (E000–E017, W001–W017) |
+| [ANNOTATIONS.md](ANNOTATIONS.md) | Full marker format reference and linter codes (E000–E017, W001–W019) |
 | [GHIDRA_SYNC.md](GHIDRA_SYNC.md) | Ghidra ↔ Rebrew sync feature matrix and known issues |
 | [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md) | Obtaining, creating, and using FLIRT signatures |
-| [CLI.md](CLI.md) | All 26 CLI commands, flags, and examples |
+| [CLI.md](CLI.md) | All 28 CLI commands, flags, and examples |
 | [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, arch presets, compiler profiles |
 | [TOOLCHAIN.md](TOOLCHAIN.md) | External tools, MSVC6 toolchain, Python dependencies |
