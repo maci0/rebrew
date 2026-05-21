@@ -9,6 +9,7 @@ Usage:
     rebrew graph --format dot             # DOT output
     rebrew graph --focus FuncName         # Show only neighbours of FuncName
     rebrew graph --output graph.md        # Write to file
+    rebrew graph --include-dispatch       # Fold dispatch-table edges into the graph
 """
 
 import re
@@ -109,12 +110,22 @@ def _extract_callees(c_path: Path, text: str | None = None) -> list[str]:
 def build_graph(
     reversed_dir: Path,
     cfg: ProjectConfig | None = None,
-) -> tuple[dict[str, NodeInfo], list[tuple[str, str]]]:
+    dispatch_tables: "list | None" = None,
+) -> tuple[dict[str, NodeInfo], list[tuple[str, str]], list[tuple[str, str]]]:
     """Build a call graph from reversed source files.
+
+    Args:
+        reversed_dir: Directory containing reversed .c source files.
+        cfg: Optional project configuration.
+        dispatch_tables: Optional list of ``DispatchTable`` objects (from
+            ``rebrew.data.find_dispatch_tables``).  When provided, a virtual
+            ``dispatch_0x<VA>`` node is created per table and connected to each
+            entry function target via dispatch edges.
 
     Returns:
         nodes: {func_name: {"status": str, "va": int, "file": str}}
-        edges: [(caller_name, callee_name)]
+        edges: [(caller_name, callee_name)]  — direct extern-call edges
+        dispatch_edges: [(dispatch_node_name, callee_name)]  — indirect dispatch edges
 
     """
     nodes: dict[str, NodeInfo] = {}
@@ -172,7 +183,38 @@ def build_graph(
             if caller != callee_display:  # no self-edges
                 edges.append((caller, callee_display))
 
-    return nodes, edges
+    # Build VA -> display-name reverse lookup for dispatch resolution
+    va_lookup: dict[int, str] = {info["va"]: name for name, info in nodes.items() if info["va"]}
+
+    dispatch_edges: list[tuple[str, str]] = []
+    if dispatch_tables:
+        for tbl in dispatch_tables:
+            dispatch_node = f"dispatch_0x{tbl.va:08x}"
+            # Register the virtual dispatch node
+            nodes[dispatch_node] = {
+                "status": "DISPATCH",
+                "va": tbl.va,
+                "file": "",
+            }
+            for entry in tbl.entries:
+                # Resolve target VA to a known function name if possible
+                target_name = va_lookup.get(entry.target_va)
+                if target_name is None:
+                    # Fall back to entry's resolved name or a VA-based placeholder
+                    if entry.name:
+                        target_name = entry.name.lstrip("_")
+                    else:
+                        target_name = f"fn_0x{entry.target_va:08x}"
+                # Ensure target node exists
+                if target_name not in nodes:
+                    nodes[target_name] = {
+                        "status": entry.status or "UNKNOWN",
+                        "va": entry.target_va,
+                        "file": "",
+                    }
+                dispatch_edges.append((dispatch_node, target_name))
+
+    return nodes, edges, dispatch_edges
 
 
 def _focus_graph(
@@ -180,8 +222,16 @@ def _focus_graph(
     edges: list[tuple[str, str]],
     focus: str,
     depth: int = 1,
-) -> tuple[dict[str, NodeInfo], list[tuple[str, str]]]:
-    """Filter graph to only show neighbours of the focus node."""
+    dispatch_edges: list[tuple[str, str]] | None = None,
+) -> tuple[dict[str, NodeInfo], list[tuple[str, str]], list[tuple[str, str]]]:
+    """Filter graph to only show neighbours of the focus node.
+
+    Returns:
+        filtered_nodes, filtered_edges, filtered_dispatch_edges
+    """
+    dispatch_edges = dispatch_edges or []
+    all_edges = edges + dispatch_edges
+
     # Find focus node (case-insensitive partial match)
     focus_lower = focus.lower()
     focus_name = None
@@ -196,14 +246,14 @@ def _focus_graph(
                 focus_name = name
                 break
     if not focus_name:
-        return {}, []
+        return {}, [], []
 
     # BFS to find neighbours within depth
     visited = {focus_name}
     frontier = {focus_name}
     for _ in range(depth):
         next_frontier: set[str] = set()
-        for edge in edges:
+        for edge in all_edges:
             if edge[0] in frontier and edge[1] not in visited:
                 next_frontier.add(edge[1])
                 visited.add(edge[1])
@@ -214,7 +264,8 @@ def _focus_graph(
 
     filtered_nodes = {k: v for k, v in nodes.items() if k in visited}
     filtered_edges = [(a, b) for a, b in edges if a in visited and b in visited]
-    return filtered_nodes, filtered_edges
+    filtered_dispatch = [(a, b) for a, b in dispatch_edges if a in visited and b in visited]
+    return filtered_nodes, filtered_edges, filtered_dispatch
 
 
 def _status_style(status: str) -> str:
@@ -226,14 +277,21 @@ def _status_style(status: str) -> str:
         "NEAR_MATCHING": "matching",
         "STUB": "stub",
         "UNKNOWN": "unknown",
+        "DISPATCH": "dispatch",
     }.get(status, "unknown")
 
 
 def render_mermaid(
     nodes: dict[str, NodeInfo],
     edges: list[tuple[str, str]],
+    dispatch_edges: list[tuple[str, str]] | None = None,
 ) -> str:
-    """Render graph as Mermaid flowchart markup."""
+    """Render graph as Mermaid flowchart markup.
+
+    Direct call edges are rendered as solid arrows (``-->``).
+    Dispatch-table edges (when *dispatch_edges* is provided) are rendered as
+    dashed arrows (``..>``), matching Mermaid's linkStyle for indirect calls.
+    """
     lines = ["graph LR"]
 
     # Style definitions
@@ -242,6 +300,7 @@ def render_mermaid(
     lines.append("    classDef matching fill:#f39c12,stroke:#e67e22,color:#fff")
     lines.append("    classDef stub fill:#e74c3c,stroke:#c0392b,color:#fff")
     lines.append("    classDef unknown fill:#95a5a6,stroke:#7f8c8d,color:#fff")
+    lines.append("    classDef dispatch fill:#9b59b6,stroke:#8e44ad,color:#fff")
     lines.append("")
 
     # Deduplicate edges
@@ -259,12 +318,19 @@ def render_mermaid(
 
     lines.append("")
 
-    # Edges
+    # Direct call edges (solid)
     for caller, callee in edges:
         key = (_sanitize_id(caller), _sanitize_id(callee))
         if key not in seen_edges:
             seen_edges.add(key)
             lines.append(f"    {key[0]} --> {key[1]}")
+
+    # Dispatch edges (dashed)
+    for caller, callee in dispatch_edges or []:
+        key = (_sanitize_id(caller), _sanitize_id(callee))
+        if key not in seen_edges:
+            seen_edges.add(key)
+            lines.append(f"    {key[0]} ..> {key[1]}")
 
     return "\n".join(lines)
 
@@ -272,8 +338,14 @@ def render_mermaid(
 def render_dot(
     nodes: dict[str, NodeInfo],
     edges: list[tuple[str, str]],
+    dispatch_edges: list[tuple[str, str]] | None = None,
 ) -> str:
-    """Render graph as Graphviz DOT format."""
+    """Render graph as Graphviz DOT format.
+
+    Direct call edges are rendered as solid arrows.
+    Dispatch-table edges (when *dispatch_edges* is provided) are rendered with
+    ``style=dashed`` to visually distinguish indirect calls through dispatch tables.
+    """
     lines = ["digraph G {", "    rankdir=LR;", "    node [shape=box, style=filled];", ""]
 
     color_map = {
@@ -283,6 +355,7 @@ def render_dot(
         "NEAR_MATCHING": "#f39c12",
         "STUB": "#e74c3c",
         "UNKNOWN": "#95a5a6",
+        "DISPATCH": "#9b59b6",
     }
 
     for name, info in sorted(nodes.items()):
@@ -290,7 +363,7 @@ def render_dot(
         status = info["status"]
         color = color_map.get(status, "#95a5a6")
         font_color = "black" if status == "NEAR_MATCHING" else "white"
-        label = f"{name}\\n[{status}]" if status != "UNKNOWN" else name
+        label = f"{name}\\n[{status}]" if status not in ("UNKNOWN", "DISPATCH") else name
         lines.append(f'    {nid} [label="{label}", fillcolor="{color}", fontcolor="{font_color}"];')
 
     lines.append("")
@@ -302,35 +375,53 @@ def render_dot(
             seen.add(key)
             lines.append(f"    {key[0]} -> {key[1]};")
 
+    # Dispatch edges — dashed to distinguish indirect calls
+    for caller, callee in dispatch_edges or []:
+        key = (_sanitize_id(caller), _sanitize_id(callee))
+        if key not in seen:
+            seen.add(key)
+            lines.append(f"    {key[0]} -> {key[1]} [style=dashed];")
+
     lines.append("}")
     return "\n".join(lines)
 
 
-def render_summary(nodes: dict[str, NodeInfo], edges: list[tuple[str, str]]) -> str:
+def render_summary(
+    nodes: dict[str, NodeInfo],
+    edges: list[tuple[str, str]],
+    dispatch_edges: list[tuple[str, str]] | None = None,
+) -> str:
     """Render a text summary of the graph statistics."""
     by_status: dict[str, int] = {}
     for info in nodes.values():
         s = info["status"]
         by_status[s] = by_status.get(s, 0) + 1
 
-    total_reversed = sum(v for k, v in by_status.items() if k != "UNKNOWN")
+    total_reversed = sum(v for k, v in by_status.items() if k not in ("UNKNOWN", "DISPATCH"))
     total_unknown = by_status.get("UNKNOWN", 0)
+    total_dispatch = by_status.get("DISPATCH", 0)
 
     lines = [
-        f"Nodes: {len(nodes)} ({total_reversed} reversed, {total_unknown} unreversed)",
-        f"Edges: {len(edges)}",
+        f"Nodes: {len(nodes)} ({total_reversed} reversed, {total_unknown} unreversed"
+        + (f", {total_dispatch} dispatch" if total_dispatch else "")
+        + ")",
+        f"Edges: {len(edges)}"
+        + (f" direct, {len(dispatch_edges or [])} dispatch" if dispatch_edges else ""),
         "By status:",
     ]
-    for status in ("EXACT", "RELOC", "PROVEN", "NEAR_MATCHING", "STUB", "UNKNOWN"):
+    for status in ("EXACT", "RELOC", "PROVEN", "NEAR_MATCHING", "STUB", "UNKNOWN", "DISPATCH"):
         count = by_status.get(status, 0)
         if count:
             lines.append(f"  {status}: {count}")
 
     # Find leaf functions (no outgoing calls) that are reversed
-    callers = {e[0] for e in edges}
-    callees = {e[1] for e in edges}
+    all_edges = edges + (dispatch_edges or [])
+    callers = {e[0] for e in all_edges}
+    callees = {e[1] for e in all_edges}
     leaves = [
-        n for n in nodes if n not in callers and n in callees and nodes[n]["status"] != "UNKNOWN"
+        n
+        for n in nodes
+        if n not in callers and n in callees and nodes[n]["status"] not in ("UNKNOWN", "DISPATCH")
     ]
     if leaves:
         lines.append(f"\nLeaf functions (reversed, no outgoing calls): {len(leaves)}")
@@ -340,7 +431,7 @@ def render_summary(nodes: dict[str, NodeInfo], edges: list[tuple[str, str]]) -> 
 
     # Find blocking unreversed (called by many)
     callee_counts: dict[str, int] = {}
-    for _, callee in edges:
+    for _, callee in all_edges:
         callee_info = nodes.get(callee)
         if callee_info and callee_info["status"] == "UNKNOWN":
             callee_counts[callee] = callee_counts.get(callee, 0) + 1
@@ -361,10 +452,18 @@ _EPILOG = (
     "  rebrew graph --focus _my_func --depth 2 · · Neighbourhood around one function\n\n"
     "  rebrew graph -o graph.md · · · · · · · · · Write output to file\n\n"
     "  rebrew graph --cu-map · · · · · · · · · · Compilation unit boundary map\n\n"
+    "  rebrew graph --include-dispatch · · · · · Fold dispatch-table edges into the graph\n\n"
+    "  rebrew graph --include-dispatch --min-table-len 5 · Require ≥5 entries per table\n\n"
     "[bold]Output formats:[/bold]\n\n"
     "  mermaid · · Mermaid flowchart (default; paste into docs)\n\n"
     "  dot · · · · Graphviz DOT (pipe to 'dot -Tpng')\n\n"
     "  summary · · Text breakdown by component\n\n"
+    "[bold]Dispatch edges:[/bold]\n\n"
+    "  --include-dispatch adds a virtual dispatch_0x<VA> node per detected dispatch\n"
+    "  table and connects it to every function-pointer target. Edges are rendered as\n"
+    "  dashed lines (Mermaid: '..>', DOT: style=dashed) to distinguish indirect calls.\n"
+    "  --min-table-len and --max-pointer-stride mirror the matching options in\n"
+    "  'rebrew data --dispatch' and control which tables are included.\n\n"
     "[dim]Scans reversed .c files for call targets to build the dependency graph. "
     "Uses annotations to determine function origins and status.[/dim]"
 )
@@ -386,6 +485,25 @@ def main(
     ),
     depth: int = typer.Option(1, "--depth", help="Neighbourhood depth for --focus"),
     cu_map: bool = typer.Option(False, "--cu-map", help="Show compilation unit boundary map"),
+    include_dispatch: bool = typer.Option(
+        False,
+        "--include-dispatch",
+        help=(
+            "Augment the call graph with dispatch-table edges detected in the binary. "
+            "Adds a virtual dispatch_0x<VA> node per table connected to all its "
+            "function-pointer targets. Edges appear as dashed lines in mermaid/dot."
+        ),
+    ),
+    min_table_len: int = typer.Option(
+        3,
+        "--min-table-len",
+        help="Minimum entries to qualify as a dispatch table (--include-dispatch)",
+    ),
+    max_pointer_stride: int = typer.Option(
+        4,
+        "--max-pointer-stride",
+        help="Maximum byte stride between pointer slots when scanning tables (--include-dispatch)",
+    ),
     output: str | None = typer.Option(None, "--output", "-o", help="Output file (default: stdout)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -401,13 +519,66 @@ def main(
 
     reversed_dir = cfg.reversed_dir
 
-    nodes, edges = build_graph(reversed_dir, cfg=cfg)
+    # Optionally load dispatch tables from the binary
+    dispatch_tables = None
+    if include_dispatch:
+        bin_path = cfg.target_binary
+        if not bin_path or not bin_path.exists():
+            error_exit(
+                "--include-dispatch requires a target binary (target_binary not set or missing).",
+                json_mode=json_output,
+            )
+        try:
+            from rebrew.annotation import parse_c_file_multi
+            from rebrew.binary_loader import load_binary
+            from rebrew.cli import iter_sources, rel_display_path, target_marker
+            from rebrew.data import find_dispatch_tables
+
+            info = load_binary(bin_path)
+            sec_dict = {
+                name: {
+                    "va": si.va,
+                    "size": si.size,
+                    "file_offset": si.file_offset,
+                    "raw_size": si.raw_size,
+                }
+                for name, si in info.sections.items()
+            }
+
+            # Build known functions map from reversed source files
+            known_functions: dict[int, dict[str, str]] = {}
+            for cfile in iter_sources(reversed_dir, cfg):
+                for entry in parse_c_file_multi(
+                    cfile,
+                    target_name=target_marker(cfg),
+                    metadata_dir=cfg.metadata_dir,
+                ):
+                    if entry.va:
+                        known_functions[entry.va] = {
+                            "name": entry.name or rel_display_path(cfile, reversed_dir),
+                            "status": entry.status,
+                        }
+
+            dispatch_tables = find_dispatch_tables(
+                info.data,
+                info.image_base,
+                sec_dict,
+                known_functions,
+                min_entries=min_table_len,
+                max_stride=max_pointer_stride,
+            )
+        except (ImportError, OSError, ValueError) as exc:
+            error_exit(f"Failed to load dispatch tables: {exc}", json_mode=json_output)
+
+    nodes, edges, dispatch_edges = build_graph(
+        reversed_dir, cfg=cfg, dispatch_tables=dispatch_tables
+    )
 
     if not nodes:
         error_exit("No functions found.", json_mode=json_output)
 
     if focus:
-        nodes, edges = _focus_graph(nodes, edges, focus, depth)
+        nodes, edges, dispatch_edges = _focus_graph(nodes, edges, focus, depth, dispatch_edges)
         if not nodes:
             error_exit(f"No function matching '{focus}' found.", json_mode=json_output)
 
@@ -420,6 +591,7 @@ def main(
             {
                 "total_nodes": len(nodes),
                 "total_edges": len(edges),
+                "total_dispatch_edges": len(dispatch_edges),
                 "by_status": by_status,
                 "nodes": {
                     name: {
@@ -430,16 +602,17 @@ def main(
                     for name, info in sorted(nodes.items())
                 },
                 "edges": [{"caller": a, "callee": b} for a, b in edges],
+                "dispatch_edges": [{"dispatch": a, "target": b} for a, b in dispatch_edges],
             }
         )
         return
 
     if fmt == "mermaid":
-        result = render_mermaid(nodes, edges)
+        result = render_mermaid(nodes, edges, dispatch_edges)
     elif fmt == "dot":
-        result = render_dot(nodes, edges)
+        result = render_dot(nodes, edges, dispatch_edges)
     elif fmt == "summary":
-        result = render_summary(nodes, edges)
+        result = render_summary(nodes, edges, dispatch_edges)
     else:
         error_exit(f"Unknown format: {fmt}. Use mermaid, dot, or summary.", json_mode=json_output)
 
