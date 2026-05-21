@@ -1,5 +1,9 @@
 # Bootstrapping a New Binary
 
+> **How-to guide.** This walks through the manual steps for setting up a new binary.
+> For the product spec covering `rebrew init`, `rebrew doctor`, and `rebrew cfg`
+> see [prd/01-project-onboarding.md](prd/01-project-onboarding.md).
+
 Step-by-step guide for adding an entirely new executable or DLL to the project
 when **no prior RE work exists** for it — no `.c` files, no `function_structure.json`,
 no catalog entries.
