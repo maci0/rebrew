@@ -7,6 +7,29 @@ reads defaults (binary path, reversed_dir, compiler settings) from the project c
 Run any tool with `--help` to see usage examples and context
 (typer `rich_markup_mode="rich"` with epilog text).
 
+## Typical Workflow
+
+```
+rebrew todo              See what needs work (prioritized by ROI)
+rebrew skeleton 0x<VA>   Generate a .c skeleton from address
+rebrew test src/<func>.c Compile, byte-compare, and auto-update STATUS
+rebrew diff src/f.c      Show byte diff for near-misses
+rebrew verify            Bulk-verify all reversed functions
+```
+
+## test vs verify vs match
+
+| Command | Scope | Caching | Use when |
+|---------|-------|---------|----------|
+| `rebrew test <file>` | Single function | No | Iterating on one function |
+| `rebrew test --all` | Batch (all files) | No | Like verify but always recompiles |
+| `rebrew verify` | Batch (incremental) | Yes | CI / bulk status check |
+| `rebrew match <file>` | Single function | No | GA engine to find byte-perfect match |
+
+The canonical status ladder (best → worst): `PROVEN` → `EXACT` → `RELOC` → `NEAR_MATCHING` → `STUB`.
+
+> The same table is shown in `rebrew --help` (source of truth: `src/rebrew/main.py` epilog).
+
 ## Entry Points
 
 | Entry Point | Script | Description |
