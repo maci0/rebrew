@@ -422,6 +422,7 @@ class TestCLIAddRemoveTarget:
     def test_add_target_creates_dirs(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
+        # Binary must exist; pass --force to skip detection when it doesn't.
         result = runner.invoke(
             cfg_app,
             [
@@ -431,6 +432,7 @@ class TestCLIAddRemoveTarget:
                 "original/client.exe",
                 "--arch",
                 "x86_32",
+                "--force",
             ],
         )
         assert result.exit_code == 0
@@ -743,3 +745,58 @@ class TestCLIDetectCrt:
         doc, _ = _load_toml(tmp_path)
         assert "crt_sources" in doc["targets"]["server.dll"]
         assert doc["targets"]["server.dll"]["crt_sources"]["MSVCRT"] == "tools/MSVC600/VC98/CRT/SRC"
+
+
+# ---------------------------------------------------------------------------
+# E2: add-target refuses/warns on missing binary
+# ---------------------------------------------------------------------------
+
+
+class TestCLIAddTargetMissingBinary:
+    def test_missing_binary_refused_without_force(self, tmp_path: Path, monkeypatch) -> None:
+        """add-target without --force must exit non-zero when binary is absent."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(
+            cfg_app,
+            ["add-target", "ghost", "--binary", "original/ghost.exe"],
+        )
+        assert result.exit_code != 0
+        combined = result.output + (result.stderr or "")
+        assert (
+            "does not exist" in combined or "not found" in combined or "place" in combined.lower()
+        )
+
+    def test_missing_binary_allowed_with_force(self, tmp_path: Path, monkeypatch) -> None:
+        """add-target --force writes a stanza with default format/arch when binary missing."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(
+            cfg_app,
+            ["add-target", "ghost", "--binary", "original/ghost.exe", "--force"],
+        )
+        assert result.exit_code == 0
+        # A warning must be emitted
+        combined = result.output + (result.stderr or "")
+        assert "warning" in combined.lower()
+        # Stanza written with default arch
+        doc, _ = _load_toml(tmp_path)
+        assert "ghost" in doc["targets"]
+        assert doc["targets"]["ghost"]["arch"] == "x86_32"
+        assert doc["targets"]["ghost"]["format"] == "pe"
+
+    def test_existing_binary_accepted_without_force(self, tmp_path: Path, monkeypatch) -> None:
+        """When the binary exists, add-target works normally (no --force needed)."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        # Create a real (minimal) binary so the path resolves
+        orig_dir = tmp_path / "original"
+        orig_dir.mkdir()
+        (orig_dir / "client.exe").write_bytes(b"MZ" + b"\x00" * 254)
+        result = runner.invoke(
+            cfg_app,
+            ["add-target", "client", "--binary", "original/client.exe", "--arch", "x86_32"],
+        )
+        assert result.exit_code == 0
+        doc, _ = _load_toml(tmp_path)
+        assert "client" in doc["targets"]

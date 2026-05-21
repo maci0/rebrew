@@ -41,3 +41,11 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-push]
+
+      - id: validate-skill-commands
+        name: Validate SKILL.md command lines
+        entry: uv run python tools/validate_skill_commands.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [manual]
