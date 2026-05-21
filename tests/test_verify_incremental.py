@@ -1,5 +1,6 @@
 """Tests for incremental verification logic in rebrew.verify."""
 
+import hashlib
 import json
 import os
 import time
@@ -14,6 +15,7 @@ from rebrew.compile import CompareResult
 from rebrew.config import ProjectConfig
 from rebrew.verify import (
     _compiler_config_hash,
+    _headers_hash,
     _load_verify_cache,
     _save_verify_cache,
     _source_hash,
@@ -70,6 +72,7 @@ class TestLoadVerifyCache:
         data = {
             "version": 1,
             "compiler_hash": _compiler_config_hash(cfg),
+            "headers_hash": _headers_hash(cfg),
             "target": cfg.target_name,
             "entries": {},
         }
@@ -337,3 +340,165 @@ class TestIncrementalVerify:
         # Second run: cached, status promotion not re-applied for cached results
         second = runner.invoke(app, ["--json"])
         assert second.exit_code == 0, second.output
+
+
+class TestHeadersHash:
+    def test_empty_when_no_headers(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(tmp_path)
+        # reversed_dir exists but has no .h files
+        result = _headers_hash(cfg)
+        # SHA256 of no data — should be the digest of zero bytes fed to hashlib
+        assert isinstance(result, str)
+        # No headers → hex digest of an empty sha256 update sequence
+        assert result == hashlib.sha256().hexdigest()
+
+    def test_changes_when_header_added(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(tmp_path)
+        hash_before = _headers_hash(cfg)
+
+        header = cfg.reversed_dir / "types.h"
+        header.write_text("typedef int BOOL;\n", encoding="utf-8")
+        hash_after = _headers_hash(cfg)
+
+        assert hash_before != hash_after
+
+    def test_changes_when_header_modified(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(tmp_path)
+        header = cfg.reversed_dir / "types.h"
+        header.write_text("typedef int BOOL;\n", encoding="utf-8")
+        hash_v1 = _headers_hash(cfg)
+
+        header.write_text("typedef int BOOL;\ntypedef unsigned int UINT;\n", encoding="utf-8")
+        hash_v2 = _headers_hash(cfg)
+
+        assert hash_v1 != hash_v2
+
+    def test_stable_across_calls(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(tmp_path)
+        (cfg.reversed_dir / "types.h").write_text("typedef int BOOL;\n", encoding="utf-8")
+        assert _headers_hash(cfg) == _headers_hash(cfg)
+
+    def test_includes_nested_headers(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(tmp_path)
+        sub = cfg.reversed_dir / "include"
+        sub.mkdir()
+        (sub / "structs.h").write_text("struct Foo { int x; };\n", encoding="utf-8")
+        hash_with = _headers_hash(cfg)
+
+        (sub / "structs.h").write_text("struct Foo { int x; int y; };\n", encoding="utf-8")
+        hash_changed = _headers_hash(cfg)
+
+        assert hash_with != hash_changed
+
+
+class TestHeadersHashCacheInvalidation:
+    def test_cache_miss_on_headers_hash_mismatch(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(tmp_path)
+        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write a cache with an intentionally wrong headers_hash
+        data = {
+            "version": 1,
+            "compiler_hash": _compiler_config_hash(cfg),
+            "headers_hash": "deadbeef",
+            "target": cfg.target_name,
+            "entries": {},
+        }
+        cache_path.write_text(json.dumps(data), encoding="utf-8")
+
+        # Should return None because headers_hash doesn't match
+        assert _load_verify_cache(cache_path, cfg) is None
+
+    def test_cache_hit_when_headers_hash_matches(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(tmp_path)
+        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write a cache with the correct headers_hash (no headers present)
+        data = {
+            "version": 1,
+            "compiler_hash": _compiler_config_hash(cfg),
+            "headers_hash": _headers_hash(cfg),
+            "target": cfg.target_name,
+            "entries": {},
+        }
+        cache_path.write_text(json.dumps(data), encoding="utf-8")
+
+        loaded = _load_verify_cache(cache_path, cfg)
+        assert loaded is not None
+
+    def test_cache_busted_after_header_edit(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(tmp_path)
+        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+
+        # Build and save a valid cache (no headers yet)
+        source_path = cfg.reversed_dir / "func.c"
+        source_path.write_text("int func(void) { return 0; }\n", encoding="utf-8")
+        results = [
+            {
+                "va": "0x10001000",
+                "name": "func",
+                "filepath": "func.c",
+                "size": 16,
+                "status": "EXACT",
+                "message": "EXACT MATCH",
+                "passed": True,
+                "match_percent": 100.0,
+                "delta": 0,
+            }
+        ]
+        entries = [
+            SimpleNamespace(
+                va=0x10001000,
+                name="func",
+                filepath="func.c",
+                size=16,
+                origin="GAME",
+                cflags="",
+                symbol="",
+            )
+        ]
+        _save_verify_cache(cache_path, cfg, results, entries)
+        assert _load_verify_cache(cache_path, cfg) is not None
+
+        # Now add a header file — headers_hash should change
+        (cfg.reversed_dir / "types.h").write_text("typedef int BOOL;\n", encoding="utf-8")
+        assert _load_verify_cache(cache_path, cfg) is None
+
+    def test_save_persists_headers_hash(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(tmp_path)
+        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        (cfg.reversed_dir / "types.h").write_text("typedef int BOOL;\n", encoding="utf-8")
+
+        source_path = cfg.reversed_dir / "func.c"
+        source_path.write_text("int func(void) { return 0; }\n", encoding="utf-8")
+        results = [
+            {
+                "va": "0x10001000",
+                "name": "func",
+                "filepath": "func.c",
+                "size": 16,
+                "status": "EXACT",
+                "message": "EXACT MATCH",
+                "passed": True,
+                "match_percent": 100.0,
+                "delta": 0,
+            }
+        ]
+        entries = [
+            SimpleNamespace(
+                va=0x10001000,
+                name="func",
+                filepath="func.c",
+                size=16,
+                origin="GAME",
+                cflags="",
+                symbol="",
+            )
+        ]
+        _save_verify_cache(cache_path, cfg, results, entries)
+
+        raw = json.loads(cache_path.read_text(encoding="utf-8"))
+        assert raw["headers_hash"] == _headers_hash(cfg)
+        assert raw["headers_hash"] != ""
