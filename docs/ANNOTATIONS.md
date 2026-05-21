@@ -1,6 +1,32 @@
 # Annotation Reference
 
+> **Scope:** This document covers inline source-file markers (`// FUNCTION: MODULE 0xVA`)
+> and the `library_*.h` header format.  For the TOML metadata files
+> (`rebrew-function.toml`, `rebrew-data.toml`) see [METADATA_FORMAT.md](METADATA_FORMAT.md).
+
 Rebrew annotations are built on the [reccmp](https://github.com/isledecomp/reccmp) annotation format — the standard used by the LEGO Island decompilation project.
+
+## Table of Contents
+
+- [What comes from reccmp](#what-comes-from-reccmp)
+- [What rebrew adds](#what-rebrew-adds)
+- [Function Annotations](#function-annotations)
+  - [Marker Types](#marker-types-functions)
+  - [Annotation Keys](#annotation-keys-functions)
+  - [STATUS Values](#status-values)
+  - [Origin / Compiler Preset Configuration](#origin--compiler-preset-configuration)
+- [Data Annotations](#data-annotations-data--rdata--bss)
+- [Struct SIZE Comments](#struct-size-comments-reccmp-recommendation)
+- [Linter Reference](#linter-reference-rebrew-lint)
+  - [Errors](#errors-block-ci-non-zero-exit)
+  - [Warnings](#warnings-advisory-zero-exit)
+  - [CLI Options](#cli-options)
+  - [JSON Output Schema](#json-output-schema)
+- [Filename Conventions](#filename-conventions)
+- [Old Format (Legacy)](#old-format-legacy)
+- [Multi-Target Support](#multi-target-support)
+- [Multi-Function Files](#multi-function-files)
+- [Library Header Files](#library-header-files-library_h)
 
 ## What comes from reccmp
 
