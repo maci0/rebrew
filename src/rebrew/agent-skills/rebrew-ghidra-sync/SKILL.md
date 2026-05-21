@@ -59,6 +59,8 @@ rebrew sync --pull --accept-local               # keep local names, record GHIDR
 rebrew sync --pull --module MSVCRT              # restrict to one origin module
 rebrew sync --pull-signatures                   # update extern prototypes from Ghidra decomp
 rebrew sync --pull-structs                      # export Ghidra structs into types.h
+rebrew sync --pull-structs --types-out PATH     # write to a custom path instead of types.h
+rebrew sync --pull-structs --by-module          # split into types_<module>.h / types_shared.h
 rebrew sync --pull-comments                     # write Ghidra EOL/post comments as // ANALYSIS:
 rebrew sync --pull-data                         # generate rebrew_globals.h from Ghidra data labels
 ```
@@ -77,7 +79,7 @@ rebrew sync --pull-data                         # generate rebrew_globals.h from
 **Pull <- Ghidra:**
 - Function renames (updates function name in C definition and handles `extern` cross-references with `--accept-ghidra`)
 - Function prototypes (`--pull-signatures` updates the C function definition and `extern` usage across codebase)
-- Structs (`--pull-structs` writes `types.h` from Ghidra)
+- Structs (`--pull-structs` writes `types.h`; `--by-module` splits into per-module files; `--types-out PATH` overrides the output path)
 - Comments (`--pull-comments` writes EOL/post comments as `// ANALYSIS:`)
 - **Data label names** → written to `rebrew-data.toml` metadata file as `name` field (not inline in `.c`)
 - Plate and pre-comments for functions (updates NOTE in rebrew-function.toml)

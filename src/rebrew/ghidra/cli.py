@@ -7,6 +7,7 @@ All network operations use httpx against the ReVa MCP endpoint.
 
 import json
 import logging
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -58,6 +59,9 @@ app = typer.Typer(
         "  rebrew sync --pull · · · · · · · · Fetch Ghidra renames/comments into local files\n\n"
         "  rebrew sync --pull --dry-run · · · Preview pull without modifying files\n\n"
         "  rebrew sync --pull --json · · · · · Pull with structured JSON output\n\n"
+        "  rebrew sync --pull-structs · · · · · · Pull Ghidra structs into types.h\n\n"
+        "  rebrew sync --pull-structs --types-out PATH · · Override output path\n\n"
+        "  rebrew sync --pull-structs --by-module · · · · Split into types_<module>.h files\n\n"
         "  rebrew sync --export · · · · · · · Generate ghidra_commands.json only\n\n"
         "  rebrew sync --apply · · · · · · · · Apply ghidra_commands.json via ReVa MCP\n\n"
         "[bold]Typical workflow:[/bold]\n\n"
@@ -144,6 +148,17 @@ def main(
     pull_structs: bool = typer.Option(
         False, "--pull-structs", help="Pull struct definitions from Ghidra into types.h"
     ),
+    types_out: Path | None = typer.Option(
+        None,
+        "--types-out",
+        help="Override output path for --pull-structs (single-file mode; mutually exclusive with --by-module)",
+        show_default=False,
+    ),
+    by_module: bool = typer.Option(
+        False,
+        "--by-module",
+        help="Split --pull-structs output into per-module files (e.g. types_server.h, types_shared.h)",
+    ),
     pull_comments: bool = typer.Option(
         False, "--pull-comments", help="Pull Ghidra analysis comments into source files"
     ),
@@ -187,6 +202,13 @@ def main(
             "  Export:   --export, --apply\n"
             "  Sync:    --push, --pull\n"
             "  Cache:   --refresh-cache",
+            json_mode=json_output,
+        )
+
+    if types_out is not None and by_module:
+        error_exit(
+            "--types-out and --by-module are mutually exclusive: "
+            "--types-out is single-file output; --by-module writes per-module files.",
             json_mode=json_output,
         )
 
@@ -241,7 +263,14 @@ def main(
             if pull_signatures:
                 sync_commands.pull_prototypes(entries, cfg, endpoint, program_path, dry_run)
             if pull_structs:
-                sync_commands.pull_structs(cfg, endpoint, program_path, dry_run)
+                sync_commands.pull_structs(
+                    cfg,
+                    endpoint,
+                    program_path,
+                    dry_run,
+                    types_out=types_out,
+                    by_module=by_module,
+                )
             if pull_comments:
                 sync_commands.pull_comments(entries, cfg, endpoint, program_path, dry_run)
             if pull_data:

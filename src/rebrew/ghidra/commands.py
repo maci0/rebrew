@@ -999,11 +999,106 @@ def pull_prototypes(
         console.print(f"Successfully pulled {updated_count} prototypes.")
 
 
-def pull_structs(cfg: ProjectConfig, endpoint: str, program_path: str, dry_run: bool) -> None:
-    """Pull struct definitions from Ghidra into types.h.
+def _infer_struct_module(name: str, info: Any) -> str | None:
+    """Infer a module name from Ghidra struct metadata.
+
+    Returns the upper-cased module string (e.g. ``"SERVER"``) or ``None``
+    when no module attribution can be determined.  The ``info`` dict may
+    carry a ``category``, ``namespace``, or ``categoryPath`` field set by
+    Ghidra / ReVa — the first path component is taken as the module.
+    """
+    if not isinstance(info, dict):
+        return None
+    raw: str | None = (
+        info.get("namespace")
+        or info.get("category")
+        or info.get("categoryPath")
+        or info.get("category_path")
+    )
+    if not raw:
+        return None
+    # Strip leading slashes and take the first path component.
+    segment = raw.lstrip("/").split("/")[0].strip()
+    if not segment:
+        return None
+    return segment.upper()
+
+
+def _make_header_preamble(n_structs: int, guard: str) -> list[str]:
+    """Return the standard header preamble lines for a types header."""
+    return [
+        "/* Auto-generated from Ghidra via rebrew sync --pull-structs */",
+        f"/* {n_structs} structures exported */",
+        "",
+        f"#ifndef {guard}",
+        f"#define {guard}",
+        "",
+        "typedef unsigned char uint8_t;",
+        "typedef unsigned short uint16_t;",
+        "typedef unsigned int uint32_t;",
+        "",
+    ]
+
+
+def _append_struct_def(lines: list[str], name: str, info: Any) -> bool:
+    """Append a C struct definition from *info* to *lines*.
+
+    Returns ``True`` if a definition was appended, ``False`` if *info*
+    carried no usable definition.
+    """
+    c_def: str | None = None
+    if isinstance(info, dict):
+        c_def = info.get("cDefinition") or info.get("c_definition") or info.get("definition")
+        if not c_def:
+            fields = info.get("fields", [])
+            if fields:
+                size = info.get("size", "?")
+                lines.append(f"/* size: {size} */")
+                lines.append(f"typedef struct {name} {{")
+                for field_info in fields:
+                    if isinstance(field_info, dict):
+                        fname = field_info.get("name", field_info.get("fieldName", "unknown"))
+                        ftype = field_info.get("dataType", field_info.get("type", "int"))
+                        foffset = field_info.get("offset", "")
+                        offset_comment = (
+                            f"  /* offset 0x{foffset:x} */" if isinstance(foffset, int) else ""
+                        )
+                        lines.append(f"    {ftype} {fname};{offset_comment}")
+                    else:
+                        lines.append(f"    /* {field_info} */")
+                lines.append(f"}} {name};")
+                lines.append("")
+                return True
+    elif isinstance(info, str):
+        c_def = info
+
+    if c_def:
+        lines.append(c_def.rstrip())
+        lines.append("")
+        return True
+    return False
+
+
+def pull_structs(
+    cfg: ProjectConfig,
+    endpoint: str,
+    program_path: str,
+    dry_run: bool,
+    types_out: Path | None = None,
+    by_module: bool = False,
+) -> None:
+    """Pull struct definitions from Ghidra into types.h (or per-module files).
 
     Fetches structure names via ``list-structures``, retrieves each definition
     via ``get-structure-info``, and writes a consolidated header file.
+
+    :param cfg: Project configuration.
+    :param endpoint: ReVa MCP endpoint URL.
+    :param program_path: Ghidra program path.
+    :param dry_run: When ``True``, print what would be written without writing.
+    :param types_out: Override the output path (single-file mode only).
+    :param by_module: Split output into one file per inferred origin module;
+        structs with no module attribution go into ``types_shared.h``.
     """
     console.print("Pulling struct definitions from Ghidra...")
 
@@ -1025,43 +1120,51 @@ def pull_structs(cfg: ProjectConfig, endpoint: str, program_path: str, dry_run: 
             console.print("[yellow]No structures found in Ghidra.[/yellow]")
             return
 
-        struct_names: list[str] = []
+        # ------------------------------------------------------------------ #
+        # Parse the struct name list from whatever shape Ghidra returns.      #
+        # ------------------------------------------------------------------ #
+        struct_entries: list[dict[str, Any]] = []
         if isinstance(structs_list, list):
             for s in structs_list:
-                name = s.get("name") if isinstance(s, dict) else str(s)
-                if name:
-                    struct_names.append(name)
+                if isinstance(s, dict):
+                    name = s.get("name", "")
+                    namespace = s.get("namespace") or s.get("category") or s.get("categoryPath")
+                    struct_entries.append({"name": name, "namespace": namespace})
+                else:
+                    struct_entries.append({"name": str(s), "namespace": None})
         elif isinstance(structs_list, dict):
             structs_items = structs_list.get("structures") or structs_list.get("names") or []
-            for name in structs_items:
-                if isinstance(name, dict):
-                    struct_names.append(name.get("name", ""))
+            for item in structs_items:
+                if isinstance(item, dict):
+                    name = item.get("name", "")
+                    namespace = (
+                        item.get("namespace") or item.get("category") or item.get("categoryPath")
+                    )
+                    struct_entries.append({"name": name, "namespace": namespace})
                 else:
-                    struct_names.append(str(name))
+                    struct_entries.append({"name": str(item), "namespace": None})
 
-        if not struct_names:
+        struct_entries = [e for e in struct_entries if e["name"]]
+
+        if not struct_entries:
             text = str(structs_list)
             console.print(
                 f"[yellow]list-structures returned data but no names extracted: {text[:200]}[/yellow]"
             )
             return
 
-        header_lines = [
-            "/* Auto-generated from Ghidra via rebrew sync --pull-structs */",
-            f"/* {len(struct_names)} structures exported */",
-            "",
-            "#ifndef TYPES_H",
-            "#define TYPES_H",
-            "",
-            "typedef unsigned char uint8_t;",
-            "typedef unsigned short uint16_t;",
-            "typedef unsigned int uint32_t;",
-            "",
-        ]
-
+        # ------------------------------------------------------------------ #
+        # Fetch individual struct info and collect definitions.               #
+        # ------------------------------------------------------------------ #
+        # module_defs: module_key -> list[str lines]
+        # "shared" key is used for structs with no module attribution.
+        module_defs: dict[str, list[str]] = {}
+        single_lines: list[str] = []
         exported = 0
-        for i, name in enumerate(struct_names):
-            if not name or name.startswith("_") and name.count("_") > 2:
+
+        for i, entry in enumerate(struct_entries):
+            name: str = entry["name"]
+            if not name or (name.startswith("_") and name.count("_") > 2):
                 continue
 
             info = fetch_mcp_tool_raw(
@@ -1075,55 +1178,50 @@ def pull_structs(cfg: ProjectConfig, endpoint: str, program_path: str, dry_run: 
             if not info:
                 continue
 
-            c_def = None
-            if isinstance(info, dict):
-                c_def = (
-                    info.get("cDefinition") or info.get("c_definition") or info.get("definition")
-                )
-                if not c_def:
-                    fields = info.get("fields", [])
-                    if fields:
-                        size = info.get("size", "?")
-                        header_lines.append(f"/* size: {size} */")
-                        header_lines.append(f"typedef struct {name} {{")
-                        for field_info in fields:
-                            if isinstance(field_info, dict):
-                                fname = field_info.get(
-                                    "name", field_info.get("fieldName", "unknown")
-                                )
-                                ftype = field_info.get("dataType", field_info.get("type", "int"))
-                                foffset = field_info.get("offset", "")
-                                offset_comment = (
-                                    f"  /* offset 0x{foffset:x} */"
-                                    if isinstance(foffset, int)
-                                    else ""
-                                )
-                                header_lines.append(f"    {ftype} {fname};{offset_comment}")
-                            else:
-                                header_lines.append(f"    /* {field_info} */")
-                        header_lines.append(f"}} {name};")
-                        header_lines.append("")
-                        exported += 1
-                        continue
-            elif isinstance(info, str):
-                c_def = info
+            # Infer module from the list entry first; fall back to info dict.
+            module: str | None = None
+            if entry.get("namespace"):
+                raw_ns: str = str(entry["namespace"]).lstrip("/").split("/")[0].strip()
+                if raw_ns:
+                    module = raw_ns.upper()
+            if module is None:
+                module = _infer_struct_module(name, info)
 
-            if c_def:
-                header_lines.append(c_def.rstrip())
-                header_lines.append("")
-                exported += 1
+            if by_module:
+                bucket = module if module else "SHARED"
+                buf = module_defs.setdefault(bucket, [])
+                if _append_struct_def(buf, name, info):
+                    exported += 1
+            else:
+                if _append_struct_def(single_lines, name, info):
+                    exported += 1
 
-        header_lines.append("#endif /* TYPES_H */")
-        header_lines.append("")
-
-        if exported > 0:
-            out_file = cfg.reversed_dir / "types.h"
-            header_text = "\n".join(header_lines)
-            if not dry_run:
-                out_file.write_text(header_text, encoding="utf-8")
-            console.print(f"[green]Exported {exported} structures to {out_file}[/green]")
-        else:
+        if exported == 0:
             console.print("[yellow]No exportable structures found.[/yellow]")
+            return
+
+        # ------------------------------------------------------------------ #
+        # Write output files.                                                 #
+        # ------------------------------------------------------------------ #
+        if by_module:
+            for bucket, defs in sorted(module_defs.items()):
+                if not defs:
+                    continue
+                guard = f"TYPES_{bucket}_H"
+                filename = f"types_{bucket.lower()}.h"
+                out_file = cfg.reversed_dir / filename
+                preamble = _make_header_preamble(len(defs), guard)
+                text = "\n".join(preamble + defs + [f"#endif /* {guard} */", ""])
+                if not dry_run:
+                    atomic_write_text(out_file, text)
+                console.print(f"[green]Exported {len(defs)} structures → {out_file}[/green]")
+        else:
+            out_file = types_out if types_out is not None else cfg.reversed_dir / "types.h"
+            preamble = _make_header_preamble(exported, "TYPES_H")
+            text = "\n".join(preamble + single_lines + ["#endif /* TYPES_H */", ""])
+            if not dry_run:
+                atomic_write_text(out_file, text)
+            console.print(f"[green]Exported {exported} structures to {out_file}[/green]")
 
 
 def pull_comments(

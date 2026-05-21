@@ -275,7 +275,9 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 | `--accept-ghidra` | With `--pull`, accept Ghidra renames for all conflicts (updates cross-references) |
 | `--accept-local` | With `--pull`, keep local names for all conflicts (records GHIDRA in metadata) |
 | `--pull-signatures` | Pull function prototypes from Ghidra and update extern declarations |
-| `--pull-structs` | Pull struct definitions from Ghidra into `types.h` |
+| `--pull-structs` | Pull struct definitions from Ghidra into `types.h` (single file, default) |
+| `--types-out PATH` | With `--pull-structs`: override the output path (single-file mode; mutually exclusive with `--by-module`) |
+| `--by-module` | With `--pull-structs`: split into per-module files (e.g. `types_server.h`, `types_shared.h`) |
 | `--pull-comments` | Pull Ghidra analysis comments into source files |
 | `--pull-data` | Fetch Ghidra data labels via MCP, generate `rebrew_globals.h` with typed extern declarations |
 | `--dry-run` | Preview any sync operation without applying changes |
