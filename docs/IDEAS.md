@@ -84,39 +84,5 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 
 ## Observations (Reference Knowledge)
 
-Patterns and insights from RE work — not actionable tool ideas, but useful context.
-
-### Close NEAR_MATCHING analysis (0-3B delta)
-
-GA mutations (100 gen, pop 30) consistently fail to improve close NEAR_MATCHING functions. All blockers are compiler-internal decisions that C source mutations cannot influence.
-
-Common uncontrollable blocker categories:
-1. **Register allocation** — ebx vs edi, eax vs ecx swaps (most common)
-2. **Loop rotation** — compiler peels first iteration or uses jge+jmp vs jl
-3. **Instruction folding** — lea+mov to single mov with SIB, saves 2B
-4. **Zero-extend patterns** — xor+mov dl vs bare mov dl for byte params
-5. **Stack frame choice** — push ecx vs sub esp,8 for locals
-6. **Comparison direction swap** — cmp eax,ecx/jae vs cmp ecx,eax/jbe
-
-### Register allocation as systemic ceiling
-
-Register allocation is the primary systemic blocker for ALL remaining GAME functions. With `/O2 /Gd` (frame pointer omission), the compiler may use ebp as a callee-save register, but only if there's enough register pressure. If C source doesn't create enough demand, the compiler won't allocate ebp, producing fewer push/pop instructions and different register assignments throughout.
-
-### Dependency chains limit matchable scope
-
-Dependency chains make many CRT functions permanently unreachable:
-- `memmove` (hand-written ASM) blocks `fread`, `fwrite`
-- SEH functions block `_stricmp`, `_strnicmp`
-- `strcat` (hand-written ASM) blocks downstream functions
-- `FreeHeapBlockWithRuntimeLock` (SEH) blocks ~33 other functions
-
-These form a "dependency ceiling" that limits what can be matched regardless of tooling.
-
-### STUB conversion notes
-
-- Remaining GAME STUBs range from 355B to 6000B+. Even small ones (under 400B) face register pressure challenges with `/O2 /Gd`.
-- MSVCRT STUBs range from 11B to 1825B. Many small ones (85-200B) may be achievable using reference CRT source.
-- Verifying string literals via hex dump is critical — Ghidra often gets string references wrong.
-- Dead assignments in STUBs are common — Ghidra generates reads for values the target code never uses.
-- Entity records are 65 bytes — MSVC6 decomposes `*65` as `shl eax, 6; add eax, base; add eax, index`.
-- CRT `_mbctype` access: `_mbctype[(unsigned char)c + 1] & 4` compiles to `test byte ptr [reg + 0x11766321], 4` — the +1 offset is baked into the immediate address.
+Moved to [`MATCH_TYPES.md`](MATCH_TYPES.md#observed-near-matching-patterns)
+— these are byte-level reference observations, not actionable ideas.
