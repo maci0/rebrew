@@ -57,10 +57,14 @@ Identify known library functions (MSVCRT, zlib, DirectX, etc.) to separate
 library code from game code:
 
 ```bash
+rebrew cfg detect-crt --write           # auto-detect and register CRT source dirs (required before crt-match)
 rebrew flirt --json                     # scan binary against FLIRT signatures
 rebrew crt-match --index --json         # verify CRT source directories are configured
 rebrew crt-match --all --fix-source --json # auto-annotate SOURCE references for library functions
 ```
+
+Without `rebrew cfg detect-crt`, `crt-match --all` finds zero matches because no CRT
+source directories are registered in `rebrew-project.toml`.
 
 Library matches are fast wins — they can be skeletonized and matched quickly
 since the original source is often available.
@@ -138,6 +142,7 @@ rebrew sync --push                      # push annotations + FLIRT labels to Ghi
 Intake Progress:
 - [ ] Binary placed at configured path
 - [ ] rebrew cfg confirms target
+- [ ] CRT source dirs detected (rebrew cfg detect-crt --write)
 - [ ] FLIRT scan complete
 - [ ] Catalog + coverage DB built (rebrew catalog --data-json && rebrew build-db)
 - [ ] SIZE backfilled (rebrew catalog --fix-sizes)
