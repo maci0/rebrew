@@ -237,7 +237,9 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         # Graceful degradation: return zeroed report
         return report
 
-    report.total_functions = len(ghidra_funcs)
+    ghidra_vas = {f.va for f in ghidra_funcs}
+    covered_vas_set = set(existing.keys())
+    report.total_functions = len(ghidra_vas | covered_vas_set)
     report.covered_functions = len(existing)
 
     # Count source files
