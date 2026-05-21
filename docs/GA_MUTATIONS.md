@@ -368,16 +368,5 @@ to 120 operators.)
 
 ## Adding A New Mutation
 
-1. **Write the function** in `mutator.py`:
-   ```python
-   def mut_my_transform(s: str, rng: random.Random) -> str | None:
-       """One-line docstring of what it does."""
-       # Use tree-sitter query to find matches
-       # Return modified source string, or None if no match
-   ```
-
-2. **Register** it in `ALL_MUTATIONS` list (bottom of file)
-
-3. **Add tests** in `tests/test_mutator_p*.py`
-
-4. **Update this doc** — add a row to the appropriate category table
+See contributor guidelines in [`AGENTS.md`](../AGENTS.md#adding-a-new-ga-mutation)
+(a.k.a. `CLAUDE.md`).
