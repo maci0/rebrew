@@ -412,6 +412,7 @@ def main(
 
     if refresh_cache:
         _refresh_structure_cache(cfg, endpoint, program_path, dry_run, json_output)
+        _refresh_data_labels_cache(cfg, endpoint, program_path, dry_run, json_output)
 
     if sync_sizes or sync_new_functions:
         # Build registry to compare function list vs ghidra sizes
@@ -511,6 +512,42 @@ def _refresh_structure_cache(
 
     reversed_dir.mkdir(parents=True, exist_ok=True)
     atomic_write_text(out_path, json.dumps(entries, indent=2) + "\n")
+    console.print(f"  Wrote {out_path}")
+
+
+def _refresh_data_labels_cache(
+    cfg: Any,
+    endpoint: str,
+    program_path: str,
+    dry_run: bool,
+    json_output: bool,
+) -> None:
+    """Fetch all data labels from Ghidra MCP and write ghidra_data_labels.json."""
+    from rebrew.ghidra.client import fetch_all_symbols
+
+    reversed_dir = cfg.reversed_dir
+    out_path = reversed_dir / "ghidra_data_labels.json"
+
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            session_id = init_mcp_session(client, endpoint)
+            console.print(f"Fetching data labels from Ghidra ({program_path})...")
+            raw_syms = fetch_all_symbols(client, endpoint, program_path, session_id)
+    except (httpx.HTTPError, OSError) as exc:
+        error_exit(f"Failed to fetch data labels from Ghidra MCP: {exc}", json_mode=json_output)
+
+    console.print(f"  Fetched {len(raw_syms)} symbols")
+
+    if json_output:
+        json_print(raw_syms)
+        return
+
+    if dry_run:
+        console.print(f"  Would write {len(raw_syms)} entries to {out_path}")
+        return
+
+    reversed_dir.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(out_path, json.dumps(raw_syms, indent=2) + "\n")
     console.print(f"  Wrote {out_path}")
 
 
