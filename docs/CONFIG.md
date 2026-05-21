@@ -283,7 +283,7 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 |------|--------------------|
 | `verify.py` | `image_base`, `text_va`, `text_raw_offset`, `target_binary`, `reversed_dir` |
 | `test.py` | `target_binary`, `text_va`, `text_raw_offset`, compiler paths |
-| `match.py` | `reversed_dir`, `target_binary`, `compiler_includes`, `compiler_command` |
+| `match.py` | `reversed_dir`, `target_binary`, `compiler.includes`, `compiler.command` |
 | `ghidra/cli.py` | `reversed_dir` |
 | `todo.py` | `reversed_dir`, `target_binary` |
 | `skeleton.py` | `reversed_dir` |
