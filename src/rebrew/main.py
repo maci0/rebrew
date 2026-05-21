@@ -110,6 +110,7 @@ _COMMAND_PANELS: dict[str, str] = {
     "doctor": "Project Setup",
     "cfg": "Project Setup",
     "cache": "Project Setup",
+    "skills": "Project Setup",
     # Development — the daily reversing loop
     "skeleton": "Development",
     "test": "Development",
@@ -185,6 +186,7 @@ _MULTI_COMMANDS: list[tuple[str, str, str]] = [
     ("extract", "rebrew.extract", "Extract and disassemble functions from binary."),
     ("cfg", "rebrew.cfg", "Read and edit rebrew-project.toml programmatically."),
     ("cache", "rebrew.cache_cli", "Manage the compile result cache."),
+    ("skills", "rebrew.skills", "Discover and display agent skills bundled with rebrew."),
 ]
 
 
