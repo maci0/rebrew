@@ -67,7 +67,7 @@ DATA_METADATA_FILENAME = "rebrew-data.toml"
 DATA_METADATA_FIELDS: frozenset[str] = frozenset({"NAME", "SIZE", "SECTION", "NOTE"})
 
 # Canonical TOML key order when writing.
-_CANONICAL_ORDER = ["name", "size", "section", "note"]
+_CANONICAL_ORDER = ["name", "type", "size", "section", "note"]
 
 __all__ = [
     "DATA_METADATA_FILENAME",
