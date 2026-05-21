@@ -232,6 +232,7 @@ Rebrew is part of a broader decompilation ecosystem. These are the notable proje
 | Tool | What it does | Relevance |
 |------|-------------|-----------|
 | [asm-differ](https://github.com/simonlindholm/asm-differ) | Assembly diff with levenshtein alignment | Used by decomp.me for all diffs; rebrew has its own capstone-based differ |
+| [decomp-permuter](https://github.com/simonlindholm/decomp-permuter) | Source-level permutation finder for matching decompilation | Complementary to `rebrew match`'s GA: explores semantic-preserving C rewrites (variable types, statement order, parenthesisation) until the compiler emits identical assembly. Candidate for integration as an alternative mutation engine or seed source for the GA. |
 | [objdiff](https://github.com/encounter/objdiff) | Rust GUI for object file diffing (COFF/ELF/Mach-O) | Visual companion for inspecting match differences |
 | [decomp-toolkit](https://github.com/encounter/decomp-toolkit) | GameCube/Wii decompilation toolkit | DOL/REL focused; similar split/link/diff workflow concepts |
 | [wibo](https://github.com/decompals/wibo) | Lightweight Win32 PE loader | Faster alternative to Wine for running MSVC CL.EXE |
