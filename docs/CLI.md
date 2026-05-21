@@ -210,6 +210,8 @@ Output prefixes for unambiguous parsing:
 | `--summary` | Show section-level summary only |
 | `--bss` | Verify .bss layout and detect gaps |
 | `--dispatch` | Detect dispatch tables / vtables |
+| `--min-table-len N` | Minimum entries to qualify as a dispatch table (default: 3; requires `--dispatch`) |
+| `--max-pointer-stride N` | Maximum byte stride between pointer slots when scanning (default: 4; requires `--dispatch`) |
 | `--fix-bss` | Auto-generate `bss_padding.c` with dummy arrays for detected gaps |
 | `--gen-header` | Output `rebrew_globals.h` locally without fetching from Ghidra |
 | `--gen-header-out PATH` | Override output path for `--gen-header` (default: `{reversed_dir}/rebrew_globals.h`) |
@@ -233,6 +235,7 @@ Output prefixes for unambiguous parsing:
 | Flag | Description |
 |------|-------------|
 | `--fix` | Auto-migrate old source marker formats |
+| `--dry-run` | Preview changes without writing |
 | `--quiet` | Suppress warnings, show errors only |
 | `--json` | Machine-readable JSON output |
 | `--summary` | Print status/origin breakdown table |
@@ -536,3 +539,16 @@ that returns a `CompareResult` dataclass used by both `rebrew test` and
 Both `rebrew test` (auto-promote after single test) and `rebrew verify`
 (always-on batch promotion) call `update_source_status`.  The `.c` file is **never modified**
 by either tool's status logic.
+
+## Exit Code Alignment: `rebrew diff` vs `rebrew test`
+
+`rebrew diff` and `rebrew test` both exit with code 1, but for unrelated reasons:
+`rebrew diff` exits 1 whenever a structural byte difference (`**`) exists between the
+compiled object and the target function; `rebrew test` exits 1 when the result is
+`NEAR_MATCHING` (or any non-exact status) after compile-and-compare.  These semantics
+are intentionally distinct — a function can be `NEAR_MATCHING` without a structural
+diff (pure relocation noise), and `rebrew diff` is focused on interactive investigation
+rather than CI status promotion.  Any CI script that chains both commands and inspects
+exit codes will conflate the two failure modes.  The recommended pattern is to run both
+tools with `--json` and branch on `.status` (for `rebrew test`) or `.structural_diffs`
+(for `rebrew diff`) rather than relying on the exit code alone.
