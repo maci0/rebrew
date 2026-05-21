@@ -35,14 +35,28 @@ def build_symbol_resolver(
     caller's query are stripped on lookup.
     """
     by_name = {name: va for va, name in funcs_by_va.items()}
+    # Also index by stripped form for tolerant lookup across leading underscore
+    # mangling variants (MSVC adds `_` to __cdecl names; C source-level `__ftol`
+    # appears in the COFF symbol table as `___ftol`).
+    by_stripped: dict[str, int] = {}
+    for name, va in by_name.items():
+        by_stripped[name.lstrip("_")] = va
+    data_by_stripped: dict[str, int] = {}
+    for name, va in data_by_name.items():
+        data_by_stripped[name.lstrip("_")] = va
 
     def resolve(symbol: str) -> int | None:
-        candidates = (symbol, symbol.lstrip("_") if symbol.startswith("_") else symbol)
+        stripped = symbol.lstrip("_") if symbol.startswith("_") else symbol
+        candidates = (symbol, stripped)
         for s in candidates:
             if s in by_name:
                 return by_name[s]
             if s in data_by_name:
                 return data_by_name[s]
+        if stripped in by_stripped:
+            return by_stripped[stripped]
+        if stripped in data_by_stripped:
+            return data_by_stripped[stripped]
         return None
 
     return resolve
