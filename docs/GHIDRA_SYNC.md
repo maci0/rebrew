@@ -22,12 +22,15 @@
 | Push data segments (.bss, .data) to Ghidra | Local → Ghidra | ✅ Done | `--sync-data` |
 | Bidirectional conflict detection | Both | ✅ Done | Warns on conflict, `--accept-ghidra`/`--accept-local` |
 | Pull data labels from Ghidra | Ghidra → Local | ✅ Done | `--pull-data` (generates `rebrew_globals.h`); **name/note** written to `rebrew-data.toml` metadata |
+| Refresh function structure + data label cache from Ghidra | Ghidra → Local | ✅ Done | `--refresh-cache` |
+| Split pulled structs into per-module files | Ghidra → Local | ✅ Done | `--pull-structs --by-module` (e.g. `types_server.h`, `types_shared.h`); `--types-out PATH` for single-file override |
+| Validate `programPath` against Ghidra project | — | ✅ Done | `validate_program_path()` queries `get-current-program` via ReVa MCP and warns on mismatch |
 | XREF context in skeleton generation | Ghidra → Local | ✅ Done | `skeleton --xrefs` |
 | Ghidra decompilation backend for skeleton | Ghidra → Local | ✅ Done | `skeleton --decomp --decomp-backend ghidra` |
 | Metadata-aware linting | Local | ✅ Done | `rebrew lint` reads `rebrew-function.toml` before validation |
 | Incremental / dirty-only sync | Both | ❌ Not yet | — |
 | Watch mode (live file-change sync) | Local → Ghidra | ❌ Not yet | — |
-| Validate `programPath` against Ghidra project | — | ❌ Not yet | — |
+| Validate `programPath` against Ghidra project | — | ✅ Done | `validate_program_path()` (see above) |
 | Deduplication / idempotency tracking | — | ❌ Not yet | — |
 
 For improvement ideas related to Ghidra sync, see [IDEAS.md](IDEAS.md) (#5–#9, #11).
@@ -36,13 +39,12 @@ For improvement ideas related to Ghidra sync, see [IDEAS.md](IDEAS.md) (#5–#9,
 
 ## Known Issues
 
-### `sync.py` doesn't validate programPath against actual Ghidra project
+### ~~`sync.py` doesn't validate programPath against actual Ghidra project~~ *(resolved)*
 
-The `program_path` is derived from `cfg.target_binary.name` which gives `/server.dll`.
-But Ghidra may have imported the binary under a different path (e.g. `/Server/server.dll`
-or just `server.dll` without leading slash). There should be a way to:
-1. Query ReVa for `get-current-program` to validate the path
-2. Or make the program path configurable in `rebrew-project.toml`
+`validate_program_path()` in `ghidra/commands.py` now calls `get-current-program` via ReVa MCP
+and compares the active Ghidra path against the derived `/binary.dll` path. On mismatch it
+prints a warning with the correct value to set as `ghidra_program_path` in `rebrew-project.toml`.
+The path is also configurable via `ghidra_program_path` in the target config section.
 
 ### No deduplication check
 
