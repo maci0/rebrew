@@ -20,14 +20,62 @@ from rebrew.utils import atomic_write_text
 console = Console(stderr=True)
 
 
+_CURRENT_DB_VERSION = "3"
+
+
+def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool = False) -> None:
+    """Raise SystemExit (via error_exit) if DB exists with an incompatible schema version.
+
+    On mismatch without ``--force``: emit a clear error.
+    With ``--force``: delete the DB file so it is recreated from scratch.
+    """
+    if not db_path.exists():
+        return
+    try:
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        c.execute("SELECT value FROM metadata WHERE key = 'db_version' LIMIT 1")
+        row = c.fetchone()
+        conn.close()
+        if row is None:
+            stored_version = "<unknown>"
+        else:
+            try:
+                stored_version = json.loads(row[0])
+            except (json.JSONDecodeError, TypeError):
+                stored_version = str(row[0])
+    except sqlite3.OperationalError:
+        # Metadata table missing — treat as incompatible
+        stored_version = "<missing>"
+
+    if stored_version != _CURRENT_DB_VERSION:
+        if not force:
+            error_exit(
+                f"Database at '{db_path}' has schema version {stored_version!r} "
+                f"but this tool requires version {_CURRENT_DB_VERSION!r}.\n"
+                "The existing DB is incompatible. Pass --force to delete it and rebuild.",
+                json_mode=json_output,
+            )
+        console.print(
+            f"[yellow]warning:[/yellow] schema mismatch (stored={stored_version!r}, "
+            f"required={_CURRENT_DB_VERSION!r}); deleting '{db_path}' and rebuilding (--force)."
+        )
+        db_path.unlink()
+
+
 def build_db(
-    project_root: Path | None = None, target: str | None = None, json_output: bool = False
+    project_root: Path | None = None,
+    target: str | None = None,
+    json_output: bool = False,
+    force: bool = False,
 ) -> None:
     """Aggregate ``data_*.json`` files into ``db/coverage.db``."""
     root_dir = Path(project_root).resolve() if project_root else Path.cwd().resolve()
     db_dir = root_dir / "db"
     db_dir.mkdir(parents=True, exist_ok=True)
     db_path = db_dir / "coverage.db"
+
+    _check_db_version(db_path, force=force, json_output=json_output)
 
     conn: sqlite3.Connection | None = None
     try:
@@ -626,11 +674,16 @@ def main(
         "--root",
         help="Project root directory",
     ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Delete and recreate the database if its schema version is incompatible.",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """CLI entry point for rebrew build-db."""
-    build_db(root, target=target, json_output=json_output)
+    build_db(root, target=target, json_output=json_output, force=force)
 
 
 def main_entry() -> None:
