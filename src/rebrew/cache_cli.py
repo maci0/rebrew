@@ -49,6 +49,15 @@ def stats(
             console.print(f"Entries:         {info['entries']}")
             console.print(f"Disk usage:      {info['volume_mb']} MB")
             console.print(f"Size limit:      {info['size_limit_mb']} MB")
+            hits = int(info["session_hits"])
+            misses = int(info["session_misses"])
+            if hits + misses > 0:
+                console.print(
+                    f"Session:         {hits} hits, {misses} misses"
+                    f" ({info['session_hit_rate_pct']}% hit rate)"
+                )
+            else:
+                console.print("Session:         no lookups this session")
     finally:
         cache.close()
 

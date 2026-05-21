@@ -338,3 +338,72 @@ class TestCompileToObjCacheIntegration:
         assert call_count["n"] == 2  # failures not cached, so both hit subprocess
 
         cache.close()
+
+
+# ---------------------------------------------------------------------------
+# N12 — Per-session hit/miss counters
+# ---------------------------------------------------------------------------
+
+
+class TestHitMissCounters:
+    def test_initial_counters_zero(self, tmp_path: Path) -> None:
+        cache = CompileCache(tmp_path / "cc")
+        assert cache.hits == 0
+        assert cache.misses == 0
+        cache.close()
+
+    def test_miss_increments_misses(self, tmp_path: Path) -> None:
+        cache = CompileCache(tmp_path / "cc")
+        cache.get("nonexistent")
+        assert cache.hits == 0
+        assert cache.misses == 1
+        cache.close()
+
+    def test_hit_increments_hits(self, tmp_path: Path) -> None:
+        cache = CompileCache(tmp_path / "cc")
+        cache.put("k", b"\x55\x8b\xec")
+        result = cache.get("k")
+        assert result == b"\x55\x8b\xec"
+        assert cache.hits == 1
+        assert cache.misses == 0
+        cache.close()
+
+    def test_mixed_hits_and_misses(self, tmp_path: Path) -> None:
+        cache = CompileCache(tmp_path / "cc")
+        cache.put("a", b"\x01")
+        cache.put("b", b"\x02")
+        cache.get("a")  # hit
+        cache.get("b")  # hit
+        cache.get("c")  # miss
+        cache.get("d")  # miss
+        cache.get("e")  # miss
+        assert cache.hits == 2
+        assert cache.misses == 3
+        cache.close()
+
+    def test_stats_includes_session_data(self, tmp_path: Path) -> None:
+        cache = CompileCache(tmp_path / "cc")
+        cache.put("k", b"\x00" * 50)
+        cache.get("k")  # hit
+        cache.get("missing")  # miss
+        info = cache.stats()
+        assert info["session_hits"] == 1
+        assert info["session_misses"] == 1
+        assert info["session_hit_rate_pct"] == 50.0
+        cache.close()
+
+    def test_stats_hit_rate_zero_when_no_lookups(self, tmp_path: Path) -> None:
+        cache = CompileCache(tmp_path / "cc")
+        info = cache.stats()
+        assert info["session_hits"] == 0
+        assert info["session_misses"] == 0
+        assert info["session_hit_rate_pct"] == 0.0
+        cache.close()
+
+    def test_stats_hit_rate_100_percent(self, tmp_path: Path) -> None:
+        cache = CompileCache(tmp_path / "cc")
+        cache.put("x", b"\xff")
+        cache.get("x")
+        info = cache.stats()
+        assert info["session_hit_rate_pct"] == 100.0
+        cache.close()

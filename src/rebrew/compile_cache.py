@@ -48,6 +48,10 @@ class CompileCache:
 
     Backed by ``diskcache.Cache`` (SQLite + filesystem), which is
     thread-safe and supports concurrent readers/writers.
+
+    In-process hit/miss counters (``hits``, ``misses``) are incremented on
+    every ``get`` call so that ``rebrew cache stats`` can report a per-session
+    hit rate without any extra disk I/O.  Counters reset when the process exits.
     """
 
     def __init__(self, cache_dir: str | Path, size_limit: int = _DEFAULT_SIZE_LIMIT) -> None:
@@ -61,11 +65,20 @@ class CompileCache:
 
         """
         self._cache = diskcache.Cache(str(cache_dir), size_limit=size_limit)
+        self.hits: int = 0
+        self.misses: int = 0
 
     def get(self, key: str) -> bytes | None:
-        """Return cached .obj bytes for *key*, or ``None`` on miss."""
+        """Return cached .obj bytes for *key*, or ``None`` on miss.
+
+        Increments ``self.hits`` on a cache hit, ``self.misses`` on a miss.
+        """
         result = self._cache.get(key, default=None)
-        return result if isinstance(result, bytes) else None
+        if isinstance(result, bytes):
+            self.hits += 1
+            return result
+        self.misses += 1
+        return None
 
     def put(self, key: str, obj_bytes: bytes) -> None:
         """Store .obj bytes under *key*."""
@@ -90,12 +103,22 @@ class CompileCache:
         self._cache.close()
 
     def stats(self) -> dict[str, int | float]:
-        """Return cache statistics as a dict."""
+        """Return cache statistics as a dict.
+
+        Includes in-process hit/miss counters under ``session_hits``,
+        ``session_misses``, and ``session_hit_rate_pct``.  These reset
+        when the process exits; they reflect only the current session.
+        """
+        total_lookups = self.hits + self.misses
+        hit_rate = round(100.0 * self.hits / total_lookups, 1) if total_lookups > 0 else 0.0
         return {
             "entries": self.count,
             "volume_bytes": self.volume,
             "volume_mb": round(self.volume / (1024 * 1024), 2),
             "size_limit_mb": round(self._cache.size_limit / (1024 * 1024), 2),
+            "session_hits": self.hits,
+            "session_misses": self.misses,
+            "session_hit_rate_pct": hit_rate,
         }
 
 
