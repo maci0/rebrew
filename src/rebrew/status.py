@@ -11,6 +11,7 @@ Usage::
 """
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +25,15 @@ from rich.text import Text
 
 from rebrew.cli import STATUS_COLORS, TargetOption, json_print, require_config
 from rebrew.config import ProjectConfig
+
+# Regex that matches any inline metadata comment fired by W019.
+# Matches lines like ``// STATUS: EXACT``, ``// SIZE: 120``, ``// CFLAGS: /O2``, etc.
+# We use the same key set as annotation.METADATA_KEYS but inline to avoid a
+# circular-import chain from status → annotation at module load time.
+_W019_INLINE_RE = re.compile(
+    r"//\s*(?:STATUS|ORIGIN|CFLAGS|SKIP|GLOBALS|BLOCKER|BLOCKER_DELTA|SOURCE|NOTE|SECTION|GHIDRA|SIZE)\s*:",
+    re.IGNORECASE,
+)
 
 console = Console(stderr=True)
 
@@ -66,6 +76,10 @@ class StatusReport:
 
     # Verify cache summary
     verify_info: VerifyInfo | None = None
+
+    # W019 quick-lint result: number of .c files with inline metadata comments.
+    # 0 means no issues found (or scan not yet run).
+    inline_metadata_warning: int = 0
 
     # Derived percentages
     @property
@@ -118,6 +132,8 @@ class StatusReport:
                 "failed": self.verify_info.failed,
                 "total": self.verify_info.total,
             }
+        if self.inline_metadata_warning:
+            d["inline_metadata_warning"] = self.inline_metadata_warning
         return d
 
 
@@ -270,7 +286,32 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     # Verify info
     report.verify_info = _load_verify_info(cfg)
 
+    # Quick W019 scan: detect .c files that still have inline metadata comments.
+    # This is intentionally fast (grep-style, no full parse) — the expensive
+    # full lint is ``rebrew lint``.
+    report.inline_metadata_warning = _count_inline_metadata_files(src_dir, cfg)
+
     return report
+
+
+def _count_inline_metadata_files(src_dir: Path, cfg: ProjectConfig) -> int:
+    """Return the number of source files containing inline W019 metadata comments.
+
+    Only scans files returned by ``iter_sources`` so that the extension filter
+    (``cfg.source_ext``) is respected.  Uses a single compiled regex rather than
+    a full annotation parse to keep the hot-path fast.
+    """
+    from rebrew.cli import iter_sources
+
+    count = 0
+    for src in iter_sources(src_dir, cfg):
+        try:
+            text = src.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if _W019_INLINE_RE.search(text):
+            count += 1
+    return count
 
 
 # ---------------------------------------------------------------------------
@@ -376,6 +417,14 @@ def _render_terminal(report: StatusReport) -> None:
             f"  Last verify: [{verify_color}]{v.passed} passed[/{verify_color}]"
             f"  [red]{v.failed} failed[/red]"
             f"  [dim]({v.timestamp})[/dim]"
+        )
+
+    # W019 inline metadata warning
+    if report.inline_metadata_warning:
+        n = report.inline_metadata_warning
+        summary_lines.append(
+            f"  [yellow]Warning:[/yellow] {n} file(s) contain inline STATUS/CFLAGS/SIZE comments"
+            " — run [bold]rebrew lint[/bold] to migrate to rebrew-function.toml"
         )
 
     # --- Assemble panel ---

@@ -376,3 +376,80 @@ class TestCollectStatus:
         assert report.status_counts.get("COMPILE_ERROR") == 1
         # matched_pct should reflect only the 1 actual RELOC out of 3
         assert report.matched_pct == round(100.0 * 1 / 3, 1)
+
+
+# ---------------------------------------------------------------------------
+# E10 — W019 quick lint (inline metadata detection)
+# ---------------------------------------------------------------------------
+
+
+class TestInlineMetadataWarning:
+    def test_no_inline_metadata(self, tmp_path: Path) -> None:
+        """Source files with no inline metadata → warning count == 0."""
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "function_structure.json").write_text("[]", encoding="utf-8")
+        (src / "func_a.c").write_text(
+            "// FUNCTION: TEST 0x1000\nvoid func_a(void) {}\n",
+            encoding="utf-8",
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.inline_metadata_warning == 0
+
+    def test_inline_status_detected(self, tmp_path: Path) -> None:
+        """A file with // STATUS: inline → warning count == 1."""
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "function_structure.json").write_text("[]", encoding="utf-8")
+        (src / "func_a.c").write_text(
+            "// FUNCTION: TEST 0x1000\n// STATUS: EXACT\nvoid func_a(void) {}\n",
+            encoding="utf-8",
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.inline_metadata_warning == 1
+
+    def test_inline_cflags_detected(self, tmp_path: Path) -> None:
+        """A file with // CFLAGS: inline → warning count == 1."""
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "function_structure.json").write_text("[]", encoding="utf-8")
+        (src / "func_a.c").write_text(
+            "// FUNCTION: TEST 0x1000\n// CFLAGS: /O2 /Gd\nvoid func_a(void) {}\n",
+            encoding="utf-8",
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.inline_metadata_warning == 1
+
+    def test_multiple_files_with_inline(self, tmp_path: Path) -> None:
+        """Multiple files with inline metadata → count matches number of files."""
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "function_structure.json").write_text("[]", encoding="utf-8")
+        (src / "func_a.c").write_text(
+            "// FUNCTION: TEST 0x1000\n// STATUS: EXACT\nvoid func_a(void) {}\n",
+            encoding="utf-8",
+        )
+        (src / "func_b.c").write_text(
+            "// FUNCTION: TEST 0x2000\n// SIZE: 100\nvoid func_b(void) {}\n",
+            encoding="utf-8",
+        )
+        # func_c.c has no inline metadata
+        (src / "func_c.c").write_text(
+            "// FUNCTION: TEST 0x3000\nvoid func_c(void) {}\n",
+            encoding="utf-8",
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.inline_metadata_warning == 2
+
+    def test_inline_warning_in_to_dict(self, tmp_path: Path) -> None:
+        """inline_metadata_warning appears in to_dict() only when non-zero."""
+        report_clean = StatusReport()
+        assert "inline_metadata_warning" not in report_clean.to_dict()
+
+        report_dirty = StatusReport(inline_metadata_warning=3)
+        d = report_dirty.to_dict()
+        assert d["inline_metadata_warning"] == 3
