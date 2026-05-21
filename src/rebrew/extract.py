@@ -334,6 +334,9 @@ def list_candidates(
 @app.command("show")
 def show_candidate(
     va: str = typer.Argument(..., help="VA (hex) to extract and disassemble"),
+    size: int | None = typer.Option(
+        None, "--size", help="Override catalog-recorded size for this extraction"
+    ),
     exe: Path | None = typer.Option(None, "--exe", help="Path to DLL/EXE (default: from config)"),
     min_size: int = typer.Option(8, "--min-size", help="Minimum function size"),
     max_size: int = typer.Option(50000, "--max-size", help="Maximum function size"),
@@ -344,6 +347,14 @@ def show_candidate(
     cfg, candidates, exe_path = _setup_candidates(target, json_output, exe, min_size, max_size)
     binary_info = load_binary(exe_path)
     target_va = parse_va(va, json_mode=json_output)
+    # --size override: inject a synthetic candidate entry so the VA is found
+    # even when it is absent from the candidate list (e.g. already-reversed) or
+    # when the catalog size is wrong.
+    if size is not None:
+        # Replace or prepend an entry with the overridden size.
+        candidates = [(target_va, size, f"0x{target_va:08X}")] + [
+            c for c in candidates if c[0] != target_va
+        ]
     cmd_extract(binary_info, candidates, target_va, cfg.bin_dir, cfg=cfg, json_output=json_output)
 
 
