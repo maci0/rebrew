@@ -105,6 +105,23 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 - Cache lives in `<project_root>/.rebrew/compile_cache/`.
 - Keyed by SHA-256 of (source + flags + compiler signature).
 
+### `rebrew round-trip`
+
+- Splice every function marked EXACT or RELOC (from `rebrew-function.toml`
+  metadata) back into a copy of the original PE binary.
+- Apply COFF relocations per the `.obj` relocation records.
+- Skip PROVEN functions (their bytes are semantically equivalent but not
+  byte-identical by design).
+- Verify the result is byte-identical to the original PE (sha256 hash match).
+- Writes reassembled PE to disk next to the target binary (suffix
+  `.reasm`), or to a custom path with `--out`.
+- `--no-write` skips writing; report still emitted.
+- `--filter SUBSTR` restricts to functions whose symbol contains the
+  substring.
+- `--json` machine-readable report.
+- Exit codes: 0=round-trip clean, 1=byte mismatch (spliced region differs
+  from original), 2=infrastructure failure.
+
 ## User Stories / Workflows
 
 ### Story 1 — Pre-merge regression check
@@ -137,6 +154,17 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 2. `rebrew cache clear` deletes the cached `.obj` files.
 3. `rebrew verify --full` rebuilds everything from scratch.
 
+### Story 5 — End-to-end reassembly check before shipping
+
+1. CI bot runs `rebrew round-trip --json` after `rebrew verify` passes.
+2. The round-trip splices every matched function back into the PE binary
+   and compares the full binary hash against the original.
+3. If any unexpected byte mismatch is found (relocation errors, padding
+   issues, etc.), the job fails and the developer inspects the `.reasm`
+   output with `radare2` or `diffoscope`.
+4. This catches bugs that per-function `verify` cannot expose (e.g.
+   relocation application errors across section boundaries).
+
 ## CLI Surface
 
 ```
@@ -165,6 +193,13 @@ rebrew graph
 
 rebrew cache stats
 rebrew cache clear
+
+rebrew round-trip
+      --out PATH
+      --no-write
+      --filter SUBSTR
+      --json
+  -t, --target TEXT
 ```
 
 ## Success Metrics
@@ -179,6 +214,11 @@ rebrew cache clear
   GitHub/GitLab Markdown viewer.
 - `rebrew cache clear` is safe to run at any time and leaves
   `rebrew-project.toml` and source files untouched.
+- `rebrew round-trip` on a warm compile cache completes in <30 s for a
+  2000-function project (bottleneck: relocation application + PE write).
+- `rebrew round-trip --json` output is valid JSON with all fields present
+  (target, binary, sha256 hashes, match status, spliced/skipped counts,
+  mismatch list).
 
 ## Open Questions / Known Limitations
 
@@ -197,3 +237,9 @@ rebrew cache clear
   hit/miss telemetry across the session is not exposed.
 - The compile cache is project-local; sharing it across CI runs requires
   caching the `.rebrew/compile_cache/` directory as a build artifact.
+- `round-trip` skips PROVEN functions (semantically equivalent, not
+  byte-identical); pass-fail verdict reflects only EXACT + RELOC
+  functions.
+- `round-trip` does not verify padding regions between functions; alignment
+  regressions detectable by per-function `verify` are not re-checked after
+  splice. (Full padding validation is a follow-up feature.)

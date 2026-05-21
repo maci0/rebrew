@@ -13,12 +13,9 @@ Severities:
 - **enhancement** — feature gap or rough edge; PRD already flags as a goal.
 - **nit** — cosmetic / documentation only; safe to ignore short-term.
 
-In-flight: A round-trip command implementation is currently underway
-(`src/rebrew/round_trip.py`, planned in
-`docs/superpowers/specs/2026-05-20-rebrew-round-trip-design.md` and
-`docs/superpowers/plans/2026-05-20-rebrew-round-trip.md`). PRDs do not
-yet describe round-trip behaviour; it should be added under PRD 03 or a
-new PRD once the implementation lands.
+Shipped: The round-trip command implementation shipped in commits
+`fd84782..4260a6c` (May 2026). PRD 05 now covers round-trip user surface,
+workflows, and limitations.
 
 ---
 
@@ -389,16 +386,6 @@ new PRD once the implementation lands.
   `src/rebrew/cfg.py:192` (uses dotted form in example).
 - **Severity:** nit
 - **Suggested fix:** Re-emit CONFIG.md to use dotted keys consistently.
-
-### Gap: Round-trip command is in-flight but not yet covered by any PRD
-
-- **Gap:** `src/rebrew/round_trip.py` is currently being added (see
-  `docs/superpowers/specs/2026-05-20-rebrew-round-trip-design.md` and
-  `docs/superpowers/plans/2026-05-20-rebrew-round-trip.md`). PRD set has no entry.
-- **Severity:** enhancement (tracked elsewhere)
-- **Suggested fix:** After merge, add a PRD section (likely as part of PRD 03 or a
-  new "Round-Trip Splice" PRD) describing the user-visible command surface and
-  metrics.
 
 ### Gap: `rebrew test` and `rebrew verify` overlap is documented inline but no high-level "which one to use" page
 
