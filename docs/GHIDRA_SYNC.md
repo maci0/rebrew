@@ -1,5 +1,10 @@
 # Ghidra ↔ Rebrew Integration
 
+> This page is the **current-state reference** for `rebrew sync` — which features are
+> implemented, their flags, and known issues.
+> For the full CLI flag reference see [CLI.md](CLI.md#rebrew-sync).
+> For the product vision and future roadmap see [prd/07-ghidra-sync.md](prd/07-ghidra-sync.md).
+
 ## Feature Matrix
 
 | Feature | Direction | Status | Command |
@@ -30,7 +35,6 @@
 | Metadata-aware linting | Local | ✅ Done | `rebrew lint` reads `rebrew-function.toml` before validation |
 | Incremental / dirty-only sync | Both | ❌ Not yet | — |
 | Watch mode (live file-change sync) | Local → Ghidra | ❌ Not yet | — |
-| Validate `programPath` against Ghidra project | — | ✅ Done | `validate_program_path()` (see above) |
 | Deduplication / idempotency tracking | — | ❌ Not yet | — |
 
 For improvement ideas related to Ghidra sync, see [IDEAS.md](IDEAS.md) (#5–#9, #11).
