@@ -567,7 +567,11 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    install_wibo: bool = typer.Option(False, "--install-wibo", help="Download wibo to tools/wibo."),
+    install_wibo: bool = typer.Option(
+        False,
+        "--install-wibo",
+        help="Download wibo to tools/wibo if missing; no-op if already installed.",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
