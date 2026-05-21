@@ -46,7 +46,7 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 
 **Proposed**: Given a solved function, find other functions in the binary with similar byte patterns, call structure, or control flow. Useful for prioritizing which STUBs to tackle next.
 
-**Impact**: Medium — helps with prioritization but `rebrew next` already does some of this.
+**Impact**: Medium — helps with prioritization but `rebrew todo` already does some of this.
 
 ### 22. Deep NEAR_MATCHING analysis tooling
 

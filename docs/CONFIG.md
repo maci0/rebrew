@@ -227,7 +227,7 @@ Tools use `cfg.for_origin(origin)` to get a config with all origin overrides app
 
 ### Origin-Based Flag Presets (`cflags_presets`)
 
-A simpler shorthand for the common case where only cflags differ per origin. Used by `rebrew match --fix-cflags` (writes to `rebrew-function.toml` metadata), `rebrew next` (recommends flags), and `rebrew lint` (validates metadata entries).
+A simpler shorthand for the common case where only cflags differ per origin. Used by `rebrew match --fix-cflags` (writes to `rebrew-function.toml` metadata), `rebrew todo` (recommends flags), and `rebrew lint` (validates metadata entries).
 
 ```toml
 [compiler.cflags_presets]
@@ -330,6 +330,9 @@ resolves through the `server.dll` key.
 | `add-target NAME` | Add a target section + create dirs | `rebrew cfg add-target client.exe -b original/client.exe` |
 | `remove-target NAME` | Remove a target section | `rebrew cfg remove-target old_target` |
 | `set-cflags ORIGIN FLAGS` | Set cflags preset for an origin | `rebrew cfg set-cflags ZLIB "/O3" -t server.dll` |
+| `set-compiler PROFILE` | Set compiler profile for a target | `rebrew cfg set-compiler msvc7 -t client.exe` |
+| `add-module MODULE` | Add a module to a target's origins list | `rebrew cfg add-module ZLIB -t server.dll` |
+| `remove-module MODULE` | Remove a module from a target's origins list | `rebrew cfg remove-module ZLIB -t server.dll` |
 | `detect-crt` | Auto-detect MSVC CRT source directories | `rebrew cfg detect-crt --write` |
 
 ```bash

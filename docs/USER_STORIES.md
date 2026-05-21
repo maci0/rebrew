@@ -60,7 +60,7 @@ graph TD
     A["Existing project with<br/>server.dll target"] --> B["rebrew cfg add-target client.exe<br/>--binary original/client.exe"]
     B --> D["rebrew cfg set-cflags GAME<br/>'/O2 /Gd' --target client.exe"]
     D --> E["Both targets in rebrew-project.toml"]
-    E --> F["rebrew next --target client.exe"]
+    E --> F["rebrew todo --target client.exe"]
 
     style A fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
     style F fill:#d1fae5,stroke:#059669,color:#065f46
@@ -91,7 +91,7 @@ graph TD
     E --> I["Seed RAG database"]
     G --> T["rebrew triage<br/>classify & prioritize"]
     H --> T
-    T --> J["rebrew next --stats<br/>prioritize by size"]
+    T --> J["rebrew todo --stats<br/>prioritize by size"]
 
     style A fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
     style I fill:#d1fae5,stroke:#059669,color:#065f46
@@ -114,13 +114,13 @@ graph TD
 
 ```mermaid
 graph TD
-    Pick["rebrew next --origin GAME<br/>pick smallest function"] --> Skel["rebrew skeleton 0xVA"]
+    Pick["rebrew todo --origin GAME<br/>pick smallest function"] --> Skel["rebrew skeleton 0xVA"]
     Skel --> Decompile["Get ASM / Ghidra decompilation"]
     Decompile --> Write["Write C89 source code"]
     Write --> Test{"rebrew test<br/>src/target/func.c"}
-    Test -->|EXACT| Promote["rebrew promote<br/>→ STATUS: EXACT"]
+    Test -->|EXACT| Promote["auto-promote<br/>→ STATUS: EXACT"]
     Promote --> Done["✅ Done"]
-    Test -->|RELOC| PromoteR["rebrew promote<br/>→ STATUS: RELOC"]
+    Test -->|RELOC| PromoteR["auto-promote<br/>→ STATUS: RELOC"]
     PromoteR --> DoneR["✅ Done"]
     Test -->|MISMATCH| Diff["rebrew match --diff-only"]
     Test -->|COMPILE ERROR| Write
@@ -219,7 +219,7 @@ sequenceDiagram
 
 ```mermaid
 graph TD
-    Start["Agent starts<br/>load agent.yml"] --> Queue["Build work queue<br/>from rebrew next"]
+    Start["Agent starts<br/>load agent.yml"] --> Queue["Build work queue<br/>from rebrew todo"]
     Queue --> Empty{"Queue empty?"}
     Empty -->|Yes| Report["Generate run report<br/>agent_run_TIMESTAMP.md"]
     Empty -->|No| Pop["Pop next function"]
@@ -334,7 +334,7 @@ graph TD
     D -->|"~20-40% matched"| E["Compile from<br/>reference source"]
     D -->|"Unmatched"| F["rebrew triage<br/>classify functions"]
     E --> G["Seed RAG database"]
-    F --> H["rebrew next<br/>sort by size"]
+    F --> H["rebrew todo<br/>sort by size"]
     H --> I["LLM generates<br/>tiny leaf functions"]
     I --> J{"rebrew test"}
     J -->|"EXACT/RELOC"| G
@@ -366,7 +366,7 @@ graph TD
 ```mermaid
 graph TD
     A["Check project status"] --> S["rebrew status"]
-    S --> B["rebrew next --stats"]
+    S --> B["rebrew todo --stats"]
     B --> C["Coverage summary:<br/>EXACT / RELOC / NEAR_MATCHING / STUB"]
 
     D["Verify integrity"] --> E["rebrew verify"]
@@ -394,7 +394,7 @@ graph TD
 
 ### Acceptance Criteria
 - `rebrew lint` checks all annotation fields (FUNCTION, STATUS, SIZE, CFLAGS)
-- Error codes E000–E017 for hard errors, W001–W017 for warnings
+- Error codes E000–E017 for hard errors, W001–W019 for warnings
 - `rebrew lint --fix` auto-migrates old annotation formats
 - Running lint twice changes nothing (idempotent)
 
@@ -403,7 +403,7 @@ graph TD
     A["Write or edit a .c file"] --> B["rebrew lint"]
     B --> C{"Annotations valid?"}
     C -->|Yes| D["✅ Clean"]
-    C -->|No| E["Report errors<br/>(E000-E017, W001-W017)"]
+    C -->|No| E["Report errors<br/>(E000-E017, W001-W019)"]
     E --> F{"Auto-fixable?"}
     F -->|Yes| G["rebrew lint --fix"]
     G --> B
