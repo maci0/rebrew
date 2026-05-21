@@ -258,6 +258,51 @@ class TestCollectStatus:
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.verify_info is None
 
+    def test_status_handles_annotated_vas_not_in_ghidra(self, tmp_path: Path) -> None:
+        """When source annotations cover VAs that aren't in function_structure.json,
+        total_functions must be the union so percentages stay <= 100%."""
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+
+        # Ghidra knows only 2 functions
+        funcs = [
+            {"va": 0x1000, "size": 100, "ghidra_name": "func_a"},
+            {"va": 0x2000, "size": 200, "ghidra_name": "func_b"},
+        ]
+        (src / "function_structure.json").write_text(json.dumps(funcs), encoding="utf-8")
+
+        # Source tree has 4 annotated VAs — 2 inside Ghidra set, 2 outside it
+        (src / "func_a.c").write_text(
+            "// FUNCTION: TEST 0x1000\n// STATUS: EXACT\nvoid func_a(void) {}\n",
+            encoding="utf-8",
+        )
+        (src / "func_b.c").write_text(
+            "// FUNCTION: TEST 0x2000\n// STATUS: RELOC\nvoid func_b(void) {}\n",
+            encoding="utf-8",
+        )
+        (src / "func_c.c").write_text(
+            "// FUNCTION: TEST 0x3000\n// STATUS: STUB\nvoid func_c(void) {}\n",
+            encoding="utf-8",
+        )
+        (src / "func_d.c").write_text(
+            "// FUNCTION: TEST 0x4000\n// STATUS: STUB\nvoid func_d(void) {}\n",
+            encoding="utf-8",
+        )
+
+        report = collect_status(cfg)  # type: ignore[arg-type]
+
+        # total must be the union (4), not just Ghidra's 2
+        assert report.total_functions == 4
+        assert report.covered_functions == 4
+
+        # All percentages must be <= 100%
+        assert report.coverage_pct <= 100.0
+        assert report.matched_pct <= 100.0
+        for status, count in report.status_counts.items():
+            pct = round(100.0 * count / report.total_functions, 1)
+            assert pct <= 100.0, f"{status} pct {pct} > 100%"
+
     def test_verify_overrides_annotation_status(self, tmp_path: Path) -> None:
         """Verify results override optimistic annotation statuses."""
         cfg = _make_cfg(tmp_path)
