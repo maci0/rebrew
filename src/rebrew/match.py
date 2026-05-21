@@ -763,13 +763,13 @@ def main(
     extra_seed: list[str] | None = typer.Option(
         None,
         "--extra-seed",
-        help="Extra .c file(s) to seed GA population from solved functions",
+        help="Extra .c file(s) to seed GA population from solved functions. Ignored if --no-seed is also passed.",
         rich_help_panel="Single-Function",
     ),
     no_seed: bool = typer.Option(
         False,
         "--no-seed",
-        help="Disable cross-function solution seeding",
+        help="Disable cross-function solution seeding (takes precedence over --extra-seed)",
         rich_help_panel="Single-Function",
     ),
     # GA tuning (shared single/batch)

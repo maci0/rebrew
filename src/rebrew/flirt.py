@@ -84,8 +84,8 @@ app = typer.Typer(
         "  Scans the target binary using FLIRT (Fast Library Identification and "
         "Recognition Technology) signatures to identify known library functions "
         "(MSVCRT, DirectX, Zlib, etc.).\n\n"
-        "[dim]Requires .sig/.pat signature files in the project or passed via --sig-dir. "
-        "Reads target binary path from rebrew-project.toml.[/dim]"
+        "[dim]Requires .sig/.pat signature files in the project or passed as the positional "
+        "SIG_DIR argument. Reads target binary path from rebrew-project.toml.[/dim]"
     ),
 )
 

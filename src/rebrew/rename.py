@@ -30,7 +30,9 @@ app = typer.Typer(
         "  rebrew rename 0x10003da0 new_func · · · · · Rename by VA\n\n"
         "  rebrew rename old_func new_func --file new.c  Custom filename\n\n"
         "[dim]Updates FUNCTION markers, function definitions, extern "
-        "declarations, and optionally renames the source file.[/dim]"
+        "declarations, and optionally renames the source file.[/dim]\n\n"
+        "[dim]Note: macros and string literals are NOT rewritten — "
+        "`grep` for the old name afterwards if you suspect any.[/dim]"
     ),
 )
 console = Console(stderr=True)
