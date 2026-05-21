@@ -64,6 +64,14 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 
 **Impact**: High — could break through the "systemic ceiling" of register allocation issues by coming up with creative C constructs.
 
+### 24. Ghidra-CLI as alternative Ghidra transport
+
+**Pain**: `rebrew sync` currently requires a running Ghidra instance with the ReVa MCP extension installed. ReVa is a heavyweight requirement: AI-tuned, MCP-only, brings its own dependencies, and breaks the workflow for users who want plain headless Ghidra scripting.
+
+**Proposed**: Add a second sync backend on top of [`ghidra-cli`](https://github.com/nonsleepr/ghidra-cli) — a thin command-line wrapper around Ghidra's headless analyzer that exposes function rename, label, comment, and struct operations via stdin/stdout JSON. Selectable via `cfg.ghidra_backend = "reva" | "cli"` (default keeps ReVa for back-compat). The push/pull command set stays identical; only the transport changes. Lets users without ReVa still sync, and makes CI integration easier (no live Ghidra instance needed — ghidra-cli spawns one per call).
+
+**Impact**: Medium-high — removes ReVa as a hard dependency and unlocks headless / CI sync. Implementation footprint is contained to `src/rebrew/ghidra/` (new `cli.py` backend alongside the existing MCP client).
+
 ---
 
 ## Observations (Reference Knowledge)
