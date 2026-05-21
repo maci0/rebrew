@@ -132,20 +132,82 @@ def _collect_splice_set(
 
 
 def _compile_and_extract(cfg: ProjectConfig, fn: _SpliceFn, work_dir: Path):
-    """Compile fn.path inside ``work_dir`` and pull out (text, relocs, ok, detail).
+    """Compile fn.path inside ``work_dir`` and pull out (text, relocs, str_syms, ok, detail).
 
-    Returns ``(text_bytes, reloc_records, ok, detail)``. On compile failure ``ok`` is
+    Returns ``(text_bytes, reloc_records, str_symbols, ok, detail)`` where ``str_symbols``
+    is a mapping of ``{symbol_name: string_bytes}`` for any MSVC-generated string
+    constants (`$SG<N>`) referenced by the function. On compile failure ``ok`` is
     False and ``detail`` carries the compiler error; ``text`` is empty and ``relocs`` is [].
     """
     obj_path, err = compile_to_obj(cfg, fn.path, fn.cflags, work_dir)
     if obj_path is None:
-        return b"", [], False, err or "compile failed"
+        return b"", [], {}, False, err or "compile failed"
 
     text, _reloc_offsets = parse_obj_symbol_bytes(obj_path, fn.symbol)
     if text is None:
-        return b"", [], False, f"symbol {fn.symbol} not found in .obj"
+        return b"", [], {}, False, f"symbol {fn.symbol} not found in .obj"
     relocs = parse_obj_relocs_full(obj_path, fn.symbol)
-    return bytes(text), relocs, True, ""
+    str_syms = _extract_string_symbols(obj_path, {r.symbol for r in relocs})
+    return bytes(text), relocs, str_syms, True, ""
+
+
+def _extract_string_symbols(obj_path: Path, symbol_names: set[str]) -> dict[str, bytes]:
+    """Extract bytes for MSVC ``$SG<N>`` string constants referenced by relocations.
+
+    These compiler-generated names refer to inline string literals placed in
+    ``.rdata$<N>`` or ``.data`` of the .obj. Returns ``{sym_name: bytes}`` for
+    each ``$SG<N>`` (or ``_$SG<N>``) symbol present.
+    """
+    sg_symbols = {s for s in symbol_names if "$SG" in s}
+    if not sg_symbols:
+        return {}
+    import lief
+
+    coff = lief.COFF.parse(str(obj_path))
+    if coff is None:
+        return {}
+    out: dict[str, bytes] = {}
+    for sym in coff.symbols:
+        name = sym.name or ""
+        # Strip leading underscore for comparison; MSVC may add `_` to `$SG`.
+        candidates = (name, name.lstrip("_"))
+        match = next((c for c in candidates if c in sg_symbols), None)
+        if match is None or sym.section is None:
+            continue
+        sec_data = bytes(sym.section.content)
+        start = sym.value
+        # Find next zero byte (string terminator) — strings are NUL-terminated.
+        end = sec_data.find(b"\x00", start)
+        if end < 0:
+            end = len(sec_data)
+        out[match] = sec_data[start:end]
+    return out
+
+
+def _resolve_string_symbols_in_target(
+    target_bytes: bytes,
+    str_syms: dict[str, bytes],
+    image_base: int,
+    sections: dict,  # SectionInfo dict from BinaryInfo
+) -> dict[str, int]:
+    """Find each string literal in the target's .rdata/.data and return VAs."""
+    found: dict[str, int] = {}
+    # Scan .rdata and .data sections only.
+    candidate_secs = []
+    for name in (".rdata", ".data"):
+        sec = sections.get(name)
+        if sec is not None:
+            candidate_secs.append((sec.va, sec.size, sec.file_offset))
+    for sym_name, content in str_syms.items():
+        if not content:
+            continue
+        for sec_va, sec_size, file_off in candidate_secs:
+            pos = target_bytes.find(content, file_off, file_off + sec_size)
+            if pos >= 0:
+                # Convert file offset to VA.
+                found[sym_name] = sec_va + (pos - file_off)
+                break
+    return found
 
 
 def _run_round_trip(
@@ -178,13 +240,26 @@ def _run_round_trip(
     resolve_va = build_symbol_resolver(funcs_by_va, data_by_name)
 
     mismatches: list[dict] = []
+    extra_string_syms: dict[str, int] = {}
     with tempfile.TemporaryDirectory(prefix="rebrew-rt-") as td:
         work_dir = Path(td)
         for fn in splice_set:
-            text, relocs, ok, detail = _compile_and_extract(cfg, fn, work_dir)
+            text, relocs, str_syms, ok, detail = _compile_and_extract(cfg, fn, work_dir)
             if not ok:
                 mismatches.append(_mismatch(fn, "compile_drift", detail))
                 continue
+            # Resolve MSVC $SG<N> strings by matching their content in the target.
+            if str_syms:
+                if info is None:
+                    info = load_binary(cfg.target_binary)
+                resolved = _resolve_string_symbols_in_target(
+                    info.data, str_syms, cfg.image_base, info.sections
+                )
+                extra_string_syms.update(resolved)
+                # Rebuild the resolver to include the new symbols.
+                merged_data = dict(data_by_name)
+                merged_data.update(extra_string_syms)
+                resolve_va = build_symbol_resolver(funcs_by_va, merged_data)
             try:
                 patched = apply_coff_relocations(
                     text,
