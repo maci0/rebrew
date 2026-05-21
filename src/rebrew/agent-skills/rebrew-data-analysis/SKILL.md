@@ -23,11 +23,17 @@ rebrew data --dispatch --json           # detect dispatch tables / vtables in .d
 rebrew data --bss --json                # verify .bss layout, detect gaps from missing externs
 rebrew data --fix-bss                   # auto-generate bss_padding.c + write SIZE/SECTION/NOTE to metadata
 rebrew data --gen-header                # write rebrew_globals.h from local // GLOBAL: / // DATA: annotations (no Ghidra)
+rebrew data --gen-header --gen-header-out /path/to/my_globals.h   # override output path
+rebrew data --gen-header --force        # overwrite existing file without prompting
 ```
 
 Use `--gen-header` when working offline or before any Ghidra sync — it emits typed
 `extern` declarations grouped by PE section. `rebrew sync --pull-data` overwrites
 this header with Ghidra-sourced labels when available.
+
+By default `--gen-header` refuses to overwrite an existing file; pass `--force` to
+allow overwriting. Use `--gen-header-out PATH` to write to a custom location instead
+of the default `{reversed_dir}/rebrew_globals.h`.
 
 ## DATA Annotations
 

@@ -90,6 +90,8 @@ The canonical status ladder (best → worst): `PROVEN` → `EXACT` → `RELOC` �
 | `--link COMMAND` | LINK.EXE command (for non-obj comparison) |
 | `--lib DIR` | Lib dir (for non-obj comparison) |
 | `--ldflags FLAGS` | Linker flags (for non-obj comparison) |
+| `--flag-sweep-only` | Exhaustive flag-combination sweep; skip GA |
+| `--tier NAME` | Flag-sweep tier: `quick`, `targeted`, `normal` (default), `thorough`, `full` — see [FLAG_SWEEP_TIERS.md](FLAG_SWEEP_TIERS.md) |
 
 ### `rebrew test`
 
@@ -210,6 +212,8 @@ Output prefixes for unambiguous parsing:
 | `--dispatch` | Detect dispatch tables / vtables |
 | `--fix-bss` | Auto-generate `bss_padding.c` with dummy arrays for detected gaps |
 | `--gen-header` | Output `rebrew_globals.h` locally without fetching from Ghidra |
+| `--gen-header-out PATH` | Override output path for `--gen-header` (default: `{reversed_dir}/rebrew_globals.h`) |
+| `--force` | Overwrite an existing file when using `--gen-header` |
 | `--json` | JSON output for all modes |
 
 ### `rebrew graph`
