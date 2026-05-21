@@ -122,7 +122,7 @@ Scope:
 - Program path validation (`ghidra_program_path` in config).
 - Preview / inspect commands.
 - Push and pull recipes with safety guarantees.
-- Default ReVa MCP endpoint (`http://localhost:8089`); overrideable via
+- Default ReVa MCP endpoint (`http://localhost:8080/mcp/message`); overrideable via
   `--endpoint URL`.
 
 Excludes: source editing, picking functions, data analysis without Ghidra.
@@ -202,10 +202,9 @@ Supporting documents live alongside, e.g.
 
 - Skill descriptions and trigger keywords are not yet auto-validated
   against the actual CLI surface; they can drift if a flag is renamed.
-- The `rebrew-ghidra-sync` skill claims a default endpoint of
-  `http://localhost:8089`, while `rebrew skeleton --endpoint` defaults
-  to `http://localhost:8080/mcp/message`. This dual-default risks
-  confusing the agent and warrants alignment. (See gap report.)
+- The `rebrew-ghidra-sync` skill and all CLI tools share a single canonical
+  default endpoint of `http://localhost:8080/mcp/message`. (Resolved — was
+  a dual-default between 8089 and 8080; see gap report for history.)
 - Skills do not yet ship a "scaffolding" skill for `rebrew init` itself;
   initial onboarding is documented inside `rebrew-intake`.
 - There is no automated way to list all installed skills with one
