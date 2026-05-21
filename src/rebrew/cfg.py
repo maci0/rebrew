@@ -322,12 +322,21 @@ def add_target(
         help="Source file extension (e.g. .c, .cpp). Auto-detected from binary if omitted.",
     ),
     copy_binary: bool = typer.Option(True, "--copy/--no-copy", help="Copy binary into original/."),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Skip binary existence check; write stanza with default format/arch.",
+    ),
 ) -> None:
     """Add a new target section to rebrew-project.toml (idempotent).
 
     Auto-detects binary format and architecture from file headers when not
     specified.  Origins and other defaults are inherited from the first
     existing target in the project if available.
+
+    If the binary does not exist yet, the command refuses with an error unless
+    ``--force`` is passed (in which case a stanza with default format/arch is
+    written and a warning is emitted).
     """
     root = _find_root()
     doc, toml_path = _load_toml(root)
@@ -347,8 +356,23 @@ def add_target(
 
     binary_path = Path(binary)
 
-    # Auto-detect format and arch from binary headers
+    # Resolve the binary against the project root for existence checks
     resolved = (root / binary_path) if not binary_path.is_absolute() else binary_path
+
+    # Guard: refuse when the binary is missing unless --force
+    if not resolved.exists():
+        if not force:
+            error_exit(
+                f"Binary '{resolved}' does not exist.\n"
+                "Place the binary first, then re-run — or pass --force to skip detection\n"
+                "and write a stanza with default format (pe) and arch (x86_32)."
+            )
+        console.print(
+            f"[yellow]warning:[/yellow] binary '{resolved}' not found; "
+            "writing stanza with default format=pe arch=x86_32 (--force)."
+        )
+
+    # Auto-detect format and arch from binary headers
     if resolved.exists():
         detected_fmt, detected_arch = _detect_format_and_arch(resolved)
     else:
