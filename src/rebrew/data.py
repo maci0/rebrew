@@ -341,6 +341,7 @@ def find_dispatch_tables(
     known_functions: dict[int, dict[str, str]],
     ptr_size: int = 4,
     min_entries: int = 3,
+    max_stride: int | None = None,
 ) -> list[DispatchTable]:
     """Detect dispatch tables / vtables in data sections.
 
@@ -354,8 +355,13 @@ def find_dispatch_tables(
         known_functions: Map of VA -> {"name": str, "status": str} for reversed funcs.
         ptr_size: Pointer size in bytes (4 for 32-bit PE).
         min_entries: Minimum entries to qualify as a dispatch table.
+        max_stride: Maximum byte distance between consecutive pointer-sized slots to still
+            be considered part of the same table.  Defaults to ``ptr_size`` (contiguous).
+            Raising this allows sparse tables (e.g. mixed-payload entries) to be detected.
 
     """
+    stride = max_stride if max_stride is not None else ptr_size
+
     text_sec = sections.get(".text")
     if not text_sec:
         return []
@@ -412,7 +418,7 @@ def find_dispatch_tables(
                         )
                     )
                 current_entries = []
-                i += ptr_size
+                i += stride
 
         # Flush trailing run
         if len(current_entries) >= min_entries:
@@ -852,6 +858,8 @@ app = typer.Typer(
         "  rebrew data --conflicts · · · · · · · · Show type conflicts across files\n\n"
         "  rebrew data --summary · · · · · · · · · Section-level overview\n\n"
         "  rebrew data --dispatch · · · · · · · · · Detect vtables in data sections\n\n"
+        "  rebrew data --dispatch --min-table-len 5 · Require at least 5 entries per table\n\n"
+        "  rebrew data --dispatch --max-pointer-stride 8 · Allow 8-byte strides between slots\n\n"
         "  rebrew data --bss · · · · · · · · · · · Verify .bss layout and gaps\n\n"
         "  rebrew data --fix-bss · · · · · · · · · Generate bss_padding.c for gaps\n\n"
         "  rebrew data --gen-header · · · · · · · · Generate rebrew_globals.h\n\n"
@@ -1006,6 +1014,16 @@ def main(
     dispatch: bool = typer.Option(
         False, "--dispatch", help="Detect dispatch tables / vtables in data sections"
     ),
+    min_table_len: int = typer.Option(
+        3,
+        "--min-table-len",
+        help="Minimum number of entries to qualify as a dispatch table (--dispatch)",
+    ),
+    max_pointer_stride: int = typer.Option(
+        4,
+        "--max-pointer-stride",
+        help="Maximum byte stride between pointer slots when scanning for tables (--dispatch)",
+    ),
     bss: bool = typer.Option(
         False, "--bss", help="Verify .bss layout and detect gaps between globals"
     ),
@@ -1107,7 +1125,14 @@ def main(
                         "status": entry.status,
                     }
 
-        tables = find_dispatch_tables(binary_data, info.image_base, sec_dict, known_functions)
+        tables = find_dispatch_tables(
+            binary_data,
+            info.image_base,
+            sec_dict,
+            known_functions,
+            min_entries=min_table_len,
+            max_stride=max_pointer_stride,
+        )
 
         if json_output:
             json_print([t.to_dict() for t in tables])
