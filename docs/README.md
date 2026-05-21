@@ -4,7 +4,9 @@
 
 | Document | Description |
 |----------|-------------|
-| [WORKFLOW.md](WORKFLOW.md) | Step-by-step reversing guide — pick a function, write C, test, iterate |
+| [QUICKSTART.md](QUICKSTART.md) | 5-step path from clone to first matched function |
+| [WORKFLOW.md](WORKFLOW.md) | Full iteration loop — test, diff, match, prove, verify; multi-binary; JSON / CI |
+| [CODEGEN_PATTERNS.md](CODEGEN_PATTERNS.md) | MSVC6 codegen patterns table, SEH helpers, C89 rules, matching idioms |
 | [BOOTSTRAPPING.md](BOOTSTRAPPING.md) | Adding a new binary to a project from scratch (no prior RE work) |
 | [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md) | Obtaining, creating, and using FLIRT signatures for library identification |
 
