@@ -84,13 +84,24 @@ each variant against the target bytes. Best source is written to the file.
 When diff shows `flag_sensitive: true`, try compiler flag combinations before running the GA:
 
 ```bash
-rebrew match src/<target>/<file>.c --flag-sweep-only                       # targeted sweep
-rebrew match src/<target>/<file>.c --flag-sweep-only --tier exhaustive     # full sweep
-rebrew match --all --flag-sweep                                            # batch: all NEAR_MATCHING
-rebrew match --all --flag-sweep --fix-cflags                               # auto-update CFLAGS on hit
+rebrew match src/<target>/<file>.c --flag-sweep-only                      # normal tier (default)
+rebrew match src/<target>/<file>.c --flag-sweep-only --tier quick         # 105 combos, < 1 min
+rebrew match src/<target>/<file>.c --flag-sweep-only --tier targeted      # 420 combos, adds /Oy /Op
+rebrew match src/<target>/<file>.c --flag-sweep-only --tier thorough      # 75k combos, ~15–60 min
+rebrew match src/<target>/<file>.c --flag-sweep-only --tier full          # 1.2M combos, hours
+rebrew match --all --flag-sweep                                           # batch: all NEAR_MATCHING
+rebrew match --all --flag-sweep --fix-cflags                              # auto-update CFLAGS on hit
 ```
 
-Tiers: `quick` (default), `standard`, `exhaustive`.
+Tiers (combinations are for MSVC6; see [FLAG_SWEEP_TIERS.md](../../../../../docs/FLAG_SWEEP_TIERS.md)):
+
+| Tier | Combinations | When to use |
+|------|-------------|-------------|
+| `quick` | 105 | First pass on a new STUB |
+| `targeted` | 420 | When `quick` is close but not EXACT |
+| `normal` | 1,890 | Default; good general-purpose sweep |
+| `thorough` | 75,600 | Near-match persists after `normal` |
+| `full` | 1,209,600 | Last resort; combine with `--sample N` |
 
 ### Batch GA Mode (`--all`)
 
