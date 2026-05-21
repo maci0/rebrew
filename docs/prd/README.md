@@ -19,7 +19,7 @@ PRDs are organised by feature area:
 | 02 | [Function Catalog](02-function-catalog.md)       | `catalog`, `extract`, `flirt`, `build-db`, `crt-match` |
 | 03 | [Skeleton & Iteration](03-skeleton-and-iteration.md) | `skeleton`, `test`, `diff`, `lint`, `split`/`merge`/`rename`, `todo` |
 | 04 | [Byte-Matching Engine](04-byte-matching-engine.md) | `match` (GA), flag sweeps, `prove` |
-| 05 | [Verification & Progress](05-verification-and-progress.md) | `verify`, `status`, `graph`, `cache` |
+| 05 | [Verification & Progress](05-verification-and-progress.md) | `verify`, `status`, `graph`, `cache`, `round-trip` |
 | 06 | [Data Section Analysis](06-data-section-analysis.md) | `data` (conflicts, dispatch, bss, gen-header) |
 | 07 | [Ghidra Sync](07-ghidra-sync.md)                 | `sync` (push, pull, structs, comments, data labels) |
 | 08 | [Agent Skills](08-agent-skills.md)               | The five `agent-skills/*/SKILL.md` workflows |
