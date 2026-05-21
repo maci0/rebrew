@@ -205,6 +205,11 @@ def main(
         # Safety: disable promotion for files outside the project source tree.
         if not source_path.is_relative_to(cfg.metadata_dir.resolve()):
             no_promote = True
+            _status_skip_reason = "file outside project"
+        else:
+            _status_skip_reason = ""
+    else:
+        _status_skip_reason = ""
 
     if all_sources:
         _run_all_batch(cfg, batch_dir, origin, dry_run, no_promote, json_output, jobs=jobs)
@@ -384,7 +389,16 @@ def main(
                         console.print(d)
 
     # Auto-promote: update STATUS in metadata from test result (skip with --no-promote)
-    if not no_promote and va_str:
+    if no_promote:
+        if _status_skip_reason:
+            if json_output:
+                # Include skip reason in the already-printed result dict is not
+                # straightforward here; emit a separate one-liner JSON object so
+                # the caller can detect the skip programmatically.
+                json_print({"status_skip_reason": _status_skip_reason})
+            else:
+                console.print(f"[dim]STATUS update skipped ({_status_skip_reason})[/dim]")
+    elif va_str:
         va_int_for_promote = parse_va(va_str, json_mode=json_output)
         anno_module = lint_annos[0].module if lint_annos else ""
         old_status = lint_annos[0].status if lint_annos else ""
