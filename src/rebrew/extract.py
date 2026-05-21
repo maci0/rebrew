@@ -121,7 +121,7 @@ def cmd_extract(
                     json_print({"status": "ERROR", "error": msg})
                 else:
                     console.print(f"[red bold]error:[/red bold] {msg}")
-                return
+                raise typer.Exit(code=1)
             try:
                 asm_text = disasm_bytes(code, va, cfg=cfg)
             except RuntimeError as e:
@@ -129,7 +129,7 @@ def cmd_extract(
                     json_print({"status": "ERROR", "error": str(e)})
                 else:
                     console.print(f"[red bold]error:[/red bold] {e}")
-                return
+                raise typer.Exit(code=1)
 
             # Save .bin
             bin_dir.mkdir(parents=True, exist_ok=True)
@@ -160,8 +160,9 @@ def cmd_extract(
         json_print(
             {"status": "ERROR", "error": f"VA 0x{target_va:08X} not found in candidate list"}
         )
-        return
+        raise typer.Exit(code=1)
     console.print(f"[red bold]error:[/red bold] VA 0x{target_va:08X} not found in candidate list")
+    raise typer.Exit(code=1)
 
 
 def cmd_batch(

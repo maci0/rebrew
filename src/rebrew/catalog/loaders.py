@@ -79,8 +79,16 @@ def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, GhidraDataLabel]:
     try:
         entries = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(entries, list):
+            warnings.warn(
+                f"Ignoring corrupt Ghidra data labels at {path}: expected JSON array, got {type(entries).__name__}",
+                stacklevel=2,
+            )
             return {}
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError as exc:
+        warnings.warn(f"Ignoring corrupt Ghidra data labels at {path}: {exc}", stacklevel=2)
+        return {}
+    except OSError as exc:
+        warnings.warn(f"Cannot read Ghidra data labels at {path}: {exc}", stacklevel=2)
         return {}
 
     result: dict[int, GhidraDataLabel] = {}

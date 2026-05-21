@@ -5,7 +5,19 @@ from types import SimpleNamespace
 from typing import Any
 
 from rebrew.config import load_config
+from rebrew.ghidra.cli import _refresh_data_labels_cache, _refresh_structure_cache
 from rebrew.ghidra.commands import resolve_program_path, validate_program_path
+
+
+class _FakeClient:
+    def __init__(self, timeout: float) -> None:
+        _ = timeout
+
+    def __enter__(self) -> "_FakeClient":
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        return None
 
 
 class TestResolveProgramPath:
@@ -43,6 +55,61 @@ class TestValidateProgramPath:
         monkeypatch.setattr("rebrew.ghidra.commands.fetch_mcp_tool_raw", mock_fetch)
         result = validate_program_path(None, "http://localhost:8080/mcp/message", "/server.dll", "")
         assert result == "/server.dll"
+
+
+class TestRefreshCacheJson:
+    def test_structure_cache_json_returns_entries_without_writing(
+        self, tmp_path: Path, monkeypatch: Any, capsys: Any
+    ) -> None:
+        cfg = SimpleNamespace(reversed_dir=tmp_path)
+
+        monkeypatch.setattr("rebrew.ghidra.cli.httpx.Client", _FakeClient)
+        monkeypatch.setattr("rebrew.ghidra.cli.init_mcp_session", lambda client, endpoint: "sid")
+        monkeypatch.setattr(
+            "rebrew.ghidra.cli.fetch_all_functions",
+            lambda client, endpoint, program_path, session_id: [
+                {"va": "0x10001000", "size": "0x20", "tool_name": "FUN_10001000"}
+            ],
+        )
+
+        result = _refresh_structure_cache(
+            cfg,
+            "http://fake/mcp",
+            "/server.dll",
+            dry_run=False,
+            json_output=True,
+        )
+
+        assert result == [{"va": 0x10001000, "size": 0x20, "tool_name": "FUN_10001000"}]
+        assert not (tmp_path / "function_structure.json").exists()
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+    def test_data_labels_cache_json_returns_symbols_without_writing(
+        self, tmp_path: Path, monkeypatch: Any, capsys: Any
+    ) -> None:
+        cfg = SimpleNamespace(reversed_dir=tmp_path)
+        symbols = [{"address": "0x10002000", "name": "g_value"}]
+
+        monkeypatch.setattr("rebrew.ghidra.cli.httpx.Client", _FakeClient)
+        monkeypatch.setattr("rebrew.ghidra.cli.init_mcp_session", lambda client, endpoint: "sid")
+        monkeypatch.setattr(
+            "rebrew.ghidra.client.fetch_all_symbols",
+            lambda client, endpoint, program_path, session_id: symbols,
+        )
+
+        result = _refresh_data_labels_cache(
+            cfg,
+            "http://fake/mcp",
+            "/server.dll",
+            dry_run=False,
+            json_output=True,
+        )
+
+        assert result == symbols
+        assert not (tmp_path / "ghidra_data_labels.json").exists()
+        captured = capsys.readouterr()
+        assert captured.out == ""
 
     def test_validate_mismatch_warns_and_uses_ghidra_path(
         self, monkeypatch: Any, capsys: Any

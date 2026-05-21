@@ -46,9 +46,19 @@ _NETWORK_TIMEOUT_S = 30  # Fail fast rather than hang indefinitely in CI/automat
 
 def _read_release_metadata() -> dict[str, Any]:
     """Fetch and parse latest release metadata from GitHub."""
-    resp = httpx.get(_WIBO_API_URL, timeout=_NETWORK_TIMEOUT_S, follow_redirects=True)
-    resp.raise_for_status()
-    data = resp.json()
+    try:
+        resp = httpx.get(_WIBO_API_URL, timeout=_NETWORK_TIMEOUT_S, follow_redirects=True)
+        resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise RuntimeError(
+            f"Failed to fetch wibo release metadata from {_WIBO_API_URL}: {exc}"
+        ) from exc
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Invalid JSON in wibo release metadata from {_WIBO_API_URL}: {exc}"
+        ) from exc
     if not isinstance(data, dict):
         raise RuntimeError("Invalid wibo release metadata response")
     return data
@@ -85,8 +95,13 @@ def download_wibo(dest: Path) -> str:
     expected_sha256 = digest.removeprefix("sha256:")
 
     dest.parent.mkdir(parents=True, exist_ok=True)
-    resp = httpx.get(download_url, timeout=_NETWORK_TIMEOUT_S, follow_redirects=True)
-    resp.raise_for_status()
+    try:
+        resp = httpx.get(download_url, timeout=_NETWORK_TIMEOUT_S, follow_redirects=True)
+        resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise RuntimeError(
+            f"Failed to download wibo asset {asset_name} from {download_url}: {exc}"
+        ) from exc
 
     actual_sha256 = hashlib.sha256(resp.content).hexdigest()
     if actual_sha256 != expected_sha256:
@@ -97,11 +112,16 @@ def download_wibo(dest: Path) -> str:
     # Write via tempfile + os.replace for crash-safe placement
     fd, tmp_path = tempfile.mkstemp(dir=str(dest.parent), prefix=".wibo_")
     try:
-        os.write(fd, resp.content)
-        os.close(fd)
+        f = os.fdopen(fd, "wb")
+        fd = -1
+        with f:
+            f.write(resp.content)
         os.chmod(tmp_path, stat.S_IRUSR | stat.S_IXUSR)
         os.replace(tmp_path, str(dest))
     except BaseException:
+        if fd != -1:
+            with contextlib.suppress(OSError):
+                os.close(fd)
         with contextlib.suppress(OSError):
             os.unlink(tmp_path)
         raise

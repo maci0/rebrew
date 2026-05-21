@@ -7,7 +7,7 @@ All tools read project settings from **`rebrew-project.toml`** via the config lo
 ## `rebrew-project.toml` (Project Root)
 
 Multiple targets are supported in `rebrew-project.toml`.
-Tools default to the first target unless `--target <name>` is passed.
+Tools use `[project].default_target` unless `--target <name>` is passed.
 
 ```toml
 [project]
@@ -24,6 +24,7 @@ bin_dir = "bin/target_name"
 # source_ext = ".c"                      # Source file extension (default: ".c")
 # ghidra_program_path = ""               # Ghidra program path for ReVa MCP sync
 # origins = ["GAME", "ZLIB"]             # Origin list for annotation filtering
+# library_modules = ["MSVCRT", "ZLIB"]   # Modules that should use LIBRARY markers
 
 # Add more targets as needed:
 # [targets.client_exe]
@@ -45,6 +46,9 @@ libs = "tools/MSVC600/VC98/Lib"
 | `all_targets` | All keys under `[targets]` | List of all available target names |
 | `marker` | `[targets.<name>].marker` | Module identifier for source markers (default: target name uppercased) |
 | `target_binary` | `[targets.<name>].binary` | Resolved path to the target executable/DLL |
+| `default_jobs` | `[project].jobs` | Default parallelism for batch commands |
+| `db_dir` | `[project].db_dir` | Coverage JSON, SQLite DB, CSV, and verify report directory |
+| `output_dir` | `[project].output_dir` | Default output directory for generated artifacts |
 | `image_base` | Auto-detected from PE | `0x10000000` for example DLL |
 | `text_va` | Auto-detected from PE | `.text` section virtual address |
 | `text_raw_offset` | Auto-detected from PE | `.text` section raw file offset |
@@ -53,6 +57,9 @@ libs = "tools/MSVC600/VC98/Lib"
 | `padding_bytes` | Derived from `arch` | `(0xCC, 0x90)` for x86 |
 | `symbol_prefix` | Derived from compiler profile | `_` for MSVC, empty for GCC |
 | `crt_sources` | `[targets.<name>].crt_sources` | Maps origin names to reference source directories for CRT cross-matching |
+| `library_modules` | `[targets.<name>].library_modules` | Module names that use `LIBRARY` markers |
+| `source_ext` | `[targets.<name>].source_ext` | Source extension used when discovering and creating files |
+| `ghidra_program_path` | `[targets.<name>].ghidra_program_path` | ReVa MCP program path override |
 | `compiler_profile` | `[compiler].profile` | Drives flag sweep axes |
 | `compiler_includes` | `[compiler].includes` | Resolved path to include dir |
 
@@ -190,44 +197,11 @@ cflags = "/O2 /Gd"
 
 Profiles are stored in `cfg.compiler_profiles` as a `dict[str, dict[str, str]]` for tools that need to switch compilers programmatically.
 
-### Per-Origin Compiler Overrides (`compiler.origins`)
-
-Different parts of a binary may have been compiled by different teams or with different compiler versions. `compiler.origins` lets you override **any compiler key** per origin.
-
-```toml
-[compiler.origins.ZLIB]
-command = "wine tools/MSVC7/Bin/CL.EXE"    # different compiler version
-includes = "references/zlib"                 # zlib-specific headers
-cflags = "/O3"                               # different optimization
-profile = "msvc7"                            # different flag sweep profile
-
-[compiler.origins.MSVCRT]
-cflags = "/O1"
-base_cflags = "/nologo /c /MD"              # different runtime linkage
-```
-
-Per-target origin overrides are also supported and merge on top of global origins:
-
-```toml
-[targets."server.dll".compiler.origins.ZLIB]
-cflags = "/O2"    # this target's ZLIB uses /O2, not the global /O3
-```
-
-**Merge hierarchy** (each layer overrides the previous):
-
-1. `[compiler]` — Global defaults
-2. `[targets.<name>.compiler]` — Per-target overrides
-3. `[compiler.origins.<ORIGIN>]` — Global per-origin overrides
-4. `[targets.<name>.compiler.origins.<ORIGIN>]` — Per-target per-origin (most specific config)
-5. **`rebrew-function.toml` metadata** — Per-function CFLAGS override in the function's metadata entry (cflags only, highest priority)
-
-Supported keys in `[compiler.origins.<ORIGIN>]`: `command`, `runner`, `includes`, `libs`, `cflags`, `base_cflags`, `profile`, `timeout`.
-
-Tools use `cfg.for_origin(origin)` to get a config with all origin overrides applied. `cfg.resolve_origin_cflags(origin)` returns the effective default cflags for skeleton generation and lint validation.
-
 ### Origin-Based Flag Presets (`cflags_presets`)
 
-A simpler shorthand for the common case where only cflags differ per origin. Used by `rebrew match --fix-cflags` (writes to `rebrew-function.toml` metadata), `rebrew todo` (recommends flags), and `rebrew lint` (validates metadata entries).
+Named flag presets for projects that track common per-origin compiler flags.
+`rebrew cfg set-cflags` edits these tables, but per-function `CFLAGS` metadata is
+still the value consumed by compile/test operations.
 
 ```toml
 [compiler.cflags_presets]
@@ -239,7 +213,7 @@ ZLIB = "/O2"
 ZLIB = "/O3"
 ```
 
-If both `compiler.origins.ZLIB.cflags` and `cflags_presets.ZLIB` are set, `origins` takes priority. Per-target presets override global presets for the same origin key.
+Per-target presets override global presets for the same origin key.
 
 ### Per-Target Compiler Overrides
 
@@ -281,7 +255,7 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 
 | Tool | Config Values Used |
 |------|--------------------|
-| `verify.py` | `image_base`, `text_va`, `text_raw_offset`, `target_binary`, `reversed_dir` |
+| `verify.py` | `image_base`, `text_va`, `text_raw_offset`, `target_binary`, `reversed_dir`, `db_dir` |
 | `test.py` | `target_binary`, `text_va`, `text_raw_offset`, compiler paths |
 | `match.py` | `reversed_dir`, `target_binary`, `compiler.includes`, `compiler.command` |
 | `ghidra/cli.py` | `reversed_dir` |
@@ -294,7 +268,7 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 | `matcher/scoring.py` | `capstone_arch`, `capstone_mode` |
 | `matcher/compiler.py` | `compiler_profile` (drives flag axes) |
 | `matcher/parsers.py` | `padding_bytes` |
-| `catalog/` | `image_base`, `text_va` |
+| `catalog/` | `image_base`, `text_va`, `db_dir` |
 | `data.py` | `reversed_dir`, `target_binary`, `image_base` |
 | `depgraph.py` | `reversed_dir` |
 | `lint.py` | `reversed_dir`, module name |
@@ -303,7 +277,7 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 | `doctor.py` | `target_binary`, `reversed_dir`, `bin_dir`, `function_list`, compiler paths, `arch`, `binary_format` |
 | `flirt.py` | `target_binary`, `root` |
 | `crt_match.py` | `crt_sources`, `reversed_dir`, `target_binary` |
-| `build_db.py` | `project_root` (reads `data_*.json` from `db/`) |
+| `build_db.py` | `project_root`, `db_dir` |
 | `cache_cli.py` | `project_root` (cache directory location) |
 | `cfg.py` | `rebrew-project.toml` (tomlkit read/write) |
 | `split.py` | `marker`, `source_ext`, `reversed_dir` |
@@ -354,4 +328,3 @@ rebrew cfg raw                                  # JSON output
 rebrew cfg raw --format toml                    # TOML output
 rebrew cfg path                                 # print path to config file
 ```
-

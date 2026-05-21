@@ -74,13 +74,14 @@ def main(
     ),
     root: Path | None = typer.Option(
         None,
+        "--root",
         help="Project root directory (auto-detected from rebrew-project.toml if omitted)",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Rebrew validation pipeline: parse annotations, generate catalog and coverage data."""
-    cfg = require_config(target=target, json_mode=json_output)
+    cfg = require_config(target=target, json_mode=json_output, root=root)
     bin_path = cfg.target_binary
     reversed_dir = cfg.reversed_dir
     root = cfg.root
@@ -128,12 +129,19 @@ def main(
     registry = build_function_registry(funcs, cfg, ghidra_json_path, bin_path)
 
     unique_vas = {e["va"] for e in entries}
-    ghidra_count = sum(1 for r in registry.values() if "ghidra" in r["detected_by"])
-    list_count = sum(1 for r in registry.values() if "list" in r["detected_by"])
-    both_count = sum(
-        1 for r in registry.values() if "ghidra" in r["detected_by"] and "list" in r["detected_by"]
-    )
-    thunk_count = sum(1 for r in registry.values() if r["is_thunk"])
+    ghidra_count = list_count = both_count = thunk_count = 0
+    for r in registry.values():
+        detected = r["detected_by"]
+        has_ghidra = "ghidra" in detected
+        has_list = "list" in detected
+        if has_ghidra:
+            ghidra_count += 1
+        if has_list:
+            list_count += 1
+        if has_ghidra and has_list:
+            both_count += 1
+        if r["is_thunk"]:
+            thunk_count += 1
     console.print(
         f"Found {len(entries)} annotations ({len(unique_vas)} unique VAs) "
         f"from {len(registry)} total functions "
@@ -163,14 +171,16 @@ def main(
         matching = sum(
             1
             for va in fn_vas
-            if any(e["status"] == "NEAR_MATCH" for e in by_va[va])
+            if any(e["status"] in ("NEAR_MATCHING", "NEAR_MATCH") for e in by_va[va])
             and not any(e["status"] in ("EXACT", "RELOC") for e in by_va[va])
         )
         stub = sum(
             1
             for va in fn_vas
             if any(e["status"] == "STUB" for e in by_va[va])
-            and not any(e["status"] in ("EXACT", "RELOC", "NEAR_MATCH") for e in by_va[va])
+            and not any(
+                e["status"] in ("EXACT", "RELOC", "NEAR_MATCHING", "NEAR_MATCH") for e in by_va[va]
+            )
         )
 
         module_counts: dict[str, int] = {}
@@ -230,7 +240,7 @@ def main(
     if gen_data_json or export_ghidra_labels:
         data = generate_data_json(entries, funcs, text_size, bin_path, registry, reversed_dir, root)
         if gen_data_json:
-            coverage_dir = root / "db"
+            coverage_dir = cfg.db_dir
             coverage_dir.mkdir(parents=True, exist_ok=True)
             json_path = coverage_dir / f"data_{target}.json"
             atomic_write_text(json_path, json.dumps(data, indent=2) + "\n", encoding="utf-8")
@@ -267,7 +277,7 @@ def main(
 
     if csv:
         csv_text = generate_reccmp_csv(entries, funcs, registry, target, cfg)
-        csv_path = root / "db" / f"{target.lower()}_functions.csv"
+        csv_path = cfg.db_dir / f"{target.lower()}_functions.csv"
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(csv_path, csv_text, encoding="utf-8")
         console.print(f"Wrote {csv_path} ({len(csv_text.splitlines()) - 6} functions)", style="dim")

@@ -26,6 +26,7 @@ To load a specific target::
 import shlex
 import sys
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypedDict
@@ -260,18 +261,117 @@ def _parse_str_list(values: list[Any] | None, field_name: str) -> list[str]:
     return result
 
 
-def _safe_int(value: Any, default: int) -> int:
+def _safe_int(value: Any, default: int, field_name: str = "integer") -> int:
     """Convert *value* to int, returning *default* on failure."""
     try:
         return int(value)
     except (ValueError, TypeError):
-        _config_warn(f"Expected integer, got {value!r}; using default {default}")
+        _config_warn(f"Expected integer for {field_name}, got {value!r}; using default {default}")
         return default
 
 
-def _resolve(root: Path, rel: str | None) -> Path | None:
+def _positive_int(value: Any, default: int, field_name: str) -> int:
+    """Parse a positive integer config value, falling back to *default*."""
+    parsed = _safe_int(value, default, field_name)
+    if parsed < 1:
+        _config_warn(
+            f"Expected positive integer for {field_name}, got {value!r}; using default {default}"
+        )
+        return default
+    return parsed
+
+
+def _parse_optional_int(value: Any, field_name: str) -> int | None:
+    """Parse an optional integer value, allowing decimal or ``0x`` strings."""
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value, 0)
+        except ValueError:
+            _config_warn(f"Invalid integer {value!r} for {field_name}; ignoring")
+            return None
+    _config_warn(f"Expected integer for {field_name}, got {type(value).__name__}; ignoring")
+    return None
+
+
+def _parse_str_dict(value: Any, field_name: str) -> dict[str, str]:
+    """Parse a string-to-string mapping from config."""
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        _config_warn(
+            f"Expected mapping for {field_name}, got {type(value).__name__}; using empty mapping"
+        )
+        return {}
+    result: dict[str, str] = {}
+    for key, item in value.items():
+        if not isinstance(key, str) or not isinstance(item, str):
+            _config_warn(f"Skipping non-string {field_name} entry: {key!r} = {item!r}")
+            continue
+        result[key] = item
+    return result
+
+
+def _parse_profiles(value: Any) -> dict[str, dict[str, str]]:
+    """Parse ``[compiler.profiles]`` into a typed nested mapping."""
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        _config_warn(
+            f"Expected mapping for compiler.profiles, got {type(value).__name__}; using empty mapping"
+        )
+        return {}
+    result: dict[str, dict[str, str]] = {}
+    for profile_name, profile_data in value.items():
+        if not isinstance(profile_name, str) or not isinstance(profile_data, Mapping):
+            _config_warn(f"Skipping invalid compiler profile entry: {profile_name!r}")
+            continue
+        parsed = _parse_str_dict(profile_data, f"compiler.profiles.{profile_name}")
+        if parsed:
+            result[profile_name] = parsed
+    return result
+
+
+def _parse_source_ext(value: Any) -> str:
+    """Parse and normalize the configured source extension."""
+    if value is None:
+        return ".c"
+    if not isinstance(value, str):
+        _config_warn(
+            f"Expected string for source_ext, got {type(value).__name__}; using default .c"
+        )
+        return ".c"
+    ext = value.strip()
+    if not ext or ext == ".":
+        _config_warn("Expected non-empty source_ext; using default .c")
+        return ".c"
+    if "/" in ext or "\\" in ext:
+        _config_warn(f"source_ext must be a file extension, got {value!r}; using default .c")
+        return ".c"
+    if not ext.startswith("."):
+        _config_warn(f"source_ext {value!r} is missing a leading dot; using .{ext}")
+        ext = f".{ext}"
+    return ext
+
+
+def _as_table(value: Any, field_name: str) -> dict[str, Any]:
+    """Return a TOML table as a dict or raise a clear config error."""
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"rebrew-project.toml [{field_name}] must be a TOML table")
+    return value
+
+
+def _resolve(root: Path, rel: str | Path | None) -> Path | None:
     """Resolve a path relative to project root.  Returns *None* if *rel* is ``None``."""
     if rel is None:
+        return None
+    if not isinstance(rel, (str, Path)):
+        _config_warn(f"Expected path string, got {type(rel).__name__}; ignoring")
         return None
     p = Path(rel)
     if p.is_absolute():
@@ -437,7 +537,7 @@ _KNOWN_PROJECT_KEYS = {
 }
 
 _KNOWN_FORMATS = {"pe", "elf", "macho"}
-_KNOWN_PROFILES = {"msvc6", "msvc7", "gcc", "clang"}
+_KNOWN_PROFILES = {"msvc400", "msvc420", "msvc6", "msvc7", "gcc", "clang"}
 
 
 def load_config(
@@ -449,8 +549,7 @@ def load_config(
     Args:
         root: Project root directory.  Auto-detected if ``None``.
         target: Name of the target to load (key under ``[targets]``).
-                Defaults to ``project.default_target`` if set, otherwise
-                the first target defined in the file.
+                Defaults to ``project.default_target``.
 
     """
     root = find_root(root)
@@ -460,6 +559,10 @@ def load_config(
 
     with toml_path.open("rb") as f:
         raw = tomllib.load(f)
+
+    project_raw = _as_table(raw.get("project", {}), "project")
+    targets_dict = _as_table(raw.get("targets", {}), "targets")
+    global_compiler_raw = _as_table(raw.get("compiler", {}), "compiler")
 
     # --- Validate known keys to catch typos ---
     unknown_top = set(raw) - _KNOWN_TOP_KEYS
@@ -471,36 +574,33 @@ def load_config(
         ("compiler", _KNOWN_COMPILER_KEYS),
         ("project", _KNOWN_PROJECT_KEYS),
     ):
-        sec = raw.get(sec_name, {})
-        if isinstance(sec, dict):
-            unknown_sec = set(sec) - known_keys
-            if unknown_sec:
-                _config_warn(
-                    f"rebrew-project.toml [{sec_name}]: unrecognized keys: {unknown_sec}",
-                )
-    for tgt_name, tgt_data in raw.get("targets", {}).items():
+        sec = global_compiler_raw if sec_name == "compiler" else project_raw
+        unknown_sec = set(sec) - known_keys
+        if unknown_sec:
+            _config_warn(
+                f"rebrew-project.toml [{sec_name}]: unrecognized keys: {unknown_sec}",
+            )
+    for tgt_name, tgt_data in targets_dict.items():
         if isinstance(tgt_data, dict):
             unknown_tgt = set(tgt_data) - _KNOWN_TARGET_KEYS
             if unknown_tgt:
                 _config_warn(
                     f"rebrew-project.toml [targets.{tgt_name}]: unrecognized keys: {unknown_tgt}",
                 )
+        else:
+            raise ValueError(f"rebrew-project.toml [targets.{tgt_name}] must be a TOML table")
 
-    targets_dict = raw.get("targets", {})
     if not targets_dict:
         raise KeyError("rebrew-project.toml has no [targets] section")
     all_target_names = [k for k in targets_dict if isinstance(k, str)]
     if not all_target_names:
         raise KeyError("rebrew-project.toml [targets] section has no valid target names")
 
-    global_compiler_raw = raw.get("compiler", {})
     global_compiler = {k: v for k, v in global_compiler_raw.items() if k not in ("profiles",)}
-
-    compiler_profiles = global_compiler_raw.get("profiles", {})
+    compiler_profiles = _parse_profiles(global_compiler_raw.get("profiles", {}))
 
     if target is None:
-        project_section = raw.get("project", {})
-        target = project_section.get("default_target")
+        target = project_raw.get("default_target")
         if target is None:
             raise KeyError(
                 "rebrew-project.toml [project] is missing 'default_target'. "
@@ -511,8 +611,7 @@ def load_config(
             f"Target '{target}' not found in rebrew-project.toml.  Available targets: {all_target_names}"
         )
     tgt = targets_dict[target]
-    target_compiler_raw = tgt.get("compiler", {})
-    target_compiler = dict(target_compiler_raw)
+    target_compiler = _as_table(tgt.get("compiler", {}), f"targets.{target}.compiler")
     compiler = {**global_compiler, **target_compiler}
     compiler_runner, compiler_command = _split_compiler_runner(compiler)
 
@@ -549,8 +648,6 @@ def load_config(
         raise KeyError(f"Target '{target}' in rebrew-project.toml has invalid 'binary' path")
     bin_path: Path = resolved_bin
 
-    project_raw = raw.get("project", {})
-
     # _resolve() can return None even with a non-None input; defensive checks follow.
     reversed_dir = _resolve(root, sources.get("reversed_dir", f"src/{target}"))
     if reversed_dir is None:  # pragma: no cover
@@ -574,7 +671,7 @@ def load_config(
     if compiler_libs is None:  # pragma: no cover
         raise ValueError("Failed to resolve compiler libs path")
 
-    # cflags_presets: parsed from TOML into cfg.compiler_profiles (not exposed as cflags_presets)
+    source_ext = _parse_source_ext(tgt.get("source_ext", ".c"))
 
     cfg = ProjectConfig(
         root=root,
@@ -591,7 +688,7 @@ def load_config(
         r2_bogus_vas=_parse_int_list(tgt.get("r2_bogus_vas", []), "r2_bogus_vas"),
         # project-level defaults
         project_name=project_raw.get("name", ""),
-        default_jobs=project_raw.get("jobs", 4),
+        default_jobs=_positive_int(project_raw.get("jobs", 4), 4, "project.jobs"),
         db_dir=db_dir,
         output_dir=output_dir,
         # compiler
@@ -602,21 +699,21 @@ def load_config(
         compiler_libs=compiler_libs,
         cflags=compiler.get("cflags", ""),
         base_cflags=compiler.get("base_cflags", "/nologo /c /MT"),
-        compile_timeout=_safe_int(compiler.get("timeout", 60), 60),
+        compile_timeout=_positive_int(compiler.get("timeout", 60), 60, "compiler.timeout"),
         # arch-derived
         pointer_size=arch_preset["pointer_size"],
         padding_bytes=arch_preset["padding_bytes"],
         symbol_prefix=arch_preset["symbol_prefix"],
         # project-specific
-        game_range_end=tgt.get("game_range_end"),
+        game_range_end=_parse_optional_int(tgt.get("game_range_end"), "game_range_end"),
         iat_thunks=_parse_int_list(tgt.get("iat_thunks", []), "iat_thunks"),
         dll_exports=_parse_hex_dict(tgt.get("dll_exports", {})),
         zlib_vas=_parse_int_list(tgt.get("zlib_vas", []), "zlib_vas"),
         ignored_symbols=_parse_str_list(tgt.get("ignored_symbols", []), "ignored_symbols"),
         compiler_profiles=compiler_profiles,
         library_modules=set(_parse_str_list(tgt.get("library_modules", []), "library_modules")),
-        crt_sources=tgt.get("crt_sources", {}),
-        source_ext=tgt.get("source_ext", ".c"),
+        crt_sources=_parse_str_dict(tgt.get("crt_sources", {}), "crt_sources"),
+        source_ext=source_ext,
         ghidra_program_path=tgt.get("ghidra_program_path", ""),
         # all targets
         all_targets=all_target_names,

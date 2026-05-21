@@ -67,6 +67,12 @@ class CompileCache:
         self._cache = diskcache.Cache(str(cache_dir), size_limit=size_limit)
         self.hits: int = 0
         self.misses: int = 0
+        # ``CompileCache`` instances are shared across worker threads in
+        # ``flag_sweep`` and ``BinaryMatchingGA``; the underlying diskcache is
+        # thread-safe, but ``hits``/``misses`` are plain Python ints whose
+        # ``+= 1`` is not atomic across the GIL — protect the increments so
+        # stats are not silently undercounted under contention.
+        self._counter_lock = threading.Lock()
 
     def get(self, key: str) -> bytes | None:
         """Return cached .obj bytes for *key*, or ``None`` on miss.
@@ -75,9 +81,11 @@ class CompileCache:
         """
         result = self._cache.get(key, default=None)
         if isinstance(result, bytes):
-            self.hits += 1
+            with self._counter_lock:
+                self.hits += 1
             return result
-        self.misses += 1
+        with self._counter_lock:
+            self.misses += 1
         return None
 
     def put(self, key: str, obj_bytes: bytes) -> None:

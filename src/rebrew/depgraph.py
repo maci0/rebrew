@@ -35,6 +35,44 @@ console = Console(stderr=True)
 # Pre-compiled regex for graph node ID sanitization.
 _NODE_ID_RE = re.compile(r"[^a-zA-Z0-9_]")
 
+# Standard library / compiler intrinsics filtered out of the call graph to
+# reduce visual noise — they show up in nearly every reversed function and
+# rarely teach you anything about the program's own structure.
+_NOISE_CALLEES: frozenset[str] = frozenset(
+    {
+        "memset",
+        "memmove",
+        "memcpy",
+        "memcmp",
+        "strlen",
+        "strcmp",
+        "strncmp",
+        "strcpy",
+        "strncpy",
+        "strcat",
+        "strchr",
+        "strrchr",
+        "strstr",
+        "strpbrk",
+        "strcspn",
+        "sprintf",
+        "printf",
+        "fprintf",
+        "sscanf",
+        "malloc",
+        "calloc",
+        "realloc",
+        "free",
+        "rand",
+        "srand",
+        "abs",
+        "atoi",
+        "atof",
+        "__ftol",
+        "__CxxFrameHandler",
+    }
+)
+
 
 class NodeInfo(TypedDict):
     """Type-safe node info for dependency graph nodes."""
@@ -56,8 +94,9 @@ def _sanitize_id(name: str) -> str:
 def _extract_callees(c_path: Path, text: str | None = None) -> list[str]:
     """Extract function names from extern declarations in a .c file.
 
-    Filters out common C library functions to reduce graph noise.
-    When *text* is provided, the file is not re-read from disk.
+    Callees in :data:`_NOISE_CALLEES` (libc / compiler intrinsics) are
+    dropped to keep the graph readable.  When *text* is provided, the
+    file is not re-read from disk.
     """
     if text is None:
         try:
@@ -67,44 +106,7 @@ def _extract_callees(c_path: Path, text: str | None = None) -> list[str]:
 
     from rebrew.c_parser import find_extern_function_names
 
-    callees = []
-    for name in find_extern_function_names(text):
-        # Skip common noise: standard library, compiler intrinsics
-        if name in (
-            "memset",
-            "memmove",
-            "memcpy",
-            "memcmp",
-            "strlen",
-            "strcmp",
-            "strncmp",
-            "strcpy",
-            "strncpy",
-            "strcat",
-            "strchr",
-            "strrchr",
-            "strstr",
-            "strpbrk",
-            "strcspn",
-            "sprintf",
-            "printf",
-            "fprintf",
-            "sscanf",
-            "malloc",
-            "calloc",
-            "realloc",
-            "free",
-            "rand",
-            "srand",
-            "abs",
-            "atoi",
-            "atof",
-            "__ftol",
-            "__CxxFrameHandler",
-        ):
-            continue
-        callees.append(name)
-    return callees
+    return [name for name in find_extern_function_names(text) if name not in _NOISE_CALLEES]
 
 
 def build_graph(
@@ -248,18 +250,23 @@ def _focus_graph(
     if not focus_name:
         return {}, [], []
 
+    # Build undirected adjacency once so BFS is O(visited * avg_degree)
+    # instead of O(depth * |edges|) — matters for large graphs / depth > 1.
+    adj: dict[str, set[str]] = {}
+    for a, b in all_edges:
+        adj.setdefault(a, set()).add(b)
+        adj.setdefault(b, set()).add(a)
+
     # BFS to find neighbours within depth
     visited = {focus_name}
     frontier = {focus_name}
     for _ in range(depth):
         next_frontier: set[str] = set()
-        for edge in all_edges:
-            if edge[0] in frontier and edge[1] not in visited:
-                next_frontier.add(edge[1])
-                visited.add(edge[1])
-            if edge[1] in frontier and edge[0] not in visited:
-                next_frontier.add(edge[0])
-                visited.add(edge[0])
+        for node in frontier:
+            for neighbour in adj.get(node, ()):
+                if neighbour not in visited:
+                    next_frontier.add(neighbour)
+                    visited.add(neighbour)
         frontier = next_frontier
 
     filtered_nodes = {k: v for k, v in nodes.items() if k in visited}

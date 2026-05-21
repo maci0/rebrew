@@ -145,7 +145,7 @@ def _save_toml(doc: tomlkit.TOMLDocument, path: Path) -> None:
 def _resolve_target(
     doc: tomlkit.TOMLDocument, target: str | None, *, json_mode: bool = False
 ) -> str:
-    """Resolve a target name: use given name, or default to first target."""
+    """Resolve a target name: use given name, project default, or first target."""
     targets = doc.get("targets", {})
     if not targets:
         error_exit(
@@ -153,7 +153,11 @@ def _resolve_target(
             json_mode=json_mode,
         )
     if target is None:
-        target = next(iter(targets))
+        project = doc.get("project", {})
+        if isinstance(project, dict):
+            target = project.get("default_target")
+        if target is None:
+            target = next(iter(targets))
     if target not in targets:
         error_exit(f"Target '{target}' not found. Available: {list(targets)}", json_mode=json_mode)
     return target
@@ -216,23 +220,28 @@ def list_targets(
         return
     if json_output:
         result = []
-        for i, name in enumerate(targets):
+        project = doc.get("project", {})
+        default_target = project.get("default_target") if isinstance(project, dict) else None
+        for name in targets:
             tgt = targets[name]
             result.append(
                 {
                     "name": name,
                     "binary": tgt.get("binary", "?"),
                     "arch": tgt.get("arch", "?"),
-                    "default": i == 0,
+                    "default": name == (default_target or next(iter(targets))),
                 }
             )
         json_print({"targets": result})
     else:
-        for i, name in enumerate(targets):
+        project = doc.get("project", {})
+        default_target = project.get("default_target") if isinstance(project, dict) else None
+        default_target = default_target or next(iter(targets))
+        for name in targets:
             tgt = targets[name]
             binary = tgt.get("binary", "?")
             arch = tgt.get("arch", "?")
-            marker = "→" if i == 0 else " "
+            marker = "→" if name == default_target else " "
             console.print(f"  {marker} {name}  ({arch}, {binary})")
         console.print("\n  [dim]→ = default target[/dim]")
 
@@ -281,6 +290,9 @@ def raw(
 ) -> None:
     """Dump entire rebrew-project.toml as JSON or TOML (raw machine-readable output)."""
     doc, _ = _load_toml()
+    fmt = fmt.lower()
+    if fmt not in {"json", "toml"}:
+        error_exit(f"Unknown format: {fmt}. Use json or toml.")
     if fmt == "toml":
         print(tomlkit.dumps(doc))
     else:

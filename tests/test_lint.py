@@ -3,6 +3,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from rebrew.config import ProjectConfig
 from rebrew.lint import LintResult, lint_file
 
@@ -365,13 +367,17 @@ class TestLintResult:
         assert len(d["errors"]) == 1
         assert len(d["warnings"]) == 1
 
-    def test_display_no_crash(self) -> None:
+    def test_display_no_crash(self, capsys: pytest.CaptureFixture[str]) -> None:
         r = LintResult(filepath=Path("test.c"))
         r.error(1, "E001", "err")
         r.warning(2, "W001", "warn")
-        # Verify display methods do not raise
+        # Both display modes must run without raising; quiet must produce
+        # less (or equal) output than the default mode.
         r.display()
+        full = capsys.readouterr()
         r.display(quiet=True)
+        quiet = capsys.readouterr()
+        assert len(quiet.out) + len(quiet.err) <= len(full.out) + len(full.err)
 
 
 def _make_c_file(tmp_path: Path, name: str = "my_func.c", content: str | None = None) -> Path:

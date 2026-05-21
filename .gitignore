@@ -13,6 +13,7 @@ __pycache__/
 .pyre/
 .claude/
 .opencode/
+.review-loop.lock
 
 # Build artifacts
 *.egg-info/

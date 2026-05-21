@@ -28,7 +28,12 @@ function at the same VA.  The format mirrors the ``// FUNCTION: SERVER
 Owned fields per entry::
 
     size, cflags, status, blocker, blocker_delta, note, ghidra,
-    analysis, skip, source, globals, section
+    analysis, skip, source, globals, prove_constraints
+
+The full canonical set is :data:`METADATA_FIELDS` (upper-case marker names).
+``SECTION`` is intentionally *not* owned here — it lives in
+``rebrew-data.toml`` (see :mod:`rebrew.data_metadata`) for DATA/GLOBAL
+annotations.
 
 The ``// FUNCTION: MODULE 0xVA`` (and LIBRARY/STUB/GLOBAL/DATA) marker lines
 remain in the ``.c`` files for reccmp compatibility.
@@ -117,23 +122,6 @@ METADATA_FIELDS: frozenset[str] = frozenset(
         # for DATA/GLOBAL annotations and must not be written to rebrew-function.toml.
     }
 )
-
-# Internal tomlkit key name for each annotation field.
-# Lower-case TOML keys map to Annotation attribute names.
-_TOML_TO_ATTR: dict[str, str] = {
-    "size": "size",
-    "cflags": "cflags",
-    "status": "status",
-    "blocker": "blocker",
-    "blocker_delta": "blocker_delta",
-    "note": "note",
-    "ghidra": "ghidra",
-    "analysis": "analysis",
-    "skip": "skip",
-    "globals": "globals_list",
-    "source": "source",
-    "prove_constraints": "prove_constraints",
-}
 
 __all__ = [
     "METADATA_FILENAME",

@@ -54,7 +54,6 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     out: Path | None = typer.Option(
         None, "--out", help="Override output PE path (default: <binary>.reasm next to target)"
     ),
@@ -64,9 +63,10 @@ def main(
     symbol_filter: str | None = typer.Option(
         None, "--filter", help="Only round-trip functions whose symbol contains this substring"
     ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    cfg = require_config(target=target)
+    cfg = require_config(target=target, json_mode=json_output)
     raise typer.Exit(
         _run_round_trip(
             cfg, out=out, no_write=no_write, symbol_filter=symbol_filter, json_output=json_output

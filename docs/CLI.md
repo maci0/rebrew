@@ -72,15 +72,10 @@ The canonical status ladder (best → worst): `PROVEN` → `EXACT` → `RELOC` �
 | `--inc DIR` | Include dir (auto from config) |
 | `--cflags FLAGS` | Compiler flags (auto from source) |
 | `--symbol NAME` | Symbol to match (auto from source) |
-| `--target-va HEX` | Target VA hex (auto from source) |
-| `--target-size N` | Target size (auto from source) |
-| `--diff-only` | Side-by-side disassembly diff (no GA) |
-| `--mm` / `--mismatches-only` | With `--diff-only`, show only structural (`**`) lines + summary |
-| `--rr` / `--register-aware` | With `--diff-only`, normalize register encodings and mark as `RR` |
-| `--diff-format FORMAT` | Output format for diff: `terminal` (default), `json`, `csv` |
-| `--fix-blocker` | With `--diff-only`, auto-write `BLOCKER`/`BLOCKER_DELTA` metadata from diff classification |
+| `--va HEX` | Target VA hex (auto from source) |
+| `--size N` | Target size (auto from source) |
 | `--seed N` | Seed RNG for reproducible GA runs |
-| `--force` | Continue even if source marker linter finds errors |
+| `--ignore-lint` | Continue even if source marker linter finds errors |
 | `--generations N` | Number of GA generations (default 100) |
 | `--pop-size N` | GA population size (default 64) |
 | `-j N` | Parallel compilation workers |
@@ -92,7 +87,20 @@ The canonical status ladder (best → worst): `PROVEN` → `EXACT` → `RELOC` �
 | `--lib DIR` | Lib dir (for non-obj comparison) |
 | `--ldflags FLAGS` | Linker flags (for non-obj comparison) |
 | `--flag-sweep-only` | Exhaustive flag-combination sweep; skip GA |
-| `--tier NAME` | Flag-sweep tier: `quick`, `targeted`, `normal` (default), `thorough`, `full` — see [FLAG_SWEEP_TIERS.md](FLAG_SWEEP_TIERS.md) |
+| `--tier NAME` | Flag-sweep tier: `quick`, `targeted` (default), `normal`, `thorough`, `full` — see [FLAG_SWEEP_TIERS.md](FLAG_SWEEP_TIERS.md) |
+| `--collect-pairs FILE` | Save source/binary pairs to JSONL for ML training |
+| `--json` | Output results as JSON |
+
+### `rebrew diff`
+
+| Flag | Description |
+|------|-------------|
+| `-m` / `--mismatches-only` | Show only structural (`**`) diff lines |
+| `-r` / `--register-aware` | Normalize register encodings and mark differences as `RR` |
+| `--fix-blocker` | Auto-write `BLOCKER`/`BLOCKER_DELTA` metadata from diff classification |
+| `-f FORMAT` / `--format FORMAT` | Output format: `terminal` (default), `csv` |
+| `--ignore-lint` | Continue even if source marker lint errors exist |
+| `--json` | Output results as JSON |
 
 ### `rebrew test`
 
@@ -137,14 +145,13 @@ Behavior:
 
 | Flag | Description |
 |------|-------------|
-| `--va HEX` | Function VA in hex |
+| `VA` | Function VA in hex (positional) |
 | `--decomp` | Embed inline decompilation |
 | `--decomp-backend BACKEND` | Decompiler backend: `r2ghidra`, `r2dec`, `ghidra`, `auto` |
 | `--xrefs` | Fetch cross-references and caller decompilation from Ghidra via ReVa MCP |
 | `--endpoint URL` | ReVa MCP endpoint URL (for `--xrefs` and `--decomp-backend ghidra`) |
 | `--append FILE` | Append to existing multi-function file |
 | `--name NAME` | Override function name |
-| `--origin TYPE` | Force compiler profile/origin type (GAME, MSVCRT, ZLIB) from config |
 | `-o FILE` / `--output FILE` | Output file path |
 | `--force` | Overwrite existing files |
 | `--batch N` | Generate N skeletons (smallest first) |
@@ -311,22 +318,25 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 | Flag / Arg | Description |
 |------------|-------------|
 | `COMMAND` | `list`, `show` (or `extract`), or `batch N` (positional argument) |
+| `--exe PATH` | Path to DLL/EXE (default: from config) |
+| `--size N` | With `show`, override the catalog-recorded size |
+| `--start N` | With `batch`, start offset into the sorted candidate list |
 | `--min-size N` | Minimum function size to extract (default 8) |
 | `--max-size N` | Maximum function size to extract (default 50000) |
 | `--json` | Output results as JSON |
 
 ### `rebrew split`
 
-`rebrew split <source_file> [--va HEX] [--output-dir DIR] [--dry-run] [--force] [--json]`
+`rebrew split <source_file> [--va HEX] [--out-dir DIR] [--dry-run] [--force] [--json]`
 
 Split a multi-function `.c` file into individual single-function files. Each output file gets the shared preamble (includes, defines, extern declarations) plus its own marker block and function body. Filenames are derived from the C function definition name; falls back to `func_<VA>.c` when no function definition is present.
 
-With `--va`, extract a **single function** into its own file (into a `source_c/` subdirectory) and remove it from the original. This is useful for isolating a function to iterate on independently.
+With `--va`, extract a **single function** into its own file (into a subdirectory named after the source file, such as `multi_c/`) and remove it from the original. This is useful for isolating a function to iterate on independently.
 
 | Flag | Effect |
 |------|---------|
-| `--va HEX` | Extract a single function by VA into `source_c/name.c` and remove from original |
-| `--output-dir DIR` | Write output files to DIR (default: same directory / `source_c/` for `--va`) |
+| `--va HEX` | Extract a single function by VA into `multi_c/name.c` and remove from original |
+| `--out-dir DIR` | Write output files to DIR (default: same directory / source-specific subdir for `--va`) |
 | `--dry-run` | Preview changes without writing |
 | `--force` | Overwrite existing output files |
 | `--json` | Structured JSON output |
@@ -436,7 +446,7 @@ rebrew data --fix-bss                              # Auto-generate BSS padding
 
 # Dependency graph
 rebrew graph                                       # Mermaid call graph
-rebrew graph --format dot --origin GAME            # DOT graph, GAME only
+rebrew graph --format dot --output graph.dot       # DOT graph written to a file
 rebrew graph --focus FuncName --depth 2            # Neighbourhood of a function
 
 rebrew split src/target_name/multi.c               # split all functions into individual files
@@ -464,7 +474,7 @@ rebrew graph --cu-map --json | jq '.clusters | length'  # count clusters
 
 # CRT source matching
 rebrew crt-match 0x10006c00                     # match a single VA against CRT source
-rebrew crt-match --all --origin MSVCRT           # match all MSVCRT functions
+rebrew crt-match --all                           # match all library-marker functions
 rebrew crt-match --fix-source --all              # auto-write // SOURCE: markers
 rebrew crt-match --index                         # show CRT source index
 

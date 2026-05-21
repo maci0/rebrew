@@ -64,6 +64,13 @@ def fetch_mcp_tool(
         headers["Mcp-Session-Id"] = session_id
     resp = client.post(endpoint, json=payload, headers=headers, timeout=MCP_REQUEST_TIMEOUT_S)
     if resp.status_code != 200:
+        logger.warning(
+            "MCP tool %s request %s failed with HTTP %s from %s",
+            tool_name,
+            request_id,
+            resp.status_code,
+            endpoint,
+        )
         return []
     ct = resp.headers.get("content-type", "")
     if "text/event-stream" in ct:
@@ -75,11 +82,40 @@ def fetch_mcp_tool(
         try:
             data = JsonRpcResponse.from_dict(resp.json())
         except (ValueError, UnicodeDecodeError):
+            logger.warning(
+                "MCP tool %s request %s returned invalid JSON from %s",
+                tool_name,
+                request_id,
+                endpoint,
+            )
             return []
     if not data:
+        logger.warning(
+            "MCP tool %s request %s returned no parseable JSON-RPC response from %s",
+            tool_name,
+            request_id,
+            endpoint,
+        )
+        return []
+    if data.error is not None:
+        logger.warning(
+            "MCP tool %s request %s returned JSON-RPC error: %s",
+            tool_name,
+            request_id,
+            data.error.message,
+        )
         return []
     if data.result and "content" in data.result:
         res = McpToolResult.from_dict(data.result)
+        if res.isError:
+            error_text = res.content[0].text if res.content else str(data.result)
+            logger.warning(
+                "MCP tool %s request %s returned tool error: %s",
+                tool_name,
+                request_id,
+                error_text,
+            )
+            return []
         text_items = [it for it in res.content if it.type == "text"]
         if not text_items:
             return []
@@ -89,6 +125,12 @@ def fetch_mcp_tool(
             for it in text_items:
                 with contextlib.suppress(json.JSONDecodeError):
                     objects.append(json.loads(it.text))
+            if not objects:
+                logger.warning(
+                    "MCP tool %s request %s returned only invalid JSON text items",
+                    tool_name,
+                    request_id,
+                )
             return objects
         # Single text item
         raw = text_items[0].text
@@ -98,7 +140,11 @@ def fetch_mcp_tool(
                 return parsed
             return [parsed]
         except json.JSONDecodeError:
-            pass
+            logger.warning(
+                "MCP tool %s request %s returned invalid JSON text content",
+                tool_name,
+                request_id,
+            )
     return []
 
 
@@ -127,6 +173,13 @@ def fetch_mcp_tool_raw(
         headers["Mcp-Session-Id"] = session_id
     resp = client.post(endpoint, json=payload, headers=headers, timeout=MCP_REQUEST_TIMEOUT_S)
     if resp.status_code != 200:
+        logger.warning(
+            "MCP tool %s request %s failed with HTTP %s from %s",
+            tool_name,
+            request_id,
+            resp.status_code,
+            endpoint,
+        )
         return None
     ct = resp.headers.get("content-type", "")
     if "text/event-stream" in ct:
@@ -138,11 +191,40 @@ def fetch_mcp_tool_raw(
         try:
             data = JsonRpcResponse.from_dict(resp.json())
         except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
+            logger.warning(
+                "MCP tool %s request %s returned invalid JSON from %s",
+                tool_name,
+                request_id,
+                endpoint,
+            )
             return None
     if not data:
+        logger.warning(
+            "MCP tool %s request %s returned no parseable JSON-RPC response from %s",
+            tool_name,
+            request_id,
+            endpoint,
+        )
+        return None
+    if data.error is not None:
+        logger.warning(
+            "MCP tool %s request %s returned JSON-RPC error: %s",
+            tool_name,
+            request_id,
+            data.error.message,
+        )
         return None
     if data.result and "content" in data.result:
         res = McpToolResult.from_dict(data.result)
+        if res.isError:
+            error_text = res.content[0].text if res.content else str(data.result)
+            logger.warning(
+                "MCP tool %s request %s returned tool error: %s",
+                tool_name,
+                request_id,
+                error_text,
+            )
+            return None
         text_items = [it for it in res.content if it.type == "text"]
         if not text_items:
             return None
@@ -158,6 +240,12 @@ def fetch_mcp_tool_raw(
         for it in text_items:
             with contextlib.suppress(json.JSONDecodeError):
                 objects.append(json.loads(it.text))
+        if not objects:
+            logger.warning(
+                "MCP tool %s request %s returned only invalid JSON text items",
+                tool_name,
+                request_id,
+            )
         return objects if objects else None
     return None
 
@@ -177,6 +265,7 @@ def init_mcp_session(client: Any, endpoint: str) -> str:
     resp = client.post(
         endpoint, json=init_payload, headers=MCP_HEADERS, timeout=MCP_REQUEST_TIMEOUT_S
     )
+    resp.raise_for_status()
     return str(resp.headers.get("Mcp-Session-Id", ""))
 
 
@@ -333,7 +422,7 @@ def apply_commands_via_mcp(
             json={"jsonrpc": "2.0", "method": "notifications/initialized"},
             headers=headers,
             timeout=MCP_REQUEST_TIMEOUT_S,
-        )
+        ).raise_for_status()
 
         def _send_cmd(
             cmd: dict[str, Any],
@@ -352,7 +441,7 @@ def apply_commands_via_mcp(
             resp.raise_for_status()
             body = resp.text.strip()
             if not body:
-                return True, ""
+                return False, "empty MCP response body"
             ct = resp.headers.get("content-type", "")
             if "text/event-stream" in ct:
                 data = _parse_sse_response(body)
@@ -360,9 +449,9 @@ def apply_commands_via_mcp(
                 try:
                     data = JsonRpcResponse.from_dict(resp.json())
                 except (ValueError, UnicodeDecodeError):
-                    return True, ""
+                    return False, "invalid MCP JSON-RPC response"
             if not data:
-                return True, ""
+                return False, "missing MCP JSON-RPC response"
             is_error = data.error is not None
             error_msg = data.error.message if data.error else ""
             if not is_error and data.result:
@@ -441,9 +530,9 @@ def apply_commands_via_mcp(
                 f"\n  Retrying {len(struct_failures)} struct definitions (pass {retry + 2})..."
             )
             still_failing: list[dict[str, Any]] = []
-            for cmd in struct_failures:
+            for retry_idx, cmd in enumerate(struct_failures):
                 try:
-                    ok, error_msg = _send_cmd(cmd, total + retry * 1000)
+                    ok, error_msg = _send_cmd(cmd, total + retry * 1000 + retry_idx + 1)
                     if ok:
                         success += 1
                         errors -= 1

@@ -111,7 +111,7 @@ size = 31
 | Marker | When to use |
 |--------|-------------|
 | `FUNCTION` | Non-library game code that isn't a stub |
-| `LIBRARY` | Third-party library code (modules configured as `library_origins` in config) |
+| `LIBRARY` | Third-party library code (modules configured as `library_modules` in config) |
 | `STUB` | Incomplete implementation (`STATUS: STUB`) |
 
 Format: `// MARKER: MODULE 0xVA`
@@ -128,8 +128,8 @@ Format: `// MARKER: MODULE 0xVA`
 | Marker line | **Mandatory** | E001 | `// FUNCTION:`, `// LIBRARY:`, or `// STUB:` with MODULE and VA |
 | `STATUS` | **Mandatory** | E003, E004 | Match quality (see below) |
 | `SIZE` | **Mandatory** | E007, E008 | Function size in bytes from the original binary |
-| `CFLAGS` | Optional | W018 | Per-function compiler flag override. Falls back to the target's `base_cflags` / `cflags_presets` in `rebrew-project.toml`. Only needed for functions compiled with non-default flags (e.g. a static lib linked with `/O1` into an `/O2` binary). |
-| `SOURCE` | Conditional | W006 | **Required for library origins** — reference file (e.g. `SBHEAP.C:195`, `deflate.c`). Use `rebrew crt-match --fix-source` to auto-populate. |
+| `CFLAGS` | Optional | W018 | Per-function compiler flag override. Falls back to the target's `base_cflags` in `rebrew-project.toml`. Only needed for functions compiled with non-default flags (e.g. a static lib linked with `/O1` into an `/O2` binary). |
+| `SOURCE` | Conditional | W006 | **Required for library modules** — reference file (e.g. `SBHEAP.C:195`, `deflate.c`). Use `rebrew crt-match --fix-source` to auto-populate. |
 | `BLOCKER` | Conditional | W005 | **Required for STUB** — explain why the function doesn't match yet. Now lives in `rebrew-function.toml` metadata; auto-written by `rebrew diff --fix-blocker`. |
 | `NOTE` | Optional | — | Freeform notes (e.g. `NOTE: uses SSE2 intrinsics`) — lives in metadata |
 | `GHIDRA` | Optional | — | The Ghidra name, added by `rebrew sync --pull --accept-local` to prevent conflict loops — lives in metadata |
@@ -164,26 +164,21 @@ Format: `// MARKER: MODULE 0xVA`
 ### Origin / Compiler Preset Configuration
 
 Origin is a **project-level concept** — not a per-function `.c` annotation. Each project
-configures its own origins (compiler profiles) in `rebrew-project.toml`:
+configures its own module categories and flag presets in `rebrew-project.toml`:
 
 ```toml
 [targets."server.dll"]
-origins = ["GAME", "MSVCRT", "ZLIB"]       # known compiler profiles
-default_origin = "GAME"                      # applied when unspecified
-library_origins = ["MSVCRT", "ZLIB"]         # origins using LIBRARY marker
+origins = ["GAME", "MSVCRT", "ZLIB"]       # known module labels
+library_modules = ["MSVCRT", "ZLIB"]       # modules using LIBRARY marker
 
-[targets."server.dll".origin_comments]       # skeleton preamble per origin
-GAME = "TODO: Add extern declarations for globals and called functions"
-MSVCRT = "CRT function - check tools/MSVC600/VC98/CRT/SRC/ for original source"
-
-[targets."server.dll".origin_todos]          # skeleton TODO text per origin
-GAME = "Implement based on Ghidra decompilation"
-MSVCRT = "Implement from CRT source"
+[compiler.cflags_presets]
+GAME = "/O2 /Gd"
+MSVCRT = "/O1"
 ```
 
-The origin is **inferred from the module name** — either via the `default_origin` setting
-or by matching the module against `library_origins`. There is no `// ORIGIN:` annotation
-in `.c` files.
+The origin is **inferred from the module name**. Modules listed in `library_modules`
+are expected to use `// LIBRARY:` markers. There is no `// ORIGIN:` annotation in `.c`
+files.
 
 ---
 
@@ -340,7 +335,7 @@ Errors indicate broken annotations that will cause `rebrew test`, `rebrew verify
 | E007 | *(deprecated)* | SIZE is metadata-only — no longer validated inline |
 | E008 | *(not implemented)* | Reserved for SIZE value validation |
 | E014 | *(not implemented)* | Reserved for corrupted annotation value detection |
-| E015 | Marker/module mismatch | `// FUNCTION:` with a library-configured module (expected `LIBRARY`). Library modules defined by `library_origins` config |
+| E015 | Marker/module mismatch | `// FUNCTION:` with a library-configured module (expected `LIBRARY`). Library modules defined by `library_modules` config |
 | E017 | Contradictory status/marker | `STATUS: NEAR_MATCHING` on a `// STUB:` marker |
 
 #### Config-Aware Errors (require `rebrew-project.toml`)
@@ -367,7 +362,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 |------|-------------|--------------|
 | W003 | No function implementation | File has annotations but no C code body |
 | W005 | STUB missing `BLOCKER` | `STATUS: STUB` without BLOCKER in metadata explaining why |
-| W006 | Library missing `SOURCE` | Library module (per `library_origins` config) without `// SOURCE:` pointing to reference file |
+| W006 | Library missing `SOURCE` | Library module (per `library_modules` config) without `// SOURCE:` pointing to reference file |
 | W007 | Struct without SIZE annotation | File defines `typedef struct` but lacks `// SIZE 0xNN` comment |
 
 #### Format Migration Warnings

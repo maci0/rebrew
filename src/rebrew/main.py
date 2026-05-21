@@ -257,7 +257,7 @@ def main() -> None:
     except (ValueError, FileNotFoundError, KeyError, RuntimeError) as e:
         from rebrew.cli import error_exit
 
-        error_exit(str(e))
+        error_exit(str(e), code=EXIT_ERROR)
     except KeyboardInterrupt:
         from rebrew.cli import error_exit
 

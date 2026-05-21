@@ -148,19 +148,19 @@ def generate_data_json(
     ]
 
     # Count functions by highest-priority status present
-    _STATUS_PRIORITY = ("EXACT", "RELOC", "NEAR_MATCH", "STUB")
+    _STATUS_PRIORITY = (("EXACT",), ("RELOC",), ("NEAR_MATCHING", "NEAR_MATCH"), ("STUB",))
     exact_count = reloc_count = near_match_count = stub_count = 0
-    _counters = {"EXACT": 0, "RELOC": 0, "NEAR_MATCH": 0, "STUB": 0}
+    _counters = {"EXACT": 0, "RELOC": 0, "NEAR_MATCHING": 0, "STUB": 0}
     for vas in fn_vas:
         statuses = {e["status"] for e in vas}
-        for status in _STATUS_PRIORITY:
-            if status in statuses:
-                _counters[status] += 1
+        for status_group in _STATUS_PRIORITY:
+            if any(status in statuses for status in status_group):
+                _counters[status_group[0]] += 1
                 break
     exact_count, reloc_count, near_match_count, stub_count = (
         _counters["EXACT"],
         _counters["RELOC"],
-        _counters["NEAR_MATCH"],
+        _counters["NEAR_MATCHING"],
         _counters["STUB"],
     )
 

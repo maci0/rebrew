@@ -45,7 +45,7 @@ DEFAULT_REBREW_TOML = """# rebrew project configuration
 # This file defines the target binaries, source layout, compiler, and
 # architecture so that every tool reads from a single source of truth.
 #
-# Multiple targets are supported.  Tools default to the first target
+# Multiple targets are supported.  Tools use project.default_target
 # unless --target <name> is passed.
 
 # ---------------------------------------------------------------------------

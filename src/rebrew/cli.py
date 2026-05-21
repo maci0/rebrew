@@ -107,11 +107,16 @@ TargetOption: str | None = typer.Option(
     None,
     "--target",
     "-t",
-    help="Target name from rebrew-project.toml (default: first target).",
+    help="Target name from rebrew-project.toml (default: project default target).",
 )
 
 
-def require_config(target: str | None = None, *, json_mode: bool = False) -> ProjectConfig:
+def require_config(
+    target: str | None = None,
+    *,
+    json_mode: bool = False,
+    root: Path | None = None,
+) -> ProjectConfig:
     """Load the project config, exiting with a user-friendly error on failure.
 
     Each except branch calls error_exit() which is typed ``NoReturn``; the
@@ -119,11 +124,11 @@ def require_config(target: str | None = None, *, json_mode: bool = False) -> Pro
     static analysers (mypy/pyright) and avoids an implicit ``None`` return.
     """
     try:
-        cfg = load_config(target=target)
+        cfg = load_config(root=root, target=target)
     except FileNotFoundError as exc:
-        error_exit(str(exc), json_mode=json_mode)
+        error_exit(str(exc), json_mode=json_mode, code=EXIT_ERROR)
     except (KeyError, ValueError) as exc:
-        error_exit(f"Config error: {exc}", json_mode=json_mode)
+        error_exit(f"Config error: {exc}", json_mode=json_mode, code=EXIT_ERROR)
     return cfg  # reached only when load_config() succeeds; branches above are NoReturn
 
 

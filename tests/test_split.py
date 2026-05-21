@@ -380,6 +380,22 @@ class TestSplitExtractVA:
         # output_dir should be the va_out_dir, not the parent
         assert "multi_c" in payload["output_dir"]
 
+    def test_va_json_requires_force_for_destructive_extract(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """--va --json should not wait for an interactive destructive prompt."""
+        src = _write(tmp_path / "multi.c", _multi_two())
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
+
+        result = runner.invoke(app, ["--json", "--va", "0x10001000", str(src)])
+
+        assert result.exit_code != 0
+        assert "Pass --force" in result.output
+        assert "0x10001000" in src.read_text(encoding="utf-8")
+        assert not (tmp_path / "multi_c" / "func_a.c").exists()
+
     def test_va_with_output_dir_override(self, tmp_path: Path, monkeypatch: Any) -> None:
         """--va with --output-dir should use the override directory."""
         src = _write(tmp_path / "multi.c", _multi_two())

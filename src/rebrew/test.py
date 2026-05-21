@@ -689,7 +689,9 @@ def _run_all_batch(
     )
 
     if not unique_entries:
-        if not json_output:
+        if json_output:
+            json_print({"total": 0, "passed": 0, "failed": 0, "results": []})
+        else:
             console.print("[yellow]No testable source files found[/yellow]")
         return
 
@@ -714,7 +716,9 @@ def _run_all_batch(
         ]
 
     if not unique_entries:
-        if not json_output:
+        if json_output:
+            json_print({"total": 0, "passed": 0, "failed": 0, "results": []})
+        else:
             console.print(
                 f"[yellow]No source files match filters "
                 f"(dir={batch_dir}, origin={origin_filter})[/yellow]"

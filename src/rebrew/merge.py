@@ -169,6 +169,12 @@ def main(
     merged_text = merged_preamble + "\n\n".join(sorted_blocks) + "\n"
 
     if delete and not dry_run and not force:
+        if json_output:
+            error_exit(
+                "--delete removes input files after merge. "
+                "Pass --force to apply it in --json mode, or omit --delete.",
+                json_mode=True,
+            )
         typer.confirm(f"Delete {len(included_inputs)} input file(s) after merge?", abort=True)
 
     if not dry_run:

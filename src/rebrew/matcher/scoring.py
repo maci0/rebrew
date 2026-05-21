@@ -6,7 +6,7 @@ Uses capstone for x86 disassembly and numpy for vectorized byte comparison.
 """
 
 import difflib
-import functools
+import threading
 from typing import Any
 
 import capstone
@@ -20,15 +20,31 @@ _DEFAULT_CS_ARCH = capstone.CS_ARCH_X86
 _DEFAULT_CS_MODE = capstone.CS_MODE_32
 
 
-@functools.lru_cache(maxsize=4)
-def _get_cs(cs_arch: int, cs_mode: int, *, detail: bool = False) -> capstone.Cs:
-    """Return a cached Capstone disassembler instance.
+# Capstone ``Cs`` objects wrap a libcapstone handle whose internal state is
+# mutated on every ``disasm`` call, so a single instance cannot be shared
+# across threads safely.  ``score_candidate`` runs concurrently in
+# ``flag_sweep`` / ``BinaryMatchingGA`` worker pools; per-thread caching keeps
+# the construction-elision win without inviting handle-level races.
+_cs_tls = threading.local()
 
-    Instances are cached by (arch, mode, detail) tuple.  This avoids
-    re-creating Capstone objects on every call in the GA scoring hot path.
+
+def _get_cs(cs_arch: int, cs_mode: int, *, detail: bool = False) -> capstone.Cs:
+    """Return a per-thread cached Capstone disassembler instance.
+
+    Each thread keeps its own dict keyed by (arch, mode, detail) so that
+    repeated calls in the GA scoring hot path skip the ``capstone.Cs``
+    constructor without sharing a mutable handle across workers.
     """
-    md = capstone.Cs(cs_arch, cs_mode)
-    md.detail = detail
+    cache: dict[tuple[int, int, bool], capstone.Cs] | None = getattr(_cs_tls, "cache", None)
+    if cache is None:
+        cache = {}
+        _cs_tls.cache = cache
+    key = (cs_arch, cs_mode, detail)
+    md = cache.get(key)
+    if md is None:
+        md = capstone.Cs(cs_arch, cs_mode)
+        md.detail = detail
+        cache[key] = md
     return md
 
 

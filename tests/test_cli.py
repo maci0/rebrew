@@ -1,11 +1,12 @@
 """Tests for the shared CLI helpers in rebrew.cli."""
 
 import json
+from pathlib import Path
 
 import pytest
 import typer
 
-from rebrew.cli import error_exit, json_print, parse_va
+from rebrew.cli import EXIT_ERROR, error_exit, json_print, parse_va, require_config
 
 # ---------------------------------------------------------------------------
 # error_exit()
@@ -38,6 +39,39 @@ class TestErrorExit:
         with pytest.raises(typer.Exit) as exc_info:
             error_exit("nope", json_mode=True, code=3)
         assert exc_info.value.exit_code == 3
+
+
+# ---------------------------------------------------------------------------
+# require_config()
+# ---------------------------------------------------------------------------
+
+
+class TestRequireConfig:
+    def test_missing_config_exits_as_infrastructure_error(self, tmp_path: Path) -> None:
+        with pytest.raises(typer.Exit) as exc_info:
+            require_config(root=tmp_path)
+        assert exc_info.value.exit_code == EXIT_ERROR
+
+    def test_explicit_root_loads_project(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-project.toml").write_text(
+            "\n".join(
+                [
+                    "[project]",
+                    'default_target = "main"',
+                    "",
+                    "[targets.main]",
+                    'binary = "test.exe"',
+                    'format = "pe"',
+                    'arch = "x86_32"',
+                    'reversed_dir = "src"',
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        cfg = require_config(root=tmp_path)
+
+        assert cfg.target_name == "main"
 
 
 # ---------------------------------------------------------------------------

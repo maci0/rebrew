@@ -5,9 +5,12 @@ rebrew-next JSON modes, rebrew-test result dicts, and rebrew-asm JSON.
 """
 
 import json
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 from rebrew.matcher.scoring import diff_functions
-from rebrew.test import build_result_dict
+from rebrew.test import _run_all_batch, build_result_dict
 
 # ---------------------------------------------------------------------------
 # diff_functions(as_dict=True)
@@ -251,6 +254,32 @@ class TestBuildResultDict:
             "mismatches",
         }
         assert required_keys == set(result.keys())
+
+
+class TestRebrewTestBatchJson:
+    def test_empty_batch_outputs_json(self, monkeypatch: Any, capsys: Any, tmp_path: Path) -> None:
+        cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
+
+        monkeypatch.setattr(
+            "rebrew.verify.prepare_entries",
+            lambda *args, **kwargs: ([], 0, 0, [], [], 0),
+        )
+
+        _run_all_batch(
+            cfg,
+            batch_dir=None,
+            origin_filter=None,
+            dry_run=False,
+            no_promote=False,
+            json_output=True,
+        )
+
+        assert json.loads(capsys.readouterr().out) == {
+            "total": 0,
+            "passed": 0,
+            "failed": 0,
+            "results": [],
+        }
 
 
 # ---------------------------------------------------------------------------

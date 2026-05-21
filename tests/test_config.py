@@ -273,6 +273,61 @@ dll_exports = "not-a-dict"
             cfg = load_config(root)
         assert cfg.dll_exports == {}
 
+    def test_wrong_crt_sources_type_falls_back(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+crt_sources = "tools/MSVC600/VC98/CRT/SRC"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match="Expected mapping for crt_sources"):
+            cfg = load_config(root)
+        assert cfg.crt_sources == {}
+
+    def test_game_range_end_hex_string(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+game_range_end = "0x1000ABCD"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.game_range_end == 0x1000ABCD
+
+    def test_source_ext_without_dot_is_normalized(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+source_ext = "cpp"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match="missing a leading dot"):
+            cfg = load_config(root)
+        assert cfg.source_ext == ".cpp"
+
+    def test_invalid_source_ext_defaults(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+source_ext = "src/*.c"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match="source_ext must be a file extension"):
+            cfg = load_config(root)
+        assert cfg.source_ext == ".c"
+
 
 class TestRunnerField:
     def test_runner_from_toml(self, tmp_path: Path) -> None:
@@ -510,6 +565,39 @@ profile = "turbo_c"
         root = _make_project(tmp_path, toml)
         with pytest.warns(UserWarning, match=r"unknown profile 'turbo_c'"):
             load_config(root)
+
+    def test_msvc400_profile_is_known(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[compiler]
+profile = "msvc400"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.compiler_profile == "msvc400"
+
+    def test_non_positive_jobs_and_timeout_default(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+jobs = 0
+
+[targets.main]
+binary = "test.exe"
+
+[compiler]
+timeout = -1
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning):
+            cfg = load_config(root)
+        assert cfg.default_jobs == 4
+        assert cfg.compile_timeout == 60
 
     def test_valid_config_no_warnings(self, tmp_path: Path) -> None:
         toml = """\

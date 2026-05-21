@@ -156,6 +156,27 @@ class TestBuildDbRoundTrip:
         db_path = project_root / "db" / "coverage.db"
         assert db_path.exists()
 
+    def test_configured_db_dir_is_used(self, tmp_path: Path) -> None:
+        configured_db = tmp_path / "coverage"
+        configured_db.mkdir()
+        (configured_db / "data_testbin.json").write_text(json.dumps(SAMPLE_DATA), encoding="utf-8")
+        (tmp_path / "rebrew-project.toml").write_text(
+            """\
+[project]
+default_target = "main"
+db_dir = "coverage"
+
+[targets.main]
+binary = "test.exe"
+""",
+            encoding="utf-8",
+        )
+
+        build_db(tmp_path)
+
+        assert (configured_db / "coverage.db").exists()
+        assert not (tmp_path / "db" / "coverage.db").exists()
+
     def test_functions_columns(self, project_root: Path) -> None:
         """All function columns including new detected_by, size_by_tool, textOffset."""
         build_db(project_root)
@@ -216,6 +237,7 @@ class TestBuildDbRoundTrip:
 
         counter_row = rows[0]
         assert counter_row["name"] == "g_counter"
+        assert counter_row["module"] == "GAME"
         assert counter_row["size"] == 4
 
         buffer_row = rows[1]
@@ -278,7 +300,7 @@ class TestBuildDbRoundTrip:
         row = c.fetchone()
         assert row is not None
         version = json.loads(row[0])
-        assert version == "3"
+        assert version == "4"
         conn.close()
 
     def test_new_columns(self, project_root: Path) -> None:
@@ -488,6 +510,70 @@ class TestBuildDbRoundTrip:
         summary = json.loads(row[0])
         assert summary[".data"]["coveredBytes"] == 0
 
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT start, end FROM cells WHERE target = 'alpha' AND section_name = '.data'")
+        cell = c.fetchone()
+        conn.close()
+        assert cell == (64, 64)
+
+    def test_near_matching_cells_count_as_near_matches(self, tmp_path: Path) -> None:
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        data = {
+            "sections": {
+                ".text": {
+                    "va": 0x10001000,
+                    "size": 128,
+                    "fileOffset": 0x1000,
+                    "unitBytes": 64,
+                    "columns": 64,
+                    "cells": [
+                        {
+                            "start": 0,
+                            "end": 64,
+                            "span": 1,
+                            "state": "near_matching",
+                            "functions": ["f"],
+                        }
+                    ],
+                }
+            },
+            "globals": {},
+            "summary": {},
+            "functions": {
+                "0x10001000": {
+                    "name": "f",
+                    "vaStart": "0x10001000",
+                    "size": 64,
+                    "status": "NEAR_MATCHING",
+                }
+            },
+            "paths": {},
+        }
+        (db_dir / "data_alpha.json").write_text(json.dumps(data), encoding="utf-8")
+
+        build_db(tmp_path)
+
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        c = conn.cursor()
+        c.execute(
+            "SELECT near_match_count FROM section_cell_stats "
+            "WHERE target = 'alpha' AND section_name = '.text'"
+        )
+        row = c.fetchone()
+        conn.close()
+        assert row == (1,)
+
+    def test_cells_reference_existing_sections(self, project_root: Path) -> None:
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("PRAGMA foreign_key_list(cells)")
+        rows = c.fetchall()
+        conn.close()
+        assert any(row[2] == "sections" for row in rows)
+
 
 class TestBuildDbTargetFiltering:
     """Verify that build_db(target=...) only processes matching JSON files."""
@@ -633,7 +719,7 @@ class TestBuildDbForceFlag:
         row = c.fetchone()
         conn.close()
         assert row is not None
-        assert json.loads(row[0]) == "3"
+        assert json.loads(row[0]) == "4"
 
     def test_no_mismatch_force_not_needed(self, project_root: Path) -> None:
         """When schema matches, build proceeds without --force (no error)."""

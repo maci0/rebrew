@@ -162,7 +162,7 @@ class TestListUncovered:
 
 
 # -------------------------------------------------------------------------
-# generate_skeleton — library_origins flow
+# generate_skeleton — library_modules flow
 # -------------------------------------------------------------------------
 
 
