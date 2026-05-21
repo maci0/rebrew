@@ -235,6 +235,7 @@ Each `data_<target>.json` file is the output of `rebrew catalog --data-json`. It
   },
   "paths": { "originalDll": "/original/Server/server.dll" }
 }
+```
 
 > [!NOTE]
 > All PE sections are now included dynamically in the catalog and database (not just the standard `.text`, `.rdata`, `.data`, and `.bss`).
