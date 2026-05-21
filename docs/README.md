@@ -12,7 +12,7 @@
 
 | Document | Description |
 |----------|-------------|
-| [CLI.md](CLI.md) | All 26 CLI commands — flags, examples, internal modules |
+| [CLI.md](CLI.md) | All 28 CLI commands — flags, examples, internal modules |
 | [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, config loader, arch presets, compiler profiles |
 | [ANNOTATIONS.md](ANNOTATIONS.md) | Annotation format (`// FUNCTION:` markers + `rebrew-function.toml` metadata), linter codes E000–E017 / W001–W019 |
 | [MATCH_TYPES.md](MATCH_TYPES.md) | EXACT / RELOC / NEAR_MATCHING explained with byte-level examples |
