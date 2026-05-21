@@ -115,7 +115,11 @@ def rename_function_everywhere(
         if new_filename:
             if not new_filename.endswith(filepath.suffix):
                 new_filename = new_filename + filepath.suffix
-            target_file = cfg.reversed_dir / new_filename
+            # Preserve original directory unless caller passes a path
+            if "/" in new_filename or "\\" in new_filename:
+                target_file = cfg.reversed_dir / new_filename
+            else:
+                target_file = filepath.with_name(new_filename)
         else:
             stem = filepath.stem
             if stem in (actual_old_name, old_sym):
