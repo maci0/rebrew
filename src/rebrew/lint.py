@@ -557,6 +557,7 @@ app = typer.Typer(
         "  rebrew lint --json · · · · · · · · · Machine-readable JSON output\n\n"
         "  rebrew lint --summary · · · · · · · Show status/origin breakdown table\n\n"
         "  rebrew lint src/game/foo.c · · · · · Lint specific files only\n\n"
+        "  rebrew lint --fix --dry-run · · · · Preview inline-metadata migrations before commit\n\n"
         "[bold]Error codes:[/bold]\n\n"
         "  E001   Missing FUNCTION/LIBRARY/STUB marker\n\n"
         "  E002   Invalid VA format or range\n\n"
