@@ -64,6 +64,14 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 
 **Impact**: High — could break through the "systemic ceiling" of register allocation issues by coming up with creative C constructs.
 
+### 25. Memory side-effect checking in `rebrew prove` (E9 v2)
+
+**Pain**: `rebrew prove` compares EAX (and optionally EDX) but ignores memory writes. Functions that write to global variables or through output-pointer arguments can be falsely promoted to PROVEN when their memory side effects differ between the original and the compiled version.
+
+**Proposed**: Thread a list of "watched" virtual addresses through `prove_equivalence` and compare `state.memory.load(va, 4)` across state pairs for each watched address. The user would specify watched VAs via `prove_constraints` metadata (e.g. `watched_vas = [0x10123456]`) or via a future `--watch-va` CLI flag.
+
+**Impact**: Medium-high — closes a correctness gap for functions with observable side effects. Prerequisite: the watched-VA list must be small (< 10) to avoid Z3 blowup.
+
 ### 24. Ghidra-CLI as alternative Ghidra transport
 
 **Pain**: `rebrew sync` currently requires a running Ghidra instance with the ReVa MCP extension installed. ReVa is a heavyweight requirement: AI-tuned, MCP-only, brings its own dependencies, and breaks the workflow for users who want plain headless Ghidra scripting.

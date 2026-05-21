@@ -175,6 +175,7 @@ rebrew prove src/<target>/<file>.c --loop-bound 50        # raise LoopSeer ceili
 rebrew prove my_func --start-offset 0 --end-offset 48     # prove only a byte slice of the function
 rebrew prove --all --json                                 # batch: prove every NEAR_MATCHING function
 rebrew prove my_func --json                               # find by symbol name
+rebrew prove my_func --check-edx --json                   # also compare EDX (64-bit return)
 ```
 
 How it works:
@@ -183,7 +184,13 @@ How it works:
 3. Parses the C function definition for calling convention and argument setup
 4. Hooks external call relocations with `ReturnUnconstrained`
 5. Runs LoopSeer-bounded symbolic execution on both
-6. Compares EAX via Z3 — if no input can distinguish them, PROVEN
+6. Compares EAX (and optionally EDX) via Z3 — if no input can distinguish them, PROVEN
+
+**64-bit returns and EDX**: Functions that return `long long`, `__int64`, `int64_t`, or
+`uint64_t` use the EDX:EAX register pair (high 32 bits in EDX, low 32 bits in EAX). Pass
+`--check-edx` to include EDX in the comparison. When the function's `PROTOTYPE` annotation
+declares one of the above return types, EDX checking is **auto-enabled** — no flag needed.
+Use `--check-edx` to force it even when the prototype heuristic does not trigger.
 
 Requirements:
 - angr must be installed: `uv pip install -e ".[prove]"`
@@ -194,6 +201,8 @@ Limitations:
 - Complex loops may cause timeout (raise `--timeout` or `--loop-bound`)
 - Never produces false positives — if it can't prove, STATUS stays NEAR_MATCHING
 - Use `--start-offset`/`--end-offset` to prove tail-call or partial-block equivalence
+- Memory side-effect checking (globals, output-pointer args) is not yet implemented;
+  functions whose only observable difference is in written memory can be falsely promoted
 
 ## 9. End-to-End Round-Trip
 
