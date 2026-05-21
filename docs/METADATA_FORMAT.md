@@ -44,7 +44,7 @@ All mutable metadata lives in per-directory TOML metadata files.
 Keyed by `MODULE.0xVA`:
 
 ```toml
-[SERVER."0x10008880"]
+["SERVER.0x10008880"]
 status = "NEAR_MATCHING"
 cflags = "/O2 /Gd"
 blocker = "needs vtable"
@@ -68,7 +68,7 @@ note = "register allocation differs in inner loop"
 Keyed by `MODULE.0xVA`, used for GLOBAL/DATA entries:
 
 ```toml
-[SERVER."0x10050000"]
+["SERVER.0x10050000"]
 size = 4
 section = ".bss"
 note = "player count"
