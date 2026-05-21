@@ -1,6 +1,6 @@
 # CLI Reference
 
-All 26 CLI commands are registered under the unified `rebrew` entry point in `main.py`.
+All 28 CLI commands are registered under the unified `rebrew` entry point in `main.py`.
 Every tool supports `--target / -t` to select a target from `rebrew-project.toml` and
 reads defaults (binary path, reversed_dir, compiler settings) from the project config.
 
@@ -48,7 +48,7 @@ The canonical status ladder (best → worst): `PROVEN` → `EXACT` → `RELOC` �
 | `rebrew-match` | `match.py` / `matcher/` | GA matching engine (single-function or `--all` batch); `--fix-blocker`; `--json` structured output |
 | `rebrew-verify` | `verify.py` | Compile all `.c` files and verify byte match against target binary; `--compare` regression detection; `--json` structured reports |
 | `rebrew-todo` | `todo.py` | Prioritized action list: what to work on next, ROI-ranked across all signals |
-| `rebrew-cache` | `cache_cli.py` | Compile cache management (`stats`, `clear` subcommands) |
+| `rebrew-cache` | `cache_cli.py` | Compile cache management (`stats` reports hit rate + disk usage, `clear` purges cache) |
 | `rebrew-cfg` | `cfg.py` | Read and edit `rebrew-project.toml` programmatically (see [CONFIG.md](CONFIG.md)) |
 | `rebrew-split` | `split.py` | Split multi-function C files into individual files |
 | `rebrew-merge` | `merge.py` | Merge single-function C files into multi-function file |
@@ -60,6 +60,7 @@ The canonical status ladder (best → worst): `PROVEN` → `EXACT` → `RELOC` �
 | `rebrew-doctor` | `doctor.py` | Diagnostic checks for project health (config, compiler, binary, paths); `--install-wibo`; `--json` |
 | `rebrew-binsync-export` | `binsync_export.py` | Export source markers and metadata to BinSync state directory (prototype, STATUS/CFLAGS, globals, structs) |
 | `rebrew-build-db` | `build_db.py` | Build SQLite `db/coverage.db` from `data_*.json` ([schema docs](DB_FORMAT.md)) |
+| `rebrew-skills` | `main.py` | Discover and display AI agent skills bundled with rebrew (`list`, `show` subcommands) |
 
 ## Tool Flags
 
@@ -241,7 +242,7 @@ Output prefixes for unambiguous parsing:
 | `--summary` | Print status/origin breakdown table |
 | `--files FILE...` | Check specific files instead of full scan |
 
-See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–E017, W001–W017).
+See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–E017, W001–W019).
 
 ### `rebrew catalog`
 
@@ -280,6 +281,7 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 | `--by-module` | With `--pull-structs`: split into per-module files (e.g. `types_server.h`, `types_shared.h`) |
 | `--pull-comments` | Pull Ghidra analysis comments into source files |
 | `--pull-data` | Fetch Ghidra data labels via MCP, generate `rebrew_globals.h` with typed extern declarations |
+| `--refresh-cache` | Re-fetch all function structure and data labels from Ghidra MCP (invalidates cached data) |
 | `--dry-run` | Preview any sync operation without applying changes |
 | `--endpoint URL` | ReVa MCP endpoint URL |
 | `--json` | Output results as JSON |
@@ -365,6 +367,7 @@ Merge multiple single-function `.c` files into one multi-function file. Preamble
 | Flag | Description |
 |------|-------------|
 | `--root DIR` | Project root directory (auto-detected if omitted) |
+| `--force` | Delete and recreate the database if its schema version is incompatible |
 | `--json` | Output results as JSON |
 
 ### `rebrew init`
@@ -506,7 +509,7 @@ Catches relocation-application bugs and padding regressions that per-function
 | Module | Purpose |
 |--------|---------|
 | `annotation.py` | Canonical annotation parser (`parse_c_file`, `parse_c_file_multi`, `normalize_status`) |
-| `lint.py` | Source marker linter (E000–E017 / W001–W017); `--fix` auto-migrates old formats |
+| `lint.py` | Source marker linter (E000–E017 / W001–W019); `--fix` auto-migrates old formats |
 | `ghidra/cli.py` | Sync annotations to Ghidra via ReVa MCP; skips generic `func_` labels by default |
 
 ### Binary Analysis
