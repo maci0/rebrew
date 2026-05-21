@@ -99,8 +99,9 @@ NEW_KV_RE = re.compile(r"//\s*(?P<key>[A-Z_]+):\s*(?P<value>.*)")
 # Function name hint — bare ``// FunctionName`` comment after a marker line.
 # Matches a single-word identifier (no colon, no spaces) that is not a KV key.
 # Used to capture the actual function name in multi-function files where SYMBOL
-# may be shared across blocks.
-FUNC_NAME_HINT_RE = re.compile(r"^//\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*$")
+# may be shared across blocks. Also allows stdcall decoration ``@N``,
+# ``$`` (compiler-generated string labels), and ``?`` (MSVC C++ decoration).
+FUNC_NAME_HINT_RE = re.compile(r"^//\s+(?P<name>[$?A-Za-z_][$?A-Za-z0-9_@]*)\s*$")
 
 # Module-level compiled patterns for annotation mutation helpers.
 # These were previously compiled inside functions on every call.
