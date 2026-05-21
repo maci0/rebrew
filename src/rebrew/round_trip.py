@@ -268,8 +268,13 @@ def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:
     marker = target_marker(cfg)  # honors cfg.marker overrides
     funcs: dict[int, str] = dict(cfg.dll_exports)  # base layer: PE exports
     annotated_dirs: set[Path] = set()
+    # Scan source files plus any sibling headers (e.g. library_msvc.h) for
+    # LIBRARY/FUNCTION annotations.  Headers carry CRT and Win32 symbol VAs.
+    sources = list(iter_sources(cfg.reversed_dir, cfg))
+    for h in cfg.reversed_dir.rglob("*.h"):
+        sources.append(h)
     for path, anns in iter_annotations(
-        iter_sources(cfg.reversed_dir, cfg),
+        sources,
         target=marker,
         metadata_dir=cfg.metadata_dir,
     ):
@@ -278,11 +283,12 @@ def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:
             if ann.module == marker and ann.name:
                 funcs[ann.va] = ann.name
 
+    # Data names live in cfg.metadata_dir/rebrew-data.toml — not under each
+    # annotated source's parent directory.
     data: dict[str, int] = {}
-    for d in annotated_dirs:
-        for (mod, va), meta in load_data_metadata(d).items():
-            if mod == marker and meta.get("name"):
-                data[meta["name"]] = va
+    for (mod, va), meta in load_data_metadata(cfg.metadata_dir).items():
+        if mod == marker and meta.get("name"):
+            data[meta["name"]] = va
     return funcs, data
 
 
