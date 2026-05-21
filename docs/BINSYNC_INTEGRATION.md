@@ -1,4 +1,9 @@
-# BinSync Export
+# BinSync Export (Current Implementation)
+
+> This page documents `rebrew binsync-export` — the **current** one-way snapshot exporter.
+> It is deliberately limited: export-only, no git integration, struct fields are placeholders.
+> For the planned bidirectional sync with full libbs serialization, see
+> [prd/09-binsync-full.md](prd/09-binsync-full.md).
 
 `rebrew binsync-export <outdir>` writes a [BinSync](https://github.com/binsync/binsync)
 state directory from the project's annotations and metadata. The output can be
