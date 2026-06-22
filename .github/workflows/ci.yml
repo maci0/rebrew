@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
         with:
@@ -41,7 +41,7 @@ jobs:
         python-version: ["3.12", "3.13"]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
         with:
