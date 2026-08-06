@@ -58,9 +58,11 @@ STATUS_COLORS: dict[str, str] = {
     "RELOC": "green",
     "PROVEN": "bold cyan",
     "NEAR_MATCHING": "yellow",
+    "SIZE_MISMATCH": "yellow",
     "STUB": "dim",
     "COMPILE_ERROR": "red",
     "MISSING_FILE": "red",
+    "MISSING_SIZE": "red",
     "SKIP": "dim",
 }
 

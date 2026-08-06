@@ -362,9 +362,9 @@ def main(
     if summary:
         if ops is None:  # pragma: no cover — guarded by branch above
             raise typer.Exit(code=EXIT_MISMATCH)
-        by_module: dict[str, list[dict[str, Any]]] = {}
+        module_entries: dict[str, list[dict[str, Any]]] = {}
         for e in entries:
-            by_module.setdefault(e["module"], []).append(e)
+            module_entries.setdefault(e["module"], []).append(e)
 
         create_fns = [o for o in ops if o["tool"] == "create-function"]
         labels = [o for o in ops if o["tool"] == "create-label"]
@@ -378,7 +378,7 @@ def main(
                 {
                     "entries": len(entries),
                     "unique_vas": len(by_va),
-                    "by_module": {k: len(v) for k, v in sorted(by_module.items())},
+                    "by_module": {k: len(v) for k, v in sorted(module_entries.items())},
                     "operations": {
                         "create_function": len(create_fns),
                         "create_label": len(labels),
@@ -392,8 +392,8 @@ def main(
             )
         else:
             console.print(f"Annotations: {len(entries)} entries, {len(by_va)} unique VAs")
-            for module in sorted(by_module):
-                console.print(f"  {module}: {len(by_module[module])}")
+            for module in sorted(module_entries):
+                console.print(f"  {module}: {len(module_entries[module])}")
             console.print(f"If exported, would generate {len(ops)} operations:")
             if create_fns:
                 console.print(f"  - Create {len(create_fns)} functions (create-function)")

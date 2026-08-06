@@ -18,6 +18,7 @@ import hashlib
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console, Group
@@ -25,7 +26,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from rebrew.binary_loader import BinaryInfo, load_binary, va_to_file_offset
+from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary, va_to_file_offset
 from rebrew.cli import (
     EXIT_MISMATCH,
     EXIT_OK,
@@ -45,7 +46,11 @@ from rebrew.core.matching import (
     apply_coff_relocations,
     build_symbol_resolver,
 )
-from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
+from rebrew.matcher.parsers import (
+    CoffRelocRecord,
+    parse_obj_relocs_full,
+    parse_obj_symbol_bytes,
+)
 from rebrew.metadata import get_entry
 
 console = Console(stderr=True)
@@ -67,13 +72,23 @@ def main(
     symbol_filter: str | None = typer.Option(
         None, "--filter", help="Only round-trip functions whose symbol contains this substring"
     ),
+    strict_catalog: bool = typer.Option(
+        False,
+        "--strict-catalog",
+        help="Exit non-zero when any EXACT/RELOC function hits an unresolved catalog symbol",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     cfg = require_config(target=target, json_mode=json_output)
     raise typer.Exit(
         _run_round_trip(
-            cfg, out=out, no_write=no_write, symbol_filter=symbol_filter, json_output=json_output
+            cfg,
+            out=out,
+            no_write=no_write,
+            symbol_filter=symbol_filter,
+            json_output=json_output,
+            strict_catalog=strict_catalog,
         )
     )
 
@@ -140,7 +155,9 @@ def _collect_splice_set(
     return splice, proven, other_count
 
 
-def _compile_and_extract(cfg: ProjectConfig, fn: _SpliceFn, work_dir: Path):
+def _compile_and_extract(
+    cfg: ProjectConfig, fn: _SpliceFn, work_dir: Path
+) -> tuple[bytes, list[CoffRelocRecord], dict[str, bytes], bool, str]:
     """Compile fn.path inside ``work_dir`` and pull out (text, relocs, str_syms, ok, detail).
 
     Returns ``(text_bytes, reloc_records, str_symbols, ok, detail)`` where ``str_symbols``
@@ -160,15 +177,25 @@ def _compile_and_extract(cfg: ProjectConfig, fn: _SpliceFn, work_dir: Path):
     return bytes(text), relocs, str_syms, True, ""
 
 
-def _extract_string_symbols(obj_path: Path, symbol_names: set[str]) -> dict[str, bytes]:
+def _sg_key(name: str) -> str:
+    """Normalize MSVC ``$SG`` / ``_$SG`` symbol names for membership tests."""
+    return name.lstrip("_") if name.startswith("_") else name
+
+
+def _extract_string_symbols(obj_path: str | Path, symbol_names: set[str]) -> dict[str, bytes]:
     """Extract bytes for MSVC ``$SG<N>`` string constants referenced by relocations.
 
     These compiler-generated names refer to inline string literals placed in
-    ``.rdata$<N>`` or ``.data`` of the .obj. Returns ``{sym_name: bytes}`` for
-    each ``$SG<N>`` (or ``_$SG<N>``) symbol present.
+    ``.rdata$<N>`` or ``.data`` of the .obj. Returns ``{sym_name: bytes}`` keyed
+    by the **reloc-side** symbol name (so later resolve/apply steps see the same
+    spelling the reloc table used). Content includes the trailing NUL so target
+    scans match whole strings, not prefixes of longer ones.
     """
-    sg_symbols = {s for s in symbol_names if "$SG" in s}
-    if not sg_symbols:
+    sg_by_key: dict[str, str] = {}
+    for s in symbol_names:
+        if "$SG" in s:
+            sg_by_key[_sg_key(s)] = s
+    if not sg_by_key:
         return {}
     import lief
 
@@ -178,18 +205,18 @@ def _extract_string_symbols(obj_path: Path, symbol_names: set[str]) -> dict[str,
     out: dict[str, bytes] = {}
     for sym in coff.symbols:
         name = sym.name or ""
-        # Strip leading underscore for comparison; MSVC may add `_` to `$SG`.
-        candidates = (name, name.lstrip("_"))
-        match = next((c for c in candidates if c in sg_symbols), None)
-        if match is None or sym.section is None:
+        reloc_name = sg_by_key.get(_sg_key(name))
+        if reloc_name is None or sym.section is None:
             continue
         sec_data = bytes(sym.section.content)
         start = sym.value
-        # Find next zero byte (string terminator) — strings are NUL-terminated.
+        if start < 0 or start >= len(sec_data):
+            continue
+        # Include the NUL terminator so target search cannot match a prefix.
         end = sec_data.find(b"\x00", start)
-        if end < 0:
-            end = len(sec_data)
-        out[match] = sec_data[start:end]
+        content = sec_data[start:] if end < 0 else sec_data[start : end + 1]
+        if content:
+            out[reloc_name] = content
     return out
 
 
@@ -197,9 +224,17 @@ def _resolve_string_symbols_in_target(
     target_bytes: bytes,
     str_syms: dict[str, bytes],
     image_base: int,
-    sections: dict,  # SectionInfo dict from BinaryInfo
+    sections: dict[str, SectionInfo],  # SectionInfo dict from BinaryInfo
 ) -> dict[str, int]:
-    """Find each string literal in the target's .rdata/.data and return VAs."""
+    """Find each string literal in the target's .rdata/.data and return VAs.
+
+    *str_syms* values should be NUL-terminated (see :func:`_extract_string_symbols`)
+    so a short literal cannot bind to a longer string that shares its prefix.
+
+    *image_base* is accepted for API symmetry with callers; section VAs from
+    :class:`BinaryInfo` are already absolute.
+    """
+    _ = image_base
     found: dict[str, int] = {}
     # Scan .rdata and .data sections only.
     candidate_secs = []
@@ -226,6 +261,7 @@ def _run_round_trip(
     no_write: bool,
     symbol_filter: str | None,
     json_output: bool,
+    strict_catalog: bool = False,
 ) -> int:
     """Top-level orchestration. Returns the process exit code."""
     if cfg.image_base == 0:
@@ -248,7 +284,9 @@ def _run_round_trip(
     funcs_by_va, data_by_name = _load_catalogs(cfg)
     resolve_va = build_symbol_resolver(funcs_by_va, data_by_name)
 
-    mismatches: list[dict] = []
+    mismatches: list[dict[str, str | None]] = []
+    skipped_catalog: list[dict[str, str | None]] = []  # entries we can't splice due to catalog gaps
+    spliced_vas: set[str] = set()
     extra_string_syms: dict[str, int] = {}
     with tempfile.TemporaryDirectory(prefix="rebrew-rt-") as td:
         work_dir = Path(td)
@@ -278,7 +316,10 @@ def _run_round_trip(
                     section_va=fn.va,
                 )
             except UnresolvedSymbolError as exc:
-                mismatches.append(_mismatch(fn, "unresolved_symbol", exc.symbol))
+                # Catalog gap — we can't splice but the original bytes are still
+                # in the reasm buffer, so SHA equality is preserved.  Don't count
+                # this as a mismatch by default; --strict-catalog fails the run.
+                skipped_catalog.append(_mismatch(fn, "unresolved_symbol", exc.symbol))
                 continue
             except NotImplementedError as exc:
                 mismatches.append(_mismatch(fn, "reloc_application_failed", str(exc)))
@@ -295,18 +336,57 @@ def _run_round_trip(
             if end > len(reasm) or len(patched) < fn.size:
                 mismatches.append(_mismatch(fn, "oversize", None))
                 continue
+            # Sanity: patched bytes must match the original at this offset.
+            # Split reasons so diagnosis is accurate:
+            #   - no relocs applied → compile_drift (wrong code / cflags / size)
+            #   - relocs applied → catalog_resolution_drift (wrong symbol VA)
+            original_slice = bytes(original[offset:end])
+            if bytes(patched[: fn.size]) != original_slice:
+                first_diff = next((i for i in range(fn.size) if patched[i] != original_slice[i]), 0)
+                reason = "catalog_resolution_drift" if relocs else "compile_drift"
+                mismatches.append(
+                    _mismatch(
+                        fn,
+                        reason,
+                        f"first byte diff at offset 0x{first_diff:x}",
+                    )
+                )
+                continue
             reasm[offset:end] = patched[: fn.size]
+            spliced_vas.add(f"0x{fn.va:08x}")
 
     sha_original = hashlib.sha256(bytes(original)).hexdigest()
     sha_reasm = hashlib.sha256(bytes(reasm)).hexdigest()
-    match = not mismatches and sha_original == sha_reasm
+    # Match = byte-exactness of the rebuilt PE AND no verification failures.
+    # Passthrough fallbacks keep the SHA equal even when a splice fails, but a
+    # mismatch (compile drift, oversize, reloc failure, drift) means a function
+    # in the splice set was not verified — the round trip is incomplete, so the
+    # CLI exits non-zero (docs: "exit 1 on mismatch").  Catalog gaps are
+    # informational unless --strict-catalog is set.
+    catalog_ok = not strict_catalog or not skipped_catalog
+    # Also fail under --strict-catalog when the splice set was non-empty but
+    # nothing was actually verified (pure passthrough of claimed EXACT/RELOC).
+    nothing_verified = strict_catalog and bool(splice_set) and not spliced_vas and not mismatches
+    match = not mismatches and sha_original == sha_reasm and catalog_ok and not nothing_verified
 
     out_path = out or cfg.target_binary.with_suffix(cfg.target_binary.suffix + ".reasm")
     if not no_write:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(bytes(reasm))
 
+    # Byte-coverage accounting: how much of .text came from our compilation
+    # versus passthrough from the input PE.
+    spliced_bytes = sum(
+        fn.size for fn in splice_set if f"0x{fn.va:08x}" in spliced_vas and fn.size > 0
+    )
+    proven_bytes = sum(fn.size for fn in proven_set if fn.size > 0)
+    # Keep the lazy-LIEF contract (see the `info` comment above): when nothing
+    # reached the file-offset lookup, don't parse the binary — coverage is 0.
+    text_size = info.text_size if info is not None else 0
+    passthrough_bytes = max(text_size - spliced_bytes - proven_bytes, 0)
+
     report = {
+        "schema_version": 1,
         "target": cfg.target_name,
         "binary": str(cfg.target_binary),
         "arch": getattr(cfg, "arch", ""),
@@ -314,10 +394,22 @@ def _run_round_trip(
         "sha256_original": sha_original,
         "sha256_reasm": sha_reasm,
         "match": match,
-        "spliced": len(splice_set) - len(mismatches),
+        "strict_catalog": strict_catalog,
+        "spliced": len(spliced_vas),
         "skipped_proven": len(proven_set),
         "skipped_other": other_count,
+        "skipped_catalog": skipped_catalog,
         "mismatches": mismatches,
+        "byte_coverage": {
+            "text_size": text_size,
+            "spliced_bytes": spliced_bytes,
+            "proven_bytes": proven_bytes,
+            "passthrough_bytes": passthrough_bytes,
+            "spliced_pct": round(100.0 * spliced_bytes / text_size, 2) if text_size else 0.0,
+            "passthrough_pct": (
+                round(100.0 * passthrough_bytes / text_size, 2) if text_size else 0.0
+            ),
+        },
     }
     if json_output:
         json_print(report)
@@ -327,7 +419,7 @@ def _run_round_trip(
     return EXIT_OK if match else EXIT_MISMATCH
 
 
-def _mismatch(fn: _SpliceFn, reason: str, detail: str | None) -> dict:
+def _mismatch(fn: _SpliceFn, reason: str, detail: str | None) -> dict[str, str | None]:
     return {
         "symbol": fn.symbol,
         "va": f"0x{fn.va:08x}",
@@ -376,7 +468,7 @@ def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:
     return funcs, data
 
 
-def _render_rich(report: dict) -> None:
+def _render_rich(report: dict[str, Any]) -> None:
     """Rich panel + table summary, aligned with ``rebrew status`` and ``rebrew verify --summary``."""
     binary_path = report.get("binary", "")
     binary_name = Path(binary_path).name if binary_path else ""
@@ -389,6 +481,7 @@ def _render_rich(report: dict) -> None:
     sha_orig = report.get("sha256_original", "")
     sha_reasm = report.get("sha256_reasm", "")
     out_path = report.get("out")
+    byte_coverage = report.get("byte_coverage", {}) or {}
 
     # --- Panel header ---
     header_parts: list[str] = []
@@ -402,8 +495,13 @@ def _render_rich(report: dict) -> None:
     if header_parts:
         title += "  " + "  ".join(header_parts)
 
-    # --- Coverage bar ---
-    total = spliced + skipped_proven + skipped_other + len(mismatches)
+    # --- Stats line ---
+    skipped_catalog = report.get("skipped_catalog", []) or []
+    n_catalog = len(skipped_catalog)
+    n_mismatch = len(mismatches)
+
+    # --- Coverage bar (include catalog gaps so incompleteness is visible) ---
+    total = spliced + skipped_proven + skipped_other + n_catalog + n_mismatch
     bar_items: list[Text] = []
     if total > 0:
         bar_width = 40
@@ -415,14 +513,15 @@ def _render_rich(report: dict) -> None:
         bar_text.append(f"  {spliced}/{total}", style="bold")
         bar_items.append(bar_text)
 
-    # --- Stats line ---
     stats_parts: list[str] = [
         f"[green]spliced: {spliced}[/green]",
         f"[cyan]proven skipped: {skipped_proven}[/cyan]",
         f"[dim]other skipped: {skipped_other}[/dim]",
     ]
-    if mismatches:
-        stats_parts.append(f"[red]mismatches: {len(mismatches)}[/red]")
+    if n_catalog:
+        stats_parts.append(f"[yellow]catalog gaps: {n_catalog}[/yellow]")
+    if n_mismatch:
+        stats_parts.append(f"[red]mismatches: {n_mismatch}[/red]")
     stats_text = Text.from_markup("  " + "  ·  ".join(stats_parts))
 
     # --- SHA lines ---
@@ -435,9 +534,41 @@ def _render_rich(report: dict) -> None:
         *bar_items,
         Text(""),  # spacer
         stats_text,
-        sha_orig_text,
-        sha_reasm_text,
     ]
+
+    # --- Byte coverage breakdown ---
+    if byte_coverage.get("text_size", 0) > 0:
+        text_size = byte_coverage["text_size"]
+        spliced_b = byte_coverage.get("spliced_bytes", 0)
+        proven_b = byte_coverage.get("proven_bytes", 0)
+        passthru_b = byte_coverage.get("passthrough_bytes", 0)
+        spliced_pct = byte_coverage.get("spliced_pct", 0.0)
+        passthru_pct = byte_coverage.get("passthrough_pct", 0.0)
+        bar_width = 40
+        sp_filled = int(bar_width * spliced_b / text_size) if text_size else 0
+        pr_filled = int(bar_width * proven_b / text_size) if text_size else 0
+        pass_filled = max(bar_width - sp_filled - pr_filled, 0)
+        byte_bar = Text()
+        byte_bar.append("  .text    ", style="bold")
+        byte_bar.append("█" * sp_filled, style="green")
+        if pr_filled:
+            byte_bar.append("█" * pr_filled, style="cyan")
+        byte_bar.append("░" * pass_filled, style="dim")
+        byte_bar.append(
+            f"  {spliced_b:,}/{text_size:,}B compiled ({spliced_pct:.1f}%)",
+            style="bold",
+        )
+        summary_items.append(byte_bar)
+        breakdown = Text.from_markup(
+            f"  [green]compiled: {spliced_b:,}B ({spliced_pct:.1f}%)[/green]  ·  "
+            f"[cyan]proven: {proven_b:,}B[/cyan]  ·  "
+            f"[dim]passthrough: {passthru_b:,}B ({passthru_pct:.1f}%)[/dim]"
+        )
+        summary_items.append(breakdown)
+        summary_items.append(Text(""))
+
+    summary_items.append(sha_orig_text)
+    summary_items.append(sha_reasm_text)
 
     if out_path:
         summary_items.append(Text.from_markup(f"  [dim]Output:[/dim] {out_path}"))

@@ -4,16 +4,25 @@ Provides byte-level comparison of compiled bytes against target binary bytes
 with COFF relocation masking, using NumPy vectorization for performance.
 """
 
+from __future__ import annotations
+
 import struct
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 
 from rebrew.matcher.parsers import CoffRelocRecord
 
+if TYPE_CHECKING:
+    from rebrew.config import ProjectConfig
+
 # IMAGE_REL_I386_*
 _REL_DIR32 = 0x0006
 _REL_REL32 = 0x0014
+
+# Accepted coff_relocs shapes for smart_reloc_compare
+RelocInput = list[int] | dict[int, str] | Sequence[CoffRelocRecord] | None
 
 
 class UnresolvedSymbolError(Exception):
@@ -62,6 +71,30 @@ def build_symbol_resolver(
     return resolve
 
 
+def build_name_to_va(cfg: ProjectConfig) -> dict[str, int]:
+    """Build a symbol-name → VA map from data annotations + scanned globals.
+
+    Shared by ``rebrew test`` and ``rebrew verify`` so both paths apply the
+    same DIR32 absolute-address checks.  Returns ``{}`` if the scan fails.
+    """
+    name_to_va: dict[str, int] = {}
+    try:
+        from rebrew.data import scan_globals
+
+        scan = scan_globals(cfg.reversed_dir, cfg)
+        for entry in scan.data_annotations:
+            name = entry.get("name", "")
+            va_int = entry.get("va")
+            if isinstance(name, str) and isinstance(va_int, int) and name:
+                name_to_va[name] = va_int
+        for name, glob in scan.globals.items():
+            if glob.va:
+                name_to_va[name] = glob.va
+    except (ImportError, OSError, ValueError, KeyError, AttributeError):
+        return {}
+    return name_to_va
+
+
 def apply_coff_relocations(
     text: bytes,
     relocs: list[CoffRelocRecord],
@@ -79,12 +112,13 @@ def apply_coff_relocations(
     :param text: Raw bytes for a single function as compiled.
     :param relocs: Relocation records from ``parse_obj_relocs_full``.
     :param resolve_va: Callable mapping symbol → absolute VA (None if unknown).
-    :param image_base: PE ImageBase (e.g. 0x10000000 for an MSVC6 DLL).
+    :param image_base: PE ImageBase (accepted for API symmetry; catalogs use absolute VAs).
     :param section_va: VA of the function's start (used for REL32 PC-relative arithmetic).
 
     :raises UnresolvedSymbolError: Symbol not in the catalog.
     :raises NotImplementedError: Unsupported relocation type.
     """
+    _ = image_base
     buf = bytearray(text)
     for r in relocs:
         sym = r.symbol.lstrip("_") if r.symbol.startswith("_") else r.symbol
@@ -106,30 +140,95 @@ def apply_coff_relocations(
     return bytes(buf)
 
 
+def _lookup_symbol_va(name_to_va: dict[str, int], sym_name: str) -> int | None:
+    """Resolve *sym_name* in *name_to_va*, tolerating a leading underscore."""
+    clean = sym_name.lstrip("_") if sym_name.startswith("_") else sym_name
+    if clean in name_to_va:
+        return name_to_va[clean]
+    if sym_name in name_to_va:
+        return name_to_va[sym_name]
+    return None
+
+
+def _validate_dir32(
+    obj_bytes: bytes,
+    target_bytes: bytes,
+    offset: int,
+    symbol: str,
+    name_to_va: dict[str, int],
+    catalog_vas: list[int],
+) -> bool:
+    """Return True if the DIR32 slot is valid (or uncatalogued)."""
+    target_va = _lookup_symbol_va(name_to_va, symbol)
+    if target_va is None:
+        return True  # uncatalogued — mask only
+    try:
+        addend = struct.unpack_from("<I", obj_bytes, offset)[0]
+        actual = struct.unpack_from("<I", target_bytes, offset)[0]
+    except struct.error:
+        return False
+    expected = (target_va + addend) & 0xFFFFFFFF
+    if actual == expected:
+        return True
+    # Wrong absolute symbol with the same addend?
+    return not any(
+        other != target_va and actual == ((other + addend) & 0xFFFFFFFF) for other in catalog_vas
+    )
+
+
+def _validate_rel32(
+    obj_bytes: bytes,
+    target_bytes: bytes,
+    offset: int,
+    symbol: str,
+    name_to_va: dict[str, int],
+    section_va: int,
+) -> bool:
+    """Return True if the REL32 slot matches ``symbol_va + addend - pc``."""
+    target_va = _lookup_symbol_va(name_to_va, symbol)
+    if target_va is None:
+        return True  # uncatalogued — mask only
+    try:
+        addend = struct.unpack_from("<I", obj_bytes, offset)[0]
+        actual = struct.unpack_from("<I", target_bytes, offset)[0]
+    except struct.error:
+        return False
+    pc = section_va + offset + 4
+    expected = (target_va + addend - pc) & 0xFFFFFFFF
+    return bool(actual == expected)
+
+
 def smart_reloc_compare(
     obj_bytes: bytes,
     target_bytes: bytes,
-    coff_relocs: list[int] | dict[int, str] | None = None,
+    coff_relocs: RelocInput = None,
     name_to_va: dict[str, int] | None = None,
+    *,
+    section_va: int | None = None,
 ) -> tuple[bool, int, int, list[int], list[int]]:
     """Compare bytes with relocation masking and target validation.
 
-    Operates in three modes depending on *coff_relocs*:
+    Operates in four modes depending on *coff_relocs*:
 
+    - **list[CoffRelocRecord]**: Typed relocs (preferred). DIR32 slots validated
+      as ``actual == symbol_va + addend``; REL32 slots validated as
+      ``actual == symbol_va + addend - pc`` when *section_va* is provided,
+      otherwise masked without absolute checks.
     - **list[int]**: Plain offsets — 4 bytes at each offset are masked as valid
       relocations without symbol resolution.
     - **dict[int, str]**: Offset → symbol name mapping — when *name_to_va* is
-      also provided, resolves each symbol's expected VA and validates it against
-      the actual 32-bit value in *target_bytes*, catching wrong-global-variable
-      references.
+      also provided, validates DIR32-style ``actual == symbol_va + addend``
+      heuristically (wrong absolute symbols rejected; REL32-like values masked).
     - **None**: Falls back to zero-span detection (scanning for ``00 00 00 00``
       runs in *obj_bytes* aligned with non-zero *target_bytes*).
 
     Args:
         obj_bytes: The compiled output bytes to verify.
         target_bytes: The original target bytes to compare against.
-        coff_relocs: Offset list OR dict mapping offset → symbol name.
+        coff_relocs: Offset list, dict mapping offset → symbol, or typed records.
         name_to_va: Global VA lookup table from the active Data Catalog.
+        section_va: Function start VA — enables precise REL32 checks for typed
+            reloc records.  Optional.
 
     Returns:
         (matched, match_count, total_bytes, valid_relocs, invalid_relocs)
@@ -142,40 +241,55 @@ def smart_reloc_compare(
     if max_len == 0:
         return True, 0, 0, [], []
 
-    valid_relocs = []
-    invalid_relocs = []
+    valid_relocs: list[int] = []
+    invalid_relocs: list[int] = []
 
     if coff_relocs is not None:
-        if isinstance(coff_relocs, dict):
-            # Dict branch: offset -> symbol_name mapping with VA validation
-            for r in coff_relocs:
-                if r + 4 <= min_len:
-                    valid = True
-
-                    # Check absolute address if we have name mapping
-                    if name_to_va:
-                        sym_name = str(coff_relocs[r])
-
-                        # Remove underscore prefix for C names if present
-                        clean_sym = sym_name.lstrip("_") if sym_name.startswith("_") else sym_name
-
-                        target_va = name_to_va.get(clean_sym) or name_to_va.get(sym_name)
-                        if target_va:
-                            try:
-                                # Read absolute address from target bytes (little endian 32-bit)
-                                actual_target_va = struct.unpack("<I", target_bytes[r : r + 4])[0]
-                                if actual_target_va != target_va:
-                                    valid = False
-                            except struct.error:
-                                valid = False
-
-                    if valid:
-                        valid_relocs.append(r)
-                    else:
-                        invalid_relocs.append(r)
+        # Prefer typed CoffRelocRecord sequence when present.
+        if (
+            isinstance(coff_relocs, (list, tuple))
+            and coff_relocs
+            and isinstance(coff_relocs[0], CoffRelocRecord)
+        ):
+            catalog_vas: list[int] = list(name_to_va.values()) if name_to_va else []
+            typed_relocs = cast(Sequence[CoffRelocRecord], coff_relocs)
+            for rec in typed_relocs:
+                r = rec.offset
+                if r + 4 > min_len:
+                    continue
+                valid = True
+                if name_to_va:
+                    if rec.type == _REL_DIR32:
+                        valid = _validate_dir32(
+                            obj_bytes, target_bytes, r, rec.symbol, name_to_va, catalog_vas
+                        )
+                    elif rec.type == _REL_REL32 and section_va is not None:
+                        valid = _validate_rel32(
+                            obj_bytes, target_bytes, r, rec.symbol, name_to_va, section_va
+                        )
+                    # else: other types / REL32 without section_va → mask only
+                if valid:
+                    valid_relocs.append(r)
+                else:
+                    invalid_relocs.append(r)
+        elif isinstance(coff_relocs, dict):
+            # Dict branch: offset -> symbol_name with heuristic DIR32 validation.
+            catalog_vas = list(name_to_va.values()) if name_to_va else []
+            for r, raw_sym in coff_relocs.items():
+                if r + 4 > min_len:
+                    continue
+                valid = True
+                if name_to_va:
+                    valid = _validate_dir32(
+                        obj_bytes, target_bytes, r, str(raw_sym), name_to_va, catalog_vas
+                    )
+                if valid:
+                    valid_relocs.append(r)
+                else:
+                    invalid_relocs.append(r)
         else:
-            # List branch: plain offset list (no symbol resolution needed)
-            valid_relocs.extend(r for r in coff_relocs if r + 4 <= min_len)
+            # List[int] branch: plain offset list (no symbol resolution)
+            valid_relocs.extend(r for r in coff_relocs if isinstance(r, int) and r + 4 <= min_len)
     else:
         i = 0
         while i <= min_len - 4:

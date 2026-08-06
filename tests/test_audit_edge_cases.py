@@ -84,6 +84,124 @@ class TestSmartRelocCompareEdgeCases:
         assert matched is True
         assert len(valid) == 1
 
+    def test_dir32_addend_matches_symbol_plus_offset(self) -> None:
+        """DIR32 with non-zero addend: actual must equal symbol_va + addend."""
+        import struct
+
+        g_var = 0x10020000
+        addend = 4
+        obj = b"\xa1" + struct.pack("<I", addend) + b"\xc3"
+        tgt = b"\xa1" + struct.pack("<I", (g_var + addend) & 0xFFFFFFFF) + b"\xc3"
+        matched, _, _, valid, invalid = smart_reloc_compare(
+            obj, tgt, coff_relocs={1: "_g_var"}, name_to_va={"g_var": g_var}
+        )
+        assert matched is True
+        assert valid == [1]
+        assert invalid == []
+
+    def test_dir32_wrong_symbol_is_invalid(self) -> None:
+        """DIR32 pointing at a different catalog VA is rejected."""
+        import struct
+
+        g_a, g_b = 0x10020000, 0x10020010
+        obj = b"\xa1" + struct.pack("<I", 0) + b"\xc3"
+        # PE has g_b's absolute address; obj reloc claims g_a.
+        tgt = b"\xa1" + struct.pack("<I", g_b) + b"\xc3"
+        matched, _, _, valid, invalid = smart_reloc_compare(
+            obj,
+            tgt,
+            coff_relocs={1: "_g_a"},
+            name_to_va={"g_a": g_a, "g_b": g_b},
+        )
+        assert matched is False
+        assert invalid == [1]
+        assert valid == []
+
+    def test_rel32_not_rejected_as_wrong_absolute(self) -> None:
+        """REL32 displacements must not be compared as absolute VAs."""
+        import struct
+
+        callee = 0x10001000
+        # Typical near-call displacement (small signed value as uint32).
+        disp = 0xFFFFFFFC
+        obj = b"\xe8" + struct.pack("<I", 0) + b"\xc3"
+        tgt = b"\xe8" + struct.pack("<I", disp) + b"\xc3"
+        matched, _, _, valid, invalid = smart_reloc_compare(
+            obj, tgt, coff_relocs={1: "_callee"}, name_to_va={"callee": callee}
+        )
+        assert matched is True
+        assert valid == [1]
+        assert invalid == []
+
+    def test_typed_dir32_record(self) -> None:
+        """CoffRelocRecord DIR32 validates symbol_va + addend."""
+        import struct
+
+        from rebrew.matcher.parsers import CoffRelocRecord
+
+        g_var = 0x10020000
+        addend = 4
+        obj = b"\xa1" + struct.pack("<I", addend) + b"\xc3"
+        tgt = b"\xa1" + struct.pack("<I", (g_var + addend) & 0xFFFFFFFF) + b"\xc3"
+        rec = CoffRelocRecord(offset=1, type=0x0006, symbol="_g_var")
+        matched, _, _, valid, invalid = smart_reloc_compare(
+            obj, tgt, coff_relocs=[rec], name_to_va={"g_var": g_var}
+        )
+        assert matched is True
+        assert valid == [1]
+        assert invalid == []
+
+    def test_typed_rel32_with_section_va(self) -> None:
+        """CoffRelocRecord REL32 validates against PC-relative expected value."""
+        import struct
+
+        from rebrew.matcher.parsers import CoffRelocRecord
+
+        section_va = 0x10001000
+        callee = 0x10002000
+        offset = 1
+        addend = 0
+        pc = section_va + offset + 4
+        expected = (callee + addend - pc) & 0xFFFFFFFF
+        obj = b"\xe8" + struct.pack("<I", addend) + b"\xc3"
+        tgt = b"\xe8" + struct.pack("<I", expected) + b"\xc3"
+        rec = CoffRelocRecord(offset=offset, type=0x0014, symbol="_callee")
+        matched, _, _, valid, invalid = smart_reloc_compare(
+            obj,
+            tgt,
+            coff_relocs=[rec],
+            name_to_va={"callee": callee},
+            section_va=section_va,
+        )
+        assert matched is True
+        assert valid == [1]
+        assert invalid == []
+
+    def test_typed_rel32_wrong_target_invalid(self) -> None:
+        import struct
+
+        from rebrew.matcher.parsers import CoffRelocRecord
+
+        section_va = 0x10001000
+        callee = 0x10002000
+        wrong = 0x10003000
+        offset = 1
+        pc = section_va + offset + 4
+        pe_disp = (wrong - pc) & 0xFFFFFFFF
+        obj = b"\xe8" + struct.pack("<I", 0) + b"\xc3"
+        tgt = b"\xe8" + struct.pack("<I", pe_disp) + b"\xc3"
+        rec = CoffRelocRecord(offset=offset, type=0x0014, symbol="_callee")
+        matched, _, _, valid, invalid = smart_reloc_compare(
+            obj,
+            tgt,
+            coff_relocs=[rec],
+            name_to_va={"callee": callee},
+            section_va=section_va,
+        )
+        assert matched is False
+        assert invalid == [1]
+        assert valid == []
+
 
 # ---------------------------------------------------------------------------
 # parse_new_format_multi: orphaned KV warning

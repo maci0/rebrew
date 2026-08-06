@@ -226,6 +226,7 @@ class TestIncrementalVerify:
             entry: Annotation,
             _cfg: ProjectConfig,
             cache: object = None,
+            **_kwargs: object,
         ) -> CompareResult:
             calls.append(int(entry.va))
             return CompareResult(
@@ -314,6 +315,7 @@ class TestIncrementalVerify:
             entry: Annotation,
             _cfg: ProjectConfig,
             cache: object = None,
+            **_kwargs: object,
         ) -> CompareResult:
             return CompareResult(
                 matched=True,

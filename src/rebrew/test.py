@@ -22,8 +22,6 @@ from rich.console import Console
 from rebrew.annotation import Annotation, parse_c_file_multi, parse_source_metadata
 from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import (
-    EXIT_MISMATCH,
-    NEAR_MATCH_THRESHOLD,
     STATUS_COLORS,
     TargetOption,
     classify_match_status,
@@ -35,10 +33,15 @@ from rebrew.cli import (
     require_config,
     target_marker,
 )
-from rebrew.compile import compile_to_obj
+from rebrew.compile import (
+    CompareResult,
+    classify_compare_result,
+    compile_and_compare,
+    compile_to_obj,
+)
 from rebrew.config import ProjectConfig
-from rebrew.core import smart_reloc_compare
-from rebrew.matcher.parsers import list_obj_symbols, parse_obj_symbol_bytes
+from rebrew.core import build_name_to_va, smart_reloc_compare
+from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
 from rebrew.metadata import update_source_status
 
 console = Console(stderr=True)
@@ -221,22 +224,9 @@ def main(
         )
         return
 
-    # Build name -> VA map for relocation validation
-    name_to_va: dict[str, int] = {}
-    try:
-        from rebrew.data import scan_globals
-
-        scan = scan_globals(cfg.reversed_dir, cfg)
-        for entry in scan.data_annotations:
-            name = entry.get("name", "")
-            va_int = entry.get("va")
-            if isinstance(name, str) and isinstance(va_int, int) and name:
-                name_to_va[name] = va_int
-        for name, glob in scan.globals.items():
-            if glob.va:
-                name_to_va[name] = glob.va
-    except (ImportError, OSError, ValueError, KeyError, AttributeError):
-        # Log scan failure so users aren't surprised by missing reloc validation
+    # Build name -> VA map for relocation validation (shared with verify).
+    name_to_va = build_name_to_va(cfg)
+    if not name_to_va and not json_output:
         console.print("[dim]Skipping relocation validation (global data scan unavailable)[/dim]")
 
     # Optional: lint the file first to catch basic annotation errors
@@ -298,10 +288,11 @@ def main(
             error_exit(f"Invalid SIZE metadata: {meta['SIZE']!r}", json_mode=json_output)
 
     cflags_str = cflags or meta.get("CFLAGS", "/O2 /Gd")
-    cflags_parts = cflags_str.split()
 
+    section_va: int | None = None
     if va_str is not None and size_val is not None:
         va_int = parse_va(va_str, json_mode=json_output)
+        section_va = va_int
         target_bytes = extract_raw_bytes(cfg.target_binary, va_int, size_val)
     elif target_bin:
         target_bytes = Path(target_bin).read_bytes()
@@ -313,88 +304,45 @@ def main(
             json_mode=json_output,
         )
 
-    with tempfile.TemporaryDirectory(prefix="test_func_") as workdir:
-        obj_path, err = compile_to_obj(cfg, source, cflags_parts, workdir)
-        if obj_path is None:
-            error_exit(f"COMPILE ERROR:\n{err}", json_mode=json_output)
+    # Shared compile→extract→compare path (same as rebrew verify).
+    cmp = compile_and_compare(
+        cfg,
+        source,
+        symbol,
+        target_bytes,
+        cflags_str,
+        name_to_va=name_to_va,
+        section_va=section_va,
+    )
+    matched = cmp.matched
+    relocs = cmp.reloc_offsets or []
+    obj_bytes = cmp.obj_bytes or b""
+    # Reconstruct match_count/total for cache + display from CompareResult.
+    total = max(len(target_bytes), len(obj_bytes)) if (obj_bytes or target_bytes) else 0
+    match_count = int(round(cmp.match_percent / 100.0 * total)) if total else 0
+    if matched:
+        match_count = total
 
-        obj_bytes, coff_relocs = parse_obj_symbol_bytes(obj_path, symbol)
-        if obj_bytes is None:
-            if json_output:
-                error_exit(f"Symbol '{symbol}' not found in .obj", json_mode=json_output)
-            console.print(f"Symbol '{symbol}' not found in .obj")
-            available = list_obj_symbols(obj_path)
-            if available:
-                console.print("Available symbols:")
-                for s in available:
-                    console.print(f"  {s}")
-            raise typer.Exit(code=EXIT_MISMATCH)
+    if cmp.status == "COMPILE_ERROR":
+        error_exit(f"COMPILE ERROR:\n{cmp.message}", json_mode=json_output)
 
-        if len(obj_bytes) > len(target_bytes):
-            console.print(
-                f"[yellow]warning:[/yellow] compiled output ({len(obj_bytes)}B) "
-                f"longer than target ({len(target_bytes)}B) — truncating"
-            )
-            obj_bytes = obj_bytes[: len(target_bytes)]
-
-        matched, match_count, total, relocs, inv_relocs = smart_reloc_compare(
-            obj_bytes, target_bytes, coff_relocs, name_to_va=name_to_va
+    if json_output:
+        result_dict = build_result_dict_from_compare(
+            source,
+            symbol,
+            va_str or "",
+            size_val or 0,
+            cmp,
+            target_bytes,
         )
-
-        if json_output:
-            result_dict = build_result_dict(
-                source,
-                symbol,
-                va_str or "",
-                size_val or 0,
-                matched,
-                match_count,
-                total,
-                relocs,
-                obj_bytes,
-                target_bytes,
-                inv_relocs,
-            )
-            json_print(result_dict)
-        elif matched:
-            if relocs:
-                console.print(
-                    f"RELOC-NORMALIZED MATCH: {total}/{total} bytes ({len(relocs)} relocations)"
-                )
-            else:
-                console.print(f"EXACT MATCH: {total}/{total} bytes")
-        else:
-            near = total > 0 and (match_count / total) >= NEAR_MATCH_THRESHOLD
-            if near:
-                label = "NEAR_MATCHING"
-                color = "bold yellow"
-            else:
-                label = "STUB"
-                color = "red"
-            console.print(f"[{color}]{label}[/{color}]: {match_count}/{total} bytes")
-            console.print(f"\nTarget ({len(target_bytes)}B): {target_bytes.hex()}")
-            console.print(f"Output ({len(obj_bytes)}B): {obj_bytes.hex()}")
-            if len(obj_bytes) == len(target_bytes):
-                reloc_set = _expand_reloc_offsets(relocs, len(target_bytes))
-                inv_reloc_set = _expand_reloc_offsets(inv_relocs, len(target_bytes))
-                diff: list[str] = [
-                    f"  [{i:3d}] target={target_bytes[i]:02x} got={obj_bytes[i]:02x}"
-                    for i in range(len(target_bytes))
-                    if (target_bytes[i] != obj_bytes[i] or i in inv_reloc_set)
-                    and i not in reloc_set
-                ]
-                if diff:
-                    console.print("Diffs (non-reloc):")
-                    for d in diff[:20]:
-                        console.print(d)
+        json_print(result_dict)
+    else:
+        _print_compare_result(cmp, target_bytes)
 
     # Auto-promote: update STATUS in metadata from test result (skip with --no-promote)
     if no_promote:
         if _status_skip_reason:
             if json_output:
-                # Include skip reason in the already-printed result dict is not
-                # straightforward here; emit a separate one-liner JSON object so
-                # the caller can detect the skip programmatically.
                 json_print({"status_skip_reason": _status_skip_reason})
             else:
                 console.print(f"[dim]STATUS update skipped ({_status_skip_reason})[/dim]")
@@ -402,7 +350,10 @@ def main(
         va_int_for_promote = parse_va(va_str, json_mode=json_output)
         anno_module = lint_annos[0].module if lint_annos else ""
         old_status = lint_annos[0].status if lint_annos else ""
-        new_status = classify_match_status(matched, match_count, total, relocs)
+        # Prefer CompareResult.status so SIZE_MISMATCH / COMPILE_ERROR are preserved.
+        new_status = (
+            cmp.status if cmp.status else classify_match_status(matched, match_count, total, relocs)
+        )
         if is_status_sticky(old_status):
             if not json_output:
                 console.print(f"[dim]STATUS → skipped ({old_status})[/dim]")
@@ -442,33 +393,71 @@ def build_result_dict(
 ) -> dict[str, Any]:
     """Build structured JSON output for one compile-and-compare result.
 
-    The resulting payload is stable and machine-friendly for downstream tools,
-    CI aggregation, and scripting. It includes a normalized status, aggregate
-    match counts, relocation metadata, object size, and byte-level mismatch
-    details (excluding relocation-masked offsets).
-
-    Args:
-        source: Source file path used for compilation.
-        symbol: COFF symbol name tested.
-        va_str: Function VA string (hex) used for extraction.
-        size_val: Target size requested for extraction/comparison.
-        matched: Whether the relocation-aware comparison fully matched.
-        match_count: Number of bytes considered matching.
-        total: Total bytes considered for score denominator.
-        relocs: Relocation start offsets (4-byte spans each).
-        obj_bytes: Compiled symbol bytes extracted from object output.
-        target_bytes: Ground-truth target bytes.
-        invalid_relocs: Optional list of offsets containing mismatched relocations.
-
-    Returns:
-        JSON-serializable dictionary with status, metrics, and mismatches.
-
+    Prefer :func:`build_result_dict_from_compare` when a :class:`CompareResult`
+    is already available.
     """
     status = classify_match_status(matched, match_count, total, relocs)
+    return _result_dict_body(
+        source,
+        symbol,
+        va_str,
+        size_val,
+        status,
+        matched,
+        match_count,
+        total,
+        relocs,
+        obj_bytes,
+        target_bytes,
+        invalid_relocs or [],
+    )
 
+
+def build_result_dict_from_compare(
+    source: str,
+    symbol: str,
+    va_str: str,
+    size_val: int,
+    cmp: CompareResult,
+    target_bytes: bytes,
+) -> dict[str, Any]:
+    """Build JSON from a :class:`CompareResult` (canonical status source)."""
+    relocs = cmp.reloc_offsets or []
+    obj_bytes = cmp.obj_bytes or b""
+    total = max(len(target_bytes), len(obj_bytes)) if (obj_bytes or target_bytes) else 0
+    match_count = total if cmp.matched else int(round(cmp.match_percent / 100.0 * total))
+    return _result_dict_body(
+        source,
+        symbol,
+        va_str,
+        size_val,
+        cmp.status,
+        cmp.matched,
+        match_count,
+        total,
+        relocs,
+        obj_bytes,
+        target_bytes,
+        cmp.inv_reloc_offsets,
+    )
+
+
+def _result_dict_body(
+    source: str,
+    symbol: str,
+    va_str: str,
+    size_val: int,
+    status: str,
+    matched: bool,
+    match_count: int,
+    total: int,
+    relocs: list[int],
+    obj_bytes: bytes,
+    target_bytes: bytes,
+    invalid_relocs: list[int],
+) -> dict[str, Any]:
     mismatches: list[dict[str, str | int]] = []
-    invalid_relocs = invalid_relocs or []
-    if not matched:
+    if not matched and obj_bytes:
         min_len = min(len(obj_bytes), len(target_bytes))
         reloc_set = _expand_reloc_offsets(relocs, min_len)
         inv_reloc_set = _expand_reloc_offsets(invalid_relocs, min_len)
@@ -494,6 +483,45 @@ def build_result_dict(
         "obj_size": len(obj_bytes),
         "mismatches": mismatches,
     }
+
+
+def _print_compare_result(cmp: CompareResult, target_bytes: bytes) -> None:
+    """Human-readable single-function compare output."""
+    relocs = cmp.reloc_offsets or []
+    inv_relocs = cmp.inv_reloc_offsets
+    obj_bytes = cmp.obj_bytes or b""
+    total = max(len(target_bytes), len(obj_bytes)) if (obj_bytes or target_bytes) else 0
+    match_count = total if cmp.matched else int(round(cmp.match_percent / 100.0 * total))
+
+    if cmp.matched:
+        if relocs:
+            console.print(
+                f"RELOC-NORMALIZED MATCH: {total}/{total} bytes ({len(relocs)} relocations)"
+            )
+        else:
+            console.print(f"EXACT MATCH: {total}/{total} bytes")
+        return
+
+    color = STATUS_COLORS.get(cmp.status, "red")
+    console.print(f"[{color}]{cmp.status}[/{color}]: {match_count}/{total} bytes")
+    if not obj_bytes:
+        if cmp.message:
+            console.print(cmp.message)
+        return
+    console.print(f"\nTarget ({len(target_bytes)}B): {target_bytes.hex()}")
+    console.print(f"Output ({len(obj_bytes)}B): {obj_bytes.hex()}")
+    if len(obj_bytes) == len(target_bytes):
+        reloc_set = _expand_reloc_offsets(relocs, len(target_bytes))
+        inv_reloc_set = _expand_reloc_offsets(inv_relocs, len(target_bytes))
+        diff: list[str] = [
+            f"  [{i:3d}] target={target_bytes[i]:02x} got={obj_bytes[i]:02x}"
+            for i in range(len(target_bytes))
+            if (target_bytes[i] != obj_bytes[i] or i in inv_reloc_set) and i not in reloc_set
+        ]
+        if diff:
+            console.print("Diffs (non-reloc):")
+            for d in diff[:20]:
+                console.print(d)
 
 
 def _test_multi(
@@ -555,7 +583,7 @@ def _test_multi(
                 continue
 
             target_bytes = extract_raw_bytes(cfg.target_binary, ann.va, ann.size)
-            obj_bytes, coff_relocs = parse_obj_symbol_bytes(obj_path, sym)
+            obj_bytes, reloc_dict = parse_obj_symbol_bytes(obj_path, sym)
 
             if obj_bytes is None:
                 if json_output:
@@ -572,27 +600,64 @@ def _test_multi(
                     console.print(f"[red]MISSING[/red] {sym} — not found in .obj")
                 continue
 
+            full_relocs = parse_obj_relocs_full(obj_path, sym)
+            coff_relocs = full_relocs if full_relocs else reloc_dict
+
             if len(obj_bytes) > len(target_bytes):
                 obj_bytes = obj_bytes[: len(target_bytes)]
 
+            size_mismatch = len(obj_bytes) != len(target_bytes)
+            cmp_obj = obj_bytes
+            cmp_tgt = target_bytes
+            if size_mismatch:
+                if len(cmp_obj) > len(cmp_tgt):
+                    cmp_obj = cmp_obj[: len(cmp_tgt)]
+                else:
+                    cmp_tgt = cmp_tgt[: len(cmp_obj)]
+
             matched, match_count, total, relocs, inv_relocs = smart_reloc_compare(
-                obj_bytes, target_bytes, coff_relocs, name_to_va=name_to_va
+                cmp_obj,
+                cmp_tgt,
+                coff_relocs,
+                name_to_va=name_to_va,
+                section_va=ann.va,
+            )
+            # Same classifier as compile_and_compare / verify.
+            msg = (
+                f"SIZE_MISMATCH: Size {len(obj_bytes)}B vs {len(target_bytes)}B"
+                if size_mismatch
+                else (
+                    f"RELOC-NORM MATCH ({len(relocs)} relocs)"
+                    if matched and relocs
+                    else (
+                        "EXACT MATCH" if matched else f"NEAR_MATCHING/STUB: {total - match_count}"
+                    )
+                )
+            )
+            cmp = classify_compare_result(
+                False if size_mismatch else matched,
+                msg,
+                cmp_tgt,
+                cmp_obj,
+                relocs,
+                inv_relocs,
+                size_mismatch=size_mismatch,
+            )
+            matched = cmp.matched
+            new_status = cmp.status
+            match_count = (
+                total if matched else int(round(cmp.match_percent / 100.0 * total)) if total else 0
             )
 
             if json_output:
                 results_list.append(
-                    build_result_dict(
+                    build_result_dict_from_compare(
                         source,
                         sym,
                         f"0x{ann.va:08x}",
                         ann.size,
-                        matched,
-                        match_count,
-                        total,
-                        relocs,
-                        obj_bytes,
+                        cmp,
                         target_bytes,
-                        inv_relocs,
                     )
                 )
             elif matched:
@@ -603,20 +668,13 @@ def _test_multi(
                 else:
                     console.print(f"[bold green]EXACT[/bold green] {sym} — {total}/{total}B")
             else:
-                near = total > 0 and (match_count / total) >= NEAR_MATCH_THRESHOLD
-                if near:
-                    label = "NEAR_MATCHING"
-                    color = (
-                        "bold yellow"
-                        if (match_count / total) >= _NEAR_MATCHING_BOLD_THRESHOLD
-                        else "yellow"
-                    )
-                    console.print(f"[{color}]{label}[/{color}] {sym} — {match_count}/{total}B")
-                else:
-                    console.print(f"[red]STUB[/red] {sym} — {match_count}/{total}B")
+                color = STATUS_COLORS.get(new_status, "red")
+                if new_status == "NEAR_MATCHING" and total > 0:
+                    ratio = match_count / total
+                    if ratio >= _NEAR_MATCHING_BOLD_THRESHOLD:
+                        color = "bold yellow"
+                console.print(f"[{color}]{new_status}[/{color}] {sym} — {match_count}/{total}B")
 
-            # Determine new status from test result
-            new_status = classify_match_status(matched, match_count, total, relocs)
             old_status = ann.status or "STUB"
 
             # Auto-promote: update STATUS in metadata (mirrors single-function path)

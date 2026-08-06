@@ -94,8 +94,10 @@ prover that promotes NEAR_MATCHING → PROVEN.
 
 ### `rebrew prove`
 
-- Validates STATUS is NEAR_MATCHING or RELOC.
+- Validates STATUS is NEAR_MATCHING (RELOC/EXACT already match byte-for-byte;
+  promoting those to PROVEN is rejected).
 - Extracts target bytes from the DLL and compiles the C source.
+- Refuses promotion when post-compile bytes already match (that is RELOC).
 - Loads both blobs into angr; uses claripy/Z3 to prove EAX equivalence.
 - `--timeout N` (default 60 s) and `--loop-bound N` (default 10) govern
   the search.

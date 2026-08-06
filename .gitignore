@@ -45,6 +45,10 @@ cli_helps.txt
 *.cover
 htmlcov/
 
+# Local tool dumps
+verify_results.json
+*.reasm
+
 # Environment / secrets
 .env
 .env.*

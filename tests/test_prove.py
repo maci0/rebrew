@@ -169,7 +169,7 @@ class TestResolveSource:
 
 
 class TestProveCLIStatusGuard:
-    """The CLI must reject functions that aren't NEAR_MATCHING / RELOC."""
+    """The CLI must reject functions that aren't NEAR_MATCHING."""
 
     def _make_project(self, tmp_path: Path, status: str) -> tuple[Path, Path]:
         """Create a minimal rebrew project with one .c file at the given status."""
@@ -210,6 +210,22 @@ class TestProveCLIStatusGuard:
         from rebrew.prove import app
 
         proj_dir, src = self._make_project(tmp_path, "STUB")
+        runner = CliRunner()
+        result = runner.invoke(
+            app,
+            [str(src), "--json", "--target", "GAME"],
+            catch_exceptions=False,
+            env={"REBREW_PROJECT": str(proj_dir / "rebrew-project.toml")},
+        )
+        assert result.exit_code != 0
+
+    def test_rejects_reloc_status(self, tmp_path: Path) -> None:
+        """RELOC already matches byte-for-byte — prove must refuse it."""
+        from typer.testing import CliRunner
+
+        from rebrew.prove import app
+
+        proj_dir, src = self._make_project(tmp_path, "RELOC")
         runner = CliRunner()
         result = runner.invoke(
             app,

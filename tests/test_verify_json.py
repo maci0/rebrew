@@ -134,6 +134,37 @@ class TestVerifyDiff:
         assert diff["improvements"][0]["current_status"] == "EXACT"
         assert diff["regressions"] == []
 
+    def test_diff_near_matching_to_proven_is_improvement(self) -> None:
+        """PROVEN must rank as a success tier — not as unknown/FAIL."""
+        previous = {
+            "results": [
+                {"va": "0x10007010", "name": "func_near", "status": "NEAR_MATCHING", "delta": 4}
+            ]
+        }
+        current = {
+            "results": [{"va": "0x10007010", "name": "func_near", "status": "PROVEN", "delta": 4}]
+        }
+
+        diff = diff_reports(previous, current)
+        assert len(diff["improvements"]) == 1
+        assert diff["improvements"][0]["previous_status"] == "NEAR_MATCHING"
+        assert diff["improvements"][0]["current_status"] == "PROVEN"
+        assert diff["regressions"] == []
+
+    def test_diff_proven_not_regression_vs_reloc(self) -> None:
+        previous = {
+            "results": [{"va": "0x10007020", "name": "func_p", "status": "PROVEN", "delta": 2}]
+        }
+        current = {
+            "results": [{"va": "0x10007020", "name": "func_p", "status": "RELOC", "delta": 0}]
+        }
+
+        diff = diff_reports(previous, current)
+        # Same rank tier — neither regression nor improvement by status alone.
+        assert diff["regressions"] == []
+        assert diff["improvements"] == []
+        assert diff["unchanged_count"] == 1
+
     def test_diff_matching_alias(self) -> None:
         previous = {
             "results": [
