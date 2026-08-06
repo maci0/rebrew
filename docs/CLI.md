@@ -26,7 +26,10 @@ rebrew verify            Bulk-verify all reversed functions
 | `rebrew verify` | Batch (incremental) | Yes | CI / bulk status check |
 | `rebrew match <file>` | Single function | No | GA engine to find byte-perfect match |
 
-The canonical status ladder (best → worst): `PROVEN` → `EXACT` → `RELOC` → `NEAR_MATCHING` → `STUB`.
+Byte-match ladder (best → worst): `EXACT` → `RELOC` → `NEAR_MATCHING` → `STUB`.
+`PROVEN` is a side path: semantic equivalence via `rebrew prove` when bytes still
+differ (NEAR_MATCHING only). It is sticky under test/verify and ranks with RELOC
+for `--compare` (not “better than EXACT”).
 
 > The same table is shown in `rebrew --help` (source of truth: `src/rebrew/main.py` epilog).
 
@@ -501,6 +504,23 @@ rebrew round-trip --filter SUBSTR       # restrict to matching symbols
 
 Catches relocation-application bugs and padding regressions that per-function
 `rebrew verify` cannot expose. PROVEN functions are deliberately skipped.
+
+Report fields (JSON): `schema_version`, `match`, `spliced`, `skipped_proven`,
+`skipped_other`, `skipped_catalog` (unresolved symbols — informational by default),
+`mismatches` (compile drift / oversize / catalog resolution drift — fail),
+`byte_coverage` (`text_size`, `spliced_bytes`, `proven_bytes`, `passthrough_*`).
+
+```bash
+rebrew round-trip --strict-catalog     # also fail on catalog gaps / zero splices
+```
+
+Exit 0 only when `mismatches` is empty **and** SHA-256(reasm) equals the original.
+With `--strict-catalog`, non-empty `skipped_catalog` (or a non-empty splice set
+that produced zero successful splices) also fails. Passthrough keeps the SHA
+equal when a splice is skipped; compile/drift failures still exit 1.
+
+See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
+`round-trip --strict-catalog`).
 
 ## Internal Modules
 

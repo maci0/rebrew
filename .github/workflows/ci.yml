@@ -51,3 +51,28 @@ jobs:
         run: uv sync --frozen --all-extras
       - name: Run tests
         run: uv run pytest tests/ -v --tb=short
+      - name: Type check
+        run: uv run mypy src/
+
+  # Contract smoke: CLI surfaces for the high-value gates documented in docs/CI.md.
+  # These do not require a target binary — only that the options exist and help text
+  # matches the public contract. Full verify/round-trip runs live in workspace CI.
+  cli-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - name: Install package
+        run: uv sync --frozen
+      - name: CLI contract — round-trip / verify flags
+        run: |
+          set -euo pipefail
+          uv run rebrew round-trip --help | grep -q -- '--strict-catalog'
+          uv run rebrew verify --help | grep -q -- '--compare'
+          uv run rebrew prove --help | grep -q 'NEAR_MATCHING'

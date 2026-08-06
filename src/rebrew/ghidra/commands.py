@@ -1163,15 +1163,15 @@ def pull_structs(
         exported = 0
 
         for i, entry in enumerate(struct_entries):
-            name: str = entry["name"]
-            if not name or (name.startswith("_") and name.count("_") > 2):
+            struct_name: str = entry["name"]
+            if not struct_name or (struct_name.startswith("_") and struct_name.count("_") > 2):
                 continue
 
             info = fetch_mcp_tool_raw(
                 client,
                 endpoint,
                 "get-structure-info",
-                {"programPath": program_path, "structureName": name},
+                {"programPath": program_path, "structureName": struct_name},
                 100 + i,
                 session_id=session_id,
             )
@@ -1185,15 +1185,15 @@ def pull_structs(
                 if raw_ns:
                     module = raw_ns.upper()
             if module is None:
-                module = _infer_struct_module(name, info)
+                module = _infer_struct_module(struct_name, info)
 
             if by_module:
                 bucket = module if module else "SHARED"
                 buf = module_defs.setdefault(bucket, [])
-                if _append_struct_def(buf, name, info):
+                if _append_struct_def(buf, struct_name, info):
                     exported += 1
             else:
-                if _append_struct_def(single_lines, name, info):
+                if _append_struct_def(single_lines, struct_name, info):
                     exported += 1
 
         if exported == 0:

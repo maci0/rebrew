@@ -14,7 +14,7 @@ Usage:
 
 import re
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict
 
 import typer
 from rich.console import Console
@@ -112,7 +112,7 @@ def _extract_callees(c_path: Path, text: str | None = None) -> list[str]:
 def build_graph(
     reversed_dir: Path,
     cfg: ProjectConfig | None = None,
-    dispatch_tables: "list | None" = None,
+    dispatch_tables: list[Any] | None = None,
 ) -> tuple[dict[str, NodeInfo], list[tuple[str, str]], list[tuple[str, str]]]:
     """Build a call graph from reversed source files.
 
@@ -591,8 +591,8 @@ def main(
 
     if json_output:
         by_status: dict[str, int] = {}
-        for info in nodes.values():
-            s = info["status"]
+        for node in nodes.values():
+            s = node["status"]
             by_status[s] = by_status.get(s, 0) + 1
         json_print(
             {

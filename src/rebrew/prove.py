@@ -42,6 +42,7 @@ from rebrew.annotation import parse_c_file_multi, resolve_symbol
 from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import (
     EXIT_MISMATCH,
+    EXIT_OK,
     TargetOption,
     error_exit,
     iter_sources,
@@ -51,6 +52,7 @@ from rebrew.cli import (
 )
 from rebrew.compile import compile_to_obj
 from rebrew.config import ProjectConfig
+from rebrew.core.matching import smart_reloc_compare
 from rebrew.matcher.parsers import parse_obj_symbol_bytes
 
 log = logging.getLogger(__name__)
@@ -676,7 +678,7 @@ def prove_equivalence(
     # Fix: patch each displacement in BOTH blobs so calls resolve to the same
     # unique stub address in a harmless region (STUB_BASE + i*4), then hook
     # those stubs as ReturnUnconstrained on both projects.  This neutralises
-    # relocation-only differences so RELOC functions can be proven equivalent.
+    # relocation-only differences so structural near-matches can be proven.
     patched_comp = bytearray(compiled_bytes)
     patched_orig = bytearray(original_bytes)
 
@@ -689,7 +691,7 @@ def prove_equivalence(
                 disp = (stub_addr - (offset + 4)) & 0xFFFFFFFF
                 patched_comp[offset : offset + 4] = struct.pack("<I", disp)
                 # Also patch the original blob at the same offset so both
-                # sides call the same stub — this is the key fix for RELOC.
+                # sides call the same stub — neutralises reloc-site differences.
                 if offset <= len(original_bytes) - 4:
                     patched_orig[offset : offset + 4] = struct.pack("<I", disp)
                 stub_hooks.append(stub_addr)
@@ -733,7 +735,7 @@ def prove_equivalence(
     # external call — making RELOC wrapper functions unprovable.
     shared_stub_returns: dict[int, Any] = {}
 
-    class SharedReturnStub(angr.SimProcedure):
+    class SharedReturnStub(angr.SimProcedure):  # type: ignore[misc]  # angr is untyped
         """SimProcedure that returns a shared 32-bit BV per stub address.
 
         Looks up the stub_addr in *shared_stub_returns*. If unseen,
@@ -745,7 +747,7 @@ def prove_equivalence(
 
         ARGS_MISMATCH = True
 
-        def run(self, *args, **kwargs):  # noqa: ARG002
+        def run(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ARG002
             stub_addr = self.addr
             bv = shared_stub_returns.get(stub_addr)
             if bv is None:
@@ -906,11 +908,12 @@ _EPILOG = (
     "  rebrew prove --all · · · · · · · · · · · · · · Prove all eligible functions\n\n"
     "  rebrew prove my_func --start-offset 0 --end-offset 48  Prove a specific block\n\n"
     "[bold]How it works:[/bold]\n\n"
-    "  1. Validates the function status is NEAR_MATCHING or RELOC (byte-diff but structurally close)\n\n"
+    "  1. Validates the function status is NEAR_MATCHING (byte-diff but structurally close)\n\n"
     "  2. Extracts target bytes from the DLL and compiles the C source\n\n"
-    "  3. Loads both byte blobs into angr's symbolic execution engine\n\n"
-    "  4. Proves EAX equivalence via Z3 constraint solving\n\n"
-    "  5. If proven: updates STATUS from NEAR_MATCHING \u2192 PROVEN\n\n"
+    "  3. Verifies bytes still differ post-compile (matched bytes belong as RELOC, not PROVEN)\n\n"
+    "  4. Loads both byte blobs into angr's symbolic execution engine\n\n"
+    "  5. Proves EAX equivalence via Z3 constraint solving\n\n"
+    "  6. If proven: updates STATUS from NEAR_MATCHING \u2192 PROVEN\n\n"
     "[dim]angr is a heavy optional dependency (~500 MB). "
     'Install with: uv pip install -e ".[prove]"[/dim]'
 )
@@ -983,7 +986,7 @@ def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Prove semantic equivalence of a NEAR_MATCHING or RELOC function via symbolic execution."""
+    """Prove semantic equivalence of a NEAR_MATCHING function via symbolic execution."""
     # Guard angr import early
     try:
         _require_angr()
@@ -1012,7 +1015,7 @@ def main(
     )
     ann = None
     for a in annotations:
-        if a.status in ("NEAR_MATCHING", "RELOC"):
+        if a.status == "NEAR_MATCHING":
             ann = a
             break
     if ann is None and annotations:
@@ -1020,10 +1023,12 @@ def main(
     if ann is None:
         error_exit(f"No metadata found in {source_path}", json_mode=json_output)
 
-    if ann.status not in ("NEAR_MATCHING", "RELOC"):
+    if ann.status != "NEAR_MATCHING":
         error_exit(
-            f"Status is '{ann.status}', expected NEAR_MATCHING or RELOC. "
-            "Only NEAR_MATCHING/RELOC functions need symbolic equivalence proving.",
+            f"Status is '{ann.status}', expected NEAR_MATCHING. "
+            "PROVEN is reserved for functions whose bytes differ structurally "
+            "but are semantically equivalent. RELOC/EXACT functions already match "
+            "byte-for-byte — symbolic prove adds no information.",
             json_mode=json_output,
         )
 
@@ -1054,6 +1059,45 @@ def main(
         obj_bytes, reloc_offsets = parse_obj_symbol_bytes(obj_path, symbol)
         if obj_bytes is None:
             error_exit(f"Symbol '{symbol}' not found in compiled .obj", json_mode=json_output)
+
+    # Bytes already match → RELOC, not PROVEN. Auto-promote so the user
+    # doesn't have to re-run `rebrew test`. Slice proofs skip this gate.
+    if not (start_offset or end_offset):
+        matched, _mc, _tot, _vr, _ir = smart_reloc_compare(
+            obj_bytes, target_bytes, reloc_offsets, section_va=va
+        )
+        if matched:
+            from rebrew.metadata import update_source_status
+
+            new_status = "RELOC" if _vr else "EXACT"
+            if not dry_run:
+                update_source_status(cfg.metadata_dir, new_status, ann.module, va)
+            early: dict[str, Any] = {
+                "schema_version": 1,
+                "source": str(source_path),
+                "symbol": symbol,
+                "va": f"0x{va:08x}",
+                "size": size,
+                "previous_status": ann.status,
+                "proven": False,
+                "already_matched": True,
+                "message": (
+                    f"Bytes already match after reloc accounting — "
+                    f"{'would set' if dry_run else 'set'} STATUS → {new_status}"
+                ),
+                "action": "would_update" if dry_run else "updated",
+                "new_status": new_status,
+            }
+            if json_output:
+                json_print(early)
+            else:
+                console.print(
+                    f"[green]Bytes already match[/green] — "
+                    f"{'would set' if dry_run else 'STATUS →'} "
+                    f"[bold]{new_status}[/bold] (not PROVEN). "
+                    f"Symbolic prove not needed."
+                )
+            raise typer.Exit(code=EXIT_OK)
 
     prototype = ann.prototype or ""
     arg_constraints = ann.prove_constraints if ann.prove_constraints else None
@@ -1095,6 +1139,7 @@ def main(
 
     # Build result
     result: dict[str, Any] = {
+        "schema_version": 1,
         "source": str(source_path),
         "symbol": symbol,
         "va": f"0x{va:08x}",
@@ -1183,6 +1228,20 @@ def _prove_single(
         if obj_bytes is None:
             return False, f"Symbol '{symbol}' not found in compiled .obj"
 
+    # Bytes already match → promote to RELOC/EXACT instead of PROVEN.
+    if not (start_offset or end_offset):
+        matched, _mc, _tot, _vr, _ir = smart_reloc_compare(
+            obj_bytes, target_bytes, reloc_offsets, section_va=va
+        )
+        if matched:
+            new_status = "RELOC" if _vr else "EXACT"
+            if not dry_run:
+                from rebrew.metadata import update_source_status
+
+                update_source_status(cfg.metadata_dir, new_status, ann.module, va)
+            # Sentinel prefix so batch mode can count this separately from failures.
+            return False, f"ALREADY_MATCHED:{new_status}"
+
     prototype = ann.prototype or ""
     arg_constraints = ann.prove_constraints if ann.prove_constraints else None
 
@@ -1221,7 +1280,7 @@ def _run_all_batch(
     *,
     check_edx: bool = False,
 ) -> None:
-    """Batch-prove all NEAR_MATCHING/RELOC functions."""
+    """Batch-prove all NEAR_MATCHING functions."""
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     tm = target_marker(cfg)
 
@@ -1233,26 +1292,25 @@ def _run_all_batch(
         except Exception:  # noqa: BLE001
             log.debug("Skipping %s: annotation parse failed", src, exc_info=True)
             continue
-        candidates.extend(
-            (src, a) for a in annos if a.status in ("NEAR_MATCHING", "RELOC") and a.size
-        )
+        candidates.extend((src, a) for a in annos if a.status == "NEAR_MATCHING" and a.size)
 
     if not candidates:
         if json_output:
             json_print({"total": 0, "proven": 0, "failed": 0, "results": []})
         else:
-            console.print("[dim]No NEAR_MATCHING/RELOC functions found to prove.[/dim]")
+            console.print("[dim]No NEAR_MATCHING functions found to prove.[/dim]")
         return
 
     if not json_output:
         console.print(
-            f"\n[bold]Batch proving {len(candidates)} NEAR_MATCHING/RELOC function(s)[/bold]"
+            f"\n[bold]Batch proving {len(candidates)} NEAR_MATCHING function(s)[/bold]"
             + (" [dim](--dry-run)[/dim]" if dry_run else "")
             + "\n"
         )
 
     proven_count = 0
     failed_count = 0
+    already_matched_count = 0
     results_list: list[dict[str, Any]] = []
 
     for i, (src, ann) in enumerate(candidates, 1):
@@ -1277,11 +1335,20 @@ def _run_all_batch(
             log.debug("Prove failed for %s", src, exc_info=True)
             proven, message = False, f"Error: {e}"
 
+        already = isinstance(message, str) and message.startswith("ALREADY_MATCHED:")
         if proven:
             proven_count += 1
             if not json_output:
                 action = "would update" if dry_run else "STATUS → PROVEN"
                 console.print(f"  [green bold]PROVEN[/green bold] — {action}")
+        elif already:
+            already_matched_count += 1
+            new_st = message.split(":", 1)[1]
+            if not json_output:
+                action = "would set" if dry_run else "STATUS →"
+                console.print(
+                    f"  [green]bytes match[/green] — {action} [bold]{new_st}[/bold] (not PROVEN)"
+                )
         else:
             failed_count += 1
             if not json_output:
@@ -1293,6 +1360,7 @@ def _run_all_batch(
                 "symbol": symbol,
                 "va": f"0x{ann.va:08x}",
                 "proven": proven,
+                "already_matched": already,
                 "message": message,
             }
         )
@@ -1300,8 +1368,10 @@ def _run_all_batch(
     if json_output:
         json_print(
             {
+                "schema_version": 1,
                 "total": len(candidates),
                 "proven": proven_count,
+                "already_matched": already_matched_count,
                 "failed": failed_count,
                 "results": results_list,
             }
@@ -1309,16 +1379,15 @@ def _run_all_batch(
     else:
         console.print()
         console.print("[bold]━━━ Prove Summary ━━━[/bold]")
-        matching = sum(1 for _, a in candidates if a.status in ("NEAR_MATCHING",))
-        reloc = sum(1 for _, a in candidates if a.status == "RELOC")
-        parts = []
-        if matching:
-            parts.append(f"{matching} NEAR_MATCHING")
-        if reloc:
-            parts.append(f"{reloc} RELOC")
-        console.print(f"  [bold]{' + '.join(parts)}[/bold] functions tested")
+        matching = sum(1 for _, a in candidates if a.status == "NEAR_MATCHING")
+        console.print(f"  [bold]{matching} NEAR_MATCHING[/bold] functions tested")
         if proven_count:
             console.print(f"  [green bold]{proven_count}[/green bold] proven equivalent")
+        if already_matched_count:
+            console.print(
+                f"  [green]{already_matched_count}[/green] already matched "
+                f"(promoted to RELOC/EXACT)"
+            )
         if failed_count:
             console.print(f"  [yellow]{failed_count}[/yellow] not proven")
         if dry_run:

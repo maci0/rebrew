@@ -631,6 +631,7 @@ def load_config(
             f"rebrew-project.toml [targets.{target}]: unknown arch '{arch_name}' "
             f"(known: {', '.join(sorted(_ARCH_PRESETS))}); falling back to x86_32",
         )
+        arch_name = "x86_32"
 
     profile_val = compiler.get("profile", "msvc6")
     if profile_val not in _KNOWN_PROFILES:

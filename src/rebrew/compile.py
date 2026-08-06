@@ -54,7 +54,7 @@ from rebrew.cli import NEAR_MATCH_THRESHOLD
 from rebrew.compile_cache import CompileCache, compile_cache_key, get_compile_cache
 from rebrew.config import ProjectConfig
 from rebrew.core import msvc_env_from_config, smart_reloc_compare
-from rebrew.matcher.parsers import parse_obj_symbol_bytes
+from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
 from rebrew.utils import safe_shlex_split
 
 # ---------------------------------------------------------------------------
@@ -72,8 +72,8 @@ class CompareResult:
 
     Attributes:
         matched: ``True`` when compiled bytes equal target after reloc masking.
-        status: One of ``EXACT``, ``RELOC``, ``NEAR_MATCHING``, ``STUB``, ``COMPILE_ERROR``,
-            ``MISSING_SIZE``, ``MISSING_FILE``.
+        status: One of ``EXACT``, ``RELOC``, ``NEAR_MATCHING``, ``STUB``,
+            ``SIZE_MISMATCH``, ``COMPILE_ERROR``, ``MISSING_SIZE``, ``MISSING_FILE``.
         match_percent: Percentage of bytes that match (0–100).  On mismatch,
             computed as a raw byte-by-byte comparison without reloc masking.
         delta: Absolute byte difference (mismatch count + size delta).
@@ -104,11 +104,13 @@ def classify_compare_result(
     obj_bytes: bytes | None,
     reloc_offsets: list[int] | None,
     inv_reloc_offsets: list[int] | None = None,
+    *,
+    size_mismatch: bool = False,
 ) -> CompareResult:
     """Classify a raw compile-and-compare outcome into a :class:`CompareResult`.
 
-    Centralises the EXACT / RELOC / NEAR_MATCHING / STUB / COMPILE_ERROR /
-    MISSING_SIZE / MISSING_FILE classification
+    Centralises the EXACT / RELOC / NEAR_MATCHING / STUB / SIZE_MISMATCH /
+    COMPILE_ERROR / MISSING_SIZE / MISSING_FILE classification
     and the ``match_percent`` / ``delta`` calculations that were previously
     duplicated in ``test.py`` and ``verify.py``.
 
@@ -116,6 +118,8 @@ def classify_compare_result(
     - ``matched=True`` → EXACT (no relocs) or RELOC (with relocs).
     - ``obj_bytes is None`` or ``"COMPILE_ERROR"`` in *msg* → COMPILE_ERROR.
     - ``"MISSING"`` in *msg* → MISSING_SIZE or MISSING_FILE (by substring).
+    - ``size_mismatch=True`` or ``"SIZE_MISMATCH"`` in *msg* → SIZE_MISMATCH
+      (still reports match% over the common prefix).
     - Otherwise → NEAR_MATCHING or STUB (by match percentage threshold).
 
     Args:
@@ -125,6 +129,7 @@ def classify_compare_result(
         obj_bytes: Compiled bytes (may be ``None`` on compile failure).
         reloc_offsets: Relocation start offsets.
         inv_reloc_offsets: Invalid relocation offsets (mismatched relocs).
+        size_mismatch: True when compiled length differs from target length.
 
     Returns:
         A fully-populated :class:`CompareResult`.
@@ -197,9 +202,12 @@ def classify_compare_result(
         match_percent = ((cmp_len - mismatches) / target_len) * 100 if target_len else 0.0
         delta = abs(len(target_bytes) - len(obj_bytes)) + mismatches + missing
 
-    status = "STUB"
-    if match_percent >= NEAR_MATCH_THRESHOLD * 100:
+    if size_mismatch or "SIZE_MISMATCH" in msg:
+        status = "SIZE_MISMATCH"
+    elif match_percent >= NEAR_MATCH_THRESHOLD * 100:
         status = "NEAR_MATCHING"
+    else:
+        status = "STUB"
 
     return CompareResult(
         matched=False,
@@ -496,6 +504,8 @@ def compile_and_compare(
     *,
     cache: CompileCache | None = None,
     use_cache: bool = True,
+    name_to_va: dict[str, int] | None = None,
+    section_va: int | None = None,
 ) -> CompareResult:
     """Compile source, extract COFF symbol, compare against target bytes with reloc masking.
 
@@ -513,6 +523,9 @@ def compile_and_compare(
         cflags: Compiler flags (string or list).
         cache: Optional explicit CompileCache instance.
         use_cache: If True, check and populate the compile cache.
+        name_to_va: Optional symbol → VA map for DIR32 absolute validation
+            (same catalog used by ``rebrew test``).
+        section_va: Optional function start VA for precise REL32 validation.
 
     Returns:
         :class:`CompareResult` with status, metrics, and byte data.
@@ -535,7 +548,7 @@ def compile_and_compare(
                     False, f"COMPILE_ERROR: {err[:200]}", target_bytes, None, None
                 )
 
-            obj_bytes, reloc_offsets = parse_obj_symbol_bytes(obj_path, symbol)
+            obj_bytes, reloc_dict = parse_obj_symbol_bytes(obj_path, symbol)
             if obj_bytes is None:
                 return classify_compare_result(
                     False,
@@ -545,31 +558,41 @@ def compile_and_compare(
                     None,
                 )
 
-            size_mismatch_msg = None
-            if len(obj_bytes) != len(target_bytes):
-                size_mismatch_msg = f"SIZE_MISMATCH: Size {len(obj_bytes)}B vs {len(target_bytes)}B"
+            # Prefer typed reloc records when available (DIR32 vs REL32).
+            full_relocs = parse_obj_relocs_full(obj_path, symbol)
+            coff_relocs = full_relocs if full_relocs else reloc_dict
+
+            size_mismatch = len(obj_bytes) != len(target_bytes)
+            orig_obj_len = len(obj_bytes)
+            orig_tgt_len = len(target_bytes)
+            if size_mismatch:
                 # Truncate longer side so smart_reloc_compare can still
                 # compute a reloc-aware match% over the common prefix.
-                # This keeps SIZE_MISMATCH cases consistent with how
-                # `rebrew test` reports byte match (it truncates too).
                 if len(obj_bytes) > len(target_bytes):
                     obj_bytes = obj_bytes[: len(target_bytes)]
                 else:
                     target_bytes = target_bytes[: len(obj_bytes)]
 
             matched, _match_count, _total, relocs, inv_relocs = smart_reloc_compare(
-                obj_bytes, target_bytes, reloc_offsets
+                obj_bytes,
+                target_bytes,
+                coff_relocs,
+                name_to_va=name_to_va,
+                section_va=section_va,
             )
-            if size_mismatch_msg is not None:
-                # Override matched=True because length differs even if
-                # bytes match — still a SIZE_MISMATCH for status purposes.
+            if size_mismatch:
+                # Length differs even if the common prefix matches — never EXACT/RELOC.
                 return classify_compare_result(
                     False,
-                    f"{size_mismatch_msg} ({_total - _match_count} byte diffs in common prefix)",
+                    (
+                        f"SIZE_MISMATCH: Size {orig_obj_len}B vs {orig_tgt_len}B "
+                        f"({_total - _match_count} byte diffs in common prefix)"
+                    ),
                     target_bytes,
                     obj_bytes,
                     relocs,
                     inv_relocs,
+                    size_mismatch=True,
                 )
             msg = (
                 f"RELOC-NORM MATCH ({len(relocs)} relocs)"

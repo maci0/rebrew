@@ -224,7 +224,7 @@ def set_data_field(directory: Path, va: int, key: str, value: Any, module: str) 
     if toml_key not in doc:
         doc[toml_key] = tomlkit.table()
 
-    doc[toml_key][key] = value  # type: ignore[index]
+    doc[toml_key][key] = value
     atomic_write_text(path, tomlkit.dumps(doc))
 
 

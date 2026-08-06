@@ -181,7 +181,8 @@ def load_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]:
         directory: The metadata root directory (``cfg.metadata_dir``).
 
     """
-    path = directory / METADATA_FILENAME
+    # Resolve so cache keys are stable across relative/absolute call sites.
+    path = (directory / METADATA_FILENAME).resolve()
     if not path.exists():
         return {}
 
@@ -225,7 +226,7 @@ def save_metadata(
         data: Mapping of ``{(module, va_int): {field: value}}``.
 
     """
-    path = directory / METADATA_FILENAME
+    path = (directory / METADATA_FILENAME).resolve()
     doc = tomlkit.document()
 
     # Write entries sorted by (module, va) for stable diffs.
@@ -288,7 +289,7 @@ def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> N
     Writes directly to ``directory / rebrew-function.toml``.  No walk-up.
     Uses in-place ``tomlkit`` editing to preserve formatting and comments.
     """
-    path = directory / METADATA_FILENAME
+    path = (directory / METADATA_FILENAME).resolve()
     toml_key = qualified_key(module, va)
 
     if path.exists():
@@ -303,7 +304,7 @@ def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> N
     if toml_key not in doc:
         doc[toml_key] = tomlkit.table()
 
-    doc[toml_key][key] = value  # type: ignore[index]
+    doc[toml_key][key] = value
     atomic_write_text(path, tomlkit.dumps(doc))
     _metadata_cache.pop(path, None)
 
@@ -315,7 +316,7 @@ def _delete_field(directory: Path, va: int, key: str, module: str) -> bool:
     Reads/writes directly at ``directory / rebrew-function.toml``.  No walk-up.
     Returns True if removed.
     """
-    path = directory / METADATA_FILENAME
+    path = (directory / METADATA_FILENAME).resolve()
     if not path.exists():
         return False
     toml_key = qualified_key(module, va)
@@ -448,7 +449,7 @@ def update_source_status(
     if not module:
         return
 
-    path = metadata_dir / METADATA_FILENAME
+    path = (metadata_dir / METADATA_FILENAME).resolve()
     toml_key = qualified_key(module, va)
 
     # Single read

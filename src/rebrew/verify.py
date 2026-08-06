@@ -80,6 +80,8 @@ def verify_entry(
     entry: Annotation,
     cfg: ProjectConfig,
     cache: "CompileCache | None" = None,
+    *,
+    name_to_va: dict[str, int] | None = None,
 ) -> "CompareResult":
     """Compile a .c file and compare output bytes against DLL.
 
@@ -87,6 +89,9 @@ def verify_entry(
     When *cache* is provided, compilation results are reused across calls
     for the same source content + flags — critical for multi-function files
     where the same .c is compiled once and multiple symbols extracted.
+
+    *name_to_va* is the shared data-catalog map used for DIR32 absolute
+    validation — same source as ``rebrew test``.
     """
     from rebrew.compile import compile_and_compare
 
@@ -109,7 +114,16 @@ def verify_entry(
     if not target_bytes:
         return _failed_result("COMPILE_ERROR", "Cannot extract DLL bytes")
 
-    return compile_and_compare(cfg, cfile, symbol, target_bytes, cflags, cache=cache)
+    return compile_and_compare(
+        cfg,
+        cfile,
+        symbol,
+        target_bytes,
+        cflags,
+        cache=cache,
+        name_to_va=name_to_va,
+        section_va=entry.va,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -145,12 +159,17 @@ app = typer.Typer(
 )
 
 _STATUS_RANK: dict[str, int] = {
+    # PROVEN is a post-verify semantic promotion — not worse than byte match.
+    # Rank with RELOC so NEAR_MATCHING → PROVEN is an improvement, never a regression.
     "EXACT": 0,
     "RELOC": 1,
+    "PROVEN": 1,
     "STUB": 2,
     "NEAR_MATCHING": 2,
+    "SIZE_MISMATCH": 2,
     "COMPILE_ERROR": 3,
     "MISSING_FILE": 4,
+    "MISSING_SIZE": 4,
     "FAIL": 5,
 }
 
@@ -550,6 +569,7 @@ def main(
         _s = _r["status"]
         _status_counts[_s] = _status_counts.get(_s, 0) + 1
     report = {
+        "schema_version": 1,
         "timestamp": timestamp,
         "target": cfg.target_name,
         "binary": str(cfg.target_binary),
@@ -562,6 +582,7 @@ def main(
             "proven": _status_counts.get("PROVEN", 0),
             "stub": _status_counts.get("STUB", 0),
             "matching": _status_counts.get("NEAR_MATCHING", 0),
+            "size_mismatch": _status_counts.get("SIZE_MISMATCH", 0),
             "compile_error": _status_counts.get("COMPILE_ERROR", 0),
             "missing_file": _status_counts.get("MISSING_FILE", 0),
         },
@@ -798,10 +819,15 @@ def run_verification(
     except (ImportError, OSError):
         compile_cache = None
 
+    # Shared once for the whole batch — same catalog `rebrew test` uses.
+    from rebrew.core import build_name_to_va
+
+    name_to_va = build_name_to_va(cfg)
+
     def _verify(
         e: Annotation,
     ) -> tuple[Annotation, "CompareResult"]:
-        return (e, verify_entry(e, cfg, cache=compile_cache))
+        return (e, verify_entry(e, cfg, cache=compile_cache, name_to_va=name_to_va))
 
     with Progress(
         TextColumn("[bold blue]Verifying"),

@@ -1,0 +1,46 @@
+# CI integration
+
+Suggested gates for reverse-engineering workspaces that use rebrew.
+
+## Package CI (this repo)
+
+GitHub Actions (`.github/workflows/ci.yml`) runs lint + the full unit test suite.
+It does **not** require a target binary or MSVC toolchain.
+
+## Project / workspace CI
+
+Wire these into the **game/workspace** repo (the one with `rebrew-project.toml`
+and binaries), not necessarily this package:
+
+```bash
+# Bulk byte-check with regression detection against the previous report.
+# PROVEN ranks with RELOC (not FAIL) under --compare.
+rebrew verify --compare --json -o db/verify_results.json
+
+# End-to-end splice check. Default: fail only on hard mismatches.
+# --strict-catalog also fails on unresolved symbols / zero successful splices.
+rebrew round-trip --strict-catalog --json
+```
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Mismatch / regression / catalog failure (`--strict-catalog`) |
+| 2 | Config / infrastructure error |
+
+### When to use `--strict-catalog`
+
+| Stage | Recommendation |
+|-------|----------------|
+| Early reverse (many missing data labels) | omit flag; inspect `skipped_catalog` in JSON |
+| Mature target / CI on main | always pass `--strict-catalog` |
+
+### JSON contracts
+
+Reports include `schema_version: 1` for:
+
+- `rebrew verify --json`
+- `rebrew round-trip --json`
+- `rebrew prove --json` / `rebrew prove --all --json`
