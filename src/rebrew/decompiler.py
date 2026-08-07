@@ -164,8 +164,14 @@ def fetch_ghidra(
                     if isinstance(candidate, str) and candidate.strip():
                         return _clean_output(candidate)
             return None
-    except (OSError, ValueError, KeyError, TypeError) as e:
-        warnings.warn(f"Ghidra MCP decompilation failed for 0x{va:08x}: {e}", stacklevel=2)
+    except (OSError, ValueError, KeyError, TypeError, httpx.HTTPError) as e:
+        # Bare ConnectionError() has an empty str — include the type name so logs
+        # and pytest warnings stay actionable.
+        detail = str(e).strip() or type(e).__name__
+        warnings.warn(
+            f"Ghidra MCP decompilation failed for 0x{va:08x}: {detail}",
+            stacklevel=2,
+        )
         return None
 
 
