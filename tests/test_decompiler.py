@@ -356,8 +356,10 @@ class TestGhidraBackend:
         assert result is None
 
     def test_returns_none_on_connection_error(self) -> None:
+        import warnings
+
         mock_client = MagicMock()
-        mock_client.__enter__ = MagicMock(side_effect=ConnectionError)
+        mock_client.__enter__ = MagicMock(side_effect=ConnectionError("refused"))
         mock_client.__exit__ = lambda *a: None
 
         with (
@@ -366,10 +368,15 @@ class TestGhidraBackend:
                 side_effect=_make_sync_import_mock(),
             ),
             patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
+            warnings.catch_warnings(record=True) as caught,
         ):
+            warnings.simplefilter("always")
             result = fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"))
 
         assert result is None
+        assert any(
+            issubclass(w.category, UserWarning) and "0x00001000" in str(w.message) for w in caught
+        )
 
     def test_uses_custom_endpoint(self) -> None:
         import json
