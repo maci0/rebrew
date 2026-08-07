@@ -92,8 +92,7 @@ class TestGenerateTestCommand:
 
 class TestGenerateDiffCommand:
     def test_basic(self) -> None:
-        cfg = ProjectConfig(root=Path("/tmp"), target_name="server.dll")
-        cmd = generate_diff_command(cfg, "src/game_func.c", "_my_func", 0x10001000, 64, "/O2")
+        cmd = generate_diff_command("src/game_func.c", "_my_func", "/O2")
         assert "rebrew diff" in cmd
         assert "src/game_func.c" in cmd
 
@@ -179,22 +178,22 @@ class TestGenerateSkeletonModules:
 
     def test_library_module_uses_library_marker(self) -> None:
         cfg = self._make_cfg()
-        content = generate_skeleton(cfg, 0x10001000, 64, "dx_init", "DIRECTX")
+        content = generate_skeleton(cfg, 0x10001000, "dx_init", "DIRECTX")
         assert content.startswith("// LIBRARY: SERVER")
 
     def test_non_library_module_uses_function_marker(self) -> None:
         cfg = self._make_cfg()
-        content = generate_skeleton(cfg, 0x10001000, 64, "game_func", "SERVER")
+        content = generate_skeleton(cfg, 0x10001000, "game_func", "SERVER")
         assert content.startswith("// FUNCTION: SERVER")
 
     def test_annotation_block_library_module(self) -> None:
         cfg = self._make_cfg()
-        block = generate_annotation_block(cfg, 0x10001000, 64, "dx_init", "DIRECTX")
+        block = generate_annotation_block(cfg, 0x10001000, "dx_init", "DIRECTX")
         assert block.startswith("// LIBRARY: SERVER")
 
     def test_default_comment_in_skeleton(self) -> None:
         cfg = self._make_cfg()
-        content = generate_skeleton(cfg, 0x10001000, 64, "my_func", "SERVER")
+        content = generate_skeleton(cfg, 0x10001000, "my_func", "SERVER")
         assert "TODO: Implement" in content
 
 

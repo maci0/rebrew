@@ -119,13 +119,13 @@ class TestCheckConfigParse:
             tmp_path, "[project]\ndefault_target = 'main'\n\n[targets.main]\nbinary = 'test.exe'\n"
         )
         monkeypatch.chdir(tmp_path)
-        result, cfg = check_config_parse(root=None, target=None)
+        result, cfg = check_config_parse(target=None)
         assert result.status == _PASS
         assert cfg is not None
 
     def test_missing_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.chdir(tmp_path)
-        result, cfg = check_config_parse(root=None, target=None)
+        result, cfg = check_config_parse(target=None)
         assert result.status == _FAIL
         assert cfg is None
         assert result.fix

@@ -38,10 +38,7 @@ console = Console(stderr=True)
 # reccmp-compatible GLOBAL annotation:  // GLOBAL: SERVER 0x10031ae8
 _GLOBAL_RE = re.compile(r"(?://|/\*)\s*GLOBAL:\s*(?P<module>[A-Z0-9_]+)\s+(?P<va>0x[0-9a-fA-F]+)")
 
-# DATA annotation:  // DATA: SERVER 0x10025000
-_DATA_RE = re.compile(r"(?://|/\*)\s*DATA:\s*(?P<module>[A-Z0-9_]+)\s+(?P<va>0x[0-9a-fA-F]+)")
-
-# extern data declarations are now parsed by c_parser.find_extern_variables()
+# extern data declarations are parsed by c_parser.find_extern_variables()
 # via tree-sitter AST walking — see scan_globals().
 
 _ARRAY_SIZE_RE = re.compile(r"\[(\d+)\]")
@@ -336,7 +333,6 @@ def enrich_with_sections(scan: ScanResult, sections: dict[str, dict[str, Any]]) 
 
 def find_dispatch_tables(
     binary_data: bytes,
-    image_base: int,
     sections: dict[str, dict[str, Any]],
     known_functions: dict[int, dict[str, str]],
     ptr_size: int = 4,
@@ -350,7 +346,6 @@ def find_dispatch_tables(
 
     Args:
         binary_data: Raw binary file bytes.
-        image_base: Image base VA of the binary (currently unused; sections carry absolute VAs).
         sections: Section dict from binary_loader ({name: {va, size, file_offset, raw_size}}).
         known_functions: Map of VA -> {"name": str, "status": str} for reversed funcs.
         ptr_size: Pointer size in bytes (4 for 32-bit PE).
@@ -1152,7 +1147,6 @@ def main(
 
         tables = find_dispatch_tables(
             binary_data,
-            info.image_base,
             sec_dict,
             known_functions,
             min_entries=min_table_len,

@@ -76,14 +76,14 @@ class TestLoadSignatures:
 
     def test_missing_directory(self, tmp_path: Path) -> None:
         """Returns empty list when directory doesn't exist."""
-        sigs = load_signatures(str(tmp_path / "nonexistent"), json_output=True)
+        sigs = load_signatures(str(tmp_path / "nonexistent"))
         assert sigs == []
 
     def test_empty_directory(self, tmp_path: Path) -> None:
         """Returns empty list when directory has no .sig/.pat files."""
         sig_dir = tmp_path / "sigs"
         sig_dir.mkdir()
-        sigs = load_signatures(str(sig_dir), json_output=True)
+        sigs = load_signatures(str(sig_dir))
         assert sigs == []
 
     def test_no_flirt_module(self, monkeypatch) -> None:
@@ -91,7 +91,7 @@ class TestLoadSignatures:
         import rebrew.flirt as flirt_mod
 
         monkeypatch.setattr(flirt_mod, "flirt", None)
-        sigs = load_signatures("/some/dir", json_output=True)
+        sigs = load_signatures("/some/dir")
         assert sigs == []
 
 

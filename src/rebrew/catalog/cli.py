@@ -17,7 +17,7 @@ from rebrew.annotation import Annotation, parse_c_file_multi
 from rebrew.catalog.export import generate_catalog, generate_reccmp_csv
 from rebrew.catalog.grid import generate_data_json
 from rebrew.catalog.loaders import parse_function_list, scan_reversed_dir
-from rebrew.catalog.registry import build_function_registry
+from rebrew.catalog.registry import build_function_registry, count_detection_sources
 from rebrew.catalog.sections import get_text_section_size
 from rebrew.cli import (
     TargetOption,
@@ -129,19 +129,7 @@ def main(
     registry = build_function_registry(funcs, cfg, ghidra_json_path, bin_path)
 
     unique_vas = {e["va"] for e in entries}
-    ghidra_count = list_count = both_count = thunk_count = 0
-    for r in registry.values():
-        detected = r["detected_by"]
-        has_ghidra = "ghidra" in detected
-        has_list = "list" in detected
-        if has_ghidra:
-            ghidra_count += 1
-        if has_list:
-            list_count += 1
-        if has_ghidra and has_list:
-            both_count += 1
-        if r["is_thunk"]:
-            thunk_count += 1
+    ghidra_count, list_count, both_count, thunk_count = count_detection_sources(registry)
     console.print(
         f"Found {len(entries)} annotations ({len(unique_vas)} unique VAs) "
         f"from {len(registry)} total functions "

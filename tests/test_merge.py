@@ -50,16 +50,22 @@ def _single(
     )
 
 
+def _invoke(tmp_path: Path, monkeypatch: Any, *args: str) -> tuple[Any, Path]:
+    """Run the merge CLI, returning (result, output path)."""
+    out = tmp_path / "merged.c"
+    monkeypatch.setattr(
+        "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+    )
+    result = runner.invoke(app, ["--output", str(out), *args])
+    return result, out
+
+
 class TestMergeBasic:
     def test_merges_two_files(self, tmp_path: Path, monkeypatch: Any) -> None:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_func_a"))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_func_b"))
-        out = tmp_path / "merged.c"
-        monkeypatch.setattr(
-            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
 
-        result = runner.invoke(app, ["--output", str(out), str(a), str(b)])
+        result, out = _invoke(tmp_path, monkeypatch, str(a), str(b))
         assert result.exit_code == 0
         text = out.read_text(encoding="utf-8")
         assert "_func_a" in text
@@ -69,12 +75,8 @@ class TestMergeBasic:
         include = "#include <stdio.h>\n"
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a", preamble=include))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b", preamble=include))
-        out = tmp_path / "merged.c"
-        monkeypatch.setattr(
-            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
 
-        result = runner.invoke(app, ["--output", str(out), str(a), str(b)])
+        result, out = _invoke(tmp_path, monkeypatch, str(a), str(b))
         assert result.exit_code == 0
         text = out.read_text(encoding="utf-8")
         assert text.count("#include <stdio.h>") == 1
@@ -83,12 +85,8 @@ class TestMergeBasic:
         ext = "extern int g_value;\n"
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a", preamble=ext))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b", preamble=ext))
-        out = tmp_path / "merged.c"
-        monkeypatch.setattr(
-            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
 
-        result = runner.invoke(app, ["--output", str(out), str(a), str(b)])
+        result, out = _invoke(tmp_path, monkeypatch, str(a), str(b))
         assert result.exit_code == 0
         text = out.read_text(encoding="utf-8")
         assert text.count("extern int g_value;") == 1
@@ -96,12 +94,8 @@ class TestMergeBasic:
     def test_sorts_function_blocks_by_va(self, tmp_path: Path, monkeypatch: Any) -> None:
         high = _write(tmp_path / "high.c", _single(0x10003000, "_high"))
         low = _write(tmp_path / "low.c", _single(0x10001000, "_low"))
-        out = tmp_path / "merged.c"
-        monkeypatch.setattr(
-            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
 
-        result = runner.invoke(app, ["--output", str(out), str(high), str(low)])
+        result, out = _invoke(tmp_path, monkeypatch, str(high), str(low))
         assert result.exit_code == 0
         text = out.read_text(encoding="utf-8")
         assert text.find("0x10001000") < text.find("0x10003000")
@@ -109,23 +103,15 @@ class TestMergeBasic:
     def test_dry_run_does_not_create_output(self, tmp_path: Path, monkeypatch: Any) -> None:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a"))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b"))
-        out = tmp_path / "merged.c"
-        monkeypatch.setattr(
-            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
 
-        result = runner.invoke(app, ["--output", str(out), "--dry-run", str(a), str(b)])
+        result, out = _invoke(tmp_path, monkeypatch, "--dry-run", str(a), str(b))
         assert result.exit_code == 0
         assert not out.exists()
 
     def test_errors_with_fewer_than_two_files(self, tmp_path: Path, monkeypatch: Any) -> None:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a"))
-        out = tmp_path / "merged.c"
-        monkeypatch.setattr(
-            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
 
-        result = runner.invoke(app, ["--output", str(out), str(a)])
+        result, out = _invoke(tmp_path, monkeypatch, str(a))
         assert result.exit_code != 0
         assert "at least two source files" in result.output
 
@@ -134,24 +120,17 @@ class TestMergeBasic:
     ) -> None:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a"))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b"))
-        out = _write(tmp_path / "merged.c", "stale\n")
-        monkeypatch.setattr(
-            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
+        _write(tmp_path / "merged.c", "stale\n")
 
-        result = runner.invoke(app, ["--output", str(out), str(a), str(b)])
+        result, out = _invoke(tmp_path, monkeypatch, str(a), str(b))
         assert result.exit_code != 0
         assert "Output file already exists" in result.output
 
     def test_delete_removes_inputs_after_success(self, tmp_path: Path, monkeypatch: Any) -> None:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a"))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b"))
-        out = tmp_path / "merged.c"
-        monkeypatch.setattr(
-            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
 
-        result = runner.invoke(app, ["--output", str(out), "--delete", "--force", str(a), str(b)])
+        result, out = _invoke(tmp_path, monkeypatch, "--delete", "--force", str(a), str(b))
         assert result.exit_code == 0
         assert out.exists()
         assert not a.exists()
@@ -160,14 +139,10 @@ class TestMergeBasic:
     def test_json_output_structure(self, tmp_path: Path, monkeypatch: Any) -> None:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a"))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b"))
-        out = tmp_path / "merged.c"
         payloads: list[dict[str, Any]] = []
-        monkeypatch.setattr(
-            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
         monkeypatch.setattr("rebrew.merge.json_print", lambda data: payloads.append(data))
 
-        result = runner.invoke(app, ["--output", str(out), "--json", str(a), str(b)])
+        result, out = _invoke(tmp_path, monkeypatch, "--json", str(a), str(b))
         assert result.exit_code == 0
         assert len(payloads) == 1
         payload = payloads[0]
@@ -179,13 +154,8 @@ class TestMergeBasic:
     def test_delete_json_requires_force(self, tmp_path: Path, monkeypatch: Any) -> None:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a"))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b"))
-        out = tmp_path / "merged.c"
-        monkeypatch.setattr(
-            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
 
-        result = runner.invoke(app, ["--output", str(out), "--delete", "--json", str(a), str(b)])
-
+        result, out = _invoke(tmp_path, monkeypatch, "--delete", "--json", str(a), str(b))
         assert result.exit_code != 0
         assert "Pass --force" in result.output
         assert a.exists()
@@ -205,12 +175,8 @@ class TestMergeBasic:
         )
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a", extra=extra, status="NEAR_MATCHING"))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b", status="EXACT"))
-        out = tmp_path / "merged.c"
-        monkeypatch.setattr(
-            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
 
-        result = runner.invoke(app, ["--output", str(out), str(a), str(b)])
+        result, out = _invoke(tmp_path, monkeypatch, str(a), str(b))
         assert result.exit_code == 0
         text = out.read_text(encoding="utf-8")
         assert "// STATUS: NEAR_MATCHING" in text

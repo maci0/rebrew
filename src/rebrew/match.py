@@ -958,69 +958,6 @@ class _BuildParams:
     msvc_env: dict[str, str] | None
     cc: Any  # CompileCache | None
 
-    @classmethod
-    def from_stub(
-        cls,
-        st: StubInfo,
-        cfg: ProjectConfig,
-        cl: str | None,
-        inc: str | None,
-        link: str | None,
-        lib: str | None,
-        ldflags: str | None,
-    ) -> _BuildParams:
-        """Create parameters from a STUB function using the source file metadata."""
-        from rebrew.metadata import get_entry
-
-        entry = get_entry(cfg.reversed_dir, int(st.va, 16), module=st.module)
-        cflags = entry.get("cflags", st.cflags)
-
-        # Resolve compiler environment
-        cl_resolved, inc_resolved, msvc_env, cc = resolve_compiler_env(cfg)
-        if cl is not None:
-            try:
-                cl_parts = shlex.split(cl)
-            except ValueError:
-                cl_parts = cl.split()
-            cl_parts_res = []
-            for part in cl_parts:
-                p = cfg.root / part
-                cl_parts_res.append(str(p) if p.exists() else part)
-            cl_resolved = " ".join(cl_parts_res)
-        if inc is not None:
-            inc_path = cfg.root / inc
-            inc_resolved = str(inc_path) if inc_path.exists() else inc
-
-        # Resolve cflags
-        base_cf = getattr(cfg, "base_cflags", "") or ""
-        if base_cf and "/c" in base_cf:
-            cflags = f"{base_cf} {cflags}".strip()
-        elif "/c" not in cflags:
-            cflags = f"/nologo /c {cflags}".strip()
-
-        # Extract target bytes
-        va_int = int(st.va, 16)
-        target_bytes = extract_raw_bytes(cfg.target_binary, va_int, st.size)
-        if not target_bytes:
-            raise ValueError(f"Could not extract target bytes for {st.symbol} at {st.va}")
-
-        seed_src = st.filepath.read_text(encoding="utf-8")
-
-        return cls(
-            cfg=cfg,
-            seed_c=st.filepath,
-            seed_src=seed_src,
-            cl=cl_resolved,
-            inc=inc_resolved,
-            cflags=cflags,
-            symbol=st.symbol,
-            target_bytes=target_bytes,
-            va_int=va_int,
-            target_size=st.size,
-            msvc_env=msvc_env,
-            cc=cc,
-        )
-
 
 def resolve_build_params(
     cfg: Any,
@@ -1036,23 +973,6 @@ def resolve_build_params(
 ) -> _BuildParams:
     """Resolve config, annotations, compiler, and target bytes into build params."""
     seed_c_path = Path(seed_c)
-    # Build name -> VA map for relocation validation
-    name_to_va: dict[str, int] = {}
-    try:
-        from rebrew.data import scan_globals
-
-        scan = scan_globals(cfg.reversed_dir, cfg)
-        for entry in scan.data_annotations:
-            name = entry.get("name", "")
-            va_int = entry.get("va")
-            if isinstance(name, str) and isinstance(va_int, int) and name:
-                name_to_va[name] = va_int
-        for name, glob in scan.globals.items():
-            if glob.va:
-                name_to_va[name] = glob.va
-    except (OSError, AttributeError, KeyError, ValueError):
-        pass
-
     annos = parse_c_file_multi(
         seed_c_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
     )

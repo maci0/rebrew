@@ -191,7 +191,6 @@ class TestSkeletonWithXrefs:
         content = generate_skeleton(
             cfg,
             0x10001000,
-            64,
             "FUN_10001000",
             "GAME",
             xref_context=xref_block,
@@ -200,7 +199,7 @@ class TestSkeletonWithXrefs:
 
     def test_xref_context_none_omitted(self) -> None:
         cfg = self._cfg()
-        content = generate_skeleton(cfg, 0x10001000, 64, "FUN_10001000", "GAME", xref_context=None)
+        content = generate_skeleton(cfg, 0x10001000, "FUN_10001000", "GAME", xref_context=None)
         assert "Cross-references" not in content
 
     def test_both_xrefs_and_decomp(self) -> None:
@@ -209,7 +208,6 @@ class TestSkeletonWithXrefs:
         content = generate_skeleton(
             cfg,
             0x10001000,
-            64,
             "FUN_10001000",
             "GAME",
             xref_context=xref_block,

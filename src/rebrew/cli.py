@@ -29,12 +29,6 @@ from rich.console import Console
 from rebrew.config import ProjectConfig, load_config
 
 # ---------------------------------------------------------------------------
-# Global verbosity state — set by the top-level app callback in main.py.
-# ---------------------------------------------------------------------------
-
-verbosity: int = 0  # -1 = quiet, 0 = normal, 1+ = verbose
-
-# ---------------------------------------------------------------------------
 # Standardised exit codes
 # ---------------------------------------------------------------------------
 

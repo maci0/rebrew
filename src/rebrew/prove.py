@@ -52,8 +52,8 @@ from rebrew.cli import (
 )
 from rebrew.compile import compile_to_obj
 from rebrew.config import ProjectConfig
-from rebrew.core.matching import smart_reloc_compare
-from rebrew.matcher.parsers import parse_obj_symbol_bytes
+from rebrew.core.matching import build_name_to_va, smart_reloc_compare
+from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
 
 log = logging.getLogger(__name__)
 
@@ -116,12 +116,6 @@ def _get_win32_simprocs() -> dict[str, type]:
             b = self.state.solver.BVS("bool_ret", 32)
             self.state.solver.add(claripy.ULE(b, 1))
             return b
-
-    class ReturnZero(angr.SimProcedure):  # type: ignore[misc]
-        """Return 0 (S_OK / ERROR_SUCCESS)."""
-
-        def run(self, *args: Any, **kwargs: Any) -> Any:
-            return claripy.BVV(0, 32)
 
     class ReturnVoid(angr.SimProcedure):  # type: ignore[misc]
         """Void return — no value, no side effects."""
@@ -537,6 +531,85 @@ def _parse_prototype(proto: str) -> tuple[str, int, int]:
 # ---------------------------------------------------------------------------
 
 
+def _mem_value(state: Any, va: int) -> Any:
+    """Load a 32-bit value at *va* from *state*, or ``None`` if unmapped.
+
+    ``None`` means "this state does not map that address", which the
+    comparison treats as a difference when only one side maps it.
+    """
+    try:
+        return state.memory.load(va, 4)
+    except Exception:  # noqa: BLE001 — SimMemoryMissingError and concretization failures
+        return None
+
+
+def _compare_state_pairs(
+    states_orig: list[Any],
+    states_comp: list[Any],
+    check_edx: bool,
+    watched_vas: list[int],
+) -> tuple[bool, str]:
+    """Check return registers (EAX, optionally EDX) and watched memory equal.
+
+    For each (orig, comp) terminal-state pair, a solver is built from the
+    union of both states' constraints plus the disjunction "something
+    differs" (registers and/or any watched-VA memory).  A satisfiable solver
+    means that pair *can* differ → not equivalent.  Watched VAs compare 4
+    bytes of memory at the same address on both sides; an address unmapped in
+    both states is skipped (nothing to compare), unmapped in exactly one is a
+    real difference.
+    """
+    import claripy
+
+    regs_label = "EAX+EDX" if check_edx else "EAX"
+    mem_label = f"+mem({len(watched_vas)} VA)" if watched_vas else ""
+
+    for s_orig in states_orig:
+        eax_orig = s_orig.regs.eax
+        edx_orig = s_orig.regs.edx
+        mem_orig = [_mem_value(s_orig, va) for va in watched_vas]
+        can_differ = False
+        for s_comp in states_comp:
+            eax_comp = s_comp.regs.eax
+            edx_comp = s_comp.regs.edx
+            mem_comp = [_mem_value(s_comp, va) for va in watched_vas]
+
+            diff_terms: list[Any] = []
+            if check_edx:
+                diff_terms.append(claripy.Or(eax_orig != eax_comp, edx_orig != edx_comp))
+            else:
+                diff_terms.append(eax_orig != eax_comp)
+            for m_orig, m_comp in zip(mem_orig, mem_comp, strict=True):
+                if m_orig is None and m_comp is None:
+                    continue  # unmapped on both sides — nothing to compare
+                if m_orig is None or m_comp is None:
+                    diff_terms.append(claripy.BoolV(True))  # mapped on one side only
+                    break
+                diff_terms.append(m_orig != m_comp)
+
+            solver = claripy.Solver()
+            for expr in s_orig.solver.constraints:
+                solver.add(expr)
+            for expr in s_comp.solver.constraints:
+                solver.add(expr)
+            solver.add(claripy.Or(*diff_terms))
+
+            if solver.satisfiable():
+                can_differ = True
+                break
+
+        if can_differ:
+            return False, (
+                f"Z3 found a satisfying assignment where {regs_label}{mem_label} differs "
+                f"(checked {len(states_orig)} x {len(states_comp)} state pairs)"
+            )
+
+    return True, (
+        f"Proven equivalent ({regs_label}{mem_label}; {len(states_orig)} original state(s), "
+        f"{len(states_comp)} compiled state(s))"
+    )
+
+
 def prove_equivalence(
     original_bytes: bytes,
     compiled_bytes: bytes,
@@ -551,6 +624,8 @@ def prove_equivalence(
     start_offset: int = 0,
     end_offset: int = 0,
     check_edx: bool = False,
+    watched_vas: list[int] | None = None,
+    dir32_watched: dict[int, int] | None = None,
 ) -> tuple[bool, str]:
     """Prove semantic equivalence of two function byte blobs via symbolic execution.
 
@@ -569,6 +644,13 @@ def prove_equivalence(
         check_edx: Also compare EDX register in addition to EAX.  Auto-enabled
             when the prototype's return type is 64-bit (``long long``, ``__int64``,
             ``int64_t``, ``uint64_t``, ``long double``).
+        watched_vas: Optional list of virtual addresses whose first 4 bytes must
+            also compare equal across state pairs (memory side effects).  VAs
+            unmapped in both states are skipped; unmapped in one is a difference.
+        dir32_watched: DIR32 relocation offsets in the compiled blob that must be
+            patched to absolute target VAs (offsets whose symbol resolved into
+            ``watched_vas``).  Patching both blobs makes the compiled side read
+            and write the same watched globals as the original.
 
     Returns:
         (proven, message) — proven is True if semantic equivalence was proved.
@@ -608,7 +690,7 @@ def prove_equivalence(
     # Create symbolic arguments
     sym_args = [claripy.BVS(f"arg_{i}", 32) for i in range(arg_count)]
 
-    def _setup_state(proj: angr.Project, label: str) -> angr.SimState:
+    def _setup_state(proj: angr.Project) -> angr.SimState:
         """Create an initial state with symbolic arguments placed per calling convention.
 
         Initialises ESP to a fake stack, pushes a concrete return address so
@@ -695,6 +777,17 @@ def prove_equivalence(
                 if offset <= len(original_bytes) - 4:
                     patched_orig[offset : offset + 4] = struct.pack("<I", disp)
                 stub_hooks.append(stub_addr)
+
+    # DIR32 data references whose symbol resolved into watched_vas must point
+    # at the real target VA (memory side effects).  Apply after the stub pass
+    # above so watched sites override the neutralisation.  The original blob's
+    # native operand already holds the same VA, so the patch is a no-op there.
+    if dir32_watched:
+        for offset, va in sorted(dir32_watched.items()):
+            if 0 <= offset <= len(compiled_bytes) - 4:
+                patched_comp[offset : offset + 4] = struct.pack("<I", va)
+                if offset <= len(original_bytes) - 4:
+                    patched_orig[offset : offset + 4] = struct.pack("<I", va)
 
     # Slice to target range if specified
     if end_offset > 0:
@@ -791,11 +884,11 @@ def prove_equivalence(
 
     # Seed IAT slot memory in the original blob's initial state so
     # indirect calls (via register or memory) resolve to our stubs.
-    state_orig = _setup_state(proj_orig, "original")
+    state_orig = _setup_state(proj_orig)
     for iat_addr, stub_addr in iat_stub_map_orig.items():
         state_orig.memory.store(iat_addr, claripy.BVV(stub_addr, 32), endness="Iend_LE")
 
-    state_comp = _setup_state(proj_comp, "compiled")
+    state_comp = _setup_state(proj_comp)
 
     # Apply user-specified argument constraints to reduce path explosion
     if arg_constraints:
@@ -844,55 +937,10 @@ def prove_equivalence(
     if not states_comp:
         return False, "No terminal states reached for compiled code (timeout or path explosion)"
 
-    # TODO(E9 v2): also compare selected memory writes. Today we only check
-    # return registers (EAX, optionally EDX). Functions that write to globals
-    # or output-pointer arguments can be falsely promoted to PROVEN if their
-    # memory side effects differ. v2: thread a list of "watched" VAs through
-    # prove_equivalence and compare memory at those addresses across state pairs.
-
-    # Compare return register(s) across all terminal state pairs.
-    # For equivalence: for ALL pairs of (orig, comp) states, the checked
-    # registers must be provably equal.
-    # When check_edx is True (either via flag or 64-bit return auto-detection),
-    # EDX is included in the comparison (EDX:EAX = 64-bit return convention).
-    for s_orig in states_orig:
-        eax_orig = s_orig.regs.eax
-        edx_orig = s_orig.regs.edx
-        can_differ = False  # True if we found at least one (orig, comp) pair that can differ
-        for s_comp in states_comp:
-            eax_comp = s_comp.regs.eax
-            edx_comp = s_comp.regs.edx
-
-            # Check if there exists an input that makes them differ.
-            # Build constraint from both states' symbolic variables.
-            solver = claripy.Solver()
-            # Copy constraints from both states
-            for expr in s_orig.solver.constraints:
-                solver.add(expr)
-            for expr in s_comp.solver.constraints:
-                solver.add(expr)
-            if check_edx:
-                solver.add(claripy.Or(eax_orig != eax_comp, edx_orig != edx_comp))
-            else:
-                solver.add(eax_orig != eax_comp)
-
-            if solver.satisfiable():
-                # Found an assignment where return values differ — not equivalent
-                can_differ = True
-                break
-
-        if can_differ:
-            regs_checked = "EAX+EDX" if check_edx else "EAX"
-            return False, (
-                f"Z3 found a satisfying assignment where {regs_checked} differs "
-                f"(checked {len(states_orig)} x {len(states_comp)} state pairs)"
-            )
-
-    regs_checked = "EAX+EDX" if check_edx else "EAX"
-    return True, (
-        f"Proven equivalent ({regs_checked}; {len(states_orig)} original state(s), "
-        f"{len(states_comp)} compiled state(s))"
-    )
+    # Compare return register(s) and (optionally) watched-VA memory across all
+    # terminal state pairs — see _compare_state_pairs for the equivalence rule.
+    watched = list(watched_vas or [])
+    return _compare_state_pairs(states_orig, states_comp, check_edx, watched)
 
 
 # ---------------------------------------------------------------------------
@@ -982,6 +1030,11 @@ def main(
         "--check-edx",
         help="Also compare EDX register (forced on when return type is 64-bit)",
     ),
+    watch_va: list[int] | None = typer.Option(
+        None,
+        "--watch-va",
+        help="Also compare 4 bytes of memory at this VA (repeatable; adds to prove_constraints.watched_vas)",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -996,7 +1049,9 @@ def main(
     cfg = require_config(target=target, json_mode=json_output)
 
     if all_sources:
-        _run_all_batch(cfg, timeout, loop_bound, dry_run, json_output, check_edx=check_edx)
+        _run_all_batch(
+            cfg, timeout, loop_bound, dry_run, json_output, check_edx=check_edx, watch_va=watch_va
+        )
         return
 
     if source is None:
@@ -1051,6 +1106,12 @@ def main(
     cflags_str = ann.cflags or "/O2 /Gd"
     cflags_list = cflags_str.split()
 
+    # Watched VAs for memory side-effect checking: CLI flags + metadata.
+    watched_vas: list[int] = list(watch_va or [])
+    meta_vas = ann.prove_constraints.get("watched_vas") if ann.prove_constraints else None
+    if isinstance(meta_vas, list):
+        watched_vas += [int(v) for v in meta_vas]
+
     with tempfile.TemporaryDirectory(prefix="rebrew_prove_") as workdir:
         obj_path, err = compile_to_obj(cfg, source_path, cflags_list, workdir)
         if obj_path is None:
@@ -1059,6 +1120,7 @@ def main(
         obj_bytes, reloc_offsets = parse_obj_symbol_bytes(obj_path, symbol)
         if obj_bytes is None:
             error_exit(f"Symbol '{symbol}' not found in compiled .obj", json_mode=json_output)
+        dir32_watched = _resolve_watched_dir32(obj_path, symbol, cfg, set(watched_vas or []))
 
     # Bytes already match → RELOC, not PROVEN. Auto-promote so the user
     # doesn't have to re-run `rebrew test`. Slice proofs skip this gate.
@@ -1135,6 +1197,8 @@ def main(
         start_offset=start_offset,
         end_offset=end_offset,
         check_edx=check_edx,
+        watched_vas=watched_vas,
+        dir32_watched=dir32_watched,
     )
 
     # Build result
@@ -1191,6 +1255,37 @@ def main(
 # ---------------------------------------------------------------------------
 
 
+def _resolve_watched_dir32(
+    obj_path: str | Path, symbol: str, cfg: ProjectConfig, watched_set: set[int]
+) -> dict[int, int]:
+    """Map DIR32 reloc offsets whose symbol resolves into *watched_set* → that VA.
+
+    Only DIR32 (IMAGE_REL_I386_DIR32, 0x06) absolute data references can point
+    at watched globals.  Symbol lookup tolerates the MSVC leading underscore.
+    Best-effort: any failure yields ``{}`` (no watching, current behaviour).
+    """
+    if not watched_set:
+        return {}
+    try:
+        name_to_va = build_name_to_va(cfg)
+    except Exception:  # noqa: BLE001 — best-effort; no resolution → no watching
+        return {}
+    out: dict[int, int] = {}
+    try:
+        records = parse_obj_relocs_full(obj_path, symbol)
+    except Exception:  # noqa: BLE001 — best-effort
+        return {}
+    for rec in records:
+        if rec.type != 0x06:  # IMAGE_REL_I386_DIR32
+            continue
+        va = name_to_va.get(rec.symbol)
+        if va is None and rec.symbol.startswith("_"):
+            va = name_to_va.get(rec.symbol[1:])
+        if va in watched_set:
+            out[rec.offset] = va
+    return out
+
+
 def _prove_single(
     cfg: ProjectConfig,
     source_path: Path,
@@ -1198,11 +1293,11 @@ def _prove_single(
     timeout: int,
     loop_bound: int,
     dry_run: bool,
-    json_output: bool,
     *,
     start_offset: int = 0,
     end_offset: int = 0,
     check_edx: bool = False,
+    watched_vas: list[int] | None = None,
 ) -> tuple[bool, str]:
     """Prove a single function and return (proven, message)."""
     symbol = resolve_symbol(ann, source_path)
@@ -1227,6 +1322,7 @@ def _prove_single(
         obj_bytes, reloc_offsets = parse_obj_symbol_bytes(obj_path, symbol)
         if obj_bytes is None:
             return False, f"Symbol '{symbol}' not found in compiled .obj"
+        dir32_watched = _resolve_watched_dir32(obj_path, symbol, cfg, set(watched_vas or []))
 
     # Bytes already match → promote to RELOC/EXACT instead of PROVEN.
     if not (start_offset or end_offset):
@@ -1245,6 +1341,11 @@ def _prove_single(
     prototype = ann.prototype or ""
     arg_constraints = ann.prove_constraints if ann.prove_constraints else None
 
+    # Watched VAs for memory side-effect checking: caller flags + metadata.
+    meta_vas = arg_constraints.get("watched_vas") if arg_constraints else None
+    if isinstance(meta_vas, list):
+        watched_vas = list(watched_vas or []) + [int(v) for v in meta_vas]
+
     # Auto-enable EDX check based on prototype return width
     _cc, _nargs, return_width = _parse_prototype(prototype)
     effective_check_edx = check_edx or (return_width == 64)
@@ -1261,6 +1362,8 @@ def _prove_single(
         start_offset=start_offset,
         end_offset=end_offset,
         check_edx=effective_check_edx,
+        watched_vas=watched_vas,
+        dir32_watched=dir32_watched,
     )
 
     if proven and not dry_run:
@@ -1279,6 +1382,7 @@ def _run_all_batch(
     json_output: bool,
     *,
     check_edx: bool = False,
+    watch_va: list[int] | None = None,
 ) -> None:
     """Batch-prove all NEAR_MATCHING functions."""
     sources = list(iter_sources(cfg.reversed_dir, cfg))
@@ -1326,10 +1430,10 @@ def _run_all_batch(
                 timeout,
                 loop_bound,
                 dry_run,
-                json_output,
                 start_offset=0,
                 end_offset=0,
                 check_edx=check_edx,
+                watched_vas=watch_va,
             )
         except Exception as e:  # noqa: BLE001
             log.debug("Prove failed for %s", src, exc_info=True)

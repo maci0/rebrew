@@ -214,7 +214,7 @@ class TestCallGraphBoost:
         call_map = {0x1000: {0x1010}}  # 0x1000 calls 0x1010
         caller_map = _invert_call_map(call_map)
         # 0x1010 is only called by 0x1000, both in cluster
-        boost, evidence = _call_graph_boost(cluster_vas, call_map, caller_map)
+        boost, evidence = _call_graph_boost(cluster_vas, caller_map)
         assert boost == 0.05
         assert len(evidence) == 1
         assert "static-function signal" in evidence[0]
@@ -224,7 +224,7 @@ class TestCallGraphBoost:
         cluster_vas = {0x1000, 0x1010}
         call_map = {0x2000: {0x1010}}  # external caller
         caller_map = _invert_call_map(call_map)
-        boost, evidence = _call_graph_boost(cluster_vas, call_map, caller_map)
+        boost, evidence = _call_graph_boost(cluster_vas, caller_map)
         assert boost == 0.0
         assert evidence == []
 
@@ -234,12 +234,12 @@ class TestCallGraphBoost:
         # 0x1000 calls all others, all only called internally
         call_map = {0x1000: {0x1010, 0x1020, 0x1030, 0x1040}}
         caller_map = _invert_call_map(call_map)
-        boost, _ = _call_graph_boost(cluster_vas, call_map, caller_map)
+        boost, _ = _call_graph_boost(cluster_vas, caller_map)
         assert boost == 0.10
 
     def test_no_calls_no_boost(self) -> None:
         cluster_vas = {0x1000, 0x1010}
-        boost, evidence = _call_graph_boost(cluster_vas, {}, {})
+        boost, evidence = _call_graph_boost(cluster_vas, {})
         assert boost == 0.0
         assert evidence == []
 

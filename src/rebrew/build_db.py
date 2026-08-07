@@ -63,6 +63,30 @@ def _normalize_cell_row(
     )
 
 
+def _function_stats(
+    c: sqlite3.Cursor, target_name: str
+) -> tuple[int, dict[str, int], dict[str, list[Any]], int]:
+    """Return (total, by_status, by_module, covered_bytes) for a target's functions."""
+    c.execute(
+        "SELECT va, name, size, status, module, symbol, markerType, files "
+        "FROM functions WHERE target = ? AND markerType NOT IN ('GLOBAL', 'DATA') ORDER BY va",
+        (target_name,),
+    )
+    total: int = 0
+    by_status: dict[str, int] = {}
+    by_module: dict[str, list[Any]] = {}
+    covered_bytes: int = 0
+    for fn in c.fetchall():
+        st = fn[3] or "UNKNOWN"
+        by_status[st] = by_status.get(st, 0) + 1
+        mod = fn[4] or "GAME"
+        by_module.setdefault(mod, []).append(fn)
+        size = fn[2]
+        if st != "none":  # Only count non-none functions towards coverage
+            covered_bytes += size if size is not None else 0
+    return total, by_status, by_module, covered_bytes
+
+
 def _resolve_db_dir(root_dir: Path, *, json_output: bool = False) -> Path:
     """Return the configured database directory, falling back when no config exists."""
     if not (root_dir / "rebrew-project.toml").exists():
@@ -485,26 +509,7 @@ def build_db(
                     cell_rows,
                 )
 
-            # Calculate function stats for metadata
-            c.execute(
-                "SELECT va, name, size, status, module, symbol, markerType, files "
-                "FROM functions WHERE target = ? AND markerType NOT IN ('GLOBAL', 'DATA') ORDER BY va",
-                (target_name,),
-            )
-            functions = c.fetchall()
-
-            total: int = len(functions)
-            by_status: dict[str, int] = {}
-            by_module: dict[str, list[Any]] = {}
-            covered_bytes_func: int = 0
-            for fn in functions:
-                st = fn[3] or "UNKNOWN"
-                by_status[st] = by_status.get(st, 0) + 1
-                mod = fn[4] or "GAME"  # module is at index 4
-                by_module.setdefault(mod, []).append(fn)
-                size = fn[2]  # size is at index 2
-                if st != "none":  # Only count non-none functions towards coverage
-                    covered_bytes_func += size if size is not None else 0
+            total, by_status, by_module, covered_bytes_func = _function_stats(c, target_name)
 
             text_section_data = data.get("sections", {}).get(".text", {})
             total_bytes: int = text_section_data.get("size", 0)
@@ -630,27 +635,7 @@ def _generate_catalogs(
         except (json.JSONDecodeError, TypeError):
             summary = {}
 
-        # Get all functions
-        c.execute(
-            "SELECT va, name, size, status, module, symbol, markerType, files "
-            "FROM functions WHERE target = ? AND markerType NOT IN ('GLOBAL', 'DATA') ORDER BY va",
-            (target_name,),
-        )
-        functions = c.fetchall()
-
-        # Compute stats
-        total: int = len(functions)
-        by_status: dict[str, int] = {}
-        by_module: dict[str, list[Any]] = {}
-        covered_bytes_func: int = 0
-        for fn in functions:
-            st = fn[3] or "UNKNOWN"
-            by_status[st] = by_status.get(st, 0) + 1
-            mod = fn[4] or "GAME"
-            by_module.setdefault(mod, []).append(fn)
-            size = fn[2]
-            if st != "none":  # Only count non-none functions towards coverage
-                covered_bytes_func += size if size is not None else 0
+        total, by_status, by_module, covered_bytes_func = _function_stats(c, target_name)
 
         text_summary = summary.get(".text", {})
         text_size: int = text_summary.get("size", 0)

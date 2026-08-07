@@ -121,7 +121,6 @@ def _find_root(*, json_mode: bool = False) -> Path:
             "Run this command from within a rebrew project, or use 'rebrew init' first.",
             json_mode=json_mode,
         )
-        raise AssertionError("unreachable")
 
 
 def _load_toml(
@@ -142,15 +141,12 @@ def _save_toml(doc: tomlkit.TOMLDocument, path: Path) -> None:
     atomic_write_text(path, tomlkit.dumps(doc), encoding="utf-8")
 
 
-def _resolve_target(
-    doc: tomlkit.TOMLDocument, target: str | None, *, json_mode: bool = False
-) -> str:
+def _resolve_target(doc: tomlkit.TOMLDocument, target: str | None) -> str:
     """Resolve a target name: use given name, project default, or first target."""
     targets = doc.get("targets", {})
     if not targets:
         error_exit(
-            "No [targets] section in rebrew-project.toml. Add one with 'rebrew cfg add-target'.",
-            json_mode=json_mode,
+            "No [targets] section in rebrew-project.toml. Add one with 'rebrew cfg add-target'."
         )
     if target is None:
         project = doc.get("project", {})
@@ -159,7 +155,7 @@ def _resolve_target(
         if target is None:
             target = next(iter(targets))
     if target not in targets:
-        error_exit(f"Target '{target}' not found. Available: {list(targets)}", json_mode=json_mode)
+        error_exit(f"Target '{target}' not found. Available: {list(targets)}")
     return target
 
 

@@ -14,6 +14,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+from rebrew.c_parser import _get_parser
+
 _PTR_NOSPACE_RE = re.compile(r"([a-zA-Z0-9_])\*")
 _CALLING_CONV_RE = re.compile(r"\b__(?:cdecl|stdcall|fastcall|thiscall)\b\s*")
 _DECLSPEC_RE = re.compile(r"__declspec\s*\(\s*\w+\s*\)\s*")
@@ -40,23 +42,12 @@ def _normalize_signature(sig: str) -> str:
     return sig.strip()
 
 
-_ts_parser: Any = None
-_ts_language: Any = None
-
-
 def _get_ts_parser() -> tuple[Any, Any] | None:
     """Return a cached (parser, language) pair, or None if tree-sitter is unavailable."""
-    global _ts_parser, _ts_language  # noqa: PLW0603
-    if _ts_parser is not None:
-        return _ts_parser, _ts_language
     try:
-        import tree_sitter_c
-        from tree_sitter import Language, Parser
+        return _get_parser()
     except ImportError:
         return None
-    _ts_language = Language(tree_sitter_c.language())
-    _ts_parser = Parser(_ts_language)
-    return _ts_parser, _ts_language
 
 
 def extract_function_signatures(filepath: Path) -> Iterator[tuple[str, str]]:

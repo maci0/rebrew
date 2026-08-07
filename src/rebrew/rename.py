@@ -41,11 +41,9 @@ console = Console(stderr=True)
 def rename_function_everywhere(
     cfg: ProjectConfig,
     filepath: Path,
-    va: int,
     old_name: str,
     old_sym: str,
     target_func: str,
-    target_sym: str,
     rename_file: bool = True,
     new_filename: str | None = None,
     dry_run: bool = False,
@@ -198,11 +196,9 @@ def main(
         updated = rename_function_everywhere(
             cfg=cfg,
             filepath=filepath,
-            va=va,
             old_name=old_name,
             old_sym=old_sym,
             target_func=target_func,
-            target_sym=f"_{new_name}",
             rename_file=True,
             new_filename=new_file,
             dry_run=dry_run,

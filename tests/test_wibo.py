@@ -34,6 +34,35 @@ class _FakeHTTPResponse:
             raise RuntimeError(f"HTTP {self.status_code}")
 
 
+def _release_payload(digest: str) -> str:
+    """Build the GitHub release metadata payload used by download_wibo tests."""
+    return json.dumps(
+        {
+            "tag_name": "v0.9.0",
+            "assets": [
+                {
+                    "name": "wibo-x86_64",
+                    "browser_download_url": "https://example.invalid/wibo-x86_64",
+                    "digest": f"sha256:{digest}",
+                }
+            ],
+        }
+    )
+
+
+def _mock_wibo_http(monkeypatch: pytest.MonkeyPatch, payload: str, binary: bytes) -> None:
+    """Patch platform + httpx.get so download_wibo fetches *payload*/*binary*."""
+    monkeypatch.setattr(sys, "platform", "linux", raising=False)
+    monkeypatch.setattr("platform.machine", lambda: "x86_64")
+
+    def _fake_httpx_get(url: str, **kwargs: object) -> _FakeHTTPResponse:
+        if url == _WIBO_API_URL:
+            return _FakeHTTPResponse(payload)
+        return _FakeHTTPResponse(binary)
+
+    monkeypatch.setattr("rebrew.wibo.httpx.get", _fake_httpx_get)
+
+
 class TestWiboAssetName:
     def test_linux_x86_64(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(sys, "platform", "linux", raising=False)
@@ -83,29 +112,7 @@ class TestDownloadWibo:
         dest = tmp_path / "tools" / "wibo"
         fake_binary = b"fake-wibo-binary"
         digest = hashlib.sha256(fake_binary).hexdigest()
-
-        payload = json.dumps(
-            {
-                "tag_name": "v0.9.0",
-                "assets": [
-                    {
-                        "name": "wibo-x86_64",
-                        "browser_download_url": "https://example.invalid/wibo-x86_64",
-                        "digest": f"sha256:{digest}",
-                    }
-                ],
-            }
-        )
-
-        monkeypatch.setattr(sys, "platform", "linux", raising=False)
-        monkeypatch.setattr("platform.machine", lambda: "x86_64")
-
-        def _fake_httpx_get(url: str, **kwargs: object) -> _FakeHTTPResponse:
-            if url == _WIBO_API_URL:
-                return _FakeHTTPResponse(payload)
-            return _FakeHTTPResponse(fake_binary)
-
-        monkeypatch.setattr("rebrew.wibo.httpx.get", _fake_httpx_get)
+        _mock_wibo_http(monkeypatch, _release_payload(digest), fake_binary)
 
         version = download_wibo(dest)
         assert version == "v0.9.0"
@@ -117,29 +124,7 @@ class TestDownloadWibo:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         dest = tmp_path / "tools" / "wibo"
-
-        payload = json.dumps(
-            {
-                "tag_name": "v0.9.0",
-                "assets": [
-                    {
-                        "name": "wibo-x86_64",
-                        "browser_download_url": "https://example.invalid/wibo-x86_64",
-                        "digest": "sha256:" + ("0" * 64),
-                    }
-                ],
-            }
-        )
-
-        monkeypatch.setattr(sys, "platform", "linux", raising=False)
-        monkeypatch.setattr("platform.machine", lambda: "x86_64")
-
-        def _fake_httpx_get(url: str, **kwargs: object) -> _FakeHTTPResponse:
-            if url == _WIBO_API_URL:
-                return _FakeHTTPResponse(payload)
-            return _FakeHTTPResponse(b"wrong-binary")
-
-        monkeypatch.setattr("rebrew.wibo.httpx.get", _fake_httpx_get)
+        _mock_wibo_http(monkeypatch, _release_payload("0" * 64), b"wrong-binary")
 
         with pytest.raises(RuntimeError, match="SHA256 mismatch"):
             download_wibo(dest)
@@ -177,26 +162,7 @@ class TestDownloadWibo:
         dest = tmp_path / "tools" / "wibo"
         fake_binary = b"fake-wibo-binary"
         digest = hashlib.sha256(fake_binary).hexdigest()
-        payload = json.dumps(
-            {
-                "tag_name": "v0.9.0",
-                "assets": [
-                    {
-                        "name": "wibo-x86_64",
-                        "browser_download_url": "https://example.invalid/wibo-x86_64",
-                        "digest": f"sha256:{digest}",
-                    }
-                ],
-            }
-        )
-
-        monkeypatch.setattr(sys, "platform", "linux", raising=False)
-        monkeypatch.setattr("platform.machine", lambda: "x86_64")
-
-        def _fake_httpx_get(url: str, **kwargs: object) -> _FakeHTTPResponse:
-            if url == _WIBO_API_URL:
-                return _FakeHTTPResponse(payload)
-            return _FakeHTTPResponse(fake_binary)
+        _mock_wibo_http(monkeypatch, _release_payload(digest), fake_binary)
 
         real_close = wibo_mod.os.close
         closed_fds: list[int] = []
@@ -208,7 +174,6 @@ class TestDownloadWibo:
             closed_fds.append(fd)
             real_close(fd)
 
-        monkeypatch.setattr("rebrew.wibo.httpx.get", _fake_httpx_get)
         monkeypatch.setattr("rebrew.wibo.os.fdopen", _fake_fdopen)
         monkeypatch.setattr("rebrew.wibo.os.close", _recording_close)
 

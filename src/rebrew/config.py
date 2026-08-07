@@ -154,7 +154,6 @@ class ProjectConfig:
     game_range_end: int | None = None
     iat_thunks: list[int] = field(default_factory=list)
     dll_exports: dict[int, str] = field(default_factory=dict)
-    zlib_vas: list[int] = field(default_factory=list)
     ignored_symbols: list[str] = field(default_factory=list)
     compiler_profiles: dict[str, dict[str, str]] = field(
         default_factory=dict
@@ -505,7 +504,6 @@ _KNOWN_TARGET_KEYS = {
     "game_range_end",
     "iat_thunks",
     "dll_exports",
-    "zlib_vas",
     "ignored_symbols",
     "library_modules",
     "crt_sources",
@@ -709,7 +707,6 @@ def load_config(
         game_range_end=_parse_optional_int(tgt.get("game_range_end"), "game_range_end"),
         iat_thunks=_parse_int_list(tgt.get("iat_thunks", []), "iat_thunks"),
         dll_exports=_parse_hex_dict(tgt.get("dll_exports", {})),
-        zlib_vas=_parse_int_list(tgt.get("zlib_vas", []), "zlib_vas"),
         ignored_symbols=_parse_str_list(tgt.get("ignored_symbols", []), "ignored_symbols"),
         compiler_profiles=compiler_profiles,
         library_modules=set(_parse_str_list(tgt.get("library_modules", []), "library_modules")),

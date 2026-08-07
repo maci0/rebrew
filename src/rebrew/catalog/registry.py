@@ -249,3 +249,25 @@ def build_function_registry(
         entry["size_reason"] = reason
 
     return registry
+
+
+def count_detection_sources(registry: dict[int, RegistryEntry]) -> tuple[int, int, int, int]:
+    """Count ghidra/list/both/thunk detection breakdown across registry entries.
+
+    Shared by the catalog CLI and ``rebrew verify`` summary output so both
+    surfaces report identical source statistics.
+    """
+    ghidra_count = list_count = both_count = thunk_count = 0
+    for entry in registry.values():
+        detected = entry["detected_by"]
+        has_ghidra = "ghidra" in detected
+        has_list = "list" in detected
+        if has_ghidra:
+            ghidra_count += 1
+        if has_list:
+            list_count += 1
+        if has_ghidra and has_list:
+            both_count += 1
+        if entry["is_thunk"]:
+            thunk_count += 1
+    return ghidra_count, list_count, both_count, thunk_count

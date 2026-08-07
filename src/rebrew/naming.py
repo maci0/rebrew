@@ -23,19 +23,6 @@ from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va
 from rebrew.cli import MIN_VALID_VA
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 
-#: Uncovered function descriptor for triage/ranking.
-#:
-#: Fields: ``(difficulty, size, va, name, reason, neighbor_file, similarity)``
-#:
-#: - *difficulty*: estimated matching difficulty (lower = easier)
-#: - *size*: function byte size
-#: - *va*: virtual address
-#: - *name*: function name (from Ghidra or auto-generated)
-#: - *reason*: why the function is uncovered
-#: - *neighbor_file*: source file of nearest matched neighbor, or ``None``
-#: - *similarity*: 0.0–1.0 byte similarity to nearest matched neighbor
-UncoveredItem = tuple[int, int, int, str, str, str | None, float]
-
 # ---------------------------------------------------------------------------
 # Unmatchable function detection
 # ---------------------------------------------------------------------------

@@ -76,19 +76,15 @@ def classify_blockers(diff_summary: dict[str, Any]) -> list[str]:
             else:
                 blockers.add("loop rotation / branch layout")
 
-        # Zero-extend patterns
         if ("xor" in t_mnem and "mov" in c_mnem) or ("mov" in t_mnem and "xor" in c_mnem):
             blockers.add("zero-extend pattern (xor vs mov)")
 
-        # Comparison direction swap
         if t_mnem == "cmp" and c_mnem == "cmp" and t_asm != c_asm:
             blockers.add("comparison direction swap")
 
-        # Stack frame choice
         if ("push" in t_mnem and "sub esp" in c_asm) or ("sub esp" in t_asm and "push" in c_mnem):
             blockers.add("stack frame choice (push vs sub esp)")
 
-        # Instruction folding (lea vs mov)
         if ("lea" in t_mnem and "mov" in c_mnem) or ("mov" in t_mnem and "lea" in c_mnem):
             blockers.add("instruction folding (lea vs mov)")
 

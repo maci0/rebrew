@@ -144,7 +144,7 @@ class TestFindDispatchTables:
         }
 
         known = {text_va + 0x100: {"name": "func_a", "status": "RELOC"}}
-        tables = find_dispatch_tables(binary, 0x10000000, sections, known, min_entries=3)
+        tables = find_dispatch_tables(binary, sections, known, min_entries=3)
 
         assert len(tables) == 1
         tbl = tables[0]
@@ -153,7 +153,7 @@ class TestFindDispatchTables:
         assert tbl.entries[0].name == "func_a"
 
     def test_no_text_section(self) -> None:
-        tables = find_dispatch_tables(b"\x00" * 100, 0, {}, {})
+        tables = find_dispatch_tables(b"\x00" * 100, {}, {})
         assert tables == []
 
     def test_min_entries_filter(self) -> None:
@@ -171,5 +171,5 @@ class TestFindDispatchTables:
             ".data": {"va": data_va, "size": 256, "file_offset": data_offset, "raw_size": 256},
         }
 
-        tables = find_dispatch_tables(binary, 0x10000000, sections, {}, min_entries=3)
+        tables = find_dispatch_tables(binary, sections, {}, min_entries=3)
         assert len(tables) == 0

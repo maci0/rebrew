@@ -377,7 +377,7 @@ class TestFindDispatchTables:
 
     def test_no_text_section_returns_empty(self) -> None:
         binary = bytes(64)
-        tables = find_dispatch_tables(binary, 0, {}, {})
+        tables = find_dispatch_tables(binary, {}, {})
         assert tables == []
 
     def test_default_detects_table_of_three(self) -> None:
@@ -385,7 +385,7 @@ class TestFindDispatchTables:
         binary, sections = _make_dispatch_binary(
             self._TEXT_VA, self._TEXT_SIZE, self._DATA_VA, ptrs
         )
-        tables = find_dispatch_tables(binary, 0, sections, {})
+        tables = find_dispatch_tables(binary, sections, {})
         assert len(tables) == 1
         assert tables[0].num_entries == 3
 
@@ -395,7 +395,7 @@ class TestFindDispatchTables:
         binary, sections = _make_dispatch_binary(
             self._TEXT_VA, self._TEXT_SIZE, self._DATA_VA, ptrs
         )
-        tables = find_dispatch_tables(binary, 0, sections, {})
+        tables = find_dispatch_tables(binary, sections, {})
         assert tables == []
 
     def test_custom_min_table_len_raises_threshold(self) -> None:
@@ -404,7 +404,7 @@ class TestFindDispatchTables:
         binary, sections = _make_dispatch_binary(
             self._TEXT_VA, self._TEXT_SIZE, self._DATA_VA, ptrs
         )
-        tables = find_dispatch_tables(binary, 0, sections, {}, min_entries=4)
+        tables = find_dispatch_tables(binary, sections, {}, min_entries=4)
         assert tables == []
 
     def test_custom_min_table_len_lowers_threshold(self) -> None:
@@ -413,7 +413,7 @@ class TestFindDispatchTables:
         binary, sections = _make_dispatch_binary(
             self._TEXT_VA, self._TEXT_SIZE, self._DATA_VA, ptrs
         )
-        tables = find_dispatch_tables(binary, 0, sections, {}, min_entries=2)
+        tables = find_dispatch_tables(binary, sections, {}, min_entries=2)
         assert len(tables) == 1
         assert tables[0].num_entries == 2
 
@@ -423,8 +423,8 @@ class TestFindDispatchTables:
         binary, sections = _make_dispatch_binary(
             self._TEXT_VA, self._TEXT_SIZE, self._DATA_VA, ptrs
         )
-        default_result = find_dispatch_tables(binary, 0, sections, {})
-        none_stride_result = find_dispatch_tables(binary, 0, sections, {}, max_stride=None)
+        default_result = find_dispatch_tables(binary, sections, {})
+        none_stride_result = find_dispatch_tables(binary, sections, {}, max_stride=None)
         assert len(default_result) == len(none_stride_result)
         for dt, nt in zip(default_result, none_stride_result, strict=True):
             assert dt.num_entries == nt.num_entries
@@ -443,11 +443,11 @@ class TestFindDispatchTables:
             self._TEXT_VA, self._TEXT_SIZE, self._DATA_VA, pointers_with_gap
         )
         # Default: gap breaks the run into two tables of 3
-        default_tables = find_dispatch_tables(binary, 0, sections, {})
+        default_tables = find_dispatch_tables(binary, sections, {})
         assert len(default_tables) == 2
 
         # Larger stride: the non-pointer slot is skipped over
-        wide_tables = find_dispatch_tables(binary, 0, sections, {}, max_stride=8)
+        wide_tables = find_dispatch_tables(binary, sections, {}, max_stride=8)
         # The first run of 3 is still detected; stride=8 means the gap slot is
         # consumed in one step, landing back on valid pointers
         assert len(wide_tables) >= 1

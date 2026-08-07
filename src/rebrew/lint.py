@@ -153,9 +153,7 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
     return results
 
 
-def _check_format_warnings(
-    result: LintResult, found_keys: dict[str, str], flags: dict[str, bool]
-) -> bool:
+def _check_format_warnings(result: LintResult, flags: dict[str, bool]) -> bool:
     """Check format-level errors (E001). Returns True if validation should proceed."""
     if not flags["has_new"]:
         result.error(result.marker_line, "E001", "Missing FUNCTION/LIBRARY/STUB annotation")
@@ -464,7 +462,7 @@ def lint_file(
         else:
             result.context_prefix = ""
 
-        if not _check_format_warnings(result, found_keys, flags):
+        if not _check_format_warnings(result, flags):
             continue
 
         if flags["has_new"]:

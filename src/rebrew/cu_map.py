@@ -189,7 +189,6 @@ def _invert_call_map(call_map: dict[int, set[int]]) -> dict[int, set[int]]:
 
 def _call_graph_boost(
     cluster_vas: set[int],
-    call_map: dict[int, set[int]],
     caller_map: dict[int, set[int]],
 ) -> tuple[float, list[str]]:
     """Compute confidence boost from static-function signals.
@@ -296,7 +295,7 @@ def cluster_functions(
         score, evidence = _contiguity_score(gaps)
 
         if call_map:
-            boost, call_evidence = _call_graph_boost(set(vas), call_map, caller_map)
+            boost, call_evidence = _call_graph_boost(set(vas), caller_map)
             score = min(round(score + boost, 2), 1.0)
             evidence.extend(call_evidence)
 

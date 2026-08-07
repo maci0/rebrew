@@ -67,7 +67,7 @@ No conftest.py — tests use `tmp_path` fixture and inline helpers.
 - **Every function signature** must have parameter and return type annotations
 - **PEP 604 unions**: `T | None` not `Optional[T]`; `str | Path` not `Union[str, Path]`
 - **Specific generics**: `dict[int, str]` not bare `dict`; `list[tuple[int, str]]` not `list[tuple]`
-- **Named aliases** for complex types: `UncoveredItem = tuple[int, int, int, str, str, str | None, float]`
+- **Named aliases** for complex types: `RelocInput = list[int] | dict[int, str] | Sequence[CoffRelocRecord] | None`
 - **Config params**: Type as `ProjectConfig` (from `rebrew.config`), use `getattr(cfg, "field", default)` for defensive access
 - **`Any` over `object`**: `object` is too restrictive (no attribute access)
 
