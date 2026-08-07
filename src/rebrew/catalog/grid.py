@@ -96,24 +96,19 @@ def _build_label_index(
 
 def _find_ghidra_data_label(
     va: int,
-    data_labels: dict[int, "GhidraDataLabel"],
-    _label_index: tuple[list[int], list[tuple[int, "GhidraDataLabel"]]] | None = None,
+    _label_index: tuple[list[int], list[tuple[int, "GhidraDataLabel"]]] | None,
 ) -> tuple[int, "GhidraDataLabel"] | None:
     """Return (label_va, label_dict) if *va* falls inside a known Ghidra data label region.
 
-    When *_label_index* is provided (pre-built sorted index), uses O(log n)
-    bisect lookup instead of linear scan.
+    Uses O(log n) bisect lookup against a pre-built sorted index
+    (see :func:`_build_label_index`).  Pass ``None`` when no labels exist.
     """
-    if _label_index is not None:
-        starts, info = _label_index
-        idx = bisect.bisect_right(starts, va) - 1
-        if idx >= 0:
-            dl_va, dl_info = info[idx]
-            if dl_va <= va < dl_va + dl_info.size:
-                return dl_va, dl_info
+    if _label_index is None:
         return None
-    # Fallback to linear scan
-    for dl_va, dl_info in data_labels.items():
+    starts, info = _label_index
+    idx = bisect.bisect_right(starts, va) - 1
+    if idx >= 0:
+        dl_va, dl_info = info[idx]
         if dl_va <= va < dl_va + dl_info.size:
             return dl_va, dl_info
     return None
@@ -365,9 +360,7 @@ def generate_data_json(
                     absorb_size = 0
 
                     # Check Ghidra data labels at gap start
-                    dl_result = _find_ghidra_data_label(
-                        sec_va + func_end_off, ghidra_data_labels, _label_index=label_index
-                    )
+                    dl_result = _find_ghidra_data_label(sec_va + func_end_off, label_index)
                     is_switch_data = False
                     if dl_result is not None:
                         label_va, dl_info = dl_result
@@ -450,9 +443,7 @@ def generate_data_json(
                 if gap_bytes and trim_trailing_padding(gap_bytes) == 0:
                     gap_state = "padding"
                 else:
-                    dl_result = _find_ghidra_data_label(
-                        sec_va + off, ghidra_data_labels, _label_index=label_index
-                    )
+                    dl_result = _find_ghidra_data_label(sec_va + off, label_index)
                     if dl_result is not None:
                         label_va, dl_info = dl_result
                         gap_state = dl_info.state

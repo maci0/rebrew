@@ -198,7 +198,7 @@ class TestGenerateSkeletonWithDecomp:
         cfg.cflags_presets = {"GAME": "/O2 /Gd"}
         cfg.target_binary = Path("/fake/bin")
 
-        result = generate_skeleton(cfg, 0x10001000, 100, "FUN_10001000", "GAME")
+        result = generate_skeleton(cfg, 0x10001000, "FUN_10001000", "GAME")
         assert "/* TODO:" in result
         assert "Decompilation" not in result
 
@@ -213,7 +213,6 @@ class TestGenerateSkeletonWithDecomp:
         result = generate_skeleton(
             cfg,
             0x10001000,
-            100,
             "FUN_10001000",
             "GAME",
             decomp_code="int foo() { return 42; }",
@@ -236,7 +235,6 @@ class TestGenerateSkeletonWithDecomp:
         result = generate_skeleton(
             cfg,
             0x1001E000,
-            50,
             "crt_init",
             "MSVCRT",
             decomp_code="void crt_init() {}",

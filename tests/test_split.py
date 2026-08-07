@@ -47,14 +47,23 @@ def _multi_two() -> str:
     )
 
 
+def _invoke(
+    tmp_path: Path, monkeypatch: Any, *args: str, name: str = "multi.c"
+) -> tuple[Any, Path]:
+    """Run the split CLI, returning (result, source path)."""
+    src = tmp_path / name
+    monkeypatch.setattr(
+        "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+    )
+    result = runner.invoke(app, [*args, str(src)])
+    return result, src
+
+
 class TestSplitBasic:
     def test_splits_two_functions(self, tmp_path: Path, monkeypatch: Any) -> None:
-        src = _write(tmp_path / "multi.c", _multi_two())
-        monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
+        _write(tmp_path / "multi.c", _multi_two())
 
-        result = runner.invoke(app, [str(src)])
+        result, src = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0
         assert (tmp_path / "func_a.c").exists()
         assert (tmp_path / "func_b.c").exists()
@@ -84,12 +93,9 @@ class TestSplitBasic:
             "\n"
             "int b(void) { return MAGIC; }\n"
         )
-        src = _write(tmp_path / "multi.c", content)
-        monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
+        _write(tmp_path / "multi.c", content)
 
-        result = runner.invoke(app, [str(src)])
+        result, src = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0
         a_text = (tmp_path / "a.c").read_text(encoding="utf-8")
         b_text = (tmp_path / "b.c").read_text(encoding="utf-8")
@@ -99,12 +105,9 @@ class TestSplitBasic:
         assert "#define MAGIC 7" in b_text
 
     def test_uses_symbol_for_filename(self, tmp_path: Path, monkeypatch: Any) -> None:
-        src = _write(tmp_path / "multi.c", _multi_two())
-        monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
+        _write(tmp_path / "multi.c", _multi_two())
 
-        result = runner.invoke(app, [str(src)])
+        result, src = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0
         assert (tmp_path / "func_a.c").exists()
         assert (tmp_path / "func_b.c").exists()
@@ -131,24 +134,18 @@ class TestSplitBasic:
             "\n"
             "int named(void) { return 0; }\n"
         )
-        src = _write(tmp_path / "multi.c", content)
-        monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
+        _write(tmp_path / "multi.c", content)
 
-        result = runner.invoke(app, [str(src)])
+        result, src = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0
         # Name derived from C definition, not VA fallback
         assert (tmp_path / "first.c").exists()
         assert (tmp_path / "named.c").exists()
 
     def test_dry_run_does_not_create_files(self, tmp_path: Path, monkeypatch: Any) -> None:
-        src = _write(tmp_path / "multi.c", _multi_two())
-        monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
+        _write(tmp_path / "multi.c", _multi_two())
 
-        result = runner.invoke(app, ["--dry-run", str(src)])
+        result, src = _invoke(tmp_path, monkeypatch, "--dry-run")
         assert result.exit_code == 0
         assert not (tmp_path / "func_a.c").exists()
         assert not (tmp_path / "func_b.c").exists()
@@ -166,48 +163,36 @@ class TestSplitBasic:
             "\n"
             "int only(void) { return 0; }\n"
         )
-        src = _write(tmp_path / "single.c", content)
-        monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
+        _write(tmp_path / "single.c", content)
 
-        result = runner.invoke(app, [str(src)])
+        result, src = _invoke(tmp_path, monkeypatch, name="single.c")
         assert result.exit_code != 0
         assert "at least two // FUNCTION: blocks" in result.output
 
     def test_errors_when_output_exists_without_force(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
-        src = _write(tmp_path / "multi.c", _multi_two())
+        _write(tmp_path / "multi.c", _multi_two())
         _write(tmp_path / "func_a.c", "stale\n")
-        monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
 
-        result = runner.invoke(app, [str(src)])
+        result, src = _invoke(tmp_path, monkeypatch)
         assert result.exit_code != 0
         assert "Output file already exists" in result.output
 
     def test_force_overwrites_existing_files(self, tmp_path: Path, monkeypatch: Any) -> None:
-        src = _write(tmp_path / "multi.c", _multi_two())
+        _write(tmp_path / "multi.c", _multi_two())
         existing = _write(tmp_path / "func_a.c", "stale\n")
-        monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
 
-        result = runner.invoke(app, ["--force", str(src)])
+        result, src = _invoke(tmp_path, monkeypatch, "--force")
         assert result.exit_code == 0
         assert "// FUNCTION: SERVER 0x10001000" in existing.read_text(encoding="utf-8")
 
     def test_json_output_structure(self, tmp_path: Path, monkeypatch: Any) -> None:
-        src = _write(tmp_path / "multi.c", _multi_two())
+        _write(tmp_path / "multi.c", _multi_two())
         payloads: list[dict[str, Any]] = []
-        monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
         monkeypatch.setattr("rebrew.split.json_print", lambda data: payloads.append(data))
 
-        result = runner.invoke(app, ["--json", str(src)])
+        result, src = _invoke(tmp_path, monkeypatch, "--json")
         assert result.exit_code == 0
         assert len(payloads) == 1
         payload = payloads[0]
@@ -245,13 +230,9 @@ class TestSplitBasic:
             "\n"
             "int server_b(void) { return 0; }\n"
         )
-        src = _write(tmp_path / "multi.c", content)
-        monkeypatch.setattr(
-            "rebrew.split.require_config",
-            lambda target=None, json_mode=False: _make_cfg(tmp_path, marker="SERVER"),
-        )
+        _write(tmp_path / "multi.c", content)
 
-        result = runner.invoke(app, [str(src)])
+        result, src = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0
         assert (tmp_path / "server_a.c").exists()
         assert (tmp_path / "server_b.c").exists()
@@ -262,12 +243,9 @@ class TestSplitExtractVA:
     """Tests for --va single-function extraction mode."""
 
     def test_extracts_single_function_with_preamble(self, tmp_path: Path, monkeypatch: Any) -> None:
-        src = _write(tmp_path / "multi.c", _multi_two())
-        monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
+        _write(tmp_path / "multi.c", _multi_two())
 
-        result = runner.invoke(app, ["--va", "0x10001000", "--force", str(src)])
+        result, src = _invoke(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
         assert result.exit_code == 0
         out = tmp_path / "multi_c" / "func_a.c"
         assert out.exists()
@@ -277,12 +255,9 @@ class TestSplitExtractVA:
         assert "int func_a(void)" in content
 
     def test_removes_extracted_block_from_source(self, tmp_path: Path, monkeypatch: Any) -> None:
-        src = _write(tmp_path / "multi.c", _multi_two())
-        monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
+        _write(tmp_path / "multi.c", _multi_two())
 
-        result = runner.invoke(app, ["--va", "0x10001000", "--force", str(src)])
+        result, src = _invoke(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
         assert result.exit_code == 0
         remaining = src.read_text(encoding="utf-8")
         assert "0x10001000" not in remaining
@@ -290,49 +265,37 @@ class TestSplitExtractVA:
         assert "#include <stdio.h>" in remaining
 
     def test_dry_run_does_not_modify_files(self, tmp_path: Path, monkeypatch: Any) -> None:
-        src = _write(tmp_path / "multi.c", _multi_two())
-        original = src.read_text(encoding="utf-8")
-        monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
+        _write(tmp_path / "multi.c", _multi_two())
+        original = (tmp_path / "multi.c").read_text(encoding="utf-8")
 
-        result = runner.invoke(app, ["--dry-run", "--va", "0x10001000", str(src)])
+        result, src = _invoke(tmp_path, monkeypatch, "--dry-run", "--va", "0x10001000")
         assert result.exit_code == 0
         assert not (tmp_path / "multi_c" / "func_a.c").exists()
         assert src.read_text(encoding="utf-8") == original
 
     def test_errors_on_unknown_va(self, tmp_path: Path, monkeypatch: Any) -> None:
-        src = _write(tmp_path / "multi.c", _multi_two())
-        monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
+        _write(tmp_path / "multi.c", _multi_two())
 
-        result = runner.invoke(app, ["--va", "0xDEADBEEF", str(src)])
+        result, src = _invoke(tmp_path, monkeypatch, "--va", "0xDEADBEEF")
         assert result.exit_code != 0
         assert "No function block found" in result.output
 
     def test_errors_on_invalid_hex_va(self, tmp_path: Path, monkeypatch: Any) -> None:
         """Non-hex --va should produce a clear error, not a traceback."""
-        src = _write(tmp_path / "multi.c", _multi_two())
-        monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
+        _write(tmp_path / "multi.c", _multi_two())
 
-        result = runner.invoke(app, ["--va", "not_hex", str(src)])
+        result, src = _invoke(tmp_path, monkeypatch, "--va", "not_hex")
         assert result.exit_code != 0
         assert "Invalid VA" in result.output
 
     def test_va_force_overwrites(self, tmp_path: Path, monkeypatch: Any) -> None:
         """--va --force should overwrite an existing extracted file."""
-        src = _write(tmp_path / "multi.c", _multi_two())
+        _write(tmp_path / "multi.c", _multi_two())
         out_dir = tmp_path / "multi_c"
         out_dir.mkdir()
         _write(out_dir / "func_a.c", "stale\n")
-        monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
 
-        result = runner.invoke(app, ["--va", "0x10001000", "--force", str(src)])
+        result, src = _invoke(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
         assert result.exit_code == 0
         content = (out_dir / "func_a.c").read_text(encoding="utf-8")
         assert "// FUNCTION: SERVER 0x10001000" in content
@@ -351,26 +314,22 @@ class TestSplitExtractVA:
             "\n"
             "int only(void) { return 0; }\n"
         )
-        src = _write(tmp_path / "single.c", content)
-        monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
+        _write(tmp_path / "single.c", content)
 
-        result = runner.invoke(app, ["--va", "0x10001000", "--force", str(src)])
+        result, src = _invoke(
+            tmp_path, monkeypatch, "--va", "0x10001000", "--force", name="single.c"
+        )
         assert result.exit_code == 0
         assert (tmp_path / "single_c" / "only.c").exists()
         assert not src.exists()  # source deleted when no blocks remain
 
     def test_va_json_output(self, tmp_path: Path, monkeypatch: Any) -> None:
         """--va --json should produce correct structured output."""
-        src = _write(tmp_path / "multi.c", _multi_two())
+        _write(tmp_path / "multi.c", _multi_two())
         payloads: list[dict[str, Any]] = []
-        monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
         monkeypatch.setattr("rebrew.split.json_print", lambda data: payloads.append(data))
 
-        result = runner.invoke(app, ["--json", "--va", "0x10001000", "--force", str(src)])
+        result, src = _invoke(tmp_path, monkeypatch, "--json", "--va", "0x10001000", "--force")
         assert result.exit_code == 0
         assert len(payloads) == 1
         payload = payloads[0]
@@ -384,13 +343,9 @@ class TestSplitExtractVA:
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
         """--va --json should not wait for an interactive destructive prompt."""
-        src = _write(tmp_path / "multi.c", _multi_two())
-        monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
+        _write(tmp_path / "multi.c", _multi_two())
 
-        result = runner.invoke(app, ["--json", "--va", "0x10001000", str(src)])
-
+        result, src = _invoke(tmp_path, monkeypatch, "--json", "--va", "0x10001000")
         assert result.exit_code != 0
         assert "Pass --force" in result.output
         assert "0x10001000" in src.read_text(encoding="utf-8")
@@ -398,14 +353,11 @@ class TestSplitExtractVA:
 
     def test_va_with_output_dir_override(self, tmp_path: Path, monkeypatch: Any) -> None:
         """--va with --output-dir should use the override directory."""
-        src = _write(tmp_path / "multi.c", _multi_two())
+        _write(tmp_path / "multi.c", _multi_two())
         custom_dir = tmp_path / "custom_out"
-        monkeypatch.setattr(
-            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
-        )
 
-        result = runner.invoke(
-            app, ["--va", "0x10001000", "--force", "--out-dir", str(custom_dir), str(src)]
+        result, src = _invoke(
+            tmp_path, monkeypatch, "--va", "0x10001000", "--force", "--out-dir", str(custom_dir)
         )
         assert result.exit_code == 0
         assert (custom_dir / "func_a.c").exists()

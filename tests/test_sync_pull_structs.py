@@ -66,28 +66,28 @@ class TestInferStructModule:
     """Tests for the _infer_struct_module() helper."""
 
     def test_namespace_field(self) -> None:
-        assert _infer_struct_module("Foo", {"namespace": "server"}) == "SERVER"
+        assert _infer_struct_module({"namespace": "server"}) == "SERVER"
 
     def test_category_field(self) -> None:
-        assert _infer_struct_module("Foo", {"category": "Client"}) == "CLIENT"
+        assert _infer_struct_module({"category": "Client"}) == "CLIENT"
 
     def test_category_path_strips_leading_slash(self) -> None:
-        assert _infer_struct_module("Foo", {"categoryPath": "/Engine/Types"}) == "ENGINE"
+        assert _infer_struct_module({"categoryPath": "/Engine/Types"}) == "ENGINE"
 
     def test_category_path_no_leading_slash(self) -> None:
-        assert _infer_struct_module("Foo", {"categoryPath": "Engine/Types"}) == "ENGINE"
+        assert _infer_struct_module({"categoryPath": "Engine/Types"}) == "ENGINE"
 
     def test_no_fields_returns_none(self) -> None:
-        assert _infer_struct_module("Foo", {"size": 8}) is None
+        assert _infer_struct_module({"size": 8}) is None
 
     def test_non_dict_returns_none(self) -> None:
-        assert _infer_struct_module("Foo", "typedef struct Foo {};") is None
+        assert _infer_struct_module("typedef struct Foo {};") is None
 
     def test_empty_namespace_returns_none(self) -> None:
-        assert _infer_struct_module("Foo", {"namespace": ""}) is None
+        assert _infer_struct_module({"namespace": ""}) is None
 
     def test_slash_only_returns_none(self) -> None:
-        assert _infer_struct_module("Foo", {"namespace": "/"}) is None
+        assert _infer_struct_module({"namespace": "/"}) is None
 
 
 # ---------------------------------------------------------------------------

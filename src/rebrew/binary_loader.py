@@ -26,6 +26,12 @@ _MAX_BINARY_SIZE = 512 * 1024 * 1024  # 512 MB safety limit
 # Shared across catalog, matcher, and binary loader for consistent trimming.
 PADDING_BYTES: tuple[int, ...] = (0xCC, 0x90)
 
+
+def _decode_lief_name(raw: str | bytes) -> str:
+    """Decode a LIEF name, which may be returned as ``bytes`` or ``str``."""
+    return raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw)
+
+
 # ---------------------------------------------------------------------------
 # Data types
 # ---------------------------------------------------------------------------
@@ -96,13 +102,7 @@ def _load_pe(binary: lief.PE.Binary, path: Path) -> BinaryInfo:
     text_raw_offset = 0
 
     for section in binary.sections:
-        raw_name = section.name
-        name = (
-            raw_name.decode("utf-8", errors="replace")
-            if isinstance(raw_name, bytes)
-            else str(raw_name)
-        )
-        name = name.rstrip("\x00")
+        name = _decode_lief_name(section.name).rstrip("\x00")
         va = image_base + section.virtual_address
         vsize = section.virtual_size
         raw_offset = section.pointerto_raw_data
@@ -147,11 +147,7 @@ def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
         raw_name = section.name
         if not raw_name:
             continue
-        name = (
-            raw_name.decode("utf-8", errors="replace")
-            if isinstance(raw_name, bytes)
-            else str(raw_name)
-        )
+        name = _decode_lief_name(raw_name)
         va = section.virtual_address
         vsize = section.size
         raw_offset = section.offset
@@ -211,16 +207,8 @@ def _load_macho(fat_or_binary: lief.MachO.FatBinary | lief.MachO.Binary, path: P
         raw_seg_name = section.segment_name if hasattr(section, "segment_name") else ""
         raw_sec_name = section.name
 
-        seg_name = (
-            raw_seg_name.decode("utf-8", errors="replace")
-            if isinstance(raw_seg_name, bytes)
-            else str(raw_seg_name)
-        )
-        sec_name = (
-            raw_sec_name.decode("utf-8", errors="replace")
-            if isinstance(raw_sec_name, bytes)
-            else str(raw_sec_name)
-        )
+        seg_name = _decode_lief_name(raw_seg_name)
+        sec_name = _decode_lief_name(raw_sec_name)
 
         name = f"{seg_name}.{sec_name}" if seg_name else sec_name
         va = section.virtual_address
@@ -454,13 +442,7 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
         for sec in parsed.sections:
             if not hasattr(sec, "name"):
                 continue
-            raw_name = sec.name
-            sec_name = (
-                raw_name.decode("utf-8", errors="replace")
-                if isinstance(raw_name, bytes)
-                else str(raw_name)
-            )
-            name = sec_name.rstrip("\x00")
+            name = _decode_lief_name(sec.name).rstrip("\x00")
             if name:
                 section_names.append(name)
     except (AttributeError, TypeError):
@@ -479,24 +461,14 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
         if hasattr(parsed, "symbols"):
             for sym in parsed.symbols:
                 if sym.name:
-                    sym_name = (
-                        sym.name.decode("utf-8", errors="replace")
-                        if isinstance(sym.name, bytes)
-                        else str(sym.name)
-                    )
-                    symbols.append(sym_name)
+                    symbols.append(_decode_lief_name(sym.name))
     except (AttributeError, TypeError):
         pass
     try:
         if hasattr(parsed, "exported_functions"):
             for func in parsed.exported_functions:
                 if hasattr(func, "name") and func.name:
-                    func_name = (
-                        func.name.decode("utf-8", errors="replace")
-                        if isinstance(func.name, bytes)
-                        else str(func.name)
-                    )
-                    symbols.append(func_name)
+                    symbols.append(_decode_lief_name(func.name))
     except (AttributeError, TypeError):
         pass
 

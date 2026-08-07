@@ -36,6 +36,7 @@ from rich.text import Text
 from rebrew.annotation import Annotation
 from rebrew.catalog import (
     build_function_registry,
+    count_detection_sources,
     parse_function_list,
     scan_reversed_dir,
 )
@@ -384,7 +385,8 @@ def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str,
         current: The newly generated full JSON results dict.
 
     Returns:
-        A dict containing separated lists of 'regressions', 'fixes', and 'improvements'.
+        A dict with 'regressions', 'improvements', 'new', and 'removed' lists
+        plus an 'unchanged_count'.
 
     """
     previous_results = {
@@ -421,28 +423,20 @@ def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str,
         previous_status = str(previous_item.get("status", "FAIL"))
         previous_rank = _STATUS_RANK.get(previous_status, fail_rank)
 
-        if current_rank < previous_rank:
-            improvements.append(
-                {
-                    "va": va,
-                    "name": str(current_item.get("name") or previous_item.get("name", "")),
-                    "previous_status": previous_status,
-                    "current_status": current_status,
-                    "delta": int(current_item.get("delta", 0)),
-                }
-            )
-        elif current_rank > previous_rank:
-            regressions.append(
-                {
-                    "va": va,
-                    "name": str(current_item.get("name") or previous_item.get("name", "")),
-                    "previous_status": previous_status,
-                    "current_status": current_status,
-                    "delta": int(current_item.get("delta", 0)),
-                }
-            )
-        else:
+        if current_rank == previous_rank:
             unchanged_count += 1
+            continue
+        change = {
+            "va": va,
+            "name": str(current_item.get("name") or previous_item.get("name", "")),
+            "previous_status": previous_status,
+            "current_status": current_status,
+            "delta": int(current_item.get("delta", 0)),
+        }
+        if current_rank < previous_rank:
+            improvements.append(change)
+        else:
+            regressions.append(change)
 
     for va in sorted(previous_results):
         if va in current_results:
@@ -631,7 +625,6 @@ def main(
         total,
         passed,
         failed,
-        json_output,
     )
 
     has_regressions = bool(diff_result and diff_result["regressions"])
@@ -693,19 +686,7 @@ def prepare_entries(
     registry = build_function_registry(funcs, cfg, ghidra_json_path)
 
     unique_vas = {e.va for e in entries}
-    ghidra_count = list_count = both_count = thunk_count = 0
-    for r in registry.values():
-        detected = r["detected_by"]
-        has_ghidra = "ghidra" in detected
-        has_list = "list" in detected
-        if has_ghidra:
-            ghidra_count += 1
-        if has_list:
-            list_count += 1
-        if has_ghidra and has_list:
-            both_count += 1
-        if r["is_thunk"]:
-            thunk_count += 1
+    ghidra_count, list_count, both_count, thunk_count = count_detection_sources(registry)
     console.print(
         f"Found {len(entries)} annotations ({len(unique_vas)} unique VAs) "
         f"from {len(registry)} total functions "
@@ -944,7 +925,6 @@ def _print_results(
     total: int,
     passed: int,
     failed: int,
-    json_output: bool,
 ) -> None:
     """Print diff report, summary table, and failure details."""
     if diff_mode and diff_result is not None:

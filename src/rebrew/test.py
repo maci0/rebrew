@@ -13,6 +13,8 @@ Usage:
 
 import json
 import tempfile
+import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -62,7 +64,6 @@ def _patch_verify_cache(
     new_status: str,
     match_count: int,
     total: int,
-    reloc_count: int = 0,
 ) -> None:
     """Update the verify cache entry for *va* so status/todo stay in sync.
 
@@ -144,6 +145,37 @@ app = typer.Typer(
 )
 
 
+def _watch_loop(source_path: Path, retest: Callable[[], None], interval: float = 1.0) -> None:
+    """Poll source_path and re-run ``retest()`` on every file change.
+
+    Runs until Ctrl+C. A failed single run (``typer.Exit`` from ``error_exit``,
+    e.g. a compile error) does not stop the loop — the user fixes the file and
+    the next save triggers a retest. Missing files are tolerated (editors that
+    delete-and-rename keep working).
+    """
+    try:
+        last_mtime = source_path.stat().st_mtime_ns
+    except FileNotFoundError:
+        last_mtime = 0
+    console.print(f"[dim]Watching {source_path} — re-test on every save (Ctrl+C to stop)...[/dim]")
+    try:
+        while True:
+            time.sleep(interval)
+            try:
+                current = source_path.stat().st_mtime_ns
+            except FileNotFoundError:
+                continue
+            if current == last_mtime:
+                continue
+            last_mtime = current
+            try:
+                retest()
+            except typer.Exit:
+                console.print("[dim]Run failed — waiting for a fix...[/dim]")
+    except KeyboardInterrupt:
+        console.print("[dim]Watch stopped.[/dim]")
+
+
 @app.callback(invoke_without_command=True)
 def main(
     source: str | None = typer.Argument(None, help="C source file (omit with --all)"),
@@ -167,6 +199,9 @@ def main(
         False,
         "--no-promote",
         help="Skip auto-update of STATUS metadata after test (auto-skipped if file is outside project)",
+    ),
+    watch: bool = typer.Option(
+        False, "--watch", help="Watch the source file and re-test on every change"
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -197,11 +232,15 @@ def main(
         batch_dir: Optional subdirectory to restrict batch mode.
         origin: Optional origin filter for batch mode.
         dry_run: List batch candidates without running tests.
+        watch: Re-test the source file on every change (single-file mode only).
         json_output: Emit machine-readable JSON responses.
         target: Optional target profile name from ``rebrew-project.toml``.
 
     """
     cfg = require_config(target=target, json_mode=json_output)
+
+    if watch and all_sources:
+        error_exit("--watch cannot be combined with --all", json_mode=json_output)
 
     if source is not None:
         source_path = Path(source).resolve()
@@ -222,6 +261,30 @@ def main(
         error_exit(
             "Provide a source file, or use --all to batch test all files.", json_mode=json_output
         )
+        return
+
+    if watch:
+
+        def _retest() -> None:
+            # Re-run the full single-file test path; --watch must not nest.
+            main(
+                source=source,
+                va=va,
+                symbol=symbol,
+                target_bin=target_bin,
+                size=size,
+                cflags=cflags,
+                all_sources=False,
+                batch_dir=None,
+                origin=None,
+                dry_run=dry_run,
+                jobs=None,
+                no_promote=no_promote,
+                json_output=json_output,
+                target=target,
+            )
+
+        _watch_loop(source_path, _retest)
         return
 
     # Build name -> VA map for relocation validation (shared with verify).
@@ -372,7 +435,6 @@ def main(
                 new_status,
                 match_count,
                 total,
-                len(relocs) if matched else 0,
             )
             if not json_output:
                 console.print(f"[dim]STATUS → {new_status}[/dim]")
@@ -697,7 +759,6 @@ def _test_multi(
                         new_status,
                         match_count,
                         total,
-                        len(relocs) if matched else 0,
                     )
                     if not json_output:
                         console.print(f"[dim]  STATUS → {new_status}[/dim]")

@@ -47,6 +47,9 @@ from rebrew.catalog.registry import (
     build_function_registry as build_function_registry,
 )
 from rebrew.catalog.registry import (
+    count_detection_sources as count_detection_sources,
+)
+from rebrew.catalog.registry import (
     is_jump_table as is_jump_table,
 )
 from rebrew.catalog.registry import (
@@ -71,6 +74,7 @@ __all__ = [
     "RegistryEntry",
     "app",
     "build_function_registry",
+    "count_detection_sources",
     "extract_dll_bytes",
     "generate_catalog",
     "generate_data_json",

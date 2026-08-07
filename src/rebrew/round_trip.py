@@ -223,18 +223,13 @@ def _extract_string_symbols(obj_path: str | Path, symbol_names: set[str]) -> dic
 def _resolve_string_symbols_in_target(
     target_bytes: bytes,
     str_syms: dict[str, bytes],
-    image_base: int,
     sections: dict[str, SectionInfo],  # SectionInfo dict from BinaryInfo
 ) -> dict[str, int]:
     """Find each string literal in the target's .rdata/.data and return VAs.
 
     *str_syms* values should be NUL-terminated (see :func:`_extract_string_symbols`)
     so a short literal cannot bind to a longer string that shares its prefix.
-
-    *image_base* is accepted for API symmetry with callers; section VAs from
-    :class:`BinaryInfo` are already absolute.
     """
-    _ = image_base
     found: dict[str, int] = {}
     # Scan .rdata and .data sections only.
     candidate_secs = []
@@ -299,9 +294,7 @@ def _run_round_trip(
             if str_syms:
                 if info is None:
                     info = load_binary(cfg.target_binary)
-                resolved = _resolve_string_symbols_in_target(
-                    info.data, str_syms, cfg.image_base, info.sections
-                )
+                resolved = _resolve_string_symbols_in_target(info.data, str_syms, info.sections)
                 extra_string_syms.update(resolved)
                 # Rebuild the resolver to include the new symbols.
                 merged_data = dict(data_by_name)
@@ -312,7 +305,6 @@ def _run_round_trip(
                     text,
                     relocs,
                     resolve_va,
-                    image_base=cfg.image_base,
                     section_va=fn.va,
                 )
             except UnresolvedSymbolError as exc:

@@ -22,7 +22,7 @@ _FUNC_ALIGNMENT = 16
 _MAX_AMBIGUOUS = 3
 
 
-def load_signatures(sig_dir: str, json_output: bool = False) -> list[Any]:
+def load_signatures(sig_dir: str) -> list[Any]:
     """Load all ``.sig`` and ``.pat`` FLIRT signature files from *sig_dir*."""
     console.print(f"Loading signatures from {sig_dir}...")
     sigs: list[Any] = []
@@ -105,7 +105,7 @@ def main(
     final_exe = exe or cfg.target_binary
 
     # 1. Load FLIRT signatures
-    sigs = load_signatures(str(final_sig_dir), json_output=json_output)
+    sigs = load_signatures(str(final_sig_dir))
     if not sigs:
         error_exit("No signatures loaded", json_mode=json_output)
 

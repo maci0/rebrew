@@ -131,7 +131,6 @@ def cmd_extract(
                     console.print(f"[red bold]error:[/red bold] {e}")
                 raise typer.Exit(code=1)
 
-            # Save .bin
             bin_dir.mkdir(parents=True, exist_ok=True)
             bin_path = bin_dir / f"func_0x{va:08X}.bin"
             bin_path.write_bytes(code)
@@ -352,7 +351,6 @@ def show_candidate(
     # even when it is absent from the candidate list (e.g. already-reversed) or
     # when the catalog size is wrong.
     if size is not None:
-        # Replace or prepend an entry with the overridden size.
         candidates = [(target_va, size, f"0x{target_va:08X}")] + [
             c for c in candidates if c[0] != target_va
         ]

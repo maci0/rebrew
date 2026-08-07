@@ -109,9 +109,7 @@ _KNOWN_FORMATS = {"pe", "elf", "macho"}
 _KNOWN_ARCHES = {"x86_32", "x86_64", "arm32", "arm64"}
 
 
-def check_config_parse(
-    root: Path | None, target: str | None
-) -> tuple[CheckResult, ProjectConfig | None]:
+def check_config_parse(target: str | None) -> tuple[CheckResult, ProjectConfig | None]:
     """Check that rebrew-project.toml exists and parses without errors."""
     try:
         cfg = load_config(target=target)
@@ -496,8 +494,7 @@ def run_doctor(target: str | None = None) -> DoctorReport:
     """Run all diagnostic checks and return a report."""
     report = DoctorReport()
 
-    # 1. Config parse
-    config_result, cfg = check_config_parse(root=None, target=target)
+    config_result, cfg = check_config_parse(target=target)
     report.checks.append(config_result)
     if cfg is None:
         report.target = target or "(unknown)"
@@ -505,34 +502,15 @@ def run_doctor(target: str | None = None) -> DoctorReport:
 
     report.target = cfg.target_name
 
-    # 2. Target binary
     report.checks.append(check_target_binary(cfg))
-
-    # 3. Arch / Format
     report.checks.append(check_arch_format(cfg))
-
-    # 4. Compiler
     report.checks.append(check_compiler(cfg))
-
-    # 4b. Runner
     report.checks.append(check_runner(cfg))
-
-    # 5. Include path
     report.checks.append(check_includes(cfg))
-
-    # 6. Lib path
     report.checks.append(check_libs(cfg))
-
-    # 7. Function list
     report.checks.append(check_function_list(cfg))
-
-    # 8. Source files
     report.checks.append(check_source_files(cfg))
-
-    # 9. Bin directory
     report.checks.append(check_bin_dir(cfg))
-
-    # 10. Metadata TOML files
     report.checks.append(check_metadata_files(cfg))
 
     return report
@@ -556,6 +534,13 @@ _STATUS_ICONS = {
     _FAIL: "\u274c",
     _WARN: "\u26a0\ufe0f",
     _SKIP: "\u23ed\ufe0f",
+}
+
+_STATUS_STYLES = {
+    _PASS: "green",
+    _FAIL: "red",
+    _WARN: "yellow",
+    _SKIP: "dim",
 }
 
 app = typer.Typer(
@@ -611,13 +596,6 @@ def main(
     if json_output:
         json_print(report.to_dict())
     else:
-        _STATUS_STYLES = {
-            _PASS: "green",
-            _FAIL: "red",
-            _WARN: "yellow",
-            _SKIP: "dim",
-        }
-
         table = Table(show_header=True, header_style="bold", pad_edge=False)
         table.add_column("", width=2)
         table.add_column("Check", width=20)

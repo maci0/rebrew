@@ -1059,8 +1059,6 @@ def parse_source_metadata(
     if anno.cflags:
         meta["CFLAGS"] = anno.cflags
     # SYMBOL is derived from function name — don't emit as annotation
-    # if anno.symbol:
-    #     meta["SYMBOL"] = anno.symbol
     if anno.blocker:
         meta["BLOCKER"] = anno.blocker
     if anno.source:
@@ -1070,8 +1068,6 @@ def parse_source_metadata(
     if anno.ghidra:
         meta["GHIDRA"] = anno.ghidra
     # PROTOTYPE is derived from C definition — don't emit as annotation
-    # if anno.prototype:
-    #     meta["PROTOTYPE"] = anno.prototype
     if anno.struct:
         meta["STRUCT"] = anno.struct
     if anno.callers:

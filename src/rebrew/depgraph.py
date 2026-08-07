@@ -568,7 +568,6 @@ def main(
 
             dispatch_tables = find_dispatch_tables(
                 info.data,
-                info.image_base,
                 sec_dict,
                 known_functions,
                 min_entries=min_table_len,

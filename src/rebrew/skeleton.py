@@ -114,7 +114,6 @@ def _render_annotation_block(
 def generate_skeleton(
     cfg: ProjectConfig,
     va: int,
-    size: int,
     ghidra_name: str,
     module: str = "",
     custom_name: str | None = None,
@@ -127,7 +126,6 @@ def generate_skeleton(
     Args:
         cfg: Project configuration containing settings and marker rules.
         va: Virtual address of the target function.
-        size: Size of the function in bytes.
         ghidra_name: Name of the function imported from Ghidra.
         module: Module name used for the marker line.
         custom_name: Optional override name for the function.
@@ -163,7 +161,6 @@ def generate_skeleton(
 def generate_annotation_block(
     cfg: ProjectConfig,
     va: int,
-    size: int,
     ghidra_name: str,
     module: str = "",
     custom_name: str | None = None,
@@ -349,9 +346,7 @@ def generate_test_command(filepath: str, symbol: str, va: int, size: int, cflags
     return f'rebrew test {filepath} --symbol {symbol} --va 0x{va:08x} --size {size} --cflags "{cflags}"'
 
 
-def generate_diff_command(
-    cfg: ProjectConfig, filepath: str, symbol: str, va: int, size: int, cflags: str
-) -> str:
+def generate_diff_command(filepath: str, symbol: str, cflags: str) -> str:
     """Generate the rebrew diff command for byte-level comparison."""
     return f'rebrew diff {filepath} --symbol "{symbol}" --cflags "{cflags}"'
 
@@ -489,7 +484,6 @@ def _run_batch_mode(
         content = generate_skeleton(
             cfg,
             va_val,
-            size_val,
             name_val,
             xref_context=xref_context_val,
             decomp_code=d_code,
@@ -567,7 +561,6 @@ def _run_append_mode(
     block = generate_annotation_block(
         cfg,
         va_int,
-        size,
         ghidra_name,
         module_val,
         name,
@@ -642,7 +635,6 @@ def _run_single_va_mode(
     content_val = generate_skeleton(
         cfg,
         va_int,
-        size,
         ghidra_name,
         module_val,
         name,
@@ -657,7 +649,7 @@ def _run_single_va_mode(
     cflags_val = cfg.base_cflags or "/O2 /Gd"
 
     test_cmd = generate_test_command(str(rel_path_val), symbol_val, va_int, size, cflags_val)
-    diff_cmd = generate_diff_command(cfg, str(rel_path_val), symbol_val, va_int, size, cflags_val)
+    diff_cmd = generate_diff_command(str(rel_path_val), symbol_val, cflags_val)
 
     if json_output:
         json_print(

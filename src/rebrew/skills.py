@@ -145,7 +145,6 @@ def show_skill(
             f"Skill '{name}' not found. Available skills: {', '.join(available)}",
             json_mode=json_output,
         )
-        raise AssertionError("unreachable")
 
     text = skill_path.read_text(encoding="utf-8")
 

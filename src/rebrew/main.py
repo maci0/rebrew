@@ -16,7 +16,6 @@ from collections.abc import Callable
 import typer
 from rich.console import Console
 
-from rebrew import cli
 from rebrew.cli import EXIT_ERROR
 
 console = Console(stderr=True)
@@ -83,13 +82,10 @@ def _global_options(
 ) -> None:
     """Compiler-in-the-loop decompilation workbench."""
     if quiet:
-        cli.verbosity = -1
         log_level = logging.WARNING
     elif verbose >= 2:
-        cli.verbosity = verbose
         log_level = logging.DEBUG
     elif verbose == 1:
-        cli.verbosity = verbose
         log_level = logging.INFO
     else:
         log_level = logging.WARNING
@@ -178,6 +174,11 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "catalog",
         "rebrew.catalog",
         "Build coverage catalog, data JSON, CSV/Ghidra exports, and DB.",
+    ),
+    (
+        "similar",
+        "rebrew.similar",
+        "Find structurally similar functions in the target binary.",
     ),
 ]
 

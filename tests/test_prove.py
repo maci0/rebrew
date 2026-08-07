@@ -714,10 +714,18 @@ class TestProveEquivalenceCheckEdxMocked:
         state.solver.constraints = []
         return state
 
-    def test_eax_matches_edx_differs_rejected_with_check_edx(
-        self, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("check_edx", "expect_proven", "expect_edx_in_msg"),
+        [(True, False, True), (False, True, False)],
+    )
+    def test_eax_matches_edx_differs_check_edx_behavior(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        check_edx: bool,
+        expect_proven: bool,
+        expect_edx_in_msg: bool,
     ) -> None:
-        """When EAX matches but EDX differs, check_edx=True must reject the pair."""
+        """EAX matches but EDX differs: rejected when check_edx=True, accepted otherwise."""
         import claripy
 
         import rebrew.prove as prove_mod
@@ -725,15 +733,6 @@ class TestProveEquivalenceCheckEdxMocked:
         state_orig = self._make_mock_state(eax_val=42, edx_val=0)
         state_comp = self._make_mock_state(eax_val=42, edx_val=99)  # EDX differs
 
-        def fake_run_simulation(proj: Any, state: Any) -> list[Any]:  # noqa: ARG001
-            # Alternate between orig and comp based on call order
-            if not hasattr(fake_run_simulation, "_calls"):
-                fake_run_simulation._calls = 0  # type: ignore[attr-defined]
-            fake_run_simulation._calls += 1  # type: ignore[attr-defined]
-            return [state_orig] if fake_run_simulation._calls == 1 else [state_comp]  # type: ignore[attr-defined]
-
-        # We need to monkeypatch claripy.Solver so it uses the real Z3 underneath —
-        # but since we're injecting concrete BVV values, Z3 can evaluate them directly.
         # Patch prove_equivalence on the module to inject concrete states directly,
         # bypassing angr execution entirely.
         def patched_prove(
@@ -751,7 +750,6 @@ class TestProveEquivalenceCheckEdxMocked:
             end_offset: int = 0,
             check_edx: bool = False,
         ) -> tuple[bool, str]:
-            # Inject concrete states directly, bypassing angr execution
             states_orig = [state_orig]
             states_comp = [state_comp]
             cc, arg_count, return_width = prove_mod._parse_prototype(prototype)
@@ -795,81 +793,7 @@ class TestProveEquivalenceCheckEdxMocked:
             b"\xc3",
             None,
             "int __cdecl foo(void)",
-            check_edx=True,
+            check_edx=check_edx,
         )
-        assert not proven, f"Expected not proven but got: {msg}"
-        assert "EAX+EDX" in msg
-
-    def test_eax_matches_edx_differs_accepted_without_check_edx(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """When EAX matches but EDX differs, check_edx=False must accept the pair."""
-        import claripy
-
-        import rebrew.prove as prove_mod
-
-        state_orig = self._make_mock_state(eax_val=42, edx_val=0)
-        state_comp = self._make_mock_state(eax_val=42, edx_val=99)  # EDX differs
-
-        def patched_prove(
-            original_bytes: bytes,
-            compiled_bytes: bytes,
-            reloc_offsets: Any,
-            prototype: str,
-            arch: str = "x86",
-            *,
-            timeout: int = 60,
-            loop_bound: int = 10,
-            binary_path: Any = None,
-            arg_constraints: Any = None,
-            start_offset: int = 0,
-            end_offset: int = 0,
-            check_edx: bool = False,
-        ) -> tuple[bool, str]:
-            states_orig = [state_orig]
-            states_comp = [state_comp]
-            cc, arg_count, return_width = prove_mod._parse_prototype(prototype)
-            effective_check_edx = check_edx or (return_width == 64)
-
-            for s_orig in states_orig:
-                eax_orig = s_orig.regs.eax
-                edx_orig = s_orig.regs.edx
-                can_differ = False
-                for s_comp in states_comp:
-                    eax_comp = s_comp.regs.eax
-                    edx_comp = s_comp.regs.edx
-                    solver = claripy.Solver()
-                    for expr in s_orig.solver.constraints:
-                        solver.add(expr)
-                    for expr in s_comp.solver.constraints:
-                        solver.add(expr)
-                    if effective_check_edx:
-                        solver.add(claripy.Or(eax_orig != eax_comp, edx_orig != edx_comp))
-                    else:
-                        solver.add(eax_orig != eax_comp)
-                    if solver.satisfiable():
-                        can_differ = True
-                        break
-                if can_differ:
-                    regs = "EAX+EDX" if effective_check_edx else "EAX"
-                    return False, (
-                        f"Z3 found a satisfying assignment where {regs} differs "
-                        f"(checked {len(states_orig)} x {len(states_comp)} state pairs)"
-                    )
-            regs = "EAX+EDX" if effective_check_edx else "EAX"
-            return True, (
-                f"Proven equivalent ({regs}; {len(states_orig)} original state(s), "
-                f"{len(states_comp)} compiled state(s))"
-            )
-
-        monkeypatch.setattr(prove_mod, "prove_equivalence", patched_prove)
-
-        proven, msg = prove_mod.prove_equivalence(
-            b"\xc3",
-            b"\xc3",
-            None,
-            "int __cdecl foo(void)",
-            check_edx=False,
-        )
-        assert proven, f"Expected proven (EAX-only) but got: {msg}"
-        assert "EAX+EDX" not in msg
+        assert proven is expect_proven, f"Expected proven={expect_proven} but got: {msg}"
+        assert ("EAX+EDX" in msg) is expect_edx_in_msg

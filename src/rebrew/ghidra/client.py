@@ -41,18 +41,15 @@ def _parse_sse_response(text: str) -> JsonRpcResponse | None:
     return None
 
 
-def fetch_mcp_tool(
+def _call_mcp_tool(
     client: httpx.Client,
     endpoint: str,
     tool_name: str,
     arguments: dict[str, Any],
     request_id: int,
-    session_id: str = "",
-) -> list[Any]:
-    """Call a ReVa MCP tool and return parsed JSON list from text content.
-
-    Returns an empty list on HTTP errors or JSON parse failures.
-    """
+    session_id: str,
+) -> McpToolResult | None:
+    """POST a ``tools/call`` request and return the tool result, or None on failure."""
     payload = {
         "jsonrpc": "2.0",
         "id": request_id,
@@ -71,14 +68,14 @@ def fetch_mcp_tool(
             resp.status_code,
             endpoint,
         )
-        return []
+        return None
     ct = resp.headers.get("content-type", "")
     if "text/event-stream" in ct:
         data = _parse_sse_response(resp.text)
     else:
         text = resp.text.strip()
         if not text:
-            return []
+            return None
         try:
             data = JsonRpcResponse.from_dict(resp.json())
         except (ValueError, UnicodeDecodeError):
@@ -88,7 +85,7 @@ def fetch_mcp_tool(
                 request_id,
                 endpoint,
             )
-            return []
+            return None
     if not data:
         logger.warning(
             "MCP tool %s request %s returned no parseable JSON-RPC response from %s",
@@ -96,7 +93,7 @@ def fetch_mcp_tool(
             request_id,
             endpoint,
         )
-        return []
+        return None
     if data.error is not None:
         logger.warning(
             "MCP tool %s request %s returned JSON-RPC error: %s",
@@ -104,47 +101,66 @@ def fetch_mcp_tool(
             request_id,
             data.error.message,
         )
+        return None
+    if not (data.result and "content" in data.result):
+        return None
+    res = McpToolResult.from_dict(data.result)
+    if res.isError:
+        error_text = res.content[0].text if res.content else str(data.result)
+        logger.warning(
+            "MCP tool %s request %s returned tool error: %s",
+            tool_name,
+            request_id,
+            error_text,
+        )
+        return None
+    return res
+
+
+def fetch_mcp_tool(
+    client: httpx.Client,
+    endpoint: str,
+    tool_name: str,
+    arguments: dict[str, Any],
+    request_id: int,
+    session_id: str = "",
+) -> list[Any]:
+    """Call a ReVa MCP tool and return parsed JSON list from text content.
+
+    Returns an empty list on HTTP errors or JSON parse failures.
+    """
+    res = _call_mcp_tool(client, endpoint, tool_name, arguments, request_id, session_id)
+    if res is None:
         return []
-    if data.result and "content" in data.result:
-        res = McpToolResult.from_dict(data.result)
-        if res.isError:
-            error_text = res.content[0].text if res.content else str(data.result)
+    text_items = [it for it in res.content if it.type == "text"]
+    if not text_items:
+        return []
+    # Multiple text items: each is a separate JSON object
+    if len(text_items) > 1:
+        objects = []
+        for it in text_items:
+            with contextlib.suppress(json.JSONDecodeError):
+                objects.append(json.loads(it.text))
+        if not objects:
             logger.warning(
-                "MCP tool %s request %s returned tool error: %s",
-                tool_name,
-                request_id,
-                error_text,
-            )
-            return []
-        text_items = [it for it in res.content if it.type == "text"]
-        if not text_items:
-            return []
-        # Multiple text items: each is a separate JSON object
-        if len(text_items) > 1:
-            objects = []
-            for it in text_items:
-                with contextlib.suppress(json.JSONDecodeError):
-                    objects.append(json.loads(it.text))
-            if not objects:
-                logger.warning(
-                    "MCP tool %s request %s returned only invalid JSON text items",
-                    tool_name,
-                    request_id,
-                )
-            return objects
-        # Single text item
-        raw = text_items[0].text
-        try:
-            parsed = json.loads(raw)
-            if isinstance(parsed, list):
-                return parsed
-            return [parsed]
-        except json.JSONDecodeError:
-            logger.warning(
-                "MCP tool %s request %s returned invalid JSON text content",
+                "MCP tool %s request %s returned only invalid JSON text items",
                 tool_name,
                 request_id,
             )
+        return objects
+    # Single text item
+    raw = text_items[0].text
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return parsed
+        return [parsed]
+    except json.JSONDecodeError:
+        logger.warning(
+            "MCP tool %s request %s returned invalid JSON text content",
+            tool_name,
+            request_id,
+        )
     return []
 
 
@@ -162,92 +178,31 @@ def fetch_mcp_tool_raw(
     the parsed value directly — dict, list, str, or None on failure.  Used by
     the extended pull operations (prototypes, structs, comments).
     """
-    payload = {
-        "jsonrpc": "2.0",
-        "id": request_id,
-        "method": "tools/call",
-        "params": {"name": tool_name, "arguments": arguments},
-    }
-    headers = dict(MCP_HEADERS)
-    if session_id:
-        headers["Mcp-Session-Id"] = session_id
-    resp = client.post(endpoint, json=payload, headers=headers, timeout=MCP_REQUEST_TIMEOUT_S)
-    if resp.status_code != 200:
-        logger.warning(
-            "MCP tool %s request %s failed with HTTP %s from %s",
-            tool_name,
-            request_id,
-            resp.status_code,
-            endpoint,
-        )
+    res = _call_mcp_tool(client, endpoint, tool_name, arguments, request_id, session_id)
+    if res is None:
         return None
-    ct = resp.headers.get("content-type", "")
-    if "text/event-stream" in ct:
-        data = _parse_sse_response(resp.text)
-    else:
-        text = resp.text.strip()
-        if not text:
-            return None
+    text_items = [it for it in res.content if it.type == "text"]
+    if not text_items:
+        return None
+    # Single text item: return parsed JSON directly
+    if len(text_items) == 1:
+        raw = text_items[0].text
         try:
-            data = JsonRpcResponse.from_dict(resp.json())
-        except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
-            logger.warning(
-                "MCP tool %s request %s returned invalid JSON from %s",
-                tool_name,
-                request_id,
-                endpoint,
-            )
-            return None
-    if not data:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return raw
+    # Multiple text items: parse each as JSON, collect into list
+    objects = []
+    for it in text_items:
+        with contextlib.suppress(json.JSONDecodeError):
+            objects.append(json.loads(it.text))
+    if not objects:
         logger.warning(
-            "MCP tool %s request %s returned no parseable JSON-RPC response from %s",
+            "MCP tool %s request %s returned only invalid JSON text items",
             tool_name,
             request_id,
-            endpoint,
         )
-        return None
-    if data.error is not None:
-        logger.warning(
-            "MCP tool %s request %s returned JSON-RPC error: %s",
-            tool_name,
-            request_id,
-            data.error.message,
-        )
-        return None
-    if data.result and "content" in data.result:
-        res = McpToolResult.from_dict(data.result)
-        if res.isError:
-            error_text = res.content[0].text if res.content else str(data.result)
-            logger.warning(
-                "MCP tool %s request %s returned tool error: %s",
-                tool_name,
-                request_id,
-                error_text,
-            )
-            return None
-        text_items = [it for it in res.content if it.type == "text"]
-        if not text_items:
-            return None
-        # Single text item: return parsed JSON directly
-        if len(text_items) == 1:
-            raw = text_items[0].text
-            try:
-                return json.loads(raw)
-            except json.JSONDecodeError:
-                return raw
-        # Multiple text items: parse each as JSON, collect into list
-        objects = []
-        for it in text_items:
-            with contextlib.suppress(json.JSONDecodeError):
-                objects.append(json.loads(it.text))
-        if not objects:
-            logger.warning(
-                "MCP tool %s request %s returned only invalid JSON text items",
-                tool_name,
-                request_id,
-            )
-        return objects if objects else None
-    return None
+    return objects if objects else None
 
 
 def init_mcp_session(client: Any, endpoint: str) -> str:

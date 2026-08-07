@@ -349,7 +349,6 @@ def generate_inline_c(
     nasm_src: str,
     cfg: ProjectConfig,
     va: int,
-    size: int,
     symbol: str | None,
 ) -> str:
     """Generate a C file with inline assembly using rebrew annotations."""
@@ -633,7 +632,7 @@ def main(
         error_exit(str(e), json_mode=json_output)
 
     if inline_c:
-        out_src = generate_inline_c(nasm_src, cfg, computed_base_va, len(code), computed_label)
+        out_src = generate_inline_c(nasm_src, cfg, computed_base_va, computed_label)
     else:
         out_src = nasm_src
 

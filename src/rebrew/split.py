@@ -99,13 +99,10 @@ def _block_metadata(block: str) -> _BlockMeta | None:
                 c_func_name = func_result[0]
         break
 
-    # Symbol is derived from C function definition name
-    symbol = c_func_name
-
     return _BlockMeta(
         module=marker_match.group("module"),
         va=int(marker_match.group("va"), 16),
-        symbol=symbol,
+        symbol=c_func_name,
     )
 
 

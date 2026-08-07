@@ -175,7 +175,6 @@ def _collect_setup_steps(
     items: list[TodoItem] = []
     step = 0
 
-    # 1. Check doctor health
     src_dir = Path(cfg.reversed_dir)
     ghidra_json = src_dir / FUNCTION_STRUCTURE_JSON
 
@@ -245,7 +244,7 @@ def _collect_setup_steps(
         )
 
     # 4. Have source files but never verified
-    elif not (cfg.root / ".rebrew" / "verify_cache.json").exists() and existing:
+    elif not (cfg.root / ".rebrew" / "verify_cache.json").exists():
         step += 1
         items.append(
             TodoItem(
@@ -450,7 +449,6 @@ def _collect_new_functions(
     existing: dict[int, dict[str, str]],
     covered_vas: dict[int, str],
     cfg: ProjectConfig,
-    max_candidates: int = 50,
 ) -> list[TodoItem]:
     """Collect uncovered functions as start-function candidates."""
     ignored = ignored_symbols(cfg)
@@ -468,7 +466,7 @@ def _collect_new_functions(
 
     items: list[TodoItem] = []
     for func in ghidra_funcs:
-        if len(items) >= max_candidates:
+        if len(items) >= 50:
             break
         va = func.va
         size = func.size

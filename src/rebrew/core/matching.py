@@ -100,7 +100,6 @@ def apply_coff_relocations(
     relocs: list[CoffRelocRecord],
     resolve_va: Callable[[str], int | None],
     *,
-    image_base: int,
     section_va: int,
 ) -> bytes:
     """Apply COFF relocations to a .text byte blob.
@@ -112,13 +111,11 @@ def apply_coff_relocations(
     :param text: Raw bytes for a single function as compiled.
     :param relocs: Relocation records from ``parse_obj_relocs_full``.
     :param resolve_va: Callable mapping symbol → absolute VA (None if unknown).
-    :param image_base: PE ImageBase (accepted for API symmetry; catalogs use absolute VAs).
     :param section_va: VA of the function's start (used for REL32 PC-relative arithmetic).
 
     :raises UnresolvedSymbolError: Symbol not in the catalog.
     :raises NotImplementedError: Unsupported relocation type.
     """
-    _ = image_base
     buf = bytearray(text)
     for r in relocs:
         sym = r.symbol.lstrip("_") if r.symbol.startswith("_") else r.symbol

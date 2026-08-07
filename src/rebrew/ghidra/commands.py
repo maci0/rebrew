@@ -656,16 +656,13 @@ def pull_ghidra_renames(
                             if not old_sym:
                                 old_sym = old_name
                             target_func = ghidra_name.lstrip("_")
-                            target_sym = ghidra_as_symbol
 
                             rename_function_everywhere(
                                 cfg=cfg,
                                 filepath=filepath,
-                                va=va,
                                 old_name=old_name,
                                 old_sym=old_sym,
                                 target_func=target_func,
-                                target_sym=target_sym,
                                 rename_file=True,
                                 dry_run=dry_run,
                             )
@@ -990,8 +987,11 @@ def pull_prototypes(
                                     new_content = re.sub(pattern, extern_str, content)
                                     if new_content != content:
                                         atomic_write_text(src_file, new_content, encoding="utf-8")
-                                except OSError:
-                                    pass
+                                except OSError as e:
+                                    console.print(
+                                        f"  [yellow]Warning:[/yellow] failed to replace extern "
+                                        f"for 0x{va:x} in {src_file}: {e}"
+                                    )
 
                     console.print(f"  [green]Updated prototype[/green] 0x{va:x}: {sig}")
                     updated_count += 1
@@ -999,7 +999,7 @@ def pull_prototypes(
         console.print(f"Successfully pulled {updated_count} prototypes.")
 
 
-def _infer_struct_module(name: str, info: Any) -> str | None:
+def _infer_struct_module(info: Any) -> str | None:
     """Infer a module name from Ghidra struct metadata.
 
     Returns the upper-cased module string (e.g. ``"SERVER"``) or ``None``
@@ -1185,7 +1185,7 @@ def pull_structs(
                 if raw_ns:
                     module = raw_ns.upper()
             if module is None:
-                module = _infer_struct_module(struct_name, info)
+                module = _infer_struct_module(info)
 
             if by_module:
                 bucket = module if module else "SHARED"

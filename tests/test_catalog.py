@@ -8,6 +8,7 @@ import pytest
 from rebrew.annotation import Annotation
 from rebrew.catalog import (
     build_function_registry,
+    count_detection_sources,
     generate_catalog,
     generate_data_json,
     make_func_entry,
@@ -137,6 +138,40 @@ class TestBuildFunctionRegistry:
         )
         reg = build_function_registry(funcs, cfg)
         assert reg[0x10001000].get("is_export") is True
+
+
+class TestCountDetectionSources:
+    def test_empty_registry(self) -> None:
+        assert count_detection_sources({}) == (0, 0, 0, 0)
+
+    def test_breakdown(self) -> None:
+        cfg = ProjectConfig(
+            root=Path("/tmp"),
+            iat_thunks=[0x10004000],
+            dll_exports={},
+            ignored_symbols=[],
+        )
+        funcs = [
+            make_func_entry(0x10001000, 64, "_a"),  # list only
+            make_func_entry(0x10002000, 64, "_b"),  # list + ghidra
+        ]
+        ghidra_json = Path("/tmp") / "function_structure.json"
+        ghidra_json.write_text(
+            json.dumps(
+                [
+                    make_ghidra_func(0x10002000, 64, "b"),
+                    make_ghidra_func(0x10003000, 32, "c"),  # ghidra only
+                    make_ghidra_func(0x10004000, 6, "thunk"),  # thunk
+                ]
+            ),
+            encoding="utf-8",
+        )
+        reg = build_function_registry(funcs, cfg, ghidra_path=ghidra_json)
+        ghidra_count, list_count, both_count, thunk_count = count_detection_sources(reg)
+        assert ghidra_count == 3  # 0x10002000, 0x10003000, 0x10004000
+        assert list_count == 2  # 0x10001000, 0x10002000
+        assert both_count == 1  # 0x10002000
+        assert thunk_count == 1  # 0x10004000
 
 
 # -------------------------------------------------------------------------

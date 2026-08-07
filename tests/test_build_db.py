@@ -143,6 +143,14 @@ def project_root(tmp_path: Path) -> Path:
     return tmp_path
 
 
+def _open_db(project_root: Path) -> tuple[sqlite3.Connection, sqlite3.Cursor]:
+    """Build the coverage DB and return a (connection, cursor) pair."""
+    build_db(project_root)
+    conn = sqlite3.connect(project_root / "db" / "coverage.db")
+    conn.row_factory = sqlite3.Row
+    return conn, conn.cursor()
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -179,10 +187,7 @@ binary = "test.exe"
 
     def test_functions_columns(self, project_root: Path) -> None:
         """All function columns including new detected_by, size_by_tool, textOffset."""
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
+        conn, c = _open_db(project_root)
 
         c.execute("SELECT * FROM functions WHERE target = 'testbin' AND name = 'func_a'")
         row = c.fetchone()
@@ -209,10 +214,7 @@ binary = "test.exe"
 
     def test_functions_stub(self, project_root: Path) -> None:
         """Stub function has correct textOffset."""
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
+        conn, c = _open_db(project_root)
 
         c.execute("SELECT * FROM functions WHERE target = 'testbin' AND name = 'func_b'")
         row = c.fetchone()
@@ -226,10 +228,7 @@ binary = "test.exe"
 
     def test_globals_columns(self, project_root: Path) -> None:
         """Globals have size columns."""
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
+        conn, c = _open_db(project_root)
 
         c.execute("SELECT * FROM globals WHERE target = 'testbin' ORDER BY va")
         rows = c.fetchall()
@@ -246,10 +245,7 @@ binary = "test.exe"
         conn.close()
 
     def test_sections(self, project_root: Path) -> None:
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
+        conn, c = _open_db(project_root)
 
         c.execute("SELECT * FROM sections WHERE target = 'testbin' AND name = '.text'")
         row = c.fetchone()
@@ -273,10 +269,7 @@ binary = "test.exe"
 
     def test_section_cell_stats_view(self, project_root: Path) -> None:
         """The view should return correct counts including none_count."""
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
+        conn, c = _open_db(project_root)
 
         c.execute(
             "SELECT * FROM section_cell_stats WHERE target = 'testbin' AND section_name = '.text'"
@@ -304,10 +297,7 @@ binary = "test.exe"
         conn.close()
 
     def test_new_columns(self, project_root: Path) -> None:
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
+        conn, c = _open_db(project_root)
 
         c.execute(
             "SELECT size_reason, similarity, blocker, blockerDelta "
@@ -333,10 +323,7 @@ binary = "test.exe"
         conn.close()
 
     def test_history_table_exists(self, project_root: Path) -> None:
-        build_db(project_root)
-        conn = sqlite3.connect(project_root / "db" / "coverage.db")
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
+        conn, c = _open_db(project_root)
 
         c.execute("PRAGMA table_info(history)")
         columns = [row["name"] for row in c.fetchall()]
@@ -355,9 +342,7 @@ binary = "test.exe"
 
         build_db(project_root)
 
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
+        conn, c = _open_db(project_root)
         c.execute(
             "SELECT old_status, new_status FROM history "
             "WHERE target = 'testbin' AND va = ? ORDER BY id DESC LIMIT 1",
