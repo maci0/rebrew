@@ -5043,3 +5043,27 @@ Closed out the two remaining confirmed findings from the cli-review:
   tree untouched).
 
 Tests: +2 (similar unknown-VA, extract dry-run).  3513 rebrew tests pass.
+
+## 2026-08-09 — round-trip audit: real source bugs surfaced (guild 8e5b394)
+
+Probed `rebrew skeleton --batch --dry-run` (previews 3 files with test
+commands — good) and `rebrew round-trip --dry-run` on guild.  Round-trip
+caught **6 catalog_resolution_drift mismatches** — RELOC functions whose
+compiled call targets resolve to a different VA than the original
+binary's calls; `rebrew test`/`verify` mask these (reloc-aware compare),
+round-trip is the honest detector (exit 1, per-mismatch detail decoding
+the REL32 pair).
+
+- **Fixed one clear-cut source bug**: `gm_IsInRange` (0x10018130) called
+  `gm_GetBuildingTypeCategory` but the binary calls `gm_MapEntityStatRange`
+  (verified by disassembling the original: `call 0x10018200` at +0x6;
+  return logic in-range 10..14 → 0 else 2 already matched).  After the
+  one-line fix, round-trip mismatches dropped 6 → 5, spliced 158 → 159.
+  Committed to guild (8e5b394).
+- **5 remaining drifts are genuine project-data mismatches, not tool
+  bugs**: `_fopen`/`_malloc`/`_fread` in source resolve to different real
+  binary functions than the original calls (disassembled both sides — none
+  are `jmp [iat]` stubs).  The tooling correctly flags them with
+  actionable detail; resolution is the user's decompilation work.
+- Skeleton/round-trip CLIs verified sound (both have --dry-run, correct
+  exit codes, JSON purity).
