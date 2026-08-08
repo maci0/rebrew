@@ -1099,3 +1099,123 @@ class TestGABuildCacheKey:
         g._compile_source(src)  # hit (same instance, same flags)
         assert seen == ["/O2"]
         g.cache.close()
+
+
+class TestRunOneStubGaPersistsFlags:
+    """_run_one_stub_ga must persist the RAW swept flags (not the
+    base-prefixed compile string) and only claim a match when the splice
+    actually landed (round-4 regressions)."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=tmp_path,
+            metadata_dir=tmp_path,
+            marker="SERVER",
+            target_name="T",
+            target_binary=str(tmp_path / "target.bin"),
+            base_cflags="/nologo /c /MT",
+            compile_timeout=60,
+        )
+
+    def test_sweep_then_ga_persists_raw_override(self, tmp_path: Path, monkeypatch: Any) -> None:
+        import rebrew.match as M
+        from rebrew.match import StubInfo
+
+        stub = StubInfo(
+            filepath=tmp_path / "s.c",
+            va="0x10001000",
+            size=16,
+            symbol="_s",
+            cflags="/O2",
+            status="STUB",
+            module="SERVER",
+        )
+        src = tmp_path / "s.c"
+        src.write_text("// FUNCTION: SERVER 0x10001000\nint s(void) { return 0; }\n")
+        # _run_one_stub_ga computes out_dir as root/output/ga_runs/<stem>
+        # (Path.with_suffix("") strips ".c").
+        out = tmp_path / "output" / "ga_runs" / "s"
+        out.mkdir(parents=True)
+        (out / "best.c").write_text("int s(void) { return 42; }\n")
+
+        class FakeGA:
+            elapsed_sec = 1.0
+            stagnant_gens = 0
+            _pairs_count = 0
+
+            def __init__(self, *a: Any, **k: Any) -> None:
+                pass
+
+            def run(self, deadline: Any = None) -> tuple[str, float]:
+                return "int s(void) { return 42; }\n", 0.0
+
+            def close(self) -> None:
+                pass
+
+        monkeypatch.setattr(M, "BinaryMatchingGA", FakeGA)
+        monkeypatch.setattr(M, "extract_raw_bytes", lambda *a, **k: b"\xc3" * 16)
+        monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
+        monkeypatch.setattr(M, "update_stub_to_matched", lambda *a, **k: True)
+        monkeypatch.setattr(M, "_save_solution", lambda *a, **k: None)
+        persisted: dict[str, str] = {}
+        monkeypatch.setattr(
+            M,
+            "update_cflags_annotation",
+            lambda fp, cf, metadata_dir=None: persisted.update(cf=cf),
+        )
+
+        matched, _summary = M._run_one_stub_ga(
+            stub, self._cfg(tmp_path), 1, 4, 1, 5, cflags_override="/O2 /G3"
+        )
+        assert matched
+        # Raw swept flags, WITHOUT the base prefix, land in metadata.
+        assert persisted.get("cf") == "/O2 /G3"
+
+    def test_splice_failure_does_not_claim_match(self, tmp_path: Path, monkeypatch: Any) -> None:
+        import rebrew.match as M
+        from rebrew.match import StubInfo
+
+        stub = StubInfo(
+            filepath=tmp_path / "s.c",
+            va="0x10001000",
+            size=16,
+            symbol="_s",
+            cflags="/O2",
+            status="STUB",
+            module="SERVER",
+        )
+        src = tmp_path / "s.c"
+        src.write_text("// FUNCTION: SERVER 0x10001000\nint s(void) { return 0; }\n")
+        # _run_one_stub_ga computes out_dir as root/output/ga_runs/<stem>
+        # (Path.with_suffix("") strips ".c").
+        out = tmp_path / "output" / "ga_runs" / "s"
+        out.mkdir(parents=True)
+        (out / "best.c").write_text("int s(void) { return 42; }\n")
+
+        class FakeGA:
+            elapsed_sec = 1.0
+            stagnant_gens = 0
+            _pairs_count = 0
+
+            def __init__(self, *a: Any, **k: Any) -> None:
+                pass
+
+            def run(self, deadline: Any = None) -> tuple[str, float]:
+                return "int s(void) { return 42; }\n", 0.0
+
+            def close(self) -> None:
+                pass
+
+        monkeypatch.setattr(M, "BinaryMatchingGA", FakeGA)
+        monkeypatch.setattr(M, "extract_raw_bytes", lambda *a, **k: b"\xc3" * 16)
+        monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
+        # The splice fails (typedef return, no match) — the batch must NOT
+        # report a match or save a solution.
+        monkeypatch.setattr(M, "update_stub_to_matched", lambda *a, **k: False)
+        saved: list[tuple] = []
+        monkeypatch.setattr(M, "_save_solution", lambda *a, **k: saved.append(a))
+
+        matched, _summary = M._run_one_stub_ga(stub, self._cfg(tmp_path), 1, 4, 1, 5)
+        assert not matched
+        assert saved == []

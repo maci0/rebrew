@@ -44,7 +44,6 @@ _CC_PATTERN = re.compile(r"\b(" + "|".join(re.escape(cc) for cc in _CALLING_CONV
 # Lazy tree-sitter initialisation
 # ---------------------------------------------------------------------------
 
-_parser: Any = None
 _language: Any = None
 _parser_lock = threading.Lock()
 # Per-thread parsers: tree-sitter TSParser is per-thread state and the GIL is
@@ -59,7 +58,7 @@ def _get_parser() -> tuple[Any, Any]:
     The language is initialised once under a lock; each thread then gets its
     own Parser instance (tree-sitter's TSParser is per-thread state).
     """
-    global _parser, _language  # noqa: PLW0603
+    global _language  # noqa: PLW0603
     if _language is None:
         with _parser_lock:
             if _language is None:
@@ -72,7 +71,6 @@ def _get_parser() -> tuple[Any, Any]:
                         "Install with: pip install tree-sitter tree-sitter-c"
                     )
                 _language = Language(tree_sitter_c.language())
-                _parser = None  # replaced by per-thread parsers below
 
     tls_parser = getattr(_tls, "parser", None)
     if tls_parser is None:
