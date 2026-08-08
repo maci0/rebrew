@@ -230,3 +230,44 @@ class TestPrepareEntriesCache:
             cfg, full=True, json_output=False
         )
         assert size_div == []
+
+
+class TestBinaryIdCacheGuard:
+    """A rebuilt binary of the same target name must invalidate the verify
+    cache (round-4: the cache previously checked only the target NAME)."""
+
+    def test_binary_change_invalidates_cache(self, tmp_path: Path) -> None:
+        import json as _json
+
+        bin_path = tmp_path / "x.dll"
+        bin_path.write_bytes(b"MZ1")
+        (tmp_path / "src").mkdir(exist_ok=True)
+        cfg = SimpleNamespace(
+            reversed_dir=tmp_path / "src",
+            target_binary=bin_path,
+            target_name="T",
+            compiler_command="cl",
+            base_cflags="/nologo /c /MT",
+            compiler_includes=tmp_path / "inc",
+            compiler_libs=tmp_path / "lib",
+        )
+        cache_path = tmp_path / "verify_cache.json"
+        cache = verify_mod.VerifyCache(
+            version=1,
+            compiler_hash=verify_mod._compiler_config_hash(cfg),
+            headers_hash=verify_mod._headers_hash(cfg),
+            target="T",
+            binary_id=verify_mod._binary_id(cfg),
+            entries={},
+        )
+        cache_path.write_text(_json.dumps(cache.to_dict()))
+        assert verify_mod._load_verify_cache(cache_path, cfg) is not None
+
+        # Same target name, different binary bytes → cache must be rejected.
+        bin_path.write_bytes(b"MZ2")
+        assert verify_mod._load_verify_cache(cache_path, cfg) is None
+
+        # Legacy caches (no binary_id) stay accepted.
+        cache.binary_id = ""
+        cache_path.write_text(_json.dumps(cache.to_dict()))
+        assert verify_mod._load_verify_cache(cache_path, cfg) is not None

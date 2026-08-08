@@ -1515,3 +1515,30 @@ class TestRound2Regression:
         # The original else-if arm becomes the new consequence, braced.
         assert "{ else if (c) { x = 2; } }" not in result  # braces protect binding
         assert quick_validate(result)
+
+
+class TestReturnToGotoLabelPlacement:
+    """The ret_false label must land on a real `return 0;` statement — never
+    inside a string literal or before an arbitrary later return."""
+
+    def test_label_lands_on_return_zero_after_goto(self) -> None:
+        src = "int f() {\n    if (err) return 0;\n    return 1;\n}"
+        result = mut_return_to_goto(src, _rng())
+        assert result is not None
+        assert "goto ret_false;" in result
+        # The error path must return 0, not 1.
+        goto_idx = result.index("goto ret_false;")
+        label_idx = result.index("ret_false:")
+        assert label_idx > goto_idx
+        assert "ret_false:\n    return 0;" in result
+
+    def test_string_literal_not_matched(self) -> None:
+        src = (
+            'int f() {\n    const char *s = "return 0;";\n    if (err) return 0;\n    return 1;\n}'
+        )
+        result = mut_return_to_goto(src, _rng())
+        assert result is not None
+        # The label must be a real statement, not injected into the literal.
+        assert "ret_false:" in result
+        assert '"ret_false:' not in result
+        assert quick_validate(result)

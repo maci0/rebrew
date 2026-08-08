@@ -822,3 +822,24 @@ class TestRenderTerminal:
         assert "SERVER" in out
         # Warning only emitted when inline_metadata_warning > 0.
         assert "inline STATUS" not in out
+
+
+class TestCollectStatusSizeFallback:
+    """matched_bytes must not collapse to 0 when function_structure.json is
+    missing but annotation-metadata SIZE exists (round-4)."""
+
+    def test_size_fallback_without_ghidra_sizes(self, tmp_path: Path) -> None:
+        from rebrew.status import collect_status
+
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+        # EXACT function with metadata SIZE but NO function_structure.json.
+        (src / "func_a.c").write_text(
+            "// FUNCTION: TEST 0x1000\n// SIZE: 100\n// STATUS: EXACT\nvoid func_a(void) {}\n",
+            encoding="utf-8",
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.status_counts.get("EXACT") == 1
+        # Size came from the annotation metadata, not Ghidra.
+        assert report.matched_bytes == 100

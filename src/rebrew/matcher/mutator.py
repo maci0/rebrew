@@ -976,31 +976,52 @@ def mut_return_to_goto(s: str, rng: random.Random) -> str | None:
         return None  # already has the label
 
     b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+    cursor = ts.QueryCursor(_QUERY_RETURN_FALSE)
+    matches = cursor.matches(tree.root_node)
 
-    def _repl(captures: dict[str, ts.Node]) -> bytes:
-        return b"goto ret_false;"
-
-    res = _apply_query_once(b_source, _QUERY_RETURN_FALSE, _repl, rng)
-    if not res:
+    if not matches:
         return None
 
-    result = res.decode("utf-8")
+    match = rng.choice(matches)
+    caps = _first_caps(match[1])
+    ret_node = caps["expr"]
 
-    # Add ret_false: before the LAST remaining `return 0;`/`return FALSE;` so
-    # the replaced goto lands on a FALSE-returning statement.  Landing it
-    # before an arbitrary later return (e.g. `return 1;`) would make the
-    # error path return the wrong value.
-    final_false = re.search(r"return\s+(?:0|FALSE|false)\s*;", result)
-    if final_false:
-        pos = final_false.start()
-        result = result[:pos] + "ret_false:\n" + result[pos:]
+    goto_pos = ret_node.start_byte
+    result = b_source[:goto_pos] + b"goto ret_false;" + b_source[ret_node.end_byte :]
+
+    # Anchor the label to a FALSE-returning statement AFTER the goto.  A
+    # raw-text regex can match inside string literals/comments (leaving the
+    # goto referencing a label that does not exist — compile error) or land
+    # before an arbitrary later `return 1;` (wrong value on the error path).
+    label_pos = None
+    tree2 = parse_c_ast(result)
+    cursor2 = ts.QueryCursor(_QUERY_RETURN_FALSE)
+    for m2 in cursor2.matches(tree2.root_node):
+        caps2 = _first_caps(m2[1])
+        node = caps2["expr"]
+        if node.start_byte > goto_pos:
+            label_pos = node.start_byte
+            break
+
+    if label_pos is not None:
+        result = result[:label_pos] + b"ret_false:\n" + result[label_pos:]
     else:
-        # Fallback: add before closing brace
-        last_brace = result.rfind("}")
-        if last_brace >= 0:
-            result = result[:last_brace] + "ret_false:\n    return 0;\n" + result[last_brace:]
+        # Fallback: append before the enclosing function's closing brace —
+        # C labels are function-scoped, so a bare rfind("}") could land in a
+        # sibling function.
+        fn = tree2.root_node.descendant_for_byte_range(goto_pos, goto_pos)
+        while fn is not None and fn.type != "function_definition":
+            fn = fn.parent
+        if fn is None:
+            return None
+        body = fn.child_by_field_name("body")
+        if body is None:
+            return None
+        brace_pos = body.end_byte - 1
+        result = result[:brace_pos] + b"ret_false:\n    return 0;\n" + result[brace_pos:]
 
-    return result
+    return result.decode("utf-8")
 
 
 def mut_goto_to_return(s: str, rng: random.Random) -> str | None:
