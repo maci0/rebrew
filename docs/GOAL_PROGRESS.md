@@ -5428,3 +5428,27 @@ wibo SHA-256 verified, no secrets) and found:
 - F6 (MCP endpoint auth) documented as loopback-default.
 
 262+1 recoverage / 3520 rebrew tests pass.
+
+## 2026-08-09 — release-review: 7 findings fixed (b5d8911, recoverage f403c88)
+
+Ran the `release-review` prompt (via subagent; byte-verified wheels vs
+source).  Fixed:
+
+- **F1/F2 (high)** — dist/ wheels/sdists were 118/45 commits stale and the
+  wheel admitted capstone 5.0.0–5.0.7 (PYSEC-2026-3544 vulnerable range
+  the source pin excludes).  Both packages rebuilt from HEAD; verified
+  the wheel METADATA now carries `capstone>=5.0.8` + `lief<1` and that
+  agent-skills + assets are packaged.
+- **F3/F6 (high/low)** — CHANGELOG [Unreleased] backfilled in both repos
+  (rebrew: 118 commits; recoverage: --token, check/stats --json, API
+  hardening), per the documented changelog policy.
+- **F4 (medium)** — guild venv capstone upgraded 5.0.6 → 5.0.9 (the
+  in-package __version__ string reads 5.0.7 — a known upstream quirk;
+  importlib.metadata confirms 5.0.9).
+- **F5 (medium)** — cu_map.py's standalone typer app/main_entry removed
+  (never registered; dead surface in the wheel); `rebrew graph --cu-map`
+  still calls cu_map.main directly.  Tests converted.
+- **F7/F8 (low)** — untracked dev coverage.db removed from the package
+  tree; recoverage pyproject gains [project.urls] + 3.13/3.14 classifiers.
+  (Fixed my own TOML table-splitting mistake in the process: [project.urls]
+  must come after dependencies.)
