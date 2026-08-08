@@ -5628,3 +5628,16 @@ Documented in np-rebrew `TOOLCHAIN_BUGS.md` (commit eeee821, local-only
 repo, staged only that file — user's in-flight work untouched). These are
 project-data decisions (demote STATUS or fix source), not tooling bugs; not
 auto-fixed.
+
+## 2026-08-09 — catalog --json gains total/covered fields (np doc gap, real)
+
+np-rebrew TOOLCHAIN_BUGS.md flagged "rebrew catalog --json has no
+total/covered". Verified current code: the human --summary path computed
+covered bytes / pct but the --json payload only had annotation/registry
+counts. Fixed (c2d4072): hoisted the fn_vas/covered_bytes computation out
+of the `if summary:` block, shared with --json; payload now carries
+`total_functions`, `covered_bytes`, `text_size`, `coverage_pct`
+(rounded to 1dp) alongside the existing fields. Test updated
+(test_json_summary_to_stdout now asserts the full payload incl. the
+0x24000 default text_size — the mocked get_text_section_size is not
+reached since the fake binary path doesn't exist). 3539 rebrew tests pass.
