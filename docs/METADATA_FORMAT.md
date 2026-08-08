@@ -93,7 +93,7 @@ STUB → NEAR_MATCHING → RELOC → EXACT → PROVEN
 | Status           | Meaning                                         |
 |------------------|--------------------------------------------------|
 | `STUB`           | Placeholder / blocked                            |
-| `NEAR_MATCHING`  | Partially matching (≥75% similarity)             |
+| `NEAR_MATCHING`  | Partially matching (≥60% similarity)             |
 | `RELOC`          | Byte-match after relocation masking              |
 | `EXACT`          | Byte-identical to target                         |
 | `PROVEN`         | Semantically verified via `rebrew prove`         |

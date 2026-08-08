@@ -129,7 +129,7 @@ yara /tmp/test.yar target.dll
 
 | Library | Purpose | Install |
 |---------|---------|--------|
-| **angr** | Symbolic execution + Z3 for `rebrew prove` | `uv pip install -e ".[prove]"` |
+| **angr** | Symbolic execution + Z3 for `rebrew prove` | `uv sync --all-extras` |
 
 ### Not Installed (could be added)
 
@@ -170,13 +170,13 @@ are normalized.
 4. Use **yara** rules for bulk pattern identification of CRT/zlib functions
 
 ### For Byte Comparison
-1. `rebrew diff` for side-by-side disassembly (add `--mm` for structural diffs only)
+1. `rebrew diff` for side-by-side disassembly (add `--mismatches-only` for structural diffs only)
 2. **objconv** to verify comp.id on compiled .obj files
 3. **DUMPBIN /DISASM** for quick .obj inspection
 
 ### For Compiler Flag Analysis
-1. `rebrew match --flag-sweep-only --tier normal` (~21K combos)
-2. Use `--tier quick` for fast iteration (192) or `--tier thorough` for deep search (~1M)
+1. `rebrew match --flag-sweep-only --tier normal` (~5.4K combos)
+2. Use `--tier quick` for fast iteration (192) or `--tier thorough` for deep search (~258K)
 3. **objconv** comp.id verification to confirm same compiler
 4. Re-sync flags from decomp.me: `python tools/sync_decomp_flags.py`
 

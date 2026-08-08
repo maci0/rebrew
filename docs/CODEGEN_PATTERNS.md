@@ -190,5 +190,5 @@ For library-origin functions, use `rebrew crt-match` to find the reference sourc
 
 ```bash
 rebrew crt-match 0x<VA>
-rebrew crt-match --all --origin MSVCRT --fix-source
+rebrew crt-match --all --fix-source
 ```

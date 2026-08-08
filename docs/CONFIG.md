@@ -53,6 +53,7 @@ libs = "tools/MSVC600/VC98/Lib"
 | `text_va` | Auto-detected from PE | `.text` section virtual address |
 | `text_raw_offset` | Auto-detected from PE | `.text` section raw file offset |
 | `reversed_dir` | `[targets.<name>].reversed_dir` | Where `.c` files are stored |
+| `metadata_dir` | Derived: parent of `reversed_dir` | Canonical home of `rebrew-function.toml` / `rebrew-data.toml`; callers must pass it explicitly (no walk-up) |
 | `capstone_arch` / `capstone_mode` | Derived from `arch` | Capstone disassembly constants |
 | `padding_bytes` | Derived from `arch` | `(0xCC, 0x90)` for x86 |
 | `symbol_prefix` | Derived from compiler profile | `_` for MSVC, empty for GCC |
@@ -125,7 +126,7 @@ The lint tool (`rebrew lint`) validates that each marker's module matches the co
 | `clang` | Same as GCC | ELF/Mach-O | `func` |
 
 Flag axes are synced from [decomp.me](https://github.com/decompme/decomp.me) via `tools/sync_decomp_flags.py`.
-Sweep tiers: `quick` (~192), `targeted` (~1.1K), `normal` (~21K), `thorough` (~1M), `full` (~8.3M).
+Sweep tiers: `quick` (~192), `targeted` (~1.1K), `normal` (~5.4K), `thorough` (~258K), `full` (~6.2M).
 
 ## Compiler Configuration
 
@@ -254,6 +255,8 @@ It emits warnings (and applies safe defaults) if:
 - `arch` is not one of the known presets (falls back to `x86_32`).
 - `profile` is not a known compiler profile (falls back to `msvc6`).
 - String fields (`cflags`, `base_cflags`, `marker`, …) have non-string types.
+- The target binary is missing — `image_base`/`text_va` auto-detection is skipped
+  (warning emitted at load time).
 
 `cflags` are user-facing defaults (e.g. `/O2 /Gd`). `base_cflags` are always-on
 flags prepended by the compile helpers (default `/nologo /c /MT`) and must not be
@@ -316,7 +319,7 @@ resolves through the `server.dll` key.
 | `add-target NAME` | Add a target section + create dirs | `rebrew cfg add-target client.exe -b original/client.exe` |
 | `remove-target NAME` | Remove a target section | `rebrew cfg remove-target old_target` |
 | `set-cflags ORIGIN FLAGS` | Set cflags preset for an origin | `rebrew cfg set-cflags ZLIB "/O3" -t server.dll` |
-| `set-compiler PROFILE` | Set compiler profile for a target | `rebrew cfg set-compiler msvc7 -t client.exe` |
+| `set-compiler TARGET PROFILE` | Set compiler profile for a target | `rebrew cfg set-compiler client.exe msvc7` |
 | `add-module MODULE` | Add a module to a target's origins list | `rebrew cfg add-module ZLIB -t server.dll` |
 | `remove-module MODULE` | Remove a module from a target's origins list | `rebrew cfg remove-module ZLIB -t server.dll` |
 | `detect-crt` | Auto-detect MSVC CRT source directories | `rebrew cfg detect-crt --write` |

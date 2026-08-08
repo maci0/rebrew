@@ -22,6 +22,7 @@ rebrew diff src/<target>/<file>.c --json         # structured diff + structural 
 rebrew diff src/<target>/<file>.c -m --json      # mismatches only (** lines)
 rebrew diff src/<target>/<file>.c -r --json      # register-aware (mark RR encoding diffs)
 rebrew diff src/<target>/<file>.c --format csv   # CSV for spreadsheet analysis
+rebrew diff 0x10009310 --json                    # resolve a VA directly (no .c path needed)
 ```
 
 ### Diff Markers
@@ -34,12 +35,16 @@ rebrew diff src/<target>/<file>.c --format csv   # CSV for spreadsheet analysis
 
 If the diff shows only `~~` lines, the function is already RELOC — `rebrew test` will promote it.
 
+Exit codes: `0` = no structural differences (EXACT/RELOC), `1` = structural `**` lines
+found (fix them), `2` = build error. With `--json`, read `summary.exact / summary.reloc /
+summary.reg / summary.structural` instead of parsing lines.
+
 ### How Relocations are Scored
 Rebrew parses the COFF object's relocation and symbol tables. It resolves symbols against
 the Data Catalog to find their intended VAs.
 - `~~` means the relocation points to the correct global variable.
 - `XX` means it points to the wrong variable (forces MISMATCH).
-Use `--rr` to see if remaining `**` diffs are register allocation differences.
+Use `-r` / `--register-aware` to see if remaining `**` diffs are register allocation differences.
 
 ### Auto-Classified Blockers
 
@@ -71,37 +76,47 @@ rebrew match src/<target>/<file>.c --generations 200 --pop-size 64 -j 16
 - `--extra-seed FILE` — additional `.c` file(s) to seed initial population
 - `--no-seed` — disable cross-function solution seeding
 - `--seed-from-solved / --no-seed-from-solved` — seed from solutions DB (default on)
-- `--out-dir DIR` — output directory (default: `output/ga_run`)
+- `--out-dir DIR` — output directory (default: `output/ga_runs`)
 - `--compare-obj / --no-compare-obj` — use object-level comparison
 - `--ignore-lint` — continue even if annotation linter finds errors
 - `--collect-pairs FILE` — record `(source, binary)` pairs for ML training
 
 The GA mutates C source (variable types, casts, loop structures) and scores
-each variant against the target bytes. Best source is written to the file.
+each variant against the target bytes. Best source is written to `best.c` in
+`--out-dir` (default `output/ga_runs/<relpath>/`) and, when it beats the current
+source, back into the `.c` file itself.
+
+Exit codes: `0` = match found (EXACT or RELOC), `1` = no match (structural diffs
+remain — see §8), `2` = build or config error. `--out-dir` applies to
+single-function mode only; batch mode always writes to `output/ga_runs` and
+errors if you pass it.
 
 ## 3. Flag Sweep
 
 When diff shows `flag_sensitive: true`, try compiler flag combinations before running the GA:
 
 ```bash
-rebrew match src/<target>/<file>.c --flag-sweep-only                      # normal tier (default)
-rebrew match src/<target>/<file>.c --flag-sweep-only --tier quick         # 105 combos, < 1 min
-rebrew match src/<target>/<file>.c --flag-sweep-only --tier targeted      # 420 combos, adds /Oy /Op
-rebrew match src/<target>/<file>.c --flag-sweep-only --tier thorough      # 75k combos, ~15–60 min
-rebrew match src/<target>/<file>.c --flag-sweep-only --tier full          # 1.2M combos, hours
+rebrew match src/<target>/<file>.c --flag-sweep-only                      # targeted tier (default)
+rebrew match src/<target>/<file>.c --flag-sweep-only --tier quick         # 192 combos, < 1 min
+rebrew match src/<target>/<file>.c --flag-sweep-only --tier targeted      # 1,152 combos, adds /Oy /Op
+rebrew match src/<target>/<file>.c --flag-sweep-only --tier normal        # 5,376 combos, adds /ML-/MTd
+rebrew match src/<target>/<file>.c --flag-sweep-only --tier thorough      # 258k combos, ~15–60 min
+rebrew match src/<target>/<file>.c --flag-sweep-only --tier full          # 6.2M combos, hours
 rebrew match --all --flag-sweep                                           # batch: all NEAR_MATCHING
 rebrew match --all --flag-sweep --fix-cflags                              # auto-update CFLAGS on hit
+rebrew match --all --sweep-then-ga                                        # sweep flags, then GA with best flags
+rebrew match --all --sweep-then-ga --skip-recent 24                       # resume: skip stubs GA-run in last 24h
 ```
 
-Tiers (combinations are for MSVC6; see [FLAG_SWEEP_TIERS.md](../../../../../docs/FLAG_SWEEP_TIERS.md)):
+Tiers (combinations are for MSVC6; see [FLAG_SWEEP_TIERS.md](../../../../docs/FLAG_SWEEP_TIERS.md)):
 
 | Tier | Combinations | When to use |
 |------|-------------|-------------|
-| `quick` | 105 | First pass on a new STUB |
-| `targeted` | 420 | When `quick` is close but not EXACT |
-| `normal` | 1,890 | Default; good general-purpose sweep |
-| `thorough` | 75,600 | Near-match persists after `normal` |
-| `full` | 1,209,600 | Last resort; combine with `--sample N` |
+| `quick` | 192 | First pass on a new STUB |
+| `targeted` | 1,152 | Default tier; when `quick` is close but not EXACT |
+| `normal` | 5,376 | Good general-purpose sweep |
+| `thorough` | 258,048 | Near-match persists after `normal` |
+| `full` | 6,193,152 | Last resort; combine with `--sample N` |
 
 ### Batch GA Mode (`--all`)
 
@@ -114,7 +129,17 @@ rebrew match --all --min-size 32 --max-size 512           # filter by target fun
 rebrew match --all --filter "MyClass::"                   # substring match on symbol names
 rebrew match --all --timeout-min 5                        # per-function wall-clock budget
 rebrew match --all --dry-run                              # plan without compiling
+rebrew match --ga-history                                 # show past GA runs (.rebrew/ga_runs.jsonl)
+rebrew match --ga-history --json                          # same, machine-readable
 ```
+
+Before launching a long batch, run `--ga-history` to see how many past runs
+converged (total / matched % / avg & best score) — it tells you whether GA has
+already plateaued on these stubs. `--skip-recent N` drops stubs with a GA run
+record in the last N hours, so you can resume an interrupted batch without
+re-attempting finished work. `--seed-from-solved` (default on) seeds the
+population from similar solved functions; pass `--no-seed-from-solved` to
+disable.
 
 ## 4. Scoring (lower = better)
 
@@ -141,7 +166,11 @@ With `--json`, the output includes a `structural_similarity` object:
 - `structural_ratio`: fraction of instructions with real structural diffs
 - `flag_sensitive`: `true` when flag sweeping may help
 
-Use this to quickly rule out flag-based solutions before spending time on sweeps.
+Use this to quickly rule out flag-based solutions before spending time on sweeps:
+`flag_sensitive: false` means flag sweeping won't help — go straight to the GA or
+`rebrew prove`. A high `mnemonic_match_ratio` with low `structural_ratio` means the
+code is semantically close and C-level tweaks (or `rebrew near-diag`) may finish
+the job.
 
 ## 6. Blocker Tracking
 
@@ -161,6 +190,8 @@ Use `rebrew diff --fix-blocker` to auto-generate these from diff classification.
 - For library-origin functions (MSVCRT, ZLIB), use `rebrew crt-match` to identify the reference source first.
 - Common CFLAGS presets: `/O2 /Gd` (GAME), `/O1 /Gd` (MSVCRT).
 - If a function remains NEAR_MATCHING after GA and blockers are structural, use `rebrew prove`.
+- While iterating on a single function, `--watch` (on `diff`, `prove`, or `match`) re-runs on every
+  file save — faster than re-typing the command.
 
 ## 8. Symbolic Equivalence Proving
 
@@ -183,7 +214,9 @@ rebrew prove my_func --watch-va 0x10123456 --json         # also compare memory 
 
 `near-diag` buckets the mismatching bytes — register-alloc and equivalent-selection deltas are usually
 solvable via C-level tweaks; a structural verdict points at block/loop layout, where `rebrew prove`
-(register + watched-VA memory equivalence) is the right tool.
+(register + watched-VA memory equivalence) is the right tool. With `--json`, read `categories`
+(byte count per bucket: `register` / `equivalent` / `reloc` / `structural`) and `verdict` (dominant
+category + share, e.g. `STRUCTURAL (70% of delta)`).
 
 How it works:
 1. Extracts target bytes from the DLL and compiles the C source to an .obj
@@ -200,7 +233,7 @@ declares one of the above return types, EDX checking is **auto-enabled** — no 
 Use `--check-edx` to force it even when the prototype heuristic does not trigger.
 
 Requirements:
-- angr must be installed: `uv pip install -e ".[prove]"`
+- angr must be installed: `uv sync --all-extras` (the documented dev install includes the prove extra)
 - Function must have STATUS: NEAR_MATCHING
 
 Limitations:
@@ -208,8 +241,13 @@ Limitations:
 - Complex loops may cause timeout (raise `--timeout` or `--loop-bound`)
 - Never produces false positives — if it can't prove, STATUS stays NEAR_MATCHING
 - Use `--start-offset`/`--end-offset` to prove tail-call or partial-block equivalence
-- Memory side-effect checking (globals, output-pointer args) is not yet implemented;
-  functions whose only observable difference is in written memory can be falsely promoted
+- Memory side-effect checking is implemented via `--watch-va` (repeatable) or
+  `prove_constraints.watched_vas` metadata: the first 4 bytes at each watched
+  address are compared between the original and compiled executions; an address
+  mapped on only one side counts as a difference. Keep the watched set small
+  (<10) to avoid Z3 blowup. Gotcha: `--watch-va` values are **decimal unless
+  `0x`-prefixed** — unlike most other rebrew tools, bare digits are NOT hex
+  (use `0x10123456`, not `10123456`)
 
 ## 9. End-to-End Round-Trip
 
@@ -217,7 +255,24 @@ After `rebrew verify` reports all EXACT/RELOC, run round-trip to confirm
 the matches actually splice back into a byte-identical PE:
 
 ```bash
-rebrew round-trip --json
+rebrew round-trip --json                     # full splice validation
+rebrew round-trip --json --dry-run           # preview the splice set
+rebrew round-trip --json --filter "MyClass::"  # scope to a symbol substring
+rebrew round-trip --json --strict-catalog    # exit non-zero on unresolved catalog symbols
 ```
 
-Exit 1 if anything mismatches. Use this in CI alongside `verify --compare`.
+Writes `<binary>.reasm` next to the target and exits non-zero on any mismatch.
+Report keys to inspect: `spliced`, `mismatches` (each with a `reason` —
+`compile_drift` vs `catalog_resolution_drift`), `skipped_catalog`, `skipped_proven`.
+
+- Relocation targets the catalog can't resolve by name fall back to three
+  round-trip-specific lookups: Ghidra auto-names with hex VAs (`_g_1003546c`),
+  MSVC `$L<N>` / `$cleanup_loop$<N>` jump-table labels mapped from the compiled
+  .obj's own layout, and string literals whose compiled copy is a strict prefix
+  of the target's. A wrong fallback surfaces as a `catalog_resolution_drift`
+  mismatch — never silent corruption.
+- PROVEN functions are deliberately skipped (`skipped_proven`): their bytes
+  differ by design (semantic, not byte, equivalence), so they are excluded from
+  the splice and reported separately. Treat them as matched.
+
+Use this in CI alongside `verify --compare`.

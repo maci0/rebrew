@@ -78,9 +78,10 @@ Every `.c` file containing a reversed function must begin with a **marker line**
 // MARKER: MODULE 0xVA
 ```
 
-That's it. All metadata (STATUS, SIZE, CFLAGS, BLOCKER, etc.) lives in the `rebrew-function.toml`
-metadata found via walk-up from the source file's directory (rebrew climbs parent dirs
-until it is found), managed automatically by the CLI tools.
+That's it. All metadata (STATUS, SIZE, CFLAGS, BLOCKER, etc.) lives in the
+`rebrew-function.toml` file at `cfg.metadata_dir` — the parent of `reversed_dir`
+(e.g. `src/` for sources under `src/<module>/`). There is no walk-up: callers must
+pass the correct metadata root. Metadata is managed automatically by the CLI tools.
 
 > [!CAUTION]
 > **Never manually add STATUS, SIZE, or CFLAGS to a `.c` file.** These are managed
@@ -99,9 +100,9 @@ int __cdecl bit_reverse(int x)
 }
 ```
 
-`rebrew-function.toml` (found via walk-up, managed by tools):
+`rebrew-function.toml` (at `cfg.metadata_dir`, managed by tools):
 ```toml
-["0x10008880"]
+["SERVER.0x10008880"]
 status = "EXACT"
 size = 31
 ```
@@ -126,8 +127,8 @@ Format: `// MARKER: MODULE 0xVA`
 | Key | Required? | Linter | Description |
 |-----|:---------:|--------|-------------|
 | Marker line | **Mandatory** | E001 | `// FUNCTION:`, `// LIBRARY:`, or `// STUB:` with MODULE and VA |
-| `STATUS` | **Mandatory** | E003, E004 | Match quality (see below) |
-| `SIZE` | **Mandatory** | E007, E008 | Function size in bytes from the original binary |
+| `STATUS` | Metadata-owned | — | Match quality (see below); lives in rebrew-function.toml, not inline |
+| `SIZE` | Metadata-owned | — | Function size in bytes from the original binary; lives in rebrew-function.toml, not inline |
 | `CFLAGS` | Optional | W018 | Per-function compiler flag override. Falls back to the target's `base_cflags` in `rebrew-project.toml`. Only needed for functions compiled with non-default flags (e.g. a static lib linked with `/O1` into an `/O2` binary). |
 | `SOURCE` | Conditional | W006 | **Required for library modules** — reference file (e.g. `SBHEAP.C:195`, `deflate.c`). Use `rebrew crt-match --fix-source` to auto-populate. |
 | `BLOCKER` | Conditional | W005 | **Required for STUB** — explain why the function doesn't match yet. Now lives in `rebrew-function.toml` metadata; auto-written by `rebrew diff --fix-blocker`. |
@@ -146,8 +147,9 @@ Format: `// MARKER: MODULE 0xVA`
 > Manual edits will be silently lost or may corrupt the file.
 
 > [!TIP]
-> **Rule of thumb**: Marker, STATUS, and SIZE are enforced as errors by the linter — missing any
-> of them will fail CI. CFLAGS is optional and falls back to the target default from config.
+> **Rule of thumb**: Only the marker line is enforced as a linter error (E001). STATUS and
+> SIZE are metadata-only — they live in `rebrew-function.toml` and are no longer validated
+> inline. CFLAGS is optional and falls back to the target default from config.
 > `SOURCE` and `BLOCKER` are enforced as warnings only for specific origins/statuses. Function
 > name and symbol are derived automatically from the C function definition.
 
@@ -190,7 +192,7 @@ Global variables, dispatch tables, const arrays, and string tables live in the d
 
 The **reccmp-compatible marker line** stays in the `.c` file.  All rebrew-specific
 metadata (SIZE, SECTION, NOTE) lives in the **`rebrew-data.toml` metadata file** — the
-data analogue of `rebrew-function.toml` (also found via walk-up from the source file's directory).
+data analogue of `rebrew-function.toml` (also at `cfg.metadata_dir`).
 
 **`.c` file** (only the stable identity):
 ```c
@@ -199,7 +201,7 @@ data analogue of `rebrew-function.toml` (also found via walk-up from the source 
 extern type name;
 ```
 
-**`rebrew-data.toml`** (found via walk-up from source dir, auto-managed):
+**`rebrew-data.toml`** (at `cfg.metadata_dir`, auto-managed):
 ```toml
 ["MODULE.0xVA"]
 size    = <bytes>
@@ -400,7 +402,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | `--quiet` | Suppress warnings, show errors only |
 | `--json` | Machine-readable JSON output (schema below) |
 | `--summary` | Print status × origin breakdown table after results |
-| `--files FILE [FILE...]` | Check specific files instead of scanning the entire directory |
+| `FILE [FILE...]` | Check specific files (positional) instead of scanning the entire directory |
 | `--target NAME` | Select a target from `rebrew-project.toml` (for config-aware checks) |
 
 ### Example Usage
@@ -416,7 +418,7 @@ rebrew lint --fix && rebrew lint
 rebrew lint --quiet --json > lint-results.json
 
 # Check a specific file during development
-rebrew lint --files src/server.dll/alloc_game_object.c
+rebrew lint src/server.dll/alloc_game_object.c
 
 # Print progress breakdown after linting
 rebrew lint --summary
@@ -459,7 +461,7 @@ graph TD
       "file": "func_10003da0.c",
       "path": "/path/to/src/server.dll/func_10003da0.c",
       "errors": [
-        {"line": 1, "code": "E004", "message": "Invalid STATUS: DONE"}
+        {"line": 1, "code": "E001", "message": "Missing marker line"}
       ],
       "passed": false
     }
@@ -582,7 +584,7 @@ Running `rebrew test --target SERVER_V2 getenv.c` will compile and diff against 
 
 A single `.c` file may contain **multiple `// FUNCTION:` annotation blocks**, each with its own `STATUS`, `SIZE`, etc. This enables grouping related functions together (e.g., all CRT environment functions in one file).
 
-Use `rebrew split` to break a multi-function file into individual files, or `rebrew merge` to combine single-function files into one. Use `rebrew split --va 0xVA` to extract a single function for focused iteration (creates `source_c/name.c` and removes the block from the original). Both tools preserve annotation blocks and shared preamble.
+Use `rebrew split` to break a multi-function file into individual files, or `rebrew merge` to combine single-function files into one. Use `rebrew split --va 0xVA` to extract a single function for focused iteration (creates `<stem>_c/name.c` — e.g. `sim.c` → `sim_c/` — and removes the block from the original). Both tools preserve annotation blocks and shared preamble.
 
 ### Format
 

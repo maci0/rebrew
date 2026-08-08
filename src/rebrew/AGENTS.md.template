@@ -40,7 +40,7 @@ Use `--json` for structured output (preferred for agents).
 | `rebrew graph --format summary` | Dependency graph stats and blockers |
 | `rebrew catalog --json` | Generate coverage catalog |
 | `rebrew flirt --json` | FLIRT scan for known library functions |
-| `rebrew extract --json` | Batch extract and disassemble functions |
+| `rebrew extract list --json` | Extract and disassemble functions (list/show/batch) |
 | `rebrew asm 0x<VA> --size 128 --json` | Quick offline disassembly |
 | `rebrew sync --push` | Push annotations to Ghidra |
 | `rebrew sync --summary --json` | Preview what would be synced |
@@ -64,7 +64,7 @@ Volatile metadata (status, size, compiler flags, notes, blockers) is stored
 **outside** the `.c` file in a per-directory `rebrew-function.toml` metadata file:
 
 ```toml
-[0x10001234]
+["{target_name}.0x10001234"]
 status = "STUB"
 size   = 42
 cflags = "/O2 /Gd"

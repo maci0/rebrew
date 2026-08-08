@@ -75,6 +75,7 @@ Stores details regarding decompiled and original functions.
 - `idx_functions_name` on `(target, name)`
 - `idx_functions_status` on `(target, status)`
 - `idx_functions_module` on `(target, module)`
+- `idx_functions_marker` on `(target, markerType)`
 
 ### `globals` Table
 Tracks global variables mapped during the decompilation effort.
@@ -159,7 +160,9 @@ whenever the schema changes.
 | `"3"` | Baseline documented schema. |
 
 ### `verify_results` Table
-Stores the results of the `rebrew verify` command.
+Stores per-function verification results. Populated by `rebrew build-db`, which
+imports the last `rebrew verify -o` report (`db/verify_results.json`) — it is not
+written directly by `rebrew verify`.
 
 | Column | Type | Description |
 |---|---|---|
@@ -242,7 +245,7 @@ Each `data_<target>.json` file is the output of `rebrew catalog --data-json`. It
       "blocker": "", "blockerDelta": null, "size_reason": "ghidra", "similarity": 1.0
     }
   },
-  "paths": { "originalDll": "/original/Server/server.dll" }
+  "paths": { "originalDll": "/original/Server/server.dll", "sourceRoot": "/src/server.dll" }
 }
 ```
 
