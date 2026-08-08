@@ -5888,3 +5888,15 @@ printed "561/219 functions". pct was already correctly divided by covered
 human line reads "561 covered (219 in Ghidra function list)". Also fixed
 docs/WORKFLOW.md's jq example — it used `.coverage_pct`, which is not a
 todo field (returned null); `.pct_matched` is. 3546 rebrew tests.
+
+## 2026-08-09 — rebrew doctor + dashboard validated on guild
+
+- `rebrew doctor --json` on guild: all 14 checks pass — config, PE load
+  (base 0x10000000, 4 sections), arch/format, Wine+CL reachable, includes
+  762 headers, libs 263, function list 536, 111 sources, metadata TOMLs,
+  bin dir, angr+claripy present, FLIRT 4 files/3414 sigs, Ghidra ReVa
+  backend ready. Doctor works end-to-end on a healthy project (incl. the
+  checks reviewed earlier: optional tools, flirt_sigs).
+- `rebrew dashboard --port` boots and serves the coverage DB (root 200,
+  HTML rendered; no /health route by design — simpler than recoverage's
+  API surface).
