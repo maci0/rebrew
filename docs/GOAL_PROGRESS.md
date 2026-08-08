@@ -5900,3 +5900,11 @@ todo field (returned null); `.pct_matched` is. 3546 rebrew tests.
 - `rebrew dashboard --port` boots and serves the coverage DB (root 200,
   HTML rendered; no /health route by design — simpler than recoverage's
   API surface).
+
+## 2026-08-09 — recoverage: untrack regenerated egg-info (23ab316)
+
+Repo hygiene: recoverage's .gitignore declares *.egg-info/ ignored, but 6
+egg-info files were tracked from before the rule — every pyproject change
+regenerated them and produced diff noise (the extras commit needed
+`git add -f`). Untracked per the gitignore intent (pip/uv regenerate on
+install); rebrew has no such tracked artifacts (verified). Tree clean.
