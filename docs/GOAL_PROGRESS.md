@@ -5156,3 +5156,12 @@ touched modules.  12 findings; fixed 10 (2 triaged as defer):
 
 Verified live: recoverage check prints 99.49% < 99.50%; rebrew diff still
 resolves presets; 3517 rebrew + 259 recoverage tests pass.
+
+## 2026-08-09 — F8: imports --json hex VAs (d304207)
+
+Closed the last deferred functionality-review finding: `rebrew imports
+--json` emitted stub VAs as stringified decimal dict keys and `iat_va` as
+decimal ints, unlike every other rebrew JSON (0x hex strings).  Stubs are
+now a list of `{va: "0x…", name: …}` and `iat_va` is a hex string.  No
+internal consumers of the old shape (verified by grep); test updated to
+assert the hex contract.  Live-verified on guild.  3517 tests pass.
