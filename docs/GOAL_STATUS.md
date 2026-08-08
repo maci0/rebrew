@@ -1,19 +1,17 @@
 # GOAL_STATUS — 16h autonomous improvement (in progress)
 
-Slice 213 done. config-review pass (first run): 2 HIGH metadata-routing bugs
-fixed — `catalog --fix-sizes` was silently losing every SIZE fix to a stray
-rebrew-function.toml (wrong metadata_dir), and `data --fix-bss` orphaned its
-BSS metadata to reversed_dir instead of cfg.metadata_dir. Plus: load-time
-warning for a missing target binary (no more silent image_base=0), a
-misleading round-trip error message corrected, lint --fix STATUS migration
-routed through update_source_status, and a docstring that recommended the
-wrong metadata_dir fixed. Suite: 3460 passed / 0 skipped,
-ruff/mypy/pre-commit green.
+Slice 214 done. db-review pass (first run) across rebrew ↔ recoverage:
+CATALOG.md always reported 0.0% coverage (wrong summary key) — now 98.4% on
+the workspace; Potato Mode's C source never loaded (missing sourceRoot +
+wrong path anchor + VA-vs-name lookup mismatch + a mid-line template
+directive bug) — verified rendering "C Source (library_zlib.h)"; negative
+offsets could abort the whole DB rebuild — grid skips + build_db clamps;
+GLOBAL/DATA rows no longer counted as functions; hex search parity. Pushed:
+rebrew cfcbb6f..137b6d3, recoverage 66648bd..169d8b6.
 
-Recent slices: 212 pushed rebrew + verified/extended the recoverage sister
-project (synthetic-DB conftest, 201->204 tests, --bind + regen rate limit);
-206-211 rebrew hardening (round-trip fallbacks 131->158 spliced, fuzz +
-code reviews, angr/mypy, idempotency + annotation invariants).
+Slice 213 (previous): config-review — 2 HIGH metadata-routing bugs fixed
+(catalog --fix-sizes and data --fix-bss wrote to the wrong directory),
+missing-binary load warning, lint STATUS migration via the promotion gate.
 
-Total session (slices 1-213): ~95 real tool defects fixed, 18+ features,
-35-review pass + 31 focused reviews. Details: docs/GOAL_PROGRESS.md.
+Total session (slices 1-214): ~100 real tool defects fixed, 18+ features,
+36-review pass + 31 focused reviews. Details: docs/GOAL_PROGRESS.md.

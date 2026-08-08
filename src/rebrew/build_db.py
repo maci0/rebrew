@@ -575,6 +575,40 @@ def build_db(
                     history_rows,
                 )
 
+            # Import the last `rebrew verify -o` report (db/verify_results.json)
+            # so the verify_results table carries real per-function data instead
+            # of staying empty.  Best-effort: a missing/stale report is fine.
+            vr_path = db_dir / "verify_results.json"
+            if vr_path.exists():
+                try:
+                    vr_data = json.loads(vr_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError, TypeError):
+                    vr_data = {}
+                if vr_data.get("target") == target_name:
+                    vr_time = str(vr_data.get("timestamp") or now_iso)
+                    vr_rows = []
+                    for item in vr_data.get("results", []):
+                        try:
+                            va_int = int(item.get("va", "0"), 0)
+                        except (ValueError, TypeError):
+                            continue
+                        vr_rows.append(
+                            (
+                                target_name,
+                                va_int,
+                                vr_time,
+                                item.get("delta"),
+                                item.get("diff_lines"),
+                            )
+                        )
+                    if vr_rows:
+                        c.executemany(
+                            "INSERT OR REPLACE INTO verify_results "
+                            "(target, va, verified_at, byte_delta, diff_lines) "
+                            "VALUES (?, ?, ?, ?, ?)",
+                            vr_rows,
+                        )
+
             # Schema version stamp
             c.execute(
                 "INSERT OR REPLACE INTO metadata VALUES (?, ?, ?)",
