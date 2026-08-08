@@ -327,7 +327,16 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
             effective = verify_statuses.get(va, ann_status)
         status_counts[effective] = status_counts.get(effective, 0) + 1
         if effective in ("EXACT", "RELOC", "PROVEN"):
-            matched_bytes += size_by_va.get(va, 0)
+            # Fall back to annotation-metadata SIZE when the Ghidra
+            # function_structure.json is missing/stale — otherwise every
+            # matched byte counted 0 and coverage read 0%.
+            size = size_by_va.get(va)
+            if size is None:
+                try:
+                    size = int(info.get("size") or 0)
+                except (TypeError, ValueError):
+                    size = 0
+            matched_bytes += size
         module = info.get("module") or "?"
         report.module_status.setdefault(module, {})
         report.module_status[module][effective] = report.module_status[module].get(effective, 0) + 1

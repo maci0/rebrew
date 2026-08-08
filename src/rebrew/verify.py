@@ -309,18 +309,23 @@ class VerifyCache:
     target: str
     entries: dict[str, VerifyCacheEntry]
     headers_hash: str = ""  # SHA256 of all .h files under reversed_dir; "" means unchecked
+    binary_id: str = ""  # SHA256 of target binary (mtime_ns + size); "" = legacy cache
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "VerifyCache":
         """Reconstruct a VerifyCache from a JSON dictionary."""
+        raw_entries = d.get("entries", {})
+        if not isinstance(raw_entries, dict):
+            raw_entries = {}
         return cls(
             version=int(d.get("version", 0)),
             compiler_hash=str(d.get("compiler_hash", "")),
             target=str(d.get("target", "")),
             headers_hash=str(d.get("headers_hash", "")),
+            binary_id=str(d.get("binary_id", "")),
             entries={
                 str(k): VerifyCacheEntry.from_dict(v)
-                for k, v in d.get("entries", {}).items()
+                for k, v in raw_entries.items()
                 if isinstance(v, dict)
             },
         )
@@ -330,12 +335,25 @@ class VerifyCache:
         return asdict(self)
 
 
+def _binary_id(cfg: ProjectConfig) -> str:
+    """Stable id for the target binary (mtime_ns + size), "" when unreadable.
+
+    Guards the verify cache: a rebuilt binary of the same target name must
+    invalidate cached results, which the target-name check alone misses.
+    """
+    try:
+        st = Path(cfg.target_binary).stat()
+    except (OSError, TypeError):
+        return ""
+    return hashlib.sha256(f"{st.st_mtime_ns}:{st.st_size}".encode()).hexdigest()
+
+
 def _load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> VerifyCache | None:
     if not cache_path.exists():
         return None
     try:
         data = VerifyCache.from_dict(json.loads(cache_path.read_text(encoding="utf-8")))
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError, TypeError, ValueError, AttributeError):
         return None
     if data.version != 1:
         return None
@@ -344,6 +362,10 @@ def _load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> VerifyCache | No
     if data.compiler_hash != _compiler_config_hash(cfg):
         return None
     if data.headers_hash != _headers_hash(cfg):
+        return None
+    # Legacy caches carry no binary_id — accept them; a cached binary_id that
+    # no longer matches the current binary must invalidate.
+    if data.binary_id and data.binary_id != _binary_id(cfg):
         return None
     return data
 
@@ -401,6 +423,7 @@ def _save_verify_cache(
         compiler_hash=_compiler_config_hash(cfg),
         headers_hash=_headers_hash(cfg),
         target=cfg.target_name,
+        binary_id=_binary_id(cfg),
         entries={str(k): VerifyCacheEntry.from_dict(v) for k, v in cache_entries.items()},
     )
     cache_path.parent.mkdir(parents=True, exist_ok=True)
