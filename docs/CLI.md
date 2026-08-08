@@ -112,6 +112,7 @@ matching `rebrew prove` / `rebrew test`.
 | `-m` / `--mismatches-only` | Show only structural (`**`) diff lines |
 | `-r` / `--register-aware` | Normalize register encodings and mark differences as `RR` |
 | `--fix-blocker` | Auto-write `BLOCKER`/`BLOCKER_DELTA` metadata from diff classification |
+| `--dry-run` | Preview BLOCKER metadata writes without touching the toml |
 | `-f FORMAT` / `--format FORMAT` | Output format: `terminal` (default), `csv` |
 | `--ignore-lint` | Continue even if source marker lint errors exist |
 | `--json` | Output results as JSON |
@@ -362,6 +363,7 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 | `--start N` | With `batch`, start offset into the sorted candidate list |
 | `--min-size N` | Minimum function size to extract (default 8) |
 | `--max-size N` | Maximum function size to extract (default 50000) |
+| `--dry-run` | With `batch`, preview which `.bin` files would be written |
 | `--json` | Output results as JSON |
 
 ### `rebrew split`
