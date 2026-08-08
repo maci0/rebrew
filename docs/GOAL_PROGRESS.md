@@ -4968,3 +4968,19 @@ Batched probes across the remaining tool surface, all on the real project:
 - `rebrew diff 0x1000a010 --json` — target_size 112 (correct function),
   VA targeting intact after the watch fix.
 - recoverage suite re-run: 258 passed / 4 skipped.
+
+## 2026-08-09 — recoverage check gate: untracked sections (9b3a5ae)
+
+Probed the recoverage backend end-to-end against guild's real coverage.db:
+stats (527/561 matched, .text 99.5%), the full API surface (health,
+targets, stats, functions pages), and the `check` CI gate.  Found a real
+footgun: the coverage grid only records match states in .text — every
+.bss/.data/.rdata/.reloc cell is `none` — so `recoverage check
+--min-coverage N` (N>0) could never pass on a real project without
+`--section`, even though the CLI epilog advertises it as the CI gate.
+Fixed: default gate now SKIPs sections with no tracked cells (covered
+bytes == 0); explicitly gating an untracked section FAILs loudly; a
+project with nothing tracked does not pass vacuously.  Live-verified on
+guild (min 90 → PASS .text only, exit 0).  Test added; recoverage suite
+259 passed / 4 skipped.  Also fixed a ruff-format drift in the touched
+files (fd0789a).
