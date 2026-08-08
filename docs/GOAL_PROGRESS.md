@@ -5575,3 +5575,24 @@ Closed six more test-review gaps:
 
 3534 rebrew / 271 recoverage tests pass.  Remaining deferrals are F4/F5/
 F7/F8 (rebrew) and R8/R9 (recoverage) — all documented low-severity.
+
+## 2026-08-09 — test-review deferrals final batch (056bea4, recoverage 74cbac4)
+
+Closed ALL remaining test-review findings:
+
+- F4: PROVEN overlay test now uses a realistic run_verification mock and
+  asserts the passed/failed/proven counters (the mock previously violated
+  run_verification's invariant and the counters were never asserted).
+- F5: _compare_logic_hash membership asserted (5 distinct module files;
+  classify_compare_result + _extract_and_compare share compile.py).
+- F7: main() catch-all typer.Exit -> SystemExit(EXIT_ERROR) test (the
+  exact motivating case).
+- F8: _PARSE_MEMO contract — same-object memo hit, content-change
+  invalidation, metadata_dir bypass (never memoized).
+- R8: playwright suite skips when BASE_URL has no server (in addition to
+  the browser guard).
+- R9: /data memo fingerprint-sensitivity proven (a DB mtime bump yields a
+  second cache key; a constant key would keep one).
+
+Every finding from the test-review is now closed.  3539 rebrew / 272
+recoverage tests pass.
