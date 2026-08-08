@@ -329,6 +329,47 @@ class TestDiffCli:
         assert seen["seed_c"] == "f.c"
         assert seen["json_out"] is False
 
+    def test_watch_va_reentry_keeps_va_targeting(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Watch re-entry from a bare-VA positional must keep VA targeting.
+
+        Previously the retest re-entered main() with the resolved path, so a
+        multi-function file lost the VA and fell back to its first annotation.
+        """
+        from rebrew.diff import app
+
+        cfg = SimpleNamespace(
+            metadata_dir=tmp_path,
+            reversed_dir=tmp_path / "src",
+            marker="SERVER",
+            source_ext=".c",
+        )
+        monkeypatch.setattr("rebrew.diff.require_config", lambda **kw: cfg)
+        # resolve_source_arg is imported inside main() from rebrew.cli.
+        monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, arg: "src/dir/f.c")
+
+        va_calls: list[str | None] = []
+
+        def _resolve_build_params(
+            cfg, seed_c, cl, inc, cflags, symbol, target_va, target_size, ignore_lint, json_output
+        ):
+            va_calls.append(target_va)
+            return _params()
+
+        monkeypatch.setattr("rebrew.match.resolve_build_params", _resolve_build_params)
+        monkeypatch.setattr("rebrew.diff.run_diff", lambda *a, **k: None)
+        captured: dict = {}
+        monkeypatch.setattr(
+            "rebrew.utils.watch_files",
+            lambda paths, retest: captured.update(paths=paths, retest=retest),
+        )
+        result = CliRunner().invoke(app, ["--watch", "0x1000"])
+        assert result.exit_code == 0
+        assert va_calls == ["0x1000"]  # first pass targets the VA
+        captured["retest"]()  # watch re-entry must target the VA too
+        assert va_calls == ["0x1000", "0x1000"]
+
 
 class TestMissingGlobalHints:
     def test_detects_zero_operand(self) -> None:
