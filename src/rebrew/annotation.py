@@ -597,13 +597,18 @@ def _calc_stdcall_param_size(proto: str) -> int | None:
         >>> _calc_stdcall_param_size("void __stdcall noargs(void)")
         0
     """
-    # Extract the parameter list between parens
-    paren_start = proto.find("(")
-    paren_end = proto.rfind(")")
+    # Extract the parameter list between parens.  ``__declspec(...)`` groups
+    # contain parens of their own (``__declspec(naked)``), so a naive
+    # ``find("(")`` grabs the declspec group and counts its content as a
+    # parameter — a ``void __declspec(naked) __stdcall foo(void)`` would
+    # decorate ``_foo@4`` instead of ``_foo@0``.  Strip declspec groups first.
+    cleaned = re.sub(r"__declspec\s*\([^)]*\)", "", proto)
+    paren_start = cleaned.find("(")
+    paren_end = cleaned.rfind(")")
     if paren_start < 0 or paren_end < 0 or paren_end <= paren_start:
         return None
 
-    params_str = proto[paren_start + 1 : paren_end].strip()
+    params_str = cleaned[paren_start + 1 : paren_end].strip()
 
     # No parameters or void
     if not params_str or params_str == "void":

@@ -1215,6 +1215,27 @@ def main(
             sections = {}
         enrich_with_sections(scan, sections)
 
+        # R4 (np-rebrew TOOLCHAIN_BUGS): cross-check annotated global VAs
+        # against the real PE section ranges.  A typo'd or stale VA silently
+        # no-ops in the grid/catalog and shows up as an unexplained coverage
+        # gap — surface it instead.
+        section_ranges = [
+            (s["va"], s["va"] + s["size"])
+            for s in sections.values()
+            if s.get("va") and s.get("size")
+        ]
+        out_of_range = [
+            (name, g.va)
+            for name, g in scan.globals.items()
+            if g.va and not any(lo <= g.va < hi for lo, hi in section_ranges)
+        ]
+        if out_of_range:
+            console.print(
+                f"[yellow]warning:[/yellow] {len(out_of_range)} annotated global(s) "
+                "fall outside every PE section range: "
+                + ", ".join(f"{n}@0x{va:x}" for n, va in out_of_range[:8])
+            )
+
     # Collect // DATA: annotations
     data_anns = scan_data_annotations(src_dir, cfg=cfg)
     scan.data_annotations = data_anns
