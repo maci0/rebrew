@@ -453,6 +453,7 @@ def main(
         or sync_new_functions
         or pull_signatures
         or pull_structs
+        or pull_datatypes
         or pull_comments
         or pull_data
         or refresh_cache
