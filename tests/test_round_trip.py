@@ -1114,3 +1114,117 @@ class TestLocalLabels:
         # Only $L100 is referenced by this function's relocs.
         out = _extract_local_labels(obj_path, "_f", 0x10001000, referenced={"$L100"})
         assert out == {"$L100": 0x10001060}
+
+
+class TestFixHeaders:
+    """--fix-headers patches the reasm PE header and reports parity."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        from types import SimpleNamespace as SN
+
+        return SN(
+            target_name="SERVER",
+            target_binary=tmp_path / "golden.dll",
+            reversed_dir=tmp_path / "src" / "SERVER",
+            metadata_dir=tmp_path,
+            marker="SERVER",
+            source_ext=".c",
+            root=tmp_path,
+            dll_exports={},
+            iat_thunks=set(),
+            image_base=0x10000000,
+            text_va=0x10001000,
+            text_raw_offset=0x200,
+        )
+
+    def _run(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, json_output: bool) -> Path:
+        from bin_util import make_pe
+
+        from rebrew.round_trip import _run_round_trip
+
+        binary = tmp_path / "golden.dll"
+        binary.write_bytes(make_pe(b"\x55\x8b\xec\xc3", text_va=0x1000, image_base=0x10000000))
+        cfg = self._cfg(tmp_path)
+        cfg.target_binary = binary
+        (cfg.reversed_dir).mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([], [], 0))
+        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        out = tmp_path / "r.reasm"
+        _run_round_trip(
+            cfg,
+            out=out,
+            no_write=False,
+            symbol_filter=None,
+            json_output=json_output,
+            fix_headers=True,
+        )
+        return out
+
+    def test_header_parity_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        import json
+
+        self._run(tmp_path, monkeypatch, json_output=True)
+        data = json.loads(capsys.readouterr().out)
+        parity = data.get("header_parity")
+        assert parity, "header_parity missing from --fix-headers report"
+        fields = {p["field"] for p in parity}
+        assert "dll_characteristics" in fields
+        assert "linker_version_major" in fields
+
+    def test_fix_headers_with_original_values_is_identical(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With no [link] config, every patchable field is copied from the
+        original — the reasm differs only in the (now valid) checksum."""
+        from bin_util import make_pe
+
+        from rebrew.pe_headers import _pe_checksum, read_pe_header_fields
+
+        binary = tmp_path / "golden.dll"
+        original = make_pe(b"\x55\x8b\xec\xc3", text_va=0x1000, image_base=0x10000000)
+        binary.write_bytes(original)
+        out = self._run(tmp_path, monkeypatch, json_output=False)
+
+        reasm = out.read_bytes()
+        orig_fields = read_pe_header_fields(original)
+        reasm_fields = read_pe_header_fields(reasm)
+        assert orig_fields is not None and reasm_fields is not None
+        # Every patchable field now matches the original (checksum is
+        # recomputed, not copied — asserted separately below).
+        from rebrew.pe_headers import _PATCHABLE
+
+        for label in _PATCHABLE - {"checksum"}:
+            assert reasm_fields.values[label] == orig_fields.values[label], label
+        # The checksum was recomputed and is now valid.
+        assert reasm_fields.values["checksum"] == _pe_checksum(reasm)
+
+    def test_config_link_values_applied(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """[link] configured values (e.g. TSAWARE) override the original's."""
+        from bin_util import make_pe
+
+        from rebrew.config import LinkConfig
+        from rebrew.pe_headers import read_pe_header_fields
+
+        binary = tmp_path / "golden.dll"
+        binary.write_bytes(make_pe(b"\x55\x8b\xec\xc3", text_va=0x1000, image_base=0x10000000))
+        cfg = self._cfg(tmp_path)
+        cfg.link = LinkConfig(tsaware=True, linker_version="5.12", timestamp=0x37F6657C)
+        (cfg.reversed_dir).mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([], [], 0))
+        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        out = tmp_path / "r.reasm"
+        from rebrew.round_trip import _run_round_trip
+
+        _run_round_trip(
+            cfg, out=out, no_write=False, symbol_filter=None, json_output=False, fix_headers=True
+        )
+        fields = read_pe_header_fields(out.read_bytes())
+        assert fields is not None
+        assert fields.values["dll_characteristics"] == 0x8000
+        assert fields.values["linker_version_major"] == 5
+        assert fields.values["linker_version_minor"] == 12
+        assert fields.values["timestamp"] == 0x37F6657C

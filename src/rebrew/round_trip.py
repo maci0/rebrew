@@ -93,6 +93,14 @@ def main(
         "--strict-catalog",
         help="Exit non-zero when any EXACT/RELOC function hits an unresolved catalog symbol",
     ),
+    fix_headers: bool = typer.Option(
+        False,
+        "--fix-headers",
+        help="Patch the reasm copy's PE header (linker/OS/subsystem versions, "
+        "TSAWARE, stack, timestamp, checksum) to match the original — values "
+        "from [link] in rebrew-project.toml, falling back to the original's "
+        "own fields",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -105,6 +113,7 @@ def main(
             symbol_filter=symbol_filter,
             json_output=json_output,
             strict_catalog=strict_catalog,
+            fix_headers=fix_headers,
         )
     )
 
@@ -405,6 +414,7 @@ def _run_round_trip(
     symbol_filter: str | None,
     json_output: bool,
     strict_catalog: bool = False,
+    fix_headers: bool = False,
 ) -> int:
     """Top-level orchestration. Returns the process exit code."""
     if cfg.image_base == 0:
@@ -547,6 +557,39 @@ def _run_round_trip(
             spliced_vas.add(f"0x{fn.va:08x}")
             spliced_actual_bytes += trimmed_size
 
+    # --fix-headers: patch the reasm PE header (linker/OS/subsystem versions,
+    # TSAWARE, stack/heap, timestamp, checksum) so the byte-identical goal is
+    # not blocked by header cosmetics.  Values come from [link] config where
+    # set; unconfigured fields are copied from the ORIGINAL so the patched
+    # header matches it.  file_align is reported but not patched (needs a
+    # relink — /ALIGN).  Runs before the SHA comparison so a truly identical
+    # reasm reports match=True.
+    header_parity: list[dict[str, object]] = []
+    if fix_headers:
+        from rebrew.pe_headers import (
+            _PATCHABLE,
+            patch_pe_headers,
+            read_pe_header_fields,
+        )
+        from rebrew.pe_headers import (
+            header_parity as _header_parity,
+        )
+
+        original_fields = read_pe_header_fields(original)
+        if original_fields is not None:
+            configured = getattr(cfg, "link", None)
+            configured_fields = configured.to_patch_fields() if configured else {}
+            patch: dict[str, int] = {}
+            for label in _PATCHABLE:
+                if label in configured_fields:
+                    patch[label] = configured_fields[label]
+                elif label in original_fields.values:
+                    patch[label] = original_fields.values[label]
+            reasm = bytearray(patch_pe_headers(bytes(reasm), patch))
+            header_parity = _header_parity(
+                original, bytes(reasm), configured_fields if configured_fields else None
+            )
+
     sha_original = hashlib.sha256(bytes(original)).hexdigest()
     sha_reasm = hashlib.sha256(bytes(reasm)).hexdigest()
     # Match = byte-exactness of the rebuilt PE AND no verification failures.
@@ -602,6 +645,7 @@ def _run_round_trip(
         "skipped_catalog": skipped_catalog,
         "mismatches": mismatches,
         "reason_counts": reason_counts,
+        "header_parity": header_parity,
         "byte_coverage": {
             "text_size": text_size,
             "spliced_bytes": spliced_bytes,

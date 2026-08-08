@@ -356,3 +356,53 @@ def make_elf(
     out += b"\x00" * (shoff - len(out))
     out += shdrs
     return bytes(out)
+
+
+def append_pe_section(pe: bytes, name: str, data: bytes) -> bytes:
+    """Append a section (*name*, *data*) to a minimal PE built by :func:`make_pe`.
+
+    Used by tests that need a second section (e.g. a ``.rsrc`` resource
+    section for ``rebrew resource``).  Appends one section header, bumps
+    NumberOfSections, and places the raw data at the next file-aligned
+    offset.  Returns the patched PE bytes.
+    """
+    lfanew = struct.unpack_from("<I", pe, 0x3C)[0]
+    n_sections = struct.unpack_from("<H", pe, lfanew + 6)[0]
+    opt_size = struct.unpack_from("<H", pe, lfanew + 20)[0]
+    size_of_headers = struct.unpack_from("<I", pe, lfanew + 24 + 0x54)[0]
+    file_align = struct.unpack_from("<I", pe, lfanew + 24 + 0x3C)[0]
+    sec_align = struct.unpack_from("<I", pe, lfanew + 24 + 0x38)[0]
+    size_of_image = struct.unpack_from("<I", pe, lfanew + 24 + 0x50)[0]
+
+    out = bytearray(pe)
+    # Section headers start right after the optional header.
+    sec_table = lfanew + 24 + opt_size
+    new_header_off = sec_table + n_sections * 40
+    raw_off = (len(out) + file_align - 1) // file_align * file_align
+    out += b"\x00" * (raw_off - len(out))
+
+    # Raw data at raw_off; VA at the next section-aligned boundary.
+    va = ((size_of_image + sec_align - 1) // sec_align) * sec_align
+    out += data
+    raw_size = ((len(data) + file_align - 1) // file_align) * file_align
+
+    name_field = name.encode("ascii")[:8].ljust(8, b"\x00")
+    hdr = struct.pack(
+        "<8sIIIIIIHHI",
+        name_field,
+        len(data),  # VirtualSize
+        va,  # VirtualAddress
+        raw_size,  # SizeOfRawData
+        raw_off,  # PointerToRawData
+        0,
+        0,
+        0,
+        0,
+        0x40000040,  # INITIALIZED_DATA | READ
+    )
+    # Header table must fit inside the headers region.
+    assert new_header_off + 40 <= size_of_headers, "section table overflow"
+    out[new_header_off : new_header_off + 40] = hdr
+    struct.pack_into("<H", out, lfanew + 6, n_sections + 1)
+    struct.pack_into("<I", out, lfanew + 24 + 0x50, va + len(data))
+    return bytes(out)

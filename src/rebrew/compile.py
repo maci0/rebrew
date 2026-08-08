@@ -324,6 +324,22 @@ def resolve_compiler_env(
 # ---------------------------------------------------------------------------
 
 
+def _dedupe_flags(flags: list[str]) -> list[str]:
+    """Drop duplicate flags, keeping first occurrence (identical flags are
+    interchangeable, so this is semantics-preserving).
+
+    Base + per-function cflags often repeat (``/O2 /Gd /O2 /Gd /Oy-``) —
+    dedup keeps compile lines readable without changing the result.
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for flag in flags:
+        if flag not in seen:
+            seen.add(flag)
+            out.append(flag)
+    return out
+
+
 def _resolve_include_flags(flags: list[str], src_parent: Path, cfg_root: Path) -> list[str]:
     """Resolve relative /I include paths against src_parent then cfg_root.
 
@@ -418,6 +434,11 @@ def compile_to_obj(
     base_flags = _resolve_include_flags(base_flags, src_parent, cfg.root)
     resolved_cflags = _resolve_include_flags(cflags, src_parent, cfg.root)
 
+    # Dedupe identical flags (base + per-function cflags often repeat e.g.
+    # /O2 /Gd).  Identical flags are interchangeable, so keeping the first
+    # occurrence is semantics-preserving and keeps compile lines readable.
+    all_flags = _dedupe_flags(base_flags + resolved_cflags)
+
     # --- Compile cache lookup ---
     cc = cache
     if cc is None and use_cache:
@@ -437,7 +458,7 @@ def compile_to_obj(
         cache_key = compile_cache_key(
             source_content=source_content,
             source_filename=src_name,
-            cflags=base_flags + resolved_cflags,
+            cflags=all_flags,
             include_dirs=include_dirs,
             toolchain_id=toolchain_id,
             source_ext=source_ext,
@@ -455,8 +476,7 @@ def compile_to_obj(
     # #include "../../..." paths still resolve after the copy.
     cmd = (
         resolve_cl_command(cfg)
-        + base_flags
-        + resolved_cflags
+        + all_flags
         + [
             f"/I{inc_path}",
             f"/I{str(src_parent)}",
