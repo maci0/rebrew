@@ -4984,3 +4984,19 @@ project with nothing tracked does not pass vacuously.  Live-verified on
 guild (min 90 → PASS .text only, exit 0).  Test added; recoverage suite
 259 passed / 4 skipped.  Also fixed a ruff-format drift in the touched
 files (fd0789a).
+
+## 2026-08-09 — verify: PROVEN overlay masked real regressions (845bc5d)
+
+Discovered via a live probe: `rebrew prove` correctly refuses to re-run on
+an already-PROVEN function ("expected NEAR_MATCHING"), but `rebrew verify`
+overlaid PROVEN onto ANY non-EXACT/RELOC result — so editing a proven
+function's source until it no longer compiles (COMPILE_ERROR), fails to
+extract (EXTRACT_ERROR), loses its file (MISSING_FILE), or becomes a stub
+still reported PROVEN/passed and exited 0.  The overlay is now restricted
+to NEAR_MATCHING / SIZE_MISMATCH — the byte states a proven function
+legitimately produces — so genuine breakage surfaces as a failed run.
+Live-verified on guild: the 3 real PROVEN functions still show PROVEN
+(their byte results are NEAR_MATCHING/SIZE_MISMATCH), summary unchanged
+(224 passed / 35 failed).  Tests: the old overlay test asserted STUB→
+PROVEN (premise was wrong); now NEAR_MATCHING→PROVEN, plus a new
+COMPILE_ERROR-not-masked regression test.  3509 tests pass.
