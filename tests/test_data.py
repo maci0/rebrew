@@ -627,3 +627,55 @@ class TestBssFixMessage:
         assert "Layout is perfect" not in out
         assert "nothing to verify" in out
         assert not (tmp_path / "bss_padding.c").exists()
+
+
+class TestFindDispatchTablesSparse:
+    """Sparse dispatch tables: entries separated by non-pointer slots within
+    the stride must form ONE table (round-5 regression)."""
+
+    _TEXT_VA = 0x10001000
+    _TEXT_SIZE = 0x1000
+    _DATA_VA = 0x10010000
+
+    def test_sparse_table_within_stride(self) -> None:
+        from rebrew.data import find_dispatch_tables
+
+        # 3 pointers at slots 0, 8, 16 with garbage (0) at 4 and 12, stride=8.
+        data = bytearray(64)
+        ptrs = [self._TEXT_VA + i * 0x10 for i in range(3)]
+        for i, slot in enumerate((0, 8, 16)):
+            data[slot : slot + 4] = ptrs[i].to_bytes(4, "little")
+        sections = {
+            ".text": {
+                "va": self._TEXT_VA,
+                "size": self._TEXT_SIZE,
+                "raw_offset": 0,
+                "raw_size": 0x1000,
+            },
+            ".data": {"va": self._DATA_VA, "size": 64, "raw_offset": 0, "raw_size": 64},
+        }
+        binary = bytes(data)
+        tables = find_dispatch_tables(binary, sections, {}, max_stride=8, min_entries=3)
+        assert len(tables) == 1
+        assert tables[0].num_entries == 3
+
+    def test_entries_beyond_stride_split_runs(self) -> None:
+        from rebrew.data import find_dispatch_tables
+
+        # Two groups of 3 pointers, 0x40 apart (> stride) — two tables.
+        data = bytearray(128)
+        ptrs = [self._TEXT_VA + i * 0x10 for i in range(6)]
+        for i, slot in enumerate((0, 4, 8, 0x40, 0x44, 0x48)):
+            data[slot : slot + 4] = ptrs[i].to_bytes(4, "little")
+        sections = {
+            ".text": {
+                "va": self._TEXT_VA,
+                "size": self._TEXT_SIZE,
+                "raw_offset": 0,
+                "raw_size": 0x1000,
+            },
+            ".data": {"va": self._DATA_VA, "size": 128, "raw_offset": 0, "raw_size": 128},
+        }
+        tables = find_dispatch_tables(bytes(data), sections, {}, max_stride=8, min_entries=3)
+        assert len(tables) == 2
+        assert [t.num_entries for t in tables] == [3, 3]
