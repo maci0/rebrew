@@ -50,3 +50,18 @@ class TestSimilarCli:
         _patch(monkeypatch, [])
         r = runner.invoke(rebrew.main.app, ["similar", "not-a-va"])
         assert r.exit_code != 0
+
+    def test_unknown_va_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A VA with no catalog entry must fail loudly, not print empty results."""
+
+        def _raise(cfg, va, **kw):
+            raise ValueError(f"No function found at VA 0x{va:08x}")
+
+        monkeypatch.setattr(
+            similar_mod, "require_config", lambda target=None, json_mode=False: SimpleNamespace()
+        )
+        monkeypatch.setattr(similar_mod, "find_similar", _raise)
+        r = runner.invoke(rebrew.main.app, ["similar", "0x99999999", "--json"])
+        assert r.exit_code == 1
+        payload = json.loads(r.stdout)
+        assert "No function found" in payload["error"]
