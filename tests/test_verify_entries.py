@@ -163,6 +163,34 @@ class TestPrepareEntriesCache:
         _, _, _, _, _, cached, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
         assert cached == 0
 
+    def test_cached_proven_invalidated(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A cached PROVEN result must be re-verified.
+
+        The current cache writer stores raw byte results only — the PROVEN
+        overlay is applied at report time from CURRENT metadata.  A cached
+        PROVEN therefore comes from pre-fix code that baked the overlay in,
+        and would mask a later metadata STATUS demotion with a stale pass.
+        """
+        entry = _ann(0x1000)
+        cfg = self._setup(tmp_path, monkeypatch, entry)
+        cache = {
+            "0x00001000": verify_mod.VerifyCacheEntry.from_dict(
+                self._cache_entry("f.c", passed=True)
+            )
+        }
+        cache["0x00001000"].result.status = "PROVEN"  # stale pre-fix baked value
+        monkeypatch.setattr(
+            verify_mod,
+            "_load_verify_cache",
+            lambda *a, **k: verify_mod.VerifyCache(
+                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+            ),
+        )
+        _, _, _, _, _, cached, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        assert cached == 0
+
     def test_cached_entry_invalidated_by_cflags_change(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
