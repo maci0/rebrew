@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -380,3 +381,82 @@ class TestUpdateStubToMatched:
         assert "return 2;" not in text
         assert "return 3;" in text  # sibling AFTER the target survives
         assert "0x10003000" in text
+
+
+class TestFindSizeMismatch:
+    """SIZE_MISMATCH functions were unreachable by any batch mode — the GA
+    could only target STUBs (--all), NEAR_MATCHING (--improve/--near-miss).
+    --size-mismatch closes that gap (np-rebrew TOOLCHAIN_BUGS)."""
+
+    def _write(self, tmp_path: Path, name: str, va: str, status: str) -> Path:
+        f = tmp_path / name
+        f.write_text(
+            f"// FUNCTION: SERVER {va}\n// STATUS: {status}\n// SIZE: 64\n"
+            f"int f(void) {{ return 0; }}\n",
+            encoding="utf-8",
+        )
+        return f
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=tmp_path,
+            metadata_dir=tmp_path,
+            marker="SERVER",
+            ignored_symbols=[],
+            target_name="T",
+            source_ext=".c",
+        )
+
+    def test_finds_only_size_mismatch(self, tmp_path: Path) -> None:
+        from rebrew.match import find_size_mismatch
+
+        self._write(tmp_path, "sm.c", "0x10001000", "SIZE_MISMATCH")
+        self._write(tmp_path, "stub.c", "0x10002000", "STUB")
+        self._write(tmp_path, "near.c", "0x10003000", "NEAR_MATCHING")
+        stubs = find_size_mismatch(tmp_path, cfg=self._cfg(tmp_path))
+        assert [s.va for s in stubs] == ["0x10001000"]
+
+    def test_run_all_size_mismatch_mode(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.match import _run_all, find_size_mismatch
+
+        real_find = find_size_mismatch
+        self._write(tmp_path, "sm.c", "0x10001000", "SIZE_MISMATCH")
+        seen: list[str] = []
+
+        def _fake_find(*a: Any, **k: Any) -> list[Any]:
+            stubs = real_find(tmp_path, cfg=self._cfg(tmp_path))
+            seen.extend(s.va for s in stubs)
+            return stubs
+
+        monkeypatch.setattr("rebrew.match.find_size_mismatch", _fake_find)
+
+        def _fake_ga(*a: Any, **k: Any) -> tuple[bool, str]:
+            return False, "best_score=5.00"
+
+        monkeypatch.setattr("rebrew.match._run_one_stub_ga", _fake_ga)
+        monkeypatch.setattr("rebrew.matcher.solutions.record_ga_run", lambda *a, **k: None)
+
+        cfg = self._cfg(tmp_path)
+        _run_all(
+            cfg,
+            jobs=1,
+            generations=1,
+            pop_size=4,
+            timeout_min=5,
+            dry_run=False,
+            min_size=0,
+            max_size=9999,
+            filter_str="",
+            near_miss=False,
+            improve=False,
+            threshold=10,
+            flag_sweep=False,
+            fix_cflags=False,
+            max_stubs=0,
+            seed_from_solved=False,
+            json_output=True,
+            tier="targeted",
+            size_mismatch=True,
+        )
+        assert seen == ["0x10001000"]

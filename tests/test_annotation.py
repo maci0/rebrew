@@ -1549,3 +1549,26 @@ class TestAnnotationKeyInvariants:
         assert remove_inline_annotation_key(f, 0x1000, "TESTKEY") is False
         # Second call is still a no-op (idempotent).
         assert remove_inline_annotation_key(f, 0x1000, "TESTKEY") is False
+
+
+class TestStdcallParamSizeDeclspec:
+    """__declspec(...) groups contain parens — the param-list must not be
+    confused with the declspec group (np-rebrew TOOLCHAIN_BUGS naked gap)."""
+
+    def test_naked_void_is_zero(self) -> None:
+        from rebrew.annotation import _calc_stdcall_param_size  # type: ignore[attr-defined]
+
+        assert _calc_stdcall_param_size("void __declspec(naked) __stdcall foo(void)") == 0
+        assert _calc_stdcall_param_size("void __declspec(naked) __stdcall foo()") == 0
+
+    def test_naked_with_params(self) -> None:
+        from rebrew.annotation import _calc_stdcall_param_size  # type: ignore[attr-defined]
+
+        assert _calc_stdcall_param_size("void __declspec(naked) __stdcall foo(int a)") == 4
+        assert _calc_stdcall_param_size("int __declspec(naked) __stdcall foo(int a, int b)") == 8
+
+    def test_plain_unchanged(self) -> None:
+        from rebrew.annotation import _calc_stdcall_param_size  # type: ignore[attr-defined]
+
+        assert _calc_stdcall_param_size("void __stdcall foo(void)") == 0
+        assert _calc_stdcall_param_size("int __stdcall foo(int a, int b, int c)") == 12

@@ -542,6 +542,17 @@ def parse_matching_all(
     )
 
 
+def parse_size_mismatch_all(
+    filepath: Path,
+    ignored: set[str] | None = None,
+    metadata_dir: Path | None = None,
+) -> list[StubInfo]:
+    """Extract all SIZE_MISMATCH annotations (no delta filter)."""
+    return _parse_annotations(
+        filepath, status_filter={"SIZE_MISMATCH"}, ignored=ignored, metadata_dir=metadata_dir
+    )
+
+
 def _collect_with_dedup(
     reversed_dir: Path,
     cfg: ProjectConfig | None,
@@ -631,6 +642,26 @@ def find_all_matching(
         cfg,
         lambda cfile: parse_matching_all(cfile, ignored=ignored, metadata_dir=md),
         sort_key=lambda x: (x.delta, x.size),
+        warn_duplicates=warn_duplicates,
+    )
+
+
+def find_size_mismatch(
+    reversed_dir: Path,
+    ignored: set[str] | None = None,
+    cfg: ProjectConfig | None = None,
+    warn_duplicates: bool = True,
+) -> list[StubInfo]:
+    """Find all SIZE_MISMATCH functions (bytes differ in length, not just
+    content), sorted by size.  Batch GA previously could not target these —
+    ``--all`` matches STUBs, ``--improve``/``--near-miss`` NEAR_MATCHING —
+    leaving SIZE_MISMATCH functions unreachable by any batch mode."""
+    md = cfg.metadata_dir if cfg is not None else None
+    return _collect_with_dedup(
+        reversed_dir,
+        cfg,
+        lambda cfile: parse_size_mismatch_all(cfile, ignored=ignored, metadata_dir=md),
+        sort_key=lambda x: x.size,
         warn_duplicates=warn_duplicates,
     )
 
@@ -925,6 +956,12 @@ def main(
         help="--all: target all NEAR_MATCHING functions (no delta threshold)",
         rich_help_panel="Batch Mode",
     ),
+    size_mismatch: bool = typer.Option(
+        False,
+        "--size-mismatch",
+        help="--all: target SIZE_MISMATCH functions (length differs) with the GA",
+        rich_help_panel="Batch Mode",
+    ),
     threshold: int = typer.Option(
         10,
         "--threshold",
@@ -1036,6 +1073,7 @@ def main(
             filter_str=filter_str,
             near_miss=near_miss,
             improve=improve,
+            size_mismatch=size_mismatch,
             threshold=threshold,
             flag_sweep=flag_sweep,
             fix_cflags=fix_cflags,
@@ -1075,6 +1113,7 @@ def main(
                 filter_str=filter_str,
                 near_miss=near_miss,
                 improve=improve,
+                size_mismatch=size_mismatch,
                 threshold=threshold,
                 flag_sweep=flag_sweep,
                 fix_cflags=fix_cflags,
@@ -1154,6 +1193,7 @@ def main(
                 all_targets=False,  # never nest multi-target batch in watch mode
                 near_miss=near_miss,
                 improve=improve,
+                size_mismatch=size_mismatch,
                 threshold=threshold,
                 flag_sweep=flag_sweep,
                 fix_cflags=fix_cflags,
@@ -1847,6 +1887,7 @@ def _run_all(  # noqa: PLR0913
     sweep_then_ga: bool = False,
     skip_recent_hours: int = 0,
     seed: int | None = None,
+    size_mismatch: bool = False,
 ) -> tuple[int, int]:
     """Batch driver: run GA or flag sweep across all discovered functions.
 
@@ -1866,6 +1907,11 @@ def _run_all(  # noqa: PLR0913
             reversed_dir, ignored=ignored, cfg=cfg, warn_duplicates=not json_output
         )
         mode_label = "NEAR_MATCHING (improve)"
+    elif size_mismatch:
+        stubs = find_size_mismatch(
+            reversed_dir, ignored=ignored, cfg=cfg, warn_duplicates=not json_output
+        )
+        mode_label = "SIZE_MISMATCH (GA)"
     elif near_miss:
         stubs = find_near_miss(
             reversed_dir,
