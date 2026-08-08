@@ -428,6 +428,12 @@ def compile_to_obj(
 
     # Copy source to workdir for Wine compatibility
     src_name = source_path.name
+    if src_name.startswith(("@", "-")):
+        # MSVC interprets a leading '@' as a response file and a leading '-'
+        # as an option — a source named e.g. "@x.c" would have its contents
+        # parsed as compiler directives.  Prefix './' to make it a plain
+        # filename.
+        src_name = "./" + src_name
     local_src = workdir / src_name
     try:
         shutil.copy2(source_path, local_src)
