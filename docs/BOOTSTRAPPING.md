@@ -8,6 +8,21 @@ Step-by-step guide for adding an entirely new executable or DLL to the project
 when **no prior RE work exists** for it — no `.c` files, no `function_structure.json`,
 no catalog entries.
 
+```mermaid
+graph TD
+    Start[New binary — no prior RE work] --> Init[1. Initialize<br/>rebrew init]
+    Init --> Place[2. Place the binary<br/>original/&lt;name&gt;.exe · .dll]
+    Place --> Discover[3. Discover functions<br/>Ghidra export / r2 / rizin → function_structure.json]
+    Discover --> Doctor[4. Health check<br/>rebrew doctor]
+    Doctor --> Flirt[5. FLIRT scan<br/>rebrew flirt / rebrew gen-flirt-pat]
+    Flirt --> Catalog[6. Catalog + DB<br/>rebrew catalog --data-json · rebrew build-db]
+    Catalog --> Triage[7. Triage<br/>rebrew status · rebrew todo]
+    Triage --> Leaf[8. Start with leaf functions<br/>rebrew todo -c start-function]
+    Leaf --> Annot[9. Set annotation conventions<br/>FUNCTION / STATUS / SIZE markers]
+    Annot --> Loop[Enter the main reversing loop<br/>→ WORKFLOW.md]
+    Loop -.->|new functions matched| Catalog
+```
+
 ## 1. Initialize the project
 
 Run the initialize command inside an empty or existing directory. Pass the

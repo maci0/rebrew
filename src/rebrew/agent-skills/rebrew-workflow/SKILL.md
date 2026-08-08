@@ -4,6 +4,26 @@ description: Guides the end-to-end reverse engineering workflow for matching C s
 license: MIT
 ---
 
+```mermaid
+graph TD
+    Pick[Pick a function<br/>rebrew todo --json] --> Skeleton[Generate skeleton<br/>rebrew skeleton 0x&lt;VA&gt;]
+    Skeleton --> Asm[Review disassembly<br/>rebrew asm 0x&lt;VA&gt;]
+    Asm --> Write[Write C source<br/>edit .c file]
+    Write --> Test{Test the match<br/>rebrew test}
+    Test -->|EXACT / RELOC| Verify[Verify progress<br/>rebrew verify]
+    Test -->|COMPILE ERROR| Write
+    Test -->|NEAR_MATCHING| Diff[Investigate diffs<br/>rebrew diff]
+    Diff --> Ga{GA / flag sweep?<br/>rebrew match}
+    Ga -->|match| Verify
+    Ga -->|no match| Prove{Still NEAR_MATCHING?}
+    Prove -->|No| Write
+    Prove -->|Yes| Symbolic[Prove equivalence<br/>rebrew prove]
+    Symbolic -->|PROVEN| Verify
+    Symbolic -->|Not proven| Write
+    Verify --> Lint[Lint annotations<br/>rebrew lint]
+    Lint --> RoundTrip[Round-trip validation<br/>rebrew round-trip --json]
+```
+
 # Rebrew Workflow
 
 All commands run from a directory containing `rebrew-project.toml`. Use `--json` for structured output.

@@ -9,6 +9,19 @@ This guide covers the minimum path from a fresh clone to your first matched func
 For the full iteration loop see [WORKFLOW.md](WORKFLOW.md). For CLI flags and all
 commands see [CLI.md](CLI.md).
 
+```mermaid
+graph TD
+    Clone[Fresh clone] --> Setup[uv sync --all-extras<br/>install toolchain under tools/]
+    Setup --> Init[rebrew init<br/>scaffold rebrew-project.toml]
+    Init --> Skeleton[rebrew skeleton 0x&lt;VA&gt;<br/>generate a .c skeleton]
+    Skeleton --> Test[rebrew test src/&lt;target&gt;/&lt;file&gt;.c<br/>compile + byte-compare]
+    Test -->|EXACT / RELOC| Done[STATUS auto-promoted<br/>first function matched 🎉]
+    Test -->|MISMATCH| Edit[edit C source<br/>rebrew diff to see why]
+    Edit --> Test
+    Test -->|COMPILE ERROR| Edit
+    Done --> Loop[Continue → WORKFLOW.md<br/>for the full iteration loop]
+```
+
 ## Prerequisites
 
 - MSVC6 toolchain at `tools/MSVC600/VC98/` (already in repo)

@@ -4,6 +4,23 @@ description: Performs byte-level binary matching using diff analysis and the gen
 license: MIT
 ---
 
+```mermaid
+graph TD
+    Diff[Diff analysis<br/>rebrew diff --json] --> FixBlocker[Classify blockers<br/>rebrew diff --fix-blocker]
+    FixBlocker --> Sensitive{flag_sensitive?<br/>structural similarity}
+    Sensitive -->|yes| Sweep[Flag sweep<br/>rebrew match --flag-sweep-only --tier &lt;tier&gt;]
+    Sensitive -->|no| Ga[GA engine<br/>rebrew match]
+    Sweep -->|EXACT / RELOC| RoundTrip[Round-trip validation<br/>rebrew round-trip --json]
+    Sweep -->|still NEAR| Ga
+    Ga -->|EXACT / RELOC| RoundTrip
+    Ga -->|NEAR_MATCHING| Classify[Classify delta<br/>rebrew near-diag --json]
+    Classify -->|register / equivalent| Edit[C-level tweaks<br/>edit .c source]
+    Edit --> Diff
+    Classify -->|structural| Prove[Prove equivalence<br/>rebrew prove --watch-va]
+    Prove -->|PROVEN| RoundTrip
+    Prove -->|not proven| Edit
+```
+
 # Rebrew Matching
 
 Deep dive into diff analysis and the GA engine.

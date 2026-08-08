@@ -4,6 +4,18 @@ description: Analyzes global variables, structs, and arrays in binary data secti
 license: MIT
 ---
 
+```mermaid
+graph TD
+    Scan[Scan globals<br/>rebrew data --json] --> Annotate[Annotate globals<br/>// GLOBAL: / // DATA: markers<br/>with SECTION metadata]
+    Annotate --> Dispatch[Detect dispatch tables<br/>rebrew data --dispatch --json]
+    Dispatch --> Bss{Check BSS layout<br/>rebrew data --bss --json}
+    Bss -->|gaps found| FixBss[Generate bss_padding.c<br/>rebrew data --fix-bss]
+    FixBss --> Extern[Add missing externs<br/>// GLOBAL: markers]
+    Extern --> Bss
+    Bss -->|no gaps| Header[Generate rebrew_globals.h<br/>rebrew data --gen-header]
+    Header --> Lint[Lint annotations<br/>rebrew lint (W016)]
+```
+
 # Rebrew Data Analysis
 
 Inspect global variables and detect type conflicts across translation units.
