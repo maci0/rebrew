@@ -59,6 +59,7 @@ from rebrew.compile import compile_to_obj
 from rebrew.config import ProjectConfig
 from rebrew.core import build_name_to_va, smart_reloc_compare
 from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
+from rebrew.utils import safe_shlex_split
 
 log = logging.getLogger(__name__)
 
@@ -146,12 +147,12 @@ def _get_win32_simprocs() -> dict[str, type]:
         """Model memcpy: copy src→dst symbolically, return dst."""
 
         def run(self, dst: Any, src: Any, n: Any) -> Any:
-            # Concretise length to avoid explosion; cap at 1024
-            try:
-                length = self.state.solver.eval(n)
-            except Exception:
-                length = 0
-            length = min(length, 1024)
+            # Concretise length to avoid explosion; cap at 1024.  If the
+            # solver cannot concretise n, let the exception propagate — angr
+            # marks the state errored and it is excluded from the terminal
+            # states, so the proof fails closed instead of silently treating
+            # the memcpy as a no-op (which could fake an equivalence).
+            length = min(self.state.solver.eval(n), 1024)
             if length > 0:
                 data = self.state.memory.load(src, length)  # type: ignore[no-untyped-call]
                 self.state.memory.store(dst, data)  # type: ignore[no-untyped-call]
@@ -161,11 +162,10 @@ def _get_win32_simprocs() -> dict[str, type]:
         """Model memset: fill dst with byte value, return dst."""
 
         def run(self, dst: Any, val: Any, n: Any) -> Any:
-            try:
-                length = self.state.solver.eval(n)
-            except Exception:
-                length = 0
-            length = min(length, 1024)
+            # Same fail-closed policy as SimMemcpy: a solver failure on the
+            # length propagates and errors the state rather than no-op'ing
+            # the memset on both sides (which could fake equivalence).
+            length = min(self.state.solver.eval(n), 1024)
             if length > 0:
                 byte_val = claripy.Extract(7, 0, val)
                 for i in range(length):
@@ -1404,7 +1404,7 @@ def _prepare_prove_inputs(
         raise _ProveError(f"Failed to extract target bytes at VA 0x{va:08x} (size {size})")
 
     cflags_str = ann.cflags or "/O2 /Gd"
-    cflags_list = cflags_str.split()
+    cflags_list = safe_shlex_split(cflags_str)
 
     # Watched VAs for memory side-effect checking: CLI flags + metadata.
     watched_vas: list[int] = list(watch_va or [])

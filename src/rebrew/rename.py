@@ -27,6 +27,45 @@ from rebrew.utils import atomic_write_text
 
 logger = logging.getLogger(__name__)
 
+# C89 keywords cannot be used as function names; `str.isidentifier()` alone
+# would let `if`, `int`, `struct`, ... through and generate uncompilable C.
+_C_KEYWORDS = frozenset(
+    {
+        "auto",
+        "break",
+        "case",
+        "char",
+        "const",
+        "continue",
+        "default",
+        "do",
+        "double",
+        "else",
+        "enum",
+        "extern",
+        "float",
+        "for",
+        "goto",
+        "if",
+        "int",
+        "long",
+        "register",
+        "return",
+        "short",
+        "signed",
+        "sizeof",
+        "static",
+        "struct",
+        "switch",
+        "typedef",
+        "union",
+        "unsigned",
+        "void",
+        "volatile",
+        "while",
+    }
+)
+
 app = typer.Typer(
     help="Rename a function and update cross-references.",
     rich_markup_mode="rich",
@@ -85,7 +124,11 @@ def rename_function_everywhere(
     # 2. Update function definition & calls in file
     try:
         content = filepath.read_text(encoding="utf-8")
-        new_content = re.sub(r"\b" + re.escape(actual_old_name) + r"\b", target_func, content)
+        # Replacement via callable: target_func is literal, never interpreted
+        # as re backreference syntax (e.g. a name containing ``\1``).
+        new_content = re.sub(
+            r"\b" + re.escape(actual_old_name) + r"\b", lambda _m: target_func, content
+        )
         if new_content != content:
             atomic_write_text(filepath, new_content, encoding="utf-8")
             updated_files += 1
@@ -99,7 +142,9 @@ def rename_function_everywhere(
 
         try:
             content = src_file.read_text(encoding="utf-8")
-            new_content = re.sub(r"\b" + re.escape(actual_old_name) + r"\b", target_func, content)
+            new_content = re.sub(
+                r"\b" + re.escape(actual_old_name) + r"\b", lambda _m: target_func, content
+            )
             if new_content != content:
                 atomic_write_text(src_file, new_content, encoding="utf-8")
                 updated_files += 1
@@ -190,6 +235,12 @@ def main(
     actual_old_name = old_sym.lstrip("_") if old_sym.startswith("_") else old_name
 
     target_func = new_name
+    if not target_func.isidentifier() or target_func in _C_KEYWORDS:
+        error_exit(
+            f"'{target_func}' is not a valid C identifier — use letters, digits, "
+            f"and underscores (not starting with a digit, not a C keyword).",
+            json_mode=json_output,
+        )
 
     filepath = cfg.reversed_dir / old_fp
 

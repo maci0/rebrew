@@ -509,7 +509,17 @@ class TestRunAllParallel:
         monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
         seen: list[tuple[str, int]] = []
 
-        def _fake_run(stub, cfg, generations, pop, jobs, timeout, seeds=None, cflags_override=None):
+        def _fake_run(
+            stub,
+            cfg,
+            generations,
+            pop,
+            jobs,
+            timeout,
+            seeds=None,
+            cflags_override=None,
+            rng_seed=None,
+        ):
             seen.append((stub.symbol, jobs))
             return False, "best_score=5.00"
 
@@ -559,7 +569,17 @@ class TestRunAllParallel:
         monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
         seen: list[int] = []
 
-        def _fake_run(stub, cfg, generations, pop, jobs, timeout, seeds=None, cflags_override=None):
+        def _fake_run(
+            stub,
+            cfg,
+            generations,
+            pop,
+            jobs,
+            timeout,
+            seeds=None,
+            cflags_override=None,
+            rng_seed=None,
+        ):
             seen.append(jobs)
             return False, "best_score=5.00"
 
@@ -673,7 +693,17 @@ class TestSweepThenGa:
         )
         seen: dict = {}
 
-        def _fake_run(stub, cfg, generations, pop, jobs, timeout, seeds=None, cflags_override=None):
+        def _fake_run(
+            stub,
+            cfg,
+            generations,
+            pop,
+            jobs,
+            timeout,
+            seeds=None,
+            cflags_override=None,
+            rng_seed=None,
+        ):
             seen["override"] = cflags_override
             return False, "best_score=5.00"
 
@@ -734,7 +764,17 @@ class TestSweepThenGa:
         )
         seen: dict = {}
 
-        def _fake_run(stub, cfg, generations, pop, jobs, timeout, seeds=None, cflags_override=None):
+        def _fake_run(
+            stub,
+            cfg,
+            generations,
+            pop,
+            jobs,
+            timeout,
+            seeds=None,
+            cflags_override=None,
+            rng_seed=None,
+        ):
             seen["override"] = cflags_override
             return False, "best_score=5.00"
 

@@ -19,6 +19,7 @@ import warnings
 from pathlib import Path
 
 from rebrew.compile_cache import CompileCache, compile_cache_key
+from rebrew.utils import safe_shlex_split
 
 from .core import BuildResult
 from .flag_data import COMMON_MSVC_FLAGS, MSVC6_FLAGS, MSVC_SWEEP_TIERS
@@ -90,7 +91,7 @@ def _ensure_wine_env(env: dict[str, str] | None, cmd: list[str]) -> dict[str, st
 
 
 def _compiler_cmd_parts(cl_cmd: str, env: dict[str, str] | None) -> list[str]:
-    parts = shlex.split(cl_cmd)
+    parts = safe_shlex_split(cl_cmd)
     runner = ""
     if env is not None:
         runner = env.get("REBREW_COMPILER_RUNNER", "").strip()
