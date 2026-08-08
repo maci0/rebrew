@@ -5336,3 +5336,17 @@ Ran the `config-review` prompt (via subagent).  Fixed:
   or drop), F7 (find_root doc mismatch), F8 (arch fallback warning).
 
 3520 rebrew tests pass.
+
+## 2026-08-09 — config-review F5/F7 + full-project system check (65d449a)
+
+- **F7** — `find_root` docstring now states an explicit `start` is an
+  authoritative root (returned verbatim), matching behavior.
+- **F5** — corrected the misleading known-keys comments: `origins` is
+  editor/UI-only (NOT annotation filtering), `game_range_end` is a
+  stored-but-unread legacy key, `compiler.profiles` is reserved/unwired —
+  the whitelist no longer misleads readers about their effect.
+- **System check after the session's changes** (F2 cflags unification,
+  verify-cache size/headers changes, PROVEN overlay, gate fixes):
+  guild `verify --dry-run` — 225 passed / 34 failed / 0 compile errors
+  (unchanged, cflags unification is behavior-neutral on real projects);
+  np-rebrew lint 70/0/1 + status unchanged; both trees left as found.
