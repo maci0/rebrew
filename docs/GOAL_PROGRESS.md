@@ -5522,3 +5522,12 @@ set-cflags no-op, marker default, wibo config, cflags divergence,
 WAL-blind ETags, VA round-trip 404, unbounded POST, GA 270x, dependency
 conflict), CHANGELOGs backfilled, dist rebuilt, and both real projects
 left healthy and clean.
+
+## 2026-08-09 — SPA/API contract check (no findings)
+
+Cross-checked every API path the recoverage SPA requests (app.js) against
+the current route table after this session's API changes: /api/events,
+/api/regen (POST), /api/targets, /data, /asm, /functions/<va> — all
+present with matching methods.  The /data 404-for-unknown-section,
+decimal-VA acceptance, and memo-bytes changes are all backward-compatible
+with the SPA's request patterns.  No contract drift.
