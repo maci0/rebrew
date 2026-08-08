@@ -669,6 +669,11 @@ profile = "msvc6"
 command = "wine CL.EXE"
 """
         root = _make_project(tmp_path, toml)
+        # A valid project has its target binary present; a missing binary now
+        # warns at load time (image_base auto-detection is skipped).
+        from bin_util import make_pe
+
+        (root / "test.exe").write_bytes(make_pe(b"\xc3"))
         import warnings
 
         with warnings.catch_warnings():

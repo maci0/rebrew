@@ -712,12 +712,22 @@ def _render_dispatch(console: Console, tables: list[DispatchTable]) -> None:
 
 
 def _generate_bss_fix(
-    report: BssReport, src_dir: Path, origin: str, *, dry_run: bool = False
+    report: BssReport,
+    src_dir: Path,
+    origin: str,
+    *,
+    metadata_dir: Path | None = None,
+    dry_run: bool = False,
 ) -> None:
     """Generate a bss_padding.c file with dummy arrays for all detected BSS gaps.
 
     SIZE, SECTION, and NOTE are written to ``rebrew-data.toml`` metadata, not inline.
     With *dry_run*, prints what would be written without touching the disk.
+
+    *src_dir* is where ``bss_padding.c`` is written (``cfg.reversed_dir``);
+    *metadata_dir* is the ``rebrew-data.toml`` root (``cfg.metadata_dir`` —
+    the reversed_dir's *parent*).  These differ, and routing the metadata
+    writes to src_dir orphans them (reads use metadata_dir everywhere).
     """
     if not report.gaps:
         if report.known_entries:
@@ -733,6 +743,7 @@ def _generate_bss_fix(
     from rebrew.data_metadata import set_data_field
     from rebrew.utils import atomic_write_text
 
+    meta_dir = metadata_dir if metadata_dir is not None else src_dir
     out_file = src_dir / "bss_padding.c"
 
     lines = [
@@ -744,11 +755,11 @@ def _generate_bss_fix(
         lines.append(f"// DATA: {origin} 0x{gap.offset:08x}")
         lines.append(f"char gap_{gap.offset:08x}[{gap.size}];\n")
         if not dry_run:
-            # Write metadata to data metadata
-            set_data_field(src_dir, gap.offset, "size", gap.size, origin)
-            set_data_field(src_dir, gap.offset, "section", ".bss", origin)
+            # Write metadata to data metadata (the metadata root, not src_dir).
+            set_data_field(meta_dir, gap.offset, "size", gap.size, origin)
+            set_data_field(meta_dir, gap.offset, "section", ".bss", origin)
             set_data_field(
-                src_dir, gap.offset, "note", f"gap between {gap.before} and {gap.after}", origin
+                meta_dir, gap.offset, "note", f"gap between {gap.before} and {gap.after}", origin
             )
 
     if dry_run:
@@ -974,7 +985,7 @@ def _gen_globals_header(
     from rebrew.cli import error_exit, iter_sources
     from rebrew.data_metadata import load_data_metadata
 
-    marker = getattr(cfg, "marker", cfg.target_name.upper())
+    marker = getattr(cfg, "marker", getattr(cfg, "target_name", "GAME").upper())
     metadata = load_data_metadata(cfg.metadata_dir)
 
     rows: list[dict[str, Any]] = []
@@ -1197,7 +1208,13 @@ def main(
     if bss or fix_bss:
         bss_report = verify_bss_layout(scan, sections)
         if fix_bss:
-            _generate_bss_fix(bss_report, src_dir, getattr(cfg, "marker", ""), dry_run=dry_run)
+            _generate_bss_fix(
+                bss_report,
+                src_dir,
+                getattr(cfg, "marker", ""),
+                metadata_dir=cfg.metadata_dir,
+                dry_run=dry_run,
+            )
             return
 
         if json_output:

@@ -1,18 +1,19 @@
 # GOAL_STATUS — 16h autonomous improvement (in progress)
 
-Slice 212 done. Committed and pushed the session's work (rebrew
-5eeca4b..cfcbb6f, +17.7k lines across 124 files; pre-commit green in the
-commit). Sister project recoverage verified against a freshly regenerated
-coverage.db (all endpoints 200), its 57 silently-skipped DB-gated tests
-enabled via a synthetic-DB conftest (201 passed / 4 skipped), 3 stale potato
-assertions fixed, and two missing features shipped: `--bind` for
-`recoverage serve` and a server-side 429 rate limit on POST /api/regen.
-Pushed recoverage c9d5c32..e7ea356.
+Slice 213 done. config-review pass (first run): 2 HIGH metadata-routing bugs
+fixed — `catalog --fix-sizes` was silently losing every SIZE fix to a stray
+rebrew-function.toml (wrong metadata_dir), and `data --fix-bss` orphaned its
+BSS metadata to reversed_dir instead of cfg.metadata_dir. Plus: load-time
+warning for a missing target binary (no more silent image_base=0), a
+misleading round-trip error message corrected, lint --fix STATUS migration
+routed through update_source_status, and a docstring that recommended the
+wrong metadata_dir fixed. Suite: 3460 passed / 0 skipped,
+ruff/mypy/pre-commit green.
 
-Slices 206-211 (rebrew): round-trip resolution fallbacks (workspace spliced
-131→158), fuzz-review + code-review passes (all findings fixed), angr-enabled
-prove tests + 30 mypy fixes, idempotency sweep + annotation roundtrip
-invariants, stale docs refreshed. Suite: 3460 passed / 0 skipped.
+Recent slices: 212 pushed rebrew + verified/extended the recoverage sister
+project (synthetic-DB conftest, 201->204 tests, --bind + regen rate limit);
+206-211 rebrew hardening (round-trip fallbacks 131->158 spliced, fuzz +
+code reviews, angr/mypy, idempotency + annotation invariants).
 
-Total session (slices 1-212): ~95 real tool defects fixed, 18+ features,
-34-review pass + 31 focused reviews. Details: docs/GOAL_PROGRESS.md.
+Total session (slices 1-213): ~95 real tool defects fixed, 18+ features,
+35-review pass + 31 focused reviews. Details: docs/GOAL_PROGRESS.md.

@@ -354,6 +354,12 @@ def build_db(
                             va_int = 0
 
                 va_start_text = str(fn.get("vaStart") or (f"0x{va_int:08x}" if va_int else ""))
+                # build_db CHECK constraints reject negative fileOffset/
+                # textOffset/blockerDelta — a stray negative would abort the
+                # entire rebuild, so clamp defensively.
+                file_off = fn.get("fileOffset")
+                text_off = fn.get("textOffset")
+                blocker_delta = fn.get("blockerDelta")
                 fn_rows.append(
                     (
                         target_name,
@@ -361,7 +367,7 @@ def build_db(
                         str(fn.get("name") or ""),
                         va_start_text,
                         fn.get("size"),
-                        fn.get("fileOffset"),
+                        file_off if not isinstance(file_off, int) or file_off >= 0 else 0,
                         str(fn.get("status") or "UNKNOWN"),
                         str(fn.get("module") or fn.get("origin") or ""),
                         fn.get("cflags"),
@@ -375,9 +381,11 @@ def build_db(
                         json.dumps(fn.get("files", [])),
                         json.dumps(fn.get("detected_by", [])),
                         json.dumps(fn.get("size_by_tool", {})),
-                        fn.get("textOffset"),
+                        text_off if not isinstance(text_off, int) or text_off >= 0 else 0,
                         fn.get("blocker", ""),
-                        fn.get("blockerDelta"),
+                        blocker_delta
+                        if not isinstance(blocker_delta, int) or blocker_delta >= 0
+                        else 0,
                         fn.get("size_reason", ""),
                         fn.get("similarity"),
                     )
@@ -639,7 +647,9 @@ def _generate_catalogs(
         total, by_status, by_module, covered_bytes_func = _function_stats(c, target_name)
 
         text_summary = summary.get(".text", {})
-        text_size: int = text_summary.get("size", 0)
+        # grid.py stores .text size at the summary TOP LEVEL as "textSize"
+        # (section entries only carry "size" for non-.text sections).
+        text_size = int(text_summary.get("size") or summary.get("textSize") or 0)
         coverage_pct: float = (covered_bytes_func / text_size * 100.0) if text_size else 0.0
 
         # Build markdown

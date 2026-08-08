@@ -283,7 +283,7 @@ class TestBinsyncExportDryRun:
         assert result.exit_code == 0
         import json
 
-        data = json.loads(result.output)
+        data = json.loads(result.stdout)
         assert data["dry_run"] is True
         assert data["functions"] == 1
         assert not outdir.exists()
@@ -306,7 +306,7 @@ class TestBinsyncExportJson:
         assert result.exit_code == 0
         import json
 
-        data = json.loads(result.output)
+        data = json.loads(result.stdout)
         assert "functions" in data
         assert "globals" in data
         assert "structs" in data

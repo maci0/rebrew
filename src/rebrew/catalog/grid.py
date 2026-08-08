@@ -240,10 +240,17 @@ def generate_data_json(
         if sec_result is not None:
             sec_name, file_off, text_off = sec_result
 
-        # Fallback if not found in any section
-        if not found_in_section and image_base:
+        # Fallback if not found in any section.  A VA outside every section has
+        # no meaningful file offsets: emitting negative values would violate
+        # build_db's CHECK constraints (aborting the whole rebuild) and slicing
+        # the binary from a negative index reads from the file END.  Skip it.
+        if not found_in_section:
+            if not image_base:
+                continue
             file_off = va - image_base
             text_off = file_off - text_raw_offset
+            if file_off < 0 or text_off < 0:
+                continue
 
         reg = registry.get(va, {}) if registry else {}
         canonical_size = reg.get("canonical_size", 0)
@@ -582,11 +589,22 @@ def generate_data_json(
         except ValueError:
             original_dll_path = f"/{bin_path.name}"
 
+    # Project-relative reversed-source root; recoverage uses it to resolve .c
+    # file paths for the detail panels.  Falls back to "/src/<target>" only
+    # when root_dir is unavailable (path-less invocation).
+    source_root = ""
+    if src_dir and root_dir:
+        try:
+            source_root = f"/{src_dir.relative_to(root_dir)}"
+        except ValueError:
+            source_root = "/" + src_dir.name
+
     return {
         "sections": sections,
         "globals": globals_dict,
         "paths": {
             "originalDll": original_dll_path,
+            "sourceRoot": source_root,
         },
         "summary": {
             "totalFunctions": len(fn_vas),

@@ -672,7 +672,12 @@ def main(
     # Apply --fix: migrate inline metadata to rebrew-function.toml
     if fix and cfg:
         from rebrew.annotation import remove_inline_annotation_key
-        from rebrew.metadata import coerce_metadata_value, get_entry, set_field
+        from rebrew.metadata import (
+            coerce_metadata_value,
+            get_entry,
+            set_field,
+            update_source_status,
+        )
 
         fix_count = 0
         for r in all_results:
@@ -698,7 +703,15 @@ def main(
                         # Coerce size/blocker_delta to int via the shared
                         # metadata facade (single canonical coercion).
                         write_value = coerce_metadata_value(toml_key, value)
-                        set_field(cfg.metadata_dir, va, toml_key, write_value, module=module)
+                        if toml_key == "status":
+                            # STATUS must go through the promotion gate
+                            # (validates the value, clears stale blockers,
+                            # never silently demotes PROVEN).
+                            update_source_status(
+                                cfg.metadata_dir, write_value, module, va, force=True
+                            )
+                        else:
+                            set_field(cfg.metadata_dir, va, toml_key, write_value, module=module)
 
                 # Strip inline comment from source (file-only — the metadata
                 # write above already owns the field; routing STATUS through

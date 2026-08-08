@@ -982,9 +982,10 @@ def parse_c_file_multi(
 
     When *metadata_dir* is provided each returned Annotation is overlaid with
     values from that directory's ``rebrew-function.toml`` (metadata wins for volatile
-    fields like STATUS, SIZE, CFLAGS, BLOCKER, NOTE, GHIDRA).  Pass
-    ``filepath.parent`` as *metadata_dir* to enable metadata merging for a
-    single-file call.
+    fields like STATUS, SIZE, CFLAGS, BLOCKER, NOTE, GHIDRA).  Pass the real
+    metadata root (``cfg.metadata_dir`` — the parent of ``reversed_dir``) as
+    *metadata_dir*; ``filepath.parent`` only works for single-source layouts
+    and silently no-ops the merge when the metadata file lives elsewhere.
 
     Sets ``filepath`` on each returned Annotation.  When *base_dir* is
     given the stored path is relative to it; otherwise the bare filename.

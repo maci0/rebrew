@@ -67,6 +67,9 @@ pythonpath = ["src", "."]
 filterwarnings = [
     # LIEF C extension emits this when parsing minimal Mach-O stubs with zeroed headers
     "ignore:0 is not a valid CPU_TYPE:RuntimeWarning",
+    # Test fixtures routinely load configs whose fake target binary does not
+    # exist; the load-time warning is for real users, not the suite.
+    "ignore:target binary not found:UserWarning",
 ]
 
 [tool.slipcover]
