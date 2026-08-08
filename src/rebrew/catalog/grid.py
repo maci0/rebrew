@@ -36,6 +36,27 @@ _BSS_CELL_BYTES = 4096
 _DEFAULT_CELL_BYTES = 16
 _GRID_COLUMNS = 64
 
+# Highest-priority status group per VA (first matching group wins)
+_STATUS_PRIORITY = (("EXACT",), ("RELOC",), ("NEAR_MATCHING", "NEAR_MATCH"), ("STUB",))
+
+
+def count_statuses(by_va: dict[int, list[Annotation]]) -> dict[str, int]:
+    """Count function VAs by highest-priority status present.
+
+    GLOBAL/DATA markers are excluded.  Returns a dict keyed by the four
+    status groups: EXACT, RELOC, NEAR_MATCHING, STUB.
+    """
+    counters = {"EXACT": 0, "RELOC": 0, "NEAR_MATCHING": 0, "STUB": 0}
+    for vas in by_va.values():
+        if not any(e.get("marker_type") not in ("GLOBAL", "DATA") for e in vas):
+            continue
+        statuses = {e["status"] for e in vas}
+        for status_group in _STATUS_PRIORITY:
+            if any(status in statuses for status in status_group):
+                counters[status_group[0]] += 1
+                break
+    return counters
+
 
 def _build_section_index(
     sections: dict[str, Any],
@@ -134,14 +155,7 @@ def generate_data_json(
     ]
 
     # Count functions by highest-priority status present
-    _STATUS_PRIORITY = (("EXACT",), ("RELOC",), ("NEAR_MATCHING", "NEAR_MATCH"), ("STUB",))
-    _counters = {"EXACT": 0, "RELOC": 0, "NEAR_MATCHING": 0, "STUB": 0}
-    for vas in fn_vas:
-        statuses = {e["status"] for e in vas}
-        for status_group in _STATUS_PRIORITY:
-            if any(status in statuses for status in status_group):
-                _counters[status_group[0]] += 1
-                break
+    _counters = count_statuses(by_va)
     exact_count, reloc_count, near_match_count, stub_count = (
         _counters["EXACT"],
         _counters["RELOC"],

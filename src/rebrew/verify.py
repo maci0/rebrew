@@ -47,9 +47,9 @@ from rebrew.cli import (
     TargetOption,
     error_exit,
     is_matched,
-    is_status_sticky,
     json_print,
     require_config,
+    should_promote_status,
 )
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 from rebrew.metadata import update_source_status
@@ -1138,16 +1138,10 @@ def apply_status_updates(
         if not module:
             continue
         current_status = getattr(entry, "status", "")
-        # Sticky statuses (PROVEN) are never demoted
-        if is_status_sticky(current_status):
-            continue
-        # A STUB's placeholder code always size-mismatches; promoting every
-        # stub to SIZE_MISMATCH on each verify run erases the user's STUB
-        # classification (and orphans its blocker).  The mismatch is still
-        # visible in the verify report; the STUB marker stays.
-        if current_status == "STUB" and status == "SIZE_MISMATCH":
-            continue
-        if current_status == status:
+        # Sticky statuses (PROVEN) are never demoted; a STUB's placeholder
+        # always size-mismatches (keep the user's classification); unchanged
+        # status is a no-op.  All decided by should_promote_status.
+        if not should_promote_status(current_status, status):
             continue
         clear = is_matched(status)
         update_source_status(cfg.metadata_dir, status, module, entry.va, clear_blockers=clear)
