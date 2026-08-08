@@ -4648,3 +4648,39 @@ FUNC10 full-grid rebuild (ETag now short-circuits), PERF7 double LIEF
 parse (ms-scale, API churn risk), PERF8 diff_functions quadratic
 (diagnostic path), PERF10 header content-hash (deliberate correctness
 guard), PERF11 potato full-cell load (fallback UI).
+
+## 2026-08-09 — R2 review round (test-review, cli-review, db-review)
+
+**Three-agent swarm on test/cli/db quality.** All confirmed findings fixed
+or triaged (commits `517cc5c`, `69e2f56`, `004fa2f`, `db1c328`, `1411444`,
+`3ee4993`):
+
+- **EXTRACT_ERROR**: symbol-not-found in `_extract_and_compare` now labeled
+  EXTRACT_ERROR (was mislabeled COMPILE_ERROR, which hard-exited `rebrew
+  test` with code 2 and blamed the source); added to `_STATUS_RANK`/
+  `_STATUS_ORDER`; 8 new unit tests.
+- **matchedFunctions**: summary no longer counts COMPILE_ERROR/SIZE_MISMATCH/
+  MISSING_* as matched (was `totalFunctions - stubCount`); now EXACT+RELOC
+  (+PROVEN) via `_count_matched`; potato display fixed to match; regression
+  test added.
+- **build-db --target**: scoped rebuild now DELETEs only that target's rows
+  instead of dropping the whole schema (other targets preserved); regression
+  test proves both targets survive a scoped rebuild.
+- **db_version**: stamped under reserved `__schema__` row, read
+  deterministically in both build_db and recoverage; legacy per-target rows
+  kept for older dashboards.
+- **recoverage caches**: potato cells cache now cleared on rebuild +
+  capped; /api/data cache capped; ETag switched to mtime_ns (two rebuilds in
+  the same second no longer share an ETag).
+- **CLI**: recoverage stats/export fail with exit 1 on unknown --target;
+  check validates --min-coverage ∈ [0,100]; verify.py --json/--target flag
+  order fixed; round_trip --no-write alias dropped; imports refuses
+  --mark --json; /asm size parses decimal like /bytes.
+- **Tests**: non-vacuous replacements for wildcard/100-threshold/stdlib-CSV
+  tests; schema-shape guard tested on both sides (version-matches-but-
+  objects-missing); _build_invalid_reloc_mask boundary tests; recoverage
+  DB-gated tests skip inside a real rebrew workspace (were CWD-coupled and
+  could read a real project DB).
+- **Triage (keep)**: search_index first-wins dedup done; dead
+  `diff_functions(invalid_relocs)` param kept (public API, now pinned by
+  tests) rather than deleted.
