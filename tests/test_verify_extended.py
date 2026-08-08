@@ -745,6 +745,51 @@ class TestProvenOverlay:
         assert data["summary"]["proven"] == 0
         assert data["summary"]["failed"] == 1
 
+    def test_proven_cache_stores_raw_byte_result(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The PROVEN overlay is report-time only — the verify cache must store
+        the raw byte result, not the overlaid PROVEN pass.
+
+        Otherwise a later metadata STATUS demotion (PROVEN → STUB, the stale
+        overlay case) would be masked by the cached pass on incremental runs.
+        """
+        from rebrew.verify import _load_verify_cache, app
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "f.c").write_text("int my_func(void) { return 1; }\n", encoding="utf-8")
+        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        proven_entry = _ann(0x1000, status="PROVEN")
+        monkeypatch.setattr(
+            "rebrew.verify.prepare_entries", lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [])
+        )
+        results = [
+            {"va": "0x00001000", "filepath": "f.c", "status": "NEAR_MATCHING", "passed": False}
+        ]
+        fail_details = [(proven_entry, "9B diff")]
+        monkeypatch.setattr(
+            "rebrew.verify.run_verification", lambda *a, **k: (0, 1, fail_details, results, [])
+        )
+        monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (None, None))
+        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
+        result = CliRunner().invoke(app, ["--json"])
+        assert result.exit_code == 0
+
+        # The report shows the overlay...
+        data = json.loads(result.stdout)
+        assert data["results"][0]["status"] == "PROVEN"
+        assert data["results"][0]["passed"] is True
+
+        # ...but the cache (unmocked, written by the run) stores the raw result.
+        cache_path = cfg.root / ".rebrew" / "verify_cache.json"
+        assert cache_path.exists()
+        loaded = _load_verify_cache(cache_path, cfg)
+        assert loaded is not None
+        entry = loaded.entries["0x00001000"]
+        assert entry.result.status == "NEAR_MATCHING"
+        assert entry.result.passed is False
+
 
 class TestRunVerification:
     def _patch(self, monkeypatch: pytest.MonkeyPatch, results: dict) -> None:

@@ -509,6 +509,7 @@ def _save_verify_cache(
     cfg: ProjectConfig,
     results: list[dict[str, Any]],
     entries: list[Annotation],
+    raw_statuses: dict[str, tuple[str, bool]] | None = None,
 ) -> None:
     filepath_info: dict[str, tuple[int, str]] = {}
     cflags_by_va: dict[str, str] = {}
@@ -546,6 +547,10 @@ def _save_verify_cache(
             "passed": result.get("passed", False),
             "message": result.get("message", ""),
         }
+        # Overlaid PROVEN entries store their pre-overlay byte result so a
+        # later metadata STATUS demotion is not masked by a stale cache hit.
+        if raw_statuses is not None and va_key in raw_statuses:
+            res_dict["status"], res_dict["passed"] = raw_statuses[va_key]
 
         cache_entries[str(va_key)] = {
             "source_hash": source_hash,
@@ -826,9 +831,16 @@ def main(
     }
     _proven_compatible = ("NEAR_MATCHING", "SIZE_MISMATCH")
     overlaid_vas: set[str] = set()
+    # Raw byte-level truth for overlaid entries — the verify cache must store
+    # the result as compiled, not the metadata-derived PROVEN.  The overlay is
+    # re-applied from CURRENT metadata at every report run (including cached
+    # results), so baking PROVEN into the cache would mask a later STATUS
+    # demotion with a stale cached pass.
+    raw_statuses: dict[str, tuple[str, bool]] = {}
     if proven_vas:
         for r in results:
             if r["va"] in proven_vas and r["status"] in _proven_compatible:
+                raw_statuses[r["va"]] = (r["status"], bool(r.get("passed", False)))
                 was_failed = not r.get("passed", False)
                 r["status"] = "PROVEN"
                 r["passed"] = True
@@ -890,7 +902,7 @@ def main(
     if not dry_run and not (diff_mode and gate_failed):
         cache_path = cfg.root / ".rebrew" / "verify_cache.json"
         try:
-            _save_verify_cache(cache_path, cfg, results, unique_entries)
+            _save_verify_cache(cache_path, cfg, results, unique_entries, raw_statuses)
         except (OSError, TypeError):
             # Warn on stderr regardless of json mode — silent cache-I/O
             # failures degrade performance invisibly.
