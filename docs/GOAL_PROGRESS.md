@@ -4780,3 +4780,38 @@ as truth).
 
 guild-rebrew metadata restored to its committed state after probing (the
 verify --full runs were test artifacts, not intended promotions).
+
+## 2026-08-09 — Impeccable audit on recoverage frontend (SPA + potato)
+
+Ran the impeccable `audit` on recoverage's dashboard UI (app.js, style.css,
+index.html, potato.py, ui.py).  Detector findings + manual a11y/theming/
+responsive review, then fixed iteratively until the detector is clean.
+
+**Audit run 1 → 13/20 (Acceptable).**  Detector: bounce-easing on modal
+(cubic-bezier back-ease), layout-transition (progress-segment `width`
+animation), potato docstring false-positive on `<img>`.  Manual: grid cells
++ progress segments were mouse-only divs (no keyboard access), modal
+min-width 60% broke mobile, 32px touch targets, hard-coded accent colors
+bypassed tokens, `overflow-x: hidden` masked overflow.
+
+**Fixes** (commit `bfdf86c` + `693ea1e`):
+- Easing → ease-out-quint (`cubic-bezier(0.16,1,0.3,1)`); removed `width`
+  from segment transition.
+- Grid cells: `role="button"` + `tabindex="-1"` + `aria-label`, arrow-key
+  nav + Enter/Space select on the grid container (P1 a11y).
+- Progress segments: `role="button"`, `tabindex="0"`, `aria-pressed`,
+  Enter/Space toggle.
+- Modal: mobile `min-width: 92%` under 700px; `aria-label` on target select.
+- Touch: `@media (pointer: coarse)` bumps controls to 44px (WCAG 2.5.5).
+- Theming: added accent tokens (--accent-*, --link, --delta, --badge-*)
+  to :root + .light-mode; HexLogo/links/badges/delta now use them.
+- `overflow-x: clip` replaces `hidden`.
+
+**Audit run 2 → detector clean (0 findings), all contrast ratios ≥ 6:1**
+(AA/AAA), select labeled, potato verified (labeled inputs, accesskeys,
+skip link — solid legacy fallback).
+
+**Audit run 3 → confirmed clean:** 0 detector findings, no hard-coded
+colors outside token blocks (the single `#ffffff` is the progress-text
+overlay, deliberately white on colored segments with a light-mode
+override), all media queries served.  recoverage suite 258 passed.
