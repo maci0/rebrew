@@ -1,8 +1,11 @@
 """Tests for rebrew.match — BinaryMatchingGA initialization and population logic."""
 
 from pathlib import Path
+from types import SimpleNamespace
 
-from rebrew.match import BinaryMatchingGA
+import pytest
+
+from rebrew.match import BinaryMatchingGA, StubInfo
 
 # ---------------------------------------------------------------------------
 # BinaryMatchingGA — init and population
@@ -144,3 +147,165 @@ class TestComputeFitness:
         res = BuildResult(ok=True, obj_bytes=None)
         score = ga._compute_fitness(res, "test_hash", "int f() { return 0; }")
         assert score == 10000000.0
+
+
+# ---------------------------------------------------------------------------
+# Batch orchestration (_run_all): discovery, filtering, dry-run, execution
+# ---------------------------------------------------------------------------
+
+
+class TestRunAllBatch:
+    """The batch driver: discovery filtering, dry-run JSON, GA execution with
+    per-run persistence, and error isolation (one bad stub must not abort)."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            reversed_dir=tmp_path / "src" / "T",
+            root=tmp_path,
+            target_name="T",
+            ignored_symbols=[],
+            metadata_dir=tmp_path,
+            image_base=0x10000000,
+            dll_exports={},
+            target_binary=tmp_path / "test.dll",
+            function_list="",
+            all_targets=["T"],
+        )
+
+    def _stub(self, name: str, va: str = "0x10001000", size: int = 100) -> StubInfo:
+        return StubInfo(
+            filepath=Path(name),
+            va=va,
+            size=size,
+            symbol=name,
+            cflags="/O2",
+            status="STUB",
+            module="T",
+        )
+
+    def _run(
+        self,
+        cfg: SimpleNamespace,
+        *,
+        dry_run: bool = False,
+        json_output: bool = False,
+        min_size: int = 0,
+        max_size: int = 9999,
+        filter_str: str = "",
+        max_stubs: int = 0,
+        skip_recent_hours: int = 0,
+        jobs: int = 1,
+        seed_from_solved: bool = False,
+        sweep_then_ga: bool = False,
+        flag_sweep: bool = False,
+    ) -> tuple[int, int]:
+        from rebrew.match import _run_all
+
+        return _run_all(
+            cfg,
+            jobs=jobs,
+            generations=5,
+            pop_size=4,
+            timeout_min=1,
+            dry_run=dry_run,
+            min_size=min_size,
+            max_size=max_size,
+            filter_str=filter_str,
+            near_miss=False,
+            improve=False,
+            threshold=10,
+            flag_sweep=flag_sweep,
+            fix_cflags=False,
+            max_stubs=max_stubs,
+            seed_from_solved=seed_from_solved,
+            json_output=json_output,
+            tier="targeted",
+            sweep_then_ga=sweep_then_ga,
+            skip_recent_hours=skip_recent_hours,
+        )
+
+    def test_dry_run_json_lists_stubs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+
+        stubs = [self._stub("a.c"), self._stub("b.c", "0x10001010", 200)]
+        monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
+        out = self._run(self._cfg(tmp_path), dry_run=True, json_output=True)
+        assert out == (0, 0)
+
+    def test_size_and_string_filters(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        import json
+
+        stubs = [
+            self._stub("a.c", "0x10001000", 50),
+            self._stub("b.c", "0x10001010", 200),
+            self._stub("c.c", "0x10001020", 300),
+        ]
+        monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
+        cfg = self._cfg(tmp_path)
+        # min_size + filter_str + max_stubs compose.
+        self._run(cfg, dry_run=True, json_output=True, min_size=100, filter_str="b.c")
+        data = json.loads(capsys.readouterr().out)
+        # Only b.c (200B) survives both filters.
+        assert data["count"] == 1
+        assert data["items"][0]["symbol"] == "b.c"
+
+    def test_skip_recent_filters(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+
+        stubs = [self._stub("a.c"), self._stub("b.c")]
+        monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
+        monkeypatch.setattr("rebrew.match._filter_recently_run", lambda s, cfg, hours, j: [s[1]])
+        out = self._run(self._cfg(tmp_path), dry_run=True, json_output=True, skip_recent_hours=24)
+        assert out == (0, 0)
+
+    def test_ga_run_persists_result(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+
+        stubs = [self._stub("a.c")]
+        monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
+        calls: list[tuple] = []
+
+        def _fake_ga(stub, cfg, gens, pop, jobs, timeout, seeds, cflags_override=None):
+            return True, "MATCHED"
+
+        def _fake_record(root, *, target, va, symbol, matched):
+            calls.append((str(root), target, va, symbol, matched))
+
+        monkeypatch.setattr("rebrew.match._run_one_stub_ga", _fake_ga)
+        monkeypatch.setattr("rebrew.matcher.solutions.record_ga_run", _fake_record)
+        matched, failed = self._run(self._cfg(tmp_path), json_output=True)
+        assert (matched, failed) == (1, 0)
+        assert calls == [(str(tmp_path), "T", "0x10001000", "a.c", True)]
+
+    def test_failed_stub_does_not_abort_batch(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+
+        stubs = [self._stub("bad.c"), self._stub("good.c", "0x10001010")]
+        monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
+
+        def _fake_ga(stub, cfg, gens, pop, jobs, timeout, seeds, cflags_override=None):
+            if "bad" in stub.symbol:
+                raise RuntimeError("boom")
+            return True, "MATCHED"
+
+        monkeypatch.setattr("rebrew.match._run_one_stub_ga", _fake_ga)
+        matched, failed = self._run(self._cfg(tmp_path), json_output=True)
+        assert (matched, failed) == (1, 1)
+
+    def test_parallel_path_matches_serial(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+
+        stubs = [self._stub(f"f{i}.c", f"0x1000{i:04x}") for i in range(1, 4)]
+        monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
+        monkeypatch.setattr(
+            "rebrew.match._run_one_stub_ga",
+            lambda stub, cfg, gens, pop, jobs, timeout, seeds, cflags_override=None: (
+                True,
+                "MATCHED",
+            ),
+        )
+        matched, failed = self._run(self._cfg(tmp_path), jobs=2, json_output=True)
+        assert (matched, failed) == (3, 0)
