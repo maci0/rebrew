@@ -5478,3 +5478,19 @@ measurements).  Fixed:
 - F4 verified as already-fast (numpy-vectorized scoring, memoized include
   fingerprints, linear grid).  Lazy main.py subcommand registration
   remains a documented follow-up.
+
+## 2026-08-09 — dependency conflict discovered + fixed (guild e61bd98)
+
+Probing the remaining import-cost item surfaced a REAL resolution break:
+guild's `uv run` (pytest, python, any) failed to resolve.  Chain:
+rebrew's `capstone>=5.0.8` (PYSEC-2026-3544 pin, from a prior commit) vs
+angr<=9.3.1's `capstone==5.0.6`; bumping angr to >=9.3.2 then hits
+reccmp's `pydemumble==0.0.1` vs angr's `pydemumble>=0.1.3` — the chain
+is unsatisfiable with stock pins.  Fixed on the project side: guild's
+pyproject adds a `[tool.uv] override-dependencies = ["capstone>=5.0.8"]`
+(uv overrides beat angr's "tested-with" pin; capstone 5.0.9 is
+backward-compatible with angr's usage).  `uv sync --all-extras` restores
+the dev extras (plain `uv sync` had dropped pytest); verified: `uv run
+pytest --version` ok, `rebrew status` ok, capstone 5.0.9 + angr 9.2.204
+coexist.  np-rebrew uses the global rebrew tool (no uv project) and is
+unaffected.
