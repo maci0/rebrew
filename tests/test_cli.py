@@ -9,6 +9,7 @@ import typer
 
 from rebrew.cli import (
     EXIT_ERROR,
+    angr_available,
     error_exit,
     json_print,
     parse_va,
@@ -233,3 +234,19 @@ class TestResolveSourceArg:
         result = resolve_source_arg(self._cfg(tmp_path), "no_such_func")
         # Returns Path("no_such_func") which doesn't exist — caller handles it
         assert result == Path("no_such_func")
+
+
+class TestAngrAvailable:
+    def test_probe_silences_angr_logger(self) -> None:
+        """The capability probe must not print angr's import-time ERROR spam.
+
+        angr logs about its optional unicorn engine at import; a plain
+        ``import angr`` probe pollutes stderr of unrelated CLIs (todo,
+        doctor).  The helper silences the angr logger during the probe.
+        """
+        import logging
+
+        logging.getLogger("angr").setLevel(logging.NOTSET)
+        result = angr_available()
+        if result:  # angr installed — verify the silencing side-effect
+            assert logging.getLogger("angr").getEffectiveLevel() == logging.CRITICAL

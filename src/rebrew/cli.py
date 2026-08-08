@@ -322,3 +322,23 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
             return src
 
     return p
+
+
+def angr_available() -> bool:
+    """Return True when angr imports cleanly, without angr's import-time log spam.
+
+    angr logs an ERROR about its optional unicorn engine at import time; a
+    bare capability probe (``with contextlib.suppress(ImportError): import
+    angr``) would print that alarming line to stderr on every CLI run that
+    merely checks for the optional dependency.  Silence the ``angr`` logger
+    for the duration of the probe — nothing else in the process uses it.
+    """
+    import contextlib
+    import logging
+
+    with contextlib.suppress(ImportError):
+        logging.getLogger("angr").setLevel(logging.CRITICAL)
+        import angr  # noqa: F401
+
+        return True
+    return False
