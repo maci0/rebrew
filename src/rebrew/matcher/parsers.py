@@ -25,6 +25,16 @@ _PADDING_STRIP = bytes(_PADDING_BYTES)
 # ---------------------------------------------------------------------------
 
 
+def _next_symbol_end(sec_offsets: list[int], func_start: int, fallback: int) -> int:
+    """End offset of the function at *func_start*: the next symbol's offset
+    in *sec_offsets* (sorted ascending), or *fallback* (section end) when
+    there is no later symbol.  Shared by the COFF/ELF/Mach-O extractors."""
+    idx = bisect.bisect_right(sec_offsets, func_start)
+    if idx < len(sec_offsets):
+        return sec_offsets[idx]
+    return fallback
+
+
 def _extract_reloc_name(reloc: Any) -> str:
     """Extract target symbol name from a relocation entry."""
     if hasattr(reloc, "symbol") and reloc.symbol is not None:
@@ -91,10 +101,7 @@ def parse_obj_relocs_full(obj_path: str | Path, symbol: str) -> list[CoffRelocRe
         and s.section.name == section.name
         and not str(s.name).startswith("$")
     )
-    func_end = len(bytes(section.content))
-    idx = bisect.bisect_right(sec_offsets, func_start)
-    if idx < len(sec_offsets):
-        func_end = sec_offsets[idx]
+    func_end = _next_symbol_end(sec_offsets, func_start, len(bytes(section.content)))
 
     records: list[CoffRelocRecord] = []
     for r in section.relocations:
@@ -176,10 +183,7 @@ def _parse_coff_symbol_bytes(
         and sym.section.name == section.name
         and not str(sym.name).startswith("$")
     )
-    func_end = len(content)
-    idx = bisect.bisect_right(sec_offsets, func_start)
-    if idx < len(sec_offsets):
-        func_end = sec_offsets[idx]
+    func_end = _next_symbol_end(sec_offsets, func_start, len(content))
 
     code = content[func_start:func_end].rstrip(_PADDING_STRIP)
     reloc_offsets = _collect_reloc_offsets(section.relocations, func_start, func_end)
@@ -253,10 +257,7 @@ def _parse_elf_symbol_bytes(
             and sym.section is not None
             and sym.section.name == section.name
         )
-        func_end = len(content)
-        idx = bisect.bisect_right(sec_offsets, func_start)
-        if idx < len(sec_offsets):
-            func_end = sec_offsets[idx]
+        func_end = _next_symbol_end(sec_offsets, func_start, len(content))
 
     code = content[func_start:func_end].rstrip(_PADDING_STRIP)
 
@@ -347,10 +348,7 @@ def _parse_macho_symbol_bytes(
         and sym.section is not None
         and getattr(sym.section, "name", None) == sec_name
     )
-    func_end = len(content)
-    idx = bisect.bisect_right(sec_offsets, func_start)
-    if idx < len(sec_offsets):
-        func_end = sec_offsets[idx]
+    func_end = _next_symbol_end(sec_offsets, func_start, len(content))
 
     code = content[func_start:func_end].rstrip(_PADDING_STRIP)
     reloc_offsets = _collect_reloc_offsets(section.relocations, func_start, func_end)
