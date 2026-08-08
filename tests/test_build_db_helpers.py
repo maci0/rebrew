@@ -141,12 +141,15 @@ class TestCheckDbVersion:
         _check_db_version(db, force=True)
         assert not db.exists()
 
-    def test_missing_metadata_table_errors(self, tmp_path: Path) -> None:
+    def test_missing_metadata_table_rebuilds(self, tmp_path: Path) -> None:
+        """A DB file with no schema is rebuild debris (a failed build rolls
+        back its DDL) — it must be unlinked for rebuild, not wedge every
+        subsequent run behind --force."""
         from rebrew.build_db import _check_db_version
 
         db = self._db(tmp_path, None)  # no metadata table
-        with pytest.raises(typer.Exit):
-            _check_db_version(db)
+        _check_db_version(db)  # warns and unlinks instead of raising
+        assert not db.exists()
 
     def test_matching_version_passes(self, tmp_path: Path) -> None:
         from rebrew.build_db import _CURRENT_DB_VERSION, _check_db_version
