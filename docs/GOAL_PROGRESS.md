@@ -5855,3 +5855,15 @@ STATUS-write blast-radius guard, build-db corrupt-JSON context — plus np
 TOOLCHAIN_BUGS.md update (local), guild cache healed, full pipeline +
 API validation, error/db/functionality reviews with clean results, and
 ~9 GOAL_PROGRESS entries.
+
+## 2026-08-09 — recoverage: declare capstone/pygments optional extras (7459784)
+
+Found via the recoverage API probe: the asm endpoint degrades to a clean
+501 without capstone and the README documented capstone/pygments as
+"optional runtime extras", but neither was declared in
+[project.optional-dependencies] — `recoverage[capstone]` did not exist.
+Fixed: declared both extras (capstone>=5.0, pygments>=2.0), the 501 hint
+now points at `pip install 'recoverage[capstone]'`, and the README shows
+the install syntax. 272 recoverage tests pass. (Note: egg-info is
+gitignored but tracked from before the rule; regenerated PKG-INFO/
+requires.txt committed with -f to keep the tree consistent.)
