@@ -236,6 +236,16 @@ class TestRenameCli:
         assert result.exit_code != 0
         assert "Be more specific" in result.output
 
+    def test_invalid_identifier_rejected(self, tmp_path: Path, monkeypatch: Any) -> None:
+        # C keyword and non-identifier names must fail before any rename.
+        result = self._invoke(tmp_path, monkeypatch, "--json", "old_fn", "int")
+        assert result.exit_code != 0
+        assert "not a valid C identifier" in result.output
+
+        result = self._invoke(tmp_path, monkeypatch, "--json", "old_fn", "bad name")
+        assert result.exit_code != 0
+        assert "not a valid C identifier" in result.output
+
     def test_rename_by_va(self, tmp_path: Path, monkeypatch: Any) -> None:
         import json
 

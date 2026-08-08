@@ -65,6 +65,7 @@ from rebrew.matcher.parsers import (
     parse_obj_symbol_bytes,
 )
 from rebrew.metadata import get_entry
+from rebrew.utils import safe_shlex_split
 
 console = Console(stderr=True)
 
@@ -169,7 +170,7 @@ def _collect_splice_set(
                 status=status,
                 path=path,
                 module=ann.module,
-                cflags=cflags_str.split(),
+                cflags=safe_shlex_split(cflags_str),
             )
             if status in ("EXACT", "RELOC"):
                 splice.append(fn)

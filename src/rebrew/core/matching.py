@@ -55,13 +55,18 @@ def build_symbol_resolver(
         data_by_stripped[name.lstrip("_")] = va
 
     def resolve(symbol: str) -> int | None:
+        # Functions win over data labels; within each, the exact spelling
+        # beats the leading-underscore-stripped form (same precedence as
+        # _resolve_exact_then_stripped, so test/verify and round-trip agree).
+        va = _resolve_exact_then_stripped(by_name, symbol)
+        if va is not None:
+            return va
+        va = _resolve_exact_then_stripped(data_by_name, symbol)
+        if va is not None:
+            return va
+        # Names indexed only under a stripped spelling (MSVC adds a second
+        # leading underscore for some __cdecl variants) are a last resort.
         stripped = symbol.lstrip("_")
-        candidates = (symbol, stripped)
-        for s in candidates:
-            if s in by_name:
-                return by_name[s]
-            if s in data_by_name:
-                return data_by_name[s]
         if stripped in by_stripped:
             return by_stripped[stripped]
         if stripped in data_by_stripped:
@@ -165,14 +170,28 @@ def apply_coff_relocations(
     return bytes(buf)
 
 
-def _lookup_symbol_va(name_to_va: dict[str, int], sym_name: str) -> int | None:
-    """Resolve *sym_name* in *name_to_va*, tolerating a leading underscore."""
-    clean = sym_name.lstrip("_")
-    if clean in name_to_va:
-        return name_to_va[clean]
+def _resolve_exact_then_stripped(name_to_va: dict[str, int], sym_name: str) -> int | None:
+    """Look up *sym_name* in a name→VA map, exact spelling first.
+
+    Single documented precedence shared by every tolerant lookup: the exact
+    spelling wins over its leading-underscore-stripped form (``_foo`` before
+    ``foo``). MSVC mangles __cdecl names with a leading ``_`` in the COFF
+    symbol table, so the exact spelling is the authoritative one; the stripped
+    form is only a fallback for source-level references. Keeping one helper
+    means ``rebrew test`` and ``rebrew round-trip`` agree on the same VA when
+    both spellings exist in the catalog.
+    """
     if sym_name in name_to_va:
         return name_to_va[sym_name]
+    stripped = sym_name.lstrip("_")
+    if stripped != sym_name and stripped in name_to_va:
+        return name_to_va[stripped]
     return None
+
+
+def _lookup_symbol_va(name_to_va: dict[str, int], sym_name: str) -> int | None:
+    """Resolve *sym_name* in *name_to_va*, tolerating a leading underscore."""
+    return _resolve_exact_then_stripped(name_to_va, sym_name)
 
 
 def _validate_dir32(
