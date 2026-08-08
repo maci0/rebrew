@@ -5251,3 +5251,21 @@ Deferred: F8 (verify stat() race + silent cache I/O in json mode), F9
 F12 (asm/flirt minor unguarded paths).
 
 3520 rebrew + 260 recoverage tests pass.
+
+## 2026-08-09 — error-review F8/F9/F12 closed (edcad8e)
+
+Closed the three deferred error-review findings:
+
+- **F8** — verify's cache-hit path had an unguarded `filepath.stat()`
+  (file deleted between exists() and stat() → traceback); it now treats a
+  missing file as a cache miss.  Cache-save failures log a warning to
+  stderr in ALL modes (previously silent under --json).
+- **F9** — a failed `--compare` gate run no longer writes the verify cache
+  (consistent with the preserved baseline; a CI failure records no new
+  state).  STATUS metadata promotion remains (that is verify's core job,
+  documented).
+- **F12** — asm reports capstone.CsError (bad arch/mode config) as a clean
+  error; flirt skips+warms on malformed signature files instead of
+  aborting the whole scan.
+
+3520 rebrew tests pass.
