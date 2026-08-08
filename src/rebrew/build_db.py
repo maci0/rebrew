@@ -282,6 +282,11 @@ def build_db(
                 changed_at TEXT NOT NULL
             )
         """)
+        # history rows are appended on every rebuild and never pruned; the
+        # dashboard pages them with WHERE target = ? ORDER BY id DESC LIMIT ?,
+        # so (target, id) is the serving index (a plain (target, va) index
+        # would not serve the ORDER BY id).
+        c.execute("CREATE INDEX IF NOT EXISTS idx_history_target_id ON history(target, id)")
 
         c.execute("""
             CREATE TABLE IF NOT EXISTS verify_results (

@@ -768,11 +768,22 @@ class TestTernaryToIf:
 
 class TestHoistReturn:
     def test_basic(self) -> None:
-        src = "int f(int x) {\n    if (x) {\n        return 0;\n    }\n    return 1;\n}"
+        # Only the function's FINAL statement is hoisted (goto end must not
+        # skip any code), and the temp is declared (it used to emit an
+        # undeclared retval that never compiled).
+        src = "int f(int x) {\n    if (x) {\n        y = compute();\n    }\n    return 0;\n}"
         result = mut_hoist_return(src, _rng())
         assert result is not None
         assert "goto end;" in result
         assert "end:" in result
+        assert "int retval;" in result
+        assert quick_validate(result)
+
+    def test_mid_function_return_rejected(self) -> None:
+        # Hoisting a return that is not the final statement would `goto end`
+        # past `return 1;`, changing the success path's value.
+        src = "int f(int x) {\n    if (x) {\n        return 0;\n    }\n    return 1;\n}"
+        assert mut_hoist_return(src, _rng()) is None
 
     def test_existing_end_label_skips(self) -> None:
         src = "int f() {\n    goto end;\nend:\n    return 0;\n}"

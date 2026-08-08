@@ -403,8 +403,6 @@ def flag_sweep(
     # Pre-compute target normalization and mnemonics once for all workers
     pre_norm_target, pre_target_mnems = precompute_target(target_bytes)
 
-    results = []
-
     # First compiler error(s) collected from workers — surfaced when the whole
     # sweep fails so a broken toolchain is visible, not a silent empty result.
     _compile_errors: list[str] = []
@@ -437,19 +435,31 @@ def flag_sweep(
         return float("inf"), flags
 
     with ThreadPoolExecutor(max_workers=n_jobs) as executor:
-        futures = [executor.submit(_eval_flags, f) for f in combos]
-        for fut in as_completed(futures):
-            try:
-                score, flags = fut.result()
-            except (OSError, subprocess.SubprocessError, ValueError, RuntimeError):
-                continue
-            except Exception:  # noqa: BLE001
-                # Unexpected exception (e.g. TypeError from scoring pipeline bug):
-                # log at DEBUG so it surfaces in --verbose or CI runs without crashing the sweep.
-                log.debug("Unexpected error in flag_sweep worker", exc_info=True)
-                continue
-            if score < float("inf"):
-                results.append((score, flags))
+        # Bounded submission: submitting every combo up front (thorough =
+        # 258k, full = 6.2M combos) builds one Future + one queued task per
+        # combo — hundreds of MB to GBs of memory before the first compile.
+        # Submit n_jobs batches and drain via as_completed.
+        results = []
+        pending = set()
+        combo_iter = iter(combos)
+        for _ in range(min(n_jobs, len(combos))):
+            pending.add(executor.submit(_eval_flags, next(combo_iter)))
+        while pending:
+            for fut in as_completed(pending):
+                pending.remove(fut)
+                try:
+                    score, flags = fut.result()
+                except (OSError, subprocess.SubprocessError, ValueError, RuntimeError):
+                    pass
+                except Exception:  # noqa: BLE001
+                    # Unexpected exception (e.g. TypeError from scoring pipeline bug):
+                    # log at DEBUG so it surfaces in --verbose or CI runs without crashing the sweep.
+                    log.debug("Unexpected error in flag_sweep worker", exc_info=True)
+                else:
+                    if score < float("inf"):
+                        results.append((score, flags))
+                with contextlib.suppress(StopIteration):
+                    pending.add(executor.submit(_eval_flags, next(combo_iter)))
 
     # A sweep where EVERY combo failed is indistinguishable from "no flags
     # matched" without this: surface the first compiler error so a broken

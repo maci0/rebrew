@@ -354,3 +354,29 @@ class TestUpdateStubToMatched:
 
         entry = get_entry(tmp_path, 0x10002000, module="SERVER")
         assert entry.get("status") == "RELOC"
+
+    def test_siblings_after_target_preserved(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The splice must not drop functions that FOLLOW the stub's block
+        (round-3: header + best_src truncated everything after the stub)."""
+        from rebrew.match import update_stub_to_matched
+
+        f = tmp_path / "multi.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x10001000\n"
+            "int first(void) { return 1; }\n\n"
+            "// FUNCTION: SERVER 0x10002000\n"
+            "int second(void) { return 2; }\n\n"
+            "// FUNCTION: SERVER 0x10003000\n"
+            "int third(void) { return 3; }\n",
+            encoding="utf-8",
+        )
+        best = "int second(void) { return 42; }\n"
+        update_stub_to_matched(f, best, self._stub("0x10002000"), metadata_dir=tmp_path)
+        text = f.read_text(encoding="utf-8")
+        assert "return 1;" in text
+        assert "return 42;" in text
+        assert "return 2;" not in text
+        assert "return 3;" in text  # sibling AFTER the target survives
+        assert "0x10003000" in text

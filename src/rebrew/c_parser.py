@@ -47,31 +47,40 @@ _CC_PATTERN = re.compile(r"\b(" + "|".join(re.escape(cc) for cc in _CALLING_CONV
 _parser: Any = None
 _language: Any = None
 _parser_lock = threading.Lock()
+# Per-thread parsers: tree-sitter TSParser is per-thread state and the GIL is
+# released inside ts_parser_parse, so a shared parser is a C-level data race
+# under concurrent GA workers.
+_tls = threading.local()
 
 
 def _get_parser() -> tuple[Any, Any]:
-    """Return a (parser, language) pair, lazily initialised."""
+    """Return a (parser, language) pair, lazily initialised.
+
+    The language is initialised once under a lock; each thread then gets its
+    own Parser instance (tree-sitter's TSParser is per-thread state).
+    """
     global _parser, _language  # noqa: PLW0603
-    if _parser is not None:
-        return _parser, _language
+    if _language is None:
+        with _parser_lock:
+            if _language is None:
+                try:
+                    import tree_sitter_c
+                    from tree_sitter import Language
+                except ImportError:
+                    raise ImportError(
+                        "tree-sitter and tree-sitter-c are required.  "
+                        "Install with: pip install tree-sitter tree-sitter-c"
+                    )
+                _language = Language(tree_sitter_c.language())
+                _parser = None  # replaced by per-thread parsers below
 
-    with _parser_lock:
-        # Double-check after acquiring lock
-        if _parser is not None:
-            return _parser, _language
+    tls_parser = getattr(_tls, "parser", None)
+    if tls_parser is None:
+        from tree_sitter import Parser
 
-        try:
-            import tree_sitter_c
-            from tree_sitter import Language, Parser
-        except ImportError:
-            raise ImportError(
-                "tree-sitter and tree-sitter-c are required.  "
-                "Install with: pip install tree-sitter tree-sitter-c"
-            )
-
-        _language = Language(tree_sitter_c.language())
-        _parser = Parser(_language)
-        return _parser, _language
+        tls_parser = Parser(_language)
+        _tls.parser = tls_parser
+    return tls_parser, _language
 
 
 def _get_ts_parser() -> tuple[Any, Any] | None:
