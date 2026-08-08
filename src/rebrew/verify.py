@@ -209,10 +209,21 @@ def _headers_hash(cfg: ProjectConfig) -> str:
     under cfg.reversed_dir.  (The compile cache tracks headers independently via
     ``compile_cache.include_fingerprint``; this hash guards the verify cache,
     which also covers include dirs outside ``reversed_dir``.)
+
+    Memoized behind a cheap stat fingerprint (path + mtime_ns + size): when no
+    header changed since the last call, the full content reads are skipped.
+    Content hashing is still authoritative whenever anything DID change, so a
+    header edited with a preserved mtime is still caught.
     """
     src_dir = Path(cfg.reversed_dir)
     if not src_dir.exists():
         return ""
+
+    stat_fp = _headers_stat_fingerprint(src_dir)
+    cached = _HEADERS_HASH_CACHE.get(stat_fp)
+    if cached is not None:
+        return cached
+
     h = hashlib.sha256()
     # Sorted for stable hashing across runs / platforms.
     for hfile in sorted(src_dir.rglob("*.h")):
@@ -224,7 +235,31 @@ def _headers_hash(cfg: ProjectConfig) -> str:
             h.update(b"\x01")  # entry separator
         except OSError:
             continue
-    return h.hexdigest()
+    digest = h.hexdigest()
+    if len(_HEADERS_HASH_CACHE) >= _HEADERS_HASH_CACHE_MAX:
+        _HEADERS_HASH_CACHE.clear()
+    _HEADERS_HASH_CACHE[stat_fp] = digest
+    return digest
+
+
+# Stat fingerprint of the header tree: (path, mtime_ns, size) per header.
+# Key for the memoized _headers_hash — avoids re-reading every .h when the
+# tree is unchanged across the two calls per verify run.
+_HEADERS_HASH_CACHE: dict[tuple[tuple[str, int, int], ...], str] = {}
+_HEADERS_HASH_CACHE_MAX = 8  # one entry per distinct header-tree state
+
+
+def _headers_stat_fingerprint(src_dir: Path) -> tuple[tuple[str, int, int], ...]:
+    """Return sorted (rel_path, mtime_ns, size) tuples for all .h files."""
+    entries: list[tuple[str, int, int]] = []
+    for hfile in src_dir.rglob("*.h"):
+        try:
+            st = hfile.stat()
+            rel = hfile.relative_to(src_dir).as_posix()
+            entries.append((rel, st.st_mtime_ns, st.st_size))
+        except OSError:
+            continue
+    return tuple(sorted(entries))
 
 
 def _source_hash(filepath: Path) -> str:
