@@ -8,6 +8,7 @@ textOffset, globals origin/size, and the section_cell_stats view).
 import json
 import sqlite3
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -67,7 +68,8 @@ SAMPLE_DATA = {
     },
     "summary": {
         "totalFunctions": 5,
-        "matchedFunctions": 4,
+        # exact(1) + reloc(1); NEAR_MATCHING(2) and STUB(1) are not matched.
+        "matchedFunctions": 2,
         "exactMatches": 1,
         "relocMatches": 1,
         "nearMatchCount": 2,
@@ -389,7 +391,7 @@ binary = "test.exe"
         assert row is not None
         summary = json.loads(row[0])
         assert summary["totalFunctions"] == 5
-        assert summary["matchedFunctions"] == 4
+        assert summary["matchedFunctions"] == 2  # exact + reloc only
         assert summary["exactMatches"] == 1
         assert summary["nearMatchCount"] == 2
         assert summary["stubCount"] == 1
@@ -639,6 +641,52 @@ class TestBuildDbTargetFiltering:
 
         with pytest.raises(ClickExit):
             build_db(tmp_path, target="nonexistent")
+
+    def test_scoped_rebuild_preserves_other_targets(self, tmp_path: Path) -> None:
+        """A --target rebuild must NOT drop other targets from an existing DB.
+
+        Regression: the DROP TABLE statements were unconditional, so
+        ``build-db --target X`` silently wiped every other target (only a
+        warning was printed).  The scoped path must delete only X's rows.
+        """
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+
+        def _data(name: str) -> dict[str, Any]:
+            return {
+                "sections": {},
+                "globals": {},
+                "summary": {"totalFunctions": 1},
+                "functions": {
+                    f"func_{name}": {
+                        "name": f"func_{name}",
+                        "vaStart": "0x10001000",
+                        "size": 64,
+                        "status": "EXACT",
+                    }
+                },
+                "paths": {},
+            }
+
+        for name in ("alpha", "beta"):
+            (db_dir / f"data_{name}.json").write_text(json.dumps(_data(name)), encoding="utf-8")
+
+        # Full build first: both targets present.
+        build_db(tmp_path, target=None)
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT DISTINCT target FROM functions ORDER BY target")
+        assert [r[0] for r in c.fetchall()] == ["alpha", "beta"]
+        conn.close()
+
+        # Scoped rebuild of alpha: beta must survive.
+        build_db(tmp_path, target="alpha")
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT DISTINCT target FROM functions ORDER BY target")
+        targets = [r[0] for r in c.fetchall()]
+        conn.close()
+        assert targets == ["alpha", "beta"], f"--target rebuild dropped other targets: {targets}"
 
 
 # ---------------------------------------------------------------------------

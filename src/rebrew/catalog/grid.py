@@ -58,6 +58,22 @@ def count_statuses(by_va: dict[int, list[Annotation]]) -> dict[str, int]:
     return counters
 
 
+def _count_matched(fn_vas: list[list[Annotation]]) -> int:
+    """Count function VAs whose annotation set includes a matched status.
+
+    A function is matched when any of its annotations carries EXACT, RELOC,
+    or PROVEN (PROVEN is a post-verify semantic promotion).  Error statuses
+    (COMPILE_ERROR, SIZE_MISMATCH, MISSING_*) never count as matched — the
+    old ``len(fn_vas) - stub_count`` formula counted them, inflating the
+    headline stat.
+    """
+    matched = 0
+    for vas in fn_vas:
+        if any(e.get("status") in ("EXACT", "RELOC", "PROVEN") for e in vas):
+            matched += 1
+    return matched
+
+
 def _build_section_index(
     sections: dict[str, Any],
 ) -> tuple[list[int], list[tuple[str, int, int, int]]]:
@@ -601,7 +617,11 @@ def generate_data_json(
         },
         "summary": {
             "totalFunctions": len(fn_vas),
-            "matchedFunctions": len(fn_vas) - stub_count,
+            # Only EXACT/RELOC/PROVEN functions are genuinely matched.  The
+            # old len(fn_vas) - stub_count formula counted COMPILE_ERROR,
+            # SIZE_MISMATCH and MISSING_* functions as "matched", inflating
+            # the headline coverage stat for every broken/error entry.
+            "matchedFunctions": _count_matched(fn_vas),
             "exactMatches": exact_count,
             "relocMatches": reloc_count,
             "nearMatchCount": near_match_count,
