@@ -1,4 +1,4 @@
-"""Tests for rebrew.matcher.core — Score, BuildResult, BuildCache, GACheckpoint."""
+"""Tests for rebrew.matcher.core — Score, BuildResult, BuildCache."""
 
 from pathlib import Path
 
@@ -82,5 +82,5 @@ class TestBuildCache:
 
 
 # -------------------------------------------------------------------------
-# GACheckpoint & save/load
+# Save/load
 # -------------------------------------------------------------------------
