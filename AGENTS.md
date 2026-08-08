@@ -40,7 +40,7 @@ uv run pre-commit run --all-files
 uv run python -m slipcover -m pytest
 ```
 
-**pytest config** (`pyproject.toml`): `testpaths = ["tests"]`, `pythonpath = ["src"]`.
+**pytest config** (`pyproject.toml`): `testpaths = ["tests"]`, `pythonpath = ["src", "."]  # "." exposes tools/ as a namespace package`.
 No conftest.py — tests use `tmp_path` fixture and inline helpers.
 
 ## Code Style

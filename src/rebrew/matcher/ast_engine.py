@@ -28,13 +28,6 @@ def quick_validate_ast(source: bytes | str) -> bool:
     return not tree.root_node.has_error
 
 
-class ASTMutator:
-    """Namespace for AST-based mutation helpers.
-
-    Provides helpers to replace nodes in the source.
-    """
-
-    @staticmethod
-    def replace_node(source: bytes, node: ts.Node, replacement: bytes) -> bytes:
-        """Replace the text of a node with new bytes."""
-        return source[: node.start_byte] + replacement + source[node.end_byte :]
+def replace_node(source: bytes, node: ts.Node, replacement: bytes) -> bytes:
+    """Replace the text of a node with new bytes."""
+    return source[: node.start_byte] + replacement + source[node.end_byte :]

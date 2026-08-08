@@ -99,8 +99,10 @@ Each cell tracks: function ownership, match status, gap classification.
 
 ## Gotchas
 
-- **Multiple `load_binary()` calls**: registry, grid, and sections each re-read
-  the binary file independently. No cross-module caching.
+- **Binary parsing is lazy per-call**: `generate_data_json` parses the binary
+  once (`_bin_info`) and shares it across registry/grid/sections within a run;
+  other tools that need the binary call `load_binary()` themselves (no
+  cross-module cache).
 - **Multi-function files**: `scan_reversed_dir()` supports multiple `// FUNCTION:`
   blocks per `.c` file. Both appear in the entries list.
 - **Library headers**: `scan_reversed_dir()` also scans `library_*.h` files for

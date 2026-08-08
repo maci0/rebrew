@@ -529,6 +529,9 @@ def add_module(
         return
 
     origins.append(module_upper)
+    # tomlkit copies plain lists on assignment — re-assign so the mutation
+    # is visible to the document that _save_toml serializes.
+    tgt["origins"] = origins
     _save_toml(doc, toml_path)
     console.print(
         f"[green]Added module '{module_upper}' to {target}. Modules: {list(origins)}[/green]"

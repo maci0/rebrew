@@ -12,11 +12,26 @@ instead of just str.  Returns original source unchanged if all attempts fail.
 import random
 import re
 from collections.abc import Callable
-from typing import Literal, overload
+from typing import Any, Literal, overload
 
 import tree_sitter as ts
 
-from rebrew.matcher.ast_engine import _C_LANGUAGE, ASTMutator, parse_c_ast
+from rebrew.matcher.ast_engine import _C_LANGUAGE, parse_c_ast, replace_node
+
+
+def _capture(match_or_captures: Any, name: str) -> Any:
+    """Return a named tree-sitter capture, preserving the runtime value.
+
+    Accepts either a tree-sitter ``Match`` tuple (``(node, captures)``) or a
+    captures dict.  tree-sitter's type stubs type captures inconsistently
+    (``Node`` vs ``list[Node]``), so the return is ``Any``; callers keep their
+    existing ``isinstance`` guards where the value's shape matters.
+    """
+    captures = (
+        match_or_captures[1] if not isinstance(match_or_captures, dict) else match_or_captures
+    )
+    return captures.get(name)
+
 
 # Max attempts to find a valid mutation before giving up and returning source unchanged.
 _MUTATION_ATTEMPTS = 10
@@ -435,8 +450,8 @@ def mut_extract_args_to_temps(s: str, rng: random.Random) -> str | None:
     for match in matches:
         # get nodes
         nodes = {k: (v[0] if isinstance(v, list) else v) for k, v in match[1].items()}
-        stmt = nodes.get("stmt")
-        arg = nodes.get("arg")
+        stmt = _capture(nodes, "stmt")
+        arg = _capture(nodes, "arg")
         if not stmt or not arg:
             continue
 
@@ -551,10 +566,20 @@ _QUERY_NO_CALL_CONV = ts.Query(
 """,
 )
 
-_QUERY_CHAR_TYPE = ts.Query(
+_QUERY_SIZED_CHAR_TYPE = ts.Query(
+    _C_LANGUAGE,
+    """
+    (sized_type_specifier
+        type: (primitive_type) @base
+        (#eq? @base "char")) @expr
+""",
+)
+
+_QUERY_BARE_CHAR_TYPE = ts.Query(
     _C_LANGUAGE,
     """
     (primitive_type) @expr
+    (#eq? @expr "char")
 """,
 )
 
@@ -840,13 +865,13 @@ def _apply_query_once(
     # We assume one node per capture name in our queries
     single_captures = _first_caps(captures)
 
-    target_node = single_captures.get("stmt") or single_captures.get("expr")
+    target_node = _capture(single_captures, "stmt") or _capture(single_captures, "expr")
     if not target_node:
         return None
 
     replacement = repl(single_captures)
 
-    return ASTMutator.replace_node(source, target_node, replacement)
+    return replace_node(source, target_node, replacement)
 
 
 # --- Mutations ---
@@ -1200,7 +1225,7 @@ def mut_introduce_temp_for_call(s: str, rng: random.Random) -> str | None:
     _, captures = rng.choice(matches)
     single_captures = _first_caps(captures)
 
-    target_node = single_captures.get("expr")
+    target_node = _capture(single_captures, "expr")
     if not target_node:
         return None
 
@@ -1212,7 +1237,7 @@ def mut_introduce_temp_for_call(s: str, rng: random.Random) -> str | None:
 
     if b"tmp" in b_source:
         # 'tmp' already declared somewhere — just use it, no hoisting needed
-        res = ASTMutator.replace_node(b_source, target_node, inline_repl)
+        res = replace_node(b_source, target_node, inline_repl)
         return res.decode("utf-8") if res else None
 
     # C89: hoist 'BOOL tmp;' to function body top
@@ -1727,9 +1752,9 @@ def mut_toggle_char_signedness(s: str, rng: random.Random) -> str | None:
         }
         return mapping.get(t, t)
 
-    res = _apply_query_once(b_source, _QUERY_CHAR_TYPE, _repl, rng)
-    # _QUERY_CHAR_TYPE matches all primitive_type nodes (including int), so the
-    # random pick may land on a non-char type and produce a no-op replacement.
+    res = _apply_query_once(b_source, _QUERY_SIZED_CHAR_TYPE, _repl, rng)
+    if res is None:
+        res = _apply_query_once(b_source, _QUERY_BARE_CHAR_TYPE, _repl, rng)
     if res is None or res == b_source:
         return None
     return res.decode("utf-8")
@@ -2363,7 +2388,7 @@ def mut_compound_assign_toggle(s: str, rng: random.Random) -> str | None:
             return None
         replacement = var + b" " + base_op + b"= " + rhs + b";"
 
-    target = caps.get("expr") or caps.get("stmt")
+    target = _capture(caps, "expr") or _capture(caps, "stmt")
     if target is None:
         return None
     result = b_source[: target.start_byte] + replacement + b_source[target.end_byte :]
@@ -3372,7 +3397,7 @@ def mut_if_chain_to_switch(s: str, rng: random.Random) -> str | None:
     valid_chains = []
 
     for match in matches:
-        if_node = match[1].get("if_stmt")
+        if_node = _capture(match, "if_stmt")
         if isinstance(if_node, list):
             if_node = if_node[0]
         if not if_node:
@@ -3472,7 +3497,7 @@ def mut_switch_add_explicit_default(s: str, rng: random.Random) -> str | None:
 
     valid_switches = []
     for match in matches:
-        switch = match[1].get("stmt")
+        switch = _capture(match, "stmt")
         if isinstance(switch, list):
             switch = switch[0]
         if not switch:
@@ -3533,7 +3558,7 @@ def mut_wrap_in_else(s: str, rng: random.Random) -> str | None:
         return False
 
     for match in matches:
-        if_stmt = match[1].get("if_stmt")
+        if_stmt = _capture(match, "if_stmt")
         if isinstance(if_stmt, list):
             if_stmt = if_stmt[0]
         if not if_stmt:
@@ -3591,7 +3616,7 @@ def mut_switch_break_to_return(s: str, rng: random.Random) -> str | None:
     valid_targets = []
 
     for match in matches:
-        switch = match[1].get("stmt")
+        switch = _capture(match, "stmt")
         if isinstance(switch, list):
             switch = switch[0]
         if not switch:
@@ -3653,7 +3678,7 @@ def mut_split_and_condition(s: str, rng: random.Random) -> str | None:
 
     valid_ifs = []
     for match in matches:
-        stmt = match[1].get("stmt")
+        stmt = _capture(match, "stmt")
         if isinstance(stmt, list):
             stmt = stmt[0]
         if not stmt:
@@ -3663,14 +3688,14 @@ def mut_split_and_condition(s: str, rng: random.Random) -> str | None:
         if stmt.child_by_field_name("alternative"):
             continue
 
-        bin_node = match[1].get("bin")
+        bin_node = _capture(match, "bin")
         if isinstance(bin_node, list):
             bin_node = bin_node[0]
 
-        left = match[1].get("left")
+        left = _capture(match, "left")
         if isinstance(left, list):
             left = left[0]
-        right = match[1].get("right")
+        right = _capture(match, "right")
         if isinstance(right, list):
             right = right[0]
 
@@ -3680,7 +3705,7 @@ def mut_split_and_condition(s: str, rng: random.Random) -> str | None:
         if op_text != b"&&":
             continue
 
-        body = match[1].get("body")
+        body = _capture(match, "body")
         if isinstance(body, list):
             body = body[-1]
 
@@ -3710,7 +3735,7 @@ def mut_split_or_condition(s: str, rng: random.Random) -> str | None:
 
     valid_ifs = []
     for match in matches:
-        stmt = match[1].get("stmt")
+        stmt = _capture(match, "stmt")
         if isinstance(stmt, list):
             stmt = stmt[0]
         if not stmt:
@@ -3719,14 +3744,14 @@ def mut_split_or_condition(s: str, rng: random.Random) -> str | None:
         if stmt.child_by_field_name("alternative"):
             continue
 
-        bin_node = match[1].get("bin")
+        bin_node = _capture(match, "bin")
         if isinstance(bin_node, list):
             bin_node = bin_node[0]
 
-        left = match[1].get("left")
+        left = _capture(match, "left")
         if isinstance(left, list):
             left = left[0]
-        right = match[1].get("right")
+        right = _capture(match, "right")
         if isinstance(right, list):
             right = right[0]
 
@@ -3736,7 +3761,7 @@ def mut_split_or_condition(s: str, rng: random.Random) -> str | None:
         if op_text != b"||":
             continue
 
-        body = match[1].get("body")
+        body = _capture(match, "body")
         if isinstance(body, list):
             body = body[-1]
 
@@ -3768,7 +3793,7 @@ def mut_merge_nested_ifs(s: str, rng: random.Random) -> str | None:
 
     valid_ifs = []
     for match in matches:
-        stmt = match[1].get("stmt")
+        stmt = _capture(match, "stmt")
         if isinstance(stmt, list):
             stmt = stmt[0]
         if not stmt:
@@ -3777,24 +3802,24 @@ def mut_merge_nested_ifs(s: str, rng: random.Random) -> str | None:
         if stmt.child_by_field_name("alternative"):
             continue
 
-        inner_if = match[1].get("inner_if")
+        inner_if = _capture(match, "inner_if")
         if isinstance(inner_if, list):
             inner_if = inner_if[-1]
         if inner_if.child_by_field_name("alternative"):
             continue
 
-        cond1 = match[1].get("cond1")
+        cond1 = _capture(match, "cond1")
         if isinstance(cond1, list):
             cond1 = cond1[0]
-        cond2 = match[1].get("cond2")
+        cond2 = _capture(match, "cond2")
         if isinstance(cond2, list):
             cond2 = cond2[0]
 
-        body = match[1].get("body")
+        body = _capture(match, "body")
         if isinstance(body, list):
             body = body[-1]
 
-        outer_body = match[1].get("outer_body")
+        outer_body = _capture(match, "outer_body")
         if isinstance(outer_body, list):
             outer_body = outer_body[0]
 
@@ -3830,20 +3855,20 @@ def mut_extract_condition_to_var(s: str, rng: random.Random) -> str | None:
 
     valid_ifs = []
     for match in matches:
-        stmt = match[1].get("stmt")
+        stmt = _capture(match, "stmt")
         if isinstance(stmt, list):
             stmt = stmt[0]
         if not stmt:
             continue
 
-        bin_node = match[1].get("bin")
+        bin_node = _capture(match, "bin")
         if isinstance(bin_node, list):
             bin_node = bin_node[0]
 
-        left = match[1].get("left")
+        left = _capture(match, "left")
         if isinstance(left, list):
             left = left[0]
-        right = match[1].get("right")
+        right = _capture(match, "right")
         if isinstance(right, list):
             right = right[0]
 
@@ -3898,17 +3923,17 @@ def mut_loop_condition_extraction(s: str, rng: random.Random) -> str | None:
 
     valid_loops = []
     for match in matches:
-        stmt = match[1].get("stmt")
+        stmt = _capture(match, "stmt")
         if isinstance(stmt, list):
             stmt = stmt[0]
         if not stmt:
             continue
 
-        cond = match[1].get("cond")
+        cond = _capture(match, "cond")
         if isinstance(cond, list):
             cond = cond[0]
 
-        body = match[1].get("body")
+        body = _capture(match, "body")
         if isinstance(body, list):
             body = body[-1]
 
@@ -3979,7 +4004,7 @@ def mut_widen_local_type(s: str, rng: random.Random) -> str | None:
     valid = []
     for match in matches:
         caps = match[1]
-        type_node = caps.get("type")
+        type_node = _capture(caps, "type")
         if isinstance(type_node, list):
             type_node = type_node[0]
         if not type_node:
@@ -4158,7 +4183,7 @@ def mut_commute_float_operands(s: str, rng: random.Random) -> str | None:
     valid = []
     for match in matches:
         caps = match[1]
-        op_node = caps.get("op")
+        op_node = _capture(caps, "op")
         if isinstance(op_node, list):
             op_node = op_node[0]
         if not op_node:
@@ -4167,8 +4192,8 @@ def mut_commute_float_operands(s: str, rng: random.Random) -> str | None:
         if op_text not in (b"*", b"+"):
             continue
 
-        left = caps.get("left")
-        right = caps.get("right")
+        left = _capture(caps, "left")
+        right = _capture(caps, "right")
         if isinstance(left, list):
             left = left[0]
         if isinstance(right, list):
@@ -4933,7 +4958,7 @@ def mut_retype_local_equiv(s: str, rng: random.Random) -> str | None:
     valid: list[tuple[ts.Node, bytes]] = []
     for match in matches:
         caps = match[1]
-        type_node = caps.get("type")
+        type_node = _capture(caps, "type")
         if isinstance(type_node, list):
             type_node = type_node[0]
         if not type_node:

@@ -602,34 +602,26 @@ class TestToggleCallingConvention:
         assert mut_toggle_calling_convention("// just a comment", _rng()) is None
 
 
-@pytest.mark.skipif(mut_toggle_char_signedness is None, reason="not exported")
 class TestToggleCharSignedness:
     def test_unsigned_to_signed(self) -> None:
         src = "void f() { unsigned char x = 0; }"
         result = mut_toggle_char_signedness(src, random.Random(0))
-        assert result is not None
-        assert result != src
-        assert "char" in result
+        assert result == "void f() { signed char x = 0; }"
 
     def test_signed_to_bare(self) -> None:
         src = "void f() { signed char x = 0; }"
         result = mut_toggle_char_signedness(src, random.Random(0))
-        assert result is not None
-        assert result != src
-        assert "char" in result
+        assert result == "void f() { char x = 0; }"
 
     def test_bare_to_unsigned(self) -> None:
         src = "void f() { char x = 0; }"
         result = mut_toggle_char_signedness(src, random.Random(0))
-        assert result is not None
-        assert result != src
-        assert "char" in result
+        assert result == "void f() { unsigned char x = 0; }"
 
     def test_no_char_returns_unchanged(self) -> None:
         src = "void f() { int x = 0; }"
         result = mut_toggle_char_signedness(src, _rng())
-        # AST matches type_specifier nodes including int; result is unchanged
-        assert result is None or result == src
+        assert result is None
 
 
 @pytest.mark.skipif(mut_comparison_boundary is None, reason="not exported")

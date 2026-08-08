@@ -262,7 +262,7 @@ class TestRebrewTestBatchJson:
 
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries",
-            lambda *args, **kwargs: ([], 0, 0, [], [], 0),
+            lambda *args, **kwargs: ([], 0, 0, [], [], 0, []),
         )
 
         _run_all_batch(
@@ -666,3 +666,156 @@ class TestTriageJsonSchema:
         }
         parsed = json.loads(json.dumps(output))
         assert parsed["flirt_matches"] == 25
+
+
+class TestRebrewTestBatchDir:
+    """test --all --dir filters relative to reversed_dir (documented contract)."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            default_jobs=1,
+            root=tmp_path,
+            reversed_dir=tmp_path / "src" / "server.dll",
+            metadata_dir=tmp_path / "src",
+            marker="SERVER",
+            source_ext=".c",
+        )
+
+    def test_batch_dir_filters_reversed_dir_relative(
+        self, monkeypatch: Any, tmp_path: Path, capsys: Any
+    ) -> None:
+        from rebrew.annotation import Annotation
+        from rebrew.test import _run_all_batch
+
+        cfg = self._cfg(tmp_path)
+        (cfg.reversed_dir / "Units" / "mem").mkdir(parents=True)
+        (cfg.reversed_dir / "Game").mkdir(parents=True)
+
+        def _fake_entries(*a: Any, **k: Any) -> Any:
+            return (
+                [
+                    Annotation(
+                        va=0x1000, name="a", status="STUB", size=10, filepath="Units/mem/a.c"
+                    ),
+                    Annotation(va=0x2000, name="b", status="STUB", size=10, filepath="Game/b.c"),
+                ],
+                0,
+                0,
+                [],
+                [],
+                0,
+                [],
+            )
+
+        monkeypatch.setattr("rebrew.verify.prepare_entries", _fake_entries)
+        monkeypatch.setattr(
+            "rebrew.verify.run_verification",
+            lambda *a, **k: (0, 0, [], [], []),
+        )
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+
+        # Dry-run JSON lists the filtered candidates: only the reversed_dir-
+        # relative "Units" entry survives.
+        _run_all_batch(
+            cfg,
+            batch_dir="Units",
+            origin_filter=None,
+            dry_run=True,
+            no_promote=True,
+            json_output=True,
+        )
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["files"] == ["Units/mem/a.c"]
+
+
+class TestRebrewTestBatchDryRunJson:
+    def test_dry_run_empty_batch_uses_total(
+        self, monkeypatch: Any, capsys: Any, tmp_path: Path
+    ) -> None:
+        import json
+
+        from rebrew.test import _run_all_batch
+
+        cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
+        monkeypatch.setattr(
+            "rebrew.verify.prepare_entries",
+            lambda *args, **kwargs: ([], 0, 0, [], [], 0, []),
+        )
+        _run_all_batch(
+            cfg,
+            batch_dir=None,
+            origin_filter=None,
+            dry_run=True,
+            no_promote=False,
+            json_output=True,
+        )
+        data = json.loads(capsys.readouterr().out)
+        assert data == {"total": 0, "files": [], "functions": []}
+
+    def test_dry_run_functions_sorted_by_filepath(
+        self, monkeypatch: Any, capsys: Any, tmp_path: Path
+    ) -> None:
+        import json
+        from types import SimpleNamespace
+
+        from rebrew.test import _run_all_batch
+
+        entries = [
+            SimpleNamespace(va=0x2000, name="z_fn", filepath="z.c", status="STUB"),
+            SimpleNamespace(va=0x1000, name="a_fn", filepath="a.c", status="EXACT"),
+        ]
+        cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
+        monkeypatch.setattr(
+            "rebrew.verify.prepare_entries",
+            lambda *args, **kwargs: (entries, 0, 0, [], [], 0, []),
+        )
+        _run_all_batch(
+            cfg,
+            batch_dir=None,
+            origin_filter=None,
+            dry_run=True,
+            no_promote=False,
+            json_output=True,
+        )
+        data = json.loads(capsys.readouterr().out)
+        assert [f["filepath"] for f in data["functions"]] == ["a.c", "z.c"]
+        assert [f["va"] for f in data["functions"]] == ["0x00001000", "0x00002000"]
+
+    def test_dry_run_includes_function_details(
+        self, monkeypatch: Any, capsys: Any, tmp_path: Path
+    ) -> None:
+        import json
+        from types import SimpleNamespace
+
+        from rebrew.test import _run_all_batch
+
+        entry = SimpleNamespace(
+            va=0x10001130,
+            name="SendBroadcastPacket",
+            filepath="Units/net/broadcast.c",
+            status="RELOC",
+        )
+        cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
+        monkeypatch.setattr(
+            "rebrew.verify.prepare_entries",
+            lambda *args, **kwargs: ([entry], 0, 0, [], [], 0, []),
+        )
+        _run_all_batch(
+            cfg,
+            batch_dir=None,
+            origin_filter=None,
+            dry_run=True,
+            no_promote=False,
+            json_output=True,
+        )
+        data = json.loads(capsys.readouterr().out)
+        assert data["total"] == 1
+        assert data["files"] == ["Units/net/broadcast.c"]
+        assert data["functions"] == [
+            {
+                "va": "0x10001130",
+                "name": "SendBroadcastPacket",
+                "filepath": "Units/net/broadcast.c",
+                "current_status": "RELOC",
+            }
+        ]

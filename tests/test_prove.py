@@ -11,12 +11,11 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-from rebrew.prove import _apply_arg_constraints, _parse_prototype, _resolve_source
+from rebrew.prove import _apply_arg_constraints, _parse_prototype
 
 has_angr = importlib.util.find_spec("angr") is not None
 
@@ -130,40 +129,6 @@ class TestParsePrototype:
 
 
 # ---------------------------------------------------------------------------
-# _resolve_source
-# ---------------------------------------------------------------------------
-
-
-class TestResolveSource:
-    def test_direct_path_that_exists(self, tmp_path: Path) -> None:
-        src = tmp_path / "foo.c"
-        src.write_text("// FUNCTION: GAME 0x1000\nint foo(void) { return 0; }\n")
-        cfg = SimpleNamespace(reversed_dir=tmp_path, metadata_dir=tmp_path.parent, source_ext=".c")
-        result = _resolve_source(str(src), cfg)
-        assert result == src
-
-    def test_symbol_search_finds_stem_match(self, tmp_path: Path) -> None:
-        src = tmp_path / "my_func.c"
-        src.write_text("// FUNCTION: GAME 0x1000\nint my_func(void) { return 0; }\n")
-        cfg = SimpleNamespace(reversed_dir=tmp_path, metadata_dir=tmp_path.parent, source_ext=".c")
-        result = _resolve_source("my_func", cfg)
-        assert result == src
-
-    def test_symbol_search_strips_leading_underscore(self, tmp_path: Path) -> None:
-        src = tmp_path / "my_func.c"
-        src.write_text("// FUNCTION: GAME 0x1000\nint my_func(void) { return 0; }\n")
-        cfg = SimpleNamespace(reversed_dir=tmp_path, metadata_dir=tmp_path.parent, source_ext=".c")
-        result = _resolve_source("_my_func", cfg)
-        assert result == src
-
-    def test_nonexistent_returns_path_as_is(self, tmp_path: Path) -> None:
-        cfg = SimpleNamespace(reversed_dir=tmp_path, metadata_dir=tmp_path.parent, source_ext=".c")
-        result = _resolve_source("no_such_func", cfg)
-        # Returns Path("no_such_func") which doesn't exist — caller handles it
-        assert result == Path("no_such_func")
-
-
-# ---------------------------------------------------------------------------
 # CLI — status guard
 # ---------------------------------------------------------------------------
 
@@ -187,6 +152,19 @@ class TestProveCLIStatusGuard:
         # Fake binary
         (tmp_path / "game.exe").write_bytes(b"\x00" * 512)
         return tmp_path, src
+
+    def _cfg_for(self, tmp_path: Path) -> Any:
+        """Minimal config matching _make_project's layout."""
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=tmp_path / "src",
+            metadata_dir=tmp_path / "src",
+            marker="GAME",
+            source_ext=".c",
+            target_binary=tmp_path / "game.exe",
+        )
 
     def test_rejects_exact_status(self, tmp_path: Path) -> None:
         from typer.testing import CliRunner
@@ -235,6 +213,48 @@ class TestProveCLIStatusGuard:
         )
         assert result.exit_code != 0
 
+    def test_watch_rejected_with_all(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.prove import app
+
+        proj_dir, src = self._make_project(tmp_path, "NEAR_MATCHING")
+        import rebrew.prove as prove_mod
+
+        monkeypatch.setattr(prove_mod, "_require_angr", lambda: None)
+        monkeypatch.setattr(
+            prove_mod,
+            "require_config",
+            lambda target=None, json_mode=False: self._cfg_for(tmp_path),
+        )
+        result = CliRunner().invoke(app, ["--all", "--watch"])
+        assert result.exit_code == 1
+        assert "--watch cannot be combined with --all" in result.output
+
+    def test_watch_wires_watch_files(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """--watch registers the resolved source with watch_files."""
+        from typer.testing import CliRunner
+
+        from rebrew.prove import app
+
+        proj_dir, src = self._make_project(tmp_path, "NEAR_MATCHING")
+        # The angr guard fires before watch wiring — stub it out.
+        monkeypatch.setattr("rebrew.prove._require_angr", lambda: None)
+        monkeypatch.setattr(
+            "rebrew.prove.require_config",
+            lambda target=None, json_mode=False: self._cfg_for(tmp_path),
+        )
+        captured: dict[str, object] = {}
+
+        def fake_watch_files(paths: list[object], retest: object) -> None:
+            captured["paths"] = paths
+
+        monkeypatch.setattr("rebrew.utils.watch_files", fake_watch_files)
+        # Option before positional (typer/CliRunner quirk, see docs/DEVELOPMENT.md).
+        result = CliRunner().invoke(app, ["--watch", str(src)])
+        assert result.exit_code == 0
+        assert captured["paths"] == [src.resolve()]
+
 
 # ---------------------------------------------------------------------------
 # prove_equivalence — pure logic, mocked angr
@@ -248,7 +268,7 @@ class TestProveCLIStatusGuard:
 
 @pytest.mark.skipif(
     not has_angr,
-    reason="angr not installed",
+    reason="angr not installed (run 'uv sync --all-extras' to enable prove tests)",
 )
 class TestWin32SimProcedures:
     """Verify the Win32 SimProcedure registry is populated correctly."""
@@ -297,7 +317,7 @@ class TestWin32SimProcedures:
 
 @pytest.mark.skipif(
     not has_angr,
-    reason="angr not installed",
+    reason="angr not installed (run 'uv sync --all-extras' to enable prove tests)",
 )
 class TestApplyArgConstraints:
     """Test _apply_arg_constraints with real angr state objects."""
@@ -568,7 +588,7 @@ class TestProveConstraintsMetadata:
 
 @pytest.mark.skipif(
     not has_angr,
-    reason="angr not installed",
+    reason="angr not installed (run 'uv sync --all-extras' to enable prove tests)",
 )
 class TestProveEquivalence:
     """Integration-style tests for prove_equivalence, skipped if angr absent."""
@@ -691,14 +711,12 @@ class TestProveEquivalence:
 
 @pytest.mark.skipif(
     not has_angr,
-    reason="angr (and claripy) not installed",
+    reason="angr (and claripy) not installed (run 'uv sync --all-extras' to enable prove tests)",
 )
 class TestProveEquivalenceCheckEdxMocked:
-    """Tests for EDX checking using monkeypatched _run_simulation.
-
-    These avoid requiring angr by patching the simulation runner with
-    crafted state mocks that have rigged .regs.eax / .regs.edx values.
-    """
+    """EDX checking verdicts, with ``_run_simulation`` patched to return
+    crafted states — the real ``prove_equivalence`` → ``_compare_state_pairs``
+    logic (including the EAX+EDX disjunction) is what is under test."""
 
     def _make_mock_state(self, eax_val: int, edx_val: int) -> Any:
         """Build a minimal mock angr state with concrete EAX/EDX values."""
@@ -726,67 +744,21 @@ class TestProveEquivalenceCheckEdxMocked:
         expect_edx_in_msg: bool,
     ) -> None:
         """EAX matches but EDX differs: rejected when check_edx=True, accepted otherwise."""
-        import claripy
-
         import rebrew.prove as prove_mod
 
         state_orig = self._make_mock_state(eax_val=42, edx_val=0)
         state_comp = self._make_mock_state(eax_val=42, edx_val=99)  # EDX differs
 
-        # Patch prove_equivalence on the module to inject concrete states directly,
-        # bypassing angr execution entirely.
-        def patched_prove(
-            original_bytes: bytes,
-            compiled_bytes: bytes,
-            reloc_offsets: Any,
-            prototype: str,
-            arch: str = "x86",
-            *,
-            timeout: int = 60,
-            loop_bound: int = 10,
-            binary_path: Any = None,
-            arg_constraints: Any = None,
-            start_offset: int = 0,
-            end_offset: int = 0,
-            check_edx: bool = False,
-        ) -> tuple[bool, str]:
-            states_orig = [state_orig]
-            states_comp = [state_comp]
-            cc, arg_count, return_width = prove_mod._parse_prototype(prototype)
-            effective_check_edx = check_edx or (return_width == 64)
+        # prove_equivalence always simulates orig first, then comp; patch the
+        # (now module-level) _run_simulation to hand back crafted states and
+        # let the REAL _compare_state_pairs produce the verdict.
+        calls = {"n": 0}
 
-            for s_orig in states_orig:
-                eax_orig = s_orig.regs.eax
-                edx_orig = s_orig.regs.edx
-                can_differ = False
-                for s_comp in states_comp:
-                    eax_comp = s_comp.regs.eax
-                    edx_comp = s_comp.regs.edx
-                    solver = claripy.Solver()
-                    for expr in s_orig.solver.constraints:
-                        solver.add(expr)
-                    for expr in s_comp.solver.constraints:
-                        solver.add(expr)
-                    if effective_check_edx:
-                        solver.add(claripy.Or(eax_orig != eax_comp, edx_orig != edx_comp))
-                    else:
-                        solver.add(eax_orig != eax_comp)
-                    if solver.satisfiable():
-                        can_differ = True
-                        break
-                if can_differ:
-                    regs = "EAX+EDX" if effective_check_edx else "EAX"
-                    return False, (
-                        f"Z3 found a satisfying assignment where {regs} differs "
-                        f"(checked {len(states_orig)} x {len(states_comp)} state pairs)"
-                    )
-            regs = "EAX+EDX" if effective_check_edx else "EAX"
-            return True, (
-                f"Proven equivalent ({regs}; {len(states_orig)} original state(s), "
-                f"{len(states_comp)} compiled state(s))"
-            )
+        def fake_run_simulation(proj: object, state: object, **kw: object) -> list[object]:
+            calls["n"] += 1
+            return [state_orig] if calls["n"] == 1 else [state_comp]
 
-        monkeypatch.setattr(prove_mod, "prove_equivalence", patched_prove)
+        monkeypatch.setattr("rebrew.prove._run_simulation", fake_run_simulation)
 
         proven, msg = prove_mod.prove_equivalence(
             b"\xc3",
@@ -797,3 +769,363 @@ class TestProveEquivalenceCheckEdxMocked:
         )
         assert proven is expect_proven, f"Expected proven={expect_proven} but got: {msg}"
         assert ("EAX+EDX" in msg) is expect_edx_in_msg
+
+
+class TestPrepareProveInputsDir32:
+    """The early-match gate must use the same DIR32 validation as test/verify."""
+
+    def test_early_match_receives_name_to_va(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from types import SimpleNamespace
+
+        import rebrew.prove as pm
+
+        ann = SimpleNamespace(
+            va=0x1000,
+            size=16,
+            cflags="/O2",
+            symbol="_f",
+            name="f",
+            module="SERVER",
+            status="NEAR_MATCHING",
+            prototype="",
+            prove_constraints=None,
+        )
+        cfg = SimpleNamespace(
+            target_binary=tmp_path / "x.dll",
+            metadata_dir=tmp_path / "md",
+            reversed_dir=tmp_path,
+            marker="SERVER",
+            source_ext=".c",
+        )
+        (tmp_path / "x.dll").write_bytes(b"\x00" * 64)
+        (tmp_path / "md").mkdir()
+        src = tmp_path / "f.c"
+        src.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+
+        captured: dict[str, object] = {}
+
+        def fake_smart_reloc_compare(
+            obj: bytes,
+            tgt: bytes,
+            relocs: object,
+            name_to_va: object = None,
+            section_va: object = None,
+        ) -> tuple[bool, int, int, list[int], list[int]]:
+            captured["name_to_va"] = name_to_va
+            captured["section_va"] = section_va
+            return (False, 0, 0, [], [])  # not matched → proceed to prove
+
+        monkeypatch.setattr(pm, "smart_reloc_compare", fake_smart_reloc_compare)
+        monkeypatch.setattr(pm, "build_name_to_va", lambda cfg: {"g_counter": 0x2000})
+        monkeypatch.setattr(pm, "extract_raw_bytes", lambda b, va, size: b"\x00" * 16)
+        monkeypatch.setattr(pm, "compile_to_obj", lambda cfg, src, cflags, wd: ("obj.obj", ""))
+        monkeypatch.setattr(pm, "parse_obj_symbol_bytes", lambda obj, sym: (b"\x00" * 16, {}))
+        monkeypatch.setattr(pm, "_resolve_watched_dir32", lambda obj, sym, cfg, ws: {})
+        monkeypatch.setattr(pm, "resolve_symbol", lambda ann, src: "_f")
+
+        inputs = pm._prepare_prove_inputs(cfg, src, ann, None)
+        assert captured["name_to_va"] == {"g_counter": 0x2000}
+        assert captured["section_va"] == 0x1000
+        assert inputs.symbol == "_f"
+        assert inputs.size == 16
+
+    def test_early_match_still_promotes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A genuinely matching function still raises _AlreadyMatched."""
+        from types import SimpleNamespace
+
+        import pytest
+
+        import rebrew.prove as pm
+
+        ann = SimpleNamespace(
+            va=0x1000,
+            size=16,
+            cflags="/O2",
+            symbol="_f",
+            name="f",
+            module="SERVER",
+            status="NEAR_MATCHING",
+            prototype="",
+            prove_constraints=None,
+        )
+        cfg = SimpleNamespace(
+            target_binary=tmp_path / "x.dll",
+            metadata_dir=tmp_path / "md",
+            reversed_dir=tmp_path,
+            marker="SERVER",
+            source_ext=".c",
+        )
+        (tmp_path / "x.dll").write_bytes(b"\x00" * 64)
+        (tmp_path / "md").mkdir()
+        src = tmp_path / "f.c"
+        src.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+
+        monkeypatch.setattr(
+            pm,
+            "smart_reloc_compare",
+            lambda obj, tgt, relocs, name_to_va=None, section_va=None: (True, 16, 16, [0x1000], []),
+        )
+        monkeypatch.setattr(pm, "build_name_to_va", lambda cfg: {})
+        monkeypatch.setattr(pm, "extract_raw_bytes", lambda b, va, size: b"\x00" * 16)
+        monkeypatch.setattr(pm, "compile_to_obj", lambda cfg, src, cflags, wd: ("obj.obj", ""))
+        monkeypatch.setattr(pm, "parse_obj_symbol_bytes", lambda obj, sym: (b"\x00" * 16, {}))
+        monkeypatch.setattr(pm, "_resolve_watched_dir32", lambda obj, sym, cfg, ws: {})
+        monkeypatch.setattr(pm, "resolve_symbol", lambda ann, src: "_f")
+
+        with pytest.raises(pm._AlreadyMatched) as excinfo:
+            pm._prepare_prove_inputs(cfg, src, ann, None)
+        assert excinfo.value.new_status == "RELOC"  # _vr truthy
+
+
+class TestWatchVaHexParsing:
+    def test_hex_watch_va_accepted(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """--watch-va accepts hex VAs like every other tool (was int-only)."""
+        from types import SimpleNamespace
+
+        from typer.testing import CliRunner
+
+        import rebrew.prove as pm
+
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        f = src / "foo.c"
+        f.write_text(
+            "// FUNCTION: GAME 0x1000\nint __cdecl foo(void) { return 0; }\n", encoding="utf-8"
+        )
+        (src / "rebrew-function.toml").write_text(
+            '["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n', encoding="utf-8"
+        )
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=src,
+            metadata_dir=src,
+            marker="GAME",
+            source_ext=".c",
+            target_binary=tmp_path / "game.exe",
+        )
+        (tmp_path / "game.exe").write_bytes(b"\x00" * 64)
+        monkeypatch.setattr(pm, "_require_angr", lambda: None)
+        monkeypatch.setattr(pm, "require_config", lambda target=None, json_mode=False: cfg)
+        captured: dict[str, object] = {}
+
+        def fake_prepare(cfg, source_path, ann, watch_va, **kw):
+            captured["watch_va"] = watch_va
+            raise pm._ProveError("stop-early")
+
+        monkeypatch.setattr(pm, "_prepare_prove_inputs", fake_prepare)
+        result = CliRunner().invoke(pm.app, ["--watch-va", "0x10027078", str(f)])
+        assert result.exit_code != 0  # stopped early by the fake
+        assert captured.get("watch_va") == [0x10027078]
+
+
+class TestWatchVaValidation:
+    def _invoke(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, watch_val: str) -> object:
+        from types import SimpleNamespace
+
+        from typer.testing import CliRunner
+
+        import rebrew.prove as pm
+
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        f = src / "foo.c"
+        f.write_text(
+            "// FUNCTION: GAME 0x1000\nint __cdecl foo(void) { return 0; }\n", encoding="utf-8"
+        )
+        (src / "rebrew-function.toml").write_text(
+            '["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n', encoding="utf-8"
+        )
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=src,
+            metadata_dir=src,
+            marker="GAME",
+            source_ext=".c",
+            target_binary=tmp_path / "game.exe",
+        )
+        (tmp_path / "game.exe").write_bytes(b"\x00" * 64)
+        monkeypatch.setattr(pm, "_require_angr", lambda: None)
+        monkeypatch.setattr(pm, "require_config", lambda target=None, json_mode=False: cfg)
+        called = {"prepare": False}
+
+        def fake_prepare(cfg, source_path, ann, watch_va, **kw):
+            called["prepare"] = True
+            raise pm._ProveError("stop-early")
+
+        monkeypatch.setattr(pm, "_prepare_prove_inputs", fake_prepare)
+        result = CliRunner().invoke(pm.app, ["--watch-va", watch_val, str(f)])
+        result.called_prepare = called  # type: ignore[attr-defined]
+        return result
+
+    def test_out_of_range_hex_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A watch VA beyond 32 bits is a clean argument error, not a silent no-op."""
+        from rebrew.cli import EXIT_ERROR
+
+        result = self._invoke(tmp_path, monkeypatch, "0x1FFFFFFFF")  # type: ignore[attr-defined]
+        assert result.exit_code == EXIT_ERROR
+        assert "Invalid watch VA" in result.output
+        assert not result.called_prepare["prepare"]  # type: ignore[attr-defined]
+
+    def test_decimal_overflow_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """2^32 as a decimal is rejected the same way."""
+        from rebrew.cli import EXIT_ERROR
+
+        result = self._invoke(tmp_path, monkeypatch, "4294967296")  # type: ignore[attr-defined]
+        assert result.exit_code == EXIT_ERROR
+        assert "Invalid watch VA" in result.output
+        assert not result.called_prepare["prepare"]  # type: ignore[attr-defined]
+
+    def test_boundary_values_accepted(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """0 and 0xFFFFFFFF are the inclusive valid range."""
+        from types import SimpleNamespace
+
+        from typer.testing import CliRunner
+
+        import rebrew.prove as pm
+
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        f = src / "foo.c"
+        f.write_text(
+            "// FUNCTION: GAME 0x1000\nint __cdecl foo(void) { return 0; }\n", encoding="utf-8"
+        )
+        (src / "rebrew-function.toml").write_text(
+            '["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n', encoding="utf-8"
+        )
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=src,
+            metadata_dir=src,
+            marker="GAME",
+            source_ext=".c",
+            target_binary=tmp_path / "game.exe",
+        )
+        (tmp_path / "game.exe").write_bytes(b"\x00" * 64)
+        monkeypatch.setattr(pm, "_require_angr", lambda: None)
+        monkeypatch.setattr(pm, "require_config", lambda target=None, json_mode=False: cfg)
+        captured: dict[str, object] = {}
+
+        def fake_prepare(cfg, source_path, ann, watch_va, **kw):
+            captured["watch_va"] = watch_va
+            raise pm._ProveError("stop-early")
+
+        monkeypatch.setattr(pm, "_prepare_prove_inputs", fake_prepare)
+        result = CliRunner().invoke(pm.app, ["--watch-va", "0", "--watch-va", "0xFFFFFFFF", str(f)])
+        assert result.exit_code != 0  # stopped early by the fake
+        assert captured.get("watch_va") == [0, 0xFFFFFFFF]
+
+
+class TestProveInputsWatchedVasMetadata:
+    def _prepare(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, meta_vas: object) -> object:
+        from types import SimpleNamespace
+
+        import rebrew.prove as pm
+
+        ann = SimpleNamespace(
+            va=0x1000,
+            size=16,
+            cflags="/O2",
+            symbol="_f",
+            name="f",
+            module="SERVER",
+            status="NEAR_MATCHING",
+            prototype="",
+            prove_constraints={"watched_vas": meta_vas},
+        )
+        cfg = SimpleNamespace(
+            target_binary=tmp_path / "x.dll",
+            metadata_dir=tmp_path / "md",
+            reversed_dir=tmp_path,
+            marker="SERVER",
+            source_ext=".c",
+        )
+        (tmp_path / "x.dll").write_bytes(b"\x00" * 64)
+        (tmp_path / "md").mkdir()
+        src = tmp_path / "f.c"
+        src.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+
+        monkeypatch.setattr(
+            pm,
+            "smart_reloc_compare",
+            lambda obj, tgt, relocs, name_to_va=None, section_va=None: (False, 0, 0, [], []),
+        )
+        monkeypatch.setattr(pm, "build_name_to_va", lambda cfg: {})
+        monkeypatch.setattr(pm, "extract_raw_bytes", lambda b, va, size: b"\x00" * 16)
+        monkeypatch.setattr(pm, "compile_to_obj", lambda cfg, src, cflags, wd: ("obj.obj", ""))
+        monkeypatch.setattr(pm, "parse_obj_symbol_bytes", lambda obj, sym: (b"\x00" * 16, {}))
+        monkeypatch.setattr(pm, "_resolve_watched_dir32", lambda obj, sym, cfg, ws: {})
+        monkeypatch.setattr(pm, "resolve_symbol", lambda ann, src: "_f")
+        return pm._prepare_prove_inputs(cfg, src, ann, None)
+
+    def test_valid_metadata_int_and_str_accepted(self, tmp_path: Path, monkeypatch: object) -> None:
+        inputs = self._prepare(tmp_path, monkeypatch, [0x2000, "0x3000", 0x4000])  # type: ignore[arg-type]
+        assert inputs.watched_vas == [0x2000, 0x3000, 0x4000]
+
+    def test_garbage_metadata_raises(self, tmp_path: Path, monkeypatch: object) -> None:
+        import pytest
+
+        import rebrew.prove as pm
+
+        with pytest.raises(pm._ProveError, match="watched_vas"):
+            self._prepare(tmp_path, monkeypatch, ["garbage"])  # type: ignore[arg-type]
+
+    def test_out_of_range_metadata_raises(self, tmp_path: Path, monkeypatch: object) -> None:
+        import pytest
+
+        import rebrew.prove as pm
+
+        with pytest.raises(pm._ProveError, match="outside 0..0xFFFFFFFF"):
+            self._prepare(tmp_path, monkeypatch, [0x100000000])  # type: ignore[arg-type]
+
+
+class TestWatchVaDecimal:
+    def test_decimal_watch_va_accepted(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--watch-va decimal form still works (int(v, 0) preserves it)."""
+        from types import SimpleNamespace
+
+        from typer.testing import CliRunner
+
+        import rebrew.prove as pm
+
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        f = src / "foo.c"
+        f.write_text(
+            "// FUNCTION: GAME 0x1000\nint __cdecl foo(void) { return 0; }\n", encoding="utf-8"
+        )
+        (src / "rebrew-function.toml").write_text(
+            '["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n', encoding="utf-8"
+        )
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=src,
+            metadata_dir=src,
+            marker="GAME",
+            source_ext=".c",
+            target_binary=tmp_path / "game.exe",
+        )
+        (tmp_path / "game.exe").write_bytes(b"\x00" * 64)
+        monkeypatch.setattr(pm, "_require_angr", lambda: None)
+        monkeypatch.setattr(pm, "require_config", lambda target=None, json_mode=False: cfg)
+        captured: dict[str, object] = {}
+
+        def fake_prepare(cfg, source_path, ann, watch_va, **kw):
+            captured["watch_va"] = watch_va
+            raise pm._ProveError("stop-early")
+
+        monkeypatch.setattr(pm, "_prepare_prove_inputs", fake_prepare)
+        result = CliRunner().invoke(pm.app, ["--watch-va", "268574328", str(f)])
+        assert result.exit_code != 0
+        assert captured.get("watch_va") == [268574328]

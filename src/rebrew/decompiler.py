@@ -39,14 +39,9 @@ _DEFAULT_MCP_ENDPOINT = "http://localhost:8080/mcp/message"
 _MCP_TIMEOUT_S = 30.0
 
 
-def _strip_ansi(text: str) -> str:
-    """Remove ANSI escape sequences from text."""
-    return _ANSI_RE.sub("", text)
-
-
 def _clean_output(text: str) -> str | None:
     """Strip ANSI codes and trim blank leading/trailing lines."""
-    text = _strip_ansi(text)
+    text = _ANSI_RE.sub("", text)
     lines = text.splitlines()
     while lines and not lines[0].strip():
         lines.pop(0)

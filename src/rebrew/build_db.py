@@ -77,6 +77,7 @@ def _function_stats(
     by_module: dict[str, list[Any]] = {}
     covered_bytes: int = 0
     for fn in c.fetchall():
+        total += 1
         st = fn[3] or "UNKNOWN"
         by_status[st] = by_status.get(st, 0) + 1
         mod = fn[4] or "GAME"

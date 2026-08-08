@@ -433,3 +433,84 @@ class TestInvertCallMap:
 
     def test_empty_map(self) -> None:
         assert _invert_call_map({}) == {}
+
+
+class TestScanCallTargetsEdge:
+    def test_invalid_hex_target_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A CALL with an unparseable hex operand is skipped, not fatal."""
+        import capstone
+
+        class _FakeInsn:
+            mnemonic = "call"
+            op_str = "0xnothex"
+
+        class _FakeCs:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                pass
+
+            def disasm(self, _code: bytes, _va: int) -> list[_FakeInsn]:
+                return [_FakeInsn()]
+
+        monkeypatch.setattr(capstone, "Cs", _FakeCs)
+        info = _make_binary_info(0x1000, 16, b"\x90" * 16)
+        registry = {0x1000: _make_entry(0x1000, 4, "f")}
+        result = _scan_call_targets(
+            info, registry, SimpleNamespace(capstone_arch=1, capstone_mode=2)
+        )
+        assert result == {}
+
+
+class TestClusterFunctionsEdge:
+    def test_overlapping_functions_single_cluster(self) -> None:
+        """Overlapping function ranges are treated as the same cluster."""
+        text_va = 0x1000
+        info = _make_binary_info(text_va, 64, b"\x90" * 64)
+        registry = {
+            0x1000: _make_entry(0x1000, 32, "A"),
+            0x1010: _make_entry(0x1010, 8, "B"),  # overlaps A's range
+        }
+        clusters = cluster_functions(registry, info, None)  # type: ignore[arg-type]
+        assert len(clusters) == 1
+        assert clusters[0].functions == [0x1000, 0x1010]
+
+    def test_zero_gap_single_cluster(self) -> None:
+        """Adjacent functions (zero-byte gap) stay in one cluster."""
+        text_va = 0x1000
+        info = _make_binary_info(text_va, 16, b"\x90" * 16)
+        registry = {
+            0x1000: _make_entry(0x1000, 4, "A"),
+            0x1004: _make_entry(0x1004, 4, "B"),  # gap_len == 0
+        }
+        clusters = cluster_functions(registry, info, None)  # type: ignore[arg-type]
+        assert len(clusters) == 1
+
+    def test_extract_failure_gap_starts_new_cluster(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """When the gap cannot be extracted, treat as a boundary."""
+        import rebrew.cu_map as cu_map
+
+        text_va = 0x1000
+        info = _make_binary_info(text_va, 64, b"\x90" * 64)
+        registry = {
+            0x1000: _make_entry(0x1000, 4, "A"),
+            0x1008: _make_entry(0x1008, 4, "B"),  # 4-byte gap
+        }
+        # Force the gap extraction to fail → large_nonpadding → boundary.
+        monkeypatch.setattr(cu_map, "extract_bytes_at_va", lambda *a, **k: None)
+        clusters = cluster_functions(registry, info, None)  # type: ignore[arg-type]
+        assert len(clusters) == 2
+
+    def test_call_graph_boost_applied(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A call edge between clustered functions boosts the score."""
+        import rebrew.cu_map as cu_map
+
+        text_va = 0x1000
+        info = _make_binary_info(text_va, 16, b"\x90" * 16)
+        registry = {
+            0x1000: _make_entry(0x1000, 4, "A"),
+            0x1004: _make_entry(0x1004, 4, "B"),
+        }
+        monkeypatch.setattr(cu_map, "_scan_call_targets", lambda *a, **k: {0x1000: {0x1004}})
+        clusters = cluster_functions(registry, info, None)  # type: ignore[arg-type]
+        assert len(clusters) == 1
+        # A callee called only from within the cluster boosts confidence.
+        assert any("static-function signal" in e for c in clusters for e in c.evidence)

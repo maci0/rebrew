@@ -16,15 +16,19 @@ Cache location
 Cache key
 ~~~~~~~~~
 SHA-256 of ``(schema_version, source_content, source_filename, source_ext,
-cflags, include_dirs, toolchain_id)``.  Flags and include dirs are hashed
-in **order** (not sorted) because order affects semantics (``/I`` search
-order, ``/D`` redefinitions, last-wins flags).
+cflags, include_dirs, include_fingerprints, toolchain_id)``.  Flags and
+include dirs are hashed in **order** (not sorted) because order affects
+semantics (``/I`` search order, ``/D`` redefinitions, last-wins flags).
 
 Invalidation
 ~~~~~~~~~~~~
 Automatic via content hash — different inputs produce different keys.
-Header file changes are NOT tracked (only include dir paths, not contents).
-Use ``rebrew cache clear`` for manual invalidation after header edits.
+Header files reachable from the ``/I`` directories participate in the key via
+:func:`include_fingerprint` (name + size + mtime, ccache-style), so editing a
+``library_*.h`` or a shared header invalidates dependent entries without a
+manual ``rebrew cache clear``.  The fingerprint is memoized per process: a
+header edited *while* a long GA run is in flight is not picked up until the
+next invocation.
 """
 
 from __future__ import annotations
@@ -32,12 +36,16 @@ from __future__ import annotations
 import atexit
 import hashlib
 import threading
+from functools import lru_cache
 from pathlib import Path
 
 import diskcache
 
 # Bump on key semantics changes to invalidate stale entries.
-CACHE_SCHEMA_VERSION = 1
+CACHE_SCHEMA_VERSION = 2
+
+# Extensions treated as headers when fingerprinting an include directory.
+_HEADER_SUFFIXES = frozenset({".h", ".hpp", ".hxx", ".inl", ".hh"})
 
 # Default size limit: 500 MB with LRU eviction when the limit is reached.
 _DEFAULT_SIZE_LIMIT = 500 * 1024 * 1024
@@ -135,6 +143,40 @@ class CompileCache:
 # ---------------------------------------------------------------------------
 
 
+@lru_cache(maxsize=64)
+def include_fingerprint(include_dir: str) -> str:
+    """Return a digest of the headers reachable from *include_dir*.
+
+    Hashes ``(relative path, size, mtime_ns)`` of every header under the
+    directory rather than its contents: a stat walk costs microseconds where a
+    content read of an MSVC6 include tree costs megabytes, and a GA run issues
+    thousands of key computations per function.  This is the same tradeoff
+    ccache makes in its default mode — it can only be fooled by an edit that
+    preserves both size and mtime.
+
+    Memoized per process (headers are assumed stable for the lifetime of one
+    rebrew invocation), so each include directory is walked at most once.
+    Returns ``""`` for a path that is not an existing directory.
+    """
+    root = Path(include_dir)
+    if not root.is_dir():
+        return ""
+    h = hashlib.sha256()
+    try:
+        headers = sorted(
+            p for p in root.rglob("*") if p.suffix.lower() in _HEADER_SUFFIXES and p.is_file()
+        )
+    except OSError:
+        return ""
+    for path in headers:
+        try:
+            st = path.stat()
+        except OSError:
+            continue
+        h.update(f"{path.relative_to(root)}\0{st.st_size}\0{st.st_mtime_ns}\0".encode())
+    return h.hexdigest()
+
+
 def compile_cache_key(
     source_content: str,
     source_filename: str,
@@ -151,7 +193,9 @@ def compile_cache_key(
     - **source_filename** — the filename the compiler sees (affects
       ``__FILE__`` expansion); use the basename, not a temp path
     - **cflags** — all compiler flags in order (base + user + include)
-    - **include_dirs** — ordered list of ``/I`` directory paths
+    - **include_dirs** — ordered list of ``/I`` directory paths, plus a
+      :func:`include_fingerprint` of the headers each one contains, so a
+      header edit invalidates the entry
     - **toolchain_id** — identifies the compiler binary and runner
       (e.g. ``"wine /abs/path/CL.EXE"``)
     - **source_ext** — file extension (``.c``, ``.cpp``)
@@ -172,6 +216,7 @@ def compile_cache_key(
     # and C source are NUL-free text.
     h.update(f"\0cflags={chr(0).join(cflags)}\0".encode())
     h.update(f"\0includes={chr(0).join(include_dirs)}\0".encode())
+    h.update(f"\0headers={chr(0).join(include_fingerprint(d) for d in include_dirs)}\0".encode())
     h.update(f"\0toolchain={toolchain_id}\0".encode())
     return h.hexdigest()
 

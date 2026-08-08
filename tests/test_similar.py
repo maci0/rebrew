@@ -139,3 +139,65 @@ class TestFindSimilar:
         )
         results = run(top=1)
         assert [r["va"] for r in results] == ["0x00002000"]
+
+
+class TestFindSimilarEdgeCases:
+    def test_query_extract_none_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Empty bytes → _disasm_signature returns None → no results.
+        run, _ = TestFindSimilar()._setup(monkeypatch, {0x1000: b""})
+        assert run() == []
+
+    def test_query_sig_none_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import rebrew.similar as similar_mod
+
+        run, _ = TestFindSimilar()._setup(monkeypatch, {0x1000: b"\x90" * 6})
+        monkeypatch.setattr(similar_mod, "_disasm_signature", lambda *a, **k: None)
+        assert run() == []
+
+    def test_zero_size_candidates_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        run, registry = TestFindSimilar()._setup(monkeypatch, {0x1000: b"\x90" * 6})
+        registry[0x2000]["canonical_size"] = 0
+        results = run()
+        # 0x3000 (canonical 3) still compares; 0x2000 is skipped.
+        assert all(r["va"] != "0x00002000" for r in results)
+
+    def test_candidate_sig_none_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import rebrew.similar as similar_mod
+
+        run, _ = TestFindSimilar()._setup(monkeypatch, {0x1000: b"\x90" * 6, 0x2000: b"\x90" * 6})
+        real_sig = similar_mod._disasm_signature
+
+        def _sig(code, va, cs_arch, cs_mode):
+            if va == 0x2000:
+                return None
+            return real_sig(code, va, cs_arch, cs_mode)
+
+        monkeypatch.setattr(similar_mod, "_disasm_signature", _sig)
+        results = run()
+        assert all(r["va"] != "0x00002000" for r in results)
+
+    def test_cosine_zero_denominator(self) -> None:
+        from rebrew.similar import _cosine
+
+        assert _cosine({}, {}) == 0.0
+        assert _cosine({"push": 2}, {}) == 0.0
+
+    def test_ratio_zero_side(self) -> None:
+        from rebrew.similar import _ratio
+
+        assert _ratio(0, 5) == 0.0
+        assert _ratio(5, 0) == 0.0
+        assert _ratio(0, 0) == 1.0  # a == b
+        assert _ratio(4, 2) == 0.5
+
+
+class TestDisasmSignatureIntConstants:
+    def test_accepts_int_constants(self) -> None:
+        """cfg.capstone_arch/capstone_mode return ints; Cs must accept them."""
+        import capstone
+
+        sig = similar_mod._disasm_signature(
+            _CALL_RET, 0x1000, capstone.CS_ARCH_X86, capstone.CS_MODE_32
+        )
+        assert sig is not None
+        assert sig["calls"] == 1

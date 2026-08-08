@@ -1129,3 +1129,423 @@ void func_2000() {}
     assert "// SYMBOL: func_1000" not in text
     assert "// SYMBOL: AddScore" in text
     assert "// SYMBOL: func_2000" not in text
+
+
+class TestValidateEdgeBranches:
+    def test_inline_error_reported(self) -> None:
+        ann = Annotation(va=0x10001000, inline_error="// FUNCTION: SERVER 0x1000 // EXTRA")
+        errors, _warnings = ann.validate()
+        assert any("Multiple annotations" in e for e in errors)
+
+    def test_suspicious_va_reported(self) -> None:
+        ann = Annotation(va=0x500)  # below MIN_VALID_VA
+        errors, _warnings = ann.validate()
+        assert any("suspicious" in e for e in errors)
+
+    def test_invalid_marker_reported(self) -> None:
+        ann = Annotation(va=0x10001000, marker_type="NOTAMARKER")
+        errors, _warnings = ann.validate()
+        assert any("Invalid marker type" in e for e in errors)
+
+
+class TestSplitAnnotationSectionsRescue:
+    def test_orphaned_kv_rescued_from_preamble(self) -> None:
+        from rebrew.annotation import split_annotation_sections
+
+        text = (
+            "#include <stdio.h>\n"
+            "// STATUS: EXACT\n"
+            "int helper(void);\n"
+            "// FUNCTION: SERVER 0x1000\n"
+            "int f(void) { return helper(); }\n"
+        )
+        preamble, blocks = split_annotation_sections(text)
+        # The orphaned STATUS KV moves into the function block.
+        assert "STATUS" not in preamble
+        assert "// STATUS: EXACT" in blocks[0]
+
+    def test_no_rescue_when_no_orphans(self) -> None:
+        from rebrew.annotation import split_annotation_sections
+
+        text = "// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n"
+        preamble, blocks = split_annotation_sections(text)
+        assert preamble == ""
+        assert len(blocks) == 1
+
+
+class TestNormalizeStatusProven:
+    def test_proven_passthrough(self) -> None:
+        from rebrew.annotation import normalize_status
+
+        assert normalize_status("PROVEN") == "PROVEN"
+
+    def test_exact_wins_over_proven_substring(self) -> None:
+        from rebrew.annotation import normalize_status
+
+        # "PROVEN" alone hits the PROVEN branch; a string containing EXACT
+        # wins earlier.
+        assert normalize_status("EXACT_MATCH_PROVEN") == "EXACT"
+
+
+class TestAnnotationValidateBranches:
+    def test_library_without_source_warns(self) -> None:
+        from rebrew.annotation import Annotation
+
+        ann = Annotation(
+            va=0x1000, module="MSVCRT", name="f", marker_type="LIBRARY", status="EXACT"
+        )
+        errors, warnings = ann.validate(library_modules={"MSVCRT"})
+        assert any("missing SOURCE" in w for w in warnings)
+
+    def test_near_matching_stub_contradiction(self) -> None:
+        from rebrew.annotation import Annotation
+
+        ann = Annotation(
+            va=0x1000, module="GAME", name="f", marker_type="STUB", status="NEAR_MATCHING"
+        )
+        errors, warnings = ann.validate()
+        assert any("Contradictory" in w for w in warnings)
+
+
+class TestRemoveAnnotationKeyFile:
+    def test_removes_non_metadata_key(self, tmp_path: Path) -> None:
+        from rebrew.annotation import remove_annotation_key
+
+        f = tmp_path / "f.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x1000\n// SYMBOL: _f\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        assert remove_annotation_key(f, 0x1000, "SYMBOL") is True
+        assert "// SYMBOL:" not in f.read_text(encoding="utf-8")
+
+    def test_missing_key_noop(self, tmp_path: Path) -> None:
+        from rebrew.annotation import remove_annotation_key
+
+        f = tmp_path / "f.c"
+        f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        assert remove_annotation_key(f, 0x1000, "SYMBOL") is False
+
+
+class TestUpdateAnnotationKeyFile:
+    def test_same_value_noop(self, tmp_path: Path) -> None:
+        from rebrew.annotation import update_annotation_key
+
+        f = tmp_path / "f.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x1000\n// NOTE: keep me\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        # NOTE is metadata-owned → writes to metadata, returns True.
+        assert update_annotation_key(f, 0x1000, "NOTE", "keep me", metadata_dir=tmp_path) is True
+
+    def test_unknown_key_inserted(self, tmp_path: Path) -> None:
+        from rebrew.annotation import update_annotation_key
+
+        f = tmp_path / "f.c"
+        f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        # A non-metadata key (ANALYSIS is metadata; use a custom one) — the
+        # function block gets a new KV line inserted.
+        assert update_annotation_key(f, 0x1000, "TESTKEY", "abc") is True
+        assert "// TESTKEY: abc" in f.read_text(encoding="utf-8")
+
+    def test_va_not_in_file_noop(self, tmp_path: Path) -> None:
+        from rebrew.annotation import update_annotation_key
+
+        f = tmp_path / "f.c"
+        f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        assert update_annotation_key(f, 0x9999, "TESTKEY", "abc") is False
+
+
+class TestAnnotationKeyRoundTrips:
+    """Round-trip invariants across update/remove for file vs metadata keys.
+
+    update_annotation_key ↔ remove_annotation_key are inverses: a file key
+    round-trips the ``.c`` back to its original bytes, and a metadata key
+    round-trips the TOML without ever touching the source file.  The
+    lint-style flow (inline STATUS in ``.c`` + metadata ownership) is covered
+    by remove_inline_annotation_key, which must never delete metadata.
+    """
+
+    def test_file_key_update_remove_returns_to_original(self, tmp_path: Path) -> None:
+        from rebrew.annotation import remove_annotation_key, update_annotation_key
+
+        f = tmp_path / "f.c"
+        original = "// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n"
+        f.write_text(original, encoding="utf-8")
+        assert update_annotation_key(f, 0x1000, "TESTKEY", "abc") is True
+        assert "// TESTKEY: abc" in f.read_text(encoding="utf-8")
+        assert remove_annotation_key(f, 0x1000, "TESTKEY") is True
+        assert f.read_text(encoding="utf-8") == original
+        # Idempotent: nothing left to remove.
+        assert remove_annotation_key(f, 0x1000, "TESTKEY") is False
+
+    def test_metadata_key_round_trip_keeps_c_untouched(self, tmp_path: Path) -> None:
+        from rebrew.annotation import remove_annotation_key, update_annotation_key
+        from rebrew.metadata import get_entry
+
+        f = tmp_path / "f.c"
+        f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        md = tmp_path / "md"
+        md.mkdir()
+        assert update_annotation_key(f, 0x1000, "CFLAGS", "/O2", metadata_dir=md) is True
+        # File untouched; metadata owns the field.
+        assert "CFLAGS" not in f.read_text(encoding="utf-8")
+        assert get_entry(md, 0x1000, "SERVER").get("cflags") == "/O2"
+        assert remove_annotation_key(f, 0x1000, "CFLAGS", metadata_dir=md) is True
+        assert "cflags" not in get_entry(md, 0x1000, "SERVER")
+        assert "CFLAGS" not in f.read_text(encoding="utf-8")
+
+    def test_update_same_value_is_noop(self, tmp_path: Path) -> None:
+        from rebrew.annotation import update_annotation_key
+
+        f = tmp_path / "f.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x1000\n// TESTKEY: old\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        assert update_annotation_key(f, 0x1000, "TESTKEY", "new") is True
+        assert "// TESTKEY: new" in f.read_text(encoding="utf-8")
+        # Same value again is a no-op (no rewrite).
+        assert update_annotation_key(f, 0x1000, "TESTKEY", "new") is False
+
+    def test_remove_inline_never_touches_metadata(self, tmp_path: Path) -> None:
+        from rebrew.annotation import remove_inline_annotation_key
+        from rebrew.metadata import get_entry, update_source_status
+
+        f = tmp_path / "f.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x1000\n// STATUS: EXACT\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        update_source_status(tmp_path, "EXACT", "SERVER", 0x1000)
+        assert remove_inline_annotation_key(f, 0x1000, "STATUS") is True
+        assert "// STATUS:" not in f.read_text(encoding="utf-8")
+        # Metadata untouched (routing through remove_annotation_key would
+        # have deleted the field instead).
+        assert get_entry(tmp_path, 0x1000, "SERVER").get("status") == "EXACT"
+
+
+class TestModuleForVa:
+    def test_unreadable_returns_empty(self, tmp_path: Path) -> None:
+        from rebrew.annotation import module_for_va
+
+        assert module_for_va(tmp_path / "nope.c", 0x1000) == ""
+
+    def test_found_module(self, tmp_path: Path) -> None:
+        from rebrew.annotation import module_for_va
+
+        f = tmp_path / "f.c"
+        f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        assert module_for_va(f, 0x1000) == "SERVER"
+
+
+class TestUpdateSizeAnnotation:
+    def test_infers_va_from_marker(self, tmp_path: Path) -> None:
+        from rebrew.annotation import update_size_annotation
+        from rebrew.metadata import get_entry
+
+        f = tmp_path / "f.c"
+        f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        assert update_size_annotation(f, 128) is True
+        assert get_entry(tmp_path, 0x1000, "SERVER").get("size") == 128
+
+    def test_never_shrinks(self, tmp_path: Path) -> None:
+        from rebrew.annotation import update_size_annotation
+        from rebrew.metadata import get_entry, update_field
+
+        update_field(tmp_path, 0x1000, "size", 200, "SERVER")
+        f = tmp_path / "f.c"
+        f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        assert update_size_annotation(f, 128) is False
+        assert get_entry(tmp_path, 0x1000, "SERVER").get("size") == 200
+
+    def test_no_va_returns_false(self, tmp_path: Path) -> None:
+        from rebrew.annotation import update_size_annotation
+
+        f = tmp_path / "f.c"
+        f.write_text("int f(void) { return 0; }\n", encoding="utf-8")
+        assert update_size_annotation(f, 128) is False
+
+
+class TestParseLibraryHeaderKv:
+    def test_kv_lines_collected(self, tmp_path: Path) -> None:
+        from rebrew.annotation import parse_library_header
+
+        h = tmp_path / "library_msvc.h"
+        h.write_text(
+            "// LIBRARY: SERVER 0x1000\n"
+            "// _fflush\n"
+            "// STATUS: NEAR_MATCHING\n"
+            "// SIZE: 120\n"
+            "// CFLAGS: /O2 /Gd\n"
+            "// SOURCE: deflate.c\n",
+            encoding="utf-8",
+        )
+        results = parse_library_header(h, target_name="SERVER")
+        assert len(results) == 1
+        ann = results[0]
+        assert ann.symbol == "_fflush"
+        assert ann.status == "NEAR_MATCHING"
+        assert ann.size == 120
+        assert ann.cflags == "/O2 /Gd"
+        assert ann.source == "deflate.c"
+
+    def test_target_filter(self, tmp_path: Path) -> None:
+        from rebrew.annotation import parse_library_header
+
+        h = tmp_path / "library_msvc.h"
+        h.write_text(
+            "// LIBRARY: OTHER 0x1000\n// _fflush\n// LIBRARY: SERVER 0x2000\n// _malloc\n",
+            encoding="utf-8",
+        )
+        results = parse_library_header(h, target_name="SERVER")
+        assert [r.va for r in results] == [0x2000]
+
+    def test_default_status_exact(self, tmp_path: Path) -> None:
+        from rebrew.annotation import parse_library_header
+
+        h = tmp_path / "library_msvc.h"
+        h.write_text("// LIBRARY: SERVER 0x1000\n// _memcpy\n", encoding="utf-8")
+        results = parse_library_header(h)
+        assert results[0].status == "EXACT"
+
+    def test_missing_file_empty(self, tmp_path: Path) -> None:
+        from rebrew.annotation import parse_library_header
+
+        assert parse_library_header(tmp_path / "nope.h") == []
+
+
+class TestParseNewFormatEdges:
+    def test_global_after_function_not_overwritten(self) -> None:
+        from rebrew.annotation import parse_new_format_multi
+
+        lines = [
+            "// FUNCTION: GAME 0x1000",
+            "int f(void) { return 0; }",
+            "// GLOBAL: GAME 0x2000",
+            "int g;",
+        ]
+        results = parse_new_format_multi(lines)
+        types = [(a.marker_type, a.va) for a in results]
+        # The GLOBAL marker becomes a separate entry (not merged into f).
+        assert ("FUNCTION", 0x1000) in types
+        assert ("GLOBAL", 0x2000) in types
+
+    def test_inline_error_after_va_stashed(self) -> None:
+        from rebrew.annotation import parse_new_format_multi
+
+        lines = ["// FUNCTION: SERVER 0x1000 // trailing junk", "int f(void) { return 0; }"]
+        results = parse_new_format_multi(lines)
+        assert results[0].va == 0x1000
+        assert "trailing junk" in results[0].inline_error
+
+    def test_blocker_delta_non_numeric_none(self) -> None:
+        from rebrew.annotation import parse_new_format_multi
+
+        lines = [
+            "// FUNCTION: SERVER 0x1000",
+            "// BLOCKER_DELTA: abc",
+            "int f(void) { return 0; }",
+        ]
+        results = parse_new_format_multi(lines)
+        assert results[0].blocker_delta is None
+
+
+class TestUpdateAnnotationKeySameValue:
+    def test_same_value_noop_file_key(self, tmp_path: Path) -> None:
+        from rebrew.annotation import update_annotation_key
+
+        f = tmp_path / "f.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x1000\n// TESTKEY: abc\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        assert update_annotation_key(f, 0x1000, "TESTKEY", "abc") is False
+
+    def test_different_value_updates(self, tmp_path: Path) -> None:
+        from rebrew.annotation import update_annotation_key
+
+        f = tmp_path / "f.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x1000\n// TESTKEY: abc\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        assert update_annotation_key(f, 0x1000, "TESTKEY", "xyz") is True
+        assert "// TESTKEY: xyz" in f.read_text(encoding="utf-8")
+
+    def test_end_of_file_insert(self, tmp_path: Path) -> None:
+        from rebrew.annotation import update_annotation_key
+
+        f = tmp_path / "f.c"
+        f.write_text("// FUNCTION: SERVER 0x1000\n\nint f(void) { return 0; }\n", encoding="utf-8")
+        # Annotation block ends at the blank line before the body.
+        assert update_annotation_key(f, 0x1000, "TESTKEY", "tail") is True
+        assert "// TESTKEY: tail" in f.read_text(encoding="utf-8")
+
+
+class TestRemoveAnnotationKeyEdges:
+    def test_removes_middle_key(self, tmp_path: Path) -> None:
+        from rebrew.annotation import remove_annotation_key
+
+        f = tmp_path / "f.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x1000\n// A: 1\n// B: 2\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        assert remove_annotation_key(f, 0x1000, "A") is True
+        text = f.read_text(encoding="utf-8")
+        assert "// A:" not in text
+        assert "// B: 2" in text  # sibling key preserved
+
+    def test_does_not_cross_into_next_block(self, tmp_path: Path) -> None:
+        from rebrew.annotation import remove_annotation_key
+
+        f = tmp_path / "f.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x1000\n// A: 1\nint f(void) { return 0; }\n"
+            "// FUNCTION: SERVER 0x2000\n// A: 2\nint g(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        assert remove_annotation_key(f, 0x1000, "A") is True
+        text = f.read_text(encoding="utf-8")
+        assert "// A: 2" in text  # second block's key untouched
+
+
+class TestAnnotationKeyInvariants:
+    """update ↔ remove symmetry for file and metadata keys."""
+
+    def test_file_key_update_then_remove(self, tmp_path: Path) -> None:
+        from rebrew.annotation import (
+            remove_inline_annotation_key,
+            update_annotation_key,
+        )
+
+        f = tmp_path / "f.c"
+        f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        assert update_annotation_key(f, 0x1000, "TESTKEY", "abc") is True
+        assert "// TESTKEY: abc" in f.read_text(encoding="utf-8")
+        assert remove_inline_annotation_key(f, 0x1000, "TESTKEY") is True
+        assert f.read_text(encoding="utf-8") == (
+            "// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n"
+        )
+
+    def test_metadata_key_update_then_remove(self, tmp_path: Path) -> None:
+        from rebrew.annotation import remove_annotation_key, update_annotation_key
+        from rebrew.metadata import get_entry
+
+        f = tmp_path / "f.c"
+        f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        assert update_annotation_key(f, 0x1000, "NOTE", "hello", metadata_dir=tmp_path) is True
+        assert get_entry(tmp_path, 0x1000, "SERVER").get("note") == "hello"
+        assert remove_annotation_key(f, 0x1000, "NOTE", metadata_dir=tmp_path) is True
+        assert get_entry(tmp_path, 0x1000, "SERVER").get("note") is None
+
+    def test_remove_then_remove_idempotent(self, tmp_path: Path) -> None:
+        from rebrew.annotation import remove_inline_annotation_key
+
+        f = tmp_path / "f.c"
+        f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        assert remove_inline_annotation_key(f, 0x1000, "TESTKEY") is False
+        # Second call is still a no-op (idempotent).
+        assert remove_inline_annotation_key(f, 0x1000, "TESTKEY") is False

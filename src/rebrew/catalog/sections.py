@@ -11,7 +11,7 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-from rebrew.binary_loader import PADDING_BYTES, load_binary
+from rebrew.binary_loader import PADDING_BYTES, BinaryInfo, load_binary
 from rebrew.config import ProjectConfig
 
 
@@ -88,30 +88,40 @@ _DECL_NAME_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\[.*\])?\s*;")
 _ARRAY_SIZE_RE = re.compile(r"\[(\d+)\]")
 
 
+def sections_from_info(info: BinaryInfo) -> dict[str, dict[str, int]]:
+    """Build the section metadata dict from an already-loaded ``BinaryInfo``.
+
+    Splits ``.data`` into ``.data`` (raw) + ``.bss`` (zero-fill tail) when
+    the raw size is smaller than the virtual size, mirroring how the
+    binary loader models the file.
+    """
+    sections: dict[str, dict[str, int]] = {}
+    for name, sec in info.sections.items():
+        if name == ".data" and sec.size > sec.raw_size:
+            sections[".data"] = {
+                "va": sec.va,
+                "size": sec.raw_size,
+                "fileOffset": sec.file_offset,
+            }
+            sections[".bss"] = {
+                "va": sec.va + sec.raw_size,
+                "size": sec.size - sec.raw_size,
+                "fileOffset": 0,
+            }
+        else:
+            sections[name] = {
+                "va": sec.va,
+                "size": sec.size,
+                "fileOffset": sec.file_offset,
+            }
+    return sections
+
+
 def get_sections(bin_path: Path) -> dict[str, dict[str, int]]:
     """Return section metadata keyed by section name."""
     try:
         info = load_binary(bin_path)
-        sections = {}
-        for name, sec in info.sections.items():
-            if name == ".data" and sec.size > sec.raw_size:
-                sections[".data"] = {
-                    "va": sec.va,
-                    "size": sec.raw_size,
-                    "fileOffset": sec.file_offset,
-                }
-                sections[".bss"] = {
-                    "va": sec.va + sec.raw_size,
-                    "size": sec.size - sec.raw_size,
-                    "fileOffset": 0,
-                }
-            else:
-                sections[name] = {
-                    "va": sec.va,
-                    "size": sec.size,
-                    "fileOffset": sec.file_offset,
-                }
-        return sections
+        return sections_from_info(info)
     except (ImportError, OSError, KeyError, ValueError) as e:
         warnings.warn(f"Failed to parse binary sections: {e}", stacklevel=2)
         return {}

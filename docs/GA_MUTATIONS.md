@@ -1,6 +1,6 @@
 # GA Mutation Engine Reference
 
-The Genetic Algorithm (GA) matching engine uses **120 C source mutation operators** to
+The Genetic Algorithm (GA) matching engine uses **121 C source mutation operators** to
 explore the MSVC6 code generation space.  Each mutation transforms syntactically valid
 C89 source into a semantically plausible variant, compiles it with MSVC6 (via Wine/wibo),
 and scores the resulting binary against the target function's bytes.
@@ -14,7 +14,7 @@ by [tree-sitter](https://tree-sitter.github.io/) AST queries — never regex.
 
 ```
 Source (.c) ──→ mutate_code(source, rng)
-                  ├─ Pick random mutation from ALL_MUTATIONS (120 operators)
+                  ├─ Pick random mutation from ALL_MUTATIONS (121 operators)
                   ├─ Apply AST-level transform to source text
                   ├─ Validate syntax (fast_syntax_check)
                   └─ Return (mutated_source, mutation_name) or None
@@ -236,6 +236,7 @@ MSVC6's register allocator has specific, exploitable behaviors around
 | `mut_swap_register_keywords` | Swap `register` between two locals | Changes ESI vs EDI assignment — different register encoding sizes |
 | `mut_add_volatile_intermediate` | `a = expr;` → `volatile tmp = expr; a = tmp;` | Forces an intermediate stack spill, breaking register chains |
 | `mut_reorder_register_vars` | Reorder `register` variable declarations | MSVC6 assigns ESI, EDI, EBX strictly in declaration order |
+| `mut_inject_dummy_registers` | Inject 1–3 dummy `register int` locals | Consumes volatile registers (eax/ecx/edx) so real variables land in ESI/EDI/EBX, changing the prologue/epilogue push/pop sequence and code layout |
 
 ### 13. Zero-Extension Patterns (MSVC6-specific)
 
@@ -362,7 +363,7 @@ mutated, name = mutate_code(source, rng, mutation_weights=weights)
 Children have a 35% chance of undergoing 2–3 **chained mutations** in a
 single generation step.  This enables larger jumps in the search space
 that single mutations cannot reach.  (Bumped from 30% after expanding
-to 120 operators.)
+to 121 operators.)
 
 ---
 

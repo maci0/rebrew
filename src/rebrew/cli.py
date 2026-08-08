@@ -136,9 +136,14 @@ _err_console = Console(stderr=True)
 
 
 def error_exit(msg: str, *, json_mode: bool = False, code: int = 1) -> NoReturn:
-    """Print *msg* as an error and ``raise typer.Exit(code)``."""
+    """Print *msg* as an error and ``raise typer.Exit(code)``.
+
+    In JSON mode the envelope is ``{"error": <msg>, "code": <exit_code>}`` so
+    callers can distinguish mismatch (1) from infrastructure errors (2) without
+    relying solely on the process exit status.
+    """
     if json_mode:
-        print(json.dumps({"error": msg}, indent=2))
+        print(json.dumps({"error": msg, "code": code}, indent=2))
     else:
         _err_console.print(f"[red bold]error:[/red bold] {msg}")
     raise typer.Exit(code=code)
@@ -250,3 +255,53 @@ def iter_annotations(
         if annos:
             results.append((src, annos))
     return results
+
+
+def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
+    """Resolve a source argument to an existing source file path.
+
+    Accepts a direct file path, a symbol name (matched against the file stem,
+    tolerating the MSVC leading underscore), or a hex VA (e.g. ``0x01006364``,
+    matched against function annotations).  Returns *source_arg* unchanged
+    when nothing matches — the caller then reports the failure with context.
+    """
+    import contextlib
+    import logging
+
+    from rebrew.annotation import parse_c_file_multi  # local import to avoid cycle
+
+    p = Path(source_arg)
+    if p.exists() and p.is_file():
+        return p
+
+    # Defensive access: a config without a source tree (e.g. a minimal mock)
+    # cannot be scanned — return the argument unchanged, as documented.
+    src_dir = getattr(cfg, "reversed_dir", None)
+    if src_dir is None:
+        return p
+
+    # Hex VA lookup — scan annotations for a matching VA.
+    va_int: int | None = None
+    stripped = source_arg.strip().lower()
+    if stripped.startswith("0x"):
+        with contextlib.suppress(ValueError):
+            va_int = int(stripped, 16)
+
+    if va_int is not None:
+        tm = target_marker(cfg)
+        for src in iter_sources(src_dir, cfg):
+            try:
+                annos = parse_c_file_multi(src, target_name=tm, metadata_dir=cfg.metadata_dir)
+            except Exception:  # noqa: BLE001 — per-file parse noise in a scan
+                logging.debug("Skipping %s during source resolution", src, exc_info=True)
+                continue
+            for a in annos:
+                if a.va == va_int:
+                    return src
+
+    # Symbol name — match against the file stem.
+    for src in iter_sources(src_dir, cfg):
+        if src.stem == source_arg or src.stem == source_arg.lstrip("_"):
+            return src
+
+    return p

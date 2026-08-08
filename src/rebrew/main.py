@@ -6,7 +6,8 @@ optional dependencies don't prevent the entire CLI from loading.
 Single-command modules are registered as flat ``app.command()`` entries,
 avoiding the Typer "group" behaviour of ``add_typer()`` which expects a
 ``COMMAND [ARGS]...`` token after callback arguments.  Only true
-multi-command modules (``cfg``, ``cache``, ``catalog``) use ``add_typer()``.
+multi-command modules (``extract``, ``cfg``, ``cache``, ``skills``) use
+``add_typer()``.
 """
 
 import importlib
@@ -90,7 +91,8 @@ def _global_options(
     else:
         log_level = logging.WARNING
     logging.basicConfig(
-        format="%(levelname)s %(name)s: %(message)s",
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
         level=log_level,
     )
 
@@ -122,6 +124,8 @@ _COMMAND_PANELS: dict[str, str] = {
     "data": "Analysis",
     "graph": "Analysis",
     "flirt": "Analysis",
+    "gen-flirt-pat": "Analysis",
+    "imports": "Analysis",
     "crt-match": "Analysis",
     # Matching — solving byte-level differences
     "match": "Matching",
@@ -133,6 +137,7 @@ _COMMAND_PANELS: dict[str, str] = {
     # Export & Sync — generating data and syncing with external tools
     "catalog": "Export & Sync",
     "build-db": "Export & Sync",
+    "dashboard": "Export & Sync",
     "sync": "Export & Sync",
     "binsync-export": "Export & Sync",
 }
@@ -158,13 +163,24 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("status", "rebrew.status", "At-a-glance reversing progress overview."),
     ("todo", "rebrew.todo", "Prioritized action list: what to work on next."),
     ("crt-match", "rebrew.crt_match", "CRT source cross-reference matcher."),
+    ("imports", "rebrew.imports", "List PE import-table symbols and detect import stubs."),
     ("flirt", "rebrew.flirt", "FLIRT signature scanning."),
+    (
+        "gen-flirt-pat",
+        "rebrew.gen_flirt_pat",
+        "Generate FLIRT .pat files from COFF .lib archives.",
+    ),
     ("doctor", "rebrew.doctor", "Diagnostic checks for project health."),
     ("split", "rebrew.split", "Split multi-function C files into single-function files."),
     ("merge", "rebrew.merge", "Merge single-function C files into one multi-function file."),
     ("prove", "rebrew.prove", "Prove semantic equivalence via symbolic execution."),
     ("round-trip", "rebrew.round_trip", "Splice matched functions back into target PE and verify."),
     ("build-db", "rebrew.build_db", "Build SQLite coverage database from data JSON."),
+    (
+        "dashboard",
+        "rebrew.dashboard",
+        "Serve a read-only web dashboard over the coverage database.",
+    ),
     (
         "binsync-export",
         "rebrew.binsync_export",
@@ -179,6 +195,11 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "similar",
         "rebrew.similar",
         "Find structurally similar functions in the target binary.",
+    ),
+    (
+        "near-diag",
+        "rebrew.near_diag",
+        "Classify why a NEAR_MATCHING function does not byte-match.",
     ),
 ]
 

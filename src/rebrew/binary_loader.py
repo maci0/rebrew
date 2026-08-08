@@ -17,10 +17,17 @@ Usage::
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import lief
 
 _MAX_BINARY_SIZE = 512 * 1024 * 1024  # 512 MB safety limit
+
+# Guards the lazy ``BinaryInfo.data`` fill.  One global lock rather than a
+# per-instance one: the instance cache holds at most _LOAD_BINARY_CACHE_MAX
+# entries and in practice a run touches one target binary, so contention is
+# a non-issue.  Make it per-instance if that ever stops being true.
+_data_load_lock = threading.Lock()
 
 # x86 padding opcodes inserted by MSVC linker for alignment (INT3 and NOP).
 # Shared across catalog, matcher, and binary loader for consistent trimming.
@@ -76,14 +83,23 @@ class BinaryInfo:
         Uses a single ``read_bytes()`` call so that the size check is
         performed on the bytes we actually read, not a separate ``stat()``
         that could race with a file replacement between the two syscalls.
+
+        ``BinaryInfo`` instances are shared across worker threads via
+        ``_load_binary_cache``, so the lazy fill is guarded: without the
+        lock every worker of ``rebrew verify -j N`` that touches a cold
+        instance reads the whole target binary itself, spiking peak memory
+        to N copies of the file for no benefit.
         """
         if self._data is None:
-            raw = self.path.read_bytes()
-            if len(raw) > _MAX_BINARY_SIZE:
-                raise ValueError(
-                    f"Binary file too large ({len(raw) / 1024 / 1024:.0f} MB): {self.path}"
-                )
-            self._data = raw
+            with _data_load_lock:
+                # Re-check: another thread may have filled it while we waited.
+                if self._data is None:
+                    raw = self.path.read_bytes()
+                    if len(raw) > _MAX_BINARY_SIZE:
+                        raise ValueError(
+                            f"Binary file too large ({len(raw) / 1024 / 1024:.0f} MB): {self.path}"
+                        )
+                    self._data = raw
         return self._data
 
 
@@ -266,6 +282,12 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     """
     path = Path(path)
 
+    # The documented contract (and round_trip's error handling) expects a
+    # missing binary to raise FileNotFoundError; lief.parse only logs to
+    # stderr and returns None for missing files.
+    if not path.exists():
+        raise FileNotFoundError(f"Binary not found: {path}")
+
     # Bounded cache keyed on resolved path + format to avoid re-parsing.
     # Lock protects concurrent reads/writes from multiple workers.
     cache_key = (str(path.resolve()), fmt)
@@ -281,6 +303,9 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     # Parsing happens outside the lock (expensive I/O, no shared state)
     spath = str(path)
     result: BinaryInfo
+    # lief.parse returns a polymorphic Binary union; the isinstance dispatch
+    # below handles runtime narrowing, so Any is the pragmatic annotation.
+    binary: Any = None
 
     try:
         if fmt == "auto":
@@ -479,16 +504,16 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
     cpp_msvc_count = 0
     cpp_itanium_count = 0
 
-    for sym in symbols:
-        if sym.startswith(("go.", "go:")):
+    for sym_name in symbols:
+        if sym_name.startswith(("go.", "go:")):
             go_count += 1
-        if sym.startswith("_R") and len(sym) > 2 and sym[2:3].isalpha():
+        if sym_name.startswith("_R") and len(sym_name) > 2 and sym_name[2:3].isalpha():
             rust_count += 1
-        if sym.startswith("_D") and len(sym) > 2 and sym[2:3].isdigit():
+        if sym_name.startswith("_D") and len(sym_name) > 2 and sym_name[2:3].isdigit():
             d_count += 1
-        if sym.startswith("?"):
+        if sym_name.startswith("?"):
             cpp_msvc_count += 1
-        if sym.startswith("_Z"):
+        if sym_name.startswith("_Z"):
             cpp_itanium_count += 1
 
     # Return first language exceeding threshold (most specific first)
@@ -535,6 +560,7 @@ def detect_format_and_arch(path: Path) -> tuple[str, str | None]:
     if not path.exists():
         raise FileNotFoundError(path)
     spath = str(path)
+    binary: Any = None  # format-specific lief.parse results (polymorphic union)
     if lief.is_pe(spath):
         binary = lief.PE.parse(spath)
         arch = _PE_MACHINE_TO_ARCH.get(binary.header.machine) if binary else None

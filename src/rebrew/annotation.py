@@ -280,7 +280,7 @@ def has_skip_annotation(filepath: Path, metadata_dir: Path | None = None) -> boo
             if raw_skip and str(raw_skip).strip().lower() not in ("", "0", "false", "no"):
                 return True
     except Exception:  # noqa: BLE001 — metadata read failure is non-fatal
-        logger.debug("Metadata read failed for skip check", exc_info=True)
+        logger.debug("Metadata read failed for skip check in %s", metadata_dir, exc_info=True)
     return False
 
 
@@ -1095,7 +1095,7 @@ def update_annotation_key(
     Returns True if any write was made, False otherwise.
 
     """
-    from rebrew.metadata import is_metadata_key, update_field, update_source_status
+    from rebrew.metadata import get_entry, is_metadata_key, update_field, update_source_status
 
     if is_metadata_key(key):
         module = module_for_va(filepath, va)
@@ -1103,7 +1103,12 @@ def update_annotation_key(
         if key.upper() == "STATUS":
             update_source_status(_dir, new_value, module, va, force=True)
         else:
-            update_field(_dir, va, key.lower(), new_value, module=module)
+            toml_key = key.lower()
+            existing = get_entry(_dir, va, module).get(toml_key)
+            # Idempotent: a write with the same value is a no-op (False).
+            if existing is not None and str(existing) == str(new_value):
+                return False
+            update_field(_dir, va, toml_key, new_value, module=module)
         return True
     try:
         text = filepath.read_text(encoding="utf-8", errors="replace")
@@ -1306,21 +1311,29 @@ def remove_annotation_key(
     if is_metadata_key(key):
         module = module_for_va(filepath, va)
         _dir = metadata_dir if metadata_dir is not None else filepath.parent
-        remove_field(_dir, va, key.lower(), module=module)
-        return True
+        # Propagate remove_field's result: removing an absent key is a no-op
+        # (False), not a claimed write.
+        return remove_field(_dir, va, key.lower(), module=module)
     try:
         text = filepath.read_text(encoding="utf-8", errors="replace")
     except OSError as e:
         warnings.warn(f"Cannot read {filepath} for annotation removal: {e}", stacklevel=2)
         return False
 
-    lines = text.splitlines(keepends=True)
+    return _strip_key_lines(filepath, va, key, text)
+
+
+def _strip_key_lines(filepath: Path, va: int, key: str, text: str) -> bool:
+    """Drop every ``// KEY:`` line inside the marker block for *va* and rewrite the file.
+
+    Returns True if a line was removed.
+    """
     in_target_block = False
     modified = False
     _key_pattern = _compile_key_pattern(key)
 
     new_lines = []
-    for line in lines:
+    for line in text.splitlines(keepends=True):
         marker_match = _MARKER_BLOCK_RE.search(line)
         if marker_match:
             found_va = int(marker_match.group(2), 16)
@@ -1331,16 +1344,30 @@ def remove_annotation_key(
             else:
                 in_target_block = found_va == va
 
-        if in_target_block:
-            sym_match = _key_pattern.search(line)
-            if sym_match:
-                modified = True
-                continue  # Skip this line
+        if in_target_block and _key_pattern.search(line):
+            modified = True
+            continue  # Skip this line
 
         new_lines.append(line)
 
     if modified:
         atomic_write_text(filepath, "".join(new_lines), encoding="utf-8")
-        return True
+    return modified
 
-    return False
+
+def remove_inline_annotation_key(filepath: Path, va: int, key: str) -> bool:
+    """Remove an inline ``// KEY:`` comment from the source file only.
+
+    Unlike :func:`remove_annotation_key`, this never touches
+    ``rebrew-function.toml`` — the caller is responsible for metadata.
+    Used by ``rebrew lint --fix`` to strip deprecated inline metadata keys
+    after they have been migrated (removing them via the metadata-routing
+    path would either delete the freshly written field or, for STATUS,
+    raise).
+    """
+    try:
+        text = filepath.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+
+    return _strip_key_lines(filepath, va, key, text)

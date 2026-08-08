@@ -14,7 +14,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from rebrew.c_parser import _get_parser
+from rebrew.c_parser import _get_ts_parser
 
 _PTR_NOSPACE_RE = re.compile(r"([a-zA-Z0-9_])\*")
 _CALLING_CONV_RE = re.compile(r"\b__(?:cdecl|stdcall|fastcall|thiscall)\b\s*")
@@ -40,14 +40,6 @@ def _normalize_signature(sig: str) -> str:
     sig = sig.replace("\n", " ").replace("\r", "")
     sig = _MULTI_SPACE_RE.sub(" ", sig)
     return sig.strip()
-
-
-def _get_ts_parser() -> tuple[Any, Any] | None:
-    """Return a cached (parser, language) pair, or None if tree-sitter is unavailable."""
-    try:
-        return _get_parser()
-    except ImportError:
-        return None
 
 
 def extract_function_signatures(filepath: Path) -> Iterator[tuple[str, str]]:

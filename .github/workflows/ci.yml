@@ -13,6 +13,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Pin the uv installer so CI does not drift with setup-uv@v5's default "latest".
+# Bump deliberately when upgrading the local toolchain (see `uv --version`).
+env:
+  UV_VERSION: "0.12.2"
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -23,14 +28,17 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
         with:
+          version: ${{ env.UV_VERSION }}
           enable-cache: true
-          python-version: "3.12"
+          python-version-file: ".python-version"
       - name: Install dependencies
         run: uv sync --frozen
       - name: Ruff lint
-        run: uv run ruff check src/ tests/
+        run: uv run ruff check src/ tests/ tools/
       - name: Ruff format check
-        run: uv run ruff format --check src/ tests/
+        run: uv run ruff format --check src/ tests/ tools/
+      - name: Mypy type check
+        run: uv run mypy src/rebrew/
 
   test:
     runs-on: ubuntu-latest
@@ -38,24 +46,86 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13"]
+        python-version: ["3.12", "3.13", "3.14"]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
         with:
+          version: ${{ env.UV_VERSION }}
           enable-cache: true
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
         run: uv sync --frozen --all-extras
       - name: Run tests
         run: uv run pytest tests/ -v --tb=short
-      - name: Type check
-        run: uv run mypy src/
+
+  # Pre-commit hook parity: run the repo's own hook set (hygiene + ruff + mypy,
+  # plus import-cycle and skills checks) against a clean checkout. The pytest
+  # hook is pre-push stage only, so this job does not duplicate the suite.
+  pre-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          python-version-file: ".python-version"
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras
+      - name: Run pre-commit hooks
+        run: uv run pre-commit run --all-files
+
+  # Package build: prove sdist/wheel build from a clean tree, install the wheel
+  # (not the editable src tree), and smoke-import. SOURCE_DATE_EPOCH + C/UTC
+  # make wheels byte-reproducible for a given commit.
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          python-version-file: ".python-version"
+      - name: Build sdist and wheel
+        env:
+          TZ: UTC
+          LC_ALL: C
+        run: |
+          set -euo pipefail
+          export SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
+          uv build
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          sdists=(dist/*.tar.gz)
+          if [[ ${#wheels[@]} -ne 1 || ${#sdists[@]} -ne 1 ]]; then
+            echo "expected exactly one wheel and one sdist in dist/" >&2
+            ls -la dist/ || true
+            exit 1
+          fi
+          ls -la dist/
+      - name: Install wheel into clean venv and smoke-import
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          uv venv .venv-pkg
+          uv pip install --python .venv-pkg "${wheels[0]}"
+          .venv-pkg/bin/python -c "from importlib.metadata import version; import rebrew; print(version('rebrew'))"
+          .venv-pkg/bin/rebrew --help >/dev/null
+          .venv-pkg/bin/python -c "from pathlib import Path; import rebrew; p=Path(rebrew.__file__).parent; assert (p/'agent-skills').is_dir(), p; assert (p/'AGENTS.md.template').is_file(); assert (p/'PRINCIPLES.md').is_file()"
 
   # Contract smoke: CLI surfaces for the high-value gates documented in docs/CI.md.
-  # These do not require a target binary — only that the options exist and help text
+  # These do not require a target binary: only that the options exist and help text
   # matches the public contract. Full verify/round-trip runs live in workspace CI.
   cli-contract:
     runs-on: ubuntu-latest
@@ -66,11 +136,12 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
         with:
+          version: ${{ env.UV_VERSION }}
           enable-cache: true
-          python-version: "3.12"
+          python-version-file: ".python-version"
       - name: Install package
         run: uv sync --frozen
-      - name: CLI contract — round-trip / verify flags
+      - name: CLI contract (round-trip / verify flags)
         run: |
           set -euo pipefail
           uv run rebrew round-trip --help | grep -q -- '--strict-catalog'

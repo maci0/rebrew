@@ -54,7 +54,7 @@ A faithful decompilation requires coverage of the *entire* binary, not just exec
 ## 16. Automated Near-Miss Promotion
 Many `NEAR_MATCHING` functions differ from the target by only a handful of bytes — an operand swap, branch inversion, or register allocation jitter. The system must be able to batch-process these near-miss cases unattended (`rebrew match --all --near-miss --threshold N`), sorted by byte delta so the easiest wins come first. This ensures that trivial NEAR_MATCHING→RELOC promotions are never left on the table, and that human attention is reserved for functions that genuinely require it.
 
-## 17. Metadata Metadata Separation
+## 17. Source / Metadata Separation
 Volatile, frequently-changing metadata (`STATUS`, `CFLAGS`, `SIZE`, `BLOCKER`, `NOTE`, `GHIDRA`, etc.) lives in a per-directory `rebrew-function.toml` metadata file — **not** in the `.c` source files. This separation prevents AI agents and text editors from accidentally corrupting function source during status updates, and enables atomic metadata updates without touching C source. The metadata is managed exclusively by Rebrew CLI tools. **Never manually edit `rebrew-function.toml`.** The `.c` file contains only stable identity information (`FUNCTION:` / `LIBRARY:` / `STUB:` marker) that does not change once a function is identified.
 
 ## Atomicity

@@ -263,3 +263,260 @@ class TestRunDoctor:
         d = report.to_dict()
         assert "checks" in d
         assert "summary" in d
+
+
+class TestExtraBranches:
+    def test_config_parse_keyerror(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import rebrew.doctor as doctor
+
+        def boom(target=None):
+            raise KeyError("no [targets]")
+
+        monkeypatch.setattr(doctor, "load_config", boom)
+        result, cfg = doctor.check_config_parse("x")
+        assert result.status == doctor._FAIL
+        assert cfg is None
+
+    def test_config_parse_valueerror(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import rebrew.doctor as doctor
+
+        monkeypatch.setattr(
+            doctor, "load_config", lambda target=None: (_ for _ in ()).throw(ValueError("bad toml"))
+        )
+        result, cfg = doctor.check_config_parse("x")
+        assert result.status == doctor._FAIL
+        assert "Unexpected error" in result.message
+
+    def test_target_binary_load_success(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.doctor as doctor
+
+        f = tmp_path / "x.dll"
+        f.write_bytes(b"MZ")
+        cfg = SimpleNamespace(target_binary=f, binary_format="pe")
+        monkeypatch.setattr(
+            "rebrew.binary_loader.load_binary",
+            lambda p, fmt=None: SimpleNamespace(
+                image_base=0x400000, text_va=0x401000, sections={".text": 1, ".data": 1}
+            ),
+        )
+        result = doctor.check_target_binary(cfg)
+        assert result.status == doctor._PASS
+        assert "2 sections" in result.message
+
+    def test_target_binary_load_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.doctor as doctor
+
+        f = tmp_path / "x.dll"
+        f.write_bytes(b"MZ")
+        cfg = SimpleNamespace(target_binary=f, binary_format="pe")
+
+        def boom(p, fmt=None):
+            raise ValueError("bad format")
+
+        monkeypatch.setattr("rebrew.binary_loader.load_binary", boom)
+        result = doctor.check_target_binary(cfg)
+        assert result.status == doctor._FAIL
+        assert "Failed to load" in result.message
+
+    def test_runner_checked_by_compiler(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.doctor as doctor
+
+        monkeypatch.setattr("rebrew.doctor.shutil.which", lambda _name: None)
+        cfg = SimpleNamespace(compiler_runner="wine", root=tmp_path)
+        result = doctor.check_runner(cfg)
+        assert result.status == doctor._PASS
+        assert "checked by compiler check" in result.message
+
+
+class TestCheckFlirtSigs:
+    """check_flirt_sigs: presence + parseability of .pat/.sig files."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(root=tmp_path)
+
+    def test_missing_dir_warns(self, tmp_path: Path) -> None:
+        from rebrew.doctor import check_flirt_sigs
+
+        result = check_flirt_sigs(self._cfg(tmp_path))
+        assert result.status == _WARN
+        assert "not found" in result.message
+        assert "gen-flirt-pat" in result.fix
+
+    def test_empty_dir_warns(self, tmp_path: Path) -> None:
+        from rebrew.doctor import check_flirt_sigs
+
+        (tmp_path / "flirt_sigs").mkdir()
+        result = check_flirt_sigs(self._cfg(tmp_path))
+        assert result.status == _WARN
+        assert "no .pat/.sig" in result.message
+
+    def test_valid_pat_passes(self, tmp_path: Path) -> None:
+        from rebrew.doctor import check_flirt_sigs
+        from rebrew.gen_flirt_pat import bytes_to_pat_line
+
+        sig_dir = tmp_path / "flirt_sigs"
+        sig_dir.mkdir()
+        line = bytes_to_pat_line("_f", bytes(range(40)), set())
+        (sig_dir / "test.pat").write_text(line + "\n---\n", encoding="utf-8")
+        result = check_flirt_sigs(self._cfg(tmp_path))
+        assert result.status == _PASS
+        assert "1 signatures" in result.message
+
+    def test_corrupt_pat_warns(self, tmp_path: Path) -> None:
+        from rebrew.doctor import check_flirt_sigs
+
+        sig_dir = tmp_path / "flirt_sigs"
+        sig_dir.mkdir()
+        (sig_dir / "broken.pat").write_text("this is not a pat file", encoding="utf-8")
+        result = check_flirt_sigs(self._cfg(tmp_path))
+        assert result.status == _WARN
+        assert "problem file(s)" in result.message
+        assert "broken.pat" in result.fix
+
+    def test_zero_signature_pat_warns(self, tmp_path: Path) -> None:
+        from rebrew.doctor import check_flirt_sigs
+
+        sig_dir = tmp_path / "flirt_sigs"
+        sig_dir.mkdir()
+        (sig_dir / "empty.pat").write_text("---\n", encoding="utf-8")
+        result = check_flirt_sigs(self._cfg(tmp_path))
+        assert result.status == _WARN
+        assert "0 sigs" in result.message
+        assert "0 signatures" in result.fix
+
+    def test_missing_python_flirt_skips(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import sys
+
+        from rebrew.doctor import check_flirt_sigs
+
+        sig_dir = tmp_path / "flirt_sigs"
+        sig_dir.mkdir()
+        (sig_dir / "a.pat").write_text("---\n", encoding="utf-8")
+        monkeypatch.setitem(sys.modules, "flirt", None)  # make `import flirt` fail
+        result = check_flirt_sigs(self._cfg(tmp_path))
+        assert result.status == "skip"
+        assert "python-flirt" in result.message
+
+
+class TestCheckOptionalToolsClaripy:
+    """angr/claripy pairing — half-installed pairs must be flagged."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(root=tmp_path)
+
+    def test_both_present_passes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import sys
+        from types import ModuleType
+
+        from rebrew.doctor import check_optional_tools
+
+        for name in ("angr", "claripy"):
+            monkeypatch.setitem(sys.modules, name, ModuleType(name))
+        result = check_optional_tools(self._cfg(tmp_path))
+        assert result.status == _PASS
+
+    def test_angr_without_claripy_warns(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import sys
+        from types import ModuleType
+
+        from rebrew.doctor import check_optional_tools
+
+        monkeypatch.setitem(sys.modules, "angr", ModuleType("angr"))
+        monkeypatch.setitem(sys.modules, "claripy", None)
+        result = check_optional_tools(self._cfg(tmp_path))
+        assert result.status == _WARN
+        assert "claripy" in result.message
+
+    def test_claripy_without_angr_warns(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import sys
+        from types import ModuleType
+
+        from rebrew.doctor import check_optional_tools
+
+        monkeypatch.setitem(sys.modules, "claripy", ModuleType("claripy"))
+        monkeypatch.setitem(sys.modules, "angr", None)
+        result = check_optional_tools(self._cfg(tmp_path))
+        assert result.status == _WARN
+        assert "both" in result.message
+
+    def test_neither_warns(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import sys
+
+        from rebrew.doctor import check_optional_tools
+
+        monkeypatch.setitem(sys.modules, "angr", None)
+        monkeypatch.setitem(sys.modules, "claripy", None)
+        result = check_optional_tools(self._cfg(tmp_path))
+        assert result.status == _WARN
+        assert "missing" in result.message
+
+
+class TestCheckGhidraSync:
+    def _cfg(self, tmp_path: Path, **overrides: object) -> SimpleNamespace:
+        d: dict[str, object] = {
+            "root": tmp_path,
+            "ghidra_backend": "reva",
+            "ghidra_program_path": "/server.dll",
+        }
+        d.update(overrides)
+        return SimpleNamespace(**d)
+
+    def test_reva_backend_ready(self, tmp_path: Path) -> None:
+        from rebrew.doctor import check_ghidra_sync
+
+        result = check_ghidra_sync(self._cfg(tmp_path))  # type: ignore[arg-type]
+        assert result.status == _PASS
+
+    def test_reva_without_program_path_warns(self, tmp_path: Path) -> None:
+        from rebrew.doctor import check_ghidra_sync
+
+        result = check_ghidra_sync(
+            self._cfg(tmp_path, ghidra_program_path="")  # type: ignore[arg-type]
+        )
+        assert result.status == _WARN
+        assert "ghidra_program_path" in result.message
+
+    def test_cli_backend_binary_missing_warns(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.ghidra.cli_backend as cb
+
+        monkeypatch.setattr(cb.shutil, "which", staticmethod(lambda n: None))
+        cfg = self._cfg(tmp_path, ghidra_backend="cli")  # type: ignore[arg-type]
+        assert cb.resolve_ghidra_cli(cfg) is None  # type: ignore[arg-type]
+
+    def test_cli_backend_binary_in_tools(self, tmp_path: Path) -> None:
+        from rebrew.doctor import check_ghidra_sync
+
+        tools_bin = tmp_path / "tools"
+        tools_bin.mkdir()
+        bin_file = tools_bin / "ghidra-cli"
+        bin_file.write_bytes(b"#!/bin/sh\n")
+        bin_file.chmod(0o755)
+        cfg = self._cfg(tmp_path, ghidra_backend="cli")  # type: ignore[arg-type]
+        result = check_ghidra_sync(cfg)  # type: ignore[arg-type]
+        assert result.status == _PASS
+        assert "ghidra-cli" in result.message
+
+    def test_cli_backend_non_executable_tools_warns(self, tmp_path: Path) -> None:
+        from rebrew.doctor import check_ghidra_sync
+
+        tools_bin = tmp_path / "tools"
+        tools_bin.mkdir()
+        (tools_bin / "ghidra-cli").write_bytes(b"not executable")  # no chmod
+        cfg = self._cfg(tmp_path, ghidra_backend="cli")  # type: ignore[arg-type]
+        result = check_ghidra_sync(cfg)  # type: ignore[arg-type]
+        assert result.status == _WARN
+        assert "no ghidra-cli binary" in result.message

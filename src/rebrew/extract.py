@@ -58,6 +58,13 @@ def detect_reversed_vas(src_dir: Path, cfg: ProjectConfig | None = None) -> set[
 # ---------------------------------------------------------------------------
 
 
+def _parse_int_field(value: Any) -> int:
+    """Parse an int field accepting hex strings ("0x2000"), decimal strings, or ints."""
+    if isinstance(value, str):
+        return int(value, 0)
+    return int(value)
+
+
 def load_functions(cfg: ProjectConfig) -> list[dict[str, int | str]]:
     """Load function list from functions.txt (preferred) or .json."""
     txt_path = cfg.function_list
@@ -71,16 +78,27 @@ def load_functions(cfg: ProjectConfig) -> list[dict[str, int | str]]:
         ]
 
     if json_path.exists():
-        with json_path.open(encoding="utf-8") as f:
-            raw = cast(list[dict[str, Any]], json.load(f))
-        return [
-            {
-                "va": int(fn["offset"]),
-                "size": int(fn.get("realsz", fn.get("size", 0))),
-                "name": str(fn["name"]),
-            }
-            for fn in raw
-        ]
+        # Externally produced (Ghidra/rizin export): a truncated or renamed-field
+        # file must surface as a readable error, not a raw KeyError traceback.
+        try:
+            with json_path.open(encoding="utf-8") as f:
+                raw = cast(list[dict[str, Any]], json.load(f))
+            return [
+                {
+                    # Accept hex ("0x2000") or decimal offsets, mirroring the
+                    # txt-path behavior of parse_function_list.
+                    "va": _parse_int_field(fn["offset"]),
+                    "size": _parse_int_field(fn.get("realsz", fn.get("size", 0))),
+                    "name": str(fn["name"]),
+                }
+                for fn in raw
+            ]
+        except KeyError as exc:
+            raise ValueError(
+                f"Malformed function list at {json_path}: missing field {exc}"
+            ) from exc
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise ValueError(f"Malformed function list at {json_path}: {exc}") from exc
 
     raise FileNotFoundError(f"No function list found at {txt_path} or {json_path}")
 
@@ -266,7 +284,7 @@ def _setup_candidates(
 
     try:
         funcs = load_functions(cfg)
-    except FileNotFoundError as exc:
+    except (OSError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)
 
     reversed_vas = detect_reversed_vas(src_dir, cfg=cfg)

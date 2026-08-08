@@ -452,3 +452,203 @@ class TestIdempotentStatusUpdate:
         entry = get_entry(tmp_path, 0x10008880, module="SERVER")
         assert entry["status"] == "RELOC"
         assert "STATUS: EXACT" in p.read_text(encoding="utf-8")
+
+
+class TestMetadataEdgeCases:
+    def test_load_metadata_corrupt_toml(self, tmp_path: Path) -> None:
+        import rebrew.metadata as md
+
+        md.clear_metadata_cache()
+        (tmp_path / "rebrew-function.toml").write_text("{broken toml", encoding="utf-8")
+        assert md.load_metadata(tmp_path) == {}
+
+    def test_load_metadata_skips_non_dict_values(self, tmp_path: Path) -> None:
+        import rebrew.metadata as md
+
+        md.clear_metadata_cache()
+        (tmp_path / "rebrew-function.toml").write_text(
+            '"SERVER.0x10001000" = "scalar"\n["SERVER.0x10002000"]\nstatus = "EXACT"\n',
+            encoding="utf-8",
+        )
+        result = md.load_metadata(tmp_path)
+        # Scalar value skipped; dict value kept.
+        assert ("SERVER", 0x10002000) in result
+        assert ("SERVER", 0x10001000) not in result
+
+    def test_load_metadata_mtime_cache_invalidated(self, tmp_path: Path) -> None:
+        import rebrew.metadata as md
+
+        md.clear_metadata_cache()
+        f = tmp_path / "rebrew-function.toml"
+        f.write_text('["SERVER.0x10001000"]\nstatus = "EXACT"\n', encoding="utf-8")
+        first = md.load_metadata(tmp_path)
+        assert ("SERVER", 0x10001000) in first
+        # Rewrite with a new status; mtime change must invalidate the cache.
+        import os
+
+        os.utime(f, ns=(1_800_000_000_000_000_000, 1_800_000_000_000_000_000))
+        f.write_text('["SERVER.0x10001000"]\nstatus = "STUB"\n', encoding="utf-8")
+        second = md.load_metadata(tmp_path)
+        assert second[("SERVER", 0x10001000)]["status"] == "STUB"
+
+    def test_metadata_path(self, tmp_path: Path) -> None:
+        import rebrew.metadata as md
+
+        assert md.metadata_path(tmp_path) == tmp_path / "rebrew-function.toml"
+
+
+class TestWritePathsCorruptToml:
+    def test_update_field_recovers_from_corrupt(self, tmp_path: Path) -> None:
+        from rebrew.metadata import METADATA_FILENAME, get_entry, update_field
+
+        (tmp_path / METADATA_FILENAME).write_text("{broken", encoding="utf-8")
+        update_field(tmp_path, 0x1000, "size", 42, "SERVER")
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert entry.get("size") == 42
+
+    def test_update_source_status_recovers_from_corrupt(self, tmp_path: Path) -> None:
+        from rebrew.metadata import METADATA_FILENAME, get_entry, update_source_status
+
+        (tmp_path / METADATA_FILENAME).write_text("{broken", encoding="utf-8")
+        update_source_status(tmp_path, "EXACT", "SERVER", 0x1000)
+        assert get_entry(tmp_path, 0x1000, "SERVER").get("status") == "EXACT"
+
+    def test_corrupt_file_is_preserved_not_clobbered(self, tmp_path: Path) -> None:
+        from rebrew.metadata import METADATA_FILENAME, update_field
+
+        original = '{broken\n[SERVER.0x2000]\nstatus = "EXACT"\n'
+        (tmp_path / METADATA_FILENAME).write_text(original, encoding="utf-8")
+        update_field(tmp_path, 0x1000, "size", 42, "SERVER")
+        backup = tmp_path / (METADATA_FILENAME + ".corrupt")
+        assert backup.read_text(encoding="utf-8") == original
+
+    def test_remove_field_recovers_from_corrupt(self, tmp_path: Path) -> None:
+        from rebrew.metadata import METADATA_FILENAME, remove_field
+
+        (tmp_path / METADATA_FILENAME).write_text("{broken", encoding="utf-8")
+        # Corrupt file → returns False without crashing.
+        assert remove_field(tmp_path, 0x1000, "size", "SERVER") is False
+
+
+class TestMergeAnnotationEdges:
+    def test_blocker_delta_non_numeric_sets_none(self, tmp_path: Path) -> None:
+        from rebrew.annotation import Annotation
+        from rebrew.metadata import merge_into_annotation, update_field
+
+        update_field(tmp_path, 0x1000, "blocker_delta", "abc", "SERVER")
+        ann = Annotation(va=0x1000, module="SERVER", name="f")
+        merge_into_annotation(ann, tmp_path)
+        assert ann.blocker_delta is None
+
+    def test_analysis_fills_empty_note(self, tmp_path: Path) -> None:
+        from rebrew.annotation import Annotation
+        from rebrew.metadata import merge_into_annotation, update_field
+
+        update_field(tmp_path, 0x1000, "analysis", "structural note", "SERVER")
+        ann = Annotation(va=0x1000, module="SERVER", name="f")
+        merge_into_annotation(ann, tmp_path)
+        assert ann.note == "structural note"
+
+    def test_analysis_does_not_override_note(self, tmp_path: Path) -> None:
+        from rebrew.annotation import Annotation
+        from rebrew.metadata import merge_into_annotation, update_field
+
+        update_field(tmp_path, 0x1000, "analysis", "structural note", "SERVER")
+        ann = Annotation(va=0x1000, module="SERVER", name="f", note="manual note")
+        merge_into_annotation(ann, tmp_path)
+        assert ann.note == "manual note"
+
+    def test_globals_list_merged(self, tmp_path: Path) -> None:
+        from rebrew.annotation import Annotation
+        from rebrew.metadata import merge_into_annotation, update_field
+
+        update_field(tmp_path, 0x1000, "globals", ["g_a", "g_b"], "SERVER")
+        ann = Annotation(va=0x1000, module="SERVER", name="f")
+        merge_into_annotation(ann, tmp_path)
+        assert ann.globals_list == ["g_a", "g_b"]
+
+
+class TestFunctionMetadata:
+    """Typed entry facade: load_entry / save_entry / validate."""
+
+    def test_load_entry_coerces_types(self, tmp_path: Path) -> None:
+        from rebrew.metadata import FunctionMetadata, load_entry, save_entry
+
+        save_entry(
+            tmp_path,
+            FunctionMetadata(
+                module="SERVER",
+                va=0x1000,
+                status="EXACT",
+                size=42,
+                cflags="/O2",
+                blocker_delta=3,
+            ),
+        )
+        entry = load_entry(tmp_path, 0x1000, "SERVER")
+        assert entry is not None
+        assert entry.status == "EXACT"
+        assert entry.size == 42  # int, not str
+        assert entry.blocker_delta == 3
+
+    def test_save_entry_persists_all_fields(self, tmp_path: Path) -> None:
+        from rebrew.metadata import FunctionMetadata, get_entry, save_entry
+
+        save_entry(
+            tmp_path,
+            FunctionMetadata(
+                module="SERVER",
+                va=0x1000,
+                status="NEAR_MATCHING",
+                size=42,
+                cflags="/O2 /Gd",
+                blocker="3B diff",
+                note="check the tail",
+            ),
+        )
+        raw = get_entry(tmp_path, 0x1000, "SERVER")
+        assert raw == {
+            "size": 42,
+            "cflags": "/O2 /Gd",
+            "status": "NEAR_MATCHING",
+            "blocker": "3B diff",
+            "note": "check the tail",
+        }
+
+    def test_save_entry_invalid_raises(self, tmp_path: Path) -> None:
+        import pytest
+
+        from rebrew.metadata import FunctionMetadata, save_entry
+
+        with pytest.raises(ValueError, match="module must not be empty"):
+            save_entry(tmp_path, FunctionMetadata(module="", va=0x1000))
+
+    def test_save_entry_idempotent_second_save(self, tmp_path: Path) -> None:
+        from rebrew.metadata import FunctionMetadata, save_entry
+
+        meta = FunctionMetadata(module="SERVER", va=0x1000, status="EXACT", size=42, cflags="/O2")
+        save_entry(tmp_path, meta)
+        path = tmp_path / "rebrew-function.toml"
+        content = path.read_text(encoding="utf-8")
+        # Re-saving the same entry must not rewrite the file.
+        save_entry(tmp_path, meta)
+        assert path.read_text(encoding="utf-8") == content
+
+    def test_save_entry_roundtrip(self, tmp_path: Path) -> None:
+        from rebrew.metadata import FunctionMetadata, load_entry, save_entry
+
+        original = FunctionMetadata(
+            module="SERVER",
+            va=0x1000,
+            status="RELOC",
+            size=16,
+            cflags="/O1",
+            globals_list=["g_a", "g_b"],
+        )
+        save_entry(tmp_path, original)
+        loaded = load_entry(tmp_path, 0x1000, "SERVER")
+        assert loaded is not None
+        assert loaded.status == "RELOC"
+        assert loaded.size == 16
+        assert loaded.cflags == "/O1"
+        assert loaded.globals_list == ["g_a", "g_b"]

@@ -164,6 +164,7 @@ class ProjectConfig:
     crt_sources: dict[str, str] = field(default_factory=dict)
     source_ext: str = ".c"  # Source file extension (e.g. ".c", ".cpp")
     ghidra_program_path: str = ""
+    ghidra_backend: str = "reva"  # "reva" (MCP) or "cli" (ghidra-cli binary)
 
     # --- All known target names ---
     all_targets: list[str] = field(default_factory=list)
@@ -365,6 +366,23 @@ def _as_table(value: Any, field_name: str) -> dict[str, Any]:
     return value
 
 
+def _as_str(value: Any, default: str, field_name: str) -> str:
+    """Return a string config value, warning and using *default* on bad types.
+
+    Distinguishes "not set" (``None`` → *default* silently) from "set to a
+    non-string" (warn + *default*). Empty string is preserved when present so
+    callers can treat "" as intentionally empty.
+    """
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value
+    _config_warn(
+        f"Expected string for {field_name}, got {type(value).__name__}; using default {default!r}",
+    )
+    return default
+
+
 def _resolve(root: Path, rel: str | Path | None) -> Path | None:
     """Resolve a path relative to project root.  Returns *None* if *rel* is ``None``."""
     if rel is None:
@@ -378,10 +396,24 @@ def _resolve(root: Path, rel: str | Path | None) -> Path | None:
     return root / p
 
 
+def _required_path(root: Path, value: Any, default: str, field_name: str) -> Path:
+    """Resolve a configured path, rejecting explicit empty or invalid values."""
+    if value is None:
+        value = default
+    if isinstance(value, str) and not value.strip():
+        raise ValueError(f"rebrew-project.toml {field_name} must not be empty")
+    resolved = _resolve(root, value)
+    if resolved is None:
+        raise ValueError(f"rebrew-project.toml {field_name} must be a path string")
+    return resolved
+
+
 def _split_compiler_runner(compiler: dict[str, Any]) -> tuple[str, str]:
-    command_raw = str(compiler.get("command", "wine CL.EXE"))
+    command_raw = _as_str(compiler.get("command"), "wine CL.EXE", "compiler.command")
+    if not command_raw.strip():
+        raise ValueError("rebrew-project.toml compiler.command must not be empty")
     if "runner" in compiler:
-        return str(compiler.get("runner", "")), command_raw
+        return _as_str(compiler.get("runner"), "", "compiler.runner"), command_raw
 
     try:
         parts = shlex.split(command_raw)
@@ -509,6 +541,7 @@ _KNOWN_TARGET_KEYS = {
     "crt_sources",
     "source_ext",
     "ghidra_program_path",
+    "ghidra_backend",
     "origins",  # written by `rebrew cfg add-target` (origin list for annotation filtering)
     "cflags_presets",  # written by `rebrew cfg set-cflags` (per-origin compiler flag overrides)
 }
@@ -585,6 +618,15 @@ def load_config(
                 _config_warn(
                     f"rebrew-project.toml [targets.{tgt_name}]: unrecognized keys: {unknown_tgt}",
                 )
+            target_compiler = _as_table(
+                tgt_data.get("compiler", {}), f"targets.{tgt_name}.compiler"
+            )
+            unknown_target_compiler = set(target_compiler) - _KNOWN_COMPILER_KEYS
+            if unknown_target_compiler:
+                _config_warn(
+                    f"rebrew-project.toml [targets.{tgt_name}.compiler]: "
+                    f"unrecognized keys: {unknown_target_compiler}",
+                )
         else:
             raise ValueError(f"rebrew-project.toml [targets.{tgt_name}] must be a TOML table")
 
@@ -604,6 +646,16 @@ def load_config(
                 "rebrew-project.toml [project] is missing 'default_target'. "
                 f'Add: default_target = "{all_target_names[0]}"'
             )
+        if not isinstance(target, str):
+            raise ValueError(
+                f"rebrew-project.toml [project].default_target must be a string, "
+                f"got {type(target).__name__}"
+            )
+        if not target.strip():
+            raise ValueError(
+                "rebrew-project.toml [project].default_target must not be empty. "
+                f'Add: default_target = "{all_target_names[0]}"'
+            )
     if target not in targets_dict:
         raise KeyError(
             f"Target '{target}' not found in rebrew-project.toml.  Available targets: {all_target_names}"
@@ -616,14 +668,25 @@ def load_config(
     sources = tgt
 
     # --- Validate value types for known fields ---
+    # Unknown/invalid format must not be stored: layout detection would fail
+    # silently (image_base/text_va left at 0) and break VA→offset math.
     fmt_val = tgt.get("format", "pe")
-    if fmt_val not in _KNOWN_FORMATS:
+    if not isinstance(fmt_val, str) or fmt_val not in _KNOWN_FORMATS:
         _config_warn(
-            f"rebrew-project.toml [targets.{target}]: unknown format '{fmt_val}' "
-            f"(known: {', '.join(sorted(_KNOWN_FORMATS))})",
+            f"rebrew-project.toml [targets.{target}]: unknown format {fmt_val!r} "
+            f"(known: {', '.join(sorted(_KNOWN_FORMATS))}); falling back to pe",
         )
+        fmt_val = "pe"
 
-    arch_name = str(tgt.get("arch", "x86_32"))
+    arch_raw = tgt.get("arch", "x86_32")
+    if not isinstance(arch_raw, str):
+        _config_warn(
+            f"rebrew-project.toml [targets.{target}]: arch must be a string, "
+            f"got {type(arch_raw).__name__}; falling back to x86_32",
+        )
+        arch_name = "x86_32"
+    else:
+        arch_name = arch_raw
     if arch_name not in _ARCH_PRESETS:
         _config_warn(
             f"rebrew-project.toml [targets.{target}]: unknown arch '{arch_name}' "
@@ -631,73 +694,94 @@ def load_config(
         )
         arch_name = "x86_32"
 
+    # Unknown profiles are kept only as a warning elsewhere historically; store
+    # a known default so flag sweeps / doctor report a real profile.
     profile_val = compiler.get("profile", "msvc6")
-    if profile_val not in _KNOWN_PROFILES:
+    if not isinstance(profile_val, str) or profile_val not in _KNOWN_PROFILES:
         _config_warn(
-            f"rebrew-project.toml [compiler]: unknown profile '{profile_val}' "
-            f"(known: {', '.join(sorted(_KNOWN_PROFILES))})",
+            f"rebrew-project.toml [compiler]: unknown profile {profile_val!r} "
+            f"(known: {', '.join(sorted(_KNOWN_PROFILES))}); falling back to msvc6",
         )
+        profile_val = "msvc6"
 
     arch_preset = _ARCH_PRESETS.get(arch_name, _ARCH_PRESETS["x86_32"])
     bin_rel = tgt.get("binary")
     if bin_rel is None:
         raise KeyError(f"Target '{target}' in rebrew-project.toml is missing 'binary' path")
+    if isinstance(bin_rel, str) and not bin_rel.strip():
+        raise KeyError(f"Target '{target}' in rebrew-project.toml has empty 'binary' path")
     resolved_bin = _resolve(root, bin_rel)
     if resolved_bin is None:
         raise KeyError(f"Target '{target}' in rebrew-project.toml has invalid 'binary' path")
     bin_path: Path = resolved_bin
 
-    # _resolve() can return None even with a non-None input; defensive checks follow.
-    reversed_dir = _resolve(root, sources.get("reversed_dir", f"src/{target}"))
-    if reversed_dir is None:  # pragma: no cover
-        raise ValueError(f"Failed to resolve reversed_dir for target '{target}'")
-    function_list = _resolve(root, sources.get("function_list", f"src/{target}/functions.txt"))
-    if function_list is None:  # pragma: no cover
-        raise ValueError(f"Failed to resolve function_list for target '{target}'")
-    bin_dir = _resolve(root, sources.get("bin_dir", f"bin/{target}"))
-    if bin_dir is None:  # pragma: no cover
-        raise ValueError(f"Failed to resolve bin_dir for target '{target}'")
-    db_dir = _resolve(root, project_raw.get("db_dir", "db"))
-    if db_dir is None:  # pragma: no cover
-        raise ValueError("Failed to resolve db_dir")
-    output_dir = _resolve(root, project_raw.get("output_dir", "output"))
-    if output_dir is None:  # pragma: no cover
-        raise ValueError("Failed to resolve output_dir")
-    compiler_includes = _resolve(root, compiler.get("includes", "tools/MSVC600/VC98/Include"))
-    if compiler_includes is None:  # pragma: no cover
-        raise ValueError("Failed to resolve compiler includes path")
-    compiler_libs = _resolve(root, compiler.get("libs", "tools/MSVC600/VC98/Lib"))
-    if compiler_libs is None:  # pragma: no cover
-        raise ValueError("Failed to resolve compiler libs path")
+    reversed_dir = _required_path(
+        root, sources.get("reversed_dir"), f"src/{target}", f"[targets.{target}].reversed_dir"
+    )
+    function_list = _required_path(
+        root,
+        sources.get("function_list"),
+        f"src/{target}/functions.txt",
+        f"[targets.{target}].function_list",
+    )
+    bin_dir = _required_path(
+        root, sources.get("bin_dir"), f"bin/{target}", f"[targets.{target}].bin_dir"
+    )
+    db_dir = _required_path(root, project_raw.get("db_dir"), "db", "[project].db_dir")
+    output_dir = _required_path(
+        root, project_raw.get("output_dir"), "output", "[project].output_dir"
+    )
+    compiler_includes = _required_path(
+        root,
+        compiler.get("includes"),
+        "tools/MSVC600/VC98/Include",
+        "compiler.includes",
+    )
+    compiler_libs = _required_path(
+        root, compiler.get("libs"), "tools/MSVC600/VC98/Lib", "compiler.libs"
+    )
 
     source_ext = _parse_source_ext(tgt.get("source_ext", ".c"))
+
+    # ghidra_backend must be one of the known transports; a typo silently
+    # switching to the wrong backend would be confusing, so validate.
+    ghidra_backend_raw = tgt.get("ghidra_backend", "reva")
+    if not isinstance(ghidra_backend_raw, str) or ghidra_backend_raw not in ("reva", "cli"):
+        _config_warn(
+            f"rebrew-project.toml [targets.{target}]: unknown ghidra_backend "
+            f"{ghidra_backend_raw!r} (known: reva, cli); falling back to reva",
+        )
+        ghidra_backend_raw = "reva"
+    ghidra_backend_val = _as_str(ghidra_backend_raw, "reva", f"targets.{target}.ghidra_backend")
 
     cfg = ProjectConfig(
         root=root,
         target_name=target or "",
         # target
         target_binary=bin_path,
-        binary_format=tgt.get("format", "pe"),
+        binary_format=fmt_val,
         arch=arch_name,
         # sources
         reversed_dir=reversed_dir,
         function_list=function_list,
         bin_dir=bin_dir,
-        marker=tgt.get("marker", target.upper()),
+        marker=_as_str(tgt.get("marker"), target.upper(), f"targets.{target}.marker"),
         r2_bogus_vas=_parse_int_list(tgt.get("r2_bogus_vas", []), "r2_bogus_vas"),
         # project-level defaults
-        project_name=project_raw.get("name", ""),
+        project_name=_as_str(project_raw.get("name"), "", "project.name"),
         default_jobs=_positive_int(project_raw.get("jobs", 4), 4, "project.jobs"),
         db_dir=db_dir,
         output_dir=output_dir,
         # compiler
-        compiler_profile=compiler.get("profile", "msvc6"),
+        compiler_profile=profile_val,
         compiler_command=compiler_command,
         compiler_runner=compiler_runner,
         compiler_includes=compiler_includes,
         compiler_libs=compiler_libs,
-        cflags=compiler.get("cflags", ""),
-        base_cflags=compiler.get("base_cflags", "/nologo /c /MT"),
+        # User-facing defaults (optimization/codegen). base_cflags are always-on
+        # flags prepended by compile_to_obj; they must stay separate.
+        cflags=_as_str(compiler.get("cflags"), "", "compiler.cflags"),
+        base_cflags=_as_str(compiler.get("base_cflags"), "/nologo /c /MT", "compiler.base_cflags"),
         compile_timeout=_positive_int(compiler.get("timeout", 60), 60, "compiler.timeout"),
         # arch-derived
         pointer_size=arch_preset["pointer_size"],
@@ -712,8 +796,10 @@ def load_config(
         library_modules=set(_parse_str_list(tgt.get("library_modules", []), "library_modules")),
         crt_sources=_parse_str_dict(tgt.get("crt_sources", {}), "crt_sources"),
         source_ext=source_ext,
-        ghidra_program_path=tgt.get("ghidra_program_path", ""),
-        # all targets
+        ghidra_program_path=_as_str(
+            tgt.get("ghidra_program_path"), "", f"targets.{target}.ghidra_program_path"
+        ),
+        ghidra_backend=ghidra_backend_val,
         all_targets=all_target_names,
     )
 

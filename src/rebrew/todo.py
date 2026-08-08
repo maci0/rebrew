@@ -53,6 +53,11 @@ CAT_MISSING_ANNOTATION = "missing-annotation"
 CAT_IDENTIFY_LIBRARY = "identify-library"
 CAT_RUN_PROVER = "run-prover"
 
+# Proving is only feasible when few bytes actually differ: symbolic execution
+# over hundreds of mismatched bytes just times out.  Cap the estimated byte
+# delta for measured (verify-cached) candidates; unmeasured ones stay eligible.
+_PROVE_MAX_DIFF_BYTES = 8
+
 _CATEGORY_COLORS = {
     CAT_SETUP: "bold white",
     CAT_COMPILE_ERROR: "red",
@@ -315,7 +320,8 @@ def _collect_active_functions(
             except ValueError:
                 calc_delta = parse_byte_delta(info.get("blocker", ""))
 
-        cmd = f"rebrew test {filename}" if filename else f"rebrew test 0x{va:08x}"
+        # VA form — CWD-independent (rebrew test resolves the VA via resolve_source_arg).
+        cmd = f"rebrew test 0x{va:08x}"
 
         # Determine category and specific description
         if v_status == "COMPILE_ERROR":
@@ -334,13 +340,12 @@ def _collect_active_functions(
             desc = f"{calc_delta}B diff — try flag sweep, GA, or padding adjustments"
             score = calculate_roi(size, v_match, calc_delta, status)
             if calc_delta <= 4:
-                cmd = f"rebrew diff {filename}" if filename else f"rebrew diff 0x{va:08x}"
+                # VA form (not the reversed_dir-relative filename): commands
+                # stay runnable from the project root — rebrew diff resolves
+                # the VA to its source via resolve_source_arg.
+                cmd = f"rebrew diff 0x{va:08x}"
             else:
-                cmd = (
-                    f"rebrew match --flag-sweep-only {filename}"
-                    if filename
-                    else f"rebrew match --flag-sweep-only 0x{va:08x}"
-                )
+                cmd = f"rebrew match --flag-sweep-only 0x{va:08x}"
 
         else:
             category = CAT_IMPROVE_MATCH
@@ -351,7 +356,10 @@ def _collect_active_functions(
             if blocker:
                 desc += f" — Blocked: {blocker[:50]}"
 
-            cmd = f"rebrew diff {filename}" if filename else f"rebrew diff 0x{va:08x}"
+            # VA form (not the reversed_dir-relative filename): commands
+            # stay runnable from the project root — rebrew diff resolves
+            # the VA to its source via resolve_source_arg.
+            cmd = f"rebrew diff 0x{va:08x}"
 
         items.append(
             TodoItem(
@@ -364,7 +372,7 @@ def _collect_active_functions(
                 description=desc,
                 command=cmd,
                 byte_delta=calc_delta,
-                status=v_status or status,
+                status=status,
                 match_percent=v_match,
             )
         )
@@ -399,13 +407,24 @@ def _collect_prover_candidates(
         effective_status = cached.result.status if cached else ann_status
         if effective_status != "NEAR_MATCHING":
             continue
-        size = size_by_va.get(va) or int(info.get("size", 0))
+        # Metadata SIZE is authoritative (the real function extent — Ghidra's
+        # can be stale, e.g. 340 vs the actual 752 for GetCommandPayloadSize);
+        # prefer it so the size cap below uses the true extent.
+        size = int(info.get("size", 0)) or size_by_va.get(va) or 0
         if size > 500 or size == 0:
             continue
 
         filename = info.get("filename", "")
         match_pct = cached.result.match_percent if cached else None
         byte_delta = cached.result.delta if cached else None
+
+        # A measured candidate whose bytes are far apart (e.g. 65% match on a
+        # 340B function) is not provable — the prover just exhausts its
+        # timeout.  Skip it; it belongs in improve-match/fix-delta instead.
+        if match_pct is not None:
+            est_diff = size * (100.0 - match_pct) / 100.0
+            if est_diff > _PROVE_MAX_DIFF_BYTES:
+                continue
 
         items.append(
             TodoItem(
@@ -419,7 +438,7 @@ def _collect_prover_candidates(
                 size=size,
                 filename=filename,
                 description="NEAR_MATCHING + small — prove semantic equivalence",
-                command=f"rebrew prove {filename}" if filename else f"rebrew prove 0x{va:08x}",
+                command=f"rebrew prove 0x{va:08x}",
                 status=effective_status,
                 match_percent=match_pct,
                 byte_delta=byte_delta,
@@ -495,6 +514,8 @@ def _collect_new_functions(
             continue
 
         neighbor = find_neighbor_file(va, covered_vas, _sorted_keys=sorted_covered)
+        # --append takes a reversed_dir-relative path; leave it as-is (skeleton
+        # resolves it against reversed_dir) but keep the VA for the function.
         if neighbor:
             cmd = f"rebrew skeleton 0x{va:08x} --append {neighbor}"
         else:
@@ -671,7 +692,17 @@ def main(
     for va_int, info in existing.items():
         ann_status = info.get("status", "STUB")
         # PROVEN is a post-verify promotion that wins over verify cache
-        s = "PROVEN" if ann_status == "PROVEN" else verify_statuses.get(va_int, ann_status)
+        # The metadata status is authoritative for STUB (verify runs no longer
+        # promote stubs to SIZE_MISMATCH — a stub's size mismatch is
+        # expected).  A more actionable cache state (COMPILE_ERROR, matched)
+        # still overrides; SIZE_MISMATCH does not.
+        if ann_status == "PROVEN":
+            s = ann_status
+        elif ann_status == "STUB":
+            cached_s = verify_statuses.get(va_int)
+            s = cached_s if cached_s and cached_s not in ("SIZE_MISMATCH", "STUB") else ann_status
+        else:
+            s = verify_statuses.get(va_int, ann_status)
         status_counts[s] = status_counts.get(s, 0) + 1
     total_funcs = len(ghidra_funcs)
     covered = len(covered_vas)

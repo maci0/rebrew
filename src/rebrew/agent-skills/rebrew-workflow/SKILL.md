@@ -24,6 +24,7 @@ rebrew todo --json                      # Primary: highest ROI action items
 rebrew todo -c start-function --json    # Filter category: start-function | fix-delta | compile-error | ...
 rebrew flirt --json                     # FLIRT scan: identify known library functions (fast wins)
 rebrew crt-match --all --json           # Find matching CRT source files for LIBRARY functions
+rebrew similar 0x10001000 --json        # Find structurally similar functions (same source family)
 ```
 
 **Default to `rebrew todo --json`.** Tiered by ROI:
@@ -150,6 +151,7 @@ rebrew verify --summary                 # summary table with match %
 rebrew verify --json                    # bulk compile + diff all reversed functions
 rebrew verify -j 8 -o report.json       # parallel compile, save report to file
 rebrew verify --compare --json          # compare against last saved report, detect regressions
+rebrew verify --watch                   # re-verify all sources on every file change
 rebrew verify --full --json             # ignore cache, force full re-verification
 rebrew lint --json                      # check annotation correctness
 rebrew lint --fix                       # auto-migrate inline metadata to rebrew-function.toml

@@ -10,6 +10,7 @@ from rebrew.compile_cache import (
     close_all_caches,
     compile_cache_key,
     get_compile_cache,
+    include_fingerprint,
 )
 from rebrew.config import ProjectConfig
 
@@ -116,6 +117,36 @@ class TestCompileCacheKey:
         monkeypatch.setattr(cc_mod, "CACHE_SCHEMA_VERSION", CACHE_SCHEMA_VERSION + 1)
         k2 = compile_cache_key("src", "f.c", ["/O2"], ["/inc"], "wine CL")
         assert k1 != k2
+
+
+class TestIncludeFingerprint:
+    def test_missing_dir_is_empty(self, tmp_path: Path) -> None:
+        assert include_fingerprint(str(tmp_path / "nope")) == ""
+
+    def test_header_edit_changes_key(self, tmp_path: Path) -> None:
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        header = inc / "library_foo.h"
+        header.write_text("#define N 1\n")
+        include_fingerprint.cache_clear()
+        k1 = compile_cache_key("src", "f.c", ["/O2"], [str(inc)], "wine CL")
+
+        header.write_text("#define N 22222\n")  # different size => different stat
+        include_fingerprint.cache_clear()
+        k2 = compile_cache_key("src", "f.c", ["/O2"], [str(inc)], "wine CL")
+        assert k1 != k2
+
+    def test_non_header_files_ignored(self, tmp_path: Path) -> None:
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        (inc / "a.h").write_text("x")
+        include_fingerprint.cache_clear()
+        k1 = compile_cache_key("src", "f.c", ["/O2"], [str(inc)], "wine CL")
+
+        (inc / "unrelated.c").write_text("int main(void){return 0;}")
+        include_fingerprint.cache_clear()
+        k2 = compile_cache_key("src", "f.c", ["/O2"], [str(inc)], "wine CL")
+        assert k1 == k2
 
 
 class TestGetCompileCache:

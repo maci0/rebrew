@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from rebrew.flirt import find_func_size, iter_match_offsets, load_signatures
 
 # ---------------------------------------------------------------------------
@@ -109,3 +111,258 @@ class TestSmallSectionGuard:
         code = b""
         size = find_func_size(code, 0)
         assert size == 0  # min(4096, 0) = 0
+
+
+class TestCliSurface:
+    def test_help_lists_va_flag(self) -> None:
+        """--va (single-function check) is part of the CLI contract."""
+        from typer.testing import CliRunner
+
+        from rebrew.flirt import app
+
+        result = CliRunner().invoke(app, ["--help"])
+        assert result.exit_code == 0
+        assert "--va" in result.stdout
+
+    def test_va_out_of_section_errors(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from types import SimpleNamespace
+
+        from typer.testing import CliRunner
+
+        import rebrew.flirt as flirt_mod
+
+        monkeypatch.setattr(
+            flirt_mod,
+            "require_config",
+            lambda target=None, json_mode=False: SimpleNamespace(
+                root=tmp_path, target_binary=tmp_path / "x.dll"
+            ),
+        )
+        monkeypatch.setattr(flirt_mod, "load_signatures", lambda d: [object()])
+        monkeypatch.setattr(
+            flirt_mod,
+            "flirt",
+            SimpleNamespace(
+                compile=lambda s: object(), parse_sig=lambda b: [], parse_pat=lambda b: []
+            ),
+        )
+        monkeypatch.setattr(
+            flirt_mod,
+            "load_binary",
+            lambda p: SimpleNamespace(
+                sections={".text": SimpleNamespace(va=0x1000, file_offset=0, raw_size=64)},
+                data=b"\xcc" * 64,
+            ),
+        )
+        result = CliRunner().invoke(flirt_mod.app, ["--va", "0x2000"])
+        assert result.exit_code != 0
+        assert "outside .text" in result.output
+
+
+class TestAmbiguousReporting:
+    """--show-ambiguous keeps multi-candidate matches instead of dropping them."""
+
+    def _setup(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, matcher: object) -> None:
+        from types import SimpleNamespace
+
+        import rebrew.flirt as flirt_mod
+
+        monkeypatch.setattr(
+            flirt_mod,
+            "require_config",
+            lambda target=None, json_mode=False: SimpleNamespace(
+                root=tmp_path, target_binary=tmp_path / "x.dll"
+            ),
+        )
+        monkeypatch.setattr(flirt_mod, "load_signatures", lambda d: [object()])
+        monkeypatch.setattr(
+            flirt_mod,
+            "flirt",
+            SimpleNamespace(
+                compile=lambda s: matcher, parse_sig=lambda b: [], parse_pat=lambda b: []
+            ),
+        )
+        monkeypatch.setattr(
+            flirt_mod,
+            "load_binary",
+            lambda p: SimpleNamespace(
+                sections={".text": SimpleNamespace(va=0x1000, file_offset=0, raw_size=64)},
+                data=b"\xcc" * 64,
+            ),
+        )
+
+    def test_ambiguous_kept_with_flag(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        import rebrew.flirt as flirt_mod
+
+        class FakeMatch:
+            names = [
+                ("_isalpha", "public", 0),
+                ("_isupper", "public", 0),
+                ("_islower", "public", 0),
+                ("_isdigit", "public", 0),
+            ]
+
+        class FakeMatcher:
+            def match(self, buf: bytes) -> list[object]:
+                return [FakeMatch()]
+
+        self._setup(tmp_path, monkeypatch, FakeMatcher())
+        result = CliRunner().invoke(flirt_mod.app, ["--show-ambiguous", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["match_count"] == 0  # all four are ambiguous
+        assert data["skipped_ambiguous"] >= 1
+        assert len(data["ambiguous_matches"]) >= 1
+        first = data["ambiguous_matches"][0]
+        assert first["names"] == ["_isalpha", "_isupper", "_islower", "_isdigit"]
+        assert first["more"] is False
+
+    def test_ambiguous_empty_without_flag(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        import rebrew.flirt as flirt_mod
+
+        class FakeMatch:
+            names = [
+                ("_a", "public", 0),
+                ("_b", "public", 0),
+                ("_c", "public", 0),
+                ("_d", "public", 0),
+            ]
+
+        class FakeMatcher:
+            def match(self, buf: bytes) -> list[object]:
+                return [FakeMatch()]
+
+        self._setup(tmp_path, monkeypatch, FakeMatcher())
+        result = CliRunner().invoke(flirt_mod.app, ["--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["skipped_ambiguous"] >= 1
+        assert data["ambiguous_matches"] == []  # not collected by default
+
+    def test_names_capped_at_report_limit(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        import rebrew.flirt as flirt_mod
+
+        class FakeMatch:
+            names = [(f"_fn{i}", "public", 0) for i in range(30)]
+
+        class FakeMatcher:
+            def match(self, buf: bytes) -> list[object]:
+                return [FakeMatch()]
+
+        self._setup(tmp_path, monkeypatch, FakeMatcher())
+        result = CliRunner().invoke(flirt_mod.app, ["--show-ambiguous", "--json"])
+        data = json.loads(result.stdout)
+        first = data["ambiguous_matches"][0]
+        assert len(first["names"]) == flirt_mod._MAX_AMBIGUOUS_REPORT
+        assert first["more"] is True
+
+
+class TestSmallTextSectionSchema:
+    """A tiny .text section must still emit the full JSON schema (the old
+    early return used different keys and skipped the --va check entirely)."""
+
+    def _setup(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, raw_size: int) -> None:
+        from types import SimpleNamespace
+
+        import rebrew.flirt as flirt_mod
+
+        monkeypatch.setattr(
+            flirt_mod,
+            "require_config",
+            lambda target=None, json_mode=False: SimpleNamespace(
+                root=tmp_path, target_binary=tmp_path / "x.dll"
+            ),
+        )
+        monkeypatch.setattr(flirt_mod, "load_signatures", lambda d: [object()])
+        monkeypatch.setattr(
+            flirt_mod,
+            "flirt",
+            SimpleNamespace(
+                compile=lambda s: object(), parse_sig=lambda b: [], parse_pat=lambda b: []
+            ),
+        )
+        monkeypatch.setattr(
+            flirt_mod,
+            "load_binary",
+            lambda p: SimpleNamespace(
+                sections={".text": SimpleNamespace(va=0x1000, file_offset=0, raw_size=raw_size)},
+                data=b"\xcc" * raw_size,
+            ),
+        )
+
+    def test_small_text_full_schema(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        import rebrew.flirt as flirt_mod
+
+        self._setup(tmp_path, monkeypatch, raw_size=16)
+        result = CliRunner().invoke(flirt_mod.app, ["--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        for key in (
+            "binary",
+            "sig_dir",
+            "signature_count",
+            "text_size",
+            "min_size",
+            "match_count",
+            "skipped_ambiguous",
+            "matches",
+            "ambiguous_matches",
+        ):
+            assert key in data
+        assert data["text_size"] == 16
+        assert "warning" in data
+        assert data["matches"] == []
+
+    def test_small_text_va_check_runs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        import rebrew.flirt as flirt_mod
+
+        self._setup(tmp_path, monkeypatch, raw_size=16)
+        # VA 0x1005 is inside the 16-byte .text (0x1000..0x1010) → check runs
+        # (no match expected: find_func_size of cc bytes → 16 ≥ min_size, but
+        # the fake matcher returns no matches).
+        result = CliRunner().invoke(flirt_mod.app, ["--json", "--va", "0x1005"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["match_count"] == 0
+
+    def test_small_text_va_out_of_section_still_errors(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        import rebrew.flirt as flirt_mod
+
+        self._setup(tmp_path, monkeypatch, raw_size=16)
+        result = CliRunner().invoke(flirt_mod.app, ["--va", "0x2000"])
+        assert result.exit_code != 0
+        assert "outside .text" in result.output

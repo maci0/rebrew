@@ -512,6 +512,9 @@ def run_doctor(target: str | None = None) -> DoctorReport:
     report.checks.append(check_source_files(cfg))
     report.checks.append(check_bin_dir(cfg))
     report.checks.append(check_metadata_files(cfg))
+    report.checks.append(check_optional_tools(cfg))
+    report.checks.append(check_flirt_sigs(cfg))
+    report.checks.append(check_ghidra_sync(cfg))
 
     return report
 
@@ -645,3 +648,168 @@ def main_entry() -> None:
 
 if __name__ == "__main__":
     main_entry()
+
+
+def check_optional_tools(cfg: ProjectConfig) -> CheckResult:
+    """Check availability of optional symbolic-proving tools (angr + claripy).
+
+    ``rebrew prove`` needs both; a half-installed pair (angr without claripy,
+    or claripy without angr) crashes at runtime with a confusing traceback.
+    """
+    import contextlib
+
+    angr_available = False
+    with contextlib.suppress(ImportError):
+        import angr  # noqa: F401
+
+        angr_available = True
+    claripy_available = False
+    with contextlib.suppress(ImportError):
+        import claripy  # noqa: F401
+
+        claripy_available = True
+
+    if angr_available and claripy_available:
+        return CheckResult(
+            name="Optional tools",
+            status=_PASS,
+            message="angr + claripy available (for 'rebrew prove')",
+        )
+    if angr_available:
+        return CheckResult(
+            name="Optional tools",
+            status=_WARN,
+            message="angr installed but claripy is missing — prove will crash",
+            fix="Install the pair: 'uv add --dev angr' (pulls claripy).",
+        )
+    if claripy_available:
+        return CheckResult(
+            name="Optional tools",
+            status=_WARN,
+            message="claripy installed but angr is missing — prove needs both",
+            fix="Install the pair: 'uv add --dev angr'.",
+        )
+    return CheckResult(
+        name="Optional tools",
+        status=_WARN,
+        message="angr + claripy missing (for 'rebrew prove')",
+        fix="Optional: 'uv add --dev angr' for symbolic proving.",
+    )
+
+
+def check_flirt_sigs(cfg: ProjectConfig) -> CheckResult:
+    """Check the ``flirt_sigs/`` directory: present, non-empty, and every
+    ``.pat``/``.sig`` file actually parses via python-flirt — the exact reader
+    ``rebrew flirt`` uses.
+
+    A directory full of corrupt or legacy signatures silently yields zero
+    matches; this check surfaces that before the user wastes a scan.
+    """
+    sig_dir = cfg.root / "flirt_sigs"
+    if not sig_dir.exists():
+        return CheckResult(
+            name="FLIRT signatures",
+            status=_WARN,
+            message="flirt_sigs/ directory not found",
+            fix=(
+                "Generate signatures from a compiler .lib with "
+                "'rebrew gen-flirt-pat /path/to/msvcrt.lib "
+                "--output flirt_sigs/msvcrt_vc6.pat', or copy .sig files "
+                "(e.g. from fireeye/siglib) into flirt_sigs/."
+            ),
+        )
+
+    sig_files = sorted(sig_dir.glob("*.pat")) + sorted(sig_dir.glob("*.sig"))
+    if not sig_files:
+        return CheckResult(
+            name="FLIRT signatures",
+            status=_WARN,
+            message="flirt_sigs/ exists but contains no .pat/.sig files",
+            fix="Add signatures as described above.",
+        )
+
+    try:
+        import flirt  # noqa: F401
+    except ImportError:
+        return CheckResult(
+            name="FLIRT signatures",
+            status=_SKIP,
+            message=f"{len(sig_files)} sig file(s) found, but python-flirt is not installed",
+            fix="Install python-flirt to use 'rebrew flirt': 'uv add python-flirt'.",
+        )
+
+    total = 0
+    problems: list[str] = []
+    for filepath in sig_files:
+        try:
+            content = filepath.read_bytes()
+            if filepath.suffix == ".sig":
+                parsed = flirt.parse_sig(content)
+            else:
+                parsed = flirt.parse_pat(content.decode("utf-8", errors="ignore"))
+            total += len(parsed)
+            if not parsed:
+                problems.append(f"{filepath.name} (0 signatures)")
+        except (OSError, ValueError, TypeError, UnicodeDecodeError) as e:
+            problems.append(f"{filepath.name} (corrupt: {e})")
+
+    if problems:
+        return CheckResult(
+            name="FLIRT signatures",
+            status=_WARN,
+            message=f"{len(sig_files)} file(s), {total} sigs load; {len(problems)} problem file(s)",
+            fix="Regenerate corrupt .pat files with 'rebrew gen-flirt-pat': " + "; ".join(problems),
+        )
+    return CheckResult(
+        name="FLIRT signatures",
+        status=_PASS,
+        message=f"{len(sig_files)} file(s), {total} signatures load",
+    )
+
+
+def check_ghidra_sync(cfg: ProjectConfig) -> CheckResult:
+    """Check the Ghidra sync setup: backend config, program path, and (for
+    the ghidra-cli backend) the binary's presence."""
+    backend = getattr(cfg, "ghidra_backend", "reva")
+    program_path = getattr(cfg, "ghidra_program_path", "")
+
+    if backend == "cli":
+        from rebrew.ghidra.cli_backend import resolve_ghidra_cli
+
+        found = resolve_ghidra_cli(cfg)
+        if found is None:
+            return CheckResult(
+                name="Ghidra sync",
+                status=_WARN,
+                message="ghidra_backend = 'cli' but no ghidra-cli binary found",
+                fix=(
+                    "Install ghidra-cli (cargo install ghidra-cli) or place the "
+                    "binary at tools/ghidra-cli."
+                ),
+            )
+        if not program_path:
+            return CheckResult(
+                name="Ghidra sync",
+                status=_WARN,
+                message=f"ghidra-cli found ({found}), but ghidra_program_path is not set",
+                fix="Set targets.<name>.ghidra_program_path in rebrew-project.toml.",
+            )
+        return CheckResult(
+            name="Ghidra sync",
+            status=_PASS,
+            message=f"ghidra-cli backend ready ({found})",
+        )
+
+    # ReVa (MCP) backend.
+    if not program_path:
+        return CheckResult(
+            name="Ghidra sync",
+            status=_WARN,
+            message="ghidra_program_path is not set — sync may target the wrong program",
+            fix="Set targets.<name>.ghidra_program_path in rebrew-project.toml.",
+        )
+    return CheckResult(
+        name="Ghidra sync",
+        status=_PASS,
+        message=f"ReVa backend ready (program: {program_path})",
+    )

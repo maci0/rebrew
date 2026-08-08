@@ -33,6 +33,7 @@ from rebrew.cli import (
     json_print,
     parse_va,
     require_config,
+    resolve_source_arg,
     target_marker,
 )
 from rebrew.compile import (
@@ -239,6 +240,12 @@ def main(
     """
     cfg = require_config(target=target, json_mode=json_output)
 
+    # Accept a hex VA or symbol name in addition to a .c path, like
+    # `rebrew diff`/`rebrew prove` (resolve_source_arg returns the argument
+    # unchanged when nothing matches, so the original error path is kept).
+    if source is not None:
+        source = str(resolve_source_arg(cfg, source))
+
     if watch and all_sources:
         error_exit("--watch cannot be combined with --all", json_mode=json_output)
 
@@ -420,6 +427,10 @@ def main(
         if is_status_sticky(old_status):
             if not json_output:
                 console.print(f"[dim]STATUS → skipped ({old_status})[/dim]")
+        elif old_status == "STUB" and new_status == "SIZE_MISMATCH":
+            # Keep the user's STUB classification; a stub's placeholder
+            # always size-mismatches (see apply_status_updates).
+            pass
         else:
             clear = is_matched(new_status)
             update_source_status(
@@ -565,7 +576,12 @@ def _print_compare_result(cmp: CompareResult, target_bytes: bytes) -> None:
         return
 
     color = STATUS_COLORS.get(cmp.status, "red")
-    console.print(f"[{color}]{cmp.status}[/{color}]: {match_count}/{total} bytes")
+    near_hint = (
+        " — run 'rebrew match <file> --flag-sweep-only' to try flag variants"
+        if cmp.status == "NEAR_MATCHING"
+        else ""
+    )
+    console.print(f"[{color}]{cmp.status}[/{color}]: {match_count}/{total} bytes{near_hint}")
     if not obj_bytes:
         if cmp.message:
             console.print(cmp.message)
@@ -685,8 +701,10 @@ def _test_multi(
                 section_va=ann.va,
             )
             # Same classifier as compile_and_compare / verify.
+            va_hint = f"0x{ann.va:08x}" if getattr(ann, "va", None) else "<source>"
             msg = (
-                f"SIZE_MISMATCH: Size {len(obj_bytes)}B vs {len(target_bytes)}B"
+                f"SIZE_MISMATCH: Size {len(obj_bytes)}B vs {len(target_bytes)}B "
+                f"- run 'rebrew diff {va_hint}' to see the byte differences"
                 if size_mismatch
                 else (
                     f"RELOC-NORM MATCH ({len(relocs)} relocs)"
@@ -744,6 +762,8 @@ def _test_multi(
                 if is_status_sticky(old_status):
                     if not json_output:
                         console.print(f"[dim]  STATUS → skipped ({old_status})[/dim]")
+                elif old_status == "STUB" and new_status == "SIZE_MISMATCH":
+                    pass  # keep the user's STUB classification
                 else:
                     clear = is_matched(new_status)
                     update_source_status(
@@ -801,15 +821,33 @@ def _run_all_batch(
         jobs = cfg.default_jobs
 
     # Reuse verify's scanning + caching engine
-    unique_entries, passed, failed, fail_details, results, cached_count = prepare_entries(
+    (
+        unique_entries,
+        passed,
+        failed,
+        fail_details,
+        results,
+        cached_count,
+        size_divergences,
+    ) = prepare_entries(
         cfg,
         full=True,  # test --all always recompiles (no incremental)
         json_output=json_output,
     )
 
+    if size_divergences and not json_output:
+        console.print(
+            f"[yellow]warning:[/yellow] {len(size_divergences)} function(s) have annotation "
+            "SIZE differing from the binary-derived size; run with --json for details"
+        )
+
     if not unique_entries:
         if json_output:
-            json_print({"total": 0, "passed": 0, "failed": 0, "results": []})
+            if dry_run:
+                # Same dry-run shape as the non-empty path (canonical keys).
+                json_print({"total": 0, "files": [], "functions": []})
+            else:
+                json_print({"total": 0, "passed": 0, "failed": 0, "results": []})
         else:
             console.print("[yellow]No testable source files found[/yellow]")
         return
@@ -817,7 +855,9 @@ def _run_all_batch(
     # Filter by batch_dir if specified
     if batch_dir:
         batch_root = (
-            Path(batch_dir).resolve() if Path(batch_dir).is_absolute() else cfg.root / batch_dir
+            Path(batch_dir).resolve()
+            if Path(batch_dir).is_absolute()
+            else cfg.reversed_dir / batch_dir
         )
         batch_root_str = str(batch_root)
         unique_entries = [
@@ -836,7 +876,10 @@ def _run_all_batch(
 
     if not unique_entries:
         if json_output:
-            json_print({"total": 0, "passed": 0, "failed": 0, "results": []})
+            if dry_run:
+                json_print({"total": 0, "files": [], "functions": []})
+            else:
+                json_print({"total": 0, "passed": 0, "failed": 0, "results": []})
         else:
             console.print(
                 f"[yellow]No source files match filters "
@@ -850,8 +893,26 @@ def _run_all_batch(
         if json_output:
             json_print(
                 {
-                    "count": total,
+                    # Canonical "total" key, matching the empty-batch and
+                    # non-dry-run result payloads.
+                    "total": total,
                     "files": sorted({e.filepath for e in unique_entries}),
+                    # Sorted by filepath so "functions" pairs 1:1 with "files"
+                    # (which a consumer may zip).  "current_status" is the
+                    # ANNOTATED status — distinct from result "status" (the
+                    # compile outcome) in the non-dry-run payload.
+                    "functions": sorted(
+                        (
+                            {
+                                "va": f"0x{e.va:08x}",
+                                "name": getattr(e, "name", ""),
+                                "filepath": getattr(e, "filepath", ""),
+                                "current_status": getattr(e, "status", ""),
+                            }
+                            for e in unique_entries
+                        ),
+                        key=lambda f: f["filepath"],
+                    ),
                 }
             )
         else:

@@ -454,3 +454,255 @@ class TestLintFile:
         # Empty CFLAGS should produce W018 (missing CFLAGS with no config fallback)
         assert any(c == "W018" for _, c, _ in result.warnings)
         assert any("CFLAGS" in m for _, c, m in result.warnings if c == "W018")
+
+
+class TestLintFileBranches:
+    def test_preloaded_data_metadata_overlay(self, tmp_path: Path) -> None:
+        """DATA markers pull size/section/note from rebrew-data.toml without W019."""
+        from rebrew.data_metadata import set_data_field
+        from rebrew.lint import lint_file
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "globals.c").write_text("// DATA: SERVER 0x1000\nint g_x;\n", encoding="utf-8")
+        set_data_field(tmp_path, 0x1000, "size", 16, "SERVER")
+        set_data_field(tmp_path, 0x1000, "section", ".data", "SERVER")
+        set_data_field(tmp_path, 0x1000, "note", "counter", "SERVER")
+        cfg = SimpleNamespace(
+            metadata_dir=tmp_path,
+            marker="SERVER",
+            library_modules=set(),
+            cflags_presets={},
+            default_cflags="/O2",
+            origins=[],
+        )
+        result = lint_file(src / "globals.c", cfg=cfg)  # type: ignore[arg-type]
+        w019 = [e for e in result.errors + result.warnings if e[1] == "W019"]
+        assert w019 == []  # metadata-sourced keys must not fire W019
+
+    def test_bad_hex_va_metadata_lookup_skipped(self, tmp_path: Path) -> None:
+        """An unparseable VA in the marker does not crash the metadata overlay."""
+        from rebrew.lint import lint_file
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "f.c").write_text(
+            "// FUNCTION: SERVER 0xZZZZ\nint f(void) { return 0; }\n", encoding="utf-8"
+        )
+        result = lint_file(src / "f.c")  # no cfg → metadata_dir = filepath.parent
+        # The unparseable marker is not recognized → E001 (missing marker),
+        # but the metadata overlay must not crash.
+        assert any(e[1] == "E001" for e in result.errors)
+
+    def test_invalid_va_reports_e002(self, tmp_path: Path) -> None:
+        from rebrew.lint import lint_file
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "f.c").write_text(
+            "// FUNCTION: SERVER 0x123\nint f(void) { return 0; }\n", encoding="utf-8"
+        )
+        result = lint_file(src / "f.c")
+        assert any(e[1] == "E002" for e in result.errors)
+
+
+class TestLintCli:
+    def _invoke(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, args: list[str]) -> object:
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            metadata_dir=tmp_path,
+            reversed_dir=tmp_path / "src",
+            marker="SERVER",
+            source_ext=".c",
+            library_modules=set(),
+            cflags_presets={},
+            default_cflags="/O2",
+            origins=["GAME", "SERVER"],
+        )
+        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
+        return CliRunner().invoke(app, args)
+
+    def test_json_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import json
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "ok.c").write_text(
+            "// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        result = self._invoke(tmp_path, monkeypatch, ["--json", str(src / "ok.c")])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["files"][0]["path"] == str(src / "ok.c")
+
+    def test_errors_exit_nonzero(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "bad.c").write_text("not a c file\n", encoding="utf-8")
+        result = self._invoke(tmp_path, monkeypatch, ["--json", str(src / "bad.c")])
+        assert result.exit_code != 0
+
+    def test_summary_flag(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "ok.c").write_text(
+            "// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        result = self._invoke(tmp_path, monkeypatch, ["--summary", str(src / "ok.c")])
+        assert result.exit_code == 0
+        assert "EXACT" in result.output or "Summary" in result.output
+
+
+class TestLintFix:
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            root=tmp_path,
+            metadata_dir=tmp_path,
+            reversed_dir=tmp_path / "src",
+            marker="SERVER",
+            source_ext=".c",
+            library_modules=set(),
+            cflags_presets={},
+            default_cflags="/O2",
+            origins=["GAME", "SERVER"],
+        )
+
+    def _write_inline(self, tmp_path: Path) -> Path:
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        f = src / "f.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x1000\n// STATUS: EXACT\n// SIZE: 42\n"
+            "int f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        return f
+
+    def test_fix_dry_run_previews(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+
+        cfg = self._cfg(tmp_path)
+        f = self._write_inline(tmp_path)
+        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
+        result = CliRunner().invoke(app, ["--fix", "--dry-run", str(f)])
+        assert result.exit_code == 0
+        assert "Would migrate" in result.output
+        # Nothing changed.
+        assert "// STATUS: EXACT" in f.read_text(encoding="utf-8")
+
+    def test_fix_migrates_to_metadata(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+        from rebrew.metadata import get_entry
+
+        cfg = self._cfg(tmp_path)
+        f = self._write_inline(tmp_path)
+        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
+        result = CliRunner().invoke(app, ["--fix", str(f)])
+        assert result.exit_code == 0
+        text = f.read_text(encoding="utf-8")
+        assert "// STATUS:" not in text
+        assert "// SIZE:" not in text
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert entry.get("status") == "EXACT"
+        assert entry.get("size") == 42  # coerced to int
+
+    def test_fix_metadata_sourced_status_not_migrated(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """STATUS already in metadata is metadata-sourced → not listed for migration."""
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+        from rebrew.metadata import update_source_status
+
+        cfg = self._cfg(tmp_path)
+        f = self._write_inline(tmp_path)
+        update_source_status(tmp_path, "EXACT", "SERVER", 0x1000)
+        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
+        result = CliRunner().invoke(app, ["--fix", "--dry-run", str(f)])
+        assert result.exit_code == 0
+        assert "STATUS" not in result.output  # overlay marks it metadata-sourced
+        assert "SIZE" in result.output  # only the inline SIZE is migrated
+
+    def test_fix_duplicate_va_second_file_already_migrated(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Cross-file duplicate VA: the second file's inline keys are already
+        in metadata mid-loop (migrated by the first file) — the inline copies
+        must still be stripped, and nothing may be double-written."""
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+        from rebrew.metadata import get_entry
+
+        cfg = self._cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        body = "// FUNCTION: SERVER 0x1000\n// STATUS: EXACT\n// SIZE: 42\n"
+        a = src / "a.c"
+        a.write_text(body + "int a(void) { return 0; }\n", encoding="utf-8")
+        b = src / "b.c"
+        b.write_text(body + "int b(void) { return 0; }\n", encoding="utf-8")
+
+        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
+        result = CliRunner().invoke(app, ["--fix", str(a), str(b)])
+        assert result.exit_code == 1  # E013 duplicate VA is an error
+        assert "E013" in result.output
+        # Both inline copies stripped; metadata owns the fields exactly once.
+        for f in (a, b):
+            text = f.read_text(encoding="utf-8")
+            assert "// STATUS:" not in text
+            assert "// SIZE:" not in text
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert entry.get("status") == "EXACT"
+        assert entry.get("size") == 42
+
+
+class TestLintFixConvergence:
+    def test_fix_then_relint_no_w019(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app, lint_file
+        from rebrew.metadata import get_entry
+
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            metadata_dir=tmp_path,
+            reversed_dir=tmp_path / "src",
+            marker="SERVER",
+            source_ext=".c",
+            library_modules=set(),
+            cflags_presets={},
+            default_cflags="/O2",
+            origins=["GAME", "SERVER"],
+        )
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        f = src / "f.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x1000\n// STATUS: EXACT\n// SIZE: 42\n"
+            "int f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
+        result = CliRunner().invoke(app, ["--fix", str(f)])
+        assert result.exit_code == 0
+
+        # Re-linting the migrated file: no W019, and metadata owns the fields.
+        again = lint_file(f, cfg=cfg)
+        assert not any(e[1] == "W019" for e in again.warnings + again.errors)
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert entry.get("status") == "EXACT"
+        assert entry.get("size") == 42

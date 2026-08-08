@@ -32,7 +32,7 @@ from rebrew.cli import (
     source_glob,
     target_marker,
 )
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, strip_comment_blocks
 
 console = Console(stderr=True)
 
@@ -109,6 +109,11 @@ def _block_metadata(block: str) -> _BlockMeta | None:
 def _build_output_name(symbol: str, va: int, ext: str) -> str:
     """Generate output filename from symbol or fallback VA."""
     stem = symbol.lstrip("_").strip()
+    if not stem:
+        stem = f"func_{va:08x}"
+    # Sanitize: keep only filename-safe characters so a hostile symbol
+    # (e.g. "../../x") cannot escape the output directory.
+    stem = "".join(c if (c.isalnum() or c in "_$?.-") else "_" for c in stem).strip(".")
     if not stem:
         stem = f"func_{va:08x}"
     return f"{stem}{ext}"
@@ -218,7 +223,11 @@ def main(
 
         if not dry_run:
             va_out_dir.mkdir(parents=True, exist_ok=True)
-            atomic_write_text(out_path, preamble + matched_block, encoding="utf-8")
+            out_preamble = strip_comment_blocks(preamble)
+            # strip_comment_blocks removes the trailing newline; re-add a
+            # separator so the marker is not glued onto the last preamble line.
+            out_content = out_preamble + "\n" + matched_block if out_preamble else matched_block
+            atomic_write_text(out_path, out_content, encoding="utf-8")
             # Remove the extracted block from the source file (by index, not identity)
             remaining = [b for i, b in enumerate(blocks) if i != matched_idx]
             if remaining:
@@ -297,7 +306,9 @@ def main(
 
         if not dry_run:
             out_dir.mkdir(parents=True, exist_ok=True)
-            atomic_write_text(out_path, preamble + block, encoding="utf-8")
+            out_preamble = strip_comment_blocks(preamble)
+            out_content = out_preamble + "\n" + block if out_preamble else block
+            atomic_write_text(out_path, out_content, encoding="utf-8")
         split_count += 1
 
     if split_count < 2:

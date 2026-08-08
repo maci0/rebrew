@@ -2,6 +2,7 @@
 
 import struct
 from pathlib import Path
+from types import SimpleNamespace
 
 from rebrew.data import (
     BssGap,
@@ -451,3 +452,178 @@ class TestFindDispatchTables:
         # The first run of 3 is still detected; stride=8 means the gap slot is
         # consumed in one step, landing back on valid pointers
         assert len(wide_tables) >= 1
+
+
+class TestEstimateTypeSize:
+    def test_scalar_types(self) -> None:
+        from rebrew.data import _estimate_type_size
+
+        assert _estimate_type_size("int") == 4
+        assert _estimate_type_size("char") == 1
+        assert _estimate_type_size("short") == 2
+        assert _estimate_type_size("double") == 8
+
+    def test_array_and_pointer(self) -> None:
+        from rebrew.data import _estimate_type_size
+
+        assert _estimate_type_size("char[32]") == 32
+        assert _estimate_type_size("int *") == 4
+        assert _estimate_type_size("char *[10]") == 40
+
+    def test_unknown_defaults_int(self) -> None:
+        from rebrew.data import _estimate_type_size
+
+        assert _estimate_type_size("my_custom_t") == 4
+
+
+class TestVerifyBssLayoutGaps:
+    def _scan(self, globals_list: list) -> SimpleNamespace:
+        from rebrew.data import ScanResult
+
+        g = {e.va: e for e in globals_list}
+        return ScanResult(globals=g, data_annotations=[])
+
+    def test_no_bss_section(self) -> None:
+        from rebrew.data import verify_bss_layout
+
+        report = verify_bss_layout(self._scan([]), {})
+        assert report.bss_va == 0
+        assert report.gaps == []
+
+    def test_start_gap_detected(self) -> None:
+        from rebrew.data import GlobalEntry, verify_bss_layout
+
+        g = GlobalEntry(name="g_first", va=0x2010, type_str="int", declared_in=["a.c"])
+        report = verify_bss_layout(self._scan([g]), {".bss": {"va": 0x2000, "size": 0x100}})
+        assert len(report.gaps) == 1
+        assert report.gaps[0].before == "<bss_start>"
+        assert report.gaps[0].size == 0x10
+
+    def test_between_entry_gap_detected(self) -> None:
+        from rebrew.data import GlobalEntry, verify_bss_layout
+
+        g1 = GlobalEntry(name="g_a", va=0x2000, type_str="int", declared_in=["a.c"])  # 4 bytes
+        g2 = GlobalEntry(name="g_b", va=0x2010, type_str="int", declared_in=["a.c"])
+        report = verify_bss_layout(self._scan([g1, g2]), {".bss": {"va": 0x2000, "size": 0x100}})
+        assert len(report.gaps) == 1
+        assert report.gaps[0].before == "g_a"
+        assert report.gaps[0].after == "g_b"
+        assert report.gaps[0].size == 0x10 - 4  # gap after g_a's 4-byte hint
+
+    def test_small_gaps_ignored(self) -> None:
+        from rebrew.data import GlobalEntry, verify_bss_layout
+
+        g1 = GlobalEntry(name="g_a", va=0x2000, type_str="int", declared_in=["a.c"])
+        g2 = GlobalEntry(name="g_b", va=0x2002, type_str="int", declared_in=["a.c"])
+        report = verify_bss_layout(self._scan([g1, g2]), {".bss": {"va": 0x2000, "size": 0x100}})
+        assert report.gaps == []  # 2-byte overlap/alignment, < 4 threshold
+
+    def test_coverage_sum(self) -> None:
+        from rebrew.data import GlobalEntry, verify_bss_layout
+
+        g1 = GlobalEntry(name="g_a", va=0x2000, type_str="int", declared_in=["a.c"])
+        g2 = GlobalEntry(name="g_b", va=0x2004, type_str="char", declared_in=["a.c"])
+        report = verify_bss_layout(self._scan([g1, g2]), {".bss": {"va": 0x2000, "size": 0x100}})
+        assert report.coverage_bytes == 4 + 1
+
+
+class TestBssFixDryRun:
+    def test_dry_run_does_not_write(self, tmp_path: Path) -> None:
+        from rebrew.data import BssReport, _generate_bss_fix
+
+        report = BssReport(
+            gaps=[type("Gap", (), {"offset": 0x5000, "size": 0x100, "before": "a", "after": "b"})()]
+        )
+        _generate_bss_fix(report, tmp_path, "SERVER", dry_run=True)
+        assert not (tmp_path / "bss_padding.c").exists()
+        assert not (tmp_path / "rebrew-data.toml").exists()
+
+    def test_fix_writes(self, tmp_path: Path) -> None:
+        from rebrew.data import BssReport, _generate_bss_fix
+
+        report = BssReport(
+            gaps=[type("Gap", (), {"offset": 0x5000, "size": 0x100, "before": "a", "after": "b"})()]
+        )
+        _generate_bss_fix(report, tmp_path, "SERVER")
+        assert (tmp_path / "bss_padding.c").exists()
+
+
+class TestBuildDispatchKnownFunctions:
+    """Dispatch naming must merge function-list/Ghidra-structure names for
+    targets no source file covers (e.g. FLIRT-identified CRT functions)."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        src = tmp_path / "src" / "SERVER"
+        src.mkdir(parents=True, exist_ok=True)
+        func_list = tmp_path / "functions.txt"
+        func_list.write_text("0x1000 fcn_a 32\n0x2000 crt_handler 64\n", encoding="utf-8")
+        (tmp_path / "fake.dll").write_bytes(b"\x00" * 16)
+        return SimpleNamespace(
+            root=tmp_path,
+            target_name="SERVER",
+            reversed_dir=src,
+            function_list=func_list,
+            metadata_dir=tmp_path,
+            marker="SERVER",
+            target_binary=tmp_path / "fake.dll",
+            source_ext=".c",
+            iat_thunks=[],
+            dll_exports={},
+        )
+
+    def test_source_annotations_take_precedence(self, tmp_path: Path) -> None:
+        from rebrew.data import _build_dispatch_known_functions
+
+        cfg = self._cfg(tmp_path)
+        src = cfg.reversed_dir / "f.c"
+        src.write_text(
+            "// FUNCTION: SERVER 0x1000\n// SIZE: 32\nint fcn_a(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        known = _build_dispatch_known_functions(cfg, cfg.reversed_dir)  # type: ignore[arg-type]
+        # Source annotation wins over the function list for 0x1000.
+        assert known[0x1000]["name"] == "fcn_a"
+        assert known[0x1000]["status"] == "STUB"  # no STATUS line in the block
+
+    def test_registry_names_merged(self, tmp_path: Path) -> None:
+        from rebrew.data import _build_dispatch_known_functions
+
+        cfg = self._cfg(tmp_path)
+        known = _build_dispatch_known_functions(cfg, cfg.reversed_dir)  # type: ignore[arg-type]
+        # No source files — the function-list registry provides the name.
+        assert known[0x2000]["name"] == "crt_handler"
+        assert known[0x2000]["status"] == ""
+
+    def test_missing_function_list_tolerated(self, tmp_path: Path) -> None:
+        from rebrew.data import _build_dispatch_known_functions
+
+        cfg = self._cfg(tmp_path)
+        cfg.function_list = tmp_path / "nope.txt"  # type: ignore[attr-defined]
+        known = _build_dispatch_known_functions(cfg, cfg.reversed_dir)  # type: ignore[arg-type]
+        assert known == {}
+
+
+class TestBssFixMessage:
+    """--fix-bss must not claim "layout perfect" when there is nothing to
+    verify (zero annotated BSS globals)."""
+
+    def test_no_gaps_with_known_entries_perfect(self, tmp_path: Path, capsys) -> None:
+        from rebrew.data import BssEntry, BssReport, _generate_bss_fix
+
+        report = BssReport(
+            bss_va=0x1000,
+            bss_size=0x100,
+            known_entries=[BssEntry(va=0x1000, name="g_a", size_hint=16, source_file="a.c")],
+        )
+        _generate_bss_fix(report, tmp_path, "TEST")
+        assert "Layout is perfect" in capsys.readouterr().err
+
+    def test_no_gaps_without_entries_not_perfect(self, tmp_path: Path, capsys) -> None:
+        from rebrew.data import BssReport, _generate_bss_fix
+
+        report = BssReport(bss_va=0x1000, bss_size=0x100)
+        _generate_bss_fix(report, tmp_path, "TEST")
+        out = capsys.readouterr().err
+        assert "Layout is perfect" not in out
+        assert "nothing to verify" in out
+        assert not (tmp_path / "bss_padding.c").exists()

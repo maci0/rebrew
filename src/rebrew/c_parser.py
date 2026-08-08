@@ -74,11 +74,19 @@ def _get_parser() -> tuple[Any, Any]:
         return _parser, _language
 
 
+def _get_ts_parser() -> tuple[Any, Any] | None:
+    """Return a cached (parser, language) pair, or None if tree-sitter is unavailable."""
+    try:
+        return _get_parser()
+    except ImportError:
+        return None
+
+
 def _parse(source: str | bytes) -> Any:
     """Parse C source and return (tree, source_bytes) as a tuple."""
     parser, _ = _get_parser()
     if isinstance(source, str):
-        source = source.encode("utf-8")
+        source = source.encode("utf-8", errors="surrogatepass")
     return parser.parse(source), source
 
 

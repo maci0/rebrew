@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from typer.testing import CliRunner
 
 from rebrew.merge import app
@@ -192,3 +193,183 @@ class TestMergeBasic:
         assert "// STRUCT: Foo" in text
         assert "// CALLERS: _caller" in text
         assert "// GLOBALS: g1, g2" in text
+
+
+class TestMergeHelpers:
+    def test_block_metadata_extracts_marker(self) -> None:
+        from rebrew.merge import _block_metadata
+
+        meta = _block_metadata("// FUNCTION: SERVER 0x10001000\nint f(void) {}\n")
+        assert meta == {"module": "SERVER", "va": 0x10001000}
+
+    def test_block_metadata_no_marker_returns_none(self) -> None:
+        from rebrew.merge import _block_metadata
+
+        assert _block_metadata("int f(void) {}\n") is None
+
+    def test_merge_preambles_dedups_and_collapses_blanks(self) -> None:
+        from rebrew.merge import _merge_preambles
+
+        out = _merge_preambles(
+            ["#include <a.h>\n\n#include <a.h>\n\nint x;\n", "#include <b.h>\n\n\n"]
+        )
+        assert out.count("#include <a.h>") == 1
+        assert out.count("#include <b.h>") == 1
+        # No double blank lines inside; trailing blanks stripped.
+        assert "\n\n\n" not in out
+        assert not out.endswith("\n\n\n")
+
+    def test_merge_preambles_empty(self) -> None:
+        from rebrew.merge import _merge_preambles
+
+        assert _merge_preambles(["", ""]) == ""
+
+    def test_collect_input_files_filters_extension(self, tmp_path: Path) -> None:
+        from rebrew.merge import _collect_input_files
+
+        a = _write(tmp_path / "a.c", "")
+        _write(tmp_path / "b.h", "")
+        files = _collect_input_files([str(a), str(tmp_path / "b.h")], _make_cfg(tmp_path))
+        assert files == [a]  # .h filtered out, .c kept, deduped
+
+
+class TestMergeErrors:
+    def test_no_sources_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import typer
+
+        from rebrew.merge import main
+
+        monkeypatch.setattr(
+            "rebrew.merge.require_config",
+            lambda target=None, json_mode=False: _make_cfg(Path("/tmp")),
+        )
+        with pytest.raises(typer.Exit):
+            main(sources=[], output="out.c")
+
+    def test_fewer_than_two_valid_files_errors(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import typer
+
+        from rebrew.merge import main
+
+        a = _write(tmp_path / "a.c", _single(0x1000, "_a"))
+        monkeypatch.setattr(
+            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
+        with pytest.raises(typer.Exit):
+            main(sources=[str(a)], output=str(tmp_path / "out.c"))
+
+    def test_non_matching_module_blocks_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import typer
+
+        from rebrew.merge import main
+
+        # Both files use module GAME but cfg.marker is SERVER → no matching blocks.
+        a = _write(tmp_path / "a.c", _single(0x1000, "_a", module="GAME"))
+        b = _write(tmp_path / "b.c", _single(0x2000, "_b", module="GAME"))
+        monkeypatch.setattr(
+            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
+        with pytest.raises(typer.Exit):
+            main(sources=[str(a), str(b)], output=str(tmp_path / "out.c"))
+
+
+class TestMergeInputScanning:
+    def test_directory_input_scanned(self, tmp_path: Path, monkeypatch: Any) -> None:
+        sub = tmp_path / "src" / "SERVER"
+        sub.mkdir(parents=True)
+        _write(sub / "a.c", _single(0x1000, "_fn_a"))
+        _write(sub / "b.c", _single(0x2000, "_fn_b"))
+        result, out = _invoke(tmp_path, monkeypatch, str(sub))
+        assert result.exit_code == 0
+        assert out.exists()
+        text = out.read_text(encoding="utf-8")
+        assert "fn_a" in text and "fn_b" in text
+
+    def test_missing_file_skipped(self, tmp_path: Path, monkeypatch: Any) -> None:
+        _write(tmp_path / "a.c", _single(0x1000, "_fn_a"))
+        _write(tmp_path / "b.c", _single(0x2000, "_fn_b"))
+        result, out = _invoke(
+            tmp_path,
+            monkeypatch,
+            str(tmp_path / "nope.c"),
+            str(tmp_path / "a.c"),
+            str(tmp_path / "b.c"),
+        )
+        assert result.exit_code == 0
+        text = out.read_text(encoding="utf-8")
+        assert "fn_a" in text and "fn_b" in text
+
+    def test_wrong_extension_skipped(self, tmp_path: Path, monkeypatch: Any) -> None:
+        _write(tmp_path / "a.txt", _single(0x1000, "_fn_a"))
+        _write(tmp_path / "a.c", _single(0x1000, "_fn_a"))
+        _write(tmp_path / "b.c", _single(0x2000, "_fn_b"))
+        result, out = _invoke(
+            tmp_path,
+            monkeypatch,
+            str(tmp_path / "a.txt"),
+            str(tmp_path / "a.c"),
+            str(tmp_path / "b.c"),
+        )
+        assert result.exit_code == 0
+        text = out.read_text(encoding="utf-8")
+        assert "fn_a" in text and "fn_b" in text
+
+    def test_duplicate_input_deduplicated(self, tmp_path: Path, monkeypatch: Any) -> None:
+        _write(tmp_path / "a.c", _single(0x1000, "_fn_a"))
+        _write(tmp_path / "b.c", _single(0x2000, "_fn_b"))
+        result, out = _invoke(
+            tmp_path,
+            monkeypatch,
+            str(tmp_path / "a.c"),
+            str(tmp_path / "a.c"),
+            str(tmp_path / "b.c"),
+        )
+        assert result.exit_code == 0
+        text = out.read_text(encoding="utf-8")
+        assert text.count("fn_a") == 2  # once in the marker, once in the body
+
+    def test_delete_skips_output_itself(self, tmp_path: Path, monkeypatch: Any) -> None:
+        _write(tmp_path / "a.c", _single(0x1000, "_fn_a"))
+        _write(tmp_path / "b.c", _single(0x2000, "_fn_b"))
+        out = tmp_path / "merged.c"
+        monkeypatch.setattr(
+            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
+        result = runner.invoke(
+            app,
+            [
+                "--output",
+                str(out),
+                "--delete",
+                "--force",
+                str(tmp_path / "a.c"),
+                str(tmp_path / "b.c"),
+            ],
+        )
+        assert result.exit_code == 0
+        assert not (tmp_path / "a.c").exists()
+        assert not (tmp_path / "b.c").exists()
+        assert out.exists()
+
+
+class TestMergeCommentPreamble:
+    def test_strips_decomp_comment_blocks_from_preamble(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Ghidra decompilation-reference blocks must not pollute the merge
+        preamble (naive union breaks the /* */ nesting → C2143 on compile)."""
+        decomp = "/* Ghidra decompilation reference:\n * Symbol: _a\n */\n#include <stdio.h>\n"
+        a = _write(tmp_path / "a.c", _single(0x10001000, "_a", preamble=decomp))
+        b = _write(tmp_path / "b.c", _single(0x10002000, "_b", preamble=decomp))
+        _invoke(tmp_path, monkeypatch, str(a), str(b))
+        out = tmp_path / "merged.c"
+        text = out.read_text(encoding="utf-8")
+        assert "#include <stdio.h>" in text
+        assert "Ghidra decompilation reference" not in text
+        assert "Symbol: _a" not in text
+        # Both markers survive.
+        assert "0x10001000" in text and "0x10002000" in text

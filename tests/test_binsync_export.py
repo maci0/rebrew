@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -312,3 +313,89 @@ class TestBinsyncExportJson:
         assert "function_files" in data
         assert data["functions"] == 1
         assert data["globals"] == 0
+
+
+class TestBinsyncWriters:
+    def test_global_vars_toml_sorted_and_size_skipped(self, tmp_path: Path) -> None:
+        from rebrew.binsync_export import _write_global_vars_toml
+
+        out = tmp_path / "global_vars.toml"
+        _write_global_vars_toml(out, [(0x2000, "g_b", 0), (0x1000, "g_a", 4)])
+        text = out.read_text()
+        # Sorted by VA → g_a (0x1000) first.
+        assert text.index("g_a") < text.index("g_b")
+        # size omitted when 0, present when > 0.
+        assert "size = 4" in text
+        assert text.count("size =") == 1
+
+    def test_struct_toml_placeholder(self, tmp_path: Path) -> None:
+        from rebrew.binsync_export import _write_struct_toml
+
+        out = tmp_path / "structs" / "NPSTATE.toml"
+        out.parent.mkdir()
+        _write_struct_toml(out, "NPSTATE")
+        assert "NPSTATE" in out.read_text()
+
+
+class TestBinsyncGhidraComment:
+    def test_ghidra_name_differing_from_symbol(self, tmp_path: Path) -> None:
+        from rebrew.binsync_export import _write_function_toml
+
+        out = tmp_path / "f.toml"
+        _write_function_toml(
+            out,
+            name="local_name",
+            va=0x1000,
+            size=10,
+            prototype="",
+            status="EXACT",
+            cflags="",
+            note="",
+            ghidra="ghidra_name",
+        )
+        content = out.read_text(encoding="utf-8")
+        assert "[rebrew:ghidra] ghidra_name" in content
+
+    def test_ghidra_name_matching_symbol_omitted(self, tmp_path: Path) -> None:
+        from rebrew.binsync_export import _write_function_toml
+
+        out = tmp_path / "f.toml"
+        _write_function_toml(
+            out,
+            name="same_name",
+            va=0x1000,
+            size=10,
+            prototype="",
+            status="EXACT",
+            cflags="",
+            note="",
+            ghidra="same_name",
+        )
+        assert "[rebrew:ghidra]" not in out.read_text(encoding="utf-8")
+
+
+class TestBinsyncStructNames:
+    def test_struct_annotation_creates_struct_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.binsync_export import app
+
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=tmp_path / "src" / "SERVER",
+            metadata_dir=tmp_path,
+            marker="SERVER",
+            source_ext=".c",
+        )
+        cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
+        (cfg.reversed_dir / "f.c").write_text(
+            "// FUNCTION: SERVER 0x1000\n// STRUCT: MyStruct\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr("rebrew.binsync_export.require_config", lambda **kw: cfg)
+        outdir = tmp_path / "binsync"
+        result = CliRunner().invoke(app, ["--json", str(outdir)])
+        assert result.exit_code == 0
+        assert (outdir / "structs" / "MyStruct.toml").exists()

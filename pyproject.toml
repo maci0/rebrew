@@ -1,16 +1,27 @@
 [build-system]
-requires = ["setuptools>=68.0"]
+# Pin upper bound so PEP 517 isolated builds cannot silently pick a new
+# setuptools major that changes wheel/sdist layout or metadata.
+requires = ["setuptools>=68.0,<81"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "rebrew"
-version = "0.1.0"
+# Single source of truth: rebrew.__version__ (see [tool.setuptools.dynamic]).
+dynamic = ["version"]
 description = "Compiler-in-the-loop decompilation workbench for binary-matching game reversing"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Marcel W. Wysocki", email = "maci.stgn@gmail.com" },
+]
 requires-python = ">=3.12"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Disassemblers",
 ]
 dependencies = [
@@ -37,15 +48,22 @@ rebrew = "rebrew.main:main"
 rebrew-round-trip = "rebrew.round_trip:main_entry"
 rebrew-skills = "rebrew.skills:main_entry"
 
+[project.urls]
+Homepage = "https://github.com/maci0/rebrew"
+Repository = "https://github.com/maci0/rebrew"
+
+[tool.setuptools.dynamic]
+version = { attr = "rebrew.__version__" }
+
 [tool.setuptools.package-data]
-rebrew = ["agent-skills/**/*.md", "*.template"]
+rebrew = ["agent-skills/**/*.md", "*.template", "PRINCIPLES.md"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 filterwarnings = [
     # LIEF C extension emits this when parsing minimal Mach-O stubs with zeroed headers
     "ignore:0 is not a valid CPU_TYPE:RuntimeWarning",
@@ -75,10 +93,12 @@ package = true
 
 [dependency-groups]
 dev = [
+    "mypy>=2.1,<3",
     "pytest>=9.0.2",
     "slipcover>=1.0.17",
     "ruff>=0.3",
     "pre-commit>=4.5.1",
+    "hypothesis>=6.165.2",
 ]
 
 [tool.mypy]

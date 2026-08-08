@@ -206,6 +206,8 @@ def classify_compare_result(
         status = "SIZE_MISMATCH"
     elif match_percent >= NEAR_MATCH_THRESHOLD * 100:
         status = "NEAR_MATCHING"
+        if msg and not msg.startswith("NEAR_MATCHING"):
+            msg = f"{msg} - run 'rebrew match <file> --flag-sweep-only' to try flag variants"
     else:
         status = "STUB"
 
@@ -582,11 +584,15 @@ def compile_and_compare(
             )
             if size_mismatch:
                 # Length differs even if the common prefix matches — never EXACT/RELOC.
+                # The hint uses the VA when known (rebrew diff resolves VAs);
+                # otherwise the generic source placeholder.
+                va_hint = f"0x{section_va:08x}" if section_va else "<source>"
                 return classify_compare_result(
                     False,
                     (
                         f"SIZE_MISMATCH: Size {orig_obj_len}B vs {orig_tgt_len}B "
-                        f"({_total - _match_count} byte diffs in common prefix)"
+                        f"({_total - _match_count} byte diffs in common prefix) — "
+                        f"run 'rebrew diff {va_hint}' to see the byte differences"
                     ),
                     target_bytes,
                     obj_bytes,

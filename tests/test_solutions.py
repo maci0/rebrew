@@ -9,7 +9,9 @@ from rebrew.matcher.solutions import (
     SolutionEntry,
     _normalize_cflags,
     find_similar,
+    load_ga_runs,
     load_solutions,
+    record_ga_run,
     save_solution,
 )
 
@@ -68,6 +70,28 @@ class TestLoadSave:
         assert len(loaded) == 1
         assert loaded[0].symbol == "_func_a"
         assert loaded[0].cflags == "/O2 /Gd"
+
+    def test_absolute_source_stored_root_relative(self, project_root: Path) -> None:
+        abs_src = project_root / "src" / "a.c"
+        abs_src.parent.mkdir(parents=True, exist_ok=True)
+        abs_src.write_text("int f(void){return 0;}")
+        save_solution(
+            project_root,
+            SolutionEntry(symbol="_f", cflags="/O2", size=8, source_file=str(abs_src)),
+        )
+        loaded = load_solutions(project_root)
+        assert loaded[0].source_file == "src/a.c"
+        # The reader resolves it as project_root / source_file.
+        assert (project_root / loaded[0].source_file).exists()
+
+    def test_source_outside_root_kept_absolute(self, tmp_path: Path, project_root: Path) -> None:
+        outside = tmp_path.parent / "outside_b.c"  # sibling of the project root
+        outside.write_text("int g(void){return 0;}")
+        save_solution(
+            project_root,
+            SolutionEntry(symbol="_g", cflags="/O2", size=8, source_file=str(outside)),
+        )
+        assert Path(load_solutions(project_root)[0].source_file).is_absolute()
 
     def test_dedup_by_symbol(self, project_root: Path) -> None:
         e1 = SolutionEntry(
@@ -191,3 +215,93 @@ class TestNormalizeCflags:
 
     def test_empty(self) -> None:
         assert _normalize_cflags("") == ""
+
+
+class TestTargetScoping:
+    """Multi-target: solutions dedupe by (target, symbol), not symbol alone."""
+
+    def _entry(self, symbol: str, target: str = "", cflags: str = "/O2") -> SolutionEntry:
+        return SolutionEntry(
+            symbol=symbol,
+            cflags=cflags,
+            size=64,
+            source_file=f"{symbol}.c",
+            target=target,
+        )
+
+    def test_dedup_by_target_and_symbol(self, project_root: Path) -> None:
+        save_solution(project_root, self._entry("_func_a", target="SERVER"))
+        save_solution(project_root, self._entry("_func_a", target="CLIENT"))
+        loaded = load_solutions(project_root)
+        assert len(loaded) == 2
+        assert {(e.target, e.symbol) for e in loaded} == {
+            ("SERVER", "_func_a"),
+            ("CLIENT", "_func_a"),
+        }
+
+    def test_same_target_same_symbol_replaced(self, project_root: Path) -> None:
+        save_solution(project_root, self._entry("_func_a", target="SERVER", cflags="/O2"))
+        save_solution(project_root, self._entry("_func_a", target="SERVER", cflags="/O1"))
+        loaded = load_solutions(project_root)
+        assert len(loaded) == 1
+        assert loaded[0].cflags == "/O1"
+
+    def test_legacy_entries_load_without_target(self, project_root: Path) -> None:
+        """Old JSON without a 'target' field still loads (defaults to '')."""
+        p = project_root / ".rebrew" / "solutions.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(
+            '[{"symbol": "_old", "cflags": "/O2", "size": 16, "source_file": "old.c"}]\n',
+            encoding="utf-8",
+        )
+        loaded = load_solutions(project_root)
+        assert len(loaded) == 1
+        assert loaded[0].target == ""
+        assert loaded[0].symbol == "_old"
+
+    def test_find_similar_prefers_same_target(self, project_root: Path) -> None:
+        save_solution(project_root, self._entry("_a", target="CLIENT", cflags="/O2"))
+        save_solution(project_root, self._entry("_b", target="SERVER", cflags="/O2"))
+        result = find_similar(project_root, size=64, target="SERVER")
+        assert result[0].target == "SERVER"
+        assert result[0].symbol == "_b"
+
+    def test_find_similar_without_target_keeps_legacy_order(self, project_root: Path) -> None:
+        save_solution(project_root, self._entry("_a", target="", cflags="/O2"))
+        save_solution(project_root, self._entry("_b", target="SERVER", cflags="/O2"))
+        result = find_similar(project_root, size=64)
+        # Unscoped query: legacy entries first (flag 0), then target-scoped.
+        assert result[0].symbol == "_a"
+
+
+class TestGaRunHistory:
+    def test_record_appends(self, project_root: Path) -> None:
+        record_ga_run(project_root, target="SERVER", va=0x1000, symbol="_a", matched=True)
+        record_ga_run(project_root, target="SERVER", va=0x2000, symbol="_b", matched=False)
+        runs = load_ga_runs(project_root)
+        assert len(runs) == 2
+        # Newest first
+        assert runs[0]["symbol"] == "_b"
+        assert runs[0]["matched"] is False
+        assert runs[1]["symbol"] == "_a"
+
+    def test_target_filter(self, project_root: Path) -> None:
+        record_ga_run(project_root, target="SERVER", va=0x1000, symbol="_a", matched=True)
+        record_ga_run(project_root, target="CLIENT", va=0x1000, symbol="_a", matched=False)
+        runs = load_ga_runs(project_root, target="CLIENT")
+        assert len(runs) == 1
+        assert runs[0]["target"] == "CLIENT"
+
+    def test_limit_and_missing_file(self, project_root: Path) -> None:
+        assert load_ga_runs(project_root) == []
+        for i in range(5):
+            record_ga_run(project_root, target="S", va=0x1000 + i, symbol=f"_f{i}", matched=True)
+        assert len(load_ga_runs(project_root, limit=2)) == 2
+
+    def test_malformed_lines_skipped(self, project_root: Path) -> None:
+        p = project_root / ".rebrew" / "ga_runs.jsonl"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text('{"symbol": "ok"}\nnot-json\n[1, 2]\n', encoding="utf-8")
+        runs = load_ga_runs(project_root)
+        assert len(runs) == 1
+        assert runs[0]["symbol"] == "ok"

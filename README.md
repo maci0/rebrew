@@ -16,8 +16,9 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 |------|-------------|
 | `rebrew test` | Compile your C and diff it byte-by-byte against the original binary |
 | `rebrew match` | GA engine — single file or batch (`--all`); brute-force compiler flags and mutate source to find exact byte matches |
-| `rebrew verify` | Bulk compile + report match status; always auto-updates metadata; `--compare` for CI regression checks |
+| `rebrew verify` | Bulk compile + report match status; always auto-updates metadata; `--compare` for CI regression checks; `--watch` re-verifies on every change |
 | `rebrew prove` | Symbolic equivalence via angr + Z3 — mathematically prove NEAR_MATCHING functions are equivalent |
+| `rebrew near-diag` | Classify *why* a NEAR_MATCHING function misses: register allocation, equivalent instruction selection, relocation masking, or structural layout |
 
 ### Authoring
 
@@ -39,6 +40,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | `rebrew data` | Inventory `.data`/`.rdata`/`.bss` globals; detect dispatch tables and vtables |
 | `rebrew flirt` | Identify known library functions via FLIRT signatures — no IDA required |
 | `rebrew crt-match` | Cross-reference functions against CRT/library source directories |
+| `rebrew similar` | Rank binary functions by structural similarity to a solved function — find which STUBs share its source family |
 
 ### Infrastructure
 
@@ -52,7 +54,9 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | `rebrew cfg` | Read/write `rebrew-project.toml` settings |
 | `rebrew extract` | Batch extract function bytes and disassembly |
 | `rebrew binsync-export` | Export source markers and metadata to BinSync state directory (IDA/BinNinja import) |
+| `rebrew round-trip` | Splice matched functions back into the target PE and verify byte equality |
 | `rebrew asm` | Quick offline disassembly |
+| `rebrew skills` | List/show the bundled agent skills |
 | `rebrew sync` | Push/pull source markers, metadata, labels, structs, and comments to Ghidra via ReVa MCP |
 
 ### Design
@@ -201,10 +205,12 @@ rebrew sync --pull --dry-run        # preview pull without modifying files
 
 ```bash
 cd rebrew/
-uv sync --all-extras       # install dev dependencies
-uv run pytest tests/ -v    # run tests (~1784 tests)
-uv run ruff check .        # lint
-uv run ruff format .       # format
+make setup                 # uv sync --frozen --all-extras + pre-commit hooks
+# or: uv sync --frozen --all-extras
+uv run pytest tests/ -v    # run tests
+uv run ruff check src/ tests/ tools/
+uv run ruff format src/ tests/ tools/
+make build                 # sdist + wheel (SOURCE_DATE_EPOCH / TZ=UTC for deterministic wheels)
 python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me
 ```
 

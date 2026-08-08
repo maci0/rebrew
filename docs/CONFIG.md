@@ -241,11 +241,23 @@ Only the keys you specify in the per-target `[compiler]` section override the gl
 
 ## Validation
 
-The config loader will emit warnings if:
-- Unrecognized keys are found in `rebrew-project.toml` (likely typos).
-- `format` is not `pe`, `elf`, or `macho`.
+The config loader fail-fasts on missing/invalid structure:
+- No `[targets]`, missing `default_target`, unknown target name, or missing/empty `binary`.
+- Non-string or empty `project.default_target`.
+- Explicitly empty path fields or `compiler.command` (these otherwise resolve to the project
+  root or fail only when a compiler subprocess is launched).
+
+It emits warnings (and applies safe defaults) if:
+- Unrecognized keys are found in top-level, project, global compiler, target, or per-target
+  compiler tables (likely typos).
+- `format` is not `pe`, `elf`, or `macho` (falls back to `pe` — never stores the bad value).
 - `arch` is not one of the known presets (falls back to `x86_32`).
-- `profile` is not a known compiler profile.
+- `profile` is not a known compiler profile (falls back to `msvc6`).
+- String fields (`cflags`, `base_cflags`, `marker`, …) have non-string types.
+
+`cflags` are user-facing defaults (e.g. `/O2 /Gd`). `base_cflags` are always-on
+flags prepended by the compile helpers (default `/nologo /c /MT`) and must not be
+passed as `--cflags` overrides.
 
 For a full toolchain health check, run `rebrew doctor`.
 

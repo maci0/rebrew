@@ -110,6 +110,79 @@ def print_structural_similarity(sim: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _global_name_map(cfg: Any) -> dict[int, str]:
+    """Build a VA → global-name map (inverse of build_name_to_va)."""
+    from rebrew.core import build_name_to_va
+
+    try:
+        return {v: n for n, v in build_name_to_va(cfg).items() if v}
+    except Exception:  # noqa: BLE001 — best-effort name resolution
+        return {}
+
+
+def _resolve_global_names(instructions: list[dict[str, Any]], cfg: Any) -> None:
+    """Rewrite absolute addresses in the diff disasm to global names in place.
+
+    ``mov eax, dword ptr [0x10034640]`` → ``mov eax, dword ptr [g_stat1]``
+    when the data scan knows the global — makes diffs far more readable.
+    """
+    name_by_va = _global_name_map(cfg)
+    if not name_by_va:
+        return
+
+    def _sub(disasm: str) -> str:
+        import re
+
+        def _rep(m: re.Match[str]) -> str:
+            va = int(m.group(0), 16)
+            return name_by_va.get(va, m.group(0))
+
+        return re.sub(r"0x[0-9a-fA-F]+", _rep, disasm)
+
+    for row in instructions:
+        if not isinstance(row, dict):
+            continue
+        for side in ("target", "candidate"):
+            obj = row.get(side)
+            if isinstance(obj, dict) and obj.get("disasm"):
+                obj["disasm"] = _sub(obj["disasm"])
+
+
+def _missing_global_hints(instructions: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Detect candidate references to absolute address 0 (unresolved globals).
+
+    MSVC compiles a reference to an extern into a relocation (shown as
+    ``[0]`` in the candidate disasm) — that is normal and masked by the
+    reloc-aware comparison (``~~`` rows).  A ``[0]`` operand on a
+    NON-reloc row means the address genuinely didn't resolve (missing
+    definition), which source mutation cannot fix — the user must add a
+    ``// GLOBAL:`` annotation (or extern) for the target address.
+    """
+    hints: list[dict[str, str]] = []
+    for row in instructions:
+        if not isinstance(row, dict):
+            continue
+        if row.get("match") in ("~~", "=="):
+            continue  # reloc-masked extern or exact match — normal
+        c_obj = row.get("candidate") or {}
+        c_data = c_obj if isinstance(c_obj, dict) else {}
+        c_disasm = c_data.get("disasm", "")
+        if "[0]" not in c_disasm and " 0x0" not in c_disasm:
+            continue
+        t_obj = row.get("target") or {}
+        t_data = t_obj if isinstance(t_obj, dict) else {}
+        hints.append({"candidate": c_disasm, "target": t_data.get("disasm", "")})
+    # Deduplicate by candidate disasm.
+    seen: set[str] = set()
+    out: list[dict[str, str]] = []
+    for h in hints:
+        if h["candidate"] in seen:
+            continue
+        seen.add(h["candidate"])
+        out.append(h)
+    return out
+
+
 def run_diff(
     seed_c: str,
     mismatches_only: bool,
@@ -162,6 +235,12 @@ def run_diff(
             register_aware=register_aware,
         )
 
+    if isinstance(summary, dict) and summary.get("instructions"):
+        _resolve_global_names(summary["instructions"], p.cfg)
+    missing_globals = _missing_global_hints(
+        summary.get("instructions", []) if isinstance(summary, dict) else []
+    )
+
     has_structural = False
     if summary:
         blockers = classify_blockers(summary)
@@ -180,6 +259,8 @@ def run_diff(
             }
             if blockers:
                 summary["blockers"] = blockers
+            if missing_globals:
+                summary["missing_globals"] = missing_globals
             json_print(summary)
         elif csv_output:
             writer = csv.writer(sys.stdout)
@@ -209,6 +290,12 @@ def run_diff(
                     ]
                 )
         else:
+            if missing_globals:
+                console.print(
+                    f"\n[yellow]hint:[/yellow] {len(missing_globals)} unresolved global "
+                    "reference(s) ([0] operand) — add a GLOBAL annotation for the "
+                    "target address"
+                )
             if blockers:
                 console.print("\nAuto-classified blockers:")
                 for b in blockers:
@@ -256,6 +343,7 @@ def run_diff(
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
     "  rebrew diff src/game/my_func.c · · · · · · · · Show full byte diff\n\n"
+    "  rebrew diff 0x10009310 · · · · · · · · · · · · Resolve VA to its source and diff\n\n"
     "  rebrew diff src/game/my_func.c --mm · · · · · · Show only structural mismatches (**)\n\n"
     "  rebrew diff src/game/my_func.c --rr · · · · · · Normalize register encodings (mark as RR)\n\n"
     "  rebrew diff src/game/my_func.c --fix-blocker · · Auto-write BLOCKER from diff analysis\n\n"
@@ -278,7 +366,7 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    seed_c: str = typer.Argument(..., help="Seed source file (.c)"),
+    seed_c: str = typer.Argument(..., help="C source file, symbol name, or VA (hex)"),
     mismatches_only: bool = typer.Option(
         False,
         "--mismatches-only",
@@ -305,6 +393,9 @@ def main(
     ignore_lint: bool = typer.Option(
         False, "--ignore-lint", help="Continue even if source marker lint errors exist"
     ),
+    watch: bool = typer.Option(
+        False, "--watch", help="Watch the seed source and re-diff on every change"
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -316,12 +407,41 @@ def main(
 
     cfg = require_config(target=target, json_mode=json_output)
 
+    # Accept a hex VA or symbol name in addition to a .c path, like
+    # `rebrew prove`/`rebrew test` (resolve_source_arg returns the argument
+    # unchanged when nothing matches, so the original error path is kept).
+    from rebrew.cli import resolve_source_arg
+
+    seed_c = str(resolve_source_arg(cfg, seed_c))
+
     # Resolve build parameters via match module's shared resolver
     from rebrew.match import resolve_build_params
 
     params = resolve_build_params(
         cfg, seed_c, None, None, None, None, None, None, ignore_lint, json_output
     )
+
+    if watch:
+        from rebrew.utils import watch_files
+
+        seed_path = Path(seed_c).resolve()
+
+        def _retest() -> None:
+            # Re-run the full single-function diff path; --watch must not nest.
+            main(
+                seed_c=seed_c,
+                mismatches_only=mismatches_only,
+                register_aware=register_aware,
+                fix_blocker=fix_blocker,
+                fmt=fmt,
+                ignore_lint=ignore_lint,
+                watch=False,
+                json_output=json_output,
+                target=target,
+            )
+
+        watch_files([seed_path], _retest)
+        return
 
     run_diff(seed_c, mismatches_only, register_aware, csv_output, fix_blocker, json_output, params)
 

@@ -358,14 +358,41 @@ def list_uncovered(
     min_size: int = 10,
     max_size: int = 9999,
 ) -> list[tuple[int, int, str]]:
-    """List uncovered functions. Returns [(va, size, ghidra_name)]."""
-    uncovered: list[tuple[int, int, str]] = []
+    """List uncovered functions. Returns [(va, size, name)]."""
     ignored_syms = set(cfg.ignored_symbols or [])
+    # Ghidra cache first (preferred sizes), then function-list-only functions
+    # (r2/radare2) — the cache often misses recently added / CRT functions,
+    # and batch mode must still be able to skeletonize them.
+    funcs_by_va: dict[int, tuple[int, str]] = {}
     for func in ghidra_funcs:
-        va = func.va
-        size = func.size
-        name = func.name if func.name else f"FUN_{va:08x}"
+        name = func.name if func.name else f"FUN_{func.va:08x}"
+        funcs_by_va[func.va] = (func.size, name)
+    func_list_path = getattr(cfg, "function_list", "")
+    # ProjectConfig.function_list defaults to Path() — truthy and resolves to
+    # "." — so guard on is_file(); never parse an unset/missing list.
+    if func_list_path and Path(func_list_path).is_file():
+        try:
+            from rebrew.catalog.loaders import parse_function_list
+            from rebrew.catalog.registry import build_function_registry
 
+            reg = build_function_registry(
+                parse_function_list(Path(func_list_path)),
+                cfg,
+                None,
+                getattr(cfg, "target_binary", None),
+            )
+            for va, entry in reg.items():
+                if entry["canonical_size"] <= 0 or va in funcs_by_va:
+                    continue  # ghidra size wins on conflict
+                funcs_by_va[va] = (
+                    entry["canonical_size"],
+                    entry.get("list_name") or entry.get("ghidra_name") or f"FUN_{va:08x}",
+                )
+        except (OSError, ValueError, KeyError):
+            pass  # no usable function list — ghidra-only batch
+
+    uncovered: list[tuple[int, int, str]] = []
+    for va, (size, name) in funcs_by_va.items():
         if va in existing_vas:
             continue
         if size < min_size or size > max_size:
@@ -453,13 +480,25 @@ def _run_batch_mode(
     xrefs: bool,
     endpoint: str,
     json_output: bool,
+    dry_run: bool = False,
 ) -> None:
     """Generate skeleton files in batch for the smallest uncovered functions."""
     root = cfg.root
     src_dir = cfg.reversed_dir
     uncovered = list_uncovered(ghidra_funcs, existing_vas, cfg, min_size, max_size)
     if not uncovered:
-        console.print("No uncovered functions found matching criteria.")
+        if json_output:
+            json_print(
+                {
+                    "action": "none",
+                    "created": [],
+                    "count": 0,
+                    "dry_run": dry_run,
+                    "message": "No uncovered functions found matching criteria.",
+                }
+            )
+        else:
+            console.print("No uncovered functions found matching criteria.")
         return
 
     count = min(batch, len(uncovered))
@@ -489,13 +528,19 @@ def _run_batch_mode(
             decomp_code=d_code,
             decomp_backend=d_backend,
         )
-        atomic_write_text(filepath, content, encoding="utf-8")
+        if dry_run:
+            console.print(f"[dim]Would create[/dim] {rel_path} ({size_val}B)")
+        else:
+            atomic_write_text(filepath, content, encoding="utf-8")
+            _write_skeleton_metadata(cfg, va_val, size_val, cfg.marker)
 
         symbol_val = "_" + sanitize_name(name_val)
-        cflags_val = cfg.base_cflags or "/O2 /Gd"
+        # User-facing cflags only — base_cflags (/nologo /c /MT) are prepended by compile_to_obj.
+        cflags_val = (getattr(cfg, "cflags", "") or "").strip() or "/O2 /Gd"
         test_cmd = generate_test_command(rel_path, symbol_val, va_val, size_val, cflags_val)
 
-        console.print(f"[bold green]CREATED[/] {rel_path} ({size_val}B)")
+        if not dry_run:
+            console.print(f"[bold green]CREATED[/] {rel_path} ({size_val}B)")
         console.print(f"  [dim]TEST:[/] {test_cmd}")
         created.append(
             {
@@ -508,9 +553,32 @@ def _run_batch_mode(
         )
 
     if json_output:
-        json_print({"created": created, "count": len(created)})
+        key = "would_create" if dry_run else "created"
+        json_print(
+            {
+                "action": key,
+                key: created,
+                "count": len(created),
+                "dry_run": dry_run,
+            }
+        )
     else:
-        console.print(f"\n[bold]Created {len(created)} skeleton files.[/]")
+        label = "Dry run:" if dry_run else "Created"
+        console.print(f"\n[bold]{label} {len(created)} skeleton files.[/]")
+
+
+def _write_skeleton_metadata(cfg: ProjectConfig, va_int: int, size: int, module_val: str) -> None:
+    """Record SIZE for a freshly created skeleton when metadata lacks it.
+
+    Without SIZE the function shows MISSING_SIZE and cannot be verified
+    (rebrew test / verify need it to extract target bytes).  Only fills
+    the gap — never overwrites an existing SIZE or touches STATUS.
+    """
+    from rebrew.metadata import get_entry, update_field
+
+    existing = get_entry(cfg.metadata_dir, va_int, module_val)
+    if "size" not in existing:
+        update_field(cfg.metadata_dir, va_int, "size", size, module=module_val)
 
 
 def _run_append_mode(
@@ -527,6 +595,7 @@ def _run_append_mode(
     xrefs: bool,
     endpoint: str,
     json_output: bool,
+    dry_run: bool = False,
 ) -> None:
     """Append a function annotation block to an existing .c file."""
     root = cfg.root
@@ -574,11 +643,16 @@ def _run_append_mode(
     separator = (
         "" if existing_text.endswith("\n\n") else "\n" if existing_text.endswith("\n") else "\n\n"
     )
-    atomic_write_text(append_path, existing_text + separator + block, encoding="utf-8")
+    if dry_run:
+        console.print(f"[dim]Would append[/dim] to {rel_display_path(append_path, root)}")
+    else:
+        atomic_write_text(append_path, existing_text + separator + block, encoding="utf-8")
+        _write_skeleton_metadata(cfg, va_int, size, module_val)
 
     rel_path_val = rel_display_path(append_path, root)
     symbol_val = "_" + name if name else "_" + sanitize_name(ghidra_name)
-    console.print(f"[bold green]APPENDED[/] to {rel_path_val}:")
+    if not dry_run:
+        console.print(f"[bold green]APPENDED[/] to {rel_path_val}:")
     console.print(f"  VA:     [cyan]0x{va_int:08x}[/]")
     console.print(f"  Size:   {size}B")
     console.print(f"  Symbol: [magenta]{symbol_val}[/]")
@@ -588,7 +662,8 @@ def _run_append_mode(
     if json_output:
         json_print(
             {
-                "action": "appended",
+                "action": "would_append" if dry_run else "appended",
+                "dry_run": dry_run,
                 "file": str(rel_path_val),
                 "va": f"0x{va_int:08x}",
                 "size": size,
@@ -611,6 +686,7 @@ def _run_single_va_mode(
     xrefs: bool,
     endpoint: str,
     json_output: bool,
+    dry_run: bool = False,
 ) -> None:
     """Create a new single-function .c skeleton file."""
     root = cfg.root
@@ -642,11 +718,16 @@ def _run_single_va_mode(
         decomp_code=decomp_code_val,
         decomp_backend=decomp_backend_name,
     )
-    atomic_write_text(filepath_val, content_val, encoding="utf-8")
+    if dry_run:
+        console.print(f"[dim]Would create[/dim] {rel_path_val}")
+    else:
+        atomic_write_text(filepath_val, content_val, encoding="utf-8")
+        _write_skeleton_metadata(cfg, va_int, size, module_val)
 
     # Compute test commands
     symbol_val = "_" + name if name else "_" + sanitize_name(ghidra_name)
-    cflags_val = cfg.base_cflags or "/O2 /Gd"
+    # User-facing cflags only — base_cflags (/nologo /c /MT) are prepended by compile_to_obj.
+    cflags_val = (getattr(cfg, "cflags", "") or "").strip() or "/O2 /Gd"
 
     test_cmd = generate_test_command(str(rel_path_val), symbol_val, va_int, size, cflags_val)
     diff_cmd = generate_diff_command(str(rel_path_val), symbol_val, cflags_val)
@@ -654,7 +735,8 @@ def _run_single_va_mode(
     if json_output:
         json_print(
             {
-                "action": "created",
+                "action": "would_create" if dry_run else "created",
+                "dry_run": dry_run,
                 "file": str(rel_path_val),
                 "va": f"0x{va_int:08x}",
                 "size": size,
@@ -664,7 +746,8 @@ def _run_single_va_mode(
             }
         )
     else:
-        console.print(f"[bold green]Created:[/] {rel_path_val}")
+        if not dry_run:
+            console.print(f"[bold green]Created:[/] {rel_path_val}")
         console.print(f"  VA:     [cyan]0x{va_int:08x}[/]")
         console.print(f"  Size:   {size}B")
         console.print(f"  Symbol: [magenta]{symbol_val}[/]")
@@ -716,6 +799,7 @@ def main(
         "--endpoint",
         help="ReVa MCP endpoint URL",
     ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -725,7 +809,13 @@ def main(
     src_dir = cfg.reversed_dir
 
     ghidra_json = src_dir / FUNCTION_STRUCTURE_JSON
-    ghidra_funcs = load_function_structure(ghidra_json)
+    try:
+        ghidra_funcs = load_function_structure(ghidra_json)
+    except ValueError as exc:
+        # Corrupt cache — exit with a clear error rather than a raw traceback.
+        # (An empty/missing cache is handled by load_function_structure and
+        # falls through to the function-list path below.)
+        error_exit(f"Corrupt {FUNCTION_STRUCTURE_JSON}: {exc}", json_mode=json_output)
     existing_vas = load_existing_vas(src_dir, cfg=cfg)
 
     # --batch mode
@@ -743,6 +833,7 @@ def main(
             xrefs,
             endpoint,
             json_output,
+            dry_run=dry_run,
         )
         return
 
@@ -759,16 +850,59 @@ def main(
             ghidra_entry = func
             break
 
-    if not ghidra_entry:
-        error_exit(f"VA 0x{va_int:08x} not found in ghidra_functions.json", json_mode=json_output)
+    size: int
+    ghidra_name: str
+    if ghidra_entry is not None:
+        size = ghidra_entry.size
+        ghidra_name = ghidra_entry.name if ghidra_entry.name else f"FUN_{va_int:08x}"
+    else:
+        # Fall back to the function list (r2/radare2) — many real functions
+        # (e.g. recently added CRT ones) exist only there, not in the Ghidra
+        # cache.  Use the registry's canonical size when available.
+        from rebrew.catalog.loaders import parse_function_list
+        from rebrew.catalog.registry import build_function_registry
 
-    size = ghidra_entry.size
-    ghidra_name = ghidra_entry.name if ghidra_entry.name else f"FUN_{va_int:08x}"
+        func_list_path = getattr(cfg, "function_list", "")
+        try:
+            list_funcs = (
+                parse_function_list(Path(func_list_path))
+                if func_list_path and Path(func_list_path).is_file()
+                else []
+            )
+            reg_entry = build_function_registry(
+                list_funcs,
+                cfg,
+                None,
+                getattr(cfg, "target_binary", None),
+            ).get(va_int)
+        except (OSError, ValueError, KeyError):
+            reg_entry = None  # no usable function list — fall through to not-found
+        if reg_entry and reg_entry["canonical_size"] > 0:
+            size = reg_entry["canonical_size"]
+            ghidra_name = (
+                reg_entry.get("list_name") or reg_entry.get("ghidra_name") or f"FUN_{va_int:08x}"
+            )
+        else:
+            error_exit(
+                f"VA 0x{va_int:08x} not found in {FUNCTION_STRUCTURE_JSON} or the function list",
+                json_mode=json_output,
+            )
 
     # Check if already covered
     if va_int in existing_vas and not force and not append:
-        console.print(f"Already covered by: {existing_vas[va_int]}")
-        console.print("Use [cyan]--force[/] to overwrite.")
+        covered_by = existing_vas[va_int]
+        if json_output:
+            json_print(
+                {
+                    "action": "none",
+                    "va": f"0x{va_int:08x}",
+                    "covered_by": covered_by,
+                    "message": "Already covered by an existing source file; use --force to overwrite.",
+                }
+            )
+        else:
+            console.print(f"Already covered by: {covered_by}")
+            console.print("Use [cyan]--force[/] to overwrite.")
         raise typer.Exit(code=0)
 
     module_val = cfg.marker  # Use the project marker as module name
@@ -789,6 +923,7 @@ def main(
             xrefs,
             endpoint,
             json_output,
+            dry_run=dry_run,
         )
         return
 
@@ -806,6 +941,7 @@ def main(
         xrefs,
         endpoint,
         json_output,
+        dry_run=dry_run,
     )
 
 

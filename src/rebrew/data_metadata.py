@@ -50,12 +50,39 @@ from typing import TYPE_CHECKING, Any
 
 import tomlkit
 
-from rebrew.utils import atomic_write_text, parse_metadata_key, qualified_key
+from rebrew.utils import (
+    atomic_write_text,
+    build_metadata_doc,
+    load_toml_for_write,
+    parse_metadata_doc,
+    qualified_key,
+)
 
 if TYPE_CHECKING:
     from rebrew.annotation import Annotation
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# In-memory cache for load_data_metadata() — mirrors metadata.py's cache for
+# rebrew-function.toml.  Without it, batch paths that read data metadata per
+# file (lint) or per function (smart_reloc_compare's global-name resolution)
+# re-parse the TOML on every call.  Keyed by resolved Path; invalidated by
+# mtime_ns change or by the write helpers below.
+# ---------------------------------------------------------------------------
+
+_data_metadata_cache: dict[Path, tuple[int, dict[tuple[str, int], dict[str, Any]]]] = {}
+
+
+def _invalidate_data_cache(path: Path) -> None:
+    """Drop the cached parse for *path* (resolved) after a write."""
+    _data_metadata_cache.pop(path.resolve(), None)
+
+
+def clear_data_metadata_cache() -> None:
+    """Clear the in-memory data-metadata cache (see :func:`clear_metadata_cache`)."""
+    _data_metadata_cache.clear()
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -80,6 +107,7 @@ __all__ = [
     "set_data_field",
     "delete_data_field",
     "merge_into_data_annotation",
+    "clear_data_metadata_cache",
 ]
 
 
@@ -121,9 +149,19 @@ def load_data_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]
         directory: The metadata root directory (``cfg.metadata_dir``).
 
     """
-    path = directory / DATA_METADATA_FILENAME
+    path = (directory / DATA_METADATA_FILENAME).resolve()
     if not path.exists():
         return {}
+
+    # Fast mtime-based cache check — avoids re-parsing the same TOML file
+    # during batch operations (lint, verify, round-trip, smart_reloc_compare).
+    try:
+        current_mtime = path.stat().st_mtime_ns
+    except OSError:
+        current_mtime = 0
+    cached = _data_metadata_cache.get(path)
+    if cached is not None and cached[0] == current_mtime:
+        return cached[1]
 
     try:
         doc = tomlkit.parse(path.read_text(encoding="utf-8"))
@@ -131,15 +169,8 @@ def load_data_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]
         logger.warning("Failed to parse data metadata %s: %s", path, exc)
         return {}
 
-    result: dict[tuple[str, int], dict[str, Any]] = {}
-    for key, value in doc.items():
-        parsed = parse_metadata_key(key)
-        if parsed is None:
-            continue
-        module, va_int = parsed
-        if isinstance(value, dict):
-            result[(module, va_int)] = dict(value)
-
+    result = parse_metadata_doc(doc)
+    _data_metadata_cache[path] = (current_mtime, result)
     return result
 
 
@@ -155,25 +186,9 @@ def save_data_metadata(
 
     """
     path = directory / DATA_METADATA_FILENAME
-    doc = tomlkit.document()
-
-    for module, va_int in sorted(data, key=lambda k: (k[0], k[1])):
-        entry = data[(module, va_int)]
-        if not entry:
-            continue
-        toml_key = qualified_key(module, va_int)
-        tbl = tomlkit.table()
-        seen: set[str] = set()
-        for field in _CANONICAL_ORDER:
-            if field in entry:
-                tbl[field] = entry[field]
-                seen.add(field)
-        for field, val in entry.items():
-            if field not in seen:
-                tbl[field] = val
-        doc[toml_key] = tbl
-
+    doc = build_metadata_doc(data, _CANONICAL_ORDER)
     atomic_write_text(path, tomlkit.dumps(doc))
+    _invalidate_data_cache(path)
 
 
 # ---------------------------------------------------------------------------
@@ -212,20 +227,14 @@ def set_data_field(directory: Path, va: int, key: str, value: Any, module: str) 
     path = directory / DATA_METADATA_FILENAME
     toml_key = qualified_key(module, va)
 
-    if path.exists():
-        try:
-            doc = tomlkit.parse(path.read_text(encoding="utf-8"))
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Failed to parse data metadata %s, starting fresh: %s", path, exc)
-            doc = tomlkit.document()
-    else:
-        doc = tomlkit.document()
+    doc = load_toml_for_write(path, "data metadata")
 
     if toml_key not in doc:
         doc[toml_key] = tomlkit.table()
 
-    doc[toml_key][key] = value
+    doc[toml_key][key] = value  # type: ignore[index]
     atomic_write_text(path, tomlkit.dumps(doc))
+    _invalidate_data_cache(path)
 
 
 def delete_data_field(directory: Path, va: int, key: str, module: str) -> None:
@@ -259,6 +268,7 @@ def delete_data_field(directory: Path, va: int, key: str, module: str) -> None:
     if key in entry:
         del entry[key]
         atomic_write_text(path, tomlkit.dumps(doc))
+        _invalidate_data_cache(path)
 
 
 # ---------------------------------------------------------------------------
