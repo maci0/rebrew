@@ -4856,3 +4856,19 @@ logical breaks:
 
 `rebrew test` by VA is intentionally broad (tests all functions in the
 file, truthfully) — not a lie, left as-is.
+
+## 2026-08-09 — Workflow audit round 2: VA-targeting sweep
+
+Swept all VA-accepting tools for the first-annotation fallback pattern:
+
+- **Fixed `rebrew match 0x<va>`** (`4ca3a13`): same wrong-function bug as
+  diff/prove — a positional VA on a multi-function file selected the first
+  annotation.  match's main() now threads the original VA argument into
+  resolve_build_params (like diff).  Verified live: `rebrew match
+  0x1000a010` now targets `_CleanupSockets` (was `exit_handler`).
+- **Verified clean**: near_diag (matches by VA, refuses on mismatch),
+  rename (multi-function auto-rename guard), test (tests all functions
+  truthfully — intentionally broad), parse_source_metadata (single-function
+  legacy helper; per-function callers use parse_c_file_multi directly).
+- New regression test `test_va_selects_matching_annotation` in
+  test_match_cli.py.
