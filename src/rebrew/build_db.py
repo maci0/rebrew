@@ -529,7 +529,23 @@ def build_db(
             console.print(f"Processing {target_name}...")
 
             with json_path.open(encoding="utf-8") as f:
-                data = json.load(f)
+                try:
+                    data = json.load(f)
+                except json.JSONDecodeError as exc:
+                    error_exit(
+                        f"{json_path.name} is not valid JSON: {exc}. Regenerate it "
+                        "with 'rebrew catalog --data-json'.",
+                        json_mode=json_output,
+                        code=EXIT_ERROR,
+                    )
+                if not isinstance(data, dict):
+                    error_exit(
+                        f"{json_path.name} has unexpected shape (expected a JSON "
+                        f"object, got {type(data).__name__}). Regenerate it with "
+                        "'rebrew catalog --data-json'.",
+                        json_mode=json_output,
+                        code=EXIT_ERROR,
+                    )
 
             fn_rows = []
             for va, fn in data.get("functions", {}).items():

@@ -792,3 +792,28 @@ class TestBuildDbForceFlag:
         # Second run: schema matches — should not error even without --force
         build_db(project_root, force=False)
         assert (project_root / "db" / "coverage.db").exists()
+
+
+class TestBuildDbCorruptInput:
+    """Corrupt or mis-shaped data_*.json must fail cleanly with file context."""
+
+    def test_corrupt_json_errors_with_file_context(self, tmp_path: Path) -> None:
+        from click.exceptions import Exit as ClickExit
+
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        (db_dir / "data_bad.json").write_text('{"functions": {"0x1000": {', encoding="utf-8")
+
+        with pytest.raises(ClickExit):
+            build_db(tmp_path)
+
+    def test_non_object_json_errors_with_file_context(self, tmp_path: Path) -> None:
+        """A valid-JSON-but-not-object file (e.g. a JSON array) must name the file."""
+        from click.exceptions import Exit as ClickExit
+
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        (db_dir / "data_bad.json").write_text("[1, 2, 3]", encoding="utf-8")
+
+        with pytest.raises(ClickExit):
+            build_db(tmp_path)
