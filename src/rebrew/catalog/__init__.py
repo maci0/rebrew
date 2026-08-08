@@ -16,12 +16,6 @@ from rebrew.catalog.export import (
 from rebrew.catalog.grid import (
     generate_data_json as generate_data_json,
 )
-from rebrew.catalog.grid import (
-    merge_ranges as merge_ranges,
-)
-from rebrew.catalog.loaders import (
-    extract_dll_bytes as extract_dll_bytes,
-)
 from rebrew.catalog.loaders import (
     load_function_structure as load_function_structure,
 )
@@ -55,14 +49,8 @@ from rebrew.catalog.registry import (
 from rebrew.catalog.registry import (
     make_func_entry as make_func_entry,
 )
-from rebrew.catalog.registry import (
-    make_ghidra_func as make_ghidra_func,
-)
 from rebrew.catalog.sections import (
     get_globals as get_globals,
-)
-from rebrew.catalog.sections import (
-    get_sections as get_sections,
 )
 from rebrew.catalog.sections import (
     get_text_section_size as get_text_section_size,
@@ -78,12 +66,10 @@ __all__ = [
     "app",
     "build_function_registry",
     "count_detection_sources",
-    "extract_dll_bytes",
     "generate_catalog",
     "generate_data_json",
     "generate_reccmp_csv",
     "get_globals",
-    "get_sections",
     "get_text_section_size",
     "sections_from_info",
     "is_jump_table",
@@ -92,8 +78,6 @@ __all__ = [
     "main",
     "main_entry",
     "make_func_entry",
-    "make_ghidra_func",
-    "merge_ranges",
     "parse_function_list",
     "scan_reversed_dir",
 ]

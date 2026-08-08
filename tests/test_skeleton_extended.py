@@ -9,7 +9,6 @@ from typer.testing import CliRunner
 
 from rebrew.skeleton import (
     _render_annotation_block,
-    _render_skeleton,
     fetch_xref_context,
     generate_annotation_block,
     generate_skeleton,
@@ -40,20 +39,20 @@ def _cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
 
 
 class TestRenderersWithDecomp:
-    def test_skeleton_with_origin_and_decomp(self) -> None:
-        out = _render_skeleton(
+    def test_skeleton_with_decomp(self) -> None:
+        # _render_skeleton was consolidated into _render_annotation_block; the
+        # origin_comment branch (always empty) is gone, todo_text is the hook.
+        out = _render_annotation_block(
             marker="FUNCTION",
             cfg_marker="SERVER",
             va=0x1000,
-            origin_comment="origin: MSVCRT",
             xref_context="/* === Cross-references ===",
             decomp_code="undefined4 func(void) { return 0; }",
             decomp_backend="r2ghidra",
             func_name="my_func",
-            todo="TODO",
             ghidra_name="my_func",
+            todo_text="Implement based on Ghidra decompilation",
         )
-        assert "/* origin: MSVCRT */" in out
         assert "/* === Decompilation (r2ghidra) === */" in out
         assert "undefined4 func(void) { return 0; }" in out
         assert "/* === End decompilation === */" in out

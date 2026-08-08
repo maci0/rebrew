@@ -7,7 +7,6 @@ import pytest
 
 from rebrew.catalog.sections import (
     get_globals,
-    get_sections,
     get_text_section_size,
     has_back_jumps,
     trim_trailing_padding,
@@ -47,34 +46,6 @@ class TestHasBackJumps:
 
     def test_no_jumps(self) -> None:
         assert has_back_jumps(b"\x55\x89\xe5", 0x1000, 0x1003, 0x1000) is False
-
-
-class TestGetSections:
-    def test_data_bss_split(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        def fake_load(_path: Path) -> SimpleNamespace:
-            return SimpleNamespace(
-                sections={
-                    ".text": SimpleNamespace(
-                        va=0x1000, size=0x100, raw_size=0x100, file_offset=0x200
-                    ),
-                    ".data": SimpleNamespace(
-                        va=0x5000, size=0x200, raw_size=0x100, file_offset=0x300
-                    ),
-                }
-            )
-
-        monkeypatch.setattr("rebrew.catalog.sections.load_binary", fake_load)
-        sections = get_sections(Path("/tmp/fake.dll"))
-        assert sections[".text"] == {"va": 0x1000, "size": 0x100, "fileOffset": 0x200}
-        assert sections[".data"] == {"va": 0x5000, "size": 0x100, "fileOffset": 0x300}
-        assert sections[".bss"] == {"va": 0x5100, "size": 0x100, "fileOffset": 0}
-
-    def test_parse_failure_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        def boom(_path: Path) -> SimpleNamespace:
-            raise OSError("no such file")
-
-        monkeypatch.setattr("rebrew.catalog.sections.load_binary", boom)
-        assert get_sections(Path("/tmp/nope.dll")) == {}
 
 
 class TestGetTextSectionSize:

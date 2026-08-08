@@ -44,7 +44,6 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import typing
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -52,7 +51,6 @@ import tomlkit
 
 from rebrew.utils import (
     atomic_write_text,
-    build_metadata_doc,
     load_toml_for_write,
     parse_metadata_doc,
     qualified_key,
@@ -79,11 +77,6 @@ def _invalidate_data_cache(path: Path) -> None:
     _data_metadata_cache.pop(path.resolve(), None)
 
 
-def clear_data_metadata_cache() -> None:
-    """Clear the in-memory data-metadata cache (see :func:`clear_metadata_cache`)."""
-    _data_metadata_cache.clear()
-
-
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -99,36 +92,16 @@ _CANONICAL_ORDER = ["name", "type", "size", "section", "note"]
 __all__ = [
     "DATA_METADATA_FILENAME",
     "DATA_METADATA_FIELDS",
-    "is_data_metadata_key",
-    "data_metadata_path",
     "load_data_metadata",
-    "save_data_metadata",
     "get_data_entry",
     "set_data_field",
-    "delete_data_field",
     "merge_into_data_annotation",
-    "clear_data_metadata_cache",
 ]
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def is_data_metadata_key(key: str) -> bool:
-    """Return True if *key* (upper-case annotation KV name) belongs in the data metadata."""
-    return key.upper() in DATA_METADATA_FIELDS
-
-
-def data_metadata_path(directory: Path) -> Path:
-    """Return the ``rebrew-data.toml`` path for the metadata root directory.
-
-    Args:
-        directory: The metadata root directory (``cfg.metadata_dir``).
-
-    """
-    return directory / DATA_METADATA_FILENAME
 
 
 # ---------------------------------------------------------------------------
@@ -172,23 +145,6 @@ def load_data_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]
     result = parse_metadata_doc(doc)
     _data_metadata_cache[path] = (current_mtime, result)
     return result
-
-
-def save_data_metadata(
-    directory: Path,
-    data: dict[tuple[str, int], dict[str, Any]],
-) -> None:
-    """Atomically write *data* to ``rebrew-data.toml`` in *directory*.
-
-    Args:
-        directory: The directory to write into.
-        data: Mapping of ``{(module, va_int): {field: value}}``.
-
-    """
-    path = directory / DATA_METADATA_FILENAME
-    doc = build_metadata_doc(data, _CANONICAL_ORDER)
-    atomic_write_text(path, tomlkit.dumps(doc))
-    _invalidate_data_cache(path)
 
 
 # ---------------------------------------------------------------------------
@@ -235,40 +191,6 @@ def set_data_field(directory: Path, va: int, key: str, value: Any, module: str) 
     doc[toml_key][key] = value  # type: ignore[index]
     atomic_write_text(path, tomlkit.dumps(doc))
     _invalidate_data_cache(path)
-
-
-def delete_data_field(directory: Path, va: int, key: str, module: str) -> None:
-    """Remove *key* from the data metadata entry for *(module, va)*.  No-op if not present.
-
-    Reads/writes directly at ``directory / rebrew-data.toml``.  No walk-up.
-
-    Args:
-        directory: The metadata root directory (``cfg.metadata_dir``).
-        va: Virtual address integer.
-        key: Lower-case TOML key to remove.
-        module: Target module name.
-
-    """
-    path = directory / DATA_METADATA_FILENAME
-    if not path.exists():
-        return
-    toml_key = qualified_key(module, va)
-
-    try:
-        doc = tomlkit.parse(path.read_text(encoding="utf-8"))
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Failed to parse data metadata %s: %s", path, exc)
-        return
-
-    # Use dict access for type checking on tomlkit Container
-    doc_dict = typing.cast(dict[str, Any], doc)
-    if toml_key not in doc_dict:
-        return
-    entry = typing.cast(dict[str, Any], doc_dict[toml_key])
-    if key in entry:
-        del entry[key]
-        atomic_write_text(path, tomlkit.dumps(doc))
-        _invalidate_data_cache(path)
 
 
 # ---------------------------------------------------------------------------

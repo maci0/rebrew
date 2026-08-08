@@ -8,11 +8,11 @@ generates cell-level coverage grids, and exports CATALOG.md / reccmp CSV.
 
 | Module | Role | Key Exports |
 |--------|------|-------------|
-| `loaders.py` | File I/O (Ghidra JSON, function lists, DLL bytes, source + library header scanning) | `load_function_structure()`, `load_ghidra_data_labels()`, `parse_function_list()`, `scan_reversed_dir()`, `extract_dll_bytes()` |
-| `registry.py` | Merges function sources, resolves canonical sizes | `build_function_registry()`, `make_func_entry()`, `make_ghidra_func()` |
-| `grid.py` | Cell-level coverage grid generation | `generate_data_json()`, `merge_ranges()` |
+| `loaders.py` | File I/O (Ghidra JSON, function lists, DLL bytes, source + library header scanning) | `load_function_structure()`, `load_ghidra_data_labels()`, `parse_function_list()`, `scan_reversed_dir()` |
+| `registry.py` | Merges function sources, resolves canonical sizes | `build_function_registry()`, `make_func_entry()` |
+| `grid.py` | Cell-level coverage grid generation | `generate_data_json()` |
 | `export.py` | Output generation (CATALOG.md, reccmp CSV) | `generate_catalog()`, `generate_reccmp_csv()` |
-| `sections.py` | Binary section parsing, global variable scanning, shared x86 utils | `get_sections()`, `get_globals()`, `get_text_section_size()`, `trim_trailing_padding()`, `has_back_jumps()` |
+| `sections.py` | Binary section parsing, global variable scanning, shared x86 utils | `get_globals()`, `get_text_section_size()`, `trim_trailing_padding()`, `has_back_jumps()` |
 | `cli.py` | Typer CLI orchestrator | `app`, `main`, `main_entry` |
 
 ## Dependency Graph
@@ -36,9 +36,9 @@ registry.py
 └── config.py (external — ProjectConfig)
 
 grid.py
-├── loaders.py (extract_dll_bytes, load_ghidra_data_labels)
+├── loaders.py (load_ghidra_data_labels)
 ├── registry.py (is_jump_table)
-├── sections.py (get_globals, get_sections)
+├── sections.py (get_globals)
 └── binary_loader.py (external — load_binary)
 
 export.py → config.py (external — ProjectConfig)

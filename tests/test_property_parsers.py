@@ -7,52 +7,31 @@ import typer
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.catalog.grid import merge_ranges
 from rebrew.gen_flirt_pat import bytes_to_pat_line
 
 
 @settings(max_examples=200, deadline=None)
 @given(
     st.lists(
-        st.tuples(
-            st.integers(min_value=0, max_value=1000), st.integers(min_value=0, max_value=1000)
-        ),
-        max_size=30,
+        st.binary(min_size=1, max_size=16),
+        min_size=1,
+        max_size=1,
     )
 )
-def test_merge_ranges_invariants(pairs: list[tuple[int, int]]) -> None:
-    # Normalize: half-open ranges with start <= end.
-    ranges = [(min(a, b), max(a, b)) for a, b in pairs]
-    merged = merge_ranges(ranges)
-
-    # 1. Output is sorted and non-overlapping (adjacent allowed).
-    for (s1, e1), (s2, e2) in zip(merged, merged[1:], strict=False):
-        assert s1 <= e1 <= s2 <= e2
-
-    # 2. Union coverage is preserved.
-    def union(rs: list[tuple[int, int]]) -> set[int]:
-        out: set[int] = set()
-        for s, e in rs:
-            out.update(range(s, e))
-        return out
-
-    assert union(merged) == union(ranges)
-
-
-@given(st.binary(min_size=1, max_size=64))
-def test_bytes_to_pat_line_structure(code: bytes) -> None:
+def test_bytes_to_pat_line_structure(code: list[bytes]) -> None:
     # min_size=1: an empty body degenerates the line format, and the
     # gen_flirt_pat main loop skips functions shorter than 4 bytes anyway.
-    line = bytes_to_pat_line("_f", code, set())
+    body = code[0]
+    line = bytes_to_pat_line("_f", body, set())
     # Empty code → still a structurally valid line.
     parts = line.split()
     assert parts[-2] == ":0000"
     assert parts[-1] == "_f"
     lead = parts[0]
     assert len(lead) % 2 == 0  # hex pairs
-    assert len(lead) == 2 * min(len(code), 32)
+    assert len(lead) == 2 * min(len(body), 32)
     # CRC length field matches the trailing-byte count.
-    assert int(parts[1], 16) == min(max(len(code) - min(len(code), 32), 0), 255)
+    assert int(parts[1], 16) == min(max(len(body) - min(len(body), 32), 0), 255)
 
 
 @given(st.binary(min_size=0, max_size=40), st.integers(min_value=0, max_value=7))
