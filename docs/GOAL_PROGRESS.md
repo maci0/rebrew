@@ -5722,3 +5722,24 @@ Also confirmed the 249a0eb guard works on real data: guild's pre-fix cache
 had 3 baked-in PROVEN entries (0x10012470/0x10014260/0x100170e0), all
 re-verified fresh (NEAR_MATCHING + 2×SIZE_MISMATCH) and re-overlaid from
 current metadata. 3543 rebrew tests.
+
+## 2026-08-09 — rebrew → recoverage pipeline validated end-to-end on guild
+
+Ran the full chain on real guild data (db/ is gitignored, no tree dirt):
+1. `rebrew catalog --data-json --json` → db/data_server.dll.json, 652
+   annotations / 553 functions, coverage_pct 97.5 (new fields visible:
+   total_functions/covered_bytes/text_size/coverage_pct).
+2. `rebrew build-db --json` → db/coverage.db (1.98 MB).
+3. `recoverage stats --target server.dll --json` → 559 fns, 525 matched,
+   coveragePercent 99.49 — schema clean, no drift.
+4. `recoverage serve` booted; /api/health + /api/targets/server.dll/stats
+   OK; dashboard served from the fresh DB.
+
+Considered + deferred (low severity): the inlined index payload is
+br-compressed 15191 B vs the 14.6 KB TCP cwnd budget (591 B / 4% over) —
+one extra first-paint RTT on a localhost dashboard. Measured: br default
+q11 is already optimal (gzip 16926, zstd 18197, br q10 15494); rjsmin/
+rcssmin already applied; no debug/dead code in app.js (55.5 KB). Fitting
+under budget needs either a ~2.3 KB raw SPA trim (risky) or splitting
+assets out of the inline payload (architecture change). The guard warning
+is informational and doing its job — left as-is, documented here.
