@@ -106,23 +106,55 @@ class TestCheckDbVersion:
         db.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(db)
         if version is not None:
-            conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
+            # The shape check (round-4) verifies required objects AND the
+            # query-critical columns — a version-matched DB must carry the
+            # real schema, not just table names.
+            conn.executescript(
+                """
+                CREATE TABLE metadata (target TEXT, key TEXT, value TEXT);
+                CREATE TABLE sections (
+                    target TEXT, name TEXT, va INTEGER, size INTEGER,
+                    fileOffset INTEGER, unitBytes INTEGER, columns INTEGER
+                );
+                CREATE TABLE cells (
+                    target TEXT, section_name TEXT, start INTEGER, end INTEGER,
+                    span INTEGER, state TEXT, functions TEXT, label TEXT,
+                    parent_function TEXT
+                );
+                CREATE TABLE functions (
+                    target TEXT, va INTEGER, name TEXT, vaStart TEXT, size INTEGER,
+                    fileOffset INTEGER, status TEXT, module TEXT, cflags TEXT,
+                    symbol TEXT, markerType TEXT, ghidra_name TEXT, list_name TEXT,
+                    is_thunk INTEGER, is_export INTEGER, sha256 TEXT, files TEXT,
+                    detected_by TEXT, size_by_tool TEXT, textOffset INTEGER,
+                    blocker TEXT, blockerDelta INTEGER, size_reason TEXT,
+                    similarity REAL
+                );
+                CREATE TABLE globals (
+                    target TEXT, va INTEGER, name TEXT, decl TEXT, files TEXT,
+                    module TEXT, size INTEGER
+                );
+                CREATE TABLE verify_results (
+                    target TEXT, va INTEGER, verified_at TEXT, byte_delta INTEGER,
+                    diff_lines INTEGER
+                );
+                CREATE TABLE history (
+                    id INTEGER, target TEXT, va INTEGER, old_status TEXT,
+                    new_status TEXT, changed_at TEXT
+                );
+                CREATE VIEW section_cell_stats AS
+                    SELECT target, section_name, COUNT(*) AS total_cells,
+                    0 AS exact_count, 0 AS reloc_count, 0 AS near_match_count,
+                    0 AS stub_count, 0 AS padding_count, 0 AS data_count,
+                    0 AS thunk_count, 0 AS none_count, 0 AS proven_count,
+                    0 AS size_mismatch_count
+                    FROM cells GROUP BY target, section_name;
+                """
+            )
             conn.execute(
                 "INSERT INTO metadata VALUES ('__schema__', 'db_version', ?)",
                 (json.dumps(version),),
             )
-            # The shape check (round-4) verifies required objects exist, not
-            # just the version stamp — a version-matched DB must carry them.
-            for name in (
-                "sections",
-                "cells",
-                "functions",
-                "globals",
-                "verify_results",
-                "history",
-            ):
-                conn.execute(f"CREATE TABLE {name} (id INTEGER)")
-            conn.execute("CREATE VIEW section_cell_stats AS SELECT 1 AS x")
         conn.commit()
         conn.close()
         return db
@@ -158,6 +190,22 @@ class TestCheckDbVersion:
         _check_db_version(db)  # no raise
         # Matching version must leave the DB in place (force=False path).
         assert db.exists()
+
+    def test_matching_version_missing_column_errors(self, tmp_path: Path) -> None:
+        """A DB stamped with the current version but missing a query-critical
+        column (e.g. functions.textOffset) must be rejected — the name-only
+        check would pass it and the dashboard would 500 at query time."""
+        import sqlite3
+
+        from rebrew.build_db import _CURRENT_DB_VERSION, _check_db_version
+
+        db = self._db(tmp_path, _CURRENT_DB_VERSION)
+        conn = sqlite3.connect(db)
+        conn.execute("ALTER TABLE functions DROP COLUMN textOffset")
+        conn.commit()
+        conn.close()
+        with pytest.raises(typer.Exit):
+            _check_db_version(db)
 
     def test_matching_version_missing_object_errors(self, tmp_path: Path) -> None:
         """A DB stamped with the current version but missing a required schema
