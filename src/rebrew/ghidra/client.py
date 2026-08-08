@@ -355,7 +355,13 @@ def fetch_all_functions(
         if metadata is None or len(page_funcs) == 0:
             break
         total = metadata.get("totalCount", 0)
-        start = metadata.get("nextStartIndex", start + batch_size)
+        next_start = metadata.get("nextStartIndex", start + batch_size)
+        # Guard against a server that echoes nextStartIndex without advancing
+        # (previously looped forever, one 30s HTTP call per iteration — the
+        # same guard fetch_all_symbols has).
+        if next_start <= start:
+            break
+        start = next_start
         if start >= total:
             break
 

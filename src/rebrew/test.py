@@ -630,7 +630,14 @@ def _test_multi(
     with tempfile.TemporaryDirectory(prefix="test_multi_") as workdir:
         objs: dict[str, Any] = {}
         for cf in {_effective_cflags(a) for a in annotations}:
-            obj_path, err = compile_to_obj(cfg, source, cf.split(), workdir)
+            # Distinct obj name per cflags group — compile_to_obj derives the
+            # .obj name from the source stem, so without this every group
+            # would overwrite the same obj and all but the last would compare
+            # against the wrong bytes.
+            import hashlib
+
+            obj_name = f"{Path(source).stem}_{hashlib.sha256(cf.encode()).hexdigest()[:8]}.obj"
+            obj_path, err = compile_to_obj(cfg, source, cf.split(), workdir, obj_name=obj_name)
             if obj_path is None:
                 error_exit(f"COMPILE ERROR (cflags {cf}):\n{err}", json_mode=json_output)
             objs[cf] = obj_path

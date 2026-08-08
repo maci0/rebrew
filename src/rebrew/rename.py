@@ -112,6 +112,16 @@ def rename_function_everywhere(
 ) -> int:
     """Perform a full cross-reference rename. Returns number of files modified."""
     actual_old_name = old_sym.lstrip("_") if old_sym.startswith("_") else old_name
+    # __stdcall symbols carry a decorated suffix (foo@8) that never appears
+    # in the C source — strip it or nothing matches.
+    actual_old_name = re.sub(r"@\d+$", "", actual_old_name)
+    if not actual_old_name:
+        # An annotation-only stub with no meaningful name (sync --pull passes
+        # name=""/symbol="" for these): re.sub with an empty pattern would
+        # match at every word boundary and mangle the whole file.
+        raise ValueError(
+            f"cannot rename {filepath}: old name is empty (missing FUNCTION marker or symbol)"
+        )
     updated_files = 0
 
     if dry_run:
@@ -234,6 +244,7 @@ def main(
         old_sym = old_name
 
     actual_old_name = old_sym.lstrip("_") if old_sym.startswith("_") else old_name
+    actual_old_name = re.sub(r"@\d+$", "", actual_old_name)
 
     target_func = new_name
     if not target_func.isidentifier() or target_func in _C_KEYWORDS:
@@ -263,6 +274,8 @@ def main(
             dry_run=dry_run,
         )
     except FileExistsError as exc:
+        error_exit(str(exc), json_mode=json_output)
+    except ValueError as exc:
         error_exit(str(exc), json_mode=json_output)
 
     if json_output:

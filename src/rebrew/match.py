@@ -709,9 +709,17 @@ def update_stub_to_matched(
     spliced = bool(body_start and best_body)
 
     if body_start and best_body:
+        # The stub's span ends at the NEXT function marker comment (or EOF) —
+        # the splice must not drop sibling functions that follow this stub's
+        # block in a multi-function file.
+        next_fn = re.compile(
+            r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*\S+\s+0x[0-9a-fA-F]+"
+        ).search(updated, body_start.end())
+        body_end = next_fn.start() if next_fn else len(updated)
         header = updated[: body_start.start()]
+        tail = updated[body_end:]
         new_body = best_src[best_body.start() :]
-        updated = header + new_body
+        updated = header + new_body + tail
 
     with tempfile.NamedTemporaryFile(
         mode="w",
@@ -1499,7 +1507,8 @@ def _run_single_ga(
         for extra_path in extra_seed:
             ep = Path(extra_path)
             if ep.exists():
-                loaded_seeds.append(ep.read_text(encoding="utf-8", errors="replace"))
+                text, _ = read_source_text(ep)
+                loaded_seeds.append(text)
 
     ga = BinaryMatchingGA(
         p.seed_src,
@@ -1632,14 +1641,15 @@ def _run_one_stub_ga(
     elif "/c" not in cflags:
         cflags = f"/nologo /c {cflags}".strip()
 
-    seed_src = filepath.read_text(encoding="utf-8", errors="replace")
+    seed_src, _ = read_source_text(filepath)
 
     loaded_extra: list[str] = []
     if extra_seed_paths:
         for sp in extra_seed_paths:
             p = Path(sp)
             if p.exists():
-                loaded_extra.append(p.read_text(encoding="utf-8", errors="replace"))
+                text, _ = read_source_text(p)
+                loaded_extra.append(text)
 
     ga = BinaryMatchingGA(
         seed_src,

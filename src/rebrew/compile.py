@@ -376,6 +376,7 @@ def compile_to_obj(
     *,
     cache: CompileCache | None = None,
     use_cache: bool = True,
+    obj_name: str | None = None,
 ) -> tuple[str | None, str]:
     """Compile a .c file to .obj using the project compiler.
 
@@ -416,7 +417,7 @@ def compile_to_obj(
     except OSError as e:
         return None, f"Failed to copy source into workdir: {e}"
 
-    obj_name = source_path.stem + ".obj"
+    obj_name = obj_name or (source_path.stem + ".obj")
     inc_path = str(cfg.compiler_includes)
 
     # Prepend base_cflags from config (e.g. /nologo /c /MT).
@@ -449,7 +450,10 @@ def compile_to_obj(
 
     cache_key: str | None = None
     if cc is not None:
-        source_content = local_src.read_text(encoding="utf-8", errors="replace")
+        # Hash the raw bytes (via surrogateescape, which is lossless) — a
+        # plain utf-8/errors=replace decode would give two sources differing
+        # only in legacy-encoded bytes the same cache key.
+        source_content = local_src.read_bytes().decode("utf-8", errors="surrogateescape")
         cl_parts = resolve_cl_command(cfg)
         toolchain_id = " ".join(cl_parts)
         include_dirs = [inc_path, str(src_parent)]

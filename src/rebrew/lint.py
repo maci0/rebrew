@@ -57,7 +57,7 @@ class LintResult:
     _status_counts: Counter[str] = field(default_factory=Counter)
     _marker_counts: Counter[str] = field(default_factory=Counter)
     # Collected inline metadata for --fix migration: (module, va_int, key, value)
-    _inline_fixes: list[tuple[str, int, str, str]] = field(default_factory=list)
+    _inline_fixes: list[tuple[str, int, str, str, str]] = field(default_factory=list)
 
     def error(self, line: int, code: str, msg: str) -> None:
         """Record an error diagnostic at *line*."""
@@ -308,6 +308,7 @@ def _check_W019_inline_metadata(
     metadata_sourced_keys: set[str],
     module: str = "",
     va_int: int | None = None,
+    marker: str = "",
 ) -> None:
     """Warn when metadata-owned keys appear as inline // KEY: comments.
 
@@ -321,9 +322,10 @@ def _check_W019_inline_metadata(
                 "W019",
                 f"Inline '// {key}:' is deprecated — use rebrew-function.toml instead",
             )
-            # Record for --fix migration
+            # Record for --fix migration (marker type routes the write to the
+            # function vs data metadata store).
             if module and va_int is not None:
-                result._inline_fixes.append((module, va_int, key, found_keys[key]))
+                result._inline_fixes.append((module, va_int, key, found_keys[key], marker))
 
 
 def _check_W020_asm_dump(result: LintResult, lines: list[str]) -> None:
@@ -623,6 +625,7 @@ def lint_file(
                 _metadata_sourced_keys,
                 module=mod,
                 va_int=_va_int if mod else None,
+                marker=marker,
             )
 
     result.context_prefix = ""
@@ -786,9 +789,11 @@ def main(
         if summary:
             _print_summary(all_results)
 
-    # Apply --fix: migrate inline metadata to rebrew-function.toml
+    # Apply --fix: migrate inline metadata to rebrew-function.toml /
+    # rebrew-data.toml (the destination depends on the marker type).
     if fix and cfg:
         from rebrew.annotation import remove_inline_annotation_key
+        from rebrew.data_metadata import get_data_entry, set_data_field
         from rebrew.metadata import (
             coerce_metadata_value,
             get_entry,
@@ -800,27 +805,40 @@ def main(
         for r in all_results:
             if not r._inline_fixes:
                 continue
-            for module, va, key, value in r._inline_fixes:
+            for module, va, key, value, marker in r._inline_fixes:
                 toml_key = key.lower()
-                # Check if metadata already has this field.  At lint time the
-                # metadata overlay marks existing keys as metadata-sourced, so
-                # a key recorded in `_inline_fixes` is absent from metadata
-                # then — except in the duplicate-VA case: an earlier file in
-                # the same non-dry-run fix loop already migrated the same
-                # (module, va) key, so it appears here.  Dry-run never writes,
-                # so this path is only reachable in real mode.
-                existing = get_entry(cfg.metadata_dir, va, module)
-                if toml_key not in existing:
+                is_data_marker = marker in ("DATA", "GLOBAL")
+                # ORIGIN is legacy everywhere; SECTION is legacy for functions
+                # but a real data-metadata field for DATA/GLOBAL markers.
+                # Legacy keys are never stored — just strip the inline form.
+                if key == "ORIGIN" or (not is_data_marker and key == "SECTION"):
+                    if not dry_run:
+                        remove_inline_annotation_key(r.filepath, va, key)
+                    fix_count += 1
+                    continue
+                # Check if the destination store already has this field.
+                if is_data_marker:
+                    existing = get_data_entry(cfg.metadata_dir, va, module)
+                    present = toml_key in {k.lower() for k in existing}
+                else:
+                    existing = get_entry(cfg.metadata_dir, va, module)
+                    present = toml_key in existing
+                if not present:
                     if dry_run:
+                        store = "rebrew-data.toml" if is_data_marker else "rebrew-function.toml"
                         console.print(
                             f"  [dim]Would migrate[/dim] {r.filepath.name} "
-                            f"// {key}: {value!r} → rebrew-function.toml"
+                            f"// {key}: {value!r} → {store}"
                         )
                     else:
                         # Coerce size/blocker_delta to int via the shared
                         # metadata facade (single canonical coercion).
                         write_value = coerce_metadata_value(toml_key, value)
-                        if toml_key == "status":
+                        if is_data_marker:
+                            set_data_field(
+                                cfg.metadata_dir, va, toml_key, write_value, module=module
+                            )
+                        elif toml_key == "status":
                             # STATUS must go through the promotion gate
                             # (validates the value, clears stale blockers,
                             # never silently demotes PROVEN).

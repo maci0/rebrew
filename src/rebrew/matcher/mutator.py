@@ -41,10 +41,6 @@ _RE_RET_FALSE_LABEL_NL = re.compile(r"^[ \t]*ret_false:[ \t]*\n", flags=re.MULTI
 _RE_RET_FALSE_LABEL = re.compile(r"^[ \t]*ret_false:[ \t]*", flags=re.MULTILINE)
 
 # Pre-compiled regex for mut_return_to_goto (GA hot path).
-_RE_FINAL_RET = re.compile(
-    r"(\s+return[^;]+;[ \t]*\n[ \t]*\}(?:\s*|//.*)*)$(?![\s\S]*\})", re.MULTILINE
-)
-
 # Pre-compiled regex for mut_sink_return (GA hot path).
 _RE_SINK_RETURN = re.compile(rb"(\w+)\s*=\s*([^;]+);\s*\n\s*goto\s+end\s*;")
 
@@ -990,12 +986,14 @@ def mut_return_to_goto(s: str, rng: random.Random) -> str | None:
 
     result = res.decode("utf-8")
 
-    # Needs to add ret_false: before the last return statement
-    # We will use regex for the fallback label injection for now since it operates on the whole block
-    final_ret = _RE_FINAL_RET.search(result)
-    if final_ret:
-        pos = final_ret.start(1)
-        result = result[:pos] + "\nret_false:\n" + result[pos:]
+    # Add ret_false: before the LAST remaining `return 0;`/`return FALSE;` so
+    # the replaced goto lands on a FALSE-returning statement.  Landing it
+    # before an arbitrary later return (e.g. `return 1;`) would make the
+    # error path return the wrong value.
+    final_false = re.search(r"return\s+(?:0|FALSE|false)\s*;", result)
+    if final_false:
+        pos = final_false.start()
+        result = result[:pos] + "ret_false:\n" + result[pos:]
     else:
         # Fallback: add before closing brace
         last_brace = result.rfind("}")
@@ -1045,7 +1043,15 @@ def mut_swap_if_else(s: str, rng: random.Random) -> str | None:
         # Simple negation - in real scenarios, prefer mut_flip_lt_ge and others
         negated_cond = b"!(" + cond_inner + b")"
 
-        return b"if (" + negated_cond + b") " + alt + b" else " + cons
+        # Brace both arms: a bare `else if` without its own trailing else
+        # would re-bind the final else to the inner if (dangling else),
+        # flipping branch outcomes.
+        def _braced(body: bytes) -> bytes:
+            if body.startswith(b"{") and body.endswith(b"}"):
+                return body
+            return b"{ " + body + b" }"
+
+        return b"if (" + negated_cond + b") " + _braced(alt) + b" else " + _braced(cons)
 
     res = _apply_query_once(b_source, _QUERY_IF_ELSE, _repl, rng)
     return res.decode("utf-8") if res else None
@@ -2231,16 +2237,39 @@ def mut_hoist_return(s: str, rng: random.Random) -> str | None:
     val = b_source[caps["val"].start_byte : caps["val"].end_byte]
     stmt = caps["stmt"]
 
-    ret_var = b"ret" if b"retcode" not in b_source else b"retval"
-    if ret_var in b_source:
-        ret_var = b"retval"
-    if ret_var in b_source:
+    # Only safe when the return is the FINAL statement of the function body —
+    # `goto end` placed before the function's closing brace would otherwise
+    # skip any code that follows the return's enclosing block.
+    parent = stmt.parent
+    if parent is None or parent.type != "compound_statement":
+        return None
+    if parent.parent is None or parent.parent.type != "function_definition":
+        return None
+    body_stmts = [c for c in parent.named_children if c.type != "comment"]
+    if not body_stmts or body_stmts[-1] != stmt:
         return None
 
-    replacement = ret_var + b" = " + val + b";\n    goto end;"
-    result = b_source[: stmt.start_byte] + replacement + b_source[stmt.end_byte :]
+    # Word-boundary check: the old `b"ret" in b_source` matched inside
+    # "return", so ret_var was always "retval" — and it was never declared,
+    # so every candidate failed to compile (dead mutator).
+    ret_var = b"retval"
+    if re.search(rb"\bretval\b", b_source):
+        return None
 
-    # Add end label before the last closing brace
+    insert_pos = _find_function_body_insert_pos(b_source, stmt.start_byte)
+    if insert_pos is None:
+        return None
+
+    hoisted = b"\n    int " + ret_var + b";"
+    out = b_source[:insert_pos] + hoisted + b_source[insert_pos:]
+    offset = len(hoisted)
+    s_start = stmt.start_byte + offset
+    s_end = stmt.end_byte + offset
+
+    replacement = ret_var + b" = " + val + b";\n    goto end;"
+    result = out[:s_start] + replacement + out[s_end:]
+
+    # Add end label before the last closing brace (function end)
     last_brace = result.rfind(b"}")
     if last_brace >= 0:
         result = (
