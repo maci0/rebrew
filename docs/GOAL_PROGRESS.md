@@ -5596,3 +5596,16 @@ Closed ALL remaining test-review findings:
 
 Every finding from the test-review is now closed.  3539 rebrew / 272
 recoverage tests pass.
+
+## 2026-08-09 — final session verification (post test-review)
+
+- rebrew: 3539 tests, skills validator OK, lint clean, tree clean, pushed.
+- recoverage: 272 passed / 4 skipped, lint clean, tree clean, pushed.
+- guild: tree clean (3 commits this session).  np: only the user's
+  in-flight work uncommitted (never touched).
+
+Session complete: 11 review lenses, ~70 findings fixed, live discoveries
+(round-trip drift, stale header, dep conflict), release prep, perf work,
+and the full test-review backlog.  All substantive findings across every
+review are closed; only documented low-severity deferrals and the optional
+lazy-typer-registration follow-up remain.
