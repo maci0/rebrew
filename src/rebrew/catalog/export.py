@@ -7,6 +7,7 @@ from parsed annotations and function registries.
 from typing import TYPE_CHECKING, Any
 
 from rebrew.annotation import Annotation
+from rebrew.catalog.grid import count_statuses
 from rebrew.config import ProjectConfig
 
 if TYPE_CHECKING:
@@ -27,17 +28,11 @@ def generate_catalog(
         by_va.setdefault(e.va, []).append(e)
 
     unique_vas = set(by_va)
-    exact_count = 0
-    reloc_count = 0
-    stub_count = 0
-    for vas in by_va.values():
-        statuses = {e["status"] for e in vas}
-        if "EXACT" in statuses:
-            exact_count += 1
-        elif "RELOC" in statuses:
-            reloc_count += 1
-        elif "STUB" in statuses and not statuses.intersection({"NEAR_MATCHING", "NEAR_MATCH"}):
-            stub_count += 1
+    counts = count_statuses(by_va)
+    exact_count = counts["EXACT"]
+    reloc_count = counts["RELOC"]
+    near_count = counts["NEAR_MATCHING"]
+    stub_count = counts["STUB"]
 
     # Coverage bytes
     funcs_by_va = {f["va"]: f for f in funcs}
@@ -57,7 +52,8 @@ def generate_catalog(
     lines.append("# Reversed Functions Catalog\n")
     lines.append(
         f"Total: {matched_count}/{total_funcs} functions cataloged "
-        f"({exact_count} exact, {reloc_count} reloc-normalized, {stub_count} stubs)  "
+        f"({exact_count} exact, {reloc_count} reloc-normalized, "
+        f"{near_count} near-matching, {stub_count} stubs)  "
     )
     lines.append(
         f"Coverage: {coverage_pct:.1f}% of .text section ({covered_bytes}/{text_size} bytes)\n"

@@ -35,6 +35,7 @@ from rebrew.cli import (
     parse_va,
     require_config,
     resolve_source_arg,
+    should_promote_status,
     target_marker,
 )
 from rebrew.compile import (
@@ -414,13 +415,9 @@ def main(
         new_status = (
             cmp.status if cmp.status else classify_match_status(matched, match_count, total, relocs)
         )
-        if is_status_sticky(old_status):
-            if not json_output:
+        if not should_promote_status(old_status, new_status):
+            if is_status_sticky(old_status) and not json_output:
                 console.print(f"[dim]STATUS → skipped ({old_status})[/dim]")
-        elif old_status == "STUB" and new_status == "SIZE_MISMATCH":
-            # Keep the user's STUB classification; a stub's placeholder
-            # always size-mismatches (see apply_status_updates).
-            pass
         else:
             clear = is_matched(new_status)
             update_source_status(
@@ -771,11 +768,9 @@ def _test_multi(
 
             # Auto-promote: update STATUS in metadata (mirrors single-function path)
             if not no_promote:
-                if is_status_sticky(old_status):
-                    if not json_output:
+                if not should_promote_status(old_status, new_status):
+                    if is_status_sticky(old_status) and not json_output:
                         console.print(f"[dim]  STATUS → skipped ({old_status})[/dim]")
-                elif old_status == "STUB" and new_status == "SIZE_MISMATCH":
-                    pass  # keep the user's STUB classification
                 else:
                     clear = is_matched(new_status)
                     update_source_status(

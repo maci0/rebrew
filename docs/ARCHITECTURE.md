@@ -33,8 +33,8 @@ flowchart LR
 
     LOAD --> CATALOG["catalog/ (LIEF section/label data)"]
     CATALOG --> DB["build_db.py → coverage.db"]
+    CATALOG --> CATMD["CATALOG.md (rebrew catalog --catalog)"]
     DB --> DASH["dashboard.py<br/>read-only web UI"]
-    DB --> CATMD["CATALOG.md"]
 
     LOAD --> IMPORTS["imports.py<br/>PE import table + stubs"]
     DIFF --> SOL["matcher/solutions.py<br/>target-scoped seeds + ga_runs.jsonl"]

@@ -16,7 +16,6 @@ from rich.console import Console
 
 from rebrew.cli import TargetOption, error_exit, json_print
 from rebrew.config import load_config
-from rebrew.utils import atomic_write_text
 
 console = Console(stderr=True)
 
@@ -659,15 +658,11 @@ def build_db(
 
         c.execute("COMMIT")
 
-        # Generate CATALOG.md from DB for each target
-        catalog_paths = _generate_catalogs(conn, root_dir, json_output=json_output)
-
         if json_output:
             json_print(
                 {
                     "db_path": str(db_path),
                     "targets_processed": [f.stem.removeprefix("data_") for f in json_files],
-                    "catalog_paths": [str(p) for p in catalog_paths],
                 }
             )
         else:
@@ -682,100 +677,6 @@ def build_db(
             conn.close()
 
 
-def _generate_catalogs(
-    conn: sqlite3.Connection, root_dir: Path, *, json_output: bool = False
-) -> list[Path]:
-    """Generate CATALOG.md files from DB data (DB is single source of truth)."""
-    catalog_paths: list[Path] = []
-    db_dir = _resolve_db_dir(root_dir, json_output=json_output)
-    c: sqlite3.Cursor = conn.cursor()
-    c.execute("SELECT DISTINCT target FROM functions")
-    targets = [row[0] for row in c.fetchall()]
-
-    # Try to read reversed_dir from rebrew-project.toml
-    toml_path = root_dir / "rebrew-project.toml"
-    target_dirs: dict[str, Path] = {}
-    if toml_path.exists():
-        try:
-            import tomllib
-
-            with toml_path.open("rb") as f:
-                raw = tomllib.load(f)
-            for tname, tdata in raw.get("targets", {}).items():
-                rdir = tdata.get("reversed_dir")
-                if rdir:
-                    target_dirs[tname] = root_dir / rdir
-        except (OSError, KeyError, ValueError):
-            pass
-
-    for target_name in targets:
-        # Get summary stats
-        c.execute(
-            "SELECT value FROM metadata WHERE target = ? AND key = 'summary'",
-            (target_name,),
-        )
-        row = c.fetchone()
-        try:
-            summary = json.loads(row[0]) if row else {}
-        except (json.JSONDecodeError, TypeError):
-            summary = {}
-
-        total, by_status, by_module, covered_bytes_func = _function_stats(c, target_name)
-
-        text_summary = summary.get(".text", {})
-        # grid.py stores .text size at the summary TOP LEVEL as "textSize"
-        # (section entries only carry "size" for non-.text sections).
-        text_size = int(text_summary.get("size") or summary.get("textSize") or 0)
-        coverage_pct: float = (covered_bytes_func / text_size * 100.0) if text_size else 0.0
-
-        # Build markdown
-        lines = []
-        lines.append(
-            "<!-- AUTO-GENERATED FILE — DO NOT EDIT. Regenerate with: rebrew build-db -->\n"
-        )
-        lines.append("# Reversed Functions Catalog\n")
-        lines.append(
-            f"Total: {total} functions matched "
-            f"({by_status.get('EXACT', 0)} exact, "
-            f"{by_status.get('RELOC', 0)} reloc, "
-            f"{by_status.get('STUB', 0)} stubs)  "
-        )
-        lines.append(
-            f"Coverage: {coverage_pct:.1f}% of .text section ({covered_bytes_func}/{text_size} bytes)\n"
-        )
-
-        # Table by module
-        for module in sorted(by_module):
-            fns = by_module[module]
-            lines.append(f"\n## {module} ({len(fns)} functions)\n")
-            lines.append("| VA | Symbol | Size | Status | Files |")
-            lines.append("|---:|--------|-----:|--------|-------|")
-            for fn in fns:
-                va_hex = f"0x{fn[0]:08x}" if fn[0] else "???"
-                sym = fn[5] or fn[1] or "???"
-                size = fn[2] or 0
-                status = fn[3] or "?"
-                try:
-                    file_list = json.loads(fn[7]) if fn[7] else []
-                except (json.JSONDecodeError, TypeError):
-                    file_list = []
-                files_str = ", ".join(file_list) if file_list else ""
-                lines.append(f"| {va_hex} | {sym} | {size} | {status} | {files_str} |")
-
-        catalog_text = "\n".join(lines) + "\n"
-
-        # Write to reversed_dir if known, otherwise db/
-        out_dir = target_dirs.get(target_name, db_dir)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        catalog_path = out_dir / "CATALOG.md"
-        atomic_write_text(catalog_path, catalog_text, encoding="utf-8")
-        catalog_paths.append(catalog_path)
-        if not json_output:
-            console.print(f"Generated {catalog_path}")
-
-    return catalog_paths
-
-
 app = typer.Typer(
     help="Build SQLite coverage database from catalog JSON.",
     rich_markup_mode="rich",
@@ -787,7 +688,7 @@ app = typer.Typer(
         "  Run 'rebrew catalog --json' first to generate db/data_*.json files.\n\n"
         "[bold]What it creates:[/bold]\n\n"
         "  db/coverage.db · · · · · · SQLite database with functions, globals, sections, cells\n\n"
-        "  src/<target>/CATALOG.md · · Markdown catalog of all reversed functions\n\n"
+        "  src/<target>/CATALOG.md · · Markdown catalog (regenerate with 'rebrew catalog --catalog')\n\n"
         "[dim]The database is used by recoverage (coverage dashboard) and can be queried "
         "directly for reports. Schema version is stamped in the metadata table.[/dim]"
     ),

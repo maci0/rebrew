@@ -66,6 +66,8 @@ class TestGenerateCatalog:
         entries.append(_ann(0x2000, "fn_b", "NEAR_MATCHING"))
         out = generate_catalog(entries, [], text_size=100)
         assert "1 stubs" in out
+        # NEAR_MATCHING is its own bucket, not silently dropped.
+        assert "1 near-matching" in out
 
     def test_empty(self) -> None:
         out = generate_catalog([], [], text_size=0)

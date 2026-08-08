@@ -15,7 +15,7 @@ from rich.console import Console
 
 from rebrew.annotation import Annotation, parse_c_file_multi
 from rebrew.catalog.export import generate_catalog, generate_reccmp_csv
-from rebrew.catalog.grid import generate_data_json
+from rebrew.catalog.grid import count_statuses, generate_data_json
 from rebrew.catalog.loaders import parse_function_list, scan_reversed_dir
 from rebrew.catalog.registry import build_function_registry, count_detection_sources
 from rebrew.catalog.sections import get_text_section_size
@@ -163,27 +163,11 @@ def main(
             if any(e["marker_type"] not in ("GLOBAL", "DATA") for e in vas)
         }
 
-        exact = sum(1 for va in fn_vas if any(e["status"] == "EXACT" for e in by_va[va]))
-        reloc = sum(
-            1
-            for va in fn_vas
-            if any(e["status"] == "RELOC" for e in by_va[va])
-            and not any(e["status"] == "EXACT" for e in by_va[va])
-        )
-        matching = sum(
-            1
-            for va in fn_vas
-            if any(e["status"] in ("NEAR_MATCHING", "NEAR_MATCH") for e in by_va[va])
-            and not any(e["status"] in ("EXACT", "RELOC") for e in by_va[va])
-        )
-        stub = sum(
-            1
-            for va in fn_vas
-            if any(e["status"] == "STUB" for e in by_va[va])
-            and not any(
-                e["status"] in ("EXACT", "RELOC", "NEAR_MATCHING", "NEAR_MATCH") for e in by_va[va]
-            )
-        )
+        counts = count_statuses(by_va)
+        exact = counts["EXACT"]
+        reloc = counts["RELOC"]
+        matching = counts["NEAR_MATCHING"]
+        stub = counts["STUB"]
 
         module_counts: dict[str, int] = {}
         for va in fn_vas:

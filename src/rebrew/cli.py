@@ -75,6 +75,21 @@ def is_status_sticky(current_status: str) -> bool:
     return current_status == "PROVEN"
 
 
+def should_promote_status(current_status: str, new_status: str) -> bool:
+    """True when *new_status* should overwrite *current_status* in metadata.
+
+    Single canonical promotion decision shared by ``rebrew test`` and
+    ``rebrew verify``.  Refuses to promote when the current status is sticky
+    (PROVEN), when a STUB's placeholder size-mismatch would erase the user's
+    STUB classification, or when the status did not change.
+    """
+    if is_status_sticky(current_status):
+        return False
+    if current_status == "STUB" and new_status == "SIZE_MISMATCH":
+        return False
+    return current_status != new_status
+
+
 def classify_match_status(
     matched: bool,
     match_count: int,
