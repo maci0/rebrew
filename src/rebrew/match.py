@@ -88,6 +88,19 @@ console = Console(stderr=True)
 # ---------------------------------------------------------------------------
 
 
+def _ga_cache_key(src: str, cflags: str, cl_cmd: str) -> str:
+    """Cache key for a GA compile result.
+
+    Must cover everything that changes the produced .obj: the source text,
+    the compiler flags, and the compiler command itself.  The build cache
+    persists across runs (``output/ga_runs/<rel>/build_cache.db``), so a
+    sweep-then-GA or CFLAGS-metadata change must not reuse an .obj compiled
+    under different flags.
+    """
+    material = src.encode() + b"\x00" + cflags.encode() + b"\x00" + cl_cmd.encode()
+    return hashlib.sha256(material).hexdigest()[:16]
+
+
 class BinaryMatchingGA:
     """Genetic algorithm engine for finding byte-identical or relocation-equivalent C source matches."""
 
@@ -185,7 +198,11 @@ class BinaryMatchingGA:
             self.population.append(src)
 
     def _compile_source(self, src: str) -> BuildResult:
-        src_hash = hashlib.sha256(src.encode()).hexdigest()[:16]
+        # The cache persists across runs (output/ga_runs/<rel>/build_cache.db),
+        # so the key must cover everything that changes the .obj — not just
+        # the source.  A sweep-then-GA or CFLAGS-metadata change used to
+        # reuse the previous flag combination's .obj.
+        src_hash = _ga_cache_key(src, self.cflags, str(self.cl_cmd))
         res = self.cache.get(src_hash)
         if res:
             return res
