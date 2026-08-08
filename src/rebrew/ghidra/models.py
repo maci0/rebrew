@@ -37,14 +37,12 @@ class PullResult:
 
     changes: list[PullChange] = field(default_factory=list)
     updated: int = 0
-    skipped: int = 0
     conflicts: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict for JSON output."""
         return {
             "updated": self.updated,
-            "skipped": self.skipped,
             "conflicts": self.conflicts,
             "changes": [c.to_dict() for c in self.changes],
         }

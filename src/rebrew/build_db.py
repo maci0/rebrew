@@ -83,8 +83,9 @@ def _function_stats(
         mod = fn[4] or "GAME"
         by_module.setdefault(mod, []).append(fn)
         size = fn[2]
-        if st != "none":  # Only count non-none functions towards coverage
-            covered_bytes += size if size is not None else 0
+        # Function statuses are EXACT/RELOC/STUB/... — never "none" (a cell
+        # state); the old `st != "none"` guard was always true and misleading.
+        covered_bytes += size if size is not None else 0
     return total, by_status, by_module, covered_bytes
 
 
