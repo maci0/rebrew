@@ -584,8 +584,11 @@ class TestCLISetCflags:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["set-cflags", "GAME", "/O1 /Gd", "--target", "server.dll"])
         assert result.exit_code == 0
+        # Written under the target's COMPILER sub-table — the location
+        # _merge_cflags_presets reads (the old [targets.X.cflags_presets]
+        # location was a silent no-op).
         doc, _ = _load_toml(tmp_path)
-        assert doc["targets"]["server.dll"]["cflags_presets"]["GAME"] == "/O1 /Gd"
+        assert doc["targets"]["server.dll"]["compiler"]["cflags_presets"]["GAME"] == "/O1 /Gd"
 
     def test_set_global_cflags(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)

@@ -1369,15 +1369,13 @@ def resolve_build_params(
         )
 
     if not cflags:
-        cflags = meta.get("CFLAGS", "")
-    if not cflags:
-        # Per-module preset (rebrew cfg set-cflags) fallback — a module with
-        # a preset and no per-function CFLAGS uses it; otherwise the compiler
-        # default applies.  Empty per-function CFLAGS falls through too.
+        # Single source of truth: per-function CFLAGS → cflags_presets →
+        # [compiler].cflags → "/O2 /Gd" (shared with verify/test/prove so
+        # every tool compiles the same function with the same flags).
+        from rebrew.cli import resolve_cflags
+
         mod = getattr(anno, "module", "") if anno else ""
-        cflags = getattr(compile_cfg, "cflags_presets", {}).get(mod.upper(), "")
-    if not cflags:
-        cflags = getattr(compile_cfg, "cflags", "/O2 /Gd") or "/O2 /Gd"
+        cflags = resolve_cflags(compile_cfg, meta.get("CFLAGS", ""), mod)
     cflags = _compile_cflags(cflags, getattr(compile_cfg, "base_cflags", "") or "")
 
     if not target_va:
@@ -1526,7 +1524,9 @@ def run_flag_sweep(
     va_int = int(stub.va, 16)
     size = stub.size
     symbol = stub.symbol
-    cflags = stub.cflags
+    from rebrew.cli import resolve_cflags
+
+    cflags = resolve_cflags(cfg, stub.cflags, getattr(stub, "module", ""))
 
     source, _ = read_source_text(filepath)
     target_bytes = extract_raw_bytes(cfg.target_binary, va_int, size)
@@ -1729,7 +1729,12 @@ def _run_one_stub_ga(
 
     cl_cmd, inc_dir, msvc_env, cc = resolve_compiler_env(cfg)
 
-    cflags = cflags_override if cflags_override is not None else stub.cflags
+    if cflags_override is not None:
+        cflags = cflags_override
+    else:
+        from rebrew.cli import resolve_cflags
+
+        cflags = resolve_cflags(cfg, stub.cflags, getattr(stub, "module", ""))
     cflags = _compile_cflags(cflags, getattr(cfg, "base_cflags", "") or "")
 
     seed_src, _ = read_source_text(filepath)

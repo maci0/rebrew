@@ -1419,7 +1419,9 @@ def _prepare_prove_inputs(
     if not target_bytes:
         raise _ProveError(f"Failed to extract target bytes at VA 0x{va:08x} (size {size})")
 
-    cflags_str = ann.cflags or "/O2 /Gd"
+    from rebrew.cli import resolve_cflags
+
+    cflags_str = resolve_cflags(cfg, ann.cflags, getattr(ann, "module", ""))
     cflags_list = safe_shlex_split(cflags_str)
 
     # Watched VAs for memory side-effect checking: CLI flags + metadata.

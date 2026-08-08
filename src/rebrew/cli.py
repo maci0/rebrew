@@ -274,6 +274,26 @@ def iter_annotations(
     return results
 
 
+def resolve_cflags(
+    cfg: ProjectConfig | None, per_function_cflags: str | None, module: str = ""
+) -> str:
+    """Resolve the effective CFLAGS for a function.
+
+    Fallback chain: per-function metadata CFLAGS → per-module
+    ``cflags_presets`` (``rebrew cfg set-cflags``) → ``[compiler].cflags``
+    → ``"/O2 /Gd"``.  Single source of truth so match/diff/verify/test/
+    prove agree on the flags a function compiles with — a per-module preset
+    must not make ``rebrew match`` report EXACT while ``rebrew verify``
+    recompiles with different flags and demotes it.
+    """
+    cflags = (per_function_cflags or "").strip()
+    if not cflags and cfg is not None:
+        cflags = getattr(cfg, "cflags_presets", {}).get(module.upper(), "")
+    if not cflags:
+        cflags = (getattr(cfg, "cflags", "") if cfg is not None else "") or "/O2 /Gd"
+    return cflags
+
+
 def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
     """Resolve a source argument to an existing source file path.
 

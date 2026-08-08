@@ -348,7 +348,10 @@ def main(
         except ValueError:
             error_exit(f"Invalid SIZE metadata: {meta['SIZE']!r}", json_mode=json_output)
 
-    cflags_str = cflags or meta.get("CFLAGS", "/O2 /Gd")
+    from rebrew.cli import resolve_cflags
+
+    _mod = lint_annos[0].module if lint_annos else ""
+    cflags_str = resolve_cflags(cfg, cflags or meta.get("CFLAGS", ""), _mod)
 
     section_va: int | None = None
     if va_str is not None and size_val is not None:
@@ -616,7 +619,11 @@ def _test_multi(
     # mis-compiled the others (false statuses + wrong promotions).  Group by
     # effective cflags and compile once per group.
     def _effective_cflags(ann: Annotation) -> str:
-        return cflags_override or ann.cflags or "/O2 /Gd"
+        if cflags_override:
+            return cflags_override
+        from rebrew.cli import resolve_cflags
+
+        return resolve_cflags(cfg, ann.cflags, getattr(ann, "module", ""))
 
     results_list: list[dict[str, Any]] = []
 

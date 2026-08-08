@@ -4,6 +4,7 @@ Usage:
     rebrew init [--target NAME] [--binary FILENAME] [--compiler PROFILE]
 """
 
+import re
 import shutil
 from pathlib import Path
 
@@ -71,6 +72,7 @@ reversed_dir = "src/{target_name}"   # directory containing reversed .c files
 function_list = "src/{target_name}/functions.txt"
 bin_dir = "bin/{target_name}"        # directory for extracted .bin files
 source_ext = ".c"                      # source file extension (.c, .cpp, etc.)
+marker = "{marker}"                  # annotation marker (e.g. // FUNCTION: SERVER 0x...)
 # ignored_symbols = []              # symbols to skip (ASM builtins etc.)
 
 # Per-target cflags presets — keyed by module name, override global presets.
@@ -281,19 +283,27 @@ def main(
             json_mode=json_output,
         )
     profile = COMPILER_DEFAULTS[compiler_profile]
+    runner = "tools/wibo" if install_wibo else profile["runner"]
+    compiler_command = profile["command"]
+    if install_wibo and compiler_command.startswith("wine "):
+        # wibo runs the CL.EXE directly — drop the wine prefix so
+        # resolve_cl_command's runner stripping sees cmd_parts[0] == runner
+        # (otherwise the config mixes "tools/wibo" with a "wine" command
+        # and every compile fails with a bogus argv).
+        compiler_command = compiler_command[len("wine ") :]
 
     # 1. Write rebrew-project.toml
     toml_content = DEFAULT_REBREW_TOML.format(
         project_name=cwd.name,
         target_name=target_name,
         binary_name=binary_name,
+        marker=re.sub(r"[^A-Za-z0-9_]", "", target_name).upper(),
         compiler_profile=compiler_profile,
-        compiler_command=profile["command"],
+        compiler_command=compiler_command,
         compiler_includes=profile["includes"],
         compiler_libs=profile["libs"],
         cflags=profile["cflags"],
     )
-    runner = "tools/wibo" if install_wibo else profile["runner"]
     toml_content = toml_content.replace("__COMPILER_RUNNER__", runner)
     atomic_write_text(toml_path, toml_content, encoding="utf-8")
     console.print(f"[green]Created {toml_path.name}[/]")
