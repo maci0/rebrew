@@ -5494,3 +5494,13 @@ the dev extras (plain `uv sync` had dropped pytest); verified: `uv run
 pytest --version` ok, `rebrew status` ok, capstone 5.0.9 + angr 9.2.204
 coexist.  np-rebrew uses the global rebrew tool (no uv project) and is
 unaffected.
+
+## 2026-08-09 — perf follow-up: catalog binary_loader/lief deferred (dbc4c08)
+
+Closed the last leaf-level import cost: catalog.cli (eagerly imported by
+the umbrella) pulled lief (~120ms) via registry.py and sections.py
+module-level binary_loader imports.  Both now import lazily.  The
+remaining ~0.5s per CLI invocation is structural (typer + ~30 eager
+subcommand registrations) — the lazy-subcommand-registration refactor
+(typer signature introspection makes a generic wrapper awkward) is
+documented as the final, optional item.  3520 tests pass.
