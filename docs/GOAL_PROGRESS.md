@@ -5661,3 +5661,20 @@ db/data.json. Project-data hygiene in guild (remove redundant DATA
 annotations from extern decls) — left to the user; documented here only.
 Also confirmed: DATA W016 (missing SECTION) is metadata-resolved via
 rebrew-data.toml `section` overlay (fires only with cfg=None).
+
+## 2026-08-09 — recoverage re-verified + CLI spot-check + W020 __emit confirmed
+
+- recoverage suite re-run against current rebrew: **272 passed, 4 skipped**
+  (green; consumes `db/data_T.json` via build-db — today's catalog change
+  only touched the `--json` summary payload, not `data_T.json`, so no
+  impact, confirmed by the pass).
+- CLI conventions spot-check (per cli-review.md): `--json`/`--target`
+  ordering + help strings ("Output results as JSON" / "Preview changes
+  without writing") verified across all typer modules via script — 0
+  violations; `main_entry` docstrings + `__name__` guards all present;
+  console=stderr everywhere. Real-run checks: `catalog --help`/`test
+  --help` render with examples; usage error (unknown flag) exits 2;
+  missing-config exits 2; NO_COLOR clean. No fixes needed.
+- W020 asm-dump check (user's earlier "_emit warning" request): already
+  implemented — `_check_W020_asm_dump` fires on both `__emit` and
+  `__asm` (warn-once per file). Guild's 34 W020s prove it fires.
