@@ -4569,3 +4569,29 @@ fixtures), gen_flirt_pat.py (needs .lib archives).
   - Synthetic DB seeds a verify_results row; +2 API tests (206 passed).
 - Pushed: rebrew 137b6d3..951cd48, recoverage 169d8b6..13fa9f7.
 - Suites green (3460 / 206), mypy + pre-commit clean.
+
+### Slice 216 (16h goal) — docs refresh, agent skills, v0.1.0 release — DONE
+- 30-item docs-vs-code audit (delegated) applied across AGENTS.md, the
+  AGENTS.md.template, 14 docs/ files and the agent skills: corrected stale
+  CLI flags (asm positional VA, lint positional files, diff --mismatches-only,
+  cfg set-compiler TARGET PROFILE, crt-match/graph --origin), removed the
+  walk-up-metadata myth (metadata lives at cfg.metadata_dir only), qualified
+  toml keys, marker-only linter enforcement, flag-sweep tier counts
+  (192/1152/5376/258048/6193152), angr via `uv sync --all-extras`, test count
+  3460, 33 CLI commands, NEAR_MATCH_THRESHOLD 60%, verify_results populated by
+  build-db, paths.sourceRoot. +4 follow-up fixes (CLI.md --mm, TOOLCHAIN tier
+  counts, ANNOTATIONS E003/E007 table, BOOTSTRAPPING walk-up).
+- Agent skills (5 SKILL.md + annotation-format reference) improved via a
+  5-agent swarm: intake (doctor-first, dashboard handoff), workflow
+  (round-trip validation step, metadata model, prove --watch-va), matching
+  (sweep-then-ga, ga-history, tier counts), data-analysis (dispatch
+  thresholds, JSON shapes, failure modes), ghidra-sync (cli backend,
+  pull-datatypes, where-results-land). Every command validated against real
+  --help (tools/validate_skill_commands.py: All OK).
+- CHANGELOG.md: full [0.1.0] - 2026-08-08 entry.
+- Release cut: `make build` → rebrew-0.1.0 sdist+wheel; commit 5d1832a;
+  annotated tag v0.1.0 pushed; GitHub release created with artifacts
+  (github.com/maci0/rebrew/releases/tag/v0.1.0).
+- Final state: rebrew 3460 passed / 0 skipped, recoverage 206 passed /
+  4 skipped, workspace doctor 14/14, round-trip 158 spliced / 58 catalog
+  gaps / 6 genuine drifts.
