@@ -166,6 +166,8 @@ class TestVerifyDiff:
         assert diff["unchanged_count"] == 1
 
     def test_diff_matching_alias(self) -> None:
+        """NEAR_MATCHING → STUB is a same-rank DEGRADATION — the fine-grained
+        status order must report it as a regression (was: unchanged)."""
         previous = {
             "results": [
                 {"va": "0x10008000", "name": "func_alias", "status": "NEAR_MATCHING", "delta": 3}
@@ -176,6 +178,39 @@ class TestVerifyDiff:
         }
 
         diff = diff_reports(previous, current)
-        assert diff["regressions"] == []
+        assert len(diff["regressions"]) == 1
+        assert diff["regressions"][0]["previous_status"] == "NEAR_MATCHING"
+        assert diff["regressions"][0]["current_status"] == "STUB"
         assert diff["improvements"] == []
-        assert diff["unchanged_count"] == 1
+        assert diff["unchanged_count"] == 0
+
+
+class TestApplyOrPreviewStatus:
+    """rebrew verify --dry-run must not write STATUS metadata."""
+
+    def _entry(self) -> object:
+        from types import SimpleNamespace
+
+        return SimpleNamespace(module="game", va=0x10001000, status="STUB")
+
+    def test_dry_run_skips_writes(self, monkeypatch: object) -> None:
+        from rebrew.verify import _apply_or_preview_status
+
+        calls: list[object] = []
+        monkeypatch.setattr(
+            "rebrew.verify.apply_status_updates",
+            lambda fixes, cfg: calls.append(fixes),
+        )
+        _apply_or_preview_status([(self._entry(), "EXACT", 0)], object(), dry_run=True)
+        assert calls == []
+
+    def test_apply_writes(self, monkeypatch: object) -> None:
+        from rebrew.verify import _apply_or_preview_status
+
+        calls: list[object] = []
+        monkeypatch.setattr(
+            "rebrew.verify.apply_status_updates",
+            lambda fixes, cfg: calls.append(fixes),
+        )
+        _apply_or_preview_status([(self._entry(), "EXACT", 0)], object(), dry_run=False)
+        assert len(calls) == 1

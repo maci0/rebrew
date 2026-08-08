@@ -259,6 +259,7 @@ def load_data(
                 "filename": rel_name,
                 "size": str(entry.size),
                 "status": entry.status,
+                "module": entry.module or "",
                 "blocker": entry.blocker,
                 "blocker_delta": str(entry.blocker_delta)
                 if entry.blocker_delta is not None
@@ -277,6 +278,7 @@ def load_data(
                 "filename": hfile.name,
                 "size": str(entry.size),
                 "status": entry.status,
+                "module": entry.module or "",
                 "blocker": "",
                 "blocker_delta": "",
                 "symbol": entry.symbol,
@@ -388,8 +390,9 @@ def sanitize_name(ghidra_name: str) -> str:
     # Strip FUN_ prefix
     name = ghidra_name
     if name.startswith("FUN_"):
-        # Convert FUN_<hex> prefix to func_<hex>
-        return "func_" + name[4:].lower()
+        # Convert FUN_<hex> prefix to func_<hex>; sanitize the remainder too so
+        # a hostile Ghidra name cannot smuggle path separators into filenames.
+        return "func_" + _SANITIZE_NON_ALNUM_RE.sub("_", name[4:]).lower().strip("_")
     # Clean up special chars
     name = _SANITIZE_NON_ALNUM_RE.sub("_", name)
     # Collapse consecutive underscores
@@ -412,12 +415,9 @@ def make_filename(
     cfg: ProjectConfig | None = None,
 ) -> str:
     """Generate the .c filename following project naming conventions."""
-    if custom_name:
-        base = custom_name
-    elif ghidra_name.startswith("FUN_"):
-        base = "func_" + ghidra_name[4:].lower()
-    else:
-        base = sanitize_name(ghidra_name)
+    # sanitize_name already converts FUN_<hex> to func_<hex> and strips
+    # path-hostile characters, so the result is always a safe filename.
+    base = custom_name or sanitize_name(ghidra_name)
 
     ext = cfg.source_ext if cfg is not None else ".c"
     return base + ext

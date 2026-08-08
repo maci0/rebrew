@@ -1,7 +1,10 @@
 """Tests for rebrew.skeleton — utility functions for skeleton generation."""
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
+
+import pytest
 
 from rebrew.catalog import FunctionEntry
 from rebrew.config import ProjectConfig
@@ -159,6 +162,24 @@ class TestListUncovered:
         assert 0x10002000 not in vas
         assert 0x10003000 in vas
 
+    def test_merges_function_list_only_entries(self, tmp_path: Path) -> None:
+        """Functions known only to the function list (not the Ghidra cache) appear."""
+        from rebrew.skeleton import list_uncovered
+
+        cfg = ProjectConfig(
+            root=tmp_path,
+            ignored_symbols=[],
+            function_list=str(tmp_path / "functions.txt"),
+        )
+        (tmp_path / "functions.txt").write_text(
+            "  0x10005000     32  fcn.10005000\n", encoding="utf-8"
+        )
+        ghidra = [FunctionEntry(va=0x10001000, tool_name="func_a", size=64)]
+        result = list_uncovered(ghidra, {}, cfg)
+        vas = {va for va, _, _ in result}
+        assert 0x10001000 in vas  # ghidra entry
+        assert 0x10005000 in vas  # list-only entry
+
 
 # -------------------------------------------------------------------------
 # generate_skeleton — library_modules flow
@@ -261,3 +282,197 @@ class TestFindNeighborFile:
         existing = {0x10001000: "left.c", 0x10001500: "right.c"}
         # 0x10001080 is 0x80 from left, 0x480 from right
         assert find_neighbor_file(0x10001080, existing) == "left.c"
+
+
+class TestGenerateAnnotationBlock:
+    def _cfg(self) -> object:
+        from types import SimpleNamespace
+
+        return SimpleNamespace(library_modules=set(), marker="SERVER")
+
+    def test_basic_block(self) -> None:
+        from rebrew.skeleton import generate_annotation_block
+
+        block = generate_annotation_block(self._cfg(), 0x1000, "FUN_10001000")
+        assert "FUNCTION: SERVER 0x00001000" in block
+        assert "func_10001000" in block
+
+    def test_custom_name_wins(self) -> None:
+        from rebrew.skeleton import generate_annotation_block
+
+        block = generate_annotation_block(
+            self._cfg(), 0x1000, "FUN_10001000", custom_name="my_func"
+        )
+        assert "my_func" in block
+        assert "func_10001000" not in block
+
+    def test_library_module_marker(self) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.skeleton import generate_annotation_block
+
+        cfg = SimpleNamespace(library_modules={"MSVCRT"}, marker="SERVER")
+        block = generate_annotation_block(cfg, 0x1000, "FUN_10001000", module="MSVCRT")
+        assert "LIBRARY" in block
+
+
+class TestSkeletonListFallback:
+    """single-VA mode falls back to the function list when Ghidra lacks the VA."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        src_dir = tmp_path / "src"
+        src_dir.mkdir(exist_ok=True)
+        (tmp_path / "md").mkdir(exist_ok=True)
+        (tmp_path / "functions.txt").write_text(
+            "  0x10001000     42  fcn.10001000\n", encoding="utf-8"
+        )
+        (tmp_path / "game.dll").write_bytes(b"\x00" * 256)
+        return SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=src_dir,
+            metadata_dir=tmp_path / "md",
+            marker="GAME",
+            source_ext=".c",
+            function_list=tmp_path / "functions.txt",
+            target_binary=tmp_path / "game.dll",
+            iat_thunks=set(),
+            dll_exports={},
+            library_modules=set(),
+        )
+
+    def test_single_va_generates_from_list_size(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        import rebrew.skeleton as sk
+
+        cfg = self._cfg(tmp_path)
+        monkeypatch.setattr(sk, "require_config", lambda target=None, json_mode=False: cfg)
+        # No function_structure.json exists — the fallback must kick in.
+        result = CliRunner().invoke(sk.app, ["0x10001000"])
+        assert result.exit_code == 0
+        # Without the fallback this exits 1 with "not found in function_structure.json".
+        created = list((tmp_path / "src").glob("*.c"))
+        assert len(created) == 1
+        text = created[0].read_text(encoding="utf-8")
+        assert "0x10001000" in text  # marker from the list-derived entry
+
+    def test_unresolved_va_errors_cleanly(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        import rebrew.skeleton as sk
+
+        cfg = self._cfg(tmp_path)
+        monkeypatch.setattr(sk, "require_config", lambda target=None, json_mode=False: cfg)
+        result = CliRunner().invoke(sk.app, ["0x10009999"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+
+class TestSkeletonMetadataSize:
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        (tmp_path / "md").mkdir(exist_ok=True)
+        (tmp_path / "functions.txt").write_text(
+            "  0x10001000     42  fcn.10001000\n", encoding="utf-8"
+        )
+        (tmp_path / "game.dll").write_bytes(b"\x00" * 256)
+        return SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=src,
+            metadata_dir=tmp_path / "md",
+            marker="GAME",
+            source_ext=".c",
+            function_list=tmp_path / "functions.txt",
+            target_binary=tmp_path / "game.dll",
+            iat_thunks=set(),
+            dll_exports={},
+            library_modules=set(),
+        )
+
+    def test_single_va_writes_size_metadata(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        import rebrew.skeleton as sk
+
+        cfg = self._cfg(tmp_path)
+        monkeypatch.setattr(sk, "require_config", lambda target=None, json_mode=False: cfg)
+        result = CliRunner().invoke(sk.app, ["0x10001000"])
+        assert result.exit_code == 0
+        from rebrew.metadata import get_entry
+
+        entry = get_entry(cfg.metadata_dir, 0x10001000, "GAME")
+        assert entry.get("size") == 42  # from the function list, now verifiable
+
+    def test_existing_size_not_overwritten(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata import update_field
+        from rebrew.skeleton import _write_skeleton_metadata
+
+        cfg = self._cfg(tmp_path)
+        update_field(cfg.metadata_dir, 0x10001000, "size", 99, module="GAME")
+        _write_skeleton_metadata(cfg, 0x10001000, 42, "GAME")
+        from rebrew.metadata import get_entry
+
+        assert get_entry(cfg.metadata_dir, 0x10001000, "GAME").get("size") == 99
+
+
+class TestSkeletonDryRun:
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        (tmp_path / "md").mkdir(exist_ok=True)
+        (tmp_path / "functions.txt").write_text(
+            "  0x10001000     42  fcn.10001000\n  0x10002000     10  fcn.10002000\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "game.dll").write_bytes(b"\x00" * 256)
+        return SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=src,
+            metadata_dir=tmp_path / "md",
+            marker="GAME",
+            source_ext=".c",
+            function_list=tmp_path / "functions.txt",
+            target_binary=tmp_path / "game.dll",
+            iat_thunks=set(),
+            dll_exports={},
+            library_modules=set(),
+            ignored_symbols=[],
+        )
+
+    def test_single_dry_run_creates_nothing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        import rebrew.skeleton as sk
+
+        cfg = self._cfg(tmp_path)
+        monkeypatch.setattr(sk, "require_config", lambda target=None, json_mode=False: cfg)
+        result = CliRunner().invoke(sk.app, ["--dry-run", "0x10001000"])
+        assert result.exit_code == 0
+        assert "Would create" in result.output
+        assert not list((tmp_path / "src").glob("*.c"))
+
+    def test_batch_dry_run_creates_nothing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        import rebrew.skeleton as sk
+
+        cfg = self._cfg(tmp_path)
+        monkeypatch.setattr(sk, "require_config", lambda target=None, json_mode=False: cfg)
+        result = CliRunner().invoke(sk.app, ["--batch", "5", "--dry-run"])
+        assert result.exit_code == 0
+        assert result.output.count("Would create") == 2
+        assert "CREATED" not in result.output
+        assert not list((tmp_path / "src").glob("*.c"))

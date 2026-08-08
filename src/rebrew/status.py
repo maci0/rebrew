@@ -23,7 +23,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from rebrew.cli import STATUS_COLORS, TargetOption, json_print, require_config
+from rebrew.cli import STATUS_COLORS, TargetOption, iter_sources, json_print, require_config
 from rebrew.config import ProjectConfig
 
 # Regex that matches any inline metadata comment fired by W019.
@@ -52,6 +52,7 @@ class VerifyInfo:
     passed: int = 0
     failed: int = 0
     total: int = 0
+    stale: bool = False  # sources changed since the cache was written
 
 
 @dataclass
@@ -73,6 +74,9 @@ class StatusReport:
     # Byte-level coverage
     matched_bytes: int = 0
     total_text_bytes: int = 0
+
+    # Per-module status breakdown: {module: {status: count}}
+    module_status: dict[str, dict[str, int]] = field(default_factory=dict)
 
     # Verify cache summary
     verify_info: VerifyInfo | None = None
@@ -117,6 +121,7 @@ class StatusReport:
                 "covered": self.covered_functions,
             },
             "status": self.status_counts,
+            "modules": self.module_status,
             "coverage_pct": self.coverage_pct,
             "matched_pct": self.matched_pct,
             "source_files": self.source_files,
@@ -131,6 +136,7 @@ class StatusReport:
                 "passed": self.verify_info.passed,
                 "failed": self.verify_info.failed,
                 "total": self.verify_info.total,
+                "stale": self.verify_info.stale,
             }
         if self.inline_metadata_warning:
             d["inline_metadata_warning"] = self.inline_metadata_warning
@@ -152,11 +158,15 @@ def _load_verify_info(cfg: ProjectConfig) -> VerifyInfo | None:
     except (json.JSONDecodeError, OSError):
         return None
 
-    if raw.get("version") != 1:
+    if not isinstance(raw, dict) or raw.get("version") != 1:
+        return None
+    # A cache written for another target (or with stale compiler/hash state)
+    # must not be presented as this project's verification summary.
+    if raw.get("target") != getattr(cfg, "target_name", ""):
         return None
 
-    entries = raw.get("entries", {})
-    if not entries:
+    entries = raw.get("entries")
+    if not isinstance(entries, dict) or not entries:
         return None
 
     passed = 0
@@ -164,7 +174,9 @@ def _load_verify_info(cfg: ProjectConfig) -> VerifyInfo | None:
     for entry_data in entries.values():
         if not isinstance(entry_data, dict):
             continue
-        result = entry_data.get("result", {})
+        result = entry_data.get("result")
+        if not isinstance(result, dict):
+            continue  # null/malformed result — skip, don't count as failed
         if result.get("passed", False):
             passed += 1
         else:
@@ -177,11 +189,28 @@ def _load_verify_info(cfg: ProjectConfig) -> VerifyInfo | None:
     except OSError:
         timestamp = ""
 
+    # Freshness: a source newer than the cache means the summary is stale.
+    stale = False
+    cache_mtime_ns = 0
+    try:
+        cache_mtime_ns = cache_path.stat().st_mtime_ns
+    except OSError:
+        cache_mtime_ns = 0
+    if cache_mtime_ns:
+        for src in iter_sources(cfg.reversed_dir, cfg):
+            try:
+                if src.stat().st_mtime_ns > cache_mtime_ns:
+                    stale = True
+                    break
+            except OSError:
+                continue
+
     return VerifyInfo(
         timestamp=timestamp,
         passed=passed,
         failed=failed,
         total=passed + failed,
+        stale=stale,
     )
 
 
@@ -199,8 +228,19 @@ def _load_verify_statuses(cfg: ProjectConfig) -> dict[int, str]:
     except (json.JSONDecodeError, OSError):
         return {}
 
+    if not isinstance(raw, dict):
+        return {}
+    # Same target guard as _load_verify_info: another target's cache must not
+    # override this project's source statuses.
+    if raw.get("target") != getattr(cfg, "target_name", ""):
+        return {}
+
+    entries = raw.get("entries")
+    if not isinstance(entries, dict):
+        return {}
+
     statuses: dict[int, str] = {}
-    for va_str, entry_data in raw.get("entries", {}).items():
+    for va_str, entry_data in entries.items():
         if not isinstance(entry_data, dict):
             continue
         result = entry_data.get("result", {})
@@ -275,10 +315,22 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     matched_bytes = 0
     for va, info in existing.items():
         ann_status = info.get("status", "STUB")
-        effective = "PROVEN" if ann_status == "PROVEN" else verify_statuses.get(va, ann_status)
+        # Metadata is authoritative for STUB (a stub's size mismatch is
+        # expected); only more actionable cache states (COMPILE_ERROR,
+        # matched) override.  Same rule as todo.py.
+        if ann_status == "PROVEN":
+            effective = ann_status
+        elif ann_status == "STUB":
+            cached = verify_statuses.get(va)
+            effective = cached if cached and cached not in ("SIZE_MISMATCH", "STUB") else ann_status
+        else:
+            effective = verify_statuses.get(va, ann_status)
         status_counts[effective] = status_counts.get(effective, 0) + 1
         if effective in ("EXACT", "RELOC", "PROVEN"):
             matched_bytes += size_by_va.get(va, 0)
+        module = info.get("module") or "?"
+        report.module_status.setdefault(module, {})
+        report.module_status[module][effective] = report.module_status[module].get(effective, 0) + 1
     report.status_counts = status_counts
     report.matched_bytes = matched_bytes
     report.total_text_bytes = _compute_text_size(cfg)
@@ -413,10 +465,11 @@ def _render_terminal(report: StatusReport) -> None:
     if report.verify_info is not None:
         v = report.verify_info
         verify_color = "green" if v.failed == 0 else "yellow"
+        stale_suffix = " [yellow](stale — run rebrew verify)[/yellow]" if v.stale else ""
         summary_lines.append(
             f"  Last verify: [{verify_color}]{v.passed} passed[/{verify_color}]"
             f"  [red]{v.failed} failed[/red]"
-            f"  [dim]({v.timestamp})[/dim]"
+            f"  [dim]({v.timestamp})[/dim]{stale_suffix}"
         )
 
     # W019 inline metadata warning

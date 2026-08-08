@@ -8,7 +8,6 @@ Supports ``--fix`` to migrate inline metadata keys to the TOML metadata file.
 Inspired by reccmp's decomplint tool.
 """
 
-import contextlib
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -153,7 +152,7 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
     return results
 
 
-def _check_format_warnings(result: LintResult, flags: dict[str, bool]) -> bool:
+def _check_format_errors(result: LintResult, flags: dict[str, bool]) -> bool:
     """Check format-level errors (E001). Returns True if validation should proceed."""
     if not flags["has_new"]:
         result.error(result.marker_line, "E001", "Missing FUNCTION/LIBRARY/STUB annotation")
@@ -462,7 +461,7 @@ def lint_file(
         else:
             result.context_prefix = ""
 
-        if not _check_format_warnings(result, flags):
+        if not _check_format_errors(result, flags):
             continue
 
         if flags["has_new"]:
@@ -672,8 +671,8 @@ def main(
 
     # Apply --fix: migrate inline metadata to rebrew-function.toml
     if fix and cfg:
-        from rebrew.annotation import remove_annotation_key
-        from rebrew.metadata import get_entry, set_field
+        from rebrew.annotation import remove_inline_annotation_key
+        from rebrew.metadata import coerce_metadata_value, get_entry, set_field
 
         fix_count = 0
         for r in all_results:
@@ -681,7 +680,13 @@ def main(
                 continue
             for module, va, key, value in r._inline_fixes:
                 toml_key = key.lower()
-                # Check if metadata already has this field
+                # Check if metadata already has this field.  At lint time the
+                # metadata overlay marks existing keys as metadata-sourced, so
+                # a key recorded in `_inline_fixes` is absent from metadata
+                # then — except in the duplicate-VA case: an earlier file in
+                # the same non-dry-run fix loop already migrated the same
+                # (module, va) key, so it appears here.  Dry-run never writes,
+                # so this path is only reachable in real mode.
                 existing = get_entry(cfg.metadata_dir, va, module)
                 if toml_key not in existing:
                     if dry_run:
@@ -690,22 +695,17 @@ def main(
                             f"// {key}: {value!r} → rebrew-function.toml"
                         )
                     else:
-                        # Coerce size to int if possible
-                        write_value: str | int = value
-                        if toml_key == "size":
-                            with contextlib.suppress(ValueError):
-                                write_value = int(value)
+                        # Coerce size/blocker_delta to int via the shared
+                        # metadata facade (single canonical coercion).
+                        write_value = coerce_metadata_value(toml_key, value)
                         set_field(cfg.metadata_dir, va, toml_key, write_value, module=module)
-                else:
-                    if dry_run:
-                        console.print(
-                            f"  [dim]Would remove[/dim] {r.filepath.name} "
-                            f"// {key}: (already in metadata)"
-                        )
 
-                # Strip inline comment from source
+                # Strip inline comment from source (file-only — the metadata
+                # write above already owns the field; routing STATUS through
+                # remove_annotation_key would raise, and removing any other
+                # metadata key would delete the field we just migrated).
                 if not dry_run:
-                    remove_annotation_key(r.filepath, va, key, metadata_dir=cfg.metadata_dir)
+                    remove_inline_annotation_key(r.filepath, va, key)
                 fix_count += 1
 
         if not json_output:

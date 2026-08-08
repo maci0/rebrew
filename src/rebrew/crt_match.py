@@ -25,6 +25,7 @@ from rebrew.annotation import Annotation, parse_c_file_multi, update_annotation_
 from rebrew.cli import (
     TargetOption,
     error_exit,
+    iter_library_headers,
     iter_sources,
     json_print,
     parse_va,
@@ -231,7 +232,11 @@ def match_function(
         source_raw = source_entry.name.strip().lower()
         source_norm = normalize_name(source_entry.name)
 
-        if source_raw == binary_raw:
+        # A real function definition (line != 0) that exactly matches is the
+        # strongest signal.  Filename-derived entries (line == 0) cap at the
+        # weaker "filename-based" confidence below — the name came from the
+        # file name, not a parsed function.
+        if source_raw == binary_raw and source_entry.line != 0:
             matches.append(
                 CrtMatch(
                     va=va,
@@ -278,15 +283,25 @@ def match_function(
 def _collect_library_annotations(
     cfg: ProjectConfig,
 ) -> list[tuple[Path, Annotation]]:
-    """Collect LIBRARY-marker annotations from source files."""
+    """Collect LIBRARY-marker annotations from source files.
+
+    ``reversed_dir`` is per-target (``src/<marker>``), so the module filter
+    here — not the parser's ``target_name`` filter — decides what counts as a
+    library function.  Passing ``target_name=None`` keeps cross-module
+    ``// LIBRARY: MSVCRT``-style markers (the documented ``library_modules``
+    convention); only FUNCTION/LIBRARY markers are collected, so GLOBAL/DATA
+    annotations never match against the CRT index.
+    """
     annotations: list[tuple[Path, Annotation]] = []
     library_modules = {m.upper() for m in getattr(cfg, "library_modules", [])}
 
-    for source_path in iter_sources(cfg.reversed_dir, cfg):
-        for ann in parse_c_file_multi(
-            source_path, target_name=cfg.marker, metadata_dir=cfg.metadata_dir
-        ):
+    # Library functions live in `library_*.h` headers as well as .c files;
+    # iter_sources only globs cfg.source_ext, so iterate both.
+    for source_path in iter_sources(cfg.reversed_dir, cfg) + iter_library_headers(cfg.reversed_dir):
+        for ann in parse_c_file_multi(source_path, target_name=None, metadata_dir=cfg.metadata_dir):
             module_upper = (ann.module or "").upper()
+            if ann.marker_type not in ("FUNCTION", "LIBRARY"):
+                continue
             if ann.marker_type != "LIBRARY" and module_upper not in library_modules:
                 continue
             annotations.append((source_path, ann))
@@ -304,6 +319,36 @@ def _build_indexes(cfg: ProjectConfig) -> dict[str, list[CrtSourceEntry]]:
     return indexes
 
 
+# Keyed by function-list path: multiple projects in one process must not
+# share canonical sizes (VAs collide across binaries).
+_canonical_sizes: dict[str, dict[int, int]] = {}
+
+
+def _canonical_size(cfg: ProjectConfig, va: int) -> int:
+    """Best-effort canonical size for *va* from the function list registry.
+
+    LIBRARY-header annotations often lack a SIZE, so crt-match reported
+    ``binary_size: 0`` for e.g. _malloc (real size 252).  Falls back to the
+    registry's canonical size; returns 0 when unavailable.
+    """
+    func_list_path = str(getattr(cfg, "function_list", ""))
+    sizes = _canonical_sizes.get(func_list_path)
+    if sizes is None:
+        from pathlib import Path
+
+        from rebrew.catalog.loaders import parse_function_list
+
+        try:
+            funcs = (
+                parse_function_list(Path(func_list_path)) if Path(func_list_path).is_file() else []
+            )
+            sizes = {f["va"]: int(f["size"]) for f in funcs}
+        except (OSError, ValueError, KeyError):
+            sizes = {}
+        _canonical_sizes[func_list_path] = sizes
+    return sizes.get(va, 0)
+
+
 def match_all(cfg: ProjectConfig) -> list[CrtMatch]:
     """Match all LIBRARY-marker functions against configured CRT source indices."""
     indexes = _build_indexes(cfg)
@@ -311,16 +356,29 @@ def match_all(cfg: ProjectConfig) -> list[CrtMatch]:
 
     for _, ann in _collect_library_annotations(cfg):
         module_upper = (ann.module or "").upper()
-        index = indexes.get(module_upper, [])
-        if not index:
-            continue
-
-        binary_name = ann.symbol or ann.name
+        # Prefer the annotated name: for LIBRARY headers the name is the
+        # mangled hint (e.g. `// _free`) and the derived symbol double-
+        # underscores it (``__free``), which never matches the CRT index.
+        binary_name = ann.name or ann.symbol
         if not binary_name:
             continue
 
-        matches = match_function(binary_name, ann.size, module_upper, index, va=ann.va)
-        all_matches.extend(matches)
+        # LIBRARY-marker functions often carry the TARGET's module (e.g.
+        # `// LIBRARY: SERVER 0x...`) rather than the library's module, so
+        # the marker module may not own an index.  Fall back to every
+        # configured library index — the library identity is decided by the
+        # name match, not the marker module.
+        if module_upper in indexes:
+            candidates: list[tuple[str, list[CrtSourceEntry]]] = [
+                (module_upper, indexes[module_upper])
+            ]
+        else:
+            candidates = list(indexes.items())
+
+        for idx_module, index in candidates:
+            binary_size = ann.size or _canonical_size(cfg, ann.va)
+            matches = match_function(binary_name, binary_size, idx_module, index, va=ann.va)
+            all_matches.extend(matches)
 
     return all_matches
 
@@ -417,6 +475,7 @@ def main(
     index_only: bool = typer.Option(
         False, "--index", help="Show CRT source index without matching"
     ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -469,19 +528,27 @@ def main(
             error_exit(f"No library marker found for VA 0x{va_int:08x}", json_mode=json_output)
 
         _, ann = pair
-        function_name = ann.symbol or ann.name
+        # Same name preference as match_all: the annotated name (LIBRARY
+        # header hints are already mangled; the derived symbol double-
+        # underscores them and never matches the index).
+        function_name = ann.name or ann.symbol
         if not function_name:
             error_exit(f"Entry at 0x{va_int:08x} has no symbol/name", json_mode=json_output)
 
         module_upper = (ann.module or "").upper()
-        index = indexes.get(module_upper, [])
-        if not index:
-            error_exit(
-                f"No CRT index configured for module '{ann.module}'",
-                json_mode=json_output,
-            )
+        # Same fallback as match_all: the marker module (e.g. "SERVER") may
+        # not own an index — the library identity is decided by the name
+        # match, not the marker module.  Try every configured library index.
+        if module_upper in indexes:
+            index_candidates: list[tuple[str, list[CrtSourceEntry]]] = [
+                (module_upper, indexes[module_upper])
+            ]
+        else:
+            index_candidates = list(indexes.items())
 
-        matches = match_function(function_name, ann.size, module_upper, index, va=va_int)
+        binary_size = ann.size or _canonical_size(cfg, va_int)
+        for idx_module, index in index_candidates:
+            matches.extend(match_function(function_name, binary_size, idx_module, index, va=va_int))
 
     if all_funcs:
         all_matches = match_all(cfg)
@@ -508,12 +575,29 @@ def main(
             pair = annotation_map.get(match.va)
             if pair is None:
                 continue
-            source_path, _ = pair
-            if update_annotation_key(source_path, match.va, "SOURCE", _source_ref(match.source)):
+            source_path, ann = pair
+            # SOURCE is metadata-routed: without an explicit metadata_dir,
+            # update_annotation_key falls back to filepath.parent and would
+            # create a stray rebrew-function.toml next to the library header.
+            if dry_run:
+                from rebrew.metadata import get_entry
+
+                current = get_entry(cfg.metadata_dir, match.va, ann.module).get("source", "")
+                if current != _source_ref(match.source):
+                    updates += 1
+                continue
+            if update_annotation_key(
+                source_path,
+                match.va,
+                "SOURCE",
+                _source_ref(match.source),
+                metadata_dir=cfg.metadata_dir,
+            ):
                 updates += 1
 
+        verb = "Would update" if dry_run else "Updated"
         if not json_output:
-            console.print(f"Updated SOURCE annotations: {updates}")
+            console.print(f"{verb} SOURCE annotations: {updates}")
 
     if json_output:
         json_print(

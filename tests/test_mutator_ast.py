@@ -469,7 +469,7 @@ def test_mut_ast_reorder_declarations() -> None:
     assert "int b" in res[: res.index("int a")]
 
 
-from rebrew.matcher.ast_engine import ASTMutator, parse_c_ast, quick_validate_ast  # noqa: E402
+from rebrew.matcher.ast_engine import parse_c_ast, quick_validate_ast, replace_node  # noqa: E402
 
 
 def test_parse_c_ast() -> None:
@@ -498,5 +498,5 @@ def test_replace_node() -> None:
 
     assert return_node.type == "return_statement"
 
-    new_source = ASTMutator.replace_node(source, return_node, b"return 1;")
+    new_source = replace_node(source, return_node, b"return 1;")
     assert new_source == b"int main() { return 1; }"

@@ -331,6 +331,46 @@ def enrich_with_sections(scan: ScanResult, sections: dict[str, dict[str, Any]]) 
 # ---------------------------------------------------------------------------
 
 
+def _build_dispatch_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[int, dict[str, str]]:
+    """Map VA -> {"name", "status"} for dispatch-table naming.
+
+    Source-file annotations take precedence; the function list / Ghidra
+    structure registry then fills in targets no source file covers (e.g.
+    FLIRT-identified CRT functions).  A "0% resolved" table is misleading
+    when the catalog already knows the names.
+    """
+    from rebrew.annotation import parse_c_file_multi
+    from rebrew.cli import iter_sources, rel_display_path, target_marker
+
+    known_functions: dict[int, dict[str, str]] = {}
+    for cfile in iter_sources(src_dir, cfg):
+        for entry in parse_c_file_multi(
+            cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
+        ):
+            if entry.va:
+                known_functions[entry.va] = {
+                    "name": entry.name or rel_display_path(cfile, src_dir),
+                    "status": entry.status,
+                }
+
+    try:
+        from rebrew.catalog.loaders import parse_function_list
+        from rebrew.catalog.registry import build_function_registry
+        from rebrew.config import FUNCTION_STRUCTURE_JSON
+
+        funcs = parse_function_list(cfg.function_list)
+        registry = build_function_registry(
+            funcs, cfg, src_dir / FUNCTION_STRUCTURE_JSON, cfg.target_binary
+        )
+        for va, reg_entry in registry.items():
+            name = reg_entry.get("list_name") or reg_entry.get("ghidra_name")
+            if name and va not in known_functions:
+                known_functions[va] = {"name": name, "status": ""}
+    except (OSError, ValueError, KeyError, AttributeError):
+        pass
+    return known_functions
+
+
 def find_dispatch_tables(
     binary_data: bytes,
     sections: dict[str, dict[str, Any]],
@@ -671,13 +711,23 @@ def _render_dispatch(console: Console, tables: list[DispatchTable]) -> None:
         console.print()
 
 
-def _generate_bss_fix(report: BssReport, src_dir: Path, origin: str) -> None:
+def _generate_bss_fix(
+    report: BssReport, src_dir: Path, origin: str, *, dry_run: bool = False
+) -> None:
     """Generate a bss_padding.c file with dummy arrays for all detected BSS gaps.
 
     SIZE, SECTION, and NOTE are written to ``rebrew-data.toml`` metadata, not inline.
+    With *dry_run*, prints what would be written without touching the disk.
     """
     if not report.gaps:
-        console.print("No BSS gaps detected. Layout is perfect!")
+        if report.known_entries:
+            console.print("No BSS gaps detected. Layout is perfect!")
+        else:
+            console.print(
+                "[yellow]No annotated BSS globals — nothing to verify. "
+                "Add // GLOBAL: annotations (or extern declarations) for "
+                ".bss globals to check the layout.[/yellow]"
+            )
         return
 
     from rebrew.data_metadata import set_data_field
@@ -693,12 +743,23 @@ def _generate_bss_fix(report: BssReport, src_dir: Path, origin: str) -> None:
     for gap in sorted(report.gaps, key=lambda g: g.offset):
         lines.append(f"// DATA: {origin} 0x{gap.offset:08x}")
         lines.append(f"char gap_{gap.offset:08x}[{gap.size}];\n")
-        # Write metadata to data metadata
-        set_data_field(src_dir, gap.offset, "size", gap.size, origin)
-        set_data_field(src_dir, gap.offset, "section", ".bss", origin)
-        set_data_field(
-            src_dir, gap.offset, "note", f"gap between {gap.before} and {gap.after}", origin
+        if not dry_run:
+            # Write metadata to data metadata
+            set_data_field(src_dir, gap.offset, "size", gap.size, origin)
+            set_data_field(src_dir, gap.offset, "section", ".bss", origin)
+            set_data_field(
+                src_dir, gap.offset, "note", f"gap between {gap.before} and {gap.after}", origin
+            )
+
+    if dry_run:
+        console.print(
+            f"[dim]Dry run:[/dim] would write {out_file.name} with "
+            f"{len(report.gaps)} padding array(s):"
         )
+        for line in lines:
+            if line.startswith("// DATA"):
+                console.print(f"  [dim]{line}[/]")
+        return
 
     atomic_write_text(out_file, "\n".join(lines), encoding="utf-8")
     console.print(f"Generated {out_file.name} with {len(report.gaps)} padding array(s).")
@@ -887,6 +948,9 @@ def _gen_globals_header(
     src_dir: Path,
     out_path: Path | None = None,
     force: bool = False,
+    *,
+    dry_run: bool = False,
+    json_output: bool = False,
 ) -> None:
     """Generate rebrew_globals.h from GLOBAL:/DATA: annotations + data metadata.
 
@@ -901,6 +965,8 @@ def _gen_globals_header(
         out_path: Output file path.  Defaults to ``src_dir/rebrew_globals.h``.
         force: When False (default), refuses to overwrite an existing file and
             exits with an error message.  Pass True to allow overwriting.
+        dry_run: When True, report what would be written without touching disk.
+        json_output: When True, errors are emitted as JSON.
     """
     import time
 
@@ -1013,10 +1079,28 @@ def _gen_globals_header(
     if out.exists() and not force:
         error_exit(
             f"{out} already exists. Use --force to overwrite.",
-            json_mode=False,
+            json_mode=json_output,
         )
 
-    out.write_text("\n".join(header_lines), encoding="utf-8")
+    if dry_run:
+        console.print(f"[cyan]dry-run:[/cyan] would write {out} with {len(rows)} globals")
+        return
+
+    content = "\n".join(header_lines)
+    if out.exists():
+        existing = out.read_text(encoding="utf-8")
+
+        # Idempotency: regeneration only bumps the "Generated:" timestamp —
+        # skip the write when the body is otherwise identical to avoid
+        # needless git churn on every run.
+        def _strip_timestamp(text: str) -> str:
+            return "\n".join(line for line in text.splitlines() if "Generated:" not in line)
+
+        if _strip_timestamp(existing) == _strip_timestamp(content):
+            console.print(f"[dim]{out.name} unchanged[/dim] ({len(rows)} globals)")
+            return
+
+    out.write_text(content, encoding="utf-8")
 
     console.print(f"[green]Wrote {out.name}[/green] with {len(rows)} globals")
     for sec in section_order:
@@ -1065,6 +1149,7 @@ def main(
         "--force",
         help="Overwrite existing output file when using --gen-header",
     ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -1076,7 +1161,14 @@ def main(
 
     # --gen-header: generate rebrew_globals.h from annotations (no Ghidra)
     if gen_header:
-        _gen_globals_header(cfg, src_dir, out_path=gen_header_out, force=force)
+        _gen_globals_header(
+            cfg,
+            src_dir,
+            out_path=gen_header_out,
+            force=force,
+            dry_run=dry_run,
+            json_output=json_output,
+        )
         return
 
     # Scan source files
@@ -1084,13 +1176,17 @@ def main(
 
     # Enrich with binary section info
     sections: dict[str, dict[str, Any]] = {}
+    bin_info: Any = None  # single lazy binary parse, shared with --dispatch
     if bin_path and bin_path.exists():
         try:
-            from rebrew.catalog import get_sections
+            from rebrew.binary_loader import load_binary
+            from rebrew.catalog.sections import sections_from_info
 
-            sections = get_sections(bin_path)
+            bin_info = load_binary(bin_path)
+            sections = sections_from_info(bin_info)
         except (ImportError, OSError, KeyError, ValueError):
-            pass
+            bin_info = None
+            sections = {}
         enrich_with_sections(scan, sections)
 
     # Collect // DATA: annotations
@@ -1101,7 +1197,7 @@ def main(
     if bss or fix_bss:
         bss_report = verify_bss_layout(scan, sections)
         if fix_bss:
-            _generate_bss_fix(bss_report, src_dir, getattr(cfg, "marker", ""))
+            _generate_bss_fix(bss_report, src_dir, getattr(cfg, "marker", ""), dry_run=dry_run)
             return
 
         if json_output:
@@ -1116,11 +1212,12 @@ def main(
         if not bin_path or not bin_path.exists():
             error_exit("target binary not found (needed for --dispatch)", json_mode=json_output)
 
-        from rebrew.annotation import parse_c_file_multi
-        from rebrew.binary_loader import load_binary
-
-        info = load_binary(bin_path)
-        binary_data = info.data
+        if bin_info is None:
+            error_exit(
+                "target binary could not be parsed (needed for --dispatch)",
+                json_mode=json_output,
+            )
+        binary_data = bin_info.data
         sec_dict = {
             name: {
                 "va": si.va,
@@ -1128,22 +1225,12 @@ def main(
                 "file_offset": si.file_offset,
                 "raw_size": si.raw_size,
             }
-            for name, si in info.sections.items()
+            for name, si in bin_info.sections.items()
         }
 
-        # Build known functions map from reversed source files
-        from rebrew.cli import iter_sources, rel_display_path, target_marker
-
-        known_functions: dict[int, dict[str, str]] = {}
-        for cfile in iter_sources(src_dir, cfg):
-            for entry in parse_c_file_multi(
-                cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
-            ):
-                if entry.va:
-                    known_functions[entry.va] = {
-                        "name": entry.name or rel_display_path(cfile, src_dir),
-                        "status": entry.status,
-                    }
+        # Build known functions map from reversed source files, then merge in
+        # function-list / Ghidra-structure names for targets without sources.
+        known_functions = _build_dispatch_known_functions(cfg, src_dir)
 
         tables = find_dispatch_tables(
             binary_data,

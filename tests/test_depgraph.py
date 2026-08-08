@@ -351,3 +351,16 @@ class TestRenderers:
         result = render_summary(nodes, edges, dispatch_edges)
         assert "dispatch" in result
         assert "DISPATCH" in result
+
+
+class TestEdgeCases:
+    def test_sanitize_id_empty_fallback(self) -> None:
+        node_id = _sanitize_id("!!!")
+        assert node_id.startswith("n_node_")
+
+    def test_extract_callees_unreadable(self, tmp_path) -> None:
+        missing = tmp_path / "missing.c"
+        assert _extract_callees(missing) == []
+
+    def test_sanitize_id_stable(self) -> None:
+        assert _sanitize_id("func_a") == _sanitize_id("func_a")

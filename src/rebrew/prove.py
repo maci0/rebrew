@@ -25,22 +25,26 @@ message directing users to ``uv pip install -e ".[prove]"``.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import re
 import struct
 import tempfile
 import time
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import typer
 from rich.console import Console
 
+if TYPE_CHECKING:
+    import angr  # noqa: F401  # only for annotations; runtime import is lazy
+
 from rebrew.annotation import parse_c_file_multi, resolve_symbol
 from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import (
+    EXIT_ERROR,
     EXIT_MISMATCH,
     EXIT_OK,
     TargetOption,
@@ -48,11 +52,12 @@ from rebrew.cli import (
     iter_sources,
     json_print,
     require_config,
+    resolve_source_arg,
     target_marker,
 )
 from rebrew.compile import compile_to_obj
 from rebrew.config import ProjectConfig
-from rebrew.core.matching import build_name_to_va, smart_reloc_compare
+from rebrew.core import build_name_to_va, smart_reloc_compare
 from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
 
 log = logging.getLogger(__name__)
@@ -94,50 +99,50 @@ def _get_win32_simprocs() -> dict[str, type]:
     import angr
     import claripy
 
-    class ReturnSymbolicDword(angr.SimProcedure):  # type: ignore[misc]
+    class ReturnSymbolicDword(angr.SimProcedure):
         """Generic: return a fresh unconstrained 32-bit symbolic value."""
 
         def run(self, *args: Any, **kwargs: Any) -> Any:
-            return self.state.solver.BVS("api_retval", 32)
+            return self.state.solver.BVS("api_retval", 32)  # type: ignore[no-untyped-call]
 
-    class ReturnSymbolicHandle(angr.SimProcedure):  # type: ignore[misc]
+    class ReturnSymbolicHandle(angr.SimProcedure):
         """Return a symbolic HANDLE (non-zero, non-INVALID_HANDLE_VALUE)."""
 
         def run(self, *args: Any, **kwargs: Any) -> Any:
-            h = self.state.solver.BVS("handle", 32)
+            h = self.state.solver.BVS("handle", 32)  # type: ignore[no-untyped-call]
             self.state.solver.add(h != 0)
             self.state.solver.add(h != 0xFFFFFFFF)
             return h
 
-    class ReturnSymbolicBool(angr.SimProcedure):  # type: ignore[misc]
+    class ReturnSymbolicBool(angr.SimProcedure):
         """Return 0 or 1 (symbolic BOOL)."""
 
         def run(self, *args: Any, **kwargs: Any) -> Any:
-            b = self.state.solver.BVS("bool_ret", 32)
+            b = self.state.solver.BVS("bool_ret", 32)  # type: ignore[no-untyped-call]
             self.state.solver.add(claripy.ULE(b, 1))
             return b
 
-    class ReturnVoid(angr.SimProcedure):  # type: ignore[misc]
+    class ReturnVoid(angr.SimProcedure):
         """Void return — no value, no side effects."""
 
         def run(self, *args: Any, **kwargs: Any) -> None:
             return
 
-    class SimLocalAlloc(angr.SimProcedure):  # type: ignore[misc]  # type: ignore[misc]
+    class SimLocalAlloc(angr.SimProcedure):
         def run(self, *args: Any, **kwargs: Any) -> Any:
-            ptr = self.state.heap.allocate(256)
+            ptr = self.state.heap.allocate(256)  # type: ignore[attr-defined]
             for i in range(256):
-                self.state.memory.store(ptr + i, claripy.BVV(0, 8))
+                self.state.memory.store(ptr + i, claripy.BVV(0, 8))  # type: ignore[no-untyped-call]
             return ptr
 
-    class SimGlobalLock(angr.SimProcedure):  # type: ignore[misc]  # type: ignore[misc]
+    class SimGlobalLock(angr.SimProcedure):
         def run(self, *args: Any, **kwargs: Any) -> Any:
-            ptr = self.state.heap.allocate(256)
+            ptr = self.state.heap.allocate(256)  # type: ignore[attr-defined]
             for i in range(256):
-                self.state.memory.store(ptr + i, claripy.BVV(0, 8))
+                self.state.memory.store(ptr + i, claripy.BVV(0, 8))  # type: ignore[no-untyped-call]
             return ptr
 
-    class SimMemcpy(angr.SimProcedure):  # type: ignore[misc]
+    class SimMemcpy(angr.SimProcedure):
         """Model memcpy: copy src→dst symbolically, return dst."""
 
         def run(self, dst: Any, src: Any, n: Any) -> Any:
@@ -148,11 +153,11 @@ def _get_win32_simprocs() -> dict[str, type]:
                 length = 0
             length = min(length, 1024)
             if length > 0:
-                data = self.state.memory.load(src, length)
-                self.state.memory.store(dst, data)
+                data = self.state.memory.load(src, length)  # type: ignore[no-untyped-call]
+                self.state.memory.store(dst, data)  # type: ignore[no-untyped-call]
             return dst
 
-    class SimMemset(angr.SimProcedure):  # type: ignore[misc]
+    class SimMemset(angr.SimProcedure):
         """Model memset: fill dst with byte value, return dst."""
 
         def run(self, dst: Any, val: Any, n: Any) -> Any:
@@ -164,14 +169,14 @@ def _get_win32_simprocs() -> dict[str, type]:
             if length > 0:
                 byte_val = claripy.Extract(7, 0, val)
                 for i in range(length):
-                    self.state.memory.store(dst + i, byte_val)
+                    self.state.memory.store(dst + i, byte_val)  # type: ignore[no-untyped-call]
             return dst
 
-    class SimStrlen(angr.SimProcedure):  # type: ignore[misc]
+    class SimStrlen(angr.SimProcedure):
         """Model strlen: return symbolic non-negative length."""
 
         def run(self, s: Any) -> Any:
-            result = self.state.solver.BVS("strlen_ret", 32)
+            result = self.state.solver.BVS("strlen_ret", 32)  # type: ignore[no-untyped-call]
             self.state.solver.add(claripy.ULE(result, 0x10000))  # bound to 64K
             return result
 
@@ -569,6 +574,7 @@ def _compare_state_pairs(
         edx_orig = s_orig.regs.edx
         mem_orig = [_mem_value(s_orig, va) for va in watched_vas]
         can_differ = False
+        diff_desc = ""
         for s_comp in states_comp:
             eax_comp = s_comp.regs.eax
             edx_comp = s_comp.regs.edx
@@ -587,27 +593,111 @@ def _compare_state_pairs(
                     break
                 diff_terms.append(m_orig != m_comp)
 
-            solver = claripy.Solver()
+            solver = claripy.Solver()  # type: ignore[no-untyped-call]
             for expr in s_orig.solver.constraints:
-                solver.add(expr)
+                solver.add(expr)  # type: ignore[no-untyped-call]
             for expr in s_comp.solver.constraints:
-                solver.add(expr)
-            solver.add(claripy.Or(*diff_terms))
+                solver.add(expr)  # type: ignore[no-untyped-call]
+            solver.add(claripy.Or(*diff_terms))  # type: ignore[no-untyped-call]
 
-            if solver.satisfiable():
+            if solver.satisfiable():  # type: ignore[no-untyped-call]
                 can_differ = True
+                try:
+                    # One batch_eval call, one model: all counterexample values
+                    # come from a single satisfying assignment, so the message
+                    # is internally consistent (no independent solves).
+                    mem_pairs = list(zip(watched_vas, mem_orig, mem_comp, strict=True))
+                    exprs: list[Any] = [eax_orig, eax_comp]
+                    if check_edx:
+                        exprs += [edx_orig, edx_comp]
+                    for _va, m_o, m_c in mem_pairs:
+                        if m_o is not None:
+                            exprs.append(m_o)
+                        if m_c is not None:
+                            exprs.append(m_c)
+                    vals = solver.batch_eval(exprs, 1)[0]  # type: ignore[no-untyped-call]
+                    it = iter(vals)
+                    eax_o, eax_c = next(it), next(it)
+                    if check_edx:
+                        edx_o, edx_c = next(it), next(it)
+                        regs_same = eax_o == eax_c and edx_o == edx_c
+                        reg_part = f"EAX={eax_o} vs {eax_c}, EDX={edx_o} vs {edx_c}"
+                    else:
+                        regs_same = eax_o == eax_c
+                        reg_part = f"EAX={eax_o} vs {eax_c}"
+                    if regs_same and watched_vas:
+                        # Registers agree — the difference is in memory; show the
+                        # first watched VA that differs under the model.
+                        mem_part = ""
+                        for va, m_o, m_c in mem_pairs:
+                            if m_o is None and m_c is None:
+                                continue  # unmapped on both sides — not a difference
+                            if m_o is None or m_c is None:
+                                mem_part = f", mem[0x{va:x}] mapped on one side only"
+                                break
+                            v_o, v_c = next(it), next(it)
+                            if v_o != v_c:
+                                mem_part = f", mem[0x{va:x}]={v_o} vs {v_c}"
+                                break
+                        diff_desc = f"; {reg_part}{mem_part}"
+                    else:
+                        diff_desc = f"; {reg_part}"
+                except Exception:  # noqa: BLE001 — model extraction is best-effort
+                    diff_desc = ""
                 break
 
         if can_differ:
             return False, (
                 f"Z3 found a satisfying assignment where {regs_label}{mem_label} differs "
-                f"(checked {len(states_orig)} x {len(states_comp)} state pairs)"
+                f"(checked {len(states_orig)} x {len(states_comp)} state pairs){diff_desc}"
             )
 
     return True, (
         f"Proven equivalent ({regs_label}{mem_label}; {len(states_orig)} original state(s), "
         f"{len(states_comp)} compiled state(s))"
     )
+
+
+def _run_simulation(
+    proj: angr.Project,
+    state: angr.SimState[Any, Any],
+    *,
+    loop_bound: int,
+    timeout: int,
+) -> list[Any]:
+    """Run symbolic execution and return satisfiable terminal states.
+
+    Module-level so tests can patch it with crafted states and exercise the
+    real comparison logic (:func:`_compare_state_pairs`).
+    """
+    import angr  # noqa: F401  # lazy import (angr is an optional extra)
+
+    sm = proj.factory.simgr(state, save_unconstrained=True)  # type: ignore[no-untyped-call]
+    sm.use_technique(angr.exploration_techniques.LoopSeer(bound=loop_bound))  # type: ignore[no-untyped-call]
+
+    # Step-based timeout — angr's broad except handlers swallow SIGALRM,
+    # so we step manually and check wall-clock time each iteration.
+
+    deadline = time.monotonic() + timeout
+    timed_out = False
+
+    while sm.active:
+        if time.monotonic() > deadline:
+            timed_out = True
+            break
+        sm.step()
+
+    if timed_out:
+        warnings.warn(
+            "Symbolic execution timed out — using partial states",
+            stacklevel=2,
+        )
+    # Prefer fully-terminated states (PathTerminator at RETURN_SENTINEL);
+    # fall back to unconstrained (if sentinel hook missed) or active.
+    terminal = list(sm.deadended)
+    if not terminal:
+        terminal = list(sm.unconstrained) or list(sm.active)
+    return terminal
 
 
 def prove_equivalence(
@@ -678,7 +768,7 @@ def prove_equivalence(
                         stub_addr = (STUB_BASE + len(iat_stub_map_orig) * 4) & 0xFFFFFFFF
                         iat_stub_map_orig[iat_va] = stub_addr
                         if fn.name:
-                            iat_api_names[stub_addr] = fn.name
+                            iat_api_names[stub_addr] = str(fn.name)
         except Exception:  # noqa: BLE001
             log.debug("LIEF import scan failed (best-effort)", exc_info=True)
 
@@ -690,7 +780,7 @@ def prove_equivalence(
     # Create symbolic arguments
     sym_args = [claripy.BVS(f"arg_{i}", 32) for i in range(arg_count)]
 
-    def _setup_state(proj: angr.Project) -> angr.SimState:
+    def _setup_state(proj: angr.Project) -> angr.SimState[Any, Any]:
         """Create an initial state with symbolic arguments placed per calling convention.
 
         Initialises ESP to a fake stack, pushes a concrete return address so
@@ -698,7 +788,7 @@ def prove_equivalence(
         zero-fill for uninitialized memory and registers to prevent symbolic
         pollution from globals, statics, and scratch registers.
         """
-        state = proj.factory.blank_state(
+        state: angr.SimState[Any, Any] = proj.factory.blank_state(  # type: ignore[no-untyped-call]
             addr=0,
             add_options={
                 angr.options.ZERO_FILL_UNCONSTRAINED_MEMORY,
@@ -712,7 +802,7 @@ def prove_equivalence(
         state.regs.ebp = STACK_TOP
 
         # Push return address — 'ret' will pop this, ending execution cleanly
-        state.memory.store(STACK_TOP, claripy.BVV(RETURN_SENTINEL, 32), endness="Iend_LE")
+        state.memory.store(STACK_TOP, claripy.BVV(RETURN_SENTINEL, 32), endness="Iend_LE")  # type: ignore[no-untyped-call]
 
         # Arguments sit above the return address on the stack
         ARG_OFFSET = 4  # first arg at ESP+4 (after ret addr)
@@ -722,7 +812,7 @@ def prove_equivalence(
             state.regs.ecx = sym_args[0]
             # Remaining args on stack (right-to-left)
             for i, arg in enumerate(sym_args[1:]):
-                state.memory.store(STACK_TOP + ARG_OFFSET + (i * 4), arg, endness="Iend_LE")
+                state.memory.store(STACK_TOP + ARG_OFFSET + (i * 4), arg, endness="Iend_LE")  # type: ignore[no-untyped-call]
         elif cc == "fastcall":
             # ECX = arg0, EDX = arg1, rest on stack
             if len(sym_args) >= 1:
@@ -730,11 +820,11 @@ def prove_equivalence(
             if len(sym_args) >= 2:
                 state.regs.edx = sym_args[1]
             for i, arg in enumerate(sym_args[2:]):
-                state.memory.store(STACK_TOP + ARG_OFFSET + (i * 4), arg, endness="Iend_LE")
+                state.memory.store(STACK_TOP + ARG_OFFSET + (i * 4), arg, endness="Iend_LE")  # type: ignore[no-untyped-call]
         else:
             # cdecl / stdcall — all args on stack
             for i, arg in enumerate(sym_args):
-                state.memory.store(STACK_TOP + ARG_OFFSET + (i * 4), arg, endness="Iend_LE")
+                state.memory.store(STACK_TOP + ARG_OFFSET + (i * 4), arg, endness="Iend_LE")  # type: ignore[no-untyped-call]
 
         return state
 
@@ -810,8 +900,8 @@ def prove_equivalence(
                 if start_offset <= off < end_offset:
                     adjusted_relocs[off - start_offset] = sym
             reloc_offsets = adjusted_relocs if adjusted_relocs else None
-        # Filter stub_hooks to only stubs within the sliced range
-        # (stubs at STUB_BASE are external targets, always keep them)
+        # Stub hooks all point at the external STUB_BASE region (never inside
+        # the blob), so none are sliced away — keep them all.
 
     try:
         proj_orig = _make_project(bytes(patched_orig))
@@ -828,7 +918,7 @@ def prove_equivalence(
     # external call — making RELOC wrapper functions unprovable.
     shared_stub_returns: dict[int, Any] = {}
 
-    class SharedReturnStub(angr.SimProcedure):  # type: ignore[misc]  # angr is untyped
+    class SharedReturnStub(angr.SimProcedure):
         """SimProcedure that returns a shared 32-bit BV per stub address.
 
         Looks up the stub_addr in *shared_stub_returns*. If unseen,
@@ -842,6 +932,7 @@ def prove_equivalence(
 
         def run(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ARG002
             stub_addr = self.addr
+            assert stub_addr is not None  # angr sets addr before invoking run()
             bv = shared_stub_returns.get(stub_addr)
             if bv is None:
                 bv = claripy.BVS(f"shared_ret_0x{stub_addr:x}", 32)
@@ -886,7 +977,7 @@ def prove_equivalence(
     # indirect calls (via register or memory) resolve to our stubs.
     state_orig = _setup_state(proj_orig)
     for iat_addr, stub_addr in iat_stub_map_orig.items():
-        state_orig.memory.store(iat_addr, claripy.BVV(stub_addr, 32), endness="Iend_LE")
+        state_orig.memory.store(iat_addr, claripy.BVV(stub_addr, 32), endness="Iend_LE")  # type: ignore[no-untyped-call]
 
     state_comp = _setup_state(proj_comp)
 
@@ -895,47 +986,24 @@ def prove_equivalence(
         _apply_arg_constraints(state_orig, sym_args, arg_constraints)
         _apply_arg_constraints(state_comp, sym_args, arg_constraints)
 
-    def _run_simulation(proj: angr.Project, state: angr.SimState) -> list[Any]:
-        """Run symbolic execution and return satisfiable states."""
-        sm = proj.factory.simgr(state, save_unconstrained=True)
-        sm.use_technique(angr.exploration_techniques.LoopSeer(bound=loop_bound))
-
-        # Step-based timeout — angr's broad except handlers swallow SIGALRM,
-        # so we step manually and check wall-clock time each iteration.
-
-        deadline = time.monotonic() + timeout
-        timed_out = False
-
-        while sm.active:
-            if time.monotonic() > deadline:
-                timed_out = True
-                break
-            sm.step()
-
-        if timed_out:
-            # Return whatever partial states angr reached before the deadline
-            list(sm.deadended) or list(sm.active)
-            warnings.warn(
-                "Symbolic execution timed out — using partial states",
-                stacklevel=2,
-            )
-        # Prefer fully-terminated states (PathTerminator at RETURN_SENTINEL);
-        # fall back to unconstrained (if sentinel hook missed) or active.
-        terminal = list(sm.deadended)
-        if not terminal:
-            terminal = list(sm.unconstrained) or list(sm.active)
-        return terminal
-
     try:
-        states_orig = _run_simulation(proj_orig, state_orig)
-        states_comp = _run_simulation(proj_comp, state_comp)
+        states_orig = _run_simulation(proj_orig, state_orig, loop_bound=loop_bound, timeout=timeout)
+        states_comp = _run_simulation(proj_comp, state_comp, loop_bound=loop_bound, timeout=timeout)
     except Exception as e:
         return False, f"Symbolic execution failed: {e}"
 
     if not states_orig:
-        return False, "No terminal states reached for original binary (timeout or path explosion)"
+        return False, (
+            "No terminal states reached for original binary (timeout or path explosion) — "
+            "try --timeout higher or --loop-bound higher; batch mode cannot slice, "
+            "so for slice proving run rebrew prove <va> --start-offset/--end-offset"
+        )
     if not states_comp:
-        return False, "No terminal states reached for compiled code (timeout or path explosion)"
+        return False, (
+            "No terminal states reached for compiled code (timeout or path explosion) — "
+            "try --timeout higher or --loop-bound higher; batch mode cannot slice, "
+            "so for slice proving run rebrew prove <va> --start-offset/--end-offset"
+        )
 
     # Compare return register(s) and (optionally) watched-VA memory across all
     # terminal state pairs — see _compare_state_pairs for the equivalence rule.
@@ -953,6 +1021,7 @@ _EPILOG = (
     "  rebrew prove 0x01006364 · · · · · · · · · · · Find by VA\n\n"
     "  rebrew prove my_func · · · · · · · · · · · · · Find by symbol name\n\n"
     "  rebrew prove src/mygame/func.c --dry-run · · · Don't update annotations\n\n"
+    "  rebrew prove src/mygame/func.c --watch · · · · Re-prove on every save\n\n"
     "  rebrew prove --all · · · · · · · · · · · · · · Prove all eligible functions\n\n"
     "  rebrew prove my_func --start-offset 0 --end-offset 48  Prove a specific block\n\n"
     "[bold]How it works:[/bold]\n\n"
@@ -975,44 +1044,6 @@ app = typer.Typer(
 console = Console(stderr=True)
 
 
-def _resolve_source(source_arg: str, cfg: ProjectConfig) -> Path:
-    """Resolve a source argument to a Path.
-
-    Accepts a direct file path, a symbol name, or a hex VA (e.g. 0x01006364).
-    """
-    p = Path(source_arg)
-    if p.exists() and p.is_file():
-        return p
-
-    # Try hex VA lookup — search annotations for a matching VA
-    va_int: int | None = None
-    stripped = source_arg.strip().lower()
-    if stripped.startswith("0x"):
-        with contextlib.suppress(ValueError):
-            va_int = int(stripped, 16)
-
-    from rebrew.cli import iter_sources
-
-    if va_int is not None:
-        tm = target_marker(cfg)
-        for src in iter_sources(cfg.reversed_dir, cfg):
-            try:
-                annos = parse_c_file_multi(src, target_name=tm, metadata_dir=cfg.metadata_dir)
-            except Exception:  # noqa: BLE001
-                log.debug("Skipping %s: annotation parse failed", src, exc_info=True)
-                continue
-            for a in annos:
-                if a.va == va_int:
-                    return src
-
-    # Try searching for a matching .c file by stem (symbol name)
-    for src in iter_sources(cfg.reversed_dir, cfg):
-        if src.stem == source_arg or src.stem == source_arg.lstrip("_"):
-            return src
-
-    return p  # Return as-is, will fail later with a clear error
-
-
 @app.callback(invoke_without_command=True)
 def main(
     source: str = typer.Argument(None, help="C source file, symbol name, or VA (hex)"),
@@ -1030,12 +1061,15 @@ def main(
         "--check-edx",
         help="Also compare EDX register (forced on when return type is 64-bit)",
     ),
-    watch_va: list[int] | None = typer.Option(
+    watch_va: list[str] | None = typer.Option(
         None,
         "--watch-va",
-        help="Also compare 4 bytes of memory at this VA (repeatable; adds to prove_constraints.watched_vas)",
+        help="Also compare 4 bytes of memory at this VA (repeatable). Values are decimal unless 0x-prefixed — unlike most other rebrew tools, bare digits are NOT hex (adds to prove_constraints.watched_vas)",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    watch: bool = typer.Option(
+        False, "--watch", help="Watch the source file and re-prove on every change"
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -1048,18 +1082,67 @@ def main(
 
     cfg = require_config(target=target, json_mode=json_output)
 
+    # --watch-va accepts hex (0x...) or plain decimal VAs; normalize once
+    # up front.  int(v, 0) keeps both semantics (parse_va is base-16 only).
+    watch_va_ints: list[int] | None = None
+    if watch_va:
+        watch_va_ints = []
+        for _v in watch_va:
+            try:
+                _va = int(_v.strip(), 0)
+            except ValueError:
+                error_exit(f"Invalid watch VA: {_v!r}", json_mode=json_output)
+            if not (0 <= _va <= 0xFFFFFFFF):
+                error_exit(
+                    f"Invalid watch VA: {_v!r} (expected 0..0xFFFFFFFF)",
+                    json_mode=json_output,
+                    code=EXIT_ERROR,
+                )
+            watch_va_ints.append(_va)
+
     if all_sources:
+        if watch:
+            error_exit("--watch cannot be combined with --all", json_mode=json_output)
         _run_all_batch(
-            cfg, timeout, loop_bound, dry_run, json_output, check_edx=check_edx, watch_va=watch_va
+            cfg,
+            timeout,
+            loop_bound,
+            dry_run,
+            json_output,
+            check_edx=check_edx,
+            watch_va=watch_va_ints,
         )
         return
 
     if source is None:
         error_exit("Either provide a source file or use --all", json_mode=json_output)
-    source_path = _resolve_source(source, cfg)
+    source_path = resolve_source_arg(cfg, source)
 
     if not source_path.exists():
         error_exit(f"Source file not found: {source_path}", json_mode=json_output)
+
+    if watch:
+        from rebrew.utils import watch_files
+
+        def _retest() -> None:
+            # Re-run the full single-function prove path; --watch must not nest.
+            main(
+                source=source,
+                all_sources=all_sources,
+                timeout=timeout,
+                loop_bound=loop_bound,
+                start_offset=start_offset,
+                end_offset=end_offset,
+                check_edx=check_edx,
+                watch_va=watch_va,
+                dry_run=dry_run,
+                watch=False,
+                json_output=json_output,
+                target=target,
+            )
+
+        watch_files([source_path], _retest)
+        return
 
     # Parse annotation — use multi-parser with metadata_dir so STATUS/CFLAGS/SIZE
     # are read from rebrew-function.toml (where volatile metadata lives).
@@ -1087,87 +1170,60 @@ def main(
             json_mode=json_output,
         )
 
-    symbol = resolve_symbol(ann, source_path)
-    va = ann.va
-    size = ann.size
-
-    if not size:
-        error_exit(f"SIZE metadata is missing or zero in {source_path}", json_mode=json_output)
-
-    # Extract target bytes from DLL
-    target_bytes = extract_raw_bytes(cfg.target_binary, va, size)
-    if not target_bytes:
-        error_exit(
-            f"Failed to extract target bytes at VA 0x{va:08x} (size {size})",
-            json_mode=json_output,
+    try:
+        inputs = _prepare_prove_inputs(
+            cfg,
+            source_path,
+            ann,
+            watch_va_ints,
+            start_offset=start_offset,
+            end_offset=end_offset,
+            check_edx=check_edx,
         )
+    except _AlreadyMatched as m:
+        from rebrew.metadata import update_source_status
 
-    # Compile source and extract obj bytes
-    cflags_str = ann.cflags or "/O2 /Gd"
-    cflags_list = cflags_str.split()
+        new_status = m.new_status
+        if not dry_run:
+            update_source_status(cfg.metadata_dir, new_status, ann.module, ann.va)
+        early: dict[str, Any] = {
+            "schema_version": 1,
+            "source": str(source_path),
+            "symbol": resolve_symbol(ann, source_path),
+            "va": f"0x{ann.va:08x}",
+            "size": ann.size,
+            "previous_status": ann.status,
+            "proven": False,
+            "already_matched": True,
+            "message": (
+                f"Bytes already match after reloc accounting — "
+                f"{'would set' if dry_run else 'set'} STATUS → {new_status}"
+            ),
+            "action": "would_update" if dry_run else "updated",
+            "new_status": new_status,
+        }
+        if json_output:
+            json_print(early)
+        else:
+            console.print(
+                f"[green]Bytes already match[/green] — "
+                f"{'would set' if dry_run else 'STATUS →'} "
+                f"[bold]{new_status}[/bold] (not PROVEN). "
+                f"Symbolic prove not needed."
+            )
+        raise typer.Exit(code=EXIT_OK)
+    except _ProveError as e:
+        error_exit(str(e), json_mode=json_output)
 
-    # Watched VAs for memory side-effect checking: CLI flags + metadata.
-    watched_vas: list[int] = list(watch_va or [])
-    meta_vas = ann.prove_constraints.get("watched_vas") if ann.prove_constraints else None
-    if isinstance(meta_vas, list):
-        watched_vas += [int(v) for v in meta_vas]
-
-    with tempfile.TemporaryDirectory(prefix="rebrew_prove_") as workdir:
-        obj_path, err = compile_to_obj(cfg, source_path, cflags_list, workdir)
-        if obj_path is None:
-            error_exit(f"Compile error: {err}", json_mode=json_output)
-
-        obj_bytes, reloc_offsets = parse_obj_symbol_bytes(obj_path, symbol)
-        if obj_bytes is None:
-            error_exit(f"Symbol '{symbol}' not found in compiled .obj", json_mode=json_output)
-        dir32_watched = _resolve_watched_dir32(obj_path, symbol, cfg, set(watched_vas or []))
-
-    # Bytes already match → RELOC, not PROVEN. Auto-promote so the user
-    # doesn't have to re-run `rebrew test`. Slice proofs skip this gate.
-    if not (start_offset or end_offset):
-        matched, _mc, _tot, _vr, _ir = smart_reloc_compare(
-            obj_bytes, target_bytes, reloc_offsets, section_va=va
-        )
-        if matched:
-            from rebrew.metadata import update_source_status
-
-            new_status = "RELOC" if _vr else "EXACT"
-            if not dry_run:
-                update_source_status(cfg.metadata_dir, new_status, ann.module, va)
-            early: dict[str, Any] = {
-                "schema_version": 1,
-                "source": str(source_path),
-                "symbol": symbol,
-                "va": f"0x{va:08x}",
-                "size": size,
-                "previous_status": ann.status,
-                "proven": False,
-                "already_matched": True,
-                "message": (
-                    f"Bytes already match after reloc accounting — "
-                    f"{'would set' if dry_run else 'set'} STATUS → {new_status}"
-                ),
-                "action": "would_update" if dry_run else "updated",
-                "new_status": new_status,
-            }
-            if json_output:
-                json_print(early)
-            else:
-                console.print(
-                    f"[green]Bytes already match[/green] — "
-                    f"{'would set' if dry_run else 'STATUS →'} "
-                    f"[bold]{new_status}[/bold] (not PROVEN). "
-                    f"Symbolic prove not needed."
-                )
-            raise typer.Exit(code=EXIT_OK)
-
-    prototype = ann.prototype or ""
-    arg_constraints = ann.prove_constraints if ann.prove_constraints else None
-
-    # Determine whether EDX will be checked — also detect from prototype
-    _cc, _nargs, return_width = _parse_prototype(prototype)
-    edx_auto_detected = (return_width == 64) and not check_edx
-    effective_check_edx = check_edx or (return_width == 64)
+    symbol = inputs.symbol
+    va = inputs.va
+    size = inputs.size
+    target_bytes = inputs.target_bytes
+    obj_bytes = inputs.obj_bytes
+    effective_check_edx = inputs.effective_check_edx
+    edx_auto_detected = inputs.edx_auto_detected
+    arg_constraints = inputs.arg_constraints
+    prototype = inputs.prototype
 
     # Run the prover
     if not json_output:
@@ -1188,7 +1244,7 @@ def main(
     proven, message = prove_equivalence(
         target_bytes,
         obj_bytes,
-        reloc_offsets,
+        inputs.reloc_offsets,
         prototype,
         timeout=timeout,
         loop_bound=loop_bound,
@@ -1197,8 +1253,8 @@ def main(
         start_offset=start_offset,
         end_offset=end_offset,
         check_edx=check_edx,
-        watched_vas=watched_vas,
-        dir32_watched=dir32_watched,
+        watched_vas=inputs.watched_vas,
+        dir32_watched=inputs.dir32_watched,
     )
 
     # Build result
@@ -1247,6 +1303,9 @@ def main(
             console.print(f"[dim]STATUS unchanged — function remains {ann.status}[/dim]")
 
     if not proven:
+        if message.startswith("Slice [") and "out of range" in message:
+            # Argument error, not a legitimate mismatch — report as EXIT_ERROR.
+            error_exit(message, json_mode=json_output, code=EXIT_ERROR)
         raise typer.Exit(code=EXIT_MISMATCH)
 
 
@@ -1286,6 +1345,135 @@ def _resolve_watched_dir32(
     return out
 
 
+class _ProveError(Exception):
+    """Preparation failed (compile, extraction, missing symbol) — not a proof result."""
+
+
+class _AlreadyMatched(Exception):
+    """Bytes match after relocation accounting — RELOC/EXACT, prove not needed."""
+
+    def __init__(self, new_status: str) -> None:
+        super().__init__(new_status)
+        self.new_status = new_status
+
+
+@dataclass
+class _ProveInputs:
+    """Prepared inputs shared by the single-file CLI path and batch mode."""
+
+    symbol: str
+    va: int
+    size: int
+    target_bytes: bytes
+    obj_bytes: bytes
+    reloc_offsets: dict[int, str] | None
+    dir32_watched: dict[int, int] | None
+    prototype: str
+    arg_constraints: dict[str, Any] | None
+    effective_check_edx: bool
+    edx_auto_detected: bool
+    watched_vas: list[int]
+
+
+def _prepare_prove_inputs(
+    cfg: ProjectConfig,
+    source_path: Path,
+    ann: Any,
+    watch_va: list[int] | None,
+    *,
+    start_offset: int = 0,
+    end_offset: int = 0,
+    check_edx: bool = False,
+    name_to_va: dict[str, int] | None = None,
+) -> _ProveInputs:
+    """Extract target bytes, compile the source, and detect early matches.
+
+    Raises ``_ProveError`` on prep failure or ``_AlreadyMatched`` when the
+    compiled bytes already match after relocation accounting (callers then
+    promote to RELOC/EXACT instead of proving).
+    """
+    symbol = resolve_symbol(ann, source_path)
+    va = ann.va
+    size = ann.size
+
+    if not size:
+        raise _ProveError(f"SIZE metadata is missing or zero in {source_path}")
+
+    target_bytes = extract_raw_bytes(cfg.target_binary, va, size)
+    if not target_bytes:
+        raise _ProveError(f"Failed to extract target bytes at VA 0x{va:08x} (size {size})")
+
+    cflags_str = ann.cflags or "/O2 /Gd"
+    cflags_list = cflags_str.split()
+
+    # Watched VAs for memory side-effect checking: CLI flags + metadata.
+    watched_vas: list[int] = list(watch_va or [])
+    meta_vas = ann.prove_constraints.get("watched_vas") if ann.prove_constraints else None
+    if isinstance(meta_vas, list):
+        for _v in meta_vas:
+            try:
+                _va = int(_v, 0) if not isinstance(_v, int) else _v
+            except (ValueError, TypeError):
+                raise _ProveError(
+                    f"Invalid prove_constraints.watched_vas metadata value {_v!r} in "
+                    f"{source_path} — fix or remove it (expected int or hex/decimal string)"
+                )
+            if not (0 <= _va <= 0xFFFFFFFF):
+                raise _ProveError(
+                    f"prove_constraints.watched_vas value {_va!r} in {source_path} is "
+                    f"outside 0..0xFFFFFFFF"
+                )
+            watched_vas.append(_va)
+
+    with tempfile.TemporaryDirectory(prefix="rebrew_prove_") as workdir:
+        obj_path, err = compile_to_obj(cfg, source_path, cflags_list, workdir)
+        if obj_path is None:
+            raise _ProveError(f"Compile error: {err}")
+
+        obj_bytes, reloc_offsets = parse_obj_symbol_bytes(obj_path, symbol)
+        if obj_bytes is None:
+            raise _ProveError(f"Symbol '{symbol}' not found in compiled .obj")
+        dir32_watched = _resolve_watched_dir32(obj_path, symbol, cfg, set(watched_vas))
+
+    # Bytes already match → RELOC, not PROVEN. Slice proofs skip this gate.
+    # Pass the same name_to_va DIR32 validation that test/verify use —
+    # without it, a function whose compiled absolute addresses differ from
+    # the target's globals would be wrongly promoted to RELOC (prove
+    # reported ALREADY_MATCHED:RELOC for CreateListenSocket while
+    # test/verify correctly classify it NEAR_MATCHING).
+    if not (start_offset or end_offset):
+        if name_to_va is None:
+            name_to_va = build_name_to_va(cfg)
+        matched, _mc, _tot, _vr, _ir = smart_reloc_compare(
+            obj_bytes, target_bytes, reloc_offsets, name_to_va=name_to_va, section_va=va
+        )
+        if matched:
+            raise _AlreadyMatched("RELOC" if _vr else "EXACT")
+
+    prototype = ann.prototype or ""
+    arg_constraints = ann.prove_constraints if ann.prove_constraints else None
+
+    # Determine whether EDX will be checked — also detect from prototype.
+    _cc, _nargs, return_width = _parse_prototype(prototype)
+    edx_auto_detected = (return_width == 64) and not check_edx
+    effective_check_edx = check_edx or (return_width == 64)
+
+    return _ProveInputs(
+        symbol=symbol,
+        va=va,
+        size=size,
+        target_bytes=target_bytes,
+        obj_bytes=obj_bytes,
+        reloc_offsets=reloc_offsets,
+        dir32_watched=dir32_watched,
+        prototype=prototype,
+        arg_constraints=arg_constraints,
+        effective_check_edx=effective_check_edx,
+        edx_auto_detected=edx_auto_detected,
+        watched_vas=watched_vas,
+    )
+
+
 def _prove_single(
     cfg: ProjectConfig,
     source_path: Path,
@@ -1298,78 +1486,51 @@ def _prove_single(
     end_offset: int = 0,
     check_edx: bool = False,
     watched_vas: list[int] | None = None,
+    name_to_va: dict[str, int] | None = None,
 ) -> tuple[bool, str]:
     """Prove a single function and return (proven, message)."""
-    symbol = resolve_symbol(ann, source_path)
-    va = ann.va
-    size = ann.size
-
-    if not size:
-        return False, "SIZE missing or zero"
-
-    target_bytes = extract_raw_bytes(cfg.target_binary, va, size)
-    if not target_bytes:
-        return False, f"Failed to extract target bytes at VA 0x{va:08x}"
-
-    cflags_str = ann.cflags or "/O2 /Gd"
-    cflags_list = cflags_str.split()
-
-    with tempfile.TemporaryDirectory(prefix="rebrew_prove_") as workdir:
-        obj_path, err = compile_to_obj(cfg, source_path, cflags_list, workdir)
-        if obj_path is None:
-            return False, f"Compile error: {err}"
-
-        obj_bytes, reloc_offsets = parse_obj_symbol_bytes(obj_path, symbol)
-        if obj_bytes is None:
-            return False, f"Symbol '{symbol}' not found in compiled .obj"
-        dir32_watched = _resolve_watched_dir32(obj_path, symbol, cfg, set(watched_vas or []))
-
-    # Bytes already match → promote to RELOC/EXACT instead of PROVEN.
-    if not (start_offset or end_offset):
-        matched, _mc, _tot, _vr, _ir = smart_reloc_compare(
-            obj_bytes, target_bytes, reloc_offsets, section_va=va
+    try:
+        inputs = _prepare_prove_inputs(
+            cfg,
+            source_path,
+            ann,
+            watched_vas,
+            start_offset=start_offset,
+            end_offset=end_offset,
+            check_edx=check_edx,
+            name_to_va=name_to_va,
         )
-        if matched:
-            new_status = "RELOC" if _vr else "EXACT"
-            if not dry_run:
-                from rebrew.metadata import update_source_status
+    except _AlreadyMatched as m:
+        # Bytes already match → promote to RELOC/EXACT instead of PROVEN.
+        if not dry_run:
+            from rebrew.metadata import update_source_status
 
-                update_source_status(cfg.metadata_dir, new_status, ann.module, va)
-            # Sentinel prefix so batch mode can count this separately from failures.
-            return False, f"ALREADY_MATCHED:{new_status}"
-
-    prototype = ann.prototype or ""
-    arg_constraints = ann.prove_constraints if ann.prove_constraints else None
-
-    # Watched VAs for memory side-effect checking: caller flags + metadata.
-    meta_vas = arg_constraints.get("watched_vas") if arg_constraints else None
-    if isinstance(meta_vas, list):
-        watched_vas = list(watched_vas or []) + [int(v) for v in meta_vas]
-
-    # Auto-enable EDX check based on prototype return width
-    _cc, _nargs, return_width = _parse_prototype(prototype)
-    effective_check_edx = check_edx or (return_width == 64)
+            update_source_status(cfg.metadata_dir, m.new_status, ann.module, ann.va)
+        # Sentinel prefix so batch mode can count this separately from failures.
+        return False, f"ALREADY_MATCHED:{m.new_status}"
+    except _ProveError as e:
+        return False, str(e)
 
     proven, message = prove_equivalence(
-        target_bytes,
-        obj_bytes,
-        reloc_offsets,
-        prototype,
+        inputs.target_bytes,
+        inputs.obj_bytes,
+        inputs.reloc_offsets,
+        inputs.prototype,
         timeout=timeout,
         loop_bound=loop_bound,
         binary_path=cfg.target_binary,
-        arg_constraints=arg_constraints,
+        arg_constraints=inputs.arg_constraints,
         start_offset=start_offset,
         end_offset=end_offset,
-        check_edx=effective_check_edx,
-        watched_vas=watched_vas,
-        dir32_watched=dir32_watched,
+        check_edx=inputs.effective_check_edx,
+        watched_vas=inputs.watched_vas,
+        dir32_watched=inputs.dir32_watched,
     )
 
     if proven and not dry_run:
         from rebrew.metadata import update_source_status
 
-        update_source_status(cfg.metadata_dir, "PROVEN", ann.module, va)
+        update_source_status(cfg.metadata_dir, "PROVEN", ann.module, ann.va)
 
     return proven, message
 
@@ -1405,6 +1566,10 @@ def _run_all_batch(
             console.print("[dim]No NEAR_MATCHING functions found to prove.[/dim]")
         return
 
+    # Build the DIR32 validation map once for the whole batch — per-candidate
+    # rebuilds would re-scan every source for every function (O(F×S)).
+    name_to_va = build_name_to_va(cfg)
+
     if not json_output:
         console.print(
             f"\n[bold]Batch proving {len(candidates)} NEAR_MATCHING function(s)[/bold]"
@@ -1434,6 +1599,7 @@ def _run_all_batch(
                 end_offset=0,
                 check_edx=check_edx,
                 watched_vas=watch_va,
+                name_to_va=name_to_va,
             )
         except Exception as e:  # noqa: BLE001
             log.debug("Prove failed for %s", src, exc_info=True)

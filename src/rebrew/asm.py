@@ -11,8 +11,8 @@ Two output formats controlled by ``--format``:
 
 Usage:
     rebrew asm 0x10003ca0 --size 77
-    rebrew asm --va 0x10003ca0 --size 77 --format nasm -o func.asm
-    rebrew asm --va 0x10003ca0 --size 77 --format nasm --inline-c -o func.c
+    rebrew asm 0x10003ca0 --size 77 --format nasm -o func.asm
+    rebrew asm 0x10003ca0 --size 77 --format nasm --inline-c -o func.c
     rebrew asm --all --out-dir output/asm/ --format nasm
 """
 
@@ -548,6 +548,26 @@ app = typer.Typer(
 )
 
 
+def _list_size_for(cfg: ProjectConfig, va_int: int) -> int | None:
+    """Function-list size for *va_int*, if the list knows it.
+
+    Lets ``rebrew asm <va>`` default to the real function size instead of a
+    hardcoded 32-byte window (which bleeds into the adjacent function).
+    """
+    func_list_path = getattr(cfg, "function_list", "")
+    if not func_list_path or not Path(func_list_path).is_file():
+        return None
+    from rebrew.catalog.loaders import parse_function_list
+
+    try:
+        for f in parse_function_list(Path(func_list_path)):
+            if int(f["va"]) == va_int:
+                return int(f["size"])
+    except (OSError, ValueError, KeyError):
+        return None
+    return None
+
+
 @app.callback(invoke_without_command=True)
 def main(
     va: str | None = typer.Argument(None, help="Function VA in hex"),
@@ -580,13 +600,15 @@ def main(
 ) -> None:
     """Disassemble a function from the target binary."""
     cfg = require_config(target=target, json_mode=json_output)
-
     if fmt not in ("hex", "nasm"):
         error_exit("--format must be 'hex' or 'nasm'", json_mode=json_output)
 
     # --- NASM batch modes ---
     if fmt == "nasm" and (extract_all or batch_stubs):
-        batch_out_dir = out_dir or Path("output/asm")
+        if out_dir is not None and not out_dir.is_absolute():
+            batch_out_dir = cfg.root / out_dir
+        else:
+            batch_out_dir = out_dir or (cfg.root / "output" / "asm")
         try:
             batch_extract_nasm(cfg, batch_out_dir, verify_flag=verify, stubs_only=batch_stubs)
         except RuntimeError as e:
@@ -598,13 +620,16 @@ def main(
     if not va_str and not bin_file:
         error_exit("Specify VA as a positional argument or --bin FILE", json_mode=json_output)
 
-    effective_size = size or 32
+    va_int = parse_va(va_str, json_mode=json_output) if va_str else None
+    # Default to the known canonical size (function list) when no --size is
+    # given — 32 is only a fallback for functions the list does not know.
+    effective_size = size or (_list_size_for(cfg, va_int) if va_int else None) or 32
 
     # --- hex format ---
     if fmt == "hex":
         if not va_str:
             error_exit("--format hex requires a VA as a positional argument", json_mode=json_output)
-        va_int = parse_va(va_str, json_mode=json_output)
+        assert va_int is not None  # va_str is truthy above
         _run_hex_mode(va_int, effective_size, cfg, annotate, json_output)
         return
 
@@ -614,7 +639,8 @@ def main(
         computed_base_va = parse_va(base_va, json_mode=json_output)
         computed_label = label or bin_file.stem
     elif va_str and effective_size:
-        computed_va = parse_va(va_str, json_mode=json_output)
+        assert va_int is not None  # va_str is truthy above
+        computed_va = va_int
         code = extract_raw_bytes(cfg.target_binary, computed_va, effective_size)
         if code is None:
             error_exit(

@@ -72,7 +72,13 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 
 **Impact**: Medium-high — closes a correctness gap for functions with observable side effects. Prerequisite: the watched-VA list must be small (< 10) to avoid Z3 blowup.
 
-### 24. Ghidra-CLI as alternative Ghidra transport
+### 24. Ghidra-CLI as alternative Ghidra transport *(done)*
+
+`ghidra_backend = "cli"` in `rebrew-project.toml` routes sync push (apply)
+and pull (functions/symbols/comments) through the `ghidra-cli` binary instead
+of ReVa MCP (`src/rebrew/ghidra/cli_backend.py`). Per-op invocations are used
+deliberately for push: the `batch` file format splits lines on whitespace, so
+args containing spaces (plate comments, signatures) cannot be batched safely.
 
 **Pain**: `rebrew sync` currently requires a running Ghidra instance with the ReVa MCP extension installed. ReVa is a heavyweight requirement: AI-tuned, MCP-only, brings its own dependencies, and breaks the workflow for users who want plain headless Ghidra scripting.
 

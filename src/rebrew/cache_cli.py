@@ -3,7 +3,7 @@
 import typer
 from rich.console import Console
 
-from rebrew.cli import TargetOption, json_print, require_config
+from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.compile_cache import CompileCache
 
 console = Console(stderr=True)
@@ -78,6 +78,12 @@ def clear(
         else:
             console.print("No compile cache found (nothing to clear).")
         return
+
+    if json_output and not force:
+        error_exit(
+            "--json cannot prompt for confirmation; pass --force to clear the cache",
+            json_mode=True,
+        )
 
     cache = CompileCache(cache_dir)
     try:

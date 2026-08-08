@@ -80,7 +80,13 @@ from .solutions import (
     find_similar as find_similar,
 )
 from .solutions import (
+    load_ga_runs as load_ga_runs,
+)
+from .solutions import (
     load_solutions as load_solutions,
+)
+from .solutions import (
+    record_ga_run as record_ga_run,
 )
 from .solutions import (
     save_solution as save_solution,
@@ -109,9 +115,11 @@ __all__ = [
     "generate_flag_combinations",
     "list_obj_symbols",
     "load_checkpoint",
+    "load_ga_runs",
     "load_solutions",
     "parse_obj_symbol_bytes",
     "precompute_target",
+    "record_ga_run",
     "save_checkpoint",
     "save_solution",
     "score_candidate",

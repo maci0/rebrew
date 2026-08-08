@@ -27,7 +27,9 @@ _DEFAULT_CS_ARCH = "CS_ARCH_X86"
 _DEFAULT_CS_MODE = "CS_MODE_32"
 
 
-def _disasm_signature(code: bytes, va: int, cs_arch: str, cs_mode: str) -> dict[str, Any] | None:
+def _disasm_signature(
+    code: bytes, va: int, cs_arch: int | str, cs_mode: int | str
+) -> dict[str, Any] | None:
     """Disassemble *code* and build a structural signature.
 
     Signature: mnemonic histogram plus call/branch counts.  Returns ``None``
@@ -35,7 +37,12 @@ def _disasm_signature(code: bytes, va: int, cs_arch: str, cs_mode: str) -> dict[
     """
     import capstone
 
-    md = capstone.Cs(getattr(capstone, cs_arch), getattr(capstone, cs_mode))
+    # cfg.capstone_arch/capstone_mode return ints; the defaults are the
+    # constant-name strings.  Accept either form.
+    def _resolve(value: int | str) -> int:
+        return value if isinstance(value, int) else int(getattr(capstone, value))
+
+    md = capstone.Cs(_resolve(cs_arch), _resolve(cs_mode))
     mnemonics: dict[str, int] = {}
     calls = 0
     branches = 0

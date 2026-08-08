@@ -165,9 +165,11 @@ Use `rebrew diff --fix-blocker` to auto-generate these from diff classification.
 ## 8. Symbolic Equivalence Proving
 
 When stuck at NEAR_MATCHING due to structural differences (register allocation, instruction reordering,
-loop unrolling), use `rebrew prove` to mathematically prove semantic equivalence:
+loop unrolling), first classify the delta, then use `rebrew prove` to mathematically prove semantic
+equivalence:
 
 ```bash
+rebrew near-diag src/<target>/<file>.c --json    # classify the delta: register/equivalent/reloc/structural
 rebrew prove src/<target>/<file>.c --json                 # prove and update STATUS → PROVEN
 rebrew prove src/<target>/<file>.c --dry-run --json       # preview without updating
 rebrew prove src/<target>/<file>.c --timeout 120 --json   # allow 2 min for complex funcs
@@ -176,7 +178,12 @@ rebrew prove my_func --start-offset 0 --end-offset 48     # prove only a byte sl
 rebrew prove --all --json                                 # batch: prove every NEAR_MATCHING function
 rebrew prove my_func --json                               # find by symbol name
 rebrew prove my_func --check-edx --json                   # also compare EDX (64-bit return)
+rebrew prove my_func --watch-va 0x10123456 --json         # also compare memory at a watched VA
 ```
+
+`near-diag` buckets the mismatching bytes — register-alloc and equivalent-selection deltas are usually
+solvable via C-level tweaks; a structural verdict points at block/loop layout, where `rebrew prove`
+(register + watched-VA memory equivalence) is the right tool.
 
 How it works:
 1. Extracts target bytes from the DLL and compiles the C source to an .obj

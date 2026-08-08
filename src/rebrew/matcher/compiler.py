@@ -29,7 +29,11 @@ log = logging.getLogger(__name__)
 
 
 def _filter_wine_stderr(text: str) -> str:
-    """Filter Wine noise from stderr text (lazy-imported from rebrew.compile)."""
+    """Filter Wine noise from stderr text (lazy-imported from rebrew.compile).
+
+    Imported lazily because rebrew.compile imports rebrew.core, which imports
+    rebrew.matcher — a module-level import here would be circular.
+    """
     from rebrew.compile import filter_wine_stderr
 
     return filter_wine_stderr(text)
@@ -369,6 +373,7 @@ def flag_sweep(
     source_ext: str = ".c",
     cache: CompileCache | None = None,
     timeout: int = 60,
+    extra_include_dirs: list[str] | None = None,
 ) -> list[tuple[float, str]]:
     """Sweep compiler flags to find the best match.
 
@@ -411,6 +416,7 @@ def flag_sweep(
             source_ext=source_ext,
             cache=cache,
             timeout=timeout,
+            extra_include_dirs=extra_include_dirs,
         )
         if res.ok and res.obj_bytes:
             score = score_candidate(

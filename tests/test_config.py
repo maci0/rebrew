@@ -538,7 +538,7 @@ arch = "sparc64"
             cfg = load_config(root)
         assert cfg.pointer_size == 4  # falls back to x86_32
 
-    def test_unknown_format_warns(self, tmp_path: Path) -> None:
+    def test_unknown_format_falls_back_to_pe(self, tmp_path: Path) -> None:
         toml = """\
 [project]
 default_target = "main"
@@ -549,9 +549,10 @@ format = "coff"
 """
         root = _make_project(tmp_path, toml)
         with pytest.warns(UserWarning, match=r"unknown format 'coff'"):
-            load_config(root)
+            cfg = load_config(root)
+        assert cfg.binary_format == "pe"
 
-    def test_unknown_profile_warns(self, tmp_path: Path) -> None:
+    def test_unknown_profile_falls_back_to_msvc6(self, tmp_path: Path) -> None:
         toml = """\
 [project]
 default_target = "main"
@@ -564,7 +565,60 @@ profile = "turbo_c"
 """
         root = _make_project(tmp_path, toml)
         with pytest.warns(UserWarning, match=r"unknown profile 'turbo_c'"):
+            cfg = load_config(root)
+        assert cfg.compiler_profile == "msvc6"
+
+    def test_empty_binary_raises(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = ""
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.raises(KeyError, match="empty 'binary'"):
             load_config(root)
+
+    def test_non_string_default_target_raises(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = true
+
+[targets.main]
+binary = "test.exe"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.raises(ValueError, match="default_target must be a string"):
+            load_config(root)
+
+    def test_empty_default_target_raises(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = ""
+
+[targets.main]
+binary = "test.exe"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.raises(ValueError, match="default_target must not be empty"):
+            load_config(root)
+
+    def test_non_string_cflags_falls_back(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[compiler]
+cflags = 42
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match=r"Expected string for compiler.cflags"):
+            cfg = load_config(root)
+        assert cfg.cflags == ""
 
     def test_msvc400_profile_is_known(self, tmp_path: Path) -> None:
         toml = """\
@@ -638,4 +692,183 @@ formatx = "typo"
 
 
 # ---------------------------------------------------------------------------
+# Fail-fast validation regressions
+
+
+class TestFailFastValidation:
+    def test_empty_source_directory_raises(self, tmp_path: Path) -> None:
+        root = _make_project(
+            tmp_path,
+            """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+reversed_dir = ""
+""",
+        )
+        with pytest.raises(ValueError, match=r"reversed_dir must not be empty"):
+            load_config(root)
+
+    def test_empty_compiler_command_raises(self, tmp_path: Path) -> None:
+        root = _make_project(
+            tmp_path,
+            """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[compiler]
+command = ""
+""",
+        )
+        with pytest.raises(ValueError, match=r"compiler.command must not be empty"):
+            load_config(root)
+
+    def test_target_compiler_typo_warns(self, tmp_path: Path) -> None:
+        root = _make_project(
+            tmp_path,
+            """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[targets.main.compiler]
+commmand = "clang"
+""",
+        )
+        with pytest.warns(UserWarning, match=r"targets.main.compiler.*commmand"):
+            load_config(root)
+
+
+# ---------------------------------------------------------------------------
 # Regression tests
+
+
+class TestParseIntList:
+    def test_valid(self) -> None:
+        from rebrew.config import _parse_int_list
+
+        assert _parse_int_list([1, "0x10", "20"], "x") == [1, 16, 20]
+
+    def test_invalid_entries_skipped_with_warning(self) -> None:
+        from rebrew.config import _parse_int_list
+
+        with pytest.warns(UserWarning, match="Invalid integer"):
+            assert _parse_int_list(["oops", 5], "x") == [5]
+
+    def test_non_list_ignored(self) -> None:
+        from rebrew.config import _parse_int_list
+
+        with pytest.warns(UserWarning):
+            assert _parse_int_list(42, "x") == []
+        assert _parse_int_list(None, "x") == []
+
+
+class TestParseHexDict:
+    def test_valid(self) -> None:
+        from rebrew.config import _parse_hex_dict
+
+        assert _parse_hex_dict({"0x1000": "a"}) == {0x1000: "a"}
+        assert _parse_hex_dict({"4096": "b"}) == {4096: "b"}
+
+    def test_invalid_key_skipped(self) -> None:
+        from rebrew.config import _parse_hex_dict
+
+        with pytest.warns(UserWarning, match="Invalid hex key"):
+            assert _parse_hex_dict({"zzz": "x", "0x2000": "y"}) == {0x2000: "y"}
+
+    def test_non_dict_ignored(self) -> None:
+        from rebrew.config import _parse_hex_dict
+
+        with pytest.warns(UserWarning):
+            assert _parse_hex_dict("nope") == {}
+        assert _parse_hex_dict(None) == {}
+
+
+class TestParseStrList:
+    def test_valid(self) -> None:
+        from rebrew.config import _parse_str_list
+
+        assert _parse_str_list(["a", "b"], "x") == ["a", "b"]
+
+    def test_non_string_skipped(self) -> None:
+        from rebrew.config import _parse_str_list
+
+        with pytest.warns(UserWarning):
+            assert _parse_str_list(["a", 3], "x") == ["a"]
+
+    def test_none_and_non_list(self) -> None:
+        from rebrew.config import _parse_str_list
+
+        assert _parse_str_list(None, "x") == []
+        with pytest.warns(UserWarning):
+            assert _parse_str_list("str", "x") == []
+
+
+class TestSafeInt:
+    def test_valid(self) -> None:
+        from rebrew.config import _safe_int
+
+        assert _safe_int("42", 0, "x") == 42
+
+    def test_invalid_uses_default(self) -> None:
+        from rebrew.config import _safe_int
+
+        with pytest.warns(UserWarning, match="Expected integer"):
+            assert _safe_int("abc", 7, "x") == 7
+
+
+class TestPositiveInt:
+    def test_valid(self) -> None:
+        from rebrew.config import _positive_int
+
+        assert _positive_int(4, 1, "x") == 4
+
+    def test_zero_uses_default(self) -> None:
+        from rebrew.config import _positive_int
+
+        with pytest.warns(UserWarning, match="positive"):
+            assert _positive_int(0, 1, "x") == 1
+
+
+class TestParseOptionalInt:
+    def test_none_int_hex_string(self) -> None:
+        from rebrew.config import _parse_optional_int
+
+        assert _parse_optional_int(None, "x") is None
+        assert _parse_optional_int(5, "x") == 5
+        assert _parse_optional_int("0x10", "x") == 16
+
+    def test_invalid_returns_none(self) -> None:
+        from rebrew.config import _parse_optional_int
+
+        with pytest.warns(UserWarning):
+            assert _parse_optional_int("zzz", "x") is None
+        with pytest.warns(UserWarning):
+            assert _parse_optional_int(3.5, "x") is None
+
+
+class TestParseStrDict:
+    def test_valid(self) -> None:
+        from rebrew.config import _parse_str_dict
+
+        assert _parse_str_dict({"a": "b"}, "x") == {"a": "b"}
+
+    def test_none_and_non_mapping(self) -> None:
+        from rebrew.config import _parse_str_dict
+
+        assert _parse_str_dict(None, "x") == {}
+        with pytest.warns(UserWarning):
+            assert _parse_str_dict("str", "x") == {}
+
+    def test_non_string_pair_skipped(self) -> None:
+        from rebrew.config import _parse_str_dict
+
+        with pytest.warns(UserWarning):
+            assert _parse_str_dict({"a": 1}, "x") == {}

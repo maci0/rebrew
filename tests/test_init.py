@@ -180,7 +180,14 @@ class TestInit:
     def test_creates_rebrew_toml(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """init() creates rebrew-project.toml in cwd."""
         monkeypatch.chdir(tmp_path)
-        init(target_name="server", binary_name="server.dll", compiler_profile="msvc6")
+        init(
+            target_name="server",
+            binary_name="server.dll",
+            compiler_profile="msvc6",
+            install_wibo=False,
+            json_output=False,
+            install_completions=False,
+        )
         toml_path = tmp_path / "rebrew-project.toml"
         assert toml_path.exists()
         content = toml_path.read_text()
@@ -190,7 +197,14 @@ class TestInit:
     def test_creates_agents_md(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """init() creates AGENTS.md."""
         monkeypatch.chdir(tmp_path)
-        init(target_name="main", binary_name="prog.exe", compiler_profile="msvc6")
+        init(
+            target_name="main",
+            binary_name="prog.exe",
+            compiler_profile="msvc6",
+            install_wibo=False,
+            json_output=False,
+            install_completions=False,
+        )
         agents_path = tmp_path / "AGENTS.md"
         assert agents_path.exists()
         content = agents_path.read_text()
@@ -199,7 +213,14 @@ class TestInit:
     def test_creates_directories(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """init() creates original/, src/<target>/, bin/<target>/."""
         monkeypatch.chdir(tmp_path)
-        init(target_name="game", binary_name="game.exe", compiler_profile="gcc")
+        init(
+            target_name="game",
+            binary_name="game.exe",
+            compiler_profile="gcc",
+            install_wibo=False,
+            json_output=False,
+            install_completions=False,
+        )
         assert (tmp_path / "original").is_dir()
         assert (tmp_path / "src" / "game").is_dir()
         assert (tmp_path / "bin" / "game").is_dir()
@@ -207,7 +228,14 @@ class TestInit:
     def test_creates_function_list(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """init() creates an empty functions.txt."""
         monkeypatch.chdir(tmp_path)
-        init(target_name="t", binary_name="t.exe", compiler_profile="clang")
+        init(
+            target_name="t",
+            binary_name="t.exe",
+            compiler_profile="clang",
+            install_wibo=False,
+            json_output=False,
+            install_completions=False,
+        )
         func_list = tmp_path / "src" / "t" / "functions.txt"
         assert func_list.exists()
 
@@ -216,7 +244,14 @@ class TestInit:
         monkeypatch.chdir(tmp_path)
         (tmp_path / "rebrew-project.toml").write_text("existing", encoding="utf-8")
         with pytest.raises(Exit):
-            init(target_name="t", binary_name="t.exe", compiler_profile="msvc6")
+            init(
+                target_name="t",
+                binary_name="t.exe",
+                compiler_profile="msvc6",
+                install_wibo=False,
+                json_output=False,
+                install_completions=False,
+            )
 
     def test_unknown_compiler_profile(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -224,14 +259,28 @@ class TestInit:
         """init() exits with code 1 for unknown compiler profile."""
         monkeypatch.chdir(tmp_path)
         with pytest.raises(Exit):
-            init(target_name="t", binary_name="t.exe", compiler_profile="borland")
+            init(
+                target_name="t",
+                binary_name="t.exe",
+                compiler_profile="borland",
+                install_wibo=False,
+                json_output=False,
+                install_completions=False,
+            )
 
     def test_msvc7_uses_msvc7_constraints(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """msvc7 profile generates AGENTS.md with C99 constraints."""
         monkeypatch.chdir(tmp_path)
-        init(target_name="t", binary_name="t.exe", compiler_profile="msvc7")
+        init(
+            target_name="t",
+            binary_name="t.exe",
+            compiler_profile="msvc7",
+            install_wibo=False,
+            json_output=False,
+            install_completions=False,
+        )
         agents = (tmp_path / "AGENTS.md").read_text()
         assert "C99" in agents
 
@@ -240,7 +289,14 @@ class TestInit:
     ) -> None:
         """gcc profile generates AGENTS.md with ELF constraints."""
         monkeypatch.chdir(tmp_path)
-        init(target_name="t", binary_name="t.exe", compiler_profile="gcc")
+        init(
+            target_name="t",
+            binary_name="t.exe",
+            compiler_profile="gcc",
+            install_wibo=False,
+            json_output=False,
+            install_completions=False,
+        )
         agents = (tmp_path / "AGENTS.md").read_text()
         assert "ELF" in agents
 
@@ -312,3 +368,100 @@ class TestInitAgentSkills:
         _copy_agent_skills(tmp_path, "test")
         _copy_agent_skills(tmp_path, "test")
         assert (tmp_path / ".agents" / "skills").is_dir()
+
+
+class TestInitCompletions:
+    """rebrew init --install-completions writes bash/zsh/fish scripts."""
+
+    def test_writes_all_three_scripts(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        init(
+            target_name="t",
+            binary_name="t.exe",
+            compiler_profile="msvc6",
+            install_wibo=False,
+            json_output=False,
+            install_completions=True,
+        )
+        bash = tmp_path / "completions" / "rebrew.bash"
+        zsh = tmp_path / "completions" / "rebrew.zsh"
+        fish = tmp_path / "completions" / "rebrew.fish"
+        assert bash.is_file()
+        assert zsh.is_file()
+        assert fish.is_file()
+        bash_text = bash.read_text(encoding="utf-8")
+        assert "_rebrew_completion" in bash_text
+        assert "_REBREW_COMPLETE" in bash_text
+        assert "complete_bash" in bash_text or "bash_complete" in bash_text
+        assert "#compdef rebrew" in zsh.read_text(encoding="utf-8")
+        assert "--command rebrew" in fish.read_text(encoding="utf-8")
+
+    def test_no_completions_without_flag(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        init(
+            target_name="t",
+            binary_name="t.exe",
+            compiler_profile="msvc6",
+            install_wibo=False,
+            json_output=False,
+            install_completions=False,
+        )
+        assert not (tmp_path / "completions").exists()
+
+    def test_scripts_deterministic(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        init(
+            target_name="t",
+            binary_name="t.exe",
+            compiler_profile="msvc6",
+            install_wibo=False,
+            json_output=False,
+            install_completions=True,
+        )
+        first = (tmp_path / "completions" / "rebrew.bash").read_bytes()
+        other = tmp_path / "other"
+        other.mkdir()
+        from rebrew.init import _write_completion_scripts
+
+        _write_completion_scripts(other)
+        assert (other / "completions" / "rebrew.bash").read_bytes() == first
+        assert (other / "completions" / "rebrew.zsh").read_bytes() == (
+            tmp_path / "completions" / "rebrew.zsh"
+        ).read_bytes()
+
+    def test_json_reports_completions(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        import json
+
+        monkeypatch.chdir(tmp_path)
+        init(
+            target_name="t",
+            binary_name="t.exe",
+            compiler_profile="msvc6",
+            install_wibo=False,
+            json_output=True,
+            install_completions=True,
+        )
+        payload = json.loads(capsys.readouterr().out)
+        assert len(payload["completions"]) == 3
+        assert all("completions" in p for p in payload["completions"])
+
+    def test_cli_flag_wires_install_completions(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--install-completions through the typer app writes the scripts."""
+        from typer.testing import CliRunner
+
+        from rebrew.init import app
+
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(app, ["--install-completions"])
+        assert result.exit_code == 0
+        assert (tmp_path / "completions" / "rebrew.bash").is_file()
+        assert (tmp_path / "completions" / "rebrew.zsh").is_file()
+        assert (tmp_path / "completions" / "rebrew.fish").is_file()

@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -268,3 +269,31 @@ class TestAuditCheckpoint:
         with pytest.warns(UserWarning):
             loaded = load_checkpoint(path, "myhash3")
         assert loaded is None
+
+
+class TestBuildNameToVaDataMetadata:
+    """build_name_to_va must merge rebrew-data.toml globals (the DIR32
+    validation source) — scan_globals alone only sees .c sources."""
+
+    def test_merges_data_metadata(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.core.matching import build_name_to_va
+
+        src = tmp_path / "src" / "SERVER"
+        src.mkdir(parents=True)
+        meta_dir = tmp_path / "src"
+        (src / "f.c").write_text(
+            "// FUNCTION: SERVER 0x1000\nint f(void) { return g_count; }\n", encoding="utf-8"
+        )
+        (meta_dir / "rebrew-data.toml").write_text(
+            '["SERVER.0x10027078"]\nname = "g_log_level_table"\nsection = ".data"\ntype = "int"\n',
+            encoding="utf-8",
+        )
+        cfg = SimpleNamespace(
+            reversed_dir=src,
+            metadata_dir=meta_dir,
+            marker="SERVER",
+            source_ext=".c",
+            target_name="SERVER",
+        )
+        n2v = build_name_to_va(cfg)
+        assert n2v.get("g_log_level_table") == 0x10027078

@@ -18,6 +18,7 @@
 | Summary / dry-run preview | — | ✅ Done | `--summary` |
 | Pull function renames from Ghidra | Ghidra → Local | ✅ Done | `--pull` |
 | Pull struct/type definitions from Ghidra | Ghidra → Local | ✅ Done | `--pull-structs` |
+| Pull enum/typedef inventory (names/sizes) | Ghidra → Local | ✅ Done | `--pull-datatypes` (ReVa exposes names/sizes/categories, not enum members) |
 | Pull function prototypes from Ghidra | Ghidra → Local | ✅ Done | `--pull-signatures` |
 | Pull comments from Ghidra | Ghidra → Local | ✅ Done | `--pull-comments` (analysis) and `--pull` (pre/post) |
 | Batch rename accept from Ghidra | Ghidra → Local | ✅ Done | `--pull --accept-ghidra` |
@@ -29,13 +30,14 @@
 | Pull data labels from Ghidra | Ghidra → Local | ✅ Done | `--pull-data` (generates `rebrew_globals.h`); **name/note** written to `rebrew-data.toml` metadata |
 | Refresh function structure + data label cache from Ghidra | Ghidra → Local | ✅ Done | `--refresh-cache` |
 | Split pulled structs into per-module files | Ghidra → Local | ✅ Done | `--pull-structs --by-module` (e.g. `types_server.h`, `types_shared.h`); `--types-out PATH` for single-file override |
+| ghidra-cli backend (alternative to ReVa MCP) | Both | ✅ Done | `ghidra_backend = "cli"` routes push apply AND pull (functions/symbols/comments) through the `ghidra-cli` binary (`cli_backend.py`) |
 | Validate `programPath` against Ghidra project | — | ✅ Done | `validate_program_path()` queries `get-current-program` via ReVa MCP and warns on mismatch |
 | XREF context in skeleton generation | Ghidra → Local | ✅ Done | `skeleton --xrefs` |
 | Ghidra decompilation backend for skeleton | Ghidra → Local | ✅ Done | `skeleton --decomp --decomp-backend ghidra` |
 | Metadata-aware linting | Local | ✅ Done | `rebrew lint` reads `rebrew-function.toml` before validation |
-| Incremental / dirty-only sync | Both | ❌ Not yet | — |
-| Watch mode (live file-change sync) | Local → Ghidra | ❌ Not yet | — |
-| Deduplication / idempotency tracking | — | ❌ Not yet | — |
+| Incremental / dirty-only sync | Both | ✅ Done | Dedup tracking (below) makes re-pushes incremental automatically — only content-changed operations are re-applied |
+| Watch mode (live file-change sync) | Local → Ghidra | ✅ Done | `--watch` (requires `--push`): watches sources + `rebrew-function.toml`, re-pushes on change |
+| Deduplication / idempotency tracking | — | ✅ Done | `.rebrew/ghidra_sync_state.json` records applied op hashes; `--export`/`--push` skip them (`--force` re-pushes) |
 
 For improvement ideas related to Ghidra sync, see [IDEAS.md](IDEAS.md) (#5–#9, #11).
 
@@ -50,8 +52,9 @@ and compares the active Ghidra path against the derived `/binary.dll` path. On m
 prints a warning with the correct value to set as `ghidra_program_path` in `rebrew-project.toml`.
 The path is also configurable via `ghidra_program_path` in the target config section.
 
-### No deduplication check
+### ~~No deduplication check~~ *(resolved)*
 
-If you run `--export` + `--apply` twice, all operations are re-applied. ReVa probably
-handles this idempotently, but it wastes time. The sync should track what's already been
-pushed.
+`--export`/`--push` now skip operations already applied to Ghidra, tracked by
+content hash in `.rebrew/ghidra_sync_state.json` (`--force` re-pushes
+everything). Applied operations are recorded after a fully successful apply;
+a partial failure records nothing so the retry re-applies conservatively.

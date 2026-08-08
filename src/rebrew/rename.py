@@ -14,7 +14,14 @@ from rich.console import Console
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.catalog import scan_reversed_dir
-from rebrew.cli import TargetOption, error_exit, iter_sources, json_print, require_config
+from rebrew.cli import (
+    TargetOption,
+    error_exit,
+    iter_sources,
+    json_print,
+    rel_display_path,
+    require_config,
+)
 from rebrew.config import ProjectConfig
 from rebrew.utils import atomic_write_text
 
@@ -38,6 +45,21 @@ app = typer.Typer(
 console = Console(stderr=True)
 
 
+def _collect_matching_files(
+    cfg: ProjectConfig, filepath: Path, pattern: re.Pattern[str]
+) -> list[Path]:
+    """Source files whose content matches *pattern* (rename candidates)."""
+    matched: list[Path] = []
+    candidates = [filepath] + [s for s in iter_sources(cfg.reversed_dir, cfg) if s != filepath]
+    for src in candidates:
+        try:
+            if pattern.search(src.read_text(encoding="utf-8")):
+                matched.append(src)
+        except OSError:
+            continue
+    return matched
+
+
 def rename_function_everywhere(
     cfg: ProjectConfig,
     filepath: Path,
@@ -53,25 +75,9 @@ def rename_function_everywhere(
     updated_files = 0
 
     if dry_run:
-        # Preview mode: count files that would be modified without writing
-        preview_count = 0
+        # Preview mode: count files that would be modified without writing.
         pattern = re.compile(r"\b" + re.escape(actual_old_name) + r"\b")
-        try:
-            content = filepath.read_text(encoding="utf-8")
-            if pattern.search(content):
-                preview_count += 1
-        except OSError:
-            pass
-        for src_file in iter_sources(cfg.reversed_dir, cfg):
-            if src_file == filepath:
-                continue
-            try:
-                content = src_file.read_text(encoding="utf-8")
-                if pattern.search(content):
-                    preview_count += 1
-            except OSError:
-                pass
-        return preview_count
+        return len(_collect_matching_files(cfg, filepath, pattern))
 
     # 1. Symbol is now derived from C function definition — no SYMBOL annotation update needed
     # The function definition rename at step 2 handles symbol derivation automatically
@@ -110,29 +116,30 @@ def rename_function_everywhere(
         multi_function_file = len(parse_c_file_multi(filepath, metadata_dir=filepath.parent)) > 1
         if multi_function_file and not new_filename:
             rename_file = False  # auto-rename unsafe for multi-function files
-        if new_filename:
-            if not new_filename.endswith(filepath.suffix):
-                new_filename = new_filename + filepath.suffix
-            # Preserve original directory unless caller passes a path
-            if "/" in new_filename or "\\" in new_filename:
-                target_file = cfg.reversed_dir / new_filename
+        if rename_file:  # re-check: the multi-function guard may have disabled renaming
+            if new_filename:
+                if not new_filename.endswith(filepath.suffix):
+                    new_filename = new_filename + filepath.suffix
+                # Preserve original directory unless caller passes a path
+                if "/" in new_filename or "\\" in new_filename:
+                    target_file = cfg.reversed_dir / new_filename
+                else:
+                    target_file = filepath.with_name(new_filename)
             else:
-                target_file = filepath.with_name(new_filename)
-        else:
-            stem = filepath.stem
-            if stem in (actual_old_name, old_sym):
-                target_file = filepath.with_name(f"{target_func}{filepath.suffix}")
-            else:
-                target_file = filepath
+                stem = filepath.stem
+                if stem in (actual_old_name, old_sym):
+                    target_file = filepath.with_name(f"{target_func}{filepath.suffix}")
+                else:
+                    target_file = filepath
 
-        if target_file != filepath:
-            if target_file.exists():
-                raise FileExistsError(
-                    f"Cannot rename {filepath.name} → {target_file.name}: "
-                    f"target already exists (different VA). "
-                    f"Use --file to pick a different filename."
-                )
-            filepath.rename(target_file)
+            if target_file != filepath:
+                if target_file.exists():
+                    raise FileExistsError(
+                        f"Cannot rename {filepath.name} → {target_file.name}: "
+                        f"target already exists (different VA). "
+                        f"Use --file to pick a different filename."
+                    )
+                filepath.rename(target_file)
 
     return updated_files
 
@@ -214,10 +221,17 @@ def main(
                 "new_symbol": f"_{new_name}",
                 "va": f"0x{va:08x}",
                 "files_updated": updated,
+                "dry_run": dry_run,
             }
         )
     else:
-        console.print(f"Updated cross-references in {updated} files.")
+        if dry_run:
+            console.print(f"[dim]Would update cross-references in {updated} files:[/dim]")
+            pattern = re.compile(r"\b" + re.escape(actual_old_name) + r"\b")
+            for p in _collect_matching_files(cfg, filepath, pattern):
+                console.print(f"  [dim]- {rel_display_path(p, cfg.root)}[/dim]")
+        else:
+            console.print(f"Updated cross-references in {updated} files.")
         console.print("[green]Done![/green]")
 
 

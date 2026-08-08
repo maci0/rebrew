@@ -8,6 +8,7 @@ operations.
 import json
 import re
 import time
+from bisect import bisect_right
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -49,6 +50,48 @@ _STATUS_BOOKMARK_CATEGORY = {
 def is_generic_name(name: str) -> bool:
     """Return True if *name* is a default auto-generated name like func_10006c00."""
     return bool(_GENERIC_NAME_RE.match(name))
+
+
+def _label_cmd(program_path: str, va_hex: str, name: str) -> dict[str, Any]:
+    """Build a ``create-label`` MCP command."""
+    return {
+        "tool": "create-label",
+        "args": {
+            "programPath": program_path,
+            "addressOrSymbol": va_hex,
+            "labelName": name,
+            "setAsPrimary": True,
+        },
+    }
+
+
+def _comment_cmd(
+    program_path: str, va_hex: str, comment: str, comment_type: str = "plate"
+) -> dict[str, Any]:
+    """Build a ``set-comment`` MCP command."""
+    return {
+        "tool": "set-comment",
+        "args": {
+            "programPath": program_path,
+            "addressOrSymbol": va_hex,
+            "comment": comment,
+            "commentType": comment_type,
+        },
+    }
+
+
+def _bookmark_cmd(program_path: str, va_hex: str, category: str, comment: str) -> dict[str, Any]:
+    """Build a ``set-bookmark`` MCP command (always of Ghidra type ``Note``)."""
+    return {
+        "tool": "set-bookmark",
+        "args": {
+            "programPath": program_path,
+            "addressOrSymbol": va_hex,
+            "type": "Note",
+            "category": category,
+            "comment": comment,
+        },
+    }
 
 
 def resolve_program_path(cfg: ProjectConfig) -> str:
@@ -192,17 +235,7 @@ def build_sync_commands(
         if va in sig_vas or skip_generic_labels and is_generic_name(name):
             skipped_labels += 1
         else:
-            commands.append(
-                {
-                    "tool": "create-label",
-                    "args": {
-                        "programPath": program_path,
-                        "addressOrSymbol": va_hex,
-                        "labelName": name,
-                        "setAsPrimary": True,
-                    },
-                }
-            )
+            commands.append(_label_cmd(program_path, va_hex, name))
 
         comment_lines = [
             f"[rebrew] {primary.get('marker_type', 'FUNCTION')}: {status}",
@@ -212,49 +245,18 @@ def build_sync_commands(
             f"Symbol: {primary.get('symbol', '')}",
             f"Files: {', '.join(e.get('filepath', '') for e in elist)}",
         ]
-        commands.append(
-            {
-                "tool": "set-comment",
-                "args": {
-                    "programPath": program_path,
-                    "addressOrSymbol": va_hex,
-                    "comment": "\n".join(comment_lines),
-                    "commentType": "plate",
-                },
-            }
-        )
+        commands.append(_comment_cmd(program_path, va_hex, "\n".join(comment_lines)))
 
         bm_category = _STATUS_BOOKMARK_CATEGORY.get(
             status, primary.get("module", "").lower() or "rebrew"
         )
         bm_comment = f"{name} - {status} ({primary.get('size', 0)}B, {primary.get('cflags', '')})"
-        commands.append(
-            {
-                "tool": "set-bookmark",
-                "args": {
-                    "programPath": program_path,
-                    "addressOrSymbol": va_hex,
-                    "type": "Note",
-                    "category": bm_category,
-                    "comment": bm_comment,
-                },
-            }
-        )
+        commands.append(_bookmark_cmd(program_path, va_hex, bm_category, bm_comment))
 
         # Push NOTE as a pre-comment (separate from plate metadata)
         note = primary.get("note", "")
         if note:
-            commands.append(
-                {
-                    "tool": "set-comment",
-                    "args": {
-                        "programPath": program_path,
-                        "addressOrSymbol": va_hex,
-                        "comment": note,
-                        "commentType": "pre",
-                    },
-                }
-            )
+            commands.append(_comment_cmd(program_path, va_hex, note, "pre"))
 
     # Phase 4: Push Data / Globals
     if data_scan is not None:
@@ -266,17 +268,7 @@ def build_sync_commands(
 
             # Label
             if not skip_generic_labels or not is_generic_name(name):
-                commands.append(
-                    {
-                        "tool": "create-label",
-                        "args": {
-                            "programPath": program_path,
-                            "addressOrSymbol": va_hex,
-                            "labelName": name,
-                            "setAsPrimary": True,
-                        },
-                    }
-                )
+                commands.append(_label_cmd(program_path, va_hex, name))
 
             # Comment
             comment_lines = [
@@ -288,30 +280,13 @@ def build_sync_commands(
             if g_entry.declared_in:
                 comment_lines.append(f"Files: {', '.join(g_entry.declared_in)}")
 
-            commands.append(
-                {
-                    "tool": "set-comment",
-                    "args": {
-                        "programPath": program_path,
-                        "addressOrSymbol": va_hex,
-                        "comment": "\n".join(comment_lines),
-                        "commentType": "plate",
-                    },
-                }
-            )
+            commands.append(_comment_cmd(program_path, va_hex, "\n".join(comment_lines)))
 
             # Bookmark
             commands.append(
-                {
-                    "tool": "set-bookmark",
-                    "args": {
-                        "programPath": program_path,
-                        "addressOrSymbol": va_hex,
-                        "type": "Note",
-                        "category": "rebrew/data",
-                        "comment": f"Global: {g_entry.type_str} {name}",
-                    },
-                }
+                _bookmark_cmd(
+                    program_path, va_hex, "rebrew/data", f"Global: {g_entry.type_str} {name}"
+                )
             )
 
         # Push raw // DATA: annotations that might not be in globals
@@ -321,17 +296,7 @@ def build_sync_commands(
 
             # Label
             if not skip_generic_labels or not is_generic_name(name):
-                commands.append(
-                    {
-                        "tool": "create-label",
-                        "args": {
-                            "programPath": program_path,
-                            "addressOrSymbol": va_hex,
-                            "labelName": name,
-                            "setAsPrimary": True,
-                        },
-                    }
-                )
+                commands.append(_label_cmd(program_path, va_hex, name))
 
             # Comment
             comment_lines = [
@@ -344,29 +309,12 @@ def build_sync_commands(
                 comment_lines.append(f"Note: {d_entry['note']}")
             comment_lines.append(f"File: {d_entry['filepath']}")
 
-            commands.append(
-                {
-                    "tool": "set-comment",
-                    "args": {
-                        "programPath": program_path,
-                        "addressOrSymbol": va_hex,
-                        "comment": "\n".join(comment_lines),
-                        "commentType": "plate",
-                    },
-                }
-            )
+            commands.append(_comment_cmd(program_path, va_hex, "\n".join(comment_lines)))
 
             commands.append(
-                {
-                    "tool": "set-bookmark",
-                    "args": {
-                        "programPath": program_path,
-                        "addressOrSymbol": va_hex,
-                        "type": "Note",
-                        "category": "rebrew/data",
-                        "comment": f"Data: {name} ({d_entry['size']}B)",
-                    },
-                }
+                _bookmark_cmd(
+                    program_path, va_hex, "rebrew/data", f"Data: {name} ({d_entry['size']}B)"
+                )
             )
 
     if skipped_labels > 0:
@@ -452,38 +400,53 @@ def pull_ghidra_renames(
     result = PullResult()
 
     if not dry_run:
-        console.print("Fetching function, data, and comment lists from Ghidra via ReVa MCP...")
+        transport = "ghidra-cli" if getattr(cfg, "ghidra_backend", "reva") == "cli" else "ReVa MCP"
+        console.print(f"Fetching function, data, and comment lists from Ghidra via {transport}...")
     functions: list[Any] = []
     data_labels: list[Any] = []
     plate_comments: list[Any] = []
     pre_comments: list[Any] = []
 
-    with httpx.Client(timeout=30.0) as client:
-        session_id = ""
-        try:
-            session_id = init_mcp_session(client, endpoint)
+    backend = getattr(cfg, "ghidra_backend", "reva")
+    if backend == "cli":
+        # ghidra-cli backend: one batched fetch instead of MCP calls.
+        from rebrew.ghidra.cli_backend import fetch_pull_data_via_cli, resolve_ghidra_cli
 
-            functions = fetch_all_functions(client, endpoint, program_path, session_id)
-            data_labels = fetch_all_symbols(client, endpoint, program_path, session_id)
-            plate_comments = fetch_mcp_tool(
-                client,
-                endpoint,
-                "get-comments",
-                {"programPath": program_path, "commentTypes": ["plate"]},
-                3,
-                session_id=session_id,
-            )
-            pre_comments = fetch_mcp_tool(
-                client,
-                endpoint,
-                "get-comments",
-                {"programPath": program_path, "commentTypes": ["pre"]},
-                4,
-                session_id=session_id,
-            )
-        except httpx.RequestError as e:
-            console.print(f"[yellow]warning:[/yellow] Could not connect to ReVa MCP ({e}).")
-            console.print("Falling back to local caches...")
+        pull_data = fetch_pull_data_via_cli(
+            program=program_path, ghidra_cli=resolve_ghidra_cli(cfg) or "ghidra-cli"
+        )
+        functions = pull_data["functions"]
+        data_labels = pull_data["symbols"]
+        plate_comments = pull_data["plate"]
+        pre_comments = pull_data["pre"]
+
+    if backend != "cli":
+        with httpx.Client(timeout=30.0) as client:
+            session_id = ""
+            try:
+                session_id = init_mcp_session(client, endpoint)
+
+                functions = fetch_all_functions(client, endpoint, program_path, session_id)
+                data_labels = fetch_all_symbols(client, endpoint, program_path, session_id)
+                plate_comments = fetch_mcp_tool(
+                    client,
+                    endpoint,
+                    "get-comments",
+                    {"programPath": program_path, "commentTypes": ["plate"]},
+                    3,
+                    session_id=session_id,
+                )
+                pre_comments = fetch_mcp_tool(
+                    client,
+                    endpoint,
+                    "get-comments",
+                    {"programPath": program_path, "commentTypes": ["pre"]},
+                    4,
+                    session_id=session_id,
+                )
+            except httpx.RequestError as e:
+                console.print(f"[yellow]warning:[/yellow] Could not connect to ReVa MCP ({e}).")
+                console.print("Falling back to local caches...")
 
     if not functions:
         ghidra_json_path = cfg.reversed_dir / FUNCTION_STRUCTURE_JSON
@@ -496,7 +459,7 @@ def pull_ghidra_renames(
                 console.print(f"[red bold]error:[/red bold] reading cache: {e}")
         else:
             console.print(
-                f"[yellow]warning:[/yellow] Could not fetch functions from MCP and {ghidra_json_path.name} not found."
+                f"[yellow]warning:[/yellow] Could not fetch functions and {ghidra_json_path.name} not found."
             )
 
     if not data_labels:
@@ -508,8 +471,8 @@ def pull_ghidra_renames(
                     console.print(
                         f"Loaded {len(data_labels)} data labels from {data_json_path.name}"
                     )
-            except (json.JSONDecodeError, OSError):
-                pass
+            except (json.JSONDecodeError, OSError) as e:
+                console.print(f"[red bold]error:[/red bold] reading {data_json_path.name}: {e}")
 
     if not functions and not data_labels:
         return result
@@ -673,7 +636,7 @@ def pull_ghidra_renames(
                                 from rebrew.data_metadata import set_data_field
 
                                 set_data_field(
-                                    cfg.reversed_dir,
+                                    cfg.metadata_dir,
                                     va,
                                     "name",
                                     ghidra_name,
@@ -969,9 +932,8 @@ def pull_prototypes(
                             # Replace externs across the project
                             # WARNING: Ghidra types (uint, byte, undefined) are not valid C89
                             sym = entry.get("symbol") or entry.get("name")
-                            actual_name = sym.lstrip("_") if sym.startswith("_") else sym
+                            actual_name = sym.lstrip("_")
 
-                            # Build the new extern statement
                             extern_str = f"extern {sig};"
 
                             for src_file in iter_sources(cfg.reversed_dir, cfg):
@@ -1224,6 +1186,121 @@ def pull_structs(
             console.print(f"[green]Exported {exported} structures to {out_file}[/green]")
 
 
+_DATATYPE_CATEGORIES = ("/Enum", "/TypeDef")
+_DATATYPE_PAGE_SIZE = 500
+
+
+def pull_datatypes(
+    cfg: ProjectConfig,
+    endpoint: str,
+    program_path: str,
+    *,
+    dry_run: bool = False,
+    types_out: Path | None = None,
+) -> None:
+    """Pull the user-defined enum + typedef inventory from Ghidra into a header.
+
+    Uses ReVa's ``get-data-types`` MCP tool with ``categoryPath="/Enum"`` and
+    ``"/TypeDef"`` (an empty ``archiveName`` makes ReVa search every data type
+    manager, including the target program's own, per DataTypeParserUtil).
+    Pagination is followed via ``totalCount``/``returnedCount``.
+
+    ReVa's MCP surface does not expose enum member values (the datatypes
+    response carries name/displayName/categoryPath/size/alignment only), so
+    this emits an honest manifest - name, size, category - rather than
+    fabricated C definitions.  Define the enums in source and push them with
+    ``rebrew sync --push`` when member values are needed in Ghidra.
+
+    :param cfg: Project configuration (``cfg.reversed_dir`` is the default output dir).
+    :param endpoint: ReVa MCP endpoint URL.
+    :param program_path: Ghidra program path.
+    :param dry_run: Print what would be written without writing.
+    :param types_out: Override the output path (default ``<reversed_dir>/enums_types.h``).
+    """
+    console.print("Pulling enum/typedef inventory from Ghidra...")
+
+    with httpx.Client(timeout=30.0) as client:
+        try:
+            session_id = init_mcp_session(client, endpoint)
+        except httpx.RequestError as e:
+            raise RuntimeError(f"Error connecting to MCP: {e}") from e
+
+        # (kind, name, size, category)
+        manifest: list[tuple[str, str, int, str]] = []
+
+        for category in _DATATYPE_CATEGORIES:
+            start_index = 0
+            while True:
+                result = fetch_mcp_tool_raw(
+                    client,
+                    endpoint,
+                    "get-data-types",
+                    {
+                        "programPath": program_path,
+                        "archiveName": "",
+                        "categoryPath": category,
+                        "includeSubcategories": True,
+                        "startIndex": start_index,
+                        "maxCount": _DATATYPE_PAGE_SIZE,
+                    },
+                    1,
+                    session_id=session_id,
+                )
+                if not isinstance(result, dict):
+                    break
+                items = result.get("dataTypes")
+                if not isinstance(items, list):
+                    break
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    name = item.get("name")
+                    if not name:
+                        continue
+                    size = item.get("size")
+                    size_int = int(size) if isinstance(size, int) else 0
+                    cat = str(item.get("categoryPath") or category)
+                    kind = "enum" if category == "/Enum" else "typedef"
+                    manifest.append((kind, str(name), size_int, cat))
+                total = result.get("totalCount")
+                returned = result.get("returnedCount")
+                if (
+                    not isinstance(total, int)
+                    or not isinstance(returned, int)
+                    or returned <= 0
+                    or start_index + returned >= total
+                ):
+                    break
+                start_index += returned
+
+        if not manifest:
+            console.print("[yellow]No user-defined enums or typedefs found in Ghidra.[/yellow]")
+            return
+
+        lines: list[str] = []
+        for kind, heading in (("enum", "Enums"), ("typedef", "Typedefs")):
+            entries = [(n, s, c) for k, n, s, c in manifest if k == kind]
+            if not entries:
+                continue
+            lines.append(f"/* {heading} ({len(entries)}) */")
+            for name, size, cat in sorted(entries):
+                lines.append(f"/* {name} - size {size} - {cat} */")
+            lines.append("")
+
+        preamble = _make_header_preamble(len(manifest), "REBREW_DATATYPES_H")
+        note = (
+            "/* ReVa's MCP protocol exposes enum/typedef names, sizes, and categories "
+            "but not enum member values. Define enums in source and push with "
+            "'rebrew sync --push' to create them in Ghidra. */"
+        )
+        text = "\n".join(preamble + [note, ""] + lines + ["#endif /* REBREW_DATATYPES_H */", ""])
+
+        out_file = types_out if types_out is not None else cfg.reversed_dir / "enums_types.h"
+        if not dry_run:
+            atomic_write_text(out_file, text)
+        console.print(f"[green]Exported {len(manifest)} datatypes to {out_file}[/green]")
+
+
 def pull_comments(
     entries: list[Any], cfg: ProjectConfig, endpoint: str, program_path: str, dry_run: bool
 ) -> None:
@@ -1296,26 +1373,30 @@ def pull_comments(
         # Build VA→entry lookup for matching comments to functions
         # A comment belongs to a function if its VA falls within [func_va, func_va + size)
         entry_ranges = []
+        entries_by_va: dict[int, Any] = {}
         for entry in entries:
             va = entry.get("va")
             size = entry.get("size", 0)
             if va and size:
                 entry_ranges.append((va, va + size, entry))
+                entries_by_va[va] = entry
         entry_ranges.sort(key=lambda x: x[0])
+        range_starts = [start for start, _end, _entry in entry_ranges]
 
         updated_count = 0
         matched_entries: dict[int, list[str]] = {}
 
         for comment_va, comment_list in comments_by_va.items():
             # Find which function this comment belongs to
-            for start, end, entry in entry_ranges:
+            range_index = bisect_right(range_starts, comment_va) - 1
+            if range_index >= 0:
+                start, end, entry = entry_ranges[range_index]
                 if start <= comment_va < end:
                     entry_va = entry.get("va")
                     matched_entries.setdefault(entry_va, []).extend(comment_list)
-                    break
 
         for entry_va, comment_list in matched_entries.items():
-            entry = next((e for e in entries if e.get("va") == entry_va), None)
+            entry = entries_by_va.get(entry_va)
             if not entry:
                 continue
 

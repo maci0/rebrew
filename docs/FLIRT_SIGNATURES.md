@@ -170,7 +170,7 @@ For individual functions you want to tag (e.g., a custom allocator you've
 identified), you can write a `.pat` entry by hand:
 
 ```
-558BEC6AFF68........64A10000000050 1A 5678 0080 :0000 _my_custom_alloc
+558BEC6AFF68........64A10000000050 00 0000 0080 :0000 _my_custom_alloc
 ```
 
 **Format of a `.pat` line:**
@@ -183,12 +183,36 @@ identified), you can write a `.pat` entry by hand:
 |-------|-------------|
 | Leading bytes | First 32 (max) bytes of the function in hex. Use `..` for any relocatable byte |
 | CRC length | Number of bytes after the leading portion used for CRC (hex, max `FF`) |
-| CRC16 | CRC-CCITT of the non-reloc bytes after the leading portion |
+| CRC16 | IDA's FLIRT CRC16 of the non-reloc bytes after the leading portion (see below) |
 | Total size | Total function size in bytes (hex) |
 | `:0000` | Offset of the symbol within the pattern (usually `0000`) |
 | Symbol name | The function name to assign on match |
 
 The file must end with a line containing only `---`.
+
+> [!IMPORTANT]
+> The CRC16 must use **IDA's exact FLIRT variant** (flair `crc16.cpp`,
+> ported in the `lancelot` flirt crate that `python-flirt` implements):
+> reflected polynomial `0x8408` (i.e. reflected CRC-CCITT `0x1021`),
+> init `0xFFFF`, per-byte reflected bit loop, final bitwise invert, then
+> byte-swapped into the field. It is *not* plain CRC-16/ARC or a standard
+> CRC-CCITT — a signature whose CRC uses any other variant will parse fine
+> but silently never match (a past rebrew bug used non-reflected `0x8005`).
+> `rebrew.gen_flirt_pat._crc16_flirt` is the canonical implementation, and
+> `tests/test_property_parsers.py` pins the parse→compile→match round-trip
+> against `python-flirt`.
+
+> [!IMPORTANT]
+> Relocatable bytes are masked (`..`) for the **full fixup width** of the
+> relocation (4 bytes for `DIR32`/`REL32` on x86) — not just the first byte.
+> The width comes from the relocation *type*: LIEF reports `size == 0` for
+> MSVC6 objects, so type-derived width is what `parse_coff_obj` uses.
+>
+> The CRC window covers the tail up to the **first tail relocation** and stops
+> there (sigmake rule): a reloc slot holds a linker-filled address in the
+> binary, so including it in the CRC would guarantee a mismatch. Functions
+> with a relocation right at the window start get `crc_len 00 0000` and rely
+> on their lead bytes alone.
 
 > [!TIP]
 > For hand-crafted patterns, you can set CRC length and CRC16 to `00 0000`

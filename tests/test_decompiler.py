@@ -2,8 +2,11 @@
 
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from rebrew.config import ProjectConfig
 from rebrew.decompiler import (
@@ -12,7 +15,6 @@ from rebrew.decompiler import (
     BACKENDS,
     _clean_output,
     _find_re_tool,
-    _strip_ansi,
     fetch_decompilation,
     fetch_ghidra,
     fetch_r2dec,
@@ -20,21 +22,19 @@ from rebrew.decompiler import (
 )
 
 
-class TestStripAnsi:
-    def test_basic_escape(self) -> None:
-        assert _strip_ansi("\x1b[31mhello\x1b[0m") == "hello"
-
-    def test_no_escape(self) -> None:
-        assert _strip_ansi("plain text") == "plain text"
-
-    def test_multiple_escapes(self) -> None:
-        assert _strip_ansi("\x1b[1m\x1b[32mint\x1b[0m x;") == "int x;"
-
-
 class TestCleanOutput:
     def test_strips_and_trims(self) -> None:
         text = "\n\n\x1b[32mint main() {\x1b[0m\n  return 0;\n}\n\n"
         assert _clean_output(text) == "int main() {\n  return 0;\n}"
+
+    def test_basic_escape(self) -> None:
+        assert _clean_output("\x1b[31mhello\x1b[0m") == "hello"
+
+    def test_no_escape(self) -> None:
+        assert _clean_output("plain text") == "plain text"
+
+    def test_multiple_escapes(self) -> None:
+        assert _clean_output("\x1b[1m\x1b[32mint\x1b[0m x;") == "int x;"
 
     def test_empty_input(self) -> None:
         assert _clean_output("") is None
@@ -472,3 +472,80 @@ class TestGhidraBackend:
             result = fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"))
 
         assert result == "int foo() {\n  return 1;\n}"
+
+
+class TestRunRe:
+    def test_disallowed_command_raises(self, tmp_path: Path) -> None:
+        from rebrew.decompiler import _run_re
+
+        with pytest.raises(ValueError, match="disallowed radare2 command"):
+            _run_re(tmp_path / "x", 0x1000, "rm -rf", tmp_path)
+
+    def test_no_tool_returns_none(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import rebrew.decompiler as dc
+
+        monkeypatch.setattr(dc.shutil, "which", lambda *a, **k: None)
+        assert dc._run_re(tmp_path / "x", 0x1000, "pdg", tmp_path) is None
+
+    def test_success_returns_cleaned_output(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import subprocess
+
+        import rebrew.decompiler as dc
+
+        monkeypatch.setattr(dc.shutil, "which", lambda *a, **k: "rz")
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            lambda *a, **k: SimpleNamespace(returncode=0, stdout="\x1b[0m  int f(void) {}\n"),
+        )
+        out = dc._run_re(tmp_path / "x", 0x1000, "pdg", tmp_path)
+        assert out == "  int f(void) {}"  # _clean_output trims blank lines, not indent
+
+    def test_nonzero_returns_none(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import subprocess
+
+        import rebrew.decompiler as dc
+
+        monkeypatch.setattr(dc.shutil, "which", lambda *a, **k: "rz")
+        monkeypatch.setattr(
+            subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=1, stdout="")
+        )
+        assert dc._run_re(tmp_path / "x", 0x1000, "pdg", tmp_path) is None
+
+    def test_timeout_warns(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import subprocess
+
+        import rebrew.decompiler as dc
+
+        monkeypatch.setattr(dc.shutil, "which", lambda *a, **k: "rz")
+
+        def _boom(*a: object, **k: object) -> object:
+            raise subprocess.TimeoutExpired("rz", 120)
+
+        monkeypatch.setattr(subprocess, "run", _boom)
+        with pytest.warns(UserWarning, match="timed out"):
+            assert dc._run_re(tmp_path / "x", 0x1000, "pdg", tmp_path) is None
+
+    def test_oserror_warns(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import subprocess
+
+        import rebrew.decompiler as dc
+
+        monkeypatch.setattr(dc.shutil, "which", lambda *a, **k: "rz")
+
+        def _boom(*a: object, **k: object) -> object:
+            raise OSError("rz missing")
+
+        monkeypatch.setattr(subprocess, "run", _boom)
+        with pytest.warns(UserWarning, match="failed decompiling"):
+            assert dc._run_re(tmp_path / "x", 0x1000, "pdg", tmp_path) is None
+
+
+class TestFetchBackends:
+    def test_missing_binary_returns_none(self, tmp_path: Path) -> None:
+        from rebrew.decompiler import fetch_r2dec, fetch_r2ghidra
+
+        assert fetch_r2ghidra(tmp_path / "nope", 0x1000, tmp_path) is None
+        assert fetch_r2dec(tmp_path / "nope", 0x1000, tmp_path) is None

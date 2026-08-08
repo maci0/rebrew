@@ -4,7 +4,8 @@ __pycache__/
 *.pyo
 .venv/
 .venv*/
-.python-version
+# Commit .python-version so local uv/python match CI's default (3.12).
+# Do not ignore it: an untracked pin cannot be shared or enforced.
 
 # IDE / tool caches
 .pytest_cache/

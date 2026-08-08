@@ -12,6 +12,7 @@ Usage:
     rebrew graph --include-dispatch       # Fold dispatch-table edges into the graph
 """
 
+import contextlib
 import re
 from pathlib import Path
 from typing import Any, TypedDict
@@ -234,14 +235,24 @@ def _focus_graph(
     dispatch_edges = dispatch_edges or []
     all_edges = edges + dispatch_edges
 
-    # Find focus node (case-insensitive partial match)
-    focus_lower = focus.lower()
+    # Find focus node: exact name, then (for hex-looking input) VA match,
+    # then partial name — a `fn_0x..._*` placeholder must not shadow the
+    # real function at the VA.
+    focus_lower = focus.strip().lower()
     focus_name = None
-    # Prefer exact match, then fall back to partial match
     for name in nodes:
         if name.lower() == focus_lower:
             focus_name = name
             break
+    va_int: int | None = None
+    if not focus_name and focus_lower.startswith("0x"):
+        with contextlib.suppress(ValueError):
+            va_int = int(focus_lower, 16)
+        if va_int is not None:
+            for name, info in nodes.items():
+                if info["va"] == va_int:
+                    focus_name = name
+                    break
     if not focus_name:
         for name in nodes:
             if focus_lower in name.lower():

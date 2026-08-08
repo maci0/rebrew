@@ -195,7 +195,7 @@ def _list_coff_symbols(obj_path: str) -> list[str]:
         return []
 
     symbols = [
-        sym.name
+        str(sym.name)
         for sym in coff.symbols
         if sym.section is not None
         and not str(sym.name).startswith("$")
@@ -279,7 +279,7 @@ def _list_elf_symbols(obj_path: str) -> list[str]:
         return []
 
     symbols = [
-        sym.name
+        str(sym.name)
         for sym in elf.symbols
         if sym.name
         and sym.value is not None
@@ -373,7 +373,7 @@ def _list_macho_symbols(obj_path: str) -> list[str]:
         if sym.name and getattr(sym, "type", 0) > 0:
             # Strip leading underscore (Mach-O convention) — exactly one
             name = sym.name[1:] if str(sym.name).startswith("_") else sym.name
-            symbols.append(name)
+            symbols.append(str(name))
     return symbols
 
 

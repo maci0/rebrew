@@ -210,6 +210,39 @@ def _copy_agent_skills(dest: Path, target_name: str) -> None:
     console.print("[green]Created .agents/skills/[/] (AI workflow instructions)")
 
 
+def _write_completion_scripts(project_root: Path) -> list[Path]:
+    """Generate bash/zsh/fish completion scripts for the umbrella CLI.
+
+    The live ``rebrew --show-completion`` derives the shell from ``$SHELL``
+    and ignores an explicit shell argument, so ``rebrew init
+    --install-completions`` generates all three explicitly under
+    ``completions/``.  Each script drives the same click completion protocol
+    (``_REBREW_COMPLETE`` env var) the installed CLI uses.
+    """
+    from click.shell_completion import BashComplete, FishComplete, ZshComplete
+    from typer.main import get_command
+
+    from rebrew.main import app as umbrella_app
+
+    cli_command = get_command(umbrella_app)
+    prog_name = "rebrew"
+    complete_var = f"_{prog_name.replace('-', '_').replace('.', '_')}_COMPLETE".upper()
+
+    out_dir = project_root / "completions"
+    out_dir.mkdir(exist_ok=True)
+    written: list[Path] = []
+    for shell, cls in (
+        ("bash", BashComplete),
+        ("zsh", ZshComplete),
+        ("fish", FishComplete),
+    ):
+        script = cls(cli_command, {}, prog_name, complete_var).source()
+        dest = out_dir / f"rebrew.{shell}"
+        atomic_write_text(dest, script, encoding="utf-8")
+        written.append(dest)
+    return written
+
+
 @app.callback(invoke_without_command=True)
 def main(
     target_name: str = typer.Option("main", "--target", "-t", help="Name of the initial target."),
@@ -221,6 +254,11 @@ def main(
     ),
     install_wibo: bool = typer.Option(
         False, "--install-wibo", help="Download wibo runner to tools/wibo."
+    ),
+    install_completions: bool = typer.Option(
+        False,
+        "--install-completions",
+        help="Write bash/zsh/fish completion scripts into completions/.",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
@@ -330,6 +368,13 @@ def main(
         tag_name = download_wibo(wibo_path)
         console.print(f"[green]Downloaded wibo {tag_name} to {wibo_path}[/]")
 
+    # 9. Optionally write shell completion scripts
+    completion_paths: list[Path] = []
+    if install_completions:
+        completion_paths = _write_completion_scripts(cwd)
+        for p in completion_paths:
+            console.print(f"[green]Created {p.relative_to(cwd)}[/] (source this for completions)")
+
     if json_output:
         json_print(
             {
@@ -343,6 +388,7 @@ def main(
                     str(src_dir),
                     str(bin_dir),
                 ],
+                "completions": [str(p) for p in completion_paths],
             }
         )
     else:
@@ -350,6 +396,11 @@ def main(
         console.print(f"1. Copy your original binary to original/{binary_name}")
         console.print("2. Verify your compiler paths in rebrew-project.toml")
         console.print("3. Run 'rebrew todo' to get started!")
+        if install_completions:
+            console.print("\n[bold cyan]Shell completion:[/]")
+            console.print("  bash: source completions/rebrew.bash")
+            console.print("  zsh:  source completions/rebrew.zsh")
+            console.print("  fish: source completions/rebrew.fish")
 
 
 # Alias so main.py can register the command as ``init`` without renaming the callback.

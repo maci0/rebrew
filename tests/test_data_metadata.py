@@ -8,6 +8,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from rebrew.data_metadata import (
     DATA_METADATA_FIELDS,
     DATA_METADATA_FILENAME,
@@ -287,3 +289,95 @@ class TestMergeIntoDataAnnotation:
         ann = _make_annotation()
         result = merge_into_data_annotation(ann, tmp_path)  # type: ignore[arg-type]
         assert result is ann
+
+
+class TestDataMetadataEdgeCases:
+    def test_load_corrupt_toml(self, tmp_path: Path) -> None:
+        import rebrew.data_metadata as dm
+
+        (tmp_path / "rebrew-data.toml").write_text("{broken", encoding="utf-8")
+        assert dm.load_data_metadata(tmp_path) == {}
+
+    def test_load_skips_non_dict_values(self, tmp_path: Path) -> None:
+        import rebrew.data_metadata as dm
+
+        (tmp_path / "rebrew-data.toml").write_text(
+            '"SERVER.0x10001000" = "scalar"\n["SERVER.0x10002000"]\nsize = 8\n',
+            encoding="utf-8",
+        )
+        result = dm.load_data_metadata(tmp_path)
+        assert ("SERVER", 0x10002000) in result
+        assert ("SERVER", 0x10001000) not in result
+
+
+class TestCorruptTomlRecovery:
+    def test_set_data_field_recovers(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import DATA_METADATA_FILENAME, get_data_entry, set_data_field
+
+        (tmp_path / DATA_METADATA_FILENAME).write_text("{broken", encoding="utf-8")
+        set_data_field(tmp_path, 0x1000, "size", 16, "SERVER")
+        entry = get_data_entry(tmp_path, 0x1000, "SERVER")
+        assert entry.get("size") == 16
+
+    def test_delete_data_field_corrupt_no_crash(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import DATA_METADATA_FILENAME, delete_data_field
+
+        path = tmp_path / DATA_METADATA_FILENAME
+        path.write_text("{broken", encoding="utf-8")
+        delete_data_field(tmp_path, 0x1000, "size", "SERVER")
+        # Corrupt file must be left untouched (parse failure is a no-op return).
+        assert path.read_text(encoding="utf-8") == "{broken"
+
+    def test_merge_into_data_annotation_no_crash(self, tmp_path: Path) -> None:
+        from rebrew.annotation import Annotation
+        from rebrew.data_metadata import DATA_METADATA_FILENAME, merge_into_data_annotation
+
+        (tmp_path / DATA_METADATA_FILENAME).write_text("{broken", encoding="utf-8")
+        ann = Annotation(va=0x1000, module="SERVER", name="g_x", marker_type="DATA")
+        result = merge_into_data_annotation(ann, tmp_path)
+        assert result is ann
+
+
+class TestDataMetadataCache:
+    """load_data_metadata caches by mtime; writes invalidate the cache."""
+
+    def test_repeated_load_served_from_cache(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew import data_metadata as dm
+
+        dm.clear_data_metadata_cache()
+        parse_calls: list[object] = []
+        monkeypatch.setattr(
+            dm,
+            "parse_metadata_doc",
+            lambda doc: parse_calls.append(doc) or {},
+        )
+        f = tmp_path / "rebrew-data.toml"
+        f.write_text('["SERVER.0x1000"]\nsize = 4\n', encoding="utf-8")
+        # First load parses; a second unchanged load must hit the cache.
+        dm.load_data_metadata(tmp_path)
+        dm.load_data_metadata(tmp_path)
+        assert len(parse_calls) == 1
+        # mtime change forces a re-parse.
+        import os
+
+        os.utime(f, (f.stat().st_atime + 2, f.stat().st_mtime + 2))
+        dm.load_data_metadata(tmp_path)
+        assert len(parse_calls) == 2
+
+    def test_write_invalidates_cache(self, tmp_path: Path) -> None:
+        from rebrew import data_metadata as dm
+
+        dm.clear_data_metadata_cache()
+        f = tmp_path / "rebrew-data.toml"
+        f.write_text('["SERVER.0x1000"]\nsize = 4\n', encoding="utf-8")
+        # Prime the cache.
+        assert dm.load_data_metadata(tmp_path) == {("SERVER", 0x1000): {"size": 4}}
+        # A write through set_data_field must be visible on the next read.
+        dm.set_data_field(tmp_path, 0x1000, "section", ".bss", "SERVER")
+        entry = dm.get_data_entry(tmp_path, 0x1000, "SERVER")
+        assert entry.get("section") == ".bss"
+        # delete_data_field too.
+        dm.delete_data_field(tmp_path, 0x1000, "section", "SERVER")
+        assert "section" not in dm.get_data_entry(tmp_path, 0x1000, "SERVER")

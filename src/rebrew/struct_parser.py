@@ -8,15 +8,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from rebrew.c_parser import _get_parser
-
-
-def _get_ts_parser() -> tuple[Any, Any] | None:
-    """Return a cached (parser, language) pair, or None if tree-sitter is unavailable."""
-    try:
-        return _get_parser()
-    except ImportError:
-        return None
+from rebrew.c_parser import _get_ts_parser
 
 
 def _iter_definitions(filepath: Path, *, all_type_defs: bool) -> Iterator[str]:

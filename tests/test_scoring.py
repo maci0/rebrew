@@ -7,6 +7,7 @@ from rebrew.matcher.scoring import (
     _mask_registers_x86_32,
     _normalize_reloc_x86_32,
     diff_functions,
+    precompute_target,
     score_candidate,
     structural_similarity,
 )
@@ -394,3 +395,46 @@ def test_diff_csv_format_flag_accepted() -> None:
     runner = CliRunner()
     help_output = runner.invoke(app, ["--help"]).stdout
     assert "--format" in help_output
+
+
+class TestPrecomputedTarget:
+    """The GA hot path precomputes target normalization + mnemonics once per
+    function; the _pre_* kwargs must produce byte-identical scores."""
+
+    def test_precompute_target_shape(self) -> None:
+        code = bytes(range(0x90, 0x90 + 64))  # NOPs + count
+        norm, mnems = precompute_target(code)
+        assert norm == _normalize_reloc_x86_32(code)
+        assert isinstance(mnems, list)
+        assert len(mnems) >= 1
+
+    def test_precomputed_equals_fresh_no_relocs(self) -> None:
+        target = b"\x55\x8b\xec\x83\xec\x10\xa1\x00\x00\x40\x00\x5d\xc3"
+        cand = b"\x55\x8b\xec\x83\xec\x10\xa1\x10\x00\x40\x00\x5d\xc3"
+        norm, mnems = precompute_target(target)
+        fresh = score_candidate(target, cand, reloc_offsets=None)
+        hot = score_candidate(
+            target,
+            cand,
+            reloc_offsets=None,
+            _pre_norm_target=norm,
+            _pre_target_mnems=mnems,
+        )
+        assert hot.total == fresh.total
+        assert hot.mnemonic_score == fresh.mnemonic_score
+
+    def test_precomputed_ignored_in_reloc_path(self) -> None:
+        """With explicit reloc offsets the _pre_* kwargs are not used."""
+        target = b"\x55\x8b\xec\xa1\x00\x00\x40\x00\x5d\xc3"
+        cand = b"\x55\x8b\xec\xa1\xff\xff\x40\x00\x5d\xc3"
+        relocs = [4]
+        norm, mnems = precompute_target(target)
+        fresh = score_candidate(target, cand, reloc_offsets=relocs)
+        hot = score_candidate(
+            target,
+            cand,
+            reloc_offsets=relocs,
+            _pre_norm_target=norm,
+            _pre_target_mnems=mnems,
+        )
+        assert hot.total == fresh.total

@@ -34,6 +34,20 @@ repos:
         language: system
         types: [python]
 
+      - id: import-cycles
+        name: Detect module-level import cycles
+        entry: uv run python tools/detect_cycles.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: mypy
+        name: Mypy type check
+        entry: uv run mypy src/rebrew/
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: pytest
         name: pytest (fast)
         entry: uv run pytest tests/ -q --tb=short

@@ -55,7 +55,7 @@ Stores details regarding decompiled and original functions.
 | `module` | `TEXT` | Origin module/library — config-driven (e.g., `GAME`, `ZLIB`, `MSVCRT`). |
 | `cflags` | `TEXT` | Compilation flags (if any). |
 | `symbol` | `TEXT` | The raw mangled or internal symbol name. |
-| `markerType` | `TEXT` | Annotation marker type: `FUNCTION`, `STUB`, `GLOBAL`, `DATA`. |
+| `markerType` | `TEXT` | Annotation marker type: `FUNCTION`, `LIBRARY`, `STUB`, `GLOBAL`, `DATA`. |
 | `ghidra_name` | `TEXT` | Function name as defined in Ghidra. |
 | `list_name` | `TEXT` | Function name from the function list. |
 | `is_thunk` | `BOOLEAN` | True if the function is an IAT thunk (`jmp [IAT]` stub). |
@@ -145,7 +145,19 @@ Stores arbitrary target-specific key-value pairs. Primary Key is `(target, key)`
 |-----|-------------|
 | `summary` | JSON object with coverage statistics (totalFunctions, matchedFunctions, exactMatches, etc.) |
 | `paths` | JSON object with file paths (originalDll, sourceRoot) |
-| `db_version` | Schema version string (current: `"3"`) |
+| `db_version` | Schema version string (current: `"4"`) |
+
+#### Schema Version History
+
+`rebrew build-db` refuses to write into a database whose stored `db_version`
+differs from the version it was built for; pass `--force` to delete and recreate
+it. Bump `_CURRENT_DB_VERSION` in `src/rebrew/build_db.py` and add a row here
+whenever the schema changes.
+
+| Version | Change |
+|---|---|
+| `"4"` | Cell rows normalized and range-checked on insert (`start >= 0`, `end >= start`, `span > 0`); `cells` gained a `FOREIGN KEY (target, section_name)` to `sections` with `ON DELETE CASCADE`. |
+| `"3"` | Baseline documented schema. |
 
 ### `verify_results` Table
 Stores the results of the `rebrew verify` command.

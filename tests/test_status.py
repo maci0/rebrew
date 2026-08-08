@@ -5,6 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from rebrew.status import (
     StatusReport,
     VerifyInfo,
@@ -211,6 +213,7 @@ class TestCollectStatus:
         cache_dir.mkdir()
         cache_data = {
             "version": 1,
+            "target": "test",
             "entries": {
                 "0x1000": {
                     "source_hash": "abc",
@@ -336,6 +339,7 @@ class TestCollectStatus:
         cache_dir.mkdir()
         cache_data = {
             "version": 1,
+            "target": "test",
             "entries": {
                 "0x1000": {
                     "source_hash": "a",
@@ -453,3 +457,368 @@ class TestInlineMetadataWarning:
         report_dirty = StatusReport(inline_metadata_warning=3)
         d = report_dirty.to_dict()
         assert d["inline_metadata_warning"] == 3
+
+
+class TestVerifyCacheHelpers:
+    def _cfg(self, tmp_path: Path) -> object:
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            root=tmp_path,
+            target_name="T",
+            reversed_dir=tmp_path,
+            target_binary=tmp_path / "x.dll",
+            metadata_dir=tmp_path,
+            source_ext=".c",
+        )
+
+    def _write_cache(self, tmp_path: Path, payload: object) -> None:
+        import json
+
+        d = tmp_path / ".rebrew"
+        d.mkdir(exist_ok=True)
+        (d / "verify_cache.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    def test_verify_info_missing_file(self, tmp_path: Path) -> None:
+        from rebrew.status import _load_verify_info
+
+        assert _load_verify_info(self._cfg(tmp_path)) is None
+
+    def test_verify_info_corrupt_json(self, tmp_path: Path) -> None:
+        from rebrew.status import _load_verify_info
+
+        self._write_cache(tmp_path, "{not json")
+        assert _load_verify_info(self._cfg(tmp_path)) is None
+
+    def test_verify_info_wrong_version(self, tmp_path: Path) -> None:
+        from rebrew.status import _load_verify_info
+
+        self._write_cache(tmp_path, {"version": 99, "entries": {"0x1": {}}})
+        assert _load_verify_info(self._cfg(tmp_path)) is None
+
+    def test_verify_info_empty_entries(self, tmp_path: Path) -> None:
+        from rebrew.status import _load_verify_info
+
+        self._write_cache(tmp_path, {"version": 1, "entries": {}})
+        assert _load_verify_info(self._cfg(tmp_path)) is None
+
+    def test_verify_info_counts(self, tmp_path: Path) -> None:
+        from rebrew.status import _load_verify_info
+
+        self._write_cache(
+            tmp_path,
+            {
+                "version": 1,
+                "target": "T",
+                "entries": {
+                    "0x1": {"result": {"passed": True}},
+                    "0x2": {"result": {"passed": False}},
+                    "0x3": "not-a-dict",  # skipped
+                },
+            },
+        )
+        info = _load_verify_info(self._cfg(tmp_path))
+        assert info is not None
+        assert info.passed == 1
+        assert info.failed == 1
+        assert info.total == 2
+
+    def test_verify_statuses_hex_and_decimal(self, tmp_path: Path) -> None:
+        from rebrew.status import _load_verify_statuses
+
+        self._write_cache(
+            tmp_path,
+            {
+                "version": 1,
+                "target": "T",
+                "entries": {
+                    "0x1000": {"result": {"status": "EXACT"}},
+                    "4097": {"result": {"status": "STUB"}},
+                    "zzz": {"result": {"status": "EXACT"}},  # bad VA skipped
+                    "0x2000": {"result": {}},  # no status skipped
+                },
+            },
+        )
+        statuses = _load_verify_statuses(self._cfg(tmp_path))
+        assert statuses == {0x1000: "EXACT", 4097: "STUB"}
+
+    def test_verify_info_wrong_target_ignored(self, tmp_path: Path) -> None:
+        """A cache written for another target must not be presented as ours."""
+        from rebrew.status import _load_verify_info
+
+        self._write_cache(
+            tmp_path,
+            {
+                "version": 1,
+                "target": "OTHER",
+                "entries": {"0x1": {"result": {"passed": True}}},
+            },
+        )
+        assert _load_verify_info(self._cfg(tmp_path)) is None
+
+    def test_verify_statuses_wrong_target_ignored(self, tmp_path: Path) -> None:
+        from rebrew.status import _load_verify_statuses
+
+        self._write_cache(
+            tmp_path,
+            {
+                "version": 1,
+                "target": "OTHER",
+                "entries": {"0x1": {"result": {"status": "EXACT"}}},
+            },
+        )
+        assert _load_verify_statuses(self._cfg(tmp_path)) == {}
+
+    def test_verify_info_null_result_skipped_not_failed(self, tmp_path: Path) -> None:
+        """Null/truthy-non-dict results are skipped, never counted as failures."""
+        from rebrew.status import _load_verify_info
+
+        self._write_cache(
+            tmp_path,
+            {
+                "version": 1,
+                "target": "T",
+                "entries": {
+                    "0x1": {"result": None},  # skipped
+                    "0x2": {"result": "COMPILE_ERROR"},  # skipped
+                    "0x3": {"result": {"passed": False}},  # real failure
+                },
+            },
+        )
+        info = _load_verify_info(self._cfg(tmp_path))
+        assert info is not None
+        assert info.passed == 0
+        assert info.failed == 1
+        assert info.total == 1
+
+    def test_verify_info_entries_list_no_crash(self, tmp_path: Path) -> None:
+        """A malformed cache whose entries is a list is treated as absent."""
+        from rebrew.status import _load_verify_info
+
+        self._write_cache(tmp_path, {"version": 1, "target": "T", "entries": ["0x1", "0x2"]})
+        assert _load_verify_info(self._cfg(tmp_path)) is None
+
+    def test_verify_statuses_entries_list_no_crash(self, tmp_path: Path) -> None:
+        from rebrew.status import _load_verify_statuses
+
+        self._write_cache(tmp_path, {"version": 1, "target": "T", "entries": ["0x1"]})
+        assert _load_verify_statuses(self._cfg(tmp_path)) == {}
+
+    def test_verify_statuses_missing_file(self, tmp_path: Path) -> None:
+        from rebrew.status import _load_verify_statuses
+
+        assert _load_verify_statuses(self._cfg(tmp_path)) == {}
+
+    def test_compute_text_size_missing_binary(self, tmp_path: Path) -> None:
+        from rebrew.status import _compute_text_size
+
+        assert _compute_text_size(self._cfg(tmp_path)) == 0
+
+    def test_compute_text_size_available(self, tmp_path: Path, monkeypatch: object) -> None:
+        from rebrew.status import _compute_text_size
+
+        (tmp_path / "x.dll").write_bytes(b"MZ")
+        monkeypatch.setattr("rebrew.catalog.sections.get_text_section_size", lambda _p: 0x1234)
+        assert _compute_text_size(self._cfg(tmp_path)) == 0x1234
+
+
+class TestStatusBranches:
+    def test_verify_statuses_corrupt_json(self, tmp_path: Path) -> None:
+        from rebrew.status import _load_verify_statuses
+
+        cache = tmp_path / ".rebrew"
+        cache.mkdir()
+        (cache / "verify_cache.json").write_text("{broken", encoding="utf-8")
+        cfg = SimpleNamespace(root=tmp_path)
+        assert _load_verify_statuses(cfg) == {}  # type: ignore[arg-type]
+
+    def test_verify_statuses_non_dict_raw(self, tmp_path: Path) -> None:
+        import json
+
+        from rebrew.status import _load_verify_statuses
+
+        cache = tmp_path / ".rebrew"
+        cache.mkdir()
+        (cache / "verify_cache.json").write_text(json.dumps([1, 2]), encoding="utf-8")
+        cfg = SimpleNamespace(root=tmp_path)
+        assert _load_verify_statuses(cfg) == {}  # type: ignore[arg-type]
+
+    def test_verify_statuses_non_dict_entry_skipped(self, tmp_path: Path) -> None:
+        import json
+
+        from rebrew.status import _load_verify_statuses
+
+        cache = tmp_path / ".rebrew"
+        cache.mkdir()
+        (cache / "verify_cache.json").write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "target": "T",
+                    "entries": {
+                        "0x1000": "junk",
+                        "0x2000": {"result": {"status": "EXACT"}},
+                        "0x3000": {"result": {}},  # no status → skipped
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        cfg = SimpleNamespace(root=tmp_path, target_name="T")
+        statuses = _load_verify_statuses(cfg)  # type: ignore[arg-type]
+        assert statuses == {0x2000: "EXACT"}
+
+    def test_compute_text_size_import_error(self, tmp_path: Path, monkeypatch: object) -> None:
+        from rebrew.status import _compute_text_size
+
+        cfg = SimpleNamespace(target_binary=tmp_path / "fake.dll")
+        (tmp_path / "fake.dll").write_bytes(b"\x00" * 4)
+
+        def _boom(*a: object, **k: object) -> object:
+            raise ValueError("bad binary")
+
+        monkeypatch.setattr("rebrew.catalog.sections.get_text_section_size", _boom)
+        assert _compute_text_size(cfg) == 0  # type: ignore[arg-type]
+
+    def test_collect_status_load_data_error_returns_zeroed(
+        self, tmp_path: Path, monkeypatch: object
+    ) -> None:
+        from rebrew.status import collect_status
+
+        cfg = SimpleNamespace(
+            target_name="SERVER",
+            target_binary=tmp_path / "fake.dll",
+            arch="x86",
+            reversed_dir=tmp_path / "src",
+            root=tmp_path,
+            source_ext=".c",
+        )
+
+        def _boom(*a: object, **k: object) -> object:
+            raise OSError("no data")
+
+        monkeypatch.setattr("rebrew.naming.load_data", _boom)
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.total_functions == 0
+        assert report.covered_functions == 0
+        assert report.status_counts == {}
+
+
+class TestStatusCli:
+    def test_json_output(self, tmp_path: Path, monkeypatch: object) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.status import StatusReport, app
+
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            target_name="SERVER",
+            target_binary=tmp_path / "fake.dll",
+            arch="x86",
+            reversed_dir=tmp_path / "src",
+            metadata_dir=tmp_path,
+            marker="SERVER",
+            source_ext=".c",
+        )
+        monkeypatch.setattr("rebrew.status.require_config", lambda **kw: cfg)
+        monkeypatch.setattr(
+            "rebrew.status.collect_status",
+            lambda cfg: StatusReport(target="SERVER", binary="fake.dll", arch="x86"),
+        )
+        result = CliRunner().invoke(app, ["--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["target"] == "SERVER"
+
+
+class TestRenderTerminal:
+    def _report(self, **kw: object) -> StatusReport:
+        base: dict = {
+            "target": "SERVER",
+            "binary": "server.dll",
+            "arch": "x86",
+            "total_functions": 10,
+            "covered_functions": 6,
+            "source_files": 3,
+            "status_counts": {
+                "EXACT": 4,
+                "RELOC": 1,
+                "PROVEN": 1,
+                "NEAR_MATCHING": 1,
+                "STUB": 3,
+            },
+            "matched_bytes": 512,
+            "total_text_bytes": 1024,
+            "verify_info": VerifyInfo(timestamp="2026-08-07 06:00", passed=5, failed=1),
+            "inline_metadata_warning": 2,
+        }
+        base.update(kw)
+        return StatusReport(**base)
+
+    def _capture(self, monkeypatch: pytest.MonkeyPatch) -> object:
+        from io import StringIO
+
+        from rich.console import Console
+
+        import rebrew.status as status_mod
+
+        buf = StringIO()
+        monkeypatch.setattr(
+            status_mod,
+            "console",
+            Console(file=buf, force_terminal=True, width=120, no_color=True, highlight=False),
+        )
+        return buf
+
+    def test_full_report(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.status import _render_terminal
+
+        buf = self._capture(monkeypatch)
+        _render_terminal(self._report())
+        out = buf.getvalue()
+        assert "SERVER" in out
+        assert "server.dll" in out
+        assert "EXACT" in out
+        assert "5 passed" in out
+        assert "1 failed" in out
+        assert "3 source files" in out
+
+    def test_empty_report(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.status import _render_terminal
+
+        buf = self._capture(monkeypatch)
+        _render_terminal(StatusReport(target="X"))  # zeroed → no divide-by-zero
+        out = buf.getvalue()
+        assert "X" in out
+        assert "0/0" in out or "0%" in out
+
+    def test_other_statuses(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.status import _render_terminal
+
+        buf = self._capture(monkeypatch)
+        report = self._report(status_counts={"EXACT": 2, "COMPILE_ERROR": 3, "SIZE_MISMATCH": 1})
+        _render_terminal(report)
+        out = buf.getvalue()
+        assert "COMPILE_ERROR" in out
+        assert "SIZE_MISMATCH" in out
+
+    def test_no_verify_info(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.status import _render_terminal
+
+        buf = self._capture(monkeypatch)
+        _render_terminal(self._report(verify_info=None))
+        out = buf.getvalue()
+        assert "Last verify" not in out
+        assert "SERVER" in out
+
+    def test_no_inline_warning(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.status import _render_terminal
+
+        buf = self._capture(monkeypatch)
+        _render_terminal(self._report(inline_metadata_warning=0))
+        out = buf.getvalue()
+        assert "SERVER" in out
+        # Warning only emitted when inline_metadata_warning > 0.
+        assert "inline STATUS" not in out

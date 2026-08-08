@@ -163,6 +163,15 @@ def _resolve_canonical_size(
     if has_back_jumps(extra, func_start_off, ghidra_end, base_offset=ghidra_end):
         return list_size, "list (includes out-of-line code)"
 
+    # Check for a function terminator (ret / ret imm16).  A region with no
+    # ret and no padding is straight-line code of the SAME function — Ghidra
+    # truncated the size (out-of-line tails, string-pointer arrays, etc.).
+    # Trust the list size there: a truncated canonical size silently drops
+    # real code from comparisons, while an over-count at worst makes the
+    # byte comparison visibly mismatch.
+    if 0xC3 not in extra and 0xC2 not in extra:
+        return list_size, "list (code tail, no terminator)"
+
     # Default: trust Ghidra when we can't identify the extra bytes
     return ghidra_size, "ghidra (unrecognized extra bytes)"
 

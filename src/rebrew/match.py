@@ -26,6 +26,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -37,6 +38,7 @@ import typer
 from rich.console import Console
 
 from rebrew.annotation import (
+    Annotation,
     has_skip_annotation,
     parse_c_file_multi,
     parse_source_metadata,
@@ -50,6 +52,7 @@ from rebrew.cli import (
     json_print,
     parse_va,
     require_config,
+    resolve_source_arg,
     target_marker,
 )
 from rebrew.compile import resolve_compiler_env
@@ -73,6 +76,10 @@ from rebrew.matcher import (
 from rebrew.utils import atomic_write_text
 
 log = logging.getLogger(__name__)
+
+# Serializes metadata/solutions writes across parallel batch GA workers
+# (read-modify-write of rebrew-function.toml is not otherwise thread-safe).
+_metadata_lock = threading.Lock()
 console = Console(stderr=True)
 
 
@@ -275,9 +282,18 @@ class BinaryMatchingGA:
             f.write(json.dumps(record) + "\n")
         self._pairs_count += 1
 
-    def run(self) -> tuple[str | None, float]:
-        """Run the GA and return ``(best_source, best_score)``."""
+    def run(self, deadline: float | None = None) -> tuple[str | None, float]:
+        """Run the GA and return ``(best_source, best_score)``.
+
+        *deadline* is a ``time.monotonic()`` timestamp; when reached, the
+        loop stops between generations and returns the best result so far.
+        This is a cooperative, thread-safe timeout (unlike SIGALRM, which
+        only fires in the main thread) — it exists so parallel batch runs
+        can bound each stub without signals.
+        """
         for gen in range(self.num_generations):
+            if deadline is not None and time.monotonic() > deadline:
+                break
             gen_start = time.time()
             scored_pop = []
             with ThreadPoolExecutor(max_workers=self.num_jobs) as executor:
@@ -407,16 +423,24 @@ def _parse_annotations(
     status_filter: set[str],
     max_delta: int | None = None,
     ignored: set[str] | None = None,
+    metadata_dir: Path | None = None,
 ) -> list[StubInfo]:
-    """Parse annotations with configurable status and delta filters."""
+    """Parse annotations with configurable status and delta filters.
+
+    *metadata_dir* defaults to ``filepath.parent`` (the legacy inline-layout
+    assumption); batch callers pass ``cfg.metadata_dir`` so functions whose
+    SIZE/STATUS live in ``rebrew-function.toml`` at the reversed_dir parent
+    are found.
+    """
     if ignored is None:
         ignored = set()
+    meta_dir = metadata_dir if metadata_dir is not None else filepath.parent
 
-    entries = parse_c_file_multi(filepath, metadata_dir=filepath.parent)
+    entries = parse_c_file_multi(filepath, metadata_dir=meta_dir)
     if not entries:
         return []
 
-    if has_skip_annotation(filepath, metadata_dir=filepath.parent):
+    if has_skip_annotation(filepath, metadata_dir=meta_dir):
         return []
 
     stubs: list[StubInfo] = []
@@ -460,23 +484,42 @@ def _parse_annotations(
     return stubs
 
 
-def parse_stub_info(filepath: Path, ignored: set[str] | None = None) -> list[StubInfo]:
-    """Extract STUB annotation fields from a reversed .c file."""
-    return _parse_annotations(filepath, status_filter={"STUB"}, ignored=ignored)
-
-
-def parse_matching_info(
-    filepath: Path, ignored: set[str] | None = None, max_delta: int = 10
+def parse_stub_info(
+    filepath: Path,
+    ignored: set[str] | None = None,
+    metadata_dir: Path | None = None,
 ) -> list[StubInfo]:
-    """Extract NEAR_MATCHING annotation fields with byte delta <= max_delta."""
+    """Extract STUB annotation fields from a reversed .c file."""
     return _parse_annotations(
-        filepath, status_filter={"NEAR_MATCHING"}, max_delta=max_delta, ignored=ignored
+        filepath, status_filter={"STUB"}, ignored=ignored, metadata_dir=metadata_dir
     )
 
 
-def parse_matching_all(filepath: Path, ignored: set[str] | None = None) -> list[StubInfo]:
+def parse_matching_info(
+    filepath: Path,
+    ignored: set[str] | None = None,
+    max_delta: int = 10,
+    metadata_dir: Path | None = None,
+) -> list[StubInfo]:
+    """Extract NEAR_MATCHING annotation fields with byte delta <= max_delta."""
+    return _parse_annotations(
+        filepath,
+        status_filter={"NEAR_MATCHING"},
+        max_delta=max_delta,
+        ignored=ignored,
+        metadata_dir=metadata_dir,
+    )
+
+
+def parse_matching_all(
+    filepath: Path,
+    ignored: set[str] | None = None,
+    metadata_dir: Path | None = None,
+) -> list[StubInfo]:
     """Extract all NEAR_MATCHING annotations (no delta filter)."""
-    return _parse_annotations(filepath, status_filter={"NEAR_MATCHING"}, ignored=ignored)
+    return _parse_annotations(
+        filepath, status_filter={"NEAR_MATCHING"}, ignored=ignored, metadata_dir=metadata_dir
+    )
 
 
 def _collect_with_dedup(
@@ -525,10 +568,11 @@ def find_all_stubs(
     warn_duplicates: bool = True,
 ) -> list[StubInfo]:
     """Find all STUB files in reversed/ and return sorted by size."""
+    md = cfg.metadata_dir if cfg is not None else None
     return _collect_with_dedup(
         reversed_dir,
         cfg,
-        lambda cfile: parse_stub_info(cfile, ignored=ignored),
+        lambda cfile: parse_stub_info(cfile, ignored=ignored, metadata_dir=md),
         sort_key=lambda x: x.size,
         warn_duplicates=warn_duplicates,
     )
@@ -542,10 +586,13 @@ def find_near_miss(
     warn_duplicates: bool = True,
 ) -> list[StubInfo]:
     """Find NEAR_MATCHING functions with small byte deltas, sorted by delta ascending."""
+    md = cfg.metadata_dir if cfg is not None else None
     return _collect_with_dedup(
         reversed_dir,
         cfg,
-        lambda cfile: parse_matching_info(cfile, ignored=ignored, max_delta=max_delta),
+        lambda cfile: parse_matching_info(
+            cfile, ignored=ignored, max_delta=max_delta, metadata_dir=md
+        ),
         sort_key=lambda x: (x.delta, x.size),
         warn_duplicates=warn_duplicates,
     )
@@ -558,10 +605,11 @@ def find_all_matching(
     warn_duplicates: bool = True,
 ) -> list[StubInfo]:
     """Find all NEAR_MATCHING functions, sorted by byte delta then size."""
+    md = cfg.metadata_dir if cfg is not None else None
     return _collect_with_dedup(
         reversed_dir,
         cfg,
-        lambda cfile: parse_matching_all(cfile, ignored=ignored),
+        lambda cfile: parse_matching_all(cfile, ignored=ignored, metadata_dir=md),
         sort_key=lambda x: (x.delta, x.size),
         warn_duplicates=warn_duplicates,
     )
@@ -726,7 +774,7 @@ def main(
         None, "--size", help="Target size (auto from source)", rich_help_panel="Single-Function"
     ),
     out_dir: str = typer.Option(
-        "output/ga_run", help="Output dir", rich_help_panel="Single-Function"
+        "output/ga_runs", help="Output dir", rich_help_panel="Single-Function"
     ),
     compare_obj: bool = typer.Option(
         True, help="Use object comparison instead of full link", rich_help_panel="Single-Function"
@@ -791,6 +839,24 @@ def main(
         False,
         "--all",
         help="Batch mode: run GA on all STUB functions (use --near-miss for NEAR_MATCHING)",
+        rich_help_panel="Batch Mode",
+    ),
+    all_targets: bool = typer.Option(
+        False,
+        "--all-targets",
+        help="Batch mode: run GA across STUB functions in EVERY configured target",
+        rich_help_panel="Batch Mode",
+    ),
+    sweep_then_ga: bool = typer.Option(
+        False,
+        "--sweep-then-ga",
+        help="Batch: flag-sweep each stub first, then run the GA with the best flags",
+        rich_help_panel="Batch Mode",
+    ),
+    skip_recent_hours: int = typer.Option(
+        0,
+        "--skip-recent",
+        help="Batch: skip stubs with a GA run record within the last N hours",
         rich_help_panel="Batch Mode",
     ),
     near_miss: bool = typer.Option(
@@ -859,6 +925,12 @@ def main(
         help="--all: per-function GA timeout (minutes)",
         rich_help_panel="Batch Mode",
     ),
+    ga_history: bool = typer.Option(
+        False,
+        "--ga-history",
+        help="Show GA run history summary (from .rebrew/ga_runs.jsonl)",
+        rich_help_panel="Batch Mode",
+    ),
     seed_from_solved: bool = typer.Option(
         True,
         "--seed-from-solved/--no-seed-from-solved",
@@ -871,14 +943,31 @@ def main(
         help="Save source-binary pairs to JSONL file for ML training",
         rich_help_panel="Batch Mode",
     ),
+    watch: bool = typer.Option(
+        False, "--watch", help="Watch the seed source and re-run the GA on every change"
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """GA matching engine — single file or batch (--all)."""
     cfg = require_config(target=target, json_mode=json_output)
 
+    if ga_history:
+        _show_ga_history(cfg, json_output, target=getattr(cfg, "target_name", ""))
+        return
+
     if jobs is None:
         jobs = int(getattr(cfg, "default_jobs", 4))
+
+    if watch and all_mode:
+        error_exit("--watch cannot be combined with --all", json_mode=json_output)
+    if all_targets and all_mode:
+        error_exit("--all-targets cannot be combined with --all", json_mode=json_output)
+    if watch and all_targets:
+        error_exit("--watch cannot be combined with --all-targets", json_mode=json_output)
+    if (all_mode or all_targets) and out_dir != "output/ga_runs":
+        # Batch mode hardcodes cfg.root/output/ga_runs — reject a silent no-op.
+        error_exit("--out-dir only applies to single-function mode", json_mode=json_output)
 
     if all_mode:
         _run_all(
@@ -900,7 +989,64 @@ def main(
             seed_from_solved=seed_from_solved,
             json_output=json_output,
             tier=tier,
+            sweep_then_ga=sweep_then_ga,
+            skip_recent_hours=skip_recent_hours,
         )
+        return
+
+    if all_targets:
+        from rebrew.config import load_config
+
+        names = list(getattr(cfg, "all_targets", []) or [])
+        if not names:
+            names = [getattr(cfg, "target_name", "main")]
+        total_matched = 0
+        total_failed = 0
+        for name in names:
+            target_cfg = load_config(cfg.root, target=name) if len(names) > 1 else cfg
+            if not json_output:
+                console.print(f"\n[bold cyan]=== Target {name} ===[/]")
+            # Per-target detail stays on stderr (console); stdout gets one
+            # aggregate JSON document when --json is active.
+            m, f = _run_all(
+                cfg=target_cfg,
+                jobs=jobs,
+                generations=generations,
+                pop_size=pop_size,
+                timeout_min=timeout_min,
+                dry_run=dry_run,
+                min_size=min_size,
+                max_size=max_size,
+                filter_str=filter_str,
+                near_miss=near_miss,
+                improve=improve,
+                threshold=threshold,
+                flag_sweep=flag_sweep,
+                fix_cflags=fix_cflags,
+                max_stubs=max_stubs,
+                seed_from_solved=seed_from_solved,
+                json_output=False,
+                tier=tier,
+                sweep_then_ga=sweep_then_ga,
+                skip_recent_hours=skip_recent_hours,
+            )
+            total_matched += m
+            total_failed += f
+        if json_output:
+            json_print(
+                {
+                    "mode": "all-targets",
+                    "targets": names,
+                    "matched": total_matched,
+                    "failed": total_failed,
+                    "total": total_matched + total_failed,
+                }
+            )
+        else:
+            console.print(
+                f"\n[bold]All targets: {total_matched} matched, {total_failed} failed "
+                f"across {len(names)} target(s)[/]"
+            )
         return
 
     # Single-function mode requires seed_c
@@ -910,9 +1056,67 @@ def main(
             json_mode=json_output,
         )
 
+    # Accept a hex VA or symbol name in addition to a .c path, like
+    # `rebrew diff`/`rebrew prove` (resolve_source_arg returns the argument
+    # unchanged when nothing matches, so the original error path is kept).
+    seed_c = str(resolve_source_arg(cfg, seed_c))
+
     params = resolve_build_params(
         cfg, seed_c, cl, inc, cflags, symbol, target_va, target_size, ignore_lint, json_output
     )
+
+    if watch:
+        from rebrew.utils import watch_files
+
+        seed_path = Path(seed_c).resolve()
+
+        def _retest() -> None:
+            # Re-run the full single-function match path; --watch must not nest.
+            main(
+                seed_c=seed_c,
+                cl=cl,
+                inc=inc,
+                cflags=cflags,
+                symbol=symbol,
+                target_va=target_va,
+                target_size=target_size,
+                out_dir=out_dir,
+                compare_obj=compare_obj,
+                link=link,
+                lib=lib,
+                ldflags=ldflags,
+                flag_sweep_only=flag_sweep_only,
+                tier=tier,
+                ignore_lint=ignore_lint,
+                seed=seed,
+                extra_seed=extra_seed,
+                no_seed=no_seed,
+                generations=generations,
+                pop_size=pop_size,
+                jobs=jobs,
+                all_mode=False,
+                all_targets=False,  # never nest multi-target batch in watch mode
+                near_miss=near_miss,
+                improve=improve,
+                threshold=threshold,
+                flag_sweep=flag_sweep,
+                fix_cflags=fix_cflags,
+                max_stubs=max_stubs,
+                min_size=min_size,
+                max_size=max_size,
+                filter_str=filter_str,
+                dry_run=dry_run,
+                timeout_min=timeout_min,
+                ga_history=False,
+                seed_from_solved=seed_from_solved,
+                collect_pairs=collect_pairs,
+                watch=False,
+                json_output=json_output,
+                target=target,
+            )
+
+        watch_files([seed_path], _retest)
+        return
 
     if flag_sweep_only:
         _run_single_flag_sweep(params, tier, jobs, json_output)
@@ -959,6 +1163,23 @@ class _BuildParams:
     cc: Any  # CompileCache | None
 
 
+def _select_annotation(annos: list[Annotation], symbol: str | None) -> Annotation | None:
+    """Pick the annotation whose symbol or name matches *symbol*.
+
+    ``rebrew match`` on a multi-function file with ``--symbol`` must target
+    THAT function; falling back to the first annotation silently compares
+    the wrong bytes (false EXACT + wrong solution records).
+    """
+    if not symbol:
+        return None
+    want = symbol.strip().lstrip("_").lower()
+    for a in annos:
+        for candidate in (a.symbol or "", a.name or ""):
+            if candidate.strip().lstrip("_").lower() == want:
+                return a
+    return None
+
+
 def resolve_build_params(
     cfg: Any,
     seed_c: str,
@@ -976,7 +1197,9 @@ def resolve_build_params(
     annos = parse_c_file_multi(
         seed_c_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
     )
-    anno = annos[0] if annos else None
+    anno = _select_annotation(annos, symbol)
+    if anno is None:
+        anno = annos[0] if annos else None
     if anno:
         eval_errs, eval_warns = anno.validate()
         if not json_output:
@@ -1027,19 +1250,25 @@ def resolve_build_params(
         cflags = f"/nologo /c {cflags}".strip()
 
     if not target_va:
-        for marker_key in ("FUNCTION", "LIBRARY", "STUB"):
-            func_meta = meta.get(marker_key)
-            if func_meta and "0x" in func_meta:
-                after_hex = func_meta.split("0x")[1].split()
-                if after_hex:
-                    target_va = "0x" + after_hex[0]
-                    break
+        if anno and anno.va:
+            target_va = f"0x{anno.va:08x}"
+        else:
+            for marker_key in ("FUNCTION", "LIBRARY", "STUB"):
+                func_meta = meta.get(marker_key)
+                if func_meta and "0x" in func_meta:
+                    after_hex = func_meta.split("0x")[1].split()
+                    if after_hex:
+                        target_va = "0x" + after_hex[0]
+                        break
 
-    if target_size is None and "SIZE" in meta:
-        try:
-            target_size = int(meta["SIZE"])
-        except ValueError:
-            error_exit(f"Invalid SIZE metadata: {meta['SIZE']!r}", json_mode=json_output)
+    if target_size is None:
+        if anno and anno.size:
+            target_size = anno.size
+        elif "SIZE" in meta:
+            try:
+                target_size = int(meta["SIZE"])
+            except ValueError:
+                error_exit(f"Invalid SIZE metadata: {meta['SIZE']!r}", json_mode=json_output)
 
     if target_va and target_size:
         va_int = parse_va(target_va, json_mode=json_output)
@@ -1092,6 +1321,7 @@ def _run_single_flag_sweep(
         env=p.msvc_env,
         cache=p.cc,
         timeout=p.cfg.compile_timeout,
+        extra_include_dirs=[str(p.seed_c.parent.resolve())],
     )
 
     sim_res = None
@@ -1114,7 +1344,9 @@ def _run_single_flag_sweep(
     best_score = results[0][0] if results else float("inf")
 
     if json_output:
-        sweep_items = [{"score": round(s, 2), "flags": f} for s, f in results[:20]]
+        sweep_items = [
+            {"score": round(s, 2), "flags": f, "exact": s < 0.1} for s, f in results[:20]
+        ]
         payload: dict[str, Any] = {
             "source": str(p.seed_c),
             "symbol": p.symbol,
@@ -1190,6 +1422,7 @@ def run_flag_sweep(
             tier=tier,
             env=msvc_env,
             cache=cc,
+            extra_include_dirs=[str(filepath.parent.resolve())],
             timeout=cfg.compile_timeout,
         )
 
@@ -1223,6 +1456,11 @@ def _run_single_ga(
 ) -> None:
     """Run the full GA matching engine for a single source file."""
     out_dir_path = Path(out_dir)
+    if not out_dir_path.is_absolute():
+        # Resolve relative to the project root, not the CWD — running
+        # `rebrew match` from anywhere must write into the project's
+        # output/ga_runs (consistent with the batch path).
+        out_dir_path = getattr(p.cfg, "root", Path.cwd()) / out_dir_path
     out_dir_path.mkdir(parents=True, exist_ok=True)
 
     loaded_seeds: list[str] = []
@@ -1311,6 +1549,7 @@ def _save_solution(
             cflags=cflags,
             size=target_size or 0,
             source_file=source_file,
+            target=getattr(cfg, "target_name", ""),
             score=score,
             generations=generations,
         )
@@ -1332,8 +1571,13 @@ def _run_one_stub_ga(
     jobs: int,
     timeout_min: int,
     extra_seed_paths: list[str] | None = None,
+    cflags_override: str | None = None,
 ) -> tuple[bool, str]:
-    """Run one GA pass for a single stub in-process. Returns (matched, summary)."""
+    """Run one GA pass for a single stub in-process. Returns (matched, summary).
+
+    *cflags_override* replaces ``stub.cflags`` (used by ``--sweep-then-ga``
+    to seed the GA with the flag-sweep's best variant).
+    """
     filepath = stub.filepath
     try:
         rel = filepath.relative_to(cfg.root)
@@ -1349,7 +1593,7 @@ def _run_one_stub_ga(
 
     cl_cmd, inc_dir, msvc_env, cc = resolve_compiler_env(cfg)
 
-    cflags = stub.cflags
+    cflags = cflags_override if cflags_override is not None else stub.cflags
     base_cf = getattr(cfg, "base_cflags", "") or ""
     if base_cf and "/c" in base_cf:
         cflags = f"{base_cf} {cflags}".strip()
@@ -1383,18 +1627,15 @@ def _run_one_stub_ga(
         extra_seeds=loaded_extra or None,
     )
 
-    import signal
-
     matched = False
     output_summary = ""
-
-    def _timeout_handler(signum: int, frame: Any) -> None:
-        raise TimeoutError
-
-    old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
-    signal.alarm(timeout_min * 60 + 60)
+    # Cooperative deadline (thread-safe; SIGALRM only fires in the main
+    # thread and would break parallel batch runs).  Compile subprocesses
+    # are individually bounded by compile_timeout, so the worst-case
+    # overshoot past the deadline is one in-flight compile.
+    deadline = time.monotonic() + timeout_min * 60 + 60
     try:
-        best_src, best_score = ga.run()
+        best_src, best_score = ga.run(deadline=deadline)
         matched = best_score < 0.1
         output_summary = f"best_score={best_score:.2f}"
 
@@ -1402,26 +1643,26 @@ def _run_one_stub_ga(
             best_c = out_dir / "best.c"
             if best_c.exists():
                 try:
-                    update_stub_to_matched(filepath, best_src, stub, metadata_dir=cfg.metadata_dir)
+                    with _metadata_lock:
+                        update_stub_to_matched(
+                            filepath, best_src, stub, metadata_dir=cfg.metadata_dir
+                        )
                 except (RuntimeError, OSError) as e:
                     console.print(
                         f"  [yellow]warning:[/yellow] GA matched but failed to update source: {e}"
                     )
-            _save_solution(
-                cfg,
-                stub.symbol,
-                stub.cflags,
-                stub.size,
-                str(filepath),
-                best_score,
-                generations,
-            )
-    except TimeoutError:
-        return False, "TIMEOUT"
+            with _metadata_lock:
+                _save_solution(
+                    cfg,
+                    stub.symbol,
+                    stub.cflags,
+                    stub.size,
+                    str(filepath),
+                    best_score,
+                    generations,
+                )
     finally:
         ga.close()
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, old_handler)
 
     return matched, output_summary
 
@@ -1429,6 +1670,73 @@ def _run_one_stub_ga(
 # ---------------------------------------------------------------------------
 # Batch: --all entry point
 # ---------------------------------------------------------------------------
+
+
+def _show_ga_history(cfg: ProjectConfig, json_output: bool, *, target: str = "") -> None:
+    """Summarize past GA runs (``.rebrew/ga_runs.jsonl``) for at-a-glance
+    effectiveness triage: how many attempts, how many converged, score trends.
+    """
+    from rebrew.matcher.solutions import load_ga_runs
+
+    records = load_ga_runs(cfg.root, target=target, limit=100000)
+    total = len(records)
+    matched = sum(1 for r in records if r.get("matched"))
+    scored = [r["score"] for r in records if isinstance(r.get("score"), (int, float))]
+    summary: dict[str, Any] = {
+        "total": total,
+        "matched": matched,
+        "matched_pct": round(100.0 * matched / total, 1) if total else 0.0,
+        "avg_score": round(sum(scored) / len(scored), 2) if scored else None,
+        "best_score": round(min(scored), 2) if scored else None,
+        "recent": records[:10],
+    }
+    if json_output:
+        json_print(summary)
+        return
+    console.print(f"[bold]GA run history[/bold] ({target or 'all targets'}):")
+    console.print(f"  Total runs: {total}   Matched: {matched} ({summary['matched_pct']:.1f}%)")
+    if scored:
+        console.print(
+            f"  Score (0 = exact): avg {summary['avg_score']:.2f}, best {summary['best_score']:.2f}"
+        )
+    for rec in records[:10]:
+        mark = "[green]MATCH[/green]" if rec.get("matched") else "[dim]no match[/dim]"
+        score = f" score={rec['score']}" if rec.get("score") is not None else ""
+        console.print(f"  {mark}  {rec.get('ts', '')[:19]}  {rec.get('symbol', '?')}{score}")
+
+
+def _filter_recently_run(
+    stubs: list[StubInfo],
+    cfg: ProjectConfig,
+    hours: int,
+    json_output: bool,
+) -> list[StubInfo]:
+    """Drop stubs that already have a GA run record within the last *hours*.
+
+    Lets long batch runs resume without re-attempting recently-processed
+    stubs (see ``--skip-recent``).
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from rebrew.matcher.solutions import load_ga_runs
+
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
+    records = load_ga_runs(cfg.root, target=getattr(cfg, "target_name", ""), limit=100000)
+    recent_vas: set[str] = set()
+    for rec in records:
+        ts = rec.get("ts", "")
+        try:
+            if datetime.fromisoformat(ts) >= cutoff:
+                recent_vas.add(str(rec.get("va")))
+        except ValueError:
+            continue
+    if not recent_vas:
+        return stubs
+    kept = [s for s in stubs if s.va not in recent_vas]
+    skipped = len(stubs) - len(kept)
+    if skipped and not json_output:
+        console.print(f"[dim]Skipping {skipped} stub(s) run in the last {hours}h[/dim]")
+    return kept
 
 
 def _run_all(  # noqa: PLR0913
@@ -1450,8 +1758,14 @@ def _run_all(  # noqa: PLR0913
     seed_from_solved: bool,
     json_output: bool,
     tier: str,
-) -> None:
-    """Batch driver: run GA or flag sweep across all discovered functions."""
+    sweep_then_ga: bool = False,
+    skip_recent_hours: int = 0,
+) -> tuple[int, int]:
+    """Batch driver: run GA or flag sweep across all discovered functions.
+
+    Returns ``(matched_count, failed_count)``; ``(0, 0)`` on the dry-run
+    and flag-sweep early paths.
+    """
     reversed_dir = cfg.reversed_dir
     ignored = set(cfg.ignored_symbols or [])
 
@@ -1486,6 +1800,11 @@ def _run_all(  # noqa: PLR0913
         stubs = [s for s in stubs if s.size <= max_size]
     if filter_str:
         stubs = [s for s in stubs if filter_str in str(s.filepath)]
+    # Skip recently-run stubs BEFORE capping by max_stubs so --skip-recent
+    # and --max-stubs compose sensibly (skip first, then limit).
+    if skip_recent_hours:
+        stubs = _filter_recently_run(stubs, cfg, skip_recent_hours, json_output)
+
     if max_stubs > 0:
         stubs = stubs[:max_stubs]
 
@@ -1519,18 +1838,19 @@ def _run_all(  # noqa: PLR0913
             json_print({"mode": mode_label, "dry_run": True, "count": len(stubs), "items": items})
         else:
             console.print("Dry run — exiting.")
-        return
+        return 0, 0
 
     if flag_sweep:
         _run_batch_flag_sweep(stubs, cfg, tier, jobs, fix_cflags, json_output, mode_label)
-        return
+        return 0, 0
 
-    Path("output/ga_runs").mkdir(parents=True, exist_ok=True)
+    (cfg.root / "output" / "ga_runs").mkdir(parents=True, exist_ok=True)
 
     matched_count = 0
     failed_count = 0
     ga_results: list[dict[str, Any]] = []
 
+    # Print the run header for every stub up front (deterministic order).
     for i, stub in enumerate(stubs, 1):
         display = rel_display_path(stub.filepath, reversed_dir)
         if not json_output:
@@ -1542,12 +1862,22 @@ def _run_all(  # noqa: PLR0913
         else:
             console.print(f"\\[{i}/{len(stubs)}] {display} ({stub.size}B)")
 
+    # Precompute cross-function seeding (read-only; main thread, so the
+    # dim "Seeding from solved" lines stay deterministic).
+    stub_seeds: list[list[str]] = []
+    for stub in stubs:
         extra_ga_paths: list[str] = []
         if seed_from_solved:
             try:
                 from rebrew.matcher.solutions import find_similar
 
-                similar = find_similar(cfg.root, size=stub.size, cflags=stub.cflags, top_k=3)
+                similar = find_similar(
+                    cfg.root,
+                    size=stub.size,
+                    cflags=stub.cflags,
+                    target=getattr(cfg, "target_name", ""),
+                    top_k=3,
+                )
                 for sol in similar:
                     sol_path = cfg.root / sol.source_file
                     if sol_path.exists():
@@ -1558,11 +1888,69 @@ def _run_all(  # noqa: PLR0913
                             )
             except Exception:  # noqa: BLE001
                 log.debug("Solution lookup failed", exc_info=True)
+        stub_seeds.append(extra_ga_paths)
 
-        matched, output_summary = _run_one_stub_ga(
-            stub, cfg, generations, pop_size, jobs, timeout_min, extra_ga_paths or None
-        )
+    # Parallel stubs: one worker per stub, intra-GA compiles serialized so
+    # total concurrency stays at ~jobs (MSVC under wine is not cheap).
+    # The cooperative deadline (no SIGALRM) keeps this thread-safe.
+    intra_jobs = 1 if jobs > 1 else jobs
 
+    def _run_stub(stub: StubInfo, seeds: list[str]) -> tuple[StubInfo, bool, str]:
+        sweep_flags: str | None = None
+        if sweep_then_ga:
+            try:
+                _s, best_flags, _all = run_flag_sweep(stub, cfg, tier=tier, jobs=intra_jobs)
+                if best_flags and _s < float("inf"):
+                    sweep_flags = best_flags
+                    if not json_output:
+                        console.print(
+                            f"  [dim]Flag sweep:[/] {stub.symbol} best flags {best_flags}"
+                        )
+            except Exception:  # noqa: BLE001 — sweep failure falls back to stub flags
+                log.debug("Flag sweep failed for %s", stub.symbol, exc_info=True)
+        try:
+            matched, output_summary = _run_one_stub_ga(
+                stub,
+                cfg,
+                generations,
+                pop_size,
+                intra_jobs,
+                timeout_min,
+                seeds or None,
+                cflags_override=sweep_flags,
+            )
+        except Exception as exc:  # noqa: BLE001 — one bad stub must not abort the batch
+            log.debug("GA run failed for %s", stub.symbol, exc_info=True)
+            console.print(
+                f"  [yellow]warning:[/yellow] GA run failed for {stub.symbol}: "
+                f"{exc.__class__.__name__}: {exc}"
+            )
+            return stub, False, f"error: {exc.__class__.__name__}: {exc}"
+        # Persist the outcome for cross-run progress tracking (append-only
+        # log; O_APPEND small-line writes are atomic across threads).
+        try:
+            from rebrew.matcher.solutions import record_ga_run
+
+            record_ga_run(
+                cfg.root,
+                target=getattr(cfg, "target_name", ""),
+                va=stub.va,
+                symbol=stub.symbol,
+                matched=matched,
+            )
+        except Exception:  # noqa: BLE001
+            log.debug("GA run record failed", exc_info=True)
+        return stub, matched, output_summary
+
+    if jobs > 1 and len(stubs) > 1:
+        with ThreadPoolExecutor(max_workers=jobs) as executor:
+            outcomes = list(
+                executor.map(_run_stub, stubs, stub_seeds)  # order preserved
+            )
+    else:
+        outcomes = [_run_stub(s, seeds) for s, seeds in zip(stubs, stub_seeds, strict=False)]
+
+    for stub, matched, output_summary in outcomes:
         result_entry: dict[str, Any] = {
             "file": str(stub.filepath),
             "va": stub.va,
@@ -1600,6 +1988,7 @@ def _run_all(  # noqa: PLR0913
             f"Results: [green]{matched_count} matched[/], [red]{failed_count} failed[/], {len(stubs)} total"
         )
         console.print(f"[bold]{'=' * 60}[/]")
+    return matched_count, failed_count
 
 
 def _run_batch_flag_sweep(
@@ -1668,12 +2057,13 @@ def _run_batch_flag_sweep(
                     clear_blockers=True,
                 )
                 save_solution(
-                    cfg.metadata_dir,
+                    cfg.root,
                     SolutionEntry(
                         symbol=stub.symbol,
                         cflags=best_flags,
                         size=stub.size,
-                        source_file=display,
+                        source_file=str(stub.filepath),
+                        target=cfg.target_name,
                         score=0.0,
                         generations=1,
                     ),

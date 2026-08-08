@@ -9,6 +9,7 @@ import bisect
 import struct
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -94,8 +95,9 @@ def parse_coff_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
     # Pre-build per-section sorted symbol offsets to avoid O(n^2) scans
     section_sym_offsets: dict[str, list[int]] = {}
     for sym in coff.symbols:
-        if sym.section is not None and not sym.name.startswith("$"):
-            section_sym_offsets.setdefault(sym.section.name, []).append(sym.value)
+        sym_name = str(sym.name)
+        if sym.section is not None and not sym_name.startswith("$"):
+            section_sym_offsets.setdefault(str(sym.section.name), []).append(sym.value)
     for offsets in section_sym_offsets.values():
         offsets.sort()
 
@@ -114,7 +116,7 @@ def parse_coff_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
         func_end = len(content)
 
         # Find the next symbol in the same section via sorted offsets (O(log n))
-        offsets = section_sym_offsets.get(section.name, [])
+        offsets = section_sym_offsets.get(str(section.name), [])
         idx = bisect.bisect_right(offsets, func_start)
         if idx < len(offsets):
             func_end = offsets[idx]
@@ -130,13 +132,60 @@ def parse_coff_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
             rva = reloc.address
             if func_start <= rva < func_end:
                 func_rel = rva - func_start
-                # reloc.size gives the fixup width in bits
-                fixup_bytes = max(reloc.size // 8, 1)
+                fixup_bytes = _reloc_fixup_width(reloc)
                 for k in range(fixup_bytes):
                     reloc_offsets.add(func_rel + k)
 
         if len(code) >= 4:
-            yield sym.name, code, reloc_offsets
+            yield str(sym.name), code, reloc_offsets
+
+
+# x86 COFF fixup widths by relocation type (bytes).  LIEF reports
+# ``reloc.size == 0`` for MSVC6 objects, so the width cannot come from the
+# size field — a DIR32/REL32 fixup occupies 4 bytes on x86.
+_I386_FIXUP_WIDTHS: dict[str, int] = {
+    "I386_DIR16": 2,
+    "I386_REL16": 2,
+    "I386_SEG12": 2,
+    "I386_DIR32": 4,
+    "I386_DIR32NB": 4,
+    "I386_REL32": 4,
+    "I386_SECREL": 4,
+    "I386_SECTION": 2,  # 16-bit section index
+    "I386_SECREL7": 2,  # 16-bit "offset minus 1" (debug-info-only on x86)
+}
+
+
+def _reloc_fixup_width(reloc: Any) -> int:
+    """Fixup width in bytes for a COFF relocation, derived from its type.
+
+    Falls back to the LIEF ``size`` field (bits) when the type is unknown.
+    """
+    name = str(reloc.type).rsplit(".", 1)[-1]
+    width = _I386_FIXUP_WIDTHS.get(name)
+    if width is not None:
+        return width
+    return max(int(reloc.size) // 8, 1)
+
+
+def _crc16_flirt(buf: bytes) -> int:
+    """IDA's FLIRT CRC16 — the exact variant sigmake emits and python-flirt
+    verifies (ported from flair/crc16.cpp as in lancelot's flirt crate):
+    reflected poly 0x8408, init 0xFFFF, final bitwise invert, byte-swapped.
+    """
+    if not buf:
+        return 0
+    crc = 0xFFFF
+    for b in buf:
+        for _ in range(8):
+            if (crc ^ b) & 1:
+                crc = (crc >> 1) ^ 0x8408
+            else:
+                crc >>= 1
+            b >>= 1
+        crc &= 0xFFFF
+    crc = (~crc) & 0xFFFF
+    return ((crc & 0xFF) << 8) | (crc >> 8)
 
 
 def bytes_to_pat_line(
@@ -144,7 +193,8 @@ def bytes_to_pat_line(
 ) -> str:
     """Convert function name + bytes into a FLIRT .pat format line.
 
-    Relocation bytes are masked with '..' in the leading portion.
+    Relocation bytes are masked with '..' in the leading portion; the CRC
+    window covers the tail up to the first tail relocation (sigmake rule).
     """
     lead_len = min(len(code_bytes), max_lead)
     lead_parts: list[str] = [
@@ -152,23 +202,50 @@ def bytes_to_pat_line(
     ]
     lead = "".join(lead_parts)
 
-    # CRC16 of non-reloc bytes after the leading portion
+    # CRC16 of non-reloc bytes after the leading portion.  Uses IDA's exact
+    # CRC variant; see _crc16_flirt.
+    #
+    # The window stops BEFORE the first relocation in the tail (sigmake
+    # behavior): a reloc byte holds a linker-filled address in the binary, so
+    # including it in the CRC would guarantee a mismatch — the matcher CRCs
+    # the real bytes, and the object's reloc slot is zeroed.  Truncating the
+    # window is what makes functions with tail relocs (e.g. MSVC6 isalpha,
+    # which references __pctype at offset 0x20) matchable at all.
     crc_start = lead_len
-    crc_len = min(len(code_bytes) - crc_start, 255)
+    tail_relocs = sorted(r for r in reloc_offsets if r >= crc_start)
+    crc_end = tail_relocs[0] if tail_relocs else len(code_bytes)
+    crc_len = min(max(crc_end - crc_start, 0), len(code_bytes) - crc_start, 255)
 
-    # CRC-16 using the FLIRT polynomial (0x8005)
-    _CRC16_POLY = 0x8005
-    crc = 0
-    for i in range(crc_start, crc_start + crc_len):
-        b = 0 if i in reloc_offsets else code_bytes[i]
-        crc ^= b << 8
-        for _ in range(8):
-            crc = crc << 1 ^ _CRC16_POLY if crc & 0x8000 else crc << 1
-            crc &= 0xFFFF
+    crc_window = bytes(code_bytes[i] for i in range(crc_start, crc_start + crc_len))
+    crc = _crc16_flirt(crc_window)
 
     total_size = len(code_bytes)
 
     return f"{lead} {crc_len:02X} {crc:04X} {total_size:04X} :0000 {name}"
+
+
+# IDA's guidance: a .pat signature without CRC protection needs at least 16
+# non-wildcard lead bytes to be discriminative.  Below that, the sig matches
+# any function sharing the same generic prolog — mass false positives.
+_MIN_LITERAL_LEAD_BYTES = 16
+
+
+def _is_weak_signature(line: str) -> bool:
+    """True when a generated .pat line is too weak to be useful.
+
+    A line is weak when its lead has fewer than 16 literal bytes AND the CRC
+    window is empty or nearly so (< 8 bytes) — nothing meaningfully protects
+    the tail.  Observed in practice: one such libc sig matched 30 unrelated
+    offsets in a real DLL.
+    """
+    parts = line.split()
+    if len(parts) < 6:
+        return False
+    lead = parts[0]
+    literal = sum(1 for i in range(0, len(lead), 2) if lead[i : i + 2] != "..")
+    if literal >= _MIN_LITERAL_LEAD_BYTES:
+        return False
+    return int(parts[1], 16) < 8
 
 
 @app.callback(invoke_without_command=True)
@@ -192,12 +269,18 @@ def main(
     seen: set[str] = set()
 
     skipped = 0
+    weak_skipped = 0
     for _member_name, obj_data in parse_archive(str(lib_file)):
         try:
             for sym_name, code, relocs in parse_coff_obj(obj_data):
                 if sym_name not in seen and len(code) >= 4:
                     seen.add(sym_name)
                     line = bytes_to_pat_line(sym_name, code, relocs)
+                    if _is_weak_signature(line):
+                        # Generic-prolog-only sigs would false-positive across
+                        # the whole binary — drop them rather than emit noise.
+                        weak_skipped += 1
+                        continue
                     pat_lines.append(line)
         except (OSError, KeyError, ValueError, struct.error):
             skipped += 1
@@ -214,6 +297,7 @@ def main(
                 "signatures": len(pat_lines),
                 "source": str(lib_file),
                 "skipped_members": skipped,
+                "skipped_weak": weak_skipped,
             }
         )
         return
@@ -221,6 +305,8 @@ def main(
     msg = f"Generated {out_path}: {len(pat_lines)} signatures from {lib_file}"
     if skipped:
         msg += f" ({skipped} corrupt members skipped)"
+    if weak_skipped:
+        msg += f" ({weak_skipped} weak signatures skipped)"
     console.print(msg)
 
 

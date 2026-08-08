@@ -894,3 +894,151 @@ class TestCLISetCompiler:
         assert result.exit_code == 0
         doc, _ = _load_toml(tmp_path)
         assert "CL.EXE" in doc["targets"]["server.dll"]["compiler"]["command"]
+
+
+class TestResolveDottedKeyEdges:
+    def test_create_missing_creates_tables(self) -> None:
+        from rebrew.cfg import _resolve_dotted_key
+
+        doc: dict = {}
+        parent, final, parts = _resolve_dotted_key(
+            doc, "targets.server.cflags", create_missing=True
+        )
+        assert parts == ["targets", "server", "cflags"]
+        assert "targets" in doc
+
+    def test_missing_key_errors(self) -> None:
+        import pytest
+        import typer
+
+        from rebrew.cfg import _resolve_dotted_key
+
+        with pytest.raises(typer.Exit):
+            _resolve_dotted_key({"existing": {}}, "missing.key")
+
+    def test_non_dict_intermediate_errors(self) -> None:
+        import pytest
+        import typer
+
+        from rebrew.cfg import _resolve_dotted_key
+
+        # "scalar.a.b" resolves "scalar" → int, then the next loop iteration
+        # hits the non-dict guard.
+        with pytest.raises(typer.Exit):
+            _resolve_dotted_key({"scalar": 5}, "scalar.a.b")
+
+
+def _write_project(tmp_path: Path, toml: str = "") -> Path:
+    if not toml:
+        toml = (
+            '[project]\ndefault_target = "main"\n\n'
+            '[targets.main]\nbinary = "test.exe"\ncompiler_command = "cl"\n'
+        )
+    p = tmp_path / "rebrew-project.toml"
+    p.write_text(toml, encoding="utf-8")
+    return p
+
+
+class TestCfgCli:
+    def _invoke(
+        self, tmp_path: Path, monkeypatch: object, args: list[str], toml: str = ""
+    ) -> object:
+        from typer.testing import CliRunner
+
+        from rebrew.cfg import app
+
+        _write_project(tmp_path, toml)
+        monkeypatch.chdir(tmp_path)
+        return CliRunner().invoke(app, args)
+
+    def test_list_targets(self, tmp_path: Path, monkeypatch: object) -> None:
+        import json
+
+        result = self._invoke(tmp_path, monkeypatch, ["list-targets", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["targets"][0]["name"] == "main"
+
+    def test_list_targets_empty(self, tmp_path: Path, monkeypatch: object) -> None:
+        import json
+
+        result = self._invoke(tmp_path, monkeypatch, ["list-targets", "--json"], toml="[project]\n")
+        assert result.exit_code == 0
+        assert json.loads(result.stdout) == {"targets": []}
+
+    def test_show_full_json(self, tmp_path: Path, monkeypatch: object) -> None:
+        import json
+
+        result = self._invoke(tmp_path, monkeypatch, ["show", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["targets"]["main"]["binary"] == "test.exe"
+
+    def test_show_key_json(self, tmp_path: Path, monkeypatch: object) -> None:
+        import json
+
+        result = self._invoke(tmp_path, monkeypatch, ["show", "project.default_target", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["value"] == "main"
+
+    def test_show_key_missing(self, tmp_path: Path, monkeypatch: object) -> None:
+        result = self._invoke(tmp_path, monkeypatch, ["show", "nope.key"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_show_key_plain(self, tmp_path: Path, monkeypatch: object) -> None:
+        result = self._invoke(tmp_path, monkeypatch, ["show", "project.default_target"])
+        assert result.exit_code == 0
+        assert result.stdout.strip() == "main"
+
+    def test_raw_command(self, tmp_path: Path, monkeypatch: object) -> None:
+        result = self._invoke(tmp_path, monkeypatch, ["raw"])
+        assert result.exit_code == 0
+        assert "main" in result.stdout
+
+    def test_path_command(self, tmp_path: Path, monkeypatch: object) -> None:
+        result = self._invoke(tmp_path, monkeypatch, ["path"])
+        assert result.exit_code == 0
+        assert str(tmp_path / "rebrew-project.toml") in result.stdout
+
+    def test_remove_target_cli(self, tmp_path: Path, monkeypatch: object) -> None:
+        result = self._invoke(tmp_path, monkeypatch, ["remove-target", "main", "--force"])
+        assert result.exit_code == 0
+        assert "targets.main" not in (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
+
+    def test_set_cli(self, tmp_path: Path, monkeypatch: object) -> None:
+        result = self._invoke(tmp_path, monkeypatch, ["set", "project.description", "my game"])
+        assert result.exit_code == 0
+        assert 'description = "my game"' in (tmp_path / "rebrew-project.toml").read_text(
+            encoding="utf-8"
+        )
+
+    def test_add_module_cli(self, tmp_path: Path, monkeypatch: object) -> None:
+        result = self._invoke(tmp_path, monkeypatch, ["add-module", "ZLIB", "--target", "main"])
+        assert result.exit_code == 0
+        assert "ZLIB" in (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
+
+    def test_remove_module_cli(self, tmp_path: Path, monkeypatch: object) -> None:
+        toml = '[project]\n[targets.main]\nbinary = "test.exe"\norigins = ["GAME", "ZLIB"]\n'
+        result = self._invoke(
+            tmp_path,
+            monkeypatch,
+            ["remove-module", "ZLIB", "--target", "main", "--force"],
+            toml=toml,
+        )
+        assert result.exit_code == 0
+        assert "ZLIB" not in (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
+
+    def test_set_cflags_cli(self, tmp_path: Path, monkeypatch: object) -> None:
+        result = self._invoke(tmp_path, monkeypatch, ["set-cflags", "main", "/O1 /Gy"])
+        assert result.exit_code == 0
+        assert "/O1 /Gy" in (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
+
+    def test_detect_crt(self, tmp_path: Path, monkeypatch: object) -> None:
+        tools = tmp_path / "tools" / "MSVC600" / "VC98" / "CRT" / "SRC"
+        tools.mkdir(parents=True)
+        (tools / "MALLOC.C").write_text("int malloc(void);\n", encoding="utf-8")
+        result = self._invoke(tmp_path, monkeypatch, ["detect-crt"])
+        assert result.exit_code == 0
+        assert "MSVCRT" in result.output or "detected" in result.output

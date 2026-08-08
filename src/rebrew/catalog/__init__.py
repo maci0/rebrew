@@ -67,6 +67,9 @@ from rebrew.catalog.sections import (
 from rebrew.catalog.sections import (
     get_text_section_size as get_text_section_size,
 )
+from rebrew.catalog.sections import (
+    sections_from_info as sections_from_info,
+)
 
 __all__ = [
     "FunctionEntry",
@@ -82,6 +85,7 @@ __all__ = [
     "get_globals",
     "get_sections",
     "get_text_section_size",
+    "sections_from_info",
     "is_jump_table",
     "load_function_structure",
     "load_ghidra_data_labels",

@@ -28,14 +28,9 @@ MCP_REQUEST_TIMEOUT_S = 30
 def _parse_sse_response(text: str) -> JsonRpcResponse | None:
     """Extract JSON-RPC result from an SSE (text/event-stream) response body."""
     for line in text.splitlines():
-        if line.startswith("data: "):
+        if line.startswith("data:"):
             try:
-                return JsonRpcResponse.from_dict(json.loads(line[6:]))
-            except json.JSONDecodeError:
-                continue
-        elif line.startswith("data:"):
-            try:
-                return JsonRpcResponse.from_dict(json.loads(line[5:]))
+                return JsonRpcResponse.from_dict(json.loads(line[5:].lstrip()))
             except json.JSONDecodeError:
                 continue
     return None
@@ -75,6 +70,12 @@ def _call_mcp_tool(
     else:
         text = resp.text.strip()
         if not text:
+            logger.warning(
+                "MCP tool %s request %s returned empty body from %s",
+                tool_name,
+                request_id,
+                endpoint,
+            )
             return None
         try:
             data = JsonRpcResponse.from_dict(resp.json())
@@ -103,6 +104,12 @@ def _call_mcp_tool(
         )
         return None
     if not (data.result and "content" in data.result):
+        logger.warning(
+            "MCP tool %s request %s returned result without content from %s",
+            tool_name,
+            request_id,
+            endpoint,
+        )
         return None
     res = McpToolResult.from_dict(data.result)
     if res.isError:
@@ -134,6 +141,11 @@ def fetch_mcp_tool(
         return []
     text_items = [it for it in res.content if it.type == "text"]
     if not text_items:
+        logger.warning(
+            "MCP tool %s request %s returned no text content items",
+            tool_name,
+            request_id,
+        )
         return []
     # Multiple text items: each is a separate JSON object
     if len(text_items) > 1:
@@ -183,6 +195,11 @@ def fetch_mcp_tool_raw(
         return None
     text_items = [it for it in res.content if it.type == "text"]
     if not text_items:
+        logger.warning(
+            "MCP tool %s request %s returned no text content items",
+            tool_name,
+            request_id,
+        )
         return None
     # Single text item: return parsed JSON directly
     if len(text_items) == 1:
@@ -205,7 +222,7 @@ def fetch_mcp_tool_raw(
     return objects if objects else None
 
 
-def init_mcp_session(client: Any, endpoint: str) -> str:
+def init_mcp_session(client: httpx.Client, endpoint: str) -> str:
     """Initialize an MCP session and return the session ID."""
     init_payload = {
         "jsonrpc": "2.0",
@@ -364,10 +381,7 @@ def apply_commands_via_mcp(
                 "[yellow]warning:[/yellow] No session ID received, proceeding without one"
             )
 
-        headers = {
-            "Accept": "application/json, text/event-stream",
-            "Content-Type": "application/json",
-        }
+        headers = dict(MCP_HEADERS)
         if session_id:
             headers["Mcp-Session-Id"] = session_id
 

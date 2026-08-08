@@ -127,3 +127,42 @@ class TestCLISkillsShow:
         result = runner.invoke(skills_app, ["show", "rebrew-intake", "--json"])
         data = json.loads(result.output)
         assert len(data["content"]) > 100  # SKILL.md is not trivially short
+
+
+class TestSkillsEdgeCases:
+    def test_list_skills_missing_dir(self, monkeypatch) -> None:
+        from pathlib import Path
+
+        import rebrew.skills as skills
+
+        monkeypatch.setattr(skills, "_SKILLS_DIR", Path("/nonexistent/skills"))
+        assert skills._list_skills() == []
+
+    def test_find_skill_missing_dir(self, monkeypatch) -> None:
+        from pathlib import Path
+
+        import rebrew.skills as skills
+
+        monkeypatch.setattr(skills, "_SKILLS_DIR", Path("/nonexistent/skills"))
+        assert skills._find_skill("x") is None
+
+    def test_list_skills_skips_non_md_dirs(self, tmp_path, monkeypatch) -> None:
+        import rebrew.skills as skills
+
+        (tmp_path / "no_skill_md").mkdir()
+        (tmp_path / "with_skill").mkdir()
+        (tmp_path / "with_skill" / "SKILL.md").write_text(
+            "---\nname: demo\n---\n", encoding="utf-8"
+        )
+        monkeypatch.setattr(skills, "_SKILLS_DIR", tmp_path)
+        names = [s["name"] for s in skills._list_skills()]
+        assert names == ["demo"]
+
+    def test_find_by_directory_name(self, tmp_path, monkeypatch) -> None:
+        import rebrew.skills as skills
+
+        (tmp_path / "myname").mkdir()
+        md = tmp_path / "myname" / "SKILL.md"
+        md.write_text("no frontmatter", encoding="utf-8")
+        monkeypatch.setattr(skills, "_SKILLS_DIR", tmp_path)
+        assert skills._find_skill("myname") == md

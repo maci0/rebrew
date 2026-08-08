@@ -225,9 +225,10 @@ def score_candidate(
 
     # 1. Byte similarity (weighted towards prologue)
     if min_len > 0:
-        weights = np.ones(min_len, dtype=np.float64)
-        weights[: min(_PROLOGUE_LEN, min_len)] = _PROLOGUE_WEIGHT
-        byte_score = float(np.dot(diff_mask.astype(np.float64), weights))
+        prologue_len = min(_PROLOGUE_LEN, min_len)
+        prologue_diffs = np.count_nonzero(diff_mask[:prologue_len])
+        body_diffs = np.count_nonzero(diff_mask[prologue_len:])
+        byte_score = float(prologue_diffs * _PROLOGUE_WEIGHT + body_diffs)
     else:
         byte_score = 0.0
 

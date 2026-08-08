@@ -362,3 +362,178 @@ class TestSplitExtractVA:
         assert result.exit_code == 0
         assert (custom_dir / "func_a.c").exists()
         assert not (tmp_path / "multi_c").exists()  # default dir not created
+
+
+class TestSplitHelpers:
+    def test_block_metadata_extracts(self) -> None:
+        from rebrew.split import _block_metadata
+
+        block = "// FUNCTION: SERVER 0x10001000\n// SIZE: 64\nint my_func(void) { return 1; }\n"
+        meta = _block_metadata(block)
+        assert meta is not None
+        assert meta["module"] == "SERVER"
+        assert meta["va"] == 0x10001000
+        assert meta["symbol"] == "my_func"
+
+    def test_block_metadata_no_marker(self) -> None:
+        from rebrew.split import _block_metadata
+
+        assert _block_metadata("int plain(void) { return 1; }\n") is None
+
+    def test_block_metadata_skips_forward_decl(self) -> None:
+        from rebrew.split import _block_metadata
+
+        block = (
+            "// FUNCTION: SERVER 0x10001000\nint my_func(void);\nint my_func(void) { return 1; }\n"
+        )
+        meta = _block_metadata(block)
+        assert meta is not None
+        # The forward declaration (ending in ';') is not captured as the name
+        # source, and the scanner stops at the first C line → symbol stays "".
+        assert meta["symbol"] == ""
+
+    def test_output_name_from_symbol(self) -> None:
+        from rebrew.split import _build_output_name
+
+        assert _build_output_name("_my_func", 0x1000, ".c") == "my_func.c"
+
+    def test_output_name_fallback_va(self) -> None:
+        from rebrew.split import _build_output_name
+
+        assert _build_output_name("", 0x1000, ".c") == "func_00001000.c"
+
+
+class TestSplitCliErrors:
+    def test_missing_source_argument(self, tmp_path: Path, monkeypatch: Any) -> None:
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
+        result = runner.invoke(app, [])
+        assert result.exit_code != 0
+        assert "Source file argument is required" in result.output
+
+    def test_source_not_found(self, tmp_path: Path, monkeypatch: Any) -> None:
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
+        result = runner.invoke(app, ["nope.c"])
+        assert result.exit_code != 0
+        assert "Source file not found" in result.output
+
+    def test_extension_mismatch(self, tmp_path: Path, monkeypatch: Any) -> None:
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
+        _write(tmp_path / "multi.txt", "int x;\n")
+        result = runner.invoke(app, [str(tmp_path / "multi.txt")])
+        assert result.exit_code != 0
+        assert "must match configured extension" in result.output
+
+    def test_split_requires_two_matching_blocks(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """Two FUNCTION blocks, but only one matches the configured marker."""
+        monkeypatch.setattr(
+            "rebrew.split.require_config",
+            lambda target=None, json_mode=False: _make_cfg(tmp_path, marker="SERVER"),
+        )
+        content = (
+            "// FUNCTION: SERVER 0x10001000\nint a(void) { return 0; }\n"
+            "// FUNCTION: OTHER 0x10002000\nint b(void) { return 1; }\n"
+        )
+        _write(tmp_path / "multi.c", content)
+        result = runner.invoke(app, [str(tmp_path / "multi.c")])
+        assert result.exit_code != 0
+        # parse_c_file_multi filters the OTHER block for target SERVER → < 2.
+        assert "No splittable blocks found" in result.output
+
+    def test_va_json_requires_force(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """--va in --json mode refuses destructive extraction without --force."""
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
+        _write(tmp_path / "multi.c", _multi_two())
+        result = runner.invoke(app, ["--va", "0x10001000", "--json", str(tmp_path / "multi.c")])
+        assert result.exit_code != 0
+        assert "Pass --force" in result.output
+
+    def test_va_json_force_extracts(self, tmp_path: Path, monkeypatch: Any) -> None:
+        import json
+
+        monkeypatch.setattr(
+            "rebrew.split.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
+        _write(tmp_path / "multi.c", _multi_two())
+        result = runner.invoke(
+            app, ["--va", "0x10001000", "--json", "--force", str(tmp_path / "multi.c")]
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["count"] == 1
+        assert data["files"][0]["va"] == "0x10001000"
+
+
+class TestBlockMetadataComments:
+    def test_comment_line_after_marker_skipped(self) -> None:
+        """A comment line between the marker and the body is skipped."""
+        from rebrew.split import _block_metadata
+
+        block = (
+            "// FUNCTION: SERVER 0x10001000\n"
+            "// SYMBOL: _func_a\n"
+            "// some explanatory comment\n"
+            "int func_a(void) { return 0; }\n"
+        )
+        meta = _block_metadata(block)
+        assert meta is not None
+        assert meta["symbol"] == "func_a"  # leading underscore stripped
+
+    def test_forward_declaration_skipped_for_name(self) -> None:
+        """A forward declaration ending in ';' does not supply the C name."""
+        from rebrew.split import _block_metadata
+
+        block = (
+            "// FUNCTION: SERVER 0x10001000\n"
+            "// SYMBOL: _func_a\n"
+            "int helper(void);\n"
+            "int func_a(void) { return helper(); }\n"
+        )
+        meta = _block_metadata(block)
+        assert meta is not None
+        # Symbol is derived from the C definition name; the forward decl
+        # (ending in ';') is skipped and extraction stops there.
+        assert meta["symbol"] == ""
+
+
+class TestPreambleStripping:
+    def test_strips_comment_blocks_keeps_code(self) -> None:
+        from rebrew.utils import strip_comment_blocks
+
+        preamble = (
+            "/* Ghidra decompilation reference:\n"
+            " * Symbol: _a\n"
+            " */\n"
+            "typedef unsigned long DWORD;\n"
+            "\n"
+            "/* another block */\n"
+            "extern int g_x;\n"
+        )
+        stripped = strip_comment_blocks(preamble)
+        assert "typedef unsigned long DWORD;" in stripped
+        assert "extern int g_x;" in stripped
+        assert "Ghidra" not in stripped
+        assert "another block" not in stripped
+
+    def test_strips_orphaned_comment_lines(self) -> None:
+        from rebrew.utils import strip_comment_blocks
+
+        # Merged preambles can have malformed /* */ nesting (line-union) that
+        # leaves orphaned `*` continuation lines — those must go too.
+        preamble = "*    Size: 26B\n*    Symbol: _a\nint code(void);\n"
+        stripped = strip_comment_blocks(preamble)
+        assert "Size:" not in stripped
+        assert "code(void)" in stripped
+
+    def test_code_only_preamble_unchanged(self) -> None:
+        from rebrew.utils import strip_comment_blocks
+
+        preamble = "#include <stdio.h>\n#define MAGIC 7\n"
+        assert strip_comment_blocks(preamble) == "#include <stdio.h>\n#define MAGIC 7"

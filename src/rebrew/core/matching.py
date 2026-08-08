@@ -55,7 +55,7 @@ def build_symbol_resolver(
         data_by_stripped[name.lstrip("_")] = va
 
     def resolve(symbol: str) -> int | None:
-        stripped = symbol.lstrip("_") if symbol.startswith("_") else symbol
+        stripped = symbol.lstrip("_")
         candidates = (symbol, stripped)
         for s in candidates:
             if s in by_name:
@@ -90,6 +90,16 @@ def build_name_to_va(cfg: ProjectConfig) -> dict[str, int]:
         for name, glob in scan.globals.items():
             if glob.va:
                 name_to_va[name] = glob.va
+        # scan_globals only reads the .c sources; the annotated globals in
+        # rebrew-data.toml carry the authoritative name↔VA pairs.  Without
+        # them, DIR32 absolute-address validation silently no-ops.
+        from rebrew.data_metadata import load_data_metadata
+
+        meta = load_data_metadata(cfg.metadata_dir)
+        for (_module, va), entry in meta.items():
+            name = entry.get("name", "")
+            if isinstance(name, str) and name and isinstance(va, int):
+                name_to_va[name] = va
     except (ImportError, OSError, ValueError, KeyError, AttributeError):
         return {}
     return name_to_va
@@ -118,7 +128,7 @@ def apply_coff_relocations(
     """
     buf = bytearray(text)
     for r in relocs:
-        sym = r.symbol.lstrip("_") if r.symbol.startswith("_") else r.symbol
+        sym = r.symbol.lstrip("_")
         target_va = resolve_va(r.symbol) or resolve_va(sym)
         if target_va is None:
             raise UnresolvedSymbolError(r.symbol)
@@ -139,7 +149,7 @@ def apply_coff_relocations(
 
 def _lookup_symbol_va(name_to_va: dict[str, int], sym_name: str) -> int | None:
     """Resolve *sym_name* in *name_to_va*, tolerating a leading underscore."""
-    clean = sym_name.lstrip("_") if sym_name.startswith("_") else sym_name
+    clean = sym_name.lstrip("_")
     if clean in name_to_va:
         return name_to_va[clean]
     if sym_name in name_to_va:

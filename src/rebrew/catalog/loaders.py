@@ -116,8 +116,8 @@ def parse_function_list(path: Path) -> list[dict[str, Any]]:
     funcs: list[dict[str, Any]] = []
     try:
         text = path.read_text(encoding="utf-8")
-    except OSError:
-        warnings.warn(f"Cannot read {path}", stacklevel=2)
+    except OSError as exc:
+        warnings.warn(f"Cannot read {path}: {exc}", stacklevel=2)
         return funcs
 
     for line in text.splitlines():

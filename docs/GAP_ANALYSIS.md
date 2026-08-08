@@ -120,3 +120,23 @@ and recommendation. Statuses: **IMPLEMENT** (well-scoped, existing deps),
 5. **#21** — binary similarity search.
 
 RECORD-only: #22, #23, #24 (reasons above).
+
+---
+
+## Status update — 2026-08-07 (8-hour autonomous run)
+
+All IMPLEMENT items are now **DONE** (verified in this run):
+
+- **F1** (sync silent-failure) — fixed; 147 sync tests.
+- **#20** `test --watch` — done; also added **`verify --watch`** (multi-file
+  poller in `rebrew.utils.watch_files`).
+- **#25.1** — verified already-implemented; **#25.2** watched-VA memory
+  comparison — done, verified against real claripy/Z3.
+- **#21** `rebrew similar` — done. **#22** `rebrew near-diag` — v1 done
+  (register/equivalent/reloc/structural classification).
+- RECORD-only items unchanged: #23 (LLM service), #24 (external ghidra-cli),
+  binsync-full (libbs dep, ~7-day PRD scope).
+
+Plus (from the 8-hour run): mypy debt 186→0 (all 73 modules clean, gate wired
+into CI + pre-commit), coverage 79%→82% overall with 25 modules taken to
+85-100%, 6 real bugs found & fixed, 8 review passes, ~130 tests added.

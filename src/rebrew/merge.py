@@ -22,7 +22,7 @@ from rebrew.cli import (
     target_marker,
 )
 from rebrew.config import ProjectConfig
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, strip_comment_blocks
 
 console = Console(stderr=True)
 
@@ -54,12 +54,18 @@ def _block_metadata(block: str) -> dict[str, Any] | None:
 
 
 def _merge_preambles(preambles: list[str]) -> str:
-    """Merge preambles with exact-line dedup and collapsed blank lines."""
+    """Merge preambles with exact-line dedup and collapsed blank lines.
+
+    Comment blocks (e.g. Ghidra decompilation references) are stripped before
+    dedup: they are per-function noise, and a naive union of multiple
+    preambles leaves the ``/* */`` nesting malformed so the merged file does
+    not compile (C2143 on orphaned comment lines).
+    """
     seen: set[str] = set()
     merged_lines: list[str] = []
 
     for preamble in preambles:
-        for line in preamble.splitlines():
+        for line in strip_comment_blocks(preamble).splitlines():
             if not line.strip():
                 if merged_lines and merged_lines[-1]:
                     merged_lines.append("")

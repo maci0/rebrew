@@ -21,6 +21,7 @@ from rebrew.catalog.registry import build_function_registry, count_detection_sou
 from rebrew.catalog.sections import get_text_section_size
 from rebrew.cli import (
     TargetOption,
+    error_exit,
     json_print,
     require_config,
 )
@@ -72,6 +73,7 @@ def main(
         "--fix-sizes",
         help="Update SIZE in rebrew-function.toml metadata to match canonical sizes",
     ),
+    force: bool = typer.Option(False, "--force", help="Skip the --fix-sizes confirmation prompt"),
     root: Path | None = typer.Option(
         None,
         "--root",
@@ -106,6 +108,18 @@ def main(
         gen_data_json = True
         csv = True
         summary = True
+
+    if fix_sizes:
+        if json_output and not force:
+            error_exit(
+                "--fix-sizes modifies metadata; pass --force to use it in --json mode",
+                json_mode=True,
+            )
+        if not force:
+            typer.confirm(
+                "--fix-sizes will modify rebrew-function.toml metadata files in-place. Continue?",
+                abort=True,
+            )
 
     if export_ghidra:
         console.print(
@@ -271,10 +285,6 @@ def main(
         console.print(f"Wrote {csv_path} ({len(csv_text.splitlines()) - 6} functions)", style="dim")
 
     if fix_sizes:
-        typer.confirm(
-            "--fix-sizes will modify rebrew-function.toml metadata files in-place. Continue?",
-            abort=True,
-        )
         from rebrew.annotation import update_size_annotation
         from rebrew.cli import iter_sources, target_marker
 

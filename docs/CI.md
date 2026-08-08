@@ -4,7 +4,11 @@ Suggested gates for reverse-engineering workspaces that use rebrew.
 
 ## Package CI (this repo)
 
-GitHub Actions (`.github/workflows/ci.yml`) runs lint + the full unit test suite.
+GitHub Actions (`.github/workflows/ci.yml`) runs lint, the full unit test suite
+across the supported Python versions (3.12–3.14), a pre-commit hook-parity job,
+and a package job that builds the sdist/wheel under `SOURCE_DATE_EPOCH` and
+installs the wheel into a clean venv for a smoke import. The uv installer is
+pinned via workflow `UV_VERSION`; Python default comes from `.python-version`.
 It does **not** require a target binary or MSVC toolchain.
 
 ## Project / workspace CI

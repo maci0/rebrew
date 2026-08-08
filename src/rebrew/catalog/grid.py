@@ -12,12 +12,18 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from rebrew.binary_loader import BinaryInfo
     from rebrew.catalog.models import GhidraDataLabel
 
 from rebrew.annotation import Annotation
 from rebrew.catalog.loaders import load_ghidra_data_labels
 from rebrew.catalog.registry import RegistryEntry, is_jump_table
-from rebrew.catalog.sections import get_globals, get_sections, has_back_jumps, trim_trailing_padding
+from rebrew.catalog.sections import (
+    get_globals,
+    has_back_jumps,
+    sections_from_info,
+    trim_trailing_padding,
+)
 
 log = logging.getLogger(__name__)
 
@@ -171,9 +177,18 @@ def generate_data_json(
                 covered_bytes += vas[0]["size"]
 
     sections: dict[str, Any] = {}
-    if bin_path:
-        for k, v in get_sections(bin_path).items():
-            sections[k] = dict(v)
+    _bin_info: BinaryInfo | None = None
+    if bin_path and bin_path.exists():
+        from rebrew.binary_loader import load_binary
+
+        # Single lazy parse: sections, layout, and raw bytes all come from
+        # one BinaryInfo (previously get_sections + load_binary parsed twice).
+        try:
+            _bin_info = load_binary(bin_path)
+        except (OSError, KeyError, ValueError):
+            _bin_info = None
+        if _bin_info is not None:
+            sections.update(sections_from_info(_bin_info))
     globals_dict = get_globals(src_dir) if src_dir else {}
     ghidra_data_labels = load_ghidra_data_labels(src_dir)
     label_index = _build_label_index(ghidra_data_labels) if ghidra_data_labels else None
@@ -186,25 +201,19 @@ def generate_data_json(
                 name = reg_entry.get("ghidra_name") or reg_entry.get("list_name") or ""
                 thunk_offsets[va] = name
 
-    # Detect binary layout for fallback section computation
+    # Detect binary layout for fallback section computation (same parse above)
     image_base = 0
     text_raw_offset = 0
     text_data: bytes | None = None
     _bin_data: bytes | None = None  # Full binary bytes for batch function extraction
-    if bin_path and bin_path.exists():
-        from rebrew.binary_loader import load_binary
-
-        try:
-            info = load_binary(bin_path)
-            image_base = info.image_base
-            text_raw_offset = info.text_raw_offset
-            _bin_data = info.data  # Cache full binary for O(1) function byte extraction
-            # Capture raw .text section bytes for padding detection
-            if ".text" in info.sections:
-                sec = info.sections[".text"]
-                text_data = _bin_data[sec.file_offset : sec.file_offset + sec.size]
-        except (OSError, KeyError, ValueError):
-            pass
+    if _bin_info is not None:
+        image_base = _bin_info.image_base
+        text_raw_offset = _bin_info.text_raw_offset
+        _bin_data = _bin_info.data  # Cache full binary for O(1) function byte extraction
+        # Capture raw .text section bytes for padding detection
+        if ".text" in _bin_info.sections:
+            sec = _bin_info.sections[".text"]
+            text_data = _bin_data[sec.file_offset : sec.file_offset + sec.size]
 
     # Fallback if LIEF fails to populate .text section
     if ".text" not in sections:
@@ -322,13 +331,34 @@ def generate_data_json(
                 end_off = item_off + item_data["size"]
                 func_end_to_name[end_off] = item_data["name"]
 
+        # All function starts in this section: the annotated items above plus
+        # unannotated registry functions (from the disassembler's function
+        # list / ghidra).  Absorption must stop at a real function's start
+        # even when it has no .c annotation yet — otherwise the predecessor's
+        # span silently swallows un-reversed functions and the coverage DB
+        # hides them (reported: `time` 220B inflated to 282B, two list
+        # functions invisible).
+        boundary_starts = list(item_starts)
+        if sec_name == ".text" and registry:
+            for va in registry:
+                reg_off = va - sec_va
+                # Include every known function start, even when the canonical
+                # size is unresolved (0) — a start the disassembler/ghidra
+                # detected is a real boundary regardless of its size.
+                if 0 <= reg_off < sec_size:
+                    boundary_starts.append(reg_off)
+        boundary_starts = sorted(set(boundary_starts))
+
         # Iteratively absorb jump tables and out-of-line code into parent functions
         if sec_name == ".text" and text_data is not None:
             _MAX_ABSORB_ROUNDS = 50  # safety guard against runaway absorption
             absorbed_any = True
             _absorb_round = 0
             while absorbed_any:
-                if _absorb_round >= _MAX_ABSORB_ROUNDS:
+                # Unreachable for static inputs: each round only absorbs bytes
+                # strictly between a function end and the next start, so ends
+                # never move past starts; the loop terminates in ≤2 rounds.
+                if _absorb_round >= _MAX_ABSORB_ROUNDS:  # pragma: no cover
                     log.warning(
                         "Absorption loop hit %d iterations for section %s — breaking",
                         _MAX_ABSORB_ROUNDS,
@@ -348,9 +378,16 @@ def generate_data_json(
                 for func_end_off in sorted(func_end_to_name):
                     if func_end_off >= sec_size:
                         continue
-                    # Find next function start after this end (O(log n) via bisect)
-                    bis_idx = bisect.bisect_right(item_starts, func_end_off)
-                    next_func_off = item_starts[bis_idx] if bis_idx < len(item_starts) else sec_size
+                    # Find next function start after this end (O(log n) via
+                    # bisect).  Uses ALL known starts (incl. unannotated
+                    # registry functions) so absorption never crosses one.
+                    # bisect_left so an end exactly touching the next function's
+                    # start yields an empty gap instead of skipping past it (which
+                    # would re-absorb the next function's body on later rounds).
+                    bis_idx = bisect.bisect_left(boundary_starts, func_end_off)
+                    next_func_off = (
+                        boundary_starts[bis_idx] if bis_idx < len(boundary_starts) else sec_size
+                    )
 
                     # Check what's in the gap
                     gap_bytes = text_data[func_end_off:next_func_off]
@@ -476,30 +513,6 @@ def generate_data_json(
             ):
                 prev = segments[-1]
                 segments[-1] = (prev[0], gap_end, gap_state, [], gap_label, gap_parent or prev[5])
-            # Absorb unrecognized gaps into preceding data segment with parent
-            # (switch tables contain both pointer arrays and lookup/index tables,
-            #  but trim trailing NOP/INT3 padding from the absorbed region)
-            elif (
-                gap_state in ("none", "data")
-                and segments
-                and segments[-1][2] == "data"
-                and not segments[-1][3]  # prev has no functions
-                and segments[-1][5]  # prev has a parent function
-            ):
-                # Trim trailing padding bytes (0x90/0xCC) from the absorbed region
-                absorb_end = gap_end
-                if gap_state == "none" and text_data is not None:
-                    trimmed = trim_trailing_padding(text_data[off:absorb_end])
-                    absorb_end = off + trimmed if trimmed > 0 else off
-                if absorb_end > off:
-                    prev = segments[-1]
-                    segments[-1] = (prev[0], absorb_end, "data", [], prev[4], prev[5])
-                    # If we trimmed padding, emit remaining as a separate gap
-                    if absorb_end < gap_end:
-                        segments.append((absorb_end, gap_end, "padding", [], None, None))
-                else:
-                    # Entire gap is padding — don't absorb
-                    segments.append((off, gap_end, gap_state, [], gap_label, gap_parent))
             else:
                 segments.append((off, gap_end, gap_state, [], gap_label, gap_parent))
             off = gap_end

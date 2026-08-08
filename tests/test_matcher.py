@@ -340,3 +340,34 @@ def test_score_empty_candidate() -> None:
     sc = score_candidate(b"\xc3", b"")
     assert sc.length_diff == 1
     assert sc.total > 0
+
+
+class TestDiffFunctionsEdges:
+    def test_invalid_reloc_xx(self, capsys) -> None:
+        from rebrew.matcher.scoring import diff_functions
+
+        # Differing bytes inside a reloc window with an invalid reloc at offset 0
+        # → "XX" classification in print mode; folded into structural in as_dict.
+        target = b"\x55\x89\xe5\xc3"
+        cand = b"\x57\x89\xe5\xc3"
+        diff_functions(target, cand, reloc_offsets=[0], invalid_relocs=[0])
+        out = capsys.readouterr().out
+        assert "| XX |" in out
+        result = diff_functions(target, cand, reloc_offsets=[0], invalid_relocs=[0], as_dict=True)
+        assert result is not None
+        assert result["summary"]["structural"] == 1
+
+    def test_print_mode_output(self, capsys) -> None:
+        from rebrew.matcher.scoring import diff_functions
+
+        diff_functions(b"\x55\xc3", b"\x55\xc3")
+        out = capsys.readouterr().out
+        assert "Target" in out
+        assert "exact match" in out or "==" in out
+
+    def test_mismatches_only_filters(self, capsys) -> None:
+        from rebrew.matcher.scoring import diff_functions
+
+        diff_functions(b"\x55\xc3", b"\x90\xc3", mismatches_only=True)
+        out = capsys.readouterr().out
+        assert "structural differences only" in out

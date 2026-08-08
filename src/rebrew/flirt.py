@@ -12,7 +12,7 @@ import typer
 from rich.console import Console
 
 from rebrew.binary_loader import load_binary
-from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
 
 console = Console(stderr=True)
 
@@ -20,6 +20,7 @@ _MAX_FUNC_SCAN = 4096
 _MIN_MATCH_WINDOW = 32
 _FUNC_ALIGNMENT = 16
 _MAX_AMBIGUOUS = 3
+_MAX_AMBIGUOUS_REPORT = 12  # cap on candidate names kept per ambiguous match
 
 
 def load_signatures(sig_dir: str) -> list[Any]:
@@ -95,6 +96,14 @@ def main(
     sig_dir: Path | None = typer.Argument(None, help="Directory containing .sig/.pat files"),
     exe: Path | None = typer.Option(None, "--exe", help="Target PE file (default: from config)"),
     min_size: int = typer.Option(16, "--min-size", help="Minimum function size in bytes to report"),
+    va_filter: str | None = typer.Option(
+        None, "--va", help="Check a single function VA (hex) instead of the whole .text"
+    ),
+    show_ambiguous: bool = typer.Option(
+        False,
+        "--show-ambiguous",
+        help=(f"Report ambiguous matches (offsets with >{_MAX_AMBIGUOUS} candidate names) as well"),
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -134,59 +143,79 @@ def main(
     found = 0
     skipped = 0
     matches_list: list[dict[str, Any]] = []
+    ambiguous_list: list[dict[str, Any]] = []
     stride = _FUNC_ALIGNMENT
     max_ambiguous = _MAX_AMBIGUOUS
 
-    # Guard: FLIRT signatures need at least _MIN_MATCH_WINDOW bytes to match
+    # Guard: FLIRT signatures need at least _MIN_MATCH_WINDOW bytes to match.
+    # Note: this is a warning only — the shared JSON block below still emits
+    # the full schema (and the --va single-function check still runs).
     if len(code_data) < _MIN_MATCH_WINDOW:
         console.print(
             f"Warning: .text section too small ({len(code_data)} bytes) for FLIRT matching"
         )
-        if json_output:
-            json_print(
-                {
-                    "binary": str(final_exe),
-                    "signatures_loaded": sig_count,
-                    "matches": [],
-                    "found": 0,
-                    "skipped": 0,
-                    "warning": f".text section too small ({len(code_data)} bytes)",
-                }
-            )
-        return
 
-    for offset in iter_match_offsets(len(code_data), stride=stride, min_window=_MIN_MATCH_WINDOW):
-        # Estimate the function size at this offset
+    def _check_offset(offset: int) -> None:
+        """Match one .text offset against the signature index (helper for both modes)."""
+        nonlocal found, skipped
         func_size = find_func_size(code_data, offset)
         if func_size < min_size:
-            continue
-
+            return
         matches = matcher.match(code_data[offset : offset + 1024])
-        if matches:
-            va = base_va + offset
-            names: list[str] = []
-            for m in matches:
-                for n in m.names:
-                    # n is (name, type, offset) tuple
-                    label = n[0] if isinstance(n, tuple) else str(n)
-                    if label and label not in names:
-                        names.append(label)
-            if not names:
-                continue
-            if len(names) > max_ambiguous:
-                skipped += 1
-                continue
-            if json_output:
-                matches_list.append(
+        if not matches:
+            return
+        va = base_va + offset
+        names: list[str] = []
+        for m in matches:
+            for n in m.names:
+                # n is (name, type, offset) tuple
+                label = n[0] if isinstance(n, tuple) else str(n)
+                if label and label not in names:
+                    names.append(label)
+        if not names:
+            return
+        if len(names) > max_ambiguous:
+            # Broad signatures (e.g. crc_len=0 patterns) can match many
+            # candidates at once.  Skipped by default; --show-ambiguous keeps
+            # them so the identification candidates aren't lost entirely.
+            skipped += 1
+            if show_ambiguous:
+                ambiguous_list.append(
                     {
                         "va": f"0x{va:08x}",
                         "size": func_size,
-                        "names": names,
+                        "names": names[:_MAX_AMBIGUOUS_REPORT],
+                        "more": len(names) > _MAX_AMBIGUOUS_REPORT,
                     }
                 )
-            else:
-                console.print(f"[+] 0x{va:08x} ({func_size:4d}B): {', '.join(names)}")
-            found += 1
+                if not json_output:
+                    shown = ", ".join(names[:_MAX_AMBIGUOUS_REPORT])
+                    if len(names) > _MAX_AMBIGUOUS_REPORT:
+                        shown += ", ..."
+                    console.print(f"[dim]~ 0x{va:08x} ({func_size:4d}B): ambiguous: {shown}[/dim]")
+            return
+        if json_output:
+            matches_list.append({"va": f"0x{va:08x}", "size": func_size, "names": names})
+        else:
+            console.print(f"[+] 0x{va:08x} ({func_size:4d}B): {', '.join(names)}")
+        found += 1
+
+    if va_filter:
+        # Single-function mode: check just this VA (used by `rebrew todo`
+        # identify-library items).
+        va_int = parse_va(va_filter, json_mode=json_output)
+        offset = va_int - base_va
+        if not (0 <= offset < len(code_data)):
+            error_exit(
+                f"VA 0x{va_int:08x} outside .text (0x{base_va:x}..0x{base_va + len(code_data):x})",
+                json_mode=json_output,
+            )
+        _check_offset(offset)
+    else:
+        for offset in iter_match_offsets(
+            len(code_data), stride=stride, min_window=_MIN_MATCH_WINDOW
+        ):
+            _check_offset(offset)
 
     if json_output:
         output: dict[str, Any] = {
@@ -198,7 +227,10 @@ def main(
             "match_count": found,
             "skipped_ambiguous": skipped,
             "matches": matches_list,
+            "ambiguous_matches": ambiguous_list,
         }
+        if len(code_data) < _MIN_MATCH_WINDOW:
+            output["warning"] = f".text section too small ({len(code_data)} bytes)"
         json_print(output)
     else:
         console.print(f"\nTotal matches found: {found}")

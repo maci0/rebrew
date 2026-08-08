@@ -174,6 +174,22 @@ _STATUS_RANK: dict[str, int] = {
     "FAIL": 5,
 }
 
+# Fine-grained status ordering WITHIN the _STATUS_RANK bands, so same-rank
+# changes (NEAR_MATCHING → STUB, both rank 2) are still detected as
+# regressions/improvements by the --compare gate.
+_STATUS_ORDER: dict[str, int] = {
+    "EXACT": 0,
+    "RELOC": 1,
+    "PROVEN": 1,
+    "NEAR_MATCHING": 2,
+    "SIZE_MISMATCH": 3,
+    "STUB": 4,
+    "COMPILE_ERROR": 5,
+    "MISSING_FILE": 6,
+    "MISSING_SIZE": 6,
+    "FAIL": 7,
+}
+
 
 def _compiler_config_hash(cfg: ProjectConfig) -> str:
     parts = [
@@ -188,9 +204,11 @@ def _compiler_config_hash(cfg: ProjectConfig) -> str:
 def _headers_hash(cfg: ProjectConfig) -> str:
     """SHA256 of every header file reachable from the project's source tree.
 
-    Headers are not in any compile cache key today; if a shared header changes,
-    every translation unit that includes it must be recompiled.  Returns a stable
-    hash that captures the union of all .h files under cfg.reversed_dir.
+    If a shared header changes, every translation unit that includes it must be
+    re-verified.  Returns a stable hash that captures the union of all .h files
+    under cfg.reversed_dir.  (The compile cache tracks headers independently via
+    ``compile_cache.include_fingerprint``; this hash guards the verify cache,
+    which also covers include dirs outside ``reversed_dir``.)
     """
     src_dir = Path(cfg.reversed_dir)
     if not src_dir.exists():
@@ -257,6 +275,14 @@ class VerifyCacheEntry:
     filepath: str
     mtime_ns: int
     result: VerifyResult
+    cflags: str = ""
+    """Per-function CFLAGS used for the cached run.
+
+    CFLAGS live in ``rebrew-function.toml``, not in the ``.c`` file, so the
+    source hash alone cannot detect a flag change (``rebrew match
+    --fix-cflags`` rewrites metadata and leaves the source untouched).
+    Entries written before this field existed carry ``""`` and are re-verified
+    once."""
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "VerifyCacheEntry":
@@ -266,6 +292,7 @@ class VerifyCacheEntry:
             filepath=str(d.get("filepath", "")),
             mtime_ns=int(d.get("mtime_ns", 0)),
             result=VerifyResult.from_dict(d.get("result", {})),
+            cflags=str(d.get("cflags", "")),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -328,7 +355,9 @@ def _save_verify_cache(
     entries: list[Annotation],
 ) -> None:
     filepath_info: dict[str, tuple[int, str]] = {}
+    cflags_by_va: dict[str, str] = {}
     for entry in entries:
+        cflags_by_va[f"0x{entry.va:08x}"] = entry.cflags or ""
         relative_path = getattr(entry, "filepath", "")
         if not relative_path:
             continue
@@ -364,6 +393,7 @@ def _save_verify_cache(
             "filepath": filepath,
             "mtime_ns": mtime,
             "result": res_dict,
+            "cflags": cflags_by_va.get(str(va_key), ""),
         }
 
     cache_data = VerifyCache(
@@ -375,6 +405,32 @@ def _save_verify_cache(
     )
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_text(cache_path, json.dumps(cache_data.to_dict(), indent=2), encoding="utf-8")
+
+
+def _canonical_va_key(va: Any) -> Any:
+    """Normalize a VA to a canonical comparison key.
+
+    Hex strings (``0x1000`` vs ``0x00001000``) map to the same int so report
+    format drift can't silently break diffing.  Non-hex values pass through
+    unchanged (still unique).
+    """
+    if isinstance(va, int):
+        return va
+    if isinstance(va, str):
+        s = va.strip()
+        if s[:2].lower() == "0x":
+            try:
+                return int(s, 16)
+            except ValueError:
+                return s
+    return str(va)
+
+
+def _va_display(key: Any) -> str:
+    """Render a canonical VA key back to a readable string."""
+    if isinstance(key, int) and key >= 0:
+        return f"0x{key:08x}"
+    return str(key)
 
 
 def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
@@ -390,10 +446,14 @@ def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str,
 
     """
     previous_results = {
-        str(r["va"]): r for r in previous.get("results", []) if isinstance(r, dict) and "va" in r
+        _canonical_va_key(r["va"]): r
+        for r in previous.get("results", [])
+        if isinstance(r, dict) and "va" in r
     }
     current_results = {
-        str(r["va"]): r for r in current.get("results", []) if isinstance(r, dict) and "va" in r
+        _canonical_va_key(r["va"]): r
+        for r in current.get("results", [])
+        if isinstance(r, dict) and "va" in r
     }
 
     regressions: list[dict[str, Any]] = []
@@ -404,15 +464,19 @@ def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str,
 
     fail_rank = _STATUS_RANK["FAIL"]
 
-    for va in sorted(current_results):
+    def _sort_key(k: Any) -> tuple[bool, Any]:
+        # Mixed int/str canonical keys must sort without TypeError.
+        return (isinstance(k, str), k)
+
+    for va in sorted(current_results, key=_sort_key):
         current_item = current_results[va]
         current_status = str(current_item.get("status", "FAIL"))
-        current_rank = _STATUS_RANK.get(current_status, fail_rank)
+        current_order = _STATUS_ORDER.get(current_status, fail_rank)
 
         if va not in previous_results:
             new_items.append(
                 {
-                    "va": va,
+                    "va": _va_display(va),
                     "name": str(current_item.get("name", "")),
                     "status": current_status,
                 }
@@ -421,30 +485,51 @@ def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str,
 
         previous_item = previous_results[va]
         previous_status = str(previous_item.get("status", "FAIL"))
-        previous_rank = _STATUS_RANK.get(previous_status, fail_rank)
+        previous_order = _STATUS_ORDER.get(previous_status, fail_rank)
 
-        if current_rank == previous_rank:
+        if current_order == previous_order:
+            # Same fine-grained status: only a match-percentage drop is a
+            # regression (e.g. NEAR_MATCHING 95% → 40%).
+            prev_pct = previous_item.get("match_percent")
+            curr_pct = current_item.get("match_percent")
+            if (
+                isinstance(prev_pct, (int, float))
+                and isinstance(curr_pct, (int, float))
+                and curr_pct < prev_pct - 5.0
+            ):
+                regressions.append(
+                    {
+                        "va": _va_display(va),
+                        "name": str(current_item.get("name") or previous_item.get("name", "")),
+                        "previous_status": previous_status,
+                        "current_status": current_status,
+                        "delta": int(current_item.get("delta", 0)),
+                        "previous_match_percent": round(float(prev_pct), 1),
+                        "current_match_percent": round(float(curr_pct), 1),
+                    }
+                )
+                continue
             unchanged_count += 1
             continue
         change = {
-            "va": va,
+            "va": _va_display(va),
             "name": str(current_item.get("name") or previous_item.get("name", "")),
             "previous_status": previous_status,
             "current_status": current_status,
             "delta": int(current_item.get("delta", 0)),
         }
-        if current_rank < previous_rank:
+        if current_order < previous_order:
             improvements.append(change)
         else:
             regressions.append(change)
 
-    for va in sorted(previous_results):
+    for va in sorted(previous_results, key=_sort_key):
         if va in current_results:
             continue
         previous_item = previous_results[va]
         removed.append(
             {
-                "va": va,
+                "va": _va_display(va),
                 "name": str(previous_item.get("name", "")),
                 "status": str(previous_item.get("status", "FAIL")),
             }
@@ -492,12 +577,13 @@ def main(
     full: bool = typer.Option(
         False,
         "--full",
-        help=(
-            "Force full verification, ignoring cached results "
-            "(also required to force full reverification ignoring cache)"
-        ),
+        help="Force full verification, ignoring cached results",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    watch: bool = typer.Option(
+        False, "--watch", help="Re-verify all sources whenever any .c file changes"
+    ),
     target: str | None = TargetOption,
 ) -> None:
     """Rebrew verification pipeline: compile each .c and verify bytes match."""
@@ -505,10 +591,41 @@ def main(
     if jobs is None:
         jobs = cfg.default_jobs
 
+    if watch:
+        from rebrew.cli import iter_sources
+        from rebrew.utils import watch_files
+
+        sources = list(iter_sources(cfg.reversed_dir, cfg))
+
+        def _retest() -> None:
+            main(
+                root=root,
+                jobs=jobs,
+                output_path=output_path,
+                summary=summary,
+                diff_mode=diff_mode,
+                full=full,
+                json_output=json_output,
+                dry_run=dry_run,
+                watch=False,  # never nest watch loops
+                target=target,
+            )
+
+        watch_files(sources, _retest)
+        return
+
     out_file = Path(output_path) if output_path else cfg.db_dir / "verify_results.json"
     previous_report, diff_warning = _load_previous_report(out_file, diff_mode, json_output)
 
-    unique_entries, passed, failed, fail_details, results, cached_count = prepare_entries(
+    (
+        unique_entries,
+        passed,
+        failed,
+        fail_details,
+        results,
+        cached_count,
+        size_divergences,
+    ) = prepare_entries(
         cfg,
         full,
         json_output,
@@ -531,8 +648,7 @@ def main(
     results.extend(v_results)
 
     # Always promote/demote STATUS metadata to match verification results
-    if deferred:
-        apply_status_updates(deferred, cfg)
+    _apply_or_preview_status(deferred, cfg, dry_run)
 
     results.sort(key=lambda r: r["va"])
 
@@ -580,8 +696,15 @@ def main(
             "compile_error": _status_counts.get("COMPILE_ERROR", 0),
             "missing_file": _status_counts.get("MISSING_FILE", 0),
         },
+        "size_divergences": size_divergences,
         "results": results,
     }
+
+    if size_divergences and not json_output:
+        console.print(
+            f"[yellow]warning:[/yellow] {len(size_divergences)} function(s) have annotation "
+            "SIZE differing from the binary-derived size; run with --json for details"
+        )
 
     cache_path = cfg.root / ".rebrew" / "verify_cache.json"
     try:
@@ -611,7 +734,21 @@ def main(
                 json_print(report)
 
             has_regressions = bool(diff_result and diff_result["regressions"])
-            if failed > 0 or has_regressions:
+            new_failures = bool(
+                diff_result
+                and any(
+                    _STATUS_RANK.get(str(i.get("status", "FAIL")), _STATUS_RANK["FAIL"])
+                    >= _STATUS_RANK["COMPILE_ERROR"]
+                    for i in diff_result.get("new", [])
+                )
+            )
+            if diff_mode and diff_result is not None:
+                # With a baseline, only regressions (and newly-broken entries)
+                # fail the run — pre-existing failures are the baseline's
+                # business (CI regression gate).
+                if has_regressions or new_failures:
+                    raise typer.Exit(code=EXIT_MISMATCH)
+            elif failed > 0:
                 raise typer.Exit(code=EXIT_MISMATCH)
             return
 
@@ -628,7 +765,20 @@ def main(
     )
 
     has_regressions = bool(diff_result and diff_result["regressions"])
-    if failed > 0 or has_regressions:
+    new_failures = bool(
+        diff_result
+        and any(
+            _STATUS_RANK.get(str(i.get("status", "FAIL")), _STATUS_RANK["FAIL"])
+            >= _STATUS_RANK["COMPILE_ERROR"]
+            for i in diff_result.get("new", [])
+        )
+    )
+    if diff_mode and diff_result is not None:
+        # Regression gate (same rule as the JSON path): with a baseline, only
+        # regressions (and newly-broken entries) fail the run.
+        if has_regressions or new_failures:
+            raise typer.Exit(code=EXIT_MISMATCH)
+    elif failed > 0:
         raise typer.Exit(code=EXIT_MISMATCH)
 
 
@@ -671,10 +821,19 @@ def prepare_entries(
     cfg: ProjectConfig,
     full: bool,
     json_output: bool,
-) -> tuple[list[Annotation], int, int, list[tuple[Annotation, str]], list[dict[str, Any]], int]:
+) -> tuple[
+    list[Annotation],
+    int,
+    int,
+    list[tuple[Annotation, str]],
+    list[dict[str, Any]],
+    int,
+    list[dict[str, Any]],
+]:
     """Scan reversed_dir, deduplicate entries, and check the verify cache.
 
-    Returns (unique_entries, passed, failed, fail_details, results, cached_count).
+    Returns (unique_entries, passed, failed, fail_details, results,
+    cached_count, size_divergences).
     """
     reversed_dir = cfg.reversed_dir
     func_list_path = cfg.function_list
@@ -683,7 +842,7 @@ def prepare_entries(
     console.print(f"Scanning {reversed_dir}...")
     entries = scan_reversed_dir(reversed_dir, cfg=cfg)
     funcs = parse_function_list(func_list_path)
-    registry = build_function_registry(funcs, cfg, ghidra_json_path)
+    registry = build_function_registry(funcs, cfg, ghidra_json_path, cfg.target_binary)
 
     unique_vas = {e.va for e in entries}
     ghidra_count, list_count, both_count, thunk_count = count_detection_sources(registry)
@@ -742,6 +901,11 @@ def prepare_entries(
         if cached_entry.filepath != getattr(entry, "filepath", ""):
             continue
 
+        # CFLAGS come from rebrew-function.toml, not the .c file, so a flag
+        # change is invisible to the source hash below.
+        if cached_entry.cflags != (entry.cflags or ""):
+            continue
+
         filepath = cfg.reversed_dir / getattr(entry, "filepath", "")
         if not filepath.exists():
             continue
@@ -769,7 +933,29 @@ def prepare_entries(
             f"Incremental: {cached_count} cached, {fresh_count} to verify (use --full to force all)"
         )
 
-    return unique_entries, passed, failed, fail_details, results, cached_count
+    # Detect annotation SIZE vs binary-derived canonical size divergence.
+    # A stale annotation size makes byte extraction slice the binary at the
+    # wrong length (false EXACT on truncated functions, or a misleading
+    # SIZE_MISMATCH).  Report-only: the annotation stays authoritative.
+    size_divergences: list[dict[str, Any]] = []
+    for entry in unique_entries:
+        reg = registry.get(entry.va)
+        if not reg:
+            continue
+        canonical = reg.get("canonical_size") or 0
+        ann_size = entry.size or 0
+        if canonical > 0 and ann_size > 0 and abs(canonical - ann_size) > 1:
+            size_divergences.append(
+                {
+                    "va": f"0x{entry.va:08x}",
+                    "annotation_size": ann_size,
+                    "binary_size": canonical,
+                    "name": entry.name or entry.symbol or "",
+                }
+            )
+    size_divergences.sort(key=lambda d: d["va"])
+
+    return unique_entries, passed, failed, fail_details, results, cached_count, size_divergences
 
 
 def run_verification(
@@ -886,6 +1072,22 @@ def run_verification(
     return passed, failed, fail_details, results, deferred_fixes
 
 
+def _apply_or_preview_status(
+    deferred_fixes: list[tuple[Annotation, str, int]], cfg: Any, dry_run: bool
+) -> None:
+    """Apply STATUS metadata updates, or preview them with ``--dry-run``."""
+    if not deferred_fixes:
+        return
+    if dry_run:
+        for entry, status, _delta in deferred_fixes:
+            module: str = getattr(entry, "module", "") or ""
+            console.print(
+                f"[dim]would update STATUS → {status} for 0x{entry.va:x} ({module})[/dim]"
+            )
+        return
+    apply_status_updates(deferred_fixes, cfg)
+
+
 def apply_status_updates(
     deferred_fixes: list[tuple[Annotation, str, int]],
     cfg: Any,
@@ -908,6 +1110,12 @@ def apply_status_updates(
         current_status = getattr(entry, "status", "")
         # Sticky statuses (PROVEN) are never demoted
         if is_status_sticky(current_status):
+            continue
+        # A STUB's placeholder code always size-mismatches; promoting every
+        # stub to SIZE_MISMATCH on each verify run erases the user's STUB
+        # classification (and orphans its blocker).  The mismatch is still
+        # visible in the verify report; the STUB marker stays.
+        if current_status == "STUB" and status == "SIZE_MISMATCH":
             continue
         if current_status == status:
             continue
@@ -964,6 +1172,13 @@ def _print_results(
         if diff_warning:
             console.print()
             console.print(f"Warning: {diff_warning}")
+
+        if regressions:
+            console.print()
+            console.print(
+                "[dim]Tip: run 'rebrew diff <va>' on the regressed functions "
+                "to see the byte differences[/dim]"
+            )
 
     if show_summary:
         console.print()
