@@ -797,3 +797,28 @@ class TestW021W022:
         f = _write_c(tmp_path, "l.c", content)
         result = lint_file(f)
         assert not any(c == "W022" for _, c, _ in result.warnings)
+
+
+class TestDuplicateVAMultiBlock:
+    """E013 must flag a duplicate VA in a LATER block of a multi-function file
+    (round-4: the old i == 0 guard only checked the first block)."""
+
+    def test_duplicate_in_later_block_flagged(self, tmp_path: Path) -> None:
+        f = tmp_path / "multi.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\nint first(void) { return 0; }\n\n"
+            "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\nint second(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        result = lint_file(f)
+        assert any((c == "E013" for _, c, _ in result.errors))
+
+    def test_same_va_different_module_allowed(self, tmp_path: Path) -> None:
+        f = tmp_path / "multi.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\nint first(void) { return 0; }\n\n"
+            "// FUNCTION: CLIENT 0x10008880\n// STATUS: EXACT\nint second(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        result = lint_file(f)
+        assert not any((c == "E013" for _, c, _ in result.errors))
