@@ -266,7 +266,9 @@ class TestRunAllBatch:
         monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
         calls: list[tuple] = []
 
-        def _fake_ga(stub, cfg, gens, pop, jobs, timeout, seeds, cflags_override=None):
+        def _fake_ga(
+            stub, cfg, gens, pop, jobs, timeout, seeds, cflags_override=None, rng_seed=None
+        ):
             return True, "MATCHED"
 
         def _fake_record(root, *, target, va, symbol, matched):
@@ -285,7 +287,9 @@ class TestRunAllBatch:
         stubs = [self._stub("bad.c"), self._stub("good.c", "0x10001010")]
         monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
 
-        def _fake_ga(stub, cfg, gens, pop, jobs, timeout, seeds, cflags_override=None):
+        def _fake_ga(
+            stub, cfg, gens, pop, jobs, timeout, seeds, cflags_override=None, rng_seed=None
+        ):
             if "bad" in stub.symbol:
                 raise RuntimeError("boom")
             return True, "MATCHED"
@@ -302,7 +306,7 @@ class TestRunAllBatch:
         monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
         monkeypatch.setattr(
             "rebrew.match._run_one_stub_ga",
-            lambda stub, cfg, gens, pop, jobs, timeout, seeds, cflags_override=None: (
+            lambda stub, cfg, gens, pop, jobs, timeout, seeds, cflags_override=None, rng_seed=None: (
                 True,
                 "MATCHED",
             ),

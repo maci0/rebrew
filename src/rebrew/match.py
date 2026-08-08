@@ -809,7 +809,7 @@ def main(
         rich_help_panel="Single-Function",
     ),
     seed: int | None = typer.Option(
-        None, "--seed", help="RNG seed for reproducible GA runs", rich_help_panel="Single-Function"
+        None, "--seed", help="RNG seed for reproducible GA runs", rich_help_panel="GA Tuning"
     ),
     extra_seed: list[str] | None = typer.Option(
         None,
@@ -994,6 +994,7 @@ def main(
             tier=tier,
             sweep_then_ga=sweep_then_ga,
             skip_recent_hours=skip_recent_hours,
+            seed=seed,
         )
         return
 
@@ -1032,6 +1033,7 @@ def main(
                 tier=tier,
                 sweep_then_ga=sweep_then_ga,
                 skip_recent_hours=skip_recent_hours,
+                seed=seed,
             )
             total_matched += m
             total_failed += f
@@ -1574,6 +1576,7 @@ def _run_one_stub_ga(
     timeout_min: int,
     extra_seed_paths: list[str] | None = None,
     cflags_override: str | None = None,
+    rng_seed: int | None = None,
 ) -> tuple[bool, str]:
     """Run one GA pass for a single stub in-process. Returns (matched, summary).
 
@@ -1627,6 +1630,7 @@ def _run_one_stub_ga(
         compile_timeout=getattr(cfg, "compile_timeout", 60),
         verbose=0,
         extra_seeds=loaded_extra or None,
+        rng_seed=rng_seed,
     )
 
     matched = False
@@ -1762,6 +1766,7 @@ def _run_all(  # noqa: PLR0913
     tier: str,
     sweep_then_ga: bool = False,
     skip_recent_hours: int = 0,
+    seed: int | None = None,
 ) -> tuple[int, int]:
     """Batch driver: run GA or flag sweep across all discovered functions.
 
@@ -1898,6 +1903,10 @@ def _run_all(  # noqa: PLR0913
     intra_jobs = 1 if jobs > 1 else jobs
 
     def _run_stub(stub: StubInfo, seeds: list[str]) -> tuple[StubInfo, bool, str]:
+        # Deterministic per-stub sub-seed: same --seed + same VA ⇒ same GA.
+        # (VA collisions are impossible within one batch; across batches the
+        # VA is stable, so runs stay reproducible.)
+        stub_seed = None if seed is None else seed + int(stub.va, 16)
         sweep_flags: str | None = None
         if sweep_then_ga:
             try:
@@ -1920,6 +1929,7 @@ def _run_all(  # noqa: PLR0913
                 timeout_min,
                 seeds or None,
                 cflags_override=sweep_flags,
+                rng_seed=stub_seed,
             )
         except Exception as exc:  # noqa: BLE001 — one bad stub must not abort the batch
             log.debug("GA run failed for %s", stub.symbol, exc_info=True)
