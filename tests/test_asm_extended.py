@@ -164,7 +164,8 @@ class TestBatchExtractNasm:
         monkeypatch.setattr("rebrew.asm.extract_raw_bytes", lambda *a, **k: _CODE)
         out_dir = tmp_path / "nasm"
         batch_extract_nasm(cfg, out_dir, verify_flag=True)  # type: ignore[arg-type]
-        assert (out_dir / "f.c.asm").exists()
+        # Multi-function sources share a stem — output names carry the VA.
+        assert (out_dir / "f.c.00001000.asm").exists()
 
     def test_batch_skips_stubs_only_filter(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
