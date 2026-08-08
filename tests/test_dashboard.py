@@ -292,3 +292,15 @@ class TestCli:
         result = CliRunner().invoke(umbrella, ["--help"])
         assert result.exit_code == 0
         assert "dashboard" in result.output
+
+
+class TestEscapeLike:
+    """User search terms must match literally, not as SQL LIKE wildcards."""
+
+    def test_wildcards_escaped(self) -> None:
+        from rebrew.dashboard import _escape_like
+
+        assert _escape_like("foo_1") == "foo\\_1"
+        assert _escape_like("100%") == "100\\%"
+        assert _escape_like("a\\b") == "a\\\\b"
+        assert _escape_like("plain") == "plain"
