@@ -1299,6 +1299,12 @@ def _apply_or_preview_status(
     if dry_run:
         for entry, status, _delta in deferred_fixes:
             module: str = getattr(entry, "module", "") or ""
+            # Mirror apply_status_updates' decision so the preview only claims
+            # updates a real run would actually write: sticky statuses (PROVEN)
+            # are never demoted and a STUB's placeholder size-mismatch keeps
+            # the user's classification.
+            if not should_promote_status(getattr(entry, "status", ""), status):
+                continue
             console.print(
                 f"[dim]would update STATUS → {status} for 0x{entry.va:x} ({module})[/dim]"
             )

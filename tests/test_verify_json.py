@@ -1,5 +1,7 @@
 """Tests for verify.py diff_reports function."""
 
+import pytest
+
 from rebrew.verify import diff_reports
 
 
@@ -214,3 +216,31 @@ class TestApplyOrPreviewStatus:
         )
         _apply_or_preview_status([(self._entry(), "EXACT", 0)], object(), dry_run=False)
         assert len(calls) == 1
+
+    def test_dry_run_preview_skips_refused_updates(self, capsys: pytest.CaptureFixture) -> None:
+        """The preview must only claim updates a real run would write.
+
+        PROVEN is sticky (never demoted) and a STUB's placeholder
+        size-mismatch keeps the user's classification — neither would be
+        written, so --dry-run must not claim them.
+        """
+        from types import SimpleNamespace
+
+        from rebrew.verify import _apply_or_preview_status
+
+        proven = SimpleNamespace(module="game", va=0x10001000, status="PROVEN")
+        stub_mm = SimpleNamespace(module="game", va=0x10002000, status="STUB")
+        promotable = SimpleNamespace(module="game", va=0x10003000, status="NEAR_MATCHING")
+
+        # STUB -> SIZE_MISMATCH is refused; PROVEN -> NEAR_MATCHING is refused.
+        _apply_or_preview_status(
+            [(stub_mm, "SIZE_MISMATCH", 0), (proven, "NEAR_MATCHING", 0)], object(), dry_run=True
+        )
+        out = capsys.readouterr()
+        assert "would update" not in out.err
+        assert "would update" not in out.out
+
+        # A genuine promotion is still previewed.
+        _apply_or_preview_status([(promotable, "EXACT", 0)], object(), dry_run=True)
+        out = capsys.readouterr()
+        assert "would update STATUS → EXACT for 0x10003000 (game)" in out.err
