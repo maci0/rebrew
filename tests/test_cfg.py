@@ -80,6 +80,16 @@ class TestLoadSave:
         assert "# Project config" in result
         assert "# Per-target cflags" in result
 
+    def test_save_dry_run_does_not_write(self, tmp_path: Path) -> None:
+        """--dry-run must preview the write without touching the disk."""
+        root = _make_project(tmp_path)
+        doc, path = _load_toml(root)
+        doc["compiler"]["timeout"] = 120
+        _save_toml(doc, path, dry_run=True)
+        # File unchanged: the timeout key is absent.
+        result = path.read_text(encoding="utf-8")
+        assert "timeout" not in result
+
     def test_load_nonexistent_raises(self, tmp_path: Path) -> None:
         with pytest.raises(ClickExit):
             _load_toml(tmp_path)
