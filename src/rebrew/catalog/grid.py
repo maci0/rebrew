@@ -395,6 +395,10 @@ def generate_data_json(
 
                     absorb_size = 0
 
+                    # trim_trailing_padding is a byte scan — compute once per
+                    # gap and reuse (was recomputed up to 4x on the same slice).
+                    pad_len = trim_trailing_padding(gap_bytes)
+
                     # Check Ghidra data labels at gap start
                     dl_result = _find_ghidra_data_label(sec_va + func_end_off, label_index)
                     is_switch_data = False
@@ -411,28 +415,24 @@ def generate_data_json(
                         # Absorb entire gap up to next function, trimming
                         # only trailing NOP/INT3 padding (switch tables include
                         # both pointer arrays and index/lookup tables)
-                        absorb_size = trim_trailing_padding(gap_bytes)
+                        absorb_size = pad_len
 
                     # Check for out-of-line code (jumps back into function body)
-                    if absorb_size == 0 and trim_trailing_padding(gap_bytes) > 0:
+                    if absorb_size == 0 and pad_len > 0:
                         func_start_off = name_end_to_start.get(
                             (func_end_to_name[func_end_off], func_end_off)
                         )
                         if func_start_off is not None and has_back_jumps(
                             gap_bytes, func_start_off, func_end_off, base_offset=func_end_off
                         ):
-                            absorb_size = trim_trailing_padding(gap_bytes)
+                            absorb_size = pad_len
 
                     # Catch-all: small non-padding gaps that follow a function
                     # and weren't detected as separate functions by any tool.
                     # These are typically out-of-line epilogues, IAT thunk tails,
                     # small helper snippets, or switch index tables.
-                    if (
-                        absorb_size == 0
-                        and len(gap_bytes) <= _MAX_TAIL_ABSORB
-                        and trim_trailing_padding(gap_bytes) > 0
-                    ):
-                        absorb_size = trim_trailing_padding(gap_bytes)
+                    if absorb_size == 0 and len(gap_bytes) <= _MAX_TAIL_ABSORB and pad_len > 0:
+                        absorb_size = pad_len
 
                     if absorb_size > 0:
                         parent_name = func_end_to_name[func_end_off]

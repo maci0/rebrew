@@ -9,6 +9,7 @@ import contextlib
 import functools
 import itertools
 import logging
+import math
 import os
 import re
 import shlex
@@ -182,17 +183,29 @@ def generate_flag_combinations(tier: str = "targeted", profile: str = "msvc6") -
     tier_ids = MSVC_SWEEP_TIERS[tier]  # None = all axes
     axes = _flags_to_axes(flags, tier_ids)
 
-    combos = set()
-    for combo in itertools.product(*axes):
-        flags_str = " ".join(f for f in combo if f)
-        combos.add(flags_str)
-
-    if len(combos) > _MAX_SWEEP_COMBOS:
+    # The Cartesian product of all axes can be enormous (full ≈ 2.5M combos,
+    # ~400MB materialized as a set).  Deterministically stride-sample the
+    # product stream down to the cap instead of building the whole set first;
+    # under the cap the behavior is identical to before (full set + sort).
+    total = math.prod(len(a) for a in axes)
+    if total > _MAX_SWEEP_COMBOS:
+        step = max(1, math.ceil(total / _MAX_SWEEP_COMBOS))
+        combos = set()
+        for combo in itertools.islice(itertools.product(*axes), None, None, step):
+            flags_str = " ".join(f for f in combo if f)
+            combos.add(flags_str)
         warnings.warn(
-            f"Flag sweep tier '{tier}' produces {len(combos):,} combinations. "
-            f"This may use significant memory. Consider 'quick' or 'targeted' tier.",
+            f"Flag sweep tier '{tier}' produces {total:,} combinations; "
+            f"sampling every {step}th combination down to {len(combos):,} "
+            f"(memory bound {_MAX_SWEEP_COMBOS:,}). Consider 'quick' or "
+            f"'targeted' tier for exhaustive sweeps.",
             stacklevel=2,
         )
+    else:
+        combos = set()
+        for combo in itertools.product(*axes):
+            flags_str = " ".join(f for f in combo if f)
+            combos.add(flags_str)
 
     return sorted(combos)
 
