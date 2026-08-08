@@ -210,6 +210,7 @@ _MULTI_COMMANDS: list[tuple[str, str, str]] = [
     ("cfg", "rebrew.cfg", "Read and edit rebrew-project.toml programmatically."),
     ("cache", "rebrew.cache_cli", "Manage the compile result cache."),
     ("skills", "rebrew.skills", "Discover and display agent skills bundled with rebrew."),
+    ("resource", "rebrew.resource", "Compare / extract PE resource (.rsrc) sections."),
 ]
 
 

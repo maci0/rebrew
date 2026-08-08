@@ -103,6 +103,58 @@ _ARCH_PRESETS: dict[str, _ArchPreset] = {
 
 
 @dataclass
+class LinkConfig:
+    """Declarative linker settings for byte-identical PE reconstruction.
+
+    Mirrors the ``[link]`` section of ``rebrew-project.toml``.  ``rebrew
+    round-trip --fix-headers`` patches the reasm copy with these values, and
+    the round-trip report's ``header_parity`` compares them against the
+    original binary so header mismatches are visible (previously only .text
+    bytes were checked).
+    """
+
+    file_align: int | None = None
+    stack_reserve: int | None = None
+    stack_commit: int | None = None
+    tsaware: bool | None = None  # sets 0x8000 in dll_characteristics
+    linker_version: str | None = None  # e.g. "5.12"
+    os_version: str | None = None  # e.g. "5.0"
+    subsystem_version: str | None = None  # e.g. "4.0"
+    timestamp: int | None = None  # seconds since epoch, hex-accepting
+
+    def to_patch_fields(self) -> dict[str, int]:
+        """Map configured values to pe_headers field labels (empty if unset)."""
+        fields: dict[str, int] = {}
+        if self.linker_version:
+            try:
+                major, minor = self.linker_version.split(".", 1)
+                fields["linker_version_major"] = int(major)
+                fields["linker_version_minor"] = int(minor)
+            except ValueError:
+                pass
+        for label, ver in (
+            ("os_version", self.os_version),
+            ("subsystem_version", self.subsystem_version),
+        ):
+            if ver:
+                try:
+                    major, minor = ver.split(".", 1)
+                    fields[f"{label}_major"] = int(major)
+                    fields[f"{label}_minor"] = int(minor)
+                except ValueError:
+                    pass
+        if self.tsaware is not None:
+            fields["dll_characteristics"] = 0x8000 if self.tsaware else 0
+        if self.stack_reserve is not None:
+            fields["stack_reserve"] = self.stack_reserve
+        if self.stack_commit is not None:
+            fields["stack_commit"] = self.stack_commit
+        if self.timestamp is not None:
+            fields["timestamp"] = self.timestamp
+        return fields
+
+
+@dataclass
 class ProjectConfig:
     """Parsed project configuration with computed paths."""
 
@@ -168,6 +220,9 @@ class ProjectConfig:
 
     # --- All known target names ---
     all_targets: list[str] = field(default_factory=list)
+
+    # --- Linker settings for byte-identical reconstruction ([link]) ---
+    link: LinkConfig = field(default_factory=LinkConfig)
 
     @property
     def capstone_arch(self) -> int:
@@ -521,7 +576,18 @@ def find_root(start: Path | None = None) -> Path:
 # Known TOML keys — validated at load time to catch typos
 # ---------------------------------------------------------------------------
 
-_KNOWN_TOP_KEYS = {"targets", "compiler", "project"}
+_KNOWN_TOP_KEYS = {"targets", "compiler", "project", "link"}
+
+_KNOWN_LINK_KEYS = {
+    "file_align",
+    "stack_reserve",
+    "stack_commit",
+    "tsaware",
+    "linker_version",
+    "os_version",
+    "subsystem_version",
+    "timestamp",
+}
 
 _KNOWN_TARGET_KEYS = {
     "binary",
@@ -604,8 +670,11 @@ def load_config(
     for sec_name, known_keys in (
         ("compiler", _KNOWN_COMPILER_KEYS),
         ("project", _KNOWN_PROJECT_KEYS),
+        ("link", _KNOWN_LINK_KEYS),
     ):
         sec = global_compiler_raw if sec_name == "compiler" else project_raw
+        if sec_name == "link":
+            sec = _as_table(raw.get("link", {}), "link")
         unknown_sec = set(sec) - known_keys
         if unknown_sec:
             _config_warn(
@@ -820,5 +889,23 @@ def load_config(
             f"target binary not found: {cfg.target_binary} — "
             "image_base/text_va auto-detection skipped"
         )
+
+    # --- [link] section: byte-identical PE reconstruction settings ---
+    link_raw = _as_table(raw.get("link", {}), "link")
+
+    def _opt_str(key: str) -> str | None:
+        v = link_raw.get(key)
+        return v if isinstance(v, str) else None
+
+    cfg.link = LinkConfig(
+        file_align=_parse_optional_int(link_raw.get("file_align"), "link.file_align"),
+        stack_reserve=_parse_optional_int(link_raw.get("stack_reserve"), "link.stack_reserve"),
+        stack_commit=_parse_optional_int(link_raw.get("stack_commit"), "link.stack_commit"),
+        tsaware=link_raw.get("tsaware") if isinstance(link_raw.get("tsaware"), bool) else None,
+        linker_version=_opt_str("linker_version"),
+        os_version=_opt_str("os_version"),
+        subsystem_version=_opt_str("subsystem_version"),
+        timestamp=_parse_optional_int(link_raw.get("timestamp"), "link.timestamp"),
+    )
 
     return cfg

@@ -695,6 +695,9 @@ def main(
             "size_mismatch": _status_counts.get("SIZE_MISMATCH", 0),
             "compile_error": _status_counts.get("COMPILE_ERROR", 0),
             "missing_file": _status_counts.get("MISSING_FILE", 0),
+            # Byte-identical accounting: PROVEN is semantic equivalence, not a
+            # byte match — for a byte-identical goal only exact+reloc count.
+            "byte_matched": _status_counts.get("EXACT", 0) + _status_counts.get("RELOC", 0),
         },
         "size_divergences": size_divergences,
         "results": results,
