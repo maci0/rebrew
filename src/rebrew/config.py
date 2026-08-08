@@ -582,12 +582,15 @@ def detect_crt_sources(root: Path) -> dict[str, str]:
 
 
 def find_root(start: Path | None = None) -> Path:
-    """Walk up from *start* (or cwd) to find rebrew-project.toml.
+    """Walk up from cwd to find rebrew-project.toml.
 
     Since rebrew is an installable package, __file__ may point into
     site-packages rather than the project directory.  We therefore
     search from the current working directory upward, similar to how
     ``git`` locates ``.git/``.
+
+    *start*, when given, is an EXPLICIT project root — returned verbatim
+    (no walk-up); load_config(root=X) expects X to contain the toml.
     """
     if start is not None:
         return start
@@ -629,7 +632,7 @@ _KNOWN_TARGET_KEYS = {
     "bin_dir",
     "compiler",
     "r2_bogus_vas",
-    "game_range_end",
+    "game_range_end",  # legacy/no-op: parsed and stored, never read by any tool
     "iat_thunks",
     "dll_exports",
     "ignored_symbols",
@@ -638,7 +641,9 @@ _KNOWN_TARGET_KEYS = {
     "source_ext",
     "ghidra_program_path",
     "ghidra_backend",
-    "origins",  # written by `rebrew cfg add-target` (origin list for annotation filtering)
+    "origins",  # written by `rebrew cfg add-target`; editor/UI only — NOT
+    # used for annotation filtering (module filters come from the
+    # annotations themselves).
     "cflags_presets",  # written by `rebrew cfg set-cflags` (per-origin compiler flag overrides)
 }
 
@@ -649,7 +654,9 @@ _KNOWN_COMPILER_KEYS = {
     "libs",
     "cflags",
     "profile",
-    "profiles",
+    "profiles",  # reserved: per-compiler profiles are documented but not yet
+    # wired into a profile-switch path (matcher/compiler.py keys off the
+    # profile NAME only).
     "base_cflags",
     "timeout",
     "cflags_presets",  # written by `rebrew cfg set-cflags --global` (per-origin compiler flag overrides)
