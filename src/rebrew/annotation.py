@@ -1096,7 +1096,8 @@ def update_annotation_key(
     Returns True if any write was made, False otherwise.
 
     """
-    from rebrew.metadata import get_entry, is_metadata_key, update_field, update_source_status
+    from rebrew.metadata import is_metadata_key, update_source_status
+    from rebrew.metadata_model import _FIELD_TO_ATTR, MetadataEntry
 
     if is_metadata_key(key):
         module = module_for_va(filepath, va)
@@ -1104,12 +1105,16 @@ def update_annotation_key(
         if key.upper() == "STATUS":
             update_source_status(_dir, new_value, module, va, force=True)
         else:
-            toml_key = key.lower()
-            existing = get_entry(_dir, va, module).get(toml_key)
+            # Typed, validated write via the metadata facade: key case is
+            # normalized, size/blocker_delta are coerced to int, and unknown
+            # /file-only keys raise instead of silently mis-routing.
+            entry = MetadataEntry.load(_dir, va, module)
+            attr = _FIELD_TO_ATTR.get(key.lower())
+            existing = getattr(entry, attr, None) if attr is not None else None
             # Idempotent: a write with the same value is a no-op (False).
             if existing is not None and str(existing) == str(new_value):
                 return False
-            update_field(_dir, va, toml_key, new_value, module=module)
+            entry.apply(_dir, **{key: new_value})
         return True
     try:
         text = filepath.read_text(encoding="utf-8", errors="replace")
