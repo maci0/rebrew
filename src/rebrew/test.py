@@ -24,6 +24,8 @@ from rich.console import Console
 from rebrew.annotation import Annotation, parse_c_file_multi, parse_source_metadata
 from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import (
+    EXIT_ERROR,
+    EXIT_MISMATCH,
     STATUS_COLORS,
     TargetOption,
     classify_match_status,
@@ -394,7 +396,7 @@ def main(
         match_count = total
 
     if cmp.status == "COMPILE_ERROR":
-        error_exit(f"COMPILE ERROR:\n{cmp.message}", json_mode=json_output)
+        error_exit(f"COMPILE ERROR:\n{cmp.message}", json_mode=json_output, code=EXIT_ERROR)
 
     if json_output:
         result_dict = build_result_dict_from_compare(
@@ -449,6 +451,11 @@ def main(
             )
             if not json_output:
                 console.print(f"[dim]STATUS → {new_status}[/dim]")
+
+    # Documented exit-code contract: 0 = EXACT/RELOC match, 1 = needs work
+    # (NEAR_MATCHING/STUB/SIZE_MISMATCH), 2 = build error (above).
+    if not is_matched(cmp.status):
+        raise typer.Exit(code=EXIT_MISMATCH)
 
 
 def build_result_dict(
@@ -951,6 +958,17 @@ def _run_all_batch(
     # Always promote/demote STATUS metadata unless --no-promote
     if not no_promote and deferred:
         apply_status_updates(deferred, cfg)
+
+    # Sync the verify cache so status/todo don't keep reporting stale
+    # pre-batch statuses (the single-file path patches per function).
+    if not no_promote:
+        for r in v_results:
+            try:
+                va_int = int(r["va"], 16)
+            except (ValueError, TypeError, KeyError):
+                continue
+            pct = r.get("match_percent") or 0.0
+            _patch_verify_cache(cfg, va_int, r.get("status", ""), round(pct), 100)
 
     # Build transitions for summary display
     transitions: list[tuple[str, str]] = []

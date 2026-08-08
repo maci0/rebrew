@@ -1579,6 +1579,10 @@ def _run_single_ga(
         _save_solution(
             p.cfg, p.symbol, p.cflags, p.target_size, str(p.seed_c), best_score, generations
         )
+    else:
+        # Documented exit-code contract: 0 = match, 1 = no match, 2 = build
+        # or config error.
+        raise typer.Exit(code=EXIT_MISMATCH)
 
 
 def _save_solution(
