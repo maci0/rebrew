@@ -33,7 +33,6 @@ from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
 from rich.table import Table
 from rich.text import Text
 
-import rebrew  # package __version__ for the verify-cache key
 from rebrew.annotation import Annotation
 from rebrew.catalog import (
     build_function_registry,
@@ -194,19 +193,53 @@ _STATUS_ORDER: dict[str, int] = {
 }
 
 
+def _compare_logic_hash() -> str:
+    """Hash of the rebrew modules whose logic changes verification RESULTS.
+
+    The version string alone is static during development (editable installs
+    stay "0.1.0" across code changes), so it cannot invalidate a cache written
+    by an earlier build of the same version.  Hashing the source of the
+    modules that drive comparison/extraction/symbol-derivation means any code
+    change to that pipeline invalidates cached results — stale EXTRACT_ERROR
+    or wrong RELOC/NEAR_MATCHING entries can never be served as truth after a
+    fix.  Computed once per process (source files are stable for the lifetime
+    of one rebrew invocation).
+    """
+    import functools
+
+    from rebrew.annotation import _kv_to_annotation
+    from rebrew.compile import classify_compare_result
+    from rebrew.core.matching import smart_reloc_compare
+    from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
+
+    @functools.lru_cache(maxsize=1)
+    def _hash() -> str:
+        h = hashlib.sha256()
+        for mod in (
+            _kv_to_annotation,
+            classify_compare_result,
+            smart_reloc_compare,
+            parse_obj_symbol_and_relocs,
+        ):
+            src = Path(mod.__code__.co_filename).read_bytes()
+            h.update(src)
+            h.update(b"\x00")
+        return h.hexdigest()
+
+    return _hash()
+
+
 def _compiler_config_hash(cfg: ProjectConfig) -> str:
     parts = [
         cfg.compiler_command,
         cfg.base_cflags,
         str(cfg.compiler_includes),
         str(cfg.compiler_libs),
-        # The rebrew tool version: comparison/extraction logic changes between
-        # releases (e.g. the EXTRACT_ERROR / STUB-symbol fixes) and can alter
-        # results for the SAME source+compiler.  Without this, an upgraded
-        # rebrew silently serves cached results computed by the old code —
-        # stale statuses (e.g. EXTRACT_ERROR entries that a fresh run now
-        # resolves correctly) mislead todo/status/dashboard.
-        rebrew.__version__,
+        # Content hash of the comparison/extraction logic: a code change that
+        # alters results for the SAME source+compiler (e.g. the EXTRACT_ERROR
+        # / STUB-symbol fixes) must invalidate cached results.  The package
+        # version string alone is static during development.
+        _compare_logic_hash(),
     ]
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 

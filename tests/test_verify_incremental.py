@@ -51,19 +51,32 @@ class TestCompilerConfigHash:
 
         assert _compiler_config_hash(cfg_a) != _compiler_config_hash(cfg_b)
 
-    def test_includes_tool_version(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The hash must embed the rebrew tool version so an upgraded rebrew
-        invalidates cached results computed by older comparison logic (e.g.
-        stale EXTRACT_ERROR entries that a fresh run now resolves)."""
-        import rebrew
+    def test_includes_compare_logic_hash(self, tmp_path: Path) -> None:
+        """The hash must embed a content hash of the comparison/extraction
+        modules, not just the (static during development) package version —
+        a code fix that changes results must invalidate cached results."""
+        from rebrew.verify import _compare_logic_hash
 
         cfg = _make_cfg(tmp_path)
-        hash_before = _compiler_config_hash(cfg)
-
-        monkeypatch.setattr(rebrew, "__version__", "999.0.0-test")
-        hash_after = _compiler_config_hash(cfg)
-
-        assert hash_before != hash_after
+        # Deterministic + includes the logic modules (stable across calls).
+        h1 = _compare_logic_hash()
+        h2 = _compare_logic_hash()
+        assert h1 == h2
+        assert len(h1) == 64
+        # The compiler hash embeds it.
+        assert (
+            _compiler_config_hash(cfg)
+            != hashlib.sha256(
+                "|".join(
+                    [
+                        cfg.compiler_command,
+                        cfg.base_cflags,
+                        str(cfg.compiler_includes),
+                        str(cfg.compiler_libs),
+                    ]
+                ).encode()
+            ).hexdigest()
+        )
 
 
 class TestSourceHash:
