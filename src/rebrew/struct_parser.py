@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.c_parser import _get_ts_parser
+from rebrew.utils import detect_source_encoding
 
 
 def _iter_definitions(filepath: Path, *, all_type_defs: bool) -> Iterator[str]:
@@ -27,13 +28,14 @@ def _iter_definitions(filepath: Path, *, all_type_defs: bool) -> Iterator[str]:
     except OSError:
         return
 
+    encoding = detect_source_encoding(code_bytes)
     tree = parser.parse(code_bytes)
 
     def walk(node: Any) -> Iterator[str]:
         if node.type == "type_definition":
             text = code_bytes[node.start_byte : node.end_byte]
             if all_type_defs or (b"struct" in text and b"{" in text):
-                yield text.decode("utf-8", errors="replace")
+                yield text.decode(encoding)
         elif node.type == "struct_specifier":
             if node.parent and node.parent.type != "type_definition":
                 struct_text = code_bytes[node.start_byte : node.end_byte]
@@ -43,7 +45,7 @@ def _iter_definitions(filepath: Path, *, all_type_defs: bool) -> Iterator[str]:
                     if next_sibling and next_sibling.type == ";":
                         end_byte = next_sibling.end_byte
                     full_text = code_bytes[node.start_byte : end_byte]
-                    yield full_text.decode("utf-8", errors="replace")
+                    yield full_text.decode(encoding)
         else:
             for child in node.children:
                 yield from walk(child)

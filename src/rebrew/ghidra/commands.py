@@ -28,7 +28,7 @@ from rebrew.ghidra.client import (
     init_mcp_session,
 )
 from rebrew.ghidra.models import PullChange, PullResult
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, read_source_text
 
 console = Console(stderr=True)
 
@@ -938,7 +938,7 @@ def pull_prototypes(
 
                             for src_file in iter_sources(cfg.reversed_dir, cfg):
                                 try:
-                                    content = src_file.read_text(encoding="utf-8")
+                                    content, encoding = read_source_text(src_file)
                                     # Regex to match existing extern for this function
                                     # extern <type> <name>(...);
                                     pattern = (
@@ -948,7 +948,7 @@ def pull_prototypes(
                                     )
                                     new_content = re.sub(pattern, extern_str, content)
                                     if new_content != content:
-                                        atomic_write_text(src_file, new_content, encoding="utf-8")
+                                        atomic_write_text(src_file, new_content, encoding=encoding)
                                 except OSError as e:
                                     console.print(
                                         f"  [yellow]Warning:[/yellow] failed to replace extern "

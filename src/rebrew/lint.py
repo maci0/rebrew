@@ -31,6 +31,7 @@ from rebrew.cli import EXIT_MISMATCH, TargetOption, iter_sources, json_print, re
 from rebrew.config import ProjectConfig, load_config
 from rebrew.data_metadata import load_data_metadata
 from rebrew.metadata import load_metadata
+from rebrew.utils import read_source_text
 
 console = Console(stderr=True)
 
@@ -486,7 +487,7 @@ def lint_file(
     result = LintResult(filepath)
 
     try:
-        text = filepath.read_text(encoding="utf-8", errors="replace")
+        text, _ = read_source_text(filepath)
     except OSError as e:
         result.error(0, "E000", f"Cannot read file: {e}")
         return result

@@ -28,6 +28,7 @@ from rich.table import Table
 
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
+from rebrew.utils import read_source_text
 
 console = Console(stderr=True)
 
@@ -192,7 +193,10 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
 
     for cfile in iter_sources(src_dir, cfg):
         try:
-            text = cfile.read_text(encoding="utf-8", errors="ignore")
+            # Tolerant read: a legacy-encoded source must not have its
+            # non-ASCII bytes silently deleted (errors="ignore" used to drop
+            # string literals/comments, corrupting GLOBAL:/DATA: scans).
+            text, _ = read_source_text(cfile)
         except OSError:
             continue
 

@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from rebrew.cli import MIN_VALID_VA
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, read_source_text
 
 logger = logging.getLogger(__name__)
 
@@ -508,7 +508,7 @@ def module_for_va(filepath: Path, va: int) -> str:
     Used by annotation mutation helpers to route metadata writes to the correct key.
     """
     try:
-        text = filepath.read_text(encoding="utf-8", errors="replace")
+        text, _ = read_source_text(filepath)
     except OSError:
         return ""
     for line in text.splitlines():
@@ -545,7 +545,7 @@ def update_size_annotation(
     va = target_va
     if va is None:
         try:
-            text = filepath.read_text(encoding="utf-8", errors="replace")
+            text, _ = read_source_text(filepath)
         except OSError as e:
             warnings.warn(f"Cannot read {filepath} for size update: {e}", stacklevel=2)
             return False
@@ -840,7 +840,7 @@ def parse_c_file(
     ``"zlib/zlib_adler32.c"``); otherwise only the bare filename is kept.
     """
     try:
-        text = filepath.read_text(encoding="utf-8", errors="replace")
+        text, _ = read_source_text(filepath)
     except OSError:
         return None
 
@@ -993,7 +993,7 @@ def parse_c_file_multi(
     given the stored path is relative to it; otherwise the bare filename.
     """
     try:
-        text = filepath.read_text(encoding="utf-8", errors="replace")
+        text, _ = read_source_text(filepath)
     except OSError:
         return []
 
@@ -1119,7 +1119,7 @@ def update_annotation_key(
             entry.apply(_dir, **{key: new_value})
         return True
     try:
-        text = filepath.read_text(encoding="utf-8", errors="replace")
+        text, encoding = read_source_text(filepath)
     except OSError as e:
         warnings.warn(f"Cannot read {filepath} for annotation update: {e}", stacklevel=2)
         return False
@@ -1173,7 +1173,7 @@ def update_annotation_key(
         modified = True
 
     if modified:
-        atomic_write_text(filepath, "".join(lines), encoding="utf-8")
+        atomic_write_text(filepath, "".join(lines), encoding=encoding)
         return True
 
     return False
@@ -1214,7 +1214,7 @@ def parse_library_header(
     without explicit STATUS default to EXACT.
     """
     try:
-        text = filepath.read_text(encoding="utf-8", errors="replace")
+        text, _ = read_source_text(filepath)
     except OSError:
         return []
 
@@ -1323,7 +1323,7 @@ def remove_annotation_key(
         # (False), not a claimed write.
         return remove_field(_dir, va, key.lower(), module=module)
     try:
-        text = filepath.read_text(encoding="utf-8", errors="replace")
+        text, _ = read_source_text(filepath)
     except OSError as e:
         warnings.warn(f"Cannot read {filepath} for annotation removal: {e}", stacklevel=2)
         return False
@@ -1331,8 +1331,11 @@ def remove_annotation_key(
     return _strip_key_lines(filepath, va, key, text)
 
 
-def _strip_key_lines(filepath: Path, va: int, key: str, text: str) -> bool:
+def _strip_key_lines(filepath: Path, va: int, key: str, text: str, encoding: str = "utf-8") -> bool:
     """Drop every ``// KEY:`` line inside the marker block for *va* and rewrite the file.
+
+    *encoding* is the source file's detected encoding (see
+    :func:`rebrew.utils.read_source_text`) and is preserved on write-back.
 
     Returns True if a line was removed.
     """
@@ -1359,7 +1362,7 @@ def _strip_key_lines(filepath: Path, va: int, key: str, text: str) -> bool:
         new_lines.append(line)
 
     if modified:
-        atomic_write_text(filepath, "".join(new_lines), encoding="utf-8")
+        atomic_write_text(filepath, "".join(new_lines), encoding=encoding)
     return modified
 
 
@@ -1374,8 +1377,8 @@ def remove_inline_annotation_key(filepath: Path, va: int, key: str) -> bool:
     raise).
     """
     try:
-        text = filepath.read_text(encoding="utf-8", errors="replace")
+        text, encoding = read_source_text(filepath)
     except OSError:
         return False
 
-    return _strip_key_lines(filepath, va, key, text)
+    return _strip_key_lines(filepath, va, key, text, encoding=encoding)

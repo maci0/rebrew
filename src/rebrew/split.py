@@ -32,7 +32,7 @@ from rebrew.cli import (
     source_glob,
     target_marker,
 )
-from rebrew.utils import atomic_write_text, strip_comment_blocks
+from rebrew.utils import atomic_write_text, read_source_text, strip_comment_blocks
 
 console = Console(stderr=True)
 
@@ -154,7 +154,7 @@ def main(
     out_dir = Path(output_dir).resolve() if output_dir else source_path.parent.resolve()
 
     try:
-        text = source_path.read_text(encoding="utf-8", errors="replace")
+        text, encoding = read_source_text(source_path)
     except OSError as exc:
         error_exit(f"Failed to read source: {exc}", json_mode=json_output)
 
@@ -227,11 +227,11 @@ def main(
             # strip_comment_blocks removes the trailing newline; re-add a
             # separator so the marker is not glued onto the last preamble line.
             out_content = out_preamble + "\n" + matched_block if out_preamble else matched_block
-            atomic_write_text(out_path, out_content, encoding="utf-8")
+            atomic_write_text(out_path, out_content, encoding=encoding)
             # Remove the extracted block from the source file (by index, not identity)
             remaining = [b for i, b in enumerate(blocks) if i != matched_idx]
             if remaining:
-                atomic_write_text(source_path, preamble + "".join(remaining), encoding="utf-8")
+                atomic_write_text(source_path, preamble + "".join(remaining), encoding=encoding)
             else:
                 # Back up the original before removing (recoverable via .bak)
                 bak_path = source_path.with_suffix(source_path.suffix + ".bak")
@@ -308,7 +308,7 @@ def main(
             out_dir.mkdir(parents=True, exist_ok=True)
             out_preamble = strip_comment_blocks(preamble)
             out_content = out_preamble + "\n" + block if out_preamble else block
-            atomic_write_text(out_path, out_content, encoding="utf-8")
+            atomic_write_text(out_path, out_content, encoding=encoding)
         split_count += 1
 
     if split_count < 2:

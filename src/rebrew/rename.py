@@ -23,7 +23,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import ProjectConfig
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, read_source_text
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +92,8 @@ def _collect_matching_files(
     candidates = [filepath] + [s for s in iter_sources(cfg.reversed_dir, cfg) if s != filepath]
     for src in candidates:
         try:
-            if pattern.search(src.read_text(encoding="utf-8")):
+            text, _ = read_source_text(src)
+            if pattern.search(text):
                 matched.append(src)
         except OSError:
             continue
@@ -123,14 +124,14 @@ def rename_function_everywhere(
 
     # 2. Update function definition & calls in file
     try:
-        content = filepath.read_text(encoding="utf-8")
+        content, encoding = read_source_text(filepath)
         # Replacement via callable: target_func is literal, never interpreted
         # as re backreference syntax (e.g. a name containing ``\1``).
         new_content = re.sub(
             r"\b" + re.escape(actual_old_name) + r"\b", lambda _m: target_func, content
         )
         if new_content != content:
-            atomic_write_text(filepath, new_content, encoding="utf-8")
+            atomic_write_text(filepath, new_content, encoding=encoding)
             updated_files += 1
     except OSError as exc:
         logger.warning("Failed to update primary file %s: %s", filepath, exc)
@@ -141,12 +142,12 @@ def rename_function_everywhere(
             continue
 
         try:
-            content = src_file.read_text(encoding="utf-8")
+            content, encoding = read_source_text(src_file)
             new_content = re.sub(
                 r"\b" + re.escape(actual_old_name) + r"\b", lambda _m: target_func, content
             )
             if new_content != content:
-                atomic_write_text(src_file, new_content, encoding="utf-8")
+                atomic_write_text(src_file, new_content, encoding=encoding)
                 updated_files += 1
         except OSError as exc:
             logger.warning(
