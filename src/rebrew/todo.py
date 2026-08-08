@@ -731,7 +731,7 @@ def main(
         json_print(
             {
                 "coverage": {
-                    "total": total_funcs,
+                    "ghidra_funcs": total_funcs,
                     "covered": covered,
                     "exact": exact,
                     "reloc": reloc,
@@ -751,7 +751,8 @@ def main(
     if stats or not display_items:
         # Show coverage stats header
         console.print(
-            f"  [bold]Coverage[/bold]: {covered}/{total_funcs} functions"
+            f"  [bold]Coverage[/bold]: {covered} covered"
+            f"  ({total_funcs} in Ghidra function list)"
             f"  [green]EXACT: {exact}[/green]"
             f"  [cyan]RELOC: {reloc}[/cyan]"
             f"  [magenta]PROVEN: {proven}[/magenta]"

@@ -723,7 +723,7 @@ class TestTodoCli:
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
-        assert data["coverage"]["total"] == 1
+        assert data["coverage"]["ghidra_funcs"] == 1
         assert data["coverage"]["matching"] == 1
         assert data["total_items"] >= 1
         assert any(i["va"] == "0x00001000" for i in data["items"])

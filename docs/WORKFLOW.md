@@ -213,7 +213,7 @@ All core CLI tools support `--json` for machine-readable output:
 rebrew test src/target_name/my_func.c --json | jq '.status'
 
 # Get progress stats as JSON
-rebrew todo --stats --json | jq '.coverage_pct'
+rebrew todo --stats --json | jq '.pct_matched'
 
 # List prioritized action items as JSON
 rebrew todo --json -n 10 | jq '.items[] | {category, roi_score, name}'
