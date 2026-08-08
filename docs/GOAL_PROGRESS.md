@@ -5876,3 +5876,15 @@ True; the asm endpoint serves real x86 disassembly against guild's binary
 (0x10009320 Init, 200 OK — previously 501). The declared extras work as
 documented. Recoverage tree clean after sync (uv.lock already carried the
 extras from 7459784).
+
+## 2026-08-09 — todo coverage fields made honest (1bf4274)
+
+Discovered via `rebrew todo --json` on guild: coverage.total = Ghidra
+function-list size (219) while coverage.covered = annotated/library VAs
+(561) — covered > total is impossible-looking, and the human header
+printed "561/219 functions". pct was already correctly divided by covered
+(the 200%-bugfix comment documents why). Fixed: JSON field renamed to
+`ghidra_funcs` (its actual semantic) so the two populations are explicit;
+human line reads "561 covered (219 in Ghidra function list)". Also fixed
+docs/WORKFLOW.md's jq example — it used `.coverage_pct`, which is not a
+todo field (returned null); `.pct_matched` is. 3546 rebrew tests.
