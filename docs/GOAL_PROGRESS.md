@@ -4890,3 +4890,17 @@ prove, verify-cache tool version), synced the docs and agent skills:
   `2b09fe4`); user's in-flight work untouched.
 - **guild-rebrew**: `.agents/skills` is a symlink to the package source —
   automatically in sync (verified).
+
+## 2026-08-09 — Verify-cache invalidation: logic-source hash (`9ef03aa`)
+
+The earlier tool-version cache key used `rebrew.__version__` — a static
+"0.1.0" that never changes during development (editable installs).  A code
+change to the comparison pipeline (compile.py, core/matching.py,
+matcher/parsers.py, annotation.py) therefore did NOT invalidate cached
+verify results within the same version — exactly the staleness scenario
+that produced the phantom EXTRACT_ERROR entries.  Replaced the version
+string with a content hash of those four logic modules (`_compare_logic_hash`,
+computed once per process).  Any change to comparison/extraction/symbol-
+derivation source now invalidates the verify cache; changes to unrelated
+modules do not.  Verified live: cache rejected + re-verified on the real
+project.  Test `test_includes_compare_logic_hash` added.
