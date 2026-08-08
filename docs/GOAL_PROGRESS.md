@@ -5361,3 +5361,13 @@ Ran the `config-review` prompt (via subagent).  Fixed:
   (BLOCKER preview) and `rebrew extract batch`.
 - recoverage README: documented `check --json` and the 0/1/2 exit-code
   contract.
+
+## 2026-08-09 — recoverage e2e harness + frontend regression check
+
+The playwright e2e suite errored (not skipped) when the pinned browser
+binary is missing — CI without `playwright install` failed noisily.  A
+module-level launch check now skips with a clear message.  (In this
+environment the pinned chromium 1208 is absent — cache has 1228/1234 —
+and installing is not feasible with the disk at 98%, so the e2e tests
+skip; the API contract they exercise was verified in the api-review
+probes.)  Full recoverage suite: 262 passed / 5 skipped.
