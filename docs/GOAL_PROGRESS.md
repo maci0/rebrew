@@ -5401,3 +5401,30 @@ wibo config, cflags divergence, WAL-blind ETags, VA round-trip 404,
 unbounded POST body).  All substantive findings across every review are
 closed; remaining deferrals are low-severity with documented residual
 risk.
+
+## 2026-08-09 — sec-review: 6 findings, 5 fixed (recoverage cb5a909, rebrew 9d14e3a)
+
+Ran the `sec-review` prompt (via subagent; live probes against the real
+dashboard).  The audit confirmed the strong baseline (zero shell=True,
+no SQL injection, parameterized queries everywhere, bounded POST body,
+wibo SHA-256 verified, no secrets) and found:
+
+- **F1 (high when exposed)** — the dashboard serves the whole project
+  (sources, binary bytes, coverage DB) to any LAN client once bound
+  off-loopback.  Added optional `--token` auth: `Authorization: Bearer`,
+  `?token=`, or an HttpOnly SameSite cookie bootstrapped by opening
+  `/?token=<token>` (SPA works unchanged).  Verified live: 401 without /
+  200 with / cookie set / wrong token 401.
+- **F2 (medium)** — /api/events pins a server thread per connection with
+  no cap; a cross-origin EventSource from any webpage could exhaust
+  threads even on loopback.  Capped at 32 concurrent clients (503).
+- **F3 (low)** — ETags interpolated raw request strings (bottle rejects
+  control chars today, but a CRLF probe surfaced an HTML 500 instead of
+  the JSON contract).  ETags are now hashes of their components.
+- **F4 (low)** — static serving followed symlinks outside the tree;
+  realpath + containment check added.
+- **F5 (low)** — source filenames starting with @/- are prefixed './'
+  before CL.EXE (MSVC would parse '@x.c' as a response file).
+- F6 (MCP endpoint auth) documented as loopback-default.
+
+262+1 recoverage / 3520 rebrew tests pass.
