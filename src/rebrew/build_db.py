@@ -132,8 +132,20 @@ def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool =
             except (json.JSONDecodeError, TypeError):
                 stored_version = str(row[0])
     except sqlite3.OperationalError:
-        # Metadata table missing — treat as incompatible
+        # Metadata table missing — either a never-written file (a failed
+        # build rolls back its DDL and leaves an empty DB behind) or debris.
         stored_version = "<missing>"
+
+    if stored_version == "<missing>":
+        # No schema at all: the file is not a real database (a failed build
+        # can leave an empty 4KB file whose DDL was rolled back).  Rebuild
+        # it instead of wedging every subsequent run behind --force.
+        console.print(
+            "[yellow]warning:[/yellow] existing database has no schema (likely a "
+            "failed build); deleting and rebuilding."
+        )
+        db_path.unlink()
+        return
 
     if stored_version == _CURRENT_DB_VERSION:
         # The version string alone is not proof of shape: a DB stamped "4" can
@@ -252,6 +264,14 @@ def build_db(
             c.execute("DROP TABLE IF EXISTS globals")
             c.execute("DROP TABLE IF EXISTS sections")
             c.execute("DROP TABLE IF EXISTS metadata")
+            # verify_results is rebuilt by CREATE TABLE IF NOT EXISTS below;
+            # dropping it here prevents orphan rows for targets/functions
+            # that no longer exist in the data.
+            c.execute("DROP TABLE IF EXISTS verify_results")
+            # v3-era index superseded by idx_history_target_id — history is
+            # never dropped (accumulates by design), so remove the dead index
+            # explicitly or it survives every rebuild.
+            c.execute("DROP INDEX IF EXISTS idx_history_target_va")
 
         c.execute("""
             CREATE TABLE IF NOT EXISTS functions (
@@ -322,6 +342,7 @@ def build_db(
                 functions TEXT NOT NULL DEFAULT '[]',
                 label TEXT,
                 parent_function TEXT,
+                UNIQUE (target, section_name, start),
                 FOREIGN KEY (target, section_name)
                     REFERENCES sections(target, name)
                     ON DELETE CASCADE
@@ -387,7 +408,9 @@ def build_db(
                 SUM(CASE WHEN state = 'padding' THEN 1 ELSE 0 END) as padding_count,
                 SUM(CASE WHEN state = 'data' THEN 1 ELSE 0 END) as data_count,
                 SUM(CASE WHEN state = 'thunk' THEN 1 ELSE 0 END) as thunk_count,
-                SUM(CASE WHEN state = 'none' THEN 1 ELSE 0 END) as none_count
+                SUM(CASE WHEN state = 'none' THEN 1 ELSE 0 END) as none_count,
+                SUM(CASE WHEN state = 'proven' THEN 1 ELSE 0 END) as proven_count,
+                SUM(CASE WHEN state = 'size_mismatch' THEN 1 ELSE 0 END) as size_mismatch_count
             FROM cells
             GROUP BY target, section_name
         """)
