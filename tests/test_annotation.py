@@ -692,6 +692,32 @@ int func_b(void) { return 1; }
         assert data_ann.name == ""
         assert data_ann.symbol == ""
 
+    def test_stub_block_extracts_stdcall_symbol(self, tmp_path: Path) -> None:
+        """A STUB block with a __stdcall implementation must still derive the
+        decorated symbol (_Name@N) — STUB is a FUNCTION marker and needs
+        C-definition name extraction (regression: gate excluded STUB, so
+        verify demoted implemented stubs to EXTRACT_ERROR because the
+        undecorated symbol was never found in the .obj)."""
+        from rebrew.annotation import parse_c_file_multi
+
+        f = tmp_path / "stub.c"
+        f.write_text(
+            "// STUB: SERVER 0x10002770\n"
+            "// CrashDumpUnhandledExceptionFilter\n"
+            "\n"
+            "int WINAPI CrashDumpUnhandledExceptionFilter(void* p)\n"
+            "{\n"
+            "\treturn 0;\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        anns = parse_c_file_multi(f)
+        assert len(anns) == 1
+        a = anns[0]
+        assert a.marker_type == "STUB"
+        assert a.name == "CrashDumpUnhandledExceptionFilter"
+        assert a.symbol == "_CrashDumpUnhandledExceptionFilter@4"
+
 
 # ---------------------------------------------------------------------------
 # Shared helper tests

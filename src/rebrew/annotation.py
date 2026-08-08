@@ -954,14 +954,14 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
 
         # Try to extract function name from C definition line.
         # Skip forward declarations (lines ending with ';') — only match
-        # actual function definitions.  Only FUNCTION/LIBRARY blocks take a
-        # C-definition name: a DATA/GLOBAL block followed by a function
+        # actual function definitions.  Only FUNCTION/LIBRARY/STUB blocks take
+        # a C-definition name: a DATA/GLOBAL block followed by a function
         # definition (e.g. extern decls then the real function) would
         # otherwise inherit that function's name, misnaming the data symbol
         # and corrupting symbol→VA resolution (guild-rebrew
         # DispatchLogOutput DATA entry got the function name).
         if (
-            current_marker_type in ("FUNCTION", "LIBRARY")
+            current_marker_type in ("FUNCTION", "LIBRARY", "STUB")
             and "_C_FUNC_NAME" not in current_kv
             and not stripped.rstrip().endswith(";")
         ):
