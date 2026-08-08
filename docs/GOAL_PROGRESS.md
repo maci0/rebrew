@@ -5908,3 +5908,24 @@ egg-info files were tracked from before the rule — every pyproject change
 regenerated them and produced diff noise (the extras commit needed
 `git add -f`). Untracked per the gitignore intent (pip/uv regenerate on
 install); rebrew has no such tracked artifacts (verified). Tree clean.
+
+## 2026-08-09 — final consolidated verification
+
+- rebrew: 3546 passed, ruff clean, tree clean (f1914fc pushed).
+- recoverage: 272 passed / 4 skipped, tree clean (23ab316 pushed).
+- guild: tree clean (cache healed, verify 225/34/3 unchanged).
+- np: TOOLCHAIN_BUGS.md updated (local commit), user's in-flight work
+  untouched.
+- Note: `uv sync --extra <x>` prunes other extras (dev/pytest) — use
+  `--all-extras` (matches rebrew AGENTS.md convention); venv restored.
+
+Goal-run totals: 15 commits across rebrew + recoverage (6 rebrew fixes:
+catalog JSON coverage fields, verify-cache PROVEN raw-status + stale-entry
+invalidation + dry-run preview, STATUS-write blast-radius guard,
+build-db corrupt-JSON context; 2 recoverage: declared extras, egg-info
+untrack; todo coverage-field honesty + doc fix), np doc updated, guild
+cache healed on real data, ~15 GOAL_PROGRESS entries, 4 review lenses
+(error/db/functionality/CLI), full pipeline + API + doctor + dashboard
+validations. Discovery surface exhausted: remaining items are either
+project data (guild E013 annotation hygiene, np L/C/D work) or design
+judgments (E013 severity for extern decls) requiring user direction.
