@@ -5116,3 +5116,43 @@ No tool bugs surfaced; tree untouched.
   (400 "missing va or size"), asm out-of-range VA (400 "va is beyond
   section end"), asm valid (200), SSE /api/events stream (heartbeat
   frames).  All handled cleanly — no 500s, no tracebacks.
+
+## 2026-08-09 — functionality-review: 12 findings, 10 fixed (9b5afcd, recoverage 712506f)
+
+Ran the `functionality-review` prompt (via subagent) over the recently
+touched modules.  12 findings; fixed 10 (2 triaged as defer):
+
+- **F2 (high)** — `verify --compare` advanced the baseline even on a
+  failing run, so the gate self-healed on the next invocation.  The
+  baseline report now only advances when the gate passes.
+- **F1 (high)** — verify cache key ignored annotation SIZE; `catalog
+  --fix-sizes` (metadata-only) left stale results served as truth.  Cache
+  entries now record SIZE (old entries carry -1, re-verify once).  This
+  also exposed a latent bug: `_save_verify_cache` never wrote the new
+  field (caught by the incremental tests).
+- **F4 (med)** — `_compare_logic_hash` now also covers
+  `compile._extract_and_compare` + `binary_loader.extract_raw_bytes`.
+- **F5 (med)** — `_headers_hash` now folds in config-level `-I` include
+  dirs via `compile_cache.include_fingerprint` (external headers like
+  `references/zlib-1.1.3` previously left the verify cache stale).
+- **F3 (med)** — `cfg set-cflags` wrote `cflags_presets` that nothing
+  consumed.  Presets are now merged onto ProjectConfig (per-key, target
+  wins) and used as the per-module CFLAGS fallback in match/diff.
+- **F11 (low)** — PROVEN overlay only strips OVERLAID VAs from
+  fail_details; a proven function failing as COMPILE_ERROR keeps its row.
+- **F10 (low)** — cfg `--dry-run` prints future-tense previews and no
+  longer mutates the in-memory doc.
+- **F7 (low)** — `asm --size` beyond the image warns and reports
+  `truncated` in JSON.
+- **F9 (low)** — `flirt --va` bypasses the scan size gate (a short
+  function is actually probed).
+- **F12 (low)** — catalog grid `totalFunctions`/`matchedFunctions` now
+  reconcile with the emitted functions dict (was counting dropped
+  entries; recoverage headline said 561 vs 559 rows).
+- **F6 (low)** — recoverage `check` displays 2 decimals, matching the
+  comparison (no more "99.5% < 99.5%").
+- Deferred: F8 (imports --json decimal-key shape; consumer-compat risk),
+  F5-extra (per-function inc dirs — config-level only for now).
+
+Verified live: recoverage check prints 99.49% < 99.50%; rebrew diff still
+resolves presets; 3517 rebrew + 259 recoverage tests pass.
