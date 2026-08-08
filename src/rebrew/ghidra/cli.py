@@ -220,6 +220,19 @@ def _export_apply_ops(
     *program_path* is the RESOLVED program path (not the raw toml value) —
     the cli backend needs it to target the right program.
     """
+    # --dry-run contract ("Preview changes without writing"): report what
+    # would be exported/applied without touching ghidra_commands.json or
+    # the Ghidra side.  Previously the export half wrote the file even in
+    # dry-run, materializing a multi-hundred-KB artifact in the project.
+    if dry_run:
+        n = len(ops) if ops is not None else 0
+        if json_output:
+            json_print({"dry_run": True, "operations": n, "endpoint": endpoint})
+        elif do_export and ops is not None:
+            console.print(f"Dry run: would export {n} operations to ghidra_commands.json")
+        else:
+            console.print(f"Dry run: would apply {n} operations to Ghidra via {endpoint}")
+        return
     if do_export and ops is not None:
         out_path = cfg.root / "ghidra_commands.json"
         # Idempotency: skip operations already applied to Ghidra (tracked in
@@ -241,13 +254,6 @@ def _export_apply_ops(
         console.print(msg)
 
     if do_apply:
-        if dry_run:
-            count = len(ops) if ops is not None else 0
-            if json_output:
-                json_print({"dry_run": True, "operations": count, "endpoint": endpoint})
-            else:
-                console.print(f"Dry run: would apply {count} operations to Ghidra via {endpoint}")
-            return
         cmds_path = cfg.root / "ghidra_commands.json"
         if not cmds_path.exists():
             error_exit(f"{cmds_path} not found. Run --export first.", json_mode=json_output)
