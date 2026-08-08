@@ -1477,3 +1477,30 @@ class TestWrongCodeRegression:
         assert "_t" in result and "= h(b, c);" in result
         assert "return g(a, _t" in result
         assert quick_validate(result)
+
+
+class TestRound2Regression:
+    """Regression tests for round-2 review findings."""
+
+    def test_merge_cmp_chain_skips_outer_sibling_statements(self) -> None:
+        # Merging would drop `x = 1;` — must refuse.
+        src = "void f() { if (a) { x = 1; if (b) { y = 2; } } }"
+        assert mut_merge_cmp_chain(src, _rng()) is None
+
+    def test_merge_cmp_chain_pure_nesting_still_works(self) -> None:
+        src = "void f() { if (a) { if (b) { y = 2; } } }"
+        result = mut_merge_cmp_chain(src, _rng())
+        assert result is not None
+        assert "&&" in result
+        assert quick_validate(result)
+
+    def test_invert_if_else_else_if_chain_stays_braced(self) -> None:
+        # A bare `else if` arm must not re-bind the final else (dangling else).
+        src = "void f() { if (a < b) { x = 1; } else if (c) { x = 2; } }"
+        result = mut_invert_if_else(src, _rng())
+        assert result is not None
+        # The swapped else-arm is the original consequence, braced.
+        assert "else { x = 1; }" in result
+        # The original else-if arm becomes the new consequence, braced.
+        assert "{ else if (c) { x = 2; } }" not in result  # braces protect binding
+        assert quick_validate(result)

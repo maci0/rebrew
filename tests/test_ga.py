@@ -1043,14 +1043,16 @@ class TestGABuildCacheKey:
         from rebrew.match import _ga_cache_key
 
         src = "int f(void) { return 0; }"
-        # Same flags → same key; different flags or compiler → different key.
-        assert _ga_cache_key(src, "/O2", "cl") == _ga_cache_key(src, "/O2", "cl")
-        assert _ga_cache_key(src, "/O2", "cl") != _ga_cache_key(src, "/O2 /Oy-", "cl")
-        assert _ga_cache_key(src, "/O2", "cl") != _ga_cache_key(src, "/O2", "cl.exe")
-        assert _ga_cache_key(src, "/O2 /Oy-", "cl") != _ga_cache_key(src, "/O2", "cl.exe")
+        # Same inputs → same key; any change → different key.
+        assert _ga_cache_key(src, "/O2", "cl", "inc") == _ga_cache_key(src, "/O2", "cl", "inc")
+        assert _ga_cache_key(src, "/O2", "cl", "inc") != _ga_cache_key(src, "/O2 /Oy-", "cl", "inc")
+        assert _ga_cache_key(src, "/O2", "cl", "inc") != _ga_cache_key(src, "/O2", "cl.exe", "inc")
+        assert _ga_cache_key(src, "/O2", "cl", "inc") != _ga_cache_key(
+            src, "/O2", "cl", "other_inc"
+        )
         # Different source text → different key too.
-        assert _ga_cache_key(src, "/O2", "cl") != _ga_cache_key(
-            "int g(void) { return 1; }", "/O2", "cl"
+        assert _ga_cache_key(src, "/O2", "cl", "inc") != _ga_cache_key(
+            "int g(void) { return 1; }", "/O2", "cl", "inc"
         )
 
     def test_same_instance_recompile_only_on_flag_change(

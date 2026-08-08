@@ -1323,12 +1323,12 @@ def remove_annotation_key(
         # (False), not a claimed write.
         return remove_field(_dir, va, key.lower(), module=module)
     try:
-        text, _ = read_source_text(filepath)
+        text, encoding = read_source_text(filepath)
     except OSError as e:
         warnings.warn(f"Cannot read {filepath} for annotation removal: {e}", stacklevel=2)
         return False
 
-    return _strip_key_lines(filepath, va, key, text)
+    return _strip_key_lines(filepath, va, key, text, encoding=encoding)
 
 
 def _strip_key_lines(filepath: Path, va: int, key: str, text: str, encoding: str = "utf-8") -> bool:
