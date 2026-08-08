@@ -460,3 +460,80 @@ class TestFindSizeMismatch:
             size_mismatch=True,
         )
         assert seen == ["0x10001000"]
+
+
+# ---------------------------------------------------------------------------
+# resolve_build_params — VA-targeted annotation selection in multi-function
+# files (workflow: `rebrew diff 0x<va>` must diff THAT function, not the
+# first one in the file)
+# ---------------------------------------------------------------------------
+
+
+class TestResolveBuildParamsVATargeting:
+    """Regression: diff/match/prove invoked by VA on a multi-function file
+    selected the FIRST annotation (wrong function) when --symbol was absent,
+    producing a false 'perfect match' for the wrong bytes."""
+
+    def _cfg(self, tmp_path: Path, src_dir: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            reversed_dir=src_dir,
+            root=tmp_path,
+            target_name="T",
+            marker="T",
+            metadata_dir=tmp_path,
+            image_base=0x10000000,
+            compiler_command="wine CL.EXE",
+            base_cflags="/O2",
+            compiler_includes="inc",
+            compiler_libs="lib",
+            target_binary=tmp_path / "t.dll",
+            cflags="/O2 /Gd",
+            default_jobs=1,
+        )
+
+    def test_va_selects_matching_annotation(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.annotation import parse_c_file_multi
+        from rebrew.match import resolve_build_params
+
+        src_dir = tmp_path / "src" / "T"
+        src_dir.mkdir(parents=True)
+        multi = src_dir / "multi.c"
+        multi.write_text(
+            "// FUNCTION: T 0x10001000\n"
+            "// SIZE: 8\n"
+            "void exit_handler(void) { return; }\n"
+            "\n"
+            "// FUNCTION: T 0x1000a010\n"
+            "// SIZE: 112\n"
+            "void cleanup(void) { return; }\n",
+            encoding="utf-8",
+        )
+        cfg = self._cfg(tmp_path, src_dir)
+        # extract_raw_bytes reads the target binary — stub it with 112 bytes.
+        monkeypatch.setattr("rebrew.match.extract_raw_bytes", lambda *a, **k: b"\x90" * 112)
+        # read_source_text + parse must run; compiler env resolution can be stubbed.
+        monkeypatch.setattr("rebrew.match.msvc_env_from_config", lambda cfg: {"WINEDEBUG": "-all"})
+        monkeypatch.setattr(
+            "rebrew.match.resolve_compiler_env",
+            lambda cfg: ("wine CL.EXE", "inc", None, None),
+        )
+
+        params = resolve_build_params(
+            cfg,
+            str(multi),
+            None,
+            None,
+            None,
+            None,
+            "0x1000a010",
+            None,  # target_va = 0x1000a010, target_size=None
+            False,
+            False,
+        )
+        assert params.symbol == "_cleanup"
+        assert params.target_size == 112  # from the VA-matched annotation, not 8
+
+        # Sanity: without the VA, the fallback would pick the first annotation.
+        annos = parse_c_file_multi(multi, target_name="T", metadata_dir=tmp_path)
+        assert annos[0].va == 0x10001000
+        assert annos[1].va == 0x1000A010
