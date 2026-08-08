@@ -106,9 +106,9 @@ class TestCheckDbVersion:
         db.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(db)
         if version is not None:
-            conn.execute("CREATE TABLE metadata (key TEXT, value TEXT)")
+            conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
             conn.execute(
-                "INSERT INTO metadata VALUES ('db_version', ?)",
+                "INSERT INTO metadata VALUES ('__schema__', 'db_version', ?)",
                 (json.dumps(version),),
             )
             # The shape check (round-4) verifies required objects exist, not
@@ -156,6 +156,22 @@ class TestCheckDbVersion:
         # Matching version must leave the DB in place (force=False path).
         assert db.exists()
 
+    def test_matching_version_missing_object_errors(self, tmp_path: Path) -> None:
+        """A DB stamped with the current version but missing a required schema
+        object must be rejected — the stamp alone is not proof of shape."""
+        import sqlite3
+
+        from rebrew.build_db import _CURRENT_DB_VERSION, _check_db_version
+
+        db = self._db(tmp_path, _CURRENT_DB_VERSION)
+        # Drop a required object after the fixture created the full shape.
+        conn = sqlite3.connect(db)
+        conn.execute("DROP TABLE history")
+        conn.commit()
+        conn.close()
+        with pytest.raises(typer.Exit):
+            _check_db_version(db)
+
     def test_non_json_version_string(self, tmp_path: Path) -> None:
         import sqlite3
 
@@ -164,8 +180,8 @@ class TestCheckDbVersion:
         db = tmp_path / "db" / "coverage.db"
         db.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(db)
-        conn.execute("CREATE TABLE metadata (key TEXT, value TEXT)")
-        conn.execute("INSERT INTO metadata VALUES ('db_version', 'plain-string')")
+        conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
+        conn.execute("INSERT INTO metadata VALUES ('__schema__', 'db_version', 'plain-string')")
         conn.commit()
         conn.close()
         with pytest.raises(typer.Exit):

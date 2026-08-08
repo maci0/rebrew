@@ -240,6 +240,52 @@ class TestGenerateDataJson:
         assert data["summary"]["nearMatchCount"] == 1
         assert data["summary"]["stubCount"] == 0
 
+    def test_error_status_not_counted_as_matched(self) -> None:
+        """A COMPILE_ERROR/SIZE_MISMATCH function must not inflate matchedFunctions.
+
+        The old ``totalFunctions - stubCount`` formula counted error-status
+        functions as matched (regression: headline coverage stat overstated
+        whenever a source failed to compile).
+        """
+        entries = [
+            Annotation(
+                va=0x10001000,
+                name="ok_fn",
+                status="EXACT",
+                size=64,
+                symbol="_ok_fn",
+                filepath="/src/ok.c",
+                marker_type="FUNCTION",
+            ),
+            Annotation(
+                va=0x10002000,
+                name="broken_fn",
+                status="COMPILE_ERROR",
+                size=64,
+                symbol="_broken_fn",
+                filepath="/src/broken.c",
+                marker_type="FUNCTION",
+            ),
+            Annotation(
+                va=0x10003000,
+                name="stub_fn",
+                status="STUB",
+                size=64,
+                symbol="_stub_fn",
+                filepath="/src/stub.c",
+                marker_type="FUNCTION",
+            ),
+        ]
+        funcs = [make_func_entry(0x10001000, 64, "_ok_fn")]
+        data = generate_data_json(entries, funcs, text_size=1000)
+
+        s = data["summary"]
+        assert s["totalFunctions"] == 3
+        assert s["exactMatches"] == 1
+        assert s["stubCount"] == 1
+        # Only EXACT/RELOC/PROVEN count: COMPILE_ERROR and STUB are not matched.
+        assert s["matchedFunctions"] == 1
+
 
 # -------------------------------------------------------------------------
 # parse_function_list (additional cases)

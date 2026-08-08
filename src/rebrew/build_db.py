@@ -21,6 +21,11 @@ console = Console(stderr=True)
 
 
 _CURRENT_DB_VERSION = "4"
+
+# Reserved metadata target holding the schema-level db_version stamp, so the
+# version is read deterministically regardless of which targets exist (a
+# scoped --target rebuild must not leave the DB reporting a stale version).
+_SCHEMA_TARGET = "__schema__"
 _SQLITE_TIMEOUT_SECONDS = 30.0
 
 
@@ -109,8 +114,16 @@ def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool =
     try:
         with contextlib.closing(sqlite3.connect(db_path, timeout=_SQLITE_TIMEOUT_SECONDS)) as conn:
             c = conn.cursor()
-            c.execute("SELECT value FROM metadata WHERE key = 'db_version' LIMIT 1")
+            # Prefer the schema-level stamp; fall back to any per-target stamp
+            # for DBs written before the __schema__ row existed.
+            c.execute(
+                "SELECT value FROM metadata WHERE target = ? AND key = 'db_version' LIMIT 1",
+                (_SCHEMA_TARGET,),
+            )
             row = c.fetchone()
+            if row is None:
+                c.execute("SELECT value FROM metadata WHERE key = 'db_version' LIMIT 1")
+                row = c.fetchone()
         if row is None:
             stored_version = "<unknown>"
         else:
@@ -224,11 +237,21 @@ def build_db(
         # Start an exclusive transaction
         c.execute("BEGIN IMMEDIATE")
 
+        # The stats view is derived from cells — recreate it every run
+        # (scoped rebuilds keep the tables but must refresh the view too).
         c.execute("DROP VIEW IF EXISTS section_cell_stats")
-        c.execute("DROP TABLE IF EXISTS cells")
-        c.execute("DROP TABLE IF EXISTS functions")
+        # Full rebuild (no --target): recreate the whole schema.
+        # Scoped rebuild (--target): keep the schema and other targets'
+        # rows; only this target's rows are deleted below.
+        if not target:
+            c.execute("DROP TABLE IF EXISTS cells")
+            c.execute("DROP TABLE IF EXISTS functions")
+            c.execute("DROP TABLE IF EXISTS globals")
+            c.execute("DROP TABLE IF EXISTS sections")
+            c.execute("DROP TABLE IF EXISTS metadata")
+
         c.execute("""
-            CREATE TABLE functions (
+            CREATE TABLE IF NOT EXISTS functions (
                 target TEXT NOT NULL,
                 va INTEGER NOT NULL CHECK (va >= 0),
                 name TEXT NOT NULL DEFAULT '',
@@ -258,9 +281,8 @@ def build_db(
             )
         """)
 
-        c.execute("DROP TABLE IF EXISTS globals")
         c.execute("""
-            CREATE TABLE globals (
+            CREATE TABLE IF NOT EXISTS globals (
                 target TEXT NOT NULL,
                 va INTEGER NOT NULL CHECK (va >= 0),
                 name TEXT NOT NULL DEFAULT '',
@@ -272,9 +294,8 @@ def build_db(
             )
         """)
 
-        c.execute("DROP TABLE IF EXISTS sections")
         c.execute("""
-            CREATE TABLE sections (
+            CREATE TABLE IF NOT EXISTS sections (
                 target TEXT NOT NULL,
                 name TEXT NOT NULL,
                 va INTEGER CHECK (va IS NULL OR va >= 0),
@@ -287,7 +308,7 @@ def build_db(
         """)
 
         c.execute("""
-            CREATE TABLE cells (
+            CREATE TABLE IF NOT EXISTS cells (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 target TEXT NOT NULL,
                 section_name TEXT NOT NULL,
@@ -304,9 +325,8 @@ def build_db(
             )
         """)
 
-        c.execute("DROP TABLE IF EXISTS metadata")
         c.execute("""
-            CREATE TABLE metadata (
+            CREATE TABLE IF NOT EXISTS metadata (
                 target TEXT NOT NULL,
                 key TEXT NOT NULL,
                 value TEXT,
@@ -368,6 +388,14 @@ def build_db(
             FROM cells
             GROUP BY target, section_name
         """)
+
+        # Scoped rebuild: delete only this target's rows (sections first so
+        # the cells FK CASCADE clears cell rows too).  Runs after all tables
+        # exist (a fresh DB may lack verify_results until created above).
+        if target:
+            for table in ("sections", "functions", "globals", "metadata"):
+                c.execute(f"DELETE FROM {table} WHERE target = ?", (target,))
+            c.execute("DELETE FROM verify_results WHERE target = ?", (target,))
 
         # Process data_*.json files, optionally filtered by target
         json_files = list(db_dir.glob("data_*.json"))
@@ -664,7 +692,15 @@ def build_db(
                             vr_rows,
                         )
 
-            # Schema version stamp
+            # Schema version stamp: written under a reserved __schema__ row so
+            # readers never depend on an arbitrary target's stamp (a scoped
+            # --target rebuild previously left older targets at an older
+            # version while the unfiltered reader picked an arbitrary row).
+            c.execute(
+                "INSERT OR REPLACE INTO metadata VALUES (?, ?, ?)",
+                (_SCHEMA_TARGET, "db_version", json.dumps(_CURRENT_DB_VERSION)),
+            )
+            # Keep the legacy per-target stamp for older dashboard versions.
             c.execute(
                 "INSERT OR REPLACE INTO metadata VALUES (?, ?, ?)",
                 (target_name, "db_version", json.dumps(_CURRENT_DB_VERSION)),

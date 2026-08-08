@@ -206,7 +206,7 @@ class TestGenerateDataJsonGrid:
         assert s["relocMatches"] == 1
         assert s["nearMatchCount"] == 1
         assert s["stubCount"] == 5
-        assert s["matchedFunctions"] == 3
+        assert s["matchedFunctions"] == 2  # exact + reloc; NEAR_MATCHING is not matched
 
         # Summary coverage is cell-based (functions + padding + data + thunks).
         # Function cells: fn_a 0x60 + fn_b 0x30 + fn_c 0x20 + fn_d 0x20 +

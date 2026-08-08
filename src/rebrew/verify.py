@@ -169,6 +169,7 @@ _STATUS_RANK: dict[str, int] = {
     "NEAR_MATCHING": 2,
     "SIZE_MISMATCH": 2,
     "COMPILE_ERROR": 3,
+    "EXTRACT_ERROR": 3,
     "MISSING_FILE": 4,
     "MISSING_SIZE": 4,
     "FAIL": 5,
@@ -185,6 +186,7 @@ _STATUS_ORDER: dict[str, int] = {
     "SIZE_MISMATCH": 3,
     "STUB": 4,
     "COMPILE_ERROR": 5,
+    "EXTRACT_ERROR": 5,
     "MISSING_FILE": 6,
     "MISSING_SIZE": 6,
     "FAIL": 7,
@@ -212,8 +214,11 @@ def _headers_hash(cfg: ProjectConfig) -> str:
 
     Memoized behind a cheap stat fingerprint (path + mtime_ns + size): when no
     header changed since the last call, the full content reads are skipped.
-    Content hashing is still authoritative whenever anything DID change, so a
-    header edited with a preserved mtime is still caught.
+    The fingerprint is authoritative for the common cases (edit, create,
+    delete); an edit that preserves BOTH mtime_ns and size is not detected
+    within one process (the memo returns the cached digest).  Content hashing
+    still runs on the first call per fingerprint, and each fresh process
+    recomputes from content, so cross-run correctness is preserved.
     """
     src_dir = Path(cfg.reversed_dir)
     if not src_dir.exists():

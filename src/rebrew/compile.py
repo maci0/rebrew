@@ -555,8 +555,12 @@ def _extract_and_compare(
     # (previously two lief.COFF.parse calls on the same .obj).
     obj_bytes, reloc_dict, full_relocs = parse_obj_symbol_and_relocs(obj_path, symbol)
     if obj_bytes is None:
+        # Post-compile extraction failure: the .obj compiled fine but the
+        # symbol is absent (wrong --symbol, optimized-away function).  Must
+        # NOT masquerade as COMPILE_ERROR — downstream (rebrew test, verify)
+        # would blame the .c source and hard-exit with EXIT_ERROR.
         return classify_compare_result(
-            False, f"COMPILE_ERROR: Symbol '{symbol}' not found in .obj", target_bytes, None, None
+            False, f"EXTRACT_ERROR: Symbol '{symbol}' not found in .obj", target_bytes, None, None
         )
 
     coff_relocs = full_relocs if full_relocs else reloc_dict
