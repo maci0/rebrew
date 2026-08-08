@@ -4684,3 +4684,11 @@ or triaged (commits `517cc5c`, `69e2f56`, `004fa2f`, `db1c328`, `1411444`,
 - **Triage (keep)**: search_index first-wins dedup done; dead
   `diff_functions(invalid_relocs)` param kept (public API, now pinned by
   tests) rather than deleted.
+
+**R2 db-review remainder** (commits `5db1b23`, `786c609`):
+- `unitBytes`/`columns` of 0 in hand-edited JSON now clamped to defaults
+  instead of aborting the whole rebuild via the schema CHECK.
+- Stale `verify_results` rows pruned when a fresh report exists (the report
+  is best-effort and can legitimately shrink).
+- Status snapshot for history now taken INSIDE the `BEGIN IMMEDIATE`
+  transaction, so a concurrent rebuild cannot record wrong old_statuses.
