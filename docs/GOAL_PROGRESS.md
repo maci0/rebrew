@@ -5028,3 +5028,18 @@ found these confirmed issues, now fixed:
 
 Tests: +2 (asm bad-VA, diff --fix-blocker dry-run); 3511 rebrew + 259
 recoverage pass.
+
+## 2026-08-09 — remaining CLI-review findings: similar bad-VA, extract --dry-run (680727f)
+
+Closed out the two remaining confirmed findings from the cli-review:
+
+- **`rebrew similar 0x<bad-va> --json` silently printed empty results with
+  exit 0** (same class as the asm bug fixed earlier): `find_similar` now
+  raises ValueError when the query VA has no catalog entry, and the CLI
+  turns that into `No function found at VA ...` (exit 1).  Verified live.
+- **`rebrew extract batch` wrote .bin files with no preview**: added
+  `--dry-run` (DRY_RUN status in JSON mode, "would write" lines in human
+  mode; no bin dir created).  Verified live on guild (2 DRY_RUN items,
+  tree untouched).
+
+Tests: +2 (similar unknown-VA, extract dry-run).  3513 rebrew tests pass.
