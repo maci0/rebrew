@@ -780,7 +780,12 @@ def main(
                         ghidra_cli=resolve_ghidra_cli(cfg) or "ghidra-cli",
                     )
                 else:
-                    ok, errs = apply_commands_via_mcp(all_cmds, endpoint=endpoint)
+                    try:
+                        ok, errs = apply_commands_via_mcp(all_cmds, endpoint=endpoint)
+                    except RuntimeError as e:
+                        # Mirror the main apply path: a dead MCP endpoint must
+                        # be a clean EXIT_ERROR, not an uncaught traceback.
+                        error_exit(str(e), json_mode=json_output, code=EXIT_ERROR)
                 console.print(f"Applied {ok}/{total_size_cmds} operations successfully")
                 if errs > 0:
                     console.print(f"[red]{errs} operations failed[/red]")
@@ -829,16 +834,18 @@ def _refresh_structure_cache(
 
     console.print(f"  Fetched {len(entries)} functions")
 
-    if json_output:
-        return entries
-
+    # dry_run never writes; --json changes only the output format (it must
+    # not silently skip the cache write — the old behavior made
+    # `sync --refresh-cache --json` a no-op with exit 0).
     if dry_run:
-        console.print(f"  Would write {len(entries)} entries to {out_path}")
+        if not json_output:
+            console.print(f"  Would write {len(entries)} entries to {out_path}")
         return entries
 
     reversed_dir.mkdir(parents=True, exist_ok=True)
     atomic_write_text(out_path, json.dumps(entries, indent=2) + "\n")
-    console.print(f"  Wrote {out_path}")
+    if not json_output:
+        console.print(f"  Wrote {out_path}")
     return entries
 
 
@@ -865,16 +872,15 @@ def _refresh_data_labels_cache(
 
     console.print(f"  Fetched {len(raw_syms)} symbols")
 
-    if json_output:
-        return raw_syms
-
     if dry_run:
-        console.print(f"  Would write {len(raw_syms)} entries to {out_path}")
+        if not json_output:
+            console.print(f"  Would write {len(raw_syms)} entries to {out_path}")
         return raw_syms
 
     reversed_dir.mkdir(parents=True, exist_ok=True)
     atomic_write_text(out_path, json.dumps(raw_syms, indent=2) + "\n")
-    console.print(f"  Wrote {out_path}")
+    if not json_output:
+        console.print(f"  Wrote {out_path}")
     return raw_syms
 
 

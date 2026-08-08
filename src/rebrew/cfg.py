@@ -33,7 +33,7 @@ import typer
 from rich.console import Console
 
 from rebrew.binary_loader import detect_format_and_arch as _bl_detect_format_and_arch
-from rebrew.cli import TargetOption, error_exit, json_print
+from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print
 from rebrew.config import find_root as _config_find_root
 from rebrew.utils import atomic_write_text
 
@@ -132,7 +132,14 @@ def _load_toml(
     toml_path = root / "rebrew-project.toml"
     if not toml_path.exists():
         error_exit(f"{toml_path} not found.", json_mode=json_mode)
-    doc = tomlkit.parse(toml_path.read_text(encoding="utf-8"))
+    try:
+        doc = tomlkit.parse(toml_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        error_exit(
+            f"Failed to parse {toml_path}: {exc}",
+            json_mode=json_mode,
+            code=EXIT_ERROR,
+        )
     return doc, toml_path
 
 
@@ -144,7 +151,14 @@ def _save_toml(doc: tomlkit.TOMLDocument, path: Path, *, dry_run: bool = False) 
     if dry_run:
         console.print(f"[cyan]dry-run:[/cyan] would update {path}")
         return
-    atomic_write_text(path, tomlkit.dumps(doc), encoding="utf-8")
+    try:
+        atomic_write_text(path, tomlkit.dumps(doc), encoding="utf-8")
+    except OSError as exc:
+        error_exit(
+            f"Failed to write {path}: {exc}",
+            json_mode=False,
+            code=EXIT_ERROR,
+        )
 
 
 def _resolve_target(doc: tomlkit.TOMLDocument, target: str | None) -> str:

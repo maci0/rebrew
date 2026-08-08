@@ -62,9 +62,11 @@ class TestMainEntry:
                 raise ValueError("bad target")
 
         monkeypatch.setattr(main_mod, "app", _BoomApp())
-        with pytest.raises(typer.Exit) as exc:
+        # main() must exit cleanly (SystemExit, not an uncaught typer.Exit
+        # that would print a traceback and exit 1).
+        with pytest.raises(SystemExit) as exc:
             main_mod.main()
-        assert exc.value.exit_code == main_mod.EXIT_ERROR
+        assert exc.value.code == main_mod.EXIT_ERROR
 
     def test_keyboard_interrupt_exit_130(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class _InterruptApp:
@@ -72,6 +74,6 @@ class TestMainEntry:
                 raise KeyboardInterrupt()
 
         monkeypatch.setattr(main_mod, "app", _InterruptApp())
-        with pytest.raises(typer.Exit) as exc:
+        with pytest.raises(SystemExit) as exc:
             main_mod.main()
-        assert exc.value.exit_code == 130
+        assert exc.value.code == 130

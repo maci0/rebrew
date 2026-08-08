@@ -58,9 +58,11 @@ class TestValidateProgramPath:
 
 
 class TestRefreshCacheJson:
-    def test_structure_cache_json_returns_entries_without_writing(
+    def test_structure_cache_json_still_writes(
         self, tmp_path: Path, monkeypatch: Any, capsys: Any
     ) -> None:
+        """--json must not suppress the cache write (regression: it used to
+        make `sync --refresh-cache --json` a silent no-op with exit 0)."""
         cfg = SimpleNamespace(reversed_dir=tmp_path)
 
         monkeypatch.setattr("rebrew.ghidra.cli.httpx.Client", _FakeClient)
@@ -81,13 +83,12 @@ class TestRefreshCacheJson:
         )
 
         assert result == [{"va": 0x10001000, "size": 0x20, "tool_name": "FUN_10001000"}]
-        assert not (tmp_path / "function_structure.json").exists()
-        captured = capsys.readouterr()
-        assert captured.out == ""
+        assert (tmp_path / "function_structure.json").exists()
 
-    def test_data_labels_cache_json_returns_symbols_without_writing(
+    def test_data_labels_cache_json_still_writes(
         self, tmp_path: Path, monkeypatch: Any, capsys: Any
     ) -> None:
+        """--json must not suppress the cache write (see structure test)."""
         cfg = SimpleNamespace(reversed_dir=tmp_path)
         symbols = [{"address": "0x10002000", "name": "g_value"}]
 
@@ -107,9 +108,7 @@ class TestRefreshCacheJson:
         )
 
         assert result == symbols
-        assert not (tmp_path / "ghidra_data_labels.json").exists()
-        captured = capsys.readouterr()
-        assert captured.out == ""
+        assert (tmp_path / "ghidra_data_labels.json").exists()
 
     def test_validate_mismatch_warns_and_uses_ghidra_path(
         self, monkeypatch: Any, capsys: Any
