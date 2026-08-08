@@ -46,6 +46,7 @@ console = Console(stderr=True)
 
 CAT_SETUP = "setup"
 CAT_COMPILE_ERROR = "compile-error"
+CAT_EXTRACT_ERROR = "extract-error"
 CAT_FIX_DELTA = "fix-delta"
 CAT_IMPROVE_MATCH = "improve-match"
 CAT_START_FUNCTION = "start-function"
@@ -61,6 +62,7 @@ _PROVE_MAX_DIFF_BYTES = 8
 _CATEGORY_COLORS = {
     CAT_SETUP: "bold white",
     CAT_COMPILE_ERROR: "red",
+    CAT_EXTRACT_ERROR: "red",
     CAT_FIX_DELTA: "green",
     CAT_IMPROVE_MATCH: "yellow",
     CAT_START_FUNCTION: "cyan",
@@ -328,6 +330,17 @@ def _collect_active_functions(
             category = CAT_COMPILE_ERROR
             desc = "Compile error — fix syntax/includes"
             score = 200.0  # High priority blocker
+
+        elif v_status == "EXTRACT_ERROR":
+            # The symbol was not found in the compiled .obj (wrong symbol,
+            # optimized-away function, or a STUB marker whose decorated name
+            # doesn't match).  delta is 0 (no bytes extracted), so without
+            # this branch it would fall into fix-delta as a misleading
+            # "0B diff" quick-win.  Surface it as a tooling/annotation issue
+            # instead — a flag sweep cannot fix a missing symbol.
+            category = CAT_EXTRACT_ERROR
+            desc = "Symbol not found in .obj — check STUB/FUNCTION marker, symbol name, or implementation"
+            score = 150.0  # High priority: nothing else can proceed until resolved
 
         elif not name or name.startswith("FUN_"):
             category = CAT_MISSING_ANNOTATION
@@ -632,6 +645,7 @@ _EPILOG = (
     "[bold]Categories (interleaved globally by continuous ROI score):[/bold]\n\n"
     "  setup · · · · · · · · · Project setup steps (fresh projects)\n\n"
     "  compile-error · · · · · Failed verify syntax/includes\n\n"
+    "  extract-error · · · · · Symbol not found in .obj — marker/symbol/implementation issue\n\n"
     "  fix-delta · · · · · · · Known tiny byte diffs (<= 20B) — flag sweeps, padding, GA\n\n"
     "  improve-match · · · · · Functions in-progress without a known small delta\n\n"
     "  start-function · · · · · Uncovered functions, ranked by difficulty\n\n"

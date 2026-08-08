@@ -33,6 +33,7 @@ from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
 from rich.table import Table
 from rich.text import Text
 
+import rebrew  # package __version__ for the verify-cache key
 from rebrew.annotation import Annotation
 from rebrew.catalog import (
     build_function_registry,
@@ -199,6 +200,13 @@ def _compiler_config_hash(cfg: ProjectConfig) -> str:
         cfg.base_cflags,
         str(cfg.compiler_includes),
         str(cfg.compiler_libs),
+        # The rebrew tool version: comparison/extraction logic changes between
+        # releases (e.g. the EXTRACT_ERROR / STUB-symbol fixes) and can alter
+        # results for the SAME source+compiler.  Without this, an upgraded
+        # rebrew silently serves cached results computed by the old code —
+        # stale statuses (e.g. EXTRACT_ERROR entries that a fresh run now
+        # resolves correctly) mislead todo/status/dashboard.
+        rebrew.__version__,
     ]
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
