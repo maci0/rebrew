@@ -4948,3 +4948,23 @@ process uses it).  Both probe sites switched over; mypy flagged the
 function/variable name shadowing, renamed locals to `has_angr`.  Verified
 live: `rebrew todo --json` and `rebrew doctor --json` now emit zero stderr
 bytes.  Test added; 3508 tests pass.
+
+## 2026-08-09 — wide CLI smoke audit on guild-rebrew (no findings needing fixes)
+
+Batched probes across the remaining tool surface, all on the real project:
+
+- `rebrew imports --json` (84 imports), `rebrew status --json`,
+  `rebrew asm 0x1000a010` — clean.
+- `rebrew match 0x10018130 --generations 1` — GA smoke OK, correct VA
+  targeting (spiel.c gm_IsInRange), best_score 3000.0, output under
+  gitignored `output/`.
+- `rebrew near-diag 0x1000a010 --json` — works (dash form; underscore form
+  is correctly not registered; docs use the dash form everywhere).
+- `rebrew flirt --va 0x1000a010` — 3414 sigs loaded, 0 matches at a game
+  function (expected); CLI + JSON output clean.
+- `rebrew data --dispatch`, `rebrew todo --json` — 34 ROI-ordered items;
+  stub functions roll up under improve-match; categories consistent with
+  the documented set (no compile/extract errors in guild).
+- `rebrew diff 0x1000a010 --json` — target_size 112 (correct function),
+  VA targeting intact after the watch fix.
+- recoverage suite re-run: 258 passed / 4 skipped.
