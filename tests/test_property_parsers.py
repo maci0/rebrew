@@ -377,7 +377,8 @@ def test_rel32_target_bounds(blob: bytes, fn_va: int) -> None:
 @given(st.binary(max_size=64))
 def test_trim_trailing_padding_invariants(data: bytes) -> None:
     """Trimmed length ≤ len; stripped suffix is all padding; prefix is padding-free."""
-    from rebrew.catalog.sections import PADDING_BYTES, trim_trailing_padding
+    from rebrew.binary_loader import PADDING_BYTES
+    from rebrew.catalog.sections import trim_trailing_padding
 
     n = trim_trailing_padding(data)
     assert 0 <= n <= len(data)

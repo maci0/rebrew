@@ -85,7 +85,7 @@ class TestBuildFunctionRegistry:
             data=b"\x90" * 0x200,
             sections={".text": SimpleNamespace(va=0x1000, size=0x200, file_offset=0)},
         )
-        monkeypatch.setattr("rebrew.catalog.registry.load_binary", lambda p: info)
+        monkeypatch.setattr("rebrew.binary_loader.load_binary", lambda p: info)
         registry = build_function_registry(
             funcs, _cfg(), ghidra_path=ghidra_path, bin_path=bin_path
         )

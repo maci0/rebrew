@@ -8,7 +8,6 @@ import struct
 from pathlib import Path
 from typing import Any, TypedDict
 
-from rebrew.binary_loader import load_binary
 from rebrew.catalog.sections import has_back_jumps, trim_trailing_padding
 from rebrew.config import ProjectConfig
 
@@ -236,6 +235,8 @@ def build_function_registry(
     text_size_val = 0
     if bin_path and bin_path.exists():
         try:
+            from rebrew.binary_loader import load_binary
+
             info = load_binary(bin_path)
             if ".text" in info.sections:
                 sec = info.sections[".text"]

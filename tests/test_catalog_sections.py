@@ -51,14 +51,14 @@ class TestHasBackJumps:
 class TestGetTextSectionSize:
     def test_returns_text_size(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            "rebrew.catalog.sections.load_binary",
+            "rebrew.binary_loader.load_binary",
             lambda _p: SimpleNamespace(text_size=0x1234),
         )
         assert get_text_section_size(Path("/tmp/fake.dll")) == 0x1234
 
     def test_failure_returns_zero(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            "rebrew.catalog.sections.load_binary",
+            "rebrew.binary_loader.load_binary",
             lambda _p: (_ for _ in ()).throw(RuntimeError("bad")),
         )
         assert get_text_section_size(Path("/tmp/nope.dll")) == 0
