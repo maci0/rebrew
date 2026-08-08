@@ -4815,3 +4815,15 @@ skip link — solid legacy fallback).
 colors outside token blocks (the single `#ffffff` is the progress-text
 overlay, deliberately white on colored segments with a light-mode
 override), all media queries served.  recoverage suite 258 passed.
+
+## 2026-08-09 — Full-tree detector sweep + remaining tool probes
+
+- Impeccable detector run across the ENTIRE rebrew + recoverage src trees:
+  **0 findings** (the UI audit already cleared the frontend; the backend is
+  equally clean).
+- Probed remaining tools on real projects: `asm --format nasm` (correct
+  NASM output), `skeleton --dry-run` (correctly refuses to overwrite a
+  covered VA; errors on unknown VAs), `extract list/show/batch` (candidate
+  list works; `show` correctly rejects already-reversed VAs; batch returns
+  0 on np-rebrew because its remaining candidates are all covered — data
+  condition, not a bug).  No new tooling bugs.
