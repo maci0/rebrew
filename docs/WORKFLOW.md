@@ -41,7 +41,8 @@ rebrew todo --stats              # coverage summary
 ```
 
 `rebrew todo` evaluates the entire project and surfaces the highest Return-on-Investment
-tasks: compile errors, build regressions, 1–4 byte near-misses, and easy new starts.
+tasks: compile errors, symbol-extraction errors (EXTRACT_ERROR), 1–4 byte near-misses,
+and easy new starts.  Each item carries a ready-to-run `command` — follow it verbatim.
 
 ### 2. Generate skeleton
 
@@ -109,6 +110,10 @@ rebrew diff src/target_name/my_func.c
 
 # Show only structural differences (** lines)
 rebrew diff --mismatches-only src/target_name/my_func.c
+
+# VA form works too: resolves to the source file and targets the annotation
+# whose VA matches (multi-function files: NOT the first function).
+rebrew diff 0x10009310
 ```
 
 **Diff markers:**
@@ -213,8 +218,8 @@ rebrew todo --stats --json | jq '.coverage_pct'
 # List prioritized action items as JSON
 rebrew todo --json -n 10 | jq '.items[] | {category, roi_score, name}'
 
-# List NEAR_MATCHING functions sorted by byte delta
-rebrew todo -c fix-near-miss --json | jq '.items[] | select(.byte_delta != null and .byte_delta <= 5)'
+# List tiny-byte-diff quick wins (fix-delta category, ≤5B)
+rebrew todo -c fix-delta --json | jq '.items[] | select(.byte_delta != null and .byte_delta <= 5)'
 
 # Structured diff output
 rebrew diff --json src/target_name/my_func.c | jq '.summary'

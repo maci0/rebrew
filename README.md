@@ -126,7 +126,8 @@ rebrew skeleton 0x10003DA0 --xrefs  # skeleton with Ghidra cross-reference conte
 rebrew test src/target_name/f.c     # test implementation against target
 rebrew todo                         # see highest ROI action items
 rebrew todo --stats                 # show overall progress statistics
-rebrew todo -c fix-near-miss --json # NEAR_MATCHING functions sorted by byte delta
+rebrew todo -c fix-delta --json     # tiny byte diffs (quick wins, sorted by ROI)
+rebrew todo -c extract-error        # symbols missing from .obj (marker/impl issue)
 rebrew flirt --json                 # FLIRT scan: identify known library functions
 rebrew crt-match 0x10006c00         # match a single VA against CRT source
 rebrew crt-match --all --origin MSVCRT # match all MSVCRT functions

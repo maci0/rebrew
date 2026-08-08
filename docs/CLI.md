@@ -152,7 +152,7 @@ Behavior:
 | Flag | Description |
 |------|-------------|
 | `-n N` / `--count N` | Number of items to show (default 20) |
-| `-c CAT` / `--category CAT` | Filter by category (e.g. `start-function`, `fix-verify-fail`) |
+| `-c CAT` / `--category CAT` | Filter by category (e.g. `start-function`, `fix-delta`, `compile-error`, `extract-error`, `improve-match`) |
 | `-s` / `--stats` | Show coverage stats in the panel title |
 | `--json` | Output results as JSON |
 
@@ -527,7 +527,9 @@ rebrew test src/target_name/my_func.c --no-promote # compile without updating ST
 # Prioritization & action queue
 rebrew todo                                        # Top 20 ROI-ranked actions
 rebrew todo -c start-function                      # Only uncovered functions to start
-rebrew todo -c fix-verify-fail -n 50               # All verify failures
+rebrew todo -c fix-delta -n 50                     # Tiny byte diffs (quick wins)
+rebrew todo -c compile-error                       # Build failures blocking progress
+rebrew todo -c extract-error                       # Symbols missing from .obj (marker/impl issue)
 rebrew todo --stats --json                         # Coverage stats + full JSON report
 
 # Diff & investigation

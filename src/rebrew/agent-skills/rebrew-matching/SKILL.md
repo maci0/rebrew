@@ -42,6 +42,11 @@ rebrew diff src/<target>/<file>.c --format csv   # CSV for spreadsheet analysis
 rebrew diff 0x10009310 --json                    # resolve a VA directly (no .c path needed)
 ```
 
+> **VA on a multi-function file**: `rebrew diff/match/prove 0x<va>` targets the
+> annotation whose VA matches, NOT the first function in the file. When the
+> resolved file covers a different function than the VA, the tool errors out
+> instead of silently diffing the wrong bytes.
+
 ### Diff Markers
 
 - `==` identical bytes
