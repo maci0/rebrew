@@ -109,6 +109,9 @@ class TestImportsCli:
         payload = json.loads(result.output)
         assert any(i["name"] == "MessageBoxA" for i in payload["imports"])
         assert payload["stubs"]  # stub VA → name present
+        # VAs are hex strings, consistent with every other rebrew JSON.
+        assert all(s["va"].startswith("0x") for s in payload["stubs"])
+        assert all(str(i["iat_va"]).startswith("0x") for i in payload["imports"])
 
     def test_missing_binary_errors(self, tmp_path: Path) -> None:
         from rebrew.imports import app
