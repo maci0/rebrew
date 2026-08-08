@@ -5556,3 +5556,22 @@ F9 (extract failed count assert), F10-F12 (diff preview text, cfg
 set-cflags dry-run, asm truncation), R4 (SSE cap test), R7 (schema column
 isolation), R8 (playwright server guard), R9 (memo self-invalidation).
 3532 rebrew (+12) / 269 recoverage (+7) tests pass.
+
+## 2026-08-09 — test-review deferrals batch 2 (59f0459, recoverage aba4a02)
+
+Closed six more test-review gaps:
+
+- F9: extract batch JSON asserts the `failed` counter.
+- F10: diff --fix-blocker --dry-run asserts the future-tense preview text
+  ("Would update BLOCKER ... register allocation").
+- F11: cfg set-cflags --dry-run writes nothing.
+- F12: asm --size truncation warns + reports truncated/requested_size in
+  JSON.  (Also uncovered: the older test_empty_extract_errors was hitting
+  the binary-missing path first — its exit-1 assertion masked that; the
+  new test creates the binary so the real empty-extract path runs.)
+- R4: SSE client cap returns 503 beyond _SSE_MAX_CLIENTS.
+- R7: complete-v4-object-set-with-one-column-missing reports
+  <incomplete> (isolates the column gate from the name gate).
+
+3534 rebrew / 271 recoverage tests pass.  Remaining deferrals are F4/F5/
+F7/F8 (rebrew) and R8/R9 (recoverage) — all documented low-severity.
