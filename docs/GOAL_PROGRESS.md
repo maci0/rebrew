@@ -4607,3 +4607,44 @@ fixtures), gen_flirt_pat.py (needs .lib archives).
 - Expected finding (not a defect): only 3 console scripts are registered
   (rebrew, rebrew-round-trip, rebrew-skills) — the other tools run via the
   umbrella, matching pyproject.toml.
+
+## 2026-08-08 — 8h swarm + review rounds (minimalism/slop ×10, error, functionality, perf)
+
+**Swarm (20 runs, 30 confirmed findings):** all fixed or triaged — batches
+`dc1a6ce`…`535df17` (status-counting unified via `count_statuses`,
+promotion decision unified via `cli.should_promote_status`, duplicate
+CATALOG.md generator dropped, metadata-key drift, dead-param removal,
+SIZE_MISMATCH message parity, ghost GACheckpoint docstring).
+
+**Review rounds (error / functionality / perf):** fixes in `e72e805`
+(rebrew) and `1caae91` (recoverage), plus perf batch `bd0b204` + `c9c80ff`:
+
+- flag_sweep worker exceptions now counted + warned (never silent "no match")
+- `rebrew test --json` single-document output (skip reason folded in)
+- catalog binary-load failure warns (no more plausible-but-wrong coverage DB)
+- corrupt ghidra sync state preserved via `preserve_corrupt` + warned
+- GA run-record / solution-save failures warned (--skip-recent/seed visibility)
+- compile.py distinguishes COMPILE_ERROR vs EXTRACT_ERROR
+- iter_annotations parse skips warned (no silent function loss)
+- `build-db --target` warns when it will drop other targets
+- update_source_status serialised with a module lock (parallel verify)
+- GA `_compute_fitness` prints gated behind verbose (Console-lock contention)
+- `parse_c_ast` memoized (tree-sitter trees are immutable)
+- `find_similar` accepts preloaded entries (batch seeding reads file once)
+- oversized flag sweeps deterministically sampled (full tier ~2.5M → ~100k)
+- grid.py padding-trim computed once per gap
+- recoverage: ETag+304 on /asm & /bytes (was year-immutable), DLL/disasm
+  caches cleared on external build-db broadcast, bare-hex VAs accepted,
+  corrupt TOML warned, van.min.js missing warned, schema check memoized,
+  SPA fetch `no-store` → `no-cache` (ETag now honored)
+
+**Triage (keep with reason):** test-only wrappers (public utilities),
+__init__ re-exports (public API), MSVC7_ONLY_IDS (auto-synced file),
+pull_prototypes replace_externs (tested programmatic flag), pagination
+loops (different data needs; no-advance guards already present),
+module_for_va (tested, used by match.py), recoverage micro-dead-code
+(verified used), FUNC4 DB-only-target DLL fallback (404 names target),
+FUNC10 full-grid rebuild (ETag now short-circuits), PERF7 double LIEF
+parse (ms-scale, API churn risk), PERF8 diff_functions quadratic
+(diagnostic path), PERF10 header content-hash (deliberate correctness
+guard), PERF11 potato full-cell load (fallback UI).
