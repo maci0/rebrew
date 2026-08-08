@@ -59,7 +59,7 @@ class TestHexMode:
         from rebrew.asm import _run_hex_mode
 
         cfg = _cfg(tmp_path)
-        monkeypatch.setattr("rebrew.asm.extract_raw_bytes", lambda *a, **k: b"")
+        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"")
         with pytest.raises(typer.Exit) as exc:
             _run_hex_mode(0x99999999, 16, cfg, False, False)
         assert exc.value.exit_code == 1
@@ -175,7 +175,7 @@ class TestBatchExtractNasm:
             "// FUNCTION: SERVER 0x1000\n// SIZE: 12\n// STATUS: STUB\nint f(void) { return 0; }\n",
             encoding="utf-8",
         )
-        monkeypatch.setattr("rebrew.asm.extract_raw_bytes", lambda *a, **k: _CODE)
+        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: _CODE)
         out_dir = tmp_path / "nasm"
         batch_extract_nasm(cfg, out_dir, verify_flag=True)  # type: ignore[arg-type]
         # Multi-function sources share a stem — output names carry the VA.
@@ -191,7 +191,7 @@ class TestBatchExtractNasm:
             "// FUNCTION: SERVER 0x1000\n// SIZE: 12\n// STATUS: EXACT\nint f(void) { return 0; }\n",
             encoding="utf-8",
         )
-        monkeypatch.setattr("rebrew.asm.extract_raw_bytes", lambda *a, **k: _CODE)
+        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: _CODE)
         out_dir = tmp_path / "nasm"
         batch_extract_nasm(cfg, out_dir, stubs_only=True)  # type: ignore[arg-type]
         assert not (out_dir / "f.c.asm").exists()
@@ -210,7 +210,7 @@ class TestBatchExtractNasm:
         def _none(*a: object, **k: object) -> None:
             return None
 
-        monkeypatch.setattr("rebrew.asm.extract_raw_bytes", _none)
+        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", _none)
         out_dir = tmp_path / "nasm"
         batch_extract_nasm(cfg, out_dir)  # type: ignore[arg-type]
         assert not (out_dir / "f.c.asm").exists()
