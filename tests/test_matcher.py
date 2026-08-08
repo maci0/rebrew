@@ -256,6 +256,53 @@ class TestDiffFunctionsEdges:
         assert result is not None
         assert result["summary"]["structural"] == 1
 
+    def test_reloc_normalized_not_invalid(self, capsys) -> None:
+        """A differing reloc slot WITHOUT an invalid reloc marker shows the
+        reloc-normalized marker (~~), not XX."""
+        from rebrew.matcher.scoring import diff_functions
+
+        target = b"\x55\x89\xe5\xc3"
+        cand = b"\x57\x89\xe5\xc3"
+        diff_functions(target, cand, reloc_offsets=[0], invalid_relocs=None)
+        out = capsys.readouterr().out
+        assert "| XX |" not in out
+        assert "| ~~ |" in out
+
+    def test_invalid_reloc_outside_code_still_normalized(self, capsys) -> None:
+        """An invalid reloc entirely beyond the code does not mark any byte XX;
+        the reloc-normalized comparison still shows ~~."""
+        from rebrew.matcher.scoring import diff_functions
+
+        target = b"\x55\x89\xe5\xc3"
+        cand = b"\x57\x89\xe5\xc3"
+        diff_functions(target, cand, reloc_offsets=[0], invalid_relocs=[100])
+        out = capsys.readouterr().out
+        assert "| XX |" not in out
+        assert "| ~~ |" in out
+
+    def test_build_invalid_reloc_mask_boundaries(self) -> None:
+        from rebrew.matcher.scoring import _build_invalid_reloc_mask
+
+        # Empty / None input → empty mask.
+        assert _build_invalid_reloc_mask(b"\x00\x01\x02", None) == []
+        assert _build_invalid_reloc_mask(b"\x00\x01\x02", []) == []
+
+        # Pointer-size span at offset 0.
+        assert _build_invalid_reloc_mask(b"abcd", [0]) == [True, True, True, True]
+
+        # Negative offset cannot overlap the buffer (end clamps negative) →
+        # all-False, no bytes wrongly marked.
+        mask = _build_invalid_reloc_mask(b"abcd", [-5])
+        assert mask == [False, False, False, False]
+
+        # Offset entirely beyond the buffer → all-False mask (never True).
+        mask = _build_invalid_reloc_mask(b"abcd", [100])
+        assert mask == [False, False, False, False]
+
+        # Partial overlap at the tail: offset 2 in a 5-byte buffer marks 2-5.
+        mask = _build_invalid_reloc_mask(b"abcde", [2])
+        assert mask == [False, False, True, True, True]
+
     def test_print_mode_output(self, capsys) -> None:
         from rebrew.matcher.scoring import diff_functions
 
