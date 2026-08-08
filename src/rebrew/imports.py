@@ -195,7 +195,24 @@ def main(
         return
 
     if json_output:
-        json_print({"binary": str(binary), "imports": imports, "stubs": stubs})
+        json_print(
+            {
+                "binary": str(binary),
+                "imports": [
+                    {
+                        "dll": i["dll"],
+                        "name": i["name"],
+                        "iat_va": f"0x{i['iat_va']:08x}",
+                    }
+                    for i in imports
+                ],
+                # Stub VAs as hex strings (matching every other rebrew JSON)
+                # instead of decimal stringified dict keys.
+                "stubs": [
+                    {"va": f"0x{va:08x}", "name": name} for va, name in sorted(stubs.items())
+                ],
+            }
+        )
         return
 
     if dry_run:
