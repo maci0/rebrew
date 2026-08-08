@@ -1,19 +1,18 @@
 # GOAL_STATUS — 16h autonomous improvement (in progress)
 
-Slice 210 done. Idempotency sweep on the workspace (lint/rename/merge/data/
-prove --dry-run twice, byte-identical outputs, no writes). Fixed a real
-contract violation in remove_annotation_key (returned True even when nothing
-was deleted; now propagates remove_field's result) and added 5 annotation
-roundtrip invariant tests: metadata update→remove leaves the .c byte-identical,
-absent-key removal is a no-op, same-value update is a no-op, inline keys
-round-trip through the .c file, remove_inline never touches metadata.
-Suite: 3460 passed / 0 skipped, pre-commit green.
+Slice 212 done. Committed and pushed the session's work (rebrew
+5eeca4b..cfcbb6f, +17.7k lines across 124 files; pre-commit green in the
+commit). Sister project recoverage verified against a freshly regenerated
+coverage.db (all endpoints 200), its 57 silently-skipped DB-gated tests
+enabled via a synthetic-DB conftest (201 passed / 4 skipped), 3 stale potato
+assertions fixed, and two missing features shipped: `--bind` for
+`recoverage serve` and a server-side 429 rate limit on POST /api/regen.
+Pushed recoverage c9d5c32..e7ea356.
 
-Recent slices: 209 code-review (6 findings fixed incl. a real oversize
-correctness hole), 208 angr-enabled prove tests + 30 mypy fixes, 207
-fuzz-review hypothesis targets for the COFF .obj helpers, 206 round-trip
-resolution fallbacks (workspace spliced 131→158).
+Slices 206-211 (rebrew): round-trip resolution fallbacks (workspace spliced
+131→158), fuzz-review + code-review passes (all findings fixed), angr-enabled
+prove tests + 30 mypy fixes, idempotency sweep + annotation roundtrip
+invariants, stale docs refreshed. Suite: 3460 passed / 0 skipped.
 
-Total session (slices 1–210): ~95 real tool defects fixed, 18 features,
-34-review pass + 31 focused reviews, all triaged and validated. Details:
-docs/GOAL_PROGRESS.md (slices 1–210).
+Total session (slices 1-212): ~95 real tool defects fixed, 18+ features,
+34-review pass + 31 focused reviews. Details: docs/GOAL_PROGRESS.md.

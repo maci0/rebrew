@@ -4485,3 +4485,24 @@ fixtures), gen_flirt_pat.py (needs .lib archives).
   corruption.
 - round_trip.py module docstring updated to match.
 - Suite 3460 passed / 0 skipped. pre-commit green.
+
+### Slice 212 (16h goal) — push rebrew + recoverage health/features — DONE
+- Committed + pushed the session's work: rebrew 5eeca4b..cfcbb6f
+  ("feat: round-trip resolution fallbacks, prove typing, metadata
+  hardening" — 124 files changed, +17.7k/-1.6k), pre-commit ran inside the
+  commit (all hooks green).
+- Sister project recoverage (coverage dashboard consuming coverage.db):
+  - Regenerated the workspace DB with the CURRENT rebrew (catalog + build-db)
+    and verified every API endpoint + the SPA + Potato Mode return 200; the
+    asm 501 is the designed "capstone not installed" optional-dep path.
+  - Found the root cause of its 57 silently-skipped tests: CI has no
+    coverage.db, so DB-gated tests never executed. tests/conftest.py now
+    builds a synthetic coverage.db (build-db schema v4) → 201 passed /
+    4 skipped (was 148/57).
+  - Fixed 3 stale potato assertions that had been rotting unseen (ETag
+    casing, section-name accesskeys, detail-row markup) — now green against
+    BOTH the synthetic DB and the real workspace DB.
+  - Added 2 missing features from docs/ideas.md: `--bind` flag for
+    `recoverage serve` (LAN access) and a server-side 429 rate limit on
+    POST /api/regen (retry_after) — verified end-to-end.
+  - Pushed recoverage c9d5c32..e7ea356.
