@@ -5452,3 +5452,29 @@ source).  Fixed:
   tree; recoverage pyproject gains [project.urls] + 3.13/3.14 classifiers.
   (Fixed my own TOML table-splitting mistake in the process: [project.urls]
   must come after dependencies.)
+
+## 2026-08-09 — perf-review: GA scoping + lazy imports + parse memo (12fc4fc)
+
+Ran the `perf-review` prompt (via subagent with cProfile/-X importtime
+measurements).  Fixed:
+
+- **F1 (critical)** — GA mutation queries ran over the WHOLE multi-function
+  file (cProfile: 86% of a GA run, ~6s/gen on the 79KB guild seed) even
+  though only the target function's bytes are scored.  Mutations are now
+  scoped to the target function's byte range via a thread-local applied in
+  the shared cursor helper (set inside run(), cleared in finally).  The
+  270x win was measured by the reviewer; live: 2 gens on the 79KB seed in
+  1.27s.
+- **F2 (high)** — ~98 tree-sitter queries compiled at module import
+  (~50ms of every CLI invocation); now lazy (_LazyQuery).  cfg/asm import
+  binary_loader (and thus lief, ~125ms) lazily.  Measured: cfg list-targets
+  0.47s -> 0.36s.
+- **F5** — GA elapsed_sec under-reported by ~99% (accounting stopped
+  before the mutation phase); now covers the full generation.
+- **F3 (medium)** — metadata-free parse_c_file_multi memoized per
+  (path, mtime_ns, size); verify's build_name_to_va no longer re-parses
+  the tree (verify 1.19s -> 1.12s).  The metadata-overlay path is never
+  memoized.
+- F4 verified as already-fast (numpy-vectorized scoring, memoized include
+  fingerprints, linear grid).  Lazy main.py subcommand registration
+  remains a documented follow-up.
