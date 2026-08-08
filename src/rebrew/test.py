@@ -67,6 +67,8 @@ def _patch_verify_cache(
     new_status: str,
     match_count: int,
     total: int,
+    *,
+    delta: int | None = None,
 ) -> None:
     """Update the verify cache entry for *va* so status/todo stay in sync.
 
@@ -75,6 +77,10 @@ def _patch_verify_cache(
     still hold a stale result from a previous ``rebrew verify`` run.
     This helper patches the relevant entry in-place so that all tools
     agree on the current status immediately after a test.
+
+    *delta* overrides the recomputed ``total - match_count`` when the
+    caller has a real byte delta (the batch path gets one from verify;
+    recomputing from match_percent would store a percent-scale number).
     """
     cache_path = cfg.root / ".rebrew" / "verify_cache.json"
     if not cache_path.exists():
@@ -100,7 +106,9 @@ def _patch_verify_cache(
     match_pct = round(100.0 * match_count / total, 1) if total > 0 else 0.0
     result["match_percent"] = match_pct
     result["passed"] = is_matched(new_status)
-    if total > 0:
+    if delta is not None:
+        result["delta"] = delta
+    elif total > 0:
         result["delta"] = total - match_count
     entry["result"] = result
     entries[va_key] = entry
@@ -743,6 +751,9 @@ def _test_multi(
                 relocs,
                 inv_relocs,
                 size_mismatch=size_mismatch,
+                # Same pre-truncation length diff compile_and_compare threads —
+                # without it, a SIZE_MISMATCH delta misses the length diff.
+                size_delta=abs(len(obj_bytes) - len(target_bytes)) if size_mismatch else 0,
             )
             matched = cmp.matched
             new_status = cmp.status
@@ -968,7 +979,17 @@ def _run_all_batch(
             except (ValueError, TypeError, KeyError):
                 continue
             pct = r.get("match_percent") or 0.0
-            _patch_verify_cache(cfg, va_int, r.get("status", ""), round(pct), 100)
+            _patch_verify_cache(
+                cfg,
+                va_int,
+                r.get("status", ""),
+                round(pct),
+                100,
+                # verify's real byte delta — recomputing from match_percent
+                # would store a percent-scale number into the byte field
+                # (todo.py's ROI thresholds read it as bytes).
+                delta=r.get("delta"),
+            )
 
     # Build transitions for summary display
     transitions: list[tuple[str, str]] = []

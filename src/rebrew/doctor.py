@@ -295,8 +295,11 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
                     fix=fix_msg,
                 )
 
-            # Quick smoke test: try running cl.exe with no args
-            runner_token = exe if is_wibo_runner else "wine"
+            # Quick smoke test: try running cl.exe with no args.  Use the
+            # RESOLVED runner path (exe_path) — a relative tools/wibo would be
+            # resolved against the process CWD, not cfg.root, and fail from a
+            # subdirectory.
+            runner_token = exe_path if exe_path else ("wine" if exe == "wine" else exe)
             display_runner = "wibo" if is_wibo_runner else "Wine"
             try:
                 subprocess.run(

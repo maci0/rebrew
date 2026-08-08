@@ -472,9 +472,9 @@ def find_dispatch_tables(
                     )
                 )
                 last_ptr_i = i
-            else:
-                # Not a text pointer — the current run (if any) is over.
-                _flush_run()
+            # else: not a text pointer — do NOT flush.  Non-pointer slots
+            # within stride of the last pointer are tolerated (sparse tables);
+            # the next pointer's gap check decides whether the run continues.
             i += ptr_size  # always advance by ptr_size; stride only bounds gaps
 
         # Flush trailing run
