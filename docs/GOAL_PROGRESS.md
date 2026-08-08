@@ -5000,3 +5000,31 @@ Live-verified on guild: the 3 real PROVEN functions still show PROVEN
 (224 passed / 35 failed).  Tests: the old overlay test asserted STUB→
 PROVEN (premise was wrong); now NEAR_MATCHING→PROVEN, plus a new
 COMPILE_ERROR-not-masked regression test.  3509 tests pass.
+
+## 2026-08-09 — CLI review fixes: bad-VA errors, diff --dry-run, prove silence (8fc46ca, recoverage 70d6f25)
+
+Ran the `cli-review` prompt (via subagent) across the rebrew/recoverage
+CLI surface.  The audit confirmed rebrew's conventions are strong (--json
+help string exact in 40/40, --dry-run exact in 14/14, --json before
+--target, stdout/stderr discipline, config errors with EXIT_ERROR), and
+found these confirmed issues, now fixed:
+
+- **Bad-VA handling (high)**: `rebrew diff 0x99999999 --json` reported a
+  misleading `--symbol required` (exit 1); `rebrew asm`/`similar` printed
+  empty results with exit 0.  diff/match now error `Source not found:
+  0x...`; asm errors `No code at VA ... — address is outside the binary
+  image`.  Verified live on guild.
+- **diff --fix-blocker had no --dry-run** (only metadata write tool
+  missing it): added `--dry-run` (keyword-only on run_diff; previews
+  BLOCKER writes, verified live on a reloc-only function).
+- **prove leaked angr's unicorn ERROR on stderr on every run**, even when
+  the status guard rejected it: angr logger silenced at prove main entry.
+  Verified: 0 stderr bytes.
+- **recoverage stats --json** (medium consistency gap): added, emits the
+  same data as export --format json.  Verified live.
+- Left as documented/acceptable: data --gen-header error wrap (cosmetic),
+  cfg set silent write, prove --watch-va decimal semantics (documented),
+  exit-code legend only on compile tools (nice-to-have).
+
+Tests: +2 (asm bad-VA, diff --fix-blocker dry-run); 3511 rebrew + 259
+recoverage pass.
