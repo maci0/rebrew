@@ -18,18 +18,36 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
+from rebrew.matcher.flags import Checkbox, FlagSet
+
 REPO_URL = "https://github.com/decompme/decomp.me.git"
 FLAGS_PATH = "backend/coreapp/flags.py"
 
 # Flag IDs that only exist in MSVC 7.x+ (not available in MSVC 6.0)
 MSVC7_ONLY_IDS = {"msvc_fp", "msvc_disable_buffer_security_checks"}
 
-# Sweep tiers: which flag IDs to include at each effort level
+# rebrew-local axes that decomp.me does not model but MSVC6 codegen needs:
+# /Oy (frame-pointer omission, with /Oy- to force keeping it) and
+# /Op (floating-point consistency).  Appended after the synced entries.
+LOCAL_MSVC_FLAGS = [
+    FlagSet(id="msvc_fpo", flags=("/Oy", "/Oy-")),
+    Checkbox(id="msvc_fp_consistency", flag="/Op"),
+]
+
+# Sweep tiers: which flag IDs to include at each effort level.
+# quick:    core code-affecting axes (~fast)
+# targeted: core + specific codegen-altering flags (/Oy, /Op)
+# normal:   adds codegen, inline, callconv (~moderate)
+# thorough: adds alignment + key toggles (~heavy)
+# full:     all axes (use with sampling for large spaces)
 MSVC_SWEEP_TIERS = {
-    "quick": [
+    "quick": ["msvc_opt_level", "msvc_callconv", "msvc_codegen"],
+    "targeted": [
         "msvc_opt_level",
         "msvc_callconv",
         "msvc_codegen",
+        "msvc_fpo",
+        "msvc_fp_consistency",
     ],
     "normal": [
         "msvc_opt_level",
@@ -99,19 +117,21 @@ def format_flags_list(var_name: str, flag_list) -> str:
     for item in flag_list:
         type_name = type(item).__name__
         if type_name == "FlagSet":
-            if len(item.flags) <= 4:
-                flags_repr = repr(item.flags)
+            # FlagSet.flags is typed tuple[str, ...] — decomp.me uses lists.
+            flags_tuple = tuple(item.flags)
+            if len(flags_tuple) <= 4:
+                flags_repr = repr(flags_tuple)
                 lines.append(f"    FlagSet(id={item.id!r}, flags={flags_repr}),")
             else:
                 lines.append("    FlagSet(")
                 lines.append(f"        id={item.id!r},")
-                lines.append(f"        flags={item.flags!r},")
+                lines.append(f"        flags={flags_tuple!r},")
                 lines.append("    ),")
         elif type_name == "Checkbox":
             lines.append(f"    Checkbox(id={item.id!r}, flag={item.flag!r}),")
         elif type_name == "LanguageFlagSet":
             # Convert LanguageFlagSet → FlagSet (we don't need language metadata)
-            flag_strs = list(item.flags.keys())
+            flag_strs = tuple(item.flags.keys())
             lines.append(f"    FlagSet(id={item.id!r}, flags={flag_strs!r}),")
     lines.append("]")
     return "\n".join(lines)
@@ -160,6 +180,7 @@ from rebrew.matcher.flags import Checkbox, Flags, FlagSet
     tiers_lines.append("")
     tiers_lines.append("# Sweep tiers — which flag IDs to include per effort level.")
     tiers_lines.append("# quick:    core code-affecting axes (~fast)")
+    tiers_lines.append("# targeted: core + specific codegen-altering flags (/Oy, /Op)")
     tiers_lines.append("# normal:   adds codegen, inline, callconv (~moderate)")
     tiers_lines.append("# thorough: adds alignment + key toggles (~heavy)")
     tiers_lines.append("# full:     all axes (use with sampling for large spaces)")
@@ -201,6 +222,8 @@ def main():
         if msvc_flags is None:
             print("ERROR: COMMON_MSVC_FLAGS not found in flags.py")
             sys.exit(1)
+        # Append the rebrew-local MSVC6 axes decomp.me does not model.
+        msvc_flags = list(msvc_flags) + LOCAL_MSVC_FLAGS
 
         # Filter out 7.x-only flags for MSVC6
         msvc6_flags = [item for item in msvc_flags if item.id not in MSVC7_ONLY_IDS]

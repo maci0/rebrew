@@ -2,9 +2,9 @@
 
 Source: https://github.com/decompme/decomp.me.git
   File: backend/coreapp/flags.py
-Synced: 2026-02-23
+Synced: 2026-08-08
 
-Base data auto-synced from decomp.me; sweep tiers are manually maintained.
+Do not edit manually — re-run tools/sync_decomp_flags.py to update.
 """
 
 from rebrew.matcher.flags import Checkbox, Flags, FlagSet
@@ -29,7 +29,7 @@ COMMON_MSVC_FLAGS: Flags = [
         flags=("/Zp1", "/Zp2", "/Zp4", "/Zp8", "/Zp16"),
     ),
     FlagSet(id="msvc_callconv", flags=("/Gd", "/Gr", "/Gz")),
-    Checkbox(id="msvc_compile_cpp", flag="/TP"),
+    FlagSet(id="msvc_source_language", flags=("/TP",)),
     Checkbox(id="msvc_use_rtti", flag="/GR"),
     Checkbox(id="msvc_use_ehsc", flag="/GX"),
     Checkbox(id="msvc_disable_stack_checking", flag="/Gs"),
@@ -59,7 +59,7 @@ MSVC6_FLAGS: Flags = [
         flags=("/Zp1", "/Zp2", "/Zp4", "/Zp8", "/Zp16"),
     ),
     FlagSet(id="msvc_callconv", flags=("/Gd", "/Gr", "/Gz")),
-    Checkbox(id="msvc_compile_cpp", flag="/TP"),
+    FlagSet(id="msvc_source_language", flags=("/TP",)),
     Checkbox(id="msvc_use_rtti", flag="/GR"),
     Checkbox(id="msvc_use_ehsc", flag="/GX"),
     Checkbox(id="msvc_disable_stack_checking", flag="/Gs"),
@@ -69,7 +69,7 @@ MSVC6_FLAGS: Flags = [
 ]
 
 # Flag IDs only available in MSVC 7.x+
-MSVC7_ONLY_IDS: set[str] = {"msvc_fp", "msvc_disable_buffer_security_checks"}
+MSVC7_ONLY_IDS = {"msvc_fp", "msvc_disable_buffer_security_checks"}
 
 # Sweep tiers — which flag IDs to include per effort level.
 # quick:    core code-affecting axes (~fast)
@@ -77,7 +77,7 @@ MSVC7_ONLY_IDS: set[str] = {"msvc_fp", "msvc_disable_buffer_security_checks"}
 # normal:   adds codegen, inline, callconv (~moderate)
 # thorough: adds alignment + key toggles (~heavy)
 # full:     all axes (use with sampling for large spaces)
-MSVC_SWEEP_TIERS: dict[str, list[str] | None] = {
+MSVC_SWEEP_TIERS = {
     "quick": ["msvc_opt_level", "msvc_callconv", "msvc_codegen"],
     "targeted": [
         "msvc_opt_level",

@@ -39,7 +39,8 @@ class TestFormatFlagsList:
     def test_language_flagset_converted(self) -> None:
         lfs = LanguageFlagSet(id="lang", flags={"C": "/TC", "C++": "/TP"})
         out = sdf.format_flags_list("X", [lfs])
-        assert "FlagSet(id='lang', flags=['C', 'C++'])," in out
+        # FlagSet.flags is typed tuple[str, ...] — lists are normalized to tuples.
+        assert "FlagSet(id='lang', flags=('C', 'C++'))," in out
 
 
 class TestCountCombos:
