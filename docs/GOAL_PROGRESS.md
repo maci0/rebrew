@@ -5796,3 +5796,22 @@ NEAR_MATCHING (all passed=False). A future metadata demotion will surface
 correctly on incremental runs. Guild tree clean (verify wrote only to
 gitignored db/ + .rebrew/). The f6deb4f → 249a0eb → 0ad61e0 arc is now
 fully validated end-to-end on real data.
+
+## 2026-08-09 — db-review: corrupt data JSON errors name the file (93a6f4a)
+
+Focused db-review of build_db.py (the layer producing coverage.db for
+recoverage). Schema layer already strong: CHECK constraints on
+va/size/fileOffset/markerType/similarity/start/end/span, foreign-key
+cascade cells→sections, WAL + BEGIN IMMEDIATE snapshot/report
+transactionality, locked-DB guard that never deletes a live DB,
+`_missing_required_objects` verifying object names AND query-critical
+columns (view staleness) against the version stamp, defensive negative
+offset clamping, and rollback-on-error.
+
+One gap: a corrupt or hand-edited data_*.json raised a raw
+JSONDecodeError message with NO file context ("Expecting property name
+enclosed in double quotes...") — hard to tell which target file was
+broken. Fixed: the load site catches JSONDecodeError and non-object
+shapes, naming the file and suggesting 'rebrew catalog --data-json'
+(exit 2, human + --json). Tests: TestBuildDbCorruptInput (corrupt JSON +
+JSON-array shape). 3546 rebrew tests.
