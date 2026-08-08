@@ -5067,3 +5067,16 @@ the REL32 pair).
   actionable detail; resolution is the user's decompilation work.
 - Skeleton/round-trip CLIs verified sound (both have --dry-run, correct
   exit codes, JSON purity).
+
+## 2026-08-09 — cfg write commands: --dry-run (6d663c8)
+
+Probed the `rebrew cfg` multi-command editor on guild's real config:
+list-targets/show/path read cleanly, and `cfg set` round-trips correctly
+(minimal tomlkit diff, value readable via `cfg show`).  Confirmed the
+CLI-review finding Q9: `set`/`add-module`/`set-cflags` silently rewrote
+rebrew-project.toml with no preview, unlike the rest of the cfg group
+(remove-target/remove-module use --force confirmation) and the project's
+--dry-run convention.  `_save_toml` gained a dry_run mode and the three
+commands now preview without writing.  Live-verified: `cfg set
+compiler.timeout 999 --dry-run` prints "would update" and leaves the tree
+untouched.  Test added; 3514 rebrew tests pass.
