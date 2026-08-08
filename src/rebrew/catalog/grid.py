@@ -470,7 +470,11 @@ def generate_data_json(
             if idx < len(item_starts) and item_starts[idx] == off:
                 item = items_by_off[off]
                 s = off
-                e = min(sec_size, off + item["size"])
+                # Clamp to the next item's start: an overlapping (r2/rizin)
+                # size that reaches past the neighbor would otherwise swallow
+                # the neighbor's cell and miscredit its bytes.
+                next_start = item_starts[idx + 1] if idx + 1 < len(item_starts) else sec_size
+                e = min(sec_size, off + item["size"], next_start)
                 state = item["status"].lower()
                 segments.append((s, e, state, [item["name"]], None, None))
                 off = e
