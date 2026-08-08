@@ -1,6 +1,7 @@
 """Extended tests for rebrew verify.py — verify_entry branches, diff_reports, CLI main."""
 
 import json
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -418,6 +419,36 @@ class TestApplyStatusUpdates:
         entry = _ann(0x1000, status="PROVEN")
         apply_status_updates([(entry, "STUB", 0)], cfg)  # type: ignore[arg-type]
         assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "PROVEN"
+
+    def test_write_failure_does_not_abort_batch(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A metadata write failure must not abort the whole batch.
+
+        STATUS sync is best-effort — a read-only or unwritable metadata file
+        must not crash the verify run and lose the report.  Each entry is
+        attempted; failures are logged and the batch continues.
+        """
+        from rebrew.verify import apply_status_updates
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "f.c").write_text("int my_func(void) { return 0; }\n", encoding="utf-8")
+        attempts: list[int] = []
+
+        def _boom(
+            directory: object, status: str, module: str, va: int, clear_blockers: bool = True
+        ) -> None:
+            attempts.append(va)
+            raise OSError("disk full")
+
+        monkeypatch.setattr("rebrew.verify.update_source_status", _boom)
+        with caplog.at_level(logging.WARNING):
+            apply_status_updates(  # type: ignore[arg-type]
+                [(_ann(0x1000), "EXACT", 0), (_ann(0x2000), "RELOC", 0)], cfg
+            )
+        # Both entries were attempted despite the first failure; no raise.
+        assert attempts == [0x1000, 0x2000]
+        assert any("Could not update STATUS" in r.message for r in caplog.records)
 
 
 class TestLoadPreviousReport:

@@ -1338,7 +1338,15 @@ def apply_status_updates(
         if not should_promote_status(current_status, status):
             continue
         clear = is_matched(status)
-        update_source_status(cfg.metadata_dir, status, module, entry.va, clear_blockers=clear)
+        try:
+            update_source_status(cfg.metadata_dir, status, module, entry.va, clear_blockers=clear)
+        except OSError as exc:
+            # STATUS sync is best-effort — a read-only or unwritable metadata
+            # file must not abort the whole verify run (and lose the report
+            # the user waited for).  Warn and keep the verification results.
+            logging.warning(
+                "Could not update STATUS → %s for 0x%x (%s): %s", status, entry.va, module, exc
+            )
 
 
 def _print_results(
