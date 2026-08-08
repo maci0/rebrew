@@ -4739,3 +4739,20 @@ Probed the unusual-data paths guild-rebrew/np-rebrew exercise:
   longer writes it; `catalog --catalog` is the canonical generator now.
 
 No new tooling bugs found this round; all paths verified working.
+
+## 2026-08-09 — Real-project audit round 3 (crt-match, potato, sync degradation)
+
+- **crt-match**: verified working on guild-rebrew — 10 matches (malloc/free/
+  realloc/calloc/tzset) against configured MSVCRT CRT sources, confidence
+  scored, no crash.
+- **recoverage potato mode**: `/potato` renders 305KB grid + 233KB functions
+  view; search works; /api/asm + /api/bytes return correct disassembly/hex;
+  no server errors.
+- **BUG FOUND + FIXED** (`f76fc88`): `rebrew sync --push` with the MCP
+  server down printed a raw Python traceback and exited 1 instead of the
+  intended clean error.  Root cause: the RuntimeError from
+  `apply_commands_via_mcp` escaped to main.py's catch-all, which re-raised
+  typer.Exit OUTSIDE click's handler (raw traceback + wrong exit code).
+  Fixed by catching RuntimeError in `_export_apply_ops` (inside the command
+  context) → clean `error: Failed to initialize MCP session: ...` + exit 2.
+  Regression test added (`test_apply_mcp_connection_error_exits_clean`).
