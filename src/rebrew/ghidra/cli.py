@@ -20,6 +20,7 @@ from rebrew.catalog import (
     scan_reversed_dir,
 )
 from rebrew.cli import (
+    EXIT_ERROR,
     EXIT_MISMATCH,
     TargetOption,
     error_exit,
@@ -269,7 +270,15 @@ def _export_apply_ops(
                 ghidra_cli=resolve_ghidra_cli(cfg) or "ghidra-cli",
             )
         else:
-            ok, errs = apply_commands_via_mcp(commands, endpoint=endpoint)
+            try:
+                ok, errs = apply_commands_via_mcp(commands, endpoint=endpoint)
+            except RuntimeError as exc:
+                # Connection failure (MCP down, wrong endpoint) — fail cleanly
+                # inside the command context.  Allowing it to escape reaches
+                # main.py's catch-all, which re-raises a typer.Exit OUTSIDE
+                # click's handler: the result is a raw Python traceback on
+                # stderr and exit code 1 instead of the intended EXIT_ERROR(2).
+                error_exit(str(exc), json_mode=json_output, code=EXIT_ERROR)
         console.print(f"Applied {ok}/{total_cmds} operations successfully")
         if errs > 0:
             console.print(f"[red]{errs} operations failed[/red]")

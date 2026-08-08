@@ -7,7 +7,7 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-from rebrew.cli import EXIT_MISMATCH
+from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH
 from rebrew.ghidra.cli import app
 
 runner = CliRunner()
@@ -323,6 +323,28 @@ class TestExportAndApply:
         result = runner.invoke(app, ["--apply"])
         assert result.exit_code == EXIT_MISMATCH
         assert "1 operations failed" in result.output
+
+    def test_apply_mcp_connection_error_exits_clean(
+        self, tmp_path: pytest.TempPathFactory, monkeypatch
+    ) -> None:
+        """A RuntimeError from the MCP backend (connection refused) must exit
+        with EXIT_ERROR and a clean message — NOT escape to main.py's catch-all,
+        which re-raises typer.Exit outside click's handler (raw traceback +
+        wrong exit code)."""
+        self._setup(
+            tmp_path,
+            monkeypatch,
+            commands=[{"tool": "create-label", "args": {"address": "0x1"}}],
+        )
+
+        def _boom(cmds, endpoint=""):
+            raise RuntimeError("Failed to initialize MCP session: [Errno 111] Connection refused")
+
+        monkeypatch.setattr("rebrew.ghidra.cli.apply_commands_via_mcp", _boom)
+        result = runner.invoke(app, ["--apply"])
+        assert result.exit_code == EXIT_ERROR
+        assert "Failed to initialize MCP session" in result.output
+        assert "Traceback" not in result.output
 
 
 class TestRefreshCacheAndSizes:
