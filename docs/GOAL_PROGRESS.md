@@ -4827,3 +4827,32 @@ override), all media queries served.  recoverage suite 258 passed.
   list works; `show` correctly rejects already-reversed VAs; batch returns
   0 on np-rebrew because its remaining candidates are all covered — data
   condition, not a bug).  No new tooling bugs.
+
+## 2026-08-09 — Workflow-logic audit (todo → diff/match/prove/test chain)
+
+Traced the end-to-end reversing workflow on guild-rebrew and found three
+logical breaks:
+
+1. **EXTRACT_ERROR items misled todo** (`96b84ff`): entries with
+   EXTRACT_ERROR status have delta=0, so `rebrew todo` classified them as
+   "0B diff fix-delta" with ROI 85 — recommending a flag sweep on functions
+   whose symbols can't even be extracted.  Added an `extract-error` category
+   (ROI 150, clear description, `rebrew test` command).
+
+2. **Stale verify cache after tool changes** (`96b84ff`): the verify cache
+   key didn't include the rebrew tool version, so a code fix that changes
+   extraction results (EXTRACT_ERROR/STUB-symbol fixes) left cached
+   EXTRACT_ERROR entries served as truth.  `_compiler_config_hash` now
+   includes `rebrew.__version__` — any tool upgrade invalidates the cache.
+
+3. **VA-invoked diff/match/prove diffed the WRONG function** (`65a130f`):
+   `rebrew diff 0x1000a010` on a 25-function file resolved to the file,
+   fell back to the FIRST annotation (exit_handler, 8B) and reported a
+   false "perfect match" while the real target (_CleanupSockets, 112B) was
+   never compared.  diff/prove now thread the VA argument through to
+   annotation selection; `resolve_build_params` matches the annotation by
+   VA.  Verified live: diff now shows 37 instructions (26 exact + 11 reloc)
+   for the correct function.
+
+`rebrew test` by VA is intentionally broad (tests all functions in the
+file, truthfully) — not a lie, left as-is.
