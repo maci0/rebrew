@@ -77,3 +77,22 @@ class TestMainEntry:
         with pytest.raises(SystemExit) as exc:
             main_mod.main()
         assert exc.value.code == 130
+
+
+class TestMainEntryExitPaths:
+    def test_typer_exit_from_subcommand_converted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The catch-all exists because error_exit() raises typer.Exit OUTSIDE
+        click's handler — it must become SystemExit(EXIT_ERROR), not a
+        traceback with exit 1."""
+        import typer
+
+        from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH
+
+        class _ExitApp:
+            def __call__(self, *a: object, **k: object) -> None:
+                raise typer.Exit(code=EXIT_MISMATCH)
+
+        monkeypatch.setattr(main_mod, "app", _ExitApp())
+        with pytest.raises(SystemExit) as exc:
+            main_mod.main()
+        assert exc.value.code == EXIT_ERROR
