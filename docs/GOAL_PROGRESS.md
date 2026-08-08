@@ -4934,3 +4934,17 @@ real project (259 fns, 0 compile errors, no regressions, cached re-runs);
 `rebrew prove` on a NEAR_MATCHING function (correct VA targeting, graceful
 path-explosion message with slice advice, no false promotion, tree
 untouched); np-rebrew lint 70/70 clean.
+
+## 2026-08-09 — angr unicorn ERROR spam on every todo/doctor run (f20659b)
+
+`rebrew todo` and `rebrew doctor` probe the optional angr dependency with
+`import angr` — and angr logs an ERROR about its disabled unicorn engine at
+import time.  With no logging handler configured, that line hit Python's
+last-resort handler and printed to stderr on EVERY run of the workflow
+entry point (`rebrew todo`), looking like a real error.  Added
+`rebrew.cli.angr_available()`: a shared capability probe that silences the
+``angr`` logger for the duration of the import (nothing else in the
+process uses it).  Both probe sites switched over; mypy flagged the
+function/variable name shadowing, renamed locals to `has_angr`.  Verified
+live: `rebrew todo --json` and `rebrew doctor --json` now emit zero stderr
+bytes.  Test added; 3508 tests pass.
