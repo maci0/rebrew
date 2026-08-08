@@ -362,14 +362,6 @@ class TestSwapIfElse:
         assert result != src
 
 
-class TestReorderElseIf:
-    def test_basic(self) -> None:
-        src = "if (a) {\n  x = 1;\n} else if (b) {\n  x = 2;\n} else {\n  x = 3;\n}"
-        result = mut_reorder_elseif(src, _rng())
-        assert result is not None
-        assert "if" in result
-
-
 class TestCastMutations:
     def test_add_cast(self) -> None:
         result = mut_add_cast("void f() { x = value; }", _rng())
@@ -1541,4 +1533,29 @@ class TestReturnToGotoLabelPlacement:
         # The label must be a real statement, not injected into the literal.
         assert "ret_false:" in result
         assert '"ret_false:' not in result
+        assert quick_validate(result)
+
+
+class TestReorderElseIf:
+    """Swapping else-if branches must guard the second branch with !(first)
+    and preserve any trailing else (round-6 swarm finding)."""
+
+    def test_preserves_trailing_else_and_semantics(self) -> None:
+        src = "int f(int a, int b) {\n    if (a) { return 1; } else if (b) { return 2; } else { return 3; }\n}"
+        result = mut_reorder_elseif(src, _rng())
+        assert result is not None
+        # The swapped second branch is guarded: when both hold, A still wins.
+        assert "if (b && !(a)) { return 2; }" in result
+        assert "else if (a) { return 1; }" in result
+        assert "else { return 3; }" in result
+        assert quick_validate(result)
+
+    def test_without_trailing_else_guarded(self) -> None:
+        # Even without a trailing else, the swap must guard the second branch
+        # with !(a) so the both-true outcome (A wins) is preserved.
+        src = "int f(int a, int b) {\n    if (a) { return 1; } else if (b) { return 2; }\n}"
+        result = mut_reorder_elseif(src, _rng())
+        assert result is not None
+        assert "if (b && !(a)) { return 2; }" in result
+        assert "else if (a) { return 1; }" in result
         assert quick_validate(result)
