@@ -709,6 +709,39 @@ class TestTodoCli:
         assert "Coverage" in result.output
         assert "EXACT: 1" in result.output
 
+    def test_pct_matched_never_exceeds_100(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """pct_matched must divide by the COVERED population, not the Ghidra
+        function list — library-header functions are covered but absent from
+        function_structure.json, and the old math produced >100% (regression:
+        guild-rebrew reported 240.6%)."""
+        import json
+
+        # Covered population (3) is larger than ghidra_funcs (1).
+        existing = {
+            0x1000: {"status": "EXACT", "symbol": "a", "size": "100"},
+            0x2000: {"status": "RELOC", "symbol": "b", "size": "100"},
+            0x3000: {"status": "STUB", "symbol": "c", "size": "100"},
+        }
+        covered_vas = {0x1000: "a.c", 0x2000: "b.c", 0x3000: "c.c"}
+        result = self._invoke(
+            tmp_path,
+            monkeypatch,
+            ghidra_funcs=[FunctionEntry(va=0x1000, size=100, name="a")],
+            existing=existing,
+            covered_vas=covered_vas,
+            args=["--json"],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        cov = data["coverage"]
+        assert cov["covered"] == 3
+        assert cov["exact"] == 1
+        assert cov["reloc"] == 1
+        assert cov["pct_matched"] == 66.7  # 2/3 matched, not 2/1 = 200%
+        assert cov["pct_matched"] <= 100.0
+
     def test_category_filter(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import json
 
