@@ -152,3 +152,44 @@ def test_remove_inline_key_never_creates_metadata(base_file: Path) -> None:
     assert remove_inline_annotation_key(base_file, 0x1000, "AUTHOR")
     assert "// AUTHOR" not in base_file.read_text(encoding="utf-8")
     assert not (base_file.parent / "rebrew-function.toml").exists()
+
+
+def test_update_key_preserves_legacy_encoding(tmp_path: Path) -> None:
+    """A CP1252 source keeps its non-ASCII comment bytes after a key update.
+
+    Regression for R18: reads used errors="replace" and wrote back UTF-8,
+    permanently replacing every non-ASCII byte with U+FFFD on the first
+    edit of a legacy-encoded source.  SYMBOL is a file-only key, so the
+    update exercises the read-modify-write path on the .c file itself.
+    """
+    from rebrew.annotation import remove_inline_annotation_key
+
+    f = tmp_path / "legacy.c"
+    original = (
+        b"// FUNCTION: MAIN 0x1000\n"
+        b"// SYMBOL: _start\n"
+        b"// NOTE: Caf\xe9 comment\n"  # é in cp1252
+        b"void start() {}\n"
+    )
+    f.write_bytes(original)
+
+    assert update_annotation_key(f, 0x1000, "SYMBOL", "_renamed")
+    data = f.read_bytes()
+    # The SYMBOL line was rewritten...
+    assert b"_renamed" in data
+    # ...and the cp1252 byte in the NOTE comment survived byte-for-byte.
+    assert b"\xe9" in data
+    assert b"\xef\xbf\xbd" not in data  # no U+FFFD replacement chars
+
+    # remove_inline_annotation_key (lint --fix path) must also round-trip.
+    f2 = tmp_path / "legacy2.c"
+    f2.write_bytes(
+        b"// FUNCTION: MAIN 0x2000\n"
+        b"// SYMBOL: _other\n"
+        b"// NOTE: keep\xe9\n"
+        b"// CFLAGS: /O2\n"
+        b"void start() {}\n"
+    )
+    assert remove_inline_annotation_key(f2, 0x2000, "CFLAGS")
+    assert b"\xe9" in f2.read_bytes()
+    assert b"CFLAGS" not in f2.read_bytes()

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, detect_source_encoding, read_source_text
 
 
 def test_atomic_write_text_success(tmp_path: Path) -> None:
@@ -221,3 +221,48 @@ class TestAtomicWriteParents:
 
         src = "/*\n * comment */\nint x;\n"
         assert strip_comment_blocks(src) == "int x;"
+
+
+# ---------------------------------------------------------------------------
+# Source-encoding detection & preservation (R18)
+# ---------------------------------------------------------------------------
+
+
+class TestSourceEncoding:
+    """Legacy-encoded C sources must round-trip without U+FFFD corruption."""
+
+    def test_detect_utf8(self) -> None:
+        assert detect_source_encoding("int x; // héllo\n".encode()) == "utf-8"
+
+    def test_detect_cp1252(self) -> None:
+        # 'é' in cp1252 is a single byte 0xE9, invalid as UTF-8.
+        data = "// Café menu\n".encode("cp1252")
+        assert detect_source_encoding(data) == "cp1252"
+
+    def test_detect_shift_jis(self) -> None:
+        data = "// 日本語コメント\n".encode("shift_jis")
+        assert detect_source_encoding(data) == "shift_jis"
+
+    def test_read_write_roundtrip_cp1252(self, tmp_path: Path) -> None:
+        f = tmp_path / "legacy.c"
+        original = b"// FUNCTION: GAME 0x1000\n// Caf\xe9 comment\nint f(void) { return 1; }\n"
+        f.write_bytes(original)
+
+        text, encoding = read_source_text(f)
+        assert encoding == "cp1252"
+        assert "Café" in text
+        atomic_write_text(f, text.replace("Café", "Cafe+1"), encoding=encoding)
+        # Non-ASCII byte survives byte-for-byte; only the intended edit changed.
+        assert f.read_bytes() == original.replace(b"Caf\xe9", b"Cafe+1")
+
+    def test_read_write_roundtrip_shift_jis(self, tmp_path: Path) -> None:
+        f = tmp_path / "jpn.c"
+        original = (
+            b"// FUNCTION: GAME 0x2000\n// \x93\xfa\x96{\x8c\xea\nint f(void) { return 1; }\n"
+        )
+        f.write_bytes(original)
+
+        text, encoding = read_source_text(f)
+        assert encoding == "shift_jis"
+        atomic_write_text(f, text + "// tail\n", encoding=encoding)
+        assert f.read_bytes().startswith(original)

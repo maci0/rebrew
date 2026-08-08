@@ -22,7 +22,7 @@ from rebrew.cli import (
     target_marker,
 )
 from rebrew.config import ProjectConfig
-from rebrew.utils import atomic_write_text, strip_comment_blocks
+from rebrew.utils import atomic_write_text, read_source_text, strip_comment_blocks
 
 console = Console(stderr=True)
 
@@ -138,6 +138,11 @@ def main(
     blocks_with_va: list[tuple[int, str]] = []
     included_inputs: list[Path] = []
 
+    # Output is a new file; if any input is a legacy encoding (cp1252/
+    # shift_jis), write the merged result in that encoding so non-ASCII
+    # comment bytes round-trip instead of being U+FFFD-corrupted.
+    out_encoding = "utf-8"
+
     for file_path in input_files:
         annotations = parse_c_file_multi(
             file_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
@@ -146,9 +151,11 @@ def main(
             continue
 
         try:
-            text = file_path.read_text(encoding="utf-8", errors="replace")
+            text, enc = read_source_text(file_path)
         except OSError as exc:
             error_exit(f"Failed to read {file_path}: {exc}", json_mode=json_output)
+        if enc != "utf-8":
+            out_encoding = enc
 
         preamble, blocks = split_annotation_sections(text)
         preambles.append(preamble)
@@ -185,7 +192,7 @@ def main(
 
     if not dry_run:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(output_path, merged_text, encoding="utf-8")
+        atomic_write_text(output_path, merged_text, encoding=out_encoding)
         if delete:
             for file_path in included_inputs:
                 if file_path.resolve() == output_path.resolve():

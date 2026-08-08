@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.c_parser import _get_ts_parser
+from rebrew.utils import detect_source_encoding
 
 _PTR_NOSPACE_RE = re.compile(r"([a-zA-Z0-9_])\*")
 _CALLING_CONV_RE = re.compile(r"\b__(?:cdecl|stdcall|fastcall|thiscall)\b\s*")
@@ -58,15 +59,14 @@ def extract_function_signatures(filepath: Path) -> Iterator[tuple[str, str]]:
     except OSError:
         return
 
+    encoding = detect_source_encoding(code_bytes)
     tree = parser.parse(code_bytes)
 
     def get_function_name(node: Any) -> str | None:
         if node.type == "function_declarator":
             for child in node.children:
                 if child.type == "identifier":
-                    return code_bytes[child.start_byte : child.end_byte].decode(
-                        "utf-8", errors="replace"
-                    )
+                    return code_bytes[child.start_byte : child.end_byte].decode(encoding)
                 res = get_function_name(child)
                 if res:
                     return res
@@ -93,7 +93,7 @@ def extract_function_signatures(filepath: Path) -> Iterator[tuple[str, str]]:
 
             if compound_stmt:
                 sig_bytes = code_bytes[node.start_byte : compound_stmt.start_byte].strip()
-                sig_str = sig_bytes.decode("utf-8", errors="replace")
+                sig_str = sig_bytes.decode(encoding)
 
                 name = get_function_name(decl_node)
                 if name:

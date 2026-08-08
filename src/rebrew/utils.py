@@ -15,6 +15,46 @@ from tomlkit import TOMLDocument
 
 logger = logging.getLogger(__name__)
 
+# Candidate encodings for C sources, most strict first.  MSVC6-era sources
+# are often CP1252 (Western) or Shift-JIS (Japanese games) — the exact
+# audience this tool targets.  UTF-8 first keeps the common case
+# byte-identical; Shift-JIS second so Japanese sources round-trip (CP1252 is
+# last because it decodes *every* byte sequence, so it must be the catch-all
+# fallback rather than a first guess).
+_SOURCE_ENCODINGS = ("utf-8", "shift_jis", "cp1252")
+
+
+def detect_source_encoding(data: bytes) -> str:
+    """Return the encoding *data* is in: UTF-8 when it decodes cleanly,
+    otherwise Shift-JIS, else CP1252.
+
+    Reading a legacy-encoded source as UTF-8 with ``errors="replace"`` and
+    writing it back permanently replaces every non-ASCII byte with U+FFFD;
+    detecting the real encoding on read lets write-backs round-trip
+    byte-for-byte.  Ordering note: cp1252 decodes every byte sequence, so it
+    is tried last as the universal fallback; shift_jis is stricter and
+    catches Japanese sources first.
+    """
+    for enc in _SOURCE_ENCODINGS:
+        try:
+            data.decode(enc)
+            return enc
+        except UnicodeDecodeError:
+            continue
+    # cp1252 decodes every byte sequence, so this is unreachable in practice.
+    return "cp1252"
+
+
+def read_source_text(filepath: Path) -> tuple[str, str]:
+    """Read *filepath* tolerantly, returning ``(text, detected_encoding)``.
+
+    Pass the returned encoding to :func:`atomic_write_text` when writing the
+    file back so legacy-encoded sources are not corrupted by a UTF-8 write.
+    """
+    data = filepath.read_bytes()
+    encoding = detect_source_encoding(data)
+    return data.decode(encoding), encoding
+
 
 def atomic_write_text(filepath: Path, text: str, encoding: str = "utf-8") -> None:
     """Write text to a file atomically to prevent corruption on crash.
