@@ -4533,3 +4533,28 @@ fixtures), gen_flirt_pat.py (needs .lib archives).
      inline STATUS migration through update_source_status (validates, clears
      stale blockers) instead of the raw bypass writer.
 - Suite 3460 passed / 0 skipped. ruff/mypy/pre-commit green.
+
+### Slice 214 (16h goal) — db-review: CATALOG.md 0.0%, C-source loading, template bug — DONE
+- Ran ~/review-prompts/prompts/db-review.md (first run) across rebrew
+  (producer) + recoverage (consumer). No criticals; fixed 5 findings:
+  1. (MED) build_db's CATALOG.md coverage read summary[".text"].size — grid
+     stores textSize top-level → every CATALOG.md reported 0.0%. Now falls
+     back to textSize; workspace CATALOG.md shows 98.4% (139172/141382).
+  2. (MED) paths.sourceRoot consumed by recoverage but never produced — and
+     potato anchored C-source paths at the recoverage package dir, so C
+     source never loaded. grid now emits sourceRoot; potato anchors at cwd.
+     Verified: Potato Mode renders "C Source (library_zlib.h)".
+  3. (MED) negative fileOffset/textOffset (VA outside all sections) violated
+     build_db CHECK constraints and aborted the whole rebuild (and negative
+     slices read the binary from the END). grid skips such entries; build_db
+     clamps defensively.
+  4. (MED) GLOBAL/DATA marker rows counted as functions in recoverage's
+     stats/list (build_db's function_stats excludes them) — consumer queries
+     now filter; search also matches vaStart (hex), parity with Potato.
+  5. (LOW→real bug) potato's panel template had `% if cell_label:` / `% end`
+     directives embedded mid-line → SimpleTemplate rendered them as literal
+     text and the Label row always rendered. Fixed; also potato looked up
+     cell functions by NAME though cells carry VA strings (SPA/API use VA) —
+     now parses hex and looks up by va.
+- Pushed: rebrew cfcbb6f..137b6d3, recoverage 66648bd..169d8b6.
+- Both suites green (3460 / 204 passed), mypy + pre-commit clean.
