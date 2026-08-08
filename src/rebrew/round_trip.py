@@ -83,7 +83,6 @@ def main(
     no_write: bool = typer.Option(
         False,
         "--dry-run",
-        "--no-write",
         help="Preview changes without writing",
     ),
     symbol_filter: str | None = typer.Option(

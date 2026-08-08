@@ -16,7 +16,7 @@ class TestRoundTripCli:
     def test_help_lists_required_flags(self) -> None:
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
-        for flag in ("--json", "--out", "--no-write", "--filter", "--strict-catalog", "--target"):
+        for flag in ("--json", "--out", "--dry-run", "--filter", "--strict-catalog", "--target"):
             assert flag in result.stdout
 
     def test_no_config_errors_cleanly(
@@ -896,7 +896,7 @@ class TestReasonCounts:
         monkeypatch.setattr(
             "rebrew.round_trip.load_binary", lambda p: SimpleNamespace(text_size=0x100)
         )
-        result = runner.invoke(app, ["--json", "--no-write"])
+        result = runner.invoke(app, ["--json", "--dry-run"])
         assert result.exit_code == EXIT_OK
         data = json.loads(result.stdout)
         assert data["reason_counts"] == {"unresolved_symbol": 1}
