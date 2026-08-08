@@ -92,6 +92,27 @@ def _normalize_with_reloc_offsets(
     return bytes(out)
 
 
+def _build_invalid_reloc_mask(
+    code: bytes, invalid_relocs: list[int] | None, pointer_size: int = 4
+) -> list[bool]:
+    """Return a per-byte boolean mask of the invalid relocation spans in *code*.
+
+    Each invalid reloc marks ``pointer_size`` consecutive bytes starting at
+    its offset.  Used by :func:`diff_functions` so the overlap test per
+    instruction is O(1) instead of scanning every invalid reloc.
+    """
+    if not invalid_relocs:
+        return []
+    mask = [False] * len(code)
+    for ro in invalid_relocs:
+        start = max(0, ro)
+        end = min(ro + pointer_size, len(code))
+        if start < end:
+            for i in range(start, end):
+                mask[i] = True
+    return mask
+
+
 def _normalize_reloc_x86_32(
     code: bytes,
     cs_arch: int = _DEFAULT_CS_ARCH,
@@ -402,6 +423,10 @@ def diff_functions(
     )
     reg_norm_cand = _mask_registers_x86_32(norm_cand, cs_arch, cs_mode) if register_aware else None
 
+    # Precompute a boolean "invalid reloc" byte mask once instead of scanning
+    # invalid_relocs per instruction (O(insns × invalid_relocs) → O(bytes)).
+    invalid_mask = _build_invalid_reloc_mask(target_bytes, invalid_relocs, pointer_size)
+
     # Build rows with match markers.  When as_dict is True we collect
     # structured dicts and simple counters instead of formatted lines.
     rows: list[tuple[str, str]] = []  # (match_char, formatted_line) — populated in print mode
@@ -442,16 +467,11 @@ def diff_functions(
                     t_norm = norm_target[ti.address : ti.address + ti.size]
                     c_norm = norm_cand[ci.address : ci.address + ci.size]
                     if t_norm == c_norm and t_norm:
-                        # Check if any byte in this instruction is an invalid reloc
-                        is_invalid = False
-                        if invalid_relocs:
-                            for offset in invalid_relocs:
-                                # A reloc spans pointer_size bytes, check overlap with this instruction
-                                if max(ti.address, offset) < min(
-                                    ti.address + ti.size, offset + pointer_size
-                                ):
-                                    is_invalid = True
-                                    break
+                        # Check if any byte in this instruction overlaps an
+                        # invalid reloc span (O(1) via the precomputed mask).
+                        is_invalid = bool(invalid_mask) and any(
+                            invalid_mask[ti.address : ti.address + ti.size]
+                        )
                         match_char = "XX" if is_invalid else "~~"
                     elif (
                         register_aware and reg_norm_target is not None and reg_norm_cand is not None
