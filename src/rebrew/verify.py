@@ -732,12 +732,15 @@ def main(
             "SIZE differing from the binary-derived size; run with --json for details"
         )
 
-    cache_path = cfg.root / ".rebrew" / "verify_cache.json"
-    try:
-        _save_verify_cache(cache_path, cfg, results, unique_entries)
-    except (OSError, TypeError):
-        if not json_output:
-            console.print(f"[yellow]warning:[/yellow] Could not write verify cache to {cache_path}")
+    if not dry_run:
+        cache_path = cfg.root / ".rebrew" / "verify_cache.json"
+        try:
+            _save_verify_cache(cache_path, cfg, results, unique_entries)
+        except (OSError, TypeError):
+            if not json_output:
+                console.print(
+                    f"[yellow]warning:[/yellow] Could not write verify cache to {cache_path}"
+                )
 
     diff_result: dict[str, Any] | None = None
     if diff_mode and previous_report is not None:
@@ -745,10 +748,11 @@ def main(
 
     if json_output or output_path or diff_mode:
         report_json = json.dumps(report, indent=2)
-        out_file.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(out_file, report_json, encoding="utf-8")
-        if not json_output:
-            console.print(f"Report written to {out_file}")
+        if not dry_run:
+            out_file.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(out_file, report_json, encoding="utf-8")
+            if not json_output:
+                console.print(f"Report written to {out_file}")
 
         if json_output:
             if diff_mode:

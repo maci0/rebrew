@@ -106,6 +106,7 @@ def classify_compare_result(
     inv_reloc_offsets: list[int] | None = None,
     *,
     size_mismatch: bool = False,
+    size_delta: int = 0,
 ) -> CompareResult:
     """Classify a raw compile-and-compare outcome into a :class:`CompareResult`.
 
@@ -200,7 +201,12 @@ def classify_compare_result(
         # `missing` again would double-count short objects (skewing delta,
         # and with it verify/status/todo metrics).
         match_percent = ((cmp_len - mismatches) / target_len) * 100 if target_len else 0.0
-        delta = abs(len(target_bytes) - len(obj_bytes)) + mismatches
+        # abs(len diff) counts every missing/extra byte at THIS call's lengths.
+        # The SIZE_MISMATCH caller truncates both sides before classifying, so
+        # it passes the pre-truncation length difference via size_delta —
+        # otherwise a 10B vs 5B mismatch with 1 byte diff would report
+        # delta=1 instead of 6, skewing verify/todo regression metrics.
+        delta = abs(len(target_bytes) - len(obj_bytes)) + mismatches + size_delta
 
     if size_mismatch or "SIZE_MISMATCH" in msg:
         status = "SIZE_MISMATCH"
@@ -623,6 +629,7 @@ def compile_and_compare(
                     relocs,
                     inv_relocs,
                     size_mismatch=True,
+                    size_delta=abs(orig_obj_len - orig_tgt_len),
                 )
             msg = (
                 f"RELOC-NORM MATCH ({len(relocs)} relocs)"

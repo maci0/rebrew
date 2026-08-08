@@ -76,3 +76,26 @@ class TestClassifyCompareResult:
         # already counted by abs(3-1); adding `missing` again double-counted
         # short objects (regression fixed).
         assert r.delta == 2
+
+    def test_size_mismatch_delta_includes_truncated_length_diff(self) -> None:
+        # The SIZE_MISMATCH caller truncates both sides before classifying and
+        # passes the pre-truncation length difference — delta must include it
+        # (10B vs 5B with 1 common-prefix diff → 6, not 1).
+        r = classify_compare_result(
+            False,
+            "SIZE_MISMATCH",
+            b"\x55\x89\xe5\x90\x90",  # truncated target (orig 10B)
+            b"\x55\x89\xe5\x91\x90",  # truncated obj (orig 5B)
+            None,
+            size_mismatch=True,
+            size_delta=5,
+        )
+        assert r.status == "SIZE_MISMATCH"
+        assert r.delta == 6
+
+    def test_size_mismatch_without_size_delta_unchanged(self) -> None:
+        # Direct classify on untruncated bytes still counts the size diff via
+        # abs(len diff) — size_delta defaults to 0.
+        r = classify_compare_result(False, "SIZE_MISMATCH", b"\x55\x89\xe5", b"\x55", None)
+        assert r.status == "SIZE_MISMATCH"
+        assert r.delta == 2

@@ -309,7 +309,11 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
             cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir if cfg else None
         ):
             if ann.marker_type == "DATA":
-                merge_into_data_annotation(ann, cfile.parent)
+                # Metadata root is cfg.metadata_dir — passing cfile.parent
+                # silently no-ops the overlay when the metadata dir differs
+                # from the source dir (the sibling call at line ~1000 uses
+                # cfg.metadata_dir correctly).
+                merge_into_data_annotation(ann, cfg.metadata_dir if cfg else cfile.parent)
                 entries.append(
                     {
                         "va": f"0x{ann.va:08x}",
