@@ -4595,3 +4595,15 @@ fixtures), gen_flirt_pat.py (needs .lib archives).
 - Final state: rebrew 3460 passed / 0 skipped, recoverage 206 passed /
   4 skipped, workspace doctor 14/14, round-trip 158 spliced / 58 catalog
   gaps / 6 genuine drifts.
+
+### Slice 217 (16h goal) — v0.1.0 release validation — DONE
+- Wheel reproducibility: built twice with SOURCE_DATE_EPOCH=1700000000 —
+  byte-identical sha256 (37bf3b45…), confirming the deterministic-build
+  claim in docs/CI.md.
+- Clean-install smoke test: fresh `uv venv` + wheel install → version 0.1.0,
+  all core modules import (cli/compile/round_trip/prove/match), and every
+  entry point resolves: `rebrew` umbrella (similar/prove/dashboard/skills
+  list) + standalone `rebrew-round-trip` / `rebrew-skills`.
+- Expected finding (not a defect): only 3 console scripts are registered
+  (rebrew, rebrew-round-trip, rebrew-skills) — the other tools run via the
+  umbrella, matching pyproject.toml.
