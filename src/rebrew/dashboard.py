@@ -187,6 +187,15 @@ def _int_param(params: dict[str, list[str]], name: str, default: int) -> int:
         return default
 
 
+def _escape_like(term: str) -> str:
+    """Escape LIKE wildcards so user input is matched literally.
+
+    Mirrors recoverage's _escape_like: `%`, `_`, and `\\` are escaped and the
+    query must add ``ESCAPE '\\'``.
+    """
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 class Dashboard:
     """Read-only query layer over a ``coverage.db`` file."""
 
@@ -250,8 +259,8 @@ class Dashboard:
             where.append("module = ?")
             args.append(module)
         if q:
-            where.append("(name LIKE ? OR symbol LIKE ?)")
-            args.extend([f"%{q}%", f"%{q}%"])
+            where.append("(name LIKE ? ESCAPE '\\' OR symbol LIKE ? ESCAPE '\\')")
+            args.extend([f"%{_escape_like(q)}%", f"%{_escape_like(q)}%"])
         # Exclude non-function rows; must remain in *where* for the COUNT total.
         where.append("markerType NOT IN ('GLOBAL', 'DATA')")
         where_sql = " AND ".join(where)
@@ -324,8 +333,8 @@ class Dashboard:
         where = ["target = ?"]
         args: list[Any] = [target]
         if q:
-            where.append("name LIKE ?")
-            args.append(f"%{q}%")
+            where.append("name LIKE ? ESCAPE '\\'")
+            args.append(f"%{_escape_like(q)}%")
         where_sql = " AND ".join(where)
         with self._conn() as conn:
             rows = conn.execute(
