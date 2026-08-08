@@ -54,7 +54,7 @@ from rebrew.cli import NEAR_MATCH_THRESHOLD
 from rebrew.compile_cache import CompileCache, compile_cache_key, get_compile_cache
 from rebrew.config import ProjectConfig
 from rebrew.core import msvc_env_from_config, smart_reloc_compare
-from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
+from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 from rebrew.utils import safe_shlex_split
 
 # ---------------------------------------------------------------------------
@@ -551,14 +551,14 @@ def _extract_and_compare(
     Post-compile stage of :func:`compile_and_compare`, isolated so a failure
     here is labeled EXTRACT_ERROR instead of masquerading as a compile error.
     """
-    obj_bytes, reloc_dict = parse_obj_symbol_bytes(obj_path, symbol)
+    # Single LIEF parse for both the symbol bytes and the typed relocs
+    # (previously two lief.COFF.parse calls on the same .obj).
+    obj_bytes, reloc_dict, full_relocs = parse_obj_symbol_and_relocs(obj_path, symbol)
     if obj_bytes is None:
         return classify_compare_result(
             False, f"COMPILE_ERROR: Symbol '{symbol}' not found in .obj", target_bytes, None, None
         )
 
-    # Prefer typed reloc records when available (DIR32 vs REL32).
-    full_relocs = parse_obj_relocs_full(obj_path, symbol)
     coff_relocs = full_relocs if full_relocs else reloc_dict
 
     size_mismatch = len(obj_bytes) != len(target_bytes)

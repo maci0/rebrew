@@ -79,20 +79,35 @@ def parse_obj_relocs_full(obj_path: str | Path, symbol: str) -> list[CoffRelocRe
     Unlike ``parse_obj_symbol_bytes``, this preserves the IMAGE_REL_I386_*
     type so callers can apply (not just mask) relocations.
     """
+    _, _, records = parse_obj_symbol_and_relocs(obj_path, symbol)
+    return records
+
+
+def parse_obj_symbol_and_relocs(
+    obj_path: str | Path, symbol: str
+) -> tuple[bytes | None, dict[int, str] | None, list[CoffRelocRecord]]:
+    """Parse a COFF .obj ONCE, returning (code_bytes, reloc_offsets, typed_records).
+
+    ``compile_and_compare``/``_test_multi`` previously called
+    ``parse_obj_symbol_bytes`` then ``parse_obj_relocs_full`` — two
+    ``lief.COFF.parse`` calls on the same file.  This single-parse variant
+    returns everything both helpers produce so hot compile paths parse once.
+    """
     import lief
 
     coff = lief.COFF.parse(str(obj_path))
     if coff is None:
-        return []
+        return None, None, []
 
     target_sym = next(
         (s for s in coff.symbols if s.name == symbol and s.section is not None),
         None,
     )
     if target_sym is None:
-        return []
+        return None, None, []
 
     section = target_sym.section
+    content = bytes(section.content)
     func_start = target_sym.value
     sec_offsets = sorted(
         s.value
@@ -101,14 +116,15 @@ def parse_obj_relocs_full(obj_path: str | Path, symbol: str) -> list[CoffRelocRe
         and s.section.name == section.name
         and not str(s.name).startswith("$")
     )
-    func_end = _next_symbol_end(sec_offsets, func_start, len(bytes(section.content)))
+    func_end = _next_symbol_end(sec_offsets, func_start, len(content))
+
+    code = content[func_start:func_end].rstrip(_PADDING_STRIP)
+    reloc_offsets = _collect_reloc_offsets(section.relocations, func_start, func_end)
 
     records: list[CoffRelocRecord] = []
     for r in section.relocations:
         rva = r.address
         if func_start <= rva < func_end:
-            # LIEF encodes the type as (machine_type << 16) | raw_IMAGE_REL_type.
-            # Mask to 16 bits to recover the raw IMAGE_REL_I386_* value.
             raw_type = int(r.type) & 0xFFFF
             records.append(
                 CoffRelocRecord(
@@ -117,7 +133,7 @@ def parse_obj_relocs_full(obj_path: str | Path, symbol: str) -> list[CoffRelocRe
                     symbol=_extract_reloc_name(r),
                 )
             )
-    return records
+    return code, reloc_offsets, records
 
 
 # ---------------------------------------------------------------------------
@@ -155,38 +171,7 @@ def _parse_coff_symbol_bytes(
     obj_path: str, symbol: str
 ) -> tuple[bytes | None, dict[int, str] | None]:
     """Extract code bytes + relocation offsets for a symbol from COFF .obj using LIEF."""
-    import lief
-
-    coff = lief.COFF.parse(str(obj_path))
-    if coff is None:
-        return None, None
-
-    # Find the target symbol
-    target_sym = None
-    for sym in coff.symbols:
-        if sym.name == symbol and sym.section is not None:
-            target_sym = sym
-            break
-
-    if target_sym is None:
-        return None, None
-
-    section = target_sym.section
-    content = bytes(section.content)
-    func_start = target_sym.value
-
-    # Build sorted offsets for this section to find func_end in O(log n)
-    sec_offsets = sorted(
-        sym.value
-        for sym in coff.symbols
-        if sym.section is not None
-        and sym.section.name == section.name
-        and not str(sym.name).startswith("$")
-    )
-    func_end = _next_symbol_end(sec_offsets, func_start, len(content))
-
-    code = content[func_start:func_end].rstrip(_PADDING_STRIP)
-    reloc_offsets = _collect_reloc_offsets(section.relocations, func_start, func_end)
+    code, reloc_offsets, _ = parse_obj_symbol_and_relocs(obj_path, symbol)
     return code, reloc_offsets
 
 
