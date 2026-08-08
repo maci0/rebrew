@@ -700,7 +700,12 @@ def main(
     proven = status_counts.get("PROVEN", 0)
     matching = status_counts.get("NEAR_MATCHING", 0)
     stub = status_counts.get("STUB", 0)
-    pct = round(100.0 * (exact + reloc + proven) / total_funcs, 1) if total_funcs else 0.0
+    # status_counts is built over the COVERED population (source files +
+    # library headers).  Dividing by len(ghidra_funcs) — the function_structure
+    # list, which excludes library-header functions — produced >100% figures
+    # (e.g. 527 matched / 219 ghidra funcs = 240.6%).  Use the covered count,
+    # matching `rebrew status`'s matched_pct.
+    pct = round(100.0 * (exact + reloc + proven) / covered, 1) if covered else 0.0
 
     if category:
         all_items = [i for i in all_items if i.category == category]
