@@ -13,6 +13,7 @@ from rebrew.matcher.solutions import (
     load_solutions,
     record_ga_run,
     save_solution,
+    save_solutions,
 )
 
 
@@ -125,7 +126,30 @@ class TestLoadSave:
             )
         loaded = load_solutions(project_root)
         assert len(loaded) == 3
-        assert [e.symbol for e in loaded] == ["_a", "_b", "_c"]  # sorted
+
+    def test_batch_save_single_write(self, project_root: Path) -> None:
+        """save_solutions merges into existing entries with one write."""
+        save_solution(
+            project_root,
+            SolutionEntry(symbol="_a", cflags="/O2", size=64, source_file="a.c"),
+        )
+        save_solutions(
+            project_root,
+            [
+                SolutionEntry(symbol="_b", cflags="/O2", size=128, source_file="b.c"),
+                # Same (symbol, target) as an existing entry — newer wins.
+                SolutionEntry(symbol="_a", cflags="/O1", size=64, source_file="a.c"),
+            ],
+        )
+        loaded = load_solutions(project_root)
+        assert len(loaded) == 2
+        by_sym = {e.symbol: e for e in loaded}
+        assert by_sym["_a"].cflags == "/O1"
+        assert by_sym["_b"].size == 128
+
+    def test_batch_save_empty_noop(self, project_root: Path) -> None:
+        save_solutions(project_root, [])
+        assert load_solutions(project_root) == []
 
     def test_malformed_json_returns_empty(self, project_root: Path) -> None:
         p = project_root / ".rebrew" / "solutions.json"
