@@ -60,11 +60,6 @@ def make_func_entry(va: int, size: int, name: str) -> dict[str, int | str]:
     return {"va": va, "size": size, "name": name}
 
 
-def make_ghidra_func(va: int, size: int, name: str) -> dict[str, int | str]:
-    """Create a normalized Ghidra function record."""
-    return {"va": va, "size": size, "ghidra_name": name}
-
-
 # VAs where radare2 reports spurious functions; projects customize via r2_bogus_vas config.
 _DEFAULT_R2_BOGUS_SIZES: set[int] = set()
 

@@ -6,7 +6,6 @@ from rebrew.catalog.registry import (
     _resolve_canonical_size,
     is_jump_table,
     make_func_entry,
-    make_ghidra_func,
 )
 
 
@@ -129,10 +128,3 @@ class TestIsJumpTable:
 class TestEntryFactories:
     def test_make_func_entry(self) -> None:
         assert make_func_entry(0x1000, 64, "_f") == {"va": 0x1000, "size": 64, "name": "_f"}
-
-    def test_make_ghidra_func(self) -> None:
-        assert make_ghidra_func(0x1000, 64, "f") == {
-            "va": 0x1000,
-            "size": 64,
-            "ghidra_name": "f",
-        }

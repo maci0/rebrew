@@ -37,21 +37,6 @@ _DEFAULT_CELL_BYTES = 16
 _GRID_COLUMNS = 64
 
 
-def merge_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
-    """Merge overlapping half-open ranges into sorted non-overlapping ranges."""
-    if not ranges:
-        return []
-    ranges = sorted(ranges)
-    result: list[tuple[int, int]] = [ranges[0]]
-    for s, e in ranges[1:]:
-        last_s, last_e = result[-1]
-        if s <= last_e:
-            result[-1] = (last_s, max(last_e, e))
-        else:
-            result.append((s, e))
-    return result
-
-
 def _build_section_index(
     sections: dict[str, Any],
 ) -> tuple[list[int], list[tuple[str, int, int, int]]]:
@@ -150,7 +135,6 @@ def generate_data_json(
 
     # Count functions by highest-priority status present
     _STATUS_PRIORITY = (("EXACT",), ("RELOC",), ("NEAR_MATCHING", "NEAR_MATCH"), ("STUB",))
-    exact_count = reloc_count = near_match_count = stub_count = 0
     _counters = {"EXACT": 0, "RELOC": 0, "NEAR_MATCHING": 0, "STUB": 0}
     for vas in fn_vas:
         statuses = {e["status"] for e in vas}
@@ -164,17 +148,6 @@ def generate_data_json(
         _counters["NEAR_MATCHING"],
         _counters["STUB"],
     )
-
-    covered_bytes = 0
-    for va in unique_vas:
-        vas = by_va[va]
-        if any(e.get("marker_type") not in ("GLOBAL", "DATA") for e in vas):
-            if registry and va in registry:
-                covered_bytes += registry[va]["canonical_size"]
-            elif va in funcs_by_va:
-                covered_bytes += funcs_by_va[va]["size"]
-            elif vas:
-                covered_bytes += vas[0]["size"]
 
     sections: dict[str, Any] = {}
     _bin_info: BinaryInfo | None = None
@@ -331,12 +304,10 @@ def generate_data_json(
         off = 0
         idx = 0
 
-        # Reverse lookup: function end offset → name (for absorption detection)
+        # Reverse lookup: function end offset → name (for absorption detection).
+        # Declared here, but repopulated from scratch in each absorption round
+        # below — the initial build was dead work, discarded by the first clear.
         func_end_to_name: dict[int, str] = {}
-        if sec_name == ".text":
-            for item_off, item_data in items_by_off.items():
-                end_off = item_off + item_data["size"]
-                func_end_to_name[end_off] = item_data["name"]
 
         # All function starts in this section: the annotated items above plus
         # unannotated registry functions (from the disassembler's function
@@ -538,9 +509,6 @@ def generate_data_json(
 
             while cols_left > 0:
                 take_cols = min(cols_left, columns - col)
-                if take_cols <= 0:
-                    take_cols = columns
-                    col = 0
                 take_bytes = min(seg_end - cur, take_cols * unit_bytes)
                 span = max(1, int(math.ceil(take_bytes / unit_bytes)))
                 cell_end = cur + take_bytes

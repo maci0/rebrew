@@ -54,37 +54,6 @@ from rebrew.utils import atomic_write_text
 console = Console(stderr=True)
 
 
-def _render_skeleton(
-    marker: str,
-    cfg_marker: str,
-    va: int,
-    origin_comment: str,
-    xref_context: str | None,
-    decomp_code: str | None,
-    decomp_backend: str,
-    func_name: str,
-    todo: str,
-    ghidra_name: str,
-) -> str:
-    lines = [f"// {marker}: {cfg_marker} 0x{va:08x}\n"]
-    if origin_comment:
-        lines.append(f"/* {origin_comment} */\n")
-    if xref_context:
-        lines.append(f"{xref_context}\n")
-    if decomp_code:
-        lines.append(f"/* === Decompilation ({decomp_backend}) === */\n")
-        lines.append(f"{decomp_code}\n")
-        lines.append("/* === End decompilation === */\n")
-    else:
-        lines.append(f"int __cdecl {func_name}(void)\n")
-        lines.append("{\n")
-        lines.append(f"    /* TODO: {todo} */\n")
-        lines.append(f"    /* Ghidra name: {ghidra_name} */\n")
-        lines.append("    return 0;\n")
-        lines.append("}\n")
-    return "".join(lines)
-
-
 def _render_annotation_block(
     marker: str,
     cfg_marker: str,
@@ -94,6 +63,7 @@ def _render_annotation_block(
     decomp_backend: str,
     func_name: str,
     ghidra_name: str,
+    todo_text: str | None = None,
 ) -> str:
     lines = [f"// {marker}: {cfg_marker} 0x{va:08x}\n"]
     if xref_context:
@@ -105,7 +75,11 @@ def _render_annotation_block(
     else:
         lines.append(f"int __cdecl {func_name}(void)\n")
         lines.append("{\n")
-        lines.append(f"    /* TODO: Implement — Ghidra name: {ghidra_name} */\n")
+        if todo_text:
+            lines.append(f"    /* TODO: {todo_text} */\n")
+            lines.append(f"    /* Ghidra name: {ghidra_name} */\n")
+        else:
+            lines.append(f"    /* TODO: Implement — Ghidra name: {ghidra_name} */\n")
         lines.append("    return 0;\n")
         lines.append("}\n")
     return "".join(lines)
@@ -142,19 +116,17 @@ def generate_skeleton(
     func_name = symbol.lstrip("_")
 
     todo = "Implement based on Ghidra decompilation"
-    origin_comment = ""
 
-    return _render_skeleton(
+    return _render_annotation_block(
         marker=marker,
         cfg_marker=cfg.marker,
         va=va,
-        origin_comment=origin_comment,
         func_name=func_name,
         ghidra_name=ghidra_name,
         xref_context=xref_context,
         decomp_code=decomp_code,
         decomp_backend=decomp_backend or "decompiler",
-        todo=todo,
+        todo_text=todo,
     )
 
 

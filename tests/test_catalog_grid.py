@@ -5,26 +5,8 @@ from rebrew.catalog.grid import (
     _build_section_index,
     _find_ghidra_data_label,
     _lookup_section,
-    merge_ranges,
 )
 from rebrew.catalog.models import GhidraDataLabel
-
-
-class TestMergeRanges:
-    def test_empty(self) -> None:
-        assert merge_ranges([]) == []
-
-    def test_overlapping(self) -> None:
-        assert merge_ranges([(0, 10), (5, 15)]) == [(0, 15)]
-
-    def test_adjacent(self) -> None:
-        assert merge_ranges([(0, 10), (10, 20)]) == [(0, 20)]
-
-    def test_disjoint(self) -> None:
-        assert merge_ranges([(0, 5), (10, 15)]) == [(0, 5), (10, 15)]
-
-    def test_unsorted_input(self) -> None:
-        assert merge_ranges([(10, 15), (0, 5)]) == [(0, 5), (10, 15)]
 
 
 class TestLookupSection:

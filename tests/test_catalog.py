@@ -12,8 +12,6 @@ from rebrew.catalog import (
     generate_catalog,
     generate_data_json,
     make_func_entry,
-    make_ghidra_func,
-    merge_ranges,
     parse_function_list,
     scan_reversed_dir,
 )
@@ -31,41 +29,8 @@ class TestMakeFactories:
         assert f["size"] == 64
         assert f["name"] == "_my_func"
 
-    def test_make_ghidra_func(self) -> None:
-        f = make_ghidra_func(0x10001000, 64, "my_func")
-        assert f["va"] == 0x10001000
-        assert f["size"] == 64
-        assert f["ghidra_name"] == "my_func"
-
 
 # -------------------------------------------------------------------------
-# merge_ranges
-# -------------------------------------------------------------------------
-
-
-class TestMergeRanges:
-    def test_empty(self) -> None:
-        assert merge_ranges([]) == []
-
-    def test_non_overlapping(self) -> None:
-        result = merge_ranges([(1, 5), (10, 15)])
-        assert result == [(1, 5), (10, 15)]
-
-    def test_overlapping(self) -> None:
-        result = merge_ranges([(1, 10), (5, 15)])
-        assert result == [(1, 15)]
-
-    def test_adjacent(self) -> None:
-        result = merge_ranges([(1, 5), (5, 10)])
-        assert result == [(1, 10)]
-
-    def test_fully_contained(self) -> None:
-        result = merge_ranges([(1, 20), (5, 10)])
-        assert result == [(1, 20)]
-
-    def test_unsorted_input(self) -> None:
-        result = merge_ranges([(10, 20), (1, 5)])
-        assert result == [(1, 5), (10, 20)]
 
 
 # -------------------------------------------------------------------------
@@ -108,8 +73,8 @@ class TestBuildFunctionRegistry:
         funcs = [make_func_entry(0x10001000, 64, "_func_a")]
         ghidra_json = tmp_path / "function_structure.json"
         ghidra_data = [
-            make_ghidra_func(0x10001000, 64, "func_a"),
-            make_ghidra_func(0x10003000, 32, "func_c"),
+            make_func_entry(0x10001000, 64, "func_a"),
+            make_func_entry(0x10003000, 32, "func_c"),
         ]
         ghidra_json.write_text(json.dumps(ghidra_data), encoding="utf-8")
         reg = build_function_registry(funcs, self.cfg, ghidra_path=ghidra_json)
@@ -159,9 +124,9 @@ class TestCountDetectionSources:
         ghidra_json.write_text(
             json.dumps(
                 [
-                    make_ghidra_func(0x10002000, 64, "b"),
-                    make_ghidra_func(0x10003000, 32, "c"),  # ghidra only
-                    make_ghidra_func(0x10004000, 6, "thunk"),  # thunk
+                    make_func_entry(0x10002000, 64, "_b"),
+                    make_func_entry(0x10003000, 32, "_c"),  # ghidra only
+                    make_func_entry(0x10004000, 6, "_thunk"),  # thunk
                 ]
             ),
             encoding="utf-8",

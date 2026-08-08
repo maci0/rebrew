@@ -7,7 +7,6 @@ utilities (back-jump detection, padding trimming).
 
 import re
 import struct
-import warnings
 from pathlib import Path
 from typing import Any
 
@@ -115,16 +114,6 @@ def sections_from_info(info: BinaryInfo) -> dict[str, dict[str, int]]:
                 "fileOffset": sec.file_offset,
             }
     return sections
-
-
-def get_sections(bin_path: Path) -> dict[str, dict[str, int]]:
-    """Return section metadata keyed by section name."""
-    try:
-        info = load_binary(bin_path)
-        return sections_from_info(info)
-    except (ImportError, OSError, KeyError, ValueError) as e:
-        warnings.warn(f"Failed to parse binary sections: {e}", stacklevel=2)
-        return {}
 
 
 def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, dict[str, Any]]:

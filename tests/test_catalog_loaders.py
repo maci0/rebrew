@@ -8,7 +8,6 @@ import pytest
 
 from rebrew.catalog.loaders import (
     _classify_ghidra_label,
-    extract_dll_bytes,
     load_function_structure,
     load_ghidra_data_labels,
     parse_function_list,
@@ -122,16 +121,6 @@ class TestParseFunctionList:
             out = parse_function_list(p)
         assert out == []
         assert any("Cannot read" in str(x.message) for x in w)
-
-
-class TestExtractDllBytes:
-    def test_extracts_and_trims_padding(self, tmp_path: Path) -> None:
-        p = tmp_path / "dll.bin"
-        p.write_bytes(b"\x55\x89\xe5\xcc\xcc")
-        assert extract_dll_bytes(p, 0, 5) == b"\x55\x89\xe5"
-
-    def test_missing_file_returns_none(self, tmp_path: Path) -> None:
-        assert extract_dll_bytes(tmp_path / "nope.bin", 0, 4) is None
 
 
 class TestLoadGhidraDataLabelsMore:

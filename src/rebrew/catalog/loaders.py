@@ -13,7 +13,6 @@ from typing import Any
 from rebrew.annotation import Annotation, parse_c_file_multi, parse_library_header
 from rebrew.catalog.models import FunctionEntry, GhidraDataLabel
 from rebrew.catalog.registry import make_func_entry
-from rebrew.catalog.sections import trim_trailing_padding
 from rebrew.config import ProjectConfig
 
 # ---------------------------------------------------------------------------
@@ -173,19 +172,6 @@ def parse_function_list(path: Path) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # DLL byte extraction
 # ---------------------------------------------------------------------------
-
-
-def extract_dll_bytes(bin_path: Path, file_offset: int, size: int) -> bytes | None:
-    """Extract raw bytes from DLL at given file offset."""
-    try:
-        with bin_path.open("rb") as f:
-            f.seek(file_offset)
-            data = f.read(size)
-        # Trim trailing CC/90 padding
-        return data[: trim_trailing_padding(data)]
-    except (OSError, ValueError):
-        return None
-
 
 # ---------------------------------------------------------------------------
 # Scanning
