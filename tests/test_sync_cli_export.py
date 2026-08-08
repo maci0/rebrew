@@ -46,6 +46,18 @@ class TestSyncExport:
         payload = json.loads(out.read_text())
         assert payload == [{"tool": "create-label", "name": "x"}]
 
+    def test_dry_run_writes_nothing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """--dry-run must not materialize ghidra_commands.json — it is a
+        multi-hundred-KB artifact and the flag promises "Preview changes
+        without writing"."""
+        _patch(monkeypatch, tmp_path)
+        r = runner.invoke(sync_cli.app, ["--push", "--dry-run", "--json"])
+        assert r.exit_code == 0
+        payload = json.loads(r.stdout)
+        assert payload["dry_run"] is True
+        assert payload["operations"] == 1
+        assert not (tmp_path / "ghidra_commands.json").exists()
+
     def test_no_action_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch(monkeypatch, tmp_path)
         r = runner.invoke(sync_cli.app, [])
