@@ -1613,8 +1613,9 @@ def mut_split_cmp_chain(s: str, rng: random.Random) -> str | None:
 def mut_merge_cmp_chain(s: str, rng: random.Random) -> str | None:
     """Merge nested if(a) { if(b) } into a single if(a && b) condition.
 
-    Skips when either the outer or the inner if has an else clause —
-    merging would silently drop the else body.
+    Skips when either if has an else clause, or when the outer body holds
+    more than the inner if — merging would silently drop the extra
+    statements or the else body.
     """
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
@@ -1627,6 +1628,15 @@ def mut_merge_cmp_chain(s: str, rng: random.Random) -> str | None:
         stmt = caps["stmt"]
         stmt2 = caps["stmt2"]
         if stmt.child_by_field_name("alternative") or stmt2.child_by_field_name("alternative"):
+            continue
+        # The outer consequence must contain ONLY the inner if (mirror the
+        # mut_flatten_nested_if guard) — otherwise the merged form drops
+        # sibling statements like `if (a) { x = 1; if (b) { ... } }`.
+        outer_body = stmt.child_by_field_name("consequence")
+        if outer_body is None or outer_body.type != "compound_statement":
+            continue
+        named = [c for c in outer_body.named_children if c.type != "comment"]
+        if len(named) != 1 or named[0].type != "if_statement":
             continue
         valid.append((caps, stmt))
     if not valid:
@@ -5206,9 +5216,26 @@ def mut_invert_if_else(s: str, rng: random.Random) -> str | None:
     cons = b_source[caps["cons"].start_byte : caps["cons"].end_byte]
     alt = b_source[caps["alt"].start_byte : caps["alt"].end_byte]
 
+    # Brace both arms: a bare `else if` without its own trailing else would
+    # otherwise re-bind the final else to the inner if (dangling else),
+    # flipping branch outcomes.
+    def _braced(body: bytes) -> bytes:
+        if body.startswith(b"{") and body.endswith(b"}"):
+            return body
+        return b"{ " + body + b" }"
+
     stmt_node = caps["stmt"]
     replacement = (
-        b"if (" + left + b" " + inverted_op + b" " + right + b") " + alt + b" else " + cons
+        b"if ("
+        + left
+        + b" "
+        + inverted_op
+        + b" "
+        + right
+        + b") "
+        + _braced(alt)
+        + b" else "
+        + _braced(cons)
     )
     result = b_source[: stmt_node.start_byte] + replacement + b_source[stmt_node.end_byte :]
     return result.decode("utf-8")

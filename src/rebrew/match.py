@@ -73,7 +73,7 @@ from rebrew.matcher import (
     score_candidate,
     structural_similarity,
 )
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, read_source_text
 
 log = logging.getLogger(__name__)
 
@@ -88,16 +88,18 @@ console = Console(stderr=True)
 # ---------------------------------------------------------------------------
 
 
-def _ga_cache_key(src: str, cflags: str, cl_cmd: str) -> str:
+def _ga_cache_key(src: str, cflags: str, cl_cmd: str, inc_dir: str) -> str:
     """Cache key for a GA compile result.
 
     Must cover everything that changes the produced .obj: the source text,
-    the compiler flags, and the compiler command itself.  The build cache
-    persists across runs (``output/ga_runs/<rel>/build_cache.db``), so a
+    the compiler flags, the compiler command, and the include directory
+    (different headers → different codegen).  The build cache persists
+    across runs (``output/ga_runs/<rel>/build_cache.db``), so a
     sweep-then-GA or CFLAGS-metadata change must not reuse an .obj compiled
     under different flags.
     """
     material = src.encode() + b"\x00" + cflags.encode() + b"\x00" + cl_cmd.encode()
+    material += b"\x00" + inc_dir.encode()
     return hashlib.sha256(material).hexdigest()[:16]
 
 
@@ -202,7 +204,7 @@ class BinaryMatchingGA:
         # so the key must cover everything that changes the .obj — not just
         # the source.  A sweep-then-GA or CFLAGS-metadata change used to
         # reuse the previous flag combination's .obj.
-        src_hash = _ga_cache_key(src, self.cflags, str(self.cl_cmd))
+        src_hash = _ga_cache_key(src, self.cflags, str(self.cl_cmd), self.inc_dir)
         res = self.cache.get(src_hash)
         if res:
             return res
@@ -647,7 +649,7 @@ def update_cflags_annotation(
     from rebrew.metadata import get_entry, update_field
 
     try:
-        text = filepath.read_text(encoding="utf-8")
+        text, _ = read_source_text(filepath)
     except OSError:
         return False
 
@@ -677,23 +679,22 @@ def update_stub_to_matched(
 
     Validates the transformed content before writing, then uses
     ``atomic_write_text`` with a .bak backup to prevent data loss.
+
+    STATUS promotion happens only after the body splice succeeded AND the
+    post-write parse validation passed — a failed splice or a validation
+    error must not claim RELOC on a file whose body is still a stub.
     """
     bak_path = filepath.with_suffix(".c.bak")
 
-    original = filepath.read_text(encoding="utf-8", errors="replace")
+    original, encoding = read_source_text(filepath)
 
     m = re.search(
         r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*(\S+)\s+" + re.escape(stub.va),
         original,
         re.IGNORECASE,
     )
-    if m:
-        module = m.group(1)
-        va_int = int(stub.va, 16)
-        from rebrew.metadata import update_source_status
-
-        meta_root = metadata_dir or filepath.parent
-        update_source_status(meta_root, "RELOC", module, va_int)
+    module = m.group(1) if m else None
+    va_int = int(stub.va, 16) if m else None
 
     # NOTE: STATUS is metadata-owned (update_source_status above); the old
     # whole-file inline `// STATUS: RELOC` rewrite is gone — it hit the file's
@@ -705,6 +706,7 @@ def update_stub_to_matched(
     # function definition AFTER the stub's marker, not the file's first one.
     body_start = _FUNC_START_RE.search(updated, m.end() if m else 0)
     best_body = _FUNC_START_RE.search(best_src)
+    spliced = bool(body_start and best_body)
 
     if body_start and best_body:
         header = updated[: body_start.start()]
@@ -716,7 +718,7 @@ def update_stub_to_matched(
         suffix=".c",
         dir=filepath.parent,
         delete=False,
-        encoding="utf-8",
+        encoding=encoding,
     ) as tmp:
         tmp.write(updated)
         tmp_path = Path(tmp.name)
@@ -730,8 +732,16 @@ def update_stub_to_matched(
     finally:
         tmp_path.unlink(missing_ok=True)
 
+    # Promote only when the splice actually landed and the file re-parses —
+    # otherwise the metadata would claim RELOC on an unchanged stub body.
+    if spliced and module is not None and va_int is not None:
+        from rebrew.metadata import update_source_status
+
+        meta_root = metadata_dir or filepath.parent
+        update_source_status(meta_root, "RELOC", module, va_int)
+
     shutil.copy2(filepath, bak_path)
-    atomic_write_text(filepath, updated)
+    atomic_write_text(filepath, updated, encoding=encoding)
 
     from rebrew.cli import rel_display_path
 
@@ -1301,7 +1311,7 @@ def resolve_build_params(
     if not target_bytes:
         error_exit("Could not extract target bytes", json_mode=json_output)
 
-    seed_src = seed_c_path.read_text(encoding="utf-8")
+    seed_src, _ = read_source_text(seed_c_path)
 
     return _BuildParams(
         cfg=cfg,
@@ -1419,7 +1429,7 @@ def run_flag_sweep(
     symbol = stub.symbol
     cflags = stub.cflags
 
-    source = filepath.read_text(encoding="utf-8")
+    source, _ = read_source_text(filepath)
     target_bytes = extract_raw_bytes(cfg.target_binary, va_int, size)
     if not target_bytes:
         return float("inf"), "", []
@@ -1678,7 +1688,10 @@ def _run_one_stub_ga(
                 _save_solution(
                     cfg,
                     stub.symbol,
-                    stub.cflags,
+                    # The flags the GA actually ran with — under
+                    # --sweep-then-ga this is cflags_override, not stub.cflags;
+                    # find_similar cross-function seeding filters on this field.
+                    cflags,
                     stub.size,
                     str(filepath),
                     best_score,
