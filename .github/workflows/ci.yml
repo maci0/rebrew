@@ -144,6 +144,8 @@ jobs:
       - name: CLI contract (round-trip / verify flags)
         run: |
           set -euo pipefail
-          uv run rebrew round-trip --help | grep -q -- '--strict-catalog'
-          uv run rebrew verify --help | grep -q -- '--compare'
-          uv run rebrew prove --help | grep -q 'NEAR_MATCHING'
+          # grep -q closes the pipe on match → SIGPIPE → pipefail fails even on
+          # success; consume all input and discard output instead.
+          uv run rebrew round-trip --help | grep -- '--strict-catalog' >/dev/null
+          uv run rebrew verify --help | grep -- '--compare' >/dev/null
+          uv run rebrew prove --help | grep 'NEAR_MATCHING' >/dev/null

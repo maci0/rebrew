@@ -25,10 +25,10 @@ classifiers = [
     "Topic :: Software Development :: Disassemblers",
 ]
 dependencies = [
-    "capstone>=5.0.0",
-    "diskcache>=5.6",
+    "capstone>=5.0.8",  # PYSEC-2026-3544 fixed in 5.0.8
+    "diskcache>=5.6",  # advisory (unsafe pickle) has no fix yet — cache stores only compile .obj bytes, not untrusted input
     "httpx>=0.28",
-    "lief>=0.17.4",
+    "lief>=0.17.4,<1",  # 1.0.0 is breaking
     "numpy>=1.26",
     "python-flirt>=0.9.10",
     "rich>=13.0",
