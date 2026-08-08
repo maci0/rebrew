@@ -4692,3 +4692,26 @@ or triaged (commits `517cc5c`, `69e2f56`, `004fa2f`, `db1c328`, `1411444`,
   is best-effort and can legitimately shrink).
 - Status snapshot for history now taken INSIDE the `BEGIN IMMEDIATE`
   transaction, so a concurrent rebuild cannot record wrong old_statuses.
+
+## 2026-08-09 — Real-project tooling audit (guild-rebrew + np-rebrew)
+
+Ran the full toolchain against both live projects (todo, status, lint,
+catalog, build-db, recoverage CLI+server+check, data, data --dispatch,
+imports, round-trip, diff, asm, prove, cache, cfg, verify --dry-run,
+verify --compare, rename --dry-run).  Two real bugs found and fixed:
+
+- **`rebrew todo` pct_matched >100%** (commit `c03b800`): divided matched
+  statuses (counted over ALL covered VAs incl. library headers) by
+  `len(ghidra_funcs)` (function_structure.json only) → guild-rebrew showed
+  240.6%.  Now divides by the covered population → 93.9%, matching
+  `rebrew status`.  Regression test added.
+- **recoverage phantom `__schema__` target** (commit `e3decc2`): the
+  reserved schema-version metadata row (added for deterministic db_version
+  reads) leaked into target enumeration → `recoverage stats` and the
+  dashboard listed a fake `__schema__` target.  Excluded via a shared
+  `SCHEMA_TARGET` constant in server.py (resolve_targets), cli.py
+  (_list_targets), and api.py (health target count).
+
+Non-bugs verified: .bss split on huge virtual-size .data is by-design;
+`recoverage check` exits 1 on failure; verify --compare gate correct;
+prove/rename guards correct.
