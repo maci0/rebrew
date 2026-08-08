@@ -374,12 +374,34 @@ class TestIncrementalVerify:
 class TestHeadersHash:
     def test_empty_when_no_headers(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
-        # reversed_dir exists but has no .h files
+        # reversed_dir exists but has no .h files — the hash is still a
+        # stable digest (it also covers the external -I include dirs).
         result = _headers_hash(cfg)
-        # SHA256 of no data — should be the digest of zero bytes fed to hashlib
         assert isinstance(result, str)
-        # No headers → hex digest of an empty sha256 update sequence
-        assert result == hashlib.sha256().hexdigest()
+        assert len(result) == 64
+        assert _headers_hash(cfg) == result  # deterministic
+
+    def test_changes_when_external_include_header_changes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An edit to a header OUTSIDE reversed_dir (-I dir) must change the
+        hash — the verify cache covers external include dirs too.  The
+        include fingerprint is memoized per process (compile-cache design);
+        clearing the memo simulates the next CLI invocation."""
+        from rebrew.compile_cache import include_fingerprint
+
+        cfg = _make_cfg(tmp_path)
+        # Point compiler_includes at a real directory with a header.
+        inc = tmp_path / "include"
+        inc.mkdir()
+        (inc / "zlib.h").write_text("typedef int uInt;\n", encoding="utf-8")
+        cfg.compiler_includes = inc
+        include_fingerprint.cache_clear()
+        hash_v1 = _headers_hash(cfg)
+        (inc / "zlib.h").write_text("typedef long uInt;\n", encoding="utf-8")
+        include_fingerprint.cache_clear()
+        hash_v2 = _headers_hash(cfg)
+        assert hash_v1 != hash_v2
 
     def test_changes_when_header_added(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)

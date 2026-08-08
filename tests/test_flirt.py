@@ -145,7 +145,9 @@ class TestCliSurface:
             flirt_mod,
             "flirt",
             SimpleNamespace(
-                compile=lambda s: object(), parse_sig=lambda b: [], parse_pat=lambda b: []
+                compile=lambda s: SimpleNamespace(match=lambda data: []),
+                parse_sig=lambda b: [],
+                parse_pat=lambda b: [],
             ),
         )
         monkeypatch.setattr(
@@ -298,7 +300,9 @@ class TestSmallTextSectionSchema:
             flirt_mod,
             "flirt",
             SimpleNamespace(
-                compile=lambda s: object(), parse_sig=lambda b: [], parse_pat=lambda b: []
+                compile=lambda s: SimpleNamespace(match=lambda data: []),
+                parse_sig=lambda b: [],
+                parse_pat=lambda b: [],
             ),
         )
         monkeypatch.setattr(

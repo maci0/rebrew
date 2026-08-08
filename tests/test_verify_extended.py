@@ -959,3 +959,90 @@ class TestStatusOrderDiffing:
         diff = diff_reports(previous, current)  # must not raise
         assert diff["unchanged_count"] == 1
         assert diff["new"][0]["va"] == "0x00002000"
+
+
+class TestCompareBaseline:
+    def test_regressed_compare_run_preserves_baseline(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failing --compare run must NOT overwrite the last good baseline.
+
+        The report file IS the baseline for future --compare runs; a
+        regressed run that advances it would let the gate self-heal on the
+        next invocation (the regression becomes "pre-existing").
+        """
+        from rebrew.verify import app
+
+        cfg = _cfg(tmp_path)
+        (cfg.db_dir).mkdir(parents=True, exist_ok=True)
+        baseline = {
+            "schema_version": 1,
+            "results": [],
+            "summary": {"total": 1, "passed": 1, "failed": 0},
+        }
+        (cfg.db_dir / "verify_results.json").write_text(json.dumps(baseline), encoding="utf-8")
+        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        entry = _ann(0x1000)
+        monkeypatch.setattr(
+            "rebrew.verify.prepare_entries", lambda *a, **k: ([entry], 0, 1, [], [], 0, [])
+        )
+        results = [{"va": "0x00001000", "status": "COMPILE_ERROR", "passed": False}]
+        monkeypatch.setattr(
+            "rebrew.verify.run_verification", lambda *a, **k: (0, 1, [], results, [])
+        )
+        previous = {
+            "schema_version": 1,
+            "results": [{"va": "0x00001000", "status": "EXACT", "passed": True}],
+            "summary": {"total": 1, "passed": 1, "failed": 0},
+        }
+        monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (previous, None))
+        monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
+
+        result = CliRunner().invoke(app, ["--compare", "--json"])
+        # Gate fails (regression EXACT -> COMPILE_ERROR).
+        assert result.exit_code == 1
+        # The baseline on disk is untouched.
+        on_disk = json.loads((cfg.db_dir / "verify_results.json").read_text(encoding="utf-8"))
+        assert on_disk == baseline
+
+    def test_passing_compare_run_advances_baseline(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A clean --compare run records the new report as the baseline."""
+        from rebrew.verify import app
+
+        cfg = _cfg(tmp_path)
+        (cfg.db_dir).mkdir(parents=True, exist_ok=True)
+        baseline = {
+            "schema_version": 1,
+            "results": [],
+            "summary": {"total": 0, "passed": 0, "failed": 0},
+        }
+        (cfg.db_dir / "verify_results.json").write_text(json.dumps(baseline), encoding="utf-8")
+        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        entry = _ann(0x1000)
+        monkeypatch.setattr(
+            "rebrew.verify.prepare_entries", lambda *a, **k: ([entry], 1, 0, [], [], 0, [])
+        )
+        results = [{"va": "0x00001000", "status": "EXACT", "passed": True}]
+        monkeypatch.setattr(
+            "rebrew.verify.run_verification", lambda *a, **k: (1, 0, [], results, [])
+        )
+        previous = {
+            "schema_version": 1,
+            "results": [],
+            "summary": {"total": 0, "passed": 0, "failed": 0},
+        }
+        monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (previous, None))
+        monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
+
+        result = CliRunner().invoke(app, ["--compare", "--json"])
+        assert result.exit_code == 0
+        on_disk = json.loads((cfg.db_dir / "verify_results.json").read_text(encoding="utf-8"))
+        # Baseline advanced to the new report (differs from the old one).
+        assert on_disk["summary"] != baseline["summary"]
+        assert on_disk["results"][0]["status"] == "EXACT"

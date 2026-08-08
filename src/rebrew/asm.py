@@ -132,6 +132,12 @@ def _run_hex_mode(
                 f"No code at VA 0x{va_int:08x} — address is outside the binary image",
                 json_mode=json_output,
             )
+        truncated = size > 0 and len(data) < size
+        if truncated:
+            console.print(
+                f"[yellow]warning:[/yellow] requested {size} bytes, got {len(data)} "
+                "(reached end of image)"
+            )
         try:
             from capstone import Cs
 
@@ -144,6 +150,8 @@ def _run_hex_mode(
                     {
                         "va": f"0x{va_int:08x}",
                         "size": len(data),
+                        "requested_size": size,
+                        "truncated": truncated,
                         "instruction_count": len(insn_list),
                         "instructions": [
                             {

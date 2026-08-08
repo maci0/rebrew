@@ -155,11 +155,16 @@ def main(
             f"Warning: .text section too small ({len(code_data)} bytes) for FLIRT matching"
         )
 
-    def _check_offset(offset: int) -> None:
-        """Match one .text offset against the signature index (helper for both modes)."""
+    def _check_offset(offset: int, *, force: bool = False) -> None:
+        """Match one .text offset against the signature index (helper for both modes).
+
+        *force* bypasses the size gate — the explicit ``--va`` probe is about
+        one function the user named, so a short function must not silently
+        report "no match" because the scan heuristic suppressed it.
+        """
         nonlocal found, skipped
         func_size = find_func_size(code_data, offset)
-        if func_size < min_size:
+        if not force and func_size < min_size:
             return
         matches = matcher.match(code_data[offset : offset + 1024])
         if not matches:
@@ -210,7 +215,7 @@ def main(
                 f"VA 0x{va_int:08x} outside .text (0x{base_va:x}..0x{base_va + len(code_data):x})",
                 json_mode=json_output,
             )
-        _check_offset(offset)
+        _check_offset(offset, force=True)
     else:
         for offset in iter_match_offsets(
             len(code_data), stride=stride, min_window=_MIN_MATCH_WINDOW

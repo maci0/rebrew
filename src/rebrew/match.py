@@ -1369,7 +1369,15 @@ def resolve_build_params(
         )
 
     if not cflags:
-        cflags = meta.get("CFLAGS", getattr(compile_cfg, "cflags", "/O2 /Gd") or "/O2 /Gd")
+        cflags = meta.get("CFLAGS", "")
+    if not cflags:
+        # Per-module preset (rebrew cfg set-cflags) fallback — a module with
+        # a preset and no per-function CFLAGS uses it; otherwise the compiler
+        # default applies.  Empty per-function CFLAGS falls through too.
+        mod = getattr(anno, "module", "") if anno else ""
+        cflags = getattr(compile_cfg, "cflags_presets", {}).get(mod.upper(), "")
+    if not cflags:
+        cflags = getattr(compile_cfg, "cflags", "/O2 /Gd") or "/O2 /Gd"
     cflags = _compile_cflags(cflags, getattr(compile_cfg, "base_cflags", "") or "")
 
     if not target_va:

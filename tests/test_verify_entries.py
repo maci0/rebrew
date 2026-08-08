@@ -96,6 +96,7 @@ class TestPrepareEntriesCache:
             "source_hash": source_hash,
             "filepath": filepath,
             "mtime_ns": mtime,
+            "size": 64,  # matches _ann's default annotation size
             "result": {
                 "status": "EXACT" if passed else "STUB",
                 "va": "0x1000",

@@ -235,7 +235,11 @@ class TestGenerateDataJsonGrid:
         # Status counters: EXACT/RELOC/NEAR_MATCHING each 1, STUB = 5
         # (fn_c, fn_o, fn_e, fn_z, fn_out).
         s = data["summary"]
-        assert s["totalFunctions"] == 8
+        # totalFunctions reconciles with the emitted functions dict: fn_z
+        # (zero size) is dropped; fn_out gets a fallback offset, so 7 of the
+        # 8 function annotations land in the table.
+        assert s["totalFunctions"] == 7
+        assert len(fn) == 7
         assert s["exactMatches"] == 1
         assert s["relocMatches"] == 1
         assert s["nearMatchCount"] == 1

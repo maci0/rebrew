@@ -509,8 +509,11 @@ def set_value(
             with contextlib.suppress(ValueError):
                 parsed_value = float(value)
 
+    if dry_run:
+        console.print(f"[cyan]dry-run:[/cyan] would set {key} = {parsed_value!r}")
+        return
     parent[final_key] = parsed_value
-    _save_toml(doc, toml_path, dry_run=dry_run)
+    _save_toml(doc, toml_path)
     console.print(f"[green]Set {key} = {parsed_value!r}[/green]")
 
 
@@ -536,11 +539,17 @@ def add_module(
         console.print(f"[yellow]Module '{module_upper}' already exists in {target}.[/yellow]")
         return
 
+    if dry_run:
+        console.print(
+            f"[cyan]dry-run:[/cyan] would add module '{module_upper}' to {target} "
+            f"(Modules: {list(origins) + [module_upper]})"
+        )
+        return
     origins.append(module_upper)
     # tomlkit copies plain lists on assignment — re-assign so the mutation
     # is visible to the document that _save_toml serializes.
     tgt["origins"] = origins
-    _save_toml(doc, toml_path, dry_run=dry_run)
+    _save_toml(doc, toml_path)
     console.print(
         f"[green]Added module '{module_upper}' to {target}. Modules: {list(origins)}[/green]"
     )
@@ -613,7 +622,12 @@ def set_cflags(
         presets[module.upper()] = flags
         scope = "compiler"
 
-    _save_toml(doc, toml_path, dry_run=dry_run)
+    if dry_run:
+        console.print(
+            f"[cyan]dry-run:[/cyan] would set {scope}.cflags_presets.{module.upper()} = {flags!r}"
+        )
+        return
+    _save_toml(doc, toml_path)
     console.print(f'[green]Set {scope}.cflags_presets.{module.upper()} = "{flags}"[/green]')
 
 

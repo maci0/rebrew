@@ -58,22 +58,6 @@ def count_statuses(by_va: dict[int, list[Annotation]]) -> dict[str, int]:
     return counters
 
 
-def _count_matched(fn_vas: list[list[Annotation]]) -> int:
-    """Count function VAs whose annotation set includes a matched status.
-
-    A function is matched when any of its annotations carries EXACT, RELOC,
-    or PROVEN (PROVEN is a post-verify semantic promotion).  Error statuses
-    (COMPILE_ERROR, SIZE_MISMATCH, MISSING_*) never count as matched — the
-    old ``len(fn_vas) - stub_count`` formula counted them, inflating the
-    headline stat.
-    """
-    matched = 0
-    for vas in fn_vas:
-        if any(e.get("status") in ("EXACT", "RELOC", "PROVEN") for e in vas):
-            matched += 1
-    return matched
-
-
 def _build_section_index(
     sections: dict[str, Any],
 ) -> tuple[list[int], list[tuple[str, int, int, int]]]:
@@ -164,12 +148,6 @@ def generate_data_json(
     unique_vas = set(by_va)
     funcs_by_va: dict[int, dict[str, Any]] = {f["va"]: f for f in funcs}
 
-    fn_vas = [
-        vas
-        for vas in by_va.values()
-        if any(e.get("marker_type") not in ("GLOBAL", "DATA") for e in vas)
-    ]
-
     # Count functions by highest-priority status present
     _counters = count_statuses(by_va)
     exact_count, reloc_count, near_match_count, stub_count = (
@@ -235,6 +213,12 @@ def generate_data_json(
 
     # Pre-build section index for O(log n) VA lookups
     sec_sorted_starts, sec_info = _build_section_index(sections)
+
+    # The summary must reconcile with the emitted functions dict below: some
+    # fn_vas entries get dropped (no section, no resolvable size), so counts
+    # are tallied from what is actually emitted.
+    emitted_fn_count = 0
+    emitted_matched = 0
 
     functions = {}
     for va in sorted(unique_vas):
@@ -303,6 +287,10 @@ def generate_data_json(
             "blockerDelta": e.get("blocker_delta"),
             "size_reason": reg.get("size_reason", ""),
         }
+        if e["marker_type"] not in ("GLOBAL", "DATA"):
+            emitted_fn_count += 1
+            if e["status"] in ("EXACT", "RELOC", "PROVEN"):
+                emitted_matched += 1
 
     # Generate cells for each section
     for sec_name, sec_data in sections.items():
@@ -638,12 +626,12 @@ def generate_data_json(
             "sourceRoot": source_root,
         },
         "summary": {
-            "totalFunctions": len(fn_vas),
+            "totalFunctions": emitted_fn_count,
             # Only EXACT/RELOC/PROVEN functions are genuinely matched.  The
             # old len(fn_vas) - stub_count formula counted COMPILE_ERROR,
             # SIZE_MISMATCH and MISSING_* functions as "matched", inflating
             # the headline coverage stat for every broken/error entry.
-            "matchedFunctions": _count_matched(fn_vas),
+            "matchedFunctions": emitted_matched,
             "exactMatches": exact_count,
             "relocMatches": reloc_count,
             "nearMatchCount": near_match_count,
