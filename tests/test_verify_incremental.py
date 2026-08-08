@@ -201,6 +201,55 @@ class TestSaveVerifyCache:
         assert cache_entries["0x10001000"].filepath == "func_a.c"
         assert cache_entries["0x10001000"].result.status == "EXACT"
 
+    def test_overlaid_proven_stored_raw(self, tmp_path: Path) -> None:
+        """The PROVEN overlay must not be baked into the cache.
+
+        A PROVEN overlay is metadata-derived (re-applied from CURRENT metadata
+        on every run, including cached results).  If the cache stored the
+        overlaid PROVEN pass, a later STATUS demotion would be masked by the
+        stale cached result.  The cache must store the pre-overlay byte result.
+        """
+        cfg = _make_cfg(tmp_path)
+        source_path = cfg.reversed_dir / "func_a.c"
+        source_path.write_text("int func_a(void) { return 1; }\n", encoding="utf-8")
+
+        # Post-overlay view: status PROVEN, passed True.
+        results = [
+            {
+                "va": "0x10001000",
+                "name": "func_a",
+                "filepath": "func_a.c",
+                "size": 16,
+                "status": "PROVEN",
+                "message": "",
+                "passed": True,
+                "match_percent": 60.0,
+                "delta": 10,
+            }
+        ]
+        entries = [
+            SimpleNamespace(
+                va=0x10001000,
+                name="func_a",
+                filepath="func_a.c",
+                size=16,
+                origin="GAME",
+                cflags="",
+                symbol="",
+            )
+        ]
+        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+
+        _save_verify_cache(
+            cache_path, cfg, results, entries, {"0x10001000": ("NEAR_MATCHING", False)}
+        )
+        loaded = _load_verify_cache(cache_path, cfg)
+
+        assert loaded is not None
+        entry = loaded.entries["0x10001000"]
+        assert entry.result.status == "NEAR_MATCHING"
+        assert entry.result.passed is False
+
 
 class TestIncrementalVerify:
     def test_only_changed_files_are_recompiled(
