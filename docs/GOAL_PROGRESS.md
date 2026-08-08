@@ -4506,3 +4506,30 @@ fixtures), gen_flirt_pat.py (needs .lib archives).
     `recoverage serve` (LAN access) and a server-side 429 rate limit on
     POST /api/regen (retry_after) — verified end-to-end.
   - Pushed recoverage c9d5c32..e7ea356.
+
+### Slice 213 (16h goal) — config-review: 2 HIGH metadata-routing bugs fixed — DONE
+- Ran ~/review-prompts/prompts/config-review.md (first run) scoped to
+  config.py/metadata.py/annotation.py/data_metadata.py + all call sites.
+  Found 2 HIGH + 2 MEDIUM + 4 LOW; fixed all actionable ones:
+  1. (HIGH) `rebrew catalog --fix-sizes` read/wrote SIZE metadata to
+     cfile.parent instead of cfg.metadata_dir — every SIZE fix was silently
+     lost to a stray rebrew-function.toml. Now routes both the read
+     (parse_c_file_multi) and the write (update_size_annotation) through
+     cfg.metadata_dir.
+  2. (HIGH) `rebrew data --fix-bss` wrote SIZE/SECTION/NOTE to
+     <reversed_dir>/rebrew-data.toml while every read uses cfg.metadata_dir
+     (= reversed_dir.parent) — BSS metadata orphaned. _generate_bss_fix now
+     takes a metadata_dir separate from the .c output dir.
+  3. (MED) config load now warns when the target binary is missing (image_base
+     auto-detection skipped) — a typo'd path no longer silently zeros the
+     layout. One config test + 2 binsync tests updated (result.stdout, the
+     documented JSON convention); filterwarnings added for the fixture noise.
+  4. (MED) round-trip's "non-zero image_base in rebrew-project.toml" error
+     was misleading (image_base is auto-detected, not a TOML key) — now
+     points at the binary path/format.
+  5. (LOW) data.py getattr default no longer eagerly dereferences
+     cfg.target_name; annotation.py's parse_c_file_multi docstring corrected
+     (it previously recommended the wrong metadata_dir); lint --fix now routes
+     inline STATUS migration through update_source_status (validates, clears
+     stale blockers) instead of the raw bypass writer.
+- Suite 3460 passed / 0 skipped. ruff/mypy/pre-commit green.

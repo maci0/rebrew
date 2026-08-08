@@ -409,7 +409,9 @@ def _run_round_trip(
     """Top-level orchestration. Returns the process exit code."""
     if cfg.image_base == 0:
         error_exit(
-            "round-trip requires a non-zero image_base in rebrew-project.toml",
+            "round-trip requires a non-zero image_base — it is auto-detected from "
+            f"the target binary ({cfg.target_binary}); check that the binary "
+            "exists and 'format' is set correctly in rebrew-project.toml",
             json_mode=json_output,
         )
     try:

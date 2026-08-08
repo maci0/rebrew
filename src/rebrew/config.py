@@ -813,5 +813,12 @@ def load_config(
         cfg.image_base = layout["image_base"]
         cfg.text_va = layout["text_va"]
         cfg.text_raw_offset = layout["text_raw_offset"]
+    else:
+        # A typo'd/missing binary path silently leaves image_base/text_va at 0,
+        # which surfaces later as baffling byte-offset math.  Warn at load time.
+        _config_warn(
+            f"target binary not found: {cfg.target_binary} — "
+            "image_base/text_va auto-detection skipped"
+        )
 
     return cfg

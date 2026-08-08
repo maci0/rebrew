@@ -292,7 +292,9 @@ def main(
         skipped = 0
         for cfile in iter_sources(reversed_dir, cfg):
             parsed = parse_c_file_multi(
-                cfile, target_name=target_marker(cfg), metadata_dir=cfile.parent
+                cfile,
+                target_name=target_marker(cfg),
+                metadata_dir=cfg.metadata_dir,
             )
             for ann in parsed:
                 va = ann.va
@@ -302,7 +304,9 @@ def main(
                 if canonical <= 0 or canonical <= ann.size:
                     continue
                 reason = registry[va].get("size_reason", "")
-                if update_size_annotation(cfile, canonical, target_va=va):
+                if update_size_annotation(
+                    cfile, canonical, target_va=va, metadata_dir=cfg.metadata_dir
+                ):
                     diff = canonical - ann.size
                     from rebrew.cli import rel_display_path
 
