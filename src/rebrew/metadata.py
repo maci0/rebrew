@@ -58,13 +58,17 @@ Writes use ``tomlkit`` for round-trip-safe serialisation and the standard
 
 Thread safety
 -------------
-Not thread-safe.  CLI tools are single-threaded; no locking is needed.
+Writes to the metadata file are serialised by a module-level lock because
+``rebrew verify --jobs > 1`` and the GA batch promote STATUS from worker
+threads.  Each write is atomic (rename), but read-modify-write cycles from
+different threads would otherwise race.
 """
 
 from __future__ import annotations
 
 import contextlib
 import logging
+import threading
 import typing
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -91,6 +95,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _metadata_cache: dict[Path, tuple[int, dict[tuple[str, int], dict[str, Any]]]] = {}
+
+# Serialises read-modify-write cycles on the metadata file across worker
+# threads (verify --jobs, GA batch promotion).
+_METADATA_LOCK = threading.Lock()
 
 
 def clear_metadata_cache() -> None:
@@ -462,38 +470,41 @@ def update_source_status(
     path = (metadata_dir / METADATA_FILENAME).resolve()
     toml_key = qualified_key(module, va)
 
-    # Single read
-    doc = load_toml_for_write(path, "metadata")
+    # Serialise the read-modify-write across worker threads (verify --jobs,
+    # GA batch) — the atomic rename prevents corruption but not lost updates.
+    with _METADATA_LOCK:
+        # Single read
+        doc = load_toml_for_write(path, "metadata")
 
-    # Use dict access for type checking on tomlkit Container
-    doc_dict = typing.cast(dict[str, Any], doc)
-    if toml_key not in doc_dict:
-        doc_dict[toml_key] = tomlkit.table()
+        # Use dict access for type checking on tomlkit Container
+        doc_dict = typing.cast(dict[str, Any], doc)
+        if toml_key not in doc_dict:
+            doc_dict[toml_key] = tomlkit.table()
 
-    entry = typing.cast(dict[str, Any], doc_dict[toml_key])
+        entry = typing.cast(dict[str, Any], doc_dict[toml_key])
 
-    # Idempotency guard — avoid write if nothing changed
-    current_status = entry.get("status", "")
-    current_blocker = entry.get("blocker", "")
-    if current_status == new_status and (not clear_blockers or not current_blocker):
-        return
+        # Idempotency guard — avoid write if nothing changed
+        current_status = entry.get("status", "")
+        current_blocker = entry.get("blocker", "")
+        if current_status == new_status and (not clear_blockers or not current_blocker):
+            return
 
-    # PROVEN is a post-verify promotion from rebrew prove — never silently demote.
-    from rebrew.cli import is_status_sticky
+        # PROVEN is a post-verify promotion from rebrew prove — never silently demote.
+        from rebrew.cli import is_status_sticky
 
-    if is_status_sticky(current_status) and new_status != current_status and not force:
-        return
+        if is_status_sticky(current_status) and new_status != current_status and not force:
+            return
 
-    # Mutate in-place
-    entry["status"] = new_status
-    if clear_blockers:
-        with contextlib.suppress(KeyError):
-            del entry["blocker"]
-        with contextlib.suppress(KeyError):
-            del entry["blocker_delta"]
+        # Mutate in-place
+        entry["status"] = new_status
+        if clear_blockers:
+            with contextlib.suppress(KeyError):
+                del entry["blocker"]
+            with contextlib.suppress(KeyError):
+                del entry["blocker_delta"]
 
-    # Single write
-    atomic_write_text(path, tomlkit.dumps(doc))
+        # Single write
+        atomic_write_text(path, tomlkit.dumps(doc))
     _metadata_cache.pop(path, None)
 
 

@@ -152,6 +152,17 @@ def classify_compare_result(
             inv_reloc_offsets=inv,
         )
 
+    if "EXTRACT_ERROR" in msg:
+        return CompareResult(
+            matched=False,
+            status="EXTRACT_ERROR",
+            match_percent=0.0,
+            delta=0,
+            obj_bytes=None,
+            reloc_offsets=None,
+            message=msg,
+        )
+
     if "COMPILE_ERROR" in msg or obj_bytes is None:
         return CompareResult(
             matched=False,
@@ -527,6 +538,76 @@ def compile_to_obj(
 # ---------------------------------------------------------------------------
 
 
+def _extract_and_compare(
+    obj_path: str,
+    symbol: str,
+    target_bytes: bytes,
+    *,
+    name_to_va: dict[str, int] | None = None,
+    section_va: int | None = None,
+) -> CompareResult:
+    """Extract *symbol* from a compiled .obj and compare against *target_bytes*.
+
+    Post-compile stage of :func:`compile_and_compare`, isolated so a failure
+    here is labeled EXTRACT_ERROR instead of masquerading as a compile error.
+    """
+    obj_bytes, reloc_dict = parse_obj_symbol_bytes(obj_path, symbol)
+    if obj_bytes is None:
+        return classify_compare_result(
+            False, f"COMPILE_ERROR: Symbol '{symbol}' not found in .obj", target_bytes, None, None
+        )
+
+    # Prefer typed reloc records when available (DIR32 vs REL32).
+    full_relocs = parse_obj_relocs_full(obj_path, symbol)
+    coff_relocs = full_relocs if full_relocs else reloc_dict
+
+    size_mismatch = len(obj_bytes) != len(target_bytes)
+    orig_obj_len = len(obj_bytes)
+    orig_tgt_len = len(target_bytes)
+    if size_mismatch:
+        # Truncate longer side so smart_reloc_compare can still
+        # compute a reloc-aware match% over the common prefix.
+        if len(obj_bytes) > len(target_bytes):
+            obj_bytes = obj_bytes[: len(target_bytes)]
+        else:
+            target_bytes = target_bytes[: len(obj_bytes)]
+
+    matched, _match_count, _total, relocs, inv_relocs = smart_reloc_compare(
+        obj_bytes,
+        target_bytes,
+        coff_relocs,
+        name_to_va=name_to_va,
+        section_va=section_va,
+    )
+    if size_mismatch:
+        # Length differs even if the common prefix matches — never EXACT/RELOC.
+        # The hint uses the VA when known (rebrew diff resolves VAs);
+        # otherwise the generic source placeholder.
+        va_hint = f"0x{section_va:08x}" if section_va else "<source>"
+        return classify_compare_result(
+            False,
+            (
+                f"SIZE_MISMATCH: Size {orig_obj_len}B vs {orig_tgt_len}B "
+                f"({_total - _match_count} byte diffs in common prefix) — "
+                f"run 'rebrew diff {va_hint}' to see the byte differences"
+            ),
+            target_bytes,
+            obj_bytes,
+            relocs,
+            inv_relocs,
+            size_mismatch=True,
+            size_delta=abs(orig_obj_len - orig_tgt_len),
+        )
+    msg = (
+        f"RELOC-NORM MATCH ({len(relocs)} relocs)"
+        if (matched and relocs)
+        else (
+            "EXACT MATCH" if matched else f"NEAR_MATCHING/STUB: {_total - _match_count} byte diffs"
+        )
+    )
+    return classify_compare_result(matched, msg, target_bytes, obj_bytes, relocs, inv_relocs)
+
+
 def compile_and_compare(
     cfg: ProjectConfig,
     source_path: str | Path,
@@ -580,68 +661,21 @@ def compile_and_compare(
                     False, f"COMPILE_ERROR: {err[:200]}", target_bytes, None, None
                 )
 
-            obj_bytes, reloc_dict = parse_obj_symbol_bytes(obj_path, symbol)
-            if obj_bytes is None:
-                return classify_compare_result(
-                    False,
-                    f"COMPILE_ERROR: Symbol '{symbol}' not found in .obj",
+            try:
+                return _extract_and_compare(
+                    obj_path,
+                    symbol,
                     target_bytes,
-                    None,
-                    None,
+                    name_to_va=name_to_va,
+                    section_va=section_va,
                 )
-
-            # Prefer typed reloc records when available (DIR32 vs REL32).
-            full_relocs = parse_obj_relocs_full(obj_path, symbol)
-            coff_relocs = full_relocs if full_relocs else reloc_dict
-
-            size_mismatch = len(obj_bytes) != len(target_bytes)
-            orig_obj_len = len(obj_bytes)
-            orig_tgt_len = len(target_bytes)
-            if size_mismatch:
-                # Truncate longer side so smart_reloc_compare can still
-                # compute a reloc-aware match% over the common prefix.
-                if len(obj_bytes) > len(target_bytes):
-                    obj_bytes = obj_bytes[: len(target_bytes)]
-                else:
-                    target_bytes = target_bytes[: len(obj_bytes)]
-
-            matched, _match_count, _total, relocs, inv_relocs = smart_reloc_compare(
-                obj_bytes,
-                target_bytes,
-                coff_relocs,
-                name_to_va=name_to_va,
-                section_va=section_va,
-            )
-            if size_mismatch:
-                # Length differs even if the common prefix matches — never EXACT/RELOC.
-                # The hint uses the VA when known (rebrew diff resolves VAs);
-                # otherwise the generic source placeholder.
-                va_hint = f"0x{section_va:08x}" if section_va else "<source>"
+            except (ValueError, OSError) as exc:
+                # Post-compile object extraction/compare failure — the source
+                # compiled fine, so this is NOT a COMPILE_ERROR.  Label the
+                # stage so downstream (todo, verify, GA) does not blame the
+                # .c file for a malformed .obj / toolchain issue.
                 return classify_compare_result(
-                    False,
-                    (
-                        f"SIZE_MISMATCH: Size {orig_obj_len}B vs {orig_tgt_len}B "
-                        f"({_total - _match_count} byte diffs in common prefix) — "
-                        f"run 'rebrew diff {va_hint}' to see the byte differences"
-                    ),
-                    target_bytes,
-                    obj_bytes,
-                    relocs,
-                    inv_relocs,
-                    size_mismatch=True,
-                    size_delta=abs(orig_obj_len - orig_tgt_len),
+                    False, f"EXTRACT_ERROR: {exc}", target_bytes, None, None
                 )
-            msg = (
-                f"RELOC-NORM MATCH ({len(relocs)} relocs)"
-                if (matched and relocs)
-                else (
-                    "EXACT MATCH"
-                    if matched
-                    else f"NEAR_MATCHING/STUB: {_total - _match_count} byte diffs"
-                )
-            )
-            return classify_compare_result(
-                matched, msg, target_bytes, obj_bytes, relocs, inv_relocs
-            )
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError, ValueError) as exc:
         return classify_compare_result(False, f"COMPILE_ERROR: {exc}", target_bytes, None, None)

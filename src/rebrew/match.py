@@ -257,8 +257,16 @@ class BinaryMatchingGA:
         return res
 
     def _compute_fitness(self, res: BuildResult, src_hash: str, src: str) -> float:
+        # Per-candidate prints are gated behind self.verbose: in batch mode
+        # (verbose=0, -j N workers) an unconditional Rich print per candidate
+        # serialized all workers on the Console lock and flooded stderr with
+        # pop_size × generations × stubs formatted lines.
+        def _log(line: str) -> None:
+            if self.verbose:
+                console.print(line)
+
         if not res.ok or res.obj_bytes is None:
-            console.print(f"[{src_hash}] Error during compilation/parsing: {res.error_msg}")
+            _log(f"[{src_hash}] Error during compilation/parsing: {res.error_msg}")
             return 10000000.0
         obj_bytes = res.obj_bytes
 
@@ -267,9 +275,7 @@ class BinaryMatchingGA:
         # this guard prevents it from exploring that neighbourhood.
         target_len = len(self.target_bytes)
         if target_len > 0 and len(obj_bytes) < target_len * 0.5:
-            console.print(
-                f"[{src_hash}] Too small: {len(obj_bytes)}B < 50% of target {target_len}B"
-            )
+            _log(f"[{src_hash}] Too small: {len(obj_bytes)}B < 50% of target {target_len}B")
             return 5000000.0
 
         # Proportional penalty for oversized candidates instead of silent
@@ -277,7 +283,7 @@ class BinaryMatchingGA:
         # penalty proportional to the excess — teaches the GA to avoid bloat.
         excess = max(0, len(obj_bytes) - target_len)
         if excess > 0:
-            console.print(
+            _log(
                 f"[{src_hash}] Candidate {len(obj_bytes)}B > target {target_len}B (+{excess}B excess)"
             )
         score_bytes = obj_bytes[:target_len]
@@ -290,7 +296,7 @@ class BinaryMatchingGA:
         )
         excess_penalty = excess * 1500.0  # per-byte penalty comparable to byte_score weight
         total = sc.total + excess_penalty
-        console.print(
+        _log(
             f"[{src_hash}] SUCCESS. Score={total:.2f} (len_bytes={len(obj_bytes)}, excess={excess})"
         )
 
@@ -1655,7 +1661,9 @@ def _save_solution(
         )
         save_solution(cfg.root, entry)
     except Exception:  # noqa: BLE001
-        log.debug("Solution save failed", exc_info=True)
+        # A failed save silently breaks --seed-from-solved / find_similar for
+        # this function; visible at WARNING, not swallowed at DEBUG.
+        log.warning("Solution save failed for %s", symbol, exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -1992,7 +2000,18 @@ def _run_all(  # noqa: PLR0913
             console.print(f"\\[{i}/{len(stubs)}] {display} ({stub.size}B)")
 
     # Precompute cross-function seeding (read-only; main thread, so the
-    # dim "Seeding from solved" lines stay deterministic).
+    # dim "Seeding from solved" lines stay deterministic).  Load the
+    # solutions list once — find_similar re-reads the whole file per stub
+    # otherwise (N file reads + parses for N stubs).
+    seed_solutions: list[Any] = []
+    if seed_from_solved:
+        try:
+            from rebrew.matcher.solutions import load_solutions
+
+            seed_solutions = load_solutions(cfg.root)
+        except Exception:  # noqa: BLE001
+            log.debug("Solution list load failed", exc_info=True)
+
     stub_seeds: list[list[str]] = []
     for stub in stubs:
         extra_ga_paths: list[str] = []
@@ -2006,6 +2025,7 @@ def _run_all(  # noqa: PLR0913
                     cflags=stub.cflags,
                     target=getattr(cfg, "target_name", ""),
                     top_k=3,
+                    entries=seed_solutions,
                 )
                 for sol in similar:
                     sol_path = cfg.root / sol.source_file
@@ -2073,7 +2093,9 @@ def _run_all(  # noqa: PLR0913
                 matched=matched,
             )
         except Exception:  # noqa: BLE001
-            log.debug("GA run record failed", exc_info=True)
+            # A failed record makes --skip-recent re-run this stub next batch
+            # (hours of GA).  Visible at WARNING, not swallowed at DEBUG.
+            log.warning("GA run record failed for %s", stub.symbol, exc_info=True)
         return stub, matched, output_summary
 
     if jobs > 1 and len(stubs) > 1:

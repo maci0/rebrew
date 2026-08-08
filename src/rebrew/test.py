@@ -396,17 +396,18 @@ def main(
             cmp,
             target_bytes,
         )
+        if no_promote and _status_skip_reason:
+            # Fold the skip reason into the single JSON document so --json
+            # output stays a single parseable object.
+            result_dict["status_skip_reason"] = _status_skip_reason
         json_print(result_dict)
     else:
         _print_compare_result(cmp, target_bytes)
 
     # Auto-promote: update STATUS in metadata from test result (skip with --no-promote)
     if no_promote:
-        if _status_skip_reason:
-            if json_output:
-                json_print({"status_skip_reason": _status_skip_reason})
-            else:
-                console.print(f"[dim]STATUS update skipped ({_status_skip_reason})[/dim]")
+        if _status_skip_reason and not json_output:
+            console.print(f"[dim]STATUS update skipped ({_status_skip_reason})[/dim]")
     elif va_str:
         va_int_for_promote = parse_va(va_str, json_mode=json_output)
         anno_module = lint_annos[0].module if lint_annos else ""

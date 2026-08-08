@@ -374,8 +374,11 @@ def _build_dispatch_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[i
             name = reg_entry.get("list_name") or reg_entry.get("ghidra_name")
             if name and va not in known_functions:
                 known_functions[va] = {"name": name, "status": ""}
-    except (OSError, ValueError, KeyError, AttributeError):
-        pass
+    except (OSError, ValueError, KeyError, AttributeError) as exc:
+        # Registry is best-effort enrichment (function names from the catalog
+        # list); a failure must be visible so a name-less data scan is not
+        # mistaken for a complete one.
+        logging.warning("Function registry unavailable — names/dispatch context omitted: %s", exc)
     return known_functions
 
 

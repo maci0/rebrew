@@ -207,6 +207,20 @@ def build_db(
             for row in c.fetchall():
                 old_statuses[(row[0], row[1])] = row[2]
 
+        # Warn when --target rebuilds a DB that currently contains other
+        # targets: the DROP below removes them and this run only inserts the
+        # filtered target's data, silently losing the rest until a full rebuild.
+        if target:
+            with contextlib.suppress(sqlite3.OperationalError):
+                c.execute("SELECT DISTINCT target FROM functions")
+                existing_targets = {row[0] for row in c.fetchall()} - {target}
+                if existing_targets:
+                    console.print(
+                        "[yellow]warning:[/yellow] rebuilding with --target will remove "
+                        f"{len(existing_targets)} other target(s) from the DB: "
+                        f"{', '.join(sorted(existing_targets))}"
+                    )
+
         # Start an exclusive transaction
         c.execute("BEGIN IMMEDIATE")
 

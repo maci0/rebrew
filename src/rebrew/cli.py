@@ -265,7 +265,9 @@ def iter_annotations(
         try:
             annos = parse_c_file_multi(src, target_name=target, metadata_dir=metadata_dir)
         except ValueError:
-            logging.debug("Skipping %s due to parse error", src, exc_info=True)
+            # A malformed annotation block silently drops the whole function
+            # from verify/todo/status output — visible at WARNING, not DEBUG.
+            logging.warning("Skipping %s due to annotation parse error", src, exc_info=True)
             continue
         if annos:
             results.append((src, annos))
