@@ -3,11 +3,12 @@
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
-from typer.testing import CliRunner
+import typer
 
-from rebrew.cu_map import app
+from rebrew.cu_map import main
 
 
 def _cfg(tmp_path: Path) -> SimpleNamespace:
@@ -46,7 +47,9 @@ def _setup(
 
 
 class TestCuMapCli:
-    def test_json_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_json_output(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+    ) -> None:
         registry = {
             0x1000: {"canonical_size": 64, "is_thunk": False},
             0x2000: {"canonical_size": 32, "is_thunk": False},
@@ -59,36 +62,35 @@ class TestCuMapCli:
             evidence=["contiguous"],
         )
         _setup(tmp_path, monkeypatch, registry=registry, clusters=[cluster])
-        result = CliRunner().invoke(app, ["--json"])
-        assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        main(json_output=True)  # shared impl used by `rebrew graph --cu-map`
+        data = json.loads(capsys.readouterr().out)
         assert data["total_functions"] == 2
         assert data["clustered_functions"] == 2
         assert data["total_clusters"] == 1
         assert data["clusters"][0]["cluster_id"] == 1
 
     def test_json_unclustered_reasons(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
     ) -> None:
         registry = {
             0x1000: {"canonical_size": 0, "is_thunk": False},  # unknown size
             0x2000: {"canonical_size": 5, "is_thunk": True},  # thunk
         }
         _setup(tmp_path, monkeypatch, registry=registry, clusters=[])
-        result = CliRunner().invoke(app, ["--json"])
-        assert result.exit_code == 0
-        data = json.loads(result.stdout)
+        main(json_output=True)
+        data = json.loads(capsys.readouterr().out)
         reasons = {u["va"]: u["reason"] for u in data["unclustered"]}
         assert reasons["0x00001000"] == "unknown size"
         assert reasons["0x00002000"] == "thunk"
 
     def test_missing_binary_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _setup(tmp_path, monkeypatch, binary_missing=True)
-        result = CliRunner().invoke(app, [])
-        assert result.exit_code != 0
-        assert "Target binary not found" in result.output
+        with pytest.raises(typer.Exit):
+            main(json_output=True)
 
-    def test_terminal_table(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_terminal_table(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+    ) -> None:
         registry = {
             0x1000: {"canonical_size": 64, "is_thunk": False},
             0x2000: {"canonical_size": 32, "is_thunk": False},
@@ -101,6 +103,6 @@ class TestCuMapCli:
             evidence=["contiguous"],
         )
         _setup(tmp_path, monkeypatch, registry=registry, clusters=[cluster])
-        result = CliRunner().invoke(app, [])
-        assert result.exit_code == 0
-        assert "Compilation Unit Map" in result.output
+        main(json_output=False)
+        captured = capsys.readouterr()
+        assert "Compilation Unit Map" in captured.out + captured.err

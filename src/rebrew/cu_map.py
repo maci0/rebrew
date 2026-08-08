@@ -357,20 +357,7 @@ def _cluster_to_dict(
 # CLI
 # ---------------------------------------------------------------------------
 
-app = typer.Typer(
-    help="Infer compilation unit boundaries from .text layout and call graph.",
-    rich_markup_mode="rich",
-    epilog=(
-        "[bold]Examples:[/bold]\n\n"
-        "  rebrew graph --cu-map · · · · · · · · · · Show inferred compilation units\n\n"
-        "  rebrew graph --cu-map --json · · · · · · · JSON output for scripting\n\n"
-        "[dim]Groups adjacent functions into probable translation units using gap analysis "
-        "and call-graph signals (static functions calling only within their cluster).[/dim]"
-    ),
-)
 
-
-@app.callback(invoke_without_command=True)
 def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -465,12 +452,3 @@ def main(
         )
 
     console.print(table)
-
-
-def main_entry() -> None:
-    """Run the Typer CLI application."""
-    app()
-
-
-if __name__ == "__main__":
-    main_entry()

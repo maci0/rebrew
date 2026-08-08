@@ -10,6 +10,75 @@ versioning policy.
 
 ## [Unreleased]
 
+### Added
+- `rebrew diff --dry-run` — preview `--fix-blocker` metadata writes without
+  touching `rebrew-function.toml`.
+- `rebrew extract batch --dry-run` — preview which `.bin` files would be
+  written (JSON: `DRY_RUN` status, plus a `failed` count in the summary).
+- `rebrew cfg set` / `add-module` / `set-cflags` gained `--dry-run` with
+  future-tense previews (no in-memory mutation).
+- `rebrew cfg set-cflags --target` now actually takes effect — per-target
+  presets are written under the target's `compiler` sub-table, where the
+  loader reads them (previously a silent no-op).
+- `recoverage check --json` and `recoverage stats --json` — machine-readable
+  verdicts/output.
+- Per-module CFLAGS presets (`cflags_presets`) are now consumed as the
+  CFLAGS fallback across match/diff/verify/test/prove/near_diag
+  (`rebrew.cli.resolve_cflags`).
+- `rebrew sync --refresh-cache --json` now actually writes the cache (the
+  flag previously made it a silent no-op).
+- `rebrew init --install-wibo` writes a working config (wine prefix dropped
+  from the command).
+- `rebrew data --gen-header` / catalog warn on globals whose VA falls
+  outside every PE section.
+
+### Changed
+- **Breaking (JSON):** `rebrew imports --json` now emits stub VAs as hex
+  strings (`{"va": "0x...", "name": ...}` list) and `iat_va` as hex, matching
+  every other rebrew JSON (previously stringified decimal dict keys).
+- **Breaking (CLI):** `rebrew verify --compare` no longer advances the
+  baseline report on a failing (regressed) run, and a failed gate run no
+  longer writes the verify cache — the CI gate can no longer self-heal.
+- Verify cache now invalidates on annotation SIZE changes (metadata-only
+  `catalog --fix-sizes`), external `-I` header edits, and
+  `compiler.runner`-only config edits.
+- `rebrew verify` PROVEN overlay no longer masks real regressions
+  (COMPILE_ERROR / EXTRACT_ERROR / MISSING_FILE surface as failures).
+- Bad-VA arguments to `rebrew diff`/`match`/`asm`/`similar` now produce
+  accurate errors instead of misleading symbol errors or silent empty output.
+- `rebrew sync --dry-run` no longer writes `ghidra_commands.json`.
+- `rebrew build-db` never deletes a locked/valid database; schema-less
+  debris files auto-rebuild; infrastructure errors exit 2 (EXIT_ERROR).
+- Main-command catch-all exits cleanly (no traceback, JSON envelope when
+  `--json`) with EXIT_ERROR.
+- `rebrew cfg` write commands surface OSError/tomlkit parse errors as clean
+  messages.
+- `rebrew extract batch` continues past a per-function disassembly error
+  instead of aborting the batch.
+- `rebrew asm --size` beyond the image warns and reports `truncated`.
+- `rebrew flirt --va` bypasses the scan size gate so short functions are
+  actually probed.
+- CFLAGS resolution unified across tools (per-function → preset →
+  `[compiler].cflags` → `/O2 /Gd`).
+
+### Fixed
+- `rebrew diff 0x<VA> --watch` lost VA targeting on re-entry (diffed the
+  wrong function in multi-function files).
+- `rebrew verify` PROVEN overlay masked regressions in proven functions.
+- angr's import-time unicorn ERROR leaked to stderr on every `todo`/`doctor`
+  run (and prove's status-guard failures).
+- `rebrew sync --push --dry-run` wrote the export artifact.
+- Coverage DB: failed builds left an empty DB that wedged later builds;
+  full rebuilds left orphan `verify_results` rows and a dead v3 index.
+- Coverage DB schema gate now verifies query-critical columns, not just
+  object names.
+- Default `marker` for dotted target names (e.g. `server.dll`) no longer
+  produces a marker that matches no annotation module.
+- Source filenames starting with `@`/`-` are prefixed `./` before CL.EXE
+  (MSVC response-file/option confusion).
+- Recovered `cu_map`'s orphaned standalone CLI surface (reachable only via
+  `rebrew graph --cu-map`).
+
 ## [0.1.0] - 2026-08-08
 
 First tagged release.  Rebrew is a compiler-in-the-loop decompilation
