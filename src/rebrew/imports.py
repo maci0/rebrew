@@ -19,7 +19,7 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print, require_config
 
 console = Console(stderr=True)
 
@@ -181,12 +181,25 @@ def main(
     stubs = find_import_stubs(binary)
 
     if mark:
+        if json_output:
+            # --mark writes annotations; --json promises machine output that
+            # mark_import_stubs does not produce.  Refuse the combination
+            # instead of silently dropping --json.
+            error_exit(
+                "--mark writes annotations and is not JSON-output compatible; "
+                "use --json alone to list imports, or --mark alone to write.",
+                json_mode=json_output,
+                code=EXIT_ERROR,
+            )
         mark_import_stubs(cfg, stubs, dry_run=dry_run)
         return
 
     if json_output:
         json_print({"binary": str(binary), "imports": imports, "stubs": stubs})
         return
+
+    if dry_run:
+        console.print("[dim]--dry-run only applies with --mark; nothing to preview.[/dim]")
 
     if not imports:
         console.print(f"[yellow]No import table found in {binary}.[/]")

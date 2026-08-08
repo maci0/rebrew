@@ -642,11 +642,11 @@ def main(
         "--full",
         help="Force full verification, ignoring cached results",
     ),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     watch: bool = typer.Option(
         False, "--watch", help="Re-verify all sources whenever any .c file changes"
     ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Rebrew verification pipeline: compile each .c and verify bytes match."""
