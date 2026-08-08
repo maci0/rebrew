@@ -185,15 +185,19 @@ def _check_E013_duplicate_va(
     va_int: int | None,
     va_str: str,
     filepath: Path,
-    seen_vas: dict[int, str] | None,
+    seen_vas: dict[Any, str] | None,
+    module: str = "",
 ) -> None:
-    if va_int is not None and seen_vas is not None:
-        if va_int in seen_vas:
-            result.error(
-                result.marker_line, "E013", f"Duplicate VA {va_str} — also in {seen_vas[va_int]}"
-            )
-        else:
-            seen_vas[va_int] = rel_display_path(filepath)
+    if va_int is None or seen_vas is None:
+        return
+    # Key on (module, va) so a multi-module file whose blocks share a VA
+    # (a valid layout) is not flagged, while a true duplicate — same module
+    # + VA, in the same or another file — is.
+    key: Any = (module, va_int) if module else va_int
+    if key in seen_vas:
+        result.error(result.marker_line, "E013", f"Duplicate VA {va_str} — also in {seen_vas[key]}")
+    else:
+        seen_vas[key] = rel_display_path(filepath)
 
 
 def _check_W018_cflags(
@@ -471,7 +475,7 @@ def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> No
 def lint_file(
     filepath: Path,
     cfg: ProjectConfig | None = None,
-    seen_vas: dict[int, str] | None = None,
+    seen_vas: dict[Any, str] | None = None,
     seen_globals: dict[str, str] | None = None,
     preloaded_metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
     preloaded_data_metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
@@ -490,6 +494,12 @@ def lint_file(
 
     """
     result = LintResult(filepath)
+
+    # A caller may pass a shared seen_vas dict for cross-file duplicate
+    # detection; with None (single-file lint) duplicate VAs WITHIN this file
+    # must still be caught, so fall back to a per-file dict.
+    if seen_vas is None:
+        seen_vas = {}
 
     try:
         text, _ = read_source_text(filepath)
@@ -537,7 +547,7 @@ def lint_file(
         "source": "SOURCE",
     }
 
-    for i, (found_keys, flags) in enumerate(all_headers):
+    for found_keys, flags in all_headers:
         result.marker_line = int(found_keys.get("_LINE", "1"))
 
         mod = found_keys.get("MODULE", "")
@@ -581,11 +591,11 @@ def lint_file(
 
             va_int = _check_E002_va(result, va_str)
 
-            # Use module + va to prevent duplicate within the same target.
-            # `seen_vas` maps VA -> filepath. We just use the first block's VA for file-level dupe check,
-            # otherwise a file with 2 different modules pointing to the same VA might complain.
-            if i == 0 or (va_int and va_int not in (seen_vas or {})):
-                _check_E013_duplicate_va(result, va_int, va_str, filepath, seen_vas)
+            # Check EVERY block (module + VA keyed): a duplicate appearing in
+            # a later block of a multi-function file used to be skipped by the
+            # old `i == 0` guard.  The (module, va) key keeps a multi-module
+            # file whose blocks share a VA (a valid layout) unflagged.
+            _check_E013_duplicate_va(result, va_int, va_str, filepath, seen_vas, module=mod)
 
             if marker not in ("GLOBAL", "DATA"):
                 _check_W018_cflags(result, found_keys, cfg)
