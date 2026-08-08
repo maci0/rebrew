@@ -570,6 +570,14 @@ def build_db(
                         "size": sec.get("size", 0),
                     }
 
+                # Clamp unitBytes/columns to sane positive defaults: the schema
+                # CHECK (> 0) would abort the whole rebuild on a stray 0 from
+                # hand-edited JSON (same pattern as the negative-offset clamps).
+                ub_raw = sec.get("unitBytes", 64)
+                col_raw = sec.get("columns", 64)
+                unit_bytes = ub_raw if isinstance(ub_raw, int) and ub_raw > 0 else 64
+                columns = col_raw if isinstance(col_raw, int) and col_raw > 0 else 64
+
                 c.execute(
                     """
                     INSERT INTO sections (target, name, va, size, fileOffset, unitBytes, columns)
@@ -581,8 +589,8 @@ def build_db(
                         sec.get("va"),
                         sec.get("size"),
                         sec.get("fileOffset"),
-                        sec.get("unitBytes", 64),
-                        sec.get("columns", 64),
+                        unit_bytes,
+                        columns,
                     ),
                 )
 

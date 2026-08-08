@@ -504,6 +504,38 @@ binary = "test.exe"
         conn.close()
         assert cell == (64, 64)
 
+    def test_zero_unit_bytes_clamped(self, tmp_path: Path) -> None:
+        """A stray unitBytes/columns of 0 in hand-edited JSON must not abort
+        the whole rebuild — clamped to the default instead."""
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        data = {
+            "sections": {
+                ".text": {
+                    "va": 0x10001000,
+                    "size": 256,
+                    "fileOffset": 0x1000,
+                    "unitBytes": 0,
+                    "columns": 0,
+                    "cells": [],
+                }
+            },
+            "globals": {},
+            "summary": {},
+            "functions": {},
+            "paths": {},
+        }
+        (db_dir / "data_alpha.json").write_text(json.dumps(data), encoding="utf-8")
+
+        build_db(tmp_path)  # must not raise IntegrityError
+
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT unitBytes, columns FROM sections WHERE target = 'alpha'")
+        row = c.fetchone()
+        conn.close()
+        assert row == (64, 64)
+
     def test_near_matching_cells_count_as_near_matches(self, tmp_path: Path) -> None:
         db_dir = tmp_path / "db"
         db_dir.mkdir()
