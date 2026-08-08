@@ -5350,3 +5350,14 @@ Ran the `config-review` prompt (via subagent).  Fixed:
   guild `verify --dry-run` — 225 passed / 34 failed / 0 compile errors
   (unchanged, cflags unification is behavior-neutral on real projects);
   np-rebrew lint 70/0/1 + status unchanged; both trees left as found.
+
+## 2026-08-09 — docs/skills consistency after session changes (d0c9ab6, recoverage 5b68dfa)
+
+- `tools/validate_skill_commands.py`: 158 unique (subcommand, flags)
+  combos across agent-skills all OK — the session's CLI changes
+  (imports --json shape, extract --dry-run, flirt --va, sync --json,
+  check --json) left the skills in sync.
+- docs/CLI.md: added the missing `--dry-run` rows for `rebrew diff`
+  (BLOCKER preview) and `rebrew extract batch`.
+- recoverage README: documented `check --json` and the 0/1/2 exit-code
+  contract.
