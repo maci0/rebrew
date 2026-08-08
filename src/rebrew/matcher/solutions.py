@@ -145,6 +145,29 @@ def save_solution(project_root: Path, entry: SolutionEntry) -> None:
     log.info("Saved solution for %s/%s (%d total)", entry.target, entry.symbol, len(updated))
 
 
+def save_solutions(project_root: Path, entries: list[SolutionEntry]) -> None:
+    """Batch-append solution entries, deduplicating by ``(target, symbol)``.
+
+    Same semantics as :func:`save_solution` but loads and rewrites the whole
+    file ONCE for *entries* — the batch flag-sweep path previously called
+    ``save_solution`` per exact match (N whole-file reads + rewrites).
+    """
+    if not entries:
+        return
+    existing = load_solutions(project_root)
+    existing_by_key = {(e.symbol, e.target): e for e in existing}
+    for entry in entries:
+        entry = dataclasses.replace(
+            entry, source_file=_relative_source(project_root, entry.source_file)
+        )
+        existing_by_key[(entry.symbol, entry.target)] = entry
+    updated = sorted(existing_by_key.values(), key=lambda e: (e.target, e.symbol))
+    data = [asdict(e) for e in updated]
+    p = _ensure_solutions_dir(project_root)
+    atomic_write_text(p, json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    log.info("Saved %d solution(s) (%d total)", len(entries), len(updated))
+
+
 def find_similar(
     project_root: Path,
     size: int,

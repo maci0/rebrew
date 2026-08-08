@@ -2159,10 +2159,13 @@ def _run_batch_flag_sweep(
     """Execute batch flag sweep across all discovered NEAR_MATCHING functions."""
     from rebrew.annotation import module_for_va
     from rebrew.cli import rel_display_path
-    from rebrew.matcher.solutions import SolutionEntry, save_solution
+    from rebrew.matcher.solutions import SolutionEntry, save_solutions
     from rebrew.metadata import update_source_status
 
     reversed_dir = cfg.reversed_dir
+    # Collect solved entries and flush ONCE at the end — save_solution per
+    # exact match re-read and rewrote the whole solutions file (O(N²)).
+    solved_entries: list[SolutionEntry] = []
     console.print(
         f"\n[bold green]Running {mode_label} flag sweep for {len(stubs)} NEAR_MATCHING functions with {jobs} workers...[/bold green]"
     )
@@ -2212,8 +2215,7 @@ def _run_batch_flag_sweep(
                     va=int(stub.va, 16),
                     clear_blockers=True,
                 )
-                save_solution(
-                    cfg.root,
+                solved_entries.append(
                     SolutionEntry(
                         symbol=stub.symbol,
                         cflags=best_flags,
@@ -2222,7 +2224,7 @@ def _run_batch_flag_sweep(
                         target=cfg.target_name,
                         score=0.0,
                         generations=1,
-                    ),
+                    )
                 )
 
         if best_score < float("inf"):
@@ -2242,6 +2244,10 @@ def _run_batch_flag_sweep(
                         console.print(f"  [bold]Updated CFLAGS → {best_flags}[/]")
 
         sweep_results.append(result_entry)
+
+    # Flush all solved entries in one read-modify-write (see solved_entries).
+    if solved_entries:
+        save_solutions(cfg.root, solved_entries)
 
     if json_output:
         json_print(
