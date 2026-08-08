@@ -274,3 +274,65 @@ class TestResolveBuildParamsSymbol:
         assert params.symbol == "_second_fn"
         assert params.va_int == 0x401100
         assert params.target_size == 128
+
+
+class TestFindFunctionRange:
+    """_find_function_range — GA mutation scoping helper."""
+
+    def test_finds_matching_function(self) -> None:
+        from rebrew.match import _find_function_range
+
+        src = """int helper(void) { return 0; }
+
+int target_fn(int x) {
+    return x + 1;
+}
+
+int other(void) { return 2; }
+"""
+        r = _find_function_range(src, "_target_fn")
+        assert r is not None
+        assert "target_fn" in src[r[0] : r[1]]
+        assert "helper" not in src[r[0] : r[1]]
+
+    def test_underscore_prefix_optional(self) -> None:
+        from rebrew.match import _find_function_range
+
+        src = "int foo(void) { return 1; }"
+        r = _find_function_range(src, "foo")
+        assert r is not None
+        assert "foo" in src[r[0] : r[1]]
+
+    def test_missing_symbol_returns_none(self) -> None:
+        from rebrew.match import _find_function_range
+
+        src = "int foo(void) { return 1; }"
+        assert _find_function_range(src, "_nonexistent") is None
+
+    def test_non_c_garbage_returns_none(self) -> None:
+        from rebrew.match import _find_function_range
+
+        assert _find_function_range("not c at all", "_foo") is None
+
+    def test_set_target_range_scopes_cursor(self) -> None:
+        """set_target_range must restrict mutation queries to the byte window."""
+        from rebrew.matcher import ast_engine
+        from rebrew.matcher.mutator import _cursor, _LazyQuery, set_target_range
+
+        src = b"int a(void) { return 1; } int b(void) { return 2; }"
+        set_target_range(0, len(b"int a(void) { return 1; } "))  # only function a
+        try:
+            q = _LazyQuery(
+                ast_engine._C_LANGUAGE,
+                "(function_definition declarator: (function_declarator declarator: (identifier) @name)) @fn",
+            )
+            tree = ast_engine.parse_c_ast(src)
+            cursor = _cursor(q)
+            names = []
+            for m in cursor.matches(tree.root_node):
+                captures = m[1] if isinstance(m, tuple) else m.captures
+                if "name" in captures:
+                    names.append(captures["name"][0].text.decode())
+            assert names == ["a"]  # function b is outside the range
+        finally:
+            set_target_range(None, None)

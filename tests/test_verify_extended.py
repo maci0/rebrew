@@ -996,7 +996,9 @@ class TestCompareBaseline:
             "summary": {"total": 1, "passed": 1, "failed": 0},
         }
         monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (previous, None))
-        monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
+        # NOTE: _save_verify_cache is intentionally NOT mocked — a failed
+        # gate run must not write the compile cache either (F9: a CI failure
+        # records no new state).
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
 
@@ -1006,6 +1008,8 @@ class TestCompareBaseline:
         # The baseline on disk is untouched.
         on_disk = json.loads((cfg.db_dir / "verify_results.json").read_text(encoding="utf-8"))
         assert on_disk == baseline
+        # And no verify cache was written by the failed run.
+        assert not (cfg.root / ".rebrew" / "verify_cache.json").exists()
 
     def test_passing_compare_run_advances_baseline(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
