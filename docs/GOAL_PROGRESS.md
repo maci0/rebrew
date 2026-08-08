@@ -5609,3 +5609,22 @@ Session complete: 11 review lenses, ~70 findings fixed, live discoveries
 and the full test-review backlog.  All substantive findings across every
 review are closed; only documented low-severity deferrals and the optional
 lazy-typer-registration follow-up remain.
+
+## 2026-08-09 — np-rebrew verify vs TOOLCHAIN_BUGS baseline: stale-PROVEN surfaced (overlay fix confirmed)
+
+Re-ran `rebrew verify` in np-rebrew against the TOOLCHAIN_BUGS.md baseline.
+PROVEN count dropped 14→12, STUB 3→5; report now 44 passed / 23 failed
+(doc baseline 45/22). Investigation: this is the restricted PROVEN-overlay
+fix (NEAR_MATCHING/SIZE_MISMATCH only) working as intended — two functions
+whose committed `src/rebrew-function.toml` says `PROVEN` no longer match
+their sources and now surface as `STUB`:
+
+- `FormatString1` 0x01002c93 — `rebrew test` → STUB 35/98; compiled
+  prologue `55 8b ec 8b 45 10` (arg3 `[ebp+0x10]`) vs target `8b 4c 24 04`
+  (arg1 `[esp+4]`); explicit `/O1 /Gd /Oy` unchanged → not a flags issue.
+- `SwapBytes` 0x01005887 — `rebrew test` → STUB 5/49.
+
+Documented in np-rebrew `TOOLCHAIN_BUGS.md` (commit eeee821, local-only
+repo, staged only that file — user's in-flight work untouched). These are
+project-data decisions (demote STATUS or fix source), not tooling bugs; not
+auto-fixed.
