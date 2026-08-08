@@ -5743,3 +5743,21 @@ rcssmin already applied; no debug/dead code in app.js (55.5 KB). Fitting
 under budget needs either a ~2.3 KB raw SPA trim (risky) or splitting
 assets out of the inline payload (architecture change). The guard warning
 is informational and doing its job — left as-is, documented here.
+
+## 2026-08-09 — error-review: STATUS write failures no longer abort verify (fd05773)
+
+Ran error-review.md (focused on the verify/test/metadata/compile paths
+touched this session). Silent-swallow scan: clean — worker-thread internal
+errors counted+logged, metadata parse failures logged, VA-parse fallbacks
+intentional, header-walk OSError → "" fingerprint (safely distinct from
+real hashes). Exit codes re-checked without pipe artifacts: missing-config
+and missing-file both exit 2 (EXIT_ERROR).
+
+One real blast-radius finding: `apply_status_updates` called
+`update_source_status` unguarded in the verify main thread BEFORE report
+build — a read-only/unwritable rebrew-function.toml raised OSError,
+crashing the run and losing the report. Fixed: per-entry write guarded,
+failure → warning, batch + report continue (applies to verify AND
+test --all). Test:
+`TestApplyStatusUpdates.test_write_failure_does_not_abort_batch`. 3544
+rebrew tests.
