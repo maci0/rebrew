@@ -51,6 +51,20 @@ class TestCompilerConfigHash:
 
         assert _compiler_config_hash(cfg_a) != _compiler_config_hash(cfg_b)
 
+    def test_includes_tool_version(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The hash must embed the rebrew tool version so an upgraded rebrew
+        invalidates cached results computed by older comparison logic (e.g.
+        stale EXTRACT_ERROR entries that a fresh run now resolves)."""
+        import rebrew
+
+        cfg = _make_cfg(tmp_path)
+        hash_before = _compiler_config_hash(cfg)
+
+        monkeypatch.setattr(rebrew, "__version__", "999.0.0-test")
+        hash_after = _compiler_config_hash(cfg)
+
+        assert hash_before != hash_after
+
 
 class TestSourceHash:
     def test_hash_changes_with_file_content(self, tmp_path: Path) -> None:

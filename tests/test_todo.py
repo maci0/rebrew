@@ -10,6 +10,7 @@ import pytest
 from rebrew.catalog import FunctionEntry
 from rebrew.todo import (
     CAT_COMPILE_ERROR,
+    CAT_EXTRACT_ERROR,
     CAT_FIX_DELTA,
     CAT_IDENTIFY_LIBRARY,
     CAT_IMPROVE_MATCH,
@@ -125,6 +126,37 @@ class TestCollectors:
         assert len(items) == 1
         assert items[0].category == CAT_COMPILE_ERROR
         assert items[0].roi_score == 200.0
+
+    def test_active_functions_extract_error_not_fix_delta(self, tmp_path: Path) -> None:
+        """An EXTRACT_ERROR entry (symbol not found in .obj) has delta=0 but
+        must NOT be classified as a '0B diff' fix-delta quick-win — a flag
+        sweep cannot fix a missing symbol.  Regression: guild-rebrew's
+        EXTRACT_ERROR stubs showed up as fix-delta with ROI 85."""
+        _cfg = _make_cfg(tmp_path)
+        from rebrew.verify import VerifyCacheEntry, VerifyResult
+
+        entries = {
+            "0x00001000": VerifyCacheEntry(
+                source_hash="",
+                filepath="a.c",
+                mtime_ns=0,
+                result=VerifyResult(
+                    status="EXTRACT_ERROR",
+                    va=0x1000,
+                    size=100,
+                    filepath="a.c",
+                    name="a",
+                    message="",
+                    passed=False,
+                ),
+            )
+        }
+        items = _collect_active_functions({0x1000: {"status": "STUB"}}, {}, {}, entries)
+        assert len(items) == 1
+        assert items[0].category == CAT_EXTRACT_ERROR
+        assert items[0].byte_delta is None  # no bytes extracted → no measured delta
+        assert items[0].command == "rebrew test 0x00001000"
+        assert "Symbol not found" in items[0].description
 
     def test_active_functions_missing_annotation(self) -> None:
         existing = {0x1000: {"status": "STUB", "symbol": "", "filename": "a.c"}}
