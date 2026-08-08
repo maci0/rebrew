@@ -152,17 +152,24 @@ def main(
         style="dim",
     )
 
-    if summary:
-        by_va: dict[int, list[Annotation]] = {}
+    by_va: dict[int, list[Annotation]] = {}
+    if summary or json_output:
         for e in entries:
             by_va.setdefault(e["va"], []).append(e)
 
-        fn_vas = {
-            va
-            for va, vas in by_va.items()
-            if any(e["marker_type"] not in ("GLOBAL", "DATA") for e in vas)
-        }
+    fn_vas = {
+        va
+        for va, vas in by_va.items()
+        if any(e["marker_type"] not in ("GLOBAL", "DATA") for e in vas)
+    }
 
+    covered_bytes = 0
+    for va in fn_vas:
+        if va in registry:
+            covered_bytes += registry[va]["canonical_size"]
+    coverage_pct = (covered_bytes / text_size * 100.0) if text_size else 0.0
+
+    if summary:
         counts = count_statuses(by_va)
         exact = counts["EXACT"]
         reloc = counts["RELOC"]
@@ -188,11 +195,8 @@ def main(
         for module in sorted(module_counts):
             console.print(f"  {module}: {module_counts[module]}")
 
-        covered = 0
-        for va in fn_vas:
-            if va in registry:
-                covered += registry[va]["canonical_size"]
-        pct = (covered / text_size * 100.0) if text_size else 0.0
+        covered = covered_bytes
+        pct = coverage_pct
         console.print(f"Coverage: {pct:.1f}% ({covered}/{text_size} bytes)")
 
         console.print()
@@ -310,6 +314,10 @@ def main(
                 "annotations": len(entries),
                 "unique_vas": len({e["va"] for e in entries}),
                 "registry": len(registry),
+                "total_functions": len(registry),
+                "covered_bytes": covered_bytes,
+                "text_size": text_size,
+                "coverage_pct": round(coverage_pct, 1),
                 "wrote_data_json": gen_data_json,
                 "wrote_catalog": catalog,
                 "wrote_csv": csv,
