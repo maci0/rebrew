@@ -5834,3 +5834,24 @@ API surface with edge inputs:
 No bugs: all failures are structured 404/501, never 500s; write paths
 (POST functions, /api/regen) intentionally not exercised on guild's real
 DB. Recoverage tree untouched.
+
+## 2026-08-09 — final sweep: rebrew 3546 / recoverage 272, all green
+
+- `--watch` consistency check: diff.py already has --watch (test/verify/
+  match/diff all covered) — brainstorm item closed, not a gap.
+- `rebrew prove` missing-angr path: `_require_angr` raises a clear
+  ImportError, CLI converts via error_exit (clean, both modes). angr
+  present in this env.
+- Doc/skill currency after today's verify fixes: no doc or agent-skill
+  describes the old baked-PROVEN cache behavior; SKILL.md's "PROVEN is
+  sticky — never demoted by test/verify" remains accurate (the fixes only
+  changed cache storage + preview accuracy, not the promotion contract).
+- Final sweep: rebrew 3546 passed / ruff clean / tree clean (f30dcea
+  pushed); recoverage 272 passed / 4 skipped / tree clean.
+
+Session (this goal run) totals: 10 rebrew commits pushed — catalog --json
+coverage fields, verify-cache PROVEN arc (3), dry-run preview fix,
+STATUS-write blast-radius guard, build-db corrupt-JSON context — plus np
+TOOLCHAIN_BUGS.md update (local), guild cache healed, full pipeline +
+API validation, error/db/functionality reviews with clean results, and
+~9 GOAL_PROGRESS entries.
