@@ -5815,3 +5815,22 @@ broken. Fixed: the load site catches JSONDecodeError and non-object
 shapes, naming the file and suggesting 'rebrew catalog --data-json'
 (exit 2, human + --json). Tests: TestBuildDbCorruptInput (corrupt JSON +
 JSON-array shape). 3546 rebrew tests.
+
+## 2026-08-09 — recoverage API functionality probe: clean
+
+Booted recoverage serve against the fresh guild coverage.db and probed the
+API surface with edge inputs:
+- /api/targets/<missing>/stats → 404 {"error": "Target not found",
+  "code": "not_found", "detail": "no such target 'nonexistent'"}
+- /api/targets/<t>/functions/<bad va> (hex-absent and non-hex) → 404 with
+  structured detail
+- /api/targets/<t>/asm (bad va / no va) → 501 {"error": "capstone not
+  installed", "code": "not_implemented", "detail": "install capstone ..."}
+  — capstone is an optional extra (health reports extras.capstone false);
+  documented degradation, actionable message
+- /api/targets/<t>/sections/.nope/bytes → 404
+- /api/events SSE → streams keepalive comment frames
+
+No bugs: all failures are structured 404/501, never 500s; write paths
+(POST functions, /api/regen) intentionally not exercised on guild's real
+DB. Recoverage tree untouched.
