@@ -91,8 +91,21 @@ def _load_pushed_hashes(cfg: Any) -> set[str]:
         data = json.loads(state_path.read_text(encoding="utf-8"))
         if isinstance(data, dict) and isinstance(data.get("pushed"), list):
             return {str(h) for h in data["pushed"]}
-    except (OSError, json.JSONDecodeError):
-        pass
+    except OSError:
+        pass  # First run — no state file yet, nothing pushed.
+    except json.JSONDecodeError:
+        # Corrupt state: the next push would merge with an empty set and
+        # permanently forget every previously-pushed op (silent re-push of
+        # the whole project).  Preserve the corrupt file instead.
+        from rebrew.utils import preserve_corrupt
+
+        preserve_corrupt(state_path)
+        log.warning(
+            "Ghidra sync state %s is corrupt — all operations will be re-pushed. "
+            "The corrupt file was preserved as %s.corrupt.",
+            state_path,
+            state_path,
+        )
     return set()
 
 

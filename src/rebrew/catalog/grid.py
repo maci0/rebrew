@@ -172,10 +172,17 @@ def generate_data_json(
         # one BinaryInfo (previously get_sections + load_binary parsed twice).
         try:
             _bin_info = load_binary(bin_path)
-        except (OSError, KeyError, ValueError):
+        except (OSError, KeyError, ValueError) as exc:
             _bin_info = None
+            # A degraded catalog (no sections/hashes/thunks) must not look
+            # identical to a good one — surface the load failure.
+            log.warning(
+                "Failed to load binary %s; sections/hashes/thunks omitted: %s", bin_path, exc
+            )
         if _bin_info is not None:
             sections.update(sections_from_info(_bin_info))
+    elif bin_path:
+        log.warning("Configured binary not found; sections/hashes/thunks omitted: %s", bin_path)
     globals_dict = get_globals(src_dir) if src_dir else {}
     ghidra_data_labels = load_ghidra_data_labels(src_dir)
     label_index = _build_label_index(ghidra_data_labels) if ghidra_data_labels else None

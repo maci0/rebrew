@@ -440,6 +440,7 @@ def flag_sweep(
         # combo — hundreds of MB to GBs of memory before the first compile.
         # Submit n_jobs batches and drain via as_completed.
         results = []
+        worker_errors = 0
         pending = set()
         combo_iter = iter(combos)
         for _ in range(min(n_jobs, len(combos))):
@@ -449,11 +450,17 @@ def flag_sweep(
                 pending.remove(fut)
                 try:
                     score, flags = fut.result()
-                except (OSError, subprocess.SubprocessError, ValueError, RuntimeError):
-                    pass
+                except (OSError, subprocess.SubprocessError, ValueError, RuntimeError) as exc:
+                    # Environmental failures (missing compiler, cache corruption,
+                    # LIEF parse of a bad .obj).  Never silently swallowed: count
+                    # them so a fully-failed sweep can't masquerade as "no match".
+                    worker_errors += 1
+                    if worker_errors <= 3:
+                        log.warning("Flag sweep worker failed: %s", exc)
                 except Exception:  # noqa: BLE001
                     # Unexpected exception (e.g. TypeError from scoring pipeline bug):
                     # log at DEBUG so it surfaces in --verbose or CI runs without crashing the sweep.
+                    worker_errors += 1
                     log.debug("Unexpected error in flag_sweep worker", exc_info=True)
                 else:
                     if score < float("inf"):
@@ -464,10 +471,11 @@ def flag_sweep(
     # A sweep where EVERY combo failed is indistinguishable from "no flags
     # matched" without this: surface the first compiler error so a broken
     # toolchain / bad source is visible instead of a silent empty result.
-    if not results and _compile_errors:
+    if not results and (_compile_errors or worker_errors):
         log.warning(
-            "Flag sweep produced no matches; first compiler error(s):\n%s",
-            "\n".join(_compile_errors),
+            "Flag sweep produced no matches (%d worker failure(s)); first compiler error(s):\n%s",
+            worker_errors,
+            "\n".join(_compile_errors) if _compile_errors else "(none — see warnings above)",
         )
 
     results.sort(key=lambda x: x[0])

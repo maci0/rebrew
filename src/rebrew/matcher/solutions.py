@@ -151,6 +151,7 @@ def find_similar(
     cflags: str = "",
     target: str = "",
     top_k: int = 5,
+    entries: list[SolutionEntry] | None = None,
 ) -> list[SolutionEntry]:
     """Find solved functions most similar to the given target.
 
@@ -160,12 +161,15 @@ def find_similar(
       1. Closest function size (absolute difference)
       2. Tie-break: prefer matching cflags (exact match after normalization)
 
+    *entries* allows callers to pass a single preloaded solutions list when
+    calling in a loop (e.g. the batch seeding loop), avoiding one file read
+    + parse per stub.
+
     Returns up to *top_k* entries, sorted by similarity (best first).
     """
-    all_entries = load_solutions(project_root)
+    all_entries = load_solutions(project_root) if entries is None else entries
     if not all_entries:
         return []
-
     # Normalize cflags for comparison
     cflags_norm = _normalize_cflags(cflags)
 
