@@ -5165,3 +5165,31 @@ decimal ints, unlike every other rebrew JSON (0x hex strings).  Stubs are
 now a list of `{va: "0x…", name: …}` and `iat_va` is a hex string.  No
 internal consumers of the old shape (verified by grep); test updated to
 assert the hex contract.  Live-verified on guild.  3517 tests pass.
+
+## 2026-08-09 — db-review: 8 findings, 5 fixed (3078051, recoverage 6a2c18b)
+
+Ran the `db-review` prompt (via subagent) over the coverage DB layer
+(rebrew build_db + catalog grid + recoverage server/api), with a
+subagent-confirmed real-DB inspection (integrity ok, EXPLAIN QUERY PLAN,
+double-rebuild idempotency).  Fixed:
+
+- **F1** — a failed build leaves a 4KB metadata-less coverage.db (DDL
+  rolled back) that wedged every later build behind --force (the regen
+  path doesn't pass --force).  A schema-less file now auto-rebuilds with a
+  warning.  Test updated.
+- **F2/F3** — full rebuild never dropped verify_results (orphans for
+  dropped targets/functions) and the v3-era `idx_history_target_va`
+  survived every rebuild (history is never dropped).  Full rebuild now
+  drops verify_results and the dead index.  Confirmed live on guild: the
+  dead index is gone from the rebuilt DB.
+- **F5** — cell states `proven`/`size_mismatch` fell into no bucket and
+  `/data` omitted padding/none, so buckets summed to 584 vs total_cells
+  889.  View + SECTION_STATS_SQL + /data now expose all buckets; PROVEN
+  counts as matched.  Verified live: buckets now sum exactly to 889.
+- **F6** — cells gained UNIQUE (target, section_name, start).
+- Deferred: F4 (shape check is name-only — column-level verification),
+  F7 (query scale fine at 10x; informational), F8 (stale-report prune
+  semantics; documented by-design).
+
+3517 rebrew + 259 recoverage tests pass; guild's coverage.db rebuilt
+(untracked artifact).
