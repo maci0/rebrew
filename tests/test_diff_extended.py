@@ -249,7 +249,7 @@ class TestRunDiff:
         assert entry.get("blocker_delta") is None
 
     def test_fix_blocker_dry_run_does_not_write(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
     ) -> None:
         """--fix-blocker --dry-run must preview without touching metadata."""
         from rebrew.diff import run_diff
@@ -275,6 +275,10 @@ class TestRunDiff:
         entry = get_entry(meta_dir, 0x1000, "SERVER")
         assert not entry.get("blocker")
         assert entry.get("blocker_delta") is None
+        # The preview is future-tense and names the blocker.
+        captured = capsys.readouterr()
+        assert "Would update BLOCKER" in captured.out + captured.err
+        assert "register allocation" in captured.out + captured.err
 
     def test_structural_diffs_exit_mismatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
         summary = _summary(summary={"structural": 2, "total": 4, "exact": 2})
