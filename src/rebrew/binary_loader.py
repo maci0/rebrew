@@ -201,7 +201,7 @@ def _load_macho(fat_or_binary: lief.MachO.FatBinary | lief.MachO.Binary, path: P
     fat binaries is not supported).
     """
     if isinstance(fat_or_binary, lief.MachO.FatBinary):
-        # Always use first slice — architecture selection for fat binaries
+        # Always use first slice -- architecture selection for fat binaries
         # is not supported.
         binary = fat_or_binary.at(0)
     else:
@@ -272,7 +272,7 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
 
     Args:
         path: Path to the binary file.
-        fmt: Format hint — ``"pe"``, ``"elf"``, ``"macho"``, or ``"auto"``
+        fmt: Format hint -- ``"pe"``, ``"elf"``, ``"macho"``, or ``"auto"``
              (LIEF auto-detects from file headers).
 
     Raises:
@@ -350,6 +350,23 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
             del _load_binary_cache[oldest_key]
         _load_binary_cache[cache_key] = result
     return result
+
+
+def section_dict(info: BinaryInfo) -> dict[str, dict[str, int]]:
+    """Map section name → {va, size, file_offset, raw_size} for *info*.
+
+    Shared by depgraph and data --dispatch, which previously duplicated this
+    dict comprehension.
+    """
+    return {
+        name: {
+            "va": si.va,
+            "size": si.size,
+            "file_offset": si.file_offset,
+            "raw_size": si.raw_size,
+        }
+        for name, si in info.sections.items()
+    }
 
 
 def extract_bytes_at_va(
@@ -443,7 +460,7 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
         binary_path: Path to the binary file.
 
     Returns:
-        ``(language_name, file_extension)`` — e.g. ``("C++", ".cpp")``.
+        ``(language_name, file_extension)`` -- e.g. ``("C++", ".cpp")``.
         Falls back to ``("C", ".c")`` when no strong signal is found.
 
     """

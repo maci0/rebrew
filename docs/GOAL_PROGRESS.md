@@ -4558,3 +4558,14 @@ fixtures), gen_flirt_pat.py (needs .lib archives).
      now parses hex and looks up by va.
 - Pushed: rebrew cfcbb6f..137b6d3, recoverage 66648bd..169d8b6.
 - Both suites green (3460 / 204 passed), mypy + pre-commit clean.
+
+### Slice 215 (16h goal) — verify_results wired end-to-end (dead table → feature) — DONE
+- db-review leftover 1.4: the verify_results table was created by build_db
+  but never populated (verify.py writes db/verify_results.json). Now:
+  - build_db imports the last verify report into the table (best-effort,
+    INSERT OR REPLACE) — workspace DB: 259 rows with real byte_deltas.
+  - recoverage /function/<va> attaches last_verify {verified_at,
+    byte_delta, diff_lines}; SPA meta grid shows a "Verified" row.
+  - Synthetic DB seeds a verify_results row; +2 API tests (206 passed).
+- Pushed: rebrew 137b6d3..951cd48, recoverage 169d8b6..13fa9f7.
+- Suites green (3460 / 206), mypy + pre-commit clean.

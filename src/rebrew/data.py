@@ -1190,7 +1190,7 @@ def main(
     bin_info: Any = None  # single lazy binary parse, shared with --dispatch
     if bin_path and bin_path.exists():
         try:
-            from rebrew.binary_loader import load_binary
+            from rebrew.binary_loader import load_binary, section_dict
             from rebrew.catalog.sections import sections_from_info
 
             bin_info = load_binary(bin_path)
@@ -1235,15 +1235,7 @@ def main(
                 json_mode=json_output,
             )
         binary_data = bin_info.data
-        sec_dict = {
-            name: {
-                "va": si.va,
-                "size": si.size,
-                "file_offset": si.file_offset,
-                "raw_size": si.raw_size,
-            }
-            for name, si in bin_info.sections.items()
-        }
+        sec_dict = section_dict(bin_info)
 
         # Build known functions map from reversed source files, then merge in
         # function-list / Ghidra-structure names for targets without sources.

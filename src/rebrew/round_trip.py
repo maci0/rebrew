@@ -668,16 +668,11 @@ def _list_name(cfg: ProjectConfig, va: int | None) -> str:
     func_list_path = str(getattr(cfg, "function_list", ""))
     names = _list_names.get(func_list_path)
     if names is None:
-        from pathlib import Path
-
-        from rebrew.catalog.loaders import parse_function_list
+        from rebrew.catalog.loaders import cached_function_list
 
         try:
-            funcs = (
-                parse_function_list(Path(func_list_path)) if Path(func_list_path).is_file() else []
-            )
-            names = {f["va"]: str(f["name"]) for f in funcs}
-        except (OSError, ValueError, KeyError):
+            names = {f["va"]: str(f["name"]) for f in cached_function_list(cfg)}
+        except (OSError, ValueError, KeyError, TypeError):
             names = {}
         _list_names[func_list_path] = names
     return names.get(va, "")

@@ -123,7 +123,6 @@ Represents chunks (cells) of memory to be rendered in the UI coverage map.
 
 **Indexes**:
 - `idx_cells_section` on `(target, section_name)`
-- `idx_cells_state` on `(target, section_name, state)`
 
 #### Cell States
 
@@ -186,8 +185,6 @@ Tracks function status changes over time.
 | `old_status` | `TEXT` | Previous status before change. |
 | `new_status` | `TEXT` | New status after change. |
 | `changed_at` | `TEXT` | ISO 8601 timestamp of the change. |
-
-**Index**: `idx_history_target_va` on `(target, va)`
 
 > [!NOTE]
 > This table is persistent (`IF NOT EXISTS`) — never dropped on rebuild.

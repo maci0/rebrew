@@ -548,20 +548,12 @@ def main(
             )
         try:
             from rebrew.annotation import parse_c_file_multi
-            from rebrew.binary_loader import load_binary
+            from rebrew.binary_loader import load_binary, section_dict
             from rebrew.cli import iter_sources, rel_display_path, target_marker
             from rebrew.data import find_dispatch_tables
 
             info = load_binary(bin_path)
-            sec_dict = {
-                name: {
-                    "va": si.va,
-                    "size": si.size,
-                    "file_offset": si.file_offset,
-                    "raw_size": si.raw_size,
-                }
-                for name, si in info.sections.items()
-            }
+            sec_dict = section_dict(info)
 
             # Build known functions map from reversed source files
             known_functions: dict[int, dict[str, str]] = {}
