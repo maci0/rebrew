@@ -66,7 +66,6 @@ from __future__ import annotations
 import contextlib
 import logging
 import typing
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -150,11 +149,7 @@ __all__ = [
     "METADATA_FILENAME",
     "METADATA_FIELDS",
     "KNOWN_STATUSES",
-    "FILE_ONLY_KEYS",
-    "LEGACY_KEYS",
-    "FunctionMetadata",
     "clear_metadata_cache",
-    "field_kind",
     "is_metadata_key",
     "metadata_path",
     "load_metadata",
@@ -163,8 +158,6 @@ __all__ = [
     "set_field",
     "update_field",
     "remove_field",
-    "load_entry",
-    "save_entry",
     "coerce_metadata_value",
     "merge_into_annotation",
     "update_source_status",
@@ -584,44 +577,17 @@ def merge_into_annotation(ann: Annotation, directory: Path) -> Annotation:
 # Typed facade
 # ---------------------------------------------------------------------------
 #
-# A thin typed layer over the raw ``{(module, va): {field: value}}`` dict
-# API above.  ``FunctionMetadata`` gives each entry concrete, validated
-# fields, and :func:`field_kind` is the single routing table for the
-# "file-only vs metadata-only" distinction that historically caused the
-# lint --fix STATUS crash and the add-module tomlkit persistence bug.
-#
-# Routing rules:
-# - "metadata"  → owned by rebrew-function.toml (writing inline fires W019).
-# - "file"      → must stay in the .c marker/comment block.
-# - "legacy"    → deprecated inline keys metadata does NOT own: ORIGIN is
-#                 derivable from the marker module, SECTION belongs to
-#                 rebrew-data.toml.  Inline → W019, but never stored here.
-# - "unknown"   → not a known annotation key.
-#
-# The status vocabulary is deliberately the annotation-level set; the raw
-# :func:`update_source_status` gatekeeper stays permissive because test/verify
-# also persist operational statuses (COMPILE_ERROR, SIZE_MISMATCH, …) that are
-# not annotation statuses.
+# The typed entry layer is ``metadata_model.MetadataEntry`` (used by
+# annotation.py); the earlier ``FunctionMetadata``/``load_entry``/``save_entry``/
+# ``field_kind`` facade was deleted — it had drifted from the live model
+# (case-sensitive vs upper() status checks) and only its tests referenced it.
+# ``KNOWN_STATUSES`` and ``coerce_metadata_value`` below remain live:
+# metadata_model validates against KNOWN_STATUSES, and lint --fix coerces
+# values through coerce_metadata_value.
 
 KNOWN_STATUSES: frozenset[str] = frozenset(
     {"STUB", "EXACT", "RELOC", "PROVEN", "NEAR_MATCHING", "SKIP"}
 )
-
-FILE_ONLY_KEYS: frozenset[str] = frozenset({"MARKER", "VA", "MODULE", "SYMBOL"})
-
-LEGACY_KEYS: frozenset[str] = frozenset({"ORIGIN", "SECTION"})
-
-
-def field_kind(key: str) -> str:
-    """Classify an annotation key: ``"metadata"`` | ``"file"`` | ``"legacy"`` | ``"unknown"``."""
-    upper = key.upper()
-    if upper in METADATA_FIELDS:
-        return "metadata"
-    if upper in FILE_ONLY_KEYS:
-        return "file"
-    if upper in LEGACY_KEYS:
-        return "legacy"
-    return "unknown"
 
 
 def coerce_metadata_value(key: str, value: Any) -> Any:
@@ -634,143 +600,3 @@ def coerce_metadata_value(key: str, value: Any) -> Any:
         with contextlib.suppress(ValueError, TypeError):
             return int(value)
     return value
-
-
-# Lower-case TOML key per dataclass attribute (everything except globals_list).
-_TOML_FIELD_NAMES: dict[str, str] = {
-    "globals_list": "globals",
-}
-
-
-@dataclass
-class FunctionMetadata:
-    """Typed view of one ``rebrew-function.toml`` entry for ``(module, va)``.
-
-    ``from_entry`` / ``to_entry`` map to the raw TOML entry dict; ``validate``
-    reports type/domain errors; :func:`save_entry` refuses invalid entries.
-    None-valued fields are absent from the store (not written/cleared).
-    """
-
-    module: str
-    va: int
-    status: str | None = None
-    size: int | None = None
-    cflags: str | None = None
-    blocker: str | None = None
-    blocker_delta: int | None = None
-    note: str | None = None
-    ghidra: str | None = None
-    analysis: str | None = None
-    skip: bool | str | None = None
-    globals_list: list[str] | None = None
-    source: str | None = None
-    prove_constraints: dict[str, Any] | None = None
-
-    @classmethod
-    def from_entry(cls, module: str, va: int, entry: dict[str, Any]) -> FunctionMetadata:
-        """Build a typed entry from a raw metadata entry dict (lower-case keys)."""
-        kwargs: dict[str, Any] = {"module": module, "va": va}
-        for attr, toml_key in _TOML_FIELD_NAMES.items():
-            if toml_key in entry:
-                kwargs[attr] = entry[toml_key]
-        for field_name in (
-            "status",
-            "size",
-            "cflags",
-            "blocker",
-            "blocker_delta",
-            "note",
-            "ghidra",
-            "analysis",
-            "skip",
-            "source",
-            "prove_constraints",
-        ):
-            if field_name in entry:
-                kwargs[field_name] = coerce_metadata_value(field_name, entry[field_name])
-        return cls(**kwargs)
-
-    def to_entry(self) -> dict[str, Any]:
-        """Return the raw TOML entry dict (lower-case keys), dropping None fields."""
-        out: dict[str, Any] = {}
-        for attr in (
-            "status",
-            "size",
-            "cflags",
-            "blocker",
-            "blocker_delta",
-            "note",
-            "ghidra",
-            "analysis",
-            "skip",
-            "source",
-            "prove_constraints",
-        ):
-            value = getattr(self, attr)
-            if value is not None:
-                out[attr] = value
-        for attr, toml_key in _TOML_FIELD_NAMES.items():
-            value = getattr(self, attr)
-            if value is not None:
-                out[toml_key] = value
-        return out
-
-    def validate(self) -> list[str]:
-        """Return a list of validation errors (empty when the entry is valid)."""
-        errors: list[str] = []
-        if not self.module:
-            errors.append("module must not be empty")
-        if self.va <= 0:
-            errors.append(f"va must be a positive int, got {self.va!r}")
-        if self.status is not None and self.status not in KNOWN_STATUSES:
-            errors.append(f"status {self.status!r} not in {sorted(KNOWN_STATUSES)}")
-        if self.size is not None and not (isinstance(self.size, int) and self.size > 0):
-            errors.append(f"size must be a positive int, got {self.size!r}")
-        if self.blocker_delta is not None and not isinstance(self.blocker_delta, int):
-            errors.append(f"blocker_delta must be an int, got {self.blocker_delta!r}")
-        if self.skip is not None and not isinstance(self.skip, (bool, str)):
-            errors.append(f"skip must be bool or str, got {self.skip!r}")
-        if self.globals_list is not None and not all(isinstance(g, str) for g in self.globals_list):
-            errors.append(f"globals must be a list of str, got {self.globals_list!r}")
-        for name in ("cflags", "blocker", "note", "ghidra", "analysis", "source"):
-            value = getattr(self, name)
-            if value is not None and not isinstance(value, str):
-                errors.append(f"{name} must be a str, got {value!r}")
-        return errors
-
-
-def load_entry(directory: Path, va: int, module: str) -> FunctionMetadata | None:
-    """Load the entry for *(module, va)* as a typed :class:`FunctionMetadata`.
-
-    Returns ``None`` when the entry does not exist.  The raw entry is
-    coerced (size/blocker_delta to int) so callers get typed values.
-    """
-    raw = get_entry(directory, va, module)
-    if not raw:
-        return None
-    return FunctionMetadata.from_entry(module, va, raw)
-
-
-def save_entry(directory: Path, entry: FunctionMetadata) -> None:
-    """Validate *entry* and persist it, writing each non-None field.
-
-    Raises:
-        ValueError: If :meth:`FunctionMetadata.validate` reports any errors.
-
-    STATUS is routed through :func:`update_source_status` (promotion
-    semantics), then the remaining non-None fields are batched into a single
-    read-modify-write.  Clearing a field remains an explicit
-    :func:`remove_field` call; ``save_entry`` never deletes.
-    """
-    errors = entry.validate()
-    if errors:
-        raise ValueError("invalid metadata entry: " + "; ".join(errors))
-    # STATUS routes through update_source_status (promotion semantics); the
-    # remaining fields are batched into a single read-modify-write instead of
-    # one TOML rewrite per field.  Clearing a field remains an explicit
-    # remove_field call; save_entry never deletes.
-    if entry.status is not None:
-        update_source_status(directory, entry.status, entry.module, entry.va, force=True)
-    fields = {k: v for k, v in entry.to_entry().items() if k != "status"}
-    if fields:
-        _set_fields(directory, entry.va, fields, module=entry.module)

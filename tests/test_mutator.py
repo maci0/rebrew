@@ -19,19 +19,17 @@ from rebrew.matcher.mutator import (
     mut_change_array_index_order,
     mut_change_return_type,
     mut_combine_ptr_arith,
-    mut_commute_simple_add,
-    mut_commute_simple_mul,
+    mut_commute_add_general,
+    mut_commute_mul_general,
     mut_comparison_boundary,
     mut_compound_assign_toggle,
     mut_decouple_index_math,
     mut_demorgan,
     mut_duplicate_loop_body,
     mut_early_return_to_accum,
-    mut_extract_args_to_temps,
     mut_extract_complex_args,
     mut_extract_condition_to_var,
     mut_extract_else_body,
-    mut_flatten_nested_if,
     mut_flip_eq_zero,
     mut_flip_lt_ge,
     mut_fold_constant_add,
@@ -51,7 +49,6 @@ from rebrew.matcher.mutator import (
     mut_invert_if_else,
     mut_invert_loop_direction,
     mut_loop_condition_extraction,
-    mut_merge_cmp_chain,
     mut_merge_declaration_init,
     mut_merge_nested_ifs,
     mut_move_switch_default,
@@ -72,7 +69,6 @@ from rebrew.matcher.mutator import (
     mut_scope_variable,
     mut_sink_return,
     mut_split_and_condition,
-    mut_split_cmp_chain,
     mut_split_declaration_init,
     mut_split_or_condition,
     mut_split_ptr_arith,
@@ -227,20 +223,20 @@ class TestCrossover:
 
 class TestCommuteMutations:
     def test_commute_add(self) -> None:
-        result = mut_commute_simple_add("x = a + b;", _rng())
+        result = mut_commute_add_general("x = a + b;", _rng())
         assert result is not None
         assert "b + a" in result
 
     def test_commute_mul(self) -> None:
-        result = mut_commute_simple_mul("x = a * b;", _rng())
+        result = mut_commute_mul_general("x = a * b;", _rng())
         assert result is not None
         assert "b * a" in result
 
     def test_no_match_add(self) -> None:
-        assert mut_commute_simple_add("x = 1 + 2;", _rng()) is None
+        assert mut_commute_add_general("x = a;", _rng()) is None
 
     def test_no_match_mul(self) -> None:
-        assert mut_commute_simple_mul("x = 1 * 2;", _rng()) is None
+        assert mut_commute_mul_general("x = a;", _rng()) is None
 
 
 class TestFlipMutations:
@@ -491,7 +487,7 @@ class TestArrayAndStruct:
 class TestCmpChain:
     def test_split(self) -> None:
         src = "if (foo && bar) {\n  x = 1;\n}"
-        result = mut_split_cmp_chain(src, _rng())
+        result = mut_split_and_condition(src, _rng())
         assert result is not None
         # Should produce nested ifs with balanced braces
         assert "if (foo)" in result
@@ -500,7 +496,7 @@ class TestCmpChain:
 
     def test_split_three_conditions(self) -> None:
         src = "if (a && b && c) {\n  x = 1;\n}"
-        result = mut_split_cmp_chain(src, _rng())
+        result = mut_split_and_condition(src, _rng())
         assert result is not None
         # At least one split should happen
         assert result.count("if") >= 2
@@ -508,7 +504,7 @@ class TestCmpChain:
 
     def test_merge(self) -> None:
         src = "void f() { if (a) { if (b) { x = 1; } } }"
-        result = mut_merge_cmp_chain(src, _rng())
+        result = mut_merge_nested_ifs(src, _rng())
         assert result is not None
         assert "&&" in result
 
@@ -652,19 +648,19 @@ class TestComparisonBoundary:
 class TestFlattenNestedIf:
     def test_basic(self) -> None:
         src = "if (a) {\n    if (b) {\n        x = 1;\n    }\n}"
-        result = mut_flatten_nested_if(src, _rng())
+        result = mut_merge_nested_ifs(src, _rng())
         assert result is not None
         assert "&&" in result
-        assert "if (a && b)" in result
+        assert "(a) && (b)" in result
 
     def test_trailing_code_prevents_flatten(self) -> None:
         src = "if (a) {\n    if (b) { x = 1; }\n    y = 2;\n}"
         # Cannot flatten because there's code after the inner if
-        result = mut_flatten_nested_if(src, _rng())
+        result = mut_merge_nested_ifs(src, _rng())
         assert result is None or "&&" not in result
 
     def test_no_match(self) -> None:
-        assert mut_flatten_nested_if("x = 1;", _rng()) is None
+        assert mut_merge_nested_ifs("x = 1;", _rng()) is None
 
 
 class TestExtractElseBody:
@@ -1393,28 +1389,28 @@ class TestLoopConditionExtraction:
 
 class TestExtractArgsToTemps:
     def test_basic(self) -> None:
-        src = "void f() { foo(a + b); }"
-        res = mut_extract_args_to_temps(src, _rng())
+        src = "void f() { foo(a + b + c); }"
+        res = mut_extract_complex_args(src, _rng())
         assert res is not None
-        assert "int _tmp_" in res
-        assert " = a + b;" in res
-        assert "foo(_tmp_" in res
+        assert "int _t" in res
+        assert " = a + b + c;" in res
+        assert "foo(_t" in res
 
     def test_no_match_simple_arg(self) -> None:
         src = "void f() { foo(a); }"
-        assert mut_extract_args_to_temps(src, _rng()) is None
+        assert mut_extract_complex_args(src, _rng()) is None
 
     def test_no_match_string_literal(self) -> None:
         src = 'void f() { foo("hello"); }'
-        assert mut_extract_args_to_temps(src, _rng()) is None
+        assert mut_extract_complex_args(src, _rng()) is None
 
     def test_multiple_args(self) -> None:
-        src = "void f() { foo(a, x * y, c); }"
-        res = mut_extract_args_to_temps(src, _rng())
+        src = "void f() { foo(a, x * y * z, c); }"
+        res = mut_extract_complex_args(src, _rng())
         assert res is not None
-        assert "int _tmp_" in res
-        assert " = x * y;" in res
-        assert "foo(a, _tmp_" in res
+        assert "int _t" in res
+        assert " = x * y * z;" in res
+        assert "foo(a, _t" in res
 
 
 class TestWrongCodeRegression:
@@ -1424,19 +1420,19 @@ class TestWrongCodeRegression:
 
     def test_split_cmp_chain_skips_if_with_else(self) -> None:
         src = "void f() { if (a && b) { x = 1; } else { y = 2; } }"
-        assert mut_split_cmp_chain(src, _rng()) is None
+        assert mut_split_and_condition(src, _rng()) is None
 
     def test_merge_cmp_chain_skips_if_with_else(self) -> None:
         src = "void f() { if (a) { if (b) { x = 1; } } else { y = 2; } }"
-        assert mut_merge_cmp_chain(src, _rng()) is None
+        assert mut_merge_nested_ifs(src, _rng()) is None
 
     def test_flatten_nested_if_skips_if_with_else(self) -> None:
         src = "void f() { if (a) { if (b) { x = 1; } } else { y = 2; } }"
-        assert mut_flatten_nested_if(src, _rng()) is None
+        assert mut_merge_nested_ifs(src, _rng()) is None
 
     def test_flatten_nested_if_skips_inner_else(self) -> None:
         src = "void f() { if (a) { if (b) { x = 1; } else { y = 2; } } }"
-        assert mut_flatten_nested_if(src, _rng()) is None
+        assert mut_merge_nested_ifs(src, _rng()) is None
 
     def test_while_to_goto_requires_compound_body(self) -> None:
         # Single-statement bodies used to be brace-stripped into garbage (x++; → ++).
@@ -1488,11 +1484,11 @@ class TestRound2Regression:
     def test_merge_cmp_chain_skips_outer_sibling_statements(self) -> None:
         # Merging would drop `x = 1;` — must refuse.
         src = "void f() { if (a) { x = 1; if (b) { y = 2; } } }"
-        assert mut_merge_cmp_chain(src, _rng()) is None
+        assert mut_merge_nested_ifs(src, _rng()) is None
 
     def test_merge_cmp_chain_pure_nesting_still_works(self) -> None:
         src = "void f() { if (a) { if (b) { y = 2; } } }"
-        result = mut_merge_cmp_chain(src, _rng())
+        result = mut_merge_nested_ifs(src, _rng())
         assert result is not None
         assert "&&" in result
         assert quick_validate(result)

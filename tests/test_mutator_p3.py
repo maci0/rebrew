@@ -7,7 +7,7 @@ from rebrew.matcher.mutator import (
     ALL_MUTATIONS,
     mut_add_volatile_intermediate,
     mut_commute_float_operands,
-    mut_extract_args_to_temps,
+    mut_extract_complex_args,
     mut_extract_condition_to_var,
     mut_introduce_temp_for_call,
     mut_loop_condition_extraction,
@@ -134,18 +134,18 @@ class TestLoopConditionExtraction:
 
 class TestC89ExtractArgsToTemps:
     def test_decl_hoisted(self) -> None:
-        """int _tmp_X; must appear at function body top, not before the call."""
-        src = "int f(int a, int b) {\n    x = 0;\n    foo(a + b);\n}"
-        res = mut_extract_args_to_temps(src, _rng())
+        """int _t<N>; must appear at function body top, not before the call."""
+        src = "int f(int a, int b) {\n    x = 0;\n    foo(a + b + 1);\n}"
+        res = mut_extract_complex_args(src, _rng())
         assert res is not None
-        assert "int _tmp_" in res
-        assert _decl_before_first_stmt(res, r"int _tmp_\d+;")
+        assert "int _t" in res
+        assert _decl_before_first_stmt(res, r"int _t\d+;")
         # The assignment should still be inline (before the call)
-        assert re.search(r"_tmp_\d+ = a \+ b;", res)
+        assert re.search(r"_t\d+ = a \+ b \+ 1;", res)
 
     def test_no_match_on_literal(self) -> None:
         src = "int f() {\n    foo(42);\n}"
-        assert mut_extract_args_to_temps(src, _rng()) is None
+        assert mut_extract_complex_args(src, _rng()) is None
 
 
 class TestC89IntroduceTempForCall:

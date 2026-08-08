@@ -13,7 +13,6 @@ Usage:
 
 import json
 import tempfile
-import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -159,32 +158,13 @@ app = typer.Typer(
 def _watch_loop(source_path: Path, retest: Callable[[], None], interval: float = 1.0) -> None:
     """Poll source_path and re-run ``retest()`` on every file change.
 
-    Runs until Ctrl+C. A failed single run (``typer.Exit`` from ``error_exit``,
-    e.g. a compile error) does not stop the loop — the user fixes the file and
-    the next save triggers a retest. Missing files are tolerated (editors that
-    delete-and-rename keep working).
+    Thin wrapper over the shared :func:`rebrew.utils.watch_files` (which
+    handles missing files, swallows ``typer.Exit`` from failed runs, and
+    stops on Ctrl+C).
     """
-    try:
-        last_mtime = source_path.stat().st_mtime_ns
-    except FileNotFoundError:
-        last_mtime = 0
-    console.print(f"[dim]Watching {source_path} — re-test on every save (Ctrl+C to stop)...[/dim]")
-    try:
-        while True:
-            time.sleep(interval)
-            try:
-                current = source_path.stat().st_mtime_ns
-            except FileNotFoundError:
-                continue
-            if current == last_mtime:
-                continue
-            last_mtime = current
-            try:
-                retest()
-            except typer.Exit:
-                console.print("[dim]Run failed — waiting for a fix...[/dim]")
-    except KeyboardInterrupt:
-        console.print("[dim]Watch stopped.[/dim]")
+    from rebrew.utils import watch_files
+
+    watch_files([source_path], retest, interval=interval)
 
 
 @app.callback(invoke_without_command=True)

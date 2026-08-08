@@ -23,7 +23,9 @@ class TestWatchLoop:
             else:
                 raise KeyboardInterrupt
 
-        monkeypatch.setattr(test_mod.time, "sleep", fake_sleep)
+        import rebrew.utils as utils_mod
+
+        monkeypatch.setattr(utils_mod.time, "sleep", fake_sleep)
         test_mod._watch_loop(src, lambda: calls.append("retest"))
         assert calls == ["retest"]
 
@@ -36,7 +38,9 @@ class TestWatchLoop:
         def fake_sleep(_seconds: float) -> None:
             raise KeyboardInterrupt
 
-        monkeypatch.setattr(test_mod.time, "sleep", fake_sleep)
+        import rebrew.utils as utils_mod
+
+        monkeypatch.setattr(utils_mod.time, "sleep", fake_sleep)
         test_mod._watch_loop(src, lambda: calls.append("retest"))
         assert calls == []
 
@@ -56,7 +60,9 @@ class TestWatchLoop:
             else:
                 raise KeyboardInterrupt
 
-        monkeypatch.setattr(test_mod.time, "sleep", fake_sleep)
+        import rebrew.utils as utils_mod
+
+        monkeypatch.setattr(utils_mod.time, "sleep", fake_sleep)
         test_mod._watch_loop(src, lambda: calls.append("retest"))
         assert calls == ["retest"]
 
@@ -82,7 +88,9 @@ class TestWatchLoop:
                 raise typer.Exit(code=1)
             calls.append("retest")
 
-        monkeypatch.setattr(test_mod.time, "sleep", fake_sleep)
+        import rebrew.utils as utils_mod
+
+        monkeypatch.setattr(utils_mod.time, "sleep", fake_sleep)
         test_mod._watch_loop(src, retest)
         assert calls == ["fail", "retest"]
 
