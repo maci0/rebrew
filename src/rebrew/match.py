@@ -1690,6 +1690,14 @@ def _run_one_stub_ga(
                         update_stub_to_matched(
                             filepath, best_src, stub, metadata_dir=cfg.metadata_dir
                         )
+                        # Under --sweep-then-ga the GA ran with swept flags that
+                        # differ from stub.cflags — persist them or the next
+                        # test/verify (which compiles with metadata CFLAGS)
+                        # demotes the match immediately.
+                        if cflags_override is not None:
+                            update_cflags_annotation(
+                                filepath, cflags, metadata_dir=cfg.metadata_dir
+                            )
                 except (RuntimeError, OSError) as e:
                     console.print(
                         f"  [yellow]warning:[/yellow] GA matched but failed to update source: {e}"
