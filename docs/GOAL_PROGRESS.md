@@ -5207,3 +5207,13 @@ applies the column check only for v4 (v3 keeps the legacy name-only
 check).  Regression tests: dropping `functions.textOffset` now rejects
 the DB in both gates.  3518 rebrew + 259 recoverage tests pass (one
 transient "lost sys.stderr" flake seen and resolved on re-run).
+
+## 2026-08-09 — sync --dry-run wrote the export artifact (5fd2855)
+
+Probing `rebrew sync --push --dry-run` on guild surfaced a dry-run
+contract violation: the export half unconditionally wrote the
+multi-hundred-KB `ghidra_commands.json` even in dry-run ("Preview changes
+without writing").  Dry-run now reports the operation count (JSON payload
+or "would export/apply" text) and returns before any write or MCP apply.
+Regression test added; 3519 rebrew tests pass.  Live-verified on guild:
+no file materialized, tree clean.
