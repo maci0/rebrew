@@ -4756,3 +4756,27 @@ No new tooling bugs found this round; all paths verified working.
   Fixed by catching RuntimeError in `_export_apply_ops` (inside the command
   context) → clean `error: Failed to initialize MCP session: ...` + exit 2.
   Regression test added (`test_apply_mcp_connection_error_exits_clean`).
+
+## 2026-08-09 — Real-project audit round 4 (annotation parser)
+
+Probes passed: resource compare (R9, exact .rsrc gap), imports --mark
+dry-run, doctor --json, cfg path, skills list.
+
+**BUG FOUND + FIXED** (annotation parser, `c00ac29`): a DATA block followed
+by extern decls then a function definition inherited the function's name
+via `_C_FUNC_NAME` extraction.  guild-rebrew Error.c: the DATA entry at
+0x10027084 (g_log_format_table) got named "DispatchLogOutput", corrupting
+symbol→VA resolution — REL32 validation then rejected `call
+DispatchLogOutput` as invalid, demoting a genuinely RELOC function
+(_InitializeLogAndErrorHandler) to NEAR_MATCHING.  Fix: only FUNCTION/
+LIBRARY/STUB blocks take a C-definition name.
+
+**Follow-on fix** (`fd7c2dd`): the first fix accidentally excluded STUB
+from C-def extraction, so implemented __stdcall stubs lost their decorated
+symbol (_Name@N) and verify demoted them STUB → EXTRACT_ERROR.  STUB is a
+function marker; restored it to the extraction gate.  Both have regression
+tests; the affected guild functions now verify correctly (RELOC/SIZE_MISMATCH
+as truth).
+
+guild-rebrew metadata restored to its committed state after probing (the
+verify --full runs were test artifacts, not intended promotions).
