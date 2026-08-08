@@ -132,8 +132,9 @@ class TestDeclaratorEdgeCases:
 
     def test_parser_missing_raises_clear_error(self, monkeypatch) -> None:
         import builtins
+        import threading
 
-        from rebrew.c_parser import _get_parser, _language, _parser
+        from rebrew.c_parser import _get_parser, _language
 
         real_import = builtins.__import__
 
@@ -143,12 +144,12 @@ class TestDeclaratorEdgeCases:
             return real_import(name, *a, **k)
 
         monkeypatch.setattr(builtins, "__import__", _fake_import)
-        monkeypatch.setattr("rebrew.c_parser._parser", None)
         monkeypatch.setattr("rebrew.c_parser._language", None)
+        # Drop any thread-local parser so the language-init path is hit.
+        monkeypatch.setattr("rebrew.c_parser._tls", threading.local())
         with pytest.raises(ImportError, match="tree-sitter and tree-sitter-c are required"):
             _get_parser()
         # Restore for other tests in the module.
-        monkeypatch.setattr("rebrew.c_parser._parser", _parser)
         monkeypatch.setattr("rebrew.c_parser._language", _language)
 
 

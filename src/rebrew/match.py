@@ -430,11 +430,6 @@ _FUNC_START_RE = re.compile(
     re.MULTILINE,
 )
 
-# Pre-compiled regex for inline STATUS and BLOCKER rewriting during match results.
-_STATUS_REWRITE_RE = re.compile(r"^(//\s*)STATUS:\s*(STUB|NEAR_MATCHING(?:_RELOC)?)", re.MULTILINE)
-_BLOCKER_LINE_RE = re.compile(r"//\s*BLOCKER:[^\n]*\n?")
-_BLOCKER_BLOCK_RE = re.compile(r"/\*\s*BLOCKER:.*?\*/[ \t]*\n?")
-
 
 def _parse_annotations(
     filepath: Path,
@@ -674,7 +669,7 @@ def update_cflags_annotation(
 
 def update_stub_to_matched(
     filepath: Path, best_src: str, stub: StubInfo, metadata_dir: Path | None = None
-) -> None:
+) -> bool:
     """Replace STUB source with matched source and update STATUS.
 
     Validates the transformed content before writing, then uses
@@ -683,13 +678,22 @@ def update_stub_to_matched(
     STATUS promotion happens only after the body splice succeeded AND the
     post-write parse validation passed — a failed splice or a validation
     error must not claim RELOC on a file whose body is still a stub.
+
+    Returns True when the splice landed, the file was rewritten, and STATUS
+    was promoted; False when the stub's own block could not be located (the
+    file is left untouched).
     """
     bak_path = filepath.with_suffix(".c.bak")
 
     original, encoding = read_source_text(filepath)
 
     m = re.search(
-        r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*(\S+)\s+" + re.escape(stub.va),
+        # Trailing lookahead: without it, stub.va="0x401000" would also match
+        # a marker "0x4010000" (hex-prefix collision), splicing the wrong
+        # function and writing STATUS/CFLAGS to the wrong module.
+        r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*(\S+)\s+"
+        + re.escape(stub.va)
+        + r"(?![0-9a-fA-F])",
         original,
         re.IGNORECASE,
     )
@@ -740,13 +744,18 @@ def update_stub_to_matched(
     finally:
         tmp_path.unlink(missing_ok=True)
 
+    # Fail closed: if the stub's own block could not be located (no marker, or
+    # a return type _FUNC_START_RE does not recognise), do NOT write, backup,
+    # promote, or claim a match — the .c still holds a stub.
+    if not (spliced and module is not None and va_int is not None):
+        return False
+
     # Promote only when the splice actually landed and the file re-parses —
     # otherwise the metadata would claim RELOC on an unchanged stub body.
-    if spliced and module is not None and va_int is not None:
-        from rebrew.metadata import update_source_status
+    from rebrew.metadata import update_source_status
 
-        meta_root = metadata_dir or filepath.parent
-        update_source_status(meta_root, "RELOC", module, va_int)
+    meta_root = metadata_dir or filepath.parent
+    update_source_status(meta_root, "RELOC", module, va_int)
 
     shutil.copy2(filepath, bak_path)
     atomic_write_text(filepath, updated, encoding=encoding)
@@ -755,6 +764,7 @@ def update_stub_to_matched(
 
     display = rel_display_path(filepath, filepath.parent.parent)
     console.print(f"  [bold green]Updated[/] {display}: STUB → RELOC (backup: {bak_path.name})")
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -1684,37 +1694,49 @@ def _run_one_stub_ga(
 
         if matched and best_src is not None:
             best_c = out_dir / "best.c"
+            # Persist the RAW user-facing flags (swept override or the stub's
+            # own metadata) — never the base-prefixed compile string.  The
+            # metadata convention stores user-facing flags only; compile_to_obj
+            # prepends base_cflags itself, and embedding the prefix would
+            # break later base_cflags changes (duplicate /MT etc.).
+            persist_cflags = cflags_override if cflags_override is not None else stub.cflags
+            spliced_ok = False
             if best_c.exists():
                 try:
                     with _metadata_lock:
-                        update_stub_to_matched(
+                        spliced_ok = update_stub_to_matched(
                             filepath, best_src, stub, metadata_dir=cfg.metadata_dir
                         )
                         # Under --sweep-then-ga the GA ran with swept flags that
                         # differ from stub.cflags — persist them or the next
                         # test/verify (which compiles with metadata CFLAGS)
                         # demotes the match immediately.
-                        if cflags_override is not None:
+                        if spliced_ok and cflags_override is not None:
                             update_cflags_annotation(
-                                filepath, cflags, metadata_dir=cfg.metadata_dir
+                                filepath, persist_cflags, metadata_dir=cfg.metadata_dir
                             )
                 except (RuntimeError, OSError) as e:
                     console.print(
                         f"  [yellow]warning:[/yellow] GA matched but failed to update source: {e}"
                     )
-            with _metadata_lock:
-                _save_solution(
-                    cfg,
-                    stub.symbol,
-                    # The flags the GA actually ran with — under
-                    # --sweep-then-ga this is cflags_override, not stub.cflags;
-                    # find_similar cross-function seeding filters on this field.
-                    cflags,
-                    stub.size,
-                    str(filepath),
-                    best_score,
-                    generations,
-                )
+            if spliced_ok:
+                with _metadata_lock:
+                    _save_solution(
+                        cfg,
+                        stub.symbol,
+                        # find_similar cross-function seeding filters on this field,
+                        # so it must be the raw user-facing flags (matching the
+                        # stub.cflags spelling), not the base-prefixed compile string.
+                        persist_cflags,
+                        stub.size,
+                        str(filepath),
+                        best_score,
+                        generations,
+                    )
+            # Only claim a match when the source was actually updated — a
+            # stub whose block could not be spliced is still a stub, and
+            # must not pollute ga_runs/solutions with a false "solved".
+            matched = spliced_ok
     finally:
         ga.close()
 
