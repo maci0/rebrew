@@ -18,7 +18,7 @@ from rebrew.matcher.mutator import (
     mut_remove_temp_var,
     mut_reorder_elseif,
     mut_return_to_goto,
-    mut_split_cmp_chain,
+    mut_split_and_condition,
     mut_split_declaration_init,
     mut_struct_vs_ptr_access,
     mut_swap_adjacent_declarations,
@@ -439,20 +439,20 @@ class TestRedundantParensKeywords:
 
 
 # -------------------------------------------------------------------------
-# mut_split_cmp_chain — balanced braces (regression)
+# mut_split_and_condition — balanced braces (regression)
 # -------------------------------------------------------------------------
 
 
 class TestSplitCmpChainBalanced:
     def test_two_conditions_balanced(self) -> None:
         src = "if (a && b) {\n  x = 1;\n}"
-        result = mut_split_cmp_chain(src, random.Random(42))
+        result = mut_split_and_condition(src, random.Random(42))
         assert result is not None
         assert result.count("{") == result.count("}")
 
     def test_three_conditions_balanced(self) -> None:
         src = "if (a && b && c) {\n  x = 1;\n}"
-        result = mut_split_cmp_chain(src, random.Random(42))
+        result = mut_split_and_condition(src, random.Random(42))
         assert result is not None
         assert result.count("{") == result.count("}")
         # At least one split should happen

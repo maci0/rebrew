@@ -12,8 +12,8 @@ from rebrew.matcher.mutator import (
     mut_change_param_order,
     mut_change_return_type,
     mut_combine_ptr_arith,
-    mut_commute_simple_add,
-    mut_commute_simple_mul,
+    mut_commute_add_general,
+    mut_commute_mul_general,
     mut_comparison_boundary,
     mut_dowhile_to_while,
     mut_duplicate_loop_body,
@@ -27,8 +27,8 @@ from rebrew.matcher.mutator import (
     mut_int_to_pointer_param,
     mut_introduce_local_alias,
     mut_introduce_temp_for_call,
-    mut_merge_cmp_chain,
     mut_merge_declaration_init,
+    mut_merge_nested_ifs,
     mut_pointer_to_int_param,
     mut_reassociate_add,
     mut_remove_cast,
@@ -37,7 +37,7 @@ from rebrew.matcher.mutator import (
     mut_reorder_declarations,
     mut_reorder_elseif,
     mut_return_to_goto,
-    mut_split_cmp_chain,
+    mut_split_and_condition,
     mut_split_declaration_init,
     mut_split_ptr_arith,
     mut_struct_vs_ptr_access,
@@ -61,14 +61,14 @@ def test_mut_ast_commute_simple_add() -> None:
     source = "int main() { return a + b; }"
     rng = random.Random(42)
     # The mutator selects a random match (only one here) and swaps left and right
-    res = mut_commute_simple_add(source, rng)
+    res = mut_commute_add_general(source, rng)
     assert res == "int main() { return b + a; }"
 
 
 def test_mut_ast_commute_simple_mul() -> None:
     source = "int main() { return a * b; }"
     rng = random.Random(42)
-    res = mut_commute_simple_mul(source, rng)
+    res = mut_commute_mul_general(source, rng)
     assert res == "int main() { return b * a; }"
 
 
@@ -385,15 +385,16 @@ def test_mut_ast_change_return_type() -> None:
 def test_mut_ast_split_cmp_chain() -> None:
     source = "int main() { if (a && b) { return; } }"
     rng = random.Random(42)
-    res = mut_split_cmp_chain(source, rng)
+    res = mut_split_and_condition(source, rng)
     assert res is not None
-    assert "if (a) { if (b) { return; } }" in res
+    # The Phase-3 splitter emits a multi-line nested if.
+    assert "if (a) {" in res and "if (b)" in res and "return;" in res
 
 
 def test_mut_ast_merge_cmp_chain() -> None:
     source = "int main() { if (a) { if (b) { return; } } }"
     rng = random.Random(42)
-    res = mut_merge_cmp_chain(source, rng)
+    res = mut_merge_nested_ifs(source, rng)
     assert res is not None
     assert "if ((a) && (b))" in res
 

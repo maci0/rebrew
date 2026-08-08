@@ -763,23 +763,7 @@ def main(
             else:
                 json_print(report)
 
-            has_regressions = bool(diff_result and diff_result["regressions"])
-            new_failures = bool(
-                diff_result
-                and any(
-                    _STATUS_RANK.get(str(i.get("status", "FAIL")), _STATUS_RANK["FAIL"])
-                    >= _STATUS_RANK["COMPILE_ERROR"]
-                    for i in diff_result.get("new", [])
-                )
-            )
-            if diff_mode and diff_result is not None:
-                # With a baseline, only regressions (and newly-broken entries)
-                # fail the run — pre-existing failures are the baseline's
-                # business (CI regression gate).
-                if has_regressions or new_failures:
-                    raise typer.Exit(code=EXIT_MISMATCH)
-            elif failed > 0:
-                raise typer.Exit(code=EXIT_MISMATCH)
+            _raise_if_regression(diff_result, failed)
             return
 
     _print_results(
@@ -794,6 +778,17 @@ def main(
         failed,
     )
 
+    _raise_if_regression(diff_result, failed)
+
+
+def _raise_if_regression(diff_result: dict[str, Any] | None, failed: int) -> None:
+    """Raise ``typer.Exit(EXIT_MISMATCH)`` per the CI regression gate.
+
+    With a baseline (*diff_result*), only regressions and newly-broken
+    entries fail the run — pre-existing failures are the baseline's business.
+    Without a baseline, any failed function fails the run.  Single
+    implementation used by both the JSON and terminal output paths.
+    """
     has_regressions = bool(diff_result and diff_result["regressions"])
     new_failures = bool(
         diff_result
@@ -803,9 +798,7 @@ def main(
             for i in diff_result.get("new", [])
         )
     )
-    if diff_mode and diff_result is not None:
-        # Regression gate (same rule as the JSON path): with a baseline, only
-        # regressions (and newly-broken entries) fail the run.
+    if diff_result is not None:
         if has_regressions or new_failures:
             raise typer.Exit(code=EXIT_MISMATCH)
     elif failed > 0:

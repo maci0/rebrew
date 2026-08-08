@@ -58,26 +58,6 @@ def _first_caps(capture_dict: dict[str, list[ts.Node]]) -> dict[str, ts.Node]:
 # --- Query Definitions ---
 # We define tree-sitter queries here for performance
 
-_QUERY_COMMUTE_ADD = ts.Query(
-    _C_LANGUAGE,
-    """
-    (binary_expression
-        left: (identifier) @left
-        "+" @op
-        right: (identifier) @right) @expr
-""",
-)
-
-_QUERY_COMMUTE_MUL = ts.Query(
-    _C_LANGUAGE,
-    """
-    (binary_expression
-        left: (identifier) @left
-        "*" @op
-        right: (identifier) @right) @expr
-""",
-)
-
 _QUERY_EQ_ZERO = ts.Query(
     _C_LANGUAGE,
     """
@@ -421,102 +401,6 @@ _QUERY_NESTED_IF_P3 = ts.Query(
 )
 
 
-_QUERY_CALL_ARG = ts.Query(
-    _C_LANGUAGE,
-    """
-    (expression_statement
-        (call_expression
-            arguments: (argument_list
-                (_) @arg)) @call) @stmt
-""",
-)
-
-
-def mut_extract_args_to_temps(s: str, rng: random.Random) -> str | None:
-    """Extract a complex call argument into a temporary variable."""
-    b_source = s.encode("utf-8")
-    tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_CALL_ARG)
-    matches = cursor.matches(tree.root_node)
-
-    valid_args = []
-    for match in matches:
-        # get nodes
-        nodes = {k: (v[0] if isinstance(v, list) else v) for k, v in match[1].items()}
-        stmt = _capture(nodes, "stmt")
-        arg = _capture(nodes, "arg")
-        if not stmt or not arg:
-            continue
-
-        # Check if arg is complex (not a literal or identifier)
-        if arg.type in ("identifier", "number_literal", "string_literal", "char_literal"):
-            continue
-
-        valid_args.append((stmt, arg))
-
-    if not valid_args:
-        return None
-
-    stmt, arg = rng.choice(valid_args)
-
-    arg_str = b_source[arg.start_byte : arg.end_byte]
-
-    var_id = rng.randint(0, 999)
-    var_name = f"_tmp_{var_id}".encode()
-
-    # C89: hoist declaration to function body top, keep assignment inline
-    insert_pos = _find_function_body_insert_pos(b_source, stmt.start_byte)
-    if insert_pos is None:
-        return None
-
-    hoisted_decl = b"\n    int " + var_name + b";"
-    inline_assign = var_name + b" = " + arg_str + b";\n    "
-    new_stmt_str = (
-        b_source[stmt.start_byte : arg.start_byte]
-        + var_name
-        + b_source[arg.end_byte : stmt.end_byte]
-    )
-
-    # Insert hoisted decl first (adjusting offsets for the insertion)
-    out = b_source[:insert_pos] + hoisted_decl + b_source[insert_pos:]
-    # Adjust byte offsets by the length of the hoisted decl
-    offset = len(hoisted_decl)
-    stmt_start = stmt.start_byte + offset
-    stmt_end = stmt.end_byte + offset
-    arg_start = arg.start_byte + offset
-    arg_end = arg.end_byte + offset
-    new_stmt_str = out[stmt_start:arg_start] + var_name + out[arg_end:stmt_end]
-
-    return (out[:stmt_start] + inline_assign + new_stmt_str + out[stmt_end:]).decode("utf-8")
-
-
-_QUERY_SPLIT_CMP_CHAIN = ts.Query(
-    _C_LANGUAGE,
-    """
-    (if_statement
-        condition: (parenthesized_expression
-            (binary_expression left: (_) @left operator: "&&" right: (_) @right)
-        )
-        consequence: (compound_statement) @body
-    ) @stmt
-""",
-)
-
-_QUERY_MERGE_CMP_CHAIN = ts.Query(
-    _C_LANGUAGE,
-    """
-    (if_statement
-        condition: (parenthesized_expression) @cond1
-        consequence: (compound_statement
-            (if_statement
-                condition: (parenthesized_expression) @cond2
-                consequence: (compound_statement) @body
-            )
-        ) @stmt2
-    ) @stmt
-""",
-)
-
 _QUERY_COMBINE_PTR_ARITH = ts.Query(
     _C_LANGUAGE,
     """
@@ -597,21 +481,6 @@ _QUERY_RETURN_FALSE = ts.Query(
 # ---------------------------------------------------------------------------
 # Queries for structural/code-layout mutations (formerly regex-only)
 # ---------------------------------------------------------------------------
-
-_QUERY_NESTED_IF = ts.Query(
-    _C_LANGUAGE,
-    """
-    (if_statement
-        condition: (parenthesized_expression) @outer_cond
-        consequence: (compound_statement
-            (if_statement
-                condition: (parenthesized_expression) @inner_cond
-                consequence: (compound_statement) @inner_body
-            ) @inner_if
-        ) @outer_body
-    ) @expr
-""",
-)
 
 _QUERY_FOR_LOOP = ts.Query(
     _C_LANGUAGE,
@@ -868,16 +737,6 @@ def _apply_query_once(
 
 
 # --- Mutations ---
-
-
-def mut_commute_simple_add(s: str, rng: random.Random) -> str | None:
-    """Swap operands of simple identifier addition."""
-    return _commute_operands(s, rng, _QUERY_COMMUTE_ADD, b"+")
-
-
-def mut_commute_simple_mul(s: str, rng: random.Random) -> str | None:
-    """Swap operands of simple identifier multiplication."""
-    return _commute_operands(s, rng, _QUERY_COMMUTE_MUL, b"*")
 
 
 def mut_flip_eq_zero(s: str, rng: random.Random) -> str | None:
@@ -1631,75 +1490,6 @@ def mut_change_return_type(s: str, rng: random.Random) -> str | None:
     return res.decode("utf-8") if res is not None else None
 
 
-def mut_split_cmp_chain(s: str, rng: random.Random) -> str | None:
-    """Split an if(a && b) into nested if(a) { if(b) ... } blocks.
-
-    Skips if/else statements — flattening into a nested if would silently
-    drop the else body (a semantics-changing bug, not just codegen noise).
-    """
-    b_source = s.encode("utf-8")
-    tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_SPLIT_CMP_CHAIN)
-    matches = cursor.matches(tree.root_node)
-
-    valid: list[tuple[dict[str, ts.Node], ts.Node]] = []
-    for match in matches:
-        caps = _first_caps(match[1])
-        stmt = caps["stmt"]
-        if stmt.child_by_field_name("alternative"):
-            continue
-        valid.append((caps, stmt))
-    if not valid:
-        return None
-
-    caps, stmt = rng.choice(valid)
-    left = b_source[caps["left"].start_byte : caps["left"].end_byte]
-    right = b_source[caps["right"].start_byte : caps["right"].end_byte]
-    body = b_source[caps["body"].start_byte : caps["body"].end_byte]
-    replacement = b"if (" + left + b") { if (" + right + b") " + body + b" }"
-    return replace_node(b_source, stmt, replacement).decode("utf-8")
-
-
-def mut_merge_cmp_chain(s: str, rng: random.Random) -> str | None:
-    """Merge nested if(a) { if(b) } into a single if(a && b) condition.
-
-    Skips when either if has an else clause, or when the outer body holds
-    more than the inner if — merging would silently drop the extra
-    statements or the else body.
-    """
-    b_source = s.encode("utf-8")
-    tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_MERGE_CMP_CHAIN)
-    matches = cursor.matches(tree.root_node)
-
-    valid: list[tuple[dict[str, ts.Node], ts.Node]] = []
-    for match in matches:
-        caps = _first_caps(match[1])
-        stmt = caps["stmt"]
-        stmt2 = caps["stmt2"]
-        if stmt.child_by_field_name("alternative") or stmt2.child_by_field_name("alternative"):
-            continue
-        # The outer consequence must contain ONLY the inner if (mirror the
-        # mut_flatten_nested_if guard) — otherwise the merged form drops
-        # sibling statements like `if (a) { x = 1; if (b) { ... } }`.
-        outer_body = stmt.child_by_field_name("consequence")
-        if outer_body is None or outer_body.type != "compound_statement":
-            continue
-        named = [c for c in outer_body.named_children if c.type != "comment"]
-        if len(named) != 1 or named[0].type != "if_statement":
-            continue
-        valid.append((caps, stmt))
-    if not valid:
-        return None
-
-    caps, stmt = rng.choice(valid)
-    cond1 = b_source[caps["cond1"].start_byte + 1 : caps["cond1"].end_byte - 1]
-    cond2 = b_source[caps["cond2"].start_byte + 1 : caps["cond2"].end_byte - 1]
-    body = b_source[caps["body"].start_byte : caps["body"].end_byte]
-    replacement = b"if ((" + cond1 + b") && (" + cond2 + b")) " + body
-    return replace_node(b_source, stmt, replacement).decode("utf-8")
-
-
 def mut_combine_ptr_arith(s: str, rng: random.Random) -> str | None:
     """Combine two consecutive pointer arithmetic additions into one."""
     b_source = s.encode("utf-8")
@@ -2045,44 +1835,6 @@ def crossover(parent1: str, parent2: str, rng: random.Random) -> str:
 # ---------------------------------------------------------------------------
 # Structural code-layout mutations (AST rewrites of former regex mutations)
 # ---------------------------------------------------------------------------
-
-
-def mut_flatten_nested_if(s: str, rng: random.Random) -> str | None:
-    """Flatten nested if into && chain.
-
-    Changes:  if (a) { if (b) { body } }  ->  if (a && b) { body }
-    """
-    b_source = s.encode("utf-8")
-    cursor = ts.QueryCursor(_QUERY_NESTED_IF)
-    tree = parse_c_ast(b_source)
-    matches = cursor.matches(tree.root_node)
-
-    # Filter: outer body must contain ONLY the inner if (no other stmts),
-    # and neither if may carry an else clause (flattening would drop it).
-    valid = []
-    for match in matches:
-        caps = _first_caps(match[1])
-        outer_body = caps["outer_body"]
-        # Count named children that are actual statements (not just braces)
-        stmts = list(outer_body.named_children)
-        if len(stmts) == 1 and stmts[0].type == "if_statement":
-            if caps["expr"].child_by_field_name("alternative"):
-                continue
-            if caps["inner_if"].child_by_field_name("alternative"):
-                continue
-            valid.append(caps)
-
-    if not valid:
-        return None
-
-    caps = rng.choice(valid)
-    outer_cond = b_source[caps["outer_cond"].start_byte + 1 : caps["outer_cond"].end_byte - 1]
-    inner_cond = b_source[caps["inner_cond"].start_byte + 1 : caps["inner_cond"].end_byte - 1]
-    inner_body = b_source[caps["inner_body"].start_byte : caps["inner_body"].end_byte]
-
-    replacement = b"if (" + outer_cond.strip() + b" && " + inner_cond.strip() + b") " + inner_body
-    result = b_source[: caps["expr"].start_byte] + replacement + b_source[caps["expr"].end_byte :]
-    return result.decode("utf-8")
 
 
 def mut_extract_else_body(s: str, rng: random.Random) -> str | None:
@@ -4970,7 +4722,7 @@ def mut_commute_bit_xor(s: str, rng: random.Random) -> str | None:
 def mut_commute_add_general(s: str, rng: random.Random) -> str | None:
     """Swap operands of addition with arbitrary sub-expressions.
 
-    Unlike ``mut_commute_simple_add`` (identifiers only), this handles
+    Unlike the identifier-only commutes, this handles
     complex AST nodes like ``(w >> 8) + (w << 8)``.
     """
     return _commute_operands(s, rng, _QUERY_COMMUTE_ADD_GENERAL, b"+")
@@ -5468,7 +5220,7 @@ def mut_extract_complex_args(s: str, rng: random.Random) -> str | None:
     # turns `return g(a, h(b, c));` into `return _t = h(b, c); g(a, _t);`,
     # changing the return value and killing the outer call.  Only expression
     # and return statements are handled (same shapes the older
-    # mut_extract_args_to_temps supports); everything else is skipped.
+    # the older extract-args mutator supported); everything else is skipped.
     stmt = call_node
     while stmt.parent is not None:
         parent = stmt.parent
@@ -5517,8 +5269,6 @@ def mut_extract_complex_args(s: str, rng: random.Random) -> str | None:
 
 
 ALL_MUTATIONS = [
-    mut_commute_simple_add,
-    mut_commute_simple_mul,
     mut_flip_eq_zero,
     mut_flip_lt_ge,
     mut_add_redundant_parens,
@@ -5557,8 +5307,6 @@ ALL_MUTATIONS = [
     mut_change_array_index_order,
     mut_struct_vs_ptr_access,
     mut_change_return_type,
-    mut_split_cmp_chain,
-    mut_merge_cmp_chain,
     mut_combine_ptr_arith,
     mut_split_ptr_arith,
     mut_change_param_order,
@@ -5568,7 +5316,6 @@ ALL_MUTATIONS = [
     mut_insert_noop_block,
     mut_introduce_local_alias,
     mut_reorder_declarations,
-    mut_flatten_nested_if,
     mut_extract_else_body,
     mut_for_to_while,
     mut_while_to_for,
@@ -5613,7 +5360,6 @@ ALL_MUTATIONS = [
     mut_split_or_condition,
     mut_extract_condition_to_var,
     mut_loop_condition_extraction,
-    mut_extract_args_to_temps,
     # --- MSVC6 type width & codegen mutations (2026-03 GA improvements) ---
     mut_widen_local_type,
     mut_toggle_dllimport,

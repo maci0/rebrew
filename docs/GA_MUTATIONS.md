@@ -59,8 +59,6 @@ and instruction selection.
 
 | Mutation | Transform | MSVC6 Rationale |
 |----------|-----------|-----------------|
-| `mut_commute_simple_add` | `a + b` → `b + a` | Swapping operand order changes which value enters which register, affecting downstream instructions |
-| `mut_commute_simple_mul` | `a * b` → `b * a` | Same as add — MSVC6 picks different register assignments based on operand order |
 | `mut_swap_eq_operands` | `a == b` → `b == a` | Changes which value the `cmp` instruction uses as source vs destination |
 | `mut_swap_ne_operands` | `a != b` → `b != a` | Same as `==` for inequality comparisons |
 | `mut_swap_or_operands` | `a \|\| b` → `b \|\| a` | Changes short-circuit evaluation order — affects branch layout and fall-through |
@@ -96,11 +94,8 @@ layout and jump threading.
 |----------|-----------|-----------------|
 | `mut_swap_if_else` | Swap if/else bodies, negate condition | Reverses fall-through direction — the "likely" path changes |
 | `mut_reorder_elseif` | Swap two branches in else-if chain | Changes comparison order, affecting branch prediction hints |
-| `mut_flatten_nested_if` | `if (a) { if (b) { ... } }` → `if (a && b) { ... }` | Nested branches → single conditional with `&&` uses different jump structure |
 | `mut_extract_else_body` | `if (a) { X } else { Y }` → `if (!a) { Y; return; } X` | Converts to early-exit (guard clause) pattern — eliminates a branch entirely |
 | `mut_guard_clause` | Full if/else → negated guard + fall-through | Changes which path is the "common" (no-jump) path |
-| `mut_split_cmp_chain` | `if (a && b)` → `if (a) { if (b) }` | Splits compound condition into nested ifs — more branch instructions but different layout |
-| `mut_merge_cmp_chain` | `if (a) { if (b) }` → `if (a && b)` | Inverse of split — fewer branches, different codegen |
 | `mut_hoist_return` | `return expr;` → `ret = expr; goto end;` | Accumulate return value in a variable + single return point — changes stack usage |
 | `mut_sink_return` | `ret = expr; goto end;` → `return expr;` | Inverse — direct returns reduce register pressure |
 | `mut_return_to_goto` | `return 0;` → `goto ret_false;` | Explicit goto to a label — changes basic block structure |
@@ -267,7 +262,6 @@ view of value lifetimes.
 | `mut_introduce_temp_for_call` | `f(g(x))` → `tmp = g(x); f(tmp);` | Separating the call forces the return value into a specific register before the outer call |
 | `mut_remove_temp_var` | `tmp = expr; var = tmp;` → `var = expr;` | Removing the temp reduces register pressure — one fewer live variable |
 | `mut_introduce_local_alias` | `var = id;` → `alias = id; var = alias;` | Extra alias adds a register copy that may spill to stack |
-| `mut_extract_args_to_temps` | `F(a, b+c)` → `tmp = b+c; F(a, tmp);` | Extracts complex arguments to temporaries — changes evaluation order |
 | `mut_extract_condition_to_var` | `if (complex)` → `int cond = complex; if (cond)` | Forces the condition into a variable — may change branch vs `test` patterns |
 
 ### 16. Accumulator & Return Patterns
@@ -373,3 +367,12 @@ to 121 operators.)
 
 See contributor guidelines in [`AGENTS.md`](../AGENTS.md#adding-a-new-ga-mutation)
 (a.k.a. `CLAUDE.md`).
+
+
+> Consolidation note (2026-08-08): `mut_commute_simple_add`/`mut_commute_simple_mul`
+> (identifier-only subsets of `mut_commute_add_general`/`mut_commute_mul_general`),
+> `mut_extract_args_to_temps` (subset of `mut_extract_complex_args`), and
+> `mut_split_cmp_chain`/`mut_merge_cmp_chain`/`mut_flatten_nested_if` (duplicates
+> of the Phase-3 `mut_split_and_condition`/`mut_merge_nested_ifs`) were removed —
+> they double/triple-weighted identical transforms in the GA.  Use the survivor
+> in each family.

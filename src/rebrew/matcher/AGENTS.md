@@ -99,9 +99,9 @@ checkpoints when GA parameters change.
 
 121 operators in `mutator.py`, all named `mut_*`. Categories:
 
-- **Commutative / logic**: `mut_commute_simple_add`, `mut_commute_simple_mul`, `mut_swap_eq_operands`, `mut_swap_ne_operands`, `mut_swap_or_operands`, `mut_swap_and_operands`, `mut_reassociate_add`, `mut_demorgan`
+- **Commutative / logic**: `mut_commute_add_general`, `mut_commute_mul_general`, `mut_swap_eq_operands`, `mut_swap_ne_operands`, `mut_swap_or_operands`, `mut_swap_and_operands`, `mut_reassociate_add`, `mut_demorgan`
 - **Comparison / boolean**: `mut_flip_eq_zero`, `mut_flip_lt_ge`, `mut_comparison_boundary`, `mut_toggle_bool_not`, `mut_negate_condition`
-- **Control flow**: `mut_swap_if_else`, `mut_reorder_elseif`, `mut_flatten_nested_if`, `mut_extract_else_body`, `mut_guard_clause`, `mut_split_cmp_chain`, `mut_merge_cmp_chain`, `mut_hoist_return`, `mut_sink_return`, `mut_return_to_goto`, `mut_goto_to_return`, `mut_while_to_goto_loop`
+- **Control flow**: `mut_swap_if_else`, `mut_reorder_elseif`, `mut_extract_else_body`, `mut_guard_clause`, `mut_hoist_return`, `mut_sink_return`, `mut_return_to_goto`, `mut_goto_to_return`, `mut_while_to_goto_loop`
 - **Loop transforms**: `mut_for_to_while`, `mut_while_to_for`, `mut_while_to_dowhile`, `mut_dowhile_to_while`, `mut_duplicate_loop_body`, `mut_invert_loop_direction`, `mut_remove_loop_break`, `mut_add_loop_break`
 - **Ternary / branch**: `mut_if_to_ternary`, `mut_ternary_to_if`, `mut_if_false_to_bitand`, `mut_bitand_to_if_false`, `mut_if_else_call_to_ternary_arg`, `mut_ternary_arg_to_if_else_call`
 - **Cast / type**: `mut_add_cast`, `mut_remove_cast`, `mut_toggle_signedness`, `mut_toggle_char_signedness`, `mut_change_return_type`
