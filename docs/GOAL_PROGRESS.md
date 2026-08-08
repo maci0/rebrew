@@ -5504,3 +5504,21 @@ remaining ~0.5s per CLI invocation is structural (typer + ~30 eager
 subcommand registrations) — the lazy-subcommand-registration refactor
 (typer signature introspection makes a generic wrapper awkward) is
 documented as the final, optional item.  3520 tests pass.
+
+## 2026-08-09 — final capstone verification
+
+- rebrew: 3520 tests pass; skills validator (158 combos) OK; tree clean, pushed.
+- recoverage: 262 passed / 4 skipped; lint clean; tree clean, pushed.
+- guild-rebrew: tree clean; 3 commits this session (stale-header regen,
+  gm_IsInRange wrong-call fix, capstone override).
+- np-rebrew: only the user's in-flight work uncommitted (never touched);
+  2 local commits.
+
+Session totals: 10 review prompts run (cli, functionality, db, error,
+api, config, sec, release, perf, plus the earlier sessions' audits) with
+60+ findings fixed, live-project discoveries (diff --watch VA loss,
+PROVEN masking, gate self-heal, locked-DB deletion, sync dry-run write,
+set-cflags no-op, marker default, wibo config, cflags divergence,
+WAL-blind ETags, VA round-trip 404, unbounded POST, GA 270x, dependency
+conflict), CHANGELOGs backfilled, dist rebuilt, and both real projects
+left healthy and clean.
