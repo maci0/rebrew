@@ -5678,3 +5678,21 @@ rebrew-data.toml `section` overlay (fires only with cfg=None).
 - W020 asm-dump check (user's earlier "_emit warning" request): already
   implemented — `_check_W020_asm_dump` fires on both `__emit` and
   `__asm` (warn-once per file). Guild's 34 W020s prove it fires.
+
+## 2026-08-09 — verify cache no longer bakes in the PROVEN overlay (f6deb4f)
+
+Discovered while reviewing the PROVEN-overlay path behind the np-rebrew
+finding: the overlay (NEAR_MATCHING/SIZE_MISMATCH → PROVEN/passed) mutated
+`results` BEFORE `_save_verify_cache`, so the cache stored the overlaid
+PROVEN pass. Cache-hit validation keys on filepath/cflags/size/source-hash
+but NOT STATUS — so after a metadata demotion (PROVEN→STUB, the exact
+np-rebrew stale-overlay case), the stale cached PROVEN would keep counting
+as passed on incremental runs forever. Fix: the cache now stores the
+pre-overlay raw byte result (`raw_statuses` map captured at overlay time,
+applied in `_save_verify_cache`). The overlay is metadata-derived and
+already re-applied from CURRENT metadata at every report run (cached +
+fresh), so a demotion now correctly surfaces as a failure. Tests:
+`TestSaveVerifyCache.test_overlaid_proven_stored_raw` +
+`TestProvenOverlay.test_proven_cache_stores_raw_byte_result` (end-to-end
+through the real cache file). 3541 rebrew tests pass. No behavior change
+for np: its stale PROVENs verify as STUB, which was never overlaid.
