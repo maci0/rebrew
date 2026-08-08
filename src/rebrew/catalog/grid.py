@@ -569,6 +569,28 @@ def generate_data_json(
         sec_data["unitBytes"] = unit_bytes
         sec_data["columns"] = columns
 
+    # Data globals whose VA falls outside every section are silently dropped
+    # by the placement loop above — the catalog then looks complete while the
+    # global is missing from the coverage DB.  Surface it (R4: data VAs not
+    # cross-checked against section ranges).
+    if globals_dict:
+        placed_vas: set[int] = set()
+        for sec_data in sections.values():
+            sec_va = sec_data["va"]
+            sec_size = sec_data["size"]
+            for va in globals_dict:
+                if 0 <= va - sec_va < sec_size:
+                    placed_vas.add(va)
+        unplaced = sorted(set(globals_dict) - placed_vas)
+        if unplaced:
+            log.warning(
+                "Catalog: %d annotated global(s) fall outside every section and "
+                "are omitted from the coverage DB (check rebrew-data.toml VAs): %s",
+                len(unplaced),
+                ", ".join(f"0x{va:08x}" for va in unplaced[:10])
+                + ("…" if len(unplaced) > 10 else ""),
+            )
+
     # Count padding and thunk bytes from .text section cells
     padding_bytes = 0
     thunk_bytes = 0

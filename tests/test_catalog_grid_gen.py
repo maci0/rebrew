@@ -198,6 +198,40 @@ class TestGenerateDataJsonGrid:
         assert "0x00001700" not in fn
         assert "0x00002000" not in fn
 
+    def test_global_outside_sections_warns(self, monkeypatch, tmp_path: Path, caplog) -> None:
+        """A data global whose VA falls outside every section must be surfaced
+        (R4): silently dropping it makes the catalog look complete while the
+        global is missing from the coverage DB."""
+        import logging
+
+        blob = _blob()
+        bin_path = tmp_path / "fake.dll"
+        bin_path.write_bytes(bytes(blob))
+        _patch_binary(
+            monkeypatch,
+            bytes(blob),
+            globals_dict={
+                0x5000: {"name": "g_in_data"},
+                0x9999: {"name": "g_outside"},
+            },
+        )
+        with caplog.at_level(logging.WARNING, logger="rebrew.catalog.grid"):
+            generate_data_json(
+                self._entries(),
+                [{"va": 0x1540, "size": 0x20}],
+                text_size=TEXT_SIZE,
+                bin_path=bin_path,
+                registry=self._registry(),
+                src_dir=tmp_path / "src",
+                root_dir=tmp_path,
+            )
+        assert any("outside every section" in r.message for r in caplog.records)
+        assert any("0x00009999" in r.message for r in caplog.records)
+
+    def test_status_counters(self, monkeypatch, tmp_path: Path) -> None:
+        data = self._run(monkeypatch, tmp_path)
+        fn = data["functions"]
+
         # Status counters: EXACT/RELOC/NEAR_MATCHING each 1, STUB = 5
         # (fn_c, fn_o, fn_e, fn_z, fn_out).
         s = data["summary"]
