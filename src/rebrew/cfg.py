@@ -136,8 +136,14 @@ def _load_toml(
     return doc, toml_path
 
 
-def _save_toml(doc: tomlkit.TOMLDocument, path: Path) -> None:
-    """Write tomlkit document back, preserving formatting."""
+def _save_toml(doc: tomlkit.TOMLDocument, path: Path, *, dry_run: bool = False) -> None:
+    """Write tomlkit document back, preserving formatting.
+
+    With *dry_run*, prints what would change without touching the disk.
+    """
+    if dry_run:
+        console.print(f"[cyan]dry-run:[/cyan] would update {path}")
+        return
     atomic_write_text(path, tomlkit.dumps(doc), encoding="utf-8")
 
 
@@ -484,6 +490,7 @@ def set_value(
         ..., help="Dot-separated key, e.g. 'compiler.cflags' or 'targets.mygame.arch'."
     ),
     value: str = typer.Argument(..., help="Value to set."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
 ) -> None:
     """Set a scalar config key."""
     doc, toml_path = _load_toml()
@@ -503,13 +510,14 @@ def set_value(
                 parsed_value = float(value)
 
     parent[final_key] = parsed_value
-    _save_toml(doc, toml_path)
+    _save_toml(doc, toml_path, dry_run=dry_run)
     console.print(f"[green]Set {key} = {parsed_value!r}[/green]")
 
 
 @app.command("add-module")
 def add_module(
     module: str = typer.Argument(..., help="Module name to add (e.g. 'ZLIB')."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     target: str | None = TargetOption,
 ) -> None:
     """Add a module to a target's origins list."""
@@ -532,7 +540,7 @@ def add_module(
     # tomlkit copies plain lists on assignment — re-assign so the mutation
     # is visible to the document that _save_toml serializes.
     tgt["origins"] = origins
-    _save_toml(doc, toml_path)
+    _save_toml(doc, toml_path, dry_run=dry_run)
     console.print(
         f"[green]Added module '{module_upper}' to {target}. Modules: {list(origins)}[/green]"
     )
@@ -570,6 +578,7 @@ def remove_module(
 def set_cflags(
     module: str = typer.Argument(..., help="Module/preset name (e.g. 'ZLIB', 'GAME')."),
     flags: str = typer.Argument(..., help="Compiler flags string (e.g. '/O3')."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     target: str | None = typer.Option(
         None,
         "--target",
@@ -604,7 +613,7 @@ def set_cflags(
         presets[module.upper()] = flags
         scope = "compiler"
 
-    _save_toml(doc, toml_path)
+    _save_toml(doc, toml_path, dry_run=dry_run)
     console.print(f'[green]Set {scope}.cflags_presets.{module.upper()} = "{flags}"[/green]')
 
 
