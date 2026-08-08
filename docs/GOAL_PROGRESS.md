@@ -5641,3 +5641,23 @@ of the `if summary:` block, shared with --json; payload now carries
 (test_json_summary_to_stdout now asserts the full payload incl. the
 0x24000 default text_size — the mocked get_text_section_size is not
 reached since the fake binary path doesn't exist). 3539 rebrew tests pass.
+
+## 2026-08-09 — guild-rebrew health check on latest toolchain; duplicate-DATA audit
+
+Re-verified guild-rebrew against the current (just-pushed) rebrew:
+`rebrew status --json` works (561 fns, 93.9% matched, last verify
+2026-08-09 05:05 225/259 not stale); `rebrew lint --json` → 111 files,
+108 passed, 10 E013, 36 warnings (34 W020 asm dumps, 1 W005, 1 W021).
+
+Root-caused the 10 E013s: the same DATA global is annotated in multiple
+files (extern declarations carrying `// DATA:`), sometimes twice within
+one file (spiel.c: 0x101de450/0x10035880/0x100358a0). e.g.
+`g_citizen_count` 0x10035434 in alchemistry_logic.c + spiel.c +
+loadsave.c; 0x100a8c30 in 3 files. **Not a tooling bug**: lint correctly
+detects (E013 keyed (module, va) cross-file; W021 name collision), and
+the grid dedupes — `get_globals` keys by VA (first-file-wins name/decl,
+collects all files into a `files` list), so no double-counting in
+db/data.json. Project-data hygiene in guild (remove redundant DATA
+annotations from extern decls) — left to the user; documented here only.
+Also confirmed: DATA W016 (missing SECTION) is metadata-resolved via
+rebrew-data.toml `section` overlay (fires only with cfg=None).
