@@ -439,11 +439,15 @@ def main(
         from rebrew.utils import watch_files
 
         seed_path = Path(seed_c).resolve()
+        # Keep the original positional (VA or symbol) for re-entry — seed_c is
+        # now the resolved path, and passing it would drop the VA targeting and
+        # re-diff the first annotation in a multi-function file.
+        watch_arg = original_arg if va_arg else seed_c
 
         def _retest() -> None:
             # Re-run the full single-function diff path; --watch must not nest.
             main(
-                seed_c=seed_c,
+                seed_c=watch_arg,
                 mismatches_only=mismatches_only,
                 register_aware=register_aware,
                 fix_blocker=fix_blocker,
