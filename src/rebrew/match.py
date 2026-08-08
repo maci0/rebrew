@@ -1168,7 +1168,15 @@ def main(
     # Accept a hex VA or symbol name in addition to a .c path, like
     # `rebrew diff`/`rebrew prove` (resolve_source_arg returns the argument
     # unchanged when nothing matches, so the original error path is kept).
+    va_arg = seed_c.strip().lower().startswith("0x")
+    seed_c_orig = seed_c
     seed_c = str(resolve_source_arg(cfg, seed_c))
+
+    # A bare-VA positional must target THAT annotation in a multi-function
+    # file — thread it through so resolve_build_params does not fall back to
+    # the first annotation (wrong function).
+    if va_arg and target_va is None:
+        target_va = seed_c_orig
 
     params = resolve_build_params(
         cfg, seed_c, cl, inc, cflags, symbol, target_va, target_size, ignore_lint, json_output

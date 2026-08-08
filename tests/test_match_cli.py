@@ -237,3 +237,40 @@ class TestResolveBuildParamsSymbol:
         assert params.symbol == "_first_fn"
         assert params.va_int == 0x401000
         assert params.target_size == 64
+
+    def test_va_selects_matching_annotation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """resolve_build_params with target_va set must select THAT annotation
+        in a multi-function file, not the first one (workflow: `rebrew
+        diff/match/prove 0x<va>` was diffing the wrong function)."""
+        from rebrew.config import load_config
+        from rebrew.match import resolve_build_params
+
+        toml = tmp_path / "rebrew-project.toml"
+        toml.write_text(
+            '[project]\ndefault_target = "server"\n\n'
+            "[targets.server]\n"
+            'binary = "x.dll"\nformat = "pe"\narch = "x86_32"\n'
+            'reversed_dir = "src/SERVER"\nmarker = "SERVER"\n'
+            'function_list = "src/SERVER/functions.txt"\n',
+            encoding="utf-8",
+        )
+        cfg = load_config(tmp_path)
+        import sys
+
+        sys.path.insert(0, str(Path(__file__).parent))
+        from bin_util import make_pe
+
+        (tmp_path / "x.dll").write_bytes(
+            make_pe(b"\x55\x8b\xec\x5d\xc3" * 120, image_base=0x400000)
+        )
+        f = self._make_multi(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        params = resolve_build_params(
+            cfg, str(f), None, None, None, None, "0x401100", None, False, True
+        )
+        assert params.symbol == "_second_fn"
+        assert params.va_int == 0x401100
+        assert params.target_size == 128
