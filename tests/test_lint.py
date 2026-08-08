@@ -706,3 +706,39 @@ class TestLintFixConvergence:
         entry = get_entry(tmp_path, 0x1000, "SERVER")
         assert entry.get("status") == "EXACT"
         assert entry.get("size") == 42
+
+
+class TestW020AsmDump:
+    """Asm-dump placeholders (__emit / __asm blocks) must be flagged as W020."""
+
+    def _lint(self, tmp_path: Path, body: str) -> LintResult:
+        content = (
+            "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n// SIZE: 31\n// CFLAGS: /O2 /Gd\n"
+            + body
+        )
+        f = _write_c(tmp_path, "foo.c", content)
+        return lint_file(f)
+
+    def test_emit_byte_dump_warns(self, tmp_path: Path) -> None:
+        body = "__declspec(naked) int f(void) {\n    __asm {\n        _emit 0x55\n        _emit 0x8b\n    }\n}\n"
+        result = self._lint(tmp_path, body)
+        codes = [c for _, c, _ in result.warnings]
+        assert "W020" in codes
+        msg = next(m for _, c, m in result.warnings if c == "W020")
+        assert "asm" in msg.lower()  # the __asm { line fires first
+
+    def test_inline_asm_block_warns(self, tmp_path: Path) -> None:
+        body = "int f(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n"
+        result = self._lint(tmp_path, body)
+        assert any(c == "W020" for _, c, _ in result.warnings)
+
+    def test_plain_c_does_not_warn(self, tmp_path: Path) -> None:
+        body = "int f(void) { return 42; }\n"
+        result = self._lint(tmp_path, body)
+        assert not any(c == "W020" for _, c, _ in result.warnings)
+
+    def test_asm_in_comment_does_not_warn(self, tmp_path: Path) -> None:
+        # "// __asm" in a comment is not an implementation.
+        body = "// __asm notes about the original\nint f(void) { return 0; }\n"
+        result = self._lint(tmp_path, body)
+        assert not any(c == "W020" for _, c, _ in result.warnings)

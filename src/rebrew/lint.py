@@ -322,6 +322,37 @@ def _check_W019_inline_metadata(
                 result._inline_fixes.append((module, va_int, key, found_keys[key]))
 
 
+def _check_W020_asm_dump(result: LintResult, lines: list[str]) -> None:
+    """Flag asm-dump placeholder implementations (W020).
+
+    ``__declspec(naked)`` functions whose "implementation" is an ``__asm``
+    block (often with raw ``__emit`` byte emission) are pasted disassembly,
+    not real C source: they cannot be maintained, refactored, or matched
+    beyond byte-identical reproduction.  Warn once per file at the first hit.
+    """
+    for i, line in enumerate(lines, start=1):
+        s = line.strip()
+        # Ignore comment lines — "__asm" in a note is not an implementation.
+        if s.startswith("//") or s.startswith("/*") or s.startswith("*"):
+            continue
+        if "__emit" in s:
+            result.warning(
+                i,
+                "W020",
+                "__emit byte dump — function is an asm placeholder, not real C "
+                "source; rewrite it as C (or mark it STUB/BLOCKER with a note)",
+            )
+            return
+        if "__asm" in s:
+            result.warning(
+                i,
+                "W020",
+                "inline __asm block — asm-dump placeholder instead of real C "
+                "source; rewrite the function as C where possible",
+            )
+            return
+
+
 def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> None:
     """Check struct SIZE comments and code presence (W003, W007)."""
     has_code = False
@@ -517,6 +548,7 @@ def lint_file(
             )
 
     result.context_prefix = ""
+    _check_W020_asm_dump(result, lines)
     _check_body_rules(result, lines, all_headers[0][1]["has_new"] if all_headers else False)
 
     return result
@@ -569,6 +601,7 @@ app = typer.Typer(
         "  W010   Unknown marker key\n\n"
         "  W018   Missing CFLAGS with no config fallback\n\n"
         "  W019   Inline metadata key (STATUS, SIZE, etc.) should be in rebrew-function.toml\n\n"
+        "  W020   Asm-dump placeholder (__emit / __asm block) instead of real C source\n\n"
         "[dim]Checks for reccmp-style markers in each .c file.[/dim]"
     ),
 )
