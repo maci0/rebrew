@@ -681,9 +681,8 @@ def _test_multi(
             full_relocs = parse_obj_relocs_full(obj_path, sym)
             coff_relocs = full_relocs if full_relocs else reloc_dict
 
-            if len(obj_bytes) > len(target_bytes):
-                obj_bytes = obj_bytes[: len(target_bytes)]
-
+            # Size mismatch must be computed on the ORIGINAL lengths — truncating
+            # first makes an over-long obj report false EXACT (and get promoted).
             size_mismatch = len(obj_bytes) != len(target_bytes)
             cmp_obj = obj_bytes
             cmp_tgt = target_bytes

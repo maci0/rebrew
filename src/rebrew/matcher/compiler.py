@@ -404,6 +404,10 @@ def flag_sweep(
 
     results = []
 
+    # First compiler error(s) collected from workers — surfaced when the whole
+    # sweep fails so a broken toolchain is visible, not a silent empty result.
+    _compile_errors: list[str] = []
+
     def _eval_flags(flags: str) -> tuple[float, str]:
         full_flags = f"{base_cflags} {flags}"
         res = build_candidate_obj_only(
@@ -427,6 +431,8 @@ def flag_sweep(
                 _pre_target_mnems=pre_target_mnems,
             )
             return score.total, flags
+        if res.error_msg and len(_compile_errors) < 3:
+            _compile_errors.append(res.error_msg.strip()[:300])
         return float("inf"), flags
 
     with ThreadPoolExecutor(max_workers=n_jobs) as executor:
@@ -443,6 +449,15 @@ def flag_sweep(
                 continue
             if score < float("inf"):
                 results.append((score, flags))
+
+    # A sweep where EVERY combo failed is indistinguishable from "no flags
+    # matched" without this: surface the first compiler error so a broken
+    # toolchain / bad source is visible instead of a silent empty result.
+    if not results and _compile_errors:
+        log.warning(
+            "Flag sweep produced no matches; first compiler error(s):\n%s",
+            "\n".join(_compile_errors),
+        )
 
     results.sort(key=lambda x: x[0])
     return results

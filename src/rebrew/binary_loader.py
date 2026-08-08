@@ -439,9 +439,14 @@ def extract_raw_bytes(binary_path: Path, va: int, size: int) -> bytes:
     data = extract_bytes_at_va(info, va, size)
     if data is not None:
         return data
-    # Fallback to simple file-offset calculation
+    # Fallback to simple file-offset calculation.  A VA below the .text base
+    # yields a NEGATIVE offset (seek would raise and abort whole batches) —
+    # clamp to empty instead.
+    offset = va_to_file_offset(info, va)
+    if offset < 0:
+        return b""
     with binary_path.open("rb") as f:
-        f.seek(va_to_file_offset(info, va))
+        f.seek(offset)
         return f.read(size)
 
 

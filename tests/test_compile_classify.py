@@ -72,4 +72,7 @@ class TestClassifyCompareResult:
         r = classify_compare_result(False, "diff", b"\x55\x89\xe5", b"\x55", None)
         assert r.match_percent < 60.0
         assert r.status == "STUB"
-        assert r.delta == 4  # 2 length diff + 2 missing
+        # delta = abs(size diff) + mismatches — the 2 missing target bytes are
+        # already counted by abs(3-1); adding `missing` again double-counted
+        # short objects (regression fixed).
+        assert r.delta == 2

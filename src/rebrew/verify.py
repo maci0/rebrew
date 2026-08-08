@@ -1015,9 +1015,11 @@ def run_verification(
             futures = {pool.submit(_verify, e): e for e in entries_to_verify}
             for future in concurrent.futures.as_completed(futures):
                 entry = futures[future]
+                is_internal_error = False
                 try:
                     _entry, result = future.result()
                 except Exception as exc:  # noqa: BLE001
+                    is_internal_error = True
                     internal_errors += 1
                     log.debug(
                         "Internal error verifying %s",
@@ -1050,7 +1052,12 @@ def run_verification(
                     failed += 1
                     fail_details.append((entry, result.message))
 
-                deferred_fixes.append((entry, result.status, result.delta))
+                # An INTERNAL_ERROR is a tooling failure, not a verification
+                # verdict — never let it overwrite the function's real STATUS
+                # in rebrew-function.toml (previously EXACT/NEAR_MATCHING were
+                # permanently demoted to COMPILE_ERROR).
+                if not is_internal_error:
+                    deferred_fixes.append((entry, result.status, result.delta))
 
                 results.append(
                     {
