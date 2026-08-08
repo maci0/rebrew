@@ -23,6 +23,7 @@ To load a specific target::
     cfg = load_config(target="client_exe")
 """
 
+import re
 import shlex
 import sys
 import tomllib
@@ -863,7 +864,15 @@ def load_config(
         reversed_dir=reversed_dir,
         function_list=function_list,
         bin_dir=bin_dir,
-        marker=_as_str(tgt.get("marker"), target.upper(), f"targets.{target}.marker"),
+        # marker defaults to the target name upper-cased with non-identifier
+        # characters stripped: for `server.dll` the raw upper() yields
+        # "SERVER.DLL", which matches NO annotation module ("SERVER") and
+        # silently filters every function out of verify/todo/status.
+        marker=_as_str(
+            tgt.get("marker"),
+            re.sub(r"[^A-Za-z0-9_]", "", target).upper(),
+            f"targets.{target}.marker",
+        ),
         r2_bogus_vas=_parse_int_list(tgt.get("r2_bogus_vas", []), "r2_bogus_vas"),
         # project-level defaults
         project_name=_as_str(project_raw.get("name"), "", "project.name"),

@@ -613,16 +613,22 @@ def set_cflags(
     doc, toml_path = _load_toml()
 
     if target is not None:
-        # Per-target cflags_presets
+        # Per-target cflags_presets — written under the target's COMPILER
+        # sub-table, which is where _merge_cflags_presets reads them from
+        # (writing [targets.X.cflags_presets] was a silent no-op).
         target = _resolve_target(doc, target)
         targets_table: Any = doc["targets"]
         tgt: Any = targets_table[target]
-        presets = tgt.get("cflags_presets")
+        compiler_tbl = tgt.get("compiler")
+        if compiler_tbl is None:
+            compiler_tbl = tomlkit.table()
+            tgt["compiler"] = compiler_tbl
+        presets = compiler_tbl.get("cflags_presets")
         if presets is None:
             presets = tomlkit.table()
-            tgt["cflags_presets"] = presets
+            compiler_tbl["cflags_presets"] = presets
         presets[module.upper()] = flags
-        scope = f'targets."{target}"'
+        scope = f'targets."{target}".compiler'
     else:
         # Global cflags_presets
         compiler: Any = doc.get("compiler")

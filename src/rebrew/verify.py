@@ -105,8 +105,12 @@ def verify_entry(
     if entry.size <= 0:
         return _failed_result("MISSING_SIZE", "MISSING_SIZE: No SIZE annotation")
 
+    from rebrew.cli import resolve_cflags
+
     cflags_str = entry.cflags
-    cflags = cflags_str if cflags_str else "/O2"
+    # Shared fallback chain (per-function → preset → compiler.cflags) so
+    # verify compiles with the same flags as match/diff/test.
+    cflags = resolve_cflags(cfg, cflags_str, getattr(entry, "module", ""))
     symbol = entry.symbol if entry.symbol else "_" + entry.name
 
     from rebrew.binary_loader import extract_raw_bytes
@@ -235,6 +239,7 @@ def _compare_logic_hash() -> str:
 def _compiler_config_hash(cfg: ProjectConfig) -> str:
     parts = [
         cfg.compiler_command,
+        getattr(cfg, "compiler_runner", ""),
         cfg.base_cflags,
         str(cfg.compiler_includes),
         str(cfg.compiler_libs),
@@ -243,6 +248,9 @@ def _compiler_config_hash(cfg: ProjectConfig) -> str:
         # / STUB-symbol fixes) must invalidate cached results.  The package
         # version string alone is static during development.
         _compare_logic_hash(),
+        # NOTE: cfg.cflags and cfg.cflags_presets are INTENTIONALLY absent —
+        # verify never reads them (per-function CFLAGS come from metadata and
+        # are part of each cache entry).  Do not add them here.
     ]
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 

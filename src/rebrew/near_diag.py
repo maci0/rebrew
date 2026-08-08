@@ -330,7 +330,9 @@ def main(
     if not target_bytes:
         error_exit(f"Failed to extract target bytes at 0x{va_int:08x}", json_mode=json_output)
 
-    cflags = ann.cflags or "/O2 /Gd"
+    from rebrew.cli import resolve_cflags
+
+    cflags = resolve_cflags(cfg, ann.cflags, getattr(ann, "module", ""))
     with tempfile.TemporaryDirectory(prefix="rebrew_near_diag_") as workdir:
         obj_path, err = compile_to_obj(cfg, source_path, cflags.split(), workdir)
         if obj_path is None:
