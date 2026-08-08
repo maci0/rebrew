@@ -5707,3 +5707,18 @@ cached status=PROVEN is by construction pre-fix baked state — the cache-hit
 loop now treats it as a miss and re-verifies once. Self-healing (only the
 stale entries re-verify, not the whole cache), no version bump. Test:
 `TestPrepareEntriesCache.test_cached_proven_invalidated`. 3542 rebrew tests.
+
+## 2026-08-09 — verify --dry-run preview mirrors promotion decision (0ad61e0)
+
+Real-data validation of the cache fixes on guild surfaced a third issue:
+`verify --dry-run` printed "would update STATUS → NEAR_MATCHING/SIZE_MISMATCH"
+for guild's 3 PROVEN functions — but the real run refuses those via
+should_promote_status (PROVEN sticky, STUB placeholder size-mismatch kept).
+The preview claimed updates a real run never writes, misleading exactly the
+stale-PROVEN workflow. Fix: `_apply_or_preview_status` applies the same
+decision in dry-run mode. Validated on guild: 0 refused demotions claimed
+(was 3), report counts unchanged (225 passed / 34 failed / 3 proven).
+Also confirmed the 249a0eb guard works on real data: guild's pre-fix cache
+had 3 baked-in PROVEN entries (0x10012470/0x10014260/0x100170e0), all
+re-verified fresh (NEAR_MATCHING + 2×SIZE_MISMATCH) and re-overlaid from
+current metadata. 3543 rebrew tests.
