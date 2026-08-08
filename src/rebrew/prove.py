@@ -705,7 +705,6 @@ def prove_equivalence(
     compiled_bytes: bytes,
     reloc_offsets: dict[int, str] | None,
     prototype: str,
-    arch: str = "x86",
     *,
     timeout: int = 60,
     loop_bound: int = 10,
@@ -724,7 +723,6 @@ def prove_equivalence(
         compiled_bytes: Raw bytes from the compiled .obj.
         reloc_offsets: Relocation offsets in the compiled blob (offset → symbol name).
         prototype: C prototype string for argument setup.
-        arch: Architecture string (default "x86").
         timeout: Seconds before giving up.
         loop_bound: Max loop iterations for angr's LoopSeer.
         binary_path: Path to the target PE binary (for IAT-based API hooking).

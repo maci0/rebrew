@@ -106,8 +106,22 @@ class TestGenerateDiffCommand:
 
 
 class TestLoadExistingVas:
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        src_dir = tmp_path / "src"
+        src_dir.mkdir(exist_ok=True)
+        return SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=src_dir,
+            metadata_dir=tmp_path,
+            marker="SERVER",
+            target_name="SERVER",
+            source_ext=".c",
+        )
+
     def test_scans_files(self, tmp_path: Path) -> None:
-        c_file = tmp_path / "game_func.c"
+        src_dir = tmp_path / "src"
+        src_dir.mkdir(exist_ok=True)
+        c_file = src_dir / "game_func.c"
         c_file.write_text(
             "// FUNCTION: SERVER 0x10001000\n"
             "// STATUS: STUB\n"
@@ -118,11 +132,11 @@ class TestLoadExistingVas:
             "void __cdecl _my_func(void) {}\n",
             encoding="utf-8",
         )
-        result = load_existing_vas(str(tmp_path))
+        result = load_existing_vas(src_dir, cfg=self._cfg(tmp_path))
         assert 0x10001000 in result
 
     def test_empty_dir(self, tmp_path: Path) -> None:
-        result = load_existing_vas(str(tmp_path))
+        result = load_existing_vas(tmp_path / "src", cfg=self._cfg(tmp_path))
         assert result == {}
 
 

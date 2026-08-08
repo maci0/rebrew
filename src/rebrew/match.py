@@ -143,7 +143,6 @@ class BinaryMatchingGA:
         verbose: int = 1,
         rng_seed: int | None = None,
         compare_obj: bool = True,
-        link_cmd: str | None = None,
         lib_dir: str | None = None,
         ldflags: str | None = None,
         env: dict[str, str] | None = None,
@@ -172,7 +171,6 @@ class BinaryMatchingGA:
         self.verbose = verbose
         self.rng_seed = rng_seed
         self.compare_obj = compare_obj
-        self.link_cmd = link_cmd
         self.lib_dir = lib_dir
         self.ldflags = ldflags
         self.env = env
@@ -877,9 +875,6 @@ def main(
     compare_obj: bool = typer.Option(
         True, help="Use object comparison instead of full link", rich_help_panel="Single-Function"
     ),
-    link: str | None = typer.Option(
-        None, help="LINK.EXE command", rich_help_panel="Single-Function"
-    ),
     lib: str | None = typer.Option(
         None, "--lib", help="Lib dir", rich_help_panel="Single-Function"
     ),
@@ -1190,7 +1185,6 @@ def main(
                 target_size=target_size,
                 out_dir=out_dir,
                 compare_obj=compare_obj,
-                link=link,
                 lib=lib,
                 ldflags=ldflags,
                 flag_sweep_only=flag_sweep_only,
@@ -1238,7 +1232,6 @@ def main(
         pop_size,
         jobs,
         compare_obj,
-        link,
         lib,
         ldflags,
         seed,
@@ -1549,7 +1542,6 @@ def _run_single_ga(
     pop_size: int,
     jobs: int,
     compare_obj: bool,
-    link: str | None,
     lib: str | None,
     ldflags: str | None,
     seed: int | None,
@@ -1587,7 +1579,6 @@ def _run_single_ga(
         num_generations=generations,
         num_jobs=jobs,
         compare_obj=compare_obj,
-        link_cmd=link,
         lib_dir=lib,
         ldflags=ldflags,
         env=p.msvc_env,

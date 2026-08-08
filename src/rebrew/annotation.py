@@ -60,8 +60,11 @@ VALID_MARKERS = {"FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"}
 OPTIONAL_KEYS = {
     "ANALYSIS",  # reccmp compatibility (structural analysis note)
 }
-# Rebrew-specific keys that must live exclusively in the metadata.
-# Finding any of these inline fires lint W019.
+# Rebrew-specific keys that must live exclusively in the metadata (or, for the
+# legacy pair, never inline at all).  Finding any of these inline fires lint
+# W019.  Kept in sync with metadata.METADATA_FIELDS + LEGACY_KEYS: ANALYSIS and
+# PROVE_CONSTRAINTS are metadata-routed fields, so an inline occurrence must
+# warn just like STATUS/CFLAGS.
 METADATA_KEYS: frozenset[str] = frozenset(
     {
         "STATUS",
@@ -76,6 +79,8 @@ METADATA_KEYS: frozenset[str] = frozenset(
         "SECTION",
         "GHIDRA",
         "SIZE",
+        "ANALYSIS",
+        "PROVE_CONSTRAINTS",
     }
 )
 ALL_KNOWN_KEYS = OPTIONAL_KEYS | METADATA_KEYS | {"MARKER", "VA"}

@@ -235,18 +235,14 @@ def cluster_functions(
     # Filter: no thunks, no zero-size, only .text functions
     text_end = text_va + text_size
     eligible: list[tuple[int, RegistryEntry]] = []
-    unclustered: list[dict[str, str]] = []
 
     for va, entry in sorted(registry.items()):
         if entry.get("is_thunk"):
-            unclustered.append({"va": f"0x{va:08X}", "reason": "thunk"})
             continue
         size = int(entry.get("canonical_size", 0))
         if size <= 0:
-            unclustered.append({"va": f"0x{va:08X}", "reason": "unknown size"})
             continue
         if va < text_va or va >= text_end:
-            unclustered.append({"va": f"0x{va:08X}", "reason": "outside .text"})
             continue
         eligible.append((va, entry))
 

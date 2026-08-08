@@ -695,13 +695,12 @@ class TestPullResult:
         r = PullResult()
         assert r.changes == []
         assert r.updated == 0
-        assert r.skipped == 0
         assert r.conflicts == 0
 
     def test_to_dict_empty(self) -> None:
         r = PullResult()
         d = r.to_dict()
-        assert d == {"updated": 0, "skipped": 0, "conflicts": 0, "changes": []}
+        assert d == {"updated": 0, "conflicts": 0, "changes": []}
 
     def test_to_dict_with_changes(self) -> None:
         c = PullChange(

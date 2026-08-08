@@ -320,12 +320,16 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
         for entry in entries:
             if entry.marker_type in ("GLOBAL", "DATA"):
                 continue
+            if entry.va < MIN_VALID_VA:
+                continue
             existing[entry.va] = rel_name
 
     # Scan library_*.h files for identified CRT/zlib functions
     for hfile in iter_library_headers(src_path):
         lib_entries = parse_library_header(hfile, target_name=target_marker(cfg))
         for entry in lib_entries:
+            if entry.va < MIN_VALID_VA:
+                continue
             existing[entry.va] = hfile.name
 
     return existing

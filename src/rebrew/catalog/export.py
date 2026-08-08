@@ -45,7 +45,8 @@ def generate_catalog(
     for va in unique_vas:
         if va in funcs_by_va:
             covered_bytes += funcs_by_va[va]["size"]
-        elif by_va[va]:
+        else:
+            # va came from by_va keys, so by_va[va] is always non-empty here.
             covered_bytes += by_va[va][0]["size"]
 
     total_funcs = len(funcs)

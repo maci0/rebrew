@@ -957,15 +957,15 @@ def _emit_extern_decl(row: dict[str, Any]) -> str:
     """Format an `extern` declaration honoring an explicit `type` when given.
 
     Uses `unsigned char <name>[]` as the fallback when no type is specified.
-    For array-style types (ending with `[]` or `[N]`), emits as-is; otherwise
-    emits a scalar declaration.
+    Otherwise emits `extern <type> <name>;` — the type string itself carries
+    any pointer/array-ness, so no separate array handling is needed.
     """
     type_str = (row.get("type") or "").strip()
     name = row["name"]
     if not type_str:
         return f"extern unsigned char {name}[];"
-    if "*" in type_str or type_str.endswith("[]") or "[" in type_str:
-        return f"extern {type_str} {name};"
+    # Both the pointer and array spellings emit identically — MSVC accepts
+    # `extern T name;` for either (the type carries the pointer/array-ness).
     return f"extern {type_str} {name};"
 
 
