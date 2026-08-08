@@ -1033,3 +1033,67 @@ class TestFlagSweepJsonShape:
         assert data["results"][0]["exact"] is True
         assert data["results"][1]["exact"] is False
         assert "exact" in data["results"][0]
+
+
+class TestGABuildCacheKey:
+    """The GA build cache must not reuse a .obj compiled under different flags
+    (the cache DB persists across runs in output/ga_runs/<rel>/)."""
+
+    def test_key_derivation_partitions_by_flags(self) -> None:
+        from rebrew.match import _ga_cache_key
+
+        src = "int f(void) { return 0; }"
+        # Same flags → same key; different flags or compiler → different key.
+        assert _ga_cache_key(src, "/O2", "cl") == _ga_cache_key(src, "/O2", "cl")
+        assert _ga_cache_key(src, "/O2", "cl") != _ga_cache_key(src, "/O2 /Oy-", "cl")
+        assert _ga_cache_key(src, "/O2", "cl") != _ga_cache_key(src, "/O2", "cl.exe")
+        assert _ga_cache_key(src, "/O2 /Oy-", "cl") != _ga_cache_key(src, "/O2", "cl.exe")
+        # Different source text → different key too.
+        assert _ga_cache_key(src, "/O2", "cl") != _ga_cache_key(
+            "int g(void) { return 1; }", "/O2", "cl"
+        )
+
+    def test_same_instance_recompile_only_on_flag_change(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from rebrew.match import BinaryMatchingGA
+        from rebrew.matcher.core import BuildResult
+
+        seen: list[str] = []
+
+        def _fake_build(
+            src,
+            cl_cmd,
+            inc_dir,
+            cflags,
+            symbol,
+            env=None,
+            cache=None,
+            timeout=60,
+            extra_include_dirs=None,
+        ):
+            seen.append(cflags)
+            return BuildResult(ok=False, error_msg="fake")
+
+        monkeypatch.setattr("rebrew.match.build_candidate_obj_only", _fake_build)
+
+        def _ga(cflags: str) -> BinaryMatchingGA:
+            return BinaryMatchingGA(
+                seed_source="int f(void) { return 0; }",
+                target_bytes=b"\xc3",
+                cl_cmd="cl",
+                inc_dir="",
+                cflags=cflags,
+                symbol="_f",
+                out_dir=tmp_path,
+                num_generations=1,
+                pop_size=2,
+                num_jobs=1,
+            )
+
+        src = "int f(void) { return 0; }"
+        g = _ga("/O2")
+        g._compile_source(src)  # miss → compile
+        g._compile_source(src)  # hit (same instance, same flags)
+        assert seen == ["/O2"]
+        g.cache.close()

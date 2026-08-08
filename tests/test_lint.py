@@ -21,6 +21,7 @@ def _make_cfg(
     base_cflags: str = "/nologo /c /MT",
     library_modules: set | None = None,
     reversed_dir: Path | None = None,
+    cflags: str = "",
 ) -> SimpleNamespace:
     """Create a minimal config-like namespace for config-aware lint tests."""
     return ProjectConfig(
@@ -29,6 +30,7 @@ def _make_cfg(
         base_cflags=base_cflags,
         library_modules=library_modules or set(),
         reversed_dir=reversed_dir or Path("."),
+        cflags=cflags,
     )
 
 
@@ -44,9 +46,9 @@ class TestValidAnnotations:
         assert len(result.errors) == 0
 
     def test_valid_function_no_warnings(self, tmp_path: Path) -> None:
-        """With a config providing base_cflags, a clean file has no warnings."""
+        """With a config providing default cflags, a clean file has no warnings."""
         f = _write_c(tmp_path, "bit_reverse.c", VALID_HEADER)
-        cfg = _make_cfg()
+        cfg = _make_cfg(cflags="/O2")
         result = lint_file(f, cfg=cfg)
         assert result.passed, f"Expected lint to pass, errors: {result.errors}"
         non_w019 = [w for w in result.warnings if w[1] != "W019"]
@@ -112,7 +114,7 @@ class TestMissingFields:
     def test_missing_cflags_with_config_default(self, tmp_path: Path) -> None:
         content = "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n// SIZE: 31\nint foo(void) { return 0; }\n"
         f = _write_c(tmp_path, "foo.c", content)
-        cfg = _make_cfg()
+        cfg = _make_cfg(cflags="/O2")
         result = lint_file(f, cfg=cfg)
         assert not any((c == "W018" for _, c, _ in result.warnings))
 

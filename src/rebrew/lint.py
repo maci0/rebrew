@@ -202,8 +202,11 @@ def _check_W018_cflags(
     has_annotation = "CFLAGS" in found_keys and found_keys["CFLAGS"].strip()
     if has_annotation:
         return
-    # Only warn if the target config also has no default cflags
-    has_config_default = bool(getattr(cfg, "base_cflags", "") if cfg else "")
+    # Only warn if the target config also has no default cflags.  cfg.cflags
+    # (the user-facing default, empty when unset) is the right fallback —
+    # cfg.base_cflags is always-on /nologo /c /MT glue, so checking it would
+    # make this warning never fire.
+    has_config_default = bool(getattr(cfg, "cflags", "") if cfg else "")
     if not has_config_default:
         result.warning(
             result.marker_line,
