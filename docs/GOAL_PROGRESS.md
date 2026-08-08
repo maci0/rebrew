@@ -5784,3 +5784,15 @@ D1-D5 data, R1-R10 rebrew) against current tooling:
 
 Conclusion: doc currency confirmed after this session's verify changes; no
 further rebrew tooling fixes surfaced from np.
+
+## 2026-08-09 — guild real verify: cache healed, PROVEN transition complete
+
+Ran a REAL `rebrew verify --json` on guild (dry-run had validated the guard;
+this rewrites the cache). Report unchanged (225 passed / 34 failed /
+3 proven — metadata still claims PROVEN, sticky guard prevents demotion,
+correct). Cache now stores RAW byte results for the 3 former baked-PROVEN
+entries: 0x10012470 SIZE_MISMATCH, 0x10014260 SIZE_MISMATCH, 0x100170e0
+NEAR_MATCHING (all passed=False). A future metadata demotion will surface
+correctly on incremental runs. Guild tree clean (verify wrote only to
+gitignored db/ + .rebrew/). The f6deb4f → 249a0eb → 0ad61e0 arc is now
+fully validated end-to-end on real data.
