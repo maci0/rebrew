@@ -5308,3 +5308,31 @@ response shape).  262 recoverage tests pass.
   (an int exit code) while the API reserves `code` for string machine
   codes — a shared consumer could not distinguish them.  Renamed to
   `exit_code` (safe: check --json shipped this session, no consumers).
+
+## 2026-08-09 — config-review: 5 findings fixed (2cc3122)
+
+Ran the `config-review` prompt (via subagent).  Fixed:
+
+- **F1 (high)** — `cfg set-cflags --target` wrote `[targets.X.cflags_presets]`
+  but the loader reads `[targets.X.compiler.cflags_presets]`: the per-target
+  override was a silent no-op.  Now writes the compiler sub-table.
+- **F4 (high)** — default `marker = target.upper()` → "SERVER.DLL" for
+  `server.dll`, matching no annotation module: `rebrew init -t server.dll`
+  produced a project where every function silently vanished from
+  verify/todo/status.  Default strips non-identifiers; init writes the
+  marker explicitly.  Live-verified.
+- **F2 (high)** — the CFLAGS fallback diverged across tools (verify "/O2",
+  test "/O2 /Gd", batch match none, single-file the full chain): a preset
+  could make `rebrew match` EXACT while `rebrew verify` demoted it.
+  Extracted `rebrew.cli.resolve_cflags` and wired verify/test/prove/
+  near_diag/batch-match to it.
+- **F3 (med)** — `_compiler_config_hash` missed `compiler_runner`
+  (runner-only edit changed the invocation, not the hash); documents why
+  cflags/presets are intentionally absent.
+- **F6 (med)** — `init --install-wibo` wrote runner="tools/wibo" with a
+  "wine ..." command (bogus argv, first compile failed).  Command now
+  drops the wine prefix.  Live-verified.
+- Deferred: F5 (dead keys compiler.profiles/game_range_end/origins — wire
+  or drop), F7 (find_root doc mismatch), F8 (arch fallback warning).
+
+3520 rebrew tests pass.
