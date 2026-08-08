@@ -427,9 +427,27 @@ def find_dispatch_tables(
 
         sec_bytes = binary_data[sec_offset : sec_offset + sec_raw_size]
 
-        # Walk through aligned pointers
+        # Walk every pointer-sized slot.  *stride* bounds the maximum allowed
+        # gap between consecutive entries of one table — it must not be the
+        # scan step: advancing by `stride` on a miss skipped past valid
+        # pointers (0/8/16 with garbage at 4/12 were never visited).
         current_entries: list[DispatchEntry] = []
         current_start_va = 0
+        last_ptr_i: int | None = None
+
+        def _flush_run(sec_name: str = sec_name) -> None:
+            nonlocal current_entries, current_start_va, last_ptr_i
+            if len(current_entries) >= min_entries:
+                tables.append(
+                    DispatchTable(
+                        va=current_start_va,
+                        section=sec_name,
+                        entries=list(current_entries),
+                    )
+                )
+            current_entries = []
+            last_ptr_i = None
+            current_start_va = 0
 
         i = 0
         while i + ptr_size <= len(sec_bytes):
@@ -438,6 +456,10 @@ def find_dispatch_tables(
 
             if text_va <= val < text_end:
                 # This looks like a function pointer into .text
+                gap = (i - last_ptr_i) if last_ptr_i is not None else 0
+                if current_entries and gap > stride:
+                    # Gap exceeds the stride — the table ended; start a new run.
+                    _flush_run()
                 if not current_entries:
                     current_start_va = entry_va
 
@@ -449,29 +471,14 @@ def find_dispatch_tables(
                         status=func_info.get("status", ""),
                     )
                 )
-                i += ptr_size
+                last_ptr_i = i
             else:
-                # Not a text pointer — flush current run if long enough
-                if len(current_entries) >= min_entries:
-                    tables.append(
-                        DispatchTable(
-                            va=current_start_va,
-                            section=sec_name,
-                            entries=list(current_entries),
-                        )
-                    )
-                current_entries = []
-                i += stride
+                # Not a text pointer — the current run (if any) is over.
+                _flush_run()
+            i += ptr_size  # always advance by ptr_size; stride only bounds gaps
 
         # Flush trailing run
-        if len(current_entries) >= min_entries:
-            tables.append(
-                DispatchTable(
-                    va=current_start_va,
-                    section=sec_name,
-                    entries=list(current_entries),
-                )
-            )
+        _flush_run()
 
     tables.sort(key=lambda t: t.va)
     return tables

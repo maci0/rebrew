@@ -412,6 +412,47 @@ def _check_W021_duplicate_globals(
                 seen_globals[name] = str(filepath)
 
 
+def _strip_c_comments_strings(line: str, in_block: bool) -> tuple[str, bool]:
+    """Remove C comments and string/char literals from *line* for brace counting.
+
+    Returns ``(cleaned, in_block_comment)`` — *in_block_comment* carries the
+    multi-line ``/* ... */`` state across calls.  A file-scope ``/* { */``
+    comment must not permanently suppress W022's brace-depth tracking.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(line)
+    while i < n:
+        c = line[i]
+        if in_block:
+            if c == "*" and i + 1 < n and line[i + 1] == "/":
+                in_block = False
+                i += 2
+            else:
+                i += 1
+            continue
+        if c == "/" and i + 1 < n:
+            nxt = line[i + 1]
+            if nxt == "/":
+                break  # line comment — the rest of the line is comment
+            if nxt == "*":
+                in_block = True
+                i += 2
+                continue
+        if c in ('"', "'"):
+            quote = c
+            i += 1
+            while i < n and line[i] != quote:
+                if line[i] == "\\":
+                    i += 2
+                else:
+                    i += 1
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out), in_block
+
+
 def _check_W022_zero_init_bss(result: LintResult, lines: list[str]) -> None:
     """Flag file-scope zero initializers (W022).
 
@@ -421,8 +462,10 @@ def _check_W022_zero_init_bss(result: LintResult, lines: list[str]) -> None:
     the global uninitialized for .bss.
     """
     depth = 0
+    in_block_comment = False
     for i, line in enumerate(lines, start=1):
-        depth += line.count("{") - line.count("}")
+        cleaned, in_block_comment = _strip_c_comments_strings(line, in_block_comment)
+        depth += cleaned.count("{") - cleaned.count("}")
         s = line.strip()
         if depth == 0 and _ZERO_INIT_RE.match(s):
             result.warning(

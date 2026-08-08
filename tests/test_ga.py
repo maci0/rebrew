@@ -1054,6 +1054,14 @@ class TestGABuildCacheKey:
         assert _ga_cache_key(src, "/O2", "cl", "inc") != _ga_cache_key(
             "int g(void) { return 1; }", "/O2", "cl", "inc"
         )
+        # Extra include dirs change which headers resolve → different key.
+        assert _ga_cache_key(src, "/O2", "cl", "inc", ["a", "b"]) != _ga_cache_key(
+            src, "/O2", "cl", "inc", ["a"]
+        )
+        # Order of extra dirs must not matter (sorted before hashing).
+        assert _ga_cache_key(src, "/O2", "cl", "inc", ["b", "a"]) == _ga_cache_key(
+            src, "/O2", "cl", "inc", ["a", "b"]
+        )
 
     def test_same_instance_recompile_only_on_flag_change(
         self, tmp_path: Path, monkeypatch: Any
