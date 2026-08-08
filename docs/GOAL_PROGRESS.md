@@ -4872,3 +4872,21 @@ Swept all VA-accepting tools for the first-annotation fallback pattern:
   legacy helper; per-function callers use parse_c_file_multi directly).
 - New regression test `test_va_selects_matching_annotation` in
   test_match_cli.py.
+
+## 2026-08-09 — Docs + agent-skills sync for workflow changes
+
+When the workflow changed (todo categories, VA-targeting in diff/match/
+prove, verify-cache tool version), synced the docs and agent skills:
+
+- **README.md / docs/CLI.md / docs/WORKFLOW.md**: replaced stale category
+  names (`fix-verify-fail`, `fix-near-miss`) with the real set
+  (`fix-delta`, `compile-error`, `extract-error`, ...); documented the new
+  `extract-error` category and VA-positional multi-function targeting.
+- **agent-skills (rebrew-workflow, rebrew-matching)**: added `extract-error`
+  to the filter list, explained the extract-error → `rebrew test` flow, and
+  documented VA-on-multi-function-file targeting.  `validate_skill_commands`
+  passes (pre-commit hook confirms).
+- **np-rebrew**: synced the 5 SKILL.md copies (git-tracked, commit
+  `2b09fe4`); user's in-flight work untouched.
+- **guild-rebrew**: `.agents/skills` is a symlink to the package source —
+  automatically in sync (verified).
