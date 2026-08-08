@@ -143,6 +143,27 @@ class TestCmdBatch:
         statuses = {r["name"]: r["status"] for r in out["results"]}
         assert statuses == {"good": "OK", "bad": "ERROR"}
 
+    def test_dry_run_writes_nothing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+    ) -> None:
+        """--dry-run must preview .bin writes without touching the disk."""
+        binary = SimpleNamespace(data=b"", sections={})
+        monkeypatch.setattr("rebrew.extract.extract_bytes_at_va", lambda *a, **k: b"\x55\x8b\xec")
+        _patch_disasm(monkeypatch)
+        cmd_batch(
+            binary,
+            [(0x1000, 3, "f")],
+            1,
+            0,
+            tmp_path / "bin",
+            json_output=True,
+            dry_run=True,
+        )
+        out = json.loads(capsys.readouterr().out)
+        assert out["results"][0]["status"] == "DRY_RUN"
+        # No bin dir created, no .bin written.
+        assert not (tmp_path / "bin").exists()
+
     def test_json_disasm_error_batch(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
     ) -> None:

@@ -18,7 +18,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from rebrew.cli import TargetOption, json_print, parse_va, require_config
+from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 
 console = Console(stderr=True)
@@ -122,7 +122,9 @@ def find_similar(
     )
 
     entry = registry.get(query_va)
-    query_size = size or (entry["canonical_size"] if entry else 0)
+    if entry is None:
+        raise ValueError(f"No function found at VA 0x{query_va:08x}")
+    query_size = size or entry["canonical_size"]
     if not query_size:
         return []
     query_bytes = extract_raw_bytes(cfg.target_binary, query_va, query_size)
@@ -181,7 +183,10 @@ def main(
     """Find functions structurally similar to the one at VA."""
     cfg = require_config(target=target, json_mode=json_output)
     query_va = parse_va(va, json_mode=json_output)
-    results = find_similar(cfg, query_va, size=size, top=top, min_score=min_score)
+    try:
+        results = find_similar(cfg, query_va, size=size, top=top, min_score=min_score)
+    except ValueError as e:
+        error_exit(str(e), json_mode=json_output)
 
     if json_output:
         json_print({"query_va": va, "results": results})

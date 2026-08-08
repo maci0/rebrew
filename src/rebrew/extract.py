@@ -191,9 +191,11 @@ def cmd_batch(
     cfg: ProjectConfig | None = None,
     *,
     json_output: bool = False,
+    dry_run: bool = False,
 ) -> None:
     """Extract and disassemble a batch of functions."""
-    bin_dir.mkdir(parents=True, exist_ok=True)
+    if not dry_run:
+        bin_dir.mkdir(parents=True, exist_ok=True)
     batch = candidates[start : start + count]
     items: list[dict[str, str | int]] = []
     for va, size, name in batch:
@@ -231,7 +233,24 @@ def cmd_batch(
             return
 
         bin_path = bin_dir / f"func_0x{va:08X}.bin"
-        bin_path.write_bytes(code)
+        if not dry_run:
+            bin_path.write_bytes(code)
+        elif json_output:
+            items.append(
+                {
+                    "status": "DRY_RUN",
+                    "name": name,
+                    "va": f"0x{va:08x}",
+                    "size": len(code),
+                    "bin_path": str(bin_path),
+                }
+            )
+            continue
+        else:
+            console.print(
+                f"[cyan]dry-run:[/cyan] would write {bin_path.name} ({len(code)} bytes, {name})"
+            )
+            continue
 
         if json_output:
             items.append(
@@ -383,12 +402,22 @@ def batch_candidates(
     min_size: int = typer.Option(8, "--min-size", help="Minimum function size"),
     max_size: int = typer.Option(50000, "--max-size", help="Maximum function size"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     target: str | None = TargetOption,
 ) -> None:
     """Extract and disassemble a batch of functions."""
     cfg, candidates, exe_path = _setup_candidates(target, json_output, exe, min_size, max_size)
     binary_info = load_binary(exe_path)
-    cmd_batch(binary_info, candidates, count, start, cfg.bin_dir, cfg=cfg, json_output=json_output)
+    cmd_batch(
+        binary_info,
+        candidates,
+        count,
+        start,
+        cfg.bin_dir,
+        cfg=cfg,
+        json_output=json_output,
+        dry_run=dry_run,
+    )
 
 
 # Add extract as an alias to show
