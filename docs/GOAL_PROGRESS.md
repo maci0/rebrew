@@ -5217,3 +5217,37 @@ without writing").  Dry-run now reports the operation count (JSON payload
 or "would export/apply" text) and returns before any write or MCP apply.
 Regression test added; 3519 rebrew tests pass.  Live-verified on guild:
 no file materialized, tree clean.
+
+## 2026-08-09 — error-review: 12 findings, 9 fixed (36c5dcb, recoverage 15c4d98)
+
+Ran the `error-review` prompt (via subagent; it reproduced issues in
+scratch dirs).  Fixed:
+
+- **F1 (high, destructive)** — build-db mapped ANY sqlite3.OperationalError
+  to "<missing>" and unlinked the DB — including a LIVE locked DB under
+  contention (concurrent build-db / recoverage regen).  Lock errors now
+  error with EXIT_ERROR; the DB is never deleted.  Live-verified on guild
+  (DB intact under a held EXCLUSIVE lock).
+- **F2** — build-db infra errors (missing data json, schema mismatch) exit
+  2 (EXIT_ERROR) per the documented 0/1/2 contract.
+- **F3 (high)** — main.py catch-all raised typer.Exit outside click →
+  traceback + exit 1 + broken JSON.  Now prints the friendly message (JSON
+  envelope when --json is in argv) and exits EXIT_ERROR via SystemExit.
+- **F4** — `sync --refresh-cache --json` silently did nothing (json_output
+  early-returned before the write).  --json now only changes output
+  format; dry_run still never writes.  Two stale tests updated, two added.
+- **F5** — ghidra size-sync push now guards MCP RuntimeError like the main
+  apply path.
+- **F6** — extract batch continues past a per-function disasm error (was
+  aborting the batch with exit 0) and the JSON summary reports `failed`.
+- **F7** — cfg _save_toml/_load_toml wrap OSError/tomlkit parse errors
+  with a clear EXIT_ERROR message.
+- **F10/F11** — recoverage CLI: _open_db/_resolve_targets catch
+  sqlite3.Error with a rebuild hint + exit 2 (was a raw traceback);
+  `check` gained --json (pure JSON verdicts, inline text suppressed).
+
+Deferred: F8 (verify stat() race + silent cache I/O in json mode), F9
+(verify gate still writes cache/metadata on failure — needs a decision),
+F12 (asm/flirt minor unguarded paths).
+
+3520 rebrew + 260 recoverage tests pass.
