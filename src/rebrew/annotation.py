@@ -266,7 +266,9 @@ def marker_for_module(module: str, status: str, library_modules: set[str] | None
 def has_skip_annotation(filepath: Path, metadata_dir: Path | None = None) -> bool:
     """Return True if a function in *filepath* is marked as skippable.
 
-    Checks ``rebrew-function.toml`` metadata for a ``skip`` field.
+    Checks ``rebrew-function.toml`` metadata for a ``skip`` field on THIS
+    file's own (module, va) entries only — a skip anywhere else in the
+    project must not empty ``match --all``'s stub collection.
     Returns ``False`` immediately when *metadata_dir* is ``None``.
     """
     if metadata_dir is None:
@@ -275,8 +277,8 @@ def has_skip_annotation(filepath: Path, metadata_dir: Path | None = None) -> boo
         from rebrew.metadata import load_metadata
 
         entries = load_metadata(metadata_dir)
-        for entry in entries.values():
-            raw_skip = entry.get("skip", "")
+        for ann in parse_c_file_multi(filepath):
+            raw_skip = entries.get((ann.module, ann.va), {}).get("skip", "")
             if raw_skip and str(raw_skip).strip().lower() not in ("", "0", "false", "no"):
                 return True
     except Exception:  # noqa: BLE001 — metadata read failure is non-fatal

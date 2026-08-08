@@ -309,3 +309,44 @@ class TestRunAllBatch:
         )
         matched, failed = self._run(self._cfg(tmp_path), jobs=2, json_output=True)
         assert (matched, failed) == (3, 0)
+
+
+class TestUpdateStubToMatched:
+    """The GA's stub→matched source splice must target the stub's OWN block."""
+
+    def _stub(self, va: str) -> StubInfo:
+        return StubInfo(
+            filepath=Path("unused.c"),
+            va=va,
+            size=10,
+            symbol="f",
+            cflags="/O2",
+            status="STUB",
+            module="T",
+        )
+
+    def test_splices_second_function_not_first(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.match import update_stub_to_matched
+
+        f = tmp_path / "multi.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x10001000\n"
+            "int first(void) { return 1; }\n\n"
+            "// FUNCTION: SERVER 0x10002000\n"
+            "int second(void) { return 2; }\n",
+            encoding="utf-8",
+        )
+        best = "int second(void) { return 42; }\n"
+        update_stub_to_matched(f, best, self._stub("0x10002000"), metadata_dir=tmp_path)
+        text = f.read_text(encoding="utf-8")
+        assert "return 1;" in text  # first function untouched
+        assert "return 42;" in text  # second function spliced
+        assert "return 2;" not in text
+        # STATUS is metadata-owned — no inline STATUS line is written.
+        assert "// STATUS" not in text
+        from rebrew.metadata import get_entry
+
+        entry = get_entry(tmp_path, 0x10002000, module="SERVER")
+        assert entry.get("status") == "RELOC"

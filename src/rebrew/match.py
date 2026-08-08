@@ -678,12 +678,15 @@ def update_stub_to_matched(
         meta_root = metadata_dir or filepath.parent
         update_source_status(meta_root, "RELOC", module, va_int)
 
-    updated = _STATUS_REWRITE_RE.sub(r"\1STATUS: RELOC", original, count=1)
-    if "BLOCKER:" in updated:
-        updated = _BLOCKER_LINE_RE.sub("", updated, count=1)
-        updated = _BLOCKER_BLOCK_RE.sub("", updated, count=1)
+    # NOTE: STATUS is metadata-owned (update_source_status above); the old
+    # whole-file inline `// STATUS: RELOC` rewrite is gone — it hit the file's
+    # FIRST block regardless of stub.va (clobbering sibling functions in
+    # multi-function files and tripping lint W019).
+    updated = original
 
-    body_start = _FUNC_START_RE.search(updated)
+    # Splice the matched body into the STUB's OWN block — search for the
+    # function definition AFTER the stub's marker, not the file's first one.
+    body_start = _FUNC_START_RE.search(updated, m.end() if m else 0)
     best_body = _FUNC_START_RE.search(best_src)
 
     if body_start and best_body:
@@ -1390,8 +1393,6 @@ def run_flag_sweep(
 
     Returns ``(best_score, best_flags, all_results)``.
     """
-    import contextlib
-    import io
 
     filepath = stub.filepath
     va_int = int(stub.va, 16)
@@ -1409,22 +1410,23 @@ def run_flag_sweep(
     if "/c" not in cflags:
         cflags = "/nologo /c " + cflags
 
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        results = flag_sweep(
-            source,
-            target_bytes,
-            cl_cmd,
-            inc_dir,
-            cflags,
-            symbol,
-            n_jobs=jobs,
-            tier=tier,
-            env=msvc_env,
-            cache=cc,
-            extra_include_dirs=[str(filepath.parent.resolve())],
-            timeout=cfg.compile_timeout,
-        )
+    # NOTE: no redirect_stdout here — mutating process-global stdout is not
+    # thread-safe under --sweep-then-ga batch (-j N) and silently loses later
+    # prints (incl. the --json report).  flag_sweep logs via logging, not stdout.
+    results = flag_sweep(
+        source,
+        target_bytes,
+        cl_cmd,
+        inc_dir,
+        cflags,
+        symbol,
+        n_jobs=jobs,
+        tier=tier,
+        env=msvc_env,
+        cache=cc,
+        extra_include_dirs=[str(filepath.parent.resolve())],
+        timeout=cfg.compile_timeout,
+    )
 
     if not results:
         return float("inf"), "", []

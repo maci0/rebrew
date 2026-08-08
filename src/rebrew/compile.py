@@ -196,11 +196,11 @@ def classify_compare_result(
                     reloc_mask[r:end] = True
             diff_mask = diff_mask & ~reloc_mask
         mismatches = int(np.count_nonzero(diff_mask))
-        # Treat any bytes beyond cmp_len in target as mismatches too
-        # (so a short obj is penalized for missing bytes).
-        missing = target_len - cmp_len
+        # abs(len diff) already counts every missing/extra byte — adding
+        # `missing` again would double-count short objects (skewing delta,
+        # and with it verify/status/todo metrics).
         match_percent = ((cmp_len - mismatches) / target_len) * 100 if target_len else 0.0
-        delta = abs(len(target_bytes) - len(obj_bytes)) + mismatches + missing
+        delta = abs(len(target_bytes) - len(obj_bytes)) + mismatches
 
     if size_mismatch or "SIZE_MISMATCH" in msg:
         status = "SIZE_MISMATCH"
