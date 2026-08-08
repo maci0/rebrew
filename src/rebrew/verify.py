@@ -871,21 +871,22 @@ def main(
             "SIZE differing from the binary-derived size; run with --json for details"
         )
 
-    if not dry_run:
+    # F9: a failed --compare gate must not record state — the baseline is
+    # preserved below, and the compile cache is skipped too so a CI failure
+    # leaves no new cache entries behind.
+    diff_result: dict[str, Any] | None = None
+    if diff_mode and previous_report is not None:
+        diff_result = diff_reports(previous_report, report)
+    gate_failed = _gate_fails(diff_result, failed)
+
+    if not dry_run and not (diff_mode and gate_failed):
         cache_path = cfg.root / ".rebrew" / "verify_cache.json"
         try:
             _save_verify_cache(cache_path, cfg, results, unique_entries)
         except (OSError, TypeError):
-            if not json_output:
-                console.print(
-                    f"[yellow]warning:[/yellow] Could not write verify cache to {cache_path}"
-                )
-
-    diff_result: dict[str, Any] | None = None
-    if diff_mode and previous_report is not None:
-        diff_result = diff_reports(previous_report, report)
-
-    gate_failed = _gate_fails(diff_result, failed)
+            # Warn on stderr regardless of json mode — silent cache-I/O
+            # failures degrade performance invisibly.
+            logging.warning("Could not write verify cache to %s", cache_path)
 
     if json_output or output_path or diff_mode:
         report_json = json.dumps(report, indent=2)
@@ -1087,7 +1088,11 @@ def prepare_entries(
         if not filepath.exists():
             continue
 
-        current_mtime = filepath.stat().st_mtime_ns
+        try:
+            current_mtime = filepath.stat().st_mtime_ns
+        except OSError:
+            # File deleted between exists() and stat() — treat as a miss.
+            continue
         if current_mtime != cached_entry.mtime_ns:
             try:
                 current_hash = _source_hash(filepath)

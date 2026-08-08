@@ -198,6 +198,10 @@ def _run_hex_mode(
 
     except (OSError, KeyError, ValueError, TypeError) as e:
         error_exit(str(e), json_mode=json_output)
+    except Exception as e:  # noqa: BLE001 — capstone.CsError and friends
+        # CsError (bad arch/mode config) and capstone internals are not in
+        # the tuple above; report them as clean errors, not tracebacks.
+        error_exit(f"capstone error: {e}", json_mode=json_output)
 
 
 # ---------------------------------------------------------------------------
