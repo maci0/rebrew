@@ -1541,7 +1541,7 @@ def pull_data(
     try:
         from rebrew.binary_loader import load_binary
 
-        binary_info = load_binary(cfg.target_binary, getattr(cfg, "format", "auto"))
+        binary_info = load_binary(cfg.target_binary, getattr(cfg, "binary_format", "auto"))
         sections = list(binary_info.sections.values())
     except (ImportError, OSError, ValueError, AttributeError) as e:
         console.print(f"[yellow]warning:[/yellow] Could not load binary sections: {e}")

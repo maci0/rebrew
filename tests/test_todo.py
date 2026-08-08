@@ -769,6 +769,7 @@ class TestTodoCli:
             json.dumps(
                 {
                     "version": 1,
+                    "target": "test",  # must match cfg.target_name (target guard)
                     "entries": {
                         "0x1000": {
                             "source_hash": "h",

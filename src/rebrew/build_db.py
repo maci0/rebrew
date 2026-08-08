@@ -505,6 +505,9 @@ def build_db(
                             elif state in ("near_match", "near_matching"):
                                 near_match_count += 1
                                 near_match_bytes += size
+                            elif state == "stub":
+                                stub_count += 1
+                                stub_bytes += size
                             elif state == "padding":
                                 padding_count += 1
                                 padding_bytes += size

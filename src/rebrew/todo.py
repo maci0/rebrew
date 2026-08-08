@@ -670,23 +670,12 @@ def main(
     all_items = collect_all(cfg, ghidra_funcs, existing, covered_vas)
 
     # Coverage stats (always computed for JSON, optional for terminal)
-    # Overlay verify cache on annotation statuses (same logic as status.py)
-    verify_statuses: dict[int, str] = {}
-    cache_path = cfg.root / ".rebrew" / "verify_cache.json"
-    if cache_path.exists():
-        try:
-            cache_raw = json.loads(cache_path.read_text(encoding="utf-8"))
-            for va_key, entry_data in cache_raw.get("entries", {}).items():
-                result = entry_data.get("result", {})
-                s = result.get("status", "")
-                if s:
-                    try:
-                        va_int = int(va_key, 16) if va_key.startswith("0x") else int(va_key)
-                        verify_statuses[va_int] = s
-                    except (ValueError, TypeError):
-                        pass
-        except (json.JSONDecodeError, OSError):
-            pass
+    # Overlay verify cache on annotation statuses (same logic + target guard
+    # as status.py — a different target's cache must not leak into this
+    # project's coverage stats).
+    from rebrew.status import _load_verify_statuses
+
+    verify_statuses = _load_verify_statuses(cfg)
 
     status_counts: dict[str, int] = {}
     for va_int, info in existing.items():

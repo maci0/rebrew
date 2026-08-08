@@ -231,7 +231,8 @@ def test_mut_ast_reorder_elseif() -> None:
     source = "int main() { if (a) { return 0; } else if (b) { return 1; } }"
     rng = random.Random(42)
     res = mut_reorder_elseif(source, rng)
-    assert "if (b)" in res and "else if (a)" in res
+    # Swapped branches are guarded so the both-true outcome is preserved.
+    assert "if (b && !(a))" in res and "else if (a)" in res
 
 
 def test_mut_ast_bitand_to_if_false() -> None:

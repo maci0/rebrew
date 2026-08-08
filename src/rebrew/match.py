@@ -83,6 +83,19 @@ _metadata_lock = threading.Lock()
 console = Console(stderr=True)
 
 
+def _compile_cflags(cflags: str, base_cf: str) -> str:
+    """Build the effective compile flags: base_cflags first (when it carries
+    ``/c``), else the ``/nologo /c`` glue.  ONE definition shared by the
+    single-function, flag-sweep, and batch-GA paths — a divergent copy in the
+    sweep path silently dropped ``base_cflags`` (e.g. ``/MT``), so a
+    sweep-reported exact could demote on the next test/verify."""
+    if base_cf and "/c" in base_cf:
+        return f"{base_cf} {cflags}".strip()
+    if "/c" not in cflags:
+        return f"/nologo /c {cflags}".strip()
+    return cflags
+
+
 # ---------------------------------------------------------------------------
 # GA engine
 # ---------------------------------------------------------------------------
@@ -1339,11 +1352,7 @@ def resolve_build_params(
 
     if not cflags:
         cflags = meta.get("CFLAGS", getattr(compile_cfg, "cflags", "/O2 /Gd") or "/O2 /Gd")
-    base_cf = getattr(compile_cfg, "base_cflags", "") or ""
-    if base_cf and "/c" in base_cf:
-        cflags = f"{base_cf} {cflags}".strip()
-    elif "/c" not in cflags:
-        cflags = f"/nologo /c {cflags}".strip()
+    cflags = _compile_cflags(cflags, getattr(compile_cfg, "base_cflags", "") or "")
 
     if not target_va:
         if anno and anno.va:
@@ -1501,7 +1510,7 @@ def run_flag_sweep(
     cl_cmd, inc_dir, msvc_env, cc = resolve_compiler_env(cfg)
 
     if "/c" not in cflags:
-        cflags = "/nologo /c " + cflags
+        cflags = _compile_cflags(cflags, getattr(cfg, "base_cflags", "") or "")
 
     # NOTE: no redirect_stdout here — mutating process-global stdout is not
     # thread-safe under --sweep-then-ga batch (-j N) and silently loses later
@@ -1695,11 +1704,7 @@ def _run_one_stub_ga(
     cl_cmd, inc_dir, msvc_env, cc = resolve_compiler_env(cfg)
 
     cflags = cflags_override if cflags_override is not None else stub.cflags
-    base_cf = getattr(cfg, "base_cflags", "") or ""
-    if base_cf and "/c" in base_cf:
-        cflags = f"{base_cf} {cflags}".strip()
-    elif "/c" not in cflags:
-        cflags = f"/nologo /c {cflags}".strip()
+    cflags = _compile_cflags(cflags, getattr(cfg, "base_cflags", "") or "")
 
     seed_src, _ = read_source_text(filepath)
 

@@ -240,6 +240,7 @@ _QUERY_ELSE_IF = ts.Query(
             (if_statement
                 condition: (parenthesized_expression) @cond2
                 consequence: (_) @cons2
+                alternative: (else_clause (_) @tail)?
             )
         )
     ) @expr
@@ -1203,7 +1204,13 @@ def mut_if_false_to_bitand(s: str, rng: random.Random) -> str | None:
 
 
 def mut_reorder_elseif(s: str, rng: random.Random) -> str | None:
-    """Swap two branches in an else-if chain."""
+    """Swap two branches in an else-if chain.
+
+    ``if (a) A else if (b) B else C`` → ``if (b && !(a)) B else if (a) A else C``.
+    The second branch must be guarded with ``!(a)`` (a plain swap runs B when
+    both hold, changing the result) and any trailing ``else`` must be
+    preserved (a bare swap silently dropped it).
+    """
     b_source = s.encode("utf-8")
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
@@ -1212,7 +1219,23 @@ def mut_reorder_elseif(s: str, rng: random.Random) -> str | None:
         cond2 = b_source[captures["cond2"].start_byte : captures["cond2"].end_byte]
         cons2 = b_source[captures["cons2"].start_byte : captures["cons2"].end_byte]
 
-        return b"if " + cond2 + b" " + cons2 + b" else if " + cond1 + b" " + cons1
+        replacement = (
+            b"if ("
+            + cond2[1:-1]
+            + b" && !"
+            + cond1
+            + b") "
+            + cons2
+            + b" else if "
+            + cond1
+            + b" "
+            + cons1
+        )
+        tail = captures.get("tail")
+        if tail is not None:
+            tail_text = b_source[tail.start_byte : tail.end_byte]
+            replacement += b" else " + tail_text
+        return replacement
 
     res = _apply_query_once(b_source, _QUERY_ELSE_IF, _repl, rng)
     return res.decode("utf-8") if res else None
