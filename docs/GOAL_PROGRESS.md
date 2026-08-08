@@ -5383,3 +5383,21 @@ headers in _headers_hash, compiler_runner in the compiler hash, gate
 baseline preservation, unified resolve_cflags) and confirming the
 config-review fixes are behavior-neutral for np (no presets, marker "NP"
 unaffected).  Committed locally (np-rebrew has no remote).
+
+## 2026-08-09 — final session verification
+
+- rebrew: 3520 tests pass, ruff lint+format clean, tree clean, all pushed.
+- recoverage: 262 passed / 4 skipped (5 with playwright skip), lint clean,
+  tree clean, all pushed.
+- guild-rebrew: tree clean (2 commits this session: header regen, gm_IsInRange).
+- np-rebrew: only the user's in-flight work uncommitted (never touched);
+  2 local commits (TOOLCHAIN_BUGS update, skills sync).
+
+Session totals: 6 review prompts run (cli, functionality, db, error, api,
+config) with ~50 findings fixed, plus live-project discoveries
+(diff --watch VA loss, verify PROVEN masking, compare-baseline self-heal,
+locked-DB deletion, sync dry-run write, set-cflags no-op, marker default,
+wibo config, cflags divergence, WAL-blind ETags, VA round-trip 404,
+unbounded POST body).  All substantive findings across every review are
+closed; remaining deferrals are low-severity with documented residual
+risk.
