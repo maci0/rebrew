@@ -14,7 +14,7 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from rebrew.cli import TargetOption, error_exit, json_print
+from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print
 from rebrew.config import load_config
 
 console = Console(stderr=True)
@@ -131,7 +131,16 @@ def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool =
                 stored_version = json.loads(row[0])
             except (json.JSONDecodeError, TypeError):
                 stored_version = str(row[0])
-    except sqlite3.OperationalError:
+    except sqlite3.OperationalError as exc:
+        if "locked" in str(exc).lower():
+            # A live DB under contention (concurrent build-db, recoverage
+            # regen) must NEVER be deleted — that is silent data loss.
+            error_exit(
+                f"Database at '{db_path}' is locked by another process: {exc}. "
+                "Wait for it to finish and retry.",
+                json_mode=json_output,
+                code=EXIT_ERROR,
+            )
         # Metadata table missing — either a never-written file (a failed
         # build rolls back its DDL and leaves an empty DB behind) or debris.
         stored_version = "<missing>"
@@ -163,6 +172,7 @@ def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool =
                 f"but this tool requires version {_CURRENT_DB_VERSION!r}.\n"
                 "The existing DB is incompatible. Pass --force to delete it and rebuild.",
                 json_mode=json_output,
+                code=EXIT_ERROR,
             )
         console.print(
             f"[yellow]warning:[/yellow] schema mismatch (stored={stored_version!r}, "
@@ -511,6 +521,7 @@ def build_db(
             error_exit(
                 f"No data_*.json files found in {db_dir}. Run 'rebrew catalog --json' first.",
                 json_mode=json_output,
+                code=EXIT_ERROR,
             )
 
         for json_path in json_files:

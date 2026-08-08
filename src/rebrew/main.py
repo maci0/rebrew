@@ -279,13 +279,28 @@ def main() -> None:
     try:
         app()
     except (ValueError, FileNotFoundError, KeyError, RuntimeError) as e:
-        from rebrew.cli import error_exit
+        # error_exit() raises typer.Exit, which OUTSIDE click's handler
+        # becomes an uncaught-exception traceback with a lying exit 1.
+        # Print the friendly message (JSON envelope when --json was passed)
+        # and exit with EXIT_ERROR instead.
+        import sys
 
-        error_exit(str(e), code=EXIT_ERROR)
+        from rebrew.cli import EXIT_ERROR
+
+        if "--json" in sys.argv:
+            import json
+
+            print(json.dumps({"error": str(e), "code": EXIT_ERROR}))
+        else:
+            from rich.console import Console
+
+            Console(stderr=True).print(f"[red]error:[/red] {e}")
+        raise SystemExit(EXIT_ERROR) from None
     except KeyboardInterrupt:
-        from rebrew.cli import error_exit
+        from rich.console import Console
 
-        error_exit("Interrupted by user", code=130)
+        Console(stderr=True).print("[red]error:[/red] Interrupted by user")
+        raise SystemExit(130) from None
 
 
 if __name__ == "__main__":

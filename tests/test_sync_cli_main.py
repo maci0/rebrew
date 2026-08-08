@@ -614,6 +614,25 @@ class TestRefreshCacheFunctions:
             {"address": "0x5000", "name": "g_x"}
         ]
 
+    def test_data_labels_json_still_writes(
+        self, tmp_path: pytest.TempPathFactory, monkeypatch
+    ) -> None:
+        """--json must change the output format only — the cache refresh the
+        user asked for must still be written (regression: json_output used to
+        early-return, making `sync --refresh-cache --json` a silent no-op)."""
+        import json as _json
+
+        from rebrew.ghidra.cli import _refresh_data_labels_cache
+
+        cfg = self._cfg(tmp_path)
+        self._patch_fetch(monkeypatch, syms=[{"address": "0x5000", "name": "g_x"}])
+        _refresh_data_labels_cache(cfg, "http://x", "/p", False, json_output=True)
+        out = cfg.reversed_dir / "ghidra_data_labels.json"
+        assert out.exists()
+        assert _json.loads(out.read_text(encoding="utf-8")) == [
+            {"address": "0x5000", "name": "g_x"}
+        ]
+
     def test_data_labels_http_error_errors(
         self, tmp_path: pytest.TempPathFactory, monkeypatch
     ) -> None:

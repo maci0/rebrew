@@ -229,8 +229,10 @@ def cmd_batch(
                     }
                 )
                 continue
+            # A per-function failure must not abort the whole batch — the
+            # remaining functions would be silently unprocessed.
             console.print(f"[red bold]error:[/red bold] {e}")
-            return
+            continue
 
         bin_path = bin_dir / f"func_0x{va:08X}.bin"
         if not dry_run:
@@ -277,6 +279,7 @@ def cmd_batch(
         json_print(
             {
                 "count": len(items),
+                "failed": sum(1 for i in items if i.get("status") == "ERROR"),
                 "start": start,
                 "requested": count,
                 "results": items,
