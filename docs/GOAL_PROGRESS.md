@@ -4904,3 +4904,33 @@ computed once per process).  Any change to comparison/extraction/symbol-
 derivation source now invalidates the verify cache; changes to unrelated
 modules do not.  Verified live: cache rejected + re-verified on the real
 project.  Test `test_includes_compare_logic_hash` added.
+
+## 2026-08-09 — diff --watch VA re-entry bug; project-drift probes (b699592, guild 8e89a95)
+
+**Fixed: `rebrew diff 0x<va> --watch` lost VA targeting on watch re-entry.**
+The watch retest re-entered `main()` with the *resolved source path*, so a
+bare-VA positional lost its target on the second and later runs and the
+diff silently fell back to the FIRST annotation of a multi-function file
+(false results).  `diff.py` now keeps the original positional for re-entry
+(`watch_arg`).  Verified `match.py` (threads `target_va` through `_retest`)
+and `prove.py` (keeps the original `source` arg) already handle re-entry
+correctly — only diff was broken.  Regression test
+`test_watch_va_reentry_keeps_va_targeting` added; 3507 tests pass.
+
+**Project-drift discovery via guild-rebrew: stale `rebrew_globals.h`.**
+`rebrew data --gen-header` refused to overwrite the checked-in header, and
+nobody had regenerated since the DATA annotations were refined — 13 globals
+carried wrong names (a *function* name, `DispatchLogOutput`, for the
+log-format table at 0x10027084).  Regenerated with `--force` (same 80
+globals, names corrected) and committed as `8e89a95` in guild-rebrew.  The
+tool itself is fine: the overwrite guard is deliberate/tested and the write
+path already skips byte-identical bodies (timestamp-only churn).
+
+**Other probes (all clean):** `rebrew skills list/show --json` (parent
+`--json` correctly absent — option lives on subcommands); `rebrew lint
+--fix` (fully unit-covered incl. converge-to-zero-W019); `rebrew verify`
++ `verify --compare` with the new `_compare_logic_hash` cache key on the
+real project (259 fns, 0 compile errors, no regressions, cached re-runs);
+`rebrew prove` on a NEAR_MATCHING function (correct VA targeting, graceful
+path-explosion message with slice advice, no false promotion, tree
+untouched); np-rebrew lint 70/70 clean.
