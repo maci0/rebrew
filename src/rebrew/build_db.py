@@ -213,6 +213,12 @@ def build_db(
         c.execute("PRAGMA cache_size=-64000")
         c.execute("PRAGMA temp_store=MEMORY")
 
+        # Start an exclusive transaction BEFORE the status snapshot so the
+        # snapshot and the rebuild below are in the same transaction (a
+        # concurrent rebuild between the two would record wrong old_statuses
+        # in history).
+        c.execute("BEGIN IMMEDIATE")
+
         # Snapshot existing function statuses for history tracking
         old_statuses: dict[tuple[str, int], str] = {}
         with contextlib.suppress(sqlite3.OperationalError):
@@ -233,9 +239,6 @@ def build_db(
                         f"{len(existing_targets)} other target(s) from the DB: "
                         f"{', '.join(sorted(existing_targets))}"
                     )
-
-        # Start an exclusive transaction
-        c.execute("BEGIN IMMEDIATE")
 
         # The stats view is derived from cells — recreate it every run
         # (scoped rebuilds keep the tables but must refresh the view too).
@@ -699,6 +702,17 @@ def build_db(
                             "VALUES (?, ?, ?, ?, ?)",
                             vr_rows,
                         )
+                    # Prune rows for functions absent from the latest report
+                    # (the report is best-effort and can legitimately shrink).
+                    if vr_data.get("results"):
+                        c.execute(
+                            "DELETE FROM verify_results WHERE target = ? AND va NOT IN ("
+                            + ",".join("?" * len(vr_rows))
+                            + ")",
+                            (target_name, *(r[1] for r in vr_rows)),
+                        )
+                    else:
+                        c.execute("DELETE FROM verify_results WHERE target = ?", (target_name,))
 
             # Schema version stamp: written under a reserved __schema__ row so
             # readers never depend on an arbitrary target's stamp (a scoped
