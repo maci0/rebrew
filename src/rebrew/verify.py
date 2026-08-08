@@ -1091,6 +1091,15 @@ def prepare_entries(
         if cached_entry is None:
             continue
 
+        # A cached PROVEN result is impossible under the current writer (the
+        # cache stores raw byte results only — the PROVEN overlay is applied
+        # at report time from CURRENT metadata).  Any cached PROVEN therefore
+        # comes from pre-fix code that baked the overlay in, and cannot be
+        # trusted after a metadata STATUS demotion: the stale pass would mask
+        # the demotion forever.  Treat it as a miss and re-verify once.
+        if cached_entry.result.status == "PROVEN":
+            continue
+
         if cached_entry.filepath != getattr(entry, "filepath", ""):
             continue
 
