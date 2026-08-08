@@ -5101,3 +5101,18 @@ Batch of probes, all clean:
   the user's in-flight work).
 
 No tool bugs surfaced; tree untouched.
+
+## 2026-08-09 — verify --compare gate + recoverage API edge probes (no findings)
+
+- **verify --compare regression gate validated end-to-end on guild**:
+  baseline verify (225 passed) → injected a byte-changing edit into the
+  EXACT `exit_handler` (return 1 → return 0) → `verify --compare` exited 1
+  and flagged `exit_handler EXACT → SIZE_MISMATCH (delta 7)` → restored the
+  source → re-verify restores the baseline (225, 0 regressions).  The gate
+  detects real regressions, distinguishes them from improvements, and the
+  tree was left byte-identical.
+- **recoverage API edge cases**: bad VA (404 structured), out-of-range hex
+  VA (404), bad section name (404), bad target (404), asm without params
+  (400 "missing va or size"), asm out-of-range VA (400 "va is beyond
+  section end"), asm valid (200), SSE /api/events stream (heartbeat
+  frames).  All handled cleanly — no 500s, no tracebacks.
