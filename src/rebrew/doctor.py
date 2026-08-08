@@ -228,10 +228,11 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
     except ValueError:
         parts = cmd_str.split()
 
-    # Check if the first token (e.g. "wine") is available
+    # Check if the first token (e.g. "wine"/"wibo") is available
     exe = parts[0] if parts else ""
     exe_path = shutil.which(exe)
-    if exe_path is None and exe != "wine":
+    is_wibo_runner = Path(exe).name == "wibo"
+    if exe_path is None and exe != "wine" and not is_wibo_runner:
         return CheckResult(
             name="Compiler",
             status=_FAIL,
@@ -239,7 +240,29 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
             fix=f"Install '{exe}' or update compiler.command in rebrew-project.toml.",
         )
 
-    # For Wine-based compilers, check the CL.EXE path
+    if is_wibo_runner and exe_path is None:
+        # `init --install-wibo` writes a relative runner like tools/wibo —
+        # resolve it against the project root, not PATH.
+        local = Path(exe) if Path(exe).is_absolute() else cfg.root / Path(exe)
+        if local.exists():
+            exe_path = str(local)
+        else:
+            from rebrew.wibo import find_wibo
+
+            found = find_wibo(cfg.root)
+            if found is None:
+                return CheckResult(
+                    name="Compiler",
+                    status=_WARN,
+                    message="wibo runner not found",
+                    fix=(
+                        "Run 'rebrew init --install-wibo' or set compiler.command "
+                        "to the wibo binary path."
+                    ),
+                )
+            exe_path = str(found)
+
+    # For Wine/wibo-based compilers, check the CL.EXE path.
     if exe == "wine":
         wine_path = shutil.which("wine")
         if wine_path is None:
@@ -250,6 +273,7 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
                 fix="Install Wine: apt install wine-stable (Debian/Ubuntu) or brew install wine.",
             )
 
+    if exe == "wine" or is_wibo_runner:
         if len(parts) > 1:
             cl_path = Path(parts[1])
             if not cl_path.is_absolute():
@@ -272,9 +296,11 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
                 )
 
             # Quick smoke test: try running cl.exe with no args
+            runner_token = exe if is_wibo_runner else "wine"
+            display_runner = "wibo" if is_wibo_runner else "Wine"
             try:
                 subprocess.run(
-                    ["wine", str(cl_path)],
+                    [runner_token, str(cl_path)],
                     capture_output=True,
                     timeout=10,
                     env={**os.environ, "WINEDEBUG": "-all"},
@@ -282,27 +308,34 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
                 return CheckResult(
                     name="Compiler",
                     status=_PASS,
-                    message=f"Wine + {cl_path.name} (reachable)",
+                    message=f"{display_runner} + {cl_path.name} (reachable)",
                 )
             except subprocess.TimeoutExpired:
                 return CheckResult(
                     name="Compiler",
                     status=_WARN,
-                    message=f"Wine + {cl_path.name} (timed out on smoke test)",
-                    fix="Wine may be slow to start. This is usually fine for actual compilation.",
+                    message=f"{display_runner} + {cl_path.name} (timed out on smoke test)",
+                    fix="The runner may be slow to start. This is usually fine for actual compilation.",
                 )
             except (FileNotFoundError, OSError) as e:
                 return CheckResult(
                     name="Compiler",
                     status=_FAIL,
-                    message=f"Failed to invoke Wine: {e}",
-                    fix="Check Wine installation and CL.EXE path.",
+                    message=f"Failed to invoke {display_runner}: {e}",
+                    fix="Check the runner installation and CL.EXE path.",
                 )
+        if exe == "wine":
+            return CheckResult(
+                name="Compiler",
+                status=_WARN,
+                message=f"Wine found at {wine_path}, but no CL.EXE path specified in compiler.command",
+                fix="Set compiler.command to 'wine /path/to/CL.EXE' in rebrew-project.toml.",
+            )
         return CheckResult(
             name="Compiler",
             status=_WARN,
-            message=f"Wine found at {wine_path}, but no CL.EXE path specified in compiler.command",
-            fix="Set compiler.command to 'wine /path/to/CL.EXE' in rebrew-project.toml.",
+            message="wibo runner configured, but no CL.EXE path specified in compiler.command",
+            fix="Set compiler.command to 'wibo /path/to/CL.EXE' in rebrew-project.toml.",
         )
 
     return CheckResult(
@@ -323,9 +356,14 @@ def check_runner(cfg: ProjectConfig) -> CheckResult:
     if shutil.which(runner):
         return CheckResult(name="Runner", status=_PASS, message=f"{runner} found in PATH")
 
-    if runner == "wibo":
+    # `init --install-wibo` writes a relative runner like tools/wibo — resolve
+    # it against the project root (and fall back to the shared wibo cache).
+    if Path(runner).name == "wibo":
         from rebrew.wibo import find_wibo
 
+        local = Path(runner) if Path(runner).is_absolute() else cfg.root / Path(runner)
+        if local.exists():
+            return CheckResult(name="Runner", status=_PASS, message=f"wibo found at {local}")
         found = find_wibo(cfg.root)
         if found:
             return CheckResult(name="Runner", status=_PASS, message=f"wibo found at {found}")

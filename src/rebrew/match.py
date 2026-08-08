@@ -88,18 +88,22 @@ console = Console(stderr=True)
 # ---------------------------------------------------------------------------
 
 
-def _ga_cache_key(src: str, cflags: str, cl_cmd: str, inc_dir: str) -> str:
+def _ga_cache_key(
+    src: str, cflags: str, cl_cmd: str, inc_dir: str, extra_include_dirs: list[str] | None = None
+) -> str:
     """Cache key for a GA compile result.
 
     Must cover everything that changes the produced .obj: the source text,
-    the compiler flags, the compiler command, and the include directory
-    (different headers → different codegen).  The build cache persists
-    across runs (``output/ga_runs/<rel>/build_cache.db``), so a
-    sweep-then-GA or CFLAGS-metadata change must not reuse an .obj compiled
+    the compiler flags, the compiler command, the include directory, and the
+    extra include dirs (different headers → different codegen).  The build
+    cache persists across runs (``output/ga_runs/<rel>/build_cache.db``), so
+    a sweep-then-GA or CFLAGS-metadata change must not reuse an .obj compiled
     under different flags.
     """
     material = src.encode() + b"\x00" + cflags.encode() + b"\x00" + cl_cmd.encode()
     material += b"\x00" + inc_dir.encode()
+    for d in sorted(extra_include_dirs or []):
+        material += b"\x00" + d.encode()
     return hashlib.sha256(material).hexdigest()[:16]
 
 
@@ -204,7 +208,9 @@ class BinaryMatchingGA:
         # so the key must cover everything that changes the .obj — not just
         # the source.  A sweep-then-GA or CFLAGS-metadata change used to
         # reuse the previous flag combination's .obj.
-        src_hash = _ga_cache_key(src, self.cflags, str(self.cl_cmd), self.inc_dir)
+        src_hash = _ga_cache_key(
+            src, self.cflags, str(self.cl_cmd), self.inc_dir, self.extra_include_dirs
+        )
         res = self.cache.get(src_hash)
         if res:
             return res

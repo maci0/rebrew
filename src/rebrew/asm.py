@@ -499,7 +499,9 @@ def batch_extract_nasm(
             continue
 
         nasm_src, stats = disassemble_to_nasm(code, va, symbol)
-        out_file = out_dir / f"{stem}.asm"
+        # Multi-function sources share a file stem — include the VA or the
+        # second function's output would silently overwrite the first's.
+        out_file = out_dir / f"{stem}.{va:08x}.asm"
         out_file.write_text(nasm_src, encoding="utf-8")
 
         if verify_flag:
