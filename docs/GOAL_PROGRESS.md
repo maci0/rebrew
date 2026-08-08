@@ -4715,3 +4715,27 @@ verify --compare, rename --dry-run).  Two real bugs found and fixed:
 Non-bugs verified: .bss split on huge virtual-size .data is by-design;
 `recoverage check` exits 1 on failure; verify --compare gate correct;
 prove/rename guards correct.
+
+## 2026-08-09 — Real-project audit round 2 (IAT thunks, virtual .data, LIBRARY path, GA, verify)
+
+Probed the unusual-data paths guild-rebrew/np-rebrew exercise:
+
+- **IAT thunks**: `rebrew imports` correctly detects `ff 25 <iat>` jmp stubs
+  (guild: 3 stubs incl. configured iat_thunk 0x10023840); catalog flags 8
+  thunks via registry. Verified against raw bytes — all genuine.
+- **24MB virtual .data**: `rebrew round-trip` handles the giant virtual-size
+  .data (raw 57KB / virtual 24MB) without issue — 21.75% spliced, 76.8%
+  passthrough, no crash. The `.bss` split (virtual-raw tail) is by-design.
+- **LIBRARY markers**: todo excludes library-header functions from the work
+  queue; verify skips `.h` entries + DATA/GLOBAL/BSS/RODATA/VTBL markers
+  (verified counts); status counts them as covered.
+- **GA engine**: `rebrew match --pop-size 8 --generations 3` runs end-to-end
+  on a real stub (score computed, no crash).
+- **verify**: full run 225/259 passed (34 real failures matching status);
+  exit 1 correct; JSON clean on stdout; tree untouched (promotion no-op).
+- **catalog_resolution_drift** mismatches in round-trip are real project
+  data (e.g. `_fread` vs `fread` symbol naming), not tooling bugs.
+- Committed guild-rebrew CATALOG.md regeneration (`67247c9`) — build_db no
+  longer writes it; `catalog --catalog` is the canonical generator now.
+
+No new tooling bugs found this round; all paths verified working.
