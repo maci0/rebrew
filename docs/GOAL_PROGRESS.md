@@ -5269,3 +5269,31 @@ Closed the three deferred error-review findings:
   aborting the whole scan.
 
 3520 rebrew tests pass.
+
+## 2026-08-09 — api-review: recoverage REST fixes (3dc7486)
+
+Ran the `api-review` prompt (via subagent; live probes against the real
+DB).  20 findings; fixed the substantive ones:
+
+- **F10 (medium)** — `/functions/<va>` parsed hex-only, but the `/functions`
+  list emits `va` as a decimal int — a consumer taking the list value
+  straight into the detail route got 404.  The route now accepts decimal
+  (all-digit strings try decimal first, bare-hex fallback; 0x/a-f hex
+  unchanged).  Live-verified both formats return 200.
+- **F1 (medium)** — memo fingerprint, ETag, and SSE watcher were blind to
+  WAL commits that don't checkpoint the main file.  Now folds the -wal
+  stat in.  (Found during verification: -shm must NOT be included —
+  sqlite touches it on every connection, which made ETags change between
+  requests; the 304 path then never matched.)
+- **F4/F8/F12** — 304s carry ETag+Cache-Control (all sites); potato ETag
+  uses mtime_ns; JSON errors carry Cache-Control: no-store.
+- **F6** — the /data memo stores serialized bytes (multi-MB payload was
+  re-serialized on every hit).
+- **F13** — /data?section=<unknown> 404s (was a silent memoized empty grid).
+- **F18** — Accept-Encoding q-values honoured (q=0 never chosen).
+- **F19** — batch POST body bounded at 64 KiB (413) + negative VAs rejected.
+
+Deferred: F2 (stat→open TOCTOU), F3 (memo 404 skip), F5 (strong vs weak
+ETag), F7 (If-None-Match list form), F11 (CLI/API code field type),
+F15 (read-transaction pinning), F16 (watcher at startup), F20 (batch
+response shape).  262 recoverage tests pass.
