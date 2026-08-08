@@ -5761,3 +5761,26 @@ failure → warning, batch + report continue (applies to verify AND
 test --all). Test:
 `TestApplyStatusUpdates.test_write_failure_does_not_abort_batch`. 3544
 rebrew tests.
+
+## 2026-08-09 — np TOOLCHAIN_BUGS.md full re-check: no new rebrew tooling bugs
+
+Re-read the doc's sections 1-4 in full (L1-L14 linker, C1-C4 compiler,
+D1-D5 data, R1-R10 rebrew) against current tooling:
+
+- R1-R10: all FIXED/VERIFIED (R5 W021 + R8 byte_matched verified live this
+  session via guild lint and verify --json). R7 (flirt_sigs absent) is
+  project-side — `rebrew doctor`'s check_flirt_sigs already warns with
+  exact fix instructions.
+- C1's "`--flag-sweep-only` without --all errors 'Provide source file'"
+  (doc-logged as a toolchain gap): verified CORRECT behavior — match.py:1230
+  errors with "Provide a source file (rebrew match <file.c>) or use --all
+  for batch mode." A single-function flag sweep genuinely needs a source;
+  the message now suggests --all. Not a bug.
+- L1-L14 / C2-C4 / D2-D4: project-side np work (Makefile LDFLAGS, CRT
+  choice, .rsrc reproduction, globals classification) — no rebrew code
+  changes implied. Section-5 per-function table (22 failed) is stale
+  project data; the 44/23 + 2 stale-PROVEN delta is already documented
+  (2026-08-09 entry).
+
+Conclusion: doc currency confirmed after this session's verify changes; no
+further rebrew tooling fixes surfaced from np.
