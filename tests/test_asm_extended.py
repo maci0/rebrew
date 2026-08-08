@@ -51,6 +51,20 @@ class TestDisasmBytes:
             disasm_bytes(_CODE, 0x1000)
 
 
+class TestHexMode:
+    def test_empty_extract_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A VA outside the binary image must error, not print an empty dump."""
+        import typer
+
+        from rebrew.asm import _run_hex_mode
+
+        cfg = _cfg(tmp_path)
+        monkeypatch.setattr("rebrew.asm.extract_raw_bytes", lambda *a, **k: b"")
+        with pytest.raises(typer.Exit) as exc:
+            _run_hex_mode(0x99999999, 16, cfg, False, False)
+        assert exc.value.exit_code == 1
+
+
 class TestCapstoneToNasm:
     def test_with_operands(self) -> None:
         assert capstone_to_nasm("mov", "dword ptr [eax]") == "mov dword [eax]"

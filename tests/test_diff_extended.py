@@ -248,6 +248,34 @@ class TestRunDiff:
         assert entry.get("blocker", "") == ""
         assert entry.get("blocker_delta") is None
 
+    def test_fix_blocker_dry_run_does_not_write(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--fix-blocker --dry-run must preview without touching metadata."""
+        from rebrew.diff import run_diff
+        from rebrew.metadata import get_entry
+
+        meta_dir = tmp_path / "meta"
+        meta_dir.mkdir()
+        seed = tmp_path / "f.c"
+        seed.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        p = _params(seed_c=seed, cfg=SimpleNamespace(metadata_dir=meta_dir, compile_timeout=30))
+        summary = _summary(
+            instructions=[
+                {
+                    "match": "RR",
+                    "target": {"disasm": "mov eax, ebx"},
+                    "candidate": {"disasm": "mov eax, ecx"},
+                }
+            ]
+        )
+        _patch_matcher(monkeypatch, summary=summary, obj=b"\x90\x8b\xec\x5d\xc3")
+        run_diff("f.c", False, False, False, True, False, p, dry_run=True)
+        # Blockers were classified but nothing was written.
+        entry = get_entry(meta_dir, 0x1000, "SERVER")
+        assert not entry.get("blocker")
+        assert entry.get("blocker_delta") is None
+
     def test_structural_diffs_exit_mismatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
         summary = _summary(summary={"structural": 2, "total": 4, "exact": 2})
         with pytest.raises(typer.Exit) as exc:
@@ -283,7 +311,7 @@ class TestDiffCli:
             lambda *a, **k: _params(),
         )
 
-        def _run_diff(seed_c, mm, rr, csv, fix, json_out, p):
+        def _run_diff(seed_c, mm, rr, csv, fix, json_out, p, **kwargs):
             seen.update(seed_c=seed_c, mm=mm, csv=csv)
 
         monkeypatch.setattr("rebrew.diff.run_diff", _run_diff)
@@ -309,7 +337,7 @@ class TestDiffCli:
 
         seen: dict = {}
 
-        def _run_diff(seed_c, mm, rr, csv, fix, json_out, p):
+        def _run_diff(seed_c, mm, rr, csv, fix, json_out, p, **kwargs):
             seen.update(seed_c=seed_c, csv=csv, json_out=json_out)
 
         monkeypatch.setattr("rebrew.diff.run_diff", _run_diff)

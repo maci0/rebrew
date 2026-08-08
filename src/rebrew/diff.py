@@ -192,6 +192,8 @@ def run_diff(
     json_output: bool,
     # resolved build params from match.resolve_build_params
     p: Any,
+    *,
+    dry_run: bool = False,
 ) -> None:
     """Compile seed and show byte diff vs target. Shared with match.py."""
     from rebrew.matcher import (
@@ -317,16 +319,24 @@ def run_diff(
                 delta = sum(
                     1 for a, b in zip(p.target_bytes, obj_bytes, strict=False) if a != b
                 ) + abs(len(p.target_bytes) - len(obj_bytes))
-                update_field(metadata_dir, va, "blocker", blocker_text, module=module)
-                if delta > 0:
-                    update_field(metadata_dir, va, "blocker_delta", delta, module=module)
-                if not json_output:
-                    console.print(f"  Updated BLOCKER: {blocker_text} ({delta}B delta)")
+                if dry_run:
+                    if not json_output:
+                        console.print(f"  Would update BLOCKER: {blocker_text} ({delta}B delta)")
+                else:
+                    update_field(metadata_dir, va, "blocker", blocker_text, module=module)
+                    if delta > 0:
+                        update_field(metadata_dir, va, "blocker_delta", delta, module=module)
+                    if not json_output:
+                        console.print(f"  Updated BLOCKER: {blocker_text} ({delta}B delta)")
             else:
-                deleted_b = remove_field(metadata_dir, va, "blocker", module=module)
-                deleted_d = remove_field(metadata_dir, va, "blocker_delta", module=module)
-                if (deleted_b or deleted_d) and not json_output:
-                    console.print("  Cleared BLOCKER (no structural diffs)")
+                if dry_run:
+                    if not json_output:
+                        console.print("  Would clear BLOCKER (no structural diffs)")
+                else:
+                    deleted_b = remove_field(metadata_dir, va, "blocker", module=module)
+                    deleted_d = remove_field(metadata_dir, va, "blocker_delta", module=module)
+                    if (deleted_b or deleted_d) and not json_output:
+                        console.print("  Cleared BLOCKER (no structural diffs)")
 
         summary_obj = summary.get("summary", {})
         structural_obj = summary_obj.get("structural", 0) if isinstance(summary_obj, dict) else 0
@@ -384,6 +394,7 @@ def main(
         "--fix-blocker",
         help="Auto-write BLOCKER/BLOCKER_DELTA metadata from diff classification",
     ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     fmt: str = typer.Option(
         "terminal",
         "--format",
@@ -451,6 +462,7 @@ def main(
                 mismatches_only=mismatches_only,
                 register_aware=register_aware,
                 fix_blocker=fix_blocker,
+                dry_run=dry_run,
                 fmt=fmt,
                 ignore_lint=ignore_lint,
                 watch=False,
@@ -461,7 +473,16 @@ def main(
         watch_files([seed_path], _retest)
         return
 
-    run_diff(seed_c, mismatches_only, register_aware, csv_output, fix_blocker, json_output, params)
+    run_diff(
+        seed_c,
+        mismatches_only,
+        register_aware,
+        csv_output,
+        fix_blocker,
+        json_output,
+        params,
+        dry_run=dry_run,
+    )
 
 
 def main_entry() -> None:

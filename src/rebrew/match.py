@@ -1362,6 +1362,8 @@ def resolve_build_params(
     if not symbol and anno:
         symbol = anno.symbol
     if not symbol:
+        if not Path(seed_c).exists():
+            error_exit(f"Source not found: {seed_c}", json_mode=json_output)
         error_exit(
             "--symbol required (could not derive from C function definition)", json_mode=json_output
         )
