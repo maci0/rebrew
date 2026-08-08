@@ -5080,3 +5080,24 @@ rebrew-project.toml with no preview, unlike the rest of the cfg group
 commands now preview without writing.  Live-verified: `cfg set
 compiler.timeout 999 --dry-run` prints "would update" and leaves the tree
 untouched.  Test added; 3514 rebrew tests pass.
+
+## 2026-08-09 — cache/imports/graph/init/test probe round (no findings)
+
+Batch of probes, all clean:
+
+- `rebrew cache stats --json`: 13271 entries / 48.8 MB — healthy.
+- `rebrew imports --mark --dry-run`: "No new import stubs to annotate"
+  (imports already marked); the --mark+--json conflict errors with a clear
+  message (exit 2).
+- `rebrew graph --format summary` (262 nodes / 170 edges) and
+  `--focus 0x10013230` — the focus error noted in an old GOAL_PROGRESS
+  entry is fixed; mermaid output is correct and color-coded.
+- `rebrew init --target ... --binary ... --compiler msvc6 --json` in a
+  fresh dir: creates the full scaffold (rebrew-project.toml, AGENTS.md,
+  PRINCIPLES.md, original/, src/, bin/); generated config loads cleanly
+  (`cfg list-targets` reads it back).
+- `rebrew test --dry-run --json` on np-rebrew's GetResourceStringTotalLength.c:
+  correct stdcall symbol/VA, SIZE_MISMATCH honestly reported (the file is
+  the user's in-flight work).
+
+No tool bugs surfaced; tree untouched.
