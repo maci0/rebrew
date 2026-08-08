@@ -87,7 +87,14 @@ class TestPrepareEntriesCache:
         return cfg
 
     def _cache_entry(
-        self, filepath: str, *, passed: bool = True, mtime: int = 0, source_hash: str = ""
+        self,
+        filepath: str,
+        *,
+        passed: bool = True,
+        mtime: int = 0,
+        source_hash: str = "",
+        size: int = 64,
+        cflags: str = "",
     ) -> dict:
         if not source_hash:
             p = Path(cfg_reversed_dir()) / filepath
@@ -96,7 +103,8 @@ class TestPrepareEntriesCache:
             "source_hash": source_hash,
             "filepath": filepath,
             "mtime_ns": mtime,
-            "size": 64,  # matches _ann's default annotation size
+            "size": size,  # 64 matches _ann's default annotation size
+            "cflags": cflags,
             "result": {
                 "status": "EXACT" if passed else "STUB",
                 "va": "0x1000",
@@ -128,6 +136,53 @@ class TestPrepareEntriesCache:
         assert cached == 1
         assert passed == 1
         assert results[0]["status"] == "EXACT"
+
+    def test_cached_entry_invalidated_by_size_change(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A cached result with a different annotation SIZE must be re-verified.
+
+        SIZE is metadata-only (catalog --fix-sizes never touches the .c), so
+        the source hash cannot detect it — the cache entry's size field is
+        the only guard against serving a stale EXACT after a size fix.
+        """
+        entry = _ann(0x1000)  # annotation size 64
+        cfg = self._setup(tmp_path, monkeypatch, entry)
+        cache = {
+            "0x00001000": verify_mod.VerifyCacheEntry.from_dict(
+                self._cache_entry("f.c", size=32)  # cached with a different size
+            )
+        }
+        monkeypatch.setattr(
+            verify_mod,
+            "_load_verify_cache",
+            lambda *a, **k: verify_mod.VerifyCache(
+                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+            ),
+        )
+        _, _, _, _, _, cached, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        assert cached == 0
+
+    def test_cached_entry_invalidated_by_cflags_change(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A cached result with different CFLAGS must be re-verified."""
+        entry = _ann(0x1000)  # annotation cflags ""
+        cfg = self._setup(tmp_path, monkeypatch, entry)
+        cache = {
+            "0x00001000": verify_mod.VerifyCacheEntry.from_dict(
+                self._cache_entry("f.c", cflags="/O1")
+            )
+        }
+        monkeypatch.setattr(
+            verify_mod,
+            "_load_verify_cache",
+            lambda *a, **k: verify_mod.VerifyCache(
+                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+            ),
+        )
+        _, _, _, _, _, cached, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        assert cached == 0
 
     def test_cached_fail_recorded(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         entry = _ann(0x1000)

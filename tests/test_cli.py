@@ -250,3 +250,39 @@ class TestAngrAvailable:
         result = angr_available()
         if result:  # angr installed — verify the silencing side-effect
             assert logging.getLogger("angr").getEffectiveLevel() == logging.CRITICAL
+
+
+class TestResolveCflags:
+    """resolve_cflags — the shared per-function CFLAGS fallback chain."""
+
+    def test_per_function_wins(self) -> None:
+        from rebrew.cli import resolve_cflags
+
+        cfg = SimpleNamespace(cflags="/O2 /Gd", cflags_presets={"GAME": "/O1"})
+        assert resolve_cflags(cfg, "/Ox", "GAME") == "/Ox"
+
+    def test_module_preset_used(self) -> None:
+        from rebrew.cli import resolve_cflags
+
+        cfg = SimpleNamespace(cflags="/O2 /Gd", cflags_presets={"GAME": "/O1"})
+        assert resolve_cflags(cfg, "", "GAME") == "/O1"
+        # module matching is case-insensitive (upper-cased)
+        assert resolve_cflags(cfg, "", "game") == "/O1"
+
+    def test_compiler_cflags_fallback(self) -> None:
+        from rebrew.cli import resolve_cflags
+
+        cfg = SimpleNamespace(cflags="/O2 /Gd", cflags_presets={})
+        assert resolve_cflags(cfg, "", "GAME") == "/O2 /Gd"
+
+    def test_default_when_cfg_lacks_cflags(self) -> None:
+        from rebrew.cli import resolve_cflags
+
+        assert resolve_cflags(None, "", "") == "/O2 /Gd"
+        assert resolve_cflags(SimpleNamespace(cflags="", cflags_presets={}), "", "") == "/O2 /Gd"
+
+    def test_empty_per_function_falls_through(self) -> None:
+        from rebrew.cli import resolve_cflags
+
+        cfg = SimpleNamespace(cflags="/O2 /Gd", cflags_presets={"GAME": "/O1"})
+        assert resolve_cflags(cfg, "   ", "GAME") == "/O1"
