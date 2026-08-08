@@ -41,7 +41,7 @@ For annotation syntax details, see `references/annotation-format.md`.
 ```bash
 rebrew status --json                    # Quick overview: counts per STATUS, % coverage
 rebrew todo --json                      # Primary: highest ROI action items
-rebrew todo -c start-function --json    # Filter category: start-function | fix-delta | compile-error | improve-match | missing-annotation | identify-library | run-prover | setup
+rebrew todo -c start-function --json    # Filter category: start-function | fix-delta | compile-error | extract-error | improve-match | missing-annotation | identify-library | run-prover | setup
 rebrew flirt --json                     # FLIRT scan: identify known library functions (fast wins)
 rebrew crt-match --all --json           # Find matching CRT source files for LIBRARY functions
 rebrew similar 0x10001000 --json        # Find structurally similar functions (same source family)
@@ -50,11 +50,17 @@ rebrew similar 0x10001000 --json        # Find structurally similar functions (s
 **Default to `rebrew todo --json`.** Each item carries a ready-to-run `command` field
 (e.g. `rebrew skeleton 0x...`, `rebrew diff 0x...`, `rebrew prove 0x...`) — run it verbatim.
 Items are tiered by ROI:
-1. Compile errors / verifier regressions (blocks progress)
+1. Compile errors / extract errors (blocks progress — fix the source/marker/symbol first)
 2. Near-misses (1-4 byte deltas, fast wins)
 3. Stubs that need finishing
 4. New function starts (ranked by similarity + size)
 5. Automated tasks (prove, data fixups)
+
+> **`extract-error` items** mean the compiled `.obj` lacks the annotated symbol:
+> the STUB/FUNCTION marker name, the C definition's decorated symbol, or the
+> implementation is wrong. Run the item's `rebrew test 0x<va>` command to see
+> the exact failure. Do NOT run a flag sweep or GA on these — the symbol must
+> resolve before matching can help.
 
 The JSON `coverage` block (`total`/`covered`/`exact`/`reloc`/`proven`/`matching`/`stub`/`pct_matched`)
 is the source of truth for progress. Use `rebrew status --json` first if the project state is
