@@ -240,13 +240,17 @@ class TestGenerateDataJson:
         assert data["summary"]["nearMatchCount"] == 1
         assert data["summary"]["stubCount"] == 0
 
-    def test_error_status_not_counted_as_matched(self) -> None:
+    def test_error_status_not_counted_as_matched(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A COMPILE_ERROR/SIZE_MISMATCH function must not inflate matchedFunctions.
 
         The old ``totalFunctions - stubCount`` formula counted error-status
         functions as matched (regression: headline coverage stat overstated
         whenever a source failed to compile).
         """
+        from types import SimpleNamespace
+
         entries = [
             Annotation(
                 va=0x10001000,
@@ -277,7 +281,22 @@ class TestGenerateDataJson:
             ),
         ]
         funcs = [make_func_entry(0x10001000, 64, "_ok_fn")]
-        data = generate_data_json(entries, funcs, text_size=1000)
+        bin_path = tmp_path / "t.dll"
+        bin_path.write_bytes(b"\x00" * 0x3000)
+        info = SimpleNamespace(
+            image_base=0x10000000,
+            text_raw_offset=0,
+            data=b"\x00" * 0x3000,
+            sections={
+                ".text": SimpleNamespace(
+                    va=0x10000000, size=0x3000, file_offset=0, raw_size=0x3000
+                ),
+            },
+        )
+        monkeypatch.setattr("rebrew.binary_loader.load_binary", lambda p: info)
+        monkeypatch.setattr("rebrew.catalog.grid.load_ghidra_data_labels", lambda src: {})
+        monkeypatch.setattr("rebrew.catalog.grid.get_globals", lambda src, cfg=None: {})
+        data = generate_data_json(entries, funcs, text_size=0x3000, bin_path=bin_path)
 
         s = data["summary"]
         assert s["totalFunctions"] == 3

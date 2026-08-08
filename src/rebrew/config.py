@@ -189,6 +189,14 @@ class ProjectConfig:
     compiler_includes: Path = field(default_factory=lambda: Path())
     compiler_libs: Path = field(default_factory=lambda: Path())
     cflags: str = ""  # Default compiler flags (from [compiler] or per-target override)
+    cflags_presets: dict[str, str] = field(default_factory=dict)
+    """Per-module compiler flag overrides (``rebrew cfg set-cflags``).
+
+    ``[compiler.cflags_presets]`` (global) merged with
+    ``[targets.X.compiler.cflags_presets]`` (per-key, target wins).  Used by
+    ``rebrew match``/``diff`` as the CFLAGS fallback for functions whose
+    module has a preset and whose per-function metadata has no CFLAGS.
+    """
     base_cflags: str = "/nologo /c /MT"  # Always-on flags prepended to every compile
     compile_timeout: int = 60  # Seconds before a compile subprocess is killed
 
@@ -480,6 +488,27 @@ def _split_compiler_runner(compiler: dict[str, Any]) -> tuple[str, str]:
         return runner, command_raw
 
     return "", command_raw
+
+
+def _merge_cflags_presets(
+    global_compiler: dict[str, Any], target_compiler: dict[str, Any]
+) -> dict[str, str]:
+    """Merge per-module cflags presets: global, overridden per-key by target.
+
+    ``rebrew cfg set-cflags MODULE FLAGS`` writes a global
+    ``[compiler.cflags_presets]``; ``--target X`` writes
+    ``[targets.X.compiler.cflags_presets]``.  The target's presets win for
+    the same module key, matching the documented "per-target presets
+    override global presets for the same origin key" semantics.
+    """
+    merged: dict[str, str] = {}
+    for table, label in (
+        (global_compiler, "compiler.cflags_presets"),
+        (target_compiler, "targets.<target>.compiler.cflags_presets"),
+    ):
+        for key, val in (table.get("cflags_presets", {}) or {}).items():
+            merged[str(key).upper()] = _as_str(val, "", label)
+    return merged
 
 
 def _detect_binary_layout(bin_path: Path, fmt: str = "auto") -> dict[str, int]:
@@ -850,6 +879,7 @@ def load_config(
         # User-facing defaults (optimization/codegen). base_cflags are always-on
         # flags prepended by compile_to_obj; they must stay separate.
         cflags=_as_str(compiler.get("cflags"), "", "compiler.cflags"),
+        cflags_presets=_merge_cflags_presets(global_compiler, target_compiler),
         base_cflags=_as_str(compiler.get("base_cflags"), "/nologo /c /MT", "compiler.base_cflags"),
         compile_timeout=_positive_int(compiler.get("timeout", 60), 60, "compiler.timeout"),
         # arch-derived

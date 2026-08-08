@@ -208,7 +208,8 @@ def _compare_logic_hash() -> str:
     import functools
 
     from rebrew.annotation import _kv_to_annotation
-    from rebrew.compile import classify_compare_result
+    from rebrew.binary_loader import extract_raw_bytes
+    from rebrew.compile import _extract_and_compare, classify_compare_result
     from rebrew.core.matching import smart_reloc_compare
     from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 
@@ -220,6 +221,8 @@ def _compare_logic_hash() -> str:
             classify_compare_result,
             smart_reloc_compare,
             parse_obj_symbol_and_relocs,
+            _extract_and_compare,
+            extract_raw_bytes,
         ):
             src = Path(mod.__code__.co_filename).read_bytes()
             h.update(src)
@@ -244,14 +247,43 @@ def _compiler_config_hash(cfg: ProjectConfig) -> str:
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
 
+def _external_includes_hash(cfg: ProjectConfig) -> str:
+    """Digest of headers in the config-level ``-I`` include dirs.
+
+    These live OUTSIDE ``reversed_dir`` (e.g. ``-Ireferences/zlib-1.1.3``),
+    so the reversed-dir walk in :func:`_headers_hash` misses them — but an
+    edit to such a header changes every translation unit that includes it,
+    and cached verify entries are served without recompiling.  Reuses the
+    compile cache's ``include_fingerprint`` (name+size+mtime stat walk,
+    memoized per directory) so both caches agree on the same dirs.
+    """
+    import shlex
+
+    from rebrew.compile_cache import include_fingerprint
+
+    inc_dirs: list[str] = []
+    inc = getattr(cfg, "compiler_includes", None)
+    if inc:
+        inc_dirs.append(str(inc))
+    for flag in shlex.split(getattr(cfg, "base_cflags", "") or ""):
+        if flag.startswith("-I"):
+            inc_dirs.append(flag[2:])
+    h = hashlib.sha256()
+    for d in sorted(set(inc_dirs)):
+        h.update(include_fingerprint(d).encode("utf-8"))
+        h.update(b"\x02")
+    return h.hexdigest()
+
+
 def _headers_hash(cfg: ProjectConfig) -> str:
     """SHA256 of every header file reachable from the project's source tree.
 
     If a shared header changes, every translation unit that includes it must be
     re-verified.  Returns a stable hash that captures the union of all .h files
-    under cfg.reversed_dir.  (The compile cache tracks headers independently via
-    ``compile_cache.include_fingerprint``; this hash guards the verify cache,
-    which also covers include dirs outside ``reversed_dir``.)
+    under cfg.reversed_dir plus the config-level ``-I`` include dirs (see
+    :func:`_external_includes_hash`).  (The compile cache tracks headers
+    independently via ``compile_cache.include_fingerprint``; this hash guards
+    the verify cache, which also covers include dirs outside ``reversed_dir``.)
 
     Memoized behind a cheap stat fingerprint (path + mtime_ns + size): when no
     header changed since the last call, the full content reads are skipped.
@@ -265,7 +297,8 @@ def _headers_hash(cfg: ProjectConfig) -> str:
     if not src_dir.exists():
         return ""
 
-    stat_fp = _headers_stat_fingerprint(src_dir)
+    ext_digest = _external_includes_hash(cfg)
+    stat_fp = _headers_stat_fingerprint(src_dir) + (ext_digest,)
     cached = _HEADERS_HASH_CACHE.get(stat_fp)
     if cached is not None:
         return cached
@@ -281,6 +314,8 @@ def _headers_hash(cfg: ProjectConfig) -> str:
             h.update(b"\x01")  # entry separator
         except OSError:
             continue
+    h.update(ext_digest.encode("utf-8"))
+    h.update(b"\x03")
     digest = h.hexdigest()
     if len(_HEADERS_HASH_CACHE) >= _HEADERS_HASH_CACHE_MAX:
         _HEADERS_HASH_CACHE.clear()
@@ -288,10 +323,11 @@ def _headers_hash(cfg: ProjectConfig) -> str:
     return digest
 
 
-# Stat fingerprint of the header tree: (path, mtime_ns, size) per header.
+# Stat fingerprint of the header tree: (path, mtime_ns, size) per header,
+# plus the external-includes digest as the final element.
 # Key for the memoized _headers_hash — avoids re-reading every .h when the
 # tree is unchanged across the two calls per verify run.
-_HEADERS_HASH_CACHE: dict[tuple[tuple[str, int, int], ...], str] = {}
+_HEADERS_HASH_CACHE: dict[tuple[tuple[str, int, int] | str, ...], str] = {}
 _HEADERS_HASH_CACHE_MAX = 8  # one entry per distinct header-tree state
 
 
@@ -365,6 +401,14 @@ class VerifyCacheEntry:
     Entries written before this field existed carry ``""`` and are re-verified
     once."""
 
+    size: int = -1
+    """Annotation SIZE at cache time.
+
+    SIZE is metadata-only (``rebrew-function.toml``) — editing it via
+    ``rebrew catalog --fix-sizes`` never touches the ``.c`` mtime, so the
+    source hash cannot detect it either.  Entries written before this field
+    existed carry ``-1`` (unknown) and are re-verified once."""
+
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "VerifyCacheEntry":
         """Reconstruct a VerifyCacheEntry from a JSON dictionary."""
@@ -374,6 +418,7 @@ class VerifyCacheEntry:
             mtime_ns=int(d.get("mtime_ns", 0)),
             result=VerifyResult.from_dict(d.get("result", {})),
             cflags=str(d.get("cflags", "")),
+            size=int(d.get("size", -1)),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -459,8 +504,11 @@ def _save_verify_cache(
 ) -> None:
     filepath_info: dict[str, tuple[int, str]] = {}
     cflags_by_va: dict[str, str] = {}
+    size_by_va: dict[str, int] = {}
     for entry in entries:
-        cflags_by_va[f"0x{entry.va:08x}"] = entry.cflags or ""
+        va_key = f"0x{entry.va:08x}"
+        cflags_by_va[va_key] = entry.cflags or ""
+        size_by_va[va_key] = entry.size or 0
         relative_path = getattr(entry, "filepath", "")
         if not relative_path:
             continue
@@ -497,6 +545,7 @@ def _save_verify_cache(
             "mtime_ns": mtime,
             "result": res_dict,
             "cflags": cflags_by_va.get(str(va_key), ""),
+            "size": size_by_va.get(str(va_key), 0),
         }
 
     cache_data = VerifyCache(
@@ -768,18 +817,22 @@ def main(
         f"0x{entry.va:08x}" for entry in unique_entries if getattr(entry, "status", "") == "PROVEN"
     }
     _proven_compatible = ("NEAR_MATCHING", "SIZE_MISMATCH")
+    overlaid_vas: set[str] = set()
     if proven_vas:
         for r in results:
             if r["va"] in proven_vas and r["status"] in _proven_compatible:
                 was_failed = not r.get("passed", False)
                 r["status"] = "PROVEN"
                 r["passed"] = True
+                overlaid_vas.add(r["va"])
                 if was_failed:
                     passed += 1
                     failed -= 1
-        # Remove PROVEN functions from fail_details (they may have been
-        # added from stale cache entries before the overlay).
-        fail_details = [(e, m) for e, m in fail_details if f"0x{e.va:08x}" not in proven_vas]
+        # Remove only the OVERLAID functions from fail_details (they may have
+        # been added from stale cache entries before the overlay).  A PROVEN
+        # function that now fails as COMPILE_ERROR stays in the failure list
+        # — the overlay must not hide its diagnostic.
+        fail_details = [(e, m) for e, m in fail_details if f"0x{e.va:08x}" not in overlaid_vas]
 
     timestamp = datetime.now(UTC).isoformat()
     # Single-pass status counting instead of 7 separate iterations.
@@ -832,9 +885,16 @@ def main(
     if diff_mode and previous_report is not None:
         diff_result = diff_reports(previous_report, report)
 
+    gate_failed = _gate_fails(diff_result, failed)
+
     if json_output or output_path or diff_mode:
         report_json = json.dumps(report, indent=2)
-        if not dry_run:
+        # In --compare mode the report IS the baseline for future runs — a
+        # regressed run must not overwrite the last good baseline, or the
+        # gate would self-heal on the next invocation.  Plain verify always
+        # records the report (pre-existing failures are the baseline's
+        # business); --compare advances it only on a passing gate.
+        if not dry_run and not (diff_mode and gate_failed):
             out_file.parent.mkdir(parents=True, exist_ok=True)
             atomic_write_text(out_file, report_json, encoding="utf-8")
             if not json_output:
@@ -867,27 +927,30 @@ def main(
     _raise_if_regression(diff_result, failed)
 
 
-def _raise_if_regression(diff_result: dict[str, Any] | None, failed: int) -> None:
-    """Raise ``typer.Exit(EXIT_MISMATCH)`` per the CI regression gate.
+def _gate_fails(diff_result: dict[str, Any] | None, failed: int) -> bool:
+    """True when the CI regression gate must fail this run.
 
     With a baseline (*diff_result*), only regressions and newly-broken
-    entries fail the run — pre-existing failures are the baseline's business.
-    Without a baseline, any failed function fails the run.  Single
-    implementation used by both the JSON and terminal output paths.
+    entries fail the run — pre-existing failures are the baseline's
+    business.  Without a baseline, any failed function fails the run.
     """
-    has_regressions = bool(diff_result and diff_result["regressions"])
-    new_failures = bool(
-        diff_result
-        and any(
+    if diff_result is not None:
+        if diff_result["regressions"]:
+            return True
+        return any(
             _STATUS_RANK.get(str(i.get("status", "FAIL")), _STATUS_RANK["FAIL"])
             >= _STATUS_RANK["COMPILE_ERROR"]
             for i in diff_result.get("new", [])
         )
-    )
-    if diff_result is not None:
-        if has_regressions or new_failures:
-            raise typer.Exit(code=EXIT_MISMATCH)
-    elif failed > 0:
+    return failed > 0
+
+
+def _raise_if_regression(diff_result: dict[str, Any] | None, failed: int) -> None:
+    """Raise ``typer.Exit(EXIT_MISMATCH)`` per the CI regression gate.
+
+    Shared gate logic lives in :func:`_gate_fails`; this raises on it.
+    """
+    if _gate_fails(diff_result, failed):
         raise typer.Exit(code=EXIT_MISMATCH)
 
 
@@ -1013,6 +1076,11 @@ def prepare_entries(
         # CFLAGS come from rebrew-function.toml, not the .c file, so a flag
         # change is invisible to the source hash below.
         if cached_entry.cflags != (entry.cflags or ""):
+            continue
+
+        # SIZE is metadata-only too (catalog --fix-sizes rewrites it without
+        # touching the .c); a size change must invalidate the cached result.
+        if cached_entry.size != (entry.size or 0):
             continue
 
         filepath = cfg.reversed_dir / getattr(entry, "filepath", "")
