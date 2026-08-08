@@ -8,13 +8,20 @@ utilities (back-jump detection, padding trimming).
 import re
 import struct
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from rebrew.binary_loader import PADDING_BYTES, BinaryInfo, load_binary
 from rebrew.config import ProjectConfig
 
 
-def trim_trailing_padding(data: bytes, padding: tuple[int, ...] = PADDING_BYTES) -> int:
+def _default_padding() -> tuple[int, ...]:
+    from rebrew.binary_loader import PADDING_BYTES
+
+    return PADDING_BYTES
+
+
+def trim_trailing_padding(data: bytes, padding: tuple[int, ...] | None = None) -> int:
+    if padding is None:
+        padding = _default_padding()
     r"""Return the length of *data* after stripping trailing padding bytes.
 
     >>> trim_trailing_padding(b'\\x55\\x89\\xe5\\xcc\\xcc')
@@ -87,7 +94,11 @@ _DECL_NAME_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\[.*\])?\s*;")
 _ARRAY_SIZE_RE = re.compile(r"\[(\d+)\]")
 
 
-def sections_from_info(info: BinaryInfo) -> dict[str, dict[str, int]]:
+if TYPE_CHECKING:
+    from rebrew.binary_loader import BinaryInfo
+
+
+def sections_from_info(info: "BinaryInfo") -> dict[str, dict[str, int]]:
     """Build the section metadata dict from an already-loaded ``BinaryInfo``.
 
     Splits ``.data`` into ``.data`` (raw) + ``.bss`` (zero-fill tail) when
@@ -175,6 +186,8 @@ def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, di
 def get_text_section_size(bin_path: Path) -> int:
     """Get .text section virtual size from binary headers."""
     try:
+        from rebrew.binary_loader import load_binary
+
         info = load_binary(bin_path)
         return info.text_size
     except (ImportError, OSError, KeyError, ValueError, RuntimeError):
