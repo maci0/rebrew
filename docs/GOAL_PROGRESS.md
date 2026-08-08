@@ -5531,3 +5531,28 @@ the current route table after this session's API changes: /api/events,
 present with matching methods.  The /data 404-for-unknown-section,
 decimal-VA acceptance, and memo-bytes changes are all backward-compatible
 with the SPA's request patterns.  No contract drift.
+
+## 2026-08-09 — test-review: 19 findings, 9 fixed (d4a60ab, recoverage 92f4ed2)
+
+Ran the `test-review` prompt (via subagent) over the tests added this
+session.  Fixed the highest-value gaps (tests that would pass even if the
+fix were reverted):
+
+- F1: verify-cache SIZE/CFLAGS invalidation branches now tested (the
+  helper hardcoded matching values, so the metadata-driven guards never
+  fired).
+- F2: _find_function_range + set_target_range scoping tests.
+- F3: regressed --compare test asserts NO cache file is written (unmocked
+  _save_verify_cache).
+- F6: resolve_cflags 4-step fallback chain tests.
+- R1: WAL snapshot -wal/-shm behavior tests.
+- R2/R3: /data ETag-304 round-trip + section-specific ETags + unknown
+  section 404.
+- R5/R6: check below-threshold exit-1 (real gate failure) + stats --json.
+
+Deferred (low): F4 (PROVEN counter mock realism), F5 (_compare_logic_hash
+membership assert), F7 (main typer.Exit path), F8 (_PARSE_MEMO contract),
+F9 (extract failed count assert), F10-F12 (diff preview text, cfg
+set-cflags dry-run, asm truncation), R4 (SSE cap test), R7 (schema column
+isolation), R8 (playwright server guard), R9 (memo self-invalidation).
+3532 rebrew (+12) / 269 recoverage (+7) tests pass.
