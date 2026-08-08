@@ -5696,3 +5696,14 @@ fresh), so a demotion now correctly surfaces as a failure. Tests:
 `TestProvenOverlay.test_proven_cache_stores_raw_byte_result` (end-to-end
 through the real cache file). 3541 rebrew tests pass. No behavior change
 for np: its stale PROVENs verify as STUB, which was never overlaid.
+
+## 2026-08-09 — cached PROVEN treated as stale, self-healing re-verify (249a0eb)
+
+Transition gap from the f6deb4f fix: caches written by pre-fix code may
+still hold baked-in PROVEN statuses, and since served cached entries are
+re-saved as-is, they would persist past a metadata demotion until --full.
+Fix: the fixed writer never stores PROVEN (raw byte results only), so any
+cached status=PROVEN is by construction pre-fix baked state — the cache-hit
+loop now treats it as a miss and re-verifies once. Self-healing (only the
+stale entries re-verify, not the whole cache), no version bump. Test:
+`TestPrepareEntriesCache.test_cached_proven_invalidated`. 3542 rebrew tests.
