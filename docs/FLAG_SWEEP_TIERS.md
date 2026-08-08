@@ -14,11 +14,11 @@ options) or a `Checkbox` (on/off), so total combinations multiply.
 
 | Tier | Axes | Combinations | Typical runtime | When to use |
 |------|------|-------------|-----------------|-------------|
-| `quick` | 3 | 105 | < 1 min | First attempt on a new STUB; rules out most /O and /G variants fast |
-| `targeted` | 5 | 420 | 1–3 min | Follow-up when `quick` is close but not EXACT; adds /Oy and /Op |
-| `normal` | 5 | 1,890 | 3–10 min | Default for `--flag-sweep-only`; adds /ML-/MTd runtime-library axis |
-| `thorough` | 9 | 75,600 | 15–60 min | Use when `normal` still leaves a near-match; adds struct alignment and debug-info toggles |
-| `full` | 13 | 1,209,600 | hours | Last resort; exhausts every known axis including /TP, /GR, /GX; combine with random sampling |
+| `quick` | 3 | 192 | < 1 min | First attempt on a new STUB; rules out most /O and /G variants fast |
+| `targeted` | 5 | 1,152 | 1–3 min | Default for `--flag-sweep-only`; adds /Oy and /Op |
+| `normal` | 5 | 5,376 | 3–10 min | Follow-up when `targeted` is close but not EXACT; adds /ML-/MTd runtime-library axis |
+| `thorough` | 9 | 258,048 | 15–60 min | Use when `normal` still leaves a near-match; adds struct alignment and debug-info toggles |
+| `full` | 13 | 6,193,152 | hours | Last resort; exhausts every known axis including /TP, /GR, /GX; combine with random sampling |
 
 ## Axes per Tier
 
@@ -73,7 +73,7 @@ debug checks on top of `normal`.
 ### `full`
 All 13 MSVC6 axes — includes C++ mode (`/TP`), RTTI (`/GR`), and
 floating-point axes (`msvc_fpo`, `msvc_fp_consistency`) from `targeted`.
-With 1.2 M combinations this is rarely feasible without random sampling
+With 6.2 M combinations this is rarely feasible without random sampling
 (`--sample N`).
 
 | Axis ID | Flag options |
@@ -95,7 +95,7 @@ With 1.2 M combinations this is rarely feasible without random sampling
 ## CLI Usage
 
 ```bash
-# Default tier (normal — 1,890 combinations)
+# Default tier (targeted — 1,152 combinations)
 rebrew match src/game_dll/my_func.c --flag-sweep-only
 
 # Explicit tier

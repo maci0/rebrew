@@ -51,9 +51,9 @@ blocker = "missing CRT internals"
 source = "ENVIRON.C"
 ```
 
-The metadata file is found automatically by all rebrew tools via walk-up from the
-source file's directory (climbs parent dirs until `rebrew-function.toml` is found),
-so a single file at a project root can serve all subdirectories. This includes **`rebrew lint`**,
+The metadata file lives at `cfg.metadata_dir` (the parent of `reversed_dir` — e.g. `src/`
+for sources under `src/server.dll/`). There is no walk-up: tools must be passed the correct
+metadata root. This includes **`rebrew lint`**,
 which reads the metadata file before validation so that STATUS, SIZE, CFLAGS etc. are accessible
 even when not present inline.
 
@@ -78,7 +78,7 @@ void my_func() {}
 Each target has its own metadata file entry, keyed by `MODULE.0xVA`:
 
 ```toml
-# A single rebrew-function.toml found via walk-up (e.g. at src/server.dll/):
+# A single rebrew-function.toml at cfg.metadata_dir (e.g. src/ for src/server.dll/):
 ["LEGO1.0x1009a8c0"]
 status = "EXACT"
 size = 42
@@ -107,7 +107,7 @@ the `.c` file:
 const unsigned char g_sprite_lut[256] = { ... };
 ```
 
-**`rebrew-data.toml`** (auto-managed, found via walk-up from source dir):
+**`rebrew-data.toml`** (auto-managed, lives at `cfg.metadata_dir`):
 ```toml
 ["SERVER.0x10025000"]
 name    = "g_sprite_lut"      # preferred label (BinSync/IDA import target)

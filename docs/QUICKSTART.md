@@ -40,7 +40,7 @@ Fix any errors it reports before continuing.
 ```bash
 rebrew catalog
 rebrew flirt flirt_sigs/         # identify library functions via FLIRT
-rebrew crt-match --all --origin MSVCRT --fix-source  # auto-annotate MSVCRT functions
+rebrew crt-match --all --fix-source  # auto-annotate MSVCRT functions
 ```
 
 `rebrew catalog` reads the binary and produces the function list that all other tools
@@ -70,7 +70,7 @@ the exact test command to run next.
 Alternatively, disassemble the target bytes to guide your implementation:
 
 ```bash
-rebrew asm --va 0x<VA> --size <SIZE>
+rebrew asm 0x<VA> --size <SIZE>
 ```
 
 ### Step 4 — Write C89 source and test

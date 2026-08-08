@@ -45,7 +45,7 @@ flowchart LR
 | Package / module | Responsibility |
 |---|---|
 | `rebrew/` top-level tools | One CLI command each (`test`, `verify`, `diff`, `match`, `lint`, `data`, `status`, `todo`, …), registered in `main.py` |
-| `rebrew/main.py` | Umbrella CLI. Flat `app.command()` for single-command modules, `app.add_typer()` for multi-command (`cfg`, `cache`, `catalog`, `extract`, `skills`) |
+| `rebrew/main.py` | Umbrella CLI. Flat `app.command()` for single-command modules, `app.add_typer()` for multi-command (`cfg`, `cache`, `extract`, `skills`) |
 | `rebrew/cli.py` | Shared options/helpers: `TargetOption`, `require_config`, `iter_sources`, `iter_annotations`, `error_exit`, `json_print`, exit codes |
 | `rebrew/config.py` | `ProjectConfig` dataclass + `rebrew-project.toml` loader (multi-target) |
 | `rebrew/annotation.py` | Marker/KV annotation parsing (`// FUNCTION: MOD 0xVA`), key classification (file-only vs metadata) |
@@ -56,6 +56,16 @@ flowchart LR
 | `rebrew/catalog/` | Function registry, coverage grid (`grid.py`), `data_*.json` export, `coverage.db` schema consumers |
 | `rebrew/ghidra/` | ReVa MCP sync: push/pull structs, signatures, renames, size-sync |
 | `rebrew/core/` | Relocation-aware byte comparison, MSVC env setup |
+| `rebrew/extract.py` | Batch extract/disassemble command (group: `list`/`show`/`batch`) |
+| `rebrew/crt_match.py` | CRT source cross-reference matcher (index, match, ASM detection) |
+| `rebrew/flirt.py` | FLIRT signature scanning |
+| `rebrew/prove.py` | Symbolic equivalence prover via angr (optional dep) |
+| `rebrew/round_trip.py` | Splice matched functions back into the target PE, verify byte equality |
+| `rebrew/similar.py` | Structural clone detection (mnemonic-histogram similarity) |
+| `rebrew/near_diag.py` | NEAR_MATCHING delta classification (register/reloc/structural buckets) |
+| `rebrew/dashboard.py` | Read-only web dashboard over `db/coverage.db` |
+| `rebrew/imports.py` | PE import-table symbol listing + `jmp [iat]` stub detection |
+| `rebrew/skills.py` | Agent-skill discovery CLI (`list`/`show` subcommands) |
 | `rebrew/agent-skills/` | Bundled `SKILL.md` workflows (intake, matching, data analysis, ghidra sync) |
 
 ## The compile → compare → STATUS loop

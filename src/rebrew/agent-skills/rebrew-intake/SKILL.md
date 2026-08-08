@@ -22,10 +22,15 @@ A `rebrew-project.toml` must exist with the new target configured. If starting f
 
 ```bash
 rebrew init --target <name> --binary <filename> --compiler msvc6
+rebrew init --install-wibo            # fresh Linux/macOS setup: download wibo runner now
 ```
 
 Then place the binary at the path specified in `rebrew-project.toml` (default: `original/<filename>`).
 
+`rebrew init` creates `rebrew-project.toml`, `AGENTS.md`, `original/`, `src/<target>/`, and
+empty `src/rebrew-function.toml` + `src/rebrew-data.toml` metadata files. Prefer
+`--install-wibo` from a fresh environment so compiles run through wibo (a lightweight Win32
+PE loader) instead of full Wine — it also writes `runner = "tools/wibo"` into the config.
 
 ### Multi-Target File Layout
 When adding a new target that shares codebase with an existing target (e.g., adding `BETA10` to a `LEGO1`
@@ -34,18 +39,37 @@ above the same function body.
 
 ## Intake Procedure
 
-### 1. Verify Configuration
+### 1. Health Check — run `rebrew doctor` first
 
 ```bash
-rebrew doctor                           # check toolchain and project health
+rebrew doctor                           # validate config, binary, toolchain, metadata
+rebrew doctor --json                    # machine-readable per-check report
 rebrew doctor --install-wibo            # auto-download wibo if Wine is unavailable
 rebrew cfg list-targets                 # confirm target is configured
 ```
 
-On Linux, `--install-wibo` downloads wibo (a lightweight Win32 PE loader) as
-a faster alternative to Wine for running MSVC CL.EXE. SHA256-verified from GitHub.
+Run `rebrew doctor` before anything else. It checks that `rebrew-project.toml` parses, the
+target binary loads, the compiler (CL.EXE) + runner (wine/wibo) are reachable, include/lib
+paths exist, `flirt_sigs/` parses, and `rebrew-function.toml`/`rebrew-data.toml` exist.
 
-If the target is missing, add it:
+- **Exit code is 1 if any check failed** — treat `fail` checks as blockers, not warnings.
+- `--json` prints `{"target", "passed", "summary": {"pass","fail","warn"}, "checks": [{name, status, message, fix}]}`.
+  Use it to decide what to fix: each `checks[].fix` contains the repair command.
+- On Linux, `--install-wibo` downloads wibo (SHA256-verified from GitHub) and rewrites
+  `runner = "tools/wibo"` in `rebrew-project.toml`.
+
+Common failures and fixes:
+
+- Config parse fails → run `rebrew init` in the project directory.
+- "Target binary not found" → place the binary at the configured path.
+- "CL.EXE not found" → fetch the MSVC6 toolchain into `tools/` (see `checks[].fix` for the URL).
+- FLIRT signatures missing → generate from a `.lib` or drop `.sig` files into `flirt_sigs/`:
+
+```bash
+rebrew gen-flirt-pat tools/MSVC600/VC98/Lib/msvcrt.lib --output flirt_sigs/msvcrt_vc6.pat
+```
+
+If the target is missing, add it (the binary must already exist, or pass `--force`):
 
 ```bash
 rebrew cfg add-target <name> --binary original/<filename>
@@ -66,16 +90,32 @@ rebrew crt-match --all --fix-source --json # auto-annotate SOURCE references for
 Without `rebrew cfg detect-crt`, `crt-match --all` finds zero matches because no CRT
 source directories are registered in `rebrew-project.toml`.
 
+- `rebrew flirt --json` prints `{signature_count, match_count, skipped_ambiguous, matches: [{va, size, names}]}`.
+  Ambiguous hits (>N candidate names) are skipped by default and listed in `ambiguous_matches`.
+- Use `matches[].names` to identify library code, and `crt-match --all --fix-source` to record
+  `// SOURCE:` references for confirmed matches. `crt-match --index` alone just shows the index.
+
 Library matches are fast wins — they can be skeletonized and matched quickly
 since the original source is often available.
 
-### 3. Build Function Catalog
+### 3. Build Function Catalog + Coverage DB
 
 ```bash
 rebrew catalog --data-json              # write db/data_<target>.json
+rebrew catalog --export-ghidra-labels   # write ghidra_data_labels.json (switch tables etc.)
 rebrew catalog --fix-sizes              # backfill SIZE in rebrew-function.toml from catalog
-rebrew build-db                         # build SQLite coverage database
+rebrew build-db                         # build SQLite coverage database (db/coverage.db)
 ```
+
+- `catalog --data-json` scans reversed sources + the function list into `db/data_<target>.json`;
+  it also writes `src/<target>/function_structure.json` from `functions.txt` when no Ghidra
+  export exists (skeleton generation needs one of the two).
+- `--export-ghidra-labels` writes `src/<target>/ghidra_data_labels.json` (data cells, switch
+  tables) for labeling non-function addresses in Ghidra.
+- `--fix-sizes` edits metadata in place — it prompts interactively, so pass `--force` when
+  scripting or in `--json` mode (`--json` without `--force` errors out).
+- `build-db` aggregates every `db/data_*.json` into `db/coverage.db` and regenerates
+  `CATALOG.md`. On a schema mismatch it refuses unless `--force` is passed (deletes + rebuilds).
 
 ### 4. Initial Triage
 
@@ -84,6 +124,13 @@ rebrew status --json                    # high-level overview: STATUS counts, % 
 rebrew todo --json                      # prioritized action items
 rebrew data --dispatch --json           # detect dispatch tables / vtables
 ```
+
+- `status --json` → `{functions: {total, covered}, status: {EXACT, RELOC, PROVEN, NEAR_MATCHING, STUB}, coverage_pct, matched_pct, ...}`.
+- `todo --json` → ranked `items[]`; each item carries a ready-to-run `command` field
+  (e.g. `rebrew skeleton 0x...`, `rebrew diff 0x...`) — use those commands directly.
+  Filter with `-c <category>` (e.g. `fix-delta`, `start-function`).
+- `data --dispatch --json` → JSON array of dispatch tables `[{va, section, entries: [{target_va, name, status}]}]`
+  (requires the target binary).
 
 ### 5. Infer Compilation Units
 
@@ -94,6 +141,7 @@ rebrew graph --cu-map --json            # cluster functions into inferred transl
 ```
 
 This uses inter-function gap analysis and call-graph signals to group contiguous functions.
+`--json` → `{total_functions, clustered_functions, total_clusters, clusters, unclustered}`.
 High-confidence clusters suggest functions that should be merged into the same `.c` file.
 
 ### 6. Assess Scope
@@ -125,6 +173,9 @@ rebrew skeleton 0x<VA> --decomp --decomp-backend ghidra  # Ghidra via MCP
 rebrew skeleton 0x<VA> --xrefs          # with caller context from Ghidra
 ```
 
+`--batch N` picks the N smallest eligible functions first. `--decomp` requires a reachable
+decompiler (`--decomp-backend`: `auto`, `r2ghidra`, `r2dec`, `ghidra`; default `auto`).
+
 For library functions identified by FLIRT, check if reference source is available
 (e.g. `tools/MSVC600/VC98/CRT/SRC/` for MSVCRT, `references/zlib-1.1.3/` for zlib).
 
@@ -136,20 +187,42 @@ If a Ghidra instance is available with ReVa MCP:
 rebrew sync --push                      # push annotations + FLIRT labels to Ghidra
 ```
 
+`--push` exports and applies in one step (also supports the `ghidra_backend = "cli"` config
+option). `--sync-sizes` additionally pushes corrected function sizes; `--sync-data` (default
+on) pushes `// DATA:` / `// GLOBAL:` labels.
+
+### 10. Coverage Dashboard — the handoff
+
+```bash
+rebrew build-db                         # refresh db/coverage.db after any changes
+rebrew dashboard                        # serve read-only web dashboard on http://127.0.0.1:8000
+```
+
+`rebrew dashboard` serves the coverage database — targets, per-status counts, function search,
+per-section cell stats, globals, and status-change history — at `http://127.0.0.1:8000`
+(`--port` to change). It is read-only, so it is safe to leave running.
+
+The dashboard is the handoff to the reversing loop. As reversing proceeds, `rebrew verify`
+(writes `db/verify_results.json` by default) plus the next `rebrew build-db` import each
+function's byte delta into the DB's `verify_results` table, so the dashboard stays current.
+
 ## Summary Checklist
 
 ```
 Intake Progress:
 - [ ] Binary placed at configured path
+- [ ] rebrew doctor passes (config, binary, compiler, metadata)
 - [ ] rebrew cfg confirms target
 - [ ] CRT source dirs detected (rebrew cfg detect-crt --write)
-- [ ] FLIRT scan complete
+- [ ] FLIRT scan complete (rebrew flirt --json)
 - [ ] Catalog + coverage DB built (rebrew catalog --data-json && rebrew build-db)
+- [ ] Ghidra data labels exported (rebrew catalog --export-ghidra-labels)
 - [ ] SIZE backfilled (rebrew catalog --fix-sizes)
 - [ ] Status + triage reviewed (rebrew status / rebrew todo)
 - [ ] Compilation units inferred (rebrew graph --cu-map)
 - [ ] First skeletons generated
 - [ ] Ghidra synced (if available)
+- [ ] Dashboard served (rebrew dashboard) — handoff ready
 ```
 
 After intake completes, hand off to the `rebrew-workflow` skill for the iterative reversing loop.

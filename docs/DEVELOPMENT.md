@@ -88,7 +88,7 @@ uv run pytest tests/ -q                 # full suite
 uv run ruff check src/ tests/ tools/    # lint
 uv run ruff format --check src/ tests/ tools/
 uv run mypy src/rebrew/                 # type check (0 issues expected)
-uv run pre-commit run --all-files       # all 8 hooks
+uv run pre-commit run --all-files       # all 10 hooks
 make build                              # sdist+wheel (deterministic wheels)
 uv run python -m slipcover -m pytest tests/ -q   # coverage (summary line)
 ```

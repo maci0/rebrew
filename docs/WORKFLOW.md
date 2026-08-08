@@ -70,7 +70,7 @@ get-decompilation programPath="/target.dll" functionNameOrAddress="0x<VA>"
 
 Without Ghidra — use the built-in disassembler:
 ```bash
-rebrew asm --va 0x<VA> --size <SIZE>
+rebrew asm 0x<VA> --size <SIZE>
 ```
 
 For known library functions, identify via FLIRT or CRT cross-reference:
@@ -108,7 +108,7 @@ For a detailed explanation of each match type, see [MATCH_TYPES.md](MATCH_TYPES.
 rebrew diff src/target_name/my_func.c
 
 # Show only structural differences (** lines)
-rebrew diff --mm src/target_name/my_func.c
+rebrew diff --mismatches-only src/target_name/my_func.c
 ```
 
 **Diff markers:**
@@ -180,7 +180,8 @@ register (`EAX`) for all possible inputs. If no input can distinguish the two
 implementations, STATUS is promoted to `PROVEN`.
 
 > [!NOTE]
-> `angr` is an optional dependency (~500 MB). Install with `uv pip install -e ".[prove]"`.
+> `angr` is an optional dependency (~500 MB). Install with `uv sync --all-extras` —
+> the documented dev install includes the prove extra.
 > Functions with heavy floating-point math or complex loops may time out.
 
 ### 10. Verify STATUS is current
@@ -330,10 +331,11 @@ added; users control the directory structure freely.
 Every `.c` file must start with a marker block. See [ANNOTATIONS.md](ANNOTATIONS.md)
 for the full format reference.
 
-Required fields (enforced as linter errors): marker (`FUNCTION`/`LIBRARY`/`STUB`),
-STATUS, SIZE. Optional: CFLAGS (falls back to project config default). Conditional:
-SOURCE (for CRT/ZLIB), BLOCKER (for NEAR_MATCHING/STUB — stored in
-`rebrew-function.toml`).
+Only the marker line is enforced as a linter error (E001): `FUNCTION`/`LIBRARY`/`STUB`
+with MODULE and VA. STATUS and SIZE are metadata-only — they live in
+`rebrew-function.toml` and are no longer validated inline. Optional: CFLAGS
+(metadata; falls back to project config default). Conditional: SOURCE (for
+CRT/ZLIB), BLOCKER (for NEAR_MATCHING/STUB — stored in `rebrew-function.toml`).
 
 A file may contain **multiple marker blocks** for multi-function compilation. See
 [ANNOTATIONS.md](ANNOTATIONS.md#multi-function-files) for details.
@@ -351,6 +353,6 @@ A file may contain **multiple marker blocks** for multi-function compilation. Se
 | [ANNOTATIONS.md](ANNOTATIONS.md) | Full marker format reference and linter codes (E000–E017, W001–W019) |
 | [GHIDRA_SYNC.md](GHIDRA_SYNC.md) | Ghidra ↔ Rebrew sync feature matrix and known issues |
 | [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md) | Obtaining, creating, and using FLIRT signatures |
-| [CLI.md](CLI.md) | All 28 CLI commands, flags, and examples |
+| [CLI.md](CLI.md) | All 33 CLI commands, flags, and examples |
 | [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, arch presets, compiler profiles |
 | [TOOLCHAIN.md](TOOLCHAIN.md) | External tools, MSVC6 toolchain, Python dependencies |

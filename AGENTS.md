@@ -16,7 +16,7 @@ that contains the actual binaries, source files, and toolchains.
 uv pip install -e .
 uv sync --all-extras            # with dev deps
 
-# Run ALL tests (~1784 tests)
+# Run ALL tests (~3460 tests)
 uv run pytest tests/ -v
 
 # Run a SINGLE test file
@@ -157,6 +157,7 @@ src/rebrew/
 ├── prove.py             # Symbolic equivalence prover via angr (optional dep)
 ├── cu_map.py            # Compilation unit boundary inference (contiguity + call graph)
 ├── todo.py              # Prioritized action list: what to work on next
+├── similar.py           # Find structurally similar functions in the target binary
 ├── match.py             # GA engine — single file or batch (--all); absorbs old ga.py
 │
 ├── # --- CLI tools (each exports app, main, main_entry) ---
@@ -166,10 +167,13 @@ src/rebrew/
 ├── asm.py               # Disassemble function (hex dump or NASM source)
 ├── skeleton.py          # Generate skeleton C files for matching
 ├── lint.py              # Lint C annotations
+├── near_diag.py         # Classify why a NEAR_MATCHING function does not byte-match
 ├── rename.py            # Rename function and update all cross-references
 ├── init.py              # Initialize a new rebrew project
+├── imports.py           # List PE import-table symbols and detect jmp [iat] stubs
 ├── doctor.py            # Diagnostic checks for project health
 ├── status.py            # At-a-glance reversing progress overview
+├── dashboard.py         # Read-only web dashboard over db/coverage.db
 ├── data.py              # Global data scanner for .data/.rdata/.bss sections
 ├── depgraph.py          # Function dependency graph visualization
 ├── flirt.py             # FLIRT signature scanning
@@ -177,6 +181,7 @@ src/rebrew/
 ├── binsync_export.py    # Export annotations to BinSync state directory
 ├── round_trip.py        # Splice matched functions back into PE, verify byte equality
 ├── cfg.py               # Multi-command: list-targets, show, add-target, set, set-cflags, etc.
+├── skills.py            # Skill discovery CLI: list, show (multi-command)
 │
 ├── catalog/             # Function catalog package (see catalog/AGENTS.md)
 │   ├── __init__.py      # Re-exports all public names

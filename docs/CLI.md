@@ -1,6 +1,6 @@
 # CLI Reference
 
-All 28 CLI commands are registered under the unified `rebrew` entry point in `main.py`.
+All 33 CLI commands are registered under the unified `rebrew` entry point in `main.py`.
 Every tool supports `--target / -t` to select a target from `rebrew-project.toml` and
 reads defaults (binary path, reversed_dir, compiler settings) from the project config.
 
@@ -124,9 +124,6 @@ matching `rebrew prove` / `rebrew test`.
 | `--dir PATH` | With `--all`, restrict to this subdirectory |
 | `--origin TYPE` | With `--all`, filter by origin (GAME, MSVCRT, ZLIB) |
 | `--dry-run` | Preview changes without writing |
-| `--sweep-then-ga` | Flag-sweep each stub first, then run the GA with the best flags |
-| `--skip-recent N` | Skip stubs with a GA run record within the last N hours (batch resume) |
-| `--ga-history` | Show GA run history summary (from `.rebrew/ga_runs.jsonl`) |
 | `--no-promote` | Skip STATUS metadata update |
 | `--watch` | Re-test the source file on every save (single-file mode) |
 | `--json` | JSON structured output |
@@ -221,7 +218,7 @@ Output prefixes for unambiguous parsing:
 | `--improve` | Target all NEAR_MATCHING functions (no delta threshold) |
 | `--threshold N` | Max byte delta for `--near-miss` mode (default 10) |
 | `--dry-run` | Preview changes without writing |
-| `--seed-from-solved` / `--no-solved` | Seed GA population from similar solved functions (default: on) |
+| `--seed-from-solved` / `--no-seed-from-solved` | Seed GA population from similar solved functions (default: on) |
 | `--json` | Output results as JSON |
 
 
@@ -254,7 +251,6 @@ Output prefixes for unambiguous parsing:
 |------|-------------|
 | `-f FORMAT` / `--format FORMAT` | Output format: `mermaid` (default), `dot`, `summary` |
 | `--cu-map` | Infer compilation unit boundaries (clusters by .text contiguity + call graph) |
-| `--origin ORIGIN` | Filter to specific origin |
 | `--focus NAME` | Neighbourhood of a specific function |
 | `--depth N` | Depth for focus mode |
 | `-o FILE` / `--output FILE` | Output file (default: stdout) |
@@ -269,7 +265,7 @@ Output prefixes for unambiguous parsing:
 | `--quiet` | Suppress warnings, show errors only |
 | `--json` | Machine-readable JSON output |
 | `--summary` | Print status/origin breakdown table |
-| `--files FILE...` | Check specific files instead of full scan |
+| `FILE...` | Specific files to check (positional) instead of full scan |
 
 See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–E017, W001–W019).
 
@@ -371,7 +367,7 @@ With `--va`, extract a **single function** into its own file (into a subdirector
 
 `rebrew prove <source> [--target NAME] [--json] [--timeout N] [--loop-bound N] [--check-edx] [--dry-run]`
 
-Prove semantic equivalence of a NEAR_MATCHING function via angr symbolic execution + Z3 constraint solving. Requires the optional `angr` dependency (`uv pip install -e ".[prove]"`). The source argument accepts a `.c` path, a symbol name, or a hex VA (resolved via the shared `resolve_source_arg` helper, like `rebrew diff`).
+Prove semantic equivalence of a NEAR_MATCHING function via angr symbolic execution + Z3 constraint solving. Requires the optional `angr` dependency (`uv sync --all-extras`). The source argument accepts a `.c` path, a symbol name, or a hex VA (resolved via the shared `resolve_source_arg` helper, like `rebrew diff`).
 
 | Flag | Description |
 |------|-------------|
@@ -519,7 +515,7 @@ rebrew todo --stats --json                         # Coverage stats + full JSON 
 
 # Diff & investigation
 rebrew diff src/target_name/f.c                    # Side-by-side diff
-rebrew diff --mm src/target_name/f.c               # Only structural diffs
+rebrew diff --mismatches-only src/target_name/f.c  # Only structural diffs
 rebrew diff --fix-blocker src/target_name/f.c      # Auto-write BLOCKER metadata
 rebrew diff --json src/target_name/f.c             # JSON diff
 rebrew match --all                                 # Batch GA on all STUBs
@@ -695,13 +691,12 @@ by either tool's status logic.
 
 ## Exit Code Alignment: `rebrew diff` vs `rebrew test`
 
-`rebrew diff` and `rebrew test` both exit with code 1, but for unrelated reasons:
-`rebrew diff` exits 1 whenever a structural byte difference (`**`) exists between the
-compiled object and the target function; `rebrew test` exits 1 when the result is
-`NEAR_MATCHING` (or any non-exact status) after compile-and-compare.  These semantics
-are intentionally distinct — a function can be `NEAR_MATCHING` without a structural
-diff (pure relocation noise), and `rebrew diff` is focused on interactive investigation
-rather than CI status promotion.  Any CI script that chains both commands and inspects
-exit codes will conflate the two failure modes.  The recommended pattern is to run both
-tools with `--json` and branch on `.status` (for `rebrew test`) or `.structural_diffs`
-(for `rebrew diff`) rather than relying on the exit code alone.
+`rebrew diff` and `rebrew test` differ in exit behavior.  `rebrew diff` exits 1
+whenever a structural byte difference (`**`) exists between the compiled object and
+the target function; `rebrew test` exits 0 for non-exact matches — only usage/config
+errors and compile errors are non-zero.  These semantics are intentionally distinct —
+a function can be `NEAR_MATCHING` without a structural diff (pure relocation noise),
+and `rebrew diff` is focused on interactive investigation rather than CI status
+promotion.  For CI, run both tools with `--json` and branch on `.status` (for
+`rebrew test`) or `.structural_diffs` (for `rebrew diff`) rather than relying on
+the exit code alone.
