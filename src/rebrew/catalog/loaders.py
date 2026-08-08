@@ -110,6 +110,28 @@ def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, GhidraDataLabel]:
 _FUNC_LINE_RE_SIZE_FIRST = re.compile(r"^\s*(0x[0-9a-fA-F]+)\s+(\d+)\s+(\S+)")
 _FUNC_LINE_RE_NAME_FIRST = re.compile(r"^\s*(0x[0-9a-fA-F]+)\s+(\S+)\s+(\d+)\s*$")
 
+# Path-keyed cache of parsed function lists (multiple projects per process).
+_function_list_cache: dict[str, list[dict[str, Any]]] = {}
+
+
+def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
+    """Parse ``cfg.function_list`` once per path, caching the raw entries.
+
+    Shared by crt-match and round-trip, which both need the list as a
+    ``{va: …}`` map and previously duplicated the cache/parse/fallback
+    scaffold.  Returns ``[]`` when the list is unset, missing, or corrupt.
+    """
+    path = str(getattr(cfg, "function_list", ""))
+    funcs = _function_list_cache.get(path)
+    if funcs is None:
+        try:
+            p = Path(path)
+            funcs = parse_function_list(p) if p.is_file() else []
+        except (OSError, ValueError, KeyError):
+            funcs = []
+        _function_list_cache[path] = funcs
+    return funcs
+
 
 def parse_function_list(path: Path) -> list[dict[str, Any]]:
     """Parse function list into list of {va, size, name}."""

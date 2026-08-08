@@ -271,9 +271,6 @@ def build_db(
         )
         c.execute("CREATE INDEX IF NOT EXISTS idx_globals_name ON globals(target, name)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_cells_section ON cells(target, section_name)")
-        c.execute(
-            "CREATE INDEX IF NOT EXISTS idx_cells_state ON cells(target, section_name, state)"
-        )
 
         c.execute("""
             CREATE TABLE IF NOT EXISTS history (
@@ -285,7 +282,6 @@ def build_db(
                 changed_at TEXT NOT NULL
             )
         """)
-        c.execute("CREATE INDEX IF NOT EXISTS idx_history_target_va ON history(target, va)")
 
         c.execute("""
             CREATE TABLE IF NOT EXISTS verify_results (
