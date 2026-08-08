@@ -5371,3 +5371,15 @@ environment the pinned chromium 1208 is absent — cache has 1228/1234 —
 and installing is not feasible with the disk at 98%, so the e2e tests
 skip; the API contract they exercise was verified in the api-review
 probes.)  Full recoverage suite: 262 passed / 5 skipped.
+
+## 2026-08-09 — np-rebrew TOOLCHAIN_BUGS re-verification (np 489b738)
+
+Re-verified every R-item (R1–R10) in np-rebrew's TOOLCHAIN_BUGS.md
+against the current rebrew code: all claims still hold (bss-gap loop,
+out-of-section global warnings, byte_matched summary, binary_id cache
+guard, resource tool registered).  Appended an update noting this
+session's verify-cache hardening (SIZE in cache entries, external -I
+headers in _headers_hash, compiler_runner in the compiler hash, gate
+baseline preservation, unified resolve_cflags) and confirming the
+config-review fixes are behavior-neutral for np (no presets, marker "NP"
+unaffected).  Committed locally (np-rebrew has no remote).
