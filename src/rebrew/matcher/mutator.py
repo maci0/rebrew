@@ -53,10 +53,6 @@ _RE_GUARD_CLAUSE = re.compile(
     rb"([ \t]*)if\s*\(([^)]+)\)\s*\{([^}]+)return\s+([^;]+);\s*\}\s*\n\s*\1return\s+([^;]+);"
 )
 
-# Pre-compiled regex for mut_pragma_optimize_remove (GA hot path).
-_RE_PRAGMA_OFF = re.compile(rb"#pragma optimize\([^)]+,\s*off\)\s*\n")
-_RE_PRAGMA_ON = re.compile(rb"\n#pragma optimize\([^)]+,\s*on\)")
-
 
 def _first_caps(capture_dict: dict[str, list[ts.Node]]) -> dict[str, ts.Node]:
     """Extract the first node from each capture group in a tree-sitter match."""
@@ -1586,31 +1582,62 @@ def mut_change_return_type(s: str, rng: random.Random) -> str | None:
 
 
 def mut_split_cmp_chain(s: str, rng: random.Random) -> str | None:
-    """Split an if(a && b) into nested if(a) { if(b) ... } blocks."""
+    """Split an if(a && b) into nested if(a) { if(b) ... } blocks.
+
+    Skips if/else statements — flattening into a nested if would silently
+    drop the else body (a semantics-changing bug, not just codegen noise).
+    """
     b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+    cursor = ts.QueryCursor(_QUERY_SPLIT_CMP_CHAIN)
+    matches = cursor.matches(tree.root_node)
 
-    def _repl(captures: dict[str, ts.Node]) -> bytes:
-        left = b_source[captures["left"].start_byte : captures["left"].end_byte]
-        right = b_source[captures["right"].start_byte : captures["right"].end_byte]
-        body = b_source[captures["body"].start_byte : captures["body"].end_byte]
-        return b"if (" + left + b") { if (" + right + b") " + body + b" }"
+    valid: list[tuple[dict[str, ts.Node], ts.Node]] = []
+    for match in matches:
+        caps = _first_caps(match[1])
+        stmt = caps["stmt"]
+        if stmt.child_by_field_name("alternative"):
+            continue
+        valid.append((caps, stmt))
+    if not valid:
+        return None
 
-    res = _apply_query_once(b_source, _QUERY_SPLIT_CMP_CHAIN, _repl, rng)
-    return res.decode("utf-8") if res is not None else None
+    caps, stmt = rng.choice(valid)
+    left = b_source[caps["left"].start_byte : caps["left"].end_byte]
+    right = b_source[caps["right"].start_byte : caps["right"].end_byte]
+    body = b_source[caps["body"].start_byte : caps["body"].end_byte]
+    replacement = b"if (" + left + b") { if (" + right + b") " + body + b" }"
+    return replace_node(b_source, stmt, replacement).decode("utf-8")
 
 
 def mut_merge_cmp_chain(s: str, rng: random.Random) -> str | None:
-    """Merge nested if(a) { if(b) } into a single if(a && b) condition."""
+    """Merge nested if(a) { if(b) } into a single if(a && b) condition.
+
+    Skips when either the outer or the inner if has an else clause —
+    merging would silently drop the else body.
+    """
     b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+    cursor = ts.QueryCursor(_QUERY_MERGE_CMP_CHAIN)
+    matches = cursor.matches(tree.root_node)
 
-    def _repl(captures: dict[str, ts.Node]) -> bytes:
-        cond1 = b_source[captures["cond1"].start_byte + 1 : captures["cond1"].end_byte - 1]
-        cond2 = b_source[captures["cond2"].start_byte + 1 : captures["cond2"].end_byte - 1]
-        body = b_source[captures["body"].start_byte : captures["body"].end_byte]
-        return b"if ((" + cond1 + b") && (" + cond2 + b")) " + body
+    valid: list[tuple[dict[str, ts.Node], ts.Node]] = []
+    for match in matches:
+        caps = _first_caps(match[1])
+        stmt = caps["stmt"]
+        stmt2 = caps["stmt2"]
+        if stmt.child_by_field_name("alternative") or stmt2.child_by_field_name("alternative"):
+            continue
+        valid.append((caps, stmt))
+    if not valid:
+        return None
 
-    res = _apply_query_once(b_source, _QUERY_MERGE_CMP_CHAIN, _repl, rng)
-    return res.decode("utf-8") if res is not None else None
+    caps, stmt = rng.choice(valid)
+    cond1 = b_source[caps["cond1"].start_byte + 1 : caps["cond1"].end_byte - 1]
+    cond2 = b_source[caps["cond2"].start_byte + 1 : caps["cond2"].end_byte - 1]
+    body = b_source[caps["body"].start_byte : caps["body"].end_byte]
+    replacement = b"if ((" + cond1 + b") && (" + cond2 + b")) " + body
+    return replace_node(b_source, stmt, replacement).decode("utf-8")
 
 
 def mut_combine_ptr_arith(s: str, rng: random.Random) -> str | None:
@@ -1970,7 +1997,8 @@ def mut_flatten_nested_if(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
-    # Filter: outer body must contain ONLY the inner if (no other stmts)
+    # Filter: outer body must contain ONLY the inner if (no other stmts),
+    # and neither if may carry an else clause (flattening would drop it).
     valid = []
     for match in matches:
         caps = _first_caps(match[1])
@@ -1978,6 +2006,10 @@ def mut_flatten_nested_if(s: str, rng: random.Random) -> str | None:
         # Count named children that are actual statements (not just braces)
         stmts = list(outer_body.named_children)
         if len(stmts) == 1 and stmts[0].type == "if_statement":
+            if caps["expr"].child_by_field_name("alternative"):
+                continue
+            if caps["inner_if"].child_by_field_name("alternative"):
+                continue
             valid.append(caps)
 
     if not valid:
@@ -2638,7 +2670,13 @@ def mut_while_to_goto_loop(s: str, rng: random.Random) -> str | None:
     caps = _first_caps(match[1])
 
     cond = b_source[caps["cond"].start_byte : caps["cond"].end_byte]
-    body = b_source[caps["body"].start_byte : caps["body"].end_byte]
+    body_node = caps["body"]
+    # Brace-stripping below assumes a compound body; a single-statement
+    # body (while (c) x++;) would have its first/last characters cut off
+    # (x++; → ++), emitting uncompilable code.
+    if body_node.type != "compound_statement":
+        return None
+    body = b_source[body_node.start_byte : body_node.end_byte]
 
     # Strip outer parens from cond
     cond_inner = cond
@@ -2828,31 +2866,51 @@ def mut_ptr_arith_to_array(s: str, rng: random.Random) -> str | None:
 def mut_decouple_index_math(s: str, rng: random.Random) -> str | None:
     """Decouple scaled array index to break lea folding.
 
-    Rewrite p[i * N] to { int _off = i * N; p[_off]; }
-    This forces MSVC6 to compute the offset separately instead of
-    folding it into a lea instruction.
+    Rewrites ``p[i * N]`` to ``int _off_72; p[(_off_72 = i * N, _off_72)]``
+    (declaration hoisted to the function top per C89).  The temp is
+    genuinely declared and the parenthesized comma-expression preserves the
+    index value, so the candidate compiles and stays semantically identical
+    — MSVC6 just computes the offset separately instead of folding it into
+    a lea.
     """
     b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+    cursor = ts.QueryCursor(_QUERY_SUBSCRIPT_SCALED)
+    matches = cursor.matches(tree.root_node)
 
-    def _repl(captures: dict[str, ts.Node]) -> bytes:
-        arr = b_source[captures["arr"].start_byte : captures["arr"].end_byte]
-        idx_left = b_source[captures["idx_left"].start_byte : captures["idx_left"].end_byte]
-        idx_right = b_source[captures["idx_right"].start_byte : captures["idx_right"].end_byte]
-
-        off_id = rng.randint(0, 99)
-        off_name = f"_off_{off_id}".encode()
-        if off_name in b_source:
-            return b_source[captures["expr"].start_byte : captures["expr"].end_byte]
-
-        return (
-            off_name + b" = " + idx_left + b" * " + idx_right + b", " + arr + b"[" + off_name + b"]"
-        )
-
-    res = _apply_query_once(b_source, _QUERY_SUBSCRIPT_SCALED, _repl, rng)
-    if not res:
+    if not matches:
         return None
-    res_str = res.decode("utf-8")
-    return res_str if res_str != s else None
+
+    _, captures = rng.choice(matches)
+    caps = _first_caps(captures)
+    expr = caps["expr"]
+
+    arr = b_source[caps["arr"].start_byte : caps["arr"].end_byte]
+    idx_left = b_source[caps["idx_left"].start_byte : caps["idx_left"].end_byte]
+    idx_right = b_source[caps["idx_right"].start_byte : caps["idx_right"].end_byte]
+
+    off_id = rng.randint(0, 99)
+    off_name = f"_off_{off_id}".encode()
+    if off_name in b_source:
+        return None
+
+    insert_pos = _find_function_body_insert_pos(b_source, expr.start_byte)
+    if insert_pos is None:
+        return None
+
+    hoisted_decl = b"\n    int " + off_name + b";"
+    # (off = i * N, off) — valid C comma-expression with the same value as
+    # i * N, computed before the subscript is evaluated.
+    new_expr = (
+        arr + b"[(" + off_name + b" = " + idx_left + b" * " + idx_right + b", " + off_name + b")]"
+    )
+
+    out = b_source[:insert_pos] + hoisted_decl + b_source[insert_pos:]
+    offset = len(hoisted_decl)
+    e_start = expr.start_byte + offset
+    e_end = expr.end_byte + offset
+    result = out[:e_start] + new_expr + out[e_end:]
+    return result.decode("utf-8")
 
 
 # --- Category 4: Zero-Extension & Register Clearing ---
@@ -5052,17 +5110,6 @@ def mut_zero_to_bitand(s: str, rng: random.Random) -> str | None:
 
 # --- Queries for Phase 6 ---
 
-_QUERY_FUNC_DEF = ts.Query(
-    _C_LANGUAGE,
-    """
-    (function_definition
-        type: (_) @ret_type
-        declarator: (_) @decl
-        body: (compound_statement) @body
-    ) @func
-""",
-)
-
 _QUERY_IF_ELSE_FULL = ts.Query(
     _C_LANGUAGE,
     """
@@ -5076,16 +5123,6 @@ _QUERY_IF_ELSE_FULL = ts.Query(
         ) @cond
         consequence: (_) @cons
         alternative: (else_clause (_) @alt)
-    ) @stmt
-""",
-)
-
-_QUERY_DO_WHILE_FULL = ts.Query(
-    _C_LANGUAGE,
-    """
-    (do_statement
-        body: (compound_statement) @body
-        condition: (parenthesized_expression) @cond
     ) @stmt
 """,
 )
@@ -5118,82 +5155,11 @@ _QUERY_COMPLEX_ARG = ts.Query(
 )
 
 
-def mut_pragma_optimize(s: str, rng: random.Random) -> str | None:
-    """Inject ``#pragma optimize`` around function definitions.
-
-    MSVC6's global register allocator (the ``g`` flag) aggressively
-    coalesces variables into shared registers.  Disabling it with
-    ``#pragma optimize("g", off)`` forces strict local allocation,
-    making ``register`` keywords reliable and preventing unwanted CSE.
-
-    Also randomly tests ``"y"`` (frame-pointer omission) and ``""``
-    (full optimisation reset) for wider codegen exploration.
-    """
-    b_source = s.encode("utf-8")
-    tree = parse_c_ast(b_source)
-
-    cursor = ts.QueryCursor(_QUERY_FUNC_DEF)
-    matches = cursor.matches(tree.root_node)
-
-    if not matches:
-        return None
-
-    match = rng.choice(matches)
-    caps = _first_caps(match[1])
-    func_node = caps["func"]
-
-    # Don't inject if already present
-    before = b_source[max(0, func_node.start_byte - 80) : func_node.start_byte]
-    if b"#pragma optimize" in before:
-        return None
-
-    # Choose a pragma variant
-    variant = rng.choice(
-        [
-            (b'#pragma optimize("g", off)', b'#pragma optimize("", on)'),
-            (b'#pragma optimize("y", off)', b'#pragma optimize("", on)'),
-            (b'#pragma optimize("gy", off)', b'#pragma optimize("", on)'),
-            (b'#pragma optimize("", off)', b'#pragma optimize("", on)'),
-        ]
-    )
-
-    prefix = variant[0] + b"\n"
-    suffix = b"\n" + variant[1]
-
-    result = (
-        b_source[: func_node.start_byte]
-        + prefix
-        + b_source[func_node.start_byte : func_node.end_byte]
-        + suffix
-        + b_source[func_node.end_byte :]
-    )
-    return result.decode("utf-8")
-
-
-def mut_pragma_optimize_remove(s: str, rng: random.Random) -> str | None:
-    """Remove ``#pragma optimize`` directives surrounding a function.
-
-    Reverse of :func:`mut_pragma_optimize`.  Strips both the ``off``
-    line before and the ``on`` line after the function.
-    """
-    b_source = s.encode("utf-8")
-
-    # Find and remove #pragma optimize("...", off) lines
-    m_off = _RE_PRAGMA_OFF.search(b_source)
-    if not m_off:
-        return None
-
-    result = b_source[: m_off.start()] + b_source[m_off.end() :]
-
-    m_on = _RE_PRAGMA_ON.search(result)
-    if m_on:
-        result = result[: m_on.start()] + result[m_on.end() :]
-
-    result_str = result.decode("utf-8")
-    return result_str if result_str != s else None
-
-
-# Operator inversion map for De Morgan-aware if/else inversion
+# Operator inversion map for De Morgan-aware if/else inversion.
+# NOTE: && ↔ || are deliberately absent — inverting them requires negating
+# the operands too (if (a && b) → if (!a || !b)), which this mutator does
+# not do.  Mapping them directly flips the branch outcome (verified wrong
+# for a=1, b=1), so those operators are left untouched here.
 _INVERT_OP: dict[bytes, bytes] = {
     b"==": b"!=",
     b"!=": b"==",
@@ -5201,8 +5167,6 @@ _INVERT_OP: dict[bytes, bytes] = {
     b">=": b"<",
     b">": b"<=",
     b"<=": b">",
-    b"&&": b"||",
-    b"||": b"&&",
 }
 
 
@@ -5354,115 +5318,6 @@ def mut_inject_dummy_registers(s: str, rng: random.Random) -> str | None:
     return result.decode("utf-8")
 
 
-def mut_loop_convert(s: str, rng: random.Random) -> str | None:
-    """Rotate loop forms: while ↔ do-while-under-if ↔ for.
-
-    MSVC6 generates different jump layouts and register lifetimes
-    depending on the C loop construct used.  This mutator converts
-    between the three semantically equivalent forms:
-
-    * ``while (cond) { body }``
-    * ``if (cond) { do { body } while (cond); }``
-    * ``for (; cond; ) { body }``
-
-    Unlike the existing :func:`mut_while_to_dowhile`,
-    :func:`mut_for_to_while`, and :func:`mut_while_to_for` which are
-    individually selected, this mutator randomly picks one of the
-    conversions in a single GA slot, increasing the chance of finding
-    loop-rotation matches.
-    """
-    b_source = s.encode("utf-8")
-    tree = parse_c_ast(b_source)
-
-    candidates: list[tuple[str, dict[str, ts.Node]]] = []
-
-    # Collect while loops
-    w_cursor = ts.QueryCursor(_QUERY_WHILE_LOOP)
-    for m in w_cursor.matches(tree.root_node):
-        caps = _first_caps(m[1])
-        candidates.append(("while", caps))
-
-    # Collect do-while loops
-    dw_cursor = ts.QueryCursor(_QUERY_DO_WHILE_FULL)
-    for m in dw_cursor.matches(tree.root_node):
-        caps = _first_caps(m[1])
-        candidates.append(("dowhile", caps))
-
-    # Collect for loops
-    f_cursor = ts.QueryCursor(_QUERY_FOR_LOOP)
-    for m in f_cursor.matches(tree.root_node):
-        caps = _first_caps(m[1])
-        # Only convert simple for(; cond ;) loops (no init/update)
-        has_init = (
-            "init" in caps
-            and (caps["init"][0] if isinstance(caps["init"], list) else caps["init"]).end_byte
-            > (caps["init"][0] if isinstance(caps["init"], list) else caps["init"]).start_byte
-        )
-        has_update = (
-            "update" in caps
-            and (caps["update"][0] if isinstance(caps["update"], list) else caps["update"]).end_byte
-            > (caps["update"][0] if isinstance(caps["update"], list) else caps["update"]).start_byte
-        )
-        if not has_init and not has_update:
-            candidates.append(("for_simple", caps))
-
-    if not candidates:
-        return None
-
-    kind, caps = rng.choice(candidates)
-
-    if kind == "while":
-        cond = b_source[caps["cond"].start_byte : caps["cond"].end_byte]
-        body = b_source[caps["body"].start_byte : caps["body"].end_byte]
-        stmt = caps["stmt"]
-
-        target_form = rng.choice(["dowhile", "for"])
-        if target_form == "dowhile":
-            # while (cond) { body } → if (cond) { do { body } while (cond); }
-            replacement = b"if " + cond + b" {\n    do " + body + b" while " + cond + b";\n    }"
-        else:
-            # while (cond) { body } → for (; cond_inner; ) { body }
-            cond_inner = cond
-            if cond_inner.startswith(b"(") and cond_inner.endswith(b")"):
-                cond_inner = cond_inner[1:-1]
-            replacement = b"for (; " + cond_inner.strip() + b"; ) " + body
-
-        result = b_source[: stmt.start_byte] + replacement + b_source[stmt.end_byte :]
-        return result.decode("utf-8")
-
-    if kind == "dowhile":
-        cond = b_source[caps["cond"].start_byte : caps["cond"].end_byte]
-        body = b_source[caps["body"].start_byte : caps["body"].end_byte]
-        stmt = caps["stmt"]
-
-        target_form = rng.choice(["while", "for"])
-        if target_form == "while":
-            replacement = b"while " + cond + b" " + body
-        else:
-            cond_inner = cond
-            if cond_inner.startswith(b"(") and cond_inner.endswith(b")"):
-                cond_inner = cond_inner[1:-1]
-            replacement = b"for (; " + cond_inner.strip() + b"; ) " + body
-
-        result = b_source[: stmt.start_byte] + replacement + b_source[stmt.end_byte :]
-        return result.decode("utf-8")
-
-    if kind == "for_simple":
-        # for (; cond; ) { body } → while (cond) { body }
-        cond_node = caps["cond"][0] if isinstance(caps["cond"], list) else caps["cond"]
-        body_node = caps["body"][0] if isinstance(caps["body"], list) else caps["body"]
-        stmt_node = caps["stmt"][0] if isinstance(caps["stmt"], list) else caps["stmt"]
-
-        cond = b_source[cond_node.start_byte : cond_node.end_byte]
-        body = b_source[body_node.start_byte : body_node.end_byte]
-
-        replacement = b"while (" + cond + b") " + body
-        result = b_source[: stmt_node.start_byte] + replacement + b_source[stmt_node.end_byte :]
-        return result.decode("utf-8")
-
-    return None
-
-
 def mut_extract_complex_args(s: str, rng: random.Random) -> str | None:
     """Extract nested calls or complex expressions from function arguments.
 
@@ -5487,26 +5342,44 @@ def mut_extract_complex_args(s: str, rng: random.Random) -> str | None:
     nc_cursor = ts.QueryCursor(_QUERY_NESTED_CALL_ARG)
     for m in nc_cursor.matches(tree.root_node):
         caps = _first_caps(m[1])
-        stmt_node = caps["stmt"]
+        call_node = caps["stmt"]  # the OUTER call expression
         inner_call_node = caps["inner_call"]
         inner_text = b_source[inner_call_node.start_byte : inner_call_node.end_byte]
-        candidates.append((stmt_node, inner_call_node, inner_text))
+        candidates.append((call_node, inner_call_node, inner_text))
 
     # Strategy 2: binary expressions as arguments (ptr arithmetic, shifts, etc.)
     ca_cursor = ts.QueryCursor(_QUERY_COMPLEX_ARG)
     for m in ca_cursor.matches(tree.root_node):
         caps = _first_caps(m[1])
-        stmt_node = caps["stmt"]
+        call_node = caps["stmt"]
         arg_node = caps["arg"]
         # Only extract if not trivially simple
         arg_text = b_source[arg_node.start_byte : arg_node.end_byte]
         if len(arg_text) > 6:  # skip trivial like "a + 1"
-            candidates.append((stmt_node, arg_node, arg_text))
+            candidates.append((call_node, arg_node, arg_text))
 
     if not candidates:
         return None
 
-    stmt_node, extract_node, extract_text = rng.choice(candidates)
+    call_node, extract_node, extract_text = rng.choice(candidates)
+
+    # The query captures the call expression, but the temp assignment must be
+    # inserted BEFORE the enclosing statement — splicing at the call start
+    # turns `return g(a, h(b, c));` into `return _t = h(b, c); g(a, _t);`,
+    # changing the return value and killing the outer call.  Only expression
+    # and return statements are handled (same shapes the older
+    # mut_extract_args_to_temps supports); everything else is skipped.
+    stmt = call_node
+    while stmt.parent is not None:
+        parent = stmt.parent
+        if parent.type in ("expression_statement", "return_statement"):
+            stmt = parent
+            break
+        if parent.type == "compound_statement":
+            break
+        stmt = parent
+    if stmt.type not in ("expression_statement", "return_statement"):
+        return None
 
     var_id = rng.randint(0, 999)
     var_name = f"_t{var_id}".encode()
@@ -5514,7 +5387,7 @@ def mut_extract_complex_args(s: str, rng: random.Random) -> str | None:
         return None
 
     # C89: hoist declaration to function body top
-    insert_pos = _find_function_body_insert_pos(b_source, stmt_node.start_byte)
+    insert_pos = _find_function_body_insert_pos(b_source, stmt.start_byte)
     if insert_pos is None:
         return None
 
@@ -5523,17 +5396,17 @@ def mut_extract_complex_args(s: str, rng: random.Random) -> str | None:
 
     # Replace the extracted expression with the temp var in the original call
     new_stmt = (
-        b_source[stmt_node.start_byte : extract_node.start_byte]
+        b_source[stmt.start_byte : extract_node.start_byte]
         + var_name
-        + b_source[extract_node.end_byte : stmt_node.end_byte]
+        + b_source[extract_node.end_byte : stmt.end_byte]
     )
 
     # Insert hoisted decl at function body top
     out = b_source[:insert_pos] + hoisted_decl + b_source[insert_pos:]
     # Adjust offsets by the hoisted decl length
     offset = len(hoisted_decl)
-    s_start = stmt_node.start_byte + offset
-    s_end = stmt_node.end_byte + offset
+    s_start = stmt.start_byte + offset
+    s_end = stmt.end_byte + offset
     e_start = extract_node.start_byte + offset
     e_end = extract_node.end_byte + offset
 
@@ -5665,13 +5538,10 @@ ALL_MUTATIONS = [
     mut_inject_block_register,
     mut_retype_local_equiv,
     mut_zero_to_bitand,
-    # --- Phase 6: MSVC6 codegen quirks (pragma, branch layout, stack padding, loop rotation) ---
-    mut_pragma_optimize,
-    mut_pragma_optimize_remove,
+    # --- Phase 6: MSVC6 codegen quirks (branch layout, stack padding, inversion) ---
     mut_invert_if_else,
     mut_dummy_stack_vars,
     mut_inject_dummy_registers,
-    mut_loop_convert,
     mut_extract_complex_args,
 ]
 

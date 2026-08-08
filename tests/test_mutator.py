@@ -28,6 +28,7 @@ from rebrew.matcher.mutator import (
     mut_duplicate_loop_body,
     mut_early_return_to_accum,
     mut_extract_args_to_temps,
+    mut_extract_complex_args,
     mut_extract_condition_to_var,
     mut_extract_else_body,
     mut_flatten_nested_if,
@@ -47,6 +48,7 @@ from rebrew.matcher.mutator import (
     mut_int_to_pointer_param,
     mut_introduce_local_alias,
     mut_introduce_temp_for_call,
+    mut_invert_if_else,
     mut_invert_loop_direction,
     mut_loop_condition_extraction,
     mut_merge_cmp_chain,
@@ -1099,13 +1101,21 @@ class TestPtrArithToArray:
 
 class TestDecoupleIndexMath:
     def test_basic(self) -> None:
-        src = "x = arr[i * 4];"
+        # Real GA input is a full function (mutate_code passes the body with
+        # its function_definition); the temp declaration is hoisted to the top.
+        src = "int f(int *arr, int i) {\n    x = arr[i * 4];\n    return x;\n}"
         result = mut_decouple_index_math(src, _rng())
         assert result is not None
+        assert "int _off_" in result
         assert "_off_" in result
 
     def test_no_match(self) -> None:
-        assert mut_decouple_index_math("x = arr[i];", _rng()) is None
+        assert (
+            mut_decouple_index_math(
+                "int f(int *arr, int i) {\n    x = arr[i];\n    return x;\n}", _rng()
+            )
+            is None
+        )
 
 
 class TestPreinitByteLoad:
@@ -1402,3 +1412,68 @@ class TestExtractArgsToTemps:
         assert "int _tmp_" in res
         assert " = x * y;" in res
         assert "foo(a, _tmp_" in res
+
+
+class TestWrongCodeRegression:
+    """Regression tests for the R7 review pass — these operators used to emit
+    semantically wrong or uncompilable code; each is now verified to either
+    produce correct output or refuse the unsafe case."""
+
+    def test_split_cmp_chain_skips_if_with_else(self) -> None:
+        src = "void f() { if (a && b) { x = 1; } else { y = 2; } }"
+        assert mut_split_cmp_chain(src, _rng()) is None
+
+    def test_merge_cmp_chain_skips_if_with_else(self) -> None:
+        src = "void f() { if (a) { if (b) { x = 1; } } else { y = 2; } }"
+        assert mut_merge_cmp_chain(src, _rng()) is None
+
+    def test_flatten_nested_if_skips_if_with_else(self) -> None:
+        src = "void f() { if (a) { if (b) { x = 1; } } else { y = 2; } }"
+        assert mut_flatten_nested_if(src, _rng()) is None
+
+    def test_flatten_nested_if_skips_inner_else(self) -> None:
+        src = "void f() { if (a) { if (b) { x = 1; } else { y = 2; } } }"
+        assert mut_flatten_nested_if(src, _rng()) is None
+
+    def test_while_to_goto_requires_compound_body(self) -> None:
+        # Single-statement bodies used to be brace-stripped into garbage (x++; → ++).
+        src = "void f() { while (c) i++; }"
+        assert mut_while_to_goto_loop(src, _rng()) is None
+
+    def test_while_to_goto_compound_body_still_works(self) -> None:
+        src = "void f() { while (c) { i++; } }"
+        result = mut_while_to_goto_loop(src, _rng())
+        assert result is not None
+        assert "goto" in result
+        assert quick_validate(result)
+
+    def test_decouple_index_math_declares_temp(self) -> None:
+        src = "int f(int *p, int i) { return p[i * 4]; }"
+        result = mut_decouple_index_math(src, _rng())
+        assert result is not None
+        # The temp must be declared (C89) and the comma-expression parenthesized.
+        assert "int _off_" in result
+        assert "(_off_" in result and ", _off_" in result
+        assert quick_validate(result)
+
+    def test_invert_if_else_skips_logical_operators(self) -> None:
+        # && ↔ || without negating operands is not De Morgan; must be refused.
+        src = "void f() { if (a && b) { x = 1; } else { y = 2; } }"
+        assert mut_invert_if_else(src, _rng()) is None
+
+    def test_invert_if_else_comparison_still_works(self) -> None:
+        src = "void f() { if (a == b) { x = 1; } else { y = 2; } }"
+        result = mut_invert_if_else(src, _rng())
+        assert result is not None
+        assert "a != b" in result
+
+    def test_extract_complex_args_preserves_return(self) -> None:
+        # Used to splice mid-statement: `return _t = h(b, c); g(a, _t);`.
+        src = "int g(int a, int b);\nint h(int b, int c);\nint f(int a, int b, int c) {\n    return g(a, h(b, c));\n}"
+        result = mut_extract_complex_args(src, _rng())
+        assert result is not None
+        assert "int _t" in result
+        # The assignment precedes the statement; the return still wraps the call.
+        assert "_t" in result and "= h(b, c);" in result
+        assert "return g(a, _t" in result
+        assert quick_validate(result)

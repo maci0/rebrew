@@ -113,7 +113,7 @@ checkpoints when GA parameters change.
 - **Register pressure (MSVC6)**: `mut_toggle_volatile`, `mut_add_register_keyword`, `mut_remove_register_keyword`, `mut_swap_register_keywords`, `mut_add_volatile_intermediate`, `mut_reorder_register_vars`
 - **Zero-extension (MSVC6)**: `mut_preinit_byte_load`, `mut_cast_to_bitmask`
 - **Branch merging (MSVC6)**: `mut_hoist_common_tail`, `mut_sink_common_tail`
-- **MSVC6 codegen quirks (Phase 6)**: `mut_pragma_optimize`, `mut_pragma_optimize_remove`, `mut_invert_if_else`, `mut_dummy_stack_vars`, `mut_loop_convert`, `mut_extract_complex_args`
+- **MSVC6 codegen quirks (Phase 6)**: `mut_invert_if_else`, `mut_dummy_stack_vars`, `mut_inject_dummy_registers`, `mut_extract_complex_args`
 - **Misc**: `mut_introduce_temp_for_call`, `mut_remove_temp_var`, `mut_introduce_local_alias`, `mut_insert_noop_block`, `mut_early_return_to_accum`, `mut_accum_to_early_return`
 
 Selected uniformly at random by default. `mutate_code()` accepts optional
