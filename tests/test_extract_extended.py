@@ -140,6 +140,7 @@ class TestCmdBatch:
         cmd_batch(binary, candidates, 2, 0, tmp_path, json_output=True)  # type: ignore[arg-type]
         out = json.loads(capsys.readouterr().out)
         assert out["count"] == 2
+        assert out["failed"] == 1  # the ERROR item is tallied
         statuses = {r["name"]: r["status"] for r in out["results"]}
         assert statuses == {"good": "OK", "bad": "ERROR"}
 

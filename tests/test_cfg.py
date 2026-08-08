@@ -1055,3 +1055,18 @@ class TestCfgCli:
         result = self._invoke(tmp_path, monkeypatch, ["detect-crt"])
         assert result.exit_code == 0
         assert "MSVCRT" in result.output or "detected" in result.output
+
+
+class TestCLISetCflagsDryRun:
+    def test_set_cflags_dry_run_writes_nothing(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(
+            cfg_app, ["set-cflags", "GAME", "/O1", "--target", "server.dll", "--dry-run"]
+        )
+        assert result.exit_code == 0
+        doc, _ = _load_toml(tmp_path)
+        # No per-target preset written (the dry-run must not touch the toml;
+        # the global GAME preset already exists in the fixture).
+        tgt = doc["targets"]["server.dll"]
+        assert "compiler" not in tgt or "cflags_presets" not in tgt["compiler"]

@@ -268,3 +268,27 @@ class TestBatchOutDirResolution:
         result = CliRunner().invoke(app, ["--format", "nasm", "--all", "--out-dir", "/tmp/nasm"])
         assert result.exit_code == 0
         assert captured["out_dir"] == Path("/tmp/nasm")
+
+
+class TestHexModeTruncation:
+    def test_short_extract_warns(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+    ) -> None:
+        """Requesting more bytes than the image holds must warn and report
+        truncated in JSON, not silently return a short dump."""
+        import json
+
+        from capstone import CS_ARCH_X86, CS_MODE_32
+
+        from rebrew.asm import _run_hex_mode
+
+        cfg = _cfg(tmp_path, capstone_arch=CS_ARCH_X86, capstone_mode=CS_MODE_32)
+        (tmp_path / "fake.dll").write_bytes(b"MZ")
+        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
+        _run_hex_mode(0x1000, 100, cfg, False, True)  # requested 100, got 8
+        captured = capsys.readouterr()
+        payload = json.loads(captured.out)
+        assert payload["truncated"] is True
+        assert payload["requested_size"] == 100
+        assert payload["size"] == 8
+        assert "warning" in captured.err
