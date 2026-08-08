@@ -317,18 +317,20 @@ Structural transforms on compound boolean conditions.
 
 ### 20. MSVC6 Codegen Quirks (Phase 6)
 
-Targeted mutations for specific MSVC6 code generation behaviors: pragma-controlled
-optimization, De Morgan branch inversion, stack frame padding, loop rotation, and
-argument evaluation order.
+Targeted mutations for specific MSVC6 code generation behaviors: De Morgan branch
+inversion, stack frame padding, and argument evaluation order.
 
 | Mutation | Transform | MSVC6 Rationale |
 |----------|-----------|-----------------|
-| `mut_pragma_optimize` | Wrap function in `#pragma optimize("g", off/on)` | MSVC6 `/Og` (global optimization) flag controls register allocation globally; pragma lets you toggle it per-function, changing whether `ebp` is used as a general register |
-| `mut_pragma_optimize_remove` | Remove existing `#pragma optimize(...)` wrappers | Inverse — restore default optimization for the function |
-| `mut_invert_if_else` | `if (a == b) { X } else { Y }` → `if (a != b) { Y } else { X }` | De Morgan-aware: negates the condition and swaps bodies. Changes `je`/`jne` branch direction, affecting fall-through path and instruction cache behavior |
+| `mut_invert_if_else` | `if (a == b) { X } else { Y }` → `if (a != b) { Y } else { X }` | Negates the comparison operator and swaps bodies. Changes `je`/`jne` branch direction, affecting fall-through path and instruction cache behavior |
 | `mut_dummy_stack_vars` | Insert `volatile int __pad_N = 0;` at function top | Grows stack frame past MSVC6 alignment thresholds (4/8/12/16/20/24/32/48/64 bytes), changing prologue strategy between `push ecx`/`push edx` and `sub esp, N` |
-| `mut_loop_convert` | Unified while ↔ do-while-under-if ↔ for rotation | MSVC6 generates different loop headers: `while` tests at top (two jumps), `do-while` tests at bottom (one jump), `for` may inline the update. Loop rotation matches the original compiler's loop form |
-| `mut_extract_complex_args` | `F(g(x), a+b)` → `tmp1 = g(x); tmp2 = a+b; F(tmp1, tmp2);` | Extracting nested calls and complex expressions from function arguments changes C evaluation order, which MSVC6 respects strictly — affects which value is in which register at the `push` sequence |
+| `mut_extract_complex_args` | `F(g(x), a+b)` → `tmp1 = g(x); F(tmp1, a+b);` | Extracting nested calls and complex expressions from function arguments changes C evaluation order, which MSVC6 respects strictly — affects which value is in which register at the `push` sequence |
+
+> Note: `mut_pragma_optimize`/`mut_pragma_optimize_remove` and `mut_loop_convert`
+> were removed — `mutate_code` operates on the function body only (never the
+> preamble, so the pragma pair could not fire), and `mut_loop_convert` duplicated
+> `mut_while_to_dowhile`/`mut_for_to_while`/`mut_while_to_for` while its
+> do-while → while branch silently changed semantics.
 
 ---
 
