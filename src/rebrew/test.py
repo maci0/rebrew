@@ -46,7 +46,7 @@ from rebrew.compile import (
 )
 from rebrew.config import ProjectConfig
 from rebrew.core import build_name_to_va, smart_reloc_compare
-from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
+from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 from rebrew.metadata import update_source_status
 
 console = Console(stderr=True)
@@ -669,7 +669,8 @@ def _test_multi(
 
             target_bytes = extract_raw_bytes(cfg.target_binary, ann.va, ann.size)
             obj_path = objs[_effective_cflags(ann)]
-            obj_bytes, reloc_dict = parse_obj_symbol_bytes(obj_path, sym)
+            # Single LIEF parse for symbol bytes + typed relocs.
+            obj_bytes, reloc_dict, full_relocs = parse_obj_symbol_and_relocs(obj_path, sym)
 
             if obj_bytes is None:
                 if json_output:
@@ -686,7 +687,6 @@ def _test_multi(
                     console.print(f"[red]MISSING[/red] {sym} — not found in .obj")
                 continue
 
-            full_relocs = parse_obj_relocs_full(obj_path, sym)
             coff_relocs = full_relocs if full_relocs else reloc_dict
 
             # Size mismatch must be computed on the ORIGINAL lengths — truncating
