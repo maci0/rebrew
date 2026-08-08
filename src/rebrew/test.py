@@ -710,7 +710,8 @@ def _test_multi(
             va_hint = f"0x{ann.va:08x}" if getattr(ann, "va", None) else "<source>"
             msg = (
                 f"SIZE_MISMATCH: Size {len(obj_bytes)}B vs {len(target_bytes)}B "
-                f"- run 'rebrew diff {va_hint}' to see the byte differences"
+                f"({total - match_count} byte diffs in common prefix) — "
+                f"run 'rebrew diff {va_hint}' to see the byte differences"
                 if size_mismatch
                 else (
                     f"RELOC-NORM MATCH ({len(relocs)} relocs)"

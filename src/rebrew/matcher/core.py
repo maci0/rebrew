@@ -1,7 +1,7 @@
 """core.py – Data types and caching for the GA matching engine.
 
-Defines Score, BuildResult, BuildCache (disk-backed), and GACheckpoint
-for persisting GA state across runs.
+Defines Score, BuildResult, and BuildCache (disk-backed) for the GA
+matching engine.
 """
 
 from __future__ import annotations
