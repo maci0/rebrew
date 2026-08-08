@@ -655,6 +655,43 @@ int func_b(void) { return 1; }
         f.write_text("", encoding="utf-8")
         assert parse_c_file_multi(f) == []
 
+    def test_data_block_does_not_inherit_function_name(self, tmp_path: Path) -> None:
+        """A DATA block followed by extern decls and then a function definition
+        must NOT inherit the function's name via _C_FUNC_NAME extraction.
+
+        Regression: guild-rebrew Error.c — the DATA entry at 0x10027084
+        (g_log_format_table) got named 'DispatchLogOutput' from the following
+        function definition, corrupting symbol→VA resolution and making
+        REL32 validation fail (call DispatchLogOutput → NEAR_MATCHING instead
+        of RELOC)."""
+        from rebrew.annotation import parse_c_file_multi
+
+        f = tmp_path / "mixed.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x10002640\n"
+            "// DispatchLogOutput\n"
+            "\n"
+            "// DATA: SERVER 0x10027084\n"
+            "extern char g_log_format_table[];\n"
+            "\n"
+            "void __cdecl DispatchLogOutput(const char* msg, unsigned char flags, int level)\n"
+            "{\n"
+            "\treturn;\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        anns = parse_c_file_multi(f)
+        by_va = {a.va: a for a in anns}
+        assert 0x10002640 in by_va
+        assert by_va[0x10002640].name == "DispatchLogOutput"
+        assert by_va[0x10002640].marker_type == "FUNCTION"
+        # The DATA entry must keep its own identity, not the function's name.
+        assert 0x10027084 in by_va
+        data_ann = by_va[0x10027084]
+        assert data_ann.marker_type == "DATA"
+        assert data_ann.name == ""
+        assert data_ann.symbol == ""
+
 
 # ---------------------------------------------------------------------------
 # Shared helper tests
