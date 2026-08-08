@@ -412,13 +412,27 @@ def main(
     # unchanged when nothing matches, so the original error path is kept).
     from rebrew.cli import resolve_source_arg
 
+    va_arg = seed_c.strip().lower().startswith("0x")
+    original_arg = seed_c
     seed_c = str(resolve_source_arg(cfg, seed_c))
 
-    # Resolve build parameters via match module's shared resolver
+    # Resolve build parameters via match module's shared resolver.  When the
+    # argument was a bare VA, pass it through so resolve_build_params targets
+    # THAT annotation in a multi-function file — previously it fell back to
+    # the first annotation and diffed the wrong function (false match).
     from rebrew.match import resolve_build_params
 
     params = resolve_build_params(
-        cfg, seed_c, None, None, None, None, None, None, ignore_lint, json_output
+        cfg,
+        seed_c,
+        None,
+        None,
+        None,
+        None,
+        original_arg if va_arg else None,
+        None,
+        ignore_lint,
+        json_output,
     )
 
     if watch:

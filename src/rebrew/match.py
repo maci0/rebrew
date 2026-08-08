@@ -1305,7 +1305,16 @@ def resolve_build_params(
     annos = parse_c_file_multi(
         seed_c_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
     )
+    # Prefer the VA-matched annotation when a VA is given (diff/match/prove
+    # invoked as `rebrew diff 0x<va>` on a multi-function file must target
+    # THAT function — the old first-annotation fallback silently diffed a
+    # different function and reported a false match).
     anno = _select_annotation(annos, symbol)
+    if anno is None and target_va:
+        # target_va is validated by the parse below (line ~1389) before bytes
+        # are extracted, so it is safe to parse here for the VA match.
+        want_va = parse_va(target_va, json_mode=json_output)
+        anno = next((a for a in annos if a.va == want_va), None)
     if anno is None:
         anno = annos[0] if annos else None
     if anno:

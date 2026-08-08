@@ -51,6 +51,7 @@ from rebrew.cli import (
     error_exit,
     iter_sources,
     json_print,
+    parse_va,
     require_config,
     resolve_source_arg,
     target_marker,
@@ -1114,6 +1115,7 @@ def main(
 
     if source is None:
         error_exit("Either provide a source file or use --all", json_mode=json_output)
+    was_va_arg = source.strip().lower().startswith("0x")
     source_path = resolve_source_arg(cfg, source)
 
     if not source_path.exists():
@@ -1150,10 +1152,21 @@ def main(
         metadata_dir=cfg.metadata_dir,
     )
     ann = None
-    for a in annotations:
-        if a.status == "NEAR_MATCHING":
-            ann = a
-            break
+    if was_va_arg:
+        # `rebrew prove 0x<va>` on a multi-function file must target THAT
+        # function — the first-NEAR_MATCHING fallback would prove a different
+        # function's bytes (workflow bug fixed for diff/match).
+        try:
+            want_va = parse_va(source, json_mode=json_output)
+        except typer.Exit:
+            want_va = None
+        if want_va is not None:
+            ann = next((a for a in annotations if a.va == want_va), None)
+    if ann is None:
+        for a in annotations:
+            if a.status == "NEAR_MATCHING":
+                ann = a
+                break
     if ann is None and annotations:
         ann = annotations[0]  # fallback to first for error reporting
     if ann is None:
