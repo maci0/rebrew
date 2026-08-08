@@ -177,6 +177,23 @@ Behavior:
 
 ### `rebrew verify`
 
+```mermaid
+graph TD
+    Start[rebrew verify] --> Collect[collect annotated sources<br/>--full to bypass cache]
+    Collect --> Compile[compile each .c with its CFLAGS<br/>parallel -j N]
+    Compile --> Compare[byte-compare vs target<br/>reloc-aware · padding-tolerant]
+    Compare --> Classify{result}
+    Classify -->|EXACT / RELOC| Pass[pass · STATUS promoted]
+    Classify -->|NEAR_MATCHING| NM[near-match · STATUS kept]
+    Classify -->|MISMATCH / COMPILE_ERROR| Fail[fail · STATUS demoted]
+    Pass --> Report[aggregate report<br/>--json · -o db/verify_results.json]
+    NM --> Report
+    Fail --> Report
+    Report -->|--compare| Gate{regression vs last run?}
+    Gate -->|yes| CI[exit 1 — CI gate]
+    Gate -->|no| OK[exit 0]
+```
+
 | Flag | Description |
 |------|-------------|
 | `--compare` | Compare against last saved `db/verify_results.json`, detect regressions/improvements; exit code 1 on regression |
@@ -586,6 +603,21 @@ rebrew sync --pull-data                            # Fetch data labels into rebr
 
 End-to-end correctness check: splice every EXACT/RELOC function's freshly
 compiled bytes back into a copy of the target PE and verify byte equality.
+
+```mermaid
+graph TD
+    Start[rebrew round-trip] --> Enumerate[enumerate EXACT/RELOC functions<br/>--filter SUBSTR]
+    Enumerate --> Compile[compile each function]
+    Compile --> Extract[extract .text + relocs + strings<br/>resolve \$SG / ??_C@ / \$L labels]
+    Extract --> Resolve[resolve symbol → VA<br/>catalog → fallbacks → name-encoded]
+    Resolve --> Apply{reloc resolution ok?}
+    Apply -->|no| Skip[skipped_catalog — informational]
+    Apply -->|yes| Splice[splice patched bytes at file offset]
+    Splice --> Verify{patched == original?}
+    Verify -->|yes| Done[counted spliced · SHA preserved]
+    Verify -->|no| Drift[catalog_resolution_drift / compile_drift — exit 1]
+    Done --> Report[report + write &lt;binary&gt;.reasm<br/>--strict-catalog fails on any gap]
+```
 
 ```bash
 rebrew round-trip                       # splice + write reasm + exit 1 on mismatch

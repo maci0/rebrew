@@ -5,6 +5,23 @@
 > For the full CLI flag reference see [CLI.md](CLI.md#rebrew-sync).
 > For the product vision and future roadmap see [prd/07-ghidra-sync.md](prd/07-ghidra-sync.md).
 
+```mermaid
+graph TD
+    Sync[rebrew sync] --> Push[Push local → Ghidra]
+    Push -->|--export| Json[labels / comments / bookmarks → JSON]
+    Json -->|--apply| MCP[apply via ReVa MCP<br/>--push = export + apply]
+    Push -->|--sync-sizes · --sync-structs<br/>--sync-signatures · --sync-data| DTM[push sizes / structs / sigs / data]
+    Sync --> Pull[Pull Ghidra → local]
+    Pull -->|--pull| Renames[pull renames + pre/post comments<br/>DATA/GLOBAL name+note → rebrew-data.toml]
+    Pull -->|--pull-structs · --pull-datatypes<br/>--pull-signatures · --pull-comments| Headers[types.h · enums_types.h<br/>PROTOTYPE / ANALYSIS → rebrew-function.toml]
+    Pull -->|--pull-data| GlobalsH[rebrew_globals.h]
+    Renames --> Conflict{conflict?}
+    Conflict -->|yes| Decide[--accept-ghidra / --accept-local]
+    Decide --> Update[update metadata]
+    Conflict -->|no| Update
+    Update --> Summary[--summary / --dry-run preview]
+```
+
 ## Feature Matrix
 
 | Feature | Direction | Status | Command |

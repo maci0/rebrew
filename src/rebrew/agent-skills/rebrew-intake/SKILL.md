@@ -4,6 +4,20 @@ description: Onboards a new binary into an existing rebrew project. Runs initial
 license: MIT
 ---
 
+```mermaid
+graph TD
+    Doctor{Doctor passes?<br/>rebrew doctor} -->|fail| Fix[Repair from doctor report<br/>rebrew init --install-wibo]
+    Fix --> Doctor
+    Doctor -->|pass| Flirt[FLIRT library scan<br/>rebrew cfg detect-crt --write<br/>rebrew flirt --json]
+    Flirt --> CrtMatch[Annotate library sources<br/>rebrew crt-match --all --fix-source]
+    CrtMatch --> Catalog[Build function catalog<br/>rebrew catalog --data-json<br/>--export-ghidra-labels]
+    Catalog --> BuildDb[Build coverage DB<br/>rebrew build-db]
+    BuildDb --> Triage[Initial triage<br/>rebrew status --json / rebrew todo --json]
+    Triage --> CuMap[Infer compilation units<br/>rebrew graph --cu-map]
+    CuMap --> Skeleton[Generate first skeletons<br/>rebrew skeleton --batch 10]
+    Skeleton --> Dashboard[Dashboard handoff<br/>rebrew dashboard]
+```
+
 # Rebrew Intake
 
 Onboard a new binary into a rebrew project and produce an initial assessment.

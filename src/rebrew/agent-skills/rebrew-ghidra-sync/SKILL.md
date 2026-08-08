@@ -4,6 +4,21 @@ description: Synchronizes annotations, labels, structs, and comments between loc
 license: MIT
 ---
 
+```mermaid
+graph TD
+    Doctor{Doctor passes?<br/>rebrew doctor} -->|fail| Fix[Fix health check<br/>per doctor report]
+    Fix --> Doctor
+    Doctor -->|pass| Summary[Preview outgoing<br/>rebrew sync --summary]
+    Summary --> Push[Push to Ghidra<br/>rebrew sync --push / --export / --apply<br/>--sync-sizes / --sync-new-functions]
+    Push -->|ops failed| Reapply[Fix connection, re-apply<br/>rebrew sync --apply]
+    Reapply --> Pull
+    Push -->|applied| Pull[Pull from Ghidra<br/>rebrew sync --pull --dry-run first]
+    Pull -->|conflict| Resolve{Resolve conflicts?<br/>--accept-ghidra / --accept-local}
+    Resolve -->|accept-ghidra| Pull
+    Resolve -->|accept-local| Pull
+    Pull -->|updated / skipped| Special[Specialized pulls<br/>--pull-signatures / --pull-structs<br/>--pull-datatypes / --pull-comments / --pull-data]
+```
+
 # Rebrew Ghidra Sync
 
 Synchronize annotations and symbols between rebrew source files and a running Ghidra instance via ReVa MCP (default backend) or the ghidra-cli binary backend.
