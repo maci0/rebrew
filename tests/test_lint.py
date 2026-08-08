@@ -742,3 +742,56 @@ class TestW020AsmDump:
         body = "// __asm notes about the original\nint f(void) { return 0; }\n"
         result = self._lint(tmp_path, body)
         assert not any(c == "W020" for _, c, _ in result.warnings)
+
+
+class TestW021W022:
+    """Duplicate-global (W021) and zero-init .bss (W022) checks."""
+
+    def test_duplicate_global_across_files(self, tmp_path: Path) -> None:
+        from rebrew.lint import lint_file
+
+        def _write(name: str, symbol: str, va: int) -> Path:
+            content = f"// DATA: SERVER 0x{va:08x}\nextern int {symbol};\n"
+            f = _write_c(tmp_path, name, content)
+            return f
+
+        f1 = _write("one.c", "g_counter", 0x10001000)
+        seen: dict[str, str] = {}
+        r1 = lint_file(f1, seen_globals=seen)
+        assert not any(c == "W021" for _, c, _ in r1.warnings)
+
+        f2 = _write("two.c", "g_counter", 0x10002000)
+        r2 = lint_file(f2, seen_globals=seen)
+        assert any(c == "W021" for _, c, _ in r2.warnings)
+        msg = next(m for _, c, m in r2.warnings if c == "W021")
+        assert "g_counter" in msg
+
+    def test_unique_globals_no_warning(self, tmp_path: Path) -> None:
+        from rebrew.lint import lint_file
+
+        seen: dict[str, str] = {}
+        for i, name in enumerate(("g_a", "g_b", "g_c")):
+            f = _write_c(
+                tmp_path, f"f{i}.c", f"// DATA: SERVER 0x1000{i:03x}\nextern int {name};\n"
+            )
+            r = lint_file(f, seen_globals=seen)
+            assert not any(c == "W021" for _, c, _ in r.warnings)
+
+    def test_zero_init_global_warns(self, tmp_path: Path) -> None:
+        from rebrew.lint import lint_file
+
+        content = "// FUNCTION: SERVER 0x1000\nint g_buf[256] = {0};\nvoid f(void) {}\n"
+        f = _write_c(tmp_path, "z.c", content)
+        result = lint_file(f)
+        assert any(c == "W022" for _, c, _ in result.warnings)
+
+    def test_zero_init_inside_function_no_warning(self, tmp_path: Path) -> None:
+        from rebrew.lint import lint_file
+
+        content = (
+            "// FUNCTION: SERVER 0x1000\n"
+            "void f(void) {\n    int local[4] = {0};\n    (void)local;\n}\n"
+        )
+        f = _write_c(tmp_path, "l.c", content)
+        result = lint_file(f)
+        assert not any(c == "W022" for _, c, _ in result.warnings)

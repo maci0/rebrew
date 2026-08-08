@@ -353,6 +353,77 @@ def _check_W020_asm_dump(result: LintResult, lines: list[str]) -> None:
             return
 
 
+_ZERO_INIT_RE = re.compile(
+    r"^\s*(?:extern\s+|static\s+)?(?:unsigned\s+|signed\s+|const\s+)?"
+    r"[A-Za-z_][\w\s\*]*?\s+[A-Za-z_]\w*\s*(?:\[[^\]]*\])?\s*=\s*\{?\s*0\s*\}?\s*;"
+)
+
+_GLOBAL_NAME_RE = re.compile(r"\b([A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)?[;=]")
+
+
+def _check_W021_duplicate_globals(
+    result: LintResult,
+    lines: list[str],
+    filepath: Path,
+    seen_globals: dict[str, str] | None,
+) -> None:
+    """Warn when a DATA/GLOBAL symbol name is annotated in multiple files.
+
+    Catches the np-rebrew pattern where ``globals.c`` and another source both
+    annotate/define the same global (g_ vs DAT_ collisions, duplicate
+    definitions).  ``seen_globals`` maps name → filepath, threaded across the
+    batch like ``seen_vas``.
+    """
+    if seen_globals is None:
+        return
+    pending = False
+    for i, line in enumerate(lines, start=1):
+        s = line.strip()
+        if s.startswith("// DATA:") or s.startswith("// GLOBAL:"):
+            pending = True
+            continue
+        if not pending:
+            continue
+        if not s or s.startswith("//") or s.startswith("/*"):
+            continue  # comment/blank lines inside the block
+        pending = False
+        m = _GLOBAL_NAME_RE.search(s)
+        if m:
+            name = m.group(1)
+            prev = seen_globals.get(name)
+            if prev is not None and prev != str(filepath):
+                result.warning(
+                    i,
+                    "W021",
+                    f"global '{name}' is also annotated in {prev} — duplicate "
+                    "definition or naming collision",
+                )
+            else:
+                seen_globals[name] = str(filepath)
+
+
+def _check_W022_zero_init_bss(result: LintResult, lines: list[str]) -> None:
+    """Flag file-scope zero initializers (W022).
+
+    A file-scope ``= {0}`` / ``= 0`` forces the global into ``.data``
+    (initialized) instead of ``.bss`` (uninitialized, virtual-only) — this
+    is exactly the np-rebrew .data bloat (41K of zero-init arrays).  Leave
+    the global uninitialized for .bss.
+    """
+    depth = 0
+    for i, line in enumerate(lines, start=1):
+        depth += line.count("{") - line.count("}")
+        s = line.strip()
+        if depth == 0 and _ZERO_INIT_RE.match(s):
+            result.warning(
+                i,
+                "W022",
+                "file-scope zero initializer (= {0} / = 0) puts the global in "
+                ".data, not .bss — leave it uninitialized to keep the PE small",
+            )
+            return
+
+
 def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> None:
     """Check struct SIZE comments and code presence (W003, W007)."""
     has_code = False
@@ -395,6 +466,7 @@ def lint_file(
     filepath: Path,
     cfg: ProjectConfig | None = None,
     seen_vas: dict[int, str] | None = None,
+    seen_globals: dict[str, str] | None = None,
     preloaded_metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
     preloaded_data_metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
 ) -> LintResult:
@@ -405,6 +477,8 @@ def lint_file(
         cfg: Optional ProjectConfig for config-aware checks.
         seen_vas: Optional dict mapping VA → filename for duplicate detection.
                   Will be mutated (VAs from this file are added).
+        seen_globals: Optional dict mapping global symbol name → filename for
+                      W021 duplicate-global detection. Will be mutated.
         preloaded_metadata: Pre-loaded metadata dict (avoids per-file I/O in batch).
         preloaded_data_metadata: Pre-loaded data metadata dict (avoids per-file I/O in batch).
 
@@ -549,6 +623,8 @@ def lint_file(
 
     result.context_prefix = ""
     _check_W020_asm_dump(result, lines)
+    _check_W021_duplicate_globals(result, lines, filepath, seen_globals)
+    _check_W022_zero_init_bss(result, lines)
     _check_body_rules(result, lines, all_headers[0][1]["has_new"] if all_headers else False)
 
     return result
@@ -602,6 +678,8 @@ app = typer.Typer(
         "  W018   Missing CFLAGS with no config fallback\n\n"
         "  W019   Inline metadata key (STATUS, SIZE, etc.) should be in rebrew-function.toml\n\n"
         "  W020   Asm-dump placeholder (__emit / __asm block) instead of real C source\n\n"
+        "  W021   Duplicate global symbol annotated in multiple files\n\n"
+        "  W022   File-scope zero initializer (= {0}) forces the global into .data, not .bss\n\n"
         "[dim]Checks for reccmp-style markers in each .c file.[/dim]"
     ),
 )
@@ -646,8 +724,9 @@ def main(
     else:
         c_files = sorted(Path.cwd().rglob(f"*{ext}"))
 
-    # Cross-file duplicate VA tracking
+    # Cross-file duplicate tracking: VAs (E013) and global names (W021).
     seen_vas: dict[int, str] = {}
+    seen_globals: dict[str, str] = {}
 
     # Pre-load metadata once for the whole batch (avoids per-file I/O).
     _preloaded_metadata: dict[tuple[str, int], dict[str, Any]] | None = None
@@ -668,6 +747,7 @@ def main(
             cfile,
             cfg=cfg,
             seen_vas=seen_vas,
+            seen_globals=seen_globals,
             preloaded_metadata=_preloaded_metadata,
             preloaded_data_metadata=_preloaded_data_metadata,
         )
