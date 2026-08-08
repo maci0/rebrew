@@ -617,16 +617,23 @@ def _test_multi(
     Compiles the file once, then extracts and compares each annotated
     symbol independently.
     """
-    # Use cflags from first annotation as compile flags (all should share the same)
-    cflags_str = cflags_override or annotations[0].cflags or "/O2 /Gd"
-    cflags_parts = cflags_str.split()
+
+    # Per-function cflags can differ in a multi-function file (metadata
+    # overrides) — compiling once with the FIRST annotation's flags silently
+    # mis-compiled the others (false statuses + wrong promotions).  Group by
+    # effective cflags and compile once per group.
+    def _effective_cflags(ann: Annotation) -> str:
+        return cflags_override or ann.cflags or "/O2 /Gd"
 
     results_list: list[dict[str, Any]] = []
 
     with tempfile.TemporaryDirectory(prefix="test_multi_") as workdir:
-        obj_path, err = compile_to_obj(cfg, source, cflags_parts, workdir)
-        if obj_path is None:
-            error_exit(f"COMPILE ERROR:\n{err}", json_mode=json_output)
+        objs: dict[str, Any] = {}
+        for cf in {_effective_cflags(a) for a in annotations}:
+            obj_path, err = compile_to_obj(cfg, source, cf.split(), workdir)
+            if obj_path is None:
+                error_exit(f"COMPILE ERROR (cflags {cf}):\n{err}", json_mode=json_output)
+            objs[cf] = obj_path
 
         for ann in annotations:
             sym = ann.symbol
@@ -661,6 +668,7 @@ def _test_multi(
                 continue
 
             target_bytes = extract_raw_bytes(cfg.target_binary, ann.va, ann.size)
+            obj_path = objs[_effective_cflags(ann)]
             obj_bytes, reloc_dict = parse_obj_symbol_bytes(obj_path, sym)
 
             if obj_bytes is None:

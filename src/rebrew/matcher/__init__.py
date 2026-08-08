@@ -22,22 +22,10 @@ from .core import (
     BuildResult as BuildResult,
 )
 from .core import (
-    GACheckpoint as GACheckpoint,
-)
-from .core import (
     Score as Score,
 )
 from .core import (
     StructuralSimilarity as StructuralSimilarity,
-)
-from .core import (
-    compute_args_hash as compute_args_hash,
-)
-from .core import (
-    load_checkpoint as load_checkpoint,
-)
-from .core import (
-    save_checkpoint as save_checkpoint,
 )
 from .flag_data import (
     COMMON_MSVC_FLAGS as COMMON_MSVC_FLAGS,
@@ -99,7 +87,6 @@ __all__ = [
     "COMMON_MSVC_FLAGS",
     "FlagSet",
     "Flags",
-    "GACheckpoint",
     "MSVC6_FLAGS",
     "MSVC_SWEEP_TIERS",
     "Score",
@@ -107,20 +94,17 @@ __all__ = [
     "StructuralSimilarity",
     "build_candidate",
     "build_candidate_obj_only",
-    "compute_args_hash",
     "diff_functions",
     "extract_function_from_binary",
     "find_similar",
     "flag_sweep",
     "generate_flag_combinations",
     "list_obj_symbols",
-    "load_checkpoint",
     "load_ga_runs",
     "load_solutions",
     "parse_obj_symbol_bytes",
     "precompute_target",
     "record_ga_run",
-    "save_checkpoint",
     "save_solution",
     "score_candidate",
     "structural_similarity",

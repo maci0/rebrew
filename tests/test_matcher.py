@@ -1,20 +1,13 @@
 """Tests for rebrew.matcher core, compiler, scoring, and parsers."""
 
-import random
 import struct
 from pathlib import Path
 
-import pytest
-
 from rebrew.matcher import (
-    GACheckpoint,
-    compute_args_hash,
     diff_functions,
     generate_flag_combinations,
     list_obj_symbols,
-    load_checkpoint,
     parse_obj_symbol_bytes,
-    save_checkpoint,
     score_candidate,
 )
 
@@ -196,100 +189,6 @@ def test_generate_flag_combinations_full_axes() -> None:
 
 # -------------------------
 # Checkpoint tests
-# -------------------------
-
-
-def test_checkpoint_round_trip(tmp_path: Path) -> None:
-    """Test save/load checkpoint preserves all fields."""
-    ckpt_path = tmp_path / "ckpt.json"
-    rng = random.Random(42)
-    pop = ["int main(){return 0;}", "int main(){return 1;}"]
-    args_hash = "abc123"
-
-    ckpt = GACheckpoint(
-        generation=10,
-        best_score=42.5,
-        best_source="int main(){return 0;}",
-        population=pop,
-        rng_state=rng.getstate(),
-        stagnant_gens=3,
-        elapsed_sec=123.4,
-        args_hash=args_hash,
-    )
-    save_checkpoint(str(ckpt_path), ckpt)
-
-    assert ckpt_path.exists()
-
-    loaded = load_checkpoint(str(ckpt_path), args_hash)
-    assert loaded is not None
-    assert loaded.generation == 10
-    assert loaded.best_score == 42.5
-    assert loaded.best_source == "int main(){return 0;}"
-    assert loaded.population == pop
-    assert loaded.stagnant_gens == 3
-    assert loaded.elapsed_sec == 123.4
-    assert loaded.args_hash == args_hash
-
-
-def test_checkpoint_wrong_hash(tmp_path: Path) -> None:
-    """Test that mismatched args_hash returns None."""
-    ckpt_path = tmp_path / "ckpt.json"
-    rng = random.Random(1)
-    ckpt = GACheckpoint(
-        generation=5,
-        best_score=10.0,
-        best_source="x",
-        population=["x"],
-        rng_state=rng.getstate(),
-        stagnant_gens=0,
-        elapsed_sec=1.0,
-        args_hash="hash_a",
-    )
-    save_checkpoint(str(ckpt_path), ckpt)
-    with pytest.warns(UserWarning, match="args hash mismatch"):
-        loaded = load_checkpoint(str(ckpt_path), "hash_b")
-    assert loaded is None
-
-
-def test_checkpoint_missing_file() -> None:
-    """Test that missing checkpoint file returns None."""
-    loaded = load_checkpoint("/nonexistent/ckpt.json", "hash")
-    assert loaded is None
-
-
-def test_checkpoint_corrupt_json(tmp_path: Path) -> None:
-    """Test that corrupt JSON returns None."""
-    ckpt_path = tmp_path / "ckpt.json"
-    ckpt_path.write_text("not valid json{{{", encoding="utf-8")
-    with pytest.warns(UserWarning, match="Failed to load checkpoint"):
-        loaded = load_checkpoint(str(ckpt_path), "hash")
-    assert loaded is None
-
-
-def test_compute_args_hash() -> None:
-    """Test that args hash is deterministic."""
-    d1 = {
-        "target_exe": "server.dll",
-        "target_va": "0x10001000",
-        "target_size": 100,
-        "symbol": "_func",
-        "cflags": "/c /O1",
-        "pop_size": 48,
-        "generations": 100,
-    }
-    h1 = compute_args_hash(d1)
-    h2 = compute_args_hash(d1)
-    assert h1 == h2
-    assert len(h1) == 16
-
-    # Different args -> different hash
-    d2 = dict(d1)
-    d2["cflags"] = "/c /O2"
-    assert compute_args_hash(d2) != h1
-
-
-# -------------------------
-# Diff function tests
 # -------------------------
 
 

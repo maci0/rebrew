@@ -72,10 +72,14 @@ def build_symbol_resolver(
 
 
 def build_name_to_va(cfg: ProjectConfig) -> dict[str, int]:
-    """Build a symbol-name → VA map from data annotations + scanned globals.
+    """Build a symbol-name → VA map from globals AND the function catalog.
 
     Shared by ``rebrew test`` and ``rebrew verify`` so both paths apply the
-    same DIR32 absolute-address checks.  Returns ``{}`` if the scan fails.
+    same DIR32 absolute-address and REL32 callee checks.  Includes exported
+    symbols, annotated functions, scanned globals, and data metadata —
+    without the function half, REL32 callee validation would miss every call
+    target and mask wrong-function calls as valid RELOC.  Returns ``{}`` if
+    the scan fails.
     """
     name_to_va: dict[str, int] = {}
     try:
@@ -100,6 +104,20 @@ def build_name_to_va(cfg: ProjectConfig) -> dict[str, int]:
             name = entry.get("name", "")
             if isinstance(name, str) and name and isinstance(va, int):
                 name_to_va[name] = va
+
+        # Function catalog: exported symbols + annotated function names.  The
+        # REL32 callee validation needs them — a data-only map misses every
+        # call target, masking wrong-function calls as valid RELOC.
+        for va, name in (getattr(cfg, "dll_exports", None) or {}).items():
+            if isinstance(name, str) and name and isinstance(va, int):
+                name_to_va[name] = va
+        from rebrew.annotation import parse_c_file_multi
+        from rebrew.cli import iter_sources
+
+        for path in iter_sources(cfg.reversed_dir, cfg):
+            for ann in parse_c_file_multi(path):
+                if ann.name and ann.va:
+                    name_to_va[ann.name] = ann.va
     except (ImportError, OSError, ValueError, KeyError, AttributeError):
         return {}
     return name_to_va
