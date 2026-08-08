@@ -294,11 +294,11 @@ def score_candidate(
             total_diffed += max(i2 - i1, j2 - j1)
 
     total_insns = max(len(target_mnems), len(cand_mnems), 1)
-    # Scale by instruction coverage to prevent small candidates gaming ratio
-    if len(target_mnems) > 0:
-        coverage = min(len(cand_mnems), len(target_mnems)) / len(target_mnems)
-    else:
-        coverage = 1.0
+    # NOTE: no coverage multiplier here.  total_diffed already counts every
+    # missing target instruction (the delete opcode adds max(i2-i1, j2-j1)),
+    # so shortfall is penalized directly.  Multiplying by coverage
+    # min(cand,target)/len(target) made a short candidate's ratio *smaller*
+    # (better) — the opposite of the intended penalty.
 
     # Continuity bonus: reward long matching runs
     continuity_bonus = (
@@ -307,7 +307,7 @@ def score_candidate(
         else 0.0
     )
 
-    mnemonic_score = ((total_diffed / total_insns) * coverage) * 100.0 - continuity_bonus
+    mnemonic_score = (total_diffed / total_insns) * 100.0 - continuity_bonus
     mnemonic_score = max(0.0, mnemonic_score)  # floor at 0
 
     # 4. Prologue bonus
