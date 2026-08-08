@@ -111,6 +111,18 @@ class TestCheckDbVersion:
                 "INSERT INTO metadata VALUES ('db_version', ?)",
                 (json.dumps(version),),
             )
+            # The shape check (round-4) verifies required objects exist, not
+            # just the version stamp — a version-matched DB must carry them.
+            for name in (
+                "sections",
+                "cells",
+                "functions",
+                "globals",
+                "verify_results",
+                "history",
+            ):
+                conn.execute(f"CREATE TABLE {name} (id INTEGER)")
+            conn.execute("CREATE VIEW section_cell_stats AS SELECT 1 AS x")
         conn.commit()
         conn.close()
         return db

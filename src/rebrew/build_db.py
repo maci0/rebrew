@@ -122,6 +122,15 @@ def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool =
         # Metadata table missing — treat as incompatible
         stored_version = "<missing>"
 
+    if stored_version == _CURRENT_DB_VERSION:
+        # The version string alone is not proof of shape: a DB stamped "4" can
+        # be missing required objects (history table, section_cell_stats view)
+        # and pass the gate, then 500 at query time.  Verify the objects the
+        # version promises exist.
+        missing = _missing_required_objects(db_path)
+        if missing:
+            stored_version = f"{stored_version!r} (missing: {', '.join(sorted(missing))})"
+
     if stored_version != _CURRENT_DB_VERSION:
         if not force:
             error_exit(
@@ -135,6 +144,34 @@ def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool =
             f"required={_CURRENT_DB_VERSION!r}); deleting '{db_path}' and rebuilding (--force)."
         )
         db_path.unlink()
+
+
+def _missing_required_objects(db_path: Path) -> set[str]:
+    """Return the names of schema objects a current-version DB must have but
+    *db_path* lacks (empty when the schema is complete).  The version stamp
+    alone is not proof of shape — a hand-made or half-written DB can carry
+    the right stamp and still miss tables/views."""
+    required = {
+        "metadata",
+        "sections",
+        "cells",
+        "functions",
+        "globals",
+        "verify_results",
+        "history",
+        "section_cell_stats",  # view
+    }
+    try:
+        with contextlib.closing(sqlite3.connect(db_path, timeout=_SQLITE_TIMEOUT_SECONDS)) as conn:
+            c = conn.cursor()
+            c.execute(
+                "SELECT type, name FROM sqlite_master"
+                " WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'"
+            )
+            present = {row[1] for row in c.fetchall()}
+    except sqlite3.Error:
+        return set(required)
+    return required - present
 
 
 def build_db(
