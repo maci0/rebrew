@@ -697,26 +697,24 @@ def check_optional_tools(cfg: ProjectConfig) -> CheckResult:
     ``rebrew prove`` needs both; a half-installed pair (angr without claripy,
     or claripy without angr) crashes at runtime with a confusing traceback.
     """
+    from rebrew.cli import angr_available
+
+    has_angr = angr_available()
+    claripy_available = False
     import contextlib
 
-    angr_available = False
-    with contextlib.suppress(ImportError):
-        import angr  # noqa: F401
-
-        angr_available = True
-    claripy_available = False
     with contextlib.suppress(ImportError):
         import claripy  # noqa: F401
 
         claripy_available = True
 
-    if angr_available and claripy_available:
+    if has_angr and claripy_available:
         return CheckResult(
             name="Optional tools",
             status=_PASS,
             message="angr + claripy available (for 'rebrew prove')",
         )
-    if angr_available:
+    if has_angr:
         return CheckResult(
             name="Optional tools",
             status=_WARN,

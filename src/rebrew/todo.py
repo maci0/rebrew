@@ -399,14 +399,12 @@ def _collect_prover_candidates(
     verify_entries: dict[str, Any],
 ) -> list[TodoItem]:
     """Collect functions suitable for symbolic equivalence proving."""
-    # Check if angr is importable
-    angr_available = False
-    with contextlib.suppress(ImportError):
-        import angr  # noqa: F401
+    # Check if angr is importable (without angr's import-time log spam).
+    from rebrew.cli import angr_available
 
-        angr_available = True
+    has_angr = angr_available()
 
-    if not angr_available:
+    if not has_angr:
         return []
 
     items: list[TodoItem] = []
