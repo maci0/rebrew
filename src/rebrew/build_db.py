@@ -175,7 +175,13 @@ def _missing_required_objects(db_path: Path) -> set[str]:
     """Return the names of schema objects a current-version DB must have but
     *db_path* lacks (empty when the schema is complete).  The version stamp
     alone is not proof of shape — a hand-made or half-written DB can carry
-    the right stamp and still miss tables/views."""
+    the right stamp and still miss tables/views.
+
+    Checks object names AND the query-critical columns: a DB stamped "4"
+    whose ``functions`` table lacks ``textOffset``/``similarity`` (or whose
+    ``section_cell_stats`` view is stale) passes a name-only gate and then
+    500s at query time.  Missing columns are reported as ``table.column``.
+    """
     required = {
         "metadata",
         "sections",
@@ -186,6 +192,67 @@ def _missing_required_objects(db_path: Path) -> set[str]:
         "history",
         "section_cell_stats",  # view
     }
+    # Columns the recoverage queries depend on; a DB missing any of these
+    # fails at runtime despite a correct version stamp.
+    required_columns: dict[str, set[str]] = {
+        "metadata": {"target", "key", "value"},
+        "sections": {"target", "name", "va", "size", "fileOffset", "unitBytes", "columns"},
+        "cells": {
+            "target",
+            "section_name",
+            "start",
+            "end",
+            "span",
+            "state",
+            "functions",
+            "label",
+            "parent_function",
+        },
+        "functions": {
+            "target",
+            "va",
+            "name",
+            "vaStart",
+            "size",
+            "fileOffset",
+            "status",
+            "module",
+            "cflags",
+            "symbol",
+            "markerType",
+            "ghidra_name",
+            "list_name",
+            "is_thunk",
+            "is_export",
+            "sha256",
+            "files",
+            "detected_by",
+            "size_by_tool",
+            "textOffset",
+            "blocker",
+            "blockerDelta",
+            "size_reason",
+            "similarity",
+        },
+        "globals": {"target", "va", "name", "decl", "files", "module", "size"},
+        "verify_results": {"target", "va", "verified_at", "byte_delta", "diff_lines"},
+        "history": {"id", "target", "va", "old_status", "new_status", "changed_at"},
+        "section_cell_stats": {
+            "target",
+            "section_name",
+            "total_cells",
+            "exact_count",
+            "reloc_count",
+            "near_match_count",
+            "stub_count",
+            "padding_count",
+            "data_count",
+            "thunk_count",
+            "none_count",
+            "proven_count",
+            "size_mismatch_count",
+        },
+    }
     try:
         with contextlib.closing(sqlite3.connect(db_path, timeout=_SQLITE_TIMEOUT_SECONDS)) as conn:
             c = conn.cursor()
@@ -194,9 +261,22 @@ def _missing_required_objects(db_path: Path) -> set[str]:
                 " WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'"
             )
             present = {row[1] for row in c.fetchall()}
+            missing = required - present
+            if missing:
+                return missing
+            # Object names present — verify the query-critical columns.
+            for obj, cols in required_columns.items():
+                try:
+                    c.execute(f"PRAGMA table_info({obj})")
+                    actual = {row[1] for row in c.fetchall()}
+                except sqlite3.Error:
+                    missing.add(obj)
+                    continue
+                for col in cols - actual:
+                    missing.add(f"{obj}.{col}")
+            return missing
     except sqlite3.Error:
         return set(required)
-    return required - present
 
 
 def build_db(
