@@ -127,6 +127,11 @@ _CFLAGS_GLUED_RE = re.compile(r"^/\w+/\w+")
 _TEMPLATE_STRIP_RE = re.compile(r"<[^<>]*>")
 
 
+# Process-lifetime memo for metadata-free parses (see parse_c_file_multi).
+_PARSE_MEMO: dict[tuple[str, int, int], list[Annotation]] = {}
+_PARSE_MEMO_MAX = 512
+
+
 @functools.lru_cache(maxsize=64)
 def _compile_key_pattern(key: str) -> re.Pattern[str]:
     """Return a compiled regex for matching an annotation key line."""
@@ -1012,7 +1017,41 @@ def parse_c_file_multi(
     except OSError:
         return []
 
-    lines = text.splitlines()
+    # Metadata-free parses are deterministic per file content — memoize
+    # them for the process lifetime so repeated scans (verify's
+    # prepare_entries + build_name_to_va, test --all) don't parse the same
+    # source tree twice.  The metadata overlay (metadata_dir) is applied
+    # per call and never memoized (it can change independently of source).
+    if metadata_dir is None and base_dir is None:
+        try:
+            st = filepath.stat()
+            key = (str(filepath), st.st_mtime_ns, st.st_size)
+        except OSError:
+            key = None
+        if key is not None:
+            cached = _PARSE_MEMO.get(key)
+            if cached is not None:
+                return cached
+        result = _parse_c_file_text(text, filepath, target_name, base_dir, metadata_dir)
+        if key is not None:
+            if len(_PARSE_MEMO) >= _PARSE_MEMO_MAX:
+                _PARSE_MEMO.clear()
+            _PARSE_MEMO[key] = result
+        return result
+    return _parse_c_file_text(text, filepath, target_name, base_dir, metadata_dir)
+
+
+def _parse_c_file_text(
+    text: str,
+    filepath: Path,
+    target_name: str | None,
+    base_dir: Path | None,
+    metadata_dir: Path | None,
+) -> list[Annotation]:
+    try:
+        lines = text.splitlines()
+    except Exception:  # noqa: BLE001 — degenerate input
+        return []
     if not lines:
         return []
 

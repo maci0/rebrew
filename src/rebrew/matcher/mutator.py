@@ -11,6 +11,7 @@ instead of just str.  Returns original source unchanged if all attempts fail.
 
 import random
 import re
+import threading
 from collections.abc import Callable
 from typing import Any, Literal, overload
 
@@ -55,10 +56,71 @@ def _first_caps(capture_dict: dict[str, list[ts.Node]]) -> dict[str, ts.Node]:
     return {k: v[0] for k, v in capture_dict.items()}
 
 
+class _LazyQuery:
+    """Defer tree-sitter query compilation until first use.
+
+    This GA-only module defines ~98 queries; compiling them at import cost
+    ~50ms of EVERY CLI invocation (status/todo/cfg/--help never use them).
+    """
+
+    __slots__ = ("_lang", "_source", "_query")
+
+    def __init__(self, lang: ts.Language, source: str) -> None:
+        self._lang = lang
+        self._source = source
+        self._query: ts.Query | None = None
+
+    def _get(self) -> Any:
+        """Return the compiled query, compiling on first use.
+
+        Typed ``Any`` because the tree-sitter type stubs do not declare
+        ``captures``/``matches``/``capture_names`` on ``Query`` even though
+        they exist at runtime.
+        """
+        if self._query is None:
+            self._query = ts.Query(self._lang, self._source)
+        return self._query
+
+    def captures(self, *args: object, **kwargs: object) -> Any:
+        return self._get().captures(*args, **kwargs)
+
+    def matches(self, *args: object, **kwargs: object) -> Any:
+        return self._get().matches(*args, **kwargs)
+
+    def capture_names(self) -> list[str]:
+        names: Any = getattr(self._get(), "capture_names", lambda: [])()
+        return list(names) if names is not None else []
+
+
+# Optional scope limiting GA mutations to the target function's byte range.
+# The GA sets this once per run; every mutation query then only matches
+# inside the function, which is the only code that gets scored — querying
+# the whole multi-function file (e.g. a 79KB seed) cost ~270x more per
+# mutation and churned sibling functions whose bytes are never compared.
+_target_range = threading.local()
+
+
+def set_target_range(start: int | None, end: int | None) -> None:
+    """Restrict mutation queries to bytes [start, end) of the source (None clears)."""
+    _target_range.range = (start, end) if start is not None and end is not None else None
+
+
+def _cursor(query: ts.Query | _LazyQuery) -> ts.QueryCursor:
+    """QueryCursor over a (possibly lazy) query — unwraps _LazyQuery."""
+    if isinstance(query, _LazyQuery):
+        query = query._get()
+    assert isinstance(query, ts.Query)
+    cursor = ts.QueryCursor(query)
+    rng = getattr(_target_range, "range", None)
+    if rng is not None:
+        cursor.set_byte_range(*rng)
+    return cursor
+
+
 # --- Query Definitions ---
 # We define tree-sitter queries here for performance
 
-_QUERY_EQ_ZERO = ts.Query(
+_QUERY_EQ_ZERO = _LazyQuery(
     _C_LANGUAGE,
     """
     (binary_expression
@@ -69,7 +131,7 @@ _QUERY_EQ_ZERO = ts.Query(
 """,
 )
 
-_QUERY_FLIP_LT_GE = ts.Query(
+_QUERY_FLIP_LT_GE = _LazyQuery(
     _C_LANGUAGE,
     """
     (binary_expression
@@ -79,14 +141,14 @@ _QUERY_FLIP_LT_GE = ts.Query(
 """,
 )
 
-_QUERY_IDENTIFIER = ts.Query(
+_QUERY_IDENTIFIER = _LazyQuery(
     _C_LANGUAGE,
     """
     (identifier) @expr
 """,
 )
 
-_QUERY_SWAP_EQ = ts.Query(
+_QUERY_SWAP_EQ = _LazyQuery(
     _C_LANGUAGE,
     """
     (binary_expression
@@ -96,7 +158,7 @@ _QUERY_SWAP_EQ = ts.Query(
 """,
 )
 
-_QUERY_SWAP_NE = ts.Query(
+_QUERY_SWAP_NE = _LazyQuery(
     _C_LANGUAGE,
     """
     (binary_expression
@@ -106,7 +168,7 @@ _QUERY_SWAP_NE = ts.Query(
 """,
 )
 
-_QUERY_REASSOCIATE = ts.Query(
+_QUERY_REASSOCIATE = _LazyQuery(
     _C_LANGUAGE,
     """
     (binary_expression
@@ -116,7 +178,7 @@ _QUERY_REASSOCIATE = ts.Query(
 """,
 )
 
-_QUERY_SWAP_OR = ts.Query(
+_QUERY_SWAP_OR = _LazyQuery(
     _C_LANGUAGE,
     """
     (binary_expression
@@ -126,7 +188,7 @@ _QUERY_SWAP_OR = ts.Query(
 """,
 )
 
-_QUERY_SWAP_AND = ts.Query(
+_QUERY_SWAP_AND = _LazyQuery(
     _C_LANGUAGE,
     """
     (binary_expression
@@ -136,7 +198,7 @@ _QUERY_SWAP_AND = ts.Query(
 """,
 )
 
-_QUERY_DOUBLE_NOT = ts.Query(
+_QUERY_DOUBLE_NOT = _LazyQuery(
     _C_LANGUAGE,
     """
     (unary_expression
@@ -147,7 +209,7 @@ _QUERY_DOUBLE_NOT = ts.Query(
 """,
 )
 
-_QUERY_GOTO_RET_FALSE = ts.Query(
+_QUERY_GOTO_RET_FALSE = _LazyQuery(
     _C_LANGUAGE,
     """
     (goto_statement
@@ -156,7 +218,7 @@ _QUERY_GOTO_RET_FALSE = ts.Query(
 """,
 )
 
-_QUERY_IF_ELSE = ts.Query(
+_QUERY_IF_ELSE = _LazyQuery(
     _C_LANGUAGE,
     """
     (if_statement
@@ -166,7 +228,7 @@ _QUERY_IF_ELSE = ts.Query(
 """,
 )
 
-_QUERY_RHS_IDENT = ts.Query(
+_QUERY_RHS_IDENT = _LazyQuery(
     _C_LANGUAGE,
     """
     [
@@ -178,7 +240,7 @@ _QUERY_RHS_IDENT = ts.Query(
 """,
 )
 
-_QUERY_REMOVE_CAST = ts.Query(
+_QUERY_REMOVE_CAST = _LazyQuery(
     _C_LANGUAGE,
     """
     (cast_expression
@@ -188,14 +250,14 @@ _QUERY_REMOVE_CAST = ts.Query(
 """,
 )
 
-_QUERY_DECLARATION = ts.Query(
+_QUERY_DECLARATION = _LazyQuery(
     _C_LANGUAGE,
     """
     (declaration) @expr
 """,
 )
 
-_QUERY_IF_FALSE_BITAND = ts.Query(
+_QUERY_IF_FALSE_BITAND = _LazyQuery(
     _C_LANGUAGE,
     """
     [
@@ -210,7 +272,7 @@ _QUERY_IF_FALSE_BITAND = ts.Query(
 """,
 )
 
-_QUERY_ELSE_IF = ts.Query(
+_QUERY_ELSE_IF = _LazyQuery(
     _C_LANGUAGE,
     """
     (if_statement
@@ -227,7 +289,7 @@ _QUERY_ELSE_IF = ts.Query(
 """,
 )
 
-_QUERY_BITAND = ts.Query(
+_QUERY_BITAND = _LazyQuery(
     _C_LANGUAGE,
     """
     (expression_statement
@@ -236,7 +298,7 @@ _QUERY_BITAND = ts.Query(
 """,
 )
 
-_QUERY_CALL_ASSIGN = ts.Query(
+_QUERY_CALL_ASSIGN = _LazyQuery(
     _C_LANGUAGE,
     """
     (expression_statement
@@ -245,7 +307,7 @@ _QUERY_CALL_ASSIGN = ts.Query(
 """,
 )
 
-_QUERY_TEMP_VAR = ts.Query(
+_QUERY_TEMP_VAR = _LazyQuery(
     _C_LANGUAGE,
     """
     (compound_statement
@@ -256,7 +318,7 @@ _QUERY_TEMP_VAR = ts.Query(
 """,
 )
 
-_QUERY_ADJACENT_DECL = ts.Query(
+_QUERY_ADJACENT_DECL = _LazyQuery(
     _C_LANGUAGE,
     """
     (compound_statement
@@ -267,7 +329,7 @@ _QUERY_ADJACENT_DECL = ts.Query(
 """,
 )
 
-_QUERY_SPLIT_DECL = ts.Query(
+_QUERY_SPLIT_DECL = _LazyQuery(
     _C_LANGUAGE,
     """
     (declaration
@@ -280,7 +342,7 @@ _QUERY_SPLIT_DECL = ts.Query(
 """,
 )
 
-_QUERY_MERGE_DECL = ts.Query(
+_QUERY_MERGE_DECL = _LazyQuery(
     _C_LANGUAGE,
     """
     (compound_statement
@@ -291,7 +353,7 @@ _QUERY_MERGE_DECL = ts.Query(
 """,
 )
 
-_QUERY_WHILE = ts.Query(
+_QUERY_WHILE = _LazyQuery(
     _C_LANGUAGE,
     """
     (while_statement
@@ -301,7 +363,7 @@ _QUERY_WHILE = ts.Query(
 """,
 )
 
-_QUERY_DO_WHILE = ts.Query(
+_QUERY_DO_WHILE = _LazyQuery(
     _C_LANGUAGE,
     """
     (do_statement
@@ -311,7 +373,7 @@ _QUERY_DO_WHILE = ts.Query(
 """,
 )
 
-_QUERY_EARLY_RETURN = ts.Query(
+_QUERY_EARLY_RETURN = _LazyQuery(
     _C_LANGUAGE,
     """
     (if_statement
@@ -324,7 +386,7 @@ _QUERY_EARLY_RETURN = ts.Query(
 """,
 )
 
-_QUERY_ACCUM = ts.Query(
+_QUERY_ACCUM = _LazyQuery(
     _C_LANGUAGE,
     """
     (expression_statement
@@ -333,14 +395,14 @@ _QUERY_ACCUM = ts.Query(
 """,
 )
 
-_QUERY_INT_PARAM = ts.Query(
+_QUERY_INT_PARAM = _LazyQuery(
     _C_LANGUAGE,
     """
     (parameter_declaration type: (primitive_type) @type declarator: (identifier) @var (#eq? @type "int")) @expr
 """,
 )
 
-_QUERY_CONST_ADD_FOLD = ts.Query(
+_QUERY_CONST_ADD_FOLD = _LazyQuery(
     _C_LANGUAGE,
     """
     (compound_statement
@@ -351,7 +413,7 @@ _QUERY_CONST_ADD_FOLD = ts.Query(
 """,
 )
 
-_QUERY_CONST_ADD_UNFOLD = ts.Query(
+_QUERY_CONST_ADD_UNFOLD = _LazyQuery(
     _C_LANGUAGE,
     """
     (expression_statement
@@ -360,35 +422,35 @@ _QUERY_CONST_ADD_UNFOLD = ts.Query(
 """,
 )
 
-_QUERY_ARRAY_INDEX = ts.Query(
+_QUERY_ARRAY_INDEX = _LazyQuery(
     _C_LANGUAGE,
     """
     (subscript_expression argument: (_) @arr index: (_) @idx) @expr
 """,
 )
 
-_QUERY_PTR_ARROW = ts.Query(
+_QUERY_PTR_ARROW = _LazyQuery(
     _C_LANGUAGE,
     """
     (field_expression argument: (_) @ptr "->" field: (field_identifier) @field) @expr
 """,
 )
 
-_QUERY_RETURN_TYPE = ts.Query(
+_QUERY_RETURN_TYPE = _LazyQuery(
     _C_LANGUAGE,
     """
     (function_definition type: (primitive_type) @expr declarator: (_))
 """,
 )
 
-_QUERY_PTR_PARAM = ts.Query(
+_QUERY_PTR_PARAM = _LazyQuery(
     _C_LANGUAGE,
     """
     (parameter_declaration type: (primitive_type) @type declarator: (pointer_declarator declarator: (identifier) @var)) @stmt
 """,
 )
 
-_QUERY_NESTED_IF_P3 = ts.Query(
+_QUERY_NESTED_IF_P3 = _LazyQuery(
     _C_LANGUAGE,
     """
     (if_statement
@@ -401,7 +463,7 @@ _QUERY_NESTED_IF_P3 = ts.Query(
 )
 
 
-_QUERY_COMBINE_PTR_ARITH = ts.Query(
+_QUERY_COMBINE_PTR_ARITH = _LazyQuery(
     _C_LANGUAGE,
     """
     (compound_statement
@@ -414,7 +476,7 @@ _QUERY_COMBINE_PTR_ARITH = ts.Query(
 """,
 )
 
-_QUERY_SPLIT_PTR_ARITH = ts.Query(
+_QUERY_SPLIT_PTR_ARITH = _LazyQuery(
     _C_LANGUAGE,
     """
     (expression_statement (assignment_expression left: (identifier) @v1 right: (binary_expression left: (identifier) @v2 operator: "+" right: (number_literal) @n1))) @stmt
@@ -422,28 +484,28 @@ _QUERY_SPLIT_PTR_ARITH = ts.Query(
 """,
 )
 
-_QUERY_PARAM_ORDER = ts.Query(
+_QUERY_PARAM_ORDER = _LazyQuery(
     _C_LANGUAGE,
     """
     (function_definition declarator: (function_declarator parameters: (parameter_list) @expr))
 """,
 )
 
-_QUERY_CALL_CONV = ts.Query(
+_QUERY_CALL_CONV = _LazyQuery(
     _C_LANGUAGE,
     """
     (function_definition (ms_call_modifier) @expr)
 """,
 )
 
-_QUERY_NO_CALL_CONV = ts.Query(
+_QUERY_NO_CALL_CONV = _LazyQuery(
     _C_LANGUAGE,
     """
     (function_definition type: (_) @type declarator: (function_declarator declarator: (identifier) @name)) @stmt
 """,
 )
 
-_QUERY_SIZED_CHAR_TYPE = ts.Query(
+_QUERY_SIZED_CHAR_TYPE = _LazyQuery(
     _C_LANGUAGE,
     """
     (sized_type_specifier
@@ -452,7 +514,7 @@ _QUERY_SIZED_CHAR_TYPE = ts.Query(
 """,
 )
 
-_QUERY_BARE_CHAR_TYPE = ts.Query(
+_QUERY_BARE_CHAR_TYPE = _LazyQuery(
     _C_LANGUAGE,
     """
     (primitive_type) @expr
@@ -460,7 +522,7 @@ _QUERY_BARE_CHAR_TYPE = ts.Query(
 """,
 )
 
-_QUERY_CMP_BOUNDARY = ts.Query(
+_QUERY_CMP_BOUNDARY = _LazyQuery(
     _C_LANGUAGE,
     """
     (binary_expression left: (_) @left operator: [">" ">=" "<" "<="] @op right: (number_literal) @num) @expr
@@ -468,7 +530,7 @@ _QUERY_CMP_BOUNDARY = ts.Query(
 )
 
 # Note: Tree-sitter might see some macros or types differently.
-_QUERY_RETURN_FALSE = ts.Query(
+_QUERY_RETURN_FALSE = _LazyQuery(
     _C_LANGUAGE,
     """
     (return_statement
@@ -482,7 +544,7 @@ _QUERY_RETURN_FALSE = ts.Query(
 # Queries for structural/code-layout mutations (formerly regex-only)
 # ---------------------------------------------------------------------------
 
-_QUERY_FOR_LOOP = ts.Query(
+_QUERY_FOR_LOOP = _LazyQuery(
     _C_LANGUAGE,
     """
     (for_statement
@@ -494,7 +556,7 @@ _QUERY_FOR_LOOP = ts.Query(
 """,
 )
 
-_QUERY_IF_ASSIGN_ELSE = ts.Query(
+_QUERY_IF_ASSIGN_ELSE = _LazyQuery(
     _C_LANGUAGE,
     """
     (if_statement
@@ -511,7 +573,7 @@ _QUERY_IF_ASSIGN_ELSE = ts.Query(
 """,
 )
 
-_QUERY_TERNARY = ts.Query(
+_QUERY_TERNARY = _LazyQuery(
     _C_LANGUAGE,
     """
     (expression_statement
@@ -527,7 +589,7 @@ _QUERY_TERNARY = ts.Query(
 """,
 )
 
-_QUERY_ADJACENT_EXPR_STMTS = ts.Query(
+_QUERY_ADJACENT_EXPR_STMTS = _LazyQuery(
     _C_LANGUAGE,
     """
     (compound_statement
@@ -538,7 +600,7 @@ _QUERY_ADJACENT_EXPR_STMTS = ts.Query(
 """,
 )
 
-_QUERY_COMPOUND_ASSIGN = ts.Query(
+_QUERY_COMPOUND_ASSIGN = _LazyQuery(
     _C_LANGUAGE,
     """
     (expression_statement
@@ -551,7 +613,7 @@ _QUERY_COMPOUND_ASSIGN = ts.Query(
 """,
 )
 
-_QUERY_EXPANDED_COMPOUND = ts.Query(
+_QUERY_EXPANDED_COMPOUND = _LazyQuery(
     _C_LANGUAGE,
     """
     (expression_statement
@@ -568,7 +630,7 @@ _QUERY_EXPANDED_COMPOUND = ts.Query(
 """,
 )
 
-_QUERY_DEMORGAN_NOT_AND = ts.Query(
+_QUERY_DEMORGAN_NOT_AND = _LazyQuery(
     _C_LANGUAGE,
     """
     (unary_expression
@@ -584,7 +646,7 @@ _QUERY_DEMORGAN_NOT_AND = ts.Query(
 """,
 )
 
-_QUERY_DEMORGAN_NOT_OR = ts.Query(
+_QUERY_DEMORGAN_NOT_OR = _LazyQuery(
     _C_LANGUAGE,
     """
     (unary_expression
@@ -600,21 +662,21 @@ _QUERY_DEMORGAN_NOT_OR = ts.Query(
 """,
 )
 
-_QUERY_POST_INCREMENT = ts.Query(
+_QUERY_POST_INCREMENT = _LazyQuery(
     _C_LANGUAGE,
     """
     (update_expression argument: (identifier) @var operator: "++") @expr
 """,
 )
 
-_QUERY_POST_DECREMENT = ts.Query(
+_QUERY_POST_DECREMENT = _LazyQuery(
     _C_LANGUAGE,
     """
     (update_expression argument: (identifier) @var operator: "--") @expr
 """,
 )
 
-_QUERY_ASSIGN_ZERO = ts.Query(
+_QUERY_ASSIGN_ZERO = _LazyQuery(
     _C_LANGUAGE,
     """
     (expression_statement
@@ -628,7 +690,7 @@ _QUERY_ASSIGN_ZERO = ts.Query(
 """,
 )
 
-_QUERY_XOR_SELF = ts.Query(
+_QUERY_XOR_SELF = _LazyQuery(
     _C_LANGUAGE,
     """
     (expression_statement
@@ -642,7 +704,7 @@ _QUERY_XOR_SELF = ts.Query(
 """,
 )
 
-_QUERY_FOR_COUNT_UP = ts.Query(
+_QUERY_FOR_COUNT_UP = _LazyQuery(
     _C_LANGUAGE,
     """
     (for_statement
@@ -667,7 +729,7 @@ _QUERY_FOR_COUNT_UP = ts.Query(
 """,
 )
 
-_QUERY_IF_BODY_RETURN = ts.Query(
+_QUERY_IF_BODY_RETURN = _LazyQuery(
     _C_LANGUAGE,
     """
     (if_statement
@@ -707,13 +769,15 @@ def _find_function_body_insert_pos(source: bytes, ref_byte: int) -> int | None:
 
 def _apply_query_once(
     source: bytes,
-    query: ts.Query,
+    query: ts.Query | _LazyQuery,
     repl: Callable[[dict[str, ts.Node]], bytes],
     rng: random.Random,
 ) -> bytes | None:
     """Apply an AST query and replace one matched occurrence."""
     tree = parse_c_ast(source)
-    cursor = ts.QueryCursor(query)
+    if isinstance(query, _LazyQuery):
+        query = query._get()
+    cursor = _cursor(query)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
@@ -837,7 +901,11 @@ def mut_return_to_goto(s: str, rng: random.Random) -> str | None:
 
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_RETURN_FALSE)
+    cursor = _cursor(
+        _QUERY_RETURN_FALSE._get()
+        if isinstance(_QUERY_RETURN_FALSE, _LazyQuery)
+        else _QUERY_RETURN_FALSE
+    )
     matches = cursor.matches(tree.root_node)
 
     if not matches:
@@ -856,7 +924,11 @@ def mut_return_to_goto(s: str, rng: random.Random) -> str | None:
     # before an arbitrary later `return 1;` (wrong value on the error path).
     label_pos = None
     tree2 = parse_c_ast(result)
-    cursor2 = ts.QueryCursor(_QUERY_RETURN_FALSE)
+    cursor2 = _cursor(
+        _QUERY_RETURN_FALSE._get()
+        if isinstance(_QUERY_RETURN_FALSE, _LazyQuery)
+        else _QUERY_RETURN_FALSE
+    )
     for m2 in cursor2.matches(tree2.root_node):
         caps2 = _first_caps(m2[1])
         node = caps2["expr"]
@@ -1121,7 +1193,7 @@ def mut_introduce_temp_for_call(s: str, rng: random.Random) -> str | None:
     """
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_CALL_ASSIGN)
+    cursor = _cursor(_QUERY_CALL_ASSIGN)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
@@ -1165,7 +1237,7 @@ def mut_introduce_temp_for_call(s: str, rng: random.Random) -> str | None:
 def mut_remove_temp_var(s: str, rng: random.Random) -> str | None:
     """Remove a temp variable usage: 'tmp = expr; var = tmp;' -> 'var = expr;'."""
     b_source = s.encode("utf-8")
-    cursor = ts.QueryCursor(_QUERY_TEMP_VAR)
+    cursor = _cursor(_QUERY_TEMP_VAR)
 
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -1209,7 +1281,7 @@ def mut_toggle_signedness(s: str, rng: random.Random) -> str | None:
 def mut_swap_adjacent_declarations(s: str, rng: random.Random) -> str | None:
     """Swap two adjacent variable declarations."""
     b_source = s.encode("utf-8")
-    cursor = ts.QueryCursor(_QUERY_ADJACENT_DECL)
+    cursor = _cursor(_QUERY_ADJACENT_DECL)
 
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -1250,7 +1322,7 @@ def mut_split_declaration_init(s: str, rng: random.Random) -> str | None:
 def mut_merge_declaration_init(s: str, rng: random.Random) -> str | None:
     """Merge 'TYPE var; ... var = expr;' into 'TYPE var = expr;'."""
     b_source = s.encode("utf-8")
-    cursor = ts.QueryCursor(_QUERY_MERGE_DECL)
+    cursor = _cursor(_QUERY_MERGE_DECL)
 
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -1382,7 +1454,7 @@ def mut_duplicate_loop_body(s: str, rng: random.Random) -> str | None:
 def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
     """Fold two consecutive constant additions into a single statement."""
     b_source = s.encode("utf-8")
-    cursor = ts.QueryCursor(_QUERY_CONST_ADD_FOLD)
+    cursor = _cursor(_QUERY_CONST_ADD_FOLD)
 
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -1419,7 +1491,7 @@ def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
 def mut_unfold_constant_add(s: str, rng: random.Random) -> str | None:
     """Expand a constant addition into repeated increment-by-one statements."""
     b_source = s.encode("utf-8")
-    cursor = ts.QueryCursor(_QUERY_CONST_ADD_UNFOLD)
+    cursor = _cursor(_QUERY_CONST_ADD_UNFOLD)
 
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -1493,7 +1565,7 @@ def mut_change_return_type(s: str, rng: random.Random) -> str | None:
 def mut_combine_ptr_arith(s: str, rng: random.Random) -> str | None:
     """Combine two consecutive pointer arithmetic additions into one."""
     b_source = s.encode("utf-8")
-    cursor = ts.QueryCursor(_QUERY_COMBINE_PTR_ARITH)
+    cursor = _cursor(_QUERY_COMBINE_PTR_ARITH)
 
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -1527,7 +1599,7 @@ def mut_combine_ptr_arith(s: str, rng: random.Random) -> str | None:
 def mut_split_ptr_arith(s: str, rng: random.Random) -> str | None:
     """Split a single pointer addition into two smaller additions."""
     b_source = s.encode("utf-8")
-    cursor = ts.QueryCursor(_QUERY_SPLIT_PTR_ARITH)
+    cursor = _cursor(_QUERY_SPLIT_PTR_ARITH)
 
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -1669,11 +1741,11 @@ def mut_insert_noop_block(s: str, rng: random.Random) -> str | None:
 
     tree = parse_c_ast(b_source)
     # Find all statements inside compound_statements
-    q = ts.Query(
+    q = _LazyQuery(
         _C_LANGUAGE,
         """(compound_statement [(expression_statement) (declaration) (return_statement)] @stmt)""",
     )
-    cursor = ts.QueryCursor(q)
+    cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
     if not matches:
         return None
@@ -1690,11 +1762,11 @@ def mut_introduce_local_alias(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
-    q = ts.Query(
+    q = _LazyQuery(
         _C_LANGUAGE,
         """(expression_statement (assignment_expression right: (identifier) @var)) @stmt""",
     )
-    cursor = ts.QueryCursor(q)
+    cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
     if not matches:
         return None
@@ -1721,13 +1793,13 @@ def mut_reorder_declarations(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
-    q = ts.Query(
+    q = _LazyQuery(
         _C_LANGUAGE,
         """
         (compound_statement (declaration) @d1 (declaration) @d2)
     """,
     )
-    cursor = ts.QueryCursor(q)
+    cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
     if not matches:
         return None
@@ -1843,7 +1915,7 @@ def mut_extract_else_body(s: str, rng: random.Random) -> str | None:
     Changes:  if (c) { A } else { B }  ->  if (!(c)) { B; return 0; } A
     """
     b_source = s.encode("utf-8")
-    cursor = ts.QueryCursor(_QUERY_IF_BODY_RETURN)
+    cursor = _cursor(_QUERY_IF_BODY_RETURN)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
@@ -1877,7 +1949,7 @@ def mut_for_to_while(s: str, rng: random.Random) -> str | None:
     Changes:  for (i=0; i<n; i++) { body }  ->  i=0; while (i<n) { body i++; }
     """
     b_source = s.encode("utf-8")
-    cursor = ts.QueryCursor(_QUERY_FOR_LOOP)
+    cursor = _cursor(_QUERY_FOR_LOOP)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
@@ -1942,7 +2014,7 @@ def mut_if_to_ternary(s: str, rng: random.Random) -> str | None:
     Changes:  if (c) x = a; else x = b;  ->  x = (c) ? a : b;
     """
     b_source = s.encode("utf-8")
-    cursor = ts.QueryCursor(_QUERY_IF_ASSIGN_ELSE)
+    cursor = _cursor(_QUERY_IF_ASSIGN_ELSE)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
@@ -1978,7 +2050,7 @@ def mut_ternary_to_if(s: str, rng: random.Random) -> str | None:
     Changes:  x = c ? a : b;  ->  if (c) x = a; else x = b;
     """
     b_source = s.encode("utf-8")
-    cursor = ts.QueryCursor(_QUERY_TERNARY)
+    cursor = _cursor(_QUERY_TERNARY)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
@@ -2021,8 +2093,8 @@ def mut_hoist_return(s: str, rng: random.Random) -> str | None:
         return None
 
     tree = parse_c_ast(b_source)
-    q = ts.Query(_C_LANGUAGE, "(return_statement (_) @val) @stmt")
-    cursor = ts.QueryCursor(q)
+    q = _LazyQuery(_C_LANGUAGE, "(return_statement (_) @val) @stmt")
+    cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
@@ -2104,7 +2176,7 @@ def mut_sink_return(s: str, rng: random.Random) -> str | None:
 def mut_swap_adjacent_stmts(s: str, rng: random.Random) -> str | None:
     """Swap two adjacent non-dependent assignment statements."""
     b_source = s.encode("utf-8")
-    cursor = ts.QueryCursor(_QUERY_ADJACENT_EXPR_STMTS)
+    cursor = _cursor(_QUERY_ADJACENT_EXPR_STMTS)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
@@ -2188,7 +2260,7 @@ def mut_guard_clause(s: str, rng: random.Random) -> str | None:
 def mut_invert_loop_direction(s: str, rng: random.Random) -> str | None:
     """Reverse loop iteration: for(i=0;i<n;i++) -> for(i=n-1;i>=0;i--)."""
     b_source = s.encode("utf-8")
-    cursor = ts.QueryCursor(_QUERY_FOR_COUNT_UP)
+    cursor = _cursor(_QUERY_FOR_COUNT_UP)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
@@ -2214,12 +2286,12 @@ def mut_compound_assign_toggle(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
 
     # Try expanding compound (x += n -> x = x + n)
-    expand_cursor = ts.QueryCursor(_QUERY_COMPOUND_ASSIGN)
+    expand_cursor = _cursor(_QUERY_COMPOUND_ASSIGN)
     tree = parse_c_ast(b_source)
     expand_matches = [(m, "expand") for m in expand_cursor.matches(tree.root_node)]
 
     # Try shortening expanded (x = x + n -> x += n)
-    short_cursor = ts.QueryCursor(_QUERY_EXPANDED_COMPOUND)
+    short_cursor = _cursor(_QUERY_EXPANDED_COMPOUND)
     short_matches = []
     for m in short_cursor.matches(tree.root_node):
         caps = _first_caps(m[1])
@@ -2267,10 +2339,10 @@ def mut_demorgan(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
 
-    and_cursor = ts.QueryCursor(_QUERY_DEMORGAN_NOT_AND)
+    and_cursor = _cursor(_QUERY_DEMORGAN_NOT_AND)
     and_matches = [(m, "and") for m in and_cursor.matches(tree.root_node)]
 
-    or_cursor = ts.QueryCursor(_QUERY_DEMORGAN_NOT_OR)
+    or_cursor = _cursor(_QUERY_DEMORGAN_NOT_OR)
     or_matches = [(m, "or") for m in or_cursor.matches(tree.root_node)]
 
     all_matches = and_matches + or_matches
@@ -2301,7 +2373,7 @@ def mut_postpre_increment(s: str, rng: random.Random) -> str | None:
     candidates: list[tuple[dict[str, ts.Node], bytes]] = []
 
     for q in [_QUERY_POST_INCREMENT, _QUERY_POST_DECREMENT]:
-        cursor = ts.QueryCursor(q)
+        cursor = _cursor(q)
         for m in cursor.matches(tree.root_node):
             caps = _first_caps(m[1])
             expr_node = caps["expr"]
@@ -2333,7 +2405,7 @@ def mut_xor_zero_toggle(s: str, rng: random.Random) -> str | None:
 
     candidates: list[tuple[dict[str, ts.Node], bytes, str]] = []
 
-    zero_cursor = ts.QueryCursor(_QUERY_ASSIGN_ZERO)
+    zero_cursor = _cursor(_QUERY_ASSIGN_ZERO)
     for m in zero_cursor.matches(tree.root_node):
         caps = _first_caps(m[1])
         # Skip if inside a for-loop initializer
@@ -2345,7 +2417,7 @@ def mut_xor_zero_toggle(s: str, rng: random.Random) -> str | None:
             continue
         candidates.append((caps, var + b" ^= " + var + b";", "expr"))
 
-    xor_cursor = ts.QueryCursor(_QUERY_XOR_SELF)
+    xor_cursor = _cursor(_QUERY_XOR_SELF)
     for m in xor_cursor.matches(tree.root_node):
         caps = _first_caps(m[1])
         var = b_source[caps["var"].start_byte : caps["var"].end_byte]
@@ -2365,8 +2437,8 @@ def mut_negate_condition(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
 
-    q = ts.Query(_C_LANGUAGE, "(if_statement condition: (parenthesized_expression) @cond) @stmt")
-    cursor = ts.QueryCursor(q)
+    q = _LazyQuery(_C_LANGUAGE, "(if_statement condition: (parenthesized_expression) @cond) @stmt")
+    cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
@@ -2394,13 +2466,13 @@ def mut_negate_condition(s: str, rng: random.Random) -> str | None:
 # MSVC6-targeted structural mutations (2026-03 batch)
 # ---------------------------------------------------------------------------
 
-_QUERY_IF_STMT = ts.Query(_C_LANGUAGE, "(if_statement) @if_stmt")
+_QUERY_IF_STMT = _LazyQuery(_C_LANGUAGE, "(if_statement) @if_stmt")
 
 # --- Queries for new mutations ---
 
 _QUERY_SUBSCRIPT_EXPR = _QUERY_ARRAY_INDEX
 
-_QUERY_BIN_COND_IF = ts.Query(
+_QUERY_BIN_COND_IF = _LazyQuery(
     _C_LANGUAGE,
     """
     (if_statement
@@ -2411,7 +2483,7 @@ _QUERY_BIN_COND_IF = ts.Query(
 """,
 )
 
-_QUERY_WHILE_LOOP = ts.Query(
+_QUERY_WHILE_LOOP = _LazyQuery(
     _C_LANGUAGE,
     """
     (while_statement
@@ -2420,7 +2492,7 @@ _QUERY_WHILE_LOOP = ts.Query(
 """,
 )
 
-_QUERY_DEREF_PTR_ADD = ts.Query(
+_QUERY_DEREF_PTR_ADD = _LazyQuery(
     _C_LANGUAGE,
     """
     (pointer_expression
@@ -2432,7 +2504,7 @@ _QUERY_DEREF_PTR_ADD = ts.Query(
 """,
 )
 
-_QUERY_SUBSCRIPT_SCALED = ts.Query(
+_QUERY_SUBSCRIPT_SCALED = _LazyQuery(
     _C_LANGUAGE,
     """
     (subscript_expression
@@ -2442,7 +2514,7 @@ _QUERY_SUBSCRIPT_SCALED = ts.Query(
 """,
 )
 
-_QUERY_BYTE_TYPE_DECL = ts.Query(
+_QUERY_BYTE_TYPE_DECL = _LazyQuery(
     _C_LANGUAGE,
     """
     (declaration
@@ -2456,7 +2528,7 @@ _QUERY_BYTE_TYPE_DECL = ts.Query(
 """,
 )
 
-_QUERY_BYTE_CAST = ts.Query(
+_QUERY_BYTE_CAST = _LazyQuery(
     _C_LANGUAGE,
     """
     (cast_expression
@@ -2467,7 +2539,7 @@ _QUERY_BYTE_CAST = ts.Query(
 """,
 )
 
-_QUERY_REGISTER_DECL = ts.Query(
+_QUERY_REGISTER_DECL = _LazyQuery(
     _C_LANGUAGE,
     """
     (declaration
@@ -2494,7 +2566,7 @@ def mut_while_to_goto_loop(s: str, rng: random.Random) -> str | None:
               ;
     """
     b_source = s.encode("utf-8")
-    cursor = ts.QueryCursor(_QUERY_WHILE_LOOP)
+    cursor = _cursor(_QUERY_WHILE_LOOP)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
@@ -2563,8 +2635,8 @@ def mut_inject_dummy_var(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
 
     # Find function body compound statements
-    q = ts.Query(_C_LANGUAGE, "(function_definition body: (compound_statement) @body)")
-    cursor = ts.QueryCursor(q)
+    q = _LazyQuery(_C_LANGUAGE, "(function_definition body: (compound_statement) @body)")
+    cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
@@ -2594,8 +2666,8 @@ def mut_inject_dummy_array(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
 
-    q = ts.Query(_C_LANGUAGE, "(function_definition body: (compound_statement) @body)")
-    cursor = ts.QueryCursor(q)
+    q = _LazyQuery(_C_LANGUAGE, "(function_definition body: (compound_statement) @body)")
+    cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
@@ -2627,7 +2699,7 @@ def mut_scope_variable(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
 
     # Find declarations inside the function body (top-level compound_statement)
-    q = ts.Query(
+    q = _LazyQuery(
         _C_LANGUAGE,
         """
         (function_definition body: (compound_statement
@@ -2637,7 +2709,7 @@ def mut_scope_variable(s: str, rng: random.Random) -> str | None:
         ))
     """,
     )
-    cursor = ts.QueryCursor(q)
+    cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
@@ -2710,7 +2782,7 @@ def mut_decouple_index_math(s: str, rng: random.Random) -> str | None:
     """
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_SUBSCRIPT_SCALED)
+    cursor = _cursor(_QUERY_SUBSCRIPT_SCALED)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
@@ -2758,7 +2830,7 @@ def mut_preinit_byte_load(s: str, rng: random.Random) -> str | None:
     MSVC6 emits xor eax, eax + mov al, [mem] instead of movzx.
     """
     b_source = s.encode("utf-8")
-    cursor = ts.QueryCursor(_QUERY_BYTE_TYPE_DECL)
+    cursor = _cursor(_QUERY_BYTE_TYPE_DECL)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
@@ -2824,8 +2896,8 @@ def mut_swap_register_keywords(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
 
     # Find ALL declarations
-    q_all = ts.Query(_C_LANGUAGE, "(declaration) @decl")
-    cursor_all = ts.QueryCursor(q_all)
+    q_all = _LazyQuery(_C_LANGUAGE, "(declaration) @decl")
+    cursor_all = _cursor(q_all)
     all_decls = cursor_all.matches(tree.root_node)
 
     if len(all_decls) < 2:
@@ -2904,7 +2976,7 @@ def mut_add_volatile_intermediate(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
 
-    q = ts.Query(
+    q = _LazyQuery(
         _C_LANGUAGE,
         """
         (expression_statement
@@ -2916,7 +2988,7 @@ def mut_add_volatile_intermediate(s: str, rng: random.Random) -> str | None:
         ) @stmt
     """,
     )
-    cursor = ts.QueryCursor(q)
+    cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
@@ -2961,7 +3033,7 @@ def mut_reorder_register_vars(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
 
-    cursor = ts.QueryCursor(_QUERY_REGISTER_DECL)
+    cursor = _cursor(_QUERY_REGISTER_DECL)
     matches = cursor.matches(tree.root_node)
 
     # Collect all register declarations
@@ -2990,7 +3062,7 @@ def mut_reorder_register_vars(s: str, rng: random.Random) -> str | None:
 # Switch statement mutations (MSVC6 comparison chain codegen)
 # ---------------------------------------------------------------------------
 
-_QUERY_SWITCH_STMT = ts.Query(
+_QUERY_SWITCH_STMT = _LazyQuery(
     _C_LANGUAGE,
     """
     (switch_statement
@@ -3009,7 +3081,7 @@ def mut_reorder_switch_cases(s: str, rng: random.Random) -> str | None:
     """
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_SWITCH_STMT)
+    cursor = _cursor(_QUERY_SWITCH_STMT)
     matches = cursor.matches(tree.root_node)
     if not matches:
         return None
@@ -3057,7 +3129,7 @@ def mut_switch_to_if_chain(s: str, rng: random.Random) -> str | None:
     """
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_SWITCH_STMT)
+    cursor = _cursor(_QUERY_SWITCH_STMT)
     matches = cursor.matches(tree.root_node)
     if not matches:
         return None
@@ -3155,7 +3227,7 @@ def mut_split_switch(s: str, rng: random.Random) -> str | None:
     """
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_SWITCH_STMT)
+    cursor = _cursor(_QUERY_SWITCH_STMT)
     matches = cursor.matches(tree.root_node)
     if not matches:
         return None
@@ -3232,7 +3304,7 @@ def mut_move_switch_default(s: str, rng: random.Random) -> str | None:
     """
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_SWITCH_STMT)
+    cursor = _cursor(_QUERY_SWITCH_STMT)
     matches = cursor.matches(tree.root_node)
     if not matches:
         return None
@@ -3284,7 +3356,7 @@ def mut_if_chain_to_switch(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_IF_STMT)
+    cursor = _cursor(_QUERY_IF_STMT)
     matches = cursor.matches(tree.root_node)
 
     valid_chains = []
@@ -3385,7 +3457,7 @@ def mut_switch_add_explicit_default(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_SWITCH_STMT)
+    cursor = _cursor(_QUERY_SWITCH_STMT)
     matches = cursor.matches(tree.root_node)
 
     valid_switches = []
@@ -3431,7 +3503,7 @@ def mut_wrap_in_else(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_IF_STMT)
+    cursor = _cursor(_QUERY_IF_STMT)
     matches = cursor.matches(tree.root_node)
 
     valid_ifs = []
@@ -3503,7 +3575,7 @@ def mut_switch_break_to_return(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_SWITCH_STMT)
+    cursor = _cursor(_QUERY_SWITCH_STMT)
     matches = cursor.matches(tree.root_node)
 
     valid_targets = []
@@ -3566,7 +3638,7 @@ def mut_split_and_condition(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_BIN_COND_IF)
+    cursor = _cursor(_QUERY_BIN_COND_IF)
     matches = cursor.matches(tree.root_node)
 
     valid_ifs = []
@@ -3623,7 +3695,7 @@ def mut_split_or_condition(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_BIN_COND_IF)
+    cursor = _cursor(_QUERY_BIN_COND_IF)
     matches = cursor.matches(tree.root_node)
 
     valid_ifs = []
@@ -3681,7 +3753,7 @@ def mut_merge_nested_ifs(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_NESTED_IF_P3)
+    cursor = _cursor(_QUERY_NESTED_IF_P3)
     matches = cursor.matches(tree.root_node)
 
     valid_ifs = []
@@ -3743,7 +3815,7 @@ def mut_extract_condition_to_var(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_BIN_COND_IF)
+    cursor = _cursor(_QUERY_BIN_COND_IF)
     matches = cursor.matches(tree.root_node)
 
     valid_ifs = []
@@ -3811,7 +3883,7 @@ def mut_loop_condition_extraction(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_WHILE_LOOP)
+    cursor = _cursor(_QUERY_WHILE_LOOP)
     matches = cursor.matches(tree.root_node)
 
     valid_loops = []
@@ -3875,7 +3947,7 @@ _TYPE_WIDEN_MAP: dict[bytes, bytes] = {
     b"WORD": b"DWORD",
 }
 
-_QUERY_LOCAL_DECL = ts.Query(
+_QUERY_LOCAL_DECL = _LazyQuery(
     _C_LANGUAGE,
     """
     (declaration type: (_) @type declarator: (_) @decl) @stmt
@@ -3890,7 +3962,7 @@ def mut_widen_local_type(s: str, rng: random.Random) -> str | None:
     depending on the declared type width.
     """
     b_source = s.encode("utf-8")
-    cursor = ts.QueryCursor(_QUERY_LOCAL_DECL)
+    cursor = _cursor(_QUERY_LOCAL_DECL)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
@@ -4043,7 +4115,7 @@ def mut_loop_to_memcpy(s: str, rng: random.Random) -> str | None:
     return res.decode("utf-8")
 
 
-_QUERY_FLOAT_BINOP = ts.Query(
+_QUERY_FLOAT_BINOP = _LazyQuery(
     _C_LANGUAGE,
     """
     (binary_expression
@@ -4069,7 +4141,7 @@ def mut_commute_float_operands(s: str, rng: random.Random) -> str | None:
     look like they involve floating-point variables.
     """
     b_source = s.encode("utf-8")
-    cursor = ts.QueryCursor(_QUERY_FLOAT_BINOP)
+    cursor = _cursor(_QUERY_FLOAT_BINOP)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
@@ -4130,7 +4202,7 @@ def mut_commute_float_operands(s: str, rng: random.Random) -> str | None:
 # --- Phase 4: Manual decomp insight mutations ---
 
 
-_QUERY_FUNC_PARAM = ts.Query(
+_QUERY_FUNC_PARAM = _LazyQuery(
     _C_LANGUAGE,
     """
     (function_definition
@@ -4150,7 +4222,7 @@ def mut_register_param(s: str, rng: random.Random) -> str | None:
     """
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_FUNC_PARAM)
+    cursor = _cursor(_QUERY_FUNC_PARAM)
     matches = cursor.matches(tree.root_node)
 
     # Collect params that don't already have 'register'
@@ -4175,7 +4247,7 @@ def mut_unregister_param(s: str, rng: random.Random) -> str | None:
     """Remove 'register' keyword from a function parameter declaration."""
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_FUNC_PARAM)
+    cursor = _cursor(_QUERY_FUNC_PARAM)
     matches = cursor.matches(tree.root_node)
 
     valid = []
@@ -4199,7 +4271,7 @@ def mut_unregister_param(s: str, rng: random.Random) -> str | None:
 # --- Loop break mutations ---
 
 
-_QUERY_BREAK_IN_LOOP = ts.Query(
+_QUERY_BREAK_IN_LOOP = _LazyQuery(
     _C_LANGUAGE,
     """
     [
@@ -4210,7 +4282,7 @@ _QUERY_BREAK_IN_LOOP = ts.Query(
 """,
 )
 
-_QUERY_LOOP_BODY = ts.Query(
+_QUERY_LOOP_BODY = _LazyQuery(
     _C_LANGUAGE,
     """
     [
@@ -4230,7 +4302,7 @@ def mut_remove_loop_break(s: str, rng: random.Random) -> str | None:
     """
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_BREAK_IN_LOOP)
+    cursor = _cursor(_QUERY_BREAK_IN_LOOP)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
@@ -4257,7 +4329,7 @@ def mut_add_loop_break(s: str, rng: random.Random) -> str | None:
     """
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_LOOP_BODY)
+    cursor = _cursor(_QUERY_LOOP_BODY)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
@@ -4282,7 +4354,7 @@ def mut_add_loop_break(s: str, rng: random.Random) -> str | None:
 # --- If/else call to ternary arg ---
 
 
-_QUERY_IF_ELSE_CALL = ts.Query(
+_QUERY_IF_ELSE_CALL = _LazyQuery(
     _C_LANGUAGE,
     """
     (if_statement
@@ -4310,7 +4382,7 @@ def mut_if_else_call_to_ternary_arg(s: str, rng: random.Random) -> str | None:
     """
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_IF_ELSE_CALL)
+    cursor = _cursor(_QUERY_IF_ELSE_CALL)
     matches = cursor.matches(tree.root_node)
 
     valid = []
@@ -4372,7 +4444,7 @@ def mut_ternary_arg_to_if_else_call(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
 
     # Find call expressions that have a conditional_expression in their argument list
-    q = ts.Query(
+    q = _LazyQuery(
         _C_LANGUAGE,
         """
         (expression_statement
@@ -4387,7 +4459,7 @@ def mut_ternary_arg_to_if_else_call(s: str, rng: random.Random) -> str | None:
         ) @stmt
     """,
     )
-    cursor = ts.QueryCursor(q)
+    cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
@@ -4443,7 +4515,7 @@ def mut_ternary_arg_to_if_else_call(s: str, rng: random.Random) -> str | None:
 # --- Hoist/sink common tail from if/else branches ---
 
 
-_QUERY_IF_ELSE_COMPOUND = ts.Query(
+_QUERY_IF_ELSE_COMPOUND = _LazyQuery(
     _C_LANGUAGE,
     """
     (if_statement
@@ -4465,7 +4537,7 @@ def mut_hoist_common_tail(s: str, rng: random.Random) -> str | None:
     """
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
-    cursor = ts.QueryCursor(_QUERY_IF_ELSE_COMPOUND)
+    cursor = _cursor(_QUERY_IF_ELSE_COMPOUND)
     matches = cursor.matches(tree.root_node)
 
     valid = []
@@ -4554,7 +4626,7 @@ def mut_sink_common_tail(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
 
     # Find if/else followed by a sibling statement
-    q = ts.Query(
+    q = _LazyQuery(
         _C_LANGUAGE,
         """
         (compound_statement
@@ -4572,7 +4644,7 @@ def mut_sink_common_tail(s: str, rng: random.Random) -> str | None:
         )
     """,
     )
-    cursor = ts.QueryCursor(q)
+    cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
@@ -4617,7 +4689,7 @@ def mut_sink_common_tail(s: str, rng: random.Random) -> str | None:
 
 # --- Queries for Phase 5 mutations ---
 
-_QUERY_COMMUTE_BIT_OR = ts.Query(
+_QUERY_COMMUTE_BIT_OR = _LazyQuery(
     _C_LANGUAGE,
     """
     (binary_expression
@@ -4627,7 +4699,7 @@ _QUERY_COMMUTE_BIT_OR = ts.Query(
 """,
 )
 
-_QUERY_COMMUTE_BIT_AND = ts.Query(
+_QUERY_COMMUTE_BIT_AND = _LazyQuery(
     _C_LANGUAGE,
     """
     (binary_expression
@@ -4637,7 +4709,7 @@ _QUERY_COMMUTE_BIT_AND = ts.Query(
 """,
 )
 
-_QUERY_COMMUTE_BIT_XOR = ts.Query(
+_QUERY_COMMUTE_BIT_XOR = _LazyQuery(
     _C_LANGUAGE,
     """
     (binary_expression
@@ -4647,7 +4719,7 @@ _QUERY_COMMUTE_BIT_XOR = ts.Query(
 """,
 )
 
-_QUERY_COMMUTE_ADD_GENERAL = ts.Query(
+_QUERY_COMMUTE_ADD_GENERAL = _LazyQuery(
     _C_LANGUAGE,
     """
     (binary_expression
@@ -4657,7 +4729,7 @@ _QUERY_COMMUTE_ADD_GENERAL = ts.Query(
 """,
 )
 
-_QUERY_COMMUTE_MUL_GENERAL = ts.Query(
+_QUERY_COMMUTE_MUL_GENERAL = _LazyQuery(
     _C_LANGUAGE,
     """
     (binary_expression
@@ -4667,7 +4739,7 @@ _QUERY_COMMUTE_MUL_GENERAL = ts.Query(
 """,
 )
 
-_QUERY_BITAND_ZERO = ts.Query(
+_QUERY_BITAND_ZERO = _LazyQuery(
     _C_LANGUAGE,
     """
     (expression_statement
@@ -4682,7 +4754,9 @@ _QUERY_BITAND_ZERO = ts.Query(
 )
 
 
-def _commute_operands(s: str, rng: random.Random, query: ts.Query, op_str: bytes) -> str | None:
+def _commute_operands(
+    s: str, rng: random.Random, query: ts.Query | _LazyQuery, op_str: bytes
+) -> str | None:
     """Generic commutative operand swap for the given binary operator query."""
     b_source = s.encode("utf-8")
 
@@ -4750,7 +4824,7 @@ def mut_inject_block_register(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
 
     # Strategy 1: wrap a loop body in a register block
-    q_loop = ts.Query(
+    q_loop = _LazyQuery(
         _C_LANGUAGE,
         """
         [
@@ -4760,11 +4834,11 @@ def mut_inject_block_register(s: str, rng: random.Random) -> str | None:
         ]
     """,
     )
-    cursor = ts.QueryCursor(q_loop)
+    cursor = _cursor(q_loop)
     loop_matches = cursor.matches(tree.root_node)
 
     # Strategy 2: wrap 2-4 adjacent expression_statements in a block
-    q_adj = ts.Query(
+    q_adj = _LazyQuery(
         _C_LANGUAGE,
         """
         (compound_statement
@@ -4774,7 +4848,7 @@ def mut_inject_block_register(s: str, rng: random.Random) -> str | None:
         )
     """,
     )
-    cursor2 = ts.QueryCursor(q_adj)
+    cursor2 = _cursor(q_adj)
     adj_matches = cursor2.matches(tree.root_node)
 
     candidates: list[tuple[str, dict[str, ts.Node]]] = []
@@ -4844,7 +4918,7 @@ def mut_retype_local_equiv(s: str, rng: random.Random) -> str | None:
     Also: unsigned int ↔ ULONG
     """
     b_source = s.encode("utf-8")
-    cursor = ts.QueryCursor(_QUERY_LOCAL_DECL)
+    cursor = _cursor(_QUERY_LOCAL_DECL)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
 
@@ -4911,7 +4985,7 @@ def mut_zero_to_bitand(s: str, rng: random.Random) -> str | None:
     candidates: list[tuple[dict[str, ts.Node], bytes, str]] = []
 
     # Forward: var = 0 → var &= 0
-    zero_cursor = ts.QueryCursor(_QUERY_ASSIGN_ZERO)
+    zero_cursor = _cursor(_QUERY_ASSIGN_ZERO)
     for m in zero_cursor.matches(tree.root_node):
         caps = _first_caps(m[1])
         # Skip if inside a for-loop initializer
@@ -4924,7 +4998,7 @@ def mut_zero_to_bitand(s: str, rng: random.Random) -> str | None:
         candidates.append((caps, var + b" &= 0;", "expr"))
 
     # Reverse: var &= 0 → var = 0
-    bitand_cursor = ts.QueryCursor(_QUERY_BITAND_ZERO)
+    bitand_cursor = _cursor(_QUERY_BITAND_ZERO)
     for m in bitand_cursor.matches(tree.root_node):
         caps = _first_caps(m[1])
         var = b_source[caps["var"].start_byte : caps["var"].end_byte]
@@ -4945,7 +5019,7 @@ def mut_zero_to_bitand(s: str, rng: random.Random) -> str | None:
 
 # --- Queries for Phase 6 ---
 
-_QUERY_IF_ELSE_FULL = ts.Query(
+_QUERY_IF_ELSE_FULL = _LazyQuery(
     _C_LANGUAGE,
     """
     (if_statement
@@ -4962,7 +5036,7 @@ _QUERY_IF_ELSE_FULL = ts.Query(
 """,
 )
 
-_QUERY_NESTED_CALL_ARG = ts.Query(
+_QUERY_NESTED_CALL_ARG = _LazyQuery(
     _C_LANGUAGE,
     """
     (call_expression
@@ -4977,7 +5051,7 @@ _QUERY_NESTED_CALL_ARG = ts.Query(
 """,
 )
 
-_QUERY_COMPLEX_ARG = ts.Query(
+_QUERY_COMPLEX_ARG = _LazyQuery(
     _C_LANGUAGE,
     """
     (call_expression
@@ -5021,7 +5095,7 @@ def mut_invert_if_else(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
 
-    cursor = ts.QueryCursor(_QUERY_IF_ELSE_FULL)
+    cursor = _cursor(_QUERY_IF_ELSE_FULL)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
@@ -5087,8 +5161,8 @@ def mut_dummy_stack_vars(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
 
-    q = ts.Query(_C_LANGUAGE, "(function_definition body: (compound_statement) @body)")
-    cursor = ts.QueryCursor(q)
+    q = _LazyQuery(_C_LANGUAGE, "(function_definition body: (compound_statement) @body)")
+    cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
@@ -5141,8 +5215,8 @@ def mut_inject_dummy_registers(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
 
-    q = ts.Query(_C_LANGUAGE, "(function_definition body: (compound_statement) @body)")
-    cursor = ts.QueryCursor(q)
+    q = _LazyQuery(_C_LANGUAGE, "(function_definition body: (compound_statement) @body)")
+    cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
     if not matches:
@@ -5191,7 +5265,7 @@ def mut_extract_complex_args(s: str, rng: random.Random) -> str | None:
     candidates: list[tuple[ts.Node, ts.Node, bytes]] = []
 
     # Strategy 1: nested function calls in arguments
-    nc_cursor = ts.QueryCursor(_QUERY_NESTED_CALL_ARG)
+    nc_cursor = _cursor(_QUERY_NESTED_CALL_ARG)
     for m in nc_cursor.matches(tree.root_node):
         caps = _first_caps(m[1])
         call_node = caps["stmt"]  # the OUTER call expression
@@ -5200,7 +5274,7 @@ def mut_extract_complex_args(s: str, rng: random.Random) -> str | None:
         candidates.append((call_node, inner_call_node, inner_text))
 
     # Strategy 2: binary expressions as arguments (ptr arithmetic, shifts, etc.)
-    ca_cursor = ts.QueryCursor(_QUERY_COMPLEX_ARG)
+    ca_cursor = _cursor(_QUERY_COMPLEX_ARG)
     for m in ca_cursor.matches(tree.root_node):
         caps = _first_caps(m[1])
         call_node = caps["stmt"]

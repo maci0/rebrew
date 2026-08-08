@@ -32,7 +32,6 @@ import tomlkit
 import typer
 from rich.console import Console
 
-from rebrew.binary_loader import detect_format_and_arch as _bl_detect_format_and_arch
 from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print
 from rebrew.config import find_root as _config_find_root
 from rebrew.utils import atomic_write_text
@@ -187,6 +186,8 @@ def _detect_format_and_arch(path: Path) -> tuple[str, str | None]:
     to stderr and defaults to ``("pe", None)`` instead of raising.
     """
     try:
+        from rebrew.binary_loader import detect_format_and_arch as _bl_detect_format_and_arch
+
         return _bl_detect_format_and_arch(path)
     except OSError:
         console.print(

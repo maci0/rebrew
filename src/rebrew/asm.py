@@ -28,7 +28,6 @@ import typer
 from rich.console import Console
 
 from rebrew.annotation import parse_c_file_multi
-from rebrew.binary_loader import extract_raw_bytes
 from rebrew.catalog import load_function_structure
 from rebrew.cli import (
     TargetOption,
@@ -124,6 +123,8 @@ def _run_hex_mode(
     func_lookup: dict[int, tuple[str, str]] = {}
     if annotate and not json_output:
         func_lookup = build_function_lookup(cfg)
+
+    from rebrew.binary_loader import extract_raw_bytes
 
     try:
         data = extract_raw_bytes(cfg.target_binary, va_int, size)
@@ -508,6 +509,8 @@ def batch_extract_nasm(
         stem = entry["filepath"].name
 
         try:
+            from rebrew.binary_loader import extract_raw_bytes
+
             code = extract_raw_bytes(cfg.target_binary, va, size)
             if code is None:
                 raise ValueError("VA not in any section")
@@ -660,6 +663,8 @@ def main(
     elif va_str and effective_size:
         assert va_int is not None  # va_str is truthy above
         computed_va = va_int
+        from rebrew.binary_loader import extract_raw_bytes
+
         code = extract_raw_bytes(cfg.target_binary, computed_va, effective_size)
         if code is None:
             error_exit(

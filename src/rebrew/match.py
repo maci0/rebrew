@@ -96,6 +96,44 @@ def _compile_cflags(cflags: str, base_cf: str) -> str:
     return cflags
 
 
+def _find_function_range(source: str, symbol: str) -> tuple[int, int] | None:
+    """Byte range of the function matching *symbol* in *source*, or None.
+
+    Used to scope GA mutation queries to the target function (only its
+    compiled bytes are scored).  Matches the first ``function_definition``
+    whose declarator name equals the symbol with or without a leading
+    underscore (the MSVC decoration).  Returns None when the symbol cannot
+    be located — the caller then leaves mutations unscoped.
+    """
+    try:
+        from rebrew.matcher.ast_engine import parse_c_ast
+    except Exception:  # noqa: BLE001 — tree-sitter unavailable: no scoping
+        return None
+    try:
+        tree = parse_c_ast(source.encode("utf-8"))
+        wanted = symbol.lstrip("_")
+        for node in tree.root_node.children:
+            if node.type != "function_definition":
+                continue
+            declarator = node.child_by_field_name("declarator")
+            if declarator is None:
+                continue
+            name_node: Any = declarator
+            # function_declarator -> declarator -> identifier
+            while name_node is not None and name_node.type != "identifier":
+                name_node = name_node.child_by_field_name("declarator") or name_node.named_child(0)
+            if (
+                name_node is not None
+                and name_node.type == "identifier"
+                and (name_node.text or b"").decode("utf-8", "replace").lstrip("_") == wanted
+                and name_node.start_byte != name_node.end_byte
+            ):
+                return node.start_byte, node.end_byte
+    except Exception:  # noqa: BLE001 — parse failure: no scoping
+        return None
+    return None
+
+
 # ---------------------------------------------------------------------------
 # GA engine
 # ---------------------------------------------------------------------------
@@ -190,6 +228,18 @@ class BinaryMatchingGA:
         self.cache = BuildCache(str(self.out_dir / "build_cache.db"))
         self.compile_cache = compile_cache
         self.extra_seeds = extra_seeds or []
+
+        # Scope every mutation query to the target function's byte range —
+        # only that function's compiled bytes are scored, so mutating
+        # sibling functions in a multi-function file is pure waste (and the
+        # whole-file query cost was ~270x higher on large seeds).
+        # Scope mutation queries to the target function's byte range — only
+        # that function's compiled bytes are scored, so mutating siblings in
+        # a multi-function file is pure waste (whole-file query cost was
+        # ~270x higher on large seeds).  The thread-local is set INSIDE
+        # run() (and cleared in its finally) so a GA instance that is never
+        # run cannot leak the scope into other code.
+        self._target_range: tuple[int, int] | None = _find_function_range(seed_source, symbol)
 
         # Pre-compute target normalization and mnemonics once for scoring hot path
         from rebrew.matcher.scoring import precompute_target
@@ -333,6 +383,17 @@ class BinaryMatchingGA:
         only fires in the main thread) — it exists so parallel batch runs
         can bound each stub without signals.
         """
+        from rebrew.matcher.mutator import set_target_range
+
+        if self._target_range is not None:
+            set_target_range(*self._target_range)
+        try:
+            return self._run_inner(deadline)
+        finally:
+            set_target_range(None, None)
+
+    def _run_inner(self, deadline: float | None = None) -> tuple[str | None, float]:
+        """Run the GA and return ``(best_source, best_score)``."""
         for gen in range(self.num_generations):
             if deadline is not None and time.monotonic() > deadline:
                 break
@@ -374,7 +435,6 @@ class BinaryMatchingGA:
             else:
                 self.stagnant_gens += 1
 
-            self.elapsed_sec += time.time() - gen_start
             if self.verbose:
                 console.print(
                     f"gen={gen:03d} best={best_score:.2f} div={diversity:.2f} stag={self.stagnant_gens}"
@@ -413,10 +473,18 @@ class BinaryMatchingGA:
 
             self.population = next_pop
 
+            # Accumulate the FULL generation time (scoring + mutation +
+            # crossover) — stopping at the break above under-reported GA
+            # time by ~99% on cache-warm runs (mutation dominates).
+            self.elapsed_sec += time.time() - gen_start
+
         return self.best_source, self.best_score
 
     def close(self) -> None:
         """Close the build cache (releases SQLite connection)."""
+        from rebrew.matcher.mutator import set_target_range
+
+        set_target_range(None, None)  # safety: ensure no scope leaks
         self.cache.close()
 
     def __enter__(self) -> BinaryMatchingGA:
