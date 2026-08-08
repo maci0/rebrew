@@ -5867,3 +5867,12 @@ now points at `pip install 'recoverage[capstone]'`, and the README shows
 the install syntax. 272 recoverage tests pass. (Note: egg-info is
 gitignored but tracked from before the rule; regenerated PKG-INFO/
 requires.txt committed with -f to keep the tree consistent.)
+
+## 2026-08-09 — recoverage extras validated end-to-end
+
+`uv sync --extra capstone --extra pygments` installs both cleanly
+(capstone 5.0.7, pygments 2.19.2); health now reports extras.capstone
+True; the asm endpoint serves real x86 disassembly against guild's binary
+(0x10009320 Init, 200 OK — previously 501). The declared extras work as
+documented. Recoverage tree clean after sync (uv.lock already carried the
+extras from 7459784).
