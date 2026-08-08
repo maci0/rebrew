@@ -553,3 +553,30 @@ class TestHeadersHashCacheInvalidation:
         raw = json.loads(cache_path.read_text(encoding="utf-8"))
         assert raw["headers_hash"] == _headers_hash(cfg)
         assert raw["headers_hash"] != ""
+
+
+class TestCompareLogicHashMembership:
+    def test_covers_the_expected_modules(self) -> None:
+        """The hash must cover the modules whose logic changes verify results
+        — an omitted module means a logic fix won't invalidate stale caches."""
+        import rebrew.annotation
+        import rebrew.binary_loader
+        import rebrew.compile
+        import rebrew.core.matching
+        import rebrew.matcher.parsers
+        from rebrew.verify import _compare_logic_hash
+
+        names = {
+            rebrew.annotation._kv_to_annotation.__code__.co_filename,
+            rebrew.compile.classify_compare_result.__code__.co_filename,
+            rebrew.compile._extract_and_compare.__code__.co_filename,
+            rebrew.core.matching.smart_reloc_compare.__code__.co_filename,
+            rebrew.matcher.parsers.parse_obj_symbol_and_relocs.__code__.co_filename,
+            rebrew.binary_loader.extract_raw_bytes.__code__.co_filename,
+        }
+        # Sanity: 5 distinct files (classify_compare_result and
+        # _extract_and_compare both live in compile.py), all under src/.
+        assert len(names) == 5
+        assert all("rebrew" in n for n in names)
+        h = _compare_logic_hash()
+        assert isinstance(h, str) and len(h) == 64

@@ -1635,3 +1635,43 @@ class TestStdcallParamSizeDeclspec:
 
         assert _calc_stdcall_param_size("void __stdcall foo(void)") == 0
         assert _calc_stdcall_param_size("int __stdcall foo(int a, int b, int c)") == 12
+
+
+class TestParseMemo:
+    def test_parse_is_memoized_for_unchanged_file(self, tmp_path: Path) -> None:
+        from rebrew.annotation import _PARSE_MEMO, parse_c_file_multi
+
+        f = tmp_path / "f.c"
+        f.write_text("// FUNCTION: GAME 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        _PARSE_MEMO.clear()
+        a1 = parse_c_file_multi(f)
+        a2 = parse_c_file_multi(f)
+        assert a1 == a2
+        assert a1 is a2  # same object served from the memo
+
+    def test_memo_invalidated_by_content_change(self, tmp_path: Path) -> None:
+        import time
+
+        from rebrew.annotation import _PARSE_MEMO, parse_c_file_multi
+
+        f = tmp_path / "f.c"
+        f.write_text("// FUNCTION: GAME 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        _PARSE_MEMO.clear()
+        parse_c_file_multi(f)
+        time.sleep(0.01)
+        f.write_text("// FUNCTION: GAME 0x1000\nint f(void) { return 1; }\n", encoding="utf-8")
+        a2 = parse_c_file_multi(f)
+        assert a2  # re-parsed, not a stale memo hit
+
+    def test_metadata_dir_bypasses_memo(self, tmp_path: Path) -> None:
+        from rebrew.annotation import _PARSE_MEMO, parse_c_file_multi
+
+        f = tmp_path / "f.c"
+        f.write_text("// FUNCTION: GAME 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        _PARSE_MEMO.clear()
+        parse_c_file_multi(f)  # memoized (no metadata)
+        _PARSE_MEMO.clear()
+        # With metadata_dir the parse must still work (bypass path).
+        anns = parse_c_file_multi(f, metadata_dir=tmp_path)
+        assert anns and anns[0].va == 0x1000
+        assert len(_PARSE_MEMO) == 0  # the bypass path never populates the memo

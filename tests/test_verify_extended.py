@@ -685,13 +685,17 @@ class TestProvenOverlay:
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         proven_entry = _ann(0x1000, status="PROVEN")
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries", lambda *a, **k: ([proven_entry], 0, 1, [], [], 0, [])
+            "rebrew.verify.prepare_entries", lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [])
         )
         # A proven function's compiled bytes differ from the target — the byte
         # compare yields NEAR_MATCHING, which must be restored to PROVEN.
+        # run_verification reports failed=1 with a matching fail_detail; the
+        # overlay must flip the counters and drop the detail for this VA.
         results = [{"va": "0x00001000", "status": "NEAR_MATCHING", "passed": False}]
+        fail_details = [(proven_entry, "9B diff")]
         monkeypatch.setattr(
-            "rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], results, [])
+            "rebrew.verify.run_verification",
+            lambda *a, **k: (0, 1, fail_details, results, []),
         )
         monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (None, None))
         monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
@@ -702,6 +706,10 @@ class TestProvenOverlay:
         data = json.loads(result.stdout)
         assert data["results"][0]["status"] == "PROVEN"
         assert data["results"][0]["passed"] is True
+        # The overlay moved the function from failed to passed.
+        assert data["summary"]["passed"] == 1
+        assert data["summary"]["failed"] == 0
+        assert data["summary"]["proven"] == 1
 
     def test_proven_regression_not_masked(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
