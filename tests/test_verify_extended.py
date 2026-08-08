@@ -687,7 +687,9 @@ class TestProvenOverlay:
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries", lambda *a, **k: ([proven_entry], 0, 1, [], [], 0, [])
         )
-        results = [{"va": "0x00001000", "status": "STUB", "passed": False}]
+        # A proven function's compiled bytes differ from the target — the byte
+        # compare yields NEAR_MATCHING, which must be restored to PROVEN.
+        results = [{"va": "0x00001000", "status": "NEAR_MATCHING", "passed": False}]
         monkeypatch.setattr(
             "rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], results, [])
         )
@@ -700,6 +702,40 @@ class TestProvenOverlay:
         data = json.loads(result.stdout)
         assert data["results"][0]["status"] == "PROVEN"
         assert data["results"][0]["passed"] is True
+
+    def test_proven_regression_not_masked(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A source edit that breaks a PROVEN function must surface.
+
+        COMPILE_ERROR (or EXTRACT_ERROR / MISSING_FILE / STUB) means the
+        source no longer builds or the annotation changed — the PROVEN claim
+        is stale and must not be reported as a pass.
+        """
+        from rebrew.verify import app
+
+        cfg = _cfg(tmp_path)
+        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        proven_entry = _ann(0x1000, status="PROVEN")
+        monkeypatch.setattr(
+            "rebrew.verify.prepare_entries", lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [])
+        )
+        results = [{"va": "0x00001000", "status": "COMPILE_ERROR", "passed": False}]
+        monkeypatch.setattr(
+            "rebrew.verify.run_verification", lambda *a, **k: (0, 1, [], results, [])
+        )
+        monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (None, None))
+        monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
+        result = CliRunner().invoke(app, ["--json"])
+        # The regression must fail the run (verify exits non-zero on failures).
+        assert result.exit_code == 1
+        data = json.loads(result.stdout)
+        assert data["results"][0]["status"] == "COMPILE_ERROR"
+        assert data["results"][0]["passed"] is False
+        assert data["summary"]["proven"] == 0
+        assert data["summary"]["failed"] == 1
 
 
 class TestRunVerification:

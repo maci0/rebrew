@@ -758,14 +758,19 @@ def main(
 
     # Overlay PROVEN status from metadata onto results.  PROVEN is a
     # post-verify promotion (from `rebrew prove`) that byte-level comparison
-    # cannot detect.  We preserve it so the cache, report, and pass/fail
-    # counts all stay consistent.
+    # cannot detect.  Preserve it only over the byte states a proven function
+    # legitimately produces — its compiled bytes differ from the target, so
+    # the byte compare yields NEAR_MATCHING or SIZE_MISMATCH.  COMPILE_ERROR,
+    # EXTRACT_ERROR, MISSING_FILE, or STUB mean the source no longer builds
+    # or the annotation changed: the PROVEN claim is stale and must not be
+    # masked as a pass.
     proven_vas: set[str] = {
         f"0x{entry.va:08x}" for entry in unique_entries if getattr(entry, "status", "") == "PROVEN"
     }
+    _proven_compatible = ("NEAR_MATCHING", "SIZE_MISMATCH")
     if proven_vas:
         for r in results:
-            if r["va"] in proven_vas and r["status"] not in ("EXACT", "RELOC"):
+            if r["va"] in proven_vas and r["status"] in _proven_compatible:
                 was_failed = not r.get("passed", False)
                 r["status"] = "PROVEN"
                 r["passed"] = True
