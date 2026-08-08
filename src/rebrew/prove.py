@@ -1073,6 +1073,11 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Prove semantic equivalence of a NEAR_MATCHING function via symbolic execution."""
+    # angr logs an ERROR about its optional unicorn engine at import; prove
+    # is the only tool that legitimately imports angr, and its own status
+    # messages are the meaningful output — silence angr's logger so every
+    # run (even one rejected by the status guard) does not leak that line.
+    logging.getLogger("angr").setLevel(logging.CRITICAL)
     # Guard angr import early
     try:
         _require_angr()

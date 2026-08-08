@@ -127,6 +127,11 @@ def _run_hex_mode(
 
     try:
         data = extract_raw_bytes(cfg.target_binary, va_int, size)
+        if not data:
+            error_exit(
+                f"No code at VA 0x{va_int:08x} — address is outside the binary image",
+                json_mode=json_output,
+            )
         try:
             from capstone import Cs
 
