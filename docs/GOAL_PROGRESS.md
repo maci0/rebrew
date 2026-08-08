@@ -5193,3 +5193,17 @@ double-rebuild idempotency).  Fixed:
 
 3517 rebrew + 259 recoverage tests pass; guild's coverage.db rebuilt
 (untracked artifact).
+
+## 2026-08-09 — db-review F4: column-level schema gate (3e1593a, recoverage 3e3162c)
+
+Closed the last substantive db-review finding: both schema gates verified
+object NAMES only, so a DB stamped "4" with a functions table missing
+`textOffset`/`similarity` (or a stale `section_cell_stats` view) passed
+the gate and 500'd at query time.  `build_db._missing_required_objects`
+and `recoverage._check_schema_version_uncached` (via a new
+`_missing_required_columns`) now verify the query-critical column sets
+with `PRAGMA table_info` and report `table.column` gaps.  recoverage
+applies the column check only for v4 (v3 keeps the legacy name-only
+check).  Regression tests: dropping `functions.textOffset` now rejects
+the DB in both gates.  3518 rebrew + 259 recoverage tests pass (one
+transient "lost sys.stderr" flake seen and resolved on re-run).
