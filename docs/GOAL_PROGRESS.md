@@ -5297,3 +5297,14 @@ Deferred: F2 (stat→open TOCTOU), F3 (memo 404 skip), F5 (strong vs weak
 ETag), F7 (If-None-Match list form), F11 (CLI/API code field type),
 F15 (read-transaction pinning), F16 (watcher at startup), F20 (batch
 response shape).  262 recoverage tests pass.
+
+## 2026-08-09 — api-review F16/F11 closed (44b7785, b80417d)
+
+- **F16** — the SSE DB watcher started only on the first `/api/events`
+  connection, so a curl-only server (no SSE client) never invalidated the
+  target/dropdown caches after an external `rebrew build-db`.  The
+  watcher now starts at `serve` startup.
+- **F11** — `recoverage check --json` error payloads emitted `"code": 1`
+  (an int exit code) while the API reserves `code` for string machine
+  codes — a shared consumer could not distinguish them.  Renamed to
+  `exit_code` (safe: check --json shipped this session, no consumers).
