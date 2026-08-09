@@ -926,3 +926,65 @@ class TestForceStatus:
         assert result.exit_code == 1  # STUB mismatch
         # --dry-run must not write STATUS — PROVEN stays.
         assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "PROVEN"
+
+    def test_multi_function_dry_run_does_not_promote(
+        self, tmp_path: Path, monkeypatch: Any, capsys: Any
+    ) -> None:
+        """Multi-function files had no dry-run awareness at all — promote wrote
+        STATUS unconditionally. dry_run must preview and not write there too."""
+        from pathlib import Path
+
+        import rebrew.test as test_mod
+        from rebrew.annotation import Annotation
+
+        cfg = SimpleNamespace(
+            target_binary=tmp_path / "x.dll",
+            metadata_dir=tmp_path,
+            reversed_dir=tmp_path / "src",
+            default_jobs=1,
+        )
+        anns = [
+            Annotation(
+                va=0x1000,
+                name="a",
+                symbol="_a",
+                module="SERVER",
+                status="STUB",
+                size=3,
+                marker_type="FUNCTION",
+                filepath="multi.c",
+                cflags="",
+            ),
+            Annotation(
+                va=0x2000,
+                name="b",
+                symbol="_b",
+                module="SERVER",
+                status="STUB",
+                size=3,
+                marker_type="FUNCTION",
+                filepath="multi.c",
+                cflags="",
+            ),
+        ]
+        monkeypatch.setattr("rebrew.test.compile_to_obj", lambda *a, **k: (Path("fake.obj"), ""))
+        monkeypatch.setattr("rebrew.test.extract_raw_bytes", lambda *a, **k: b"\x55\x8b\xec")
+        monkeypatch.setattr(
+            "rebrew.test.parse_obj_symbol_and_relocs", lambda *a, **k: (b"\x55\x8b\xec", {}, [])
+        )
+        calls: list[object] = []
+        monkeypatch.setattr(
+            "rebrew.test.update_source_status", lambda *a, **k: calls.append((a, k))
+        )
+        monkeypatch.setattr("rebrew.test._patch_verify_cache", lambda *a, **k: None)
+
+        test_mod._test_multi(  # type: ignore[attr-defined]
+            cfg, "multi.c", anns, None, no_promote=False, dry_run=True, json_output=False
+        )
+        assert calls == []  # nothing written
+        assert "would update STATUS" in capsys.readouterr().err
+
+        test_mod._test_multi(  # type: ignore[attr-defined]
+            cfg, "multi.c", anns, None, no_promote=False, dry_run=False, json_output=False
+        )
+        assert len(calls) == 2  # real run promotes both

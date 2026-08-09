@@ -322,6 +322,13 @@ def main(
     if symbol is None and va is None and size is None:
         annotations = lint_annos
         if len(annotations) > 1:
+            if force_status:
+                error_exit(
+                    "--force-status is single-function only — demote stale PROVEN "
+                    "functions individually with 'rebrew test <file> --force-status'",
+                    json_mode=json_output,
+                    code=EXIT_ERROR,
+                )
             _test_multi(
                 cfg,
                 source,
@@ -329,6 +336,7 @@ def main(
                 cflags,
                 name_to_va=name_to_va,
                 no_promote=no_promote,
+                dry_run=dry_run,
                 json_output=json_output,
             )
             return
@@ -631,6 +639,7 @@ def _test_multi(
     *,
     name_to_va: dict[str, int] | None = None,
     no_promote: bool = False,
+    dry_run: bool = False,
     json_output: bool = False,
 ) -> None:
     """Test all functions in a multi-function .c file.
@@ -805,6 +814,13 @@ def _test_multi(
                 if not should_promote_status(old_status, new_status):
                     if is_status_sticky(old_status) and not json_output:
                         console.print(f"[dim]  STATUS → skipped ({old_status})[/dim]")
+                elif dry_run:
+                    # --dry-run must not write: preview (compile already ran).
+                    if not json_output:
+                        console.print(
+                            f"[dim]  would update STATUS → {new_status} for "
+                            f"0x{ann.va:x} ({ann.module})[/dim]"
+                        )
                 else:
                     clear = is_matched(new_status)
                     update_source_status(
