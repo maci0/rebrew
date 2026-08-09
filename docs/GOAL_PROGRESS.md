@@ -5929,3 +5929,27 @@ cache healed on real data, ~15 GOAL_PROGRESS entries, 4 review lenses
 validations. Discovery surface exhausted: remaining items are either
 project data (guild E013 annotation hygiene, np L/C/D work) or design
 judgments (E013 severity for extern decls) requiring user direction.
+
+## 2026-08-09 — workflow: guild duplicate-DATA cleanup + --force-status remedy
+
+User directed: "clean those up" (guild's E013 duplicates) + "improve the
+overall decomp workbench workflow".
+
+**Guild cleanup (63f6b4a):** removed 10 duplicate DATA annotations across
+spiel.c/friedhof_logic.c/loadsave.c — the same global was annotated in
+multiple files (0x100a8c30 ×4, 0x10030b6c, 0x10035434 ×2, within-file
+dups 0x101de450/0x10035880/0x100358a0). Also removed the stray
+'DATA: 0x1002d4ec' in loadsave.c which misbound g_citizen_count
+(0x1002d4ec = g_file_version/g_save_version). lint: 111/111, 10 E013 -> 0,
+W021 gone; coverage grid byte-identical (559 fns, .data cells 3584).
+
+**Workflow improvement (599454f):** the stale-PROVEN situation (np's
+FormatString1/SwapBytes) had NO CLI remedy — PROVEN is sticky and nothing
+could demote it without editing the forbidden toml. Added
+`rebrew test <file> --force-status`: explicit per-function override that
+forces STATUS to the actual byte result (single-function only; --all
+rejects it; PROVEN stays sticky by default). Docs updated: WORKFLOW
+(sticky-PROVEN CAUTION + remedy, verify section, annotate-once convention
+behind E013/W021), CLI options table, workflow SKILL.md (sticky guidance +
+remedy). 3 new tests; 3549 rebrew tests pass. Not applied to np's in-flight
+toml (uncommitted user work — the demotion decision stays with the user).
