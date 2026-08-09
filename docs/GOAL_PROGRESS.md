@@ -6056,3 +6056,14 @@ command, verified flags exist (catalog --data-json/--summary/
 syntax, QUICKSTART's 12 commands, README's uv tool install + .[prove]
 extra — all current). No stale or broken examples found. ('diff]' /
 'to see why]' entries were grep artifacts of prose, not commands.)
+
+## 2026-08-09 — recoverage API review + asm edge probes: clean
+
+API design review: _json_err always emits the {error, code, detail} trio
+(code mapped from status via _STATUS_ERROR_CODES, detail default ""), so
+503/400/404/501/429 responses are envelope-consistent; bounded reads
+(limit cap 500, batch VA cap 500, SSE client cap with 429), uncaught
+exceptions converted to JSON 500s (no HTML leaks). Live asm probes with
+capstone installed: bad section -> 404 envelope, missing va/size -> 400,
+huge ?size=999999 -> capped at 4096 bytes (min(max(size,0),4096)) with a
+documented decimal-size consistency note vs /bytes. No findings.
