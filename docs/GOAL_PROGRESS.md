@@ -5982,3 +5982,15 @@ verify --dry-run; covers --force-status (dry-run forced demotion is
 previewed, not applied). Live-validated on guild: `rebrew test exit.c
 --dry-run` compiled (SIZE_MISMATCH 0/17), metadata + tree unchanged.
 3550 rebrew tests.
+
+## 2026-08-09 — edge: multi-function --dry-run wrote STATUS (next commit)
+
+Same bug class as the single-function fix, in _test_multi: it had no
+dry_run awareness at all, so `rebrew test multi_file.c --dry-run` silently
+wrote STATUS for every annotation in the file. Threaded dry_run through
+_test_multi with the preview-not-write branch (matches single-function and
+verify). Also closed: `--force-status` with a multi-function file was
+silently ignored (help promises single-function only) — now rejected with
+the same clear error as --all. Test:
+TestForceStatus.test_multi_function_dry_run_does_not_promote (dry-run: no
+writes + preview; real run: promotes both). 3551 rebrew tests.
