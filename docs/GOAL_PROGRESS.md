@@ -6195,3 +6195,9 @@ layer is robust.
   with categories/suggestion/insns — classification works. (Command name
   is near-diag; typer's "Did you mean 'near-diag'?" error handling is
   good.)
+
+## 2026-08-09 — binsync-export check (clean)
+
+`rebrew binsync-export` on an empty project: clean error "No annotations
+found." (code 1), no traceback. BINSYNC_INTEGRATION.md uses the correct
+positional syntax (`binsync-export ./outdir` — no stale --out claims).
