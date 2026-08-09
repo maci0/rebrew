@@ -126,6 +126,10 @@ _COMMAND_PANELS: dict[str, str] = {
     "flirt": "Analysis",
     "gen-flirt-pat": "Analysis",
     "imports": "Analysis",
+    "strings": "Analysis",
+    "xrefs": "Analysis",
+    "describe": "Analysis",
+    "report": "Analysis",
     "crt-match": "Analysis",
     # Matching — solving byte-level differences
     "match": "Matching",
@@ -164,6 +168,26 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("todo", "rebrew.todo", "Prioritized action list: what to work on next."),
     ("crt-match", "rebrew.crt_match", "CRT source cross-reference matcher."),
     ("imports", "rebrew.imports", "List PE import-table symbols and detect import stubs."),
+    (
+        "strings",
+        "rebrew.strings",
+        "Extract printable strings from data sections with cross-references.",
+    ),
+    (
+        "xrefs",
+        "rebrew.xrefs",
+        "Cross-reference explorer: find code that references an address.",
+    ),
+    (
+        "describe",
+        "rebrew.describe",
+        "Per-function recon dossier: callers, callees, strings, imports.",
+    ),
+    (
+        "report",
+        "rebrew.report",
+        "Generate a static HTML documentation site for the project.",
+    ),
     ("flirt", "rebrew.flirt", "FLIRT signature scanning."),
     (
         "gen-flirt-pat",

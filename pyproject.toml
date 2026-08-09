@@ -47,6 +47,10 @@ prove = [
 rebrew = "rebrew.main:main"
 rebrew-round-trip = "rebrew.round_trip:main_entry"
 rebrew-skills = "rebrew.skills:main_entry"
+rebrew-strings = "rebrew.strings:main_entry"
+rebrew-xrefs = "rebrew.xrefs:main_entry"
+rebrew-describe = "rebrew.describe:main_entry"
+rebrew-report = "rebrew.report:main_entry"
 
 [project.urls]
 Homepage = "https://github.com/maci0/rebrew"

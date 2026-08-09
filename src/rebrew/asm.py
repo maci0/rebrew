@@ -108,12 +108,115 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
     return lookup
 
 
+def _build_import_map(bin_path: Path) -> dict[int, str]:
+    """IAT slot VA -> import name, best-effort."""
+    try:
+        from rebrew.imports import parse_import_table
+
+        return parse_import_table(bin_path)
+    except Exception:  # noqa: BLE001 — recon aid, never block disasm
+        return {}
+
+
+def _build_string_map(bin_path: Path) -> dict[int, str]:
+    """String start VA -> decoded text, best-effort (ASCII and UTF-16)."""
+    try:
+        from rebrew.analysis import iter_strings
+        from rebrew.binary_loader import load_binary
+
+        info = load_binary(bin_path)
+        strings = iter_strings(info, min_len=4)
+        if not strings:
+            # Binaries without data sections (synthetic test PEs) keep
+            # strings inside .text — scan it as a fallback.
+            strings = iter_strings(info, min_len=4, section_names=[".text"])
+        return {s.va: s.text for s in strings}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _hint_for(insns: list[Any], i: int) -> str | None:
+    """Return a decompiler-relevant annotation for ``insns[i]``, or None.
+
+    These are the codegen idioms that repeatedly cost time during manual
+    decompilation — recognizing them up front avoids trial-and-error C.
+    """
+    insn = insns[i]
+    m = insn.mnemonic
+    ops = insn.op_str
+
+    # Post-decrement loop counter: mov r1,r2 / dec r2 / test r1 / jcc
+    if m in ("je", "jne", "jg", "jle", "ja", "jae", "jb", "jbe") and i >= 3:
+        t = insns[i - 1]
+        d = insns[i - 2]
+        mv = insns[i - 3]
+        if t.mnemonic == "test" and d.mnemonic == "dec" and mv.mnemonic == "mov":
+            t_op = t.op_str.split(",")[0].strip()
+            d_op = d.op_str.split(",")[0].strip()
+            mv_dst = mv.op_str.split(",")[0].strip()
+            mv_src = mv.op_str.split(",")[1].strip()
+            if t_op == mv_dst and d_op == mv_src:
+                return "post-decrement counter — write while(x-- > 0)"
+
+    # SEH prologue: push ebp-frame stuff + push -1 + push handler... mov reg, fs:[0]
+    if m == "mov" and "fs:[0]" in ops and i >= 3:
+        for j in range(max(0, i - 6), i):
+            if insns[j].mnemonic == "push" and insns[j].op_str == "-1":
+                return "SEH prologue (__try/__except) — compiler-generated, not C-reproducible"
+
+    # CRT word-at-a-time strlen/strcpy magic constant
+    if m == "mov" and "0x7efefeff" in ops:
+        return "CRT strlen/strcpy word-at-a-time — asm implementation"
+
+    # movsx = char promoted to int when passed to a function
+    if m == "movsx":
+        return "char promoted to int — callee param is int, not char"
+
+    # Direct memory word increment — requires a declared global symbol in C
+    if m == "inc" and "word ptr" in ops:
+        return "word-global inc — C needs a declared global symbol (cast-deref won't match)"
+
+    return None
+
+
+def _extract_hex_operand(op_str: str) -> int | None:
+    """Return the first ``0x...`` absolute operand, or None."""
+    import re
+
+    m = re.search(r"0x([0-9a-fA-F]+)", op_str)
+    return int(m.group(1), 16) if m else None
+
+
+def _annotation_for_operand(op_str: str, lookup: dict[int, str]) -> str | None:
+    """Resolve an absolute operand in *op_str* against *lookup*.
+
+    Only absolute (non-bracketed) immediates match — ``call [0x4130c8]`` and
+    ``push 0x4130c8`` both resolve, but ``[eax+0xc]`` does not (the hex is a
+    register-relative displacement, not an address).
+    """
+    if "0x" not in op_str:
+        return None
+    # Skip register-relative forms: any '[' that is not a bare [0x...].
+    if "[" in op_str:
+        inner = op_str[op_str.index("[") + 1 : op_str.index("]")]
+        if inner.startswith("0x") and "+" not in inner and "-" not in inner:
+            addr = _extract_hex_operand(inner)
+            return lookup.get(addr) if addr is not None else None
+        return None
+    addr = _extract_hex_operand(op_str)
+    return lookup.get(addr) if addr is not None else None
+
+
 def _run_hex_mode(
     va_int: int,
     size: int,
     cfg: ProjectConfig,
     annotate: bool,
     json_output: bool,
+    *,
+    resolve_imports: bool = False,
+    resolve_strings: bool = False,
+    pattern_hints: bool = False,
 ) -> None:
     """Capstone hex-dump disassembly (default format)."""
     bin_path = cfg.target_binary
@@ -123,6 +226,13 @@ def _run_hex_mode(
     func_lookup: dict[int, tuple[str, str]] = {}
     if annotate and not json_output:
         func_lookup = build_function_lookup(cfg)
+
+    import_map: dict[int, str] = {}
+    string_map: dict[int, str] = {}
+    if resolve_imports:
+        import_map = _build_import_map(bin_path)
+    if resolve_strings:
+        string_map = _build_string_map(bin_path)
 
     from rebrew.binary_loader import extract_raw_bytes
 
@@ -144,25 +254,52 @@ def _run_hex_mode(
 
             md = Cs(cfg.capstone_arch, cfg.capstone_mode)
             md.detail = False
-            insn_list = list(md.disasm(data, va_int))
+            # With --hints, disassemble a small lookbehind window so prologue
+            # patterns (e.g. `push -1` SEH registration a few bytes before the
+            # function start) are visible to the pattern detector.  Only
+            # instructions at/after *va_int* are printed.
+            pre_va = va_int
+            if pattern_hints and va_int > 12:
+                try:
+                    from rebrew.analysis import section_range
+                    from rebrew.binary_loader import load_binary
+
+                    rng = section_range(load_binary(bin_path), ".text")
+                    text_start = rng[0] if rng else 0
+                    pre_va = max(text_start, va_int - 12)
+                except Exception:  # noqa: BLE001 — lookbehind is best-effort
+                    pre_va = va_int - 12
+            pre_data = extract_raw_bytes(cfg.target_binary, pre_va, size + (va_int - pre_va))
+            insn_list = list(md.disasm(pre_data, pre_va))
+            shown_offset = next(
+                (i for i, insn in enumerate(insn_list) if insn.address >= va_int), 0
+            )
+            shown_list = insn_list[shown_offset:]
 
             if json_output:
+                instr_json = []
+                for idx, insn in enumerate(shown_list):
+                    entry: dict[str, Any] = {
+                        "address": f"0x{insn.address:08x}",
+                        "bytes": insn.bytes.hex(),
+                        "mnemonic": insn.mnemonic,
+                        "operands": insn.op_str,
+                    }
+                    if resolve_imports:
+                        entry["import"] = _annotation_for_operand(insn.op_str, import_map)
+                    if resolve_strings:
+                        entry["string"] = _annotation_for_operand(insn.op_str, string_map)
+                    if pattern_hints:
+                        entry["hint"] = _hint_for(insn_list, shown_offset + idx)
+                    instr_json.append(entry)
                 json_print(
                     {
                         "va": f"0x{va_int:08x}",
                         "size": len(data),
                         "requested_size": size,
                         "truncated": truncated,
-                        "instruction_count": len(insn_list),
-                        "instructions": [
-                            {
-                                "address": f"0x{insn.address:08x}",
-                                "bytes": insn.bytes.hex(),
-                                "mnemonic": insn.mnemonic,
-                                "operands": insn.op_str,
-                            }
-                            for insn in insn_list
-                        ],
+                        "instruction_count": len(shown_list),
+                        "instructions": instr_json,
                     }
                 )
                 return
@@ -171,7 +308,7 @@ def _run_hex_mode(
                 f"Dumping [cyan]0x{va_int:08x}[/] ({len(data)} bytes) from {bin_path.name}:"
             )
             console.print()
-            for insn in insn_list:
+            for idx, insn in enumerate(shown_list):
                 hex_bytes = insn.bytes.hex()
                 line = (
                     f"  0x{insn.address:08x}:  {hex_bytes:<20s}  {insn.mnemonic:<8s} {insn.op_str}"
@@ -185,6 +322,18 @@ def _run_hex_mode(
                             line += f"  ; {name}{tag}"
                     except ValueError:
                         pass
+                if resolve_imports and insn.mnemonic in ("call", "jmp"):
+                    imp = _annotation_for_operand(insn.op_str, import_map)
+                    if imp:
+                        line += f"  ; {imp}"
+                if resolve_strings and insn.mnemonic in ("push", "mov", "lea", "cmp"):
+                    s = _annotation_for_operand(insn.op_str, string_map)
+                    if s:
+                        line += f'  ; "{s}"'
+                if pattern_hints:
+                    hint = _hint_for(insn_list, shown_offset + idx)
+                    if hint:
+                        line += f"  ; {hint}"
                 print(line)
 
         except ImportError:
@@ -598,6 +747,15 @@ def main(
     annotate: bool = typer.Option(
         True, "--annotate/--no-annotate", help="(hex) Annotate calls with known function names"
     ),
+    resolve_imports: bool = typer.Option(
+        False, "--imports", help="(hex) Annotate call/jmp [IAT] with import names"
+    ),
+    resolve_strings: bool = typer.Option(
+        False, "--strings", help="(hex) Annotate push/mov/lea of string addresses with text"
+    ),
+    pattern_hints: bool = typer.Option(
+        False, "--hints", help="(hex) Annotate decompiler-relevant codegen patterns"
+    ),
     # nasm-specific options
     bin_file: Path | None = typer.Option(None, "--bin", help="(nasm) Raw .bin file"),
     label: str | None = typer.Option(None, "--label", help="(nasm) Label name for the function"),
@@ -652,7 +810,16 @@ def main(
         if not va_str:
             error_exit("--format hex requires a VA as a positional argument", json_mode=json_output)
         assert va_int is not None  # va_str is truthy above
-        _run_hex_mode(va_int, effective_size, cfg, annotate, json_output)
+        _run_hex_mode(
+            va_int,
+            effective_size,
+            cfg,
+            annotate,
+            json_output,
+            resolve_imports=resolve_imports,
+            resolve_strings=resolve_strings,
+            pattern_hints=pattern_hints,
+        )
         return
 
     # --- nasm format ---
