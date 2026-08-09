@@ -6166,3 +6166,13 @@ through mutate_code (the full parse+select+apply pipeline the GA calls).
 Zero crashes; mutate_code applied a mutation in all 3000 cases (even
 heavily-mangled input — GA fallback selection works). The tree-sitter AST
 layer is robust.
+
+## 2026-08-09 — status-without-DB degradation (clean) + config-warn intentionality
+
+- `rebrew status --json` in a project with no coverage.db and no binary:
+  degrades cleanly — 0/0 functions, empty status, coverage 0.0, exit 0,
+  plus a load-time warning about the missing binary. No traceback.
+- The missing-binary warning prints twice in a terminal (Python
+  UserWarning + rich line) — verified INTENTIONAL: _config_warn emits
+  both by design (UserWarning for programmatic consumers/pytest, rich
+  print for CLI users; docstring documents this). Not a bug.
