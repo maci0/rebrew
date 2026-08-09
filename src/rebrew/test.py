@@ -750,19 +750,29 @@ def _test_multi(
             )
             # Same classifier as compile_and_compare / verify.
             va_hint = f"0x{ann.va:08x}" if getattr(ann, "va", None) else "<source>"
-            msg = (
-                f"SIZE_MISMATCH: Size {len(obj_bytes)}B vs {len(target_bytes)}B "
-                f"({total - match_count} byte diffs in common prefix) — "
-                f"run 'rebrew diff {va_hint}' to see the byte differences"
-                if size_mismatch
-                else (
+            if size_mismatch:
+                size_hint = ""
+                if total > 0 and total - match_count == 0:
+                    # Every common byte matched — the annotation SIZE is wrong,
+                    # not the decompilation.  Point at the fix directly.
+                    size_hint = (
+                        f" — ALL {total} common bytes match: the SIZE annotation is off; "
+                        f"compiled size is {len(obj_bytes)}B (annotation says {ann.size}) — "
+                        f"update the // SIZE line"
+                    )
+                msg = (
+                    f"SIZE_MISMATCH: Size {len(obj_bytes)}B vs {len(target_bytes)}B "
+                    f"({total - match_count} byte diffs in common prefix){size_hint} — "
+                    f"run 'rebrew diff {va_hint}' to see the byte differences"
+                )
+            else:
+                msg = (
                     f"RELOC-NORM MATCH ({len(relocs)} relocs)"
                     if matched and relocs
                     else (
                         "EXACT MATCH" if matched else f"NEAR_MATCHING/STUB: {total - match_count}"
                     )
                 )
-            )
             cmp = classify_compare_result(
                 False if size_mismatch else matched,
                 msg,

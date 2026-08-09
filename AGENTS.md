@@ -148,6 +148,7 @@ src/rebrew/
 ├── split.py             # Split multi-function C files into individual files
 ├── struct_parser.py     # Extract struct/typedef definitions from C source via tree-sitter
 ├── utils.py             # Shared utilities (atomic_write_text)
+├── analysis.py          # Shared recon primitives: iter_strings, scan_references (Xref/Insn/StringEntry), string_refs
 ├── wibo.py              # Auto-download + verify wibo (lightweight Wine alternative)
 ├── compile_cache.py     # Disk-backed compile result cache (diskcache, SHA-256 keyed)
 ├── metadata.py          # Per-directory rebrew-function.toml metadata loader/writer; update_source_status is the canonical STATUS writer
@@ -164,13 +165,17 @@ src/rebrew/
 ├── test.py              # Compile, byte-compare, auto-update STATUS annotation
 ├── verify.py            # Bulk verification (incremental, cached)
 ├── diff.py              # Compile and diff against target binary
-├── asm.py               # Disassemble function (hex dump or NASM source)
+├── asm.py               # Disassemble function (hex/NASM); --imports/--strings/--hints annotate IAT, strings, codegen patterns
 ├── skeleton.py          # Generate skeleton C files for matching
 ├── lint.py              # Lint C annotations
 ├── near_diag.py         # Classify why a NEAR_MATCHING function does not byte-match
 ├── rename.py            # Rename function and update all cross-references
 ├── init.py              # Initialize a new rebrew project
 ├── imports.py           # List PE import-table symbols and detect jmp [iat] stubs
+├── strings.py           # Extract printable strings from data sections, with cross-references
+├── xrefs.py             # Cross-reference explorer: code that references an address
+├── describe.py          # Per-function recon dossier (callers, callees, strings, imports)
+├── report.py            # Static HTML documentation site (index, strings, imports, call graph)
 ├── doctor.py            # Diagnostic checks for project health
 ├── status.py            # At-a-glance reversing progress overview
 ├── dashboard.py         # Read-only web dashboard over db/coverage.db

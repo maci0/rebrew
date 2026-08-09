@@ -59,6 +59,10 @@ for `--compare` (not “better than EXACT”).
 | `rebrew flirt` | `flirt.py` | FLIRT signature scanning (see [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md)) |
 | `rebrew gen-flirt-pat` | `gen_flirt_pat.py` | Generate FLIRT `.pat` files from COFF `.lib` archives |
 | `rebrew imports` | `imports.py` | List PE import-table symbols and detect `jmp [iat]` stubs (library identification) |
+| `rebrew strings` | `strings.py` | Extract printable ASCII/UTF-16 strings from data sections, with cross-references (`--xref`, `--filter`, `--min-len`, `--section`) |
+| `rebrew xrefs` | `xrefs.py` | Cross-reference explorer: find code that references an address (calls, jumps, `push`/`mov`/`lea`, IAT slots) |
+| `rebrew describe` | `describe.py` | Per-function recon dossier: callers, callees, strings, globals, imports (project-based) |
+| `rebrew report` | `report.py` | Generate a static self-contained HTML documentation site (`--out`; index, strings, imports, call graph) |
 | `rebrew dashboard` | `dashboard.py` | Read-only web dashboard over `db/coverage.db` (`--port`, `--host`) |
 | `rebrew crt-match` | `crt_match.py` | CRT source cross-reference matcher (index, match, ASM detection) |
 | `rebrew data` | `data.py` | Global data scanner for .data/.rdata/.bss; `--bss` layout verification; `--dispatch` vtable detection |
@@ -516,6 +520,10 @@ Compile the source and classify why it does not byte-match the target — which 
 rebrew asm 0x100011f0 --size 64                   # Hex dump 64 bytes at VA
 rebrew asm 0x100011f0 --format nasm               # NASM disassembly at VA
 rebrew asm 0x100011f0 --target server.dll         # Use alternate target
+rebrew asm 0x100011f0 --imports                   # Annotate call/jmp [IAT] with import names
+rebrew asm 0x100011f0 --strings                   # Annotate push/mov/lea of strings with their text
+rebrew asm 0x100011f0 --hints                     # Decomp-pattern hints (post-decrement loops,
+                                                  #   SEH prologues, CRT strlen, movsx, inc-mem)
 
 # Skeleton generation
 rebrew skeleton 0x10003da0 --decomp               # Skeleton with inline decompilation

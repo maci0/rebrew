@@ -151,11 +151,61 @@ sweep:
   `ff 15 [IAT]` — shifting every later branch offset by one.
 - `__int64` returns use the EDX:EAX pair; virtual calls with a pushed arg are
   `__stdcall` (no `add esp,4` after the call).
+- **Post-decrement loops**: `mov r1, r2; dec r2; test r1; jcc` is the
+  `while (x-- > 0)` idiom — write the decrement IN the condition, not at the
+  loop bottom. `jne` (not `jg`) after the post-decrement test means the C is
+  `while (m-- != 0)`; a `je` guard (not `jle`) means `if (n != 0)`.
+- **`movsx reg, byte ptr [mem]`** when passing a char to a function → the
+  callee's parameter is `int`, not `char` (declare it int or the call site
+  emits a plain 8-bit move).
+- **`test ax, imm16` / `and al, imm8` on a 32-bit field** — MSVC6's mask-size
+  optimization; a C `& 0xfd` may compile to the byte form in the target but
+  the dword form from a re-written source — often unreproducible from
+  cast-derefs; try `unsigned short` field types before giving up.
+- **Param-slot spills**: `mov [esp+X], al` (storing a masked value back into
+  the parameter slot, then reloading + `and eax, 0xff` for a table index)
+  comes from reassigning the parameter or from MSVC reusing the dead param
+  slot for an out-parameter local (e.g. `int used = 0; ... &used` reusing
+  `out`'s slot when `out` dies before the call).
 
 When the manual flag guess lands you within a few bytes, the remaining diffs
 are usually expression shape (member held in a local vs re-read global, control
 flow placement like `obj = 0` inside vs outside the `if`) — iterate those
 before reaching for the GA.
+
+**Known unreproducible codegen** — recognize these up front and document a
+blocker instead of burning attempts (validated across smygb.exe + e2e_32.exe):
+
+- CRT assembly routines: `strlen`/`strcpy` word-at-a-time (magic constant
+  `0x7efefeff`), `strrchr` (repne scasb + `std`), `_chkstk` (the
+  `sub 0x1000; test [ecx], eax` probe loop), `_aulldiv`/`_aullrem` 64-bit
+  div/rem (div/rcr normalization). MSVC6 *calls* the library versions from C
+  (`#pragma intrinsic` still emits a call) — the inline forms are asm.
+- SEH prologues: `push -1; push handler; push ...; mov reg, fs:[0]` /
+  `push -2; push handler; push fs:[0]` (`__try/__finally`) and the
+  RtlUnwind helper (`push ebp; push 0; push 0; push handler; push arg;
+  call [RtlUnwind thunk]`) — compiler-generated.
+- Caller-ebp helpers: `mov reg, [ebp+8]` with no own frame + `ret 4` —
+  exception-frame helpers.
+- Direct-memory increments: `inc word/dword ptr [abs]` from a cast-deref —
+  MSVC6 always emits load-inc-store for `(*(T*)0xADDR)++` (all spellings and
+  volatile); the direct form needs a declared global symbol, which can't be
+  byte-matched. Same for `inc dword ptr [abs]`.
+- HeapCreate-style arg push order: `push 0; cmp [esp+8]; push 0x1000;
+  sete al; push eax` vs MSVC6's `cmp [esp+4]; sete; push eax; push 0x1000;
+  push 0` — unreproducible from any C shape.
+- `memset` intrinsic expansion variant: the alignment+replication form is
+  build-specific; our MSVC6 may emit a different (rep stosb tail) form.
+- Register-scheduling diffs (the big class): the first-global load register
+  (`mov eax,[g]` vs `mov ecx,[g]`), a callee-saved cache (esi) vs stack
+  reload, `movzx` vs `xor eax,eax;mov al,[mem]` zero-extension, `and`-before-
+  `sar` ordering, branch-layout (which path is fall-through), and
+  frame-elimination (esp-relative locals vs ebp frame). 2–3 C formulations
+  then document.
+
+For each blocker, write the STUB `.c` (SIZE from the function list) and record
+the class via `update_field(metadata_dir, va, 'blocker', note, module=...)` —
+the goal-counting treats blocker-documented functions as complete.
 
 Tiers (combinations are for MSVC6; see [FLAG_SWEEP_TIERS.md](../../../../docs/FLAG_SWEEP_TIERS.md)):
 
