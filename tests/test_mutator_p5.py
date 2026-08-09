@@ -244,3 +244,54 @@ class TestInjectDummyRegisters:
         src = "int x = 5;"
         res = mut_inject_dummy_registers(src, random.Random(42))
         assert res is None
+
+
+class TestMutDummyStackVars:
+    """Dedicated tests for mut_dummy_stack_vars (volatile stack-pad injection)."""
+
+    def test_injects_volatile_pad_into_body(self) -> None:
+        from rebrew.matcher.mutator import mut_dummy_stack_vars
+
+        src = "int foo(void) { return 1; }\n"
+        res = mut_dummy_stack_vars(src, random.Random(42))
+        assert res is not None  # clean source never collides with _spad_N
+        assert res != src
+        # A padded declaration was injected at the body start.
+        assert "volatile int _spad_" in res or "volatile char _spad_" in res
+        # The function definition and original body are preserved.
+        assert "int foo(void) {" in res
+        assert "return 1;" in res
+
+    def test_injected_size_matches_volatile_char_array(self) -> None:
+        from rebrew.matcher.mutator import mut_dummy_stack_vars
+
+        # Force a non-4 size by exhausting seed 0..99 for the 4-byte path:
+        # _STACK_PAD_SIZES contains exactly one 4; assert any non-int
+        # declaration carries the [N] array + first-element init.
+        src = "int foo(void) { return 1; }\n"
+        seen = set()
+        for seed in range(300):
+            res = mut_dummy_stack_vars(src, random.Random(seed))
+            if res is None:
+                continue
+            if "volatile char _spad_" in res:
+                assert re.search(r"_spad_\d+\[\d+\]; _spad_\d+\[0\] = 0;", res), res
+                seen.add("char")
+            elif "volatile int _spad_" in res:
+                seen.add("int")
+        assert seen  # both paths exercised across seeds
+
+    def test_no_function_body_returns_none(self) -> None:
+        from rebrew.matcher.mutator import mut_dummy_stack_vars
+
+        src = "int g_global = 5;\n"
+        assert mut_dummy_stack_vars(src, random.Random(42)) is None
+
+    def test_exhausted_pad_names_returns_none(self) -> None:
+        from rebrew.matcher.mutator import mut_dummy_stack_vars
+
+        # All _spad_0.._spad_99 names already present → no room to inject.
+        src = (
+            "int foo(void) { " + " ".join(f"int _spad_{i};" for i in range(100)) + " return 1; }\n"
+        )
+        assert mut_dummy_stack_vars(src, random.Random(42)) is None
