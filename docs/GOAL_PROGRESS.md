@@ -6186,3 +6186,12 @@ layer is robust.
 - `rebrew data --gen-header --gen-header-out` on guild: generated a
   92-line REBREW_GLOBALS_H from GLOBAL/DATA annotations + rebrew-data.toml
   (np doc D2's referenced tool); guild tree clean (out path external).
+
+## 2026-08-09 — imports + near-diag live checks (clean)
+
+- `rebrew imports --json` on guild: 84 imports (DLL/name/IAT VA) + 3
+  jmp[IAT] stubs detected. Import-table scanning works end-to-end.
+- `rebrew near-diag 0x10009e60 --json`: verdict "RELOC (100% of delta)"
+  with categories/suggestion/insns — classification works. (Command name
+  is near-diag; typer's "Did you mean 'near-diag'?" error handling is
+  good.)
