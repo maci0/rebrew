@@ -6149,3 +6149,12 @@ exhausted-name -> None. 3559 rebrew tests.
   fully-terminated (deadended) paths. Sound.
 - recoverage potato mode: missing DB / render errors -> clean JSON-500 (no
   HTML traceback), mtime_ns-based ETag, 304 path. Well-guarded.
+
+## 2026-08-09 — ghidra-sync client check (clean)
+
+ReVa MCP client: per-command httpx.HTTPError caught (batch continues,
+errors counted), error suppression after 30, empty/invalid/missing MCP
+responses -> per-command False with reason, SSE+JSON parsing, tool-level
+isError content extraction, "already exists" treated as success
+(idempotent sync), rate limiting every 100 ops, parse-c-structure retry
+after dependency ordering. Well-hardened.
