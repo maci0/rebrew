@@ -254,6 +254,26 @@ def main(
             json_mode=json_output,
         )
 
+    # Guard: renaming onto an existing function/global's symbol would create a
+    # duplicate definition (same name in two files → symbol collisions at
+    # compile/compare time). Reject before any write.
+    target_sym_variants = {target_func, f"_{target_func}"}
+    for e in entries:
+        if e is match:
+            continue
+        e_name = getattr(e, "name", "") or ""
+        e_sym = getattr(e, "symbol", "") or ""
+        if (
+            e_name == target_func
+            or e_sym in target_sym_variants
+            or e_sym.startswith(f"_{target_func}@")  # __stdcall decoration
+        ):
+            error_exit(
+                f"'{target_func}' is already used by {getattr(e, 'filepath', '?')} — "
+                f"renaming would create a duplicate symbol. Pick a different name.",
+                json_mode=json_output,
+            )
+
     filepath = cfg.reversed_dir / old_fp
 
     if not json_output:

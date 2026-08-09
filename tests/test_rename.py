@@ -236,6 +236,64 @@ class TestRenameCli:
         assert result.exit_code != 0
         assert "Be more specific" in result.output
 
+    def test_rename_onto_existing_symbol_errors(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """Renaming onto an existing function's symbol must be rejected —
+        otherwise two functions share one name (duplicate definition)."""
+        from typer.testing import CliRunner
+
+        from rebrew.rename import app
+
+        src = tmp_path / "src" / "SERVER"
+        src.mkdir(parents=True)
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=src,
+            marker="SERVER",
+            metadata_dir=tmp_path,
+            source_ext=".c",
+        )
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
+        monkeypatch.setattr(
+            "rebrew.rename.scan_reversed_dir",
+            lambda d, cfg=None: [
+                SimpleNamespace(name="old_fn", symbol="_old_fn", filepath="old_fn.c", va=0x1000),
+                SimpleNamespace(name="taken", symbol="_taken", filepath="taken.c", va=0x2000),
+            ],
+        )
+        result = CliRunner().invoke(app, ["--json", "old_fn", "taken"])
+        assert result.exit_code != 0
+        assert "duplicate symbol" in result.output
+
+    def test_rename_onto_stdcall_decorated_symbol_errors(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A __stdcall collision carries a decorated suffix (_foo@8) — the
+        plain-name check must not miss it."""
+        from typer.testing import CliRunner
+
+        from rebrew.rename import app
+
+        src = tmp_path / "src" / "SERVER"
+        src.mkdir(parents=True)
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=src,
+            marker="SERVER",
+            metadata_dir=tmp_path,
+            source_ext=".c",
+        )
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
+        monkeypatch.setattr(
+            "rebrew.rename.scan_reversed_dir",
+            lambda d, cfg=None: [
+                SimpleNamespace(name="old_fn", symbol="_old_fn", filepath="old_fn.c", va=0x1000),
+                SimpleNamespace(name="taken2", symbol="_taken2@8", filepath="taken2.c", va=0x2000),
+            ],
+        )
+        result = CliRunner().invoke(app, ["--json", "old_fn", "taken2"])
+        assert result.exit_code != 0
+        assert "duplicate symbol" in result.output
+
     def test_invalid_identifier_rejected(self, tmp_path: Path, monkeypatch: Any) -> None:
         # C keyword and non-identifier names must fail before any rename.
         result = self._invoke(tmp_path, monkeypatch, "--json", "old_fn", "int")
