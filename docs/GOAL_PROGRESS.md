@@ -6201,3 +6201,10 @@ layer is robust.
 `rebrew binsync-export` on an empty project: clean error "No annotations
 found." (code 1), no traceback. BINSYNC_INTEGRATION.md uses the correct
 positional syntax (`binsync-export ./outdir` — no stale --out claims).
+
+## 2026-08-09 — similar + recoverage export checks (clean)
+
+- `rebrew similar 0x10009e60 --json` on guild: 10 structurally similar
+  functions returned.
+- recoverage `export --format json|csv|md`: all three produce correct
+  output (json full stats; csv per-section rows; md table).
