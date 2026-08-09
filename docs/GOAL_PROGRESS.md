@@ -6130,3 +6130,12 @@ User: "do the demotion or cleanups. whatever for more correctness."
    1056-diff stub). lint now 111/111, 0 errors, 34 warnings (all W020).
    Note: guild's metadata_dir is src/, not the project root (stray root
    toml created + removed during this).
+
+## 2026-08-09 — goal start: mutator convention gap closed
+
+Ran the mutator convention integrity check (AGENTS.md: every mut_* in
+ALL_MUTATIONS + tests + GA_MUTATIONS.md): 112 mutators, all registered and
+documented, but `mut_dummy_stack_vars` had no DEDICATED test (only the
+generic ALL_MUTATIONS crash-safety runner). Added 4 tests: injection into
+a function body, volatile char[N] array path, no-body -> None,
+exhausted-name -> None. 3559 rebrew tests.
