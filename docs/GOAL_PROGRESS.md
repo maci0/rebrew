@@ -6067,3 +6067,12 @@ exceptions converted to JSON 500s (no HTML leaks). Live asm probes with
 capstone installed: bad section -> 404 envelope, missing va/size -> 400,
 huge ?size=999999 -> capped at 4096 bytes (min(max(size,0),4096)) with a
 documented decimal-size consistency note vs /bytes. No findings.
+
+## 2026-08-09 — edge: rename onto an existing symbol created a duplicate (commit)
+
+`rebrew rename foo bar` with bar already an annotated function/global
+silently produced two symbols with one name (breaks symbol extraction and
+linking). Added a collision guard in rename.main(): scans all project
+entries and rejects (exit 2) before any write, covering plain names,
+_decorated, and __stdcall _name@N variants. Tests:
+rename_onto_existing_symbol_errors + stdcall-decorated. 3554 rebrew tests.
