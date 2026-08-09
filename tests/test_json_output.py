@@ -911,3 +911,18 @@ class TestForceStatus:
         result = CliRunner().invoke(app, ["--all", "--force-status", "--json"])
         assert result.exit_code == 2
         assert "single-function only" in result.output
+
+    def test_dry_run_previews_and_does_not_write(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.metadata import get_entry
+        from rebrew.test import app
+
+        cfg = self._patch(monkeypatch, tmp_path, "STUB")
+        src = cfg.reversed_dir / "my_func.c"
+        result = CliRunner().invoke(
+            app, ["--va", "0x1000", "--size", "3", "--dry-run", "--json", str(src)]
+        )
+        assert result.exit_code == 1  # STUB mismatch
+        # --dry-run must not write STATUS — PROVEN stays.
+        assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "PROVEN"

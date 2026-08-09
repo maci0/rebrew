@@ -438,6 +438,14 @@ def main(
         if not force_status and not should_promote_status(old_status, new_status):
             if is_status_sticky(old_status) and not json_output:
                 console.print(f"[dim]STATUS → skipped ({old_status})[/dim]")
+        elif dry_run:
+            # --dry-run must not write: preview the STATUS change (the compile
+            # itself already ran — it is read-only). Matches verify --dry-run.
+            if not json_output:
+                console.print(
+                    f"[dim]would update STATUS → {new_status} for "
+                    f"0x{va_int_for_promote:x} ({anno_module})[/dim]"
+                )
         else:
             clear = is_matched(new_status)
             update_source_status(
