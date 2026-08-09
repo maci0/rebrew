@@ -192,6 +192,14 @@ def main(
         "--no-promote",
         help="Skip auto-update of STATUS metadata after test (auto-skipped if file is outside project)",
     ),
+    force_status: bool = typer.Option(
+        False,
+        "--force-status",
+        help=(
+            "Force the STATUS update even from a sticky status — use to deliberately "
+            "demote a stale PROVEN function to its actual result (single-function only)"
+        ),
+    ),
     watch: bool = typer.Option(
         False, "--watch", help="Watch the source file and re-test on every change"
     ),
@@ -252,6 +260,13 @@ def main(
         _status_skip_reason = ""
 
     if all_sources:
+        if force_status:
+            error_exit(
+                "--force-status is single-function only — demote stale PROVEN "
+                "functions individually with 'rebrew test <file> --force-status'",
+                json_mode=json_output,
+                code=EXIT_ERROR,
+            )
         _run_all_batch(cfg, batch_dir, origin, dry_run, no_promote, json_output, jobs=jobs)
         return
 
@@ -278,6 +293,7 @@ def main(
                 dry_run=dry_run,
                 jobs=None,
                 no_promote=no_promote,
+                force_status=force_status,
                 json_output=json_output,
                 target=target,
             )
@@ -419,7 +435,7 @@ def main(
         new_status = (
             cmp.status if cmp.status else classify_match_status(matched, match_count, total, relocs)
         )
-        if not should_promote_status(old_status, new_status):
+        if not force_status and not should_promote_status(old_status, new_status):
             if is_status_sticky(old_status) and not json_output:
                 console.print(f"[dim]STATUS → skipped ({old_status})[/dim]")
         else:
@@ -430,6 +446,7 @@ def main(
                 anno_module,
                 va_int_for_promote,
                 clear_blockers=clear,
+                force=force_status,
             )
             _patch_verify_cache(
                 cfg,

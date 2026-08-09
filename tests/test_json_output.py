@@ -819,3 +819,95 @@ class TestRebrewTestBatchDryRunJson:
                 "current_status": "RELOC",
             }
         ]
+
+
+class TestForceStatus:
+    """rebrew test --force-status deliberately demotes a stale PROVEN."""
+
+    def _patch(self, monkeypatch: Any, tmp_path: Path, result_status: str) -> SimpleNamespace:
+        from rebrew.annotation import Annotation
+        from rebrew.compile import CompareResult
+        from rebrew.metadata import update_source_status
+
+        cfg = SimpleNamespace(
+            target_binary=tmp_path / "x.dll",
+            reversed_dir=tmp_path / "src",
+            metadata_dir=tmp_path,
+            root=tmp_path,
+            target_name="SERVER",
+            marker="SERVER",
+            default_jobs=1,
+        )
+        cfg.reversed_dir.mkdir(exist_ok=True)
+        (cfg.reversed_dir / "my_func.c").write_text(
+            "// FUNCTION: SERVER 0x1000\nint __cdecl my_func(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        # Seed a PROVEN metadata entry — the stale-overlay case.
+        update_source_status(cfg.metadata_dir, "PROVEN", "SERVER", 0x1000)
+
+        monkeypatch.setattr("rebrew.test.require_config", lambda target=None, json_mode=False: cfg)
+        monkeypatch.setattr("rebrew.test.resolve_source_arg", lambda cfg, s: s)
+        monkeypatch.setattr("rebrew.test.build_name_to_va", lambda cfg: {})
+        monkeypatch.setattr("rebrew.test.extract_raw_bytes", lambda *a, **k: b"\x55\x8b\xec")
+        ann = Annotation(
+            va=0x1000,
+            name="my_func",
+            symbol="_my_func",
+            module="SERVER",
+            status="PROVEN",
+            size=3,
+            marker_type="FUNCTION",
+            filepath="my_func.c",
+            cflags="",
+        )
+        monkeypatch.setattr("rebrew.test.parse_c_file_multi", lambda *a, **k: [ann])
+        monkeypatch.setattr("rebrew.test.parse_source_metadata", lambda *a, **k: {})
+        cmp = CompareResult(
+            matched=False,
+            status=result_status,
+            match_percent=10.0,
+            delta=2,
+            obj_bytes=b"\x90",
+            reloc_offsets=[],
+            message="9B diff",
+        )
+        monkeypatch.setattr("rebrew.test.compile_and_compare", lambda *a, **k: cmp)
+        monkeypatch.setattr("rebrew.test._patch_verify_cache", lambda *a, **k: None)
+        return cfg
+
+    def test_force_status_demotes_stale_proven(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.metadata import get_entry
+        from rebrew.test import app
+
+        cfg = self._patch(monkeypatch, tmp_path, "STUB")
+        src = cfg.reversed_dir / "my_func.c"
+        result = CliRunner().invoke(
+            app, ["--va", "0x1000", "--size", "3", "--force-status", "--json", str(src)]
+        )
+        assert result.exit_code == 1  # STUB mismatch
+        assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "STUB"
+
+    def test_without_force_proven_stays(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.metadata import get_entry
+        from rebrew.test import app
+
+        cfg = self._patch(monkeypatch, tmp_path, "STUB")
+        src = cfg.reversed_dir / "my_func.c"
+        CliRunner().invoke(app, ["--va", "0x1000", "--size", "3", "--json", str(src)])
+        # PROVEN is sticky — without --force-status the stale entry is kept.
+        assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "PROVEN"
+
+    def test_force_status_rejected_in_batch(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.test import app
+
+        self._patch(monkeypatch, tmp_path, "STUB")
+        result = CliRunner().invoke(app, ["--all", "--force-status", "--json"])
+        assert result.exit_code == 2
+        assert "single-function only" in result.output

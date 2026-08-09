@@ -189,11 +189,29 @@ implementations, STATUS is promoted to `PROVEN`.
 > the documented dev install includes the prove extra.
 > Functions with heavy floating-point math or complex loops may time out.
 
+> [!CAUTION]
+> **PROVEN is sticky.** `rebrew test` / `rebrew verify` will never silently demote
+> a PROVEN function, even after you edit its source so it no longer matches — the
+> status stays PROVEN until you deliberately reclassify it. To demote a stale
+> PROVEN to its actual byte-compare result (e.g. STUB or NEAR_MATCHING):
+>
+> ```bash
+> rebrew test src/target_name/my_func.c --force-status
+> ```
+>
+> This is the only intended remedy — it forces the STATUS update from a sticky
+> status, so use it deliberately per function.
+
 ### 10. Verify STATUS is current
 
 ```bash
 rebrew verify  # recompiles all tracked functions; auto-updates any drifted STATUS
 ```
+
+`verify` promotes and corrects drifted statuses but respects sticky PROVEN
+(see section 9) — a stale PROVEN surfaces as a failure in the report while its
+metadata stays PROVEN until you demote it with
+`rebrew test <file> --force-status`.
 
 ### 11. Lint and verify source marker health
 
@@ -201,6 +219,14 @@ rebrew verify  # recompiles all tracked functions; auto-updates any drifted STAT
 rebrew lint              # check for invalid headers, statuses, and origins
 rebrew catalog --summary # view overall RE progress and stats
 ```
+
+**DATA/GLOBAL annotation convention:** each global is annotated exactly once
+(single `// DATA:` line above its declaration). Duplicating the annotation in
+multiple files — common when several TUs reference the same `extern` — fires
+lint **E013** (duplicate VA) and **W021** (duplicate name); the coverage grid
+dedupes by VA so it is not harmful, but it is noise. Keep the annotation in one
+file (the symbol's home, e.g. `globals.c`) and leave plain `extern` declarations
+elsewhere.
 
 ---
 
