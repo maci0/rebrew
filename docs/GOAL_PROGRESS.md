@@ -6076,3 +6076,11 @@ linking). Added a collision guard in rename.main(): scans all project
 entries and rejects (exit 2) before any write, covering plain names,
 _decorated, and __stdcall _name@N variants. Tests:
 rename_onto_existing_symbol_errors + stdcall-decorated. 3554 rebrew tests.
+
+## 2026-08-09 — edge: merge created duplicate VA markers (commit)
+
+`rebrew merge` of files that both annotate the same VA silently produced
+a multi-function file with duplicate FUNCTION markers (lint E013) — the
+same duplicate-annotation class cleaned from guild. Now rejected before
+writing (exit 2, names the VA). Test: test_duplicate_va_across_inputs_
+errors. 3555 rebrew tests.
