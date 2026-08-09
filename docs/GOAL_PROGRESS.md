@@ -6084,3 +6084,15 @@ a multi-function file with duplicate FUNCTION markers (lint E013) — the
 same duplicate-annotation class cleaned from guild. Now rejected before
 writing (exit 2, names the VA). Test: test_duplicate_va_across_inputs_
 errors. 3555 rebrew tests.
+
+## 2026-08-09 — round-trip/cache/completion/skills prose confirmations (clean)
+
+- round_trip.py: padding-tolerant oversize (trim_trailing_padding), REL32
+  call-target decoding in drift diagnostics, catalog-gap skip with
+  --strict-catalog gate, buffer-bounds safety, lazy LIEF — well-guarded.
+- `rebrew cache clear`: confirm prompt (abort), --force for scripts,
+  --json requires --force, count reported — safe destructive path.
+- Shell completion wiring exists (init.py _write_completion_scripts:
+  bash/zsh/fish via click, --install-completions) — brainstorm item closed.
+- Skills prose: intake skill's status --json shape claim verified against
+  live output (functions/status/coverage_pct/matched_pct all present).
