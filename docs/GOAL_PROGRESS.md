@@ -6045,3 +6045,14 @@ All OK.
   matching block, existing output (--force), dry-run preview, and a
   --json safety gate (--va removes source content; needs --force or
   --dry-run). No edges found.
+
+## 2026-08-09 — doc-review pass: accurate (clean)
+
+Ran doc-review.md focused on example/claim accuracy across
+WORKFLOW.md/CLI.md/README.md/QUICKSTART.md: extracted every rebrew
+command, verified flags exist (catalog --data-json/--summary/
+--export-ghidra-labels, crt-match --index/--fix-source/--all, data
+--bss/--dispatch/--fix-bss/--gen-header, cfg set/show dotted-path
+syntax, QUICKSTART's 12 commands, README's uv tool install + .[prove]
+extra — all current). No stale or broken examples found. ('diff]' /
+'to see why]' entries were grep artifacts of prose, not commands.)
