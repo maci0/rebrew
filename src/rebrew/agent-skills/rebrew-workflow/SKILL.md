@@ -124,8 +124,17 @@ rebrew test --all --json                   # batch test all reversed .c files
 rebrew test --all --origin GAME --json     # batch mode, filter by origin
 rebrew test --all --dir src/<target>/ --json    # restrict to subdir
 rebrew test --all -j 8 --json              # parallel compile (default from config)
-rebrew test --all --dry-run                # preview without writing
+rebrew test --all --dry-run                # list candidates without compiling
+rebrew test src/<target>/<file>.c --dry-run  # compile but PREVIEW the STATUS change (no write)
 ```
+
+**`--dry-run` semantics** (consistent across tools): it must never write. For
+`rebrew test`, single-function `--dry-run` compiles and prints the would-be
+STATUS change without writing; `--all --dry-run` lists candidates without
+compiling. `rebrew match --dry-run` is **batch-only** (`--all`); a single-file
+`match --dry-run` is rejected — the GA always runs for a single function.
+`rebrew prove --dry-run` previews the STATUS promotion; `rebrew verify
+--dry-run` previews STATUS sync and skips cache/report writes.
 
 `rebrew test` always syncs STATUS in `rebrew-function.toml` after each run (`--no-promote` skips):
 - **EXACT / RELOC** → STATUS updated; BLOCKER/BLOCKER_DELTA cleared
