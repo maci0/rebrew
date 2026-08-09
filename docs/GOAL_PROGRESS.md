@@ -6096,3 +6096,10 @@ errors. 3555 rebrew tests.
   bash/zsh/fish via click, --install-completions) — brainstorm item closed.
 - Skills prose: intake skill's status --json shape claim verified against
   live output (functions/status/coverage_pct/matched_pct all present).
+
+## 2026-08-09 — todo command generation verified (clean)
+
+`rebrew todo` items carry ready-to-run commands; verified the VA-form
+commands resolve correctly on guild (match --flag-sweep-only 0x1001a670
+-> exit.c, diff 0x1000a010 -> server.c, diff 0x10011660 ->
+friedhof_logic.c). The workflow promise "follow it verbatim" holds.
