@@ -6158,3 +6158,11 @@ responses -> per-command False with reason, SSE+JSON parsing, tool-level
 isError content extraction, "already exists" treated as success
 (idempotent sync), rate limiting every 100 ops, parse-c-structure retry
 after dependency ordering. Well-hardened.
+
+## 2026-08-09 — AST/mutate_code fuzz: 6000 mutations, 0 crashes
+
+Fuzzed the GA front-end: 3000 byte mutations through parse_c_ast and 3000
+through mutate_code (the full parse+select+apply pipeline the GA calls).
+Zero crashes; mutate_code applied a mutation in all 3000 cases (even
+heavily-mangled input — GA fallback selection works). The tree-sitter AST
+layer is robust.
