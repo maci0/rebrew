@@ -6139,3 +6139,13 @@ documented, but `mut_dummy_stack_vars` had no DEDICATED test (only the
 generic ALL_MUTATIONS crash-safety runner). Added 4 tests: injection into
 a function body, volatile char[N] array path, no-body -> None,
 exhausted-name -> None. 3559 rebrew tests.
+
+## 2026-08-09 — deeper-area checks: prove + potato (clean)
+
+- prove internals: step-based wall-clock timeout (angr swallows SIGALRM —
+  documented workaround); no-terminal-states -> False with actionable
+  advice naming --timeout/--loop-bound/--start-offset/--end-offset — all
+  four flags verified present in --help; timed-out runs only compare
+  fully-terminated (deadended) paths. Sound.
+- recoverage potato mode: missing DB / render errors -> clean JSON-500 (no
+  HTML traceback), mtime_ns-based ETag, 304 path. Well-guarded.
