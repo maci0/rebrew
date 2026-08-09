@@ -137,6 +137,7 @@ def main(
     preambles: list[str] = []
     blocks_with_va: list[tuple[int, str]] = []
     included_inputs: list[Path] = []
+    seen_vas: set[int] = set()
 
     # Output is a new file; if any input is a legacy encoding (cp1252/
     # shift_jis), write the merged result in that encoding so non-ASCII
@@ -169,6 +170,14 @@ def main(
             if cfg.marker and module.lower() != cfg.marker.lower():
                 continue
             va = meta["va"]
+            if va in seen_vas:
+                error_exit(
+                    f"Duplicate VA 0x{va:08x} across input files — merge would "
+                    "create duplicate FUNCTION markers (lint E013). Fix the "
+                    "duplicate annotation first.",
+                    json_mode=json_output,
+                )
+            seen_vas.add(va)
             blocks_with_va.append((va, block.strip("\n")))
 
     if len(blocks_with_va) < 2:
