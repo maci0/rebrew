@@ -126,6 +126,7 @@ matching `rebrew prove` / `rebrew test`.
 | `--origin TYPE` | With `--all`, filter by origin (GAME, MSVCRT, ZLIB) |
 | `--dry-run` | Preview changes without writing |
 | `--no-promote` | Skip STATUS metadata update |
+| `--force-status` | Force the STATUS update even from sticky PROVEN (deliberately demote a stale PROVEN to its actual result; single-function only) |
 | `--watch` | Re-test the source file on every save (single-file mode) |
 | `--json` | JSON structured output |
 

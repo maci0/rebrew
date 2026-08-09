@@ -104,7 +104,8 @@ void my_func() {}
 > in the `.c` file.** Metadata-owned keys: STATUS, SIZE, CFLAGS, BLOCKER/BLOCKER_DELTA,
 > NOTE, GHIDRA, ORIGIN, SOURCE, SECTION, SKIP, GLOBALS, prove_constraints.
 > STATUS is promoted only by `rebrew test` / `rebrew verify` (canonical writer:
-> `metadata.update_source_status`); PROVEN is sticky and never demoted. Use
+> `metadata.update_source_status`); PROVEN is sticky — never silently demoted
+> (deliberate demotion: `rebrew test <file> --force-status`). Use
 > `rebrew lint --fix` to migrate any leftover inline `// STATUS:`-style keys.
 > **Never manually edit `rebrew-function.toml` or `rebrew-data.toml`.**
 
@@ -130,7 +131,9 @@ rebrew test --all --dry-run                # preview without writing
 - **EXACT / RELOC** → STATUS updated; BLOCKER/BLOCKER_DELTA cleared
 - **NEAR_MATCHING** (≥60% byte match) → STATUS updated; user-set BLOCKERs preserved
 - **STUB** (<60%) → STATUS demoted to STUB
-- **PROVEN is sticky** — never demoted by test/verify (set only by `rebrew prove`)
+- **PROVEN is sticky** — never demoted by test/verify (set only by `rebrew prove`);
+  to deliberately demote a stale PROVEN (source changed, no longer byte-matches),
+  run `rebrew test src/<target>/<file>.c --force-status` (single-function only)
 - Exit codes: `0` EXACT/RELOC · `1` NEAR_MATCHING/STUB · `2` compile error (scriptable)
 
 For a byte diff of the current state:
