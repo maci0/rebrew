@@ -6005,3 +6005,13 @@ wrote STATUS promotions, solutions, and build caches despite the
 error pointing at 'rebrew match --all --dry-run' (exit 2). Test:
 TestMatchCliDryRun.test_single_function_dry_run_rejected. 3552 rebrew
 tests.
+
+## 2026-08-09 — idempotency sweep + dry-run doc currency
+
+Idempotency sweep on guild (run twice, byte-compare): rebrew todo --json,
+lint --json, status --json, match --all --dry-run — all IDEMPOTENT (match
+lists 26 STUB candidates identically). Docs/skills dry-run claims audited:
+data --fix-bss/--gen-header, ghidra-sync --push/--pull, prove --dry-run,
+round-trip --dry-run all have preview semantics; matching skill's match
+--dry-run is batch-only ("plan without compiling") — consistent with the
+a3551bd rejection. No stale claims.
