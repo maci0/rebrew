@@ -5994,3 +5994,14 @@ silently ignored (help promises single-function only) — now rejected with
 the same clear error as --all. Test:
 TestForceStatus.test_multi_function_dry_run_does_not_promote (dry-run: no
 writes + preview; real run: promotes both). 3551 rebrew tests.
+
+## 2026-08-09 — edge: single-function match --dry-run was a silent no-op
+
+`rebrew match f.c --dry-run` silently ignored the flag: --dry-run is
+documented under the Batch Mode panel and the batch path honors it
+(candidate listing), but the single-function GA ran to completion and
+wrote STATUS promotions, solutions, and build caches despite the
+"Preview changes without writing" promise. Now rejected with a clear
+error pointing at 'rebrew match --all --dry-run' (exit 2). Test:
+TestMatchCliDryRun.test_single_function_dry_run_rejected. 3552 rebrew
+tests.
