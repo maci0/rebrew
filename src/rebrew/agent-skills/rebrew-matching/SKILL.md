@@ -130,6 +130,30 @@ rebrew match --all --sweep-then-ga                                        # swee
 rebrew match --all --sweep-then-ga --skip-recent 24                       # resume: skip stubs GA-run in last 24h
 ```
 
+**Read the codegen to pick the flag direction before sweeping** (validated on a
+fresh MSVC6 C++ project): the target's instruction choices reveal the original
+optimization level, so try `/O2` (or `/O1`) manually first instead of a blind
+sweep:
+
+- `mov eax, [mem]` + `push eax` (or first global load into ECX/EDX instead of
+  EAX) → **/O2-style** scheduling; `/O1` would emit `push [mem]` or `mov eax`.
+- `push dword ptr [mem]`, `inc word ptr [mem]` (direct memory inc) → **/O1**.
+- `mov eax, 1` vs the 3-byte `push 1; pop eax` → /O2 vs /O1 return constant.
+- `shr` (logical) vs `sar` (arithmetic) on a shift → unsigned vs signed index;
+  a `(x >> N) * 4` that compiled to `sar 0xb; and -4` instead of `shr 0xd` +
+  scale-4 addressing means the source indexed an `int*` array, not a shifted
+  multiply.
+- Imported functions must be `__declspec(dllimport)` (declspec FIRST for MSVC6)
+  or the compiler emits a direct `e8` call instead of the target's 6-byte
+  `ff 15 [IAT]` — shifting every later branch offset by one.
+- `__int64` returns use the EDX:EAX pair; virtual calls with a pushed arg are
+  `__stdcall` (no `add esp,4` after the call).
+
+When the manual flag guess lands you within a few bytes, the remaining diffs
+are usually expression shape (member held in a local vs re-read global, control
+flow placement like `obj = 0` inside vs outside the `if`) — iterate those
+before reaching for the GA.
+
 Tiers (combinations are for MSVC6; see [FLAG_SWEEP_TIERS.md](../../../../docs/FLAG_SWEEP_TIERS.md)):
 
 | Tier | Combinations | When to use |
