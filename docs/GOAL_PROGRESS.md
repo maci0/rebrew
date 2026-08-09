@@ -6111,3 +6111,22 @@ original gap report): 3000 random byte mutations through parse_c_file_multi
 and 2000 through parse_new_format + lint_file (cfg=None path). All
 degraded gracefully — no exceptions, no crashes. Parser hardening from
 prior sessions holds.
+
+## 2026-08-09 — user-approved project-data cleanups (post-goal)
+
+User: "do the demotion or cleanups. whatever for more correctness."
+
+1. **np stale-PROVEN demotion** (working tree; toml stays in-flight):
+   - FormatString1 NP.0x01002c93: PROVEN -> STUB (35/98) via
+     `rebrew test src/NP/FormatString1.c --force-status`
+   - SwapBytes NP.0x01005887: PROVEN -> STUB (5/49) via
+     `rebrew test src/NP/SwapBytes.c --force-status`
+   - Only the two STATUS fields changed; the user's other in-flight edits
+     (0x010030f6 RELOC, 0x01003f9e NEAR_MATCHING) preserved; toml left
+     uncommitted. TOOLCHAIN_BUGS.md updated + committed locally (05993c8).
+2. **guild W005 blocker** (pushed 6eeafcf): gm_CreateEntityFromParents
+   0x10018850 STUB got a blocker via the canonical metadata API
+   (diff --fix-blocker refused: auto-classifier yields nothing for a
+   1056-diff stub). lint now 111/111, 0 errors, 34 warnings (all W020).
+   Note: guild's metadata_dir is src/, not the project root (stray root
+   toml created + removed during this).
