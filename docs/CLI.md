@@ -208,7 +208,8 @@ graph TD
 | `--watch` | Re-verify all sources whenever any `.c` file changes |
 
 Status promotion is always-on: after verification, STATUS is promoted/demoted in
-`rebrew-function.toml` metadata. PROVEN status is sticky and never demoted.
+`rebrew-function.toml` metadata. PROVEN status is sticky and never silently
+demoted — deliberately reclassify a stale PROVEN with `rebrew test <file> --force-status`.
 
 Output prefixes for unambiguous parsing:
 
