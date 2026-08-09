@@ -6015,3 +6015,13 @@ data --fix-bss/--gen-header, ghidra-sync --push/--pull, prove --dry-run,
 round-trip --dry-run all have preview semantics; matching skill's match
 --dry-run is batch-only ("plan without compiling") — consistent with the
 a3551bd rejection. No stale claims.
+
+## 2026-08-09 — concurrency-review pass: clean
+
+Focused pass on parallel write paths: compile_cache (diskcache
+thread-safe + _counter_lock + _caches_lock registry), metadata.py
+(_METADATA_LOCK serializes read-modify-write), match.py GA
+(_metadata_lock wraps update_stub_to_matched + _save_solution across
+parallel workers), verify --jobs (STATUS writes happen after the pool
+joins, main thread), recoverage INDEX_LOCK. No races found — all shared
+mutable state is synchronized.
