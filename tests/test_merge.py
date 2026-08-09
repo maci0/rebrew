@@ -72,6 +72,17 @@ class TestMergeBasic:
         assert "_func_a" in text
         assert "_func_b" in text
 
+    def test_duplicate_va_across_inputs_errors(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """Merging files that both annotate the same VA would create duplicate
+        FUNCTION markers (lint E013) — reject before writing."""
+        a = _write(tmp_path / "a.c", _single(0x10001000, "_func_a"))
+        b = _write(tmp_path / "b.c", _single(0x10001000, "_func_b"))  # same VA
+
+        result, out = _invoke(tmp_path, monkeypatch, str(a), str(b))
+        assert result.exit_code != 0
+        assert "Duplicate VA" in result.output
+        assert not out.exists()
+
     def test_deduplicates_include_lines(self, tmp_path: Path, monkeypatch: Any) -> None:
         include = "#include <stdio.h>\n"
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a", preamble=include))
