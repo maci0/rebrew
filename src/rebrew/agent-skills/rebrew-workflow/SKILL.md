@@ -203,7 +203,9 @@ rebrew prove --all --json                                # batch-prove all NEAR_
 - 64-bit returns (`long long`, `__int64`, `int64_t`) auto-compare the EDX:EAX pair;
   `--check-edx` forces the EDX check.
 - `--watch-va` values are decimal unless `0x`-prefixed (unlike most other rebrew tools).
-- On success, STATUS → PROVEN via metadata; PROVEN is sticky, so test/verify never demote it.
+- On success, STATUS → PROVEN via metadata; PROVEN is sticky, so test/verify
+  never demote it. To deliberately demote a stale PROVEN (source changed since
+  the proof), run `rebrew test <file> --force-status` (single-function only).
 
 For details, see the `rebrew-matching` skill.
 
