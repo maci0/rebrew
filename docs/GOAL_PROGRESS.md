@@ -6034,3 +6034,14 @@ edges: single-function test --dry-run previews the STATUS change without
 writing; --all --dry-run lists candidates; match --dry-run is batch-only
 (single-file rejected); prove/verify --dry-run preview. Skills validator
 All OK.
+
+## 2026-08-09 — skeleton/split edge confirmations (clean)
+
+- `rebrew skeleton 0x<VA>` on an already-covered VA: clean skip with
+  "Already covered by: X; use --force to overwrite" (JSON: action=none +
+  covered_by), exit 0. --append rejects VAs already in the target file;
+  batch mode skips existing VAs.
+- `rebrew split`: guards missing file, wrong extension, invalid VA, no
+  matching block, existing output (--force), dry-run preview, and a
+  --json safety gate (--va removes source content; needs --force or
+  --dry-run). No edges found.
