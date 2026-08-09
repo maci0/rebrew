@@ -5953,3 +5953,20 @@ rejects it; PROVEN stays sticky by default). Docs updated: WORKFLOW
 behind E013/W021), CLI options table, workflow SKILL.md (sticky guidance +
 remedy). 3 new tests; 3549 rebrew tests pass. Not applied to np's in-flight
 toml (uncommitted user work — the demotion decision stays with the user).
+
+## 2026-08-09 — goal start: baseline + doc polish (9fb0d38)
+
+New goal (approved contract: discover+fix gaps/edge cases via guild/np,
+improve workflow/docs/agent-skills; project data changed only with
+approval; np in-flight files never touched).
+
+Baseline: rebrew 3549 tests / ruff+mypy clean / tree clean (6463809);
+recoverage 272 / clean (23ab316); guild lint 111/111, 0 errors, doctor
+pass, E013 cleanup held (63f6b4a); skills validator All OK. np stale
+PROVENs (FormatString1/SwapBytes) still pending user demotion decision.
+
+First finding: two docs still said "PROVEN never demoted" in absolute
+terms without the CLI remedy added yesterday — CLI.md verify section and
+workflow SKILL.md prove section now point at
+`rebrew test <file> --force-status` (METADATA_FORMAT.md already accurate
+at API level). 9fb0d38 pushed.
