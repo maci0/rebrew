@@ -6103,3 +6103,11 @@ errors. 3555 rebrew tests.
 commands resolve correctly on guild (match --flag-sweep-only 0x1001a670
 -> exit.c, diff 0x1000a010 -> server.c, diff 0x10011660 ->
 friedhof_logic.c). The workflow promise "follow it verbatim" holds.
+
+## 2026-08-09 — parser fuzz sweep: 5000 mutations, 0 crashes
+
+Fuzzed the annotation parsing layer (the highest edge-case surface per the
+original gap report): 3000 random byte mutations through parse_c_file_multi
+and 2000 through parse_new_format + lint_file (cfg=None path). All
+degraded gracefully — no exceptions, no crashes. Parser hardening from
+prior sessions holds.
