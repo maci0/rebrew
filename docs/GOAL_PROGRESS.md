@@ -6176,3 +6176,13 @@ layer is robust.
   UserWarning + rich line) — verified INTENTIONAL: _config_warn emits
   both by design (UserWarning for programmatic consumers/pytest, rich
   print for CLI users; docstring documents this). Not a bug.
+
+## 2026-08-09 — init + data --gen-header checks (clean)
+
+- `rebrew init` in an empty dir: full scaffold (rebrew-project.toml,
+  AGENTS.md, PRINCIPLES.md, original/, src/<target>/, bin/<target>/,
+  functions.txt, both metadata tomls, .agents/skills/), exit 0, structured
+  JSON. Onboarding path works.
+- `rebrew data --gen-header --gen-header-out` on guild: generated a
+  92-line REBREW_GLOBALS_H from GLOBAL/DATA annotations + rebrew-data.toml
+  (np doc D2's referenced tool); guild tree clean (out path external).
