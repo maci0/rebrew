@@ -141,6 +141,7 @@ sweep:
 - `mov eax, 1` vs the 3-byte `push 1; pop eax` → /O2 vs /O1 return constant.
 - Zeroing a global: `and dword ptr [mem], 0` (7B) is the /O1 size form; `/O2` emits `mov dword ptr [mem], 0` (10B).
 - Arg cleanup after a cdecl call: `add esp, 4` (/O2) vs `pop ecx` (/O1); a `pop ecx; pop ecx` pair after a call can mean a 2-arg cdecl cleanup.
+- `rep stosd`/`repne scasb` string ops with `push N; pop ecx` count setup mean the **/O1 + /Oi** combo (size-optimized + intrinsics) — try cflags `/O1 /Oi /Gd /Oy`. Constant-size `memset` under /Oi inlines to the rep-stos form (a trailing single `stosb` after `rep stosd` means the size is a non-multiple-of-4, or a merged adjacent byte write).
 - `shr` (logical) vs `sar` (arithmetic) on a shift → unsigned vs signed index;
   a `(x >> N) * 4` that compiled to `sar 0xb; and -4` instead of `shr 0xd` +
   scale-4 addressing means the source indexed an `int*` array, not a shifted
