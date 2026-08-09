@@ -46,6 +46,7 @@ from rebrew.annotation import (
 )
 from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import (
+    EXIT_ERROR,
     EXIT_MISMATCH,
     TargetOption,
     error_exit,
@@ -1231,6 +1232,14 @@ def main(
         error_exit(
             "Provide a source file (rebrew match <file.c>) or use --all for batch mode.",
             json_mode=json_output,
+        )
+
+    if dry_run:
+        error_exit(
+            "--dry-run is batch mode only — 'rebrew match --all --dry-run' lists "
+            "candidates without running. Single-function match always runs the GA.",
+            json_mode=json_output,
+            code=EXIT_ERROR,
         )
 
     # Accept a hex VA or symbol name in addition to a .c path, like

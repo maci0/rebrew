@@ -336,3 +336,26 @@ int other(void) { return 2; }
             assert names == ["a"]  # function b is outside the range
         finally:
             set_target_range(None, None)
+
+
+class TestMatchCliDryRun:
+    """rebrew match --dry-run is batch-only; single-function must reject it."""
+
+    def test_single_function_dry_run_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.match import app
+
+        cfg = SimpleNamespace(
+            metadata_dir=tmp_path,
+            reversed_dir=tmp_path / "src",
+            marker="SERVER",
+            source_ext=".c",
+            default_jobs=2,
+        )
+        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
+        result = CliRunner().invoke(app, ["--dry-run", "f.c"])
+        assert result.exit_code == 2
+        assert "batch mode only" in result.output
+        # The GA must not run for a single function under --dry-run.
+        assert "_run_single_ga" not in result.output
