@@ -6025,3 +6025,12 @@ thread-safe + _counter_lock + _caches_lock registry), metadata.py
 parallel workers), verify --jobs (STATUS writes happen after the pool
 joins, main thread), recoverage INDEX_LOCK. No races found — all shared
 mutable state is synchronized.
+
+## 2026-08-09 — dry-run semantics documented (ee60e2b)
+
+Workflow SKILL.md + WORKFLOW.md section 5 now carry a compact
+'--dry-run semantics' block so agents/users don't rediscover today's
+edges: single-function test --dry-run previews the STATUS change without
+writing; --all --dry-run lists candidates; match --dry-run is batch-only
+(single-file rejected); prove/verify --dry-run preview. Skills validator
+All OK.
