@@ -103,6 +103,11 @@ rebrew test src/target_name/my_func.c
 
 For a detailed explanation of each match type, see [MATCH_TYPES.md](MATCH_TYPES.md).
 
+`--dry-run` (single-function) compiles and prints the would-be STATUS change
+without writing — useful to preview a promotion or a `--force-status` demotion
+before applying it. `test --all --dry-run` lists batch candidates without
+compiling.
+
 ### 6. If MISMATCH — use diff mode
 
 ```bash
