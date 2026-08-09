@@ -5970,3 +5970,15 @@ terms without the CLI remedy added yesterday — CLI.md verify section and
 workflow SKILL.md prove section now point at
 `rebrew test <file> --force-status` (METADATA_FORMAT.md already accurate
 at API level). 9fb0d38 pushed.
+
+## 2026-08-09 — edge case: single-function --dry-run wrote STATUS (139d63d)
+
+`rebrew test f.c --dry-run` silently wrote STATUS: the flag promises
+"Preview changes without writing" but single-function mode had no dry-run
+branch (only batch listing used it — batch early-returns before any
+compile/promote, verified correct at test.py:933). Fixed: single-function
+dry-run now previews the STATUS change and skips the write, matching
+verify --dry-run; covers --force-status (dry-run forced demotion is
+previewed, not applied). Live-validated on guild: `rebrew test exit.c
+--dry-run` compiled (SIZE_MISMATCH 0/17), metadata + tree unchanged.
+3550 rebrew tests.
