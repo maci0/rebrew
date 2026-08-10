@@ -195,14 +195,14 @@ def _link_toolchain(project: Path, profile: str) -> str | None:
 @app.callback(invoke_without_command=True)
 def main(
     binary: str = typer.Argument(..., help="Path to the target binary (copied into original/)."),
-    target: str | None = typer.Option(
-        None, "--target", "-t", help="Target name (default: binary stem)."
-    ),
     profile: str | None = typer.Option(
         None, "--profile", "-p", help="Compiler profile (default: auto-detected)."
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = typer.Option(
+        None, "--target", "-t", help="Target name (default: binary stem)."
+    ),
 ) -> None:
     """Run the one-shot onboarding flow in the current directory."""
     bin_path = Path(binary)

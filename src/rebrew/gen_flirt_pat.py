@@ -265,6 +265,12 @@ def generate_pat(lib_file: Path, out_path: Path) -> dict[str, int]:
     for _member_name, obj_data in parse_archive(str(lib_file)):
         try:
             for sym_name, code, relocs in parse_coff_obj(obj_data):
+                if not sym_name.strip():
+                    # A .pat line's trailing field is the symbol name; a
+                    # nameless line is malformed and poisons the whole file
+                    # for signature parsers (symptom: "corrupt .pat").
+                    skipped += 1
+                    continue
                 if sym_name not in seen and len(code) >= 4:
                     seen.add(sym_name)
                     line = bytes_to_pat_line(sym_name, code, relocs)
