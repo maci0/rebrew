@@ -10,6 +10,7 @@ import pytest
 from rebrew.catalog import FunctionEntry
 from rebrew.todo import (
     CAT_COMPILE_ERROR,
+    CAT_DOCUMENTED,
     CAT_EXTRACT_ERROR,
     CAT_FIX_DELTA,
     CAT_IDENTIFY_LIBRARY,
@@ -171,6 +172,58 @@ class TestCollectors:
         assert len(items) == 1
         assert items[0].category == CAT_FIX_DELTA
         assert items[0].byte_delta == 3
+
+    def test_active_functions_iat_thunk_is_documented_not_fix_delta(self) -> None:
+        """Regression: smygb's 6-byte IAT import thunk at 0x40dce0 was listed
+        as a '5B diff — try flag sweep, GA' fix-delta quick-win even though its
+        blocker already documents it as not a decomp target.  Such functions
+        belong in the audit-only documented category, never in fix-delta."""
+        existing = {
+            0x40DCE0: {
+                "status": "STUB",
+                "symbol": "fcn_0040dce0",
+                "blocker": "IAT import thunk / jump stub — not a decomp target",
+                "size": "6",
+            }
+        }
+        items = _collect_active_functions(existing, {0x40DCE0: 6}, {}, {})
+        assert len(items) == 1
+        assert items[0].category == CAT_DOCUMENTED
+        assert items[0].roi_score < 0  # never outranks actionable work
+        assert "not a decomp target" in items[0].description
+        assert items[0].command == ""  # no suggested action
+
+    def test_active_functions_delphi_blocker_is_documented(self) -> None:
+        """Delphi application code is documented as non-reproducible — same
+        audit-only treatment as IAT thunks."""
+        existing = {
+            0x2000: {
+                "status": "STUB",
+                "symbol": "fcn_00002000",
+                "blocker": (
+                    "Borland Delphi application code — Delphi ABI not reproducible "
+                    "with rebrew compilers; documented"
+                ),
+                "size": "120",
+            }
+        }
+        items = _collect_active_functions(existing, {0x2000: 120}, {}, {})
+        assert len(items) == 1
+        assert items[0].category == CAT_DOCUMENTED
+
+    def test_active_functions_generic_blocker_still_actionable(self) -> None:
+        """'Application code — pending per-function decompilation' is a real
+        pending target, not a documented non-target — it stays actionable."""
+        existing = {
+            0x3000: {
+                "status": "STUB",
+                "symbol": "fcn_00003000",
+                "blocker": "Application code — pending per-function decompilation",
+            }
+        }
+        items = _collect_active_functions(existing, {0x3000: 100}, {}, {})
+        assert len(items) == 1
+        assert items[0].category != CAT_DOCUMENTED
 
     def test_active_functions_improve_match(self) -> None:
         existing = {

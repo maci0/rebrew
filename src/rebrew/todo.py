@@ -53,11 +53,18 @@ CAT_START_FUNCTION = "start-function"
 CAT_MISSING_ANNOTATION = "missing-annotation"
 CAT_IDENTIFY_LIBRARY = "identify-library"
 CAT_RUN_PROVER = "run-prover"
+CAT_DOCUMENTED = "documented"
 
 # Proving is only feasible when few bytes actually differ: symbolic execution
 # over hundreds of mismatched bytes just times out.  Cap the estimated byte
 # delta for measured (verify-cached) candidates; unmeasured ones stay eligible.
 _PROVE_MAX_DIFF_BYTES = 8
+
+#: Blocker substrings that mark a STUB as a documented *non-target* (intake /
+#: document-unmatched write these for IAT import thunks and Delphi application
+#: code).  Such functions are explicitly not decomp work — they must never be
+#: suggested as fix-delta quick-wins or flag-sweep targets.
+_NON_TARGET_MARKERS = ("not a decomp target", "not reproducible")
 
 _CATEGORY_COLORS = {
     CAT_SETUP: "bold white",
@@ -69,6 +76,7 @@ _CATEGORY_COLORS = {
     CAT_MISSING_ANNOTATION: "dim",
     CAT_IDENTIFY_LIBRARY: "blue",
     CAT_RUN_PROVER: "cyan",
+    CAT_DOCUMENTED: "dim",
 }
 
 # ---------------------------------------------------------------------------
@@ -308,6 +316,26 @@ def _collect_active_functions(
         size = size_by_va.get(va) or int(info.get("size", 0))
         name = info.get("symbol") or name_by_va.get(va) or f"FUN_{va:08x}"
         filename = info.get("filename", "")
+
+        # Documented non-targets (IAT import thunks, Delphi application code):
+        # the blocker already states they are not decomp work, so a 6-byte
+        # thunk must not surface as a "5B diff — try flag sweep" quick-win.
+        # Keep them listed under their own category so the decision is auditable.
+        if status == "STUB" and any(m in info.get("blocker", "") for m in _NON_TARGET_MARKERS):
+            items.append(
+                TodoItem(
+                    category=CAT_DOCUMENTED,
+                    roi_score=-1.0,  # never outranks actionable work
+                    va=va,
+                    name=name,
+                    size=size,
+                    filename=filename,
+                    description=f"Documented non-target — {info.get('blocker', '')[:60]}",
+                    command="",
+                    status=status,
+                )
+            )
+            continue
 
         # Get verify cache data if available
         va_key = f"0x{va:08x}"
@@ -668,6 +696,8 @@ _EPILOG = (
     "  missing-annotation · · · Found in Ghidra but missing C body\n\n"
     "  identify-library · · · · Uncovered library-origin functions\n\n"
     "  run-prover · · · · · · · Small nearly-matching functions (angr equivalence)\n\n"
+    "  documented · · · · · · · IAT thunks / non-reproducible code — audit only, "
+    "hidden from the default list\n\n"
     "[dim]Reads from ghidra_functions.json, source files, and .rebrew/verify_cache.json.[/dim]"
 )
 
@@ -708,6 +738,7 @@ def main(
     verify_statuses = _load_verify_statuses(cfg)
 
     status_counts: dict[str, int] = {}
+    documented = 0
     for va_int, info in existing.items():
         ann_status = info.get("status", "STUB")
         # PROVEN is a post-verify promotion that wins over verify cache
@@ -715,6 +746,8 @@ def main(
         # promote stubs to SIZE_MISMATCH — a stub's size mismatch is
         # expected).  A more actionable cache state (COMPILE_ERROR, matched)
         # still overrides; SIZE_MISMATCH does not.
+        if ann_status == "STUB" and any(m in info.get("blocker", "") for m in _NON_TARGET_MARKERS):
+            documented += 1
         if ann_status == "PROVEN":
             s = ann_status
         elif ann_status == "STUB":
@@ -743,6 +776,11 @@ def main(
 
     if category:
         all_items = [i for i in all_items if i.category == category]
+    else:
+        # Documented non-targets are audit info, not work — hide them from the
+        # default actionable list (still visible via `-c documented` and the
+        # coverage stats below).
+        all_items = [i for i in all_items if i.category != CAT_DOCUMENTED]
 
     display_items = all_items[:count]
 
@@ -760,6 +798,7 @@ def main(
                     "proven": proven,
                     "matching": matching,
                     "stub": stub,
+                    "documented": documented,
                     "pct_matched": pct,
                 },
                 "total_items": len(all_items),
@@ -780,6 +819,7 @@ def main(
             f"  [magenta]PROVEN: {proven}[/magenta]"
             f"  [yellow]NEAR_MATCHING: {matching}[/yellow]"
             f"  [dim]STUB: {stub}[/dim]"
+            f"  [dim]DOCUMENTED: {documented}[/dim]"
             f"  → [bold]{pct}%[/bold] matched"
         )
 
