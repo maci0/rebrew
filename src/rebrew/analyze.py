@@ -541,6 +541,9 @@ def main(
             metadata_dir=None,
             marker="",
             target_name=binary.stem,
+            crt_sources={},
+            reversed_dir=Path("/nonexistent"),  # no sources -> no CRT/library annotations
+            source_ext=".c",
         )
     else:
         if binary is None:

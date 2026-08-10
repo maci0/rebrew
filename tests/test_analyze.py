@@ -195,6 +195,21 @@ timeout = 60
         assert payload["meta"]["format"] == "pe"
         assert payload["flirt"] is None  # no project sig dir
         assert payload["library"] == []  # no project library headers
+        assert "warning:" not in result.stderr  # project backends degrade silently
+
+    def test_standalone_output_report(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Standalone --output writes a Markdown report without warnings."""
+        monkeypatch.chdir(tmp_path)
+        out = tmp_path / "report.md"
+        result = CliRunner().invoke(
+            app, ["analyze", str(FIXTURES / "mini_pe.exe"), "--output", str(out)]
+        )
+        assert result.exit_code == 0, result.output
+        assert out.exists()
+        assert "# Rebrew Analysis" in out.read_text(encoding="utf-8")
+        assert "warning:" not in result.stderr
 
     def test_standalone_requires_binary(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
