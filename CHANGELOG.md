@@ -294,6 +294,16 @@
   key the config reader ignores.
 
 ### Fixed
+- `rebrew prove` now persists a failed proof's Z3 counterexample as a
+  metadata NOTE (`prove: Z3 found ... EAX=0 vs 4`) so the concrete
+  register difference surfaces in `status`/`todo`/`describe` instead of
+  being lost after the terminal output. Never clobbers a reverser's own
+  note; timeout/path-explosion messages carry no note.
+- `rebrew prove` CLI status-guard tests were **vacuous** — the
+  source-first invocation made typer reject the call as "No such
+  command", so every test passed regardless of the gate. Rewritten with
+  options-first invocation + `chdir` + a real PE fixture: EXACT/STUB
+  rejections and the SIZE_MISMATCH acceptance are now genuinely asserted.
 - `rebrew prove` now accepts **SIZE_MISMATCH** functions (single + `--all`):
   a compiled size that differs structurally is exactly the "bytes differ
   but semantically equivalent" case the PROVEN status exists for, and the

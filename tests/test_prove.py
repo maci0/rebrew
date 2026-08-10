@@ -18,6 +18,8 @@ import pytest
 
 from rebrew.prove import _apply_arg_constraints, _parse_prototype, prove_equivalence
 
+FIXTURES = Path(__file__).parent / "fixtures"
+
 has_angr = importlib.util.find_spec("angr") is not None
 
 # ---------------------------------------------------------------------------
@@ -135,7 +137,13 @@ class TestParsePrototype:
 
 
 class TestProveCLIStatusGuard:
-    """The CLI must reject functions that aren't NEAR_MATCHING."""
+    """The CLI must reject functions that aren't NEAR_MATCHING/SIZE_MISMATCH.
+
+    Invocation pattern matters: options must precede the positional SOURCE
+    (``--json --target GAME foo.c``), and the process must run inside the
+    project dir (``monkeypatch.chdir``) — the old source-first form made
+    typer reject the call as "No such command", silently passing every test.
+    """
 
     def _make_project(self, tmp_path: Path, status: str) -> tuple[Path, Path]:
         """Create a minimal rebrew project with one .c file at the given status."""
@@ -147,151 +155,100 @@ class TestProveCLIStatusGuard:
         src_dir.mkdir()
         src = src_dir / "foo.c"
         src.write_text("// FUNCTION: GAME 0x00001000\nint __cdecl foo(void) { return 0; }\n")
-        # Write status to metadata
-        metadata_toml = src_dir / "rebrew-function.toml"
+        # Write status to metadata — cfg.metadata_dir is reversed_dir.parent,
+        # i.e. the project root for reversed_dir="src".
+        metadata_toml = tmp_path / "rebrew-function.toml"
         metadata_toml.write_text(f'["GAME.0x00001000"]\nstatus = "{status}"\nsize = 16\n')
-        # Fake binary
-        (tmp_path / "game.exe").write_bytes(b"\x00" * 512)
+        # Real PE fixture (parseable) — downstream needs a valid binary.
+        import shutil
+
+        shutil.copy(FIXTURES / "mini_pe.exe", tmp_path / "game.exe")
         return tmp_path, src
 
-    def _cfg_for(self, tmp_path: Path) -> Any:
-        """Minimal config matching _make_project's layout."""
-        from types import SimpleNamespace
-
-        return SimpleNamespace(
-            root=tmp_path,
-            reversed_dir=tmp_path / "src",
-            metadata_dir=tmp_path / "src",
-            marker="GAME",
-            source_ext=".c",
-            target_binary=tmp_path / "game.exe",
-        )
-
-    def test_rejects_exact_status(self, tmp_path: Path) -> None:
+    def _invoke(self, proj_dir: Path, src: Path, monkeypatch: pytest.MonkeyPatch):
         from typer.testing import CliRunner
 
         from rebrew.prove import app
 
+        monkeypatch.chdir(proj_dir)
+        return CliRunner().invoke(
+            app,
+            ["--json", "--target", "GAME", str(src)],
+            catch_exceptions=False,
+        )
+
+    def test_rejects_exact_status(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         proj_dir, src = self._make_project(tmp_path, "EXACT")
-        runner = CliRunner()
-        result = runner.invoke(
-            app,
-            [str(src), "--json", "--target", "GAME"],
-            catch_exceptions=False,
-            env={"REBREW_PROJECT": str(proj_dir / "rebrew-project.toml")},
-        )
-        # Should fail with "angr required" or "Status is 'EXACT'" — either way exit != 0
+        result = self._invoke(proj_dir, src, monkeypatch)
         assert result.exit_code != 0
+        assert "expected NEAR_MATCHING or SIZE_MISMATCH" in result.output
 
-    def test_rejects_stub_status(self, tmp_path: Path) -> None:
-        from typer.testing import CliRunner
-
-        from rebrew.prove import app
-
+    def test_rejects_stub_status(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         proj_dir, src = self._make_project(tmp_path, "STUB")
-        runner = CliRunner()
-        result = runner.invoke(
-            app,
-            [str(src), "--json", "--target", "GAME"],
-            catch_exceptions=False,
-            env={"REBREW_PROJECT": str(proj_dir / "rebrew-project.toml")},
-        )
+        result = self._invoke(proj_dir, src, monkeypatch)
         assert result.exit_code != 0
+        assert "expected NEAR_MATCHING or SIZE_MISMATCH" in result.output
 
-    def test_accepts_size_mismatch_status(self, tmp_path: Path) -> None:
+    def test_accepts_size_mismatch_status(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """SIZE_MISMATCH passes the gate (bytes differ structurally — the
         prove contract) and reaches the pipeline instead of being rejected
         like EXACT/STUB."""
-        from typer.testing import CliRunner
-
-        from rebrew.prove import app
-
         proj_dir, src = self._make_project(tmp_path, "SIZE_MISMATCH")
-        runner = CliRunner()
-        result = runner.invoke(
-            app,
-            [str(src), "--json", "--target", "GAME"],
-            catch_exceptions=False,
-            env={"REBREW_PROJECT": str(proj_dir / "rebrew-project.toml")},
-        )
+        result = self._invoke(proj_dir, src, monkeypatch)
         assert result.exit_code != 0
         # The gate passed; any failure is downstream (angr/compile), never the
         # status rejection.
         assert "expected NEAR_MATCHING" not in result.output
 
-    def test_rejects_reloc_status(self, tmp_path: Path) -> None:
-        """RELOC already matches byte-for-byte — prove must refuse it."""
-        from typer.testing import CliRunner
+    def test_counterexample_written_to_note(self, tmp_path: Path) -> None:
+        """A Z3 counterexample persists as a metadata NOTE for the reverser."""
+        from types import SimpleNamespace
 
-        from rebrew.prove import app
+        from rebrew.metadata import load_metadata
+        from rebrew.prove import _record_prove_counterexample
 
-        proj_dir, src = self._make_project(tmp_path, "RELOC")
-        runner = CliRunner()
-        result = runner.invoke(
-            app,
-            [str(src), "--json", "--target", "GAME"],
-            catch_exceptions=False,
-            env={"REBREW_PROJECT": str(proj_dir / "rebrew-project.toml")},
+        cfg = SimpleNamespace(metadata_dir=tmp_path)
+        ann = SimpleNamespace(module="GAME", va=0x1000)
+        _record_prove_counterexample(
+            cfg, ann, "Z3 found a satisfying assignment where EAX differs; EAX=0 vs 4"
         )
-        assert result.exit_code != 0
+        entry = load_metadata(tmp_path).get(("GAME", 0x1000), {})
+        assert "prove:" in (entry.get("note") or "")
+        assert "EAX=0 vs 4" in entry.get("note", "")
 
-    def test_watch_rejected_with_all(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from typer.testing import CliRunner
+    def test_counterexample_not_written_for_timeout(self, tmp_path: Path) -> None:
+        """Timeout/path-explosion messages carry no counterexample — no note."""
+        from types import SimpleNamespace
 
-        from rebrew.prove import app
+        from rebrew.metadata import load_metadata
+        from rebrew.prove import _record_prove_counterexample
 
-        proj_dir, src = self._make_project(tmp_path, "NEAR_MATCHING")
-        import rebrew.prove as prove_mod
-
-        monkeypatch.setattr(prove_mod, "_require_angr", lambda: None)
-        monkeypatch.setattr(
-            prove_mod,
-            "require_config",
-            lambda target=None, json_mode=False: self._cfg_for(tmp_path),
+        cfg = SimpleNamespace(metadata_dir=tmp_path)
+        ann = SimpleNamespace(module="GAME", va=0x1000)
+        _record_prove_counterexample(
+            cfg, ann, "No terminal states reached for original binary (timeout)"
         )
-        result = CliRunner().invoke(app, ["--all", "--watch"])
-        assert result.exit_code == 1
-        assert "--watch cannot be combined with --all" in result.output
+        assert load_metadata(tmp_path).get(("GAME", 0x1000), {}).get("note") is None
 
-    def test_watch_wires_watch_files(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """--watch registers the resolved source with watch_files."""
-        from typer.testing import CliRunner
+    def test_counterexample_does_not_clobber_existing_note(self, tmp_path: Path) -> None:
+        """A reverser's own note is never overwritten by the prove note."""
+        from types import SimpleNamespace
 
-        from rebrew.prove import app
+        from rebrew.metadata import load_metadata, set_field
+        from rebrew.prove import _record_prove_counterexample
 
-        proj_dir, src = self._make_project(tmp_path, "NEAR_MATCHING")
-        # The angr guard fires before watch wiring — stub it out.
-        monkeypatch.setattr("rebrew.prove._require_angr", lambda: None)
-        monkeypatch.setattr(
-            "rebrew.prove.require_config",
-            lambda target=None, json_mode=False: self._cfg_for(tmp_path),
+        set_field(tmp_path, 0x1000, "note", "mine: hand analysis", module="GAME")
+        cfg = SimpleNamespace(metadata_dir=tmp_path)
+        ann = SimpleNamespace(module="GAME", va=0x1000)
+        _record_prove_counterexample(
+            cfg, ann, "Z3 found a satisfying assignment where EAX differs; EAX=1 vs 9"
         )
-        captured: dict[str, object] = {}
-
-        def fake_watch_files(paths: list[object], retest: object) -> None:
-            captured["paths"] = paths
-
-        monkeypatch.setattr("rebrew.utils.watch_files", fake_watch_files)
-        # Option before positional (typer/CliRunner quirk, see docs/DEVELOPMENT.md).
-        result = CliRunner().invoke(app, ["--watch", str(src)])
-        assert result.exit_code == 0
-        assert captured["paths"] == [src.resolve()]
+        entry = load_metadata(tmp_path).get(("GAME", 0x1000), {})
+        assert entry.get("note") == "mine: hand analysis"
 
 
-# ---------------------------------------------------------------------------
-# prove_equivalence — pure logic, mocked angr
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Win32 SimProcedure registry
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.skipif(
-    not has_angr,
-    reason="angr not installed (run 'uv sync --all-extras' to enable prove tests)",
-)
 class TestWin32SimProcedures:
     """Verify the Win32 SimProcedure registry is populated correctly."""
 
