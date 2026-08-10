@@ -1098,6 +1098,15 @@ def _run_all_batch(
     else:
         _print_batch_summary(transitions, unique_files, 0)
 
+    if not dry_run:
+        # Honor the documented exit-code contract (help: "0 EXACT or RELOC
+        # match; 1 NEAR_MATCHING or STUB; 2 Build error") — the batch path
+        # previously always exited 0, a false green for CI gates.
+        if any(r.get("status") == "COMPILE_ERROR" for r in v_results):
+            raise typer.Exit(code=EXIT_ERROR)
+        if v_failed > 0:
+            raise typer.Exit(code=EXIT_MISMATCH)
+
 
 # ---------------------------------------------------------------------------
 # Batch summary
