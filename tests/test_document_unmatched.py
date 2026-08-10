@@ -118,3 +118,44 @@ class TestDocumentUnmatched:
         result = CliRunner().invoke(app, ["document-unmatched", "--json"])
         assert result.exit_code == 0, result.output
         json.loads(result.stdout)  # pure JSON — no preamble
+
+    def test_backfill_blockers(self, project: Path) -> None:
+        """Existing STUB functions missing a BLOCKER get one (W005 class)."""
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app
+        from rebrew.metadata import get_entry, set_field
+
+        set_field(project / "src", 0x401000, "status", "STUB", module="SERVER")
+        set_field(project / "src", 0x401010, "status", "STUB", module="SERVER")
+        # 0x1000 already has a blocker — must be preserved
+        set_field(project / "src", 0x401000, "blocker", "mine: documented", module="SERVER")
+
+        result = CliRunner().invoke(app, ["document-unmatched", "--backfill-blockers", "--json"])
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert payload["backfilled_blockers"] == 1  # only 0x1010
+        # 0x1010 now has a blocker; 0x1000's is untouched
+        assert get_entry(project / "src", 0x401010, "SERVER").get("blocker")
+        assert get_entry(project / "src", 0x401000, "SERVER").get("blocker") == "mine: documented"
+
+    def test_backfill_dry_run(self, project: Path) -> None:
+        """--dry-run backfill writes nothing."""
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app
+        from rebrew.metadata import get_entry, set_field
+
+        set_field(project / "src", 0x401000, "status", "STUB", module="SERVER")
+        result = CliRunner().invoke(
+            app, ["document-unmatched", "--backfill-blockers", "--dry-run", "--json"]
+        )
+        assert result.exit_code == 0, result.output
+        # both fixture stubs (0x401000, 0x401010) lack blockers
+        assert json.loads(result.stdout)["backfilled_blockers"] == 2
+        assert not get_entry(project / "src", 0x401000, "SERVER").get("blocker")
+        assert not get_entry(project / "src", 0x401010, "SERVER").get("blocker")

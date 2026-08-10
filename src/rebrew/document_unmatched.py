@@ -74,6 +74,12 @@ def _documented_vas(src_dir: Path, cfg: Any) -> set[int]:
 @app.callback(invoke_without_command=True)
 def main(
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    backfill_blockers: bool = typer.Option(
+        False,
+        "--backfill-blockers",
+        help="Write a BLOCKER for every existing STUB function that lacks one "
+        "(the lint W005 class — stubs documented before document-unmatched existed)",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -84,6 +90,40 @@ def main(
     src_dir = cfg.reversed_dir
     if not src_dir.is_dir():
         error_exit(f"reversed dir not found: {src_dir}", json_mode=json_output)
+
+    family = _PROFILE_FAMILY.get(cfg.compiler_profile, "")
+
+    if backfill_blockers:
+        from rebrew.intake import blocker_reason
+        from rebrew.metadata import get_entry, set_field
+        from rebrew.naming import load_data
+
+        _ghidra, existing, _covered = load_data(cfg)
+        backfilled = 0
+        for va, info in existing.items():
+            module = info.get("module") or cfg.marker
+            if info.get("status") == "STUB" and not get_entry(cfg.metadata_dir, va, module).get(
+                "blocker"
+            ):
+                size = int(info.get("size") or 0)
+                reason = blocker_reason(family, size, "")
+                if not dry_run:
+                    set_field(cfg.metadata_dir, va, "blocker", reason, module=module)
+                backfilled += 1
+        payload = {
+            "functions": len(funcs),
+            "backfilled_blockers": backfilled,
+            "dry_run": dry_run,
+        }
+        if json_output:
+            json_print(payload)
+        else:
+            action = "Would backfill" if dry_run else "Backfilled"
+            console.print(
+                f"{action} BLOCKER for {backfilled} STUB function(s) "
+                f"({len(existing)} total documented)"
+            )
+        return
 
     documented = _documented_vas(src_dir, cfg)
     unmatched = [
@@ -107,7 +147,6 @@ def main(
             )
         return
 
-    family = _PROFILE_FAMILY.get(cfg.compiler_profile, "")
     written = classify_all(
         cfg.root,
         src_dir,
