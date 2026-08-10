@@ -197,11 +197,19 @@ def _ga_cache_key(
     a sweep-then-GA or CFLAGS-metadata change must not reuse an .obj compiled
     under different flags.
     """
-    material = src.encode() + b"\x00" + cflags.encode() + b"\x00" + cl_cmd.encode()
-    material += b"\x00" + inc_dir.encode()
+    # Incremental hashing — the old code built a full material buffer per
+    # candidate (src.encode() + joins), and the source hash was recomputed
+    # every call despite being constant within a GA run (perf-review F3).
+    from rebrew.compile_cache import _source_digest
+
+    h = hashlib.sha256()
+    h.update(_source_digest(src).encode())
+    h.update(b"\x00cflags=" + cflags.encode())
+    h.update(b"\x00cmd=" + cl_cmd.encode())
+    h.update(b"\x00inc=" + inc_dir.encode())
     for d in sorted(extra_include_dirs or []):
-        material += b"\x00" + d.encode()
-    return hashlib.sha256(material).hexdigest()[:16]
+        h.update(b"\x00" + d.encode())
+    return h.hexdigest()[:16]
 
 
 class BinaryMatchingGA:
