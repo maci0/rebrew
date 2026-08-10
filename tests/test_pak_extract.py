@@ -16,9 +16,13 @@ project (Quantum 0.97, 1 and 3 files).
 from __future__ import annotations
 
 import random
+from contextlib import suppress
 from pathlib import Path
+from typing import Any
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from tools.DELPHI10.pak_extract import parse_archive, quantum_decompress
 
@@ -103,3 +107,57 @@ class TestMalformedInputs:
         header, _files, stream_off = parse_archive(data)
         with pytest.raises(ValueError):
             quantum_decompress(data[stream_off:], [10_000_000], header[3])
+
+
+# ---------------------------------------------------------------------------
+# Hypothesis property tests — structure-aware fuzzing of the Quantum decoder
+# ---------------------------------------------------------------------------
+
+
+@st.composite
+def quantum_archive(draw: Any) -> bytes:
+    """Generate a structurally-plausible Quantum archive (valid magic +
+    random header fields + name table + trailing data)."""
+    nfiles = draw(st.integers(0, 24))
+    header = (
+        b"DS"
+        + bytes([draw(st.integers(0, 1)), draw(st.integers(0, 0x7F))])
+        + nfiles.to_bytes(2, "little")
+        + bytes([draw(st.integers(10, 21)), draw(st.integers(0, 0xFF))])
+    )
+    body = bytearray(header)
+    for _ in range(nfiles):
+        name = draw(
+            st.text(alphabet=st.characters(min_codepoint=32, max_codepoint=126), max_size=24)
+        )
+        nb = name.encode("latin-1")
+        body.append(min(len(nb), 127))
+        body += nb[:127]
+        body.append(0)  # empty comment varstring
+        body += draw(st.binary(min_size=8, max_size=8))  # size + time + date
+    body += draw(st.binary(max_size=96))
+    return bytes(body)
+
+
+class TestHypothesisPak:
+    @settings(max_examples=200, deadline=None)
+    @given(quantum_archive())
+    def test_parse_archive_never_crashes(self, blob: bytes) -> None:
+        """Structure-aware header fuzz: parse either succeeds or raises a
+        clean ValueError — never IndexError/struct.error."""
+        with suppress(ValueError):
+            parse_archive(blob)
+
+    @settings(max_examples=200, deadline=None)
+    @given(
+        st.binary(min_size=1, max_size=256),
+        st.lists(st.integers(min_value=0, max_value=4096), min_size=1, max_size=8),
+        st.integers(min_value=10, max_value=21),
+    )
+    def test_decompress_never_crashes(
+        self, stream: bytes, file_sizes: list[int], window_bits: int
+    ) -> None:
+        """Random arithmetic-coded streams + declared sizes: the decoder must
+        raise ValueError (truncation/overrun) or return — never crash."""
+        with suppress(ValueError):
+            quantum_decompress(stream, file_sizes, window_bits)
