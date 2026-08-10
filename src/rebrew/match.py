@@ -393,6 +393,14 @@ class BinaryMatchingGA:
             if self.verbose:
                 console.print(line)
 
+        # Warm-cache fast path: a BuildResult that was already scored in this
+        # process (or a prior run of the same stub — the cache is per-stub,
+        # so target bytes are fixed) carries its fitness; skip the
+        # disassembly + numpy scoring entirely.
+        cached_fitness = getattr(res, "fitness", None)
+        if res.ok and cached_fitness is not None:
+            return float(cached_fitness)
+
         if not res.ok or res.obj_bytes is None:
             _log(f"[{src_hash}] Error during compilation/parsing: {res.error_msg}")
             return 10000000.0
@@ -424,6 +432,12 @@ class BinaryMatchingGA:
         )
         excess_penalty = excess * 1500.0  # per-byte penalty comparable to byte_score weight
         total = sc.total + excess_penalty
+        # Memoize the fitness on the BuildResult so a warm-cache rerun (same
+        # stub, same source hash → same obj bytes → same score) skips the
+        # re-disassembly + re-scoring entirely (perf-review F6: ~2.8s per
+        # 300k-candidate warm batch).  getattr guards pickles written before
+        # the field existed.
+        res.fitness = total
         _log(
             f"[{src_hash}] SUCCESS. Score={total:.2f} (len_bytes={len(obj_bytes)}, excess={excess})"
         )

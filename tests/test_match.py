@@ -149,6 +149,28 @@ class TestComputeFitness:
         score = ga._compute_fitness(res, "test_hash", "int f() { return 0; }")
         assert score == 10000000.0
 
+    def test_cached_fitness_skips_rescore(self, tmp_path: Path) -> None:
+        """A BuildResult already carrying a fitness returns it without
+        re-scoring (perf-review F6 — the warm-cache fast path)."""
+        from rebrew.matcher import BuildResult
+
+        ga = _make_ga(tmp_path)
+        res = BuildResult(ok=True, obj_bytes=b"\x55\x8b\xec\xc3", fitness=42.5)
+        score = ga._compute_fitness(res, "test_hash", "int f() { return 0; }")
+        assert score == 42.5
+
+    def test_scored_result_memoizes_fitness(self, tmp_path: Path) -> None:
+        """After a real score computation, the fitness is stored on the
+        BuildResult so a later cache hit skips the numpy work."""
+        from rebrew.matcher import BuildResult
+
+        ga = _make_ga(tmp_path)
+        res = BuildResult(ok=True, obj_bytes=b"\x55\x8b\xec\xc3")
+        assert res.fitness is None
+        score = ga._compute_fitness(res, "test_hash", "int f() { return 0; }")
+        assert res.fitness == score
+        assert score == ga._compute_fitness(res, "test_hash", "int f() { return 0; }")
+
 
 # ---------------------------------------------------------------------------
 # Batch orchestration (_run_all): discovery, filtering, dry-run, execution
