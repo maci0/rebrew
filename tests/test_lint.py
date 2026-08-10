@@ -222,6 +222,22 @@ class TestWarnings:
         result = lint_file(f)
         assert any((c == "E017" for _, c, _ in result.errors))
 
+    def test_e017_contradictory_exact_stub_marker(self, tmp_path: Path) -> None:
+        """A byte-matched function must not carry a STUB marker (stale marker
+        from stub generation; regression: 3 smygb functions were silently
+        mislabeled this way)."""
+        content = "// STUB: SERVER 0x10008880\n// STATUS: EXACT\n// SIZE: 31\nint foo(void) { return 0; }\n"
+        f = _write_c(tmp_path, "foo.c", content)
+        result = lint_file(f)
+        assert any((c == "E017" for _, c, _ in result.errors))
+
+    def test_e017_ok_function_marker_exact(self, tmp_path: Path) -> None:
+        """FUNCTION marker + EXACT status is the healthy state — no E017."""
+        content = "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n// SIZE: 31\nint foo(void) { return 0; }\n"
+        f = _write_c(tmp_path, "foo.c", content)
+        result = lint_file(f)
+        assert not any((c == "E017" for _, c, _ in result.errors))
+
 
 class TestCflagsPreset:
     def test_invalid_annotation_key_no_error_for_valid(self, tmp_path: Path) -> None:

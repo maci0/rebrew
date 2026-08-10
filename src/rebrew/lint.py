@@ -255,6 +255,16 @@ def _check_E017_contradictory(result: LintResult, status: str, marker: str) -> N
         result.error(
             result.marker_line, "E017", f"Contradictory: status is {status} but marker is STUB"
         )
+    elif marker == "STUB" and status in ("EXACT", "RELOC", "PROVEN"):
+        # A matched function marked STUB (stale marker from stub generation,
+        # metadata later promoted). The STUB marker hides a byte-matched
+        # function from status/todo and misleads reversers.
+        result.error(
+            result.marker_line,
+            "E017",
+            f"Contradictory: status is {status} but marker is STUB — "
+            "remove the stale STUB marker (function is matched)",
+        )
 
 
 def _check_W005_blocker(result: LintResult, status: str, found_keys: dict[str, str]) -> None:
