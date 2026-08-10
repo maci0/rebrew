@@ -340,7 +340,7 @@ def main() -> None:
     """Package entry point for the ``rebrew`` umbrella CLI."""
     try:
         app()
-    except (ValueError, FileNotFoundError, KeyError, RuntimeError) as e:
+    except (ValueError, OSError, KeyError, RuntimeError) as e:
         # error_exit() raises typer.Exit, which OUTSIDE click's handler
         # becomes an uncaught-exception traceback with a lying exit 1.
         # Print the friendly message (JSON envelope when --json was passed)

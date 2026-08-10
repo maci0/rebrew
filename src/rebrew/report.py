@@ -46,6 +46,7 @@ from rebrew.config import ProjectConfig
 from rebrew.depgraph import NodeInfo, build_graph, render_mermaid
 from rebrew.imports import find_import_stubs, parse_imports
 from rebrew.status import StatusReport, collect_status
+from rebrew.utils import atomic_write_text
 
 console = Console(stderr=True)
 
@@ -462,7 +463,7 @@ def generate_report(cfg: ProjectConfig, out: Path) -> dict[str, Any]:
         ("graph.html", _render_graph(cfg)),
     ]
     for name, content in pages:
-        (out / name).write_text(content, encoding="utf-8")
+        atomic_write_text(out / name, content, encoding="utf-8")
 
     summary = {
         "total_functions": report.total_functions,

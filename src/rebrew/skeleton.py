@@ -18,6 +18,7 @@ Usage:
 from __future__ import annotations
 
 import importlib
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -325,7 +326,12 @@ def fetch_xref_context(
             lines.append(" * === End cross-references ===")
             lines.append(" */")
             return "\n".join(lines)
-    except (httpx.HTTPError, OSError, RuntimeError, ValueError):
+    except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
+        # Sibling decompiler.py warns for the identical failure; a silent
+        # None hides "why does my skeleton lack xref context" from the user.
+        warnings.warn(
+            f"Ghidra MCP cross-reference fetch failed for 0x{va:08x}: {exc}", stacklevel=2
+        )
         return None
 
 

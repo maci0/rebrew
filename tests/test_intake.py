@@ -79,6 +79,29 @@ class TestIntake:
         assert result.exit_code != 0
         assert "not found" in result.output
 
+    def test_rizin_empty_functions_fails(self, tmp_path: Path, monkeypatch) -> None:
+        """Regression (error-review F2): rizin failing/timing out must not be
+        reported as a successful 'Intake complete: functions: 0' — onboarding
+        with an empty function list is useless and misleading."""
+        from typer.testing import CliRunner
+
+        import rebrew.main as main_mod
+
+        binary = tmp_path / "game.exe"
+        binary.write_bytes(b"MZ")
+        monkeypatch.setattr("rebrew.intake._run_rizin_functions", lambda b: [])
+        monkeypatch.setattr(
+            "rebrew.intake._suggest_profile",
+            lambda b: ("msvc6", "msvc", "MSVC 6.0", []),
+        )
+        runner = CliRunner()
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(main_mod.app, ["intake", "game.exe", "--json"])
+        assert result.exit_code != 0
+        assert "no functions" in result.output
+        # scaffold may exist, but no success payload
+        assert '"functions"' not in result.output
+
 
 class TestBlockers:
     def test_thunk_reason(self) -> None:

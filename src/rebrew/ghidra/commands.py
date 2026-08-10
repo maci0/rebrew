@@ -1855,5 +1855,5 @@ def pull_data(
         console.print(header_text)
         return
 
-    out_file.write_text(header_text, encoding="utf-8")
+    atomic_write_text(out_file, header_text, encoding="utf-8")
     console.print(f"Pulled {len(rows)} data labels from Ghidra, wrote {out_file.name}")

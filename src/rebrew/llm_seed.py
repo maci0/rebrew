@@ -13,6 +13,7 @@ degrades to a warning and the GA runs unchanged.  The endpoint is taken from
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
@@ -143,5 +144,9 @@ def request_seeds(
 
         with httpx.Client(timeout=90) as http:
             return _request(http, conf, source, count)
-    except Exception:  # noqa: BLE001 — LLM availability must never break the GA
+    except Exception as exc:  # noqa: BLE001 — LLM availability must never break the GA
+        # --llm-seed was explicitly requested; a silent empty result hides a
+        # misconfigured endpoint/key.  Warn so the user knows seeds were asked
+        # for but never arrived (still return [] — the GA must run unchanged).
+        logging.warning("LLM seeding requested but failed: %s", exc)
         return []

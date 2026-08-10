@@ -171,7 +171,9 @@ def classify_all(
         )
         out = src_dir / f"fcn_{va:08x}.c"
         if not out.exists():
-            out.write_text(stub)
+            from rebrew.utils import atomic_write_text
+
+            atomic_write_text(out, stub)
         update_field(meta_base, va, "blocker", reason, module=marker)
         set_field(meta_base, va, "status", "STUB", module=marker)
         # Record the disassembly-derived size in metadata: a documented stub
@@ -312,6 +314,20 @@ def main(
 
     # 4. functions.txt via rizin
     funcs = _run_rizin_functions(dest)
+    if not funcs:
+        # A project with an empty function list is not a successful
+        # onboarding — rizin is missing, timed out, or could not analyze the
+        # binary.  Fail loudly instead of reporting "Intake complete: 0".
+        msg = (
+            "rizin produced no functions — install rizin (or fix the analysis "
+            "timeout) and re-run intake; the project scaffold was still created"
+        )
+        if json_output:
+            json_print({"error": msg, "code": EXIT_ERROR})
+        else:
+            console.print(f"[red]Error:[/red] {msg}")
+        raise typer.Exit(code=EXIT_ERROR)
+
     src_dir = project / "src" / target_name
     src_dir.mkdir(parents=True, exist_ok=True)
     atomic_write_text(
