@@ -13,6 +13,15 @@ class TestUmbrellaCli:
         assert r.exit_code == 0
         assert "rebrew " in r.output
 
+    def test_version_matches_module(self) -> None:
+        """--version must agree with the module's __version__ (single source
+        of truth — drift means a stale wheel/egg-info in the environment)."""
+        from rebrew import __version__
+
+        r = runner.invoke(app, ["--version"])
+        assert r.exit_code == 0
+        assert __version__ in r.output
+
     def test_help_lists_command_panels(self) -> None:
         r = runner.invoke(app, ["--help"])
         assert r.exit_code == 0
