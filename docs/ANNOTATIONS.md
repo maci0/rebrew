@@ -188,6 +188,12 @@ via `rebrew cfg set` and re-verify).  JSON output carries the same numbers
 under `verify_cache: {overrides, missing_size}` (present only when a verify
 cache exists).
 
+`rebrew prove` applies the same overlay to its status gate: a function whose
+metadata `STATUS` lags (e.g. a flag-swept function still marked `STUB`) is
+accepted for symbolic proving when the verify cache holds a measured
+`NEAR_MATCHING`/`SIZE_MISMATCH` — the gate checks the *effective* status, not
+the bare metadata value.
+
 This is by design, not a bug: metadata is the *documented* intent, the verify
 cache is the *measured* truth.  When they disagree, the measured truth wins
 for counting coverage, and the mismatch is now visible instead of emergent.
