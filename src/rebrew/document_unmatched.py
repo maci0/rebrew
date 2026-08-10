@@ -78,7 +78,9 @@ def main(
         False,
         "--backfill-blockers",
         help="Write a BLOCKER for every existing STUB function that lacks one "
-        "(the lint W005 class — stubs documented before document-unmatched existed)",
+        "(the lint W005 class — stubs documented before document-unmatched "
+        "existed), and record an available annotation SIZE so the stub stays "
+        "testable",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

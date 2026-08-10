@@ -737,7 +737,7 @@ _EPILOG = (
     "  fix-delta · · · · · · · Known tiny byte diffs (<= 20B) — flag sweeps, padding, GA\n\n"
     "  improve-match · · · · · Functions in-progress without a known small delta\n\n"
     "  start-function · · · · · Uncovered functions, ranked by difficulty\n\n"
-    "  missing-annotation · · · Found in Ghidra but missing C body\n\n"
+    "  missing-annotation · · · Found in Ghidra but missing C body or SIZE annotation\n\n"
     "  identify-library · · · · Uncovered library-origin functions\n\n"
     "  run-prover · · · · · · · Small nearly-matching functions (angr equivalence)\n\n"
     "  documented · · · · · · · IAT thunks / non-reproducible code — audit only, "
