@@ -118,14 +118,26 @@ class TestRenameEdgeCases:
         assert result == 0
 
     def test_primary_file_oserror_warns(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """A missing/unreadable primary file aborts the rename BEFORE any
+        reference is rewritten — continuing would leave the definition with
+        the old name while every call site got the new one (regression:
+        error-review F9, the old code warned and half-applied the rename)."""
+        import pytest
+
         from rebrew.rename import rename_function_everywhere
 
         src = tmp_path / "src"
         src.mkdir()
         cfg = SimpleNamespace(reversed_dir=src, source_ext=".c")
-        # Missing primary file → OSError logged, no crash, other files scanned.
-        result = rename_function_everywhere(cfg, src / "missing.c", "old_fn", "_old_fn", "new_fn")
-        assert result == 0
+        # Missing primary file → abort with a clean error, nothing mutated.
+        with pytest.raises(FileNotFoundError):
+            rename_function_everywhere(cfg, src / "missing.c", "old_fn", "_old_fn", "new_fn")
+        # No reference rewrite happened: a sibling file keeps the old name.
+        sibling = src / "e.c"
+        sibling.write_text("extern int old_fn(void);\n", encoding="utf-8")
+        with pytest.raises(FileNotFoundError):
+            rename_function_everywhere(cfg, src / "missing.c", "old_fn", "_old_fn", "new_fn")
+        assert "old_fn" in sibling.read_text(encoding="utf-8")
 
     def test_extern_oserror_skipped(self, tmp_path: Path, monkeypatch: Any) -> None:
         from rebrew.rename import rename_function_everywhere
