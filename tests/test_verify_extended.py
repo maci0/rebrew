@@ -1134,3 +1134,53 @@ class TestCompareBaseline:
         # Baseline advanced to the new report (differs from the old one).
         assert on_disk["summary"] != baseline["summary"]
         assert on_disk["results"][0]["status"] == "EXACT"
+
+
+class TestFixSizes:
+    """--fix-sizes corrects stale annotation SIZE from the binary-derived size."""
+
+    def test_applies_size_fix(self, tmp_path: Path) -> None:
+        from rebrew.metadata import get_entry
+        from rebrew.verify import _apply_size_fixes
+
+        cfg = _cfg(tmp_path)
+        divergences = [
+            {
+                "va": "0x1000",
+                "annotation_size": 64,
+                "binary_size": 128,
+                "name": "f",
+                "module": "SERVER",
+            }
+        ]
+        assert _apply_size_fixes(cfg, divergences, dry_run=False) == 1
+        assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("size") == 128
+
+    def test_dry_run_writes_nothing(self, tmp_path: Path) -> None:
+        from rebrew.metadata import get_entry, set_field
+        from rebrew.verify import _apply_size_fixes
+
+        cfg = _cfg(tmp_path)
+        set_field(cfg.metadata_dir, 0x1000, "size", 64, module="SERVER")
+        divergences = [
+            {
+                "va": "0x1000",
+                "annotation_size": 64,
+                "binary_size": 128,
+                "name": "f",
+                "module": "SERVER",
+            }
+        ]
+        assert _apply_size_fixes(cfg, divergences, dry_run=True) == 0
+        assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("size") == 64
+
+    def test_module_falls_back_to_marker(self, tmp_path: Path) -> None:
+        from rebrew.metadata import get_entry
+        from rebrew.verify import _apply_size_fixes
+
+        cfg = _cfg(tmp_path)  # marker = "SERVER"
+        divergences = [
+            {"va": "0x2000", "annotation_size": 8, "binary_size": 16, "name": "g"}  # no module
+        ]
+        assert _apply_size_fixes(cfg, divergences, dry_run=False) == 1
+        assert get_entry(cfg.metadata_dir, 0x2000, "SERVER").get("size") == 16
