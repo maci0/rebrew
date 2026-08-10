@@ -23,6 +23,7 @@ Usage::
 
 from __future__ import annotations
 
+import logging
 import re
 import subprocess
 from dataclasses import dataclass, field
@@ -229,10 +230,13 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
     d.sources["merged-rizin"] = len(merged)
 
     # Add capstone sweep candidates not already present.
+    sweep: list[tuple[int, int, str]] = []
     try:
         sweep = _capstone_sweep(binary)
-    except Exception:
-        sweep = []
+    except Exception as exc:
+        # The capstone sweep is a fallback source; its absence must not be
+        # silent — without it, rizin-derived sizes go unvalidated.
+        logging.warning("capstone linear sweep failed (sizes unvalidated): %s", exc)
     for va, _size, name in sweep:
         if va not in merged:
             merged[va] = (0, name)
@@ -253,8 +257,10 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
     try:
         info = load_binary(binary)
         funcs = _validate_and_refine(info, funcs)
-    except Exception:
-        pass
+    except Exception as exc:
+        # Unvalidated gap-based sizes are still emitted, but the user must
+        # know the refine pass was skipped.
+        logging.warning("size refine step failed (emitting unvalidated sizes): %s", exc)
 
     funcs = [f for f in funcs if f[1] >= min_size]
     d.functions = funcs
