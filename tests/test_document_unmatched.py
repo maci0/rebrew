@@ -141,6 +141,34 @@ class TestDocumentUnmatched:
         assert get_entry(project / "src", 0x401010, "SERVER").get("blocker")
         assert get_entry(project / "src", 0x401000, "SERVER").get("blocker") == "mine: documented"
 
+    def test_backfill_writes_missing_size(self, project: Path) -> None:
+        """A blocker backfill also records an available annotation SIZE so the
+        stub stays testable (mirrors classify_all's size write for intake)."""
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app
+        from rebrew.metadata import get_entry, set_field
+
+        # A stub with an inline SIZE but no metadata size yet.
+        (project / "src" / "SERVER" / "fcn_00401020.c").write_text(
+            "// STUB: SERVER 0x00401020\n// SIZE: 8\nvoid fcn_00401020(void) {}\n",
+            encoding="utf-8",
+        )
+        set_field(project / "src", 0x401020, "status", "STUB", module="SERVER")
+        # 0x401000 is already documented as non-target — must stay untouched
+        set_field(project / "src", 0x401000, "blocker", "mine: documented", module="SERVER")
+
+        result = CliRunner().invoke(app, ["document-unmatched", "--backfill-blockers", "--json"])
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        # 0x401010 (no blocker) + 0x401020 (no blocker) both backfilled
+        assert payload["backfilled_blockers"] == 2
+        # only 0x401020 had an annotation size to record
+        assert payload["sizes_written"] == 1
+        assert get_entry(project / "src", 0x401020, "SERVER").get("size") == 8
+
     def test_backfill_dry_run(self, project: Path) -> None:
         """--dry-run backfill writes nothing."""
         import json

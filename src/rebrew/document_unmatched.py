@@ -100,19 +100,26 @@ def main(
 
         _ghidra, existing, _covered = load_data(cfg)
         backfilled = 0
+        sizes_written = 0
         for va, info in existing.items():
             module = info.get("module") or cfg.marker
-            if info.get("status") == "STUB" and not get_entry(cfg.metadata_dir, va, module).get(
-                "blocker"
-            ):
+            entry = get_entry(cfg.metadata_dir, va, module)
+            if info.get("status") == "STUB" and not entry.get("blocker"):
                 size = int(info.get("size") or 0)
                 reason = blocker_reason(family, size, "")
                 if not dry_run:
                     set_field(cfg.metadata_dir, va, "blocker", reason, module=module)
+                    # Same self-heal as classify_all: a blocker for a size-less
+                    # stub is incomplete — record the binary-derived size so
+                    # rebrew test can run on it.
+                    if size > 0 and not entry.get("size"):
+                        set_field(cfg.metadata_dir, va, "size", size, module=module)
+                        sizes_written += 1
                 backfilled += 1
         payload = {
             "functions": len(funcs),
             "backfilled_blockers": backfilled,
+            "sizes_written": sizes_written,
             "dry_run": dry_run,
         }
         if json_output:
