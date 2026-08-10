@@ -83,6 +83,30 @@ def _patch_verify_cache(
     caller has a real byte delta (the batch path gets one from verify;
     recomputing from match_percent would store a percent-scale number).
     """
+    _patch_verify_cache_batch(
+        cfg,
+        [
+            {
+                "va": va,
+                "status": new_status,
+                "match_count": match_count,
+                "total": total,
+                "delta": delta,
+            }
+        ],
+    )
+
+
+def _patch_verify_cache_batch(cfg: ProjectConfig, patches: list[dict[str, Any]]) -> None:
+    """Apply many verify-cache patches with ONE read + ONE write.
+
+    ``test --all`` previously called the single-function patch per result,
+    each a full read+write of verify_cache.json — O(N) file rewrites for an
+    N-function batch.  All in-memory patches are applied first, then a single
+    atomic write flushes them.
+    """
+    if not patches:
+        return
     cache_path = cfg.root / ".rebrew" / "verify_cache.json"
     if not cache_path.exists():
         return
@@ -95,27 +119,32 @@ def _patch_verify_cache(
         return
 
     entries = raw.get("entries", {})
-    va_key = f"0x{va:08x}"
-    entry = entries.get(va_key)
-    if entry is None:
-        return  # No cached entry to patch
+    changed = False
+    for p in patches:
+        va_key = f"0x{p['va']:08x}"
+        entry = entries.get(va_key)
+        if entry is None:
+            continue  # No cached entry to patch
+        result = entry.get("result", {})
+        old_status = result.get("status", "")
+        if old_status == p["status"]:
+            continue  # Already in sync
+        # Patch the result fields
+        result["status"] = p["status"]
+        total = p["total"]
+        match_pct = round(100.0 * p["match_count"] / total, 1) if total > 0 else 0.0
+        result["match_percent"] = match_pct
+        result["passed"] = is_matched(p["status"])
+        if p["delta"] is not None:
+            result["delta"] = p["delta"]
+        elif total > 0:
+            result["delta"] = total - p["match_count"]
+        entry["result"] = result
+        entries[va_key] = entry
+        changed = True
 
-    result = entry.get("result", {})
-    old_status = result.get("status", "")
-    if old_status == new_status:
-        return  # Already in sync
-
-    # Patch the result fields
-    result["status"] = new_status
-    match_pct = round(100.0 * match_count / total, 1) if total > 0 else 0.0
-    result["match_percent"] = match_pct
-    result["passed"] = is_matched(new_status)
-    if delta is not None:
-        result["delta"] = delta
-    elif total > 0:
-        result["delta"] = total - match_count
-    entry["result"] = result
-    entries[va_key] = entry
+    if not changed:
+        return
     raw["entries"] = entries
 
     try:
@@ -1055,23 +1084,28 @@ def _run_all_batch(
     # Sync the verify cache so status/todo don't keep reporting stale
     # pre-batch statuses (the single-file path patches per function).
     if not no_promote:
+        patches: list[dict[str, Any]] = []
         for r in v_results:
             try:
                 va_int = int(r["va"], 16)
             except (ValueError, TypeError, KeyError):
                 continue
             pct = r.get("match_percent") or 0.0
-            _patch_verify_cache(
-                cfg,
-                va_int,
-                r.get("status", ""),
-                round(pct),
-                100,
-                # verify's real byte delta — recomputing from match_percent
-                # would store a percent-scale number into the byte field
-                # (todo.py's ROI thresholds read it as bytes).
-                delta=r.get("delta"),
+            patches.append(
+                {
+                    "va": va_int,
+                    "status": r.get("status", ""),
+                    "match_count": round(pct),
+                    "total": 100,
+                    # verify's real byte delta — recomputing from match_percent
+                    # would store a percent-scale number into the byte field
+                    # (todo.py's ROI thresholds read it as bytes).
+                    "delta": r.get("delta"),
+                }
             )
+        # One read + one write for the whole batch (the per-result patch was
+        # O(N) full-file rewrites of verify_cache.json).
+        _patch_verify_cache_batch(cfg, patches)
 
     # Build transitions for summary display
     transitions: list[tuple[str, str]] = []
