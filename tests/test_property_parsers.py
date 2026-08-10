@@ -142,6 +142,56 @@ def annotation_block(draw: st.DrawFn) -> tuple[list[str], int, str | None, int |
     return lines, va, status, size, cflags
 
 
+# ---------------------------------------------------------------------------
+# FLIRT CRC16 (gen_flirt_pat._crc16_flirt)
+# ---------------------------------------------------------------------------
+
+
+def _crc16_independent(buf: bytes) -> int:
+    """Independent derivation of IDA's FLIRT CRC16 (reflected poly 0x8408,
+    init 0xFFFF, final bitwise invert, byte-swap) written in the standard
+    byte-XOR shift-register form — a different formulation than the
+    per-bit-input loop in gen_flirt_pat, so a transcription error in either
+    derivation shows up as a mismatch."""
+    if not buf:
+        return 0
+    crc = 0xFFFF
+    for b in buf:
+        crc ^= b
+        for _ in range(8):
+            crc = (crc >> 1) ^ 0x8408 if crc & 1 else crc >> 1
+    crc = (~crc) & 0xFFFF
+    return ((crc & 0xFF) << 8) | (crc >> 8)
+
+
+@settings(max_examples=300, deadline=None)
+@given(st.binary(max_size=256))
+def test_crc16_flirt_matches_independent_derivation(buf: bytes) -> None:
+    from rebrew.gen_flirt_pat import _crc16_flirt
+
+    assert _crc16_flirt(buf) == _crc16_independent(buf)
+
+
+@settings(max_examples=100, deadline=None)
+@given(st.binary(max_size=256))
+def test_crc16_flirt_domain(buf: bytes) -> None:
+    from rebrew.gen_flirt_pat import _crc16_flirt
+
+    assert 0 <= _crc16_flirt(buf) <= 0xFFFF
+
+
+def test_crc16_flirt_known_vectors() -> None:
+    """Pinned regression vectors for IDA's FLIRT CRC16 variant."""
+    from rebrew.gen_flirt_pat import _crc16_flirt
+
+    assert _crc16_flirt(b"") == 0x0
+    assert _crc16_flirt(b"\x00") == 0x78F0
+    assert _crc16_flirt(b"abc") == 0x259E
+    assert _crc16_flirt(b"123456789") == 0x6E90
+    assert _crc16_flirt(b"\xff" * 16) == 0xA92D
+    assert _crc16_flirt(b"function_code\x00\x00") == 0x77D2
+
+
 @settings(max_examples=200, deadline=None)
 @given(annotation_block())
 def test_annotation_block_roundtrip(
