@@ -328,7 +328,7 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 | `--csv` | Generate reccmp-compatible CSV |
 | `--export-ghidra` | Cache Ghidra function list |
 | `--export-ghidra-labels` | Generate `ghidra_data_labels.json` from detected tables |
-| `--fix-sizes` | Update `SIZE` entries in `rebrew-function.toml` metadata to match canonical sizes |
+| `--fix-sizes` | Update `SIZE` entries in `rebrew-function.toml` metadata to match canonical sizes — fixes both stale sizes (false `SIZE_MISMATCH`) and missing sizes (`MISSING_SIZE` stubs that `rebrew test` refuses) |
 | `--root DIR` | Project root directory (auto-detected if omitted) |
 ### `rebrew sync`
 
@@ -734,6 +734,7 @@ rebrew todo -c start-function                      # Only uncovered functions to
 rebrew todo -c fix-delta -n 50                     # Tiny byte diffs (quick wins)
 rebrew todo -c compile-error                       # Build failures blocking progress
 rebrew todo -c extract-error                       # Symbols missing from .obj (marker/impl issue)
+rebrew todo -c documented                          # Audit-only: IAT thunks / non-reproducible code
 rebrew todo --stats --json                         # Coverage stats + full JSON report
 
 # Diff & investigation
