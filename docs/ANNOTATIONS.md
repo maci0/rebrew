@@ -163,6 +163,35 @@ Format: `// MARKER: MODULE 0xVA`
 | `PROVEN` | Semantically equivalent, proven via symbolic execution (angr + Z3) |
 | `STUB` | Placeholder, doesn't match yet |
 
+### Effective Status (verify cache vs metadata)
+
+`rebrew status` reports each function's **effective** status, not just the
+metadata `STATUS` value.  The verify cache (`.rebrew/verify_cache.json`,
+written by `rebrew verify`) overlays metadata because metadata statuses can be
+optimistic — a hand-set `STATUS: RELOC` may not survive a real compile.  The
+overlay rules, in order:
+
+1. **`PROVEN`** (from `rebrew prove`) is always authoritative — it is a
+   post-verify promotion, so the verify cache never downgrades it.
+2. **Metadata `STUB`** stays `STUB` unless the cache holds a *more actionable*
+   status (`COMPILE_ERROR`, `EXACT`, `RELOC`, `NEAR_MATCHING`, ...).  Cache
+   states `SIZE_MISMATCH`, `MISSING_SIZE`, and `STUB` do **not** override —
+   a stub's size mismatch is expected until it is decompiled.
+3. **Anything else** (metadata `EXACT`/`RELOC`/`NEAR_MATCHING`) is replaced by
+   the cached verify result when one exists; otherwise the metadata value is
+   kept.
+
+`rebrew status` surfaces this explicitly: the terminal output prints how many
+functions the cache overrode, and how many are stuck on `MISSING_SIZE`
+(metadata `SIZE` missing → verify could not extract the function; set `SIZE`
+via `rebrew cfg set` and re-verify).  JSON output carries the same numbers
+under `verify_cache: {overrides, missing_size}` (present only when a verify
+cache exists).
+
+This is by design, not a bug: metadata is the *documented* intent, the verify
+cache is the *measured* truth.  When they disagree, the measured truth wins
+for counting coverage, and the mismatch is now visible instead of emergent.
+
 ### Origin / Compiler Preset Configuration
 
 Origin is a **project-level concept** — not a per-function `.c` annotation. Each project
@@ -384,6 +413,9 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | W019 | Inline metadata annotation | `// STATUS:`, `// ORIGIN:`, `// SIZE:`, `// CFLAGS:`, `// BLOCKER:`, `// NOTE:`, `// GHIDRA:`, etc. inline — run `--fix` to move to `rebrew-function.toml` |
 | W010 | Unknown annotation key | `// FOOBAR: value` — key not in the known set |
 | W015 | Mixed-case VA hex digits | `0x10003Da0` — prefer consistent `0x10003da0` or `0x10003DA0` |
+| W020 | Asm-dump placeholder | Body uses `__asm`/`__emit` — pasted disassembly, not real C.  **Escalates** when the file's `STATUS` claims a non-stub match (`EXACT`/`RELOC`/...): an asm dump cannot be a byte-match, so the metadata status is wrong (fix it or mark `BLOCKER`).  `STATUS: STUB` + asm dump is an expected documented placeholder and gets the base message only |
+| W021 | Duplicate global | Same global defined in more than one file |
+| W022 | Zero-init `.bss` global | File-scope `= 0` initializer on a `.bss`-style global |
 
 #### Data Annotation Warnings
 

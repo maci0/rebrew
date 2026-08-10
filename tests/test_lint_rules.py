@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 from rebrew.lint import (
     LintResult,
@@ -85,3 +86,26 @@ class TestRuleChecks:
         r = _result()
         _check_W015_va_case(r, "0x1000Ab")  # mixed-case hex → warn
         assert any(w[1] == "W015" for w in r.warnings)
+
+
+class TestE015StubStatus:
+    """E015's intent is library attribution — FUNCTION+STUB is valid."""
+
+    def _cfg(self) -> Any:
+        return SimpleNamespace(library_modules=set())
+
+    def test_function_marker_with_stub_status_ok(self) -> None:
+        r = LintResult(filepath=Path("x.c"))
+        _check_E015_marker_consistency(r, "FUNCTION", "SERVER", "STUB", self._cfg())
+        assert r.errors == []
+
+    def test_stub_marker_with_stub_status_ok(self) -> None:
+        r = LintResult(filepath=Path("x.c"))
+        _check_E015_marker_consistency(r, "STUB", "SERVER", "STUB", self._cfg())
+        assert r.errors == []
+
+    def test_function_marker_with_library_module_fires(self) -> None:
+        r = LintResult(filepath=Path("x.c"))
+        cfg = SimpleNamespace(library_modules={"MSVCRT"})
+        _check_E015_marker_consistency(r, "FUNCTION", "MSVCRT", "EXACT", cfg)
+        assert any(e[1] == "E015" for e in r.errors)

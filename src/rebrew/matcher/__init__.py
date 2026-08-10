@@ -22,6 +22,9 @@ from .core import (
     BuildResult as BuildResult,
 )
 from .core import (
+    GACheckpoint as GACheckpoint,
+)
+from .core import (
     Score as Score,
 )
 from .core import (
@@ -82,6 +85,7 @@ from .solutions import (
 
 __all__ = [
     "BuildCache",
+    "GACheckpoint",
     "BuildResult",
     "Checkbox",
     "COMMON_MSVC_FLAGS",

@@ -97,6 +97,7 @@ for `--compare` (not “better than EXACT”).
 | `--compare-obj` / `--no-compare-obj` | Use object comparison instead of full link (default: true) |
 | `--extra-seed FILE` | Extra `.c` file(s) to seed GA population from solved functions |
 | `--no-seed` | Disable cross-function solution seeding |
+| `--mutation-focus CAT` | Bias GA mutation selection: `register` / `equivalent` / `structural`, or `auto` (derives the category from the function's BLOCKER metadata; single-function only) — the category's suggested operators get 6x selection weight |
 | `--link COMMAND` | LINK.EXE command (for non-obj comparison) |
 | `--lib DIR` | Lib dir (for non-obj comparison) |
 | `--ldflags FLAGS` | Linker flags (for non-obj comparison) |
@@ -121,18 +122,37 @@ matching `rebrew prove` / `rebrew test`.
 | `--ignore-lint` | Continue even if source marker lint errors exist |
 | `--json` | Output results as JSON |
 
+When the compiled candidate is shorter than the target, `--json` adds a
+`missing_tail` summary (`count` / `first` / `last` target instruction) —
+the not-yet-decompiled tail, e.g. `{"count": 6, "first": "call 0xcf26",
+"last": "ret"}` — and the terminal output prints a matching hint.
+
 ### `rebrew test`
 
 | Flag | Description |
 |------|-------------|
+| `<source>` | C source file (positional; omit with `--all`) |
+| `--va HEX` | VA in hex (e.g. `0x10009310`) |
+| `--symbol NAME` | COFF symbol name (e.g. `_funcname`) |
+| `--target-bin PATH` | Test against a raw `.bin` file instead of the target binary |
+| `--size N` | Target size in bytes |
+| `--cflags FLAGS` | Override compiler flags |
 | `--all` | Batch test all reversed .c files |
 | `--dir PATH` | With `--all`, restrict to this subdirectory |
 | `--origin TYPE` | With `--all`, filter by origin (GAME, MSVCRT, ZLIB) |
+| `--jobs N` / `-j N` | Parallel compile jobs (with `--all`) |
 | `--dry-run` | Preview changes without writing |
 | `--no-promote` | Skip STATUS metadata update |
 | `--force-status` | Force the STATUS update even from sticky PROVEN (deliberately demote a stale PROVEN to its actual result; single-function only) |
 | `--watch` | Re-test the source file on every save (single-file mode) |
 | `--json` | JSON structured output |
+| `--target NAME` | Select a target from `rebrew-project.toml` |
+
+`rebrew test <file.c> [--va 0xHEX] [--symbol NAME] [--size N]` tests one
+function. On a multi-function file, `--va` selects the annotation AT that VA
+(symbol and fallback size come from it); pass `--symbol` too to override the
+symbol explicitly. With no `--va`/`--symbol`/`--size`, every annotated
+function in the file is tested.
 
 ### `rebrew rename`
 
@@ -161,6 +181,10 @@ Behavior:
 | `-c CAT` / `--category CAT` | Filter by category (e.g. `start-function`, `fix-delta`, `compile-error`, `extract-error`, `improve-match`) |
 | `-s` / `--stats` | Show coverage stats in the panel title |
 | `--json` | Output results as JSON |
+
+`improve-match` items whose blocker was written by `near-diag --fix-blocker`
+carry a `mutations` array in `--json` (the GA operators to try next) and a
+`[try: ...]` hint in the terminal description.
 
 ### `rebrew skeleton`
 
@@ -327,6 +351,7 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 | `--accept-ghidra` | With `--pull`, accept Ghidra renames for all conflicts (updates cross-references) |
 | `--accept-local` | With `--pull`, keep local names for all conflicts (records GHIDRA in metadata) |
 | `--pull-signatures` | Pull function prototypes from Ghidra and update extern declarations |
+| `--pull-params` | Pull Ghidra parameter names into unnamed parameters of local `.c` files (merge-safe: named params never overwritten, arity mismatch / function-pointer params skipped) |
 | `--pull-datatypes` | Pull enum/typedef inventory from Ghidra into enums_types.h (ReVa exposes names/sizes/categories, not enum members) |
 | `--pull-structs` | Pull struct definitions from Ghidra into `types.h` (single file, default) |
 | `--types-out PATH` | With `--pull-structs`: override the output path (single-file mode; mutually exclusive with `--by-module`) |
@@ -445,6 +470,44 @@ Merge multiple single-function `.c` files into one multi-function file. Preamble
 
 - `--install-completions` — write bash/zsh/fish completion scripts into `completions/`
 
+### `rebrew asm`
+
+`rebrew asm <VA> [--bytes | --nas] [--imports] [--strings] [--hints] [--json] [--target NAME]`
+
+Disassemble a single function from the target binary as a hex dump (default) or
+NASM-style listing (`--nas`).  `--imports`/`--strings`/`--hints` annotate the
+listing with IAT imports, referenced strings, and codegen hints; `--json`
+emits the structured instruction list (address, bytes, mnemonic, operands).
+
+### `rebrew imports`
+
+`rebrew imports [--json] [--target NAME]`
+
+List the PE import table of the target binary (DLL → API, with IAT slot VAs)
+and detect `jmp [IAT]` import stubs.  Used to spot which functions are
+one-instruction thunks into imported APIs (unmatchable by decompilation —
+they are linker glue, not compiled C).
+
+### `rebrew resource`
+
+`rebrew resource [--json] [--target NAME]`
+
+Compare and extract the PE resource (`.rsrc`) section of the target binary —
+a quick check whether the binary ships resources (icons, version info,
+dialogs) that are irrelevant to function matching but matter for
+understanding what the program is.
+
+### `rebrew status`
+
+`rebrew status [--json] [--target NAME]`
+
+At-a-glance reversing progress: total/covered functions, per-status counts
+(EXACT/RELOC/NEAR_MATCHING/STUB), byte coverage, per-module breakdown, and the
+last verify summary.  When a verify cache exists, reported statuses are the
+**effective** status (verify result overrides metadata; see
+`docs/ANNOTATIONS.md` "Effective Status") — `verify_cache: {overrides,
+missing_size}` in JSON surfaces how many functions the cache overrode.
+
 ### `rebrew similar`
 
 `rebrew similar <VA> [--top N] [--min-score N] [--size N] [--json] [--target NAME]`
@@ -466,6 +529,16 @@ Find functions in the target binary that are structurally similar to the functio
 |------------|-------------|
 | `stats` | Cache size, entry count, and session hit/miss rate |
 | `clear` | Empty the compile result cache |
+
+### `rebrew solutions`
+
+`rebrew solutions [--symbol SUBSTR] [--min-size N] [--max-size N] [--best] [--json] [--target NAME]`
+
+Query the GA solutions database.  Default mode lists winning solution
+fingerprints from `.rebrew/solutions.json` (target, symbol, size, cflags,
+score, solved_at); `--symbol`/`--min-size`/`--max-size` filter.  `--best`
+instead shows the best-known GA outcome per function from the append-only run
+history (`.rebrew/ga_runs.jsonl`).  Read-only.
 
 ### `rebrew cfg`
 
@@ -501,17 +574,118 @@ Export annotations to an experimental BinSync state directory (one-way; no impor
 
 ### `rebrew near-diag`
 
-`rebrew near-diag <source> [--va HEX] [--size N] [--json] [--target NAME]`
+`rebrew near-diag <source> [--va HEX] [--size N] [--json] [--fix-blocker] [--target NAME]`
+`rebrew near-diag --all [--fix-blocker] [--json] [--target NAME]`
 
-Compile the source and classify why it does not byte-match the target — which category of compiler choice is blocking the match. Every mismatching byte is bucketed into `register` (same instruction, different register allocation), `equivalent` (semantically equal instruction selection, e.g. `lea` vs `mov`), `reloc` (relocation-masked site), or `structural` (different layout/block order). The verdict suggests whether the delta is likely solvable via C-level changes.
+Compile the source and classify why it does not byte-match the target — which category of compiler choice is blocking the match. Every mismatching byte is bucketed into `register` (same instruction, different register allocation), `equivalent` (semantically equal instruction selection, e.g. `lea` vs `mov`), `reloc` (relocation-masked site), or `structural` (different layout/block order). The verdict suggests whether the delta is likely solvable via C-level changes, and lists the GA mutation operators most likely to fix the dominant category.
+`--fix-blocker` writes the verdict as `BLOCKER` metadata (skipped on a
+match), closing the classify → document loop in one command.  The written
+blocker text includes the top GA mutation operators to try next (the
+actionable step) ahead of the suggestion prose when the 200-char metadata
+budget is tight.
+`--all` runs the same classify-and-document pipeline over every
+`NEAR_MATCHING` function in the project (mirrors `rebrew prove --all`:
+per-function compile/extract failures are recorded in the results instead of
+aborting the batch).
 
 | Flag | Description |
 |------|-------------|
-| `<source>` | C source file for the function to diagnose (positional, required) |
-| `--va HEX` | Target VA (default: from the annotation) |
+| `<source>` | C source file for the function to diagnose (positional; omitted with `--all`) |
+| `--all` | Classify every `NEAR_MATCHING` function in the project |
+| `--va HEX` | Target VA (default: from the annotation; cannot combine with `--all`) |
 | `--size N` | Target size in bytes (default: from the annotation) |
-| `--json` | JSON structured output |
+| `--fix-blocker` | Write each verdict as `BLOCKER` metadata (skipped on a match) |
+| `--json` | JSON structured output (per-function results with `--all`) |
 | `--target NAME` | Select a target from `rebrew-project.toml` |
+
+### `rebrew analyze`
+
+`rebrew analyze [BINARY] [--function 0xVA] [--output report.md] [--json]`
+
+One-shot intelligence dossier: binary layout, toolchain detection (diec →
+PDB → heuristics), strings + references, imports + IAT stubs, reversed-function
+coverage, dispatch tables, FLIRT matches (when `flirt_sigs/` exists), and
+NEAR_MATCHING blockers. Best-effort by design — every section is optional.
+
+| Flag | Description |
+|------|-------------|
+| `BINARY` | Binary to analyze (default: the project target) |
+| `--min-len N` | Minimum string length to report (default 4) |
+| `--top-strings N` | How many most-referenced strings to list (default 10) |
+| `--function 0xVA` | Drill into one function: callers, callees, strings, imports |
+| `--output PATH` | Write a Markdown report instead of terminal output |
+| `--json` | JSON dossier |
+
+### `rebrew describe`
+
+`rebrew describe [OPTIONS] VA`
+
+Per-function recon dossier: callers, callees, strings, imports, globals.
+
+### `rebrew discover-functions`
+
+`rebrew discover-functions [OPTIONS] BINARY`
+
+Chained function enumeration: rizin `aaa` → `aa; aap` → a capstone linear
+sweep, merged with boundary validation and gap-based sizes — fixes rizin's
+garbled merges and short sizes.
+
+### `rebrew gen-flirt-pat`
+
+`rebrew gen-flirt-pat [OPTIONS] LIB_PATH`
+
+Generate FLIRT `.pat` files from a compiler `.lib` archive (e.g. MSVC6's
+`msvcrt.lib`) — the input for `rebrew flirt`.
+
+### `rebrew identify-library`
+
+`rebrew identify-library [OPTIONS]`
+
+Mark VAs as library glue (CRT/ZLIB/etc.) using the library-identification
+backends — powers `rebrew analyze`'s library section.
+
+### `rebrew intake`
+
+`rebrew intake [OPTIONS] BINARY`
+
+One-shot binary onboarding: FLIRT scan, function catalog, coverage database,
+triage — the automated version of the `rebrew-intake` skill's steps.
+
+### `rebrew pdb-info`
+
+`rebrew pdb-info [OPTIONS] BINARY`
+
+Extract PDB metadata (e.g. MSVC `S_COMPILE3` records: compiler + exact
+command line) — feeds toolchain detection and per-function CFLAGS discovery.
+
+### `rebrew report`
+
+`rebrew report [OPTIONS] [--out DIR] [--json]`
+
+Generate a static self-contained HTML documentation site (`index.html`,
+`strings.html`, `imports.html`, `graph.html`). The function index table
+includes a `Blocker` column carrying near-diag/diff blocker guidance.
+
+### `rebrew strings`
+
+`rebrew strings [OPTIONS] [BINARY]`
+
+Extract printable strings from the binary's data sections, with
+cross-references.
+
+### `rebrew xrefs`
+
+`rebrew xrefs [OPTIONS] [BINARY] VA`
+
+Cross-reference explorer: every code location that references the given
+address (calls, jmps, data references).
+
+### `rebrew dashboard`
+
+`rebrew dashboard [OPTIONS]`
+
+Read-only web dashboard over `db/coverage.db` (bottle server) for triaging
+large binaries.
 
 ## Examples
 
@@ -549,6 +723,9 @@ rebrew diff src/target_name/f.c                    # Side-by-side diff
 rebrew diff --mismatches-only src/target_name/f.c  # Only structural diffs
 rebrew diff --fix-blocker src/target_name/f.c      # Auto-write BLOCKER metadata
 rebrew diff --json src/target_name/f.c             # JSON diff
+rebrew near-diag src/target_name/f.c               # Why doesn't this byte-match?
+rebrew near-diag src/target_name/f.c --fix-blocker # ...and document the verdict as BLOCKER
+rebrew near-diag --all --fix-blocker               # Classify + document ALL NEAR_MATCHING
 rebrew match --all                                 # Batch GA on all STUBs
 rebrew match --all --improve                       # Batch GA on all NEAR_MATCHING
 rebrew match --all --near-miss --threshold 5       # GA on NEAR_MATCHING with <=5B delta

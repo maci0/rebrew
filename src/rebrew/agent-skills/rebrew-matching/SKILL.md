@@ -42,7 +42,7 @@ rebrew diff src/<target>/<file>.c --format csv   # CSV for spreadsheet analysis
 rebrew diff 0x10009310 --json                    # resolve a VA directly (no .c path needed)
 ```
 
-> **VA on a multi-function file**: `rebrew diff/match/prove 0x<va>` targets the
+> **VA on a multi-function file**: `rebrew diff/match/prove/test 0x<va>` targets the
 > annotation whose VA matches, NOT the first function in the file. When the
 > resolved file covers a different function than the VA, the tool errors out
 > instead of silently diffing the wrong bytes.
@@ -97,6 +97,11 @@ rebrew match src/<target>/<file>.c --generations 200 --pop-size 64 -j 16
 - `--seed N` — RNG seed for reproducibility
 - `--extra-seed FILE` — additional `.c` file(s) to seed initial population
 - `--no-seed` — disable cross-function solution seeding
+- `--mutation-focus register|equivalent|structural|auto` — bias mutation
+  selection toward a near-diag category (its suggested operators get 6x
+  weight). `auto` reads the function's BLOCKER metadata for the category
+  (single-function only). Use it after `near-diag --fix-blocker`: the
+  blocker names the category, the GA then samples its operators more often.
 - `--seed-from-solved / --no-seed-from-solved` — seed from solutions DB (default on)
 - `--out-dir DIR` — output directory (default: `output/ga_runs`)
 - `--compare-obj / --no-compare-obj` — use object-level comparison
@@ -298,8 +303,20 @@ When stuck at NEAR_MATCHING due to structural differences (register allocation, 
 loop unrolling), first classify the delta, then use `rebrew prove` to mathematically prove semantic
 equivalence:
 
+> **Register-gap functions are prime PROVEN candidates.** A verdict of
+> `REGISTER (N% of delta)` means the bytes differ only by register
+> allocation — semantically identical. `rebrew prove` establishes EAX
+> equivalence directly, promoting to PROVEN *without* fighting the bytes.
+> Run `rebrew prove --all` on the project's NEAR_MATCHING set first (smygb:
+> 7/7 promoted, NEAR_MATCHING → 0); a "no terminal states" failure usually
+> means a loop — retry the function with `--loop-bound 50 --timeout 120`
+> before giving up. Only functions that still fail (float-heavy bodies) need
+> the GA or manual work.
+
 ```bash
 rebrew near-diag src/<target>/<file>.c --json    # classify the delta: register/equivalent/reloc/structural
+rebrew near-diag src/<target>/<file>.c --fix-blocker   # ...and document the verdict as BLOCKER
+rebrew near-diag --all --fix-blocker --json      # batch: classify + document EVERY NEAR_MATCHING
 rebrew prove src/<target>/<file>.c --json                 # prove and update STATUS → PROVEN
 rebrew prove src/<target>/<file>.c --dry-run --json       # preview without updating
 rebrew prove src/<target>/<file>.c --timeout 120 --json   # allow 2 min for complex funcs
@@ -315,7 +332,14 @@ rebrew prove my_func --watch-va 0x10123456 --json         # also compare memory 
 solvable via C-level tweaks; a structural verdict points at block/loop layout, where `rebrew prove`
 (register + watched-VA memory equivalence) is the right tool. With `--json`, read `categories`
 (byte count per bucket: `register` / `equivalent` / `reloc` / `structural`) and `verdict` (dominant
-category + share, e.g. `STRUCTURAL (70% of delta)`).
+category + share, e.g. `STRUCTURAL (70% of delta)`). Relocation sites are masked only when they
+validate against the target's name→VA catalog (the same DIR32/REL32 check as `rebrew test` /
+`rebrew verify`) — an invalid reloc (wrong call target / global address) surfaces as real
+`structural` bytes, and a RELOC-dominant verdict with leftover structural bytes says
+"NEAR_MATCHING-level, not RELOC". `--all` runs the same pipeline over every
+NEAR_MATCHING function in the project (per-function failures are recorded, not fatal), and
+`--fix-blocker` writes each verdict as `BLOCKER` metadata (including the top GA mutations to
+try next) — the classify → document loop for a whole project in one command.
 
 How it works:
 1. Extracts target bytes from the DLL and compiles the C source to an .obj

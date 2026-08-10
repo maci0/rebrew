@@ -168,6 +168,21 @@ def _watch_loop(source_path: Path, retest: Callable[[], None], interval: float =
     watch_files([source_path], retest, interval=interval)
 
 
+def _select_annotation_for_va(
+    lint_annos: list[Annotation], va: str, json_output: bool
+) -> Annotation | None:
+    """The annotation whose VA matches *va*, or None if none does.
+
+    Shared selection for the single-function path: an explicit ``--va`` on a
+    multi-function file must target the function AT that VA, not the file's
+    first annotation (which silently tested the wrong function before this
+    helper — e.g. ``rebrew test multi.c --va 0x2000`` tested the first
+    function's symbol at 0x2000).  Mirrors diff/prove/near-diag.
+    """
+    want_va = parse_va(va, json_mode=json_output)
+    return next((a for a in lint_annos if a.va == want_va), None)
+
+
 @app.callback(invoke_without_command=True)
 def main(
     source: str | None = typer.Argument(None, help="C source file (omit with --all)"),
@@ -344,11 +359,33 @@ def main(
     meta = parse_source_metadata(source, metadata_dir=cfg.metadata_dir)
 
     # Derive symbol from annotation (C function definition)
+    sel_ann: Annotation | None = None
     if not symbol:
-        # First try the parsed annotation object (derives from C func def)
-        lint_anno = lint_annos[0] if lint_annos else None
-        if lint_anno and lint_anno.symbol:
-            symbol = lint_anno.symbol
+        if va is not None:
+            # An explicit --va targets ONE function in (possibly) a
+            # multi-function file: derive the symbol (and fallback size) from
+            # the annotation whose VA matches.  Before this, main() used
+            # lint_annos[0] — `rebrew test multi.c --va 0x2000` silently
+            # tested the FIRST function's symbol at 0x2000 (e.g.
+            # _exit_handler@12 instead of _CreateListenSocket).  Same rule as
+            # diff/prove/near-diag: a requested VA picks its own function.
+            # When NO annotation matches, the explicit --va is a user override
+            # of a stale/absent annotation VA — fall back to the first
+            # annotation's symbol/size (the near-diag va_from_flag semantics).
+            sel_ann = _select_annotation_for_va(lint_annos, va, json_output)
+            if sel_ann is None:
+                sel_ann = lint_annos[0] if lint_annos else None
+            if sel_ann and sel_ann.symbol:
+                symbol = sel_ann.symbol
+            if size is None and sel_ann and sel_ann.size:
+                size = sel_ann.size
+        else:
+            # First try the parsed annotation object (derives from C func def)
+            sel_ann = lint_annos[0] if lint_annos else None
+            if sel_ann and sel_ann.symbol:
+                symbol = sel_ann.symbol
+    else:
+        sel_ann = lint_annos[0] if lint_annos else None
     if not symbol:
         error_exit(
             "Could not derive symbol from C function definition or CLI args", json_mode=json_output
@@ -374,7 +411,7 @@ def main(
 
     from rebrew.cli import resolve_cflags
 
-    _mod = lint_annos[0].module if lint_annos else ""
+    _mod = (sel_ann or lint_annos[0]).module if lint_annos else ""
     cflags_str = resolve_cflags(cfg, cflags or meta.get("CFLAGS", ""), _mod)
 
     section_va: int | None = None

@@ -50,10 +50,10 @@ def _setup(
 
     def _symbols(obj_path, symbol):
         if symbol_found:
-            return _CODE, []
-        return None, []
+            return _CODE, {}, []
+        return None, {}, []
 
-    monkeypatch.setattr("rebrew.matcher.parsers.parse_obj_symbol_bytes", _symbols)
+    monkeypatch.setattr("rebrew.matcher.parsers.parse_obj_symbol_and_relocs", _symbols)
     return cfg
 
 

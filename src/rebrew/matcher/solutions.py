@@ -79,16 +79,26 @@ def load_solutions(project_root: Path) -> list[SolutionEntry]:
 
     Returns an empty list if the file doesn't exist or is malformed.
     """
-    p = _solutions_path(project_root)
-    if not p.exists():
+    return load_solutions_file(_solutions_path(project_root))
+
+
+def load_solutions_file(path: Path) -> list[SolutionEntry]:
+    """Load solution entries from an explicit ``solutions.json`` *path*.
+
+    Supports cross-project seeding: ``rebrew match --seed-solutions
+    ../other-project/.rebrew/solutions.json`` transfers winning cflags/source
+    fingerprints between projects sharing a compiler.  Returns an empty list
+    when the file is missing or malformed (never raises).
+    """
+    if not path.exists():
         return []
     try:
-        raw = json.loads(p.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
-        log.warning("Failed to read solutions at %s: %s", p, exc)
+        log.warning("Failed to read solutions at %s: %s", path, exc)
         return []
     if not isinstance(raw, list):
-        log.warning("solutions file %s is not a JSON array, ignoring", p)
+        log.warning("solutions file %s is not a JSON array, ignoring", path)
         return []
     entries: list[SolutionEntry] = []
     for item in raw:

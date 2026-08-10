@@ -25,7 +25,6 @@ from rebrew.annotation import (
     NEW_FUNC_RE,
     NEW_KV_RE,
     VALID_MARKERS,
-    marker_for_module,
 )
 from rebrew.cli import EXIT_MISMATCH, TargetOption, iter_sources, json_print, rel_display_path
 from rebrew.config import ProjectConfig, load_config
@@ -228,9 +227,22 @@ def _check_W010_unknown_keys(result: LintResult, found_keys: dict[str, str]) -> 
 def _check_E015_marker_consistency(
     result: LintResult, marker: str, module: str, status: str, cfg: ProjectConfig | None = None
 ) -> None:
+    # E015's intent is library-module attribution: a FUNCTION marker on a
+    # module configured as library should be LIBRARY.  A STUB-status function
+    # may legitimately keep either its STUB marker or the FUNCTION marker
+    # (status lives in rebrew-function.toml per the metadata convention), so
+    # both are allowed; anything else is inconsistent.
     lib_modules = cfg.library_modules if cfg and cfg.library_modules is not None else set()
-    expected_marker = marker_for_module(module, status, lib_modules)
-    if marker != expected_marker and marker in VALID_MARKERS and marker not in ("GLOBAL", "DATA"):
+    if module in lib_modules:
+        expected_marker = "LIBRARY"
+        allowed = {"LIBRARY"}
+    elif status == "STUB":
+        expected_marker = "FUNCTION"
+        allowed = {"FUNCTION", "STUB"}
+    else:
+        expected_marker = "FUNCTION"
+        allowed = {"FUNCTION"}
+    if marker not in allowed and marker in VALID_MARKERS and marker not in ("GLOBAL", "DATA"):
         result.error(
             result.marker_line,
             "E015",
@@ -332,34 +344,59 @@ def _check_W019_inline_metadata(
                 result._inline_fixes.append((module, va_int, key, found_keys[key], marker))
 
 
-def _check_W020_asm_dump(result: LintResult, lines: list[str]) -> None:
+def _check_W020_asm_dump(
+    result: LintResult, lines: list[str], claimed_statuses: set[str] | None = None
+) -> None:
     """Flag asm-dump placeholder implementations (W020).
 
     ``__declspec(naked)`` functions whose "implementation" is an ``__asm``
     block (often with raw ``__emit`` byte emission) are pasted disassembly,
     not real C source: they cannot be maintained, refactored, or matched
     beyond byte-identical reproduction.  Warn once per file at the first hit.
+
+    Status-aware: a file whose metadata claims a non-stub status
+    (``EXACT``/``RELOC``/...) while its body is an asm dump escalates the
+    warning — an asm dump cannot be a byte-match, so the STATUS is wrong.
+    That is how "documented STUB" (expected) is told apart from a "claimed
+    match on an asm dump" (a metadata bug) at a glance.
     """
+    claimed = sorted((claimed_statuses or set()) - {"STUB", "SKIP"})
     for i, line in enumerate(lines, start=1):
         s = line.strip()
         # Ignore comment lines — "__asm" in a note is not an implementation.
         if s.startswith("//") or s.startswith("/*") or s.startswith("*"):
             continue
         if "__emit" in s:
-            result.warning(
-                i,
-                "W020",
-                "__emit byte dump — function is an asm placeholder, not real C "
-                "source; rewrite it as C (or mark it STUB/BLOCKER with a note)",
-            )
+            if claimed:
+                result.warning(
+                    i,
+                    "W020",
+                    f"__emit byte dump but STATUS claims {', '.join(claimed)} — an asm "
+                    "placeholder cannot be a byte-match; fix the STATUS or mark BLOCKER",
+                )
+            else:
+                result.warning(
+                    i,
+                    "W020",
+                    "__emit byte dump — function is an asm placeholder, not real C "
+                    "source; rewrite it as C (or mark it STUB/BLOCKER with a note)",
+                )
             return
         if "__asm" in s:
-            result.warning(
-                i,
-                "W020",
-                "inline __asm block — asm-dump placeholder instead of real C "
-                "source; rewrite the function as C where possible",
-            )
+            if claimed:
+                result.warning(
+                    i,
+                    "W020",
+                    f"inline __asm block but STATUS claims {', '.join(claimed)} — an asm "
+                    "dump cannot be a byte-match; fix the STATUS or mark BLOCKER",
+                )
+            else:
+                result.warning(
+                    i,
+                    "W020",
+                    "inline __asm block — asm-dump placeholder instead of real C "
+                    "source; rewrite the function as C where possible",
+                )
             return
 
 
@@ -590,6 +627,10 @@ def lint_file(
         "source": "SOURCE",
     }
 
+    # Statuses claimed by this file's annotations (for W020 escalation: a
+    # non-STUB claim on an asm-dump body is a metadata error).
+    _file_statuses: set[str] = set()
+
     for found_keys, flags in all_headers:
         result.marker_line = int(found_keys.get("_LINE", "1"))
 
@@ -662,6 +703,7 @@ def lint_file(
                 result._marker_counts[marker] += 1
             if status:
                 result._status_counts[status] += 1
+                _file_statuses.add(status)
 
             _check_E015_marker_consistency(result, marker, module, status, cfg)
             _check_W005_blocker(result, status, found_keys)
@@ -682,7 +724,7 @@ def lint_file(
             )
 
     result.context_prefix = ""
-    _check_W020_asm_dump(result, lines)
+    _check_W020_asm_dump(result, lines, _file_statuses)
     _check_W021_duplicate_globals(result, lines, filepath, seen_globals)
     _check_W022_zero_init_bss(result, lines)
     _check_body_rules(result, lines, all_headers[0][1]["has_new"] if all_headers else False)

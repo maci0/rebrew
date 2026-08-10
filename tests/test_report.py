@@ -80,6 +80,24 @@ class TestReportCli:
         assert "CFLAGS" in index
         assert "/O2 /Gd" in index
 
+    def test_index_shows_blockers(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The function table's Blocker column surfaces near-diag blockers."""
+        _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
+        # Metadata at the project root (the default metadata_dir).
+        (tmp_path / "rebrew-function.toml").write_text(
+            '["SERVER.0x10002000"]\n'
+            'blocker = "NEAR_MATCHING — REGISTER (57% of delta) — try: mut_swap_register_keywords"\n',
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(tmp_path)
+        site = tmp_path / "site"
+        result = runner.invoke(app, ["--out", str(site)])
+        assert result.exit_code == 0, result.output
+        index = (site / "index.html").read_text(encoding="utf-8")
+        assert "Blocker" in index
+        assert "NEAR_MATCHING — REGISTER" in index
+        assert "mut_swap_register_keywords" in index
+
         graph = (site / "graph.html").read_text(encoding="utf-8")
         assert "graph LR" in graph  # mermaid block
         assert "2 nodes" in graph  # plain-text adjacency fallback

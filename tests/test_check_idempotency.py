@@ -72,3 +72,36 @@ class TestCliArgEdgeCases:
         assert main(["--cwd"]) == 2
         out = capsys.readouterr().out
         assert "--cwd requires a directory" in out
+
+
+class TestFixtureProject:
+    def test_write_fixture_project_assembles_project(self, tmp_path: Path) -> None:
+        from tools.check_idempotency import write_fixture_project
+
+        project = write_fixture_project(tmp_path / "proj")
+        assert (project / "rebrew-project.toml").is_file()
+        assert (project / "original" / "mini_pe.exe").is_file()
+        assert (project / "src" / "SERVER" / "fcn.c").is_file()
+        assert "mini_pe.exe" in (project / "rebrew-project.toml").read_text(encoding="utf-8")
+
+    def test_fixture_dir_without_value_errors(self, capsys) -> None:
+        from tools.check_idempotency import main
+
+        assert main(["--fixture-dir"]) == 2
+        assert "--fixture-dir requires a directory" in capsys.readouterr().out
+
+    def test_fixture_dir_sweep_runs_against_real_rebrew(self, tmp_path: Path) -> None:
+        """End-to-end: the full default sweep passes on the fixture project.
+
+        Uses the real `rebrew` CLI via uv run (the fixture project's config is
+        deliberately minimal so every offline --json command works).
+        """
+
+        project = tmp_path / "proj"
+        from tools.check_idempotency import main
+
+        # Point the sweep at a subprocess cwd by invoking main with --fixture-dir.
+        code = main(["--fixture-dir", str(project)])
+        assert code == 0
+        # Sanity: the project actually got created.
+        assert (project / "original" / "mini_pe.exe").is_file()

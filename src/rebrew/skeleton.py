@@ -64,11 +64,23 @@ def _render_annotation_block(
     func_name: str,
     ghidra_name: str,
     todo_text: str | None = None,
+    decomp_body: bool = False,
 ) -> str:
     lines = [f"// {marker}: {cfg_marker} 0x{va:08x}\n"]
     if xref_context:
         lines.append(f"{xref_context}\n")
-    if decomp_code:
+    if decomp_code and decomp_body:
+        # Use the decompiled C as the implementation — a real GA seed, not a
+        # comment.  Rename its function to the marker's name so the GA can
+        # find the symbol in the compiled object.
+        from rebrew.c_parser import extract_function_name_and_proto
+
+        body = decomp_code.strip()
+        result = extract_function_name_and_proto(body)
+        if result and result[0] != func_name:
+            body = body.replace(result[0], func_name, 1)
+        lines.append(f"{body}\n")
+    elif decomp_code:
         lines.append(f"/* === Decompilation ({decomp_backend}) === */\n")
         lines.append(f"{decomp_code}\n")
         lines.append("/* === End decompilation === */\n")
@@ -94,6 +106,7 @@ def generate_skeleton(
     xref_context: str | None = None,
     decomp_code: str | None = None,
     decomp_backend: str = "",
+    decomp_body: bool = False,
 ) -> str:
     """Generate the .c file content.
 
@@ -127,6 +140,7 @@ def generate_skeleton(
         decomp_code=decomp_code,
         decomp_backend=decomp_backend or "decompiler",
         todo_text=todo,
+        decomp_body=decomp_body,
     )
 
 
@@ -139,6 +153,7 @@ def generate_annotation_block(
     xref_context: str | None = None,
     decomp_code: str | None = None,
     decomp_backend: str = "",
+    decomp_body: bool = False,
 ) -> str:
     """Generate an annotation block + stub body for appending to an existing file.
 
@@ -159,6 +174,7 @@ def generate_annotation_block(
         xref_context=xref_context,
         decomp_code=decomp_code,
         decomp_backend=decomp_backend or "decompiler",
+        decomp_body=decomp_body,
     )
 
 
@@ -453,6 +469,7 @@ def _run_batch_mode(
     endpoint: str,
     json_output: bool,
     dry_run: bool = False,
+    decomp_body: bool = False,
 ) -> None:
     """Generate skeleton files in batch for the smallest uncovered functions."""
     root = cfg.root
@@ -499,6 +516,7 @@ def _run_batch_mode(
             xref_context=xref_context_val,
             decomp_code=d_code,
             decomp_backend=d_backend,
+            decomp_body=decomp_body,
         )
         if dry_run:
             console.print(f"[dim]Would create[/dim] {rel_path} ({size_val}B)")
@@ -568,6 +586,7 @@ def _run_append_mode(
     endpoint: str,
     json_output: bool,
     dry_run: bool = False,
+    decomp_body: bool = False,
 ) -> None:
     """Append a function annotation block to an existing .c file."""
     root = cfg.root
@@ -608,6 +627,7 @@ def _run_append_mode(
         xref_context=xref_context_val,
         decomp_code=decomp_code_val,
         decomp_backend=decomp_backend_name,
+        decomp_body=decomp_body,
     )
 
     # Ensure there's a blank line separator before the new block
@@ -659,6 +679,7 @@ def _run_single_va_mode(
     endpoint: str,
     json_output: bool,
     dry_run: bool = False,
+    decomp_body: bool = False,
 ) -> None:
     """Create a new single-function .c skeleton file."""
     root = cfg.root
@@ -689,6 +710,7 @@ def _run_single_va_mode(
         xref_context=xref_context_val,
         decomp_code=decomp_code_val,
         decomp_backend=decomp_backend_name,
+        decomp_body=decomp_body,
     )
     if dry_run:
         console.print(f"[dim]Would create[/dim] {rel_path_val}")
@@ -756,6 +778,12 @@ def main(
         help="Append function to an existing .c file (multi-function file)",
     ),
     decomp: bool = typer.Option(False, "--decomp", help="Embed decompilation in skeleton"),
+    decomp_body: bool = typer.Option(
+        False,
+        "--decomp-body",
+        help="With --decomp: write the decompiled C as the function BODY (a real "
+        "GA seed) instead of a comment block",
+    ),
     decomp_backend: str = typer.Option(
         "auto",
         "--decomp-backend",

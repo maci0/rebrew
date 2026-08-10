@@ -1047,6 +1047,12 @@ console = Console(stderr=True)
 def main(
     source: str = typer.Argument(None, help="C source file, symbol name, or VA (hex)"),
     all_sources: bool = typer.Option(False, "--all", help="Prove all NEAR_MATCHING functions"),
+    max_delta: int | None = typer.Option(
+        None,
+        "--max-delta",
+        help="With --all: only prove NEAR_MATCHING functions whose recorded "
+        "byte delta (blocker_delta) is at most this — focus Z3 time on the closest matches",
+    ),
     timeout: int = typer.Option(60, "--timeout", help="Seconds before giving up"),
     loop_bound: int = typer.Option(10, "--loop-bound", help="Max loop iterations for angr"),
     start_offset: int = typer.Option(
@@ -1115,6 +1121,7 @@ def main(
             json_output,
             check_edx=check_edx,
             watch_va=watch_va_ints,
+            max_delta=max_delta,
         )
         return
 
@@ -1160,13 +1167,21 @@ def main(
     if was_va_arg:
         # `rebrew prove 0x<va>` on a multi-function file must target THAT
         # function — the first-NEAR_MATCHING fallback would prove a different
-        # function's bytes (workflow bug fixed for diff/match).
+        # function's bytes (workflow bug fixed for diff/match).  A VA the
+        # resolved file does not annotate errors instead of silently proving
+        # the wrong function (same rule as diff/match/near-diag).
         try:
             want_va = parse_va(source, json_mode=json_output)
         except typer.Exit:
             want_va = None
         if want_va is not None:
             ann = next((a for a in annotations if a.va == want_va), None)
+            if ann is None:
+                error_exit(
+                    f"No annotation for VA {source} in {source_path.name} — the "
+                    "resolved file covers different functions",
+                    json_mode=json_output,
+                )
     if ann is None:
         for a in annotations:
             if a.status == "NEAR_MATCHING":
@@ -1562,8 +1577,14 @@ def _run_all_batch(
     *,
     check_edx: bool = False,
     watch_va: list[int] | None = None,
+    max_delta: int | None = None,
 ) -> None:
-    """Batch-prove all NEAR_MATCHING functions."""
+    """Batch-prove all NEAR_MATCHING functions.
+
+    *max_delta* bounds the work to functions whose recorded byte delta
+    (blocker_delta metadata) is at most the given value — Z3 time goes to
+    the closest matches first.
+    """
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     tm = target_marker(cfg)
 
@@ -1575,7 +1596,14 @@ def _run_all_batch(
         except Exception:  # noqa: BLE001
             log.debug("Skipping %s: annotation parse failed", src, exc_info=True)
             continue
-        candidates.extend((src, a) for a in annos if a.status == "NEAR_MATCHING" and a.size)
+        for a in annos:
+            if a.status != "NEAR_MATCHING" or not a.size:
+                continue
+            if max_delta is not None:
+                delta = getattr(a, "blocker_delta", None)
+                if delta is not None and delta > max_delta:
+                    continue  # too far from EXACT — don't burn Z3 time yet
+            candidates.append((src, a))
 
     if not candidates:
         if json_output:

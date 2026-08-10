@@ -359,3 +359,68 @@ class TestMatchCliDryRun:
         assert "batch mode only" in result.output
         # The GA must not run for a single function under --dry-run.
         assert "_run_single_ga" not in result.output
+
+
+class TestAllTargetsParallel:
+    """J5: --all-targets splits --jobs across targets when it can."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            metadata_dir=tmp_path,
+            reversed_dir=tmp_path / "src",
+            marker="SERVER",
+            source_ext=".c",
+            ignored_symbols=[],
+            default_jobs=4,
+            root=tmp_path,
+            target_name="server_dll",
+            all_targets=["server_dll", "client_exe"],
+        )
+
+    def test_jobs_split_across_targets(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.match import app
+
+        cfg = self._cfg(tmp_path)
+        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr(
+            "rebrew.config.load_config",
+            lambda root, target=None: SimpleNamespace(
+                metadata_dir=tmp_path,
+                reversed_dir=tmp_path / "src",
+                marker="SERVER",
+                source_ext=".c",
+                ignored_symbols=[],
+                default_jobs=4,
+                root=root,
+                target_name=target or "server_dll",
+                all_targets=cfg.all_targets,
+            ),
+        )
+        job_args: list[int] = []
+
+        def _fake_run_all(cfg=None, **kwargs: object) -> tuple[int, int]:
+            job_args.append(int(kwargs.get("jobs", 0)))
+            return (1, 0)
+
+        monkeypatch.setattr("rebrew.match._run_all", _fake_run_all)
+        result = CliRunner().invoke(app, ["--all-targets", "--json"])
+        assert result.exit_code == 0
+        # 4 jobs over 2 targets → 2 each; total wine concurrency stays ~4.
+        assert job_args == [2, 2]
+
+    def test_single_target_keeps_full_jobs(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.match import app
+
+        cfg = self._cfg(tmp_path)
+        cfg.all_targets = ["server_dll"]
+        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
+        job_args: list[int] = []
+
+        def _fake_run_all(cfg=None, **kwargs: object) -> tuple[int, int]:
+            job_args.append(int(kwargs.get("jobs", 0)))
+            return (1, 0)
+
+        monkeypatch.setattr("rebrew.match._run_all", _fake_run_all)
+        result = CliRunner().invoke(app, ["--all-targets", "--json"])
+        assert result.exit_code == 0
+        assert job_args == [4]  # no split needed

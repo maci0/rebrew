@@ -5342,7 +5342,62 @@ def mut_extract_complex_args(s: str, rng: random.Random) -> str | None:
     return result.decode("utf-8")
 
 
+def mut_hoist_repeated_deref(s: str, rng: random.Random) -> str | None:
+    """Hoist a repeated absolute-pointer deref into a kept-live local.
+
+    ``*(T *)0x415880`` used N times compiles to N memory re-reads; assigning
+    it to a local once keeps the pointer live, which is the MSVC6 codegen
+    for a global-pointer variable tested by truthiness (``mov eax,[mem];
+    test eax,eax``).  Campaign finding: the register-only NEAR_MATCHING gap
+    on smygb 0x401370 (100% mnemonic match, 21 register diffs) needs exactly
+    this shape change — a shared ``p`` local reused across blocks keeps one
+    register, while the target keeps the object pointer live in another.
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+    q = _LazyQuery(_C_LANGUAGE, "(function_definition body: (compound_statement) @body)")
+    cursor = _cursor(q)
+    matches = list(cursor.matches(tree.root_node))
+    if not matches:
+        return None
+    match = rng.choice(matches)
+    caps = _first_caps(match[1])
+    body_node = caps["body"]
+    body_start, body_end = body_node.start_byte, body_node.end_byte
+    body_text = s[body_start:body_end]
+
+    deref_re = re.compile(r"\*\s*\(\s*[^)]*\*\s*\)\s*0x[0-9a-fA-F]+")
+    occurrences = list(deref_re.finditer(body_text))
+    if len(occurrences) < 2:
+        return None
+    # Group by the absolute address; the address with the most repeats wins.
+    by_addr: dict[str, list[re.Match[str]]] = {}
+    for m in occurrences:
+        addr_m = re.search(r"0x[0-9a-fA-F]+$", m.group(0))
+        if addr_m is None:
+            continue
+        by_addr.setdefault(addr_m.group(0), []).append(m)
+    addr, ms = max(by_addr.items(), key=lambda kv: len(kv[1]))
+    if len(ms) < 2:
+        return None
+    first_expr = ms[0].group(0)
+    local_name = f"_ptr{rng.randint(0, 99)}"
+    decl = f"void *{local_name} = {first_expr};"
+    # Replace EVERY occurrence (including the first) with the local name —
+    # the declaration above carries the original expression.
+    new_body = body_text
+    for m in reversed(ms):
+        new_body = new_body[: m.start()] + local_name + new_body[m.end() :]
+    # Insert the declaration right after the opening '{'.
+    insert_at = body_text.find("{") + 1
+    if insert_at <= 0:
+        return None
+    new_body = new_body[:insert_at] + "\n    " + decl + new_body[insert_at:]
+    return s[:body_start] + new_body + s[body_end:]
+
+
 ALL_MUTATIONS = [
+    mut_hoist_repeated_deref,
     mut_flip_eq_zero,
     mut_flip_lt_ge,
     mut_add_redundant_parens,

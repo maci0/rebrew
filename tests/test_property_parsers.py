@@ -2,12 +2,16 @@
 
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from rebrew.gen_flirt_pat import bytes_to_pat_line
+
+if TYPE_CHECKING:
+    from rebrew.catalog.models import GhidraDataLabel
 
 
 @settings(max_examples=200, deadline=None)
@@ -618,3 +622,208 @@ def test_name_encoded_va_output_domain(raw: str) -> None:
     m = __import__("re").search(r"([0-9a-fA-F]{6,8})$", raw)
     assert m is not None
     assert out == int(m.group(1), 16)
+
+
+# ---------------------------------------------------------------------------
+# catalog.grid — section/label lookup, status counting, grid reorder-invariance
+# ---------------------------------------------------------------------------
+
+
+@st.composite
+def section_map(draw: st.DrawFn) -> dict[str, dict[str, int]]:
+    """A dict of non-overlapping sections: {name: {va, size, fileOffset}}."""
+    n = draw(st.integers(min_value=0, max_value=8))
+    sections: dict[str, dict[str, int]] = {}
+    cursor = draw(st.integers(min_value=0, max_value=0x1000))
+    for i in range(n):
+        size = draw(st.integers(min_value=1, max_value=0x2000))
+        sections[f".sec{i}"] = {"va": cursor, "size": size, "fileOffset": cursor}
+        cursor += size + draw(st.integers(min_value=0, max_value=0x1000))
+    return sections
+
+
+def _ref_lookup_section(
+    sections: dict[str, dict[str, int]], va: int
+) -> tuple[str, int, int] | None:
+    """Reference: linear scan over the section dict."""
+    for name, sd in sections.items():
+        if sd["va"] <= va < sd["va"] + sd["size"]:
+            return name, sd["fileOffset"] + (va - sd["va"]), va - sd["va"]
+    return None
+
+
+@settings(max_examples=200, deadline=None)
+@given(section_map(), st.integers(min_value=0, max_value=0x20000))
+def test_lookup_section_matches_reference(sections: dict[str, dict[str, int]], va: int) -> None:
+    from rebrew.catalog.grid import _build_section_index, _lookup_section
+
+    starts, info = _build_section_index(sections)
+    result = _lookup_section(va, starts, info)
+    expected = _ref_lookup_section(sections, va)
+    assert result == expected, f"va=0x{va:x}: got {result}, want {expected}"
+
+
+@st.composite
+def label_map(draw: st.DrawFn) -> tuple[dict[int, "GhidraDataLabel"], list[tuple[int, int]]]:
+    """Non-overlapping data labels: {va: label} plus their (va, va+size) spans."""
+    from rebrew.catalog.models import GhidraDataLabel
+
+    n = draw(st.integers(min_value=0, max_value=8))
+    labels: dict[int, GhidraDataLabel] = {}
+    spans: list[tuple[int, int]] = []
+    cursor = draw(st.integers(min_value=0, max_value=0x1000))
+    for i in range(n):
+        size = draw(st.integers(min_value=1, max_value=0x200))
+        labels[cursor] = GhidraDataLabel(va=cursor, size=size, label=f"L{i}", state="data")
+        spans.append((cursor, cursor + size))
+        cursor += size + draw(st.integers(min_value=0, max_value=0x1000))
+    return labels, spans
+
+
+@settings(max_examples=200, deadline=None)
+@given(label_map(), st.integers(min_value=0, max_value=0x20000))
+def test_find_ghidra_data_label_matches_reference(
+    data: tuple[dict[int, "GhidraDataLabel"], list[tuple[int, int]]], va: int
+) -> None:
+    from rebrew.catalog.grid import _build_label_index, _find_ghidra_data_label
+
+    labels, spans = data
+    idx = _build_label_index(labels)
+    result = _find_ghidra_data_label(va, idx)
+    expected = next((s for s, e in spans if s <= va < e), None)
+    if expected is None:
+        assert result is None
+    else:
+        assert result is not None
+        assert result[0] == expected  # the containing label's start VA
+
+
+_STATUS_GROUP_PRIORITY = (
+    ("EXACT",),
+    ("RELOC",),
+    ("NEAR_MATCHING", "NEAR_MATCH"),
+    ("STUB",),
+)
+_STATUSES = ("STUB", "EXACT", "RELOC", "NEAR_MATCHING", "NEAR_MATCH", "PROVEN", "SKIP")
+
+
+@st.composite
+def status_map(draw: st.DrawFn) -> dict[int, list[str]]:
+    """{va: [status, ...]} with random statuses and marker types."""
+    n = draw(st.integers(min_value=0, max_value=12))
+    out: dict[int, list[str]] = {}
+    for _ in range(n):
+        va = draw(st.integers(min_value=0, max_value=0xFFFF))
+        statuses = draw(st.lists(st.sampled_from(_STATUSES), min_size=1, max_size=3))
+        marker = draw(st.sampled_from(["FUNCTION", "GLOBAL", "DATA"]))
+        if marker != "FUNCTION":
+            statuses = ["STUB"]  # GLOBAL/DATA entries never count
+        out[va] = statuses
+    return out
+
+
+@settings(max_examples=200, deadline=None)
+@given(status_map())
+def test_count_statuses_invariants(statuses: dict[int, list[str]]) -> None:
+    """Every VA is counted at most once; EXACT beats STUB; PROVEN/SKIP never count."""
+    from rebrew.catalog.grid import count_statuses
+
+    # Convert to the annotation-dict shape count_statuses expects.
+    by_va = {
+        va: [{"marker_type": "FUNCTION", "status": s} for s in slist]
+        for va, slist in statuses.items()
+    }
+    out = count_statuses(by_va)
+    assert set(out) == {"EXACT", "RELOC", "NEAR_MATCHING", "STUB"}
+    assert sum(out.values()) <= len(statuses)
+    # EXACT outranks STUB wherever both appear for the same VA.
+    for _va, slist in statuses.items():
+        if "EXACT" in slist and "STUB" in slist:
+            assert out["EXACT"] >= 1
+    # Spot-check priority: a VA with EXACT+STUB counts under EXACT.
+    probe = {
+        0x10: [
+            {"marker_type": "FUNCTION", "status": "EXACT"},
+            {"marker_type": "FUNCTION", "status": "STUB"},
+        ]
+    }
+    assert count_statuses(probe) == {"EXACT": 1, "RELOC": 0, "NEAR_MATCHING": 0, "STUB": 0}
+
+
+@settings(max_examples=20, deadline=None)
+@given(
+    st.lists(
+        st.sampled_from(["STUB", "EXACT", "RELOC", "NEAR_MATCHING", "PROVEN"]),
+        min_size=2,
+        max_size=2,
+    )
+)
+def test_generate_data_json_reorder_invariant(statuses: list[str]) -> None:
+    """Shuffling the entries/funcs input order must not change the grid output.
+
+    The fixture PE (tests/fixtures/mini_pe.exe) supplies the real .text bytes,
+    so the whole cell pipeline (sections, hashes, cells, absorption, summary)
+    runs end-to-end without wine.
+    """
+    import random
+
+    from rebrew.annotation import Annotation
+    from rebrew.binary_loader import load_binary
+    from rebrew.catalog.grid import generate_data_json
+
+    fixtures = Path(__file__).parent / "fixtures"
+    info = load_binary(fixtures / "mini_pe.exe")
+    text = info.sections[".text"]
+    text_start = text.va
+
+    # Two functions inside .text with the generated statuses.
+    vas = [text_start, text_start + 0x10]
+    entries = [
+        Annotation(
+            va=vas[0],
+            name="fn_a",
+            symbol="_fn_a",
+            module="SERVER",
+            status=statuses[0],
+            size=11,
+            marker_type="FUNCTION",
+            filepath="a.c",
+            cflags="",
+            blocker="",
+            blocker_delta=None,
+        ),
+        Annotation(
+            va=vas[1],
+            name="fn_b",
+            symbol="_fn_b",
+            module="SERVER",
+            status=statuses[1],
+            size=10,
+            marker_type="FUNCTION",
+            filepath="b.c",
+            cflags="",
+            blocker="",
+            blocker_delta=None,
+        ),
+    ]
+    funcs = [{"va": vas[0], "size": 11}, {"va": vas[1], "size": 10}]
+    kwargs = {
+        "text_size": text.size,
+        "bin_path": fixtures / "mini_pe.exe",
+        "registry": None,
+        "src_dir": None,
+        "root_dir": None,
+    }
+
+    base = generate_data_json(entries, funcs, **kwargs)
+    for _ in range(3):
+        rng = random.Random(_)
+        shuffled_entries = list(entries)
+        rng.shuffle(shuffled_entries)
+        shuffled_funcs = list(funcs)
+        rng.shuffle(shuffled_funcs)
+        assert generate_data_json(shuffled_entries, shuffled_funcs, **kwargs) == base
+
+    # Every entry with a resolvable size inside .text is emitted.
+    assert f"0x{vas[0]:08x}" in base["functions"]
+    assert f"0x{vas[1]:08x}" in base["functions"]

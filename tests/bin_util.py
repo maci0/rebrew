@@ -164,6 +164,7 @@ def make_coff_obj(
     func_symbol: str = "_myfunc",
     func_value: int = 0,
     section_symbols: list[tuple[str, int]] | None = None,
+    extra_funcs: list[tuple[str, int]] | None = None,
 ) -> bytes:
     """Build a minimal valid COFF .obj blob in memory.
 
@@ -177,6 +178,11 @@ def make_coff_obj(
         section_symbols: ``(name, value)`` pairs of STATIC section symbols
             (e.g. MSVC ``$SG``/``??_C@`` string constants in ``.rdata``),
             added after the reloc targets.
+        extra_funcs: ``(name, value)`` pairs of additional EXTERNAL function
+            symbols in the same section, appended after the reloc targets
+            (so reloc symbol indices stay 1:1 with the reloc list).  These
+            delimit ``func_end`` for the primary function and are yielded by
+            ``gen_flirt_pat.parse_coff_obj``.
 
     The returned blob has one section; symbol 0 is *func_symbol* (EXTERNAL,
     section 1, value *func_value*); each reloc target is an additional
@@ -184,6 +190,7 @@ def make_coff_obj(
     """
     relocs = relocs or []
     section_symbols = section_symbols or []
+    extra_funcs = extra_funcs or []
 
     # Pad code to 4-byte alignment.
     pad_len = (4 - len(code) % 4) % 4
@@ -201,6 +208,7 @@ def make_coff_obj(
     # String table: names longer than 8 chars.
     long_names = [name for _, _, name in relocs if len(name.encode("ascii")) > 8]
     long_names += [n for n, _ in section_symbols if len(n.encode("ascii")) > 8]
+    long_names += [n for n, _ in extra_funcs if len(n.encode("ascii")) > 8]
     strtab_strings = b"".join(n.encode("ascii") + b"\x00" for n in long_names)
     strtab_size = 4 + len(strtab_strings)
     strtab = struct.pack("<I", strtab_size) + strtab_strings
@@ -211,7 +219,7 @@ def make_coff_obj(
         cursor += len(name.encode("ascii")) + 1
 
     # --- File header ---
-    num_syms = 1 + num_relocs + len(section_symbols)
+    num_syms = 1 + num_relocs + len(section_symbols) + len(extra_funcs)
     file_hdr = struct.pack(
         "<HHIIIHH",
         0x014C,  # Machine: IMAGE_FILE_MACHINE_I386
@@ -258,6 +266,8 @@ def make_coff_obj(
     symtab = _symbol(func_symbol, func_value, 1, 0x20, _EXTERNAL)
     for _, _, name in relocs:
         symtab += _symbol(name, 0, 0, 0, _EXTERNAL)
+    for name, value in extra_funcs:
+        symtab += _symbol(name, value, 1, 0x20, _EXTERNAL)
     for name, value in section_symbols:
         symtab += _symbol(name, value, 1, 0x20, _STATIC)
 

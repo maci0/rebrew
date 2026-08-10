@@ -21,7 +21,18 @@ see [`AGENTS.md`](../AGENTS.md); for the CLI surface see [`CLI.md`](CLI.md).
    `["--json", "0x1000"]` works.  Always pass options **before** positional
    arguments in CLI tests.
 2. **`main()` direct calls misbind partial kwargs.**  Prefer
-   `CliRunner().invoke(app, [...])` over calling `main(...)` directly.
+   `CliRunner().invoke(app, [...])` over calling `main(...)` directly.  Worse,
+   typer's wrapper **leaks `typer.models.OptionInfo` as the value of omitted
+   params** on direct Python calls — an `OptionInfo` is truthy and not a
+   `Path`, so `if x is not None:` and `Path(x)` misbehave.  This caused two
+   real bugs (a truthy `--sweep-toolchain` leaking into `match`'s watch
+   re-test; `rebrew init` crashing on a leaked `--link-tools-from`).
+   **Convention:**
+   - Callbacks that unit tests invoke directly must guard every new option
+     with `option_default(x, None)` from `rebrew.cli` (see `init.py`).
+   - Closures that re-enter a callback (e.g. `match._retest` in watch mode)
+     must forward **every** CLI param explicitly — a missing one leaks as a
+     truthy `OptionInfo` instead of its default.
 3. **Module-level `Console(stderr=True)`** captures stderr at import — output
    is not capturable via `capsys` or `CliRunner` for modules that build their
    console at module scope.  Assert JSON stdout or logic side effects instead,

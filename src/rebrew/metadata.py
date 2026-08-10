@@ -252,8 +252,9 @@ def save_metadata(
     """
     path = (directory / METADATA_FILENAME).resolve()
     doc = build_metadata_doc(data, _CANONICAL_ORDER)
-    atomic_write_text(path, tomlkit.dumps(doc))
-    _metadata_cache.pop(path, None)
+    with _METADATA_LOCK:
+        atomic_write_text(path, tomlkit.dumps(doc))
+        _metadata_cache.pop(path, None)
 
 
 # ---------------------------------------------------------------------------
@@ -285,14 +286,15 @@ def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> N
     path = (directory / METADATA_FILENAME).resolve()
     toml_key = qualified_key(module, va)
 
-    doc = load_toml_for_write(path, "metadata")
+    with _METADATA_LOCK:
+        doc = load_toml_for_write(path, "metadata")
 
-    if toml_key not in doc:
-        doc[toml_key] = tomlkit.table()
+        if toml_key not in doc:
+            doc[toml_key] = tomlkit.table()
 
-    doc[toml_key][key] = value  # type: ignore[index]
-    atomic_write_text(path, tomlkit.dumps(doc))
-    _metadata_cache.pop(path, None)
+        doc[toml_key][key] = value  # type: ignore[index]
+        atomic_write_text(path, tomlkit.dumps(doc))
+        _metadata_cache.pop(path, None)
 
 
 def _set_fields(directory: Path, va: int, fields: dict[str, Any], module: str) -> None:
@@ -307,24 +309,25 @@ def _set_fields(directory: Path, va: int, fields: dict[str, Any], module: str) -
     path = (directory / METADATA_FILENAME).resolve()
     toml_key = qualified_key(module, va)
 
-    doc = load_toml_for_write(path, "metadata")
-    doc_dict = typing.cast(dict[str, Any], doc)
-    if toml_key not in doc_dict:
-        doc_dict[toml_key] = tomlkit.table()
-    entry = typing.cast(dict[str, Any], doc_dict[toml_key])
+    with _METADATA_LOCK:
+        doc = load_toml_for_write(path, "metadata")
+        doc_dict = typing.cast(dict[str, Any], doc)
+        if toml_key not in doc_dict:
+            doc_dict[toml_key] = tomlkit.table()
+        entry = typing.cast(dict[str, Any], doc_dict[toml_key])
 
-    changed = False
-    for key, value in fields.items():
-        if key == "status":
-            raise ValueError(
-                "Use update_source_status() for STATUS changes — it enforces promotion rules"
-            )
-        if entry.get(key) != value:
-            entry[key] = value
-            changed = True
-    if changed:
-        atomic_write_text(path, tomlkit.dumps(doc))
-        _metadata_cache.pop(path, None)
+        changed = False
+        for key, value in fields.items():
+            if key == "status":
+                raise ValueError(
+                    "Use update_source_status() for STATUS changes — it enforces promotion rules"
+                )
+            if entry.get(key) != value:
+                entry[key] = value
+                changed = True
+        if changed:
+            atomic_write_text(path, tomlkit.dumps(doc))
+            _metadata_cache.pop(path, None)
 
 
 def _delete_field(directory: Path, va: int, key: str, module: str) -> bool:
@@ -339,23 +342,24 @@ def _delete_field(directory: Path, va: int, key: str, module: str) -> bool:
         return False
     toml_key = qualified_key(module, va)
 
-    try:
-        doc = tomlkit.parse(path.read_text(encoding="utf-8"))
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Failed to parse metadata %s: %s", path, exc)
-        return False
+    with _METADATA_LOCK:
+        try:
+            doc = tomlkit.parse(path.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to parse metadata %s: %s", path, exc)
+            return False
 
-    # Use dict access for type checking on tomlkit Container
-    doc_dict = typing.cast(dict[str, Any], doc)
-    if toml_key not in doc_dict:
+        # Use dict access for type checking on tomlkit Container
+        doc_dict = typing.cast(dict[str, Any], doc)
+        if toml_key not in doc_dict:
+            return False
+        entry = typing.cast(dict[str, Any], doc_dict[toml_key])
+        if key in entry:
+            del entry[key]
+            atomic_write_text(path, tomlkit.dumps(doc))
+            _metadata_cache.pop(path, None)
+            return True
         return False
-    entry = typing.cast(dict[str, Any], doc_dict[toml_key])
-    if key in entry:
-        del entry[key]
-        atomic_write_text(path, tomlkit.dumps(doc))
-        _metadata_cache.pop(path, None)
-        return True
-    return False
 
 
 def update_field(directory: Path, va: int, key: str, value: Any, module: str) -> None:

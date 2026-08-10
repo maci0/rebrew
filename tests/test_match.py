@@ -268,7 +268,17 @@ class TestRunAllBatch:
         calls: list[tuple] = []
 
         def _fake_ga(
-            stub, cfg, gens, pop, jobs, timeout, seeds, cflags_override=None, rng_seed=None
+            stub,
+            cfg,
+            gens,
+            pop,
+            jobs,
+            timeout,
+            seeds,
+            cflags_override=None,
+            rng_seed=None,
+            resume_from=None,
+            mutation_weights=None,
         ):
             return True, "MATCHED"
 
@@ -289,7 +299,17 @@ class TestRunAllBatch:
         monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
 
         def _fake_ga(
-            stub, cfg, gens, pop, jobs, timeout, seeds, cflags_override=None, rng_seed=None
+            stub,
+            cfg,
+            gens,
+            pop,
+            jobs,
+            timeout,
+            seeds,
+            cflags_override=None,
+            rng_seed=None,
+            resume_from=None,
+            mutation_weights=None,
         ):
             if "bad" in stub.symbol:
                 raise RuntimeError("boom")
@@ -307,7 +327,7 @@ class TestRunAllBatch:
         monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
         monkeypatch.setattr(
             "rebrew.match._run_one_stub_ga",
-            lambda stub, cfg, gens, pop, jobs, timeout, seeds, cflags_override=None, rng_seed=None: (
+            lambda stub, cfg, gens, pop, jobs, timeout, seeds, cflags_override=None, rng_seed=None, resume_from=None, mutation_weights=None: (
                 True,
                 "MATCHED",
             ),
@@ -537,3 +557,118 @@ class TestResolveBuildParamsVATargeting:
         annos = parse_c_file_multi(multi, target_name="T", metadata_dir=tmp_path)
         assert annos[0].va == 0x10001000
         assert annos[1].va == 0x1000A010
+
+    def test_va_no_match_errors(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """A requested VA the resolved file does not annotate must error, not
+        silently fall back to the first annotation (wrong-function diff)."""
+        import typer
+
+        from rebrew.match import resolve_build_params
+
+        src_dir = tmp_path / "src" / "T"
+        src_dir.mkdir(parents=True)
+        multi = src_dir / "multi.c"
+        multi.write_text(
+            "// FUNCTION: T 0x10001000\n// SIZE: 8\nvoid exit_handler(void) { return; }\n",
+            encoding="utf-8",
+        )
+        cfg = self._cfg(tmp_path, src_dir)
+        with pytest.raises(typer.Exit) as exc:
+            resolve_build_params(
+                cfg,
+                str(multi),
+                None,
+                None,
+                None,
+                None,
+                "0x1000a010",  # not annotated in multi.c
+                None,
+                False,
+                False,
+            )
+        assert exc.value.exit_code == 1
+
+    def test_va_no_match_allowed_with_symbol(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """An explicit --symbol is a deliberate override — VA mismatch is allowed."""
+        from rebrew.match import resolve_build_params
+
+        src_dir = tmp_path / "src" / "T"
+        src_dir.mkdir(parents=True)
+        multi = src_dir / "multi.c"
+        multi.write_text(
+            "// FUNCTION: T 0x10001000\n// SIZE: 8\nvoid exit_handler(void) { return; }\n",
+            encoding="utf-8",
+        )
+        cfg = self._cfg(tmp_path, src_dir)
+        monkeypatch.setattr("rebrew.match.extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
+        monkeypatch.setattr("rebrew.match.msvc_env_from_config", lambda cfg: {"WINEDEBUG": "-all"})
+        monkeypatch.setattr(
+            "rebrew.match.resolve_compiler_env",
+            lambda cfg: ("wine CL.EXE", "inc", None, None),
+        )
+        params = resolve_build_params(
+            cfg,
+            str(multi),
+            None,
+            None,
+            None,
+            "_exit_handler",
+            "0x1000a010",  # mismatch, but symbol is explicit
+            None,
+            False,
+            False,
+        )
+        assert params.symbol == "_exit_handler"
+
+
+class TestMutationFocusWeights:
+    """--mutation-focus biases GA mutation selection toward a near-diag
+    category (register / equivalent / structural), or auto via the blocker."""
+
+    def test_explicit_category_weights_its_operators(self) -> None:
+        from rebrew.match import _mutation_focus_weights
+
+        weights = _mutation_focus_weights("register")
+        assert weights
+        # All register-category suggestions get the focus weight.
+        assert all(w == 6.0 for w in weights.values())
+        assert len(weights) >= 5
+
+    def test_reloc_returns_none(self) -> None:
+        from rebrew.match import _mutation_focus_weights
+
+        assert _mutation_focus_weights("reloc") is None
+
+    def test_none_focus_returns_none(self) -> None:
+        from rebrew.match import _mutation_focus_weights
+
+        assert _mutation_focus_weights(None) is None
+
+    def test_auto_with_blocker(self) -> None:
+        from rebrew.match import _mutation_focus_weights
+
+        weights = _mutation_focus_weights(
+            "auto", "NEAR_MATCHING — STRUCTURAL (100% of delta) — try: mut_swap_if_else"
+        )
+        assert weights
+        assert "mut_swap_if_else" in weights
+
+    def test_auto_without_blocker(self) -> None:
+        from rebrew.match import _mutation_focus_weights
+
+        assert _mutation_focus_weights("auto", None) is None
+        assert _mutation_focus_weights("auto", "plain blocker text") is None
+
+    def test_weights_match_mutator_names(self) -> None:
+        """Every weighted operator must exist in mutator.ALL_MUTATIONS."""
+        import re
+        from pathlib import Path
+
+        from rebrew.match import _mutation_focus_weights
+        from rebrew.matcher import mutator
+
+        weights = _mutation_focus_weights("equivalent")
+        source = Path(mutator.__file__).read_text(encoding="utf-8")
+        defined = set(re.findall(r"^def (mut_\w+)\(", source, re.M))
+        for op in weights:
+            assert op in defined, f"{op} not in mutator.py"

@@ -18,6 +18,156 @@ All run under Wine from `tools/MSVC600/VC98/Bin/`:
 
 ---
 
+## MinGW GCC (gcc-pe profile, for PE/x86_32 targets)
+
+Some PE/x86_32 binaries are built with MinGW GCC instead of MSVC (identifiable
+by a `.buildid` section, GNU-style multi-byte `0f 1f` nops, and a call-based
+stack probe `mov eax, N; call ___chkstk_ms`).  For these, use the `gcc-pe`
+compiler profile:
+
+```toml
+[compiler]
+profile = "gcc-pe"
+command = "i686-w64-mingw32-gcc"
+includes = ""            # mingw ships its own headers
+libs = ""
+cflags = "-O2 -march=pentium4"
+base_cflags = ""         # -c is added by rebrew for posix-style profiles
+```
+
+`rebrew init --compiler gcc-pe` creates this configuration.  The compile
+pipeline is profile-aware: `-I/-c/-o` flag style, no Wine runner, and PATH
+resolution of the bare toolchain name.
+
+**Caveat — codegen-version sensitivity:** byte-exact matching requires the
+author's *exact* GCC version.  Modern GCC (e.g. 16.x) differs from older GCC
+(4.x–7.x) in argument passing (accumulate-outgoing-args), stack probing
+(chkstk convention), and scheduling, so old MinGW-built binaries usually
+match only *structurally* (use `rebrew diff` structural ratio) — document the
+semantic decomp and blocker the byte delta rather than forcing a pass.
+
+**Analysis note:** rizin's `aaa` mis-merges functions on this toolchain —
+use `aa; aap` (function-prelude analysis) for the function list.  Ghidra
+headless gives correct boundaries but is slow on loaded machines.
+
+
+### Toolchain Detection (doctor alignment check)
+
+`rebrew doctor` runs a "Toolchain alignment" check that guesses what
+actually built the target and warns when the configured `[compiler] profile`
+cannot byte-match it.  Detection is layered, best-first:
+
+1. **Detect It Easy** (`diec -j --heuristicscan`) — the strongest signatures
+   for MSVC (per-version, e.g. `12.00.9782` = MSVC 6.0), Borland/Delphi,
+   linkers.  Used when `diec` is on PATH or vendored at `tools/diec/diec`
+   (fetch the Linux `die_3.10_Ubuntu_24.04_amd64.deb` from the
+   horsicq/Detect-It-Easy "Beta" release, `ar x` + `tar -xf` it, and vendor
+   the matching `libQt5Core`/`libQt5Script`/`libicu74` `.so` files into
+   `tools/diec/lib/` — the `.so`-only pair from a single distro release
+   works; mixing distros aborts the QtScript engine).
+2. **PDB** (`llvm-pdbutil`) — when a sibling `.pdb` exists: the `S_COMPILE3`
+   record carries the compiler version and, for MSVC PDBs, the exact
+   compiler flags (auto-surfaced in the doctor report).  A `.zig-cache`
+   module path identifies Zig builds.
+3. **Structural heuristics** — `.buildid` section, GNU `0f 1f` nops vs
+   MSVC alignment nops / int3 padding, imports, Delphi RTL strings, and
+   GCC-arg-passing era (pre-8 push style vs modern accumulate style).
+
+The check fails when the detected family has no compatible profile
+(Delphi: document blockers) and passes with a warning for families that may
+only match structurally (Zig under `gcc-pe`).  See
+`src/rebrew/toolchain_detect.py` and `profile_matches_detection`.
+
+### Archived MSVC Toolchains (additional MSVC versions)
+
+The most complete collection is the **`archaic-msvc`** GitHub org — one repo
+per compiler version, from VC 2.0 through VC 10.0 (every VC 6.0 SP level,
+VC 5.0 + SPs, VC 7.0/7.1, VC 8.0/9.0/10.0).  Download via codeload tarball:
+
+```bash
+cd tools
+for r in MSVC420 MSVC500; do   # repo names are lowercase: msvc420 msvc500 ...
+  curl -L -o $r.tar.gz "https://codeload.github.com/archaic-msvc/${r,,}/tar.gz/refs/heads/master"
+  mkdir -p $r && tar xzf $r.tar.gz --strip-components=1 -C $r
+done
+```
+
+### 16-bit Windows NE Binaries (not yet supported)
+
+`rebrew` targets 32-bit PE/ELF/Mach-O with MSVC6/MinGW.  A **16-bit Windows
+3.x NE executable** (MZ stub + `NE` header — e.g. 1990s DOS/Windows games) is
+detected explicitly (`binary_loader.is_ne`) and rejected with a clear message
+instead of a misleading "Failed to parse PE".  The documented path to full
+16-bit support, in order of effort:
+
+1. **NE parsing** — a small `ne.py` module reading the MZ `e_lfanew` → NE
+   header (segment table, entry table, imported/resident names).  LIEF and
+   rizin/radare2 do not parse NE; winedump's CLI support is partial.
+2. **16-bit disassembly** — capstone `CS_MODE_16` already works; the `asm`
+   tool needs a `bits=16` config/profile knob so NE segment bytes disassemble
+   as segmented x86-16 (far calls, segment registers).
+3. **16-bit compile profile** — a genuine 16-bit compiler (Borland Turbo C
+   2.0, Microsoft C 7.0 / Visual C++ 1.5) under Wine, producing 16-bit OMF
+   objects.  NOTE: the vendored `tools/MSVC420` is the *32-bit* VC 4.2
+   compiler (i386 COFF output) — it is NOT suitable for 16-bit matching.
+4. **Matching** — segment-relative address resolution + 16-bit reloc
+   handling in `smart_reloc_compare`.
+
+Until then, intelligence on NE binaries (strings, imports) can be gathered
+with external tools (`winedump`, rizin); `rebrew analyze` reports the format
+as unsupported.
+
+**Delphi 1.0 toolchain (vendored, verified working):** for 16-bit *Delphi*
+targets (e.g. `holiday.exe`, a Delphi 1.0 VCL app), `tools/DELPHI10/` now
+ships the exact command-line toolchain — `DCC.EXE` (Delphi Compiler 8.0,
+Sep 1995), `DELPHI.DSL` (compiler symbol table), the `CMDLINE.PAK` tools,
+and the RTL/VCL units (`UNITS.PAK` + `LIB.PAK`).  It compiles real 16-bit
+NE 6.01 GUI executables; the working recipe and the reverse-engineered
+**Quantum archive format** (`tools/DELPHI10/pak_extract.py`) are documented
+in `tools/DELPHI10/README.md`.  Matching 16-bit output is still future work
+(above).
+
+Layout: `bin/cl.exe` + `include/` + `lib/` (case varies by version).  The
+`msvc420` profile is backed by this source; `msvc5` (VC 5.0, 11.00.7022) is
+validated against real Microsoft VC5.0 product binaries (e.g. `BIND.EXE`).
+
+decomp.me also maintains win32 compiler data (`github.com/decompme/compilers`,
+`platforms/win32/`); its toolchains are published by
+`github.com/OmniBlade/decomp.me/releases/download/msvcwin9x/` (a subset —
+msvc6.0/6.3/6.4/6.5/6.5pp/6.6/7.0 only, no Lib dir):
+
+| Version | File | CL version | Notes |
+|---------|------|------------|-------|
+| msvc6.0 | `msvc6.0.tar.gz` (6.2 MB) | 12.00.x | same SP line as the local master |
+| msvc6.3 | `msvc6.3.tar.gz` (6.6 MB) | 12.00.8168 | **SP3 — codegen differs from SP6** |
+| msvc6.6 | `msvc6.6.tar.gz` (6.6 MB) | 12.00.8804 | **SP6 — same compiler as the local master** |
+| msvc7.0 | `msvc7.0.tar.gz` (33 MB) | 13.10.3077 | **VC7 — enables the `msvc7` profile** |
+| msvc4.x/7.1/8.0 | not published | — | document + skip |
+
+Layout notes (differ from the local `tools/MSVC600/VC98/...`):
+
+- msvc6.3/6.6: `Bin/CL.EXE`, `Include/`, **no `Lib/`** (compile-only; link with
+  a full toolchain's Lib, e.g. the master's).
+- msvc7.0: `Bin/cl.exe` (lowercase!), `Include/`, `MFC/`, **no `Lib/`**.
+  Case matters on Linux — point `[compiler] command` at the lowercase file.
+
+Fetch + extract (kept out of git — `tools/` is ignored; ~75 MB total):
+
+```bash
+cd tools
+for v in msvc6.3 msvc6.6 msvc7.0; do
+  curl -L -o $v.tar.gz https://github.com/OmniBlade/decomp.me/releases/download/msvcwin9x/$v.tar.gz
+  mkdir -p $v && tar xzf $v.tar.gz -C $v
+done
+```
+
+`rebrew init --compiler msvc6.3|msvc6.6` sets up the profiles; each is proven by
+`tests/test_toolchain_roundtrip.py` (compile → compare → EXACT; skipped when the
+tarballs are absent).  Round-trip validation: compile a snippet with the
+toolchain, link against a full toolchain's Lib, intake the result, and
+`rebrew test` the source — the profile is correct when it classifies EXACT.
+---
+
 ## Disassemblers & Decompilers
 
 ### Ghidra (Primary)

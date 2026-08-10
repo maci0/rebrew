@@ -411,12 +411,15 @@ class TestLintFile:
         assert not any((c == "W001" for _, c, _ in result.warnings))
 
     def test_missing_size(self, tmp_path: Path) -> None:
+        """SIZE lives in metadata — a FUNCTION+STUB file without inline SIZE
+        is valid (no error); only the metadata-migration warning fires."""
         f = _make_c_file(
             tmp_path,
             content="// FUNCTION: SERVER 0x10001000\n// STATUS: STUB\n// ORIGIN: GAME\n// CFLAGS: /O2 /Gd\n// SYMBOL: _my_func\nvoid __cdecl _my_func(void) {}\n",
         )
         result = lint_file(f)
-        assert not result.passed
+        assert result.passed
+        assert result.errors == []
 
     def test_duplicate_va_detection(self, tmp_path: Path) -> None:
         seen_vas: dict[int, str] = {}
@@ -452,7 +455,9 @@ class TestLintFile:
             content="// FUNCTION: SERVER 0x10001000\n// STATUS: STUB\n// ORIGIN: GAME\n// SIZE: 64\n// CFLAGS: \n// SYMBOL: _my_func\nvoid __cdecl _my_func(void) {}\n",
         )
         result = lint_file(f)
-        assert not result.passed
+        # FUNCTION+STUB is a valid marker combination (status lives in
+        # metadata); the real issue is the empty inline CFLAGS.
+        assert result.passed
         # Empty CFLAGS should produce W018 (missing CFLAGS with no config fallback)
         assert any(c == "W018" for _, c, _ in result.warnings)
         assert any("CFLAGS" in m for _, c, m in result.warnings if c == "W018")
@@ -744,6 +749,30 @@ class TestW020AsmDump:
         body = "// __asm notes about the original\nint f(void) { return 0; }\n"
         result = self._lint(tmp_path, body)
         assert not any(c == "W020" for _, c, _ in result.warnings)
+
+    def test_stub_asm_dump_is_documented_placeholder(self, tmp_path: Path) -> None:
+        """STUB + asm dump is an expected placeholder — base message, no escalation."""
+        content = (
+            "// FUNCTION: SERVER 0x10008880\n// STATUS: STUB\n// SIZE: 31\n"
+            "// CFLAGS: /O2 /Gd\n"
+            "int f(void) {\n    __asm { _emit 0x55 }\n}\n"
+        )
+        result = lint_file(_write_c(tmp_path, "stub.c", content))
+        msg = next(m for _, c, m in result.warnings if c == "W020")
+        assert "cannot be a byte-match" not in msg  # STUB is fine — not escalated
+        assert "asm" in msg.lower()
+
+    def test_exact_claim_on_asm_dump_escalates(self, tmp_path: Path) -> None:
+        """EXACT + asm dump is a metadata contradiction — W020 escalates."""
+        content = (
+            "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n// SIZE: 31\n"
+            "// CFLAGS: /O2 /Gd\n"
+            "int f(void) {\n    __asm { _emit 0x55 }\n}\n"
+        )
+        result = lint_file(_write_c(tmp_path, "claimed.c", content))
+        msg = next(m for _, c, m in result.warnings if c == "W020")
+        assert "EXACT" in msg
+        assert "cannot be a byte-match" in msg
 
 
 class TestW021W022:

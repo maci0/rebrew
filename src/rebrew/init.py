@@ -94,7 +94,7 @@ command = "{compiler_command}"
 includes = "{compiler_includes}"
 libs = "{compiler_libs}"
 cflags = "{cflags}"
-base_cflags = "/nologo /c /MT"       # always-on flags prepended to every compile
+base_cflags = "{base_cflags}"       # always-on flags prepended to every compile
 timeout = 60                         # compile subprocess timeout (seconds)
 
 [compiler.cflags_presets]
@@ -115,6 +115,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "includes": "tools/MSVC400/include",
         "libs": "tools/MSVC400/lib",
         "cflags": "/O2 /Gd",
+        "base_cflags": "/nologo /c /MT",
         "format": "pe",
         "arch": "x86_32",
         "lang": "C89",
@@ -125,6 +126,18 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "includes": "tools/MSVC420/include",
         "libs": "tools/MSVC420/lib",
         "cflags": "/O2 /Gd",
+        "base_cflags": "/nologo /c /MT",
+        "format": "pe",
+        "arch": "x86_32",
+        "lang": "C89",
+    },
+    "msvc5": {
+        "runner": "wine",
+        "command": "wine tools/MSVC500/bin/cl.exe",
+        "includes": "tools/MSVC500/include",
+        "libs": "tools/MSVC500/lib",
+        "cflags": "/O2 /Gd",
+        "base_cflags": "/nologo /c /MT",
         "format": "pe",
         "arch": "x86_32",
         "lang": "C89",
@@ -135,16 +148,40 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "includes": "tools/MSVC600/VC98/Include",
         "libs": "tools/MSVC600/VC98/Lib",
         "cflags": "/O2 /Gd",
+        "base_cflags": "/nologo /c /MT",
+        "format": "pe",
+        "arch": "x86_32",
+        "lang": "C89",
+    },
+    "msvc6.3": {
+        "runner": "wine",
+        "command": "wine tools/msvc6.3/Bin/CL.EXE",
+        "includes": "tools/msvc6.3/Include",
+        "libs": "",
+        "cflags": "/O2 /Gd",
+        "base_cflags": "/nologo /c /MT",
+        "format": "pe",
+        "arch": "x86_32",
+        "lang": "C89",
+    },
+    "msvc6.6": {
+        "runner": "wine",
+        "command": "wine tools/msvc6.6/Bin/CL.EXE",
+        "includes": "tools/msvc6.6/Include",
+        "libs": "",
+        "cflags": "/O2 /Gd",
+        "base_cflags": "/nologo /c /MT",
         "format": "pe",
         "arch": "x86_32",
         "lang": "C89",
     },
     "msvc7": {
         "runner": "wine",  # Alternative: "wibo" (faster, auto-downloadable via rebrew doctor)
-        "command": "wine tools/MSVC7/Bin/CL.EXE",
+        "command": "wine tools/MSVC7/Bin/cl.exe",
         "includes": "tools/MSVC7/Include",
         "libs": "tools/MSVC7/Lib",
         "cflags": "/O2 /Gd",
+        "base_cflags": "/nologo /c /MT",
         "format": "pe",
         "arch": "x86_32",
         "lang": "C99",
@@ -155,6 +192,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "includes": "/usr/include",
         "libs": "/usr/lib",
         "cflags": "-O2",
+        "base_cflags": "",
         "format": "elf",
         "arch": "x86_64",
         "lang": "C99",
@@ -165,8 +203,20 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "includes": "/usr/include",
         "libs": "/usr/lib",
         "cflags": "-O2",
+        "base_cflags": "",
         "format": "elf",
         "arch": "x86_64",
+        "lang": "C99",
+    },
+    "gcc-pe": {
+        "runner": "",
+        "command": "i686-w64-mingw32-gcc",
+        "includes": "",
+        "libs": "",
+        "cflags": "-O2",
+        "base_cflags": "",
+        "format": "pe",
+        "arch": "x86_32",
         "lang": "C99",
     },
 }
@@ -245,11 +295,65 @@ def _write_completion_scripts(project_root: Path) -> list[Path]:
     return written
 
 
+#: Vendored tools/ subdirectory per compiler profile (for --link-tools-from).
+_PROFILE_TOOLS: dict[str, str] = {
+    "msvc400": "MSVC400",
+    "msvc420": "MSVC420",
+    "msvc5": "MSVC500",
+    "msvc6": "MSVC600",
+    "msvc6.3": "msvc6.3",
+    "msvc6.6": "msvc6.6",
+    "msvc7": "MSVC7",
+}
+
+
+def _link_toolchain(
+    cwd: Path,
+    compiler_profile: str,
+    master: Path,
+    json_output: bool,
+) -> Path | None:
+    """Symlink the profile's toolchain into ``tools/`` from a master dir.
+
+    The profile's ``compiler.command`` references ``tools/<name>/...``
+    relative to the project root; one symlink makes that resolve to the
+    master installation (e.g. ``~/zine/tools``).  Returns the linked path,
+    or None when the profile has no vendored toolchain dir.
+    """
+    tools_name = _PROFILE_TOOLS.get(compiler_profile)
+    if tools_name is None:
+        console.print(
+            "[yellow]warning:[/yellow] "
+            f"profile '{compiler_profile}' has no vendored toolchain dir — nothing to link"
+        )
+        return None
+
+    src = Path(master).expanduser() / tools_name
+    if not src.is_dir():
+        error_exit(
+            f"Toolchain not found at {src} (pass --link-tools-from <dir containing {tools_name}>)",
+            json_mode=json_output,
+        )
+
+    dest = cwd / "tools" / tools_name
+    dest.parent.mkdir(exist_ok=True)
+    if dest.is_symlink() or dest.exists():
+        console.print(f"[yellow]tools/{tools_name} already exists; leaving it as-is[/]")
+        return dest
+
+    dest.symlink_to(src, target_is_directory=True)
+    console.print(f"[green]Linked tools/{tools_name} -> {src}[/]")
+    return dest
+
+
 @app.callback(invoke_without_command=True)
 def main(
     target_name: str = typer.Option("main", "--target", "-t", help="Name of the initial target."),
     binary_name: str = typer.Option(
-        "program.exe", "--binary", "-b", help="Name of the executable binary file."
+        "program.exe",
+        "--binary",
+        "-b",
+        help="Name of the executable binary file (an 'original/' prefix is accepted and stripped).",
     ),
     compiler_profile: str = typer.Option(
         "msvc6", "--compiler", "-c", help="Compiler profile to use."
@@ -261,6 +365,14 @@ def main(
         False,
         "--install-completions",
         help="Write bash/zsh/fish completion scripts into completions/.",
+    ),
+    toolchain_dir: Path | None = typer.Option(
+        None,
+        "--link-tools-from",
+        help=(
+            "Master toolchain directory to symlink tools/<profile> from "
+            "(e.g. ~/zine/tools).  Skips PATH-based profiles (gcc-pe/gcc/clang)."
+        ),
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
@@ -274,6 +386,20 @@ def main(
 
     if toml_path.exists():
         error_exit(f"A rebrew-project.toml already exists in {cwd}", json_mode=json_output)
+
+    # Direct Python calls to main() (unit-test convention) leak
+    # typer.OptionInfo for omitted params — a documented typer quirk (see
+    # docs/DEVELOPMENT.md).  Normalize to the declared default.
+    from rebrew.cli import option_default
+
+    toolchain_dir = option_default(toolchain_dir, None)
+
+    # Accept both "original/bench.exe" and "bench.exe" — the config already
+    # prefixes binary = "original/<name>", so a user-supplied original/
+    # must not produce "original/original/bench.exe".
+    binary_name = binary_name.replace("\\", "/")
+    if binary_name.lower().startswith("original/"):
+        binary_name = binary_name[len("original/") :]
 
     # Look up compiler defaults for the profile
     if compiler_profile not in COMPILER_DEFAULTS:
@@ -303,6 +429,7 @@ def main(
         compiler_includes=profile["includes"],
         compiler_libs=profile["libs"],
         cflags=profile["cflags"],
+        base_cflags=profile.get("base_cflags", "/nologo /c /MT"),
     )
     toml_content = toml_content.replace("__COMPILER_RUNNER__", runner)
     atomic_write_text(toml_path, toml_content, encoding="utf-8")
@@ -378,7 +505,12 @@ def main(
         tag_name = download_wibo(wibo_path)
         console.print(f"[green]Downloaded wibo {tag_name} to {wibo_path}[/]")
 
-    # 9. Optionally write shell completion scripts
+    # 9. Optionally symlink the profile toolchain from a master directory
+    linked_toolchain: Path | None = None
+    if toolchain_dir is not None:
+        linked_toolchain = _link_toolchain(cwd, compiler_profile, toolchain_dir, json_output)
+
+    # 10. Optionally write shell completion scripts
     completion_paths: list[Path] = []
     if install_completions:
         completion_paths = _write_completion_scripts(cwd)
@@ -399,6 +531,7 @@ def main(
                     str(bin_dir),
                 ],
                 "completions": [str(p) for p in completion_paths],
+                "linked_toolchain": str(linked_toolchain) if linked_toolchain else None,
             }
         )
     else:

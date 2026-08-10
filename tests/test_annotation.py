@@ -1,6 +1,7 @@
 """Tests for rebrew.annotation — Annotation dataclass and parsers."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -1675,3 +1676,42 @@ class TestParseMemo:
         anns = parse_c_file_multi(f, metadata_dir=tmp_path)
         assert anns and anns[0].va == 0x1000
         assert len(_PARSE_MEMO) == 0  # the bypass path never populates the memo
+
+
+class TestMarkerConsistencyStub:
+    """The Annotation-level marker check must allow FUNCTION+STUB (metadata holds status)."""
+
+    def _anno(self, marker_type: str, status: str, module: str = "SERVER") -> Any:
+        from rebrew.annotation import Annotation
+
+        return Annotation(
+            va=0x1000,
+            name="f",
+            symbol="_f",
+            module=module,
+            status=status,
+            size=10,
+            marker_type=marker_type,
+            filepath="f.c",
+        )
+
+    def test_function_marker_stub_status_ok(self) -> None:
+        errors, warnings = self._anno("FUNCTION", "STUB").validate()
+        assert errors == []
+        assert not any("inconsistent with module" in w for w in warnings)
+
+    def test_stub_marker_stub_status_ok(self) -> None:
+        errors, warnings = self._anno("STUB", "STUB").validate()
+        assert errors == []
+        assert not any("inconsistent with module" in w for w in warnings)
+
+    def test_function_marker_exact_ok(self) -> None:
+        errors, warnings = self._anno("FUNCTION", "EXACT").validate()
+        assert errors == []
+        assert not any("inconsistent with module" in w for w in warnings)
+
+    def test_library_module_function_marker_warns(self) -> None:
+        errors, warnings = self._anno("FUNCTION", "EXACT", module="MSVCRT").validate(
+            library_modules={"MSVCRT"}
+        )
+        assert any("inconsistent with module" in w for w in warnings)

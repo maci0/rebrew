@@ -205,3 +205,38 @@ class TestPullDatatypes:
         result = CliRunner().invoke(app, ["--help"])
         assert result.exit_code == 0
         assert "--pull-datatypes" in result.output
+
+
+class TestPullDatatypesMergeSafe:
+    def test_repull_preserves_user_section_and_is_idempotent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = _make_cfg(tmp_path)
+        pages = {
+            ("/Enum", 0): _page([_enum("COLOR", 4), _enum("STATE", 1)], start=0),
+            ("/TypeDef", 0): _page([_typedef("LPCSTR", 4)], start=0),
+        }
+        _patch_mcp(monkeypatch, pages)
+        pull_datatypes(cfg, "http://mcp", "/server.dll")
+        out = tmp_path / "src" / "enums_types.h"
+        text = out.read_text(encoding="utf-8")
+        assert "USER DEFINITIONS" in text
+        # User edits a manual enum inside the preserved section.
+        edited = text.replace("#endif", "enum Color { RED = 1, BLUE = 2 };\n#endif", 1)
+        out.write_text(edited, encoding="utf-8")
+
+        # Re-pull with identical data: user edit survives, bytes are stable.
+        _patch_mcp(monkeypatch, pages)
+        pull_datatypes(cfg, "http://mcp", "/server.dll")
+        final = out.read_text(encoding="utf-8")
+        assert "RED = 1" in final  # manual definition preserved
+        assert final.count("#endif") == 1  # guard never duplicated
+        assert final == edited  # byte-identical re-pull
+
+    def test_no_user_section_writes_marker(self, tmp_path: Path, monkeypatch) -> None:
+        cfg = _make_cfg(tmp_path)
+        _patch_mcp(monkeypatch, {("/Enum", 0): _page([_enum("COLOR", 4)], start=0)})
+        pull_datatypes(cfg, "http://mcp", "/server.dll")
+        text = (tmp_path / "src" / "enums_types.h").read_text(encoding="utf-8")
+        assert "USER DEFINITIONS" in text
+        assert "survive re-pulls" in text

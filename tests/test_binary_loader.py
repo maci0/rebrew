@@ -310,3 +310,94 @@ class TestLoadBinaryCache:
         assert first_key not in _load_binary_cache
         overflow_key = (str(overflow.resolve()), "auto")
         assert overflow_key in _load_binary_cache
+
+
+class TestMalformedInputRobustness:
+    """Arbitrary bytes must never crash load_binary — a clean ValueError /
+    FileNotFoundError, or a usable BinaryInfo (LIEF leniency on partial
+    headers)."""
+
+    @pytest.mark.parametrize(
+        "data",
+        [
+            b"",
+            b"\x00" * 64,
+            b"\xff" * 64,
+            b"MZ" + b"\x00" * 62,
+            b"\x7fELF" + b"\x00" * 60,
+            b"PK\x03\x04" + b"\x00" * 60,
+            b"<html><body>not a binary</body></html>",
+        ],
+    )
+    def test_garbage_bytes_no_crash(self, tmp_path: Path, data: bytes) -> None:
+        from rebrew.binary_loader import load_binary
+
+        p = tmp_path / "garbage.bin"
+        p.write_bytes(data)
+        try:
+            info = load_binary(p)
+        except (ValueError, FileNotFoundError):
+            return  # clean rejection is the expected path for most garbage
+        # LIEF may tolerate partial headers — the result must be usable.
+        assert isinstance(info, BinaryInfo)
+        # Touching the basic fields must not raise.
+        _ = info.sections
+
+    def test_hypothesis_random_bytes_no_crash(self, tmp_path: Path) -> None:
+        """Property: random bytes (incl. truncated PE/ELF/Mach-O headers)
+        never crash load_binary."""
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        from rebrew.binary_loader import load_binary
+
+        @given(st.binary(min_size=0, max_size=512))
+        @settings(max_examples=100, deadline=None)
+        def _probe(data: bytes) -> None:
+            p = tmp_path / f"fuzz_{len(data)}.bin"
+            p.write_bytes(data)
+            try:
+                info = load_binary(p)
+            except (ValueError, FileNotFoundError):
+                return
+            assert isinstance(info, BinaryInfo)
+            _ = info.sections
+
+        _probe()
+
+
+class TestNEDetection:
+    """16-bit Windows NE executables must be detected and rejected with a
+    clear format-specific message, not a generic parse failure."""
+
+    @staticmethod
+    def _write_ne(tmp_path: Path, e_lfanew: int = 0x100) -> Path:
+        p = tmp_path / "sixteen.ne"
+        data = bytearray(0x200)
+        data[0:2] = b"MZ"
+        data[0x3C:0x40] = e_lfanew.to_bytes(4, "little")
+        data[e_lfanew : e_lfanew + 2] = b"NE"
+        p.write_bytes(bytes(data))
+        return p
+
+    def test_is_ne_recognizes_mz_ne(self, tmp_path: Path) -> None:
+        from rebrew.binary_loader import is_ne
+
+        assert is_ne(self._write_ne(tmp_path)) is True
+        assert is_ne(tmp_path / "missing.bin") is False
+
+    def test_is_ne_rejects_pe(self, tmp_path: Path) -> None:
+        from rebrew.binary_loader import is_ne
+
+        pe = tmp_path / "real_pe.exe"
+        pe.write_bytes(b"MZ" + b"\x00" * 0x40 + b"\x00" * 0x40 + b"PE\x00\x00")
+        assert is_ne(pe) is False
+
+    def test_load_binary_raises_clear_message(self, tmp_path: Path) -> None:
+        from rebrew.binary_loader import _NE_UNSUPPORTED_MSG, load_binary
+
+        ne = self._write_ne(tmp_path)
+        with pytest.raises(ValueError) as exc:
+            load_binary(ne)
+        assert "16-bit NE" in str(exc.value)
+        assert str(exc.value) == _NE_UNSUPPORTED_MSG

@@ -14,7 +14,7 @@ Usage::
 
 import contextlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -92,6 +92,7 @@ class TodoItem:
     difficulty: int = 0
     status: str = ""
     match_percent: float | None = None
+    mutations: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for JSON output."""
@@ -113,6 +114,8 @@ class TodoItem:
             d["status"] = self.status
         if self.match_percent is not None:
             d["match_percent"] = self.match_percent
+        if self.mutations:
+            d["mutations"] = self.mutations
         return d
 
 
@@ -325,6 +328,10 @@ def _collect_active_functions(
         # VA form — CWD-independent (rebrew test resolves the VA via resolve_source_arg).
         cmd = f"rebrew test 0x{va:08x}"
 
+        # GA mutation suggestions parsed from a near-diag-written blocker
+        # (populated in the improve-match branch below).
+        mutations: list[str] = []
+
         # Determine category and specific description
         if v_status == "COMPILE_ERROR":
             category = CAT_COMPILE_ERROR
@@ -368,6 +375,16 @@ def _collect_active_functions(
             blocker = info.get("blocker", "")
             if blocker:
                 desc += f" — Blocked: {blocker[:50]}"
+                # near-diag --fix-blocker writes the suggested GA operators
+                # after "— try: "; expose them as structured data (and a
+                # short terminal hint) so todo consumers can act without
+                # re-running near-diag.
+                try_marker = "— try: "
+                if try_marker in blocker:
+                    tail = blocker.split(try_marker, 1)[1]
+                    mutations = [m.strip() for m in tail.split(",") if m.strip()]
+                    if mutations:
+                        desc += f" [try: {', '.join(mutations[:3])}]"
 
             # VA form (not the reversed_dir-relative filename): commands
             # stay runnable from the project root — rebrew diff resolves
@@ -387,6 +404,7 @@ def _collect_active_functions(
                 byte_delta=calc_delta,
                 status=status,
                 match_percent=v_match,
+                mutations=mutations,
             )
         )
 
@@ -701,7 +719,11 @@ def main(
             s = ann_status
         elif ann_status == "STUB":
             cached_s = verify_statuses.get(va_int)
-            s = cached_s if cached_s and cached_s not in ("SIZE_MISMATCH", "STUB") else ann_status
+            s = (
+                cached_s
+                if cached_s and cached_s not in ("SIZE_MISMATCH", "MISSING_SIZE", "STUB")
+                else ann_status
+            )
         else:
             s = verify_statuses.get(va_int, ann_status)
         status_counts[s] = status_counts.get(s, 0) + 1

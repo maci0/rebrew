@@ -4,10 +4,24 @@
 
 **Rebrew** is a compiler-in-the-loop decompilation workbench for binary-matching
 game reversing. Python package (`src/rebrew/`) with CLI tools for compiling,
-comparing, and matching C source against target binary functions (MSVC6 under Wine).
+comparing, and matching C source against target binary functions (MSVC6 under Wine,
+or MinGW GCC via the `gcc-pe` profile for non-MSV C PE/x86_32 targets).
 
 Installed as an editable package (`uv pip install -e .`) into a workspace project
 that contains the actual binaries, source files, and toolchains.
+
+## Compiler Profiles
+
+- **`msvc6`** (default): `wine tools/MSVC600/VC98/Bin/CL.EXE` — MSVC-flavored flags
+  (`/I`, `/Fo`, `/c`), Wine/wibo runner, `tools/MSVC600` toolchain. C89.
+- **`gcc-pe`**: `i686-w64-mingw32-gcc` — POSIX-flavored flags (`-I`, `-o`, `-c`),
+  no runner, PATH resolution of the bare toolchain name, empty `includes`/`libs`
+  allowed. Use for MinGW GCC / Zig-built PE/x86_32 targets (`.buildid` section,
+  `0f 1f` GNU nops, call-based `___chkstk_ms` probe, few/no CRT imports).
+  See `docs/TOOLCHAIN.md` for the codegen-version caveat: byte-exact matching
+  requires the author's exact GCC version; old builds usually match only
+  structurally (document the semantic decomp + blocker).
+- **`gcc` / `clang`**: ELF/x86_64 targets.
 
 ## Build & Test Commands
 
@@ -149,9 +163,12 @@ src/rebrew/
 ├── struct_parser.py     # Extract struct/typedef definitions from C source via tree-sitter
 ├── utils.py             # Shared utilities (atomic_write_text)
 ├── analysis.py          # Shared recon primitives: iter_strings, scan_references (Xref/Insn/StringEntry), string_refs
+├── analyze.py           # One-shot intelligence dossier (toolchain, strings, imports, dispatch, FLIRT, NEAR_MATCHING blockers)
+├── pe_headers.py        # PE header parsing helpers (image base, section math)
 ├── wibo.py              # Auto-download + verify wibo (lightweight Wine alternative)
 ├── compile_cache.py     # Disk-backed compile result cache (diskcache, SHA-256 keyed)
 ├── metadata.py          # Per-directory rebrew-function.toml metadata loader/writer; update_source_status is the canonical STATUS writer
+├── metadata_model.py    # Typed metadata schema helpers (file-only vs metadata-only routing)
 ├── data_metadata.py     # Per-directory data metadata (global/BSS variable annotations)
 ├── crt_match.py         # CRT source cross-reference matcher (index, match, ASM detection)
 ├── cache_cli.py         # `rebrew cache stats` / `rebrew cache clear` CLI
@@ -168,16 +185,22 @@ src/rebrew/
 ├── asm.py               # Disassemble function (hex/NASM); --imports/--strings/--hints annotate IAT, strings, codegen patterns
 ├── skeleton.py          # Generate skeleton C files for matching
 ├── lint.py              # Lint C annotations
+├── llm_seed.py          # LLM alternative-implementation seeding for the GA (--llm-seed)
 ├── near_diag.py         # Classify why a NEAR_MATCHING function does not byte-match
 ├── rename.py            # Rename function and update all cross-references
 ├── init.py              # Initialize a new rebrew project
 ├── imports.py           # List PE import-table symbols and detect jmp [iat] stubs
+├── pdb_info.py          # PDB metadata extraction (S_COMPILE3 compiler + command line)
+├── identify_library.py  # Library-function identification backends (CRT/ZLIB marking)
+├── intake.py            # One-shot binary onboarding (FLIRT scan, catalog, triage)
+├── discover.py          # Function enumeration (rizin aaa→aap→capstone linear sweep)
 ├── strings.py           # Extract printable strings from data sections, with cross-references
 ├── xrefs.py             # Cross-reference explorer: code that references an address
 ├── describe.py          # Per-function recon dossier (callers, callees, strings, imports)
 ├── report.py            # Static HTML documentation site (index, strings, imports, call graph)
 ├── doctor.py            # Diagnostic checks for project health
 ├── status.py            # At-a-glance reversing progress overview
+├── toolchain_detect.py  # Compiler/version detection (diec → PDB → heuristics)
 ├── dashboard.py         # Read-only web dashboard over db/coverage.db
 ├── data.py              # Global data scanner for .data/.rdata/.bss sections
 ├── depgraph.py          # Function dependency graph visualization
@@ -185,8 +208,10 @@ src/rebrew/
 ├── build_db.py          # Build SQLite coverage database from data JSON
 ├── binsync_export.py    # Export annotations to BinSync state directory
 ├── round_trip.py        # Splice matched functions back into PE, verify byte equality
+├── resource.py          # PE resource comparison tooling
 ├── cfg.py               # Multi-command: list-targets, show, add-target, set, set-cflags, etc.
 ├── skills.py            # Skill discovery CLI: list, show (multi-command)
+├── solutions_db.py      # GA solutions database (cross-function cflags seeding)
 │
 ├── catalog/             # Function catalog package (see catalog/AGENTS.md)
 │   ├── __init__.py      # Re-exports all public names

@@ -19,6 +19,7 @@ Batch usage (``rebrew match --all``)::
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import random
 import re
@@ -59,11 +60,12 @@ from rebrew.cli import (
 from rebrew.compile import resolve_compiler_env
 from rebrew.compile_cache import CompileCache
 from rebrew.config import ProjectConfig
-from rebrew.core import msvc_env_from_config
+from rebrew.core import msvc_env_from_config, smart_reloc_compare
 from rebrew.diff import print_structural_similarity
 from rebrew.matcher import (
     BuildCache,
     BuildResult,
+    GACheckpoint,
     build_candidate,
     build_candidate_obj_only,
     compute_population_diversity,
@@ -84,17 +86,60 @@ _metadata_lock = threading.Lock()
 console = Console(stderr=True)
 
 
-def _compile_cflags(cflags: str, base_cf: str) -> str:
+def _compile_cflags(cflags: str, base_cf: str, posix_style: bool = False) -> str:
     """Build the effective compile flags: base_cflags first (when it carries
     ``/c``), else the ``/nologo /c`` glue.  ONE definition shared by the
     single-function, flag-sweep, and batch-GA paths — a divergent copy in the
     sweep path silently dropped ``base_cflags`` (e.g. ``/MT``), so a
-    sweep-reported exact could demote on the next test/verify."""
+    sweep-reported exact could demote on the next test/verify.
+
+    For POSIX-style compilers (gcc-pe/mingw, clang) the ``/nologo /c`` glue
+    is omitted — ``-c`` is added by the compile command builders.
+    """
+    if posix_style:
+        return f"{base_cf} {cflags}".strip() if base_cf else cflags
     if base_cf and "/c" in base_cf:
         return f"{base_cf} {cflags}".strip()
     if "/c" not in cflags:
         return f"/nologo /c {cflags}".strip()
     return cflags
+
+
+#: --mutation-focus category → selection weight for its suggested operators
+#: (everything else keeps the default 1.0).
+_MUTATION_FOCUS_CATEGORIES = ("register", "equivalent", "structural")
+_MUTATION_FOCUS_WEIGHT = 6.0
+
+
+def _mutation_focus_weights(
+    focus: str | None, blocker: str | None = None
+) -> dict[str, float] | None:
+    """GA mutation selection weights biased toward a near-diag category.
+
+    *focus* is a near-diag category (``register``/``equivalent``/``structural``)
+    or ``"auto"``, which derives the category from *blocker* — the function's
+    BLOCKER metadata written by ``near-diag --fix-blocker`` (verdict text like
+    ``NEAR_MATCHING — REGISTER (57% of delta) — try: ...``).  The category's
+    suggested operators (``rebrew.near_diag._MUTATION_SUGGESTIONS``) get
+    ``_MUTATION_FOCUS_WEIGHT``; unlisted operators keep weight 1.0.
+
+    Returns None when there is nothing to bias (no focus, ``reloc`` — whose
+    delta is relocation-masked, or ``auto`` with no derivable verdict) — the
+    GA then samples mutations uniformly.
+    """
+    from rebrew.near_diag import _MUTATION_SUGGESTIONS
+
+    if focus == "auto":
+        if not blocker:
+            return None
+        m = re.search(r"NEAR_MATCHING — (REGISTER|EQUIVALENT|STRUCTURAL) \(", blocker)
+        focus = m.group(1).lower() if m else None
+    if focus not in _MUTATION_FOCUS_CATEGORIES:
+        return None
+    ops = _MUTATION_SUGGESTIONS.get(focus) or []
+    if not ops:
+        return None
+    return {op: _MUTATION_FOCUS_WEIGHT for op in ops}
 
 
 def _find_function_range(source: str, symbol: str) -> tuple[int, int] | None:
@@ -190,8 +235,16 @@ class BinaryMatchingGA:
         extra_seeds: list[str] | None = None,
         collect_pairs_path: Path | None = None,
         extra_include_dirs: list[str] | None = None,
+        posix_style: bool = False,
+        resume_from: GACheckpoint | None = None,
     ) -> None:
-        """Initialize the genetic algorithm matching engine."""
+        """Initialize the genetic algorithm matching engine.
+
+        *resume_from* (a :class:`GACheckpoint` with a matching ``args_hash``)
+        restores the population, best result, and RNG state instead of
+        starting fresh from the seed source.
+        """
+        self.posix_style = posix_style
         self.seed_source = seed_source
         self.target_bytes = target_bytes
         self.cl_cmd = cl_cmd
@@ -247,7 +300,22 @@ class BinaryMatchingGA:
 
         self._pre_norm_target, self._pre_target_mnems = precompute_target(target_bytes)
 
-        self._init_population()
+        # Stable fingerprint of the GA parameters — rejects stale checkpoints.
+        self.args_hash = _ga_args_hash(
+            seed_source, target_bytes, symbol, cflags, pop_size, num_generations, rng_seed
+        )
+        self._start_generation = 0
+
+        # Resume restores population/best/RNG instead of a fresh start.
+        if resume_from is not None and resume_from.args_hash == self.args_hash:
+            self.population = list(resume_from.population)
+            self.best_source = resume_from.best_source
+            self.best_score = float(resume_from.best_score)
+            if resume_from.rng_state:
+                self.rng.setstate(resume_from.rng_state)
+            self._start_generation = resume_from.generation
+        else:
+            self._init_population()
 
     def _init_population(self) -> None:
         self.population = [self.seed_source]
@@ -288,6 +356,7 @@ class BinaryMatchingGA:
                 cache=self.compile_cache,
                 timeout=self.compile_timeout,
                 extra_include_dirs=self.extra_include_dirs,
+                posix_style=getattr(self, "posix_style", False),
             )
         else:
             if not self.lib_dir or not self.ldflags:
@@ -395,7 +464,7 @@ class BinaryMatchingGA:
 
     def _run_inner(self, deadline: float | None = None) -> tuple[str | None, float]:
         """Run the GA and return ``(best_source, best_score)``."""
-        for gen in range(self.num_generations):
+        for gen in range(self._start_generation, self.num_generations):
             if deadline is not None and time.monotonic() > deadline:
                 break
             gen_start = time.time()
@@ -479,7 +548,32 @@ class BinaryMatchingGA:
             # time by ~99% on cache-warm runs (mutation dominates).
             self.elapsed_sec += time.time() - gen_start
 
+            # Persist a checkpoint every generation so an interrupted batch
+            # resumes from here instead of restarting the stub.
+            self._save_checkpoint(gen + 1)
+
         return self.best_source, self.best_score
+
+    def _save_checkpoint(self, next_generation: int) -> None:
+        """Write the current GA state as a JSON checkpoint (best-effort)."""
+        try:
+            checkpoint = GACheckpoint(
+                generation=next_generation,
+                best_score=self.best_score,
+                best_source=self.best_source,
+                population=list(self.population),
+                rng_state=self.rng.getstate(),
+                args_hash=self.args_hash,
+            )
+            ckpt_dir = self.out_dir / "checkpoints"
+            ckpt_dir.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(
+                ckpt_dir / f"{self.symbol}.json",
+                json.dumps(checkpoint.to_dict(), indent=1),
+                encoding="utf-8",
+            )
+        except (OSError, TypeError, ValueError):  # noqa: BLE001 — best-effort
+            log.debug("Checkpoint save failed for %s", self.symbol, exc_info=True)
 
     def close(self) -> None:
         """Close the build cache (releases SQLite connection)."""
@@ -493,6 +587,53 @@ class BinaryMatchingGA:
 
     def __exit__(self, *exc: object) -> None:
         self.close()
+
+
+def _ga_args_hash(
+    seed_source: str,
+    target_bytes: bytes,
+    symbol: str,
+    cflags: str,
+    pop_size: int,
+    num_generations: int,
+    rng_seed: int | None,
+) -> str:
+    """Stable fingerprint of the GA parameters — invalidates stale checkpoints."""
+    h = hashlib.sha256()
+    h.update(seed_source.encode("utf-8", errors="replace"))
+    h.update(target_bytes)
+    h.update(symbol.encode())
+    h.update(cflags.encode())
+    h.update(str((pop_size, num_generations, rng_seed)).encode())
+    return h.hexdigest()
+
+
+def load_ga_checkpoint(out_dir: Path, symbol: str, args_hash: str) -> GACheckpoint | None:
+    """Load + validate the checkpoint for *symbol*; None when missing/stale.
+
+    A checkpoint whose ``args_hash`` differs (source/params changed) is
+    rejected — resume must never continue from incompatible state.
+    """
+    checkpoint = read_ga_checkpoint(out_dir, symbol)
+    if checkpoint is None or checkpoint.args_hash != args_hash:
+        return None
+    return checkpoint
+
+
+def read_ga_checkpoint(out_dir: Path, symbol: str) -> GACheckpoint | None:
+    """Parse the checkpoint for *symbol* without hash validation.
+
+    The GA constructor validates ``args_hash`` itself; this raw reader is
+    for the batch path where the final cflags are only known inside the GA.
+    """
+    ckpt = Path(out_dir) / "checkpoints" / f"{symbol}.json"
+    if not ckpt.is_file():
+        return None
+    try:
+        data = json.loads(ckpt.read_text(encoding="utf-8"))
+        return GACheckpoint.from_dict(data)
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -988,6 +1129,16 @@ def main(
         help="Disable cross-function solution seeding (takes precedence over --extra-seed)",
         rich_help_panel="Single-Function",
     ),
+    mutation_focus: str | None = typer.Option(
+        None,
+        "--mutation-focus",
+        help=(
+            "Bias GA mutation selection toward a near-diag category: "
+            "register | equivalent | structural, or auto (read the function's "
+            "BLOCKER metadata). Suggested operators get 6x selection weight."
+        ),
+        rich_help_panel="GA Tuning",
+    ),
     # GA tuning (shared single/batch)
     generations: int = typer.Option(
         100, "--generations", "-g", help="Number of GA generations", rich_help_panel="GA Tuning"
@@ -1015,6 +1166,12 @@ def main(
         help="Batch mode: run GA across STUB functions in EVERY configured target",
         rich_help_panel="Batch Mode",
     ),
+    sweep_toolchain: bool = typer.Option(
+        False,
+        "--sweep-toolchain",
+        help="Try each vendored MSVC toolchain (SP versions) instead of GA and report the best",
+        rich_help_panel="Single-Function",
+    ),
     sweep_then_ga: bool = typer.Option(
         False,
         "--sweep-then-ga",
@@ -1025,6 +1182,31 @@ def main(
         0,
         "--skip-recent",
         help="Batch: skip stubs with a GA run record within the last N hours",
+        rich_help_panel="Batch Mode",
+    ),
+    seed_solutions: Path | None = typer.Option(
+        None,
+        "--seed-solutions",
+        help=(
+            "Batch: extra solutions.json to seed from (cross-project cflags/"
+            "source transfer).  E.g. ../makehm-rebrew/.rebrew/solutions.json"
+        ),
+        rich_help_panel="Batch Mode",
+    ),
+    llm_seed: bool = typer.Option(
+        False,
+        "--llm-seed",
+        help=(
+            "Ask a configured LLM endpoint for alternative C implementations "
+            "and inject them into the GA's initial population (see [llm] "
+            "config / REBREW_LLM_ENDPOINT)."
+        ),
+        rich_help_panel="Single-Function",
+    ),
+    resume: bool = typer.Option(
+        False,
+        "--resume",
+        help="Batch: resume interrupted GA runs from their per-function checkpoints.",
         rich_help_panel="Batch Mode",
     ),
     near_miss: bool = typer.Option(
@@ -1143,6 +1325,29 @@ def main(
         # Batch mode hardcodes cfg.root/output/ga_runs — reject a silent no-op.
         error_exit("--out-dir only applies to single-function mode", json_mode=json_output)
 
+    # --mutation-focus in batch mode applies one explicit category to every
+    # stub ("auto" is per-function — the BLOCKER lives in the stub's metadata).
+    if mutation_focus == "auto" and (all_mode or all_targets):
+        error_exit(
+            "--mutation-focus auto is single-function only (the BLOCKER is "
+            "per-function); pass an explicit category in batch mode "
+            "(register | equivalent | structural)",
+            json_mode=json_output,
+        )
+    batch_mutation_weights = (
+        _mutation_focus_weights(mutation_focus) if (all_mode or all_targets) else None
+    )
+    if (
+        batch_mutation_weights is None
+        and mutation_focus
+        and (all_mode or all_targets)
+        and not json_output
+    ):
+        console.print(
+            f"[yellow]warning:[/yellow] --mutation-focus {mutation_focus} has "
+            "no suggested operators — sampling mutations uniformly"
+        )
+
     if all_mode:
         _run_all(
             cfg=cfg,
@@ -1167,6 +1372,9 @@ def main(
             sweep_then_ga=sweep_then_ga,
             skip_recent_hours=skip_recent_hours,
             seed=seed,
+            seed_solutions_path=seed_solutions,
+            resume=resume,
+            mutation_weights=batch_mutation_weights,
         )
         return
 
@@ -1178,15 +1386,16 @@ def main(
             names = [getattr(cfg, "target_name", "main")]
         total_matched = 0
         total_failed = 0
-        for name in names:
+
+        def _run_target(name: str) -> tuple[int, int]:
             target_cfg = load_config(cfg.root, target=name) if len(names) > 1 else cfg
             if not json_output:
                 console.print(f"\n[bold cyan]=== Target {name} ===[/]")
             # Per-target detail stays on stderr (console); stdout gets one
             # aggregate JSON document when --json is active.
-            m, f = _run_all(
+            return _run_all(
                 cfg=target_cfg,
-                jobs=jobs,
+                jobs=per_target_jobs,
                 generations=generations,
                 pop_size=pop_size,
                 timeout_min=timeout_min,
@@ -1207,9 +1416,30 @@ def main(
                 sweep_then_ga=sweep_then_ga,
                 skip_recent_hours=skip_recent_hours,
                 seed=seed,
+                seed_solutions_path=seed_solutions,
+                resume=resume,
+                mutation_weights=batch_mutation_weights,
             )
-            total_matched += m
-            total_failed += f
+
+        # Parallel targets: split --jobs across targets so total wine
+        # concurrency stays bounded (~jobs).  Determinism is preserved — the
+        # GA is seeded per-stub from (--seed, va), and the metadata/solutions
+        # locks serialize cross-target writes.  Falls back to serial when
+        # jobs cannot be shared or there is a single target.
+        parallel = len(names) > 1 and jobs > 1
+        per_target_jobs = max(1, jobs // len(names)) if parallel else jobs
+        if parallel:
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=len(names)) as executor:
+                for m, f in executor.map(_run_target, names):  # order preserved
+                    total_matched += m
+                    total_failed += f
+        else:
+            for name in names:
+                m, f = _run_target(name)
+                total_matched += m
+                total_failed += f
         if json_output:
             json_print(
                 {
@@ -1234,7 +1464,7 @@ def main(
             json_mode=json_output,
         )
 
-    if dry_run:
+    if dry_run and not llm_seed:
         error_exit(
             "--dry-run is batch mode only — 'rebrew match --all --dry-run' lists "
             "candidates without running. Single-function match always runs the GA.",
@@ -1259,6 +1489,38 @@ def main(
         cfg, seed_c, cl, inc, cflags, symbol, target_va, target_size, ignore_lint, json_output
     )
 
+    # --mutation-focus: bias GA mutation selection toward a near-diag category.
+    # "auto" reads the function's BLOCKER metadata (written by
+    # near-diag --fix-blocker) to derive the category.
+    mutation_weights: dict[str, float] | None = None
+    if mutation_focus:
+        blocker_text = ""
+        if mutation_focus == "auto":
+            from rebrew.metadata import load_metadata
+
+            for (_module, va), entry in load_metadata(cfg.metadata_dir).items():
+                if va == params.va_int and entry.get("blocker"):
+                    blocker_text = entry["blocker"]
+                    break
+            if not blocker_text and not json_output:
+                console.print(
+                    "[dim]--mutation-focus auto: no BLOCKER metadata for "
+                    f"0x{params.va_int:08x} — sampling uniformly.[/dim]"
+                )
+        mutation_weights = _mutation_focus_weights(mutation_focus, blocker_text)
+        if mutation_weights and not json_output:
+            console.print(
+                f"[dim]mutation focus:[/dim] {len(mutation_weights)} operator(s) "
+                f"weighted {_MUTATION_FOCUS_WEIGHT}x"
+            )
+        elif mutation_weights is None and not json_output:
+            # An explicit focus that yields no operators (e.g. "reloc" — its
+            # delta is relocation-masked) must not silently no-op.
+            console.print(
+                f"[yellow]warning:[/yellow] --mutation-focus {mutation_focus} has "
+                "no suggested operators — sampling mutations uniformly"
+            )
+
     if watch:
         from rebrew.utils import watch_files
 
@@ -1280,6 +1542,12 @@ def main(
                 ldflags=ldflags,
                 flag_sweep_only=flag_sweep_only,
                 tier=tier,
+                sweep_toolchain=sweep_toolchain,
+                sweep_then_ga=sweep_then_ga,
+                skip_recent_hours=skip_recent_hours,
+                seed_solutions=seed_solutions,
+                llm_seed=llm_seed,
+                resume=resume,
                 ignore_lint=ignore_lint,
                 seed=seed,
                 extra_seed=extra_seed,
@@ -1316,6 +1584,10 @@ def main(
         _run_single_flag_sweep(params, tier, jobs, json_output)
         return
 
+    if sweep_toolchain:
+        _run_single_toolchain_sweep(params, json_output)
+        return
+
     _run_single_ga(
         params,
         out_dir,
@@ -1330,6 +1602,9 @@ def main(
         extra_seed,
         no_seed,
         collect_pairs,
+        llm_seed=llm_seed,
+        dry_run=dry_run,
+        mutation_weights=mutation_weights,
     )
 
 
@@ -1401,6 +1676,18 @@ def resolve_build_params(
         want_va = parse_va(target_va, json_mode=json_output)
         anno = next((a for a in annos if a.va == want_va), None)
     if anno is None:
+        if target_va and not symbol:
+            # A requested VA that the resolved file does not annotate must not
+            # silently fall back to the first annotation — that compiles the
+            # WRONG function's symbol and diffs it against the requested
+            # address (the `rebrew diff 0x<va>` false-match regression class,
+            # same rule as test/prove/near-diag).  An explicit --symbol is a
+            # deliberate override and still allowed.
+            error_exit(
+                f"No annotation for VA {target_va} in {seed_c} — the resolved "
+                "file covers different functions (pass --symbol to override)",
+                json_mode=json_output,
+            )
         anno = annos[0] if annos else None
     if anno:
         eval_errs, eval_warns = anno.validate()
@@ -1453,7 +1740,11 @@ def resolve_build_params(
 
         mod = getattr(anno, "module", "") if anno else ""
         cflags = resolve_cflags(compile_cfg, meta.get("CFLAGS", ""), mod)
-    cflags = _compile_cflags(cflags, getattr(compile_cfg, "base_cflags", "") or "")
+    cflags = _compile_cflags(
+        cflags,
+        getattr(compile_cfg, "base_cflags", "") or "",
+        posix_style=getattr(compile_cfg, "compiler_profile", "") in ("gcc", "gcc-pe", "clang"),
+    )
 
     if not target_va:
         if anno and anno.va:
@@ -1540,6 +1831,7 @@ def _run_single_flag_sweep(
         env=p.msvc_env,
         cache=p.cc,
         timeout=p.cfg.compile_timeout,
+        posix_style=getattr(p.cfg, "posix_style", False),
     )
     if res.ok and res.obj_bytes:
         obj_bytes = res.obj_bytes
@@ -1613,7 +1905,11 @@ def run_flag_sweep(
     cl_cmd, inc_dir, msvc_env, cc = resolve_compiler_env(cfg)
 
     if "/c" not in cflags:
-        cflags = _compile_cflags(cflags, getattr(cfg, "base_cflags", "") or "")
+        cflags = _compile_cflags(
+            cflags,
+            getattr(cfg, "base_cflags", "") or "",
+            posix_style=getattr(cfg, "compiler_profile", "") in ("gcc", "gcc-pe", "clang"),
+        )
 
     # NOTE: no redirect_stdout here — mutating process-global stdout is not
     # thread-safe under --sweep-then-ga batch (-j N) and silently loses later
@@ -1645,6 +1941,97 @@ def run_flag_sweep(
 # ---------------------------------------------------------------------------
 
 
+#: Vendored MSVC toolchains in the rebrew repo's tools/ (SP point versions +
+#: the archaic-msvc VC4/5/7 line).  Used by ``--sweep-toolchain`` to answer
+#: "which MSVC version built this function?".
+_MSVC_TOOLCHAIN_PATHS: list[tuple[str, str, str]] = [
+    ("msvc6.3", "msvc6.3/Bin/CL.EXE", "msvc6.3/Include"),
+    ("msvc6.6", "msvc6.6/Bin/CL.EXE", "msvc6.6/Include"),
+    ("msvc7.0", "msvc7.0/Bin/cl.exe", "msvc7.0/Include"),
+    ("MSVC420", "MSVC420/bin/CL.EXE", "MSVC420/include"),
+    ("MSVC500", "MSVC500/bin/cl.exe", "MSVC500/include"),
+]
+
+
+def _vendored_msvc_toolchains(
+    cfg: Any, baseline_cl: str, baseline_inc: str
+) -> list[tuple[str, str, str]]:
+    """Return (profile, cl_cmd, inc_dir) for vendored toolchains with a CL present."""
+    tools = Path(__file__).resolve().parents[2] / "tools"
+    out: list[tuple[str, str, str]] = []
+    for profile, cl_sub, inc_sub in _MSVC_TOOLCHAIN_PATHS:
+        cl = tools / cl_sub
+        inc = tools / inc_sub
+        if cl.exists() and inc.is_dir():
+            out.append((profile, f"wine {cl}", str(inc)))
+    # Always include the configured profile's own compiler as a baseline.
+    out.insert(0, ("<current>", baseline_cl, baseline_inc))
+    return out
+
+
+def _run_single_toolchain_sweep(p: _BuildParams, json_output: bool) -> None:
+    """Compile the seed with each vendored MSVC toolchain and report the best."""
+    toolchains = _vendored_msvc_toolchains(p.cfg, p.cl, p.inc)
+    results: list[tuple[float, bool, int, int, str]] = []
+    for profile, cl_cmd, inc_dir in toolchains:
+        res = build_candidate_obj_only(
+            p.seed_src,
+            cl_cmd,
+            inc_dir,
+            p.cflags,
+            p.symbol,
+            env=p.msvc_env,
+            cache=p.cc,
+            timeout=p.cfg.compile_timeout,
+            extra_include_dirs=[str(p.seed_c.parent.resolve())],
+        )
+        if not (res.ok and res.obj_bytes):
+            results.append((float("inf"), False, 0, 0, profile))
+            continue
+        obj = res.obj_bytes
+        score = score_candidate(p.target_bytes, obj, res.reloc_offsets)
+        score_val: float = score.total
+        matched, count, total, _relocs, _inv = smart_reloc_compare(
+            obj[: len(p.target_bytes)],
+            p.target_bytes,
+            res.reloc_offsets,
+            name_to_va=getattr(p, "name_to_va", None),
+            section_va=p.va_int,
+        )
+        results.append((score_val, matched, count, total, profile))
+
+    results.sort(key=lambda r: r[0])
+    if json_output:
+        json_print(
+            {
+                "sweep": "toolchain",
+                "symbol": p.symbol,
+                "results": [
+                    {
+                        "toolchain": profile,
+                        "score": score,
+                        "matched": matched,
+                        "bytes": f"{count}/{total}",
+                    }
+                    for score, matched, count, total, profile in results
+                ],
+                "best": results[0][4] if results else None,
+            }
+        )
+        return
+
+    console.print("[bold]Toolchain sweep:[/bold]")
+    for score_val, matched, count, total, profile in results:
+        tag = "[green]EXACT[/green]" if matched and count == total else ""
+        console.print(f"  {profile:10s} score={score_val:9.2f}  {count}/{total} bytes {tag}")
+    if results:
+        best = results[0]
+        if best[1] and best[2] == best[3]:
+            console.print(
+                f"[green]Full match with {best[4]} — switch the project profile or set per-function CFLAGS.[/green]"
+            )
+
+
 def _run_single_ga(
     p: _BuildParams,
     out_dir: str,
@@ -1659,6 +2046,9 @@ def _run_single_ga(
     extra_seed: list[str] | None,
     no_seed: bool,
     collect_pairs: str | None = None,
+    llm_seed: bool = False,
+    dry_run: bool = False,
+    mutation_weights: dict[str, float] | None = None,
 ) -> None:
     """Run the full GA matching engine for a single source file."""
     out_dir_path = Path(out_dir)
@@ -1676,6 +2066,35 @@ def _run_single_ga(
             if ep.exists():
                 text, _ = read_source_text(ep)
                 loaded_seeds.append(text)
+
+    # Optional LLM-assisted seeding: ask the configured endpoint for
+    # alternative C implementations of the current source.  Off by default;
+    # degrades to a warning when no endpoint is configured.
+    if llm_seed and not no_seed:
+        from rebrew.llm_seed import build_prompt, llm_config, request_seeds
+
+        if llm_config(p.cfg) is None:
+            console.print(
+                "[yellow]warning:[/yellow] --llm-seed set but no LLM endpoint configured "
+                "(set \\[llm] endpoint or REBREW_LLM_ENDPOINT) — running without LLM seeds"
+            )
+        else:
+            llm_snippets = request_seeds(p.cfg, p.seed_src)
+            if llm_snippets:
+                console.print(
+                    f"[dim]LLM seeding:[/dim] {len(llm_snippets)} valid alternative "
+                    "implementation(s) added to the initial population"
+                )
+                loaded_seeds.extend(llm_snippets)
+            if dry_run:
+                # Preview the exact prompt + what would be seeded, no GA run.
+                console.print("\n[bold]LLM seed prompt (dry-run):[/bold]\n")
+                console.print(build_prompt(p.seed_src))
+                console.print(
+                    f"\n[dim]{len(llm_snippets)} validated seed(s) would be added "
+                    "to the initial population.[/dim]"
+                )
+                return
 
     ga = BinaryMatchingGA(
         p.seed_src,
@@ -1699,6 +2118,8 @@ def _run_single_ga(
         extra_seeds=loaded_seeds or None,
         collect_pairs_path=Path(collect_pairs) if collect_pairs else None,
         extra_include_dirs=[str(p.seed_c.parent.resolve())],
+        posix_style=getattr(p.cfg, "posix_style", False),
+        mutation_weights=mutation_weights,
     )
     try:
         best_src, best_score = ga.run()
@@ -1738,6 +2159,12 @@ def _run_single_ga(
     else:
         # Documented exit-code contract: 0 = match, 1 = no match, 2 = build
         # or config error.
+        console.print(
+            "\n[yellow]No match found.[/yellow] If the delta is register/structural "
+            "class, `rebrew prove` can often establish semantic equivalence "
+            "(smygb: 7/7 NEAR_MATCHING promoted) — or run "
+            "`rebrew near-diag --fix-blocker` to classify + document."
+        )
         raise typer.Exit(code=EXIT_MISMATCH)
 
 
@@ -1785,11 +2212,14 @@ def _run_one_stub_ga(
     extra_seed_paths: list[str] | None = None,
     cflags_override: str | None = None,
     rng_seed: int | None = None,
+    resume_from: GACheckpoint | None = None,
+    mutation_weights: dict[str, float] | None = None,
 ) -> tuple[bool, str]:
     """Run one GA pass for a single stub in-process. Returns (matched, summary).
 
     *cflags_override* replaces ``stub.cflags`` (used by ``--sweep-then-ga``
-    to seed the GA with the flag-sweep's best variant).
+    to seed the GA with the flag-sweep's best variant).  *resume_from* is a
+    validated :class:`GACheckpoint` (batch ``--resume``).
     """
     filepath = stub.filepath
     try:
@@ -1812,7 +2242,11 @@ def _run_one_stub_ga(
         from rebrew.cli import resolve_cflags
 
         cflags = resolve_cflags(cfg, stub.cflags, getattr(stub, "module", ""))
-    cflags = _compile_cflags(cflags, getattr(cfg, "base_cflags", "") or "")
+    cflags = _compile_cflags(
+        cflags,
+        getattr(cfg, "base_cflags", "") or "",
+        posix_style=getattr(cfg, "compiler_profile", "") in ("gcc", "gcc-pe", "clang"),
+    )
 
     seed_src, _ = read_source_text(filepath)
 
@@ -1841,6 +2275,9 @@ def _run_one_stub_ga(
         verbose=0,
         extra_seeds=loaded_extra or None,
         rng_seed=rng_seed,
+        posix_style=getattr(cfg, "posix_style", False),
+        resume_from=resume_from,
+        mutation_weights=mutation_weights,
     )
 
     matched = False
@@ -2001,6 +2438,9 @@ def _run_all(  # noqa: PLR0913
     skip_recent_hours: int = 0,
     seed: int | None = None,
     size_mismatch: bool = False,
+    seed_solutions_path: Path | None = None,
+    resume: bool = False,
+    mutation_weights: dict[str, float] | None = None,
 ) -> tuple[int, int]:
     """Batch driver: run GA or flag sweep across all discovered functions.
 
@@ -2115,15 +2555,31 @@ def _run_all(  # noqa: PLR0913
     seed_solutions: list[Any] = []
     if seed_from_solved:
         try:
-            from rebrew.matcher.solutions import load_solutions
+            from rebrew.matcher.solutions import load_solutions, load_solutions_file
 
             seed_solutions = load_solutions(cfg.root)
+            if seed_solutions_path is not None:
+                # Cross-project seeding: merge another project's solutions,
+                # deduped by (target, symbol) — local entries win.
+                extra = load_solutions_file(seed_solutions_path)
+                seen = {(s.target, s.symbol) for s in seed_solutions}
+                for sol in extra:
+                    if (sol.target, sol.symbol) not in seen:
+                        seen.add((sol.target, sol.symbol))
+                        seed_solutions.append(sol)
+                if extra and not json_output:
+                    console.print(
+                        f"  [dim]Cross-project seeding:[/] {len(extra)} solutions "
+                        f"from {seed_solutions_path}"
+                    )
         except Exception:  # noqa: BLE001
             log.debug("Solution list load failed", exc_info=True)
 
     stub_seeds: list[list[str]] = []
+    stub_seed_cflags: list[str | None] = []
     for stub in stubs:
         extra_ga_paths: list[str] = []
+        seed_cflags: str | None = None
         if seed_from_solved:
             try:
                 from rebrew.matcher.solutions import find_similar
@@ -2144,16 +2600,29 @@ def _run_all(  # noqa: PLR0913
                             console.print(
                                 f"  [dim]Seeding from solved:[/] {sol.symbol} ({sol.size}B)"
                             )
+                    elif seed_cflags is None and sol.cflags:
+                        # Cross-project: the source file lives in another
+                        # project, but the winning cflags are transferable —
+                        # same size + same compiler often means same flags.
+                        seed_cflags = sol.cflags
+                        if not json_output:
+                            console.print(
+                                f"  [dim]Seeding cflags from solved:[/] {sol.symbol} "
+                                f"({sol.size}B, {sol.cflags})"
+                            )
             except Exception:  # noqa: BLE001
                 log.debug("Solution lookup failed", exc_info=True)
         stub_seeds.append(extra_ga_paths)
+        stub_seed_cflags.append(seed_cflags)
 
     # Parallel stubs: one worker per stub, intra-GA compiles serialized so
     # total concurrency stays at ~jobs (MSVC under wine is not cheap).
     # The cooperative deadline (no SIGALRM) keeps this thread-safe.
     intra_jobs = 1 if jobs > 1 else jobs
 
-    def _run_stub(stub: StubInfo, seeds: list[str]) -> tuple[StubInfo, bool, str]:
+    def _run_stub(
+        stub: StubInfo, seeds: list[str], seed_cflags: str | None
+    ) -> tuple[StubInfo, bool, str]:
         # Deterministic per-stub sub-seed: same --seed + same VA ⇒ same GA.
         # (VA collisions are impossible within one batch; across batches the
         # VA is stable, so runs stay reproducible.)
@@ -2170,6 +2639,21 @@ def _run_all(  # noqa: PLR0913
                         )
             except Exception:  # noqa: BLE001 — sweep failure falls back to stub flags
                 log.debug("Flag sweep failed for %s", stub.symbol, exc_info=True)
+
+        # --resume: continue from the stub's last checkpoint (the GA
+        # constructor re-validates args_hash — a stale one restarts fresh).
+        resume_from: GACheckpoint | None = None
+        if resume:
+            try:
+                rel = stub.filepath.relative_to(cfg.root)
+            except ValueError:
+                rel = Path(stub.filepath.stem)
+            stub_out_dir = cfg.root / "output" / "ga_runs" / rel.with_suffix("")
+            resume_from = read_ga_checkpoint(stub_out_dir, stub.symbol)
+            if resume_from is not None and not json_output:
+                console.print(
+                    f"  [dim]Resuming {stub.symbol} from generation {resume_from.generation}[/dim]"
+                )
         try:
             matched, output_summary = _run_one_stub_ga(
                 stub,
@@ -2179,8 +2663,10 @@ def _run_all(  # noqa: PLR0913
                 intra_jobs,
                 timeout_min,
                 seeds or None,
-                cflags_override=sweep_flags,
+                cflags_override=sweep_flags or seed_cflags,
                 rng_seed=stub_seed,
+                resume_from=resume_from,
+                mutation_weights=mutation_weights,
             )
         except Exception as exc:  # noqa: BLE001 — one bad stub must not abort the batch
             log.debug("GA run failed for %s", stub.symbol, exc_info=True)
@@ -2210,10 +2696,13 @@ def _run_all(  # noqa: PLR0913
     if jobs > 1 and len(stubs) > 1:
         with ThreadPoolExecutor(max_workers=jobs) as executor:
             outcomes = list(
-                executor.map(_run_stub, stubs, stub_seeds)  # order preserved
+                executor.map(_run_stub, stubs, stub_seeds, stub_seed_cflags)  # order preserved
             )
     else:
-        outcomes = [_run_stub(s, seeds) for s, seeds in zip(stubs, stub_seeds, strict=False)]
+        outcomes = [
+            _run_stub(s, seeds, scf)
+            for s, seeds, scf in zip(stubs, stub_seeds, stub_seed_cflags, strict=False)
+        ]
 
     for stub, matched, output_summary in outcomes:
         result_entry: dict[str, Any] = {
@@ -2244,6 +2733,7 @@ def _run_all(  # noqa: PLR0913
                 "matched": matched_count,
                 "failed": failed_count,
                 "total": len(stubs),
+                "seeded_cflags": sum(1 for c in stub_seed_cflags if c),
                 "results": ga_results,
             }
         )

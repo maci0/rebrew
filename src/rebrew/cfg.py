@@ -43,6 +43,41 @@ console = Console(stderr=True)
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Target-scoped config keys
+# ---------------------------------------------------------------------------
+
+#: Keys that live under ``[targets.<name>]``.  ``rebrew cfg set <key> <value>``
+#: with a bare (non-dotted) key routes to the default target automatically;
+#: an explicit ``targets.<name>.<key>`` path always wins.
+#: Keys that live under ``[targets.<name>]``.  Kept in sync with
+#: ``config._KNOWN_TARGET_KEYS``; bare ``cfg set <key>`` routes these to the
+#: default target automatically (an explicit ``targets.<name>.<key>`` wins).
+_TARGET_SCOPED_KEYS: frozenset[str] = frozenset(
+    {
+        "binary",
+        "format",
+        "arch",
+        "reversed_dir",
+        "function_list",
+        "bin_dir",
+        "source_ext",
+        "marker",
+        "ignored_symbols",
+        "origins",
+        "crt_sources",
+        "ghidra_program_path",
+        "ghidra_backend",
+        "game_range_end",
+        "r2_bogus_vas",
+        "iat_thunks",
+        "dll_exports",
+        "library_modules",
+        "cflags_presets",
+    }
+)
+
+
 def _resolve_dotted_key(
     doc: dict[str, Any], key: str, *, create_missing: bool = False, json_mode: bool = False
 ) -> tuple[dict[str, Any], str, list[str]]:
@@ -509,6 +544,15 @@ def set_value(
 ) -> None:
     """Set a scalar config key."""
     doc, toml_path = _load_toml()
+
+    # Route bare target-scoped keys to the default target so `cfg set binary
+    # foo.exe` writes [targets.<default>] instead of a top-level key that the
+    # config reader ignores (a silent no-op that confused users).
+    if "." not in key and key in _TARGET_SCOPED_KEYS and "targets" in doc:
+        target = _resolve_target(doc, None)
+        routed = f"targets.{target}.{key}"
+        console.print(f"[dim]note: {key} is target-scoped → setting {routed}[/dim]")
+        key = routed
 
     # Resolve dotted key path (creates intermediate tables as needed)
     parent, final_key, _ = _resolve_dotted_key(doc, key, create_missing=True)

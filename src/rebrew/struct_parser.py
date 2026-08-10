@@ -69,3 +69,47 @@ def extract_type_definitions(filepath: Path) -> Iterator[str]:
     like ``typedef unsigned int uint32_t;`` that don't contain struct bodies.
     """
     yield from _iter_definitions(filepath, all_type_defs=True)
+
+
+def extract_enums_from_file(filepath: Path) -> Iterator[str]:
+    """Parse a C file and yield enum definitions with bodies.
+
+    Yields both forms, ready for Ghidra's ``parse-c-structure`` CParser::
+
+        enum Color { RED, GREEN, BLUE };
+        typedef enum { UP, DOWN } Direction;
+
+    Returns empty if tree-sitter is unavailable or the file is unreadable.
+    """
+    result = _get_ts_parser()
+    if result is None:
+        return
+    parser, _ = result
+
+    try:
+        code_bytes = filepath.read_bytes()
+    except OSError:
+        return
+
+    encoding = detect_source_encoding(code_bytes)
+    tree = parser.parse(code_bytes)
+
+    def walk(node: Any) -> Iterator[str]:
+        if node.type == "type_definition":
+            text = code_bytes[node.start_byte : node.end_byte]
+            if b"enum" in text and b"{" in text:
+                yield text.decode(encoding)  # typedef enum { ... } Name;
+        elif node.type == "enum_specifier":
+            if node.parent and node.parent.type != "type_definition":
+                text = code_bytes[node.start_byte : node.end_byte]
+                if b"{" in text:
+                    end_byte = node.end_byte
+                    next_sibling = node.next_sibling
+                    if next_sibling and next_sibling.type == ";":
+                        end_byte = next_sibling.end_byte
+                    yield code_bytes[node.start_byte : end_byte].decode(encoding)
+        else:
+            for child in node.children:
+                yield from walk(child)
+
+    yield from walk(tree.root_node)

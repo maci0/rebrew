@@ -11,6 +11,7 @@ from rebrew.matcher.solutions import (
     find_similar,
     load_ga_runs,
     load_solutions,
+    load_solutions_file,
     record_ga_run,
     save_solution,
     save_solutions,
@@ -329,3 +330,42 @@ class TestGaRunHistory:
         runs = load_ga_runs(project_root)
         assert len(runs) == 1
         assert runs[0]["symbol"] == "ok"
+
+
+class TestLoadSolutionsFile:
+    """load_solutions_file — explicit-path loading for cross-project seeding."""
+
+    def test_missing_file_returns_empty(self, tmp_path: Path) -> None:
+        assert load_solutions_file(tmp_path / "nope.json") == []
+
+    def test_malformed_returns_empty(self, tmp_path: Path) -> None:
+        p = tmp_path / "solutions.json"
+        p.write_text("not json!", encoding="utf-8")
+        assert load_solutions_file(p) == []
+
+    def test_non_array_returns_empty(self, tmp_path: Path) -> None:
+        p = tmp_path / "solutions.json"
+        p.write_text('{"a": 1}', encoding="utf-8")
+        assert load_solutions_file(p) == []
+
+    def test_valid_entries_loaded(self, tmp_path: Path) -> None:
+        p = tmp_path / "solutions.json"
+        p.write_text(
+            json.dumps(
+                [
+                    {
+                        "symbol": "_f",
+                        "cflags": "/O1",
+                        "size": 42,
+                        "source_file": "src/f.c",
+                        "target": "OTHER",
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        entries = load_solutions_file(p)
+        assert len(entries) == 1
+        assert entries[0].symbol == "_f"
+        assert entries[0].cflags == "/O1"
+        assert entries[0].target == "OTHER"

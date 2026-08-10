@@ -125,10 +125,12 @@ _COMMAND_PANELS: dict[str, str] = {
     "graph": "Analysis",
     "flirt": "Analysis",
     "gen-flirt-pat": "Analysis",
+    "identify-library": "Analysis",
     "imports": "Analysis",
     "strings": "Analysis",
     "xrefs": "Analysis",
     "describe": "Analysis",
+    "analyze": "Analysis",
     "report": "Analysis",
     "crt-match": "Analysis",
     # Matching — solving byte-level differences
@@ -137,6 +139,7 @@ _COMMAND_PANELS: dict[str, str] = {
     "extract": "Matching",
     "asm": "Matching",
     "prove": "Matching",
+    "solutions": "Analysis",
     "round-trip": "Matching",
     # Export & Sync — generating data and syncing with external tools
     "catalog": "Export & Sync",
@@ -158,6 +161,21 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("diff", "rebrew.diff", "Compile and diff a reversed function against the target binary."),
     ("asm", "rebrew.asm", "Disassemble a function (hex dump or NASM source)."),
     ("init", "rebrew.init", "Initialize a new rebrew project."),
+    (
+        "intake",
+        "rebrew.intake",
+        "One-shot binary onboarding: init + toolchain detect + functions + document.",
+    ),
+    (
+        "pdb-info",
+        "rebrew.pdb_info",
+        "Extract compiler version, flags, and function names from a sibling PDB.",
+    ),
+    (
+        "discover-functions",
+        "rebrew.discover",
+        "Enumerate functions: rizin aaa/aap + capstone sweep, sizes validated.",
+    ),
     ("data", "rebrew.data", "Global data scanner for .data/.rdata/.bss sections."),
     (
         "graph",
@@ -184,11 +202,21 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "Per-function recon dossier: callers, callees, strings, imports.",
     ),
     (
+        "analyze",
+        "rebrew.analyze",
+        "One-shot intelligence dossier: toolchain, strings, imports, dispatch, FLIRT.",
+    ),
+    (
         "report",
         "rebrew.report",
         "Generate a static HTML documentation site for the project.",
     ),
     ("flirt", "rebrew.flirt", "FLIRT signature scanning."),
+    (
+        "identify-library",
+        "rebrew.identify_library",
+        "Identify library functions (FLIRT + imports + CRT) into library_*.h.",
+    ),
     (
         "gen-flirt-pat",
         "rebrew.gen_flirt_pat",
@@ -198,6 +226,11 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("split", "rebrew.split", "Split multi-function C files into single-function files."),
     ("merge", "rebrew.merge", "Merge single-function C files into one multi-function file."),
     ("prove", "rebrew.prove", "Prove semantic equivalence via symbolic execution."),
+    (
+        "solutions",
+        "rebrew.solutions_db",
+        "Query the GA solutions database (winning fingerprints + run history).",
+    ),
     ("round-trip", "rebrew.round_trip", "Splice matched functions back into target PE and verify."),
     ("build-db", "rebrew.build_db", "Build SQLite coverage database from data JSON."),
     (

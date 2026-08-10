@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import diskcache
 
@@ -85,3 +86,48 @@ class BuildCache:
 
     def __exit__(self, *exc: object) -> None:
         self.close()
+
+
+@dataclass
+class GACheckpoint:
+    """Serializable GA state for resuming an interrupted run.
+
+    Captured at the end of each generation: the next generation to run, the
+    best result so far, the current population, and the RNG state.  JSON-safe
+    (the ``random`` state is a flat tuple of ints/floats/None).
+    """
+
+    generation: int  # next generation index to run
+    best_score: float
+    best_source: str | None
+    population: list[str]
+    rng_state: Any
+    args_hash: str  # rejects stale checkpoints when GA parameters change
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize for JSON (rng_state → list for round-tripping)."""
+        return {
+            "generation": self.generation,
+            "best_score": self.best_score,
+            "best_source": self.best_source,
+            "population": self.population,
+            "rng_state": list(self.rng_state),
+            "args_hash": self.args_hash,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> GACheckpoint:
+        """Deserialize from :meth:`to_dict` output.
+
+        The ``random`` state's inner ``internalstate`` tuple survives JSON as
+        a list; ``setstate`` requires tuples, so nested lists are converted
+        back recursively.
+        """
+        return cls(
+            generation=int(d["generation"]),
+            best_score=float(d["best_score"]),
+            best_source=d.get("best_source"),
+            population=list(d.get("population", [])),
+            rng_state=tuple(tuple(x) if isinstance(x, list) else x for x in d.get("rng_state", [])),
+            args_hash=str(d.get("args_hash", "")),
+        )

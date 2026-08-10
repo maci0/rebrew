@@ -281,12 +281,38 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
             if not cl_path.exists():
                 fix_msg = "Place MSVC toolchain at the configured path or update compiler.command."
                 cl_path_str = str(cl_path).lower()
-                if "msvc6" in cl_path_str:
+                # Order matters: "msvc6.3"/"msvc6.6" also contain "msvc6".
+                if "msvc6.3" in cl_path_str:
+                    fix_msg += (
+                        " Download: https://github.com/OmniBlade/decomp.me/"
+                        "releases/download/msvcwin9x/msvc6.3.tar.gz"
+                    )
+                elif "msvc6.6" in cl_path_str:
+                    fix_msg += (
+                        " Download: https://github.com/OmniBlade/decomp.me/"
+                        "releases/download/msvcwin9x/msvc6.6.tar.gz"
+                    )
+                elif "msvc7" in cl_path_str:
+                    fix_msg += (
+                        " Download: https://github.com/OmniBlade/decomp.me/"
+                        "releases/download/msvcwin9x/msvc7.0.tar.gz"
+                    )
+                elif "msvc500" in cl_path_str or "msvc5" in cl_path_str:
+                    fix_msg += (
+                        " Download: https://codeload.github.com/archaic-msvc/"
+                        "msvc500/tar.gz/refs/heads/master"
+                    )
+                elif "msvc6" in cl_path_str:
                     fix_msg += " Download: https://github.com/itsmattkc/MSVC600"
                 elif "msvc400" in cl_path_str:
                     fix_msg += " Download: https://github.com/itsmattkc/MSVC400"
                 elif "msvc420" in cl_path_str:
                     fix_msg += " Download: https://github.com/itsmattkc/MSVC420"
+                elif "wcc" in cl_path_str or "watcom" in cl_path_str:
+                    fix_msg += (
+                        " Download (Watcom C/C++): https://github.com/OmniBlade/"
+                        "decomp.me/releases/download/wcc10.5/wcc11.0.tar.gz"
+                    )
 
                 return CheckResult(
                     name="Compiler",
@@ -345,6 +371,55 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
         name="Compiler",
         status=_PASS,
         message=f"Found: {exe_path or exe}",
+    )
+
+
+def check_toolchain_alignment(cfg: ProjectConfig) -> CheckResult:
+    """Check that the configured compiler profile aligns with the binary.
+
+    Uses the layered toolchain detector (DIE -> PDB -> heuristics) to guess
+    what actually built the target and compares it against the configured
+    ``[compiler] profile``.  A mismatch means byte-matching is impossible —
+    the user should switch profiles or document blockers.
+    """
+    binary = getattr(cfg, "target_binary", None)
+    if binary is None or not Path(binary).exists():
+        return CheckResult(name="Toolchain alignment", status=_SKIP, message="binary not available")
+
+    from rebrew.toolchain_detect import detect_toolchain, profile_matches_detection
+
+    try:
+        info = detect_toolchain(binary)
+    except Exception:
+        return CheckResult(name="Toolchain alignment", status=_SKIP, message="detection failed")
+
+    profile = getattr(cfg, "compiler_profile", "") or "msvc6"
+    if info.family == "unknown":
+        return CheckResult(
+            name="Toolchain alignment",
+            status=_SKIP,
+            message="binary compiler family not identified",
+        )
+
+    aligned, explanation = profile_matches_detection(profile, info)
+    detail = f"detected {info.family} ({info.version_hint or 'unknown version'})"
+    if info.detected_by:
+        detail += f" via {info.detected_by}"
+    if any("diec not found" in e for e in info.evidence):
+        detail += "; diec not found (add tools/diec or PATH diec for stronger detection)"
+    if info.flags:
+        detail += f"; PDB flags: {' '.join(info.flags)}"
+    if aligned:
+        if explanation:
+            return CheckResult(
+                name="Toolchain alignment", status=_WARN, message=detail, fix=explanation
+            )
+        return CheckResult(name="Toolchain alignment", status=_PASS, message=detail)
+    return CheckResult(
+        name="Toolchain alignment",
+        status=_FAIL,
+        message=detail,
+        fix=explanation or "Switch the [compiler] profile to match the detected family.",
     )
 
 
@@ -545,6 +620,7 @@ def run_doctor(target: str | None = None) -> DoctorReport:
 
     report.checks.append(check_target_binary(cfg))
     report.checks.append(check_arch_format(cfg))
+    report.checks.append(check_toolchain_alignment(cfg))
     report.checks.append(check_compiler(cfg))
     report.checks.append(check_runner(cfg))
     report.checks.append(check_includes(cfg))

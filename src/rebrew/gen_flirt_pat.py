@@ -248,22 +248,14 @@ def _is_weak_signature(line: str) -> bool:
     return int(parts[1], 16) < 8
 
 
-@app.callback(invoke_without_command=True)
-def main(
-    lib_path: str = typer.Argument(..., help="Path to .lib file"),
-    output: str | None = typer.Option(None, "--output", "-o", help="Output .pat file path"),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
-) -> None:
-    """Generate FLIRT .pat files from COFF .lib archives."""
-    lib_file = Path(lib_path)
-    if not lib_file.exists():
-        error_exit(f"{lib_file} not found", json_mode=json_output)
+def generate_pat(lib_file: Path, out_path: Path) -> dict[str, int]:
+    """Generate a FLIRT .pat file from one COFF .lib archive.
 
-    lib_name = lib_file.stem.lower()
-    out_path = Path(output) if output else Path(f"flirt_sigs/{lib_name}_vc6.pat")
-
-    if out_path.parent != Path("."):
-        out_path.parent.mkdir(parents=True, exist_ok=True)
+    Returns ``{"signatures": n, "skipped_members": n, "skipped_weak": n}``.
+    Shared by ``rebrew gen-flirt-pat`` and ``rebrew identify-library
+    --build-sigs`` (batch over a toolchain Lib dir).
+    """
+    out_path.parent.mkdir(parents=True, exist_ok=True)
 
     pat_lines: list[str] = []
     seen: set[str] = set()
@@ -289,12 +281,35 @@ def main(
         "".join(line + "\n" for line in pat_lines) + "---\n",
         encoding="utf-8",
     )
+    return {
+        "signatures": len(pat_lines),
+        "skipped_members": skipped,
+        "skipped_weak": weak_skipped,
+    }
 
+
+@app.callback(invoke_without_command=True)
+def main(
+    lib_path: str = typer.Argument(..., help="Path to .lib file"),
+    output: str | None = typer.Option(None, "--output", "-o", help="Output .pat file path"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+) -> None:
+    """Generate FLIRT .pat files from COFF .lib archives."""
+    lib_file = Path(lib_path)
+    if not lib_file.exists():
+        error_exit(f"{lib_file} not found", json_mode=json_output)
+
+    lib_name = lib_file.stem.lower()
+    out_path = Path(output) if output else Path(f"flirt_sigs/{lib_name}_vc6.pat")
+
+    stats = generate_pat(lib_file, out_path)
+    skipped = stats["skipped_members"]
+    weak_skipped = stats["skipped_weak"]
     if json_output:
         json_print(
             {
                 "output": str(out_path),
-                "signatures": len(pat_lines),
+                "signatures": stats["signatures"],
                 "source": str(lib_file),
                 "skipped_members": skipped,
                 "skipped_weak": weak_skipped,
@@ -302,7 +317,7 @@ def main(
         )
         return
 
-    msg = f"Generated {out_path}: {len(pat_lines)} signatures from {lib_file}"
+    msg = f"Generated {out_path}: {stats['signatures']} signatures from {lib_file}"
     if skipped:
         msg += f" ({skipped} corrupt members skipped)"
     if weak_skipped:

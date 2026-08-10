@@ -221,6 +221,7 @@ def build_candidate_obj_only(
     cache: CompileCache | None = None,
     timeout: int = 60,
     extra_include_dirs: list[str] | None = None,
+    posix_style: bool = False,
 ) -> BuildResult:
     """Compile source to .obj and extract symbol bytes (no linking).
 
@@ -263,9 +264,13 @@ def build_candidate_obj_only(
         cmd = (
             _compiler_cmd_parts(cl_cmd, env)
             + all_flags
-            + ["/c", f"/I{inc_dir}"]
-            + [f"/I{d}" for d in extra_inc]
-            + [f"/Fo{obj_name}", src_name]
+            + (
+                ["-c", f"-I{inc_dir}"] + [f"-I{d}" for d in extra_inc] + ["-o", obj_name, src_name]
+                if posix_style
+                else ["/c", f"/I{inc_dir}"]
+                + [f"/I{d}" for d in extra_inc]
+                + [f"/Fo{obj_name}", src_name]
+            )
         )
         env = _ensure_wine_env(env, cmd)
 
@@ -388,6 +393,7 @@ def flag_sweep(
     cache: CompileCache | None = None,
     timeout: int = 60,
     extra_include_dirs: list[str] | None = None,
+    posix_style: bool = False,
 ) -> list[tuple[float, str]]:
     """Sweep compiler flags to find the best match.
 
@@ -433,6 +439,7 @@ def flag_sweep(
             cache=cache,
             timeout=timeout,
             extra_include_dirs=extra_include_dirs,
+            posix_style=posix_style,
         )
         if res.ok and res.obj_bytes:
             score = score_candidate(

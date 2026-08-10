@@ -226,6 +226,7 @@ MSVC6's register allocator has specific, exploitable behaviors around
 | Mutation | Transform | MSVC6 Rationale |
 |----------|-----------|-----------------|
 | `mut_toggle_volatile` | Add/remove `volatile` on local | `volatile` forces stack spills — the variable is always loaded/stored through memory |
+| `mut_hoist_repeated_deref` | `*(T*)0xADDR` used N times → `void *_p = *(T*)0xADDR;` + use `_p` | Repeated absolute derefs re-read memory N times; hoisting keeps the pointer live in a register — the MSVC6 `mov eax,[mem]; test eax,eax` form (campaign finding: smygb 0x401370 register-only gap) |
 | `mut_add_register_keyword` | Add `register` to local variable | Hints to use ESI/EDI/EBX — MSVC6 respects this hint strongly |
 | `mut_remove_register_keyword` | Remove `register` from local | Let compiler choose — may use stack instead |
 | `mut_swap_register_keywords` | Swap `register` between two locals | Changes ESI vs EDI assignment — different register encoding sizes |

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -1129,3 +1130,59 @@ class TestWatchVaDecimal:
         result = CliRunner().invoke(pm.app, ["--watch-va", "268574328", str(f)])
         assert result.exit_code != 0
         assert captured.get("watch_va") == [268574328]
+
+
+class TestMaxDeltaFilter:
+    """J4: prove --all --max-delta focuses on the closest near-misses."""
+
+    def _anno(self, va: int, delta: int | None) -> Any:
+        from rebrew.annotation import Annotation
+
+        return Annotation(
+            va=va,
+            name=f"f{va}",
+            symbol=f"_f{va}",
+            module="T",
+            status="NEAR_MATCHING",
+            size=10,
+            marker_type="FUNCTION",
+            filepath="f.c",
+            blocker_delta=delta,
+        )
+
+    def test_filters_by_blocker_delta(self, tmp_path: Path, monkeypatch, capsys) -> None:
+        from rebrew.prove import _run_all_batch
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "f.c").write_text("// FUNCTION: T 0x1000\n", encoding="utf-8")
+        cfg = SimpleNamespace(
+            reversed_dir=src,
+            metadata_dir=tmp_path,
+            root=tmp_path,
+            default_jobs=1,
+            target_name="T",
+            source_ext=".c",
+            marker="T",
+        )
+        annos = [self._anno(0x1000, 2), self._anno(0x2000, 40), self._anno(0x3000, None)]
+        monkeypatch.setattr("rebrew.prove.parse_c_file_multi", lambda *a, **k: annos)
+        # Capture which candidates reach the proving loop.
+        seen: list[int] = []
+
+        def _fake_prove_one(*a, **k):  # type: ignore[no-untyped-def]
+            seen.append(0)
+            return False
+
+        monkeypatch.setattr("rebrew.prove._prove_single", _fake_prove_one)
+        monkeypatch.setattr("rebrew.prove.build_name_to_va", lambda cfg: {})
+        _run_all_batch(
+            cfg,
+            timeout=10,
+            loop_bound=5,
+            dry_run=True,
+            json_output=True,
+            max_delta=10,
+        )
+        # Only the delta-2 candidate (and the unknown-delta one) pass the gate.
+        assert len(seen) == 2
