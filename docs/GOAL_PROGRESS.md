@@ -6248,3 +6248,28 @@ Ran two review prompts from ~/review-prompts/prompts (error-review, functionalit
 **functionality-review** (11 findings): fixed F1 (todo rejects another target's verify cache — cross-target leak produced phantom fix-delta items), F2 (test --all now honors the 0/1/2 exit-code contract instead of always 0 — false green for CI), F4 (verify --watch passes --fix-sizes through), F5 (match/diff missing-source check runs unconditionally — no more FileNotFoundError traceback with --symbol), F6 (verify JSON report gains dry_run field), F7 (same-run --fix-sizes report strips the just-fixed VAs), F9 (match --tier validated up front — clean error instead of traceback). Deferred: F8 (all-targets flag-sweep aggregate), F10 (diff --fix-blocker JSON contract), F11 (usage-error exit-code taxonomy).
 
 Commits: 7bc1dec, 89fb143, 0d71117, 1013c7c, 617afa9. All pushed; full suite green via pre-push.
+
+## 2026-08-10 — remaining review findings closed (F4/F8/F9/F10)
+
+Closed the last substantive findings from the two review rounds:
+
+- near-diag --all / identify-library: unparseable sources and unreadable
+  .sig/.pat files are now surfaced (skipped_files in JSON + named warnings)
+  instead of silently shrinking the candidate count
+- diff --fix-blocker --json: the write happens before the payload, which now
+  embeds a blocker outcome (written/cleared/text/delta/dry_run) matching
+  near-diag's blocker_written contract
+- match --all-targets --flag-sweep: batch sweep returns real
+  (exact, not-exact) counts — the aggregate was a hardcoded (0, 0)
+- rename: all validation (annotation parse, multi-function guard, target
+  collision) runs before any write; a primary-file read failure aborts the
+  rename instead of renaming every call site to a function that kept its old
+  name (error-review F9)
+
+Also cleaned smygb: removed 2 redundant inline CFLAGS/BLOCKER comments
+(already authoritative in rebrew-function.toml — status's fast regex warned
+about them although lint correctly treats metadata-sourced keys as fine).
+0x004024b0 re-verified EXACT from the metadata cflags.
+
+Commits: 41f2f99 (F4/F10/F8), 6938300 (F9 rename). Pushed. Remaining deferrals:
+flock on metadata RMW (F6), usage-error exit-code taxonomy (F11).
