@@ -294,6 +294,13 @@
   key the config reader ignores.
 
 ### Fixed
+- `rebrew prove` now accepts **SIZE_MISMATCH** functions (single + `--all`):
+  a compiled size that differs structurally is exactly the "bytes differ
+  but semantically equivalent" case the PROVEN status exists for, and the
+  proof itself is what makes the promotion sound. Validated on smygb: both
+  remaining SIZE_MISMATCH functions proved equivalent and promoted to
+  PROVEN — the project now has ZERO SIZE_MISMATCH / ZERO NEAR_MATCHING
+  (EXACT 17 / RELOC 26 / PROVEN 9 / STUB 103; coverage 87.1% -> 90.6%).
 - `parse_function_list` (functions.txt reader, used by verify/todo/status/
   describe/document-unmatched) crashed with `UnicodeDecodeError` on
   legacy-encoded files — same bug class as the read_source_text fix (50/150

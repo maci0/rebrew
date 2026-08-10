@@ -1024,18 +1024,18 @@ _EPILOG = (
     "  rebrew prove --all · · · · · · · · · · · · · · Prove all eligible functions\n\n"
     "  rebrew prove my_func --start-offset 0 --end-offset 48  Prove a specific block\n\n"
     "[bold]How it works:[/bold]\n\n"
-    "  1. Validates the function status is NEAR_MATCHING (byte-diff but structurally close)\n\n"
+    "  1. Validates the function status is NEAR_MATCHING/SIZE_MISMATCH (byte-diff but structurally close)\n\n"
     "  2. Extracts target bytes from the DLL and compiles the C source\n\n"
     "  3. Verifies bytes still differ post-compile (matched bytes belong as RELOC, not PROVEN)\n\n"
     "  4. Loads both byte blobs into angr's symbolic execution engine\n\n"
     "  5. Proves EAX equivalence via Z3 constraint solving\n\n"
-    "  6. If proven: updates STATUS from NEAR_MATCHING \u2192 PROVEN\n\n"
+    "  6. If proven: updates STATUS from NEAR_MATCHING/SIZE_MISMATCH \u2192 PROVEN\n\n"
     "[dim]angr is a heavy optional dependency (~500 MB). "
     'Install with: uv pip install -e ".[prove]"[/dim]'
 )
 
 app = typer.Typer(
-    help="Prove semantic equivalence of NEAR_MATCHING functions via symbolic execution.",
+    help="Prove semantic equivalence of NEAR_MATCHING/SIZE_MISMATCH functions via symbolic execution.",
     rich_markup_mode="rich",
     epilog=_EPILOG,
 )
@@ -1046,11 +1046,13 @@ console = Console(stderr=True)
 @app.callback(invoke_without_command=True)
 def main(
     source: str = typer.Argument(None, help="C source file, symbol name, or VA (hex)"),
-    all_sources: bool = typer.Option(False, "--all", help="Prove all NEAR_MATCHING functions"),
+    all_sources: bool = typer.Option(
+        False, "--all", help="Prove all NEAR_MATCHING/SIZE_MISMATCH functions"
+    ),
     max_delta: int | None = typer.Option(
         None,
         "--max-delta",
-        help="With --all: only prove NEAR_MATCHING functions whose recorded "
+        help="With --all: only prove NEAR_MATCHING/SIZE_MISMATCH functions whose recorded "
         "byte delta (blocker_delta) is at most this — focus Z3 time on the closest matches",
     ),
     timeout: int = typer.Option(60, "--timeout", help="Seconds before giving up"),
@@ -1078,7 +1080,7 @@ def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Prove semantic equivalence of a NEAR_MATCHING function via symbolic execution."""
+    """Prove semantic equivalence of a NEAR_MATCHING/SIZE_MISMATCH function via symbolic execution."""
     # angr logs an ERROR about its optional unicorn engine at import; prove
     # is the only tool that legitimately imports angr, and its own status
     # messages are the meaningful output — silence angr's logger so every
@@ -1192,9 +1194,9 @@ def main(
     if ann is None:
         error_exit(f"No metadata found in {source_path}", json_mode=json_output)
 
-    if ann.status != "NEAR_MATCHING":
+    if ann.status not in ("NEAR_MATCHING", "SIZE_MISMATCH"):
         error_exit(
-            f"Status is '{ann.status}', expected NEAR_MATCHING. "
+            f"Status is '{ann.status}', expected NEAR_MATCHING or SIZE_MISMATCH. "
             "PROVEN is reserved for functions whose bytes differ structurally "
             "but are semantically equivalent. RELOC/EXACT functions already match "
             "byte-for-byte — symbolic prove adds no information.",
@@ -1579,7 +1581,7 @@ def _run_all_batch(
     watch_va: list[int] | None = None,
     max_delta: int | None = None,
 ) -> None:
-    """Batch-prove all NEAR_MATCHING functions.
+    """Batch-prove all NEAR_MATCHING/SIZE_MISMATCH functions.
 
     *max_delta* bounds the work to functions whose recorded byte delta
     (blocker_delta metadata) is at most the given value — Z3 time goes to
@@ -1597,7 +1599,7 @@ def _run_all_batch(
             log.debug("Skipping %s: annotation parse failed", src, exc_info=True)
             continue
         for a in annos:
-            if a.status != "NEAR_MATCHING" or not a.size:
+            if a.status not in ("NEAR_MATCHING", "SIZE_MISMATCH") or not a.size:
                 continue
             if max_delta is not None:
                 delta = getattr(a, "blocker_delta", None)
@@ -1609,7 +1611,7 @@ def _run_all_batch(
         if json_output:
             json_print({"total": 0, "proven": 0, "failed": 0, "results": []})
         else:
-            console.print("[dim]No NEAR_MATCHING functions found to prove.[/dim]")
+            console.print("[dim]No NEAR_MATCHING/SIZE_MISMATCH functions found to prove.[/dim]")
         return
 
     # Build the DIR32 validation map once for the whole batch — per-candidate
@@ -1618,7 +1620,7 @@ def _run_all_batch(
 
     if not json_output:
         console.print(
-            f"\n[bold]Batch proving {len(candidates)} NEAR_MATCHING function(s)[/bold]"
+            f"\n[bold]Batch proving {len(candidates)} NEAR_MATCHING/SIZE_MISMATCH function(s)[/bold]"
             + (" [dim](--dry-run)[/dim]" if dry_run else "")
             + "\n"
         )
