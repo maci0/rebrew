@@ -279,6 +279,11 @@
   key the config reader ignores.
 
 ### Fixed
+- JSON-purity regression coverage extended to the session-era commands:
+  `pdb-info`, `analyze --function`, `similar`, `identify-library --dry-run`,
+  `discover-functions`, `binsync-export --dry-run`, `report`,
+  `gen-flirt-pat` — every `--json` invocation (success AND error paths)
+  must emit exactly one JSON document on stdout.
 - `rebrew gen-flirt-pat` / `identify-library --build-sigs` emitted a
   **malformed .pat line for nameless COFF symbols** (empty/public names) —
   the line's trailing name field was empty, so signature parsers rejected
