@@ -140,6 +140,7 @@ DEFAULT_COMMANDS = [
     "xrefs original/mini_pe.exe 0x401000 --json",
     "analyze --json",
     "identify-library --json",
+    "pdb-info original/mini_pe.exe --json",  # deterministic error path (no sibling .pdb)
     "lint --json",
     "data --json",
     "doctor --json",
