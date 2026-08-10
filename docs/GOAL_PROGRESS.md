@@ -6273,3 +6273,24 @@ about them although lint correctly treats metadata-sourced keys as fine).
 
 Commits: 41f2f99 (F4/F10/F8), 6938300 (F9 rename). Pushed. Remaining deferrals:
 flock on metadata RMW (F6), usage-error exit-code taxonomy (F11).
+
+## 2026-08-10 — prove effective-status gate + perf batch + STRUCTURAL demotion
+
+Workflow discoveries from the remaining smygb fix-delta items:
+
+- **prove honors the verify-cache status**: the NEAR_MATCHING/SIZE_MISMATCH
+  gate now accepts a target-guarded cached status when metadata STATUS lags.
+  Unlocked smygb 0x00407480 (21B, structurally near): PROVEN (10th) —
+  previously prove refused it because the flag-swept function was still STUB
+  in metadata.  smygb → 18E 26R 10P 0M 101S (31.6%).
+- **todo demotes near-diag STRUCTURAL items** from fix-delta quick-wins: a
+  STRUCTURAL verdict means control-flow layout, not a flag/padding fix — the
+  item must not be offered as "try flag sweep" (0x00404a90 stayed fix-delta
+  after the sweep already ran).  REGISTER-class blockers stay fix-delta but
+  surface their blocker text.  smygb's fix-delta queue is now EMPTY.
+- **test --all batches the verify-cache patch**: _patch_verify_cache_batch
+  applies all results with one read + one atomic write (was N full-file
+  rewrites of verify_cache.json).
+- **intake --dry-run previews the real function count** (rizin is read-only).
+
+Commits: 683960e, 51c7b13, b1e9580 (+ smygb 46c32f9, bc7a48a). Pushed.
