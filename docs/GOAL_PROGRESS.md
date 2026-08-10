@@ -6294,3 +6294,31 @@ Workflow discoveries from the remaining smygb fix-delta items:
 - **intake --dry-run previews the real function count** (rizin is read-only).
 
 Commits: 683960e, 51c7b13, b1e9580 (+ smygb 46c32f9, bc7a48a). Pushed.
+
+## 2026-08-10 — perf-review findings (F1-F4 fixed)
+
+Ran the perf-review prompt (agent) over src/rebrew. The GA scoring hot path,
+grid/cu_map, binary_loader, compile_cache, and build_db were verified as
+already fast (numpy-vectorized scoring, single candidate disassembly,
+precomputed targets, LRU-cached binary loading, WAL+executemany DB).  Fixed:
+
+- **F1** (already fixed this session): `test --all` verify-cache patch is
+  batched into one read+write (`_patch_verify_cache_batch`, commit 51c7b13).
+- **F2** (high): STATUS sync now batches — `metadata.update_statuses_batch`
+  applies N statuses in one TOML read-modify-write (per-entry was ~9s at 260
+  entries, extrapolated ~28 min at 3000); `verify --fix-sizes` uses the new
+  `set_fields_batch` for the same reason.
+- **F3** (medium): compile-cache and GA-cache keys memoize the source SHA-256
+  (`_source_digest`, lru_cache) instead of re-hashing the full source per
+  flag-sweep combo (1-8s per 258k-combo sweep); the GA key no longer builds
+  a material source buffer.  CACHE_SCHEMA_VERSION bumped 2→3 (key shape
+  changed; one cold cache start is expected).
+- **F4** (medium): shared mtime-keyed `cli.load_verify_cache_raw` — status
+  and todo decoded the cache 2-3x per command; now memoized per process.
+
+Deferred (documented, low/medium severity at-scale items): F5 (single-pass
+source scanning shared across status/todo/verify), F6 (populate
+BuildResult.fitness on the GA warm-cache path — touches the persisted
+dataclass shape).
+
+Commits: e187f15 (perf F2/F3/F4). Full suite green (4013 passed).
