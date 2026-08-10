@@ -401,7 +401,26 @@ def _collect_active_functions(
             category = CAT_FIX_DELTA
             desc = f"{calc_delta}B diff — try flag sweep, GA, or padding adjustments"
             score = calculate_roi(size, v_match, calc_delta, status)
-            if calc_delta <= 4:
+            blocker = info.get("blocker", "")
+            # A near-diag STRUCTURAL verdict means the diff is control-flow
+            # layout, not a flag/padding quick-win — demote it so the item is
+            # not offered as one (regression: smygb's 0x00404a90 stayed a
+            # "20B diff — try flag sweep" item after the sweep already ran
+            # and near-diag classified it STRUCTURAL).
+            if "STRUCTURAL" in blocker:
+                category = CAT_IMPROVE_MATCH
+                desc = f"Needs implementation/fixing — Blocked: {blocker[:70]}"
+                cmd = f"rebrew diff 0x{va:08x}"
+            elif blocker:
+                desc += f" — Blocked: {blocker[:60]}"
+                if calc_delta <= 4:
+                    # VA form (not the reversed_dir-relative filename): commands
+                    # stay runnable from the project root — rebrew diff resolves
+                    # the VA to its source via resolve_source_arg.
+                    cmd = f"rebrew diff 0x{va:08x}"
+                else:
+                    cmd = f"rebrew match --flag-sweep-only 0x{va:08x}"
+            elif calc_delta <= 4:
                 # VA form (not the reversed_dir-relative filename): commands
                 # stay runnable from the project root — rebrew diff resolves
                 # the VA to its source via resolve_source_arg.

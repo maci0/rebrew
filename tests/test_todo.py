@@ -210,6 +210,78 @@ class TestCollectors:
         assert items[0].category == CAT_FIX_DELTA
         assert items[0].byte_delta == 3
 
+    def test_active_functions_structural_blocker_demoted(self) -> None:
+        """A near-diag STRUCTURAL verdict means the diff is control-flow
+        layout, not a flag/padding quick-win — such items must NOT stay in
+        fix-delta (regression: smygb's 0x00404a90 stayed a '20B diff — try
+        flag sweep' item after the sweep already ran and near-diag said
+        STRUCTURAL)."""
+        from rebrew.verify import VerifyCacheEntry, VerifyResult
+
+        entries = {
+            "0x00001000": VerifyCacheEntry(
+                source_hash="",
+                filepath="f.c",
+                mtime_ns=0,
+                result=VerifyResult(
+                    status="NEAR_MATCHING",
+                    va=0x1000,
+                    size=22,
+                    filepath="f.c",
+                    name="func_a",
+                    message="",
+                    passed=False,
+                    delta=20,
+                ),
+            )
+        }
+        existing = {
+            0x1000: {
+                "status": "NEAR_MATCHING",
+                "symbol": "func_a",
+                "blocker": ("STRUCTURAL (95% of delta) — control flow / block layout differs"),
+            }
+        }
+        items = _collect_active_functions(existing, {0x1000: 22}, {}, entries)
+        assert len(items) == 1
+        assert items[0].category == CAT_IMPROVE_MATCH
+        assert "STRUCTURAL" in items[0].description
+        assert items[0].command == "rebrew diff 0x00001000"
+
+    def test_active_functions_register_blocker_stays_fix_delta(self) -> None:
+        """A register-class blocker is still a flag-sweep quick-win — only
+        STRUCTURAL verdicts demote."""
+        from rebrew.verify import VerifyCacheEntry, VerifyResult
+
+        entries = {
+            "0x00001000": VerifyCacheEntry(
+                source_hash="",
+                filepath="f.c",
+                mtime_ns=0,
+                result=VerifyResult(
+                    status="NEAR_MATCHING",
+                    va=0x1000,
+                    size=22,
+                    filepath="f.c",
+                    name="func_a",
+                    message="",
+                    passed=False,
+                    delta=12,
+                ),
+            )
+        }
+        existing = {
+            0x1000: {
+                "status": "NEAR_MATCHING",
+                "symbol": "func_a",
+                "blocker": "REGISTER (100% of delta) — register allocation differs",
+            }
+        }
+        items = _collect_active_functions(existing, {0x1000: 22}, {}, entries)
+        assert len(items) == 1
+        assert items[0].category == CAT_FIX_DELTA
+        assert "Blocked: REGISTER" in items[0].description
+
     def test_active_functions_iat_thunk_is_documented_not_fix_delta(self) -> None:
         """Regression: smygb's 6-byte IAT import thunk at 0x40dce0 was listed
         as a '5B diff — try flag sweep, GA' fix-delta quick-win even though its
