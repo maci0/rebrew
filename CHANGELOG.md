@@ -294,6 +294,13 @@
   key the config reader ignores.
 
 ### Fixed
+- `tools/DELPHI10/pak_extract.py` (Quantum archive decoder): hardened
+  against malformed/truncated archives — header and name-table reads are
+  now bounds-checked and raise a clean `ValueError` instead of crashing
+  with `IndexError`/`struct.error` (fuzz regression: 67/200 header
+  mutations crashed before; 0/200 after). Vendored the MIT reference
+  archives as fixtures and pinned validity + no-crash contracts in
+  `tests/test_pak_extract.py`.
 - `rebrew prove`: end-to-end semantic-equivalence tests on synthetic
   x86-32 blobs (angr blob backend, no compiler/binary needed) — pins the
   core verdicts: equivalent implementations prove True (different
