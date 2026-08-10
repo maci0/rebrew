@@ -266,3 +266,30 @@ class TestSourceEncoding:
         assert encoding == "shift_jis"
         atomic_write_text(f, text + "// tail\n", encoding=encoding)
         assert f.read_bytes().startswith(original)
+
+    def test_read_cp1252_undefined_byte_does_not_crash(self, tmp_path: Path) -> None:
+        """0x81 is undefined in CP1252 — must decode to U+FFFD, not raise.
+
+        Regression: read_source_text used a strict cp1252 decode, crashing
+        on the undefined CP1252 holes (0x81/0x8D/0x8F/0x90/0x9D) — found by
+        fuzzing the annotation parser on non-UTF-8 sources.
+        """
+        f = tmp_path / "legacy.c"
+        # 0x81 followed by a space: not a valid Shift-JIS pair, so detection
+        # falls through to cp1252, where 0x81 is undefined -> U+FFFD.
+        f.write_bytes(b"// FUNCTION: GAME 0x1000\n// caf\x81 e\n")
+        text, encoding = read_source_text(f)
+        assert encoding == "cp1252"
+        assert "\ufffd" in text  # undefined byte replaced, no crash
+
+    def test_read_random_bytes_does_not_crash(self, tmp_path: Path) -> None:
+        """Binary garbage in a source file must not crash the tolerant reader."""
+        import random
+
+        rng = random.Random(12)
+        f = tmp_path / "garbage.c"
+        for _ in range(50):
+            f.write_bytes(bytes(rng.randrange(256) for _ in range(400)))
+            text, encoding = read_source_text(f)
+            assert isinstance(text, str)
+            assert isinstance(encoding, str)

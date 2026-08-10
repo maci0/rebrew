@@ -294,6 +294,14 @@
   key the config reader ignores.
 
 ### Fixed
+- `rebrew.utils.read_source_text`: the CP1252 "universal fallback" was
+  wrong — Windows-1252 has undefined bytes (0x81/0x8D/0x8F/0x90/0x9D), so
+  reading a legacy-encoded source containing one crashed the core text
+  reader (annotation parsing, lint, metadata) with `UnicodeDecodeError`.
+  Found by fuzzing the annotation parser: 176/200 non-UTF-8 inputs
+  crashed; now decode uses `errors="replace"` (those bytes are
+  unrepresentable anyway) and 0/200 crash. Round-trip byte-for-byte
+  behavior for all *defined* cp1252/Shift-JIS bytes is unchanged.
 - `tools/DELPHI10/pak_extract.py` (Quantum archive decoder): hardened
   against malformed/truncated archives — header and name-table reads are
   now bounds-checked and raise a clean `ValueError` instead of crashing
