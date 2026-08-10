@@ -122,54 +122,18 @@ def rename_function_everywhere(
         raise ValueError(
             f"cannot rename {filepath}: old name is empty (missing FUNCTION marker or symbol)"
         )
-    updated_files = 0
-
-    if dry_run:
-        # Preview mode: count files that would be modified without writing.
-        pattern = re.compile(r"\b" + re.escape(actual_old_name) + r"\b")
-        return len(_collect_matching_files(cfg, filepath, pattern))
-
-    # 1. Symbol is now derived from C function definition — no SYMBOL annotation update needed
-    # The function definition rename at step 2 handles symbol derivation automatically
-
-    # 2. Update function definition & calls in file
-    try:
-        content, encoding = read_source_text(filepath)
-        # Replacement via callable: target_func is literal, never interpreted
-        # as re backreference syntax (e.g. a name containing ``\1``).
-        new_content = re.sub(
-            r"\b" + re.escape(actual_old_name) + r"\b", lambda _m: target_func, content
-        )
-        if new_content != content:
-            atomic_write_text(filepath, new_content, encoding=encoding)
-            updated_files += 1
-    except OSError as exc:
-        logger.warning("Failed to update primary file %s: %s", filepath, exc)
-
-    # 3. Find and update externs across all files
-    for src_file in iter_sources(cfg.reversed_dir, cfg):
-        if src_file == filepath:
-            continue
-
+    # All validation happens BEFORE any write: a parse failure or target-file
+    # collision must abort the rename with nothing mutated on disk (the old
+    # order renamed references in every file, then hit the unguarded
+    # parse_c_file_multi and left a half-applied rename behind).
+    rename_target: Path | None = None
+    if rename_file and not dry_run:
         try:
-            content, encoding = read_source_text(src_file)
-            new_content = re.sub(
-                r"\b" + re.escape(actual_old_name) + r"\b", lambda _m: target_func, content
+            multi_function_file = (
+                len(parse_c_file_multi(filepath, metadata_dir=filepath.parent)) > 1
             )
-            if new_content != content:
-                atomic_write_text(src_file, new_content, encoding=encoding)
-                updated_files += 1
-        except OSError as exc:
-            logger.warning(
-                "Failed to update cross-reference in %s: %s — manual update required",
-                src_file,
-                exc,
-            )
-
-    # 4. Rename file if needed — skip when file has multiple annotations
-    #    (renaming would disassociate the other functions from their file).
-    if rename_file:
-        multi_function_file = len(parse_c_file_multi(filepath, metadata_dir=filepath.parent)) > 1
+        except Exception as exc:  # noqa: BLE001 — abort before mutating anything
+            raise ValueError(f"cannot rename {filepath}: annotation parse failed: {exc}")
         if multi_function_file and not new_filename:
             rename_file = False  # auto-rename unsafe for multi-function files
         if rename_file:  # re-check: the multi-function guard may have disabled renaming
@@ -195,7 +159,60 @@ def rename_function_everywhere(
                         f"target already exists (different VA). "
                         f"Use --file to pick a different filename."
                     )
-                filepath.rename(target_file)
+                rename_target = target_file
+
+    if dry_run:
+        # Preview mode: count files that would be modified without writing.
+        pattern = re.compile(r"\b" + re.escape(actual_old_name) + r"\b")
+        return len(_collect_matching_files(cfg, filepath, pattern))
+
+    updated_files = 0
+
+    # 1. Symbol is now derived from C function definition — no SYMBOL annotation update needed
+    # The function definition rename at step 2 handles symbol derivation automatically
+
+    # 2. Update function definition & calls in file
+    try:
+        content, encoding = read_source_text(filepath)
+        # Replacement via callable: target_func is literal, never interpreted
+        # as re backreference syntax (e.g. a name containing ``\1``).
+        new_content = re.sub(
+            r"\b" + re.escape(actual_old_name) + r"\b", lambda _m: target_func, content
+        )
+        if new_content != content:
+            atomic_write_text(filepath, new_content, encoding=encoding)
+            updated_files += 1
+    except OSError as exc:
+        # The primary file is the definition — renaming references elsewhere
+        # while the definition keeps the old name breaks every call site.
+        # Abort the whole rename rather than half-applying it.
+        logger.error("Failed to update primary file %s: %s", filepath, exc)
+        raise
+
+    # 3. Find and update externs across all files
+    for src_file in iter_sources(cfg.reversed_dir, cfg):
+        if src_file == filepath:
+            continue
+
+        try:
+            content, encoding = read_source_text(src_file)
+            new_content = re.sub(
+                r"\b" + re.escape(actual_old_name) + r"\b", lambda _m: target_func, content
+            )
+            if new_content != content:
+                atomic_write_text(src_file, new_content, encoding=encoding)
+                updated_files += 1
+        except OSError as exc:
+            logger.warning(
+                "Failed to update cross-reference in %s: %s — manual update required",
+                src_file,
+                exc,
+            )
+
+    # 4. Rename file if needed — skip when file has multiple annotations
+    #    (renaming would disassociate the other functions from their file).
+    if rename_target is not None:
+        filepath.rename(rename_target)
 
     return updated_files
 
