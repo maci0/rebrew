@@ -490,3 +490,62 @@ class TestSkeletonDryRun:
         assert result.output.count("Would create") == 2
         assert "CREATED" not in result.output
         assert not list((tmp_path / "src").glob("*.c"))
+
+
+class TestDecompBody:
+    """K2: skeleton --decomp-body writes decompiled C as the function body."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            reversed_dir=tmp_path,
+            marker="SERVER",
+            metadata_dir=tmp_path,
+            library_modules=set(),
+            target_name="SERVER",
+        )
+
+    def test_decomp_body_writes_implementation(self, tmp_path: Path) -> None:
+        cfg = self._cfg(tmp_path)
+        content = generate_skeleton(
+            cfg,
+            0x1000,
+            "my_func",
+            decomp_code="int my_func(int a) { return a + 1; }",
+            decomp_backend="r2ghidra",
+            decomp_body=True,
+        )
+        # No comment wrapper; the decompiled body is the implementation.
+        assert "=== Decompilation" not in content
+        assert "int my_func(int a) { return a + 1; }" in content
+
+    def test_decomp_body_renames_to_marker_function(self, tmp_path: Path) -> None:
+        cfg = self._cfg(tmp_path)
+        content = generate_skeleton(
+            cfg,
+            0x1000,
+            "my_func",
+            decomp_code="int orig_name(int a) { return a * 2; }",
+            decomp_backend="r2ghidra",
+            decomp_body=True,
+        )
+        assert "int my_func(int a) { return a * 2; }" in content  # renamed
+        assert "orig_name" not in content
+
+    def test_decomp_body_without_decomp_falls_back(self, tmp_path: Path) -> None:
+        cfg = self._cfg(tmp_path)
+        content = generate_skeleton(
+            cfg, 0x1000, "my_func", decomp_code=None, decomp_backend="x", decomp_body=True
+        )
+        assert "return 0;" in content  # plain stub fallback
+
+    def test_decomp_comment_mode_unchanged(self, tmp_path: Path) -> None:
+        cfg = self._cfg(tmp_path)
+        content = generate_skeleton(
+            cfg,
+            0x1000,
+            "my_func",
+            decomp_code="int my_func(void) { return 1; }",
+            decomp_backend="r2ghidra",
+            decomp_body=False,
+        )
+        assert "=== Decompilation (r2ghidra) ===" in content  # comment mode intact

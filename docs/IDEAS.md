@@ -30,31 +30,29 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 
 ---
 
+## Completed (recent additions — see CHANGELOG for details)
+
+| # | Idea | Notes |
+|---|------|-------|
+| 20 | Test watch mode | `--watch` shipped on test/verify/match (shared `watch_files` helper). |
+| 21 | Binary similarity search | `rebrew similar` — mnemonic-histogram + call/branch agreement scoring. |
+| 22 | Deep NEAR_MATCHING analysis | `rebrew near-diag` classifies the blocking compiler choice per function. |
+| 25 | Memory side-effect checking in prove | `test_prove_memory_watch.py` — watched-VA memory comparison in `prove_equivalence`. |
+| — | One-shot onboarding | `rebrew intake` (toolchain detect → init → functions → document). |
+| — | PDB import | `rebrew pdb-info` — S_COMPILE3 version + flags (`--write-cflags`) + names. |
+| — | Function discovery | `rebrew discover-functions` — aaa→aap→capstone sweep with boundary validation. |
+| — | Toolchain-version sweep | `rebrew match --sweep-toolchain` — which MSVC SP built this function. |
+| — | Cross-project solutions seeding | `rebrew match --all --seed-solutions <path>` — borrow winning cflags across projects. |
+| — | Library identification | `rebrew identify-library` — FLIRT + imports + CRT merged into `library_*.h`. |
+| — | Intelligence dossier | `rebrew analyze` — one-shot recon (toolchain, strings, imports, dispatch, FLIRT); `--output report.md`, `--function 0xVA` drill. |
+| — | In-repo binary fixtures | `tests/fixtures/` + `tools/gen_fixtures.py` — CI parse/compare/reloc coverage without wine. |
+| — | JSON purity contract | `tests/test_json_purity.py` + `tools/check_idempotency.py` (16 commands, CI step). |
+| — | Typed metadata facade | `metadata_model.MetadataEntry` + property round-trip tests. |
+| — | Ghidra enum/typedef sync | `extract_enums_from_file`, push via CParser, merge-safe `--pull-datatypes`. |
+| — | GA scoring fast paths | identical-bytes + mnemonic-equality shortcuts (1.76× measured; `docs/PERFORMANCE.md`). |
+| — | Recoverage schema parity | `tests/test_recoverage_contract.py` pins the DB contract recoverage reads. |
+
 ## Open Ideas
-
-### 20. Test watch mode
-
-**Pain**: During active development, the edit → run `rebrew test` → check output loop is manual. A watch mode would automatically recompile and diff on file save.
-
-**Proposed**: `rebrew test --watch src/target/func.c` — monitors the file and re-runs on save.
-
-**Impact**: Medium quality-of-life improvement. Straightforward with `watchdog` or inotify.
-
-### 21. Binary similarity search
-
-**Pain**: Finding functions with similar byte patterns across the binary requires manual analysis. Structurally similar functions likely share the same optimization approach.
-
-**Proposed**: Given a solved function, find other functions in the binary with similar byte patterns, call structure, or control flow. Useful for prioritizing which STUBs to tackle next.
-
-**Impact**: Medium — helps with prioritization but `rebrew todo` already does some of this.
-
-### 22. Deep NEAR_MATCHING analysis tooling
-
-**Pain**: `NEAR_MATCHING` functions often get stuck because of internal compiler choices (register allocation, loop rotation, instruction folding).
-
-**Proposed**: Build a specialized diff tool that identifies *exactly* which category of compiler choice is blocking a match, to automatically decide if it's solvable via C code mutations or permanently blocked.
-
-**Impact**: High — would save significant manual investigation time for close matches.
 
 ### 23. LLM-assisted GA seed generation
 

@@ -189,6 +189,12 @@ includes = "/usr/include"
 libs = "/usr/lib"
 cflags = "-O2"
 
+[compiler.profiles.gcc-pe]
+command = "i686-w64-mingw32-gcc"
+includes = ""
+libs = ""
+cflags = "-O2 -march=pentium4"
+
 [compiler.profiles.msvc7]
 command = "wine tools/MSVC7/Bin/CL.EXE"
 includes = "tools/MSVC7/Include"
@@ -239,6 +245,20 @@ includes = "tools/MSVC7/Include"
 ```
 
 Only the keys you specify in the per-target `[compiler]` section override the global `[compiler]`. Unspecified keys fall back to the global defaults.
+
+## Environment Variables
+
+Configuration precedence is: CLI flags > per-function metadata > `rebrew-project.toml` > environment variables > defaults.
+
+- `REBREW_COMPLETE` — shell-completion mode marker (used by `rebrew` completion).
+- `REBREW_GLOBALS_H` — path to an additional `globals.h`-style header loaded by
+  the C parser (for decomp projects that keep globals in an external header).
+- `REBREW_LLM_ENDPOINT` / `REBREW_LLM_API_KEY` — LLM seeding endpoint + key
+  (`rebrew match --llm-seed`). The `[llm]` config keys (`llm_endpoint`,
+  `llm_api_key`) win over these env vars; both fall back to env when unset.
+  The key is sent only as a `Bearer` header to the configured endpoint, never
+  logged. Prefer the env vars over committing the key to
+  `rebrew-project.toml`.
 
 ## Validation
 

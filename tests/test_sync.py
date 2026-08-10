@@ -529,6 +529,18 @@ class TestBuildSyncCommandsData:
         assert struct_ops[0]["args"]["cDefinition"] == "struct Foo { int x; };"
         assert struct_ops[1]["args"]["cDefinition"] == "typedef struct { int y; } Bar;"
 
+    def test_syncs_enums_through_cparser(self) -> None:
+        """Enums push through the same parse-c-structure CParser path."""
+        cmds = build_sync_commands(
+            [],
+            "/test",
+            structs=["enum Color { RED, GREEN };", "typedef enum { UP, DOWN } Direction;"],
+        )
+        enum_ops = [c for c in cmds if c["tool"] == "parse-c-structure"]
+        assert len(enum_ops) == 2
+        assert enum_ops[0]["args"]["cDefinition"] == "enum Color { RED, GREEN };"
+        assert enum_ops[1]["args"]["cDefinition"] == "typedef enum { UP, DOWN } Direction;"
+
 
 class TestBuildSyncCommandsSignatures:
     def test_syncs_signatures(self) -> None:

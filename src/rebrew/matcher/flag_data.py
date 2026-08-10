@@ -2,7 +2,7 @@
 
 Source: https://github.com/decompme/decomp.me.git
   File: backend/coreapp/flags.py
-Synced: 2026-08-08
+Synced: 2026-08-10
 
 Do not edit manually — re-run tools/sync_decomp_flags.py to update.
 """
@@ -69,7 +69,7 @@ MSVC6_FLAGS: Flags = [
 ]
 
 # Flag IDs only available in MSVC 7.x+
-MSVC7_ONLY_IDS = {"msvc_fp", "msvc_disable_buffer_security_checks"}
+MSVC7_ONLY_IDS = {"msvc_disable_buffer_security_checks", "msvc_fp"}
 
 # Sweep tiers — which flag IDs to include per effort level.
 # quick:    core code-affecting axes (~fast)

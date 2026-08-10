@@ -81,6 +81,13 @@ class StatusReport:
     # Verify cache summary
     verify_info: VerifyInfo | None = None
 
+    # Effective-status overlay: how many functions' reported status differs
+    # from their metadata status because the verify cache overrode it, and
+    # how many are stuck on MISSING_SIZE (metadata SIZE missing → verify
+    # could not extract).  Surfaced so the overlay is not emergent behavior.
+    verify_overrides: int = 0
+    verify_missing_size: int = 0
+
     # W019 quick-lint result: number of .c files with inline metadata comments.
     # 0 means no issues found (or scan not yet run).
     inline_metadata_warning: int = 0
@@ -137,6 +144,11 @@ class StatusReport:
                 "failed": self.verify_info.failed,
                 "total": self.verify_info.total,
                 "stale": self.verify_info.stale,
+            }
+            # The effective-status overlay (verify cache vs metadata).
+            d["verify_cache"] = {
+                "overrides": self.verify_overrides,
+                "missing_size": self.verify_missing_size,
             }
         if self.inline_metadata_warning:
             d["inline_metadata_warning"] = self.inline_metadata_warning
@@ -313,6 +325,8 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     status_counts: dict[str, int] = {}
     size_by_va: dict[int, int] = {f.va: f.size for f in ghidra_funcs}
     matched_bytes = 0
+    verify_overrides = 0
+    verify_missing_size = 0
     for va, info in existing.items():
         ann_status = info.get("status", "STUB")
         # Metadata is authoritative for STUB (a stub's size mismatch is
@@ -322,9 +336,17 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
             effective = ann_status
         elif ann_status == "STUB":
             cached = verify_statuses.get(va)
-            effective = cached if cached and cached not in ("SIZE_MISMATCH", "STUB") else ann_status
+            effective = (
+                cached
+                if cached and cached not in ("SIZE_MISMATCH", "MISSING_SIZE", "STUB")
+                else ann_status
+            )
         else:
             effective = verify_statuses.get(va, ann_status)
+        if effective != ann_status:
+            verify_overrides += 1
+        if effective == "MISSING_SIZE":
+            verify_missing_size += 1
         status_counts[effective] = status_counts.get(effective, 0) + 1
         if effective in ("EXACT", "RELOC", "PROVEN"):
             # Fall back to annotation-metadata SIZE when the Ghidra
@@ -343,6 +365,8 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     report.status_counts = status_counts
     report.matched_bytes = matched_bytes
     report.total_text_bytes = _compute_text_size(cfg)
+    report.verify_overrides = verify_overrides
+    report.verify_missing_size = verify_missing_size
 
     # Verify info
     report.verify_info = _load_verify_info(cfg)
@@ -480,6 +504,17 @@ def _render_terminal(report: StatusReport) -> None:
             f"  [red]{v.failed} failed[/red]"
             f"  [dim]({v.timestamp})[/dim]{stale_suffix}"
         )
+        # Effective-status overlay: verify results override metadata statuses.
+        if report.verify_overrides:
+            summary_lines.append(
+                f"  [dim]Effective status: {report.verify_overrides} function(s) overridden"
+                " by verify cache (metadata says otherwise — see docs/ANNOTATIONS.md)[/dim]"
+            )
+        if report.verify_missing_size:
+            summary_lines.append(
+                f"  [yellow]{report.verify_missing_size} function(s) MISSING_SIZE[/yellow]"
+                " — set SIZE via metadata (rebrew cfg set) then re-run verify"
+            )
 
     # W019 inline metadata warning
     if report.inline_metadata_warning:

@@ -566,3 +566,63 @@ class TestMergeAnnotationEdges:
         ann = Annotation(va=0x1000, module="SERVER", name="f")
         merge_into_annotation(ann, tmp_path)
         assert ann.globals_list == ["g_a", "g_b"]
+
+
+class TestConcurrentWrites:
+    """Concurrent metadata writers must not lose updates — every thread's
+    field survives (the read-modify-write is serialised by the module lock)."""
+
+    def test_parallel_set_field_no_lost_updates(self, tmp_path: Path) -> None:
+        import threading
+
+        from rebrew.metadata import load_metadata, set_field
+
+        threads = []
+        for i in range(8):
+            t = threading.Thread(
+                target=set_field, args=(tmp_path, 0x1000 + i, "note", f"n{i}", "T")
+            )
+            threads.append(t)
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        md = load_metadata(tmp_path)
+        for i in range(8):
+            assert md.get(("T", 0x1000 + i), {}).get("note") == f"n{i}", f"lost update {i}"
+
+    def test_parallel_mixed_writers(self, tmp_path: Path) -> None:
+        """set_field + remove_field + update_field racing on the same file."""
+        import threading
+
+        from rebrew.metadata import load_metadata, remove_field, set_field, update_field
+
+        def _writer(i: int) -> None:
+            if i % 3 == 0:
+                set_field(tmp_path, 0x2000 + i, "note", f"w{i}", "T")
+            elif i % 3 == 1:
+                update_field(tmp_path, 0x3000 + i, "cflags", f"/O{i}", "T")
+            else:
+                set_field(tmp_path, 0x4000 + i, "note", f"x{i}", "T")
+                remove_field(tmp_path, 0x4000 + i, "note", "T")
+
+        threads = [threading.Thread(target=_writer, args=(i,)) for i in range(9)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        md = load_metadata(tmp_path)
+        # The set-then-remove writers end with no note (deterministic per-key).
+        for i in range(9):
+            key = (
+                "T",
+                (0x2000 + i) if i % 3 == 0 else (0x3000 + i) if i % 3 == 1 else (0x4000 + i),
+            )
+            if i % 3 == 0:
+                assert md.get(key, {}).get("note") == f"w{i}"
+            elif i % 3 == 1:
+                assert md.get(key, {}).get("cflags") == f"/O{i}"
+            else:
+                assert "note" not in md.get(key, {})

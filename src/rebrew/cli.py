@@ -85,7 +85,10 @@ def should_promote_status(current_status: str, new_status: str) -> bool:
     """
     if is_status_sticky(current_status):
         return False
-    if current_status == "STUB" and new_status == "SIZE_MISMATCH":
+    if current_status == "STUB" and new_status in ("SIZE_MISMATCH", "MISSING_SIZE"):
+        # A documented STUB (typically blocker-documented) must not be
+        # demoted by a placeholder size-mismatch or a missing-size
+        # evaluation — that would erase the user's classification.
         return False
     return current_status != new_status
 
@@ -167,6 +170,34 @@ def error_exit(msg: str, *, json_mode: bool = False, code: int = 1) -> NoReturn:
 def json_print(data: dict[str, Any] | list[Any]) -> None:
     """Print *data* as pretty-printed JSON to stdout."""
     print(json.dumps(data, indent=2))
+
+
+def option_default(value: Any, default: Any) -> Any:
+    """Coerce a possibly-leaked typer option back to its declared default.
+
+    Direct Python calls to a typer callback (the unit-test convention in this
+    codebase) pass ``typer.models.OptionInfo`` as the value of **omitted**
+    parameters — typer's wrapper does not resolve the declared default for
+    non-CLI invocations.  An ``OptionInfo`` object is truthy and not a
+    ``Path``/``str``, so ``if x is not None`` and ``Path(x)`` both misbehave
+    (this crashed ``rebrew init --link-tools-from`` when tests omitted the
+    new option, and leaked a truthy ``--sweep-toolchain`` into ``match``'s
+    watch re-test).
+
+    Callbacks that unit tests invoke directly must guard every new option::
+
+        if toolchain_dir is not None and not isinstance(toolchain_dir, Path):
+            toolchain_dir = None
+
+    or, equivalently and self-documenting::
+
+        toolchain_dir = option_default(toolchain_dir, None)
+
+    See docs/DEVELOPMENT.md ("Typer quirks") for the full convention.
+    """
+    from typer.models import OptionInfo
+
+    return default if isinstance(value, OptionInfo) else value
 
 
 def parse_va(va_str: str, *, json_mode: bool = False) -> int:

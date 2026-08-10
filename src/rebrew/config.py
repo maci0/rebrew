@@ -201,6 +201,17 @@ class ProjectConfig:
     base_cflags: str = "/nologo /c /MT"  # Always-on flags prepended to every compile
     compile_timeout: int = 60  # Seconds before a compile subprocess is killed
 
+    @property
+    def posix_style(self) -> bool:
+        """True when the compiler profile uses POSIX-style flags (-I/-o/-c).
+
+        POSIX-style profiles (gcc, gcc-pe, clang) take ``-I``/``-o``/``-c``
+        and ship their own headers; MSVC profiles use ``/I``/``/Fo``/``/c``.
+        Single source of truth for compile/flag routing across compile.py,
+        diff.py, match.py, and matcher/compiler.py.
+        """
+        return self.compiler_profile in ("gcc", "gcc-pe", "clang")
+
     # --- Computed from arch ---
     pointer_size: int = 4
     padding_bytes: list[int] = field(default_factory=lambda: [0xCC, 0x90])
@@ -671,7 +682,18 @@ _KNOWN_PROJECT_KEYS = {
 }
 
 _KNOWN_FORMATS = {"pe", "elf", "macho"}
-_KNOWN_PROFILES = {"msvc400", "msvc420", "msvc6", "msvc7", "gcc", "clang"}
+_KNOWN_PROFILES = {
+    "msvc400",
+    "msvc420",
+    "msvc5",
+    "msvc6",
+    "msvc6.3",
+    "msvc6.6",
+    "msvc7",
+    "gcc",
+    "gcc-pe",
+    "clang",
+}
 
 
 def load_config(
@@ -837,15 +859,29 @@ def load_config(
     output_dir = _required_path(
         root, project_raw.get("output_dir"), "output", "[project].output_dir"
     )
-    compiler_includes = _required_path(
-        root,
-        compiler.get("includes"),
-        "tools/MSVC600/VC98/Include",
-        "compiler.includes",
-    )
-    compiler_libs = _required_path(
-        root, compiler.get("libs"), "tools/MSVC600/VC98/Lib", "compiler.libs"
-    )
+
+    # An explicitly empty includes/libs is valid and means "no extra dir" —
+    # needed by gcc-pe/mingw (own headers) and by decomp.me MSVC tarballs
+    # (msvc6.3/6.6/7.0 ship Bin+Include but no Lib).  A *missing* key still
+    # falls back to the conventional default path.
+    def _explicit_empty(key: str) -> bool:
+        return compiler.get(key) is not None and not str(compiler.get(key) or "").strip()
+
+    if _explicit_empty("includes"):
+        compiler_includes = Path("")
+    else:
+        compiler_includes = _required_path(
+            root,
+            compiler.get("includes"),
+            "tools/MSVC600/VC98/Include",
+            "compiler.includes",
+        )
+    if _explicit_empty("libs"):
+        compiler_libs = Path("")
+    else:
+        compiler_libs = _required_path(
+            root, compiler.get("libs"), "tools/MSVC600/VC98/Lib", "compiler.libs"
+        )
 
     source_ext = _parse_source_ext(tgt.get("source_ext", ".c"))
 

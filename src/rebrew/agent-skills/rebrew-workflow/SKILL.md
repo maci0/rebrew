@@ -120,6 +120,12 @@ rebrew test src/<target>/<file>.c --no-promote          # skip STATUS update
 rebrew test 0x<VA> --json                  # find by VA (also accepts a symbol name)
 rebrew test src/<target>/<file>.c --va 0x10001000 \
     --symbol _myfunc --size 64 --cflags "/O1 /Gd"        # override metadata for ad-hoc tests
+```
+
+On a multi-function file, `--va` selects the annotation AT that VA (its symbol
+and fallback size come from it — same rule as diff/match/prove). Pass
+`--symbol` too to override the symbol explicitly; with no `--va`/`--symbol`/
+`--size`, every annotated function in the file is tested.
 rebrew test --all --json                   # batch test all reversed .c files
 rebrew test --all --origin GAME --json     # batch mode, filter by origin
 rebrew test --all --dir src/<target>/ --json    # restrict to subdir
@@ -274,6 +280,16 @@ rebrew round-trip --out <path>          # override output path
 - Compiles every EXACT/RELOC function, applies COFF relocations against the function +
   data catalogs, splices the patched bytes into a byte copy of the target PE, SHA-256s the
   result, and writes `<binary>.reasm` next to the original.
+- **Every EXACT/RELOC function needs SIZE in `rebrew-function.toml`** — a legacy
+  inline-only `// SIZE:` makes round-trip report `oversize (size <= 0 in metadata)` and
+  fail the splice. Run `rebrew lint --fix` first to migrate inline SIZE/CFLAGS/STATUS
+  keys into the metadata file (dry-run with `--dry-run`).
+- **`catalog_resolution_drift` with CRT names** (e.g. `_fread`): the library
+  header can list both `fread` (a small wrapper) and `_fread` (the real
+  implementation) at different VAs — MSVC-decorated calls exact-match `_fread`
+  while the target's code called the wrapper. Correct the `library_*.h` VA
+  mapping (rename/drop the shadowing entry) or annotate the call sites; the
+  drift is never silent.
 - **Resolution fallbacks** for symbols the catalog cannot resolve by name: Ghidra
   auto-names encoding their VA in trailing hex (`_g_1003546c`), MSVC `$L<N>` /
   `$cleanup_loop$<N>` jump/dispatch tables mapped from the compiled .obj layout, and

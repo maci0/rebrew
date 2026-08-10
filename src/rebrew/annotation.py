@@ -447,10 +447,20 @@ class Annotation:
                 if _CFLAGS_GLUED_RE.match(flag)
             )
 
-        # Check marker consistency against module name
+        # Check marker consistency against module name.  A STUB-status function
+        # may keep either its STUB or FUNCTION marker (status lives in
+        # rebrew-function.toml); only library-module mismatches are flagged.
         _lib = library_modules or set()
-        expected_marker = marker_for_module(self.module, self.status, _lib)
-        if self.marker_type and self.marker_type != expected_marker:
+        if self.module in _lib:
+            expected_marker = "LIBRARY"
+            marker_ok = self.marker_type == "LIBRARY"
+        elif self.status == "STUB":
+            expected_marker = "FUNCTION"
+            marker_ok = self.marker_type in ("FUNCTION", "STUB")
+        else:
+            expected_marker = "FUNCTION"
+            marker_ok = self.marker_type == "FUNCTION"
+        if self.marker_type and not marker_ok:
             warnings.append(
                 f"Marker {self.marker_type} inconsistent with module {self.module!r} "
                 f"(expected {expected_marker})"

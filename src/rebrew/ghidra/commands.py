@@ -961,6 +961,90 @@ def pull_prototypes(
         console.print(f"Successfully pulled {updated_count} prototypes.")
 
 
+def pull_params(
+    entries: list[Any],
+    cfg: ProjectConfig,
+    endpoint: str,
+    program_path: str,
+    dry_run: bool,
+) -> int:
+    """Pull Ghidra parameter names into unnamed parameters of local .c files.
+
+    Uses the same get-decompilation signature source as pull_signatures:
+    the decompiled prototype carries Ghidra's parameter names.  Merge-safe —
+    a parameter that already has a local name is never overwritten, and any
+    signature that is unsafe to rewrite (function-pointer params, arity
+    mismatch) is skipped.  Returns the number of files rewritten.
+    """
+    from rebrew.ghidra.params import apply_param_names, param_names_from_proto
+
+    console.print("Pulling parameter names from Ghidra...")
+    with httpx.Client(timeout=30.0) as client:
+        try:
+            session_id = init_mcp_session(client, endpoint)
+        except httpx.RequestError as e:
+            raise RuntimeError(f"Error connecting to MCP: {e}") from e
+
+        updated = 0
+        for entry in entries:
+            marker = entry.get("marker_type", "FUNCTION")
+            if marker != "FUNCTION":
+                continue
+            va = entry.get("va")
+            func_name = entry.get("name") or entry.get("symbol") or ""
+            if not va or not func_name:
+                continue
+            filepath = entry.get("filepath")
+            if not filepath:
+                continue
+            fp = cfg.reversed_dir / filepath
+            if not fp.exists():
+                continue
+
+            try:
+                content, encoding = read_source_text(fp)
+            except OSError:
+                continue
+
+            res = fetch_mcp_tool_raw(
+                client,
+                endpoint,
+                "get-decompilation",
+                {
+                    "programPath": program_path,
+                    "functionNameOrAddress": f"0x{va:x}",
+                    "signatureOnly": True,
+                },
+                va,
+                session_id=session_id,
+            )
+            if isinstance(res, str):
+                sig = res.strip()
+            elif isinstance(res, dict) and "signature" in res:
+                sig = res["signature"]
+            else:
+                continue
+            sig = sig.replace("\n", " ").strip().rstrip(";").strip()
+
+            names = param_names_from_proto(sig)
+            if names is None:
+                continue  # unsafe or unparseable — never guess
+            rewritten = apply_param_names(content, func_name, names)
+            if rewritten is None or rewritten == content:
+                continue  # nothing to fill or arity mismatch
+
+            if dry_run:
+                console.print(f"  [dim]Would name params[/dim] 0x{va:x} {func_name}: {names}")
+                updated += 1
+                continue
+            atomic_write_text(fp, rewritten, encoding=encoding)
+            console.print(f"  [green]Named params[/green] 0x{va:x} {func_name}: {names}")
+            updated += 1
+
+        console.print(f"Successfully named params for {updated} function(s).")
+        return updated
+
+
 def _infer_struct_module(info: Any) -> str | None:
     """Infer a module name from Ghidra struct metadata.
 
@@ -1189,6 +1273,10 @@ def pull_structs(
 _DATATYPE_CATEGORIES = ("/Enum", "/TypeDef")
 _DATATYPE_PAGE_SIZE = 500
 
+#: Marker for the merge-safe user section in enums_types.h — everything from
+#: this line to the #endif survives regeneration (manual definitions).
+_USER_MARKER = "/* --- USER DEFINITIONS (kept on re-pull) --- */"
+
 
 def pull_datatypes(
     cfg: ProjectConfig,
@@ -1291,11 +1379,40 @@ def pull_datatypes(
         note = (
             "/* ReVa's MCP protocol exposes enum/typedef names, sizes, and categories "
             "but not enum member values. Define enums in source and push with "
-            "'rebrew sync --push' to create them in Ghidra. */"
+            "'rebrew sync --sync-structs' to create them in Ghidra. */"
         )
-        text = "\n".join(preamble + [note, ""] + lines + ["#endif /* REBREW_DATATYPES_H */", ""])
 
+        # Merge-safe re-pull: a user section between the marker and #endif is
+        # preserved verbatim across regenerations (manual definitions, notes).
         out_file = types_out if types_out is not None else cfg.reversed_dir / "enums_types.h"
+        user_trailer = ""
+        if out_file.exists():
+            try:
+                old_text = out_file.read_text(encoding="utf-8")
+            except OSError:
+                old_text = ""
+            idx = old_text.find(_USER_MARKER)
+            if idx >= 0:
+                # Preserve everything from the marker up to (not including)
+                # the closing #endif, so re-pulls never duplicate the guard.
+                trailer = old_text[idx:]
+                end_idx = trailer.find("#endif")
+                if end_idx >= 0:
+                    trailer = trailer[:end_idx]
+                user_trailer = trailer
+        if not user_trailer:
+            user_trailer = (
+                _USER_MARKER + "\n/* Manual definitions below survive re-pulls (merge-safe). */\n"
+            )
+        if not user_trailer.endswith("\n"):
+            user_trailer += "\n"
+
+        text = (
+            "\n".join(preamble + [note, ""] + lines + [""])
+            + user_trailer
+            + "#endif /* REBREW_DATATYPES_H */\n"
+        )
+
         if not dry_run:
             atomic_write_text(out_file, text)
         console.print(f"[green]Exported {len(manifest)} datatypes to {out_file}[/green]")

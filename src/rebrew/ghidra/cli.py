@@ -53,6 +53,9 @@ from rebrew.ghidra.commands import (
     pull_datatypes as pull_datatypes_cmd,
 )
 from rebrew.ghidra.commands import (
+    pull_params as pull_params_cmd,
+)
+from rebrew.ghidra.commands import (
     pull_prototypes as pull_prototypes_cmd,
 )
 from rebrew.ghidra.commands import (
@@ -142,7 +145,11 @@ def _build_ops(
 
     if sync_structs or sync_signatures:
         if sync_structs:
-            from rebrew.struct_parser import extract_structs_from_file, extract_type_definitions
+            from rebrew.struct_parser import (
+                extract_enums_from_file,
+                extract_structs_from_file,
+                extract_type_definitions,
+            )
 
             struct_set: set[str] = set()
 
@@ -153,10 +160,15 @@ def _build_ops(
                     continue
                 for typedef_str in extract_type_definitions(hfile):
                     struct_set.add(typedef_str)
+                # Enums push through the same parse-c-structure CParser path.
+                for enum_str in extract_enums_from_file(hfile):
+                    struct_set.add(enum_str)
 
             for cfile in iter_sources(reversed_dir, cfg):
                 for struct_str in extract_structs_from_file(cfile):
                     struct_set.add(struct_str)
+                for enum_str in extract_enums_from_file(cfile):
+                    struct_set.add(enum_str)
 
             structs = list(struct_set)
 
@@ -429,6 +441,11 @@ def main(
         "--pull-datatypes",
         help="Pull enum/typedef inventory from Ghidra into enums_types.h",
     ),
+    pull_params: bool = typer.Option(
+        False,
+        "--pull-params",
+        help="Pull Ghidra parameter names into unnamed parameters of local .c files",
+    ),
     types_out: Path | None = typer.Option(
         None,
         "--types-out",
@@ -482,6 +499,7 @@ def main(
         or pull_signatures
         or pull_structs
         or pull_datatypes
+        or pull_params
         or pull_comments
         or pull_data
         or refresh_cache
@@ -595,9 +613,18 @@ def main(
                     "Conflicts detected during name pull. Continuing with other pull operations if any."
                 )
 
-        if pull_signatures or pull_structs or pull_datatypes or pull_comments or pull_data:
+        if (
+            pull_signatures
+            or pull_structs
+            or pull_datatypes
+            or pull_comments
+            or pull_data
+            or pull_params
+        ):
             if pull_signatures:
                 pull_prototypes_cmd(entries, cfg, endpoint, program_path, dry_run)
+            if pull_params:
+                pull_params_cmd(entries, cfg, endpoint, program_path, dry_run)
             if pull_structs:
                 pull_structs_cmd(
                     cfg,

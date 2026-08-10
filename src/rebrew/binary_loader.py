@@ -267,6 +267,33 @@ _LOAD_BINARY_CACHE_MAX = 16
 _load_binary_lock = threading.Lock()
 
 
+def is_ne(path: str | Path) -> bool:
+    """True when *path* is a 16-bit Windows NE executable (MZ stub + "NE"
+    header at the MZ ``e_lfanew`` offset).  Windows 3.x binaries use this
+    format; rebrew targets 32-bit PE/ELF/Mach-O, so they are detected and
+    reported explicitly rather than failing as "unknown format"."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(0x104)
+    except OSError:
+        return False
+    if len(head) < 0x104 or head[:2] != b"MZ":
+        return False
+    e_lfanew = int.from_bytes(head[0x3C:0x40], "little")
+    if e_lfanew + 2 > len(head):
+        return False
+    return head[e_lfanew : e_lfanew + 2] == b"NE"
+
+
+_NE_UNSUPPORTED_MSG = (
+    "16-bit NE Windows executable (Windows 3.x) detected — rebrew targets "
+    "32-bit PE/ELF/Mach-O and cannot parse NE yet. The 16-bit path (NE "
+    "parser, capstone x86-16 disassembly, a genuine 16-bit compiler profile "
+    "such as Borland Turbo C — the vendored MSVC420 is 32-bit) is documented "
+    "in docs/TOOLCHAIN.md."
+)
+
+
 def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     """Parse a binary file and return a ``BinaryInfo``.
 
@@ -287,6 +314,12 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     # stderr and returns None for missing files.
     if not path.exists():
         raise FileNotFoundError(f"Binary not found: {path}")
+
+    # 16-bit Windows NE executables are detected explicitly — lief.parse
+    # returns None for them and the generic "unknown format" error would
+    # mislead.  The specific message names the format and the path forward.
+    if is_ne(path):
+        raise ValueError(_NE_UNSUPPORTED_MSG)
 
     # Bounded cache keyed on resolved path + format to avoid re-parsing.
     # Lock protects concurrent reads/writes from multiple workers.

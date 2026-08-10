@@ -5,7 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
+from rebrew.metadata import KNOWN_STATUSES
 from rebrew.metadata_model import MetadataEntry, MetadataValidationError
 
 
@@ -112,3 +115,64 @@ def test_multiple_entries_isolated(tmp_path: Path) -> None:
     MetadataEntry.load(tmp_path, 0x2000, "MAIN").apply(tmp_path, size=20)
     assert MetadataEntry.load(tmp_path, 0x1000, "MAIN").size == 10
     assert MetadataEntry.load(tmp_path, 0x2000, "MAIN").size == 20
+
+
+# ---------------------------------------------------------------------------
+# Property-based round-trip: any valid field set survives apply → load.
+# ---------------------------------------------------------------------------
+
+
+@st.composite
+def _roundtrip_fields(draw) -> dict[str, object]:
+    """A random valid metadata field set (status excluded — separate test)."""
+    fields: dict[str, object] = {}
+    if draw(st.booleans()):
+        fields["size"] = draw(st.integers(min_value=0, max_value=1_000_000))
+    if draw(st.booleans()):
+        fields["blocker_delta"] = draw(st.integers(min_value=0, max_value=1_000_000))
+    for key in ("cflags", "blocker", "note", "ghidra", "analysis", "skip", "source"):
+        if draw(st.booleans()):
+            fields[key] = draw(st.text(max_size=40))
+    if draw(st.booleans()):
+        fields["globals"] = ", ".join(draw(st.lists(st.text(max_size=16), max_size=4)))
+    if draw(st.booleans()):
+        fields["prove_constraints"] = {"stack": draw(st.integers(min_value=0, max_value=32))}
+    return fields
+
+
+@settings(max_examples=100, deadline=None)
+@given(st.data())
+def test_apply_load_roundtrip_property(data) -> None:
+    """apply(**fields) → load() must reproduce every field exactly.
+
+    The facade's reason to exist: routing/typing bugs (the add-module tomlkit
+    copy bug, the lint --fix STATUS crash) are made impossible by construction
+    if every valid field set round-trips losslessly.
+    """
+    import tempfile
+
+    from rebrew.metadata_model import MetadataEntry
+
+    fields = data.draw(_roundtrip_fields())
+    with tempfile.TemporaryDirectory() as td:
+        entry = MetadataEntry.load(Path(td), 0x1000, "MAIN")
+        entry.apply(Path(td), **fields)
+        loaded = MetadataEntry.load(Path(td), 0x1000, "MAIN")
+        for key, value in fields.items():
+            assert getattr(loaded, key) == value, f"{key}: {getattr(loaded, key)!r} != {value!r}"
+        assert loaded.problems() == []
+
+
+@settings(max_examples=50, deadline=None)
+@given(st.sampled_from(sorted(KNOWN_STATUSES)))
+def test_apply_load_status_roundtrip_property(status: str) -> None:
+    """Every known STATUS survives the promotion-gate write and reloads."""
+    import tempfile
+
+    from rebrew.metadata_model import MetadataEntry
+
+    with tempfile.TemporaryDirectory() as td:
+        MetadataEntry.load(Path(td), 0x1000, "MAIN").apply(Path(td), status=status)
+        loaded = MetadataEntry.load(Path(td), 0x1000, "MAIN")
+        assert loaded.status == status
+        assert loaded.problems() == []

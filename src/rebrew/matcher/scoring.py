@@ -113,6 +113,74 @@ def _build_invalid_reloc_mask(
     return mask
 
 
+def _zero_reloc_fields(insn: capstone.CsInsn, out: bytearray) -> None:
+    """Zero the relocatable fields of one detail-disassembled x86-32 insn.
+
+    Shared by :func:`_normalize_reloc_x86_32` and
+    :func:`_normalize_and_mnems_x86_32` (the GA hot path merges normalization
+    and mnemonic extraction into ONE candidate disassembly).
+    """
+    # call rel32 / jmp rel32 / MOV abs32 (A0-A3)
+    if insn.opcode[0] in (0xE8, 0xE9, 0xA0, 0xA1, 0xA2, 0xA3):
+        if insn.size >= 5:
+            for i in range(1, 5):
+                if insn.address + i < len(out):
+                    out[insn.address + i] = 0
+    # cmp [abs32], imm8 / conditional jmp near
+    elif (insn.opcode[0] == 0x83 and len(insn.bytes) >= 2 and insn.bytes[1] == 0x3D) or (
+        insn.opcode[0] == 0x0F and len(insn.bytes) >= 2 and (insn.bytes[1] & 0xF0) == 0x80
+    ):
+        if insn.size >= 6:
+            for i in range(2, 6):
+                if insn.address + i < len(out):
+                    out[insn.address + i] = 0
+    # push imm32 (if it looks like an address)
+    elif insn.opcode[0] == 0x68 or 0xB8 <= insn.opcode[0] <= 0xBF:
+        if insn.size >= 5:
+            imm = int.from_bytes(insn.bytes[1:5], byteorder="little")
+            if imm > 0x10000000:
+                for i in range(1, 5):
+                    if insn.address + i < len(out):
+                        out[insn.address + i] = 0
+    # call/jmp dword ptr [abs32] (FF 15/25) or mov reg,[abs32] / mov [abs32],reg
+    elif (
+        insn.size >= 6
+        and len(insn.bytes) >= 2
+        and (
+            (insn.opcode[0] == 0xFF and insn.bytes[1] in (0x15, 0x25))
+            or (
+                insn.opcode[0] in (0x8B, 0x89)
+                and insn.bytes[1]
+                in (
+                    0x05,
+                    0x0D,
+                    0x15,
+                    0x1D,
+                    0x25,
+                    0x2D,
+                    0x35,
+                    0x3D,
+                )
+            )
+        )
+    ):
+        for i in range(2, 6):
+            if insn.address + i < len(out):
+                out[insn.address + i] = 0
+
+    # General fallback: Any instruction with a 32-bit displacement that looks like an address (> 0x10000)
+    # Handles SIB+disp32, lea reg, [reg*scale + disp32], and other indirect addressing modes
+    if getattr(insn, "disp_size", 0) == 4 and getattr(insn, "disp_offset", 0) > 0:
+        for op in insn.operands:
+            if op.type == capstone.x86.X86_OP_MEM:
+                disp = op.mem.disp
+                if disp > 0x10000 or disp < -0x10000:
+                    offset = insn.address + insn.disp_offset
+                    for i in range(4):
+                        if offset + i < len(out):
+                            out[offset + i] = 0
+
+
 def _normalize_reloc_x86_32(
     code: bytes,
     cs_arch: int = _DEFAULT_CS_ARCH,
@@ -121,69 +189,31 @@ def _normalize_reloc_x86_32(
     """Zero out relocatable fields in x86-32 machine code."""
     md = _get_cs(cs_arch, cs_mode, detail=True)
     out = bytearray(code)
-
     for insn in md.disasm(code, 0):
-        # call rel32 / jmp rel32 / MOV abs32 (A0-A3)
-        if insn.opcode[0] in (0xE8, 0xE9, 0xA0, 0xA1, 0xA2, 0xA3):
-            if insn.size >= 5:
-                for i in range(1, 5):
-                    if insn.address + i < len(out):
-                        out[insn.address + i] = 0
-        # cmp [abs32], imm8 / conditional jmp near
-        elif (insn.opcode[0] == 0x83 and len(insn.bytes) >= 2 and insn.bytes[1] == 0x3D) or (
-            insn.opcode[0] == 0x0F and len(insn.bytes) >= 2 and (insn.bytes[1] & 0xF0) == 0x80
-        ):
-            if insn.size >= 6:
-                for i in range(2, 6):
-                    if insn.address + i < len(out):
-                        out[insn.address + i] = 0
-        # push imm32 (if it looks like an address)
-        elif insn.opcode[0] == 0x68 or 0xB8 <= insn.opcode[0] <= 0xBF:
-            if insn.size >= 5:
-                imm = int.from_bytes(insn.bytes[1:5], byteorder="little")
-                if imm > 0x10000000:
-                    for i in range(1, 5):
-                        if insn.address + i < len(out):
-                            out[insn.address + i] = 0
-        # call/jmp dword ptr [abs32] (FF 15/25) or mov reg,[abs32] / mov [abs32],reg
-        elif (
-            insn.size >= 6
-            and len(insn.bytes) >= 2
-            and (
-                (insn.opcode[0] == 0xFF and insn.bytes[1] in (0x15, 0x25))
-                or (
-                    insn.opcode[0] in (0x8B, 0x89)
-                    and insn.bytes[1]
-                    in (
-                        0x05,
-                        0x0D,
-                        0x15,
-                        0x1D,
-                        0x25,
-                        0x2D,
-                        0x35,
-                        0x3D,
-                    )
-                )
-            )
-        ):
-            for i in range(2, 6):
-                if insn.address + i < len(out):
-                    out[insn.address + i] = 0
-
-        # General fallback: Any instruction with a 32-bit displacement that looks like an address (> 0x10000)
-        # Handles SIB+disp32, lea reg, [reg*scale + disp32], and other indirect addressing modes
-        if getattr(insn, "disp_size", 0) == 4 and getattr(insn, "disp_offset", 0) > 0:
-            for op in insn.operands:
-                if op.type == capstone.x86.X86_OP_MEM:
-                    disp = op.mem.disp
-                    if disp > 0x10000 or disp < -0x10000:
-                        offset = insn.address + insn.disp_offset
-                        for i in range(4):
-                            if offset + i < len(out):
-                                out[offset + i] = 0
-
+        _zero_reloc_fields(insn, out)
     return bytes(out)
+
+
+def _normalize_and_mnems_x86_32(
+    code: bytes,
+    cs_arch: int = _DEFAULT_CS_ARCH,
+    cs_mode: int = _DEFAULT_CS_MODE,
+) -> tuple[bytes, list[str]]:
+    """Normalize relocatable fields AND collect mnemonics in ONE disassembly.
+
+    The GA/flag-sweep hot path needs both (heuristic reloc scoring +
+    mnemonic similarity) but disassembled the candidate twice: once with
+    ``detail=True`` for normalization, once without for mnemonics.  The
+    mnemonic list does not depend on the address base or detail mode, so a
+    single detail pass serves both.
+    """
+    md = _get_cs(cs_arch, cs_mode, detail=True)
+    out = bytearray(code)
+    mnems: list[str] = []
+    for insn in md.disasm(code, 0):
+        mnems.append(insn.mnemonic)
+        _zero_reloc_fields(insn, out)
+    return bytes(out), mnems
 
 
 def _mask_registers_x86_32(
@@ -236,6 +266,21 @@ def score_candidate(
     len_diff = abs(len(target_bytes) - len(candidate_bytes))
     min_len = min(len(target_bytes), len(candidate_bytes))
 
+    # Exact-match fast path: identical bytes make every metric zero except the
+    # prologue bonus (target[:N] == candidate[:N] trivially).  Skipping the
+    # candidate disassembly and the numpy compares is a large win in converged
+    # GA populations, where many members are byte-identical copies.
+    if target_bytes == candidate_bytes:
+        prologue_bonus = _PROLOGUE_BONUS if min_len >= _PROLOGUE_LEN else 0.0
+        return Score(
+            length_diff=0,
+            byte_score=0.0,
+            reloc_score=0.0,
+            mnemonic_score=0.0,
+            prologue_bonus=prologue_bonus,
+            total=prologue_bonus,
+        )
+
     # Convert to numpy arrays for vectorized comparison
     if min_len > 0:
         t_arr = np.frombuffer(target_bytes[:min_len], dtype=np.uint8)
@@ -262,6 +307,8 @@ def score_candidate(
 
     # 2. Relocation-aware similarity
     reloc_score = 0.0
+    cand_mnems: list[str] | None = None
+    target_mnems: list[str] | None = None
     if reloc_offsets is not None:
         if min_len > 0:
             reloc_mask = np.zeros(min_len, dtype=bool)
@@ -272,13 +319,17 @@ def score_candidate(
                     reloc_mask[start:end] = True
             reloc_score = float(np.count_nonzero(diff_mask & ~reloc_mask))
     else:
-        # Fallback to heuristic normalization — reuse pre-computed target if available
-        norm_target = (
-            _pre_norm_target
-            if _pre_norm_target is not None
-            else _normalize_reloc_x86_32(target_bytes, cs_arch, cs_mode)
-        )
-        norm_cand = _normalize_reloc_x86_32(candidate_bytes, cs_arch, cs_mode)
+        # Fallback to heuristic normalization — reuse pre-computed target if
+        # available.  The merged detail disasm yields BOTH the normalized
+        # bytes and the mnemonic list, replacing the previous two candidate
+        # disassemblies (detail normalize + plain mnemonics) — and the target
+        # mnemonic list is carried here too, so no second target disasm.
+        if _pre_norm_target is not None:
+            norm_target = _pre_norm_target
+            norm_cand, cand_mnems = _normalize_and_mnems_x86_32(candidate_bytes, cs_arch, cs_mode)
+        else:
+            norm_target, target_mnems = _normalize_and_mnems_x86_32(target_bytes, cs_arch, cs_mode)
+            norm_cand, cand_mnems = _normalize_and_mnems_x86_32(candidate_bytes, cs_arch, cs_mode)
         if min_len > 0:
             nt_arr = np.frombuffer(norm_target[:min_len], dtype=np.uint8)
             nc_arr = np.frombuffer(norm_cand[:min_len], dtype=np.uint8)
@@ -291,28 +342,43 @@ def score_candidate(
     # penalises isolated insertions/deletions more precisely.
     # A single extra PUSH at the top no longer tanks the entire score.
     md = _get_cs(cs_arch, cs_mode)
-    # Reuse pre-computed target mnemonics if available (GA hot path)
+    # Reuse pre-computed target mnemonics if available (GA hot path); the
+    # candidate mnemonics may already exist from the merged reloc-fallback
+    # disassembly above, and the target mnemonics from the same pass.
     target_mnems = (
         _pre_target_mnems
         if _pre_target_mnems is not None
+        else target_mnems
+        if target_mnems is not None
         else [i.mnemonic for i in md.disasm(target_bytes, 0x1000)]
     )
-    cand_mnems = [i.mnemonic for i in md.disasm(candidate_bytes, 0x1000)]
+    if cand_mnems is None:
+        cand_mnems = [i.mnemonic for i in md.disasm(candidate_bytes, 0x1000)]
 
-    sm = difflib.SequenceMatcher(None, target_mnems, cand_mnems)
+    # Fast path: identical mnemonic sequences (the GA's common case — bytes
+    # differ only in immediates/reloc slots, e.g. `mov eax, 0x10` vs
+    # `mov eax, 0x20`).  SequenceMatcher on equal lists emits exactly one
+    # `equal` opcode covering everything, so this shortcut is byte-identical
+    # to the full walk while skipping difflib's O(n) setup entirely.
+    if target_mnems == cand_mnems:
+        total_matched = len(target_mnems)
+        total_diffed = 0
+        longest_run = len(target_mnems)
+    else:
+        sm = difflib.SequenceMatcher(None, target_mnems, cand_mnems)
 
-    # Walk opcodes: reward contiguous equal blocks, penalise diffs
-    total_matched = 0
-    total_diffed = 0
-    longest_run = 0
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
-        if tag == "equal":
-            run_len = i2 - i1
-            total_matched += run_len
-            longest_run = max(longest_run, run_len)
-        else:
-            # replace, insert, delete — count both sides
-            total_diffed += max(i2 - i1, j2 - j1)
+        # Walk opcodes: reward contiguous equal blocks, penalise diffs
+        total_matched = 0
+        total_diffed = 0
+        longest_run = 0
+        for tag, i1, i2, j1, j2 in sm.get_opcodes():
+            if tag == "equal":
+                run_len = i2 - i1
+                total_matched += run_len
+                longest_run = max(longest_run, run_len)
+            else:
+                # replace, insert, delete — count both sides
+                total_diffed += max(i2 - i1, j2 - j1)
 
     total_insns = max(len(target_mnems), len(cand_mnems), 1)
     # NOTE: no coverage multiplier here.  total_diffed already counts every

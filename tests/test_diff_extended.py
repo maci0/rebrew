@@ -165,6 +165,46 @@ class TestRunDiff:
         assert out["blockers"] == ["register allocation"]
         assert "structural_similarity" in out
 
+    def test_json_missing_tail_summary(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A short candidate (target-only rows) gains a missing_tail summary:
+        the not-yet-decompiled instruction count + first/last target insn."""
+        summary = _summary(
+            instructions=[
+                {
+                    "match": "==",
+                    "target": {"disasm": "mov eax, 1"},
+                    "candidate": {"disasm": "mov eax, 1"},
+                },
+                {"match": "**", "target": {"disasm": "call 0xcf26"}, "candidate": None},
+                {"match": "**", "target": {"disasm": "ret"}, "candidate": None},
+            ]
+        )
+        _call_run_diff(monkeypatch, json_output=True, summary=summary)
+        out = json.loads(capsys.readouterr().out)
+        assert out["missing_tail"] == {
+            "count": 2,
+            "first": "call 0xcf26",
+            "last": "ret",
+        }
+
+    def test_missing_tail_absent_when_no_gap(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        summary = _summary(
+            instructions=[
+                {
+                    "match": "==",
+                    "target": {"disasm": "mov eax, 1"},
+                    "candidate": {"disasm": "mov eax, 1"},
+                }
+            ]
+        )
+        _call_run_diff(monkeypatch, json_output=True, summary=summary)
+        out = json.loads(capsys.readouterr().out)
+        assert "missing_tail" not in out
+
     def test_csv_output(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:

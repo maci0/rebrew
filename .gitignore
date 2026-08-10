@@ -60,3 +60,23 @@ verify_results.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Vendored Detect It Easy (diec) — optional; detection falls back to PATH diec
+/tools/diec/
+
+# Vendored MSVC toolchain downloads (docs/TOOLCHAIN.md: "kept out of git").
+# Re-fetch/extract from github.com/OmniBlade/decomp.me msvcwin9x releases.
+/tools/msvc6.3/
+/tools/msvc6.6/
+/tools/msvc7.0/
+/tools/msvc6.3.tar.gz
+/tools/msvc6.6.tar.gz
+/tools/msvc7.0.tar.gz
+# Local full-product toolchain checkouts (VC 4.2 / 5.0 — user-provided).
+/tools/MSVC420/
+/tools/MSVC500/
+# Debug/build cruft that can appear inside vendored toolchains
+*.pdb
+*.dbg
+*.bsc
+*.map

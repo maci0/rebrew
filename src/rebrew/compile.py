@@ -290,7 +290,19 @@ def resolve_cl_command(cfg: ProjectConfig) -> list[str]:
         cmd_parts = cmd_parts[1:]
 
     cl_rel = Path(cmd_parts[0]) if cmd_parts else Path("CL.EXE")
-    cl_abs = str(cfg.root / cl_rel) if not cl_rel.is_absolute() else str(cl_rel)
+    if (
+        cmd_parts
+        and not cl_rel.is_absolute()
+        and "/" not in cmd_parts[0]
+        and "\\" not in cmd_parts[0]
+        and not runner
+    ):
+        # Bare executable name (e.g. a gcc-pe/mingw toolchain on PATH) —
+        # resolve via PATH instead of the project root.
+        found = shutil.which(cmd_parts[0])
+        cl_abs = found or str(cfg.root / cl_rel)
+    else:
+        cl_abs = str(cfg.root / cl_rel) if not cl_rel.is_absolute() else str(cl_rel)
     command = [cl_abs, *cmd_parts[1:]]
     if runner:
         return [runner, *command]
@@ -501,16 +513,27 @@ def compile_to_obj(
     # Build full command: [wine, cl.exe] + base + user flags + includes + output + source file
     # Include the source file's original parent dir so that relative
     # #include "../../..." paths still resolve after the copy.
-    cmd = (
-        resolve_cl_command(cfg)
-        + all_flags
-        + [
-            f"/I{inc_path}",
-            f"/I{str(src_parent)}",
-            f"/Fo{obj_name}",
-            src_name,
-        ]
-    )
+    # POSIX-style compilers (gcc-pe/mingw, clang) use -I/-o/-c; MSVC uses /I//Fo.
+    is_posix_style = getattr(cfg, "compiler_profile", "") in ("gcc", "gcc-pe", "clang")
+    if is_posix_style:
+        inc_flags = [f"-I{inc_path}"] if inc_path else []
+        cmd = (
+            resolve_cl_command(cfg)
+            + all_flags
+            + inc_flags
+            + [f"-I{str(src_parent)}", "-c", "-o", obj_name, src_name]
+        )
+    else:
+        cmd = (
+            resolve_cl_command(cfg)
+            + all_flags
+            + [
+                f"/I{inc_path}",
+                f"/I{str(src_parent)}",
+                f"/Fo{obj_name}",
+                src_name,
+            ]
+        )
 
     try:
         r = subprocess.run(

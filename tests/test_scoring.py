@@ -1,5 +1,6 @@
 """Tests for rebrew.matcher.scoring — score_candidate, diff_functions."""
 
+import capstone
 import pytest
 
 from rebrew.matcher.core import Score, StructuralSimilarity
@@ -423,6 +424,36 @@ class TestPrecomputedTarget:
         assert hot.total == fresh.total
         assert hot.mnemonic_score == fresh.mnemonic_score
 
+    def test_merged_normalize_and_mnems_equals_separate(self) -> None:
+        """The hot-path merge (_normalize_and_mnems_x86_32) must produce the
+        same bytes as _normalize_reloc_x86_32 and the same mnemonics as a
+        plain disassembly — one detail pass replacing two."""
+        from rebrew.matcher.scoring import _normalize_and_mnems_x86_32
+
+        # call rel32, mov abs32, push imm32-lookalike, cmp [abs32],imm8
+        code = bytes.fromhex("e8 00000000 a1 00004000 68 00100000 833d 00004000 01 c3")
+        norm, mnems = _normalize_and_mnems_x86_32(code)
+        assert norm == _normalize_reloc_x86_32(code)
+        import capstone
+
+        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        assert mnems == [i.mnemonic for i in md.disasm(code, 0)]
+        assert mnems  # non-empty
+
+    def test_merged_score_matches_precomputed(self) -> None:
+        """score_candidate's merged fallback (no relocs, no precompute) must
+        score identically to the precomputed hot path."""
+        target = bytes.fromhex("558bec83ec10e800000000a1000040005dc3")
+        cand = bytes.fromhex("558bec83ec10e805000000a1100040005dc3")
+        norm, mnems = precompute_target(target)
+        fresh = score_candidate(target, cand, reloc_offsets=None)
+        hot = score_candidate(
+            target, cand, reloc_offsets=None, _pre_norm_target=norm, _pre_target_mnems=mnems
+        )
+        assert fresh.total == hot.total
+        assert fresh.reloc_score == hot.reloc_score
+        assert fresh.mnemonic_score == hot.mnemonic_score
+
     def test_precomputed_ignored_in_reloc_path(self) -> None:
         """With explicit reloc offsets the _pre_* kwargs are not used."""
         target = b"\x55\x8b\xec\xa1\x00\x00\x40\x00\x5d\xc3"
@@ -438,3 +469,67 @@ class TestPrecomputedTarget:
             _pre_target_mnems=mnems,
         )
         assert hot.total == fresh.total
+
+
+class TestScoreFastPaths:
+    """Identical-bytes and mnemonic-equality fast paths in score_candidate.
+
+    Both must produce exactly the scores the full computation would — the
+    fast paths only skip work, never approximate.
+    """
+
+    def test_identical_bytes_zero_metrics_plus_prologue(self) -> None:
+        from rebrew.matcher.scoring import _PROLOGUE_BONUS, _PROLOGUE_LEN, Score, score_candidate
+
+        target = b"\x55\x8b\xec" + b"\x90" * 64  # prologue + body
+        relocs = {8: "x", 16: "y"}
+        s = score_candidate(target, target, relocs)
+        assert isinstance(s, Score)
+        assert s.length_diff == 0
+        assert s.byte_score == 0.0
+        assert s.reloc_score == 0.0
+        assert s.mnemonic_score == 0.0
+        expected_bonus = _PROLOGUE_BONUS if len(target) >= _PROLOGUE_LEN else 0.0
+        assert s.prologue_bonus == expected_bonus
+        assert s.total == expected_bonus
+
+    def test_identical_bytes_short_function(self) -> None:
+        from rebrew.matcher.scoring import score_candidate
+
+        target = b"\x55\x8b\xec\xc3"  # 4 bytes < _PROLOGUE_LEN
+        s = score_candidate(target, target, {1: "x"})
+        assert s.prologue_bonus == 0.0
+        assert s.total == 0.0
+
+    def test_mnemonic_equal_immediates_only(self) -> None:
+        """Different immediates → same mnemonics → mnemonic_score must be 0.0,
+        exactly what the SequenceMatcher walk yields on equal sequences."""
+        import difflib
+
+        from rebrew.matcher.scoring import _get_cs, score_candidate
+
+        # Two functions differing only in immediate bytes.
+        a = b"\x55\x8b\xec\xb8\x10\x00\x00\x00\x5d\xc3"  # mov eax, 0x10
+        b = b"\x55\x8b\xec\xb8\x20\x00\x00\x00\x5d\xc3"  # mov eax, 0x20
+        s = score_candidate(a, b, {})
+        assert s.mnemonic_score == 0.0
+
+        # Reference: SequenceMatcher on the mnemonic lists (identical).
+        md = _get_cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        mnems_a = [i.mnemonic for i in md.disasm(a, 0x1000)]
+        mnems_b = [i.mnemonic for i in md.disasm(b, 0x1000)]
+        assert mnems_a == mnems_b
+        opcodes = difflib.SequenceMatcher(None, mnems_a, mnems_b).get_opcodes()
+        total_diffed = sum(
+            max(i2 - i1, j2 - j1) for tag, i1, i2, j1, j2 in opcodes if tag != "equal"
+        )
+        assert total_diffed == 0
+
+    def test_mnemonic_differing_still_diffed(self) -> None:
+        """The fast path must not fire when mnemonics actually differ."""
+        from rebrew.matcher.scoring import score_candidate
+
+        a = b"\x55\x8b\xec\xb8\x10\x00\x00\x00\x5d\xc3"  # mov eax, 0x10
+        c = b"\x55\x8b\xec\x33\xc0\x5d\xc3"  # xor eax, eax (shorter)
+        s = score_candidate(a, c, {})
+        assert s.mnemonic_score > 0.0  # real diff still penalized

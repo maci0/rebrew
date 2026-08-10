@@ -1,7 +1,11 @@
 """Tests for test.py result-dict builders and reloc helpers."""
 
 from rebrew.compile import CompareResult
-from rebrew.test import _expand_reloc_offsets, build_result_dict_from_compare
+from rebrew.test import (
+    _expand_reloc_offsets,
+    _select_annotation_for_va,
+    build_result_dict_from_compare,
+)
 
 
 class TestExpandRelocOffsets:
@@ -13,6 +17,38 @@ class TestExpandRelocOffsets:
 
     def test_empty(self) -> None:
         assert _expand_reloc_offsets([], limit=10) == set()
+
+
+class TestSelectAnnotationForVa:
+    """--va on a (possibly multi-function) file must select the annotation AT
+    that VA — was lint_annos[0], silently testing the wrong function."""
+
+    @staticmethod
+    def _annos() -> list[object]:
+        from types import SimpleNamespace as NS
+
+        return [
+            NS(va=0x1000, symbol="_f1", size=12, module="S"),
+            NS(va=0x2000, symbol="_f2", size=16, module="S"),
+        ]
+
+    def test_selects_matching_annotation(self) -> None:
+        ann = _select_annotation_for_va(self._annos(), "0x2000", False)
+        assert ann is not None
+        assert ann.va == 0x2000
+        assert ann.symbol == "_f2"
+
+    def test_first_annotation_not_chosen_for_second_va(self) -> None:
+        # The regression: requesting the SECOND function's VA used to return
+        # the FIRST annotation (its symbol tested against the wrong address).
+        ann = _select_annotation_for_va(self._annos(), "0x2000", False)
+        assert ann.symbol != "_f1"
+
+    def test_returns_none_when_no_annotation_matches(self) -> None:
+        assert _select_annotation_for_va(self._annos(), "0x9999", False) is None
+
+    def test_empty_annotation_list(self) -> None:
+        assert _select_annotation_for_va([], "0x1000", False) is None
 
 
 class TestBuildResultDictFromCompare:

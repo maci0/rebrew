@@ -142,12 +142,16 @@ def _display_name(ann: Annotation, src: Path) -> str:
 
 
 def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
-    """Return per-function rows (name, va, status, size, cflags) sorted by VA.
+    """Return per-function rows (name, va, status, size, cflags, blocker) sorted by VA.
 
     Mirrors the aggregation done by :func:`rebrew.status.collect_status` so
     the table stays consistent with the summary cards: same annotation source,
-    same GLOBAL/DATA skip, same ``MIN_VALID_VA`` floor.
+    same GLOBAL/DATA skip, same ``MIN_VALID_VA`` floor.  The blocker text
+    (written by ``near-diag --fix-blocker`` / ``diff --fix-blocker``) comes
+    from ``rebrew-function.toml`` metadata.
     """
+    from rebrew.metadata import get_entry
+
     reversed_dir = getattr(cfg, "reversed_dir", None)
     if reversed_dir is None:
         return []
@@ -163,6 +167,10 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
                 continue
             if ann.va < MIN_VALID_VA:
                 continue
+            md = {}
+            metadata_dir = getattr(cfg, "metadata_dir", None)
+            if isinstance(metadata_dir, Path):
+                md = get_entry(metadata_dir, ann.va, ann.module)
             functions.append(
                 {
                     "name": _display_name(ann, src),
@@ -172,6 +180,7 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
                     "cflags": ann.cflags,
                     "module": ann.module,
                     "file": rel_display_path(src, Path(reversed_dir)),
+                    "blocker": md.get("blocker", ""),
                 }
             )
     functions.sort(key=lambda fn: (fn["va"], fn["name"]))
@@ -226,12 +235,14 @@ def _render_index(target: str, report: StatusReport, functions: list[dict[str, A
             f"<td class='status-{html.escape(fn['status'])}'>{html.escape(fn['status'])}</td>"
             f"<td class='mono'>{fn['size']}</td>"
             f"<td class='mono'>{html.escape(fn['cflags'])}</td>"
+            f"<td class='blocker'>{html.escape(fn['blocker'])}</td>"
             "</tr>"
             for fn in functions
         )
         table = (
             "<table>"
-            "<tr><th>Name</th><th>VA</th><th>Status</th><th>Size</th><th>CFLAGS</th></tr>"
+            "<tr><th>Name</th><th>VA</th><th>Status</th><th>Size</th><th>CFLAGS</th>"
+            "<th>Blocker</th></tr>"
             f"{rows}"
             "</table>"
         )

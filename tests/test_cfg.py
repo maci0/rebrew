@@ -248,6 +248,47 @@ class TestSetScalar:
         assert doc2["targets"]["server.dll"]["arch"] == "x86_64"
 
 
+class TestSetScalarCLI:
+    def test_bare_target_scoped_key_routes_to_default_target(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """`cfg set binary x.exe` must write [targets.<default>], not a top-level key."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set", "binary", "original/game.exe"])
+        assert result.exit_code == 0
+        doc, _ = _load_toml(tmp_path)
+        assert doc["targets"]["server.dll"]["binary"] == "original/game.exe"
+        assert "binary" not in doc  # no stray top-level key
+
+    def test_bare_target_scoped_key_routes_marker(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set", "marker", "GAME"])
+        assert result.exit_code == 0
+        doc, _ = _load_toml(tmp_path)
+        assert doc["targets"]["server.dll"]["marker"] == "GAME"
+
+    def test_explicit_target_path_still_works(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set", "targets.server.dll.binary", "original/other.exe"])
+        assert result.exit_code == 0
+        doc, _ = _load_toml(tmp_path)
+        assert doc["targets"]["server.dll"]["binary"] == "original/other.exe"
+        assert "binary" not in doc
+
+    def test_global_key_unaffected(self, tmp_path: Path, monkeypatch) -> None:
+        """compiler.cflags is not target-scoped — no routing, no top-level key."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set", "compiler.cflags", "/O2"])
+        assert result.exit_code == 0
+        doc, _ = _load_toml(tmp_path)
+        assert doc["compiler"]["cflags"] == "/O2"
+        assert "binary" not in doc
+
+
 class TestCommentsPreserved:
     def test_comments_survive_all_operations(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)

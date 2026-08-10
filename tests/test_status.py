@@ -380,6 +380,55 @@ class TestCollectStatus:
         assert report.status_counts.get("COMPILE_ERROR") == 1
         # matched_pct should reflect only the 1 actual RELOC out of 3
         assert report.matched_pct == round(100.0 * 1 / 3, 1)
+        # The effective-status overlay is surfaced, not emergent.
+        assert report.verify_overrides == 2  # func_b, func_c
+        assert report.verify_missing_size == 0
+        d = report.to_dict()
+        assert d["verify_cache"] == {"overrides": 2, "missing_size": 0}
+
+    def test_missing_size_overlay_surfaced(self, tmp_path: Path) -> None:
+        """MISSING_SIZE (metadata SIZE absent) shows up as its own bucket."""
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "function_structure.json").write_text(
+            json.dumps([{"va": 0x1000, "size": 100, "ghidra_name": "func_a"}]),
+            encoding="utf-8",
+        )
+        (src / "func_a.c").write_text(
+            "// FUNCTION: TEST 0x1000\n// STATUS: EXACT\nvoid func_a(void) {}\n",
+            encoding="utf-8",
+        )
+        cache_dir = tmp_path / ".rebrew"
+        cache_dir.mkdir()
+        (cache_dir / "verify_cache.json").write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "target": "test",
+                    "entries": {
+                        "0x1000": {
+                            "source_hash": "a",
+                            "filepath": "func_a.c",
+                            "mtime_ns": 0,
+                            "result": {
+                                "status": "MISSING_SIZE",
+                                "va": "0x1000",
+                                "size": 0,
+                                "passed": False,
+                            },
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.status_counts.get("MISSING_SIZE") == 1
+        assert report.verify_overrides == 1
+        assert report.verify_missing_size == 1
+        d = report.to_dict()
+        assert d["verify_cache"] == {"overrides": 1, "missing_size": 1}
 
 
 # ---------------------------------------------------------------------------

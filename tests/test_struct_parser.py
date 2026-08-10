@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from rebrew.struct_parser import extract_structs_from_file
+from rebrew.struct_parser import extract_enums_from_file, extract_structs_from_file
 
 
 def _tree_sitter_available() -> bool:
@@ -63,3 +63,43 @@ class TestExtractStructsFromFile:
         f.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
         result = list(extract_structs_from_file(f))
         assert result == []
+
+
+class TestExtractEnums:
+    def _write(self, tmp_path: Path, content: str) -> Path:
+        f = tmp_path / "types.c"
+        f.write_text(content, encoding="utf-8")
+        return f
+
+    def test_standalone_enum(self, tmp_path: Path) -> None:
+        f = self._write(tmp_path, "enum Color { RED, GREEN, BLUE };\nint x;\n")
+        out = list(extract_enums_from_file(f))
+        assert out == ["enum Color { RED, GREEN, BLUE };"]
+
+    def test_typedef_enum(self, tmp_path: Path) -> None:
+        f = self._write(tmp_path, "typedef enum { UP, DOWN } Direction;\n")
+        out = list(extract_enums_from_file(f))
+        assert out == ["typedef enum { UP, DOWN } Direction;"]
+
+    def test_named_typedef_enum(self, tmp_path: Path) -> None:
+        f = self._write(tmp_path, "typedef enum Dir { UP, DOWN } Direction;\n")
+        out = list(extract_enums_from_file(f))
+        assert out == ["typedef enum Dir { UP, DOWN } Direction;"]
+
+    def test_enum_with_values_and_structs_ignored(self, tmp_path: Path) -> None:
+        f = self._write(
+            tmp_path,
+            "typedef struct { int a; } S;\nenum Bits { A = 1, B = 2 };\n",
+        )
+        out = list(extract_enums_from_file(f))
+        assert out == ["enum Bits { A = 1, B = 2 };"]
+
+    def test_enum_forward_declaration_skipped(self, tmp_path: Path) -> None:
+        """enum Color; (no body) is a forward decl, not a definition."""
+        f = self._write(tmp_path, "enum Color;\nenum Color { RED };\n")
+        out = list(extract_enums_from_file(f))
+        assert out == ["enum Color { RED };"]
+
+    def test_no_enums_yields_nothing(self, tmp_path: Path) -> None:
+        f = self._write(tmp_path, "int main(void) { return 0; }\n")
+        assert list(extract_enums_from_file(f)) == []

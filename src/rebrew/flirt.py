@@ -76,6 +76,42 @@ def iter_match_offsets(code_size: int, *, stride: int = 16, min_window: int = 32
     return range(0, last_start + 1, stride)
 
 
+def match_text(
+    matcher: Any,
+    code_data: bytes,
+    base_va: int,
+    *,
+    stride: int = _FUNC_ALIGNMENT,
+    max_ambiguous: int = _MAX_AMBIGUOUS,
+) -> list[dict[str, Any]]:
+    """Scan *code_data* with a compiled FLIRT *matcher*.
+
+    Returns one dict per unambiguous match: ``{"va", "size", "name"}`` where
+    *va* is ``base_va + offset``.  Broad signatures (more than
+    *max_ambiguous* candidate names at one offset) are skipped so library
+    identification never guesses.  Shared by ``rebrew flirt``, ``rebrew
+    analyze``, and ``rebrew identify-library``.
+    """
+    matches: list[dict[str, Any]] = []
+    for offset in iter_match_offsets(len(code_data), stride=stride, min_window=_MIN_MATCH_WINDOW):
+        size = find_func_size(code_data, offset)
+        hits = matcher.match(code_data[offset : offset + 1024])
+        if not hits:
+            continue
+        names: list[str] = []
+        for m in hits:
+            for n in m.names:
+                label = n[0] if isinstance(n, tuple) else str(n)
+                if label and label not in names:
+                    names.append(label)
+        if not names:
+            continue
+        if len(names) > max_ambiguous:
+            continue  # ambiguous — never guess
+        matches.append({"va": base_va + offset, "size": size, "name": names[0]})
+    return matches
+
+
 app = typer.Typer(
     help="FLIRT signature scanner for binaries.",
     rich_markup_mode="rich",

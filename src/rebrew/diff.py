@@ -212,6 +212,7 @@ def run_diff(
         cache=p.cc,
         timeout=p.cfg.compile_timeout,
         extra_include_dirs=[str(p.seed_c.parent.resolve())],
+        posix_style=getattr(p.cfg, "compiler_profile", "") in ("gcc", "gcc-pe", "clang"),
     )
     if not (res.ok and res.obj_bytes):
         error_exit(f"Build failed: {res.error_msg}", json_mode=json_output, code=EXIT_ERROR)
@@ -248,6 +249,21 @@ def run_diff(
         blockers = classify_blockers(summary)
         sim = structural_similarity(p.target_bytes, obj_bytes, res.reloc_offsets)
 
+        # Short-candidate triage: target instructions with no compiled
+        # counterpart are the not-yet-decompiled tail (SIZE_MISMATCH class).
+        missing_tail: dict[str, Any] | None = None
+        missing_rows = [
+            i
+            for i in (summary.get("instructions") or [])
+            if i.get("match") == "**" and not (i.get("candidate") or {}).get("disasm")
+        ]
+        if missing_rows:
+            missing_tail = {
+                "count": len(missing_rows),
+                "first": (missing_rows[0].get("target") or {}).get("disasm", ""),
+                "last": (missing_rows[-1].get("target") or {}).get("disasm", ""),
+            }
+
         if json_output:
             summary["structural_similarity"] = {
                 "total_insns": sim.total_insns,
@@ -259,6 +275,8 @@ def run_diff(
                 "structural_ratio": sim.structural_ratio,
                 "flag_sensitive": sim.flag_sensitive,
             }
+            if missing_tail:
+                summary["missing_tail"] = missing_tail
             if blockers:
                 summary["blockers"] = blockers
             if missing_globals:
@@ -302,6 +320,12 @@ def run_diff(
                 console.print("\nAuto-classified blockers:")
                 for b in blockers:
                     console.print(f"  - {b}")
+            if missing_tail:
+                console.print(
+                    f"\n[yellow]{missing_tail['count']} target instruction(s) not yet "
+                    f"decompiled[/yellow] — the C covers {len(obj_bytes)}/{len(p.target_bytes)} "
+                    f"bytes; first missing: [bold]{missing_tail['first']}[/bold]"
+                )
             print_structural_similarity(sim)
 
         if fix_blocker:

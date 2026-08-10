@@ -201,6 +201,60 @@ class TestCollectors:
         assert items[0].match_percent == 85.0
         assert "register swap" in items[0].description
 
+    def test_active_functions_parses_mutations_from_blocker(self) -> None:
+        """A near-diag-written blocker carries '— try: mut_a, ...'; todo must
+        expose it as structured data and a terminal hint."""
+        existing = {
+            0x1000: {
+                "status": "NEAR_MATCHING",
+                "symbol": "func_a",
+                "blocker": (
+                    "NEAR_MATCHING — REGISTER (57% of delta) — try: "
+                    "mut_swap_register_keywords, mut_add_register_keyword, mut_toggle_volatile"
+                ),
+            }
+        }
+        from rebrew.verify import VerifyCacheEntry, VerifyResult
+
+        entries = {
+            "0x00001000": VerifyCacheEntry(
+                source_hash="",
+                filepath="a.c",
+                mtime_ns=0,
+                result=VerifyResult(
+                    status="NEAR_MATCHING",
+                    va=0x1000,
+                    size=100,
+                    filepath="a.c",
+                    name="func_a",
+                    message="",
+                    passed=False,
+                    match_percent=85.0,
+                ),
+            )
+        }
+        items = _collect_active_functions(existing, {0x1000: 100}, {}, entries)
+        assert len(items) == 1
+        assert items[0].category == CAT_IMPROVE_MATCH
+        assert items[0].mutations == [
+            "mut_swap_register_keywords",
+            "mut_add_register_keyword",
+            "mut_toggle_volatile",
+        ]
+        assert "try: mut_swap_register_keywords" in items[0].description
+        d = items[0].to_dict()
+        assert d["mutations"] == items[0].mutations
+
+    def test_active_functions_blocker_without_mutations(self) -> None:
+        """A plain blocker (no '— try:' marker) yields an empty mutation list."""
+        existing = {
+            0x1000: {"status": "NEAR_MATCHING", "symbol": "func_a", "blocker": "register swap"}
+        }
+        items = _collect_active_functions(existing, {}, {}, {})
+        assert len(items) == 1
+        assert items[0].mutations == []
+        assert "mutations" not in items[0].to_dict()
+
     def test_active_functions_skips_finished(self) -> None:
         existing = {
             0x1000: {"status": "EXACT", "symbol": "a"},

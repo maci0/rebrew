@@ -24,7 +24,7 @@ class TestCompilerDefaults:
     """Tests for the COMPILER_DEFAULTS constant."""
 
     def test_has_expected_profiles(self) -> None:
-        assert len(COMPILER_DEFAULTS) == 6
+        assert len(COMPILER_DEFAULTS) == 10
 
     def test_known_profiles(self) -> None:
         assert set(COMPILER_DEFAULTS.keys()) == {
@@ -34,9 +34,27 @@ class TestCompilerDefaults:
             "msvc7",
             "clang",
             "gcc",
+            "gcc-pe",
+            "msvc5",
+            "msvc6.3",
+            "msvc6.6",
         }
 
-    @pytest.mark.parametrize("profile", ["msvc400", "msvc420", "msvc6", "msvc7", "clang", "gcc"])
+    @pytest.mark.parametrize(
+        "profile",
+        [
+            "msvc400",
+            "msvc420",
+            "msvc5",
+            "msvc6",
+            "msvc6.3",
+            "msvc6.6",
+            "msvc7",
+            "clang",
+            "gcc",
+            "gcc-pe",
+        ],
+    )
     def test_required_keys(self, profile: str) -> None:
         """Every profile has command, includes, libs, cflags."""
         data = COMPILER_DEFAULTS[profile]
@@ -102,6 +120,7 @@ class TestTemplateRendering:
             compiler_includes="tools/include",
             compiler_libs="tools/lib",
             cflags="/O2 /Gd",
+            base_cflags="/nologo /c /MT",
         )
         parsed = tomllib.loads(result)
         assert parsed["project"]["name"] == "myproject"
@@ -118,6 +137,7 @@ class TestTemplateRendering:
             compiler_includes="inc",
             compiler_libs="lib",
             cflags="/O2",
+            base_cflags="",
         )
         assert "[project]" in result
         assert "[compiler]" in result
@@ -240,6 +260,94 @@ class TestInit:
         )
         func_list = tmp_path / "src" / "t" / "functions.txt"
         assert func_list.exists()
+
+    def test_binary_original_prefix_stripped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--binary original/bench.exe must not produce original/original/bench.exe."""
+        monkeypatch.chdir(tmp_path)
+        init(
+            target_name="server",
+            binary_name="original/bench.exe",
+            compiler_profile="msvc6",
+            install_wibo=False,
+            json_output=False,
+            install_completions=False,
+        )
+        content = (tmp_path / "rebrew-project.toml").read_text()
+        assert 'binary = "original/bench.exe"' in content
+        assert "original/original/" not in content
+
+    def test_binary_original_prefix_backslash_stripped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        init(
+            target_name="server",
+            binary_name="original\\bench.exe",
+            compiler_profile="msvc6",
+            install_wibo=False,
+            json_output=False,
+            install_completions=False,
+        )
+        content = (tmp_path / "rebrew-project.toml").read_text()
+        assert 'binary = "original/bench.exe"' in content
+
+    def test_link_tools_from_creates_symlink(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--link-tools-from symlinks tools/MSVC600 to the master directory."""
+        master = tmp_path / "master"
+        (master / "MSVC600").mkdir(parents=True)
+        monkeypatch.chdir(tmp_path)
+        init(
+            target_name="t",
+            binary_name="t.exe",
+            compiler_profile="msvc6",
+            install_wibo=False,
+            json_output=False,
+            install_completions=False,
+            toolchain_dir=master,
+        )
+        link = tmp_path / "tools" / "MSVC600"
+        assert link.is_symlink()
+        assert link.resolve() == (master / "MSVC600").resolve()
+
+    def test_link_tools_from_missing_toolchain_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A master dir without the profile's toolchain is a hard error."""
+        master = tmp_path / "master"
+        master.mkdir()
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(Exit):
+            init(
+                target_name="t",
+                binary_name="t.exe",
+                compiler_profile="msvc6",
+                install_wibo=False,
+                json_output=False,
+                install_completions=False,
+                toolchain_dir=master,
+            )
+
+    def test_link_tools_from_path_profiles_skipped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PATH-based profiles (gcc-pe) have nothing to link — no error."""
+        master = tmp_path / "master"
+        master.mkdir()
+        monkeypatch.chdir(tmp_path)
+        init(
+            target_name="t",
+            binary_name="t.exe",
+            compiler_profile="gcc-pe",
+            install_wibo=False,
+            json_output=False,
+            install_completions=False,
+            toolchain_dir=master,
+        )
+        assert not (tmp_path / "tools").exists()
 
     def test_idempotency_guard(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """init() exits with code 1 if rebrew-project.toml already exists."""

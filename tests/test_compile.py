@@ -164,6 +164,98 @@ class TestCompileToObj:
         assert "/FImy forced.h" in captured["cmd"]
 
 
+class TestCompileToObjPosix:
+    """gcc-pe / mingw (POSIX-style) compiler routing."""
+
+    def _run_compile(
+        self, tmp_path: Path, monkeypatch, *, profile: str, cflags: list[str]
+    ) -> list[str]:
+        captured: dict[str, list[str]] = {}
+
+        def _fake_run(cmd: list[str], **_kwargs: object) -> SimpleNamespace:
+            captured["cmd"] = cmd
+            # GCC-style output flag: -o objname
+            out = cmd[cmd.index("-o") + 1]
+            (tmp_path / "work" / out).write_bytes(b"\x00")
+            return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+
+        monkeypatch.setattr("rebrew.compile.subprocess.run", _fake_run)
+        monkeypatch.setattr(
+            "rebrew.compile.resolve_cl_command", lambda _cfg: ["i686-w64-mingw32-gcc"]
+        )
+
+        cfg: Any = SimpleNamespace(
+            root=tmp_path,
+            compiler_includes=tmp_path / "nonexistent-inc",  # must be omitted for gcc
+            base_cflags="-O2",
+            compile_timeout=3,
+            compiler_command="i686-w64-mingw32-gcc",
+            compiler_runner="",
+            compiler_libs=tmp_path,
+            compiler_profile=profile,
+            msvc_env=lambda: {},
+        )
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        source = src_dir / "f.c"
+        source.write_text("int f(void){return 1;}\n", encoding="utf-8")
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+
+        obj_path, err = compile_to_obj(cast(ProjectConfig, cfg), source, cflags, workdir)
+        assert err == ""
+        assert obj_path is not None
+        return captured["cmd"]
+
+    def test_gcc_pe_uses_posix_flags(self, tmp_path: Path, monkeypatch) -> None:
+        cmd = self._run_compile(
+            tmp_path, monkeypatch, profile="gcc-pe", cflags=["-O2", "-fno-builtin"]
+        )
+        # GCC-style: -I/-c/-o, no MSVC /Fo, no /I with empty include path
+        assert "-c" in cmd
+        assert "-o" in cmd
+        assert any(a.startswith("-I") for a in cmd)
+        assert not any(a.startswith("/Fo") for a in cmd)
+        assert not any(a == "-I" for a in cmd)  # no dangling empty include
+        # cflags passed through unchanged
+        assert "-fno-builtin" in cmd
+
+    def test_msvc_profile_unaffected(self, tmp_path: Path, monkeypatch) -> None:
+        captured: dict[str, list[str]] = {}
+
+        def _fake_run(cmd: list[str], **_kwargs: object) -> SimpleNamespace:
+            captured["cmd"] = cmd
+            (tmp_path / "work" / "f.obj").write_bytes(b"\x00")
+            return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+
+        monkeypatch.setattr("rebrew.compile.subprocess.run", _fake_run)
+        monkeypatch.setattr("rebrew.compile.resolve_cl_command", lambda _cfg: ["wine", "CL.EXE"])
+
+        cfg: Any = SimpleNamespace(
+            root=tmp_path,
+            compiler_includes=tmp_path,
+            base_cflags="/nologo /c /MT",
+            compile_timeout=3,
+            compiler_command="wine CL.EXE",
+            compiler_runner="wine",
+            compiler_libs=tmp_path,
+            compiler_profile="msvc6",
+            msvc_env=lambda: {},
+        )
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        source = src_dir / "f.c"
+        source.write_text("int f(void){return 1;}\n", encoding="utf-8")
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+
+        obj_path, err = compile_to_obj(cast(ProjectConfig, cfg), source, ["/O2"], workdir)
+        assert err == ""
+        assert obj_path is not None
+        assert any(a.startswith("/Fo") for a in captured["cmd"])
+        assert "-o" not in captured["cmd"]
+
+
 class TestFilterWineStderr:
     def test_filter_strips_wine_err(self) -> None:
         text = "wine: created the configuration directory\n1234:err:module:foo boom\n"

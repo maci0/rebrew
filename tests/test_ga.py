@@ -519,6 +519,8 @@ class TestRunAllParallel:
             seeds=None,
             cflags_override=None,
             rng_seed=None,
+            resume_from=None,
+            mutation_weights=None,
         ):
             seen.append((stub.symbol, jobs))
             return False, "best_score=5.00"
@@ -579,6 +581,8 @@ class TestRunAllParallel:
             seeds=None,
             cflags_override=None,
             rng_seed=None,
+            resume_from=None,
+            mutation_weights=None,
         ):
             seen.append(jobs)
             return False, "best_score=5.00"
@@ -703,6 +707,8 @@ class TestSweepThenGa:
             seeds=None,
             cflags_override=None,
             rng_seed=None,
+            resume_from=None,
+            mutation_weights=None,
         ):
             seen["override"] = cflags_override
             return False, "best_score=5.00"
@@ -774,6 +780,8 @@ class TestSweepThenGa:
             seeds=None,
             cflags_override=None,
             rng_seed=None,
+            resume_from=None,
+            mutation_weights=None,
         ):
             seen["override"] = cflags_override
             return False, "best_score=5.00"
@@ -1081,6 +1089,7 @@ class TestGABuildCacheKey:
             cache=None,
             timeout=60,
             extra_include_dirs=None,
+            posix_style=False,
         ):
             seen.append(cflags)
             return BuildResult(ok=False, error_msg="fake")
@@ -1227,3 +1236,209 @@ class TestRunOneStubGaPersistsFlags:
         matched, _summary = M._run_one_stub_ga(stub, self._cfg(tmp_path), 1, 4, 1, 5)
         assert not matched
         assert saved == []
+
+
+class TestCrossProjectSeeding:
+    """rebrew match --all --seed-solutions <other-project>/solutions.json.
+
+    Cross-project seeding transfers winning cflags (and source files when
+    they resolve) from another project's solutions into this project's batch
+    GA, so same-size/same-compiler functions start from proven flags.
+    """
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            reversed_dir=tmp_path,
+            metadata_dir=tmp_path,
+            marker="SERVER",
+            source_ext=".c",
+            ignored_symbols=[],
+            target_name="SERVER",
+            root=tmp_path,
+            target_binary=tmp_path / "x.dll",
+        )
+
+    def _stub(self, tmp_path: Path, sym: str, size: int = 64) -> Any:
+        from rebrew.match import StubInfo
+
+        return StubInfo(
+            filepath=tmp_path / f"{sym}.c",
+            va="0x10001000",
+            size=size,
+            symbol=sym,
+            cflags="/O2",
+            status="STUB",
+            module="SERVER",
+        )
+
+    def _run(
+        self,
+        cfg: Any,
+        stubs: list[Any],
+        monkeypatch: pytest.MonkeyPatch,
+        extra_path: Path,
+        *,
+        local_solutions: list[Any] | None = None,
+    ) -> dict[str, Any]:
+        from rebrew.match import _run_all
+        from rebrew.matcher.solutions import SolutionEntry
+
+        # Local solutions: default to a solved entry whose source file does
+        # NOT exist under this project root (cross-project scenario) — and,
+        # by default, no local solutions at all.
+        if local_solutions is None:
+            local_solutions = []
+        extra = [
+            SolutionEntry(
+                symbol="_other_solved",
+                cflags="/O1 /Gd",
+                size=64,
+                source_file="src/other.c",
+                target="OTHER",
+            ),
+        ]
+        monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
+        monkeypatch.setattr("rebrew.matcher.solutions.load_solutions", lambda root: local_solutions)
+        monkeypatch.setattr("rebrew.matcher.solutions.load_solutions_file", lambda p: extra)
+        seen: dict[str, Any] = {}
+
+        def _fake_run(
+            stub,
+            cfg,
+            generations,
+            pop,
+            jobs,
+            timeout,
+            seeds=None,
+            cflags_override=None,
+            rng_seed=None,
+            resume_from=None,
+            mutation_weights=None,
+        ):
+            seen["cflags_override"] = cflags_override
+            seen["seeds"] = seeds
+            return False, "best_score=5.00"
+
+        monkeypatch.setattr("rebrew.match._run_one_stub_ga", _fake_run)
+        _run_all(
+            cfg,
+            jobs=1,
+            generations=1,
+            pop_size=1,
+            timeout_min=1,
+            dry_run=False,
+            min_size=0,
+            max_size=9999,
+            filter_str="",
+            near_miss=False,
+            improve=False,
+            threshold=10,
+            flag_sweep=False,
+            fix_cflags=False,
+            max_stubs=0,
+            seed_from_solved=True,
+            json_output=True,
+            tier="targeted",
+            seed_solutions_path=extra_path,
+        )
+        return seen
+
+    def test_cross_project_cflags_seed_used(self, tmp_path: Path, monkeypatch) -> None:
+        """A solution whose source lives in another project still seeds cflags."""
+
+        cfg = self._cfg(tmp_path)
+        seen = self._run(cfg, [self._stub(tmp_path, "_s0")], monkeypatch, tmp_path / "extra.json")
+        assert seen["cflags_override"] == "/O1 /Gd"
+        assert seen["seeds"] is None  # no local source file to seed
+
+    def test_local_source_seed_and_cross_cflags_combine(self, tmp_path: Path, monkeypatch) -> None:
+        """A resolvable local source seeds the population; the same-size
+        cross-project solution still contributes its cflags."""
+        from rebrew.matcher.solutions import SolutionEntry
+
+        cfg = self._cfg(tmp_path)
+        (cfg.root / "src").mkdir(exist_ok=True)
+        (cfg.root / "src" / "solved.c").write_text("int f(void) { return 0; }\n")
+        local = [
+            SolutionEntry(
+                symbol="_local_solved",
+                cflags="",  # no cflags of its own — the cross-project one applies
+                size=64,
+                source_file="src/solved.c",
+                target="SERVER",
+            )
+        ]
+        seen = self._run(
+            cfg,
+            [self._stub(tmp_path, "_s0")],
+            monkeypatch,
+            tmp_path / "extra.json",
+            local_solutions=local,
+        )
+        assert seen["seeds"] == [str(cfg.root / "src" / "solved.c")]
+        assert seen["cflags_override"] == "/O1 /Gd"
+
+    def test_extra_solutions_deduped_on_merge(self, tmp_path: Path, monkeypatch) -> None:
+        """(target, symbol) duplicates across local+extra merge to one entry."""
+        from rebrew.match import _run_all
+        from rebrew.matcher.solutions import SolutionEntry
+
+        cfg = self._cfg(tmp_path)
+        stubs = [self._stub(tmp_path, "_s0")]
+        monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
+        monkeypatch.setattr(
+            "rebrew.matcher.solutions.load_solutions",
+            lambda root: [
+                SolutionEntry(
+                    symbol="_a", cflags="/O2", size=64, source_file="x.c", target="SERVER"
+                )
+            ],
+        )
+        monkeypatch.setattr(
+            "rebrew.matcher.solutions.load_solutions_file",
+            lambda p: [
+                SolutionEntry(
+                    symbol="_a", cflags="/O1", size=64, source_file="y.c", target="SERVER"
+                ),
+                SolutionEntry(
+                    symbol="_b", cflags="/O1", size=64, source_file="z.c", target="SERVER"
+                ),
+            ],
+        )
+        captured: dict[str, Any] = {}
+
+        def _fake_find_similar(project_root, *, entries=None, **kw):  # noqa: ARG001
+            captured["entries"] = entries
+            return []
+
+        monkeypatch.setattr("rebrew.matcher.solutions.find_similar", _fake_find_similar)
+        monkeypatch.setattr(
+            "rebrew.match._run_one_stub_ga",
+            lambda *a, **k: (False, "best_score=5.00"),
+        )
+        _run_all(
+            cfg,
+            jobs=1,
+            generations=1,
+            pop_size=1,
+            timeout_min=1,
+            dry_run=False,
+            min_size=0,
+            max_size=9999,
+            filter_str="",
+            near_miss=False,
+            improve=False,
+            threshold=10,
+            flag_sweep=False,
+            fix_cflags=False,
+            max_stubs=0,
+            seed_from_solved=True,
+            json_output=True,
+            tier="targeted",
+            seed_solutions_path=tmp_path / "extra.json",
+        )
+        entries = captured["entries"]
+        assert len(entries) == 2  # _a (local wins) + _b
+        symbols = [e.symbol for e in entries]
+        assert symbols.count("_a") == 1
+        assert entries[0].cflags == "/O2"  # local entry kept, not the extra copy

@@ -124,13 +124,14 @@ class TestShouldPromoteStatusInvariants:
     def test_stub_to_size_mismatch_refused(self, current: str) -> None:
         if current == "STUB":
             assert should_promote_status(current, "SIZE_MISMATCH") is False
+            assert should_promote_status(current, "MISSING_SIZE") is False
 
     @given(st.sampled_from(_STATUSES), st.sampled_from(_STATUSES))
     def test_symmetric_under_rule_set(self, current: str, new: str) -> None:
         """A promotion is allowed iff none of the three refusal rules fire."""
         expected = (
             not is_status_sticky(current)
-            and not (current == "STUB" and new == "SIZE_MISMATCH")
+            and not (current == "STUB" and new in ("SIZE_MISMATCH", "MISSING_SIZE"))
             and current != new
         )
         assert should_promote_status(current, new) is expected

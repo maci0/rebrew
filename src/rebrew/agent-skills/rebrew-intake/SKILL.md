@@ -53,6 +53,37 @@ above the same function body.
 
 ## Intake Procedure
 
+### 0. Fast Path — `rebrew intake`
+
+For a brand-new project directory, `rebrew intake <binary>` performs the whole
+onboarding in one shot: toolchain detection → `rebrew init` with a matching
+profile → copy binary → symlink vendored toolchain → rizin `functions.txt`
+(`aaa`, `aap` fallback) → document every function (STUB .c + metadata blocker).
+The result is a lint-clean project where every function is matched or
+blocker-documented.  Use `--profile` to override the auto-detected profile,
+`--dry-run` to preview.  Use the manual procedure below when you need to
+customize a step.
+
+### 0b. Identify the Toolchain First
+
+Before anything else, determine the compiler family — it decides the whole
+pipeline (MSVC6 vs MinGW GCC):
+
+- `file <binary>` + section list: a `.buildid` section, GNU-style `0f 1f`
+  multi-byte nops, and a `mov eax, N; call ___chkstk_ms` stack probe mean
+  **MinGW GCC**, not MSVC.
+- Imports: MSVC static-CRT binaries import KERNEL32 broadly (`GetCommandLineA`,
+  `HeapCreate`, ...).  A standalone MinGW build imports only a handful
+  (`ExitProcess`, `GetStdHandle`, `WriteFile`, ...) and FLIRT finds zero
+  matches (no MSVC CRT).
+- If MinGW: `rebrew init --compiler gcc-pe` (see `docs/TOOLCHAIN.md`).
+  Function discovery needs `rizin -qc 'aa; aap; afl'` — `aaa` mis-merges
+  functions on this toolchain.  Note that byte-exact matching requires the
+  author's exact GCC version; old builds typically match structurally only
+  (document the semantic decomp + blocker the byte delta).
+- If MSVC: continue with FLIRT from `msvcrt.lib` **and** `libcmt.lib`
+  (statically-linked CRT code only matches libcmt signatures).
+
 ### 1. Health Check — run `rebrew doctor` first
 
 ```bash

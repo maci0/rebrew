@@ -1,11 +1,15 @@
 """Tests for near_diag.py — NEAR_MATCHING delta classification."""
 
+from pathlib import Path
+from typing import Any
+
 import rebrew.near_diag as nd
 
 # Hand-crafted 32-bit x86 encodings.
 MOV_EAX_EBX = b"\x89\xd8"  # mov eax, ebx
 MOV_EAX_ECX = b"\x89\xc8"  # mov eax, ecx
 MOV_EAX_1 = b"\xb8\x01\x00\x00\x00"  # mov eax, 1
+MOV_EAX_2 = b"\xb8\x02\x00\x00\x00"  # mov eax, 2
 LEA_EAX_ECX = b"\x8d\x41\x00"  # lea eax, [ecx]
 ADD_EAX_1 = b"\x83\xc0\x01"  # add eax, 1
 XOR_EAX_EAX = b"\x31\xc0"  # xor eax, eax
@@ -169,6 +173,33 @@ class TestSecondarySuggestion:
         assert "Also:" not in result["suggestion"]
 
 
+class TestRelocVerdictHonesty:
+    """A RELOC-dominant verdict must not claim "RELOC-level" when real
+    (invalid-reloc) bytes differ — the canonical status is then NEAR_MATCHING."""
+
+    def _verdict(self, counts: dict[str, int], total: int) -> tuple[str, str]:
+        from rebrew.near_diag import _verdict
+
+        return _verdict(counts, total)
+
+    def test_reloc_with_real_bytes_names_them(self) -> None:
+        label, suggestion = self._verdict(
+            {"match": 0, "register": 0, "equivalent": 0, "reloc": 90, "structural": 10},
+            100,
+        )
+        assert "RELOC" in label
+        assert "NEAR_MATCHING-level" in suggestion
+        assert "RELOC-level" not in suggestion
+        assert "10 real byte(s)" in suggestion
+
+    def test_reloc_without_real_bytes_stays_reloc_level(self) -> None:
+        _, suggestion = self._verdict(
+            {"match": 0, "register": 0, "equivalent": 0, "reloc": 100, "structural": 0},
+            100,
+        )
+        assert "RELOC-level" in suggestion
+
+
 class TestSecondarySuggestionBoundary:
     """The >=25% threshold fires at exactly 25%."""
 
@@ -189,3 +220,430 @@ class TestSecondarySuggestionBoundary:
         counts = {"match": 0, "register": 2, "equivalent": 0, "reloc": 0, "structural": 8}
         _, suggestion = _verdict(counts, 10)
         assert "Also:" not in suggestion
+
+
+class TestMutationSuggestions:
+    """H6: every verdict category maps to GA mutation operators."""
+
+    def test_every_category_has_suggestions_or_is_reloc(self) -> None:
+        from rebrew.near_diag import _MUTATION_SUGGESTIONS
+
+        for category in ("register", "equivalent", "structural"):
+            assert _MUTATION_SUGGESTIONS[category], f"{category} has no suggestions"
+        # reloc is RELOC-level — deliberately no mutation suggestions.
+        assert _MUTATION_SUGGESTIONS["reloc"] == []
+
+    def test_operators_exist_in_mutator(self) -> None:
+        """Every suggested operator must be a real mut_* in mutator.py."""
+        import re
+        from pathlib import Path
+
+        from rebrew.matcher import mutator
+        from rebrew.near_diag import _MUTATION_SUGGESTIONS
+
+        source = Path(mutator.__file__).read_text(encoding="utf-8")
+        defined = set(re.findall(r"^def (mut_\w+)\(", source, re.M))
+        for category, ops in _MUTATION_SUGGESTIONS.items():
+            for op in ops:
+                assert op in defined, f"{op} (for {category}) not in mutator.py"
+
+    def test_analyze_returns_mutations(self) -> None:
+        from rebrew.near_diag import analyze
+
+        target = bytes.fromhex("55 8b ec 8b 45 08 5d c3")  # mov eax, [ebp+8]
+        compiled = bytes.fromhex("55 8b ec 8b 45 0c 5d c3")  # mov eax, [ebp+0xc]
+        result = analyze(target, compiled, {}, 0x401000)
+        assert "mutations" in result
+        # register-dominant verdict → register operators suggested.
+        if result["verdict"].startswith("REGISTER"):
+            assert result["mutations"]
+
+    def test_secondary_category_adds_operators(self) -> None:
+        """A structural-dominant delta with a >=15% register component must
+        suggest BOTH categories' operators — the register fix is otherwise
+        invisible."""
+        from rebrew.near_diag import analyze, mutation_suggestions
+
+        target = MOV_EAX_1 * 3 + MOV_EAX_EBX * 2 + RET
+        compiled = MOV_EAX_2 * 3 + MOV_EAX_ECX * 2 + RET
+        result = analyze(target, compiled, {}, 0x1000)
+        # 3x mov eax,1 vs mov eax,2 → structural (immediates differ); the
+        # register pair is the 2 same-mnemonic movs with different registers.
+        assert result["verdict"].startswith("STRUCTURAL"), result["verdict"]
+        mutations = result["mutations"]
+        reg_ops = mutation_suggestions("register")
+        struct_ops = mutation_suggestions("structural")
+        assert any(op in mutations for op in struct_ops)
+        # The register component must contribute its operators too.
+        assert any(op in mutations for op in reg_ops)
+
+
+class TestFixBlocker:
+    """near-diag --fix-blocker writes the verdict as BLOCKER metadata."""
+
+    def test_blocker_text_non_match(self) -> None:
+        from rebrew.near_diag import _blocker_text
+
+        text = _blocker_text(
+            {"verdict": "REGISTER (90% of delta)", "suggestion": "Register allocation differs."}
+        )
+        assert text.startswith("NEAR_MATCHING — REGISTER")
+        assert "Register allocation" in text
+
+    def test_blocker_text_short(self) -> None:
+        from rebrew.near_diag import _blocker_text
+
+        assert len(_blocker_text({"verdict": "STRUCTURAL", "suggestion": "x" * 500})) <= 200
+
+    def test_blocker_text_includes_mutations(self) -> None:
+        from rebrew.near_diag import _blocker_text
+
+        text = _blocker_text(
+            {
+                "verdict": "REGISTER (75% of delta)",
+                "suggestion": "Register allocation differs.",
+                "mutations": ["mut_swap_register_keywords", "mut_add_register_keyword"],
+            }
+        )
+        assert "try: mut_swap_register_keywords, mut_add_register_keyword" in text
+        assert "Register allocation" in text
+        assert len(text) <= 200
+
+    def test_blocker_text_mutations_outrank_suggestion_tail(self) -> None:
+        from rebrew.near_diag import _blocker_text
+
+        # A huge mutation list + long suggestion must keep the mutations and
+        # the suggestion's first sentence (or drop the tail), never exceed 200.
+        text = _blocker_text(
+            {
+                "verdict": "STRUCTURAL (99% of delta)",
+                "suggestion": "Control flow / block layout differs. " + "x" * 400,
+                "mutations": [f"mut_m{i}" for i in range(16)],
+            }
+        )
+        assert "try: mut_m0, mut_m1, mut_m2, mut_m3, mut_m4" in text
+        assert len(text) <= 200
+
+    def test_cli_writes_blocker(self, tmp_path: Path, monkeypatch, capsys) -> None:
+        from types import SimpleNamespace as NS
+
+        from typer.testing import CliRunner
+
+        from rebrew.near_diag import app
+
+        cfg = NS(
+            root=tmp_path,
+            reversed_dir=tmp_path,
+            metadata_dir=tmp_path,
+            marker="S",
+            source_ext=".c",
+            target_name="S",
+            target_binary=tmp_path / "x.exe",
+        )
+        monkeypatch.setattr(
+            "rebrew.near_diag.require_config", lambda target=None, json_mode=False: cfg
+        )
+        monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, s: s)
+        src = tmp_path / "f.c"
+        src.write_text(
+            "// FUNCTION: S 0x1000\n// SIZE: 8\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        calls: list[object] = []
+        monkeypatch.setattr(
+            "rebrew.metadata.set_field",
+            lambda *a, **k: calls.append((a, k)),
+        )
+        # Mock the analysis pipeline so no compile is needed.
+        monkeypatch.setattr(
+            "rebrew.near_diag.analyze",
+            lambda *a, **k: {
+                "verdict": "REGISTER (90% of delta)",
+                "suggestion": "Register allocation differs.",
+                "mutations": [],
+                "categories": {},
+            },
+        )
+        monkeypatch.setattr(
+            "rebrew.annotation.parse_c_file_multi",
+            lambda *a, **k: [NS(va=0x1000, size=8, symbol="_f", module="S", cflags="")],
+        )
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x55\x8b\xec\x5d\xc3"
+        )
+        monkeypatch.setattr("rebrew.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), ""))
+        monkeypatch.setattr(
+            "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
+            lambda *a, **k: (b"\x90" * 8, {}, []),
+        )
+        result = CliRunner().invoke(app, ["--fix-blocker", str(src)])
+        assert result.exit_code == 0, result.output
+        assert len(calls) == 1
+        args, kwargs = calls[0]
+        assert args[1] == 0x1000  # va
+        assert args[2] == "blocker"
+        assert "NEAR_MATCHING — REGISTER" in args[3]
+
+
+class TestAllBatch:
+    """near-diag --all classifies every NEAR_MATCHING function."""
+
+    def _invoke(
+        self,
+        monkeypatch,
+        tmp_path: Path,
+        args: list[str],
+        annos,
+        compile_fn=None,
+    ) -> Any:
+        from types import SimpleNamespace as NS
+
+        from typer.testing import CliRunner
+
+        from rebrew.near_diag import app
+
+        cfg = NS(
+            root=tmp_path,
+            reversed_dir=tmp_path,
+            metadata_dir=tmp_path,
+            marker="S",
+            source_ext=".c",
+            target_name="S",
+            target_binary=tmp_path / "x.exe",
+        )
+        monkeypatch.setattr(
+            "rebrew.near_diag.require_config", lambda target=None, json_mode=False: cfg
+        )
+        monkeypatch.setattr("rebrew.cli.iter_sources", lambda *a, **k: [tmp_path / "f.c"])
+        monkeypatch.setattr("rebrew.annotation.parse_c_file_multi", lambda *a, **k: annos)
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x55\x8b\xec\x5d\xc3"
+        )
+        monkeypatch.setattr(
+            "rebrew.compile.compile_to_obj",
+            compile_fn or (lambda *a, **k: (Path("o.obj"), "")),
+        )
+        monkeypatch.setattr(
+            "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
+            lambda *a, **k: (b"\x90" * 8, {}, []),
+        )
+        monkeypatch.setattr(
+            "rebrew.near_diag.analyze",
+            lambda *a, **k: {
+                "verdict": "REGISTER (90% of delta)",
+                "suggestion": "Register allocation differs.",
+                "mutations": ["mut_swap_register_keywords"],
+                "categories": {"register": {"bytes": 7, "percent": 90.0}},
+            },
+        )
+        calls: list[object] = []
+        monkeypatch.setattr("rebrew.metadata.set_field", lambda *a, **k: calls.append((a, k)))
+        result = CliRunner().invoke(app, args)
+        return result, calls
+
+    def test_all_with_source_arg_errors(self, monkeypatch, tmp_path: Path) -> None:
+        from types import SimpleNamespace as NS
+
+        from typer.testing import CliRunner
+
+        from rebrew.near_diag import app
+
+        monkeypatch.setattr(
+            "rebrew.near_diag.require_config",
+            lambda target=None, json_mode=False: NS(
+                root=tmp_path,
+                reversed_dir=tmp_path,
+                metadata_dir=tmp_path,
+                marker="S",
+                source_ext=".c",
+                target_name="S",
+                target_binary=tmp_path / "x.exe",
+            ),
+        )
+        result = CliRunner().invoke(app, ["--all", "somefile.c"])
+        assert result.exit_code == 1
+        assert "cannot be combined with --all" in result.output
+
+    def test_all_with_va_errors(self, monkeypatch, tmp_path: Path) -> None:
+        from types import SimpleNamespace as NS
+
+        from typer.testing import CliRunner
+
+        from rebrew.near_diag import app
+
+        monkeypatch.setattr(
+            "rebrew.near_diag.require_config",
+            lambda target=None, json_mode=False: NS(
+                root=tmp_path,
+                reversed_dir=tmp_path,
+                metadata_dir=tmp_path,
+                marker="S",
+                source_ext=".c",
+                target_name="S",
+                target_binary=tmp_path / "x.exe",
+            ),
+        )
+        result = CliRunner().invoke(app, ["--all", "--va", "0x1000"])
+        assert result.exit_code == 1
+        assert "--va cannot be combined with --all" in result.output
+
+    def test_batch_writes_blockers_for_each(self, monkeypatch, tmp_path: Path) -> None:
+        from types import SimpleNamespace as NS
+
+        annos = [
+            NS(va=0x1000, size=8, symbol="_f", module="S", cflags="", status="NEAR_MATCHING"),
+            NS(va=0x2000, size=8, symbol="_g", module="S", cflags="", status="NEAR_MATCHING"),
+        ]
+        result, calls = self._invoke(
+            monkeypatch, tmp_path, ["--all", "--fix-blocker", "--json"], annos
+        )
+        assert result.exit_code == 0, result.output
+        assert len(calls) == 2
+        assert calls[0][0][1] == 0x1000
+        assert calls[1][0][1] == 0x2000
+        import json
+
+        payload = json.loads(result.output)
+        assert payload["total"] == 2
+        assert payload["classified"] == 2
+        assert payload["failed"] == 0
+        assert payload["results"][0]["blocker_written"] is True
+
+    def test_batch_no_candidates(self, monkeypatch, tmp_path: Path) -> None:
+        from types import SimpleNamespace as NS
+
+        # Only a STUB annotation — nothing NEAR_MATCHING to diagnose.
+        annos = [NS(va=0x1000, size=8, symbol="_f", module="S", cflags="", status="STUB")]
+        result, calls = self._invoke(monkeypatch, tmp_path, ["--all", "--json"], annos)
+        assert result.exit_code == 0, result.output
+        assert calls == []
+        import json
+
+        payload = json.loads(result.output)
+        assert payload["total"] == 0
+        assert payload["results"] == []
+
+    def test_batch_compile_error_continues(self, monkeypatch, tmp_path: Path) -> None:
+        from types import SimpleNamespace as NS
+
+        annos = [
+            NS(va=0x1000, size=8, symbol="_f", module="S", cflags="", status="NEAR_MATCHING"),
+            NS(va=0x2000, size=8, symbol="_g", module="S", cflags="", status="NEAR_MATCHING"),
+        ]
+        # The FIRST function fails to compile; the batch must continue and
+        # still diagnose the second one.
+        failures = {"fail": True}
+
+        def fake_compile(*a, **k):
+            if failures["fail"]:
+                failures["fail"] = False
+                return None, "syntax error"
+            return Path("o.obj"), ""
+
+        result, calls = self._invoke(
+            monkeypatch,
+            tmp_path,
+            ["--all", "--fix-blocker", "--json"],
+            annos,
+            compile_fn=fake_compile,
+        )
+        assert result.exit_code == 0, result.output
+        assert len(calls) == 1  # only the second function got its blocker
+        assert calls[0][0][1] == 0x2000
+        import json
+
+        payload = json.loads(result.output)
+        assert payload["total"] == 2
+        assert payload["classified"] == 1
+        assert payload["failed"] == 1
+        assert payload["results"][0]["error"] is not None
+        assert payload["results"][1]["verdict"].startswith("REGISTER")
+
+
+class TestValidatedRelocMasking:
+    """near-diag must mask ONLY relocation sites that survive the same
+    DIR32/REL32 address validation as rebrew test/verify (H: near-diag
+    reported "RELOC-level" for functions test classifies NEAR_MATCHING)."""
+
+    MOV_EAX_1 = b"\xb8\x01\x00\x00\x00"  # mov eax, 1
+    MOV_EAX_2 = b"\xb8\x02\x00\x00\x00"  # mov eax, 2
+    MOV_EAX_3 = b"\xb8\x03\x00\x00\x00"  # mov eax, 3
+
+    def _invoke_diag(
+        self, monkeypatch, tmp_path: Path, compiled: bytes, target: bytes, reloc_fn=None
+    ) -> dict:
+        import json
+        from types import SimpleNamespace as NS
+
+        from typer.testing import CliRunner
+
+        from rebrew.near_diag import app
+
+        cfg = NS(
+            root=tmp_path,
+            reversed_dir=tmp_path,
+            metadata_dir=tmp_path,
+            marker="S",
+            source_ext=".c",
+            target_name="S",
+            target_binary=tmp_path / "x.exe",
+        )
+        monkeypatch.setattr(
+            "rebrew.near_diag.require_config", lambda target=None, json_mode=False: cfg
+        )
+        monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, s: s)
+        src = tmp_path / "f.c"
+        src.write_text(
+            "// FUNCTION: S 0x1000\n// SIZE: 10\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            "rebrew.annotation.parse_c_file_multi",
+            lambda *a, **k: [NS(va=0x1000, size=10, symbol="_f", module="S", cflags="")],
+        )
+        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: target)
+        monkeypatch.setattr("rebrew.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), ""))
+        monkeypatch.setattr(
+            "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
+            lambda *a, **k: (compiled, {0: "_g", 5: "_h"}, []),
+        )
+        monkeypatch.setattr("rebrew.core.build_name_to_va", lambda cfg: {"_g": 0x5000})
+        monkeypatch.setattr(
+            "rebrew.core.smart_reloc_compare",
+            reloc_fn or (lambda *a, **k: (False, 0, 10, [0], [5])),
+        )
+        result = CliRunner().invoke(app, ["--json", str(src)])
+        assert result.exit_code == 0, result.output
+        return json.loads(result.output)
+
+    def test_invalid_reloc_classified_as_structural(self, monkeypatch, tmp_path: Path) -> None:
+        # Compiled bytes 1,2 vs target 1,3: site 0 validates (masked), site 5
+        # does not — the second mov must be classified (structural), not masked.
+        payload = self._invoke_diag(
+            monkeypatch,
+            tmp_path,
+            self.MOV_EAX_1 + self.MOV_EAX_2,
+            self.MOV_EAX_1 + self.MOV_EAX_3,
+        )
+        cats = payload["categories"]
+        assert cats["reloc"]["bytes"] == 5
+        assert cats["structural"]["bytes"] == 5
+
+    def test_valid_reloc_still_masked(self, monkeypatch, tmp_path: Path) -> None:
+        # Both sites validate → both instructions masked → reloc dominates.
+        payload = self._invoke_diag(
+            monkeypatch,
+            tmp_path,
+            self.MOV_EAX_1 + self.MOV_EAX_2,
+            self.MOV_EAX_1 + self.MOV_EAX_3,
+            reloc_fn=lambda *a, **k: (False, 0, 10, [0, 5], []),
+        )
+        cats = payload["categories"]
+        assert cats["reloc"]["bytes"] == 10
+        assert cats["structural"]["bytes"] == 0
+
+    def test_analyze_accepts_set_offsets(self) -> None:
+        # The widened reloc_offsets annotation must accept a plain set.
+        result = nd.analyze(MOV_EAX_1 + RET, MOV_EAX_1 + RET, {1}, 0x1000)
+        assert result["categories"]["reloc"]["bytes"] == 5
+        assert result["categories"]["match"]["bytes"] == 1

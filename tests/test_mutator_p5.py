@@ -295,3 +295,55 @@ class TestMutDummyStackVars:
             "int foo(void) { " + " ".join(f"int _spad_{i};" for i in range(100)) + " return 1; }\n"
         )
         assert mut_dummy_stack_vars(src, random.Random(42)) is None
+
+
+class TestMutHoistRepeatedDeref:
+    """L2: hoist repeated absolute-pointer derefs into a kept-live local."""
+
+    def test_hoists_repeated_address(self) -> None:
+        import random
+
+        from rebrew.matcher.mutator import mut_hoist_repeated_deref
+
+        src = (
+            "void f(void) {\n"
+            "    void *p;\n"
+            "    if (!*(void **)0x415880) return;\n"
+            "    p = *(void **)(*(char **)0x415880 + 0x14);\n"
+            "    if (p) { *(void **)(*(char **)0x415880 + 0x14) = 0; }\n"
+            "}\n"
+        )
+        out = mut_hoist_repeated_deref(src, random.Random(1))
+        assert out is not None
+        assert "void *_ptr" in out
+        # Exactly one occurrence of the address remains (the initializer).
+        assert out.count("0x415880") == 1
+        # The guard and the field access read the hoisted local.
+        assert "if (!_ptr" in out
+        assert "+ 0x14" in out and "_ptr" in out
+
+    def test_single_deref_no_change(self) -> None:
+        import random
+
+        from rebrew.matcher.mutator import mut_hoist_repeated_deref
+
+        src = "void f(void) { if (!*(void **)0x415880) return; }\n"
+        assert mut_hoist_repeated_deref(src, random.Random(1)) is None
+
+    def test_distinct_addresses_no_change(self) -> None:
+        import random
+
+        from rebrew.matcher.mutator import mut_hoist_repeated_deref
+
+        src = (
+            "void f(void) {\n"
+            "    if (!*(void **)0x1000) return;\n"
+            "    if (!*(void **)0x2000) return;\n"
+            "}\n"
+        )
+        assert mut_hoist_repeated_deref(src, random.Random(1)) is None
+
+    def test_mutation_registered(self) -> None:
+        from rebrew.matcher.mutator import ALL_MUTATIONS, mut_hoist_repeated_deref
+
+        assert mut_hoist_repeated_deref in ALL_MUTATIONS

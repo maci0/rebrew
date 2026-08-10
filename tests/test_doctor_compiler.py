@@ -70,6 +70,40 @@ class TestCheckCompiler:
         )
         assert "MSVC400" in result.fix
 
+    def test_wine_cl_missing_msvc63_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The SP3 toolchain ships from the decomp.me mirror, not itsmattkc."""
+        monkeypatch.setattr(
+            "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
+        )
+        result = check_compiler(_cfg(compiler_command="wine Bin/CL.EXE", root=Path("/opt/msvc6.3")))
+        assert "OmniBlade" in result.fix
+        assert "msvc6.3.tar.gz" in result.fix
+        assert "itsmattkc" not in result.fix  # msvc6.3 must not hit the SP6-era hint
+
+    def test_wine_cl_missing_msvc70_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
+        )
+        result = check_compiler(_cfg(compiler_command="wine Bin/cl.exe", root=Path("/opt/msvc7.0")))
+        assert "msvc7.0.tar.gz" in result.fix
+
+    def test_wine_cl_missing_msvc500_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """VC5.0 (archaic-msvc) gets the codeload URL, not itsmattkc."""
+        monkeypatch.setattr(
+            "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
+        )
+        result = check_compiler(_cfg(compiler_command="wine bin/cl.exe", root=Path("/opt/MSVC500")))
+        assert "archaic-msvc" in result.fix
+        assert "msvc500" in result.fix
+
+    def test_wine_cl_missing_watcom_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
+        )
+        result = check_compiler(_cfg(compiler_command="wine bin/wcc.exe", root=Path("/opt/wcc11")))
+        assert "Watcom" in result.fix
+        assert "wcc11.0.tar.gz" in result.fix
+
     def test_wine_smoke_test_pass(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import subprocess
 
@@ -361,3 +395,70 @@ class TestCheckOptionalTools:
         assert any(c.name == "Optional tools" for c in report.checks)
         # And the real check_optional_tools is still what produces that name.
         assert check_optional_tools(cfg).name == "Optional tools"  # type: ignore[arg-type]
+
+
+class TestCheckToolchainAlignment:
+    def _cfg(self, **overrides: object) -> SimpleNamespace:
+        defaults: dict = {
+            "target_binary": Path("/nonexistent.exe"),
+            "compiler_profile": "msvc6",
+            "compiler_command": "wine CL.EXE",
+            "compiler_runner": "wine",
+            "root": Path("/tmp/proj"),
+        }
+        defaults.update(overrides)
+        return SimpleNamespace(**defaults)
+
+    def _cfg_with_binary(self, tmp_path: Path, **overrides: object) -> SimpleNamespace:
+        binary = tmp_path / "original" / "game.exe"
+        binary.parent.mkdir(parents=True)
+        binary.write_bytes(b"MZ")
+        return self._cfg(target_binary=binary, **overrides)
+
+    def test_missing_binary_skips(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.doctor import _SKIP, check_toolchain_alignment
+
+        result = check_toolchain_alignment(self._cfg())
+        assert result.status == _SKIP
+
+    def test_mismatch_fails(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        from rebrew.doctor import _FAIL, check_toolchain_alignment
+        from rebrew.toolchain_detect import ToolchainInfo
+
+        monkeypatch.setattr(
+            "rebrew.toolchain_detect.detect_toolchain",
+            lambda *a, **k: ToolchainInfo(
+                family="delphi", confidence="high", version_hint="Borland Delphi 2"
+            ),
+        )
+        result = check_toolchain_alignment(self._cfg_with_binary(tmp_path))
+        assert result.status == _FAIL
+        assert "delphi" in result.message
+        assert "Delphi" in (result.fix or "")
+
+    def test_aligned_passes(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        from rebrew.doctor import _PASS, check_toolchain_alignment
+        from rebrew.toolchain_detect import ToolchainInfo
+
+        monkeypatch.setattr(
+            "rebrew.toolchain_detect.detect_toolchain",
+            lambda *a, **k: ToolchainInfo(
+                family="msvc", confidence="high", version_hint="MSVC 6.0"
+            ),
+        )
+        result = check_toolchain_alignment(self._cfg_with_binary(tmp_path))
+        assert result.status == _PASS
+
+    def test_zig_caveat_warns(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        from rebrew.doctor import _WARN, check_toolchain_alignment
+        from rebrew.toolchain_detect import ToolchainInfo
+
+        monkeypatch.setattr(
+            "rebrew.toolchain_detect.detect_toolchain",
+            lambda *a, **k: ToolchainInfo(family="zig", confidence="high", version_hint="Zig/LLVM"),
+        )
+        result = check_toolchain_alignment(
+            self._cfg_with_binary(tmp_path, compiler_profile="gcc-pe")
+        )
+        assert result.status == _WARN
+        assert "structural" in (result.fix or "")
