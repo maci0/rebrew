@@ -748,8 +748,9 @@ def main(
     fix_sizes: bool = typer.Option(
         False,
         "--fix-sizes",
-        help="Correct annotation SIZE from the binary-derived size for every "
-        "reported divergence (stale sizes cause false SIZE_MISMATCH)",
+        help="Correct annotation SIZE from the binary-derived size: stale sizes "
+        "(false SIZE_MISMATCH) and missing sizes (MISSING_SIZE stubs, which "
+        "rebrew test refuses) are both backfilled into metadata",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     watch: bool = typer.Option(

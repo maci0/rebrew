@@ -1,6 +1,21 @@
 ## [Unreleased]
 
 ### Added
+- `rebrew verify --fix-sizes` now backfills **missing** annotation SIZEs,
+  not just stale ones: intake/documented stubs without a SIZE (which
+  `rebrew test` refused with "Invalid SIZE: 0" and verify reported as
+  MISSING_SIZE forever) get the binary-derived canonical size written into
+  metadata.  Reported separately as `missing_sizes` in the JSON report.
+- `rebrew intake` / `rebrew document-unmatched` record the
+  disassembly-derived SIZE in metadata when documenting stubs, so newly
+  documented functions are testable out of the box.
+- `rebrew todo` no longer surfaces a MISSING_SIZE stub's vacuous 0-byte
+  delta as a fake "0B diff" fix-delta quick-win — it classifies as
+  missing-annotation with the `rebrew verify --fix-sizes` self-heal
+  command.  IAT thunks / Delphi stubs (blocker-marked documented
+  non-targets) move to a new audit-only `documented` category, hidden from
+  the actionable list but visible via `rebrew todo -c documented` and
+  counted in coverage stats / JSON.
 - `rebrew analyze <binary>` now works **standalone outside a project** —
   the binary argument becomes required when no `rebrew-project.toml` is
   found. Project-scoped sections (FLIRT sigs, library headers, near-match
