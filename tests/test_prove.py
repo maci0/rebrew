@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from rebrew.prove import _apply_arg_constraints, _parse_prototype
+from rebrew.prove import _apply_arg_constraints, _parse_prototype, prove_equivalence
 
 has_angr = importlib.util.find_spec("angr") is not None
 
@@ -1186,3 +1186,45 @@ class TestMaxDeltaFilter:
         )
         # Only the delta-2 candidate (and the unknown-delta one) pass the gate.
         assert len(seen) == 2
+
+
+@pytest.mark.skipif(
+    not has_angr,
+    reason="angr not installed (run 'uv sync --all-extras' to enable prove tests)",
+)
+class TestProveEquivalenceBytes:
+    """End-to-end semantic equivalence on synthetic x86-32 blobs.
+
+    Exercises the full angr symbolic-execution path (blob backend, symbolic
+    args, Z3 state-pair comparison) without a compiler or target binary —
+    the bytes ARE the fixture.  Pins the core verdicts: equivalent
+    implementations prove True, differing ones prove False.
+    """
+
+    def test_equivalent_different_encodings(self) -> None:
+        """mov eax,5;ret vs push 5;pop eax;ret — same semantics, different bytes."""
+        a = bytes.fromhex("B8 05 00 00 00 C3")
+        b = bytes.fromhex("6A 05 58 C3")
+        proven, msg = prove_equivalence(a, b, {}, "int f(void)", timeout=30)
+        assert proven, msg
+
+    def test_not_equivalent_constant(self) -> None:
+        """mov eax,5;ret vs mov eax,6;ret — Z3 must find the EAX difference."""
+        a = bytes.fromhex("B8 05 00 00 00 C3")
+        b = bytes.fromhex("B8 06 00 00 00 C3")
+        proven, msg = prove_equivalence(a, b, {}, "int f(void)", timeout=30)
+        assert not proven
+        assert "EAX" in msg or "differs" in msg
+
+    def test_equivalent_register_trick(self) -> None:
+        """xor eax,eax;inc eax;ret vs mov eax,1;ret."""
+        a = bytes.fromhex("31 C0 40 C3")
+        b = bytes.fromhex("B8 01 00 00 00 C3")
+        proven, msg = prove_equivalence(a, b, {}, "int f(void)", timeout=30)
+        assert proven, msg
+
+    def test_equivalent_identity_argument(self) -> None:
+        """mov eax,[esp+4];ret — returns its argument unchanged (identity)."""
+        a = bytes.fromhex("8B 44 24 04 C3")
+        proven, msg = prove_equivalence(a, a, {}, "int f(int)", timeout=30)
+        assert proven, msg

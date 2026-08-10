@@ -294,6 +294,11 @@
   key the config reader ignores.
 
 ### Fixed
+- `rebrew prove`: end-to-end semantic-equivalence tests on synthetic
+  x86-32 blobs (angr blob backend, no compiler/binary needed) — pins the
+  core verdicts: equivalent implementations prove True (different
+  encodings, register tricks, identity), differing constants prove False
+  with Z3 finding the EAX difference.
 - JSON-purity regression coverage extended to the session-era commands:
   `pdb-info`, `analyze --function`, `similar`, `identify-library --dry-run`,
   `discover-functions`, `binsync-export --dry-run`, `report`,
