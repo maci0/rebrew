@@ -248,13 +248,18 @@ def main(
         notes = []
 
     if dry_run:
+        # Preview mode: enumerate functions too (rizin is a read-only
+        # subprocess — no writes happen), so the preview tells the user how
+        # many functions would actually be documented instead of a thin 0.
+        funcs = _run_rizin_functions(bin_path)
+        preview_count = len(funcs)
         result = IntakeResult(
             target=target_name,
             binary=bin_path,
             profile=profile,
             family=family,
             version_hint=hint,
-            function_count=0,
+            function_count=preview_count,
             documented=0,
             errors=[],
             dry_run=True,
@@ -266,6 +271,7 @@ def main(
             "profile": result.profile,
             "family": result.family,
             "version_hint": result.version_hint,
+            "function_count": preview_count,
             "notes": notes,
             "actions": [
                 "rebrew init --target <name> --binary <name>.exe --compiler <profile>",
@@ -281,6 +287,7 @@ def main(
             console.print("[cyan]dry-run:[/cyan] would onboard this binary:")
             console.print(
                 f"  target={result.target} profile={result.profile} family={result.family}"
+                f" — {preview_count} function(s) would be documented"
             )
             for note in notes:
                 console.print(f"  [yellow]note:[/yellow] {note}")
