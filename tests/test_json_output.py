@@ -9,6 +9,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
+from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH
 from rebrew.matcher.scoring import diff_functions
 from rebrew.test import _run_all_batch, build_result_dict
 
@@ -280,6 +283,74 @@ class TestRebrewTestBatchJson:
             "failed": 0,
             "results": [],
         }
+
+    def test_failed_batch_raises_mismatch_exit(
+        self, monkeypatch: Any, capsys: Any, tmp_path: Path
+    ) -> None:
+        """Regression (functionality-review F2): rebrew test --all exited 0
+        even when every function failed — a false green for CI gates.  It must
+        exit EXIT_MISMATCH on failures, EXIT_ERROR on compile errors."""
+        import typer
+
+        from rebrew.annotation import Annotation
+
+        cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
+
+        def _fake_entries(*a: Any, **k: Any) -> Any:
+            return (
+                [Annotation(va=0x1000, name="a", status="STUB", size=10, filepath="a.c")],
+                0,
+                1,
+                [(object(), "1B diff")],
+                [{"va": "0x00001000", "status": "NEAR_MATCHING", "passed": False}],
+                0,
+                [],
+                [],
+            )
+
+        monkeypatch.setattr("rebrew.verify.prepare_entries", _fake_entries)
+        monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 1, [], [], []))
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+
+        with pytest.raises(typer.Exit) as exc:
+            _run_all_batch(cfg, None, None, dry_run=False, no_promote=True, json_output=True)
+        assert exc.value.exit_code == EXIT_MISMATCH
+
+    def test_compile_error_batch_raises_error_exit(self, monkeypatch: Any, tmp_path: Path) -> None:
+        import typer
+
+        from rebrew.annotation import Annotation
+
+        cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
+
+        def _fake_entries(*a: Any, **k: Any) -> Any:
+            return (
+                [Annotation(va=0x1000, name="a", status="STUB", size=10, filepath="a.c")],
+                0,
+                1,
+                [(object(), "syntax error")],
+                [{"va": "0x00001000", "status": "COMPILE_ERROR", "passed": False}],
+                0,
+                [],
+                [],
+            )
+
+        monkeypatch.setattr("rebrew.verify.prepare_entries", _fake_entries)
+        monkeypatch.setattr(
+            "rebrew.verify.run_verification",
+            lambda *a, **k: (
+                0,
+                1,
+                [],
+                [{"va": "0x00001000", "status": "COMPILE_ERROR", "passed": False}],
+                [],
+            ),
+        )
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+
+        with pytest.raises(typer.Exit) as exc:
+            _run_all_batch(cfg, None, None, dry_run=False, no_promote=True, json_output=True)
+        assert exc.value.exit_code == EXIT_ERROR
 
 
 # ---------------------------------------------------------------------------
