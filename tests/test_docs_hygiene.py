@@ -64,3 +64,25 @@ def test_every_cli_command_covered_by_agent_skills() -> None:
         f"commands {missing} are not mentioned in any agent-skills SKILL.md — "
         "add them to the relevant workflow skill or document the carve-out"
     )
+
+
+def test_every_script_main_has_callback_decorator() -> None:
+    """Every [project.scripts] main_entry must sit on a @app.callback main.
+
+    A plain ``def main`` in a command module yields "RuntimeError: Could
+    not get a command for this Typer instance" when invoked as a
+    standalone script (discover.py and pdb_info.py regressed exactly this
+    way). The umbrella command registration masks the gap; the standalone
+    entry points expose it.
+    """
+    toml = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    mods = re.findall(r'^rebrew-[\w-]+ = "rebrew\.(\w+):main_entry"$', toml, re.M)
+    assert mods, "no [project.scripts] entries found"
+    for mod in mods:
+        src = (ROOT / "src" / "rebrew" / f"{mod}.py").read_text(encoding="utf-8")
+        # Single-command modules need @app.callback on main(); multi-command
+        # apps register @app.command subcommands and run app() directly.
+        assert "@app.callback" in src or "@app.command" in src, (
+            f"{mod}.py wires no callback and no subcommands — the standalone "
+            "rebrew-{mod} script fails at runtime"
+        )

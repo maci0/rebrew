@@ -294,6 +294,16 @@
   key the config reader ignores.
 
 ### Fixed
+- Complete the standalone console scripts: every command module with a
+  `main_entry()` now gets a `[project.scripts]` entry (43 total), making
+  the documented "works both as rebrew-<cmd> and as a flat subcommand"
+  pattern true for all 43 commands. Discovered via a clean-venv wheel
+  smoke test: `rebrew-discover` / `rebrew-pdb-info` crashed with
+  "Could not get a command for this Typer instance" because their
+  `main()` lacked `@app.callback(invoke_without_command=True)` (the
+  umbrella registration had masked the gap). Decorators added; a docs-
+  hygiene test now guards that every scripted module wires a callback or
+  subcommands.
 - `rebrew prove` now persists a failed proof's Z3 counterexample as a
   metadata NOTE (`prove: Z3 found ... EAX=0 vs 4`) so the concrete
   register difference surfaces in `status`/`todo`/`describe` instead of
