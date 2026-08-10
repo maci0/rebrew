@@ -15,6 +15,7 @@ import typer
 from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
+from rebrew.utils import atomic_write_text
 
 console = Console(stderr=True)
 
@@ -283,9 +284,8 @@ def generate_pat(lib_file: Path, out_path: Path) -> dict[str, int]:
         except (OSError, KeyError, ValueError, struct.error):
             skipped += 1
 
-    out_path.write_text(
-        "".join(line + "\n" for line in pat_lines) + "---\n",
-        encoding="utf-8",
+    atomic_write_text(
+        out_path, "".join(line + "\n" for line in pat_lines) + "---\n", encoding="utf-8"
     )
     return {
         "signatures": len(pat_lines),

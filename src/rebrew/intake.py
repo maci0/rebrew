@@ -35,6 +35,7 @@ from rich.console import Console
 from typer.testing import CliRunner
 
 from rebrew.cli import EXIT_ERROR, EXIT_OK, json_print
+from rebrew.utils import atomic_write_text
 
 console = Console(stderr=True)
 
@@ -299,8 +300,9 @@ def main(
     funcs = _run_rizin_functions(dest)
     src_dir = project / "src" / target_name
     src_dir.mkdir(parents=True, exist_ok=True)
-    (src_dir / "functions.txt").write_text(
-        "".join(f"0x{va:08x} {name} {size}\n" for va, size, name in funcs)
+    atomic_write_text(
+        src_dir / "functions.txt",
+        "".join(f"0x{va:08x} {name} {size}\n" for va, size, name in funcs),
     )
 
     # 5. document unmatched functions
