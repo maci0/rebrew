@@ -780,6 +780,7 @@ def main(
                 full=full,
                 json_output=json_output,
                 dry_run=dry_run,
+                fix_sizes=fix_sizes,
                 watch=False,  # never nest watch loops
                 target=target,
             )
@@ -873,6 +874,7 @@ def main(
         "timestamp": timestamp,
         "target": cfg.target_name,
         "binary": str(cfg.target_binary),
+        "dry_run": dry_run,
         "summary": {
             "total": total,
             "passed": passed,

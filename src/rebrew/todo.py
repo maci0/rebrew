@@ -519,7 +519,13 @@ def _collect_prover_candidates(
 
 
 def _load_verify_entries(cfg: ProjectConfig) -> dict[str, "VerifyCacheEntry"]:
-    """Load verify cache entries, returning {} on missing/corrupt cache."""
+    """Load verify cache entries, returning {} on missing/corrupt cache.
+
+    Mirrors status.py's target guard: the cache is a single shared file whose
+    ``target`` field identifies the run that wrote it.  Another target's
+    entries must never drive todo's categories/deltas — a CLIENT run would
+    otherwise surface SERVER's EXACTs as phantom fix-delta quick-wins.
+    """
     cache_path = cfg.root / ".rebrew" / "verify_cache.json"
     if not cache_path.exists():
         return {}
@@ -530,6 +536,9 @@ def _load_verify_entries(cfg: ProjectConfig) -> dict[str, "VerifyCacheEntry"]:
     except (json.JSONDecodeError, OSError, ValueError, AttributeError, ImportError):
         return {}
     if data.version != 1:
+        return {}
+    # Defensive getattr: callers may hold a minimal config (tests, tools).
+    if data.target and data.target != getattr(cfg, "target_name", None):
         return {}
     return data.entries
 

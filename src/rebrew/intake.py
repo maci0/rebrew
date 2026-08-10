@@ -117,7 +117,14 @@ def _run_rizin_functions(binary: Path) -> list[tuple[int, int, str]]:
             if len(p) >= 4 and p[2].isdigit():
                 size, name = int(p[2]), p[3]
             elif len(p) >= 3:
-                size, name = int(p[1]), p[2]
+                try:
+                    # Rizin versions differ on size radix (decimal vs 0x-prefixed
+                    # hex); int(x, 0) tolerates both without misreading plain
+                    # decimal as hex.
+                    size = int(p[1], 0)
+                except ValueError:
+                    continue
+                name = p[2]
             else:
                 continue
             if name in ("->", "loc") or name.startswith("sub."):
