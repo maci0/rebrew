@@ -465,10 +465,14 @@ def quantum_decompress(compressed: bytes, file_sizes: list[int], window_bits: in
 
 
 def read_var_length(data: bytes, pos: int) -> tuple[int, int]:
+    if pos >= len(data):
+        raise ValueError("Truncated archive: missing string length")
     first = data[pos]
     pos += 1
     if first < 128:
         return first, pos
+    if pos >= len(data):
+        raise ValueError("Truncated archive: missing extended string length")
     second = data[pos]
     pos += 1
     return ((first & 0x7F) << 8) | second, pos
@@ -476,8 +480,22 @@ def read_var_length(data: bytes, pos: int) -> tuple[int, int]:
 
 def read_var_string(data: bytes, pos: int) -> tuple[str, int]:
     length, pos = read_var_length(data, pos)
+    if pos + length > len(data):
+        raise ValueError(f"Truncated archive: string of {length} bytes overruns the file")
     s = data[pos : pos + length].decode("latin-1")
     return s, pos + length
+
+
+def _read_u16(data: bytes, pos: int) -> int:
+    if pos + 2 > len(data):
+        raise ValueError("Truncated archive: u16 field overruns the file")
+    return struct.unpack_from("<H", data, pos)[0]
+
+
+def _read_u32(data: bytes, pos: int) -> int:
+    if pos + 4 > len(data):
+        raise ValueError("Truncated archive: u32 field overruns the file")
+    return struct.unpack_from("<I", data, pos)[0]
 
 
 def parse_archive(
@@ -492,7 +510,7 @@ def parse_archive(
     pos += 1
     minor = data[pos]
     pos += 1
-    num_files = struct.unpack_from("<H", data, pos)[0]
+    num_files = _read_u16(data, pos)
     pos += 2
     table_size = data[pos]
     pos += 1
@@ -508,11 +526,11 @@ def parse_archive(
     for _ in range(num_files):
         name, pos = read_var_string(data, pos)
         comment, pos = read_var_string(data, pos)
-        (size,) = struct.unpack_from("<I", data, pos)
+        size = _read_u32(data, pos)
         pos += 4
-        (time_,) = struct.unpack_from("<H", data, pos)
+        time_ = _read_u16(data, pos)
         pos += 2
-        (date_,) = struct.unpack_from("<H", data, pos)
+        date_ = _read_u16(data, pos)
         pos += 2
         files.append(
             {
