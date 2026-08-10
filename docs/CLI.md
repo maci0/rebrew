@@ -127,6 +127,11 @@ When the compiled candidate is shorter than the target, `--json` adds a
 the not-yet-decompiled tail, e.g. `{"count": 6, "first": "call 0xcf26",
 "last": "ret"}` — and the terminal output prints a matching hint.
 
+With `--fix-blocker --json`, the payload also embeds a `blocker` outcome
+dict (`written` / `cleared` / `text` / `delta` / `dry_run`) so script
+consumers can learn whether the blocker landed (mirrors `near-diag`'s
+`blocker_written` contract).
+
 ### `rebrew test`
 
 | Flag | Description |
@@ -178,8 +183,8 @@ Behavior:
 | Flag | Description |
 |------|-------------|
 | `-n N` / `--count N` | Number of items to show (default 20) |
-| `-c CAT` / `--category CAT` | Filter by category (e.g. `start-function`, `fix-delta`, `compile-error`, `extract-error`, `improve-match`) |
-| `-s` / `--stats` | Show coverage stats in the panel title |
+| `-c CAT` / `--category CAT` | Filter by category (e.g. `start-function`, `fix-delta`, `compile-error`, `extract-error`, `improve-match`, `missing-annotation`, `documented`) |
+| `-s` / `--stats` | Show the coverage stats header |
 | `--json` | Output results as JSON |
 
 `improve-match` items whose blocker was written by `near-diag --fix-blocker`
@@ -232,8 +237,13 @@ graph TD
 | `-j N` / `--jobs N` | Number of parallel compile jobs (default: from `[project].jobs` or 4) |
 | `--json` | Structured JSON report to stdout |
 | `-o FILE` / `--output FILE` | Write report to specific file |
-| `--dry-run` | Preview STATUS metadata changes without writing |
+| `--dry-run` | Preview STATUS metadata changes without writing (JSON report carries `dry_run: true`) |
 | `--watch` | Re-verify all sources whenever any `.c` file changes |
+| `--fix-sizes` | Backfill `SIZE` into metadata from the binary-derived size: stale sizes (false `SIZE_MISMATCH`) and missing sizes (`MISSING_SIZE` stubs, which `rebrew test` refuses) |
+
+The `--json` report carries `dry_run`, `size_divergences`, and `missing_sizes`
+(plus `sizes_fixed` when `--fix-sizes` ran); VAs fixed by `--fix-sizes` are
+stripped from the same-run `size_divergences`/`missing_sizes` lists.
 
 Status promotion is always-on: after verification, STATUS is promoted/demoted in
 `rebrew-function.toml` metadata. PROVEN status is sticky and never silently
@@ -243,10 +253,10 @@ Output prefixes for unambiguous parsing:
 
 | Prefix | Meaning |
 |--------|---------|
-| `COMPILE_ERROR:` | Source failed to compile |
-| `MISMATCH:` | Compiled but bytes differ |
-| `MISSING_FILE:` | Source file not found |
-| `EXACT MATCH` / `RELOC-NORM MATCH` | Success |
+| `[COMPILE_ERROR]` | Source failed to compile |
+| `[MISSING_FILE]` | Source file not found |
+| `[MISSING_SIZE]` | No SIZE annotation — backfill with `--fix-sizes` |
+| `[FAIL]` / `[xx.x%]` | Compiled but bytes differ (percentage = match) |
 
 ### `rebrew match --all` (batch mode)
 
@@ -657,6 +667,17 @@ backends — powers `rebrew analyze`'s library section.
 One-shot binary onboarding: FLIRT scan, function catalog, coverage database,
 triage — the automated version of the `rebrew-intake` skill's steps.
 
+| Flag | Description |
+|------|-------------|
+| `-p NAME` / `--profile NAME` | Compiler profile (default: auto-detected) |
+| `-t NAME` / `--target NAME` | Target name (default: binary stem) |
+| `--dry-run` | Preview the onboarding without writing — runs rizin (read-only) and reports how many functions would be documented |
+| `--json` | Structured JSON result |
+
+Intake fails (exit 2) when rizin yields **zero** functions — a missing rizin
+or an analysis timeout must not be reported as a successful empty onboarding
+(the project scaffold is still created; fix rizin and re-run).
+
 ### `rebrew document-unmatched`
 
 `rebrew document-unmatched [--dry-run] [--json] [--target]`
@@ -668,6 +689,11 @@ a `fcn_<va>.c` file or a FUNCTION/STUB marker (covers renamed files).
 Idempotent — re-running after documenting reports zero unmatched. Use it
 after re-discovery to document newly-added functions without re-running
 the whole intake.
+
+| Flag | Description |
+|------|-------------|
+| `--dry-run` | Preview how many functions would be documented |
+| `--backfill-blockers` | Write a BLOCKER for every existing STUB lacking one, and record an available annotation SIZE (JSON adds `backfilled_blockers` + `sizes_written`) |
 
 ### `rebrew pdb-info`
 
@@ -935,10 +961,15 @@ by either tool's status logic.
 
 `rebrew diff` and `rebrew test` differ in exit behavior.  `rebrew diff` exits 1
 whenever a structural byte difference (`**`) exists between the compiled object and
-the target function; `rebrew test` exits 0 for non-exact matches — only usage/config
-errors and compile errors are non-zero.  These semantics are intentionally distinct —
-a function can be `NEAR_MATCHING` without a structural diff (pure relocation noise),
-and `rebrew diff` is focused on interactive investigation rather than CI status
+the target function.
+
+`rebrew test` honors the documented contract (0 EXACT or RELOC match / 1
+NEAR_MATCHING or STUB / 2 build error) on **both** the single-function and
+`--all` paths: any non-exact result exits 1 (`EXIT_MISMATCH`), any
+`COMPILE_ERROR` exits 2 (`EXIT_ERROR`), and `--dry-run` always exits 0.
+These semantics are intentionally distinct — a function can be
+`NEAR_MATCHING` without a structural diff (pure relocation noise), and
+`rebrew diff` is focused on interactive investigation rather than CI status
 promotion.  For CI, run both tools with `--json` and branch on `.status` (for
 `rebrew test`) or `.structural_diffs` (for `rebrew diff`) rather than relying on
 the exit code alone.
