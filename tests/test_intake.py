@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from rebrew.intake import _blocker_reason, _suggest_profile
+from rebrew.intake import _suggest_profile, blocker_reason
 
 FAKE_FUNCS = [(0x401000, 32, "fcn.00401000"), (0x401020, 8, "fcn.00401020")]
 
@@ -78,16 +78,16 @@ class TestIntake:
 
 class TestBlockers:
     def test_thunk_reason(self) -> None:
-        assert "thunk" in _blocker_reason("msvc", 6, "")
+        assert "thunk" in blocker_reason("msvc", 6, "")
 
     def test_delphi_reason(self) -> None:
-        assert "Delphi" in _blocker_reason("delphi", 64, "")
+        assert "Delphi" in blocker_reason("delphi", 64, "")
 
     def test_mingw_reason(self) -> None:
-        assert "MinGW" in _blocker_reason("mingw", 64, "pre-8 GCC style")
+        assert "MinGW" in blocker_reason("mingw", 64, "pre-8 GCC style")
 
     def test_default_reason(self) -> None:
-        assert "pending" in _blocker_reason("msvc", 64, "")
+        assert "pending" in blocker_reason("msvc", 64, "")
 
 
 class TestSuggestProfile:

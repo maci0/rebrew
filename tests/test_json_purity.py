@@ -50,6 +50,7 @@ _JSON_COMMANDS: list[tuple[str, set[int]]] = [
     ("binsync-export bsx --dry-run --json", {0}),
     ("report --json", {0}),
     (f"gen-flirt-pat {FIXTURES}/mini.lib --json", {0}),
+    ("document-unmatched --json", {0}),
 ]
 
 _PROJECT_TOML = """\

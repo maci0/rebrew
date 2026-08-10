@@ -167,6 +167,11 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "One-shot binary onboarding: init + toolchain detect + functions + document.",
     ),
     (
+        "document-unmatched",
+        "rebrew.document_unmatched",
+        "Document unmatched functions as STUB skeletons + blockers.",
+    ),
+    (
         "pdb-info",
         "rebrew.pdb_info",
         "Extract compiler version, flags, and function names from a sibling PDB.",
