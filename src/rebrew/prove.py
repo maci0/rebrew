@@ -92,6 +92,33 @@ def _require_angr() -> None:
 _WIN32_SIMPROCS: dict[str, type] | None = None  # lazily populated
 
 
+def _cached_verify_status(cfg: Any, va: int) -> str | None:
+    """Return the verify-cache status for *va* (target-guarded), or None.
+
+    Mirrors status.py/todo.py's overlay: the metadata STATUS can lag the
+    measured verify result, and prove's NEAR_MATCHING gate must accept the
+    measured truth rather than refuse a function the verifier already
+    classified as nearly matching.
+    """
+    import json
+
+    cache_path = cfg.root / ".rebrew" / "verify_cache.json"
+    if not cache_path.exists():
+        return None
+    try:
+        from rebrew.verify import VerifyCache
+
+        data = VerifyCache.from_dict(json.loads(cache_path.read_text(encoding="utf-8")))
+    except (json.JSONDecodeError, OSError, ValueError, AttributeError, ImportError):
+        return None
+    if data.version != 1:
+        return None
+    if data.target and data.target != getattr(cfg, "target_name", None):
+        return None
+    entry = data.entries.get(f"0x{va:08x}")
+    return entry.result.status if entry is not None else None
+
+
 def _get_win32_simprocs() -> dict[str, type]:
     """Build and cache the Win32 SimProcedure registry (requires angr)."""
     global _WIN32_SIMPROCS  # noqa: PLW0603
@@ -1194,7 +1221,17 @@ def main(
     if ann is None:
         error_exit(f"No metadata found in {source_path}", json_mode=json_output)
 
-    if ann.status not in ("NEAR_MATCHING", "SIZE_MISMATCH"):
+    # Effective-status overlay: the metadata STATUS can lag the verify cache
+    # (e.g. a flag-sweep that found the gap but did not promote).  A cached
+    # NEAR_MATCHING/SIZE_MISMATCH is the measured truth — prove must not
+    # refuse a function the verifier already classified as nearly matching.
+    effective_status = ann.status
+    if effective_status not in ("NEAR_MATCHING", "SIZE_MISMATCH"):
+        cached = _cached_verify_status(cfg, ann.va)
+        if cached in ("NEAR_MATCHING", "SIZE_MISMATCH"):
+            effective_status = cached
+
+    if effective_status not in ("NEAR_MATCHING", "SIZE_MISMATCH"):
         error_exit(
             f"Status is '{ann.status}', expected NEAR_MATCHING or SIZE_MISMATCH. "
             "PROVEN is reserved for functions whose bytes differ structurally "

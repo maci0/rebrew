@@ -189,6 +189,53 @@ class TestProveCLIStatusGuard:
         assert result.exit_code != 0
         assert "expected NEAR_MATCHING or SIZE_MISMATCH" in result.output
 
+    def test_stub_with_cached_near_matching_passes_gate(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Effective-status overlay: a STUB whose verify-cache entry says
+        NEAR_MATCHING (measured truth — the metadata STATUS lags) must pass
+        prove's gate.  Regression: flag-swept functions stayed STUB in
+        metadata while the cache said NEAR_MATCHING, so prove refused them."""
+        import json
+
+        proj_dir, src = self._make_project(tmp_path, "STUB")
+        # Write a target-guarded verify cache claiming NEAR_MATCHING for the VA.
+        va = 0x1000
+        cache_dir = proj_dir / ".rebrew"
+        cache_dir.mkdir(exist_ok=True)
+        (cache_dir / "verify_cache.json").write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "compiler_hash": "",
+                    "headers_hash": "",
+                    "target": "GAME",
+                    "entries": {
+                        f"0x{va:08x}": {
+                            "source_hash": "",
+                            "filepath": src.name,
+                            "mtime_ns": 0,
+                            "result": {
+                                "status": "NEAR_MATCHING",
+                                "va": f"0x{va:08x}",
+                                "size": 100,
+                                "filepath": src.name,
+                                "name": "f",
+                                "message": "",
+                                "passed": False,
+                            },
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        result = self._invoke(proj_dir, src, monkeypatch)
+        assert result.exit_code != 0
+        # The gate passed (cache said NEAR_MATCHING); any failure is
+        # downstream (angr/compile), never the status rejection.
+        assert "expected NEAR_MATCHING" not in result.output
+
     def test_accepts_size_mismatch_status(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
