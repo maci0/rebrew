@@ -6238,3 +6238,13 @@ gaps per near-diag, real decomp work).  Idempotent re-run: 0 divergences,
 
 Commits: 790c79c (todo documented category), 25bac8a (MISSING_SIZE chain),
 82203e8 (CHANGELOG + help), d09d1d8 (docs/CLI.md), 3908716 (backfill SIZE).
+
+## 2026-08-10 — error-review + functionality-review findings, fixes
+
+Ran two review prompts from ~/review-prompts/prompts (error-review, functionality-review) as background agents over src/rebrew. All confirmed findings fixed except the documented deferrals:
+
+**error-review** (12 findings): fixed F1 (test._patch_verify_cache now warns when the cache is unreadable/patch fails — no more silent status/todo divergence), F2 (intake hard-fails when rizin yields zero functions; hex-size tolerance `int(x, 0)` in afl parsing), F3 (discover warns when the capstone sweep or refine step is skipped), F5 (main umbrella catches OSError), F7/F8 (llm_seed + skeleton warn on silent failure), F10 (split --va rolls back orphan output), F11 (solutions save locked in-process), F12 (4 write sites routed through atomic_write_text). Deferred: F4 (batch-scan skip counters), F6 (flock on metadata RMW — thread lock is the documented single-writer assumption), F9 (rename.py pre-write validation).
+
+**functionality-review** (11 findings): fixed F1 (todo rejects another target's verify cache — cross-target leak produced phantom fix-delta items), F2 (test --all now honors the 0/1/2 exit-code contract instead of always 0 — false green for CI), F4 (verify --watch passes --fix-sizes through), F5 (match/diff missing-source check runs unconditionally — no more FileNotFoundError traceback with --symbol), F6 (verify JSON report gains dry_run field), F7 (same-run --fix-sizes report strips the just-fixed VAs), F9 (match --tier validated up front — clean error instead of traceback). Deferred: F8 (all-targets flag-sweep aggregate), F10 (diff --fix-blocker JSON contract), F11 (usage-error exit-code taxonomy).
+
+Commits: 7bc1dec, 89fb143, 0d71117, 1013c7c, 617afa9. All pushed; full suite green via pre-push.
