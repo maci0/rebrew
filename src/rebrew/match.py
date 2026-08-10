@@ -1315,6 +1315,17 @@ def main(
     if jobs is None:
         jobs = int(getattr(cfg, "default_jobs", 4))
 
+    # Validate --tier up front: generate_flag_combinations raises a bare
+    # ValueError that would otherwise escape as a traceback mid-sweep.
+    if flag_sweep_only or all_mode:
+        from rebrew.matcher.flag_data import MSVC_SWEEP_TIERS
+
+        if tier not in MSVC_SWEEP_TIERS:
+            error_exit(
+                f"Unknown sweep tier {tier!r}, valid: {', '.join(MSVC_SWEEP_TIERS)}",
+                json_mode=json_output,
+            )
+
     if watch and all_mode:
         error_exit("--watch cannot be combined with --all", json_mode=json_output)
     if all_targets and all_mode:
@@ -1662,6 +1673,11 @@ def resolve_build_params(
 ) -> _BuildParams:
     """Resolve config, annotations, compiler, and target bytes into build params."""
     seed_c_path = Path(seed_c)
+    if not seed_c_path.exists():
+        # Run the existence check unconditionally — with an explicit --symbol
+        # the old guard below was skipped and read_source_text raised a raw
+        # FileNotFoundError traceback.
+        error_exit(f"Source not found: {seed_c}", json_mode=json_output)
     annos = parse_c_file_multi(
         seed_c_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
     )

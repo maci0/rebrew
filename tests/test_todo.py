@@ -599,6 +599,47 @@ class TestLoadVerifyEntries:
         )
         assert _load_verify_entries(self._cfg(tmp_path)) == {}
 
+    def test_other_target_rejected(self, tmp_path: Path) -> None:
+        """Another target's verify results must never drive todo's categories
+        (regression: shared .rebrew/verify_cache.json leaked cross-target
+        entries — a SERVER run produced phantom fix-delta items for CLIENT)."""
+        import json
+
+        from rebrew.todo import _load_verify_entries
+        from rebrew.verify import VerifyCacheEntry, VerifyResult
+
+        d = tmp_path / ".rebrew"
+        d.mkdir()
+        cache = {
+            "version": 1,
+            "compiler_hash": "",
+            "headers_hash": "",
+            "target": "SERVER",
+            "entries": {
+                "0x00001000": VerifyCacheEntry(
+                    source_hash="",
+                    filepath="a.c",
+                    mtime_ns=0,
+                    result=VerifyResult(
+                        status="EXACT",
+                        va=0x1000,
+                        size=10,
+                        filepath="a.c",
+                        name="a",
+                        message="",
+                        passed=True,
+                    ),
+                ).to_dict(),
+            },
+        }
+        (d / "verify_cache.json").write_text(json.dumps(cache), encoding="utf-8")
+
+        # CLIENT config must see nothing; SERVER config must see the entry.
+        cfg_server = SimpleNamespace(root=tmp_path, target_name="SERVER")
+        cfg_client = SimpleNamespace(root=tmp_path, target_name="CLIENT")
+        assert _load_verify_entries(cfg_client) == {}
+        assert len(_load_verify_entries(cfg_server)) == 1
+
 
 class TestCalculateRoiEdges:
     """Uncovered calculate_roi bands: size 500-1000 and >1000 penalties."""
