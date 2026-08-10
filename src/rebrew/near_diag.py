@@ -464,10 +464,12 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool) -> None:
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     tm = target_marker(cfg)
     candidates: list[tuple[Path, Any]] = []
+    skipped_files: list[str] = []
     for src in sources:
         try:
             annos = parse_c_file_multi(src, target_name=tm, metadata_dir=cfg.metadata_dir)
-        except Exception:  # noqa: BLE001 — one bad file must not kill the batch
+        except Exception as exc:  # noqa: BLE001 — one bad file must not kill the batch
+            skipped_files.append(f"{src.name}: {exc}")
             continue
         for a in annos:
             if a.status == "NEAR_MATCHING" and a.size:
@@ -475,9 +477,19 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool) -> None:
 
     if not candidates:
         if json_output:
-            json_print({"total": 0, "classified": 0, "failed": 0, "results": []})
+            json_print(
+                {
+                    "total": 0,
+                    "classified": 0,
+                    "failed": 0,
+                    "skipped_files": skipped_files,
+                    "results": [],
+                }
+            )
         else:
             console.print("[dim]No NEAR_MATCHING functions found to diagnose.[/dim]")
+            for skip in skipped_files:
+                console.print(f"[yellow]  skipped: {skip}[/yellow]")
         return
 
     if not json_output:
@@ -532,12 +544,19 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool) -> None:
                 "total": len(candidates),
                 "classified": classified,
                 "failed": failed,
+                "skipped_files": skipped_files,
                 "results": results,
             }
         )
         return
 
     console.print()
+    if skipped_files:
+        console.print(
+            f"[yellow]  {len(skipped_files)} source file(s) skipped (unparseable):[/yellow]"
+        )
+        for skip in skipped_files[:5]:
+            console.print(f"    {skip}")
     console.print("[bold]━━━ near-diag Summary ━━━[/bold]")
     console.print(f"  [bold]{classified}[/bold] classified")
     if failed:

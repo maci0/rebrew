@@ -183,6 +183,60 @@ def _missing_global_hints(instructions: list[dict[str, Any]]) -> list[dict[str, 
     return out
 
 
+def _write_blocker(
+    p: Any,
+    blockers: list[str],
+    obj_bytes: bytes,
+    dry_run: bool,
+    json_output: bool,
+) -> dict[str, Any]:
+    """Write or clear BLOCKER metadata per the diff verdict.
+
+    Shared by the ``--json`` path (which embeds the returned outcome in the
+    payload, mirroring ``near-diag``'s ``blocker_written`` contract) and the
+    terminal path (which prints the same outcome).  Returns the outcome dict
+    regardless of mode so the caller can report it.
+    """
+    from rebrew.annotation import parse_c_file
+    from rebrew.metadata import remove_field, update_field
+
+    seed_path = Path(p.seed_c)
+    ann = parse_c_file(seed_path)
+    metadata_dir = p.cfg.metadata_dir
+    va = ann.va if ann else p.va_int
+    module = ann.module if ann else ""
+
+    outcome: dict[str, Any] = {"written": False, "cleared": False, "dry_run": dry_run}
+    if blockers:
+        blocker_text = ", ".join(blockers)
+        delta = sum(1 for a, b in zip(p.target_bytes, obj_bytes, strict=False) if a != b) + abs(
+            len(p.target_bytes) - len(obj_bytes)
+        )
+        outcome["text"] = blocker_text
+        outcome["delta"] = delta
+        if dry_run:
+            if not json_output:
+                console.print(f"  Would update BLOCKER: {blocker_text} ({delta}B delta)")
+        else:
+            update_field(metadata_dir, va, "blocker", blocker_text, module=module)
+            if delta > 0:
+                update_field(metadata_dir, va, "blocker_delta", delta, module=module)
+            outcome["written"] = True
+            if not json_output:
+                console.print(f"  Updated BLOCKER: {blocker_text} ({delta}B delta)")
+    else:
+        if dry_run:
+            if not json_output:
+                console.print("  Would clear BLOCKER (no structural diffs)")
+        else:
+            deleted_b = remove_field(metadata_dir, va, "blocker", module=module)
+            deleted_d = remove_field(metadata_dir, va, "blocker_delta", module=module)
+            outcome["cleared"] = bool(deleted_b or deleted_d)
+            if (deleted_b or deleted_d) and not json_output:
+                console.print("  Cleared BLOCKER (no structural diffs)")
+    return outcome
+
+
 def run_diff(
     seed_c: str,
     mismatches_only: bool,
@@ -281,6 +335,13 @@ def run_diff(
                 summary["blockers"] = blockers
             if missing_globals:
                 summary["missing_globals"] = missing_globals
+            if fix_blocker:
+                # Write FIRST so the emitted payload can report the outcome
+                # (near-diag's blocker_written contract — a script driving
+                # --fix-blocker --json must learn whether the blocker landed).
+                summary["blocker"] = _write_blocker(
+                    p, blockers, obj_bytes, dry_run, json_output=True
+                )
             json_print(summary)
         elif csv_output:
             writer = csv.writer(sys.stdout)
@@ -329,38 +390,7 @@ def run_diff(
             print_structural_similarity(sim)
 
         if fix_blocker:
-            from rebrew.annotation import parse_c_file
-            from rebrew.metadata import remove_field, update_field
-
-            seed_path = Path(p.seed_c)
-            ann = parse_c_file(seed_path)
-            metadata_dir = p.cfg.metadata_dir
-            va = ann.va if ann else p.va_int
-            module = ann.module if ann else ""
-
-            if blockers:
-                blocker_text = ", ".join(blockers)
-                delta = sum(
-                    1 for a, b in zip(p.target_bytes, obj_bytes, strict=False) if a != b
-                ) + abs(len(p.target_bytes) - len(obj_bytes))
-                if dry_run:
-                    if not json_output:
-                        console.print(f"  Would update BLOCKER: {blocker_text} ({delta}B delta)")
-                else:
-                    update_field(metadata_dir, va, "blocker", blocker_text, module=module)
-                    if delta > 0:
-                        update_field(metadata_dir, va, "blocker_delta", delta, module=module)
-                    if not json_output:
-                        console.print(f"  Updated BLOCKER: {blocker_text} ({delta}B delta)")
-            else:
-                if dry_run:
-                    if not json_output:
-                        console.print("  Would clear BLOCKER (no structural diffs)")
-                else:
-                    deleted_b = remove_field(metadata_dir, va, "blocker", module=module)
-                    deleted_d = remove_field(metadata_dir, va, "blocker_delta", module=module)
-                    if (deleted_b or deleted_d) and not json_output:
-                        console.print("  Cleared BLOCKER (no structural diffs)")
+            _write_blocker(p, blockers, obj_bytes, dry_run, json_output=False)
 
         summary_obj = summary.get("summary", {})
         structural_obj = summary_obj.get("structural", 0) if isinstance(summary_obj, dict) else 0
