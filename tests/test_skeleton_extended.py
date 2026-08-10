@@ -308,6 +308,27 @@ class TestSkeletonCliModes:
         assert result.exit_code != 0
         assert "does not exist" in result.output
 
+    def test_append_legacy_encoding_preserved(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Appending to a cp1252-encoded .c must not crash and must keep the
+        file's encoding (regression: strict UTF-8 read + UTF-8 write)."""
+        from rebrew.skeleton import app
+        from rebrew.utils import read_source_text
+
+        cfg = self._setup(tmp_path, monkeypatch)
+        target = cfg.reversed_dir / "multi.c"
+        original = (
+            b"// FUNCTION: SERVER 0x2000\n// Caf\xe9 comment\nint other(void) { return 0; }\n"
+        )
+        target.write_bytes(original)
+        result = CliRunner().invoke(app, ["--append", "multi.c", "--json", "0x1000"])
+        assert result.exit_code == 0, result.output
+        text, encoding = read_source_text(target)
+        assert encoding == "cp1252"  # encoding survived the append
+        assert "\u00e9" in text  # the legacy byte round-tripped
+        assert "0x00001000" in text  # new block appended
+
     def test_append_existing_va_skips(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

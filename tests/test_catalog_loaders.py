@@ -122,6 +122,16 @@ class TestParseFunctionList:
         assert out == []
         assert any("Cannot read" in str(x.message) for x in w)
 
+    def test_legacy_encoding_no_crash(self, tmp_path: Path) -> None:
+        """A cp1252 byte in the file must not crash the parser (regression:
+        strict UTF-8 read raised UnicodeDecodeError; found by fuzzing)."""
+        p = tmp_path / "functions.txt"
+        # 0xe4 = 'ä' in cp1252, invalid UTF-8; in a name field it is skipped
+        # by the line regex, but the READ must not raise.
+        p.write_bytes(b"0x10001000 64 _f\xe4n\n0x10002000 32 _ok\n")
+        funcs = parse_function_list(p)
+        assert any(f["va"] == 0x10002000 for f in funcs)
+
 
 class TestLoadGhidraDataLabelsMore:
     def test_non_list_entries_warns(self, tmp_path: Path) -> None:

@@ -14,6 +14,7 @@ from rebrew.annotation import Annotation, parse_c_file_multi, parse_library_head
 from rebrew.catalog.models import FunctionEntry, GhidraDataLabel
 from rebrew.catalog.registry import make_func_entry
 from rebrew.config import ProjectConfig
+from rebrew.utils import read_source_text
 
 # ---------------------------------------------------------------------------
 # Ghidra function loader
@@ -136,7 +137,7 @@ def parse_function_list(path: Path) -> list[dict[str, Any]]:
     """Parse function list into list of {va, size, name}."""
     funcs: list[dict[str, Any]] = []
     try:
-        text = path.read_text(encoding="utf-8")
+        text, _ = read_source_text(path)
     except OSError as exc:
         warnings.warn(f"Cannot read {path}: {exc}", stacklevel=2)
         return funcs
