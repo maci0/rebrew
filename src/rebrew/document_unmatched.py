@@ -111,7 +111,7 @@ def main(
     written = classify_all(
         cfg.root,
         src_dir,
-        cfg.marker or cfg.target_name.upper(),
+        cfg.marker,
         unmatched,
         family,
         "",
