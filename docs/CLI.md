@@ -651,6 +651,18 @@ backends — powers `rebrew analyze`'s library section.
 One-shot binary onboarding: FLIRT scan, function catalog, coverage database,
 triage — the automated version of the `rebrew-intake` skill's steps.
 
+### `rebrew document-unmatched`
+
+`rebrew document-unmatched [--dry-run] [--json] [--target]`
+
+Standalone version of intake's document-unmatched step: writes a STUB
+`.c` skeleton + BLOCKER/STATUS=STUB metadata for every function in the
+function list that isn't already documented. Skips VAs that already have
+a `fcn_<va>.c` file or a FUNCTION/STUB marker (covers renamed files).
+Idempotent — re-running after documenting reports zero unmatched. Use it
+after re-discovery to document newly-added functions without re-running
+the whole intake.
+
 ### `rebrew pdb-info`
 
 `rebrew pdb-info [OPTIONS] BINARY`

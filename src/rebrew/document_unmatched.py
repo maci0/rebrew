@@ -1,0 +1,145 @@
+"""rebrew document-unmatched — document every not-yet-reversed function.
+
+Standalone version of the "document-unmatched" step that ``rebrew intake``
+runs during onboarding (it used to be a per-project classify script —
+bench/cpubench/makehm/openmiles each carried a near-duplicate).  For an
+existing project this is the re-discovery workflow: new functions added to
+the function list get a STUB ``.c`` skeleton plus a BLOCKER + STATUS=STUB
+in ``rebrew-function.toml``, without re-running init/toolchain-link/rizin.
+
+Already-documented functions are left untouched: a VA is considered
+documented when a ``fcn_<va>.c`` file exists in the reversed dir or any
+source file carries a FUNCTION/STUB marker for it (covers renamed files).
+
+Shared logic lives in ``rebrew.intake.classify_all`` / ``blocker_reason``
+(the canonical writers) — this command only decides *which* VAs are
+unmatched and feeds them in.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import typer
+from rich.console import Console
+
+from rebrew.catalog.loaders import parse_function_list
+from rebrew.cli import (
+    TargetOption,
+    error_exit,
+    iter_annotations,
+    iter_sources,
+    json_print,
+    require_config,
+)
+from rebrew.intake import classify_all
+
+console = Console(stderr=True)
+
+app = typer.Typer(
+    help="Document unmatched functions as STUB skeletons + blockers.",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew document-unmatched --dry-run  Preview how many functions are undocumented\n\n"
+        "  rebrew document-unmatched · · · · · · Write STUB .c + blocker for every unmatched function\n\n"
+        "[dim]Skips VAs that already have a fcn_<va>.c file or a FUNCTION/STUB marker. "
+        "Idempotent — re-running after documenting reports zero unmatched.[/dim]"
+    ),
+)
+
+#: compiler profile -> blocker family ("" = generic application code).
+_PROFILE_FAMILY: dict[str, str] = {
+    "gcc-pe": "mingw",
+    "delphi": "delphi",
+}
+
+
+def _documented_vas(src_dir: Path, cfg: Any) -> set[int]:
+    """VAs already covered by a stub file or a FUNCTION/STUB marker."""
+    documented: set[int] = set()
+    for _path, anns in iter_annotations(iter_sources(src_dir, cfg)):
+        for ann in anns:
+            documented.add(ann["va"])
+    # Intake's stub convention — also covers files the annotation parser
+    # could not read (e.g. a stale/corrupt source) so we never double-write.
+    for stub in src_dir.glob("fcn_*.c"):
+        try:
+            documented.add(int(stub.stem[len("fcn_") :], 16))
+        except ValueError:
+            continue
+    return documented
+
+
+@app.callback(invoke_without_command=True)
+def main(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Run the document-unmatched step in the current project."""
+    cfg = require_config(target=target, json_mode=json_output)
+
+    funcs = parse_function_list(cfg.function_list)
+    src_dir = cfg.reversed_dir
+    if not src_dir.is_dir():
+        error_exit(f"reversed dir not found: {src_dir}", json_mode=json_output)
+
+    documented = _documented_vas(src_dir, cfg)
+    unmatched = [
+        (f["va"], f["size"], f.get("name", "")) for f in funcs if f["va"] not in documented
+    ]
+
+    if dry_run:
+        payload = {
+            "functions": len(funcs),
+            "documented": len(funcs) - len(unmatched),
+            "unmatched": len(unmatched),
+            "written": 0,
+            "dry_run": True,
+        }
+        if json_output:
+            json_print(payload)
+        else:
+            console.print(
+                f"[dim]Would document {len(unmatched)} unmatched function(s) "
+                f"({len(funcs) - len(unmatched)} already documented)[/dim]"
+            )
+        return
+
+    family = _PROFILE_FAMILY.get(cfg.compiler_profile, "")
+    written = classify_all(
+        cfg.root,
+        src_dir,
+        cfg.marker or cfg.target_name.upper(),
+        unmatched,
+        family,
+        "",
+        metadata_dir=cfg.metadata_dir,
+    )
+
+    payload = {
+        "functions": len(funcs),
+        "documented": len(funcs) - len(unmatched),
+        "unmatched": len(unmatched),
+        "written": written,
+        "dry_run": False,
+    }
+    if json_output:
+        json_print(payload)
+    else:
+        console.print(
+            f"[green]Documented {written} unmatched function(s)[/green] "
+            f"({len(funcs) - len(unmatched)} already documented)"
+        )
+        if written:
+            console.print("  next: rebrew doctor && rebrew status --json")
+
+
+def main_entry() -> None:
+    """Run the Typer CLI application."""
+    app()
+
+
+if __name__ == "__main__":
+    main_entry()

@@ -1,6 +1,14 @@
 ## [Unreleased]
 
 ### Added
+- `rebrew document-unmatched` — standalone version of intake's
+  document-unmatched step: writes a STUB `.c` + BLOCKER/STATUS=STUB
+  metadata for every function in the function list that isn't already
+  documented (skips VAs with a `fcn_<va>.c` file or a FUNCTION/STUB
+  marker; idempotent; `--dry-run`/`--json`).  Replaces the per-project
+  classify scripts (bench/cpubench/makehm/openmiles) for re-discovery
+  workflows.  The shared writers (`classify_all`/`blocker_reason`) were
+  promoted to public in `rebrew.intake`.
 - Vendored the Borland **Delphi 1.0 16-bit command-line toolchain**
   (`tools/DELPHI10/`, exact compiler family for 16-bit Delphi apps like
   `holiday.exe`): the `CMDLINE.PAK` tools plus the compiler symbol table

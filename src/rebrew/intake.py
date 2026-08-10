@@ -128,7 +128,7 @@ def _run_rizin_functions(binary: Path) -> list[tuple[int, int, str]]:
     return []
 
 
-def _blocker_reason(family: str, size: int, version_hint: str) -> str:
+def blocker_reason(family: str, size: int, version_hint: str) -> str:
     if size <= 8:
         return "IAT import thunk / jump stub — not a decomp target"
     if family == "delphi":
@@ -144,28 +144,36 @@ def _blocker_reason(family: str, size: int, version_hint: str) -> str:
     return "Application code — pending per-function decompilation"
 
 
-def _classify_all(
+def classify_all(
     project: Path,
     src_dir: Path,
     marker: str,
     funcs: list[tuple[int, int, str]],
     family: str,
     hint: str,
+    metadata_dir: Path | None = None,
 ) -> int:
-    """Write a STUB .c + blocker for every function (document-unmatched step)."""
+    """Write a STUB .c + blocker for every function (document-unmatched step).
+
+    Shared by ``rebrew intake`` (fresh onboarding) and ``rebrew
+    document-unmatched`` (existing projects).  *metadata_dir* defaults to
+    ``project/src`` (the standard layout); pass ``cfg.metadata_dir`` to
+    honor a custom layout.
+    """
     from rebrew.metadata import set_field, update_field
 
+    meta_base = metadata_dir if metadata_dir is not None else project / "src"
     documented = 0
     for va, size, _name in funcs:
-        reason = _blocker_reason(family, size, hint)
+        reason = blocker_reason(family, size, hint)
         stub = (
             f"// STUB: {marker} 0x{va:08x}\n\nvoid fcn_{va:08x}(void)\n{{\n    /* {reason} */\n}}\n"
         )
         out = src_dir / f"fcn_{va:08x}.c"
         if not out.exists():
             out.write_text(stub)
-        update_field(project / "src", va, "blocker", reason, module=marker)
-        set_field(project / "src", va, "status", "STUB", module=marker)
+        update_field(meta_base, va, "blocker", reason, module=marker)
+        set_field(meta_base, va, "status", "STUB", module=marker)
         documented += 1
     return documented
 
@@ -306,7 +314,7 @@ def main(
     )
 
     # 5. document unmatched functions
-    documented = _classify_all(project, src_dir, marker, funcs, family, hint)
+    documented = classify_all(project, src_dir, marker, funcs, family, hint)
 
     result = IntakeResult(
         target=target_name,
