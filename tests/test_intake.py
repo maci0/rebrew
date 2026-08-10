@@ -61,6 +61,10 @@ class TestIntake:
         meta = (tmp_path / "src" / "rebrew-function.toml").read_text()
         assert "blocker" in meta
         assert 'status = "STUB"' in meta
+        # documented stubs carry the disassembly-derived SIZE so rebrew test
+        # can run on them (a size-less stub is untestable + reports MISSING_SIZE)
+        assert "size = 32" in meta
+        assert "size = 8" in meta
         # binary copied
         assert (tmp_path / "original" / "game.exe").exists()
 

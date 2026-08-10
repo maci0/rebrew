@@ -933,6 +933,7 @@ def _run_all_batch(
         results,
         cached_count,
         size_divergences,
+        _missing_sizes,
     ) = prepare_entries(
         cfg,
         full=True,  # test --all always recompiles (no incremental)

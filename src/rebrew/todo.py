@@ -343,6 +343,11 @@ def _collect_active_functions(
         v_status = v_entry.result.status if v_entry else None
         v_match = v_entry.result.match_percent if v_entry else None
         v_delta = v_entry.result.delta if v_entry else None
+        if v_status == "MISSING_SIZE":
+            # Nothing was extracted (0 target bytes), so the cached delta 0 is
+            # vacuous — never present it as a "0B diff" quick-win.
+            v_delta = None
+            v_match = None
 
         # If verify says it compiled and size changed, or we don't have verify, fallback to metadata parsing
         calc_delta = v_delta
@@ -382,6 +387,15 @@ def _collect_active_functions(
             desc = "Missing C function definition (needs skeleton)"
             score = calculate_roi(size, v_match, calc_delta, status)
             cmd = f"rebrew skeleton 0x{va:08x}"
+
+        elif v_status == "MISSING_SIZE":
+            # No SIZE anywhere (marker + metadata): rebrew test refuses the
+            # entry and byte extraction is vacuous.  The self-heal path is
+            # verify --fix-sizes backfilling the binary-derived size.
+            category = CAT_MISSING_ANNOTATION
+            desc = "Missing SIZE annotation — backfill with rebrew verify --fix-sizes"
+            score = calculate_roi(size, v_match, calc_delta, status)
+            cmd = "rebrew verify --fix-sizes"
 
         elif calc_delta is not None and calc_delta <= 20:
             category = CAT_FIX_DELTA

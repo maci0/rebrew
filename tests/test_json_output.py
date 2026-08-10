@@ -262,7 +262,7 @@ class TestRebrewTestBatchJson:
 
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries",
-            lambda *args, **kwargs: ([], 0, 0, [], [], 0, []),
+            lambda *args, **kwargs: ([], 0, 0, [], [], 0, [], []),
         )
 
         _run_all_batch(
@@ -705,6 +705,7 @@ class TestRebrewTestBatchDir:
                 [],
                 0,
                 [],
+                [],
             )
 
         monkeypatch.setattr("rebrew.verify.prepare_entries", _fake_entries)
@@ -739,7 +740,7 @@ class TestRebrewTestBatchDryRunJson:
         cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries",
-            lambda *args, **kwargs: ([], 0, 0, [], [], 0, []),
+            lambda *args, **kwargs: ([], 0, 0, [], [], 0, [], []),
         )
         _run_all_batch(
             cfg,
@@ -767,7 +768,7 @@ class TestRebrewTestBatchDryRunJson:
         cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries",
-            lambda *args, **kwargs: (entries, 0, 0, [], [], 0, []),
+            lambda *args, **kwargs: (entries, 0, 0, [], [], 0, [], []),
         )
         _run_all_batch(
             cfg,
@@ -798,7 +799,7 @@ class TestRebrewTestBatchDryRunJson:
         cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries",
-            lambda *args, **kwargs: ([entry], 0, 0, [], [], 0, []),
+            lambda *args, **kwargs: ([entry], 0, 0, [], [], 0, [], []),
         )
         _run_all_batch(
             cfg,

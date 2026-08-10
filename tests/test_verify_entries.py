@@ -48,7 +48,7 @@ class TestPrepareEntries:
                 _ann(0x4000, filepath="lib.h"),
             ],
         )
-        entries, passed, failed, fail_details, results, cached, size_div = (
+        entries, passed, failed, fail_details, results, cached, size_div, _miss = (
             verify_mod.prepare_entries(cfg, full=True, json_output=False)
         )
         vas = [e.va for e in entries]
@@ -130,7 +130,7 @@ class TestPrepareEntriesCache:
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        entries, passed, failed, fail_details, results, cached, size_div = (
+        entries, passed, failed, fail_details, results, cached, size_div, _miss = (
             verify_mod.prepare_entries(cfg, full=False, json_output=False)
         )
         assert cached == 1
@@ -160,7 +160,7 @@ class TestPrepareEntriesCache:
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _, _, _, _, _, cached, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        _, _, _, _, _, cached, _, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
         assert cached == 0
 
     def test_cached_proven_invalidated(
@@ -188,7 +188,7 @@ class TestPrepareEntriesCache:
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _, _, _, _, _, cached, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        _, _, _, _, _, cached, _, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
         assert cached == 0
 
     def test_cached_entry_invalidated_by_cflags_change(
@@ -209,7 +209,7 @@ class TestPrepareEntriesCache:
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _, _, _, _, _, cached, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        _, _, _, _, _, cached, _, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
         assert cached == 0
 
     def test_cached_fail_recorded(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -227,7 +227,7 @@ class TestPrepareEntriesCache:
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        entries, passed, failed, fail_details, results, cached, size_div = (
+        entries, passed, failed, fail_details, results, cached, size_div, _miss = (
             verify_mod.prepare_entries(cfg, full=False, json_output=False)
         )
         assert cached == 1
@@ -247,8 +247,8 @@ class TestPrepareEntriesCache:
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _entries, passed, _failed, _fd, results, cached, size_div = verify_mod.prepare_entries(
-            cfg, full=False, json_output=False
+        _entries, passed, _failed, _fd, results, cached, size_div, _miss = (
+            verify_mod.prepare_entries(cfg, full=False, json_output=False)
         )
         assert cached == 0
         assert passed == 0
@@ -272,8 +272,8 @@ class TestPrepareEntriesCache:
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _entries, passed, _failed, _fd, results, cached, size_div = verify_mod.prepare_entries(
-            cfg, full=False, json_output=False
+        _entries, passed, _failed, _fd, results, cached, size_div, _miss = (
+            verify_mod.prepare_entries(cfg, full=False, json_output=False)
         )
         assert cached == 0
         assert passed == 0
@@ -290,7 +290,7 @@ class TestPrepareEntriesCache:
             "build_function_registry",
             lambda *a, **k: {0x1000: {"canonical_size": 80, "size_reason": "list"}},
         )
-        _e, _p, _f, _fd, _r, _c, size_div = verify_mod.prepare_entries(
+        _e, _p, _f, _fd, _r, _c, size_div, _miss = verify_mod.prepare_entries(
             cfg, full=True, json_output=False
         )
         assert len(size_div) == 1
@@ -310,10 +310,36 @@ class TestPrepareEntriesCache:
             "build_function_registry",
             lambda *a, **k: {0x1000: {"canonical_size": 64, "size_reason": "list"}},
         )
-        _e, _p, _f, _fd, _r, _c, size_div = verify_mod.prepare_entries(
+        _e, _p, _f, _fd, _r, _c, size_div, _miss = verify_mod.prepare_entries(
             cfg, full=True, json_output=False
         )
         assert size_div == []
+
+    def test_missing_size_collected_for_backfill(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A documented stub with NO annotation size (intake's STUB files) has
+        an empty 0-byte annotation — the binary-derived canonical size must be
+        collected as a backfill candidate so --fix-sizes can make it testable.
+        Regression: smygb's 151 intake stubs reported MISSING_SIZE forever."""
+        cfg = _cfg(tmp_path)
+        cfg.src_dir = cfg.reversed_dir
+        (tmp_path / "x.dll").write_bytes(b"MZ")
+        from dataclasses import replace
+
+        _patch(monkeypatch, [replace(_ann(0x1000), size=0)])  # no SIZE anywhere
+        monkeypatch.setattr(
+            verify_mod,
+            "build_function_registry",
+            lambda *a, **k: {0x1000: {"canonical_size": 235, "size_reason": "list"}},
+        )
+        _e, _p, _f, _fd, _r, _c, size_div, missing = verify_mod.prepare_entries(
+            cfg, full=True, json_output=False
+        )
+        assert size_div == []  # not a divergence — it's absent, not stale
+        assert len(missing) == 1
+        assert missing[0]["va"] == "0x00001000"
+        assert missing[0]["binary_size"] == 235
 
 
 class TestBinaryIdCacheGuard:

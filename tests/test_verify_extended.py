@@ -194,6 +194,7 @@ class TestVerifyCli:
                 results if results is not None else [],
                 0,
                 [],
+                [],
             ),
         )
         monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
@@ -696,7 +697,7 @@ class TestVerifyWatch:
         monkeypatch.setattr("rebrew.utils.watch_files", _watch)
         monkeypatch.setattr("rebrew.cli.iter_sources", lambda d, cfg=None: [])
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries", lambda *a, **k: ([], 0, 0, [], [], 0, [])
+            "rebrew.verify.prepare_entries", lambda *a, **k: ([], 0, 0, [], [], 0, [], [])
         )
         monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
         monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (None, None))
@@ -716,7 +717,8 @@ class TestProvenOverlay:
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         proven_entry = _ann(0x1000, status="PROVEN")
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries", lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [])
+            "rebrew.verify.prepare_entries",
+            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], []),
         )
         # A proven function's compiled bytes differ from the target — the byte
         # compare yields NEAR_MATCHING, which must be restored to PROVEN.
@@ -757,7 +759,8 @@ class TestProvenOverlay:
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         proven_entry = _ann(0x1000, status="PROVEN")
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries", lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [])
+            "rebrew.verify.prepare_entries",
+            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], []),
         )
         results = [{"va": "0x00001000", "status": "COMPILE_ERROR", "passed": False}]
         monkeypatch.setattr(
@@ -792,7 +795,8 @@ class TestProvenOverlay:
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         proven_entry = _ann(0x1000, status="PROVEN")
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries", lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [])
+            "rebrew.verify.prepare_entries",
+            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], []),
         )
         results = [
             {"va": "0x00001000", "filepath": "f.c", "status": "NEAR_MATCHING", "passed": False}
@@ -1068,7 +1072,7 @@ class TestCompareBaseline:
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         entry = _ann(0x1000)
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries", lambda *a, **k: ([entry], 0, 1, [], [], 0, [])
+            "rebrew.verify.prepare_entries", lambda *a, **k: ([entry], 0, 1, [], [], 0, [], [])
         )
         results = [{"va": "0x00001000", "status": "COMPILE_ERROR", "passed": False}]
         monkeypatch.setattr(
@@ -1112,7 +1116,7 @@ class TestCompareBaseline:
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         entry = _ann(0x1000)
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries", lambda *a, **k: ([entry], 1, 0, [], [], 0, [])
+            "rebrew.verify.prepare_entries", lambda *a, **k: ([entry], 1, 0, [], [], 0, [], [])
         )
         results = [{"va": "0x00001000", "status": "EXACT", "passed": True}]
         monkeypatch.setattr(

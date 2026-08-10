@@ -160,7 +160,7 @@ def classify_all(
     ``project/src`` (the standard layout); pass ``cfg.metadata_dir`` to
     honor a custom layout.
     """
-    from rebrew.metadata import set_field, update_field
+    from rebrew.metadata import get_entry, set_field, update_field
 
     meta_base = metadata_dir if metadata_dir is not None else project / "src"
     documented = 0
@@ -174,6 +174,12 @@ def classify_all(
             out.write_text(stub)
         update_field(meta_base, va, "blocker", reason, module=marker)
         set_field(meta_base, va, "status", "STUB", module=marker)
+        # Record the disassembly-derived size in metadata: a documented stub
+        # without a SIZE is untestable (rebrew test refuses "Invalid SIZE: 0",
+        # verify reports MISSING_SIZE, and the vacuous 0-byte diff pollutes
+        # todo as a fake "0B diff" quick-win).
+        if size > 0 and not get_entry(meta_base, va, marker).get("size"):
+            set_field(meta_base, va, "size", size, module=marker)
         documented += 1
     return documented
 

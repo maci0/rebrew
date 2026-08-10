@@ -797,6 +797,7 @@ def main(
         results,
         cached_count,
         size_divergences,
+        missing_sizes,
     ) = prepare_entries(
         cfg,
         full,
@@ -888,6 +889,7 @@ def main(
             "byte_matched": _status_counts.get("EXACT", 0) + _status_counts.get("RELOC", 0),
         },
         "size_divergences": size_divergences,
+        "missing_sizes": missing_sizes,
         "results": results,
     }
 
@@ -898,10 +900,11 @@ def main(
         )
 
     sizes_fixed = 0
-    if fix_sizes and size_divergences:
-        sizes_fixed = _apply_size_fixes(cfg, size_divergences, dry_run)
+    if fix_sizes and (size_divergences or missing_sizes):
+        all_size_fixes = size_divergences + missing_sizes
+        sizes_fixed = _apply_size_fixes(cfg, all_size_fixes, dry_run)
         if not json_output:
-            for d in size_divergences:
+            for d in all_size_fixes:
                 action = "Would fix" if dry_run else "Fixed"
                 console.print(
                     f"  {action} {d['va']} SIZE {d['annotation_size']} -> "
@@ -909,7 +912,7 @@ def main(
                 )
             if dry_run:
                 console.print(
-                    f"[dim]{len(size_divergences)} size divergence(s) — re-run without "
+                    f"[dim]{len(all_size_fixes)} size fix(es) — re-run without "
                     "--dry-run to write[/dim]"
                 )
         report["sizes_fixed"] = sizes_fixed
@@ -1065,11 +1068,12 @@ def prepare_entries(
     list[dict[str, Any]],
     int,
     list[dict[str, Any]],
+    list[dict[str, Any]],
 ]:
     """Scan reversed_dir, deduplicate entries, and check the verify cache.
 
     Returns (unique_entries, passed, failed, fail_details, results,
-    cached_count, size_divergences).
+    cached_count, size_divergences, missing_sizes).
     """
     reversed_dir = cfg.reversed_dir
     func_list_path = cfg.function_list
@@ -1192,6 +1196,12 @@ def prepare_entries(
     # wrong length (false EXACT on truncated functions, or a misleading
     # SIZE_MISMATCH).  Report-only: the annotation stays authoritative.
     size_divergences: list[dict[str, Any]] = []
+    # MISSING_SIZE (no annotation size at all): the 0-byte compare is vacuous
+    # and rebrew test refuses the entry.  --fix-sizes backfills the canonical
+    # size so documented stubs become testable.  Tracked separately so the
+    # divergence warning above stays accurate (these don't "differ", they're
+    # absent).
+    missing_sizes: list[dict[str, Any]] = []
     for entry in unique_entries:
         reg = registry.get(entry.va)
         if not reg:
@@ -1208,9 +1218,29 @@ def prepare_entries(
                     "module": getattr(entry, "module", ""),
                 }
             )
+        elif canonical > 0 and ann_size == 0:
+            missing_sizes.append(
+                {
+                    "va": f"0x{entry.va:08x}",
+                    "annotation_size": 0,
+                    "binary_size": canonical,
+                    "name": entry.name or entry.symbol or "",
+                    "module": getattr(entry, "module", ""),
+                }
+            )
     size_divergences.sort(key=lambda d: d["va"])
+    missing_sizes.sort(key=lambda d: d["va"])
 
-    return unique_entries, passed, failed, fail_details, results, cached_count, size_divergences
+    return (
+        unique_entries,
+        passed,
+        failed,
+        fail_details,
+        results,
+        cached_count,
+        size_divergences,
+        missing_sizes,
+    )
 
 
 def run_verification(
