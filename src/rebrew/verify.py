@@ -52,7 +52,6 @@ from rebrew.cli import (
     should_promote_status,
 )
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
-from rebrew.metadata import update_source_status
 from rebrew.utils import atomic_write_text
 
 log = logging.getLogger(__name__)
@@ -996,16 +995,19 @@ def _apply_size_fixes(cfg: Any, size_divergences: list[dict[str, Any]], dry_run:
     so a stale annotation size (a false SIZE_MISMATCH / truncated byte
     extraction) is replaced with the real one.
     """
-    from rebrew.metadata import set_field
+    from rebrew.metadata import set_fields_batch
 
-    fixed = 0
+    updates: list[dict[str, Any]] = []
     for d in size_divergences:
         va = int(d["va"], 16)
         module = d.get("module") or cfg.marker
-        if not dry_run:
-            set_field(cfg.metadata_dir, va, "size", d["binary_size"], module=module)
-            fixed += 1
-    return fixed
+        updates.append({"module": module, "va": va, "fields": {"size": d["binary_size"]}})
+    if not dry_run and updates:
+        # One TOML read-modify-write for the whole batch (per-entry set_field
+        # was N full rewrites — perf-review F2).
+        set_fields_batch(cfg.metadata_dir, updates)
+        return len(updates)
+    return 0
 
 
 def _gate_fails(diff_result: dict[str, Any] | None, failed: int) -> bool:
@@ -1412,6 +1414,7 @@ def apply_status_updates(
 
     PROVEN status is sticky and never demoted.
     """
+    updates: list[dict[str, Any]] = []
     for entry, status, _delta in deferred_fixes:
         fp = cfg.reversed_dir / getattr(entry, "filepath", "")
         if not fp.exists():
@@ -1425,16 +1428,27 @@ def apply_status_updates(
         # status is a no-op.  All decided by should_promote_status.
         if not should_promote_status(current_status, status):
             continue
-        clear = is_matched(status)
-        try:
-            update_source_status(cfg.metadata_dir, status, module, entry.va, clear_blockers=clear)
-        except OSError as exc:
-            # STATUS sync is best-effort — a read-only or unwritable metadata
-            # file must not abort the whole verify run (and lose the report
-            # the user waited for).  Warn and keep the verification results.
-            logging.warning(
-                "Could not update STATUS → %s for 0x%x (%s): %s", status, entry.va, module, exc
-            )
+        updates.append(
+            {
+                "module": module,
+                "va": entry.va,
+                "new_status": status,
+                "clear_blockers": is_matched(status),
+            }
+        )
+
+    try:
+        # Batch all STATUS writes into one TOML read-modify-write
+        # (perf-review F2: per-entry RMW was ~9s at 260 entries, minutes at
+        # thousands).
+        from rebrew.metadata import update_statuses_batch
+
+        update_statuses_batch(cfg.metadata_dir, updates)
+    except OSError as exc:
+        # STATUS sync is best-effort — a read-only or unwritable metadata
+        # file must not abort the whole verify run (and lose the report
+        # the user waited for).  Warn and keep the verification results.
+        logging.warning("Could not update STATUS metadata: %s", exc)
 
 
 def _print_results(

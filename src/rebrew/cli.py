@@ -125,6 +125,36 @@ TargetOption: str | None = typer.Option(
 )
 
 
+#: mtime-keyed memo of the raw verify-cache JSON (perf-review F4): status and
+#: todo both decode .rebrew/verify_cache.json every run — sometimes twice per
+#: command — and the decode is linear in cache size.
+_VERIFY_CACHE_MEMO: dict[tuple[str, int, int], dict[str, Any] | None] = {}
+
+
+def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
+    """Load the shared ``.rebrew/verify_cache.json`` as a raw dict (memoized).
+
+    Returns ``None`` when the file is missing or corrupt.  Target/version
+    validation is the caller's responsibility — readers apply their own
+    guards (status vs todo differ slightly).  Memoized by (path, mtime,
+    size), so repeated loads within one command are free.
+    """
+    cache_path = Path(cfg.root) / ".rebrew" / "verify_cache.json"
+    try:
+        st = cache_path.stat()
+    except OSError:
+        return None
+    key = (str(cache_path), st.st_mtime_ns, st.st_size)
+    if key in _VERIFY_CACHE_MEMO:
+        return _VERIFY_CACHE_MEMO[key]
+    try:
+        raw: dict[str, Any] | None = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        raw = None
+    _VERIFY_CACHE_MEMO[key] = raw
+    return raw
+
+
 def require_config(
     target: str | None = None,
     *,

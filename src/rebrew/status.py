@@ -162,12 +162,11 @@ class StatusReport:
 
 def _load_verify_info(cfg: ProjectConfig) -> VerifyInfo | None:
     """Load last verify summary from the verify cache file."""
+    from rebrew.cli import load_verify_cache_raw
+
     cache_path = cfg.root / ".rebrew" / "verify_cache.json"
-    if not cache_path.exists():
-        return None
-    try:
-        raw = json.loads(cache_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    raw = load_verify_cache_raw(cfg)
+    if raw is None:
         return None
 
     if not isinstance(raw, dict) or raw.get("version") != 1:
@@ -232,12 +231,10 @@ def _load_verify_statuses(cfg: ProjectConfig) -> dict[int, str]:
     Returns a dict mapping VA -> verify status (e.g. "EXACT", "NEAR_MATCHING",
     "COMPILE_ERROR").  Used to override optimistic source statuses.
     """
-    cache_path = cfg.root / ".rebrew" / "verify_cache.json"
-    if not cache_path.exists():
-        return {}
-    try:
-        raw = json.loads(cache_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    from rebrew.cli import load_verify_cache_raw
+
+    raw = load_verify_cache_raw(cfg)
+    if raw is None:
         return {}
 
     if not isinstance(raw, dict):

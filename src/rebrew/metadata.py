@@ -330,6 +330,45 @@ def _set_fields(directory: Path, va: int, fields: dict[str, Any], module: str) -
             _metadata_cache.pop(path, None)
 
 
+def set_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
+    """Set fields for many ``(module, va)`` entries in ONE TOML read-modify-write.
+
+    Perf-review F2 sibling: ``verify --fix-sizes`` called ``set_field`` per
+    entry — each a full tomlkit parse + dumps + atomic write under the
+    global lock.  Batches the I/O while keeping per-field idempotency.
+    Rejects ``status`` (use :func:`update_statuses_batch`, which enforces
+    promotion rules).  Returns the number of entries whose fields changed.
+    """
+    if not updates:
+        return 0
+    path = (metadata_dir / METADATA_FILENAME).resolve()
+    changed_entries = 0
+    with _METADATA_LOCK:
+        doc = load_toml_for_write(path, "metadata")
+        doc_dict = typing.cast(dict[str, Any], doc)
+        for u in updates:
+            module = u.get("module") or ""
+            if not module:
+                continue
+            toml_key = qualified_key(module, u["va"])
+            if toml_key not in doc_dict:
+                doc_dict[toml_key] = tomlkit.table()
+            entry = typing.cast(dict[str, Any], doc_dict[toml_key])
+            changed = False
+            for key, value in (u.get("fields") or {}).items():
+                if key == "status":
+                    raise ValueError("Use update_statuses_batch() for STATUS changes")
+                if entry.get(key) != value:
+                    entry[key] = value
+                    changed = True
+            if changed:
+                changed_entries += 1
+        if changed_entries:
+            atomic_write_text(path, tomlkit.dumps(doc))
+    _metadata_cache.pop(path, None)
+    return changed_entries
+
+
 def _delete_field(directory: Path, va: int, key: str, module: str) -> bool:
     """Remove *key* from the metadata entry for *(module, va)*.  **Private** —
     use :func:`remove_field` instead.
@@ -470,46 +509,81 @@ def update_source_status(
     """
     if not module:
         return
+    update_statuses_batch(
+        metadata_dir,
+        [
+            {
+                "module": module,
+                "va": va,
+                "new_status": new_status,
+                "clear_blockers": clear_blockers,
+                "force": force,
+            }
+        ],
+    )
+
+
+def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
+    """Apply many STATUS updates in ONE TOML read-modify-write.
+
+    ``verify``'s STATUS sync and ``test --all`` previously called
+    ``update_source_status`` per entry — each a full tomlkit parse + dumps +
+    atomic write serialized under the global lock.  Measured: 260 entries ≈
+    9s, extrapolated ≈ 28 min at 3000 entries (perf-review F2).  The
+    promotion/stickiness rules are identical per entry; only the I/O is
+    batched (one parse, N in-memory edits, one write).
+
+    *updates*: list of dicts with keys ``module``, ``va``, ``new_status``
+    and optional ``clear_blockers`` (default True), ``force`` (default
+    False).  Returns the number of statuses actually changed.
+    """
+    if not updates:
+        return 0
+    from rebrew.cli import is_status_sticky
 
     path = (metadata_dir / METADATA_FILENAME).resolve()
-    toml_key = qualified_key(module, va)
-
-    # Serialise the read-modify-write across worker threads (verify --jobs,
-    # GA batch) — the atomic rename prevents corruption but not lost updates.
+    changed = 0
     with _METADATA_LOCK:
-        # Single read
+        # Single read for the whole batch
         doc = load_toml_for_write(path, "metadata")
-
-        # Use dict access for type checking on tomlkit Container
         doc_dict = typing.cast(dict[str, Any], doc)
-        if toml_key not in doc_dict:
-            doc_dict[toml_key] = tomlkit.table()
 
-        entry = typing.cast(dict[str, Any], doc_dict[toml_key])
+        for u in updates:
+            module = u.get("module") or ""
+            if not module:
+                continue
+            toml_key = qualified_key(module, u["va"])
+            if toml_key not in doc_dict:
+                doc_dict[toml_key] = tomlkit.table()
+            entry = typing.cast(dict[str, Any], doc_dict[toml_key])
 
-        # Idempotency guard — avoid write if nothing changed
-        current_status = entry.get("status", "")
-        current_blocker = entry.get("blocker", "")
-        if current_status == new_status and (not clear_blockers or not current_blocker):
-            return
+            new_status = u["new_status"]
+            clear_blockers = u.get("clear_blockers", True)
+            force = u.get("force", False)
 
-        # PROVEN is a post-verify promotion from rebrew prove — never silently demote.
-        from rebrew.cli import is_status_sticky
+            # Idempotency guard — avoid a write when nothing changed
+            current_status = entry.get("status", "")
+            current_blocker = entry.get("blocker", "")
+            if current_status == new_status and (not clear_blockers or not current_blocker):
+                continue
 
-        if is_status_sticky(current_status) and new_status != current_status and not force:
-            return
+            # PROVEN is a post-verify promotion — never silently demote.
+            if is_status_sticky(current_status) and new_status != current_status and not force:
+                continue
 
-        # Mutate in-place
-        entry["status"] = new_status
-        if clear_blockers:
-            with contextlib.suppress(KeyError):
-                del entry["blocker"]
-            with contextlib.suppress(KeyError):
-                del entry["blocker_delta"]
+            entry["status"] = new_status
+            if clear_blockers:
+                with contextlib.suppress(KeyError):
+                    del entry["blocker"]
+                with contextlib.suppress(KeyError):
+                    del entry["blocker_delta"]
+            changed += 1
 
-        # Single write
-        atomic_write_text(path, tomlkit.dumps(doc))
+        # Single write for the whole batch
+        if changed:
+            atomic_write_text(path, tomlkit.dumps(doc))
     _metadata_cache.pop(path, None)
+    return changed
 
 
 # ---------------------------------------------------------------------------

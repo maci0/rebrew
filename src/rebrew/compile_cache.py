@@ -42,7 +42,7 @@ from pathlib import Path
 import diskcache
 
 # Bump on key semantics changes to invalidate stale entries.
-CACHE_SCHEMA_VERSION = 2
+CACHE_SCHEMA_VERSION = 3
 
 # Extensions treated as headers when fingerprinting an include directory.
 _HEADER_SUFFIXES = frozenset({".h", ".hpp", ".hxx", ".inl", ".hh"})
@@ -177,6 +177,18 @@ def include_fingerprint(include_dir: str) -> str:
     return h.hexdigest()
 
 
+def _source_digest(source_content: str) -> str:
+    """SHA-256 hex of C source text, memoized per unique string.
+
+    Flag sweeps / GA runs call :func:`compile_cache_key` once per combo with
+    the *same* source text; re-hashing the full source each time was pure CPU
+    on a warm cache (perf-review F3: 1-8s per 258k-combo sweep).  Python
+    strings cache their own ``hash()`` after the first call, so the
+    lru_cache lookup is cheap once a source string has been seen.
+    """
+    return hashlib.sha256(source_content.encode("utf-8")).hexdigest()
+
+
 def compile_cache_key(
     source_content: str,
     source_filename: str,
@@ -207,7 +219,9 @@ def compile_cache_key(
     """
     h = hashlib.sha256()
     h.update(f"v{CACHE_SCHEMA_VERSION}\0".encode())
-    h.update(source_content.encode("utf-8"))
+    # Source digest memoized per string (see _source_digest) — the running
+    # hash consumes the digest's hex form, not the raw source.
+    h.update(_source_digest(source_content).encode())
     h.update(f"\0filename={source_filename}\0".encode())
     h.update(f"\0ext={source_ext}\0".encode())
     # Flags and include dirs are separated by \0 to prevent collisions

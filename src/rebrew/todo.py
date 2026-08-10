@@ -545,14 +545,16 @@ def _load_verify_entries(cfg: ProjectConfig) -> dict[str, "VerifyCacheEntry"]:
     entries must never drive todo's categories/deltas — a CLIENT run would
     otherwise surface SERVER's EXACTs as phantom fix-delta quick-wins.
     """
-    cache_path = cfg.root / ".rebrew" / "verify_cache.json"
-    if not cache_path.exists():
+    from rebrew.cli import load_verify_cache_raw
+
+    raw = load_verify_cache_raw(cfg)
+    if raw is None:
         return {}
     try:
         from rebrew.verify import VerifyCache
 
-        data = VerifyCache.from_dict(json.loads(cache_path.read_text(encoding="utf-8")))
-    except (json.JSONDecodeError, OSError, ValueError, AttributeError, ImportError):
+        data = VerifyCache.from_dict(raw)
+    except (ValueError, AttributeError, ImportError, TypeError):
         return {}
     if data.version != 1:
         return {}
