@@ -2543,8 +2543,10 @@ def _run_all(  # noqa: PLR0913
         return 0, 0
 
     if flag_sweep:
-        _run_batch_flag_sweep(stubs, cfg, tier, jobs, fix_cflags, json_output, mode_label)
-        return 0, 0
+        matched, failed = _run_batch_flag_sweep(
+            stubs, cfg, tier, jobs, fix_cflags, json_output, mode_label
+        )
+        return matched, failed
 
     (cfg.root / "output" / "ga_runs").mkdir(parents=True, exist_ok=True)
 
@@ -2770,8 +2772,12 @@ def _run_batch_flag_sweep(
     fix_cflags: bool,
     json_output: bool,
     mode_label: str,
-) -> None:
-    """Execute batch flag sweep across all discovered NEAR_MATCHING functions."""
+) -> tuple[int, int]:
+    """Execute batch flag sweep across all discovered NEAR_MATCHING functions.
+
+    Returns ``(exact_count, not_exact_count)`` so ``--all-targets``
+    aggregation reports real numbers instead of a hardcoded ``(0, 0)``.
+    """
     from rebrew.annotation import module_for_va
     from rebrew.cli import rel_display_path
     from rebrew.matcher.solutions import SolutionEntry, save_solutions
@@ -2882,6 +2888,8 @@ def _run_batch_flag_sweep(
             f"{improved_count} compilable, {len(stubs)} total (tier={tier})"
         )
         console.print(f"[bold]{'=' * 60}[/]")
+
+    return exact_count, len(stubs) - exact_count
 
 
 def main_entry() -> None:

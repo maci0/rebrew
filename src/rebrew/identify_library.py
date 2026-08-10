@@ -248,14 +248,18 @@ def _flirt_candidates(cfg: Any, default_module: str) -> list[LibCandidate]:
                 sigs = flirt.parse_sig(sig_file.read_bytes())
             else:
                 sigs = flirt.parse_pat(sig_file.read_text(encoding="utf-8", errors="ignore"))
-        except Exception:  # noqa: BLE001 — one bad file must not abort the rest
+        except Exception as exc:  # noqa: BLE001 — one bad file must not abort the rest
+            console.print(f"[yellow]warning:[/yellow] unreadable signature {sig_file.name}: {exc}")
             continue
         if not sigs:
             continue
         file_module = _module_from_sig_file(sig_file.name, default_module)
         try:
             matcher = flirt.compile(sigs)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            console.print(
+                f"[yellow]warning:[/yellow] uncompileable signature {sig_file.name}: {exc}"
+            )
             continue
         for m in match_text(matcher, code_data, text_sec.va):
             out.append(
