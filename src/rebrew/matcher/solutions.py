@@ -13,12 +13,19 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+import threading
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from rebrew.utils import atomic_write_text
+
+#: Serializes whole-file read-modify-write cycles so a batch GA (or concurrent
+#: callers) can't lose entries via last-writer-wins.  The batch path already
+#: holds rebrew.match's _metadata_lock, but the safety must not depend on
+#: callers remembering to lock.
+_SAVE_LOCK = threading.Lock()
 
 log = logging.getLogger(__name__)
 
@@ -142,16 +149,19 @@ def save_solution(project_root: Path, entry: SolutionEntry) -> None:
     entry = dataclasses.replace(
         entry, source_file=_relative_source(project_root, entry.source_file)
     )
-    existing = load_solutions(project_root)
-    # Replace existing entry for the same (target, symbol)
-    updated = [e for e in existing if not (e.symbol == entry.symbol and e.target == entry.target)]
-    updated.append(entry)
-    # Sort by (target, symbol) for stable output
-    updated.sort(key=lambda e: (e.target, e.symbol))
+    with _SAVE_LOCK:
+        existing = load_solutions(project_root)
+        # Replace existing entry for the same (target, symbol)
+        updated = [
+            e for e in existing if not (e.symbol == entry.symbol and e.target == entry.target)
+        ]
+        updated.append(entry)
+        # Sort by (target, symbol) for stable output
+        updated.sort(key=lambda e: (e.target, e.symbol))
 
-    data = [asdict(e) for e in updated]
-    p = _ensure_solutions_dir(project_root)
-    atomic_write_text(p, json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        data = [asdict(e) for e in updated]
+        p = _ensure_solutions_dir(project_root)
+        atomic_write_text(p, json.dumps(data, indent=2) + "\n", encoding="utf-8")
     log.info("Saved solution for %s/%s (%d total)", entry.target, entry.symbol, len(updated))
 
 
@@ -164,17 +174,18 @@ def save_solutions(project_root: Path, entries: list[SolutionEntry]) -> None:
     """
     if not entries:
         return
-    existing = load_solutions(project_root)
-    existing_by_key = {(e.symbol, e.target): e for e in existing}
-    for entry in entries:
-        entry = dataclasses.replace(
-            entry, source_file=_relative_source(project_root, entry.source_file)
-        )
-        existing_by_key[(entry.symbol, entry.target)] = entry
-    updated = sorted(existing_by_key.values(), key=lambda e: (e.target, e.symbol))
-    data = [asdict(e) for e in updated]
-    p = _ensure_solutions_dir(project_root)
-    atomic_write_text(p, json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    with _SAVE_LOCK:
+        existing = load_solutions(project_root)
+        existing_by_key = {(e.symbol, e.target): e for e in existing}
+        for entry in entries:
+            entry = dataclasses.replace(
+                entry, source_file=_relative_source(project_root, entry.source_file)
+            )
+            existing_by_key[(entry.symbol, entry.target)] = entry
+        updated = sorted(existing_by_key.values(), key=lambda e: (e.target, e.symbol))
+        data = [asdict(e) for e in updated]
+        p = _ensure_solutions_dir(project_root)
+        atomic_write_text(p, json.dumps(data, indent=2) + "\n", encoding="utf-8")
     log.info("Saved %d solution(s) (%d total)", len(entries), len(updated))
 
 
