@@ -174,6 +174,7 @@ def extract_pdb_info(binary: Path) -> PdbInfo | None:
     return info
 
 
+@app.callback(invoke_without_command=True)
 def main(
     binary: str = typer.Argument(..., help="Path to the binary whose sibling .pdb to read."),
     write_cflags: bool = typer.Option(

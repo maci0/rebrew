@@ -261,6 +261,7 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
     return d
 
 
+@app.callback(invoke_without_command=True)
 def main(
     binary: str = typer.Argument(..., help="Path to the target binary."),
     output: str | None = typer.Option(
