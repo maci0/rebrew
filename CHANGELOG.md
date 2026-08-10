@@ -279,6 +279,16 @@
   key the config reader ignores.
 
 ### Fixed
+- `rebrew gen-flirt-pat` / `identify-library --build-sigs` emitted a
+  **malformed .pat line for nameless COFF symbols** (empty/public names) —
+  the line's trailing name field was empty, so signature parsers rejected
+  the whole file as "corrupt" (212 of 262 generated sigs in the smygb
+  project were affected). Nameless symbols are now skipped; the smygb sigs
+  were regenerated and `rebrew analyze` reports zero corrupt-sig warnings.
+- `rebrew pdb-info --help` rendered "into  cflags" — the `[compiler]`
+  in the help text was consumed as rich markup and vanished.
+- `rebrew intake` option order — `--json` is now declared before
+  `--target` (last two options), matching the project's CLI convention.
 - `rebrew diff` / `rebrew match` / `rebrew prove` invoked with a VA whose
   resolved source file does not annotate that VA now error
   ("No annotation for VA ... — the resolved file covers different functions")

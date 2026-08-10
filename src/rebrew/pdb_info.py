@@ -177,7 +177,7 @@ def extract_pdb_info(binary: Path) -> PdbInfo | None:
 def main(
     binary: str = typer.Argument(..., help="Path to the binary whose sibling .pdb to read."),
     write_cflags: bool = typer.Option(
-        False, "--write-cflags", help="Write the S_COMPILE3 flags into [compiler] cflags."
+        False, "--write-cflags", help=r"Write the S_COMPILE3 flags into \[compiler] cflags."
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:

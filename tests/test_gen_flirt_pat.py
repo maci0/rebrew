@@ -377,6 +377,33 @@ class TestGenFlirtPatEndToEnd:
         assert "_myfunc" in text
         assert text.endswith("---\n")
 
+    def test_empty_symbol_name_skipped(self, tmp_path: Path, monkeypatch) -> None:
+        """A nameless COFF symbol must not emit a malformed .pat line.
+
+        ``bytes_to_pat_line`` puts the symbol name as the line's trailing
+        field, so an empty name yields ``"<lead> <crc_len> <crc> <size>
+        :0000 "`` — a line signature parsers reject, corrupting the whole
+        .pat (symptom: "The .pat file is corrupt (or unsupported)").
+        """
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.gen_flirt_pat import app
+
+        code = bytes(range(40))
+        obj = make_coff_obj(code, func_symbol="")
+        lib_path = tmp_path / "msvcrt.lib"
+        lib_path.write_bytes(make_lib_archive([("func.obj", obj)]))
+        out = tmp_path / "out.pat"
+        result = CliRunner().invoke(app, ["--json", "-o", str(out), str(lib_path)])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["signatures"] == 0
+        text = out.read_text(encoding="utf-8")
+        assert text == "---\n"
+        assert ":0000" not in text
+
 
 class TestWeakSignatureFilter:
     """_is_weak_signature: crc_len=0 sigs with <16 literal lead bytes are
