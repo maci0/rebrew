@@ -294,6 +294,13 @@
   key the config reader ignores.
 
 ### Fixed
+- `rebrew verify --fix-sizes`: auto-corrects stale annotation SIZE from the
+  binary-derived canonical size for every reported divergence (stale sizes
+  cause false SIZE_MISMATCH / truncated byte extraction). `--dry-run`
+  previews; JSON gains `sizes_fixed`. Validated on smygb: 3 stale sizes
+  corrected (190→331, 235→217, 141→277), re-verify reports zero
+  divergences. Extracted to `_apply_size_fixes` + unit-tested (writes,
+  dry-run no-op, module fallback).
 - Complete the standalone console scripts: every command module with a
   `main_entry()` now gets a `[project.scripts]` entry (43 total), making
   the documented "works both as rebrew-<cmd> and as a flat subcommand"

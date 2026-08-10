@@ -745,6 +745,12 @@ def main(
         "--full",
         help="Force full verification, ignoring cached results",
     ),
+    fix_sizes: bool = typer.Option(
+        False,
+        "--fix-sizes",
+        help="Correct annotation SIZE from the binary-derived size for every "
+        "reported divergence (stale sizes cause false SIZE_MISMATCH)",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     watch: bool = typer.Option(
         False, "--watch", help="Re-verify all sources whenever any .c file changes"
@@ -891,6 +897,23 @@ def main(
             "SIZE differing from the binary-derived size; run with --json for details"
         )
 
+    sizes_fixed = 0
+    if fix_sizes and size_divergences:
+        sizes_fixed = _apply_size_fixes(cfg, size_divergences, dry_run)
+        if not json_output:
+            for d in size_divergences:
+                action = "Would fix" if dry_run else "Fixed"
+                console.print(
+                    f"  {action} {d['va']} SIZE {d['annotation_size']} -> "
+                    f"{d['binary_size']} ({d['name']})"
+                )
+            if dry_run:
+                console.print(
+                    f"[dim]{len(size_divergences)} size divergence(s) — re-run without "
+                    "--dry-run to write[/dim]"
+                )
+        report["sizes_fixed"] = sizes_fixed
+
     # F9: a failed --compare gate must not record state — the baseline is
     # preserved below, and the compile cache is skipped too so a CI failure
     # leaves no new cache entries behind.
@@ -946,6 +969,26 @@ def main(
     )
 
     _raise_if_regression(diff_result, failed)
+
+
+def _apply_size_fixes(cfg: Any, size_divergences: list[dict[str, Any]], dry_run: bool) -> int:
+    """Correct annotation SIZE from the binary-derived size for each divergence.
+
+    Returns the number of sizes written (0 in dry-run).  The binary-derived
+    canonical size comes from the function registry (disassembly-derived),
+    so a stale annotation size (a false SIZE_MISMATCH / truncated byte
+    extraction) is replaced with the real one.
+    """
+    from rebrew.metadata import set_field
+
+    fixed = 0
+    for d in size_divergences:
+        va = int(d["va"], 16)
+        module = d.get("module") or cfg.marker
+        if not dry_run:
+            set_field(cfg.metadata_dir, va, "size", d["binary_size"], module=module)
+            fixed += 1
+    return fixed
 
 
 def _gate_fails(diff_result: dict[str, Any] | None, failed: int) -> bool:
@@ -1162,6 +1205,7 @@ def prepare_entries(
                     "annotation_size": ann_size,
                     "binary_size": canonical,
                     "name": entry.name or entry.symbol or "",
+                    "module": getattr(entry, "module", ""),
                 }
             )
     size_divergences.sort(key=lambda d: d["va"])
