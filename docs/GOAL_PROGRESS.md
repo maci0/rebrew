@@ -6316,9 +6316,13 @@ precomputed targets, LRU-cached binary loading, WAL+executemany DB).  Fixed:
 - **F4** (medium): shared mtime-keyed `cli.load_verify_cache_raw` — status
   and todo decoded the cache 2-3x per command; now memoized per process.
 
-Deferred (documented, low/medium severity at-scale items): F5 (single-pass
-source scanning shared across status/todo/verify), F6 (populate
-BuildResult.fitness on the GA warm-cache path — touches the persisted
-dataclass shape).
+- **F6** (low): GA warm-cache fast path — BuildResult carries the memoized
+  fitness (score.total + excess penalty); _compute_fitness returns it on
+  cache hits instead of re-disassembling + re-scoring every cached candidate
+  (~2.8s per 300k-candidate warm batch).  Per-stub caches make it safe;
+  getattr guards pre-field pickles.  Committed 7943df0.
+
+Deferred (documented at-scale design item): F5 (single-pass source scanning
+shared across status/todo/verify — medium-term design change).
 
 Commits: e187f15 (perf F2/F3/F4). Full suite green (4013 passed).
