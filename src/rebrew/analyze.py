@@ -25,7 +25,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from rebrew.cli import TargetOption, json_print, require_config
+from rebrew.cli import TargetOption, json_print
+from rebrew.config import load_config
 
 console = Console(stderr=True)
 
@@ -496,7 +497,10 @@ def _render_markdown(dossier: dict[str, Any], fn: dict[str, Any] | None) -> str:
 
 @app.callback(invoke_without_command=True)
 def main(
-    binary: Path | None = typer.Argument(None, help="Binary path (default: project target binary)"),
+    binary: Path | None = typer.Argument(
+        None,
+        help="Binary path (required when no project is present; default: project target binary)",
+    ),
     min_len: int = typer.Option(4, "--min-len", help="Minimum string length to report"),
     top_strings: int = typer.Option(
         10, "--top-strings", help="How many most-referenced strings to list"
@@ -513,13 +517,36 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """One-shot intelligence dossier for a target binary."""
-    cfg = require_config(target=target, json_mode=json_output)
-    if binary is None:
-        binary = cfg.target_binary
+    from rebrew.cli import error_exit
+
+    cfg: Any
+    try:
+        cfg = load_config(target=target)
+    except FileNotFoundError:
+        # Standalone mode: no project — the binary argument is required and
+        # project-scoped dossier sections (FLIRT sigs, library headers,
+        # near-match metadata) are skipped automatically (build_dossier
+        # guards every cfg access).
+        if binary is None:
+            error_exit(
+                "No rebrew-project.toml found and no binary given. "
+                "Run inside a project or pass a binary path.",
+                json_mode=json_output,
+            )
+        from types import SimpleNamespace
+
+        cfg = SimpleNamespace(
+            root=None,
+            target_binary=binary,
+            metadata_dir=None,
+            marker="",
+            target_name=binary.stem,
+        )
+    else:
+        if binary is None:
+            binary = cfg.target_binary
 
     if json_output and output is not None:
-        from rebrew.cli import error_exit
-
         error_exit("--output cannot be combined with --json", json_mode=True)
 
     fn_dossier: dict[str, Any] | None = None

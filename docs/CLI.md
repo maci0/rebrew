@@ -607,6 +607,12 @@ PDB → heuristics), strings + references, imports + IAT stubs, reversed-functio
 coverage, dispatch tables, FLIRT matches (when `flirt_sigs/` exists), and
 NEAR_MATCHING blockers. Best-effort by design — every section is optional.
 
+Works **standalone**: `rebrew analyze some_unknown.exe --json` runs outside
+a project too (the binary argument becomes required). Project-scoped
+sections (FLIRT sigs, library headers, near-match metadata) degrade to
+`null`/`[]` instead of aborting — the dossier is usable as the first
+intelligence step on a binary you haven't onboarded yet.
+
 | Flag | Description |
 |------|-------------|
 | `BINARY` | Binary to analyze (default: the project target) |
