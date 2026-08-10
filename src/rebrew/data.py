@@ -28,7 +28,7 @@ from rich.table import Table
 
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
-from rebrew.utils import read_source_text
+from rebrew.utils import atomic_write_text, read_source_text
 
 console = Console(stderr=True)
 
@@ -759,7 +759,6 @@ def _generate_bss_fix(
         return
 
     from rebrew.data_metadata import set_data_field
-    from rebrew.utils import atomic_write_text
 
     meta_dir = metadata_dir if metadata_dir is not None else src_dir
     out_file = src_dir / "bss_padding.c"
@@ -1129,7 +1128,7 @@ def _gen_globals_header(
             console.print(f"[dim]{out.name} unchanged[/dim] ({len(rows)} globals)")
             return
 
-    out.write_text(content, encoding="utf-8")
+    atomic_write_text(out, content, encoding="utf-8")
 
     console.print(f"[green]Wrote {out.name}[/green] with {len(rows)} globals")
     for sec in section_order:

@@ -35,6 +35,7 @@ from rich.console import Console
 from rebrew.analysis import iter_instructions
 from rebrew.binary_loader import load_binary
 from rebrew.cli import EXIT_ERROR, json_print
+from rebrew.utils import atomic_write_text
 
 console = Console(stderr=True)
 
@@ -283,7 +284,7 @@ def main(
 
     if output:
         Path(output).parent.mkdir(parents=True, exist_ok=True)
-        Path(output).write_text(text)
+        atomic_write_text(Path(output), text)
 
     if json_output:
         json_print(
