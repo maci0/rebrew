@@ -31,9 +31,8 @@ def detect_source_encoding(data: bytes) -> str:
     Reading a legacy-encoded source as UTF-8 with ``errors="replace"`` and
     writing it back permanently replaces every non-ASCII byte with U+FFFD;
     detecting the real encoding on read lets write-backs round-trip
-    byte-for-byte.  Ordering note: cp1252 decodes every byte sequence, so it
-    is tried last as the universal fallback; shift_jis is stricter and
-    catches Japanese sources first.
+    byte-for-byte.  Ordering note: cp1252 is tried last as the fallback;
+    shift_jis is stricter and catches Japanese sources first.
     """
     for enc in _SOURCE_ENCODINGS:
         try:
@@ -41,7 +40,10 @@ def detect_source_encoding(data: bytes) -> str:
             return enc
         except UnicodeDecodeError:
             continue
-    # cp1252 decodes every byte sequence, so this is unreachable in practice.
+    # cp1252 is the fallback even though a handful of bytes are undefined
+    # (0x81, 0x8D, 0x8F, 0x90, 0x9D) — read_source_text decodes it with
+    # errors="replace" so those rare bytes degrade to U+FFFD instead of
+    # crashing the whole read.
     return "cp1252"
 
 
@@ -50,10 +52,12 @@ def read_source_text(filepath: Path) -> tuple[str, str]:
 
     Pass the returned encoding to :func:`atomic_write_text` when writing the
     file back so legacy-encoded sources are not corrupted by a UTF-8 write.
+    Undecodable bytes (e.g. the undefined CP1252 holes 0x81/0x8D/0x8F/0x90/
+    0x9D) decode as U+FFFD rather than raising.
     """
     data = filepath.read_bytes()
     encoding = detect_source_encoding(data)
-    return data.decode(encoding), encoding
+    return data.decode(encoding, errors="replace"), encoding
 
 
 def atomic_write_text(filepath: Path, text: str, encoding: str = "utf-8") -> None:
