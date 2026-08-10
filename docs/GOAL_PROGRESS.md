@@ -6208,3 +6208,33 @@ positional syntax (`binsync-export ./outdir` — no stale --out claims).
   functions returned.
 - recoverage `export --format json|csv|md`: all three produce correct
   output (json full stats; csv per-section rows; md table).
+
+## 2026-08-10 — todo/verify/intake MISSING_SIZE chain + documented category
+
+Smygb surfaced a three-part toolchain gap: intake stubs were written with no
+SIZE, so `rebrew test` refused them ("Invalid SIZE: 0"), `verify` reported
+MISSING_SIZE forever, and `rebrew todo` presented the vacuous 0-byte delta as
+a fake "0B diff" fix-delta quick-win.
+
+- `classify_all` (intake / document-unmatched) now records the
+  disassembly-derived SIZE in metadata when documenting stubs.
+- `verify --fix-sizes` backfills MISSING_SIZE entries (canonical size from the
+  function registry), tracked separately as `missing_sizes` in the JSON report
+  — the stale-size divergence warning stays accurate.  `document-unmatched
+  --backfill-blockers` also records an available annotation SIZE.
+- `rebrew todo`: MISSING_SIZE verify results no longer contribute their
+  vacuous delta; they classify as missing-annotation with the
+  `rebrew verify --fix-sizes` self-heal command.  IAT thunks / Delphi stubs
+  (blocker-marked documented non-targets) move to a new audit-only
+  `documented` category — hidden from the actionable list, visible via
+  `rebrew todo -c documented`, counted in coverage stats / JSON.
+
+**Proof on smygb**: `verify --fix-sizes` backfilled 6 missing sizes
+(5 IAT thunks + 0x0040e44d); the false "0B diff" fix-delta item disappeared;
+`rebrew test 0x0040e44d` compiles and diffs again.  fix-delta now shows only
+2 genuine items (0x00404a90 20B, 0x00407480 12B — both structural/register
+gaps per near-diag, real decomp work).  Idempotent re-run: 0 divergences,
+0 missing.  Guild project: 0 documented / 0 missing (clean).
+
+Commits: 790c79c (todo documented category), 25bac8a (MISSING_SIZE chain),
+82203e8 (CHANGELOG + help), d09d1d8 (docs/CLI.md), 3908716 (backfill SIZE).
