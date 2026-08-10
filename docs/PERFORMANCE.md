@@ -44,6 +44,19 @@ and a differing-mnemonics case that must still be penalized).
 - **Fancy-indexing reloc normalization** — 0.7× slower; kept the slice loop.
 - **Replacing `SequenceMatcher`** — changes calibrated scoring; rejected.
 
+## GA bottleneck: compilation, not scoring
+
+Measured on smygb (512-byte function, real MSVC6 toolchain):
+
+- one compile + byte-compare (`rebrew test`): **≈ 585 ms**
+- one `score_candidate` call (reloc path, precomputed target): **≈ 0.36 ms**
+
+Scoring is ~1600× cheaper than a compile, so the GA's wall-clock is
+dominated by Wine/compiler subprocesses (which the compile cache
+mitigates), not by the numpy/capstone scoring path. Future perf work on
+the GA should target compile throughput (cache hit rate, parallel
+compiles), not `score_candidate`.
+
 ## Idempotency
 
 Every offline `--json` command is deterministic across runs — enforced by
