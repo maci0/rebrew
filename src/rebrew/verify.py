@@ -919,6 +919,17 @@ def main(
                     "--dry-run to write[/dim]"
                 )
         report["sizes_fixed"] = sizes_fixed
+        if not dry_run and sizes_fixed:
+            # The report was assembled from the pre-fix scan; strip the
+            # just-fixed VAs so the same-run payload is not self-contradictory
+            # ("sizes_fixed: N" next to the same entries still listed as
+            # missing/stale).  Their cached results reflect the pre-fix state
+            # and re-evaluate on the next run.
+            fixed_vas = {d["va"] for d in all_size_fixes}
+            size_divergences = [d for d in size_divergences if d["va"] not in fixed_vas]
+            missing_sizes = [d for d in missing_sizes if d["va"] not in fixed_vas]
+            report["size_divergences"] = size_divergences
+            report["missing_sizes"] = missing_sizes
 
     # F9: a failed --compare gate must not record state — the baseline is
     # preserved below, and the compile cache is skipped too so a CI failure
