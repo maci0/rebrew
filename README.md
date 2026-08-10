@@ -59,6 +59,17 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | `rebrew skills` | List/show the bundled agent skills |
 | `rebrew sync` | Push/pull source markers, metadata, labels, structs, and comments to Ghidra via ReVa MCP |
 
+### Onboarding & Intelligence
+
+| Tool | What it does |
+|------|-------------|
+| `rebrew intake` | One-shot binary onboarding: init + toolchain detect + functions + document-unmatched in a single command |
+| `rebrew analyze` | One-shot intelligence dossier for a binary — layout, toolchain, strings, imports, dispatch tables, FLIRT matches. Works standalone outside a project |
+| `rebrew discover-functions` | Function enumeration (rizin aaa/aap + capstone sweep) with validated boundaries and sizes |
+| `rebrew document-unmatched` | Write STUB skeletons + blockers for every function in the list that isn't documented yet (re-discovery workflow; idempotent) |
+| `rebrew identify-library` | Identify library functions (FLIRT + imports + CRT) into `library_*.h`; `--build-sigs` generates the sigs from the toolchain `.lib` files first |
+| `rebrew pdb-info` | Extract compiler version, exact command line (S_COMPILE3), and function names from a PDB |
+
 ### Design
 
 - **Config-driven** — all tools read from `rebrew-project.toml`, zero manual path arguments
