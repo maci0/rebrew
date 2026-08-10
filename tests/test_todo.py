@@ -166,6 +166,43 @@ class TestCollectors:
         assert items[0].category == CAT_MISSING_ANNOTATION
         assert items[0].name == "FUN_00001000"
 
+    def test_active_functions_missing_size_not_fix_delta(self) -> None:
+        """A MISSING_SIZE verify result has a vacuous 0-byte delta (nothing
+        extracted) — it must NOT appear as a '0B diff' fix-delta quick-win.
+        Regression: smygb's intake-documented stubs showed as 0B-diff while
+        rebrew test refused them with 'Invalid SIZE: 0'."""
+        from rebrew.verify import VerifyCacheEntry, VerifyResult
+
+        entries = {
+            "0x00001000": VerifyCacheEntry(
+                source_hash="",
+                filepath="fcn_0040e44d.c",
+                mtime_ns=0,
+                result=VerifyResult(
+                    status="MISSING_SIZE",
+                    va=0x1000,
+                    size=0,
+                    filepath="fcn_0040e44d.c",
+                    name="fcn_0040e44d",
+                    message="MISSING_SIZE: No SIZE annotation",
+                    passed=False,
+                ),
+            )
+        }
+        existing = {
+            0x1000: {
+                "status": "STUB",
+                "symbol": "fcn_0040e44d",
+                "blocker": "Application code — pending per-function decompilation",
+            }
+        }
+        items = _collect_active_functions(existing, {0x1000: 235}, {}, entries)
+        assert len(items) == 1
+        assert items[0].category == CAT_MISSING_ANNOTATION
+        assert items[0].byte_delta is None  # vacuous delta must not leak
+        assert "verify --fix-sizes" in items[0].command
+        assert "SIZE" in items[0].description
+
     def test_active_functions_fix_delta(self) -> None:
         existing = {0x1000: {"status": "NEAR_MATCHING", "symbol": "func_a", "blocker_delta": "3"}}
         items = _collect_active_functions(existing, {0x1000: 50}, {}, {})
