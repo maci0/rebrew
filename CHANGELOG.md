@@ -294,6 +294,14 @@
   key the config reader ignores.
 
 ### Fixed
+- `parse_function_list` (functions.txt reader, used by verify/todo/status/
+  describe/document-unmatched) crashed with `UnicodeDecodeError` on
+  legacy-encoded files — same bug class as the read_source_text fix (50/150
+  fuzz inputs). Now reads via the tolerant `read_source_text`; 0/150 crash.
+- `rebrew skeleton --append` read the target `.c` with a strict UTF-8 read
+  and wrote back UTF-8 — a legacy-encoded source crashed the append and
+  would have been re-encoded. Now reads with the tolerant reader and
+  writes back in the file's own encoding (round-trip preserved).
 - `rebrew.utils.read_source_text`: the CP1252 "universal fallback" was
   wrong — Windows-1252 has undefined bytes (0x81/0x8D/0x8F/0x90/0x9D), so
   reading a legacy-encoded source containing one crashed the core text

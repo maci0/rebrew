@@ -49,7 +49,7 @@ from rebrew.naming import (
     make_filename,
     sanitize_name,
 )
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, read_source_text
 
 console = Console(stderr=True)
 
@@ -630,15 +630,17 @@ def _run_append_mode(
         decomp_body=decomp_body,
     )
 
-    # Ensure there's a blank line separator before the new block
-    existing_text = append_path.read_text(encoding="utf-8")
+    # Ensure there's a blank line separator before the new block.  Read with
+    # the tolerant reader and write back in the file's own encoding so
+    # legacy-encoded sources (cp1252/shift_jis) survive the append.
+    existing_text, encoding = read_source_text(append_path)
     separator = (
         "" if existing_text.endswith("\n\n") else "\n" if existing_text.endswith("\n") else "\n\n"
     )
     if dry_run:
         console.print(f"[dim]Would append[/dim] to {rel_display_path(append_path, root)}")
     else:
-        atomic_write_text(append_path, existing_text + separator + block, encoding="utf-8")
+        atomic_write_text(append_path, existing_text + separator + block, encoding=encoding)
         _write_skeleton_metadata(cfg, va_int, size, module_val)
 
     rel_path_val = rel_display_path(append_path, root)
