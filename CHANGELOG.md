@@ -1,6 +1,13 @@
 ## [Unreleased]
 
 ### Added
+- `rebrew analyze <binary>` now works **standalone outside a project** —
+  the binary argument becomes required when no `rebrew-project.toml` is
+  found. Project-scoped sections (FLIRT sigs, library headers, near-match
+  metadata) degrade to `null`/`[]` instead of aborting, so the dossier is
+  usable as the first intelligence step on an unknown binary (the use
+  case it was built for). Clear error when neither a project nor a binary
+  is given.
 - `rebrew document-unmatched` — standalone version of intake's
   document-unmatched step: writes a STUB `.c` + BLOCKER/STATUS=STUB
   metadata for every function in the function list that isn't already

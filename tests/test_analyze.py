@@ -176,6 +176,35 @@ timeout = 60
         assert result.exit_code == 1  # error_exit convention
         assert json.loads(result.stdout)["error"]
 
+    def test_standalone_mode_without_project(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """analyze <binary> works outside a project — binary-driven dossier.
+
+        The whole point of the dossier is intelligence on an *unknown*
+        binary; requiring a project first would force setup before
+        analysis.  Project-scoped sections (flirt/library/near_match)
+        degrade to null/[] instead of aborting.
+        """
+        monkeypatch.chdir(tmp_path)  # no rebrew-project.toml anywhere
+        binary = FIXTURES / "mini_pe.exe"
+        result = CliRunner().invoke(app, ["analyze", str(binary), "--json"])
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)  # pure JSON
+        assert payload["binary"].endswith("mini_pe.exe")
+        assert payload["meta"]["format"] == "pe"
+        assert payload["flirt"] is None  # no project sig dir
+        assert payload["library"] == []  # no project library headers
+
+    def test_standalone_requires_binary(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No project + no binary -> a clear error, not a crash."""
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(app, ["analyze", "--json"])
+        assert result.exit_code == 1
+        assert "no binary given" in json.loads(result.stdout)["error"]
+
 
 class TestAnalyzeV2:
     """analyze v2: --output Markdown report and --function drill."""
