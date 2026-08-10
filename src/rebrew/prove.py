@@ -1321,6 +1321,8 @@ def main(
     else:
         result["action"] = "none"
         result["new_status"] = ann.status
+        if not dry_run:
+            _record_prove_counterexample(cfg, ann, message)
 
     if json_output:
         json_print(result)
@@ -1566,8 +1568,34 @@ def _prove_single(
         from rebrew.metadata import update_source_status
 
         update_source_status(cfg.metadata_dir, "PROVEN", ann.module, ann.va)
+    elif not proven and not dry_run:
+        _record_prove_counterexample(cfg, ann, message)
 
     return proven, message
+
+
+def _record_prove_counterexample(cfg: Any, ann: Any, message: str) -> None:
+    """Persist a failed prove's counterexample as a metadata NOTE.
+
+    A Z3 counterexample ("EAX=0 vs 4") is the single most actionable signal
+    for fixing a decompilation, but it was only printed to the terminal and
+    lost.  Writing it into the function's metadata NOTE surfaces it in
+    ``rebrew status`` / ``todo`` / ``describe`` so the reverser sees the
+    concrete register difference when they open the function.  Only written
+    when the message actually carries a register comparison and the function
+    has no note yet (never clobbers a reverser's own note).
+    """
+    if not any(tok in message for tok in ("EAX", "EDX", "differs")):
+        return  # timeout / path explosion / internal error — not a counterexample
+    try:
+        from rebrew.metadata import load_metadata, set_field
+
+        existing = load_metadata(cfg.metadata_dir).get((ann.module, ann.va), {})
+        if existing.get("note"):
+            return
+        set_field(cfg.metadata_dir, ann.va, "note", f"prove: {message}", module=ann.module)
+    except Exception:  # noqa: BLE001 — best-effort; never fail the prove flow
+        return
 
 
 def _run_all_batch(
