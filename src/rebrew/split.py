@@ -228,20 +228,31 @@ def main(
             # separator so the marker is not glued onto the last preamble line.
             out_content = out_preamble + "\n" + matched_block if out_preamble else matched_block
             atomic_write_text(out_path, out_content, encoding=encoding)
-            # Remove the extracted block from the source file (by index, not identity)
-            remaining = [b for i, b in enumerate(blocks) if i != matched_idx]
-            if remaining:
-                atomic_write_text(source_path, preamble + "".join(remaining), encoding=encoding)
-            else:
-                # Back up the original before removing (recoverable via .bak)
-                bak_path = source_path.with_suffix(source_path.suffix + ".bak")
-                shutil.copy2(source_path, bak_path)
-                source_path.unlink()
-                if not json_output:
-                    console.print(
-                        f"  [dim]Backed up {source_path.name} → {bak_path.name} "
-                        f"(no remaining functions)[/dim]"
-                    )
+            try:
+                # Remove the extracted block from the source file (by index,
+                # not identity)
+                remaining = [b for i, b in enumerate(blocks) if i != matched_idx]
+                if remaining:
+                    atomic_write_text(source_path, preamble + "".join(remaining), encoding=encoding)
+                else:
+                    # Back up the original before removing (recoverable via .bak)
+                    bak_path = source_path.with_suffix(source_path.suffix + ".bak")
+                    shutil.copy2(source_path, bak_path)
+                    source_path.unlink()
+                    if not json_output:
+                        console.print(
+                            f"  [dim]Backed up {source_path.name} → {bak_path.name} "
+                            f"(no remaining functions)[/dim]"
+                        )
+            except Exception:
+                # The output file was already written; roll it back so a
+                # failed split leaves no half-applied artifact behind and a
+                # re-run starts clean (the source still holds the block).
+                import contextlib
+
+                with contextlib.suppress(OSError):
+                    out_path.unlink()
+                raise
 
         if json_output:
             json_print(

@@ -2,7 +2,7 @@
 
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import typer
 from hypothesis import given, settings
@@ -140,6 +140,84 @@ def annotation_block(draw: st.DrawFn) -> tuple[list[str], int, str | None, int |
         lines.append(f"// CFLAGS: {cflags}")
     lines.append("int fn(void) { return 0; }")
     return lines, va, status, size, cflags
+
+
+# ---------------------------------------------------------------------------
+# c_parser declarator extraction (tree-sitter)
+# ---------------------------------------------------------------------------
+
+_RET_TYPES = ["int", "void", "char *", "unsigned int", "short", "unsigned short"]
+_PARAM_TYPES = ["int", "char *", "unsigned int", "short", "void *"]
+
+
+@st.composite
+def _c_function_def(draw: Any) -> tuple[str, str]:
+    """Draw (name, source) for a well-formed C function definition."""
+    name = draw(st.from_regex(r"fn_[a-z][a-z0-9_]*", fullmatch=True))
+    ret = draw(st.sampled_from(_RET_TYPES))
+    n_params = draw(st.integers(min_value=0, max_value=3))
+    params = ", ".join(f"{draw(st.sampled_from(_PARAM_TYPES))} p{i}" for i in range(n_params))
+    body = "{}" if ret == "void" else "{ return 0; }"
+    return name, f"{ret} {name}({params}) {body}"
+
+
+@settings(max_examples=200, deadline=None)
+@given(_c_function_def())
+def test_extract_function_name_roundtrip(data: tuple[str, str]) -> None:
+    """The name extracted from a generated definition must round-trip; the
+    prototype must keep the name and end at the parameter list."""
+    from rebrew.c_parser import extract_function_name_and_proto
+
+    name, src = data
+    result = extract_function_name_and_proto(src)
+    assert result is not None
+    got_name, proto = result
+    assert got_name == name
+    assert name in proto
+    assert proto.endswith(")")
+
+
+@settings(max_examples=200, deadline=None)
+@given(
+    st.lists(_c_function_def(), min_size=1, max_size=8),
+)
+def test_find_c_function_definitions_all_names(defs: list[tuple[str, str]]) -> None:
+    """Every generated definition must be discovered with its own name and a
+    strictly increasing 1-based line number."""
+    from rebrew.c_parser import find_c_function_definitions
+
+    # Ensure unique names so the count is deterministic.
+    seen: set[str] = set()
+    unique_defs: list[tuple[str, str]] = []
+    for name, src in defs:
+        if name not in seen:
+            seen.add(name)
+            unique_defs.append((name, src))
+    if not unique_defs:
+        return
+    source = "\n".join(src for _name, src in unique_defs)
+    results = find_c_function_definitions(source)
+    found = {name for name, _line in results}
+    assert found == {name for name, _src in unique_defs}
+    lines = [line for _name, line in results]
+    assert lines == sorted(lines)
+    assert lines[0] >= 1
+
+
+@settings(max_examples=200, deadline=None)
+@given(_c_function_def())
+def test_extract_function_name_from_line_roundtrip(data: tuple[str, str]) -> None:
+    """A single-line definition (as found in decomp .c files) yields the same
+    name via the line-based extractor."""
+    from rebrew.c_parser import extract_function_name_from_line
+
+    name, src = data
+    line = src.split("{", 1)[0].strip()
+    result = extract_function_name_from_line(line)
+    assert result is not None
+    got_name, proto = result
+    assert got_name == name
+    assert line in proto or proto == line
 
 
 # ---------------------------------------------------------------------------

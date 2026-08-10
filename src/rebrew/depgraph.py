@@ -30,6 +30,7 @@ from rebrew.cli import (
     target_marker,
 )
 from rebrew.config import ProjectConfig
+from rebrew.utils import atomic_write_text
 
 console = Console(stderr=True)
 
@@ -626,7 +627,7 @@ def main(
         error_exit(f"Unknown format: {fmt}. Use mermaid, dot, or summary.", json_mode=json_output)
 
     if output:
-        Path(output).write_text(result + "\n", encoding="utf-8")
+        atomic_write_text(Path(output), result + "\n", encoding="utf-8")
         console.print(f"Written to {output}")
     else:
         print(result)

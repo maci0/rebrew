@@ -12,6 +12,7 @@ Usage:
 """
 
 import json
+import logging
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
@@ -87,7 +88,10 @@ def _patch_verify_cache(
         return
     try:
         raw = json.loads(cache_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError) as exc:
+        # A corrupt/unreadable cache must not go unnoticed: status/todo read
+        # this store and would keep reporting the stale pre-test state.
+        logging.warning("Could not read verify cache %s — status may be stale: %s", cache_path, exc)
         return
 
     entries = raw.get("entries", {})
@@ -118,8 +122,13 @@ def _patch_verify_cache(
         from rebrew.utils import atomic_write_text
 
         atomic_write_text(cache_path, json.dumps(raw, indent=2), encoding="utf-8")
-    except (OSError, TypeError):
-        pass  # Best-effort — don't crash test on cache write failure
+    except (OSError, TypeError) as exc:
+        # Best-effort — don't crash test on cache write failure — but do say
+        # so: a silently dropped patch lets status/todo diverge from the
+        # canonical metadata STATUS that test just promoted.
+        logging.warning(
+            "Could not patch verify cache %s — status may be stale: %s", cache_path, exc
+        )
 
 
 _EPILOG = (
