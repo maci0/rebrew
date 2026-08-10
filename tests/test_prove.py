@@ -198,6 +198,27 @@ class TestProveCLIStatusGuard:
         )
         assert result.exit_code != 0
 
+    def test_accepts_size_mismatch_status(self, tmp_path: Path) -> None:
+        """SIZE_MISMATCH passes the gate (bytes differ structurally — the
+        prove contract) and reaches the pipeline instead of being rejected
+        like EXACT/STUB."""
+        from typer.testing import CliRunner
+
+        from rebrew.prove import app
+
+        proj_dir, src = self._make_project(tmp_path, "SIZE_MISMATCH")
+        runner = CliRunner()
+        result = runner.invoke(
+            app,
+            [str(src), "--json", "--target", "GAME"],
+            catch_exceptions=False,
+            env={"REBREW_PROJECT": str(proj_dir / "rebrew-project.toml")},
+        )
+        assert result.exit_code != 0
+        # The gate passed; any failure is downstream (angr/compile), never the
+        # status rejection.
+        assert "expected NEAR_MATCHING" not in result.output
+
     def test_rejects_reloc_status(self, tmp_path: Path) -> None:
         """RELOC already matches byte-for-byte — prove must refuse it."""
         from typer.testing import CliRunner
