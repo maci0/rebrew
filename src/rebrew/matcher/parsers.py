@@ -108,8 +108,19 @@ def parse_obj_symbol_and_relocs(
     if coff is None:
         return None, None, []
 
+    # Match the symbol across compiler naming conventions: MSVC prefixes
+    # (_name), Watcom/Borland suffix (name_), or bare (name).  wcc386 emits
+    # trailing underscores (callg_); the rebrew annotation layer derives
+    # MSVC-style leading-underscore symbols.
+    sym_names = [symbol]
+    if symbol.startswith("_"):
+        sym_names.append(symbol[1:])
+        sym_names.append(symbol[1:] + "_")
+    else:
+        sym_names.append("_" + symbol)
+        sym_names.append(symbol + "_")
     target_sym = next(
-        (s for s in coff.symbols if s.name == symbol and s.section is not None),
+        (s for s in coff.symbols if s.name in sym_names and s.section is not None),
         None,
     )
     if target_sym is None:

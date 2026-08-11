@@ -220,3 +220,15 @@ def test_omf_converted_and_parsed() -> None:
     assert code[-1] == 0xC3  # ret
     assert relocs == {6: "__CHK", 11: "f_", 17: "_g"}
     assert sorted(r.offset for r in records) == [6, 11, 17]
+
+
+def test_watcom_trailing_underscore_symbol_matches() -> None:
+    """The annotation layer derives MSVC-style `_name` symbols, but wcc386
+    emits trailing underscores (`callg_`) — the lookup must try the
+    compiler conventions."""
+    from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
+
+    omf = _FIXTURES / "tg_watcom.o"
+    code, relocs, records = parse_obj_symbol_and_relocs(omf, "_callg")
+    assert code is not None
+    assert relocs == {6: "__CHK", 11: "f_", 17: "_g"}
