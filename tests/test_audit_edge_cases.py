@@ -117,6 +117,45 @@ class TestSmartRelocCompareEdgeCases:
         assert invalid == [1]
         assert valid == []
 
+    def test_dir32_iat_slot_masked_despite_wrong_catalog(self) -> None:
+        """DIR32 whose target value lands in the IAT region is masked even
+        when the catalog maps the symbol to a different VA (swapped ordinal
+        import names — the guild-rebrew WS2_32 regression)."""
+        import struct
+
+        iat_slot = 0x10024178
+        wrong_va = 0x1002417C  # catalog thinks the symbol lives here
+        obj = b"\xff\x15" + struct.pack("<I", 0) + b"\xc3"  # call [0]
+        tgt = b"\xff\x15" + struct.pack("<I", iat_slot) + b"\xc3"  # call [iat]
+        matched, _, _, valid, invalid = smart_reloc_compare(
+            obj,
+            tgt,
+            coff_relocs={2: "__imp__WSAStartup@8"},
+            name_to_va={"__imp__WSAStartup@8": wrong_va},
+            iat_region={iat_slot},
+        )
+        assert matched is True
+        assert valid == [2]
+        assert invalid == []
+
+    def test_dir32_iat_slot_still_rejected_outside_region(self) -> None:
+        """The IAT masking must not leak: the same value without the region
+        (or a different region) is still validated as a wrong symbol."""
+        import struct
+
+        g_a, g_b = 0x10020000, 0x10020010
+        obj = b"\xa1" + struct.pack("<I", 0) + b"\xc3"
+        tgt = b"\xa1" + struct.pack("<I", g_b) + b"\xc3"
+        matched, _, _, valid, invalid = smart_reloc_compare(
+            obj,
+            tgt,
+            coff_relocs={1: "_g_a"},
+            name_to_va={"g_a": g_a, "g_b": g_b},
+            iat_region={0x99999999},  # g_b not in the IAT region
+        )
+        assert matched is False
+        assert invalid == [1]
+
     def test_rel32_not_rejected_as_wrong_absolute(self) -> None:
         """REL32 displacements must not be compared as absolute VAs."""
         import struct
