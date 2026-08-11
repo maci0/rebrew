@@ -6562,3 +6562,16 @@ implemented it as ADR-006:
   watcom family now aligns with the watcom profile.
 
 Tests: toolchain 9, msvc16 6, delphi16 5, detection +4.
+
+## 2026-08-11 — bcc32 survey (Turbo C++ 4.5 CD) — compiler absent
+
+Surveyed `turbo-c-v-4.5` exhaustively for bcc32:
+- 207 `.PAK` files = **Quantum** archives (pak_extract.py works; the
+  `44 53 00 5a` = "DS\0Z" magic confirms the Delphi-family format).
+- `.CA1`/`.CA2` (1.44MB split "floppies") = custom container:
+  `[count u32][embedded Quantum stream at offset 5]` — decoded TCW.CA1
+  (TCW.EXE IDE + TCW*.DLL, no compiler).  The container format is a
+  reusable finding for any Borland-era CA archive.
+- **No BCC32/BCC/TLINK anywhere on the CD** — it's the Windows-IDE-only
+  release.  The compiler needs the Borland C++ 4.5/5.0 floppy set from a
+  different source.  Extraction deferred (documented in TOOLCHAIN.md).
