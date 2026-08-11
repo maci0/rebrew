@@ -388,6 +388,26 @@ def _render_graph(cfg: ProjectConfig) -> str:
         )
     try:
         nodes, edges, dispatch_edges = build_graph(Path(reversed_dir), cfg=cfg)
+        # Stub-only projects (e.g. an intake'd NE target) have no source
+        # edges — augment with the binary call graph when the target binary
+        # is available so graph.html shows the real call structure.
+        if not edges:
+            bin_path = getattr(cfg, "target_binary", None)
+            if bin_path and Path(bin_path).exists():
+                try:
+                    from rebrew.binary_loader import load_binary
+                    from rebrew.depgraph import _binary_call_edges
+                    from rebrew.ne_loader import enumerate_ne_functions
+
+                    info = load_binary(bin_path)
+                    if info.format == "ne":
+                        ranges = [
+                            (f.va, f.va + f.size, f"fcn_{f.va:08x}")
+                            for f in enumerate_ne_functions(info)
+                        ]
+                        edges.extend(_binary_call_edges(info, ranges))
+                except Exception:  # noqa: BLE001 — best-effort augmentation
+                    pass
         mermaid = render_mermaid(nodes, edges, dispatch_edges)
     except Exception:  # noqa: BLE001 — best-effort graph; the report must not crash
         console.print(
