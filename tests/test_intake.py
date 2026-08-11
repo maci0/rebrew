@@ -272,3 +272,16 @@ class TestToolchainLinks:
         # linkable (msvc400 lacks a vendored dir and is fine to skip)
         for profile in ("msvc6", "msvc1.52", "msvc5", "msvc420", "msvc6.3", "msvc6.6", "msvc7"):
             assert profile in _TOOLCHAIN_LINKS, profile
+
+
+class TestWatcomLink:
+    """watcom must be in the intake toolchain-link map so intake on a
+    Watcom binary auto-links tools/WATCOM (like msvc1.52's MSVC152)."""
+
+    def test_watcom_has_link_entry(self) -> None:
+        from rebrew.intake import _TOOLCHAIN_LINKS
+
+        assert "watcom" in _TOOLCHAIN_LINKS
+        link_name, src_name = _TOOLCHAIN_LINKS["watcom"]
+        assert link_name == "WATCOM"
+        assert src_name == "WATCOM"
