@@ -99,3 +99,31 @@ class TestClassifyCompareResult:
         r = classify_compare_result(False, "SIZE_MISMATCH", b"\x55\x89\xe5", b"\x55", None)
         assert r.status == "SIZE_MISMATCH"
         assert r.delta == 2
+
+    def test_full_obj_size_passthrough(self) -> None:
+        """full_obj_size records the pre-truncation compiled size so
+        rebrew test --fix-size can correct a stale SIZE annotation."""
+        r = classify_compare_result(
+            False,
+            "SIZE_MISMATCH",
+            b"\x55\x89\xe5",  # truncated target
+            b"\x55\x89\xe5",  # truncated obj (orig 12B)
+            None,
+            size_mismatch=True,
+            size_delta=9,
+            full_obj_size=12,
+        )
+        assert r.status == "SIZE_MISMATCH"
+        assert r.full_obj_size == 12
+
+    def test_full_obj_size_none_by_default(self) -> None:
+        r = classify_compare_result(True, "match", b"\x55", b"\x55", None)
+        assert r.full_obj_size is None
+
+    def test_matched_preserves_full_obj_size(self) -> None:
+        # The --fix-size reclassification rebuilds a matched result from a
+        # truncated SIZE_MISMATCH view; the full size must survive so JSON
+        # reporting is not re-truncated.
+        r = classify_compare_result(True, "match", b"\x55", b"\x55", None, full_obj_size=12)
+        assert r.matched is True
+        assert r.full_obj_size == 12

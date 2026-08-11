@@ -49,7 +49,7 @@ from rebrew.compile import (
 from rebrew.config import ProjectConfig
 from rebrew.core import build_iat_region, build_name_to_va, smart_reloc_compare
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
-from rebrew.metadata import update_field, update_source_status
+from rebrew.metadata import set_fields_batch, update_field, update_source_status
 
 console = Console(stderr=True)
 
@@ -254,6 +254,15 @@ def main(
             "demote a stale PROVEN function to its actual result (single-function only)"
         ),
     ),
+    fix_size: bool = typer.Option(
+        False,
+        "--fix-size",
+        help=(
+            "Fix a stale SIZE annotation when ALL common bytes match: writes the "
+            "compiled size into metadata and reclassifies as EXACT/RELOC.  "
+            "No-op when the mismatch is a real byte difference."
+        ),
+    ),
     watch: bool = typer.Option(
         False, "--watch", help="Watch the source file and re-test on every change"
     ),
@@ -321,6 +330,12 @@ def main(
                 json_mode=json_output,
                 code=EXIT_ERROR,
             )
+        if fix_size:
+            error_exit(
+                "--fix-size is file-scoped — batch size repair is 'rebrew verify --fix-sizes'",
+                json_mode=json_output,
+                code=EXIT_ERROR,
+            )
         _run_all_batch(cfg, batch_dir, origin, dry_run, no_promote, json_output, jobs=jobs)
         return
 
@@ -348,6 +363,7 @@ def main(
                 jobs=None,
                 no_promote=no_promote,
                 force_status=force_status,
+                fix_size=fix_size,
                 json_output=json_output,
                 target=target,
             )
@@ -401,6 +417,7 @@ def main(
                 no_promote=no_promote,
                 dry_run=dry_run,
                 json_output=json_output,
+                fix_size=fix_size,
             )
             return
 
@@ -498,6 +515,43 @@ def main(
 
     if cmp.status == "COMPILE_ERROR":
         error_exit(f"COMPILE ERROR:\n{cmp.message}", json_mode=json_output, code=EXIT_ERROR)
+
+    # --fix-size: a SIZE_MISMATCH where every common byte matched is a stale
+    # SIZE annotation, not a decompilation problem.  Write the compiled size
+    # into metadata and reclassify as a real match.  Requires a VA (metadata
+    # is keyed by (module, va)); --target-bin runs have no VA and are skipped.
+    if (
+        fix_size
+        and cmp.status == "SIZE_MISMATCH"
+        and cmp.match_percent == 100.0
+        and cmp.full_obj_size is not None
+        and section_va is not None
+    ):
+        new_size = cmp.full_obj_size
+        anno_module = lint_annos[0].module if lint_annos else ""
+        if not dry_run:
+            with contextlib.suppress(Exception):  # metadata write is best-effort
+                update_field(cfg.metadata_dir, section_va, "size", new_size, anno_module)
+        else:
+            if not json_output:
+                console.print(
+                    f"[dim]would fix SIZE {size_val or 0} → {new_size} for "
+                    f"0x{section_va:x} (--dry-run)[/dim]"
+                )
+        matched = True
+        total = new_size
+        match_count = new_size
+        size_val = new_size
+        relocs = cmp.reloc_offsets or []
+        cmp = classify_compare_result(
+            True,
+            f"RELOC-NORM MATCH ({len(relocs)} relocs)" if relocs else "EXACT MATCH",
+            target_bytes,
+            cmp.obj_bytes,
+            relocs,
+            cmp.inv_reloc_offsets,
+            full_obj_size=new_size,
+        )
 
     if json_output:
         result_dict = build_result_dict_from_compare(
@@ -628,7 +682,11 @@ def build_result_dict_from_compare(
     """Build JSON from a :class:`CompareResult` (canonical status source)."""
     relocs = cmp.reloc_offsets or []
     obj_bytes = cmp.obj_bytes or b""
-    total = max(len(target_bytes), len(obj_bytes)) if (obj_bytes or target_bytes) else 0
+    # On SIZE_MISMATCH, cmp.obj_bytes is truncated to the target length — use
+    # the recorded full compiled size so total/obj_size report the real
+    # function length instead of the common-prefix slice.
+    obj_len = cmp.full_obj_size if cmp.full_obj_size is not None else len(obj_bytes)
+    total = max(len(target_bytes), obj_len) if (obj_bytes or target_bytes) else 0
     match_count = total if cmp.matched else int(round(cmp.match_percent / 100.0 * total))
     return _result_dict_body(
         source,
@@ -643,6 +701,7 @@ def build_result_dict_from_compare(
         obj_bytes,
         target_bytes,
         cmp.inv_reloc_offsets,
+        obj_size=obj_len,
     )
 
 
@@ -659,6 +718,7 @@ def _result_dict_body(
     obj_bytes: bytes,
     target_bytes: bytes,
     invalid_relocs: list[int],
+    obj_size: int | None = None,
 ) -> dict[str, Any]:
     mismatches: list[dict[str, str | int]] = []
     if not matched and obj_bytes:
@@ -684,7 +744,7 @@ def _result_dict_body(
         "match_count": match_count,
         "total": total,
         "reloc_count": len(relocs),
-        "obj_size": len(obj_bytes),
+        "obj_size": len(obj_bytes) if obj_size is None else obj_size,
         "mismatches": mismatches,
     }
 
@@ -694,7 +754,10 @@ def _print_compare_result(cmp: CompareResult, target_bytes: bytes) -> None:
     relocs = cmp.reloc_offsets or []
     inv_relocs = cmp.inv_reloc_offsets
     obj_bytes = cmp.obj_bytes or b""
-    total = max(len(target_bytes), len(obj_bytes)) if (obj_bytes or target_bytes) else 0
+    # Same full-size honoring as the JSON builder: on SIZE_MISMATCH the
+    # compiled bytes were truncated to the target length for comparison.
+    obj_len = cmp.full_obj_size if cmp.full_obj_size is not None else len(obj_bytes)
+    total = max(len(target_bytes), obj_len) if (obj_bytes or target_bytes) else 0
     match_count = total if cmp.matched else int(round(cmp.match_percent / 100.0 * total))
 
     if cmp.matched:
@@ -712,7 +775,16 @@ def _print_compare_result(cmp: CompareResult, target_bytes: bytes) -> None:
         if cmp.status == "NEAR_MATCHING"
         else ""
     )
-    console.print(f"[{color}]{cmp.status}[/{color}]: {match_count}/{total} bytes{near_hint}")
+    size_hint = ""
+    if cmp.status == "SIZE_MISMATCH" and cmp.match_percent == 100.0 and obj_len:
+        # Every common byte matched — only the SIZE annotation is stale.
+        # Same hint as the multi-function path; --fix-size automates it.
+        size_hint = (
+            f" — all common bytes match; the SIZE annotation is off "
+            f"(compiled {obj_len}B vs annotation {len(target_bytes)}B) — "
+            f"re-run with --fix-size to correct it"
+        )
+    console.print(f"[{color}]{cmp.status}[/{color}]: {match_count}/{total} bytes{near_hint}{size_hint}")
     if not obj_bytes:
         if cmp.message:
             console.print(cmp.message)
@@ -743,6 +815,7 @@ def _test_multi(
     no_promote: bool = False,
     dry_run: bool = False,
     json_output: bool = False,
+    fix_size: bool = False,
 ) -> None:
     """Test all functions in a multi-function .c file.
 
@@ -851,6 +924,31 @@ def _test_multi(
                 section_va=ann.va,
                 iat_region=build_iat_region(cfg),
             )
+            # --fix-size: when ALL common bytes match, the SIZE annotation is
+            # stale, not the code — write the compiled size into metadata and
+            # reclassify as a real match (mirrors verify --fix-sizes, but the
+            # compiled size is the definitive evidence at test time instead of
+            # the registry-derived canonical size).
+            fixed_size = False
+            if size_mismatch and fix_size and total > 0 and total - match_count == 0:
+                new_size = len(obj_bytes)
+                if not dry_run:
+                    set_fields_batch(
+                        cfg.metadata_dir,
+                        [{"module": ann.module, "va": ann.va, "fields": {"size": new_size}}],
+                    )
+                else:
+                    if not json_output:
+                        console.print(
+                            f"[dim]  would fix SIZE {ann.size} → {new_size} for "
+                            f"0x{ann.va:x} (--dry-run)[/dim]"
+                        )
+                ann.size = new_size
+                fixed_size = True
+                size_mismatch = False
+                matched = True
+                total = new_size
+                match_count = new_size
             # Same classifier as compile_and_compare / verify.
             va_hint = f"0x{ann.va:08x}" if getattr(ann, "va", None) else "<source>"
             if size_mismatch:
@@ -861,7 +959,7 @@ def _test_multi(
                     size_hint = (
                         f" — ALL {total} common bytes match: the SIZE annotation is off; "
                         f"compiled size is {len(obj_bytes)}B (annotation says {ann.size}) — "
-                        f"update the // SIZE line"
+                        f"re-run with --fix-size to correct it"
                     )
                 msg = (
                     f"SIZE_MISMATCH: Size {len(obj_bytes)}B vs {len(target_bytes)}B "
@@ -895,16 +993,24 @@ def _test_multi(
             )
 
             if json_output:
-                results_list.append(
-                    build_result_dict_from_compare(
-                        source,
-                        sym,
-                        f"0x{ann.va:08x}",
-                        ann.size,
-                        cmp,
-                        target_bytes,
-                    )
+                result_dict = build_result_dict_from_compare(
+                    source,
+                    sym,
+                    f"0x{ann.va:08x}",
+                    ann.size,
+                    cmp,
+                    target_bytes,
                 )
+                if fixed_size:
+                    # cmp.obj_bytes was truncated for the comparison — report
+                    # the fixed (full) sizes so the JSON is self-consistent.
+                    result_dict["status"] = new_status
+                    result_dict["size"] = new_size
+                    result_dict["total"] = new_size
+                    result_dict["match_count"] = new_size
+                    result_dict["obj_size"] = new_size
+                    result_dict["mismatches"] = []
+                results_list.append(result_dict)
             elif matched:
                 if relocs:
                     console.print(
