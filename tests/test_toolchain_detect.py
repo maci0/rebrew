@@ -493,3 +493,30 @@ class TestNEStringDetection:
         info = detect_toolchain(ne)
         assert info.family == "msvc"
         assert "MSVC" in info.version_hint
+
+    def test_16bit_ne_rejects_32bit_profile(self) -> None:
+        """skifree16 regression: msvc6 (32-bit) on a 16-bit NE binary must
+        NOT pass alignment — every function would be COMPILE_ERROR."""
+        info = ToolchainInfo(family="msvc", arch="x86_16")
+        aligned, expl = profile_matches_detection("msvc6", info)
+        assert aligned is False
+        assert "msvc1.52" in (expl or "")
+
+    def test_16bit_ne_accepts_msvc152(self) -> None:
+        info = ToolchainInfo(family="msvc", arch="x86_16")
+        aligned, _ = profile_matches_detection("msvc1.52", info)
+        assert aligned is True
+
+    def test_32bit_pe_rejects_msvc152(self) -> None:
+        """msvc1.52 is a 16-bit compiler — it cannot match a 32-bit PE."""
+        info = ToolchainInfo(family="msvc", arch="x86_32")
+        aligned, expl = profile_matches_detection("msvc1.52", info)
+        assert aligned is False
+        assert "msvc6" in (expl or "")
+
+    def test_unknown_arch_not_second_guessed(self) -> None:
+        """PE/ELF detection does not set arch — existing projects must not
+        start failing doctor after this change."""
+        info = ToolchainInfo(family="msvc", arch="")
+        aligned, _ = profile_matches_detection("msvc6", info)
+        assert aligned is True
