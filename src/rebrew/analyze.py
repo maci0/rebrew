@@ -181,6 +181,59 @@ def _collect_references(info: Any) -> dict[str, Any]:
     return {"total": len(refs), "by_kind": dict(kinds.most_common())}
 
 
+def _collect_far_calls(binary: Path) -> list[dict[str, Any]] | None:
+    """Catalog distinct 16-bit far-call targets (16-bit NE only).
+
+    Delphi 1.0 code calls the RTL and other segments with ``lcall seg:off``.
+    Selectors ≤ the segment count map to segment indices (Borland's index
+    marker convention); higher selectors are loader-assigned (system/RTL)
+    and reported unmapped.  Returns ``[{selector, offset, count, segment}]``
+    sorted by count, or None for non-NE binaries.
+    """
+    from collections import Counter
+
+    from rebrew.analysis import _ne_code_segments, extract_bytes, section_range
+    from rebrew.binary_loader import is_ne, load_binary
+
+    if not is_ne(binary):
+        return None
+    try:
+        info = load_binary(binary)
+    except Exception:  # noqa: BLE001 — best-effort dossier section
+        return None
+
+    seg_count = info.ne_header.segment_count  # type: ignore[attr-defined]
+    import capstone
+
+    md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_16)
+    md.detail = True
+    targets: Counter[tuple[int, int]] = Counter()
+    for name in _ne_code_segments(info):
+        rng = section_range(info, name)
+        if rng is None:
+            continue
+        va, size = rng
+        raw = extract_bytes(info, va, size)
+        for insn in md.disasm(raw[2:], va + 2):  # skip Borland marker
+            if insn.mnemonic == "lcall" and len(insn.operands) >= 2:
+                seg = int(insn.operands[0].imm)
+                off = int(insn.operands[1].imm)
+                targets[(seg, off)] += 1
+    out = []
+    for (seg, off), count in targets.most_common(60):
+        out.append(
+            {
+                "selector": f"0x{seg:04x}",
+                "offset": f"0x{off:04x}",
+                "count": count,
+                # Selectors at or below the segment count follow Borland's
+                # index convention (the segment's own \\xNN\\x00 marker).
+                "segment": seg if 1 <= seg <= seg_count else None,
+            }
+        )
+    return out
+
+
 def _collect_functions(cfg: Any) -> dict[str, Any] | None:
     """Reversed-function coverage from the project's function data."""
     from rebrew.naming import load_data
@@ -332,6 +385,7 @@ def build_dossier(
         "strings": _collect_strings(info, min_len, top_n),
         "imports": _collect_imports(binary),
         "references": _collect_references(info),
+        "far_calls": _collect_far_calls(binary),
         "functions": _collect_functions(cfg),
         "near_match": _collect_near_match(cfg),
         "dispatch_tables": _collect_dispatch(info),
