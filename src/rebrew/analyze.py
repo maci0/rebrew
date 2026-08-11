@@ -126,10 +126,28 @@ def _collect_strings(info: Any, min_len: int, top_n: int) -> dict[str, Any]:
 
 def _collect_imports(binary: Path) -> dict[str, Any]:
     """Import table + IAT stub summary (PE only; empty otherwise)."""
+    from rebrew.binary_loader import is_ne, load_binary
     from rebrew.imports import find_import_stubs, parse_imports
 
+    # 16-bit NE: the loader parses the module reference + imported names
+    # tables directly (Borland Delphi/Turbo Pascal Windows targets).  The
+    # per-import table layout varies between Borland linkers and is not yet
+    # decoded, so the dossier reports the imported module blocks (each is a
+    # separate ordinal-import group) rather than unreliable per-import rows.
+    if is_ne(binary):
+        info = load_binary(binary)
+        dlls = Counter[str]()
+        for mod in info.ne_imports:  # type: ignore[attr-defined]
+            dlls[mod.module] += 1
+        return {
+            "count": sum(dlls.values()),
+            "dlls": [{"dll": d, "count": c} for d, c in dlls.most_common()],
+            "iat_stubs": 0,
+            "entries": [],
+        }
+
     imports = parse_imports(binary)
-    dlls: Counter[str] = Counter()
+    dlls = Counter[str]()
     for rec in imports:
         dlls[str(rec.get("dll", ""))] += 1
     try:

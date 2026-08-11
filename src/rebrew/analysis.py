@@ -287,10 +287,18 @@ def iter_strings(
     """Extract printable ASCII and UTF-16LE runs from data sections.
 
     *section_names* defaults to the data-ish sections (``.rdata``, ``.data``,
-    ``.rodata``); pass an explicit list to include ``.text``.
+    ``.rodata``); pass an explicit list to include ``.text``.  For 16-bit NE
+    binaries the default is the non-code segments, and Pascal (length-
+    prefixed) strings are recognized in addition to plain ASCII runs —
+    Borland Delphi stores its UI strings as Pascal strings.
     """
-    default = [n for n in (".rdata", ".data", ".rodata") if n in info.sections]
-    names = section_names if section_names is not None else default
+    if info.format == "ne":
+        data_segs = [s for s in info.ne_segments if not s.is_code]  # type: ignore[attr-defined]
+        names = section_names if section_names is not None else [f"SEG{s.index}" for s in data_segs]
+    else:
+        default = [n for n in (".rdata", ".data", ".rodata") if n in info.sections]
+        names = section_names if section_names is not None else default
+
     strings: list[StringEntry] = []
     for name in names:
         rng = section_range(info, name)
@@ -300,8 +308,36 @@ def iter_strings(
         raw = extract_bytes(info, va, size)
         strings.extend(_scan_ascii(raw, va, name, min_len))
         strings.extend(_scan_utf16(raw, va, name, min_len))
+        if info.format == "ne":
+            strings.extend(_scan_pascal(raw, va, name, min_len))
     strings.sort(key=lambda s: s.va)
     return strings
+
+
+def _scan_pascal(raw: bytes, va: int, section: str, min_len: int) -> list[StringEntry]:
+    """Scan for Pascal (length-prefixed) strings: ``len`` then *len* printable
+    ASCII bytes.  Borland Delphi's RTL stores strings this way."""
+    out: list[StringEntry] = []
+    i = 0
+    n = len(raw)
+    while i < n:
+        ln = raw[i]
+        if 1 <= ln <= 63 and i + 1 + ln <= n:
+            body = raw[i + 1 : i + 1 + ln]
+            if all(b in _PRINTABLE for b in body) and ln >= min_len:
+                out.append(
+                    StringEntry(
+                        va=va + i,
+                        size=1 + ln,
+                        text=body.decode("ascii", "replace"),
+                        kind="pascal",
+                        section=section,
+                    )
+                )
+                i += 1 + ln
+                continue
+        i += 1
+    return out
 
 
 def _scan_ascii(raw: bytes, va: int, section: str, min_len: int) -> list[StringEntry]:
