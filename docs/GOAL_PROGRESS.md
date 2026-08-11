@@ -6444,3 +6444,23 @@ The 16-bit NE toolchain is complete for intelligence work: parse → enumerate
 (1783 funcs) → intake → strings → imports → xrefs → far-call catalog →
 call graph → report; validated on two NE binaries and against runtime
 behavior.
+
+## 2026-08-11 — holiday.exe reversal: VMT detection + toolchain completion
+
+- **Delphi VMT detection** (data --dispatch / graph --include-dispatch):
+  find_dispatch_tables is now NE-aware — code/data segments by probe
+  classification, far pointers decode to synthetic flat VAs, and the
+  2-byte Borland segment marker is skipped so VMT slots align.  holiday.exe:
+  17 virtual method tables in seg35 → 73 dispatch edges in the call graph.
+- **similar + cache fix**: load_binary's NE branch bypassed the bounded cache
+  (0.18s re-parse per extract → similar timed out at >120s over 1783
+  functions).  NE now routes through the cache → ~2s.  similar independently
+  confirmed the map-grid cluster (0x171162 at 100.0).
+- **Reversal intelligence**: map-grid logic (stride 251) in seg23, animation
+  file table + map cells in seg35, setup-check message (runtime-confirmed
+  under wine), 1783 functions, 613 call edges, 3739 strings.
+- **Documented format limits** (not derivable from the file): loader-assigned
+  far-call selectors, Borland resource-table layout, Delphi 1.0 VMT
+  negative-offset class-name fields.
+
+Commits: 9482a35 (NE cache), d1d7df3 (VMT detection).
