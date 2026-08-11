@@ -121,6 +121,7 @@ _VA_ONLY_RE = re.compile(
     r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*\S+\s+(0x[0-9a-fA-F]+)"
 )
 _STDCALL_RE = re.compile(r"\b(?:__stdcall|WINAPI|CALLBACK|APIENTRY)\b")
+_FASTCALL_RE = re.compile(r"\b__fastcall\b")
 
 # Pre-compiled patterns for CFLAGS validation and template stripping.
 _CFLAGS_GLUED_RE = re.compile(r"^/\w+/\w+")
@@ -704,9 +705,15 @@ def _kv_to_annotation(
     else:
         name = ""
 
-    # Derive symbol: "_" + name for __cdecl (default), "_" + name + "@N" for __stdcall/WINAPI
+    # Derive symbol: "_" + name for __cdecl (default), "_" + name + "@N" for
+    # __stdcall/WINAPI, "@" + name + "@N" for __fastcall (ecx/edx args are
+    # still counted in the decoration's N on MSVC).
     symbol = "_" + name if name else ""
-    if name and c_func_proto and _STDCALL_RE.search(c_func_proto):
+    if name and c_func_proto and _FASTCALL_RE.search(c_func_proto):
+        param_size = _calc_stdcall_param_size(c_func_proto)
+        if param_size is not None:
+            symbol = f"@{name}@{param_size}"
+    elif name and c_func_proto and _STDCALL_RE.search(c_func_proto):
         # Calculate parameter stack size from prototype for decorated name
         param_size = _calc_stdcall_param_size(c_func_proto)
         if param_size is not None:
