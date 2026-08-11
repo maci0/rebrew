@@ -221,3 +221,67 @@ class TestPullToolchain:
         assert result.exit_code == 0
         assert '"already_present": true' in result.output
         assert '"pulled": "rebrew/msvc:6.0-linux-x64"' in result.output
+
+
+class TestResolveBinaryCaseInsensitive:
+    """DOS-era vendored trees use uppercase subdirs (BIN) — the resolver
+    must match host_bin case-insensitively (MSVC 1.52 regression)."""
+
+    def test_uppercase_bin_resolves(self, tmp_path: Path) -> None:
+        from rebrew.toolchain import ToolchainSpec, _resolve_binary
+
+        (tmp_path / "BIN").mkdir()
+        (tmp_path / "BIN" / "CL.EXE").write_bytes(b"")
+        spec = ToolchainSpec(
+            name="msvc1.52",
+            image=None,
+            binary="CL.EXE",
+            host_bin="Bin",  # spec says Bin, disk says BIN
+            host_path=str(tmp_path),
+        )
+        resolved = _resolve_binary(spec)
+        assert resolved == str(tmp_path / "BIN" / "CL.EXE")
+
+    def test_exact_case_still_works(self, tmp_path: Path) -> None:
+        from rebrew.toolchain import ToolchainSpec, _resolve_binary
+
+        (tmp_path / "Bin").mkdir()
+        (tmp_path / "Bin" / "cl").write_bytes(b"")
+        spec = ToolchainSpec(
+            name="watcom",
+            image=None,
+            binary="cl",
+            host_bin="Bin",
+            host_path=str(tmp_path),
+        )
+        assert _resolve_binary(spec) == str(tmp_path / "Bin" / "cl")
+
+    def test_status_uses_shared_resolver(self, monkeypatch, tmp_path: Path) -> None:
+        """toolchain status must agree with _resolve_binary (case-insensitive
+        host_bin) instead of its own case-sensitive path check."""
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        (tmp_path / "BIN").mkdir()
+        (tmp_path / "BIN" / "CL.EXE").write_bytes(b"")
+        monkeypatch.setattr(
+            "rebrew.toolchain.TOOLCHAINS",
+            {
+                "msvc1.52": __import__(
+                    "rebrew.toolchain", fromlist=["ToolchainSpec"]
+                ).ToolchainSpec(
+                    name="msvc1.52",
+                    image=None,
+                    binary="CL.EXE",
+                    host_bin="Bin",
+                    host_path=str(tmp_path),
+                )
+            },
+        )
+        result = CliRunner().invoke(umbrella, ["toolchain", "status", "msvc1.52", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["host_binary_present"] is True

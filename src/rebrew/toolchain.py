@@ -202,6 +202,18 @@ def _resolve_binary(spec: ToolchainSpec) -> str:
         for c in candidates:
             if c.exists():
                 return str(c)
+        # DOS-era vendored trees are uppercase (BIN, not Bin) — match the
+        # host_bin subdir case-insensitively before giving up (MSVC 1.52's
+        # tools/MSVC152/BIN/CL.EXE would otherwise never resolve).
+        if spec.host_bin:
+            try:
+                for entry in host.iterdir():
+                    if entry.is_dir() and entry.name.lower() == spec.host_bin.lower():
+                        c = entry / spec.binary
+                        if c.exists():
+                            return str(c)
+            except OSError:
+                pass
     found = shutil.which(spec.binary)
     if found:
         return found
