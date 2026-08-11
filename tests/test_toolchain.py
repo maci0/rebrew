@@ -145,3 +145,22 @@ class TestCli:
         result = CliRunner().invoke(umbrella, ["toolchain", "pull", "nope"])
         assert result.exit_code == 2
         assert "unknown toolchain" in result.output
+
+    def test_build_host_only_errors(self, monkeypatch) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        result = CliRunner().invoke(umbrella, ["toolchain", "build", "gcc-pe"])
+        assert result.exit_code == 2
+        assert "host-only" in result.output
+
+    def test_build_missing_dockerfile_errors(self, monkeypatch) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        monkeypatch.setattr("rebrew.toolchain_cli.Path.exists", lambda self: False)
+        result = CliRunner().invoke(umbrella, ["toolchain", "build", "watcom"])
+        assert result.exit_code == 2
+        assert "Dockerfile" in result.output
