@@ -579,3 +579,39 @@ class TestCheckToolchainBacked:
         result = check_toolchain_backed(cfg)
         assert result.status == _FAIL
         assert "toolchain pull" in (result.fix or "")
+
+
+class TestCheckCompilerRelativeCommand:
+    """check_compiler resolves a project-relative command (e.g.
+    tools/MSVC152/BIN/CL.EXE) against the project root — the msvc1.52
+    direct command is not on PATH."""
+
+    def test_relative_command_resolves(self, tmp_path: Path) -> None:
+        from rebrew.doctor import _PASS, check_compiler
+
+        cl = tmp_path / "tools" / "MSVC152" / "BIN" / "CL.EXE"
+        cl.parent.mkdir(parents=True)
+        cl.write_bytes(b"")  # presence is what matters
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            arch="x86_16",
+            compiler_profile="msvc1.52",
+            compiler_command="tools/MSVC152/BIN/CL.EXE",
+            compiler_runner="",
+        )
+        result = check_compiler(cfg)
+        assert result.status == _PASS
+
+    def test_relative_command_missing_fails(self, tmp_path: Path) -> None:
+        from rebrew.doctor import _FAIL, check_compiler
+
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            arch="x86_16",
+            compiler_profile="msvc1.52",
+            compiler_command="tools/MSVC152/BIN/CL.EXE",
+            compiler_runner="",
+        )
+        result = check_compiler(cfg)
+        assert result.status == _FAIL
+        assert "not found" in result.message

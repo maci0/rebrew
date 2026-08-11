@@ -105,8 +105,8 @@ class DoctorReport:
 # Individual checks
 # ---------------------------------------------------------------------------
 
-_KNOWN_FORMATS = {"pe", "elf", "macho"}
-_KNOWN_ARCHES = {"x86_32", "x86_64", "arm32", "arm64"}
+_KNOWN_FORMATS = {"pe", "elf", "macho", "ne"}
+_KNOWN_ARCHES = {"x86_16", "x86_32", "x86_64", "arm32", "arm64"}
 
 
 def check_config_parse(target: str | None) -> tuple[CheckResult, ProjectConfig | None]:
@@ -247,13 +247,20 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
     exe = parts[0] if parts else ""
     exe_path = shutil.which(exe)
     is_wibo_runner = Path(exe).name == "wibo"
+    # A relative command (e.g. tools/MSVC152/BIN/CL.EXE) resolves against the
+    # project root — do not require it on PATH (msvc1.52's direct DOSBox
+    # command, watcom, gcc-pe vendored paths).
     if exe_path is None and exe != "wine" and not is_wibo_runner:
-        return CheckResult(
-            name="Compiler",
-            status=_FAIL,
-            message=f"Executable '{exe}' not found in PATH",
-            fix=f"Install '{exe}' or update compiler.command in rebrew-project.toml.",
-        )
+        local_exe = Path(exe) if Path(exe).is_absolute() else cfg.root / Path(exe)
+        if local_exe.exists():
+            exe_path = str(local_exe)
+        else:
+            return CheckResult(
+                name="Compiler",
+                status=_FAIL,
+                message=f"Executable '{exe}' not found in PATH or project",
+                fix=f"Install '{exe}' or update compiler.command in rebrew-project.toml.",
+            )
 
     if is_wibo_runner and exe_path is None:
         # `init --install-wibo` writes a relative runner like tools/wibo —
