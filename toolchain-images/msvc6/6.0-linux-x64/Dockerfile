@@ -11,7 +11,7 @@ FROM debian:bookworm-slim
 
 RUN dpkg --add-architecture i386 \
     && apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates wine32 \
+    && apt-get install -y --no-install-recommends curl ca-certificates wine wine32 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt
