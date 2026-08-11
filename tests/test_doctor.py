@@ -595,3 +595,68 @@ class TestCrtLinkage:
         cfg = self._cfg(tmp_path)
         res = self.check(cfg)
         assert res.status == "skip"
+
+
+class TestOptLevel:
+    """doctor must warn when the project optimization flag disagrees with the
+    binary's codegen fingerprint — /O1 vs /O2 change wrapper codegen."""
+
+    def _cfg(self, tmp_path: Path, **overrides: object) -> SimpleNamespace:
+        from rebrew.doctor import check_opt_level
+
+        self.check = check_opt_level
+        exe = tmp_path / "test.exe"
+        exe.write_bytes(b"MZ")
+        return SimpleNamespace(
+            root=tmp_path,
+            target_binary=exe,
+            compiler_profile=overrides.pop("compiler_profile", "msvc6"),
+            cflags=overrides.pop("cflags", "/O2 /Gd"),
+        )
+
+    def test_matching_o2(self, tmp_path: Path, monkeypatch: object) -> None:
+        import rebrew.toolchain_detect as td
+
+        monkeypatch.setattr(
+            td, "detect_toolchain", lambda *a, **k: SimpleNamespace(opt_level="/O2")
+        )
+        cfg = self._cfg(tmp_path)
+        res = self.check(cfg)
+        assert res.status == _PASS
+
+    def test_mismatch_o1_vs_o2_warns(self, tmp_path: Path, monkeypatch: object) -> None:
+        import rebrew.toolchain_detect as td
+
+        monkeypatch.setattr(
+            td, "detect_toolchain", lambda *a, **k: SimpleNamespace(opt_level="/O1")
+        )
+        cfg = self._cfg(tmp_path, cflags="/O2 /Gd")
+        res = self.check(cfg)
+        assert res.status == _WARN
+        assert "/O1" in res.fix
+
+    def test_mixed_with_pinned_flag_pass_hint(self, tmp_path: Path, monkeypatch: object) -> None:
+        import rebrew.toolchain_detect as td
+
+        monkeypatch.setattr(
+            td, "detect_toolchain", lambda *a, **k: SimpleNamespace(opt_level="mixed (/O1 + /O2)")
+        )
+        cfg = self._cfg(tmp_path, cflags="/O2 /Gd")
+        res = self.check(cfg)
+        assert res.status == _PASS
+        assert "flag-sweep" in (res.fix or "")
+
+    def test_inconclusive_skips(self, tmp_path: Path, monkeypatch: object) -> None:
+        import rebrew.toolchain_detect as td
+
+        monkeypatch.setattr(
+            td, "detect_toolchain", lambda *a, **k: SimpleNamespace(opt_level="")
+        )
+        cfg = self._cfg(tmp_path)
+        res = self.check(cfg)
+        assert res.status == "skip"
+
+    def test_non_msvc_skips(self, tmp_path: Path) -> None:
+        cfg = self._cfg(tmp_path, compiler_profile="gcc-pe")
+        res = self.check(cfg)
+        assert res.status == "skip"

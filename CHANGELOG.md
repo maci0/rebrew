@@ -1,6 +1,16 @@
 ## [Unreleased]
 
 ### Added
+- **MSVC optimization-level fingerprint**: `detect_toolchain` now inspects
+  .text for wrapper-call codegen and reports the optimization level the
+  binary was built with — `/O2` (load-first `mov eax,[esp+4]; push eax` +
+  `add esp,N`) vs `/O1` (push-[mem] `push dword [esp+4]` + `pop ecx`), or
+  `mixed` when both styles appear (per-file /O overrides, common in MS
+  products).  `/O1` vs `/O2` change wrapper codegen, so the wrong level
+  silently breaks byte-matching at every wrapper call site.  Surfaced in
+  `rebrew analyze`, seeded into `rebrew init`'s compiler cflags, and
+  checked by a new `rebrew doctor` Optimization-level check (warns on
+  mismatch, suggests per-function flag sweeps for mixed builds).
 - **`rebrew test --fix-size`**: corrects a stale SIZE annotation when ALL
   common bytes match — writes the compiled size into `rebrew-function.toml`
   and reclassifies as EXACT/RELOC (with promotion) in one command, instead

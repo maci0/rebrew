@@ -127,6 +127,7 @@ class ToolchainInfo:
     crt: str = ""  # CRT linkage name: "msvcrt.dll"/"crtdll.dll" (dynamic), "LIBCMT" (static)
     crt_linkage: str = ""  # "dynamic" | "static" | "" (unknown)
     base_cflags: str = ""  # suggested base_cflags: "/MD" or "/MT" for MSVC-family binaries
+    opt_level: str = ""  # suggested optimization: "/O1" or "/O2" (MSVC codegen fingerprint)
 
     def add(self, text: str) -> None:
         self.evidence.append(text)
@@ -645,6 +646,16 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
     int3_pads = 0
     old_push_calls = 0
     modern_mov_calls = 0
+    # MSVC optimization fingerprint: /O2 passes arguments by loading them
+    # first (`mov eax,[esp+4]; push eax` — 8b 44 24 04 50) and cleans the
+    # stack with `add esp,N`; /O1 pushes the memory operand directly
+    # (`push dword [esp+4]` — ff 74 24 04) and pops with `pop ecx`.  The two
+    # styles are mutually exclusive per wrapper, so their relative counts
+    # identify the optimization level — or flag a MIXED build (per-file /O
+    # overrides, common in MS products) where the user must flag-sweep per
+    # function instead of trusting one project-wide setting.
+    o2_wrappers = 0
+    o1_wrappers = 0
     try:
         from rebrew.binary_loader import extract_bytes_at_va
 
@@ -668,6 +679,12 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
             bytes.fromhex("89 04 24")
         )
         old_push_calls = text_bytes.count(bytes.fromhex("6a"))
+        # Load-first wrapper call signatures (1- and 2-arg).
+        o2_wrappers += text_bytes.count(bytes.fromhex("8b 44 24 04 50 e8"))
+        o2_wrappers += text_bytes.count(bytes.fromhex("8b 44 24 08 8b 4c 24 04"))
+        # push-[mem] wrapper call signatures (1- and 2-arg).
+        o1_wrappers += text_bytes.count(bytes.fromhex("ff 74 24 04 e8"))
+        o1_wrappers += text_bytes.count(bytes.fromhex("ff 74 24 08 ff 74 24 04"))
     except Exception:
         pass
 
@@ -677,6 +694,30 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
         info.add(f"{msvc_nops} MSVC-style alignment nops")
     if int3_pads > 10:
         info.add(f"{int3_pads} int3 pad runs (MSVC-style padding)")
+
+    # --- MSVC optimization-level fingerprint ---
+    # Only asserted for the MSVC family (the byte patterns are MSVC-specific
+    # argument-passing idioms, not GCC's stack layout).
+    if info.family == "msvc" and (o2_wrappers or o1_wrappers):
+        if o2_wrappers >= 3 and o2_wrappers >= o1_wrappers * 2:
+            info.opt_level = "/O2"
+            info.add(
+                f"{o2_wrappers} load-first wrapper calls "
+                f"(`mov eax,[esp+4]; push eax`) → /O2-style"
+            )
+        elif o1_wrappers >= 3 and o1_wrappers >= o2_wrappers * 2:
+            info.opt_level = "/O1"
+            info.add(
+                f"{o1_wrappers} push-[mem] wrapper calls "
+                f"(`push dword [esp+4]`) → /O1-style"
+            )
+        elif o2_wrappers >= 3 and o1_wrappers >= 3:
+            info.opt_level = "mixed (/O1 + /O2)"
+            info.add(
+                f"both wrapper styles present ({o1_wrappers} push-[mem], "
+                f"{o2_wrappers} load-first) — per-file mixed optimization; "
+                f"use per-function flag sweeps instead of one project-wide level"
+            )
 
     # --- decide the family (only if a better backend hasn't) ---
     if info.family != "unknown":

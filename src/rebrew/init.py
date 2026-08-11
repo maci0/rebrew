@@ -517,19 +517,29 @@ def main(
     # byte-matching at every CRT call site (e.g. memcpy becomes a rel32
     # call instead of an IAT call).
     base_cflags = profile.get("base_cflags", "/nologo /c /MT")
+    cflags = profile.get("cflags", "/O2 /Gd")
     if binary_path.exists() and compiler_profile.startswith("msvc"):
         try:
             from rebrew.toolchain_detect import detect_toolchain
 
-            detected_crt = detect_toolchain(binary_path)
-            if detected_crt.base_cflags:
-                base_cflags = f"/nologo /c {detected_crt.base_cflags}"
+            detected = detect_toolchain(binary_path)
+            if detected.base_cflags:
+                base_cflags = f"/nologo /c {detected.base_cflags}"
                 console.print(
-                    f"[cyan]CRT linkage:[/cyan] {detected_crt.crt} "
-                    f"({detected_crt.crt_linkage}) — base_cflags={detected_crt.base_cflags}"
+                    f"[cyan]CRT linkage:[/cyan] {detected.crt} "
+                    f"({detected.crt_linkage}) — base_cflags={detected.base_cflags}"
                 )
+            # Optimization fingerprint: /O1 vs /O2 change wrapper codegen, so
+            # seed the project default from the binary instead of assuming /O2.
+            # A "mixed" verdict is left at the default (per-function sweeps).
+            if detected.opt_level in ("/O1", "/O2") and detected.opt_level != cflags.split()[0]:
+                console.print(
+                    f"[cyan]Optimization:[/cyan] fingerprint shows {detected.opt_level} — "
+                    f"setting compiler cflags"
+                )
+                cflags = f"{detected.opt_level} /Gd"
         except Exception:
-            pass  # CRT detection is best-effort; keep the profile default
+            pass  # detection is best-effort; keep the profile default
 
     # 1. Write rebrew-project.toml
     toml_content = DEFAULT_REBREW_TOML.format(
@@ -541,7 +551,7 @@ def main(
         compiler_command=compiler_command,
         compiler_includes=profile["includes"],
         compiler_libs=profile["libs"],
-        cflags=profile["cflags"],
+        cflags=cflags,
         base_cflags=base_cflags,
     )
     toml_content = toml_content.replace("__COMPILER_RUNNER__", runner)

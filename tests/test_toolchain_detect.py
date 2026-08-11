@@ -305,14 +305,22 @@ class _FakeSection:
         self.name = name
 
 
-def _fake_binary(sections: list[str], dlls: list[str] | None = None) -> SimpleNamespace:
-    """A BinaryInfo-shaped fake for the heuristics backend."""
+def _fake_binary(
+    sections: list[str],
+    dlls: list[str] | None = None,
+    text: bytes = b"",
+) -> SimpleNamespace:
+    """A BinaryInfo-shaped fake for the heuristics backend.
+
+    *text* becomes the .text payload (text_va=0x1000, text_size=len(text))
+    so the codegen/fingerprint scan has bytes to count.
+    """
     return SimpleNamespace(
         sections={n: _FakeSection(n) for n in sections},
         imports=[SimpleNamespace(dll=d) for d in (dlls or [])],
-        text_va=0,
-        text_size=0,
-        data=b"",
+        text_va=0x1000 if text else 0,
+        text_size=len(text),
+        data=text,
     )
 
 
@@ -588,3 +596,64 @@ class TestCrtLinkage:
         info = self._detect(monkeypatch, tmp_path, [])
         assert info.crt == ""
         assert info.base_cflags == ""
+
+
+class TestOptLevelFingerprint:
+    """detect_toolchain must infer MSVC /O1 vs /O2 from wrapper codegen and
+    flag genuinely mixed (per-file /O) builds — a project-wide flag cannot be
+    right for those."""
+
+    @staticmethod
+    def _msvc_die() -> ToolchainInfo:
+        return ToolchainInfo(family="msvc", confidence="high", detected_by="die")
+
+    def _run(self, monkeypatch: object, text_bytes: bytes) -> ToolchainInfo:
+        import rebrew.toolchain_detect as td
+
+        monkeypatch.setattr(td, "_run_diec", lambda *a, **k: None)
+        monkeypatch.setattr(td, "detect_with_pdb", lambda *a, **k: None)
+        monkeypatch.setattr(td, "detect_with_die", lambda *a, **k: self._msvc_die())
+        monkeypatch.setattr(td, "load_binary", lambda *a, **k: _fake_binary([".text"], text=text_bytes))
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_bytes_at_va",
+            lambda binfo, va, size: text_bytes[:size],
+        )
+        from rebrew.toolchain_detect import detect_toolchain
+
+        return detect_toolchain(Path("/tmp/nonexistent-prog.exe"))
+
+    def test_o2_style(self, monkeypatch: object, tmp_path: Path) -> None:
+        wrapper = bytes.fromhex("8b 44 24 04 50 e8 00 00 00 00 83 c4 04 c3")
+        info = self._run(monkeypatch, wrapper * 6)
+        assert info.opt_level == "/O2"
+
+    def test_o1_style(self, monkeypatch: object, tmp_path: Path) -> None:
+        wrapper = bytes.fromhex("ff 74 24 04 e8 00 00 00 00 59 c3")
+        info = self._run(monkeypatch, wrapper * 6)
+        assert info.opt_level == "/O1"
+
+    def test_mixed_flags(self, monkeypatch: object, tmp_path: Path) -> None:
+        o1 = bytes.fromhex("ff 74 24 04 e8 00 00 00 00 59 c3")
+        o2 = bytes.fromhex("8b 44 24 04 50 e8 00 00 00 00 83 c4 04 c3")
+        info = self._run(monkeypatch, (o1 + o2) * 4)
+        assert info.opt_level.startswith("mixed")
+
+    def test_no_wrapper_evidence_inconclusive(self, monkeypatch: object, tmp_path: Path) -> None:
+        info = self._run(monkeypatch, b"\x55\x8b\xec" * 10)
+        assert info.opt_level == ""
+
+    def test_non_msvc_skips_fingerprint(self, monkeypatch: object, tmp_path: Path) -> None:
+        import rebrew.toolchain_detect as td
+
+        monkeypatch.setattr(td, "_run_diec", lambda *a, **k: None)
+        monkeypatch.setattr(td, "detect_with_pdb", lambda *a, **k: None)
+        monkeypatch.setattr(
+            td, "detect_with_die", lambda *a, **k: ToolchainInfo(family="mingw", confidence="high")
+        )
+        monkeypatch.setattr(td, "load_binary", lambda *a, **k: _fake_binary([".text"]))
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_bytes_at_va",
+            lambda binfo, va, size: bytes.fromhex("ff 74 24 04 e8") * 6,
+        )
+        info = detect_toolchain(Path("/tmp/nonexistent-prog.exe"))
+        assert info.opt_level == ""
