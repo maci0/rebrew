@@ -511,6 +511,26 @@ def main(
     # it as a misalignment; surface it here instead of after the fact).
     _warn_profile_mismatch(compiler_profile, binary_format, target_arch)
 
+    # Auto-detect CRT linkage when the binary is already in place: a dynamic
+    # CRT (msvcrt.dll import) requires /MD rather than the /MT default.
+    # Compiling libc-calling functions with the wrong linkage breaks
+    # byte-matching at every CRT call site (e.g. memcpy becomes a rel32
+    # call instead of an IAT call).
+    base_cflags = profile.get("base_cflags", "/nologo /c /MT")
+    if binary_path.exists() and compiler_profile.startswith("msvc"):
+        try:
+            from rebrew.toolchain_detect import detect_toolchain
+
+            detected_crt = detect_toolchain(binary_path)
+            if detected_crt.base_cflags:
+                base_cflags = f"/nologo /c {detected_crt.base_cflags}"
+                console.print(
+                    f"[cyan]CRT linkage:[/cyan] {detected_crt.crt} "
+                    f"({detected_crt.crt_linkage}) — base_cflags={detected_crt.base_cflags}"
+                )
+        except Exception:
+            pass  # CRT detection is best-effort; keep the profile default
+
     # 1. Write rebrew-project.toml
     toml_content = DEFAULT_REBREW_TOML.format(
         project_name=cwd.name,
@@ -522,7 +542,7 @@ def main(
         compiler_includes=profile["includes"],
         compiler_libs=profile["libs"],
         cflags=profile["cflags"],
-        base_cflags=profile.get("base_cflags", "/nologo /c /MT"),
+        base_cflags=base_cflags,
     )
     toml_content = toml_content.replace("__COMPILER_RUNNER__", runner)
     toml_content = toml_content.replace("__TARGET_FORMAT__", binary_format)

@@ -533,3 +533,58 @@ class TestNEStringDetection:
         info = ToolchainInfo(family="watcom", arch="")
         aligned, expl = profile_matches_detection("watcom", info)
         assert aligned is True, expl
+
+
+class TestCrtLinkage:
+    """CRT-linkage detection from PE imports (msvcrt.dll -> /MD)."""
+
+    _MSVC_DETS = [
+        {
+            "values": [
+                {
+                    "type": "Compiler",
+                    "name": "Microsoft Visual C/C++",
+                    "version": "11.00",
+                    "string": "Compiler: Microsoft Visual C/C++(11.00)",
+                }
+            ]
+        }
+    ]
+
+    def _detect(self, monkeypatch, tmp_path: Path, dlls: list[str]) -> ToolchainInfo:
+        monkeypatch.setattr("rebrew.toolchain_detect._run_diec", lambda *a, **k: self._MSVC_DETS)
+        monkeypatch.setattr("rebrew.toolchain_detect.detect_with_pdb", lambda *a, **k: None)
+        monkeypatch.setattr(
+            "rebrew.toolchain_detect.load_binary",
+            lambda *a, **k: _fake_binary([".text", ".data", ".rdata"], dlls=dlls),
+        )
+        monkeypatch.setattr("rebrew.toolchain_detect._scan_strings", lambda *a, **k: [])
+        return detect_toolchain(tmp_path / "prog.exe")
+
+    def test_dynamic_crt_msvcrt(self, monkeypatch, tmp_path: Path) -> None:
+        info = self._detect(monkeypatch, tmp_path, ["msvcrt.dll", "KERNEL32.dll", "USER32.dll"])
+        assert info.crt == "msvcrt.dll"
+        assert info.crt_linkage == "dynamic"
+        assert info.base_cflags == "/MD"
+
+    def test_dynamic_crt_crtdll(self, monkeypatch, tmp_path: Path) -> None:
+        info = self._detect(monkeypatch, tmp_path, ["crtdll.dll", "KERNEL32.dll"])
+        assert info.crt == "crtdll.dll"
+        assert info.crt_linkage == "dynamic"
+        assert info.base_cflags == "/MD"
+
+    def test_static_crt_libcmt(self, monkeypatch, tmp_path: Path) -> None:
+        info = self._detect(monkeypatch, tmp_path, ["KERNEL32.dll", "USER32.dll"])
+        assert info.crt == "LIBCMT"
+        assert info.crt_linkage == "static"
+        assert info.base_cflags == "/MT"
+
+    def test_minimal_imports_no_crt_claim(self, monkeypatch, tmp_path: Path) -> None:
+        info = self._detect(monkeypatch, tmp_path, ["KERNEL32.dll"])
+        assert info.crt == ""
+        assert info.crt_linkage == ""
+
+    def test_standalone_no_crt_claim(self, monkeypatch, tmp_path: Path) -> None:
+        info = self._detect(monkeypatch, tmp_path, [])
+        assert info.crt == ""
+        assert info.base_cflags == ""
