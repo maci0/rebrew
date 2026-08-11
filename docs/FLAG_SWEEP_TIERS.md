@@ -116,10 +116,20 @@ and `rebrew-matching/SKILL.md` for the AI-agent workflow that wraps the GA engin
 `rebrew match --flag-sweep --profile watcom` sweeps wcc386 flags
 (`-os/-ot/-ol/-ox` optimization, `-3..-6` codegen, `-zp` packing,
 `-mf`/`-fpc` toggles) — quick=5, targeted=25 combinations.  The flag
-strings are `-`-style (wcc386), never MSVC `/`-style.
+strings are `-`-style (wcc386), never MSVC `/`-style.  Toolchain-backed
+profiles route through the shared `rebrew.toolchain` runner (docker image
+or vendored host binary) — the GA never invokes them via raw `wine`
+subprocess.
 
 ## MSVC 1.52 (16-bit) profile
 
 `rebrew match --flag-sweep --profile msvc1.52` sweeps the 16-bit CL flags
-(`/Od /O1 /O2 /Ox` opt, `/G2 /G3` codegen, `/Aw /Au` far-data,
-`/Gs`/`/Za` toggles) — quick=5, targeted=15 combinations.
+(`/Od /O1 /O2 /Ox` opt, `/AS /AM /AC /AL` **memory models**, `/G2 /G3`
+codegen, `/Aw /Au` far-data, `/Gs`/`/Za` toggles) — quick=20,
+targeted=75 combinations.  The memory-model axis is essential: 16-bit
+Windows games are typically built far-code (`/AM` medium: `retf` +
+`lcall`/`ljmp` patch slots) — see [OMF_NOTES.md](OMF_NOTES.md).  Compiled
+objects are 16-bit OMF, decoded by the built-in `omf16` parser (objconv
+crashes on them); 16-bit NE targets are scored the same way as PE ones.
+Verified end-to-end against the skifree16 NE target: 75 combos compile
+through the DOSBox image and produce structural-similarity reports.

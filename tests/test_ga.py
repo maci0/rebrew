@@ -1442,3 +1442,90 @@ class TestCrossProjectSeeding:
         symbols = [e.symbol for e in entries]
         assert symbols.count("_a") == 1
         assert entries[0].cflags == "/O2"  # local entry kept, not the extra copy
+
+
+class TestToolchainRoutedBuildCandidate:
+    """build_candidate_obj_only must route toolchain-backed profiles
+    (watcom, msvc1.52) through the shared compile_to_obj runner — the raw
+    subprocess path invokes `wine tools/MSVC152/BIN/CL.EXE` and silently
+    drops the 16-bit flag sweep."""
+
+    def test_msvc152_profile_delegates_to_compile_to_obj(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.matcher.compiler import build_candidate_obj_only
+
+        seen: dict = {}
+
+        def _fake_compile_to_obj(cfg, src_path, cflags, workdir, **kwargs):  # noqa: ARG001
+            seen["profile"] = getattr(cfg, "compiler_profile", "")
+            seen["cflags"] = cflags
+            obj = Path(workdir) / "cand.obj"
+            obj.write_bytes(b"\x80\x08\x00fake")
+            return str(obj), ""
+
+        monkeypatch.setattr("rebrew.compile.compile_to_obj", _fake_compile_to_obj)
+        # OMF-ish magic so parse_obj_symbol_bytes tries omf16 and fails
+        # gracefully on the fake payload — we only assert routing happened.
+        res = build_candidate_obj_only(
+            "int f(void){return 0;}",
+            "tools/MSVC152/BIN/CL.EXE",
+            "/inc",
+            "/O1",
+            "_f",
+            profile="msvc1.52",
+            cfg=SimpleNamespace(
+                root=Path.cwd(),
+                compiler_profile="msvc1.52",
+                compiler_command="tools/MSVC152/BIN/CL.EXE",
+                compiler_includes="/inc",
+                base_cflags="",
+                compile_timeout=30,
+            ),
+        )
+        assert seen.get("profile") == "msvc1.52"
+        assert seen.get("cflags") == ["/O1"]
+        assert res.ok is False  # fake obj isn't parseable — routing is what matters
+
+    def test_watcom_profile_delegates(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.matcher.compiler import build_candidate_obj_only
+
+        seen: dict = {}
+
+        def _fake_compile_to_obj(cfg, src_path, cflags, workdir, **kwargs):  # noqa: ARG001
+            seen["profile"] = getattr(cfg, "compiler_profile", "")
+            return None, "boom"
+
+        monkeypatch.setattr("rebrew.compile.compile_to_obj", _fake_compile_to_obj)
+        res = build_candidate_obj_only(
+            "int f(void){return 0;}",
+            "wcc386",
+            "",
+            "-os",
+            "f_",
+            profile="watcom",
+        )
+        assert seen.get("profile") == "watcom"
+        assert "boom" in (res.error_msg or "")
+
+    def test_msvc6_profile_uses_raw_subprocess(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Default MSVC profiles keep the existing raw-subprocess path."""
+        from rebrew.matcher.compiler import build_candidate_obj_only
+
+        called: list[str] = []
+
+        def _fake_compile_to_obj(*a: Any, **k: Any) -> Any:
+            called.append("compile_to_obj")
+            return None, ""
+
+        monkeypatch.setattr("rebrew.compile.compile_to_obj", _fake_compile_to_obj)
+        res = build_candidate_obj_only(
+            "int f(void){return 0;}",
+            "cl.exe",
+            "",
+            "/O2",
+            "_f",
+            profile="msvc6",
+        )
+        assert not called  # raw path, not the runner
+        assert res.ok is False  # compiler absent — no delegation happened

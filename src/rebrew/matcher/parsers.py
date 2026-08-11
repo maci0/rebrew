@@ -431,7 +431,8 @@ def parse_obj_symbol_bytes(
 ) -> tuple[bytes | None, dict[int, str] | None]:
     """Extract code bytes + relocation offsets for a symbol from an object file.
 
-    Supports COFF ``.obj``, ELF ``.o``, and Mach-O ``.o`` files.
+    Supports COFF ``.obj``, ELF ``.o``, Mach-O ``.o``, and OMF (Watcom /
+    MSVC 1.52 — via objconv or the built-in 16-bit parser).
     """
     path_str = str(obj_path)
     fmt = _detect_obj_format(path_str)
@@ -442,6 +443,9 @@ def parse_obj_symbol_bytes(
         return _parse_elf_symbol_bytes(path_str, symbol)
     if fmt == "macho":
         return _parse_macho_symbol_bytes(path_str, symbol)
+    if fmt == "omf":
+        code, relocs, _ = parse_obj_symbol_and_relocs(obj_path, symbol)
+        return code, relocs
     return None, None
 
 
