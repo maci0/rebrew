@@ -1,6 +1,14 @@
 ## [Unreleased]
 
 ### Added
+- **`rebrew skeleton` emits calling-convention-aware stubs**: the generated
+  skeleton now matches the target's convention instead of always being
+  `int __cdecl f(void)` — `int __fastcall f(void *self)` for thiscall with
+  no stack args, a `__declspec(naked)` template (with `ret N`) for
+  thiscall-with-stack-args on MSVC 5.0 (no `__thiscall` keyword), and
+  `int __stdcall f(int a1, ...)` for stdcall with N args.  Thunks get a
+  note pointing at the naked tail-jump.  For MFC-heavy binaries (most
+  functions are thiscall) this removes the per-function signature rewrite.
 - **`rebrew asm` calling-convention inference**: both the hex dump and
   `--json` now report the function's calling convention (cdecl / stdcall /
   thiscall / thiscall-with-no-stack-args / ctor thunk / EH-guard thunk),
