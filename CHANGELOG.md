@@ -25,7 +25,13 @@
   newly visible bytes must match; when it is shorter the excess annotated
   bytes must be padding — a false fix (partial decompilation matched only
   over the prefix) would otherwise write a size that hides unreproduced
-  code.
+  code.  When those checks refuse (a discovery boundary merged the NEXT
+  function into the annotation, so the excess bytes are real code), the
+  gate falls back to the disassembly extent — the authoritative function
+  end via `binary_loader.function_extent_from_disasm` — and fixes only if
+  it agrees with the compiled size.  This automates the merged-boundary
+  thunks (e.g. `mov ecx,X; jmp Y` ctor stubs) that previously needed a
+  hand-supplied `--size`.
 - **watcom is POSIX-style**: `ProjectConfig.posix_style` now includes
   watcom (wcc386 takes `-I`/`-fo=`/`-zq`).  Previously the flag routing
   treated it as MSVC-style and prepended `/nologo /c` glue — wcc386 then

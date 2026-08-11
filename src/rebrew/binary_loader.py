@@ -498,6 +498,61 @@ def extract_raw_bytes(binary_path: Path, va: int, size: int) -> bytes:
 # ---------------------------------------------------------------------------
 
 
+def function_extent_from_disasm(
+    binary_path: Path | str,
+    va: int,
+    max_size: int = 512,
+) -> int | None:
+    """Disassembly-derived function extent (size in bytes), or ``None``.
+
+    Walks instructions from *va* until a terminator — ``ret``/``ret N``/
+    ``iret``, an unconditional ``jmp`` (tail call / thunk end), or ``int3``
+    padding — and returns the byte offset just past it.  This is the
+    *authoritative* function end, independent of any discovery-derived
+    annotation size (which often merges the next function or includes
+    padding).
+
+    Conservative by design: the walk stops at the first terminator, so a
+    ``jmp`` that is really a loop branch yields a *smaller* extent — callers
+    must treat ``extent != compiled size`` as "cannot confirm", not as a
+    contradiction.  Returns ``None`` when the region cannot be cleanly
+    decoded (malformed opcode, hits the section end).
+    """
+    path = Path(binary_path)
+    if not path.exists():
+        return None
+    try:
+        info = load_binary(path)
+        data = extract_bytes_at_va(info, va, max_size, trim_padding=False)
+        if not data:
+            return None
+    except Exception:
+        return None
+
+    import capstone
+
+    md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+    md.skipdata = False
+    offset = 0
+    for insn in md.disasm(data, va):
+        mnem = insn.mnemonic
+        if mnem in ("ret", "retf", "iret", "iretd", "int3"):
+            return offset + insn.size
+        if mnem == "jmp":
+            # Unconditional jump: tail call / thunk terminator (a backward
+            # loop jmp underestimates the extent — callers refuse, which is
+            # the safe direction).
+            return offset + insn.size
+        if mnem.startswith("j"):
+            # Conditional jumps continue the walk.
+            offset += insn.size
+            continue
+        if mnem in ("ud2", "hlt"):
+            return offset + insn.size
+        offset += insn.size
+    return None
+
+
 def iat_slot_vas(binary_path: Path | str) -> set[int]:
     """Absolute VAs of the PE import-address-table slots, or ``set()``.
 

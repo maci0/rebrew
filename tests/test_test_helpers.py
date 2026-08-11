@@ -726,3 +726,61 @@ class TestFixSizeEvidence:
             _fix_size_evidence_ok(self._cfg(tmp_path), 0x1000, b"\x55\x8b\xec", b"\x55\x8b\xec", [])
             is True
         )
+
+
+class TestFixSizeDisasmFallback:
+    """--fix-size's evidence gate falls back to the disassembly extent when
+    the padding/extension checks refuse — a discovery boundary merged the
+    NEXT function into the annotation (real code beyond the compiled end)."""
+
+    def test_merged_boundary_allowed_when_extent_matches(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from rebrew.test import _fix_size_evidence_ok
+
+        monkeypatch.setattr(
+            "rebrew.test.extract_raw_bytes",
+            lambda binpath, va, size: b"",
+        )
+        monkeypatch.setattr(
+            "rebrew.test._disasm_extent", lambda cfg, va: 10  # matches compiled
+        )
+        from types import SimpleNamespace as NS
+
+        cfg = NS(target_binary=str(tmp_path / "x.bin"))
+        # annotation 22B, compiled 10B, extra bytes are REAL code (e8...)
+        compiled = bytes.fromhex("8b 44 24 04 83 c0 01 c2 04 00")
+        target = compiled + bytes.fromhex("e8 00 00 00 00 e9 00 00 00 00 00 00")
+        ok = _fix_size_evidence_ok(cfg, 0x1000, compiled, target, [])
+        assert ok is True
+
+    def test_merged_boundary_refused_when_extent_mismatches(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from rebrew.test import _fix_size_evidence_ok
+
+        monkeypatch.setattr(
+            "rebrew.test.extract_raw_bytes",
+            lambda binpath, va, size: b"",
+        )
+        monkeypatch.setattr(
+            "rebrew.test._disasm_extent", lambda cfg, va: 22  # function continues
+        )
+        from types import SimpleNamespace as NS
+
+        cfg = NS(target_binary=str(tmp_path / "x.bin"))
+        target = b"\x8b\x44\x24\x04\xc2\x04\x00" + b"\xe8\x00\x00\x00\x00" * 3
+        ok = _fix_size_evidence_ok(cfg, 0x1000, b"\x8b\x44\x24\x04\xc2\x04\x00", target, [])
+        assert ok is False
+
+    def test_extent_none_refuses(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.test import _fix_size_evidence_ok
+
+        monkeypatch.setattr("rebrew.test.extract_raw_bytes", lambda *a, **k: b"")
+        monkeypatch.setattr("rebrew.test._disasm_extent", lambda cfg, va: None)
+        from types import SimpleNamespace as NS
+
+        cfg = NS(target_binary=str(tmp_path / "x.bin"))
+        target = b"\x8b\x44\x24\x04\xc2\x04\x00" + b"\xe8\x00\x00\x00\x00" * 3
+        ok = _fix_size_evidence_ok(cfg, 0x1000, b"\x8b\x44\x24\x04\xc2\x04\x00", target, [])
+        assert ok is False
