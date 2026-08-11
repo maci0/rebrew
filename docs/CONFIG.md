@@ -368,3 +368,10 @@ rebrew cfg raw                                  # JSON output
 rebrew cfg raw --format toml                    # TOML output
 rebrew cfg path                                 # print path to config file
 ```
+
+## Compiler profiles from `rebrew init`
+
+`rebrew init --compiler <profile>` supports the full matrix — MSVC
+(400/420/5/6/6.3/6.6/7/1.52), gcc/gcc-pe/clang, and **watcom** (wcc386,
+`tools/WATCOM/binl/wcc386` + `tools/WATCOM/h`).  The target `arch` follows
+the profile (`msvc1.52` → `x86_16`).

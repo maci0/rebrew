@@ -67,7 +67,7 @@ jobs = 4                           # default parallelism for verify/batch/GA
 [targets."{target_name}"]
 binary = "original/{binary_name}"
 format = "pe"                        # pe | elf | macho
-arch = "x86_32"                      # x86_32 | x86_64 | arm32 | arm64
+arch = "__TARGET_ARCH__"               # x86_16 | x86_32 | x86_64 | arm32 | arm64
 reversed_dir = "src/{target_name}"   # directory containing reversed .c files
 function_list = "src/{target_name}/functions.txt"
 bin_dir = "bin/{target_name}"        # directory for extracted .bin files
@@ -218,6 +218,28 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "format": "pe",
         "arch": "x86_32",
         "lang": "C99",
+    },
+    "watcom": {
+        "runner": "",
+        "command": "tools/WATCOM/binl/wcc386",
+        "includes": "tools/WATCOM/h",
+        "libs": "tools/WATCOM/lib386",
+        "cflags": "-zq -ot",
+        "base_cflags": "",
+        "format": "pe",
+        "arch": "x86_32",
+        "lang": "C89",
+    },
+    "msvc1.52": {
+        "runner": "",
+        "command": "tools/MSVC152/BIN/CL.EXE",
+        "includes": "tools/MSVC152/INCLUDE",
+        "libs": "tools/MSVC152/LIB",
+        "cflags": "/O1",
+        "base_cflags": "/nologo /c",
+        "format": "pe",
+        "arch": "x86_16",
+        "lang": "C89",
     },
 }
 
@@ -432,6 +454,7 @@ def main(
         base_cflags=profile.get("base_cflags", "/nologo /c /MT"),
     )
     toml_content = toml_content.replace("__COMPILER_RUNNER__", runner)
+    toml_content = toml_content.replace("__TARGET_ARCH__", profile.get("arch", "x86_32"))
     atomic_write_text(toml_path, toml_content, encoding="utf-8")
     console.print(f"[green]Created {toml_path.name}[/]")
 
