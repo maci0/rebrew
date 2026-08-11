@@ -6380,3 +6380,27 @@ Goal: reverse holiday.exe (Borland Delphi 1.0, NE 6.01 — the German
 - **Report**: rebrew report generates the HTML site for the NE project.
 
 Commits: 9f46b2e, 1607f40, b71ab1c, d3ae3ea, 91b5112.
+
+## 2026-08-11 — holiday.exe reversal continued: xrefs, far-call catalog, 2nd NE binary
+
+- **16-bit xrefs fixed + tested**: NE scans skip the 2-byte Borland segment
+  marker (was misaligning every instruction); capstone's 16-bit near
+  branches are absolute (the classifier re-added the relative offset).
+  `describe` now shows real callees + referenced strings (startup →
+  ratten/saufbier/spreng/stink.avi); `xrefs` finds 146 code refs to the
+  animation global.
+- **Far-call catalog** in analyze dossiers: distinct lcall seg:off targets
+  with counts.  Selectors ≤ the segment count map to Borland segment
+  indices (the \\xNN\\x00 marker convention); higher selectors are
+  loader-assigned (RTL/system) and unmapped — the mapping is not derivable
+  from the file for those.  holiday.exe: the 0x0000:0xffff system-call
+  pattern dominates (39×).
+- **Resource table**: the standard NE resource-table layout does not parse
+  for this Borland linker (garbage at the restab offset) — documented as a
+  quirk; the form/method strings (EN_MP*, TBaumenuebild...) are already
+  captured by the Pascal-string scan.
+- **Second NE binary validated**: holiuvbe.exe (Watcom-built, 2 segments,
+  imports KERNEL/USER/PMPRO61) flows through analyze + intake cleanly —
+  91 functions, arch x86_16, watcom family detected.
+
+Commits: 91b5112 (16-bit xrefs), 5927b9b (far-call catalog).
