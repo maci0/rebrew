@@ -509,6 +509,25 @@ class TestAllBatch:
         assert payload["failed"] == 0
         assert payload["results"][0]["blocker_written"] is True
 
+    def test_batch_includes_size_mismatch(self, monkeypatch, tmp_path: Path) -> None:
+        """--all must also classify SIZE_MISMATCH functions (mirror prove --all)."""
+        import json
+        from types import SimpleNamespace as NS
+
+        annos = [
+            NS(va=0x1000, size=8, symbol="_f", module="S", cflags="", status="NEAR_MATCHING"),
+            NS(va=0x2000, size=8, symbol="_g", module="S", cflags="", status="SIZE_MISMATCH"),
+        ]
+        result, calls = self._invoke(
+            monkeypatch, tmp_path, ["--all", "--fix-blocker", "--json"], annos
+        )
+        assert result.exit_code == 0, result.output
+        assert len(calls) == 2
+        payload = json.loads(result.output)
+        assert payload["total"] == 2
+        assert payload["classified"] == 2
+        assert payload["results"][1]["blocker_written"] is True
+
     def test_batch_no_candidates(self, monkeypatch, tmp_path: Path) -> None:
         from types import SimpleNamespace as NS
 
