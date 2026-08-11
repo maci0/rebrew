@@ -117,3 +117,9 @@ and `rebrew-matching/SKILL.md` for the AI-agent workflow that wraps the GA engin
 (`-os/-ot/-ol/-ox` optimization, `-3..-6` codegen, `-zp` packing,
 `-mf`/`-fpc` toggles) — quick=5, targeted=25 combinations.  The flag
 strings are `-`-style (wcc386), never MSVC `/`-style.
+
+## MSVC 1.52 (16-bit) profile
+
+`rebrew match --flag-sweep --profile msvc1.52` sweeps the 16-bit CL flags
+(`/Od /O1 /O2 /Ox` opt, `/G2 /G3` codegen, `/Aw /Au` far-data,
+`/Gs`/`/Za` toggles) — quick=5, targeted=15 combinations.
