@@ -123,6 +123,7 @@ class ToolchainInfo:
     evidence: list[str] = field(default_factory=list)
     flags: list[str] = field(default_factory=list)  # compiler flags (PDB-derived)
     detected_by: str = ""  # which backend found the family: die | pdb | heuristics
+    arch: str = ""  # "x86_16" for NE binaries, "" when unknown (PE/ELF assumed 32/64)
 
     def add(self, text: str) -> None:
         self.evidence.append(text)
@@ -573,6 +574,9 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
                 info.confidence = "medium"
                 info.version_hint = "16-bit MSVC-style NE (no Borland segment markers)"
             info.detected_by = "ne"
+            # NE executables are 16-bit x86 — only 16-bit-capable profiles
+            # (msvc1.52, watcom) can ever byte-match them.
+            info.arch = "x86_16"
         return info
 
     sections = {s.name for s in binfo.sections.values()}
@@ -755,16 +759,35 @@ def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, 
             f"{info.family} ABI — no rebrew compiler profile can match; document as blocker "
             "(no supported toolchain)."
         )
-    if profile in compatible:
-        if info.family == "zig":
-            return (
-                True,
-                "binary looks Zig-built (LLVM codegen) — gcc-pe may only match structurally; "
-                "see docs/TOOLCHAIN.md",
-            )
-        return True, None
-    return (
-        False,
-        f"configured profile '{profile}' does not align with detected family '{info.family}' "
-        f"({', '.join(sorted(compatible))} would fit) — see docs/TOOLCHAIN.md",
-    )
+    if profile not in compatible:
+        return (
+            False,
+            f"configured profile '{profile}' does not align with detected family '{info.family}' "
+            f"({', '.join(sorted(compatible))} would fit) — see docs/TOOLCHAIN.md",
+        )
+    # Arch dimension: a 16-bit NE binary can only be byte-matched by
+    # 16-bit-capable profiles; conversely msvc1.52 cannot match a 32/64-bit
+    # PE/ELF.  This catches the "msvc6 profile on a 16-bit NE project"
+    # misconfiguration that silently produces COMPILE_ERROR for every
+    # function (skifree16-rebrew regression).
+    _BITNESS_16 = {"msvc1.52", "watcom"}
+    if info.arch == "x86_16" and profile not in _BITNESS_16:
+        return (
+            False,
+            f"detected 16-bit NE binary but profile '{profile}' is a 32/64-bit "
+            f"compiler — switch to one of: {', '.join(sorted(_BITNESS_16))} "
+            "(e.g. msvc1.52) or document the functions as blockers",
+        )
+    if info.arch and info.arch != "x86_16" and profile in _BITNESS_16:
+        return (
+            False,
+            f"profile '{profile}' is a 16-bit compiler but the binary is "
+            f"{info.arch} — use a 32/64-bit profile (e.g. msvc6)",
+        )
+    if info.family == "zig":
+        return (
+            True,
+            "binary looks Zig-built (LLVM codegen) — gcc-pe may only match structurally; "
+            "see docs/TOOLCHAIN.md",
+        )
+    return True, None

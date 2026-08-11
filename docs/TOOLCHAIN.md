@@ -156,7 +156,12 @@ cannot byte-match it.  Detection is layered, best-first:
 
 The check fails when the detected family has no compatible profile
 (Delphi: document blockers) and passes with a warning for families that may
-only match structurally (Zig under `gcc-pe`).  See
+only match structurally (Zig under `gcc-pe`).  The check is **arch-aware**:
+a 16-bit NE binary (e.g. Windows 3.x games) only accepts 16-bit-capable
+profiles (`msvc1.52`, `watcom`) — configuring `msvc6` on an NE project
+passes the family check but would silently produce `COMPILE_ERROR` for
+every function, so the arch check catches it with a concrete fix hint
+("switch to msvc1.52 or document as blockers").  See
 `src/rebrew/toolchain_detect.py` and `profile_matches_detection`.
 
 ### Archived MSVC Toolchains (additional MSVC versions)
