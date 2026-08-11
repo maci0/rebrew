@@ -23,7 +23,7 @@ import typer
 from rich.console import Console
 
 from rebrew.annotation import Annotation, parse_c_file_multi, parse_source_metadata
-from rebrew.binary_loader import extract_raw_bytes
+from rebrew.binary_loader import PADDING_BYTES, extract_raw_bytes
 from rebrew.cli import (
     EXIT_ERROR,
     EXIT_MISMATCH,
@@ -520,12 +520,18 @@ def main(
     # SIZE annotation, not a decompilation problem.  Write the compiled size
     # into metadata and reclassify as a real match.  Requires a VA (metadata
     # is keyed by (module, va)); --target-bin runs have no VA and are skipped.
+    # The evidence check verifies the region beyond the common prefix before
+    # trusting the compiled size.
     if (
         fix_size
         and cmp.status == "SIZE_MISMATCH"
         and cmp.match_percent == 100.0
         and cmp.full_obj_size is not None
+        and cmp.full_obj_bytes is not None
         and section_va is not None
+        and _fix_size_evidence_ok(
+            cfg, section_va, cmp.full_obj_bytes, target_bytes, cmp.reloc_offsets or []
+        )
     ):
         new_size = cmp.full_obj_size
         anno_module = lint_annos[0].module if lint_annos else ""
@@ -551,6 +557,7 @@ def main(
             relocs,
             cmp.inv_reloc_offsets,
             full_obj_size=new_size,
+            full_obj_bytes=cmp.full_obj_bytes,
         )
 
     if json_output:
@@ -749,6 +756,41 @@ def _result_dict_body(
     }
 
 
+def _fix_size_evidence_ok(
+    cfg: ProjectConfig,
+    ann_va: int,
+    obj_bytes: bytes,
+    target_bytes: bytes,
+    reloc_offsets: list[int],
+) -> bool:
+    """True when fixing the SIZE annotation to ``len(obj_bytes)`` is safe.
+
+    The "all common bytes match" gate only covers the common prefix — the
+    region beyond it is unverified.  Two directions hide different hazards:
+
+    - compiled LONGER than the annotated slice: re-extract the binary at the
+      compiled size and require the newly visible bytes to match (reloc-
+      masked).  A false fix here writes a size that hides unreproduced code
+      (the annotated slice cut the function short but the tail differs).
+    - compiled SHORTER than the annotated slice: the bytes beyond the
+      compiled function must be padding (0xCC/0x90).  If they are real code,
+      the annotation may cover a function my C only partially reproduces —
+      shrinking the size would produce a false EXACT on later runs.
+    """
+    if len(obj_bytes) > len(target_bytes):
+        ext = extract_raw_bytes(cfg.target_binary, ann_va, len(obj_bytes))
+        if len(ext) != len(obj_bytes):
+            # Extraction hit the section end — cannot verify the tail.
+            return False
+        n = len(obj_bytes)
+        masked = _expand_reloc_offsets(reloc_offsets, n)
+        return all(i in masked or obj_bytes[i] == ext[i] for i in range(n))
+    if len(target_bytes) > len(obj_bytes):
+        extra = target_bytes[len(obj_bytes) :]
+        return all(b in PADDING_BYTES for b in extra)
+    return True
+
+
 def _print_compare_result(cmp: CompareResult, target_bytes: bytes) -> None:
     """Human-readable single-function compare output."""
     relocs = cmp.reloc_offsets or []
@@ -928,9 +970,16 @@ def _test_multi(
             # stale, not the code — write the compiled size into metadata and
             # reclassify as a real match (mirrors verify --fix-sizes, but the
             # compiled size is the definitive evidence at test time instead of
-            # the registry-derived canonical size).
+            # the registry-derived canonical size).  The evidence check
+            # verifies the region beyond the common prefix first.
             fixed_size = False
-            if size_mismatch and fix_size and total > 0 and total - match_count == 0:
+            if (
+                size_mismatch
+                and fix_size
+                and total > 0
+                and total - match_count == 0
+                and _fix_size_evidence_ok(cfg, ann.va, obj_bytes, target_bytes, relocs)
+            ):
                 new_size = len(obj_bytes)
                 if not dry_run:
                     set_fields_batch(
