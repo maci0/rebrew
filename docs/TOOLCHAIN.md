@@ -81,9 +81,11 @@ installed at `tools/WATCOM`), `msvc1.52` (16-bit, DOSBox via
 
 Notes:
 
-- **Watcom** (`wcc386`) emits **OMF** objects by default — LIEF cannot
-  parse OMF; the OMF parser is the enabling follow-up (see
-  [OMF_NOTES.md](OMF_NOTES.md) for the empirically-mapped record layout).
+- **Watcom** (`wcc386`) emits **OMF** objects — converted to COFF via the
+  vendored **objconv** (tools/objconv) and parsed by LIEF transparently;
+  32-bit OMF byte-matching is enabled.  objconv crashes on 16-bit OMF, so
+  MSVC 1.52 matching still needs the custom 16-bit parser — see
+  [OMF_NOTES.md](OMF_NOTES.md).
 - **MSVC 1.52** (`tools/MSVC152`, from archive.org `en_vc152_202512`) is a
   Phar Lap TNT DOS-extender binary — runs headless under DOSBox via the
   shared `rebrew.dosbox` runner; produces 16-bit OMF objects.

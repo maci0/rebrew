@@ -89,3 +89,7 @@ rebrew-function.toml.lock
 # Vendored MSVC 1.52 (tools/MSVC152) — kept out of git.
 # Re-fetch from archive.org item en_vc152_202512.
 /tools/MSVC152/
+
+# Vendored objconv (OMF→COFF converter) — kept out of git (>500KB).
+# Build from github.com/gitGNU/objconv (g++ -O2 src/objconv.cpp).
+/tools/objconv/

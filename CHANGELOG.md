@@ -19,6 +19,12 @@
 - **Detection hints**: Symantec C++ / Zortech C++ / Intel C++ families
   identified from runtime strings (dossier + blocker wording); Watcom
   family now aligns with the `watcom` profile in doctor.
+- **OMF support via objconv**: vendored `tools/objconv` (Agner Fog's
+  object-file converter) converts OMF→COFF, so `parse_obj_symbol_and_relocs`
+  now handles **Open Watcom 32-bit OMF** objects transparently (reloc
+  offsets verified on the e8/a1 slots of a real wcc386 object).  objconv
+  crashes on 16-bit OMF — MSVC 1.52 matching still needs the custom 16-bit
+  parser (docs/OMF_NOTES.md).
 - **ADR documentation**: architectural decisions now recorded in
   `docs/adr/` (Nygard format) — native NE parsing, NE function-enumeration
   conventions, the import-degradation policy, intake stale-stub pruning,

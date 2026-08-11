@@ -3,6 +3,8 @@
 import struct
 from pathlib import Path
 
+import pytest
+
 from rebrew.matcher.parsers import CoffRelocRecord, parse_obj_relocs_full
 
 
@@ -179,3 +181,42 @@ def test_parse_obj_relocs_full_returns_typed_records(tmp_path: Path) -> None:
 def test_parse_obj_relocs_full_unknown_symbol_returns_empty(tmp_path: Path) -> None:
     obj = _build_coff_with_one_dir32_reloc(tmp_path)
     assert parse_obj_relocs_full(obj, "_does_not_exist") == []
+
+
+# ---------------------------------------------------------------------------
+# OMF objects (Open Watcom wcc386) — converted to COFF via vendored objconv
+# ---------------------------------------------------------------------------
+
+_FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def test_omf_format_detected() -> None:
+    from rebrew.matcher.parsers import _detect_obj_format
+
+    omf = _FIXTURES / "tg_watcom.o"
+    assert omf.exists()
+    assert _detect_obj_format(str(omf)) == "omf"
+
+
+def test_omf_converted_and_parsed() -> None:
+    """A raw Watcom OMF object is converted to COFF via objconv and yields
+    the same reloc offsets as the direct COFF parse — the e8/a1 slots of
+    `callg_` (push 4; call __CHK; call f_; add eax,[_g]; ret).  Skips when
+    the objconv binary is not present (tools/objconv is gitignored)."""
+    import shutil
+
+    from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
+
+    if (
+        shutil.which("objconv") is None
+        and not (Path(__file__).resolve().parents[2] / "tools" / "objconv" / "objconv").exists()
+    ):
+        pytest.skip("objconv not present (tools/objconv is gitignored)")
+
+    omf = _FIXTURES / "tg_watcom.o"
+    code, relocs, records = parse_obj_symbol_and_relocs(omf, "callg_")
+    assert code is not None
+    assert code[:2] == bytes.fromhex("68 04")  # push 4
+    assert code[-1] == 0xC3  # ret
+    assert relocs == {6: "__CHK", 11: "f_", 17: "_g"}
+    assert sorted(r.offset for r in records) == [6, 11, 17]
