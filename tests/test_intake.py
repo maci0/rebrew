@@ -218,3 +218,36 @@ class TestSuggestProfile:
         profile, family, hint, notes = _suggest_profile(Path("x.exe"))
         assert profile == "gcc-pe"
         assert family == "mingw"
+
+
+class TestSuggestProfile16Bit:
+    """intake must pick the msvc1.52 (DOSBox) profile for 16-bit NE targets —
+    a 32-bit msvc6 profile would produce a project that fails doctor."""
+
+    def test_ne_routes_to_msvc152(self, monkeypatch) -> None:
+        from rebrew.toolchain_detect import ToolchainInfo
+
+        def _fake_detect(path) -> ToolchainInfo:
+            return ToolchainInfo(
+                family="msvc",
+                arch="x86_16",
+                confidence="medium",
+                version_hint="16-bit MSVC-style NE (no Borland segment markers)",
+            )
+
+        monkeypatch.setattr("rebrew.toolchain_detect.detect_toolchain", _fake_detect)
+        profile, family, hint, notes = _suggest_profile(Path("x.exe"))
+        assert profile == "msvc1.52"
+        assert family == "msvc"
+        assert any("16-bit NE" in n for n in notes)
+
+    def test_32bit_msvc_still_routes_to_msvc6(self, monkeypatch) -> None:
+        from rebrew.toolchain_detect import ToolchainInfo
+
+        def _fake_detect(path) -> ToolchainInfo:
+            return ToolchainInfo(family="msvc", confidence="high", version_hint="MSVC 6.0")
+
+        monkeypatch.setattr("rebrew.toolchain_detect.detect_toolchain", _fake_detect)
+        profile, family, hint, notes = _suggest_profile(Path("x.exe"))
+        assert profile == "msvc6"
+        assert family == "msvc"

@@ -79,7 +79,17 @@ def _suggest_profile(binary: Path) -> tuple[str, str, str, list[str]]:
     family = info.family
     hint = info.version_hint
     if family == "msvc":
-        profile = "msvc6"
+        if info.arch == "x86_16":
+            # The NE detector sets arch=x86_16 — a 32-bit msvc6 profile
+            # cannot byte-match a 16-bit NE target; pick the DOSBox CL.EXE
+            # profile (skifree16-class binaries).
+            profile = "msvc1.52"
+            notes.append(
+                "binary is 16-bit NE (x86_16) — using the msvc1.52 profile "
+                "(DOSBox CL.EXE, 16-bit OMF objects)"
+            )
+        else:
+            profile = "msvc6"
     elif family in ("mingw", "zig"):
         profile = "gcc-pe"
     elif family == "watcom":
