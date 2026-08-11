@@ -92,30 +92,40 @@ for r in MSVC420 MSVC500; do   # repo names are lowercase: msvc420 msvc500 ...
 done
 ```
 
-### 16-bit Windows NE Binaries (not yet supported)
+### 16-bit Windows NE Binaries (native parsing + disassembly; matching future work)
 
-`rebrew` targets 32-bit PE/ELF/Mach-O with MSVC6/MinGW.  A **16-bit Windows
-3.x NE executable** (MZ stub + `NE` header — e.g. 1990s DOS/Windows games) is
-detected explicitly (`binary_loader.is_ne`) and rejected with a clear message
-instead of a misleading "Failed to parse PE".  The documented path to full
-16-bit support, in order of effort:
+`rebrew` primarily targets 32-bit PE/ELF/Mach-O with MSVC6/MinGW, but
+**16-bit Windows 3.x NE executables** (MZ stub + `NE` header — e.g. 1990s
+DOS/Windows games and Borland Delphi 1.0 apps) are now parsed natively:
 
-1. **NE parsing** — a small `ne.py` module reading the MZ `e_lfanew` → NE
-   header (segment table, entry table, imported/resident names).  LIEF and
-   rizin/radare2 do not parse NE; winedump's CLI support is partial.
-2. **16-bit disassembly** — capstone `CS_MODE_16` already works; the `asm`
-   tool needs a `bits=16` config/profile knob so NE segment bytes disassemble
-   as segmented x86-16 (far calls, segment registers).
-3. **16-bit compile profile** — a genuine 16-bit compiler (Borland Turbo C
-   2.0, Microsoft C 7.0 / Visual C++ 1.5) under Wine, producing 16-bit OMF
-   objects.  NOTE: the vendored `tools/MSVC420` is the *32-bit* VC 4.2
-   compiler (i386 COFF output) — it is NOT suitable for 16-bit matching.
-4. **Matching** — segment-relative address resolution + 16-bit reloc
-   handling in `smart_reloc_compare`.
+1. **NE parsing — DONE** (`src/rebrew/ne_loader.py`): MZ `e_lfanew` → NE
+   header (segment table with sector math, resident name table = exports,
+   module reference + imported names = Win16 imports).  Segments become
+   `BinaryInfo` sections with synthetic flat VAs `(segment << 16 | offset)`,
+   so `load_binary`, `extract_raw_bytes`, `rebrew strings`, and `rebrew
+   analyze` work on NE targets.  A capstone-based probe classifies code vs
+   data segments (Borland marks all segments identically; segments are
+   `[index\x00][name-string][content]`).
+2. **16-bit disassembly — DONE**: the `x86_16` arch preset (`CS_MODE_16`,
+   2-byte pointers) makes `asm`, `similar`, and `cu_map` disassemble
+   segmented x86-16 (far calls, segment registers).
+3. **Function enumeration — DONE**: `rebrew.ne_loader.enumerate_ne_functions`
+   runs a Delphi 1.0 linear sweep (`push bp` / `enter` prologs, `ret`/`retf`
+   epilogs); `rebrew intake` uses it for NE targets instead of rizin (which
+   cannot analyze NE).  holiday.exe → 646 functions.
+4. **Strings — DONE for Delphi**: NE targets scan data segments and recognize
+   Pascal (length-prefixed) strings in addition to ASCII/UTF-16 runs.
+5. **16-bit compile profile / byte matching — FUTURE WORK**: a genuine 16-bit
+   compiler (Borland Turbo C 2.0, Microsoft C 7.0 / Visual C++ 1.5) under
+   Wine producing 16-bit OMF objects, plus segment-relative reloc handling in
+   `smart_reloc_compare`.  NOTE: the vendored `tools/MSVC420` is the *32-bit*
+   VC 4.2 compiler (i386 COFF output) — NOT suitable for 16-bit matching.
 
-Until then, intelligence on NE binaries (strings, imports) can be gathered
-with external tools (`winedump`, rizin); `rebrew analyze` reports the format
-as unsupported.
+The workflow for a 16-bit target is: `rebrew intake <ne.exe>` (enumerates +
+documents every function as a STUB blocker — Delphi functions are marked
+audit-only in `rebrew todo -c documented`), `rebrew analyze <ne.exe>` for the
+intelligence dossier (format, toolchain family, imports, strings),
+`rebrew asm <va>` for disassembly.
 
 **Delphi 1.0 toolchain (vendored, verified working):** for 16-bit *Delphi*
 targets (e.g. `holiday.exe`, a Delphi 1.0 VCL app), `tools/DELPHI10/` now
