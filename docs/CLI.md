@@ -152,6 +152,7 @@ consumers can learn whether the blocker landed (mirrors `near-diag`'s
 | `--dry-run` | Preview changes without writing |
 | `--no-promote` | Skip STATUS metadata update |
 | `--force-status` | Force the STATUS update even from sticky PROVEN (deliberately demote a stale PROVEN to its actual result; single-function only) |
+| `--fix-size` | Fix a stale `SIZE` annotation when ALL common bytes match: writes the compiled size into metadata and reclassifies as EXACT/RELOC (no-op when the mismatch is a real byte difference; `--dry-run` previews). File-scoped — batch size repair is `rebrew verify --fix-sizes` |
 | `--watch` | Re-test the source file on every save (single-file mode) |
 | `--json` | JSON structured output |
 | `--target NAME` | Select a target from `rebrew-project.toml` |

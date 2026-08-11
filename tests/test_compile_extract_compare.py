@@ -77,6 +77,8 @@ class TestExtractAndCompare:
         assert r.matched is False
         # delta includes the 2-byte length difference.
         assert r.delta >= 2
+        # The full compiled size survives truncation for --fix-size.
+        assert r.full_obj_size == 5
 
     def test_target_longer_size_mismatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("rebrew.compile.parse_obj_symbol_and_relocs", _stub_parser(b"\x55\x8b"))
@@ -84,6 +86,7 @@ class TestExtractAndCompare:
         assert r.status == "SIZE_MISMATCH"
         assert r.matched is False
         assert r.delta >= 1  # 3 - 2
+        assert r.full_obj_size == 2
 
     def test_near_matching_threshold(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Mostly-equal bytes above the NEAR_MATCH_THRESHOLD → NEAR_MATCHING."""

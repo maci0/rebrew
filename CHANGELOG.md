@@ -1,6 +1,15 @@
 ## [Unreleased]
 
 ### Added
+- **`rebrew test --fix-size`**: corrects a stale SIZE annotation when ALL
+  common bytes match — writes the compiled size into `rebrew-function.toml`
+  and reclassifies as EXACT/RELOC (with promotion) in one command, instead
+  of surfacing a `SIZE_MISMATCH` the user must resolve by hand.  Works in
+  both the single-function and multi-function paths; `--dry-run` previews;
+  file-scoped (batch repair stays `rebrew verify --fix-sizes`).  `CompareResult`
+  gains `full_obj_size` so the SIZE_MISMATCH path reports the real compiled
+  length in JSON/display instead of the common-prefix slice, and the
+  SIZE_MISMATCH hint now points at `--fix-size`.
 - **watcom is POSIX-style**: `ProjectConfig.posix_style` now includes
   watcom (wcc386 takes `-I`/`-fo=`/`-zq`).  Previously the flag routing
   treated it as MSVC-style and prepended `/nologo /c` glue — wcc386 then

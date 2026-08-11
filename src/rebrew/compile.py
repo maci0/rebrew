@@ -84,6 +84,11 @@ class CompareResult:
             or ``None`` on failure.
         inv_reloc_offsets: Invalid/mismatched relocation offsets found during
             comparison (empty list by default).
+        full_obj_size: Full compiled ``.obj`` size when ``obj_bytes`` was
+            truncated to the target length for comparison (SIZE_MISMATCH
+            path), else ``None``.  ``rebrew test --fix-size`` uses this to
+            correct a stale SIZE annotation with the definitive compiled
+            size instead of re-deriving it by hand.
         message: Human-readable detail string (compiler error, mismatch counts, …).
 
     """
@@ -96,6 +101,7 @@ class CompareResult:
     reloc_offsets: list[int] | None
     message: str = ""
     inv_reloc_offsets: list[int] = field(default_factory=list)
+    full_obj_size: int | None = None
 
 
 def classify_compare_result(
@@ -108,6 +114,7 @@ def classify_compare_result(
     *,
     size_mismatch: bool = False,
     size_delta: int = 0,
+    full_obj_size: int | None = None,
 ) -> CompareResult:
     """Classify a raw compile-and-compare outcome into a :class:`CompareResult`.
 
@@ -132,6 +139,10 @@ def classify_compare_result(
         reloc_offsets: Relocation start offsets.
         inv_reloc_offsets: Invalid relocation offsets (mismatched relocs).
         size_mismatch: True when compiled length differs from target length.
+        size_delta: Pre-truncation length difference (see the SIZE_MISMATCH
+            caller in :func:`_extract_and_compare`).
+        full_obj_size: Full compiled ``.obj`` size before truncation, when
+            the SIZE_MISMATCH caller truncated ``obj_bytes`` for comparison.
 
     Returns:
         A fully-populated :class:`CompareResult`.
@@ -151,6 +162,10 @@ def classify_compare_result(
             reloc_offsets=relocs,
             message=msg,
             inv_reloc_offsets=inv,
+            # Thread through for --fix-size reclassification: the caller
+            # rebuilds a matched result from a truncated SIZE_MISMATCH view
+            # and needs the full size preserved for reporting.
+            full_obj_size=full_obj_size,
         )
 
     if "EXTRACT_ERROR" in msg:
@@ -238,6 +253,7 @@ def classify_compare_result(
         reloc_offsets=relocs,
         message=msg,
         inv_reloc_offsets=inv,
+        full_obj_size=full_obj_size,
     )
 
 
@@ -708,6 +724,7 @@ def _extract_and_compare(
             inv_relocs,
             size_mismatch=True,
             size_delta=abs(orig_obj_len - orig_tgt_len),
+            full_obj_size=orig_obj_len,
         )
     msg = (
         f"RELOC-NORM MATCH ({len(relocs)} relocs)"
