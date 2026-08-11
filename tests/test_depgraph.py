@@ -364,3 +364,32 @@ class TestEdgeCases:
 
     def test_sanitize_id_stable(self) -> None:
         assert _sanitize_id("func_a") == _sanitize_id("func_a")
+
+
+class TestBinaryCallEdges:
+    """--binary edge extraction maps call sites inside function ranges."""
+
+    def test_ne_binary_edges(self, tmp_path) -> None:
+        from test_ne_loader import _build_ne
+
+        from rebrew.binary_loader import load_binary
+        from rebrew.depgraph import _binary_call_edges
+        from rebrew.ne_loader import enumerate_ne_functions
+
+        # Two functions: fn1 calls fn2 (near call), fn1 jumps to itself region.
+        code = bytes.fromhex(
+            "55 8b ec e8 0a 00 5d c3"  # fn1 @ marker+0: push bp; mov bp,sp; call +0x0a; pop bp; ret
+            "90 90 90 90"  # padding
+            "55 8b ec 33 c0 5d c3"  # fn2 @ marker+0x10: push bp; mov bp,sp; xor ax,ax; pop bp; ret
+        )
+        raw = _build_ne(segments=[(b"\x01\x00" + code, 0x01)])
+        p = tmp_path / "app.ne"
+        p.write_bytes(raw)
+        info = load_binary(p)
+        funcs = enumerate_ne_functions(info)
+        assert len(funcs) >= 2
+        ranges = [(f.va, f.va + f.size, f"fcn_{f.va:08x}") for f in funcs]
+        edges = _binary_call_edges(info, ranges)
+        assert len(edges) == 1  # fn1 -> fn2
+        assert edges[0][0] != edges[0][1]
+        assert "fcn_" in edges[0][0] and "fcn_" in edges[0][1]

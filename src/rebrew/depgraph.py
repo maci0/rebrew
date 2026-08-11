@@ -111,6 +111,33 @@ def _extract_callees(c_path: Path, text: str | None = None) -> list[str]:
     return [name for name in find_extern_function_names(text) if name not in _NOISE_CALLEES]
 
 
+def _binary_call_edges(info: Any, ranges: list[tuple[int, int, str]]) -> list[tuple[str, str]]:
+    """Call/jmp edges between known function ranges from the binary xrefs.
+
+    ``ranges`` maps ``(lo, hi, name)``; a reference from a call site inside
+    one range to a target inside another becomes an edge (deduplicated).
+    """
+    from rebrew.analysis import scan_references
+
+    def func_at(va: int) -> str | None:
+        for lo, hi, name in ranges:
+            if lo <= va < hi:
+                return name
+        return None
+
+    edges: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for ref in scan_references(info):
+        if ref.kind not in ("call", "jmp"):
+            continue
+        caller = func_at(ref.from_va)
+        callee = func_at(ref.to_va)
+        if caller and callee and caller != callee and (caller, callee) not in seen:
+            seen.add((caller, callee))
+            edges.append((caller, callee))
+    return edges
+
+
 def build_graph(
     reversed_dir: Path,
     cfg: ProjectConfig | None = None,
@@ -523,6 +550,13 @@ def main(
         "--max-pointer-stride",
         help="Maximum byte stride between pointer slots when scanning tables (--include-dispatch)",
     ),
+    binary: bool = typer.Option(
+        False,
+        "--binary",
+        help="Build call edges from the target binary's xrefs instead of the "
+        "reversed C sources (16-bit NE support included — the source graph is "
+        "empty for stub-only projects).",
+    ),
     output: str | None = typer.Option(None, "--output", "-o", help="Output file (default: stdout)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -583,6 +617,37 @@ def main(
     nodes, edges, dispatch_edges = build_graph(
         reversed_dir, cfg=cfg, dispatch_tables=dispatch_tables
     )
+
+    # --binary: augment with call edges discovered in the target binary's
+    # xrefs (the source graph is empty for stub-only projects like an
+    # intake'd NE target).  Only edges between known function VAs are kept.
+    if binary:
+        bin_path = cfg.target_binary
+        if not bin_path or not bin_path.exists():
+            error_exit(
+                "--binary requires a target binary (target_binary not set or missing).",
+                json_mode=json_output,
+            )
+        try:
+            from rebrew.binary_loader import load_binary
+            from rebrew.ne_loader import enumerate_ne_functions
+
+            info = load_binary(bin_path)
+            # Map a VA to its containing function name (call sites are inside
+            # function bodies, not at the prolog).  For NE, the enumerated
+            # functions are authoritative; otherwise use the node VAs.
+            ranges: list[tuple[int, int, str]] = []
+            if info.format == "ne":
+                for f in enumerate_ne_functions(info):
+                    ranges.append((f.va, f.va + f.size, f"fcn_{f.va:08x}"))
+            else:
+                for name, n in nodes.items():
+                    va = int(n["va"]) if n.get("va") else 0
+                    if va:
+                        ranges.append((va, va + 1, name))
+            edges.extend(_binary_call_edges(info, ranges))
+        except (ImportError, OSError, ValueError) as exc:
+            error_exit(f"Failed to scan binary call edges: {exc}", json_mode=json_output)
 
     if not nodes:
         error_exit("No functions found.", json_mode=json_output)
