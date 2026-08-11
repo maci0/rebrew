@@ -6,6 +6,8 @@ Covers:
 - annotation __all__: export completeness
 """
 
+from pathlib import Path
+
 import pytest
 
 from rebrew.annotation import __all__ as annotation_all
@@ -309,3 +311,50 @@ class TestAnnotationAllExports:
         }
         missing = required - set(annotation_all)
         assert not missing, f"Missing from __all__: {missing}"
+
+
+class TestIatRegionBuild:
+    """build_iat_region merges import-table slots AND configured jmp-stubs."""
+
+    def test_configured_thunks_included(self, tmp_path: Path, monkeypatch) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.core import build_iat_region
+
+        cfg = SimpleNamespace(
+            target_binary=tmp_path / "x.dll",
+            iat_thunks=[0x1001A160, 0x1001A166, 0x10023840],
+        )
+        (tmp_path / "x.dll").write_bytes(b"MZ" + b"\x00" * 62)  # not a real PE
+        region = build_iat_region(cfg)
+        # configured stubs survive even though the PE parse fails/returns nothing
+        assert 0x1001A160 in region
+        assert 0x10023840 in region
+
+    def test_empty_cfg_defaults(self, tmp_path: Path) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.core import build_iat_region
+
+        cfg = SimpleNamespace(target_binary=tmp_path / "nope.dll", iat_thunks=None)
+        assert build_iat_region(cfg) == set()
+
+    def test_dir32_jmp_stub_masked(self) -> None:
+        """call [jmp_stub] vs recompiled call [__imp__] — masked by position."""
+        import struct
+
+        from rebrew.core import smart_reloc_compare
+
+        stub = 0x1001A160
+        obj = b"\xff\x15" + struct.pack("<I", 0) + b"\xc3"
+        tgt = b"\xff\x15" + struct.pack("<I", stub) + b"\xc3"
+        matched, _, _, valid, invalid = smart_reloc_compare(
+            obj,
+            tgt,
+            coff_relocs={2: "__imp__CreateFileA@28"},
+            name_to_va={"__imp__CreateFileA@28": 0x99999999},
+            iat_region={stub},
+        )
+        assert matched is True
+        assert valid == [2]
+        assert invalid == []

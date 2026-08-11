@@ -1,6 +1,12 @@
 ## [Unreleased]
 
 ### Added
+- **IAT/jmp-stub reloc masking**: `build_iat_region` now also includes
+  the configured `iat_thunks` (jmp-stub trampolines, `ff 25 <addr>` in
+  `.text`) — functions calling *through* a stub dereference the stub
+  address, not the IAT slot, so those DIR32 values must be masked too.
+  `smart_reloc_compare` masks any DIR32 whose target lands in the merged
+  region even when the catalog symbol maps elsewhere.
 - **IAT-aware reloc masking**: `smart_reloc_compare` accepts an
   `iat_region` (the PE import-address slots, via new `build_iat_region`)
   and masks DIR32 relocs whose target value lands there even when the
