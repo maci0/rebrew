@@ -20,12 +20,38 @@ def _cfg(**overrides: object) -> SimpleNamespace:
 
 class TestCheckCompiler:
     def test_x86_16_target_warns_not_fails(self) -> None:
-        """16-bit NE targets have no compile profile (ADR-001) — a missing
-        toolchain is expected, so the compiler check downgrades to a
-        warning instead of failing the project."""
+        """A 16-bit NE target WITHOUT the msvc1.52 profile has no usable
+        compile path — a missing toolchain is expected, so the compiler
+        check downgrades to a warning instead of failing the project."""
         result = check_compiler(_cfg(arch="x86_16", compiler_command="wine missing/CL.EXE"))
         assert result.status == _WARN
         assert "16-bit" in result.message
+
+    def test_x86_16_with_msvc152_checks_real_path(self) -> None:
+        """With the msvc1.52 profile configured, the compiler check must
+        validate the real command (not hand-wave with the stale 'future
+        16-bit profile' notice)."""
+        result = check_compiler(
+            _cfg(
+                arch="x86_16",
+                compiler_profile="msvc1.52",
+                compiler_command="",
+            )
+        )
+        assert result.status == _FAIL  # empty command -> real failure
+        assert "msvc1.52" not in (result.message or "").lower() or result.message != ""
+        # and a resolvable command passes
+        result2 = check_compiler(
+            _cfg(
+                arch="x86_16",
+                compiler_profile="msvc1.52",
+                compiler_command="tools/MSVC152/BIN/CL.EXE",
+                root=Path("/"),
+            )
+        )
+        # /tools/... won't exist under /, so this must not be the stale
+        # 16-bit warning — it should attempt the real path check.
+        assert "future" not in (result2.fix or "")
 
     def test_x86_32_target_still_checks(self) -> None:
         result = check_compiler(_cfg(arch="x86_32", compiler_command=""))

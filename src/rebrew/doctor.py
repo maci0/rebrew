@@ -214,17 +214,19 @@ def check_arch_format(cfg: ProjectConfig) -> CheckResult:
 
 def check_compiler(cfg: ProjectConfig) -> CheckResult:
     """Check that the compiler command is executable."""
-    # 16-bit NE targets have no compile profile yet (ADR-001) — a 32-bit
-    # CL.EXE cannot build them, so a missing toolchain is expected, not a
-    # project defect.  Downgrade to a warning instead of a hard failure.
-    if getattr(cfg, "arch", "") == "x86_16":
+    # A 16-bit NE target needs the msvc1.52 profile (DOSBox CL.EXE).  With
+    # it configured, proceed to the normal executable check; otherwise a
+    # 32-bit CL.EXE cannot build the target, so a missing toolchain is
+    # expected, not a project defect.  Downgrade to a warning instead of a
+    # hard failure.
+    if getattr(cfg, "arch", "") == "x86_16" and getattr(cfg, "compiler_profile", "") != "msvc1.52":
         return CheckResult(
             name="Compiler",
             status=_WARN,
-            message="16-bit NE target — no 16-bit compile profile exists yet (ADR-001); "
-            "byte matching is future work",
-            fix="Analysis/documentation work as normal; matching needs a future "
-            "16-bit compiler profile.",
+            message="16-bit NE target — configure 'profile = \"msvc1.52\"' in "
+            "rebrew-project.toml for byte matching (DOSBox CL.EXE)",
+            fix='Set compiler.profile = "msvc1.52" (and compiler.command = '
+            "tools/MSVC152/BIN/CL.EXE); analysis/docs work either way.",
         )
 
     cmd_str = cfg.compiler_command
@@ -577,14 +579,17 @@ def check_runner(cfg: ProjectConfig) -> CheckResult:
 
 def check_includes(cfg: ProjectConfig) -> CheckResult:
     """Check that the compiler include directory exists."""
-    # 16-bit NE targets have no compile profile (ADR-001) — the include path
-    # is moot, same as the compiler check.
-    if getattr(cfg, "arch", "") == "x86_16":
+    # A 16-bit NE target without the msvc1.52 profile has no usable compile
+    # path — the include dir is moot, same as the compiler check.  With
+    # msvc1.52 configured, the vendored MSVC152/INCLUDE is staged into the
+    # DOSBox sandbox as C:\INCLUDE, so the host path check still applies.
+    if getattr(cfg, "arch", "") == "x86_16" and getattr(cfg, "compiler_profile", "") != "msvc1.52":
         return CheckResult(
             name="Include path",
             status=_WARN,
-            message="16-bit NE target — no compile profile (ADR-001)",
-            fix="Analysis/docs work fine; includes apply to future 16-bit matching.",
+            message="16-bit NE target — configure msvc1.52 for includes",
+            fix='Set compiler.profile = "msvc1.52" (vendored INCLUDE is '
+            "staged as C:\\INCLUDE in the DOSBox sandbox).",
         )
     inc_path: Path = cfg.compiler_includes
     if not inc_path.exists():
