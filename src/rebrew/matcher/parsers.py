@@ -95,6 +95,15 @@ def parse_obj_symbol_and_relocs(
     """
     import lief
 
+    # OMF objects (Open Watcom / MSVC 1.52) are converted to COFF via the
+    # vendored objconv first — LIEF cannot parse OMF.
+    if _detect_obj_format(str(obj_path)) == "omf":
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".coff", delete=False) as tf:
+            _omf_to_coff(obj_path, tf.name)
+            obj_path = Path(tf.name)
+
     coff = lief.COFF.parse(str(obj_path))
     if coff is None:
         return None, None, []
@@ -159,7 +168,39 @@ def _detect_obj_format(obj_path: str) -> str:
         (machine,) = struct.unpack_from("<H", magic, 0)
         if machine in (0x14C, 0x8664, 0x1C0, 0xAA64):
             return "coff"
+    # OMF: first record type in 0x80..0xA0 with a plausible length field.
+    if len(magic) >= 3 and 0x80 <= magic[0] <= 0xA0:
+        ln = magic[1] | (magic[2] << 8)
+        if 1 <= (ln & 0x7FFF) <= 0x4000:
+            return "omf"
     return "unknown"
+
+
+def _omf_to_coff(obj_path: str | Path, out_path: str | Path) -> None:
+    """Convert an OMF object to COFF via the vendored objconv.
+
+    Open Watcom / MSVC 1.52 emit OMF ("8086 relocatable"), which LIEF
+    cannot parse — objconv converts it to a real i386 COFF that the
+    existing LIEF path consumes unchanged (verified: reloc offsets land on
+    the expected call/disp slots)."""
+    import shutil
+    import subprocess
+
+    objconv = shutil.which("objconv") or (
+        Path(__file__).resolve().parents[2] / "tools" / "objconv" / "objconv"
+    )
+    if not Path(objconv).exists():
+        raise FileNotFoundError(
+            "objconv not found (needed to parse OMF objects) — vendored at tools/objconv"
+        )
+    r = subprocess.run(
+        [str(objconv), "-fcoff", str(obj_path), "-o", str(out_path)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if not Path(out_path).exists():
+        raise ValueError(f"objconv failed to convert OMF {obj_path}: {r.stderr[-300:]}")
 
 
 # ---------------------------------------------------------------------------

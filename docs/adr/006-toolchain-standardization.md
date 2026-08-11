@@ -39,8 +39,9 @@ finicky installer — build once, share).
 - A toolchain can be shared/pinned via its image tag — reproducible
   matching across machines (the eventual goal for CI and the corpus).
 - Host fallback keeps existing vendored toolchains working without docker.
-- Watcom/16-bit objects are **OMF**, which LIEF cannot parse — the OMF
-  parser (docs/OMF_NOTES.md has the empirically-mapped layout) is the
-  remaining enabler for actual byte matching with these compilers.
+- Watcom/32-bit OMF objects are converted to COFF via the vendored
+  **objconv** and parsed by LIEF — 32-bit OMF byte matching is enabled.
+  objconv crashes on 16-bit OMF, so MSVC 1.52 matching still needs the
+  custom 16-bit parser (docs/OMF_NOTES.md has the mapped layout).
 - Borland C++ (bcc32) install extraction remains pending (16-bit Windows
   installer).

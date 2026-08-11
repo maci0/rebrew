@@ -205,7 +205,7 @@ rebrew sync --pull --dry-run        # preview pull without modifying files
 | x86 (32-bit) | PE (`.exe`/`.dll`) | MSVC 5.0 / 6.0 | ✅ | ✅ | ✅ | ✅ |
 | x86 (32-bit) | PE | MSVC 7.x+ | ✅ | ✅ | ✅ | ✅ |
 | x86 (32-bit) | PE | MinGW GCC / Zig (`gcc-pe` profile) | ✅ | ✅ | ✅ | ✅ |
-| x86 (32-bit) | PE | Watcom C | ✅ | ⬜ | ✅ | ⬜ |
+| x86 (32-bit) | PE | Watcom C | ✅ | ✅ (OMF→COFF via objconv) | ✅ | ⬜ |
 | x86 (32-bit) | ELF (`.so`/exec) | GCC/Clang| ✅ | ✅ | ⬜ | ⬜ |
 | x86_64     | PE | MSVC     | ✅ | ✅ | ⬜ | ⬜ |
 | x86_64     | ELF | GCC/Clang| ✅ | ✅ | ⬜ | ⬜ |

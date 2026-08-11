@@ -64,3 +64,23 @@ compiled with `wcc386 -zq -fo=tg.o tg.c` (Open Watcom 2.0 beta, Aug 2026).
 3. Validate reloc offsets against the `e8`/`a1` slots in the sample.
 4. Unit-test with a committed tiny OMF fixture (the tg.o bytes) so the
    parser never needs the toolchain installed.
+
+## Update 2026-08-11 — objconv adopted (32-bit OMF)
+
+**objconv** (Agner Fog's object-file converter, vendored at
+`tools/objconv/objconv`, ~784 KB single binary) is the LIEF-like tool for
+OMF: `objconv -fcoff x.obj -o x.coff` converts OMF→COFF, which the
+existing LIEF path parses unchanged.  `matcher/parsers.py` now detects OMF
+(first record type 0x80..0xA0) and auto-converts before parsing.
+
+**Verified on the Watcom `tg.o` sample** (converted COFF has 5 sections,
+18 symbols — OW appends a trailing underscore: `f_`, `callg_`):
+`parse_obj_symbol_and_relocs` returns `callg_` = `68 04 00 00 00 e8 .. .. .. .. e8 .. .. .. .. 03 05 .. .. .. .. c3` with relocs exactly at the
+predicted slots — `{6: __CHK, 11: f_, 17: _g}` (the e8 call targets and
+the `03 05` disp32).  Watcom (32-bit OMF) byte-matching is therefore
+**enabled** — the earlier custom-parser plan is superseded for 32-bit.
+
+**16-bit OMF caveat:** objconv **crashes** ("buffer overflow detected:
+terminated") on MSVC 1.52's 16-bit OMF objects.  The 16-bit path still
+needs the custom parser (record layout above) — objconv 2.52 only handles
+the 32-bit dialect reliably.
