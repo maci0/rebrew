@@ -146,7 +146,8 @@ def blocker_reason(family: str, size: int, version_hint: str) -> str:
     if family in ("mingw", "zig"):
         return (
             f"MinGW GCC/Zig application code ({version_hint or 'codegen not identifiable'}) — "
-            "byte-matching requires the author's exact toolchain version; documented"
+            "byte-exact matching requires the author's exact toolchain version; "
+            "structural matching may be viable"
         )
     return "Application code — pending per-function decompilation"
 

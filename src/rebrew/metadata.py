@@ -70,6 +70,7 @@ import contextlib
 import logging
 import threading
 import typing
+from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -99,6 +100,36 @@ _metadata_cache: dict[Path, tuple[int, dict[tuple[str, int], dict[str, Any]]]] =
 # Serialises read-modify-write cycles on the metadata file across worker
 # threads (verify --jobs, GA batch promotion).
 _METADATA_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def _metadata_write_lock(directory: Path) -> Iterator[None]:
+    """Thread + cross-process lock around a metadata read-modify-write.
+
+    The thread lock serializes in-process writers; an advisory ``flock`` on a
+    sidecar ``.lock`` file serializes *concurrent processes* (e.g.
+    ``rebrew verify --watch`` in one terminal while ``rebrew test`` promotes
+    in another — without it, interleaved read-modify-writes silently drop one
+    process's STATUS promotion; error-review F6).  Falls back to the thread
+    lock alone on platforms without ``fcntl``.
+    """
+    try:
+        import fcntl
+    except ImportError:  # non-POSIX (no advisory file locks)
+        fcntl = None  # type: ignore[assignment]
+
+    path = (directory / METADATA_FILENAME).resolve()
+    with _METADATA_LOCK:
+        if fcntl is None:
+            yield
+            return
+        lock_path = path.with_suffix(path.suffix + ".lock")
+        with lock_path.open("w", encoding="utf-8") as lock_fh:
+            fcntl.flock(lock_fh, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_fh, fcntl.LOCK_UN)
 
 
 def clear_metadata_cache() -> None:
@@ -252,7 +283,7 @@ def save_metadata(
     """
     path = (directory / METADATA_FILENAME).resolve()
     doc = build_metadata_doc(data, _CANONICAL_ORDER)
-    with _METADATA_LOCK:
+    with _metadata_write_lock(directory):
         atomic_write_text(path, tomlkit.dumps(doc))
         _metadata_cache.pop(path, None)
 
@@ -286,7 +317,7 @@ def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> N
     path = (directory / METADATA_FILENAME).resolve()
     toml_key = qualified_key(module, va)
 
-    with _METADATA_LOCK:
+    with _metadata_write_lock(directory):
         doc = load_toml_for_write(path, "metadata")
 
         if toml_key not in doc:
@@ -309,7 +340,7 @@ def _set_fields(directory: Path, va: int, fields: dict[str, Any], module: str) -
     path = (directory / METADATA_FILENAME).resolve()
     toml_key = qualified_key(module, va)
 
-    with _METADATA_LOCK:
+    with _metadata_write_lock(directory):
         doc = load_toml_for_write(path, "metadata")
         doc_dict = typing.cast(dict[str, Any], doc)
         if toml_key not in doc_dict:
@@ -343,7 +374,7 @@ def set_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
         return 0
     path = (metadata_dir / METADATA_FILENAME).resolve()
     changed_entries = 0
-    with _METADATA_LOCK:
+    with _metadata_write_lock(metadata_dir):
         doc = load_toml_for_write(path, "metadata")
         doc_dict = typing.cast(dict[str, Any], doc)
         for u in updates:
@@ -381,7 +412,7 @@ def _delete_field(directory: Path, va: int, key: str, module: str) -> bool:
         return False
     toml_key = qualified_key(module, va)
 
-    with _METADATA_LOCK:
+    with _metadata_write_lock(directory):
         try:
             doc = tomlkit.parse(path.read_text(encoding="utf-8"))
         except Exception as exc:  # noqa: BLE001
@@ -543,7 +574,7 @@ def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> 
 
     path = (metadata_dir / METADATA_FILENAME).resolve()
     changed = 0
-    with _METADATA_LOCK:
+    with _metadata_write_lock(metadata_dir):
         # Single read for the whole batch
         doc = load_toml_for_write(path, "metadata")
         doc_dict = typing.cast(dict[str, Any], doc)

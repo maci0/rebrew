@@ -136,9 +136,13 @@ class TestParseVa:
         assert parse_va("  0x1000  ") == 0x1000
 
     def test_invalid_exits(self, capsys: pytest.CaptureFixture[str]) -> None:
+        # A bad VA argument is a usage error → EXIT_ERROR (2), distinct from
+        # EXIT_MISMATCH (1) which means "needs code work" (exit-taxonomy F11).
+        from rebrew.cli import EXIT_ERROR
+
         with pytest.raises(typer.Exit) as exc_info:
             parse_va("not_hex")
-        assert exc_info.value.exit_code == 1
+        assert exc_info.value.exit_code == EXIT_ERROR
         captured = capsys.readouterr()
         assert "not_hex" in captured.err
 

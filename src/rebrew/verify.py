@@ -15,6 +15,7 @@ for CI / pre-commit hooks).
 """
 
 import concurrent.futures
+import functools
 import hashlib
 import json
 import logging
@@ -338,8 +339,14 @@ _HEADERS_HASH_CACHE: dict[tuple[tuple[str, int, int] | str, ...], str] = {}
 _HEADERS_HASH_CACHE_MAX = 8  # one entry per distinct header-tree state
 
 
+@functools.lru_cache(maxsize=8)
 def _headers_stat_fingerprint(src_dir: Path) -> tuple[tuple[str, int, int], ...]:
-    """Return sorted (rel_path, mtime_ns, size) tuples for all .h files."""
+    """Return sorted (rel_path, mtime_ns, size) tuples for all .h files.
+
+    Memoized per process: ``_headers_hash`` calls this on every cache-entry
+    validation within one verify run, and the header set is constant within a
+    single command's lifetime (perf-review F5).
+    """
     entries: list[tuple[str, int, int]] = []
     for hfile in src_dir.rglob("*.h"):
         try:
