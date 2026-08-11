@@ -45,6 +45,14 @@ class TestGenerateFlagCombinations:
         combos = generate_flag_combinations("quick", "watcom")
         assert len(combos) == 5  # opt axis only
 
+    def test_msvc152_profile_uses_16bit_flags(self) -> None:
+        combos = generate_flag_combinations("targeted", "msvc1.52")
+        # 5 opt x 3 codegen (+none) = 15; flags are /-style
+        assert len(combos) == 15
+        for c in combos:
+            assert c.startswith("/") or c == ""
+        assert any("/G2" in c for c in combos)
+
 
 class TestMapSymbolRe:
     def test_escapes_special_chars(self) -> None:

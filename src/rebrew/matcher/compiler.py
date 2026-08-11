@@ -26,6 +26,8 @@ from .core import BuildResult
 from .flag_data import (
     COMMON_MSVC_FLAGS,
     MSVC6_FLAGS,
+    MSVC152_FLAGS,
+    MSVC152_SWEEP_TIERS,
     MSVC_SWEEP_TIERS,
     WATCOM_FLAGS,
     WATCOM_SWEEP_TIERS,
@@ -78,6 +80,7 @@ _FLAGS_MAP: dict[str, Flags] = {
     "msvc": COMMON_MSVC_FLAGS,
     "msvc7": COMMON_MSVC_FLAGS,
     "msvc6": MSVC6_FLAGS,  # excludes MSVC 7.x+ only flags (/fp:*, /GS-)
+    "msvc1.52": MSVC152_FLAGS,
     "watcom": WATCOM_FLAGS,
 }
 
@@ -185,7 +188,12 @@ def generate_flag_combinations(tier: str = "targeted", profile: str = "msvc6") -
     """
     # Use synced Flags for this profile, falling back to msvc6
     flags = _FLAGS_MAP.get(profile, _FLAGS_MAP["msvc6"])
-    tiers = WATCOM_SWEEP_TIERS if profile == "watcom" else MSVC_SWEEP_TIERS
+    if profile == "watcom":
+        tiers = WATCOM_SWEEP_TIERS
+    elif profile == "msvc1.52":
+        tiers = MSVC152_SWEEP_TIERS
+    else:
+        tiers = MSVC_SWEEP_TIERS
     if tier not in tiers:
         raise ValueError(f"Unknown sweep tier {tier!r}, valid: {list(tiers)}")
     tier_ids = tiers[tier]  # None = all axes
