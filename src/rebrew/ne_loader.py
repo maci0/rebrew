@@ -538,6 +538,9 @@ def load_ne_binary(path: Path) -> BinaryInfo:
     segments = parse_segments(data, ne_offset, header)
 
     sections: dict[str, SectionInfo] = {}
+    code_va: int | None = None
+    code_size = 0
+    code_raw_offset: int | None = None
     for seg in segments:
         raw_size = 0 if seg.is_iterated else min(seg.length, len(data) - seg.file_offset)
         seg.is_code = probe_is_code(data, seg.file_offset, seg.length, seg.index)
@@ -548,11 +551,21 @@ def load_ne_binary(path: Path) -> BinaryInfo:
             file_offset=seg.file_offset,
             raw_size=raw_size,
         )
+        if seg.is_code:
+            # Aggregate code segments so tools (catalog coverage, report)
+            # see a non-zero text_size for NE targets — previously 0.
+            if code_va is None:
+                code_va = seg.base_va
+                code_raw_offset = seg.file_offset
+            code_size += seg.length
 
     info = BinaryInfo(
         path=path,
         format="ne",
         image_base=0,
+        text_va=code_va or 0,
+        text_size=code_size,
+        text_raw_offset=code_raw_offset or 0,
         sections=sections,
         _data=data,
     )
