@@ -1191,7 +1191,7 @@ def main(
     sweep_toolchain: bool = typer.Option(
         False,
         "--sweep-toolchain",
-        help="Try each vendored MSVC toolchain (SP versions) instead of GA and report the best",
+        help="Try each vendored MSVC toolchain (SP versions) instead of GA and report the best; combine with --flag-sweep-only to flag-sweep with each toolchain",
         rich_help_panel="Single-Function",
     ),
     sweep_then_ga: bool = typer.Option(
@@ -1611,6 +1611,11 @@ def main(
             )
 
         watch_files([seed_path], _retest)
+        return
+
+    if flag_sweep_only and sweep_toolchain:
+        # Both dimensions at once: flag-sweep with each vendored MSVC version.
+        _run_single_toolchain_flag_sweep(params, tier, jobs, json_output)
         return
 
     if flag_sweep_only:
@@ -2075,6 +2080,79 @@ def _run_single_toolchain_sweep(p: _BuildParams, json_output: bool) -> None:
             console.print(
                 f"[green]Full match with {best[4]} — switch the project profile or set per-function CFLAGS.[/green]"
             )
+
+
+def _run_single_toolchain_flag_sweep(
+    p: _BuildParams,
+    tier: str,
+    jobs: int,
+    json_output: bool,
+) -> None:
+    """Flag-sweep with each vendored MSVC toolchain; report per-toolchain best.
+
+    Answers "which MSVC version AND which flags built this function" in one
+    run — the two-dimension question a decompiler faces when the configured
+    profile does not byte-match (``--sweep-toolchain`` alone only tries the
+    project's cflags; ``--flag-sweep`` alone only tries the project's
+    compiler).
+    """
+    toolchains = _vendored_msvc_toolchains(p.cfg, p.cl, p.inc)
+    rows: list[dict[str, Any]] = []
+    for profile, cl_cmd, inc_dir in toolchains:
+        results = flag_sweep(
+            p.seed_src,
+            p.target_bytes,
+            cl_cmd,
+            inc_dir,
+            p.cflags,
+            p.symbol,
+            jobs,
+            tier=tier,
+            env=p.msvc_env,
+            cache=p.cc,
+            timeout=p.cfg.compile_timeout,
+            extra_include_dirs=[str(p.seed_c.parent.resolve())],
+            profile=profile,
+            cfg=p.cfg,
+        )
+        best_score, best_flags = results[0] if results else (float("inf"), "")
+        rows.append(
+            {
+                "toolchain": profile,
+                "best_score": best_score if best_score < float("inf") else None,
+                "flags": best_flags,
+                "exact": best_score < 0.1,
+            }
+        )
+
+    rows.sort(
+        key=lambda r: (
+            r["best_score"] is None,
+            r["best_score"] if r["best_score"] is not None else float("inf"),
+        )
+    )
+    if json_output:
+        json_print(
+            {
+                "sweep": "toolchain+flags",
+                "results": rows,
+                "best": rows[0]["toolchain"] if rows else None,
+            }
+        )
+        return
+
+    console.print("[bold]Toolchain + flag sweep:[/bold]")
+    for r in rows:
+        tag = "[green]EXACT[/green]" if r["exact"] else ""
+        score = f"{r['best_score']:.2f}" if r["best_score"] is not None else "    n/a"
+        console.print(
+            f"  {r['toolchain']:10s} best={score:>9s}  {r['flags'] or '(no flags)'} {tag}"
+        )
+    if rows and rows[0]["exact"]:
+        console.print(
+            f"[green]Full match with {rows[0]['toolchain']} — switch the project profile "
+            "or set per-function CFLAGS.[/green]"
+        )
 
 
 def _run_single_ga(
