@@ -284,7 +284,7 @@ def _collect_dispatch(info: Any) -> list[dict[str, Any]]:
 
     try:
         tables = find_dispatch_tables(
-            info.data, _section_dicts(info), {}, ptr_size=4, min_entries=3
+            info.data, _section_dicts(info), {}, ptr_size=4, min_entries=3, info=info
         )
     except Exception:  # noqa: BLE001 — best-effort
         return []
