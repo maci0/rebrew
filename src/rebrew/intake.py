@@ -29,6 +29,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -91,6 +92,27 @@ def _suggest_profile(binary: Path) -> tuple[str, str, str, list[str]]:
         profile = "msvc6"
         notes.append("compiler family not identified — defaulting to msvc6 (check `rebrew doctor`)")
     return profile, family, hint, notes
+
+
+def _run_ne_functions(binary: Path) -> list[tuple[int, int, str]]:
+    """Enumerate functions in a 16-bit NE binary via the built-in linear
+    sweep (rizin cannot analyze NE).  Returns ``[(va, size, name)]`` with
+    synthetic flat VAs (``segment << 16 | offset``)."""
+    from rebrew.binary_loader import load_binary
+    from rebrew.ne_loader import enumerate_ne_functions
+
+    info = load_binary(binary)
+    return [(f.va, f.size, f.name) for f in enumerate_ne_functions(info)]
+
+
+def _enumerate_functions(binary: Path) -> list[tuple[int, int, str]]:
+    """Function list for a binary: NE linear sweep for 16-bit targets, rizin
+    otherwise."""
+    from rebrew.binary_loader import is_ne
+
+    if is_ne(binary):
+        return _run_ne_functions(binary)
+    return _run_rizin_functions(binary)
 
 
 def _run_rizin_functions(binary: Path) -> list[tuple[int, int, str]]:
@@ -168,10 +190,18 @@ def classify_all(
     ``project/src`` (the standard layout); pass ``cfg.metadata_dir`` to
     honor a custom layout.
     """
-    from rebrew.metadata import get_entry, set_field, update_field
+    from rebrew.metadata import load_metadata, set_fields_batch, update_statuses_batch
 
     meta_base = metadata_dir if metadata_dir is not None else project / "src"
     documented = 0
+    # Two batched metadata writes (fields + statuses) instead of per-function
+    # RMWs — the old loop was O(N) full toml rewrites (~5 min for a
+    # 646-function NE target; perf-review F2 shape, discovered via intake).
+    existing_sizes = {
+        (mod, va): fields.get("size") for (mod, va), fields in load_metadata(meta_base).items()
+    }
+    field_updates: list[dict[str, Any]] = []
+    status_updates: list[dict[str, Any]] = []
     for va, size, _name in funcs:
         reason = blocker_reason(family, size, hint)
         stub = (
@@ -182,15 +212,21 @@ def classify_all(
             from rebrew.utils import atomic_write_text
 
             atomic_write_text(out, stub)
-        update_field(meta_base, va, "blocker", reason, module=marker)
-        set_field(meta_base, va, "status", "STUB", module=marker)
+        fields: dict[str, Any] = {"blocker": reason}
         # Record the disassembly-derived size in metadata: a documented stub
         # without a SIZE is untestable (rebrew test refuses "Invalid SIZE: 0",
         # verify reports MISSING_SIZE, and the vacuous 0-byte diff pollutes
-        # todo as a fake "0B diff" quick-win).
-        if size > 0 and not get_entry(meta_base, va, marker).get("size"):
-            set_field(meta_base, va, "size", size, module=marker)
+        # todo as a fake "0B diff" quick-win).  Never clobber a user-corrected
+        # size.
+        if size > 0 and existing_sizes.get((marker, va)) is None:
+            fields["size"] = size
+        field_updates.append({"module": marker, "va": va, "fields": fields})
+        status_updates.append(
+            {"module": marker, "va": va, "new_status": "STUB", "clear_blockers": False}
+        )
         documented += 1
+    set_fields_batch(meta_base, field_updates)
+    update_statuses_batch(meta_base, status_updates)
     return documented
 
 
@@ -252,7 +288,7 @@ def main(
         # Preview mode: enumerate functions too (rizin is a read-only
         # subprocess — no writes happen), so the preview tells the user how
         # many functions would actually be documented instead of a thin 0.
-        funcs = _run_rizin_functions(bin_path)
+        funcs = _enumerate_functions(bin_path)
         preview_count = len(funcs)
         result = IntakeResult(
             target=target_name,
@@ -294,20 +330,25 @@ def main(
                 console.print(f"  [yellow]note:[/yellow] {note}")
         raise typer.Exit(code=EXIT_OK)
 
-    # 1. init (in-process via the init Typer app)
+    # 1. init (in-process via the init Typer app) — skipped when the project
+    #    already exists so re-running intake is idempotent (re-discovery).
     from rebrew.init import app as init_app
 
     runner = CliRunner()
-    init_result = runner.invoke(
-        init_app, ["--target", target_name, "--binary", f"{target_name}.exe", "--compiler", profile]
-    )
-    if init_result.exit_code != 0:
-        msg = f"rebrew init failed: {init_result.output[:300]}"
-        if json_output:
-            json_print({"error": msg, "code": EXIT_ERROR})
-        else:
-            console.print(f"[red]Error:[/red] {msg}")
-        raise typer.Exit(code=EXIT_ERROR)
+    if (Path(".") / "rebrew-project.toml").exists():
+        notes.append("project already exists — re-running intake (re-discovery)")
+    else:
+        init_result = runner.invoke(
+            init_app,
+            ["--target", target_name, "--binary", f"{target_name}.exe", "--compiler", profile],
+        )
+        if init_result.exit_code != 0:
+            msg = f"rebrew init failed: {init_result.output[:300]}"
+            if json_output:
+                json_print({"error": msg, "code": EXIT_ERROR})
+            else:
+                console.print(f"[red]Error:[/red] {msg}")
+            raise typer.Exit(code=EXIT_ERROR)
 
     project = Path(".")
     # 2. copy the binary
@@ -328,7 +369,7 @@ def main(
     linked = _link_toolchain(project, profile)
 
     # 4. functions.txt via rizin
-    funcs = _run_rizin_functions(dest)
+    funcs = _enumerate_functions(dest)
     if not funcs:
         # A project with an empty function list is not a successful
         # onboarding — rizin is missing, timed out, or could not analyze the
