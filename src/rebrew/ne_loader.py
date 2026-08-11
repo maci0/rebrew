@@ -177,7 +177,14 @@ def _is_prolog(raw: bytes, off: int) -> bool:
 
 
 def _is_epilog(mnemonic: str) -> bool:
-    return mnemonic in ("ret", "retf", "retn")
+    """True when *mnemonic* terminates a function body.
+
+    ``ret``/``retf`` return to the caller; an unconditional ``jmp`` is a tail
+    call — in a linear sweep it must end the current function or the stream
+    runs through the next function to a distant ret (the 12KB merged spans
+    seen on holiday.exe).
+    """
+    return mnemonic in ("ret", "retf", "retn", "jmp")
 
 
 def enumerate_ne_functions(info: BinaryInfo) -> list[NeFunction]:
@@ -237,16 +244,37 @@ def enumerate_ne_functions(info: BinaryInfo) -> list[NeFunction]:
                         name=f"sub_{va:05x}",
                     )
                 )
-    # De-duplicate overlapping candidates (a prolog inside another function
-    # would otherwise double-count) — keep the earliest start per address.
+    # De-duplicate overlapping candidates: an inner prolog (a `push bp`/`enter`
+    # inside another function's span) is a likely function boundary — truncate
+    # the outer function to end there instead of dropping the inner one (the
+    # old code produced 12KB merged spans swallowing dozens of real
+    # functions).  The truncation is kept only when the outer body genuinely
+    # ends at a ret/jmp right before the inner prolog — otherwise the
+    # candidate is a false prolog (mid-function push bp) and the outer span
+    # stands.
     funcs.sort(key=lambda f: (f.va, f.size))
+    import capstone as _cs
+
+    _md = _cs.Cs(_cs.CS_ARCH_X86, _cs.CS_MODE_16)
     deduped: list[NeFunction] = []
-    last_end = -1
     for f in funcs:
-        if f.va <= last_end:
-            continue  # inside an already-covered function
+        if deduped and f.va < deduped[-1].va + deduped[-1].size:
+            prev = deduped[-1]
+            if f.va > prev.va and f.va - prev.va >= 3:
+                new_size = f.va - prev.va
+                # Verify the truncated outer body ends at a ret/jmp.
+                seg_off = info.ne_segments[prev.segment - 1].file_offset  # type: ignore[attr-defined]
+                body = data[seg_off + prev.offset : seg_off + prev.offset + new_size]
+                last_mnem = ""
+                for insn in _md.disasm(body, prev.va):
+                    last_mnem = insn.mnemonic
+                if last_mnem in ("ret", "retf", "retn", "jmp"):
+                    prev.size = new_size
+                    deduped.append(f)
+                    continue
+            # False prolog / unclear boundary — keep the outer span, drop f.
+            continue
         deduped.append(f)
-        last_end = f.va + f.size
     return deduped
 
 
