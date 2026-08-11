@@ -192,6 +192,28 @@ class TestSmartRelocCompareEdgeCases:
         assert valid == [1]
         assert invalid == []
 
+    def test_typed_dir32_record_iat_slot_masked(self) -> None:
+        """The typed CoffRelocRecord branch (the preferred path) must also
+        mask DIR32 values landing in the IAT region — same as the dict path."""
+        import struct
+
+        from rebrew.matcher.parsers import CoffRelocRecord
+
+        iat_slot = 0x10024178
+        obj = b"\xff\x15" + struct.pack("<I", 0) + b"\xc3"
+        tgt = b"\xff\x15" + struct.pack("<I", iat_slot) + b"\xc3"
+        rec = CoffRelocRecord(offset=2, type=0x0006, symbol="__imp__WSACleanup@0")
+        matched, _, _, valid, invalid = smart_reloc_compare(
+            obj,
+            tgt,
+            coff_relocs=[rec],
+            name_to_va={"__imp__WSACleanup@0": 0x1002417C},  # catalog swapped
+            iat_region={iat_slot},
+        )
+        assert matched is True
+        assert valid == [2]
+        assert invalid == []
+
     def test_typed_rel32_with_section_va(self) -> None:
         """CoffRelocRecord REL32 validates against PC-relative expected value."""
         import struct
@@ -338,6 +360,22 @@ class TestIatRegionBuild:
 
         cfg = SimpleNamespace(target_binary=tmp_path / "nope.dll", iat_thunks=None)
         assert build_iat_region(cfg) == set()
+
+    def test_real_pe_import_slots(self) -> None:
+        """A real PE's import-address slots are included (LIEF path), not
+        just the configured jmp-stubs."""
+        from pathlib import Path
+        from types import SimpleNamespace
+
+        from rebrew.core import build_iat_region
+
+        pe = Path(__file__).resolve().parent / "fixtures" / "mini_pe.exe"
+        assert pe.exists()
+        cfg = SimpleNamespace(target_binary=pe, iat_thunks=[])
+        region = build_iat_region(cfg)
+        # mini_pe.exe imports GetTickCount at IAT slot 0x104c (image base 0x400000)
+        assert 0x40104C in region
+        assert 0x104C not in region  # must be canonicalized to an absolute VA
 
     def test_dir32_jmp_stub_masked(self) -> None:
         """call [jmp_stub] vs recompiled call [__imp__] — masked by position."""
