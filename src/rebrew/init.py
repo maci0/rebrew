@@ -266,6 +266,34 @@ _AGENT_SKILLS_SRC = Path(__file__).parent / "agent-skills"
 _PRINCIPLES_SRC = Path(__file__).parent / "PRINCIPLES.md"
 
 
+def _warn_profile_mismatch(profile: str, binary_format: str, arch: str) -> None:
+    """Warn when the chosen compiler profile contradicts the detected binary.
+
+    The config is still written with the detected format/arch (so doctor's
+    alignment check sees the truth), but the user is told up front — a
+    16-bit NE binary with a 32-bit msvc6 profile would otherwise fail
+    doctor immediately after init.
+    """
+    profile_arch = COMPILER_DEFAULTS.get(profile, {}).get("arch", "")
+    if not profile_arch:
+        return
+    _bitness_16 = {"msvc1.52"}
+    if arch == "x86_16" and profile not in _bitness_16:
+        msg = (
+            f"detected a 16-bit NE binary ({binary_format}/{arch}) but profile "
+            f"'{profile}' is a 32-bit compiler — switch to --compiler msvc1.52 "
+            "for byte matching (or document functions as blockers)"
+        )
+        # Console is stderr — the --json stdout payload stays pure JSON.
+        console.print(f"[yellow]warning:[/yellow] {msg}")
+    elif arch and arch != "x86_16" and profile in _bitness_16:
+        msg = (
+            f"profile '{profile}' is a 16-bit compiler but the binary is "
+            f"{binary_format}/{arch} — use a 32-bit profile (e.g. msvc6)"
+        )
+        console.print(f"[yellow]warning:[/yellow] {msg}")
+
+
 def _detect_binary_format(path: Path) -> tuple[str, str] | None:
     """Detect ``(format, arch)`` from a binary already placed in original/.
 
@@ -476,6 +504,11 @@ def main(
         detected = _detect_binary_format(binary_path)
         if detected is not None:
             binary_format, target_arch = detected
+
+    # Warn when the detected format/arch contradicts the chosen profile —
+    # e.g. a 16-bit NE binary with a 32-bit msvc6 profile (doctor will flag
+    # it as a misalignment; surface it here instead of after the fact).
+    _warn_profile_mismatch(compiler_profile, binary_format, target_arch)
 
     # 1. Write rebrew-project.toml
     toml_content = DEFAULT_REBREW_TOML.format(
