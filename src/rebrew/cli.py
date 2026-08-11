@@ -233,12 +233,14 @@ def option_default(value: Any, default: Any) -> Any:
 def parse_va(va_str: str, *, json_mode: bool = False) -> int:
     """Parse a hexadecimal virtual-address string, exiting on invalid input.
 
-    Always interprets as base-16 (with or without ``0x`` prefix).
+    Always interprets as base-16 (with or without ``0x`` prefix).  A bad
+    argument is a usage error — exit ``EXIT_ERROR`` (2), not ``EXIT_MISMATCH``
+    (1), so scripts can distinguish "bad invocation" from "needs code work".
     """
     try:
         return int(va_str.strip(), 16)
     except ValueError:
-        error_exit(f"Invalid hex VA: {va_str!r}", json_mode=json_mode)
+        error_exit(f"Invalid hex VA: {va_str!r}", json_mode=json_mode, code=EXIT_ERROR)
 
 
 def source_glob(cfg: ProjectConfig | None) -> str:
