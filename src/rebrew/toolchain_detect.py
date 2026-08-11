@@ -124,6 +124,9 @@ class ToolchainInfo:
     flags: list[str] = field(default_factory=list)  # compiler flags (PDB-derived)
     detected_by: str = ""  # which backend found the family: die | pdb | heuristics
     arch: str = ""  # "x86_16" for NE binaries, "" when unknown (PE/ELF assumed 32/64)
+    crt: str = ""  # CRT linkage name: "msvcrt.dll"/"crtdll.dll" (dynamic), "LIBCMT" (static)
+    crt_linkage: str = ""  # "dynamic" | "static" | "" (unknown)
+    base_cflags: str = ""  # suggested base_cflags: "/MD" or "/MT" for MSVC-family binaries
 
     def add(self, text: str) -> None:
         self.evidence.append(text)
@@ -581,10 +584,23 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
 
     sections = {s.name for s in binfo.sections.values()}
     imports: set[str] = set()
-    for imp in getattr(binfo, "imports", []) or []:
+    # binfo.imports is not populated by every loader — use the dedicated
+    # import-table parser (LIEF-backed) when the generic field is empty.
+    bin_imports = getattr(binfo, "imports", None) or []
+    for imp in bin_imports:
         dll = str(getattr(imp, "dll", "") or "")
         if dll:
             imports.add(dll.lower())
+    if not imports and getattr(binfo, "format", "") == "pe":
+        try:
+            from rebrew.imports import parse_imports
+
+            for entry in parse_imports(path):
+                dll = str(entry.get("dll") or "").lower()
+                if dll:
+                    imports.add(dll)
+        except Exception:
+            pass  # import scan is best-effort — string evidence still applies
 
     # --- section-level signals ---
     has_buildid = any(n.lower() == ".buildid" for n in sections)
@@ -600,6 +616,21 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
     # --- import signals ---
     if "msvcrt.dll" in imports or any(i.startswith("msvcp") for i in imports):
         info.add("msvcrt.dll imported (MSVC dynamic CRT)")
+        info.crt = "msvcrt.dll"
+        info.crt_linkage = "dynamic"
+        info.base_cflags = "/MD"
+    elif "crtdll.dll" in imports:
+        info.add("crtdll.dll imported (MSVC 4.x dynamic CRT)")
+        info.crt = "crtdll.dll"
+        info.crt_linkage = "dynamic"
+        info.base_cflags = "/MD"
+    elif imports and info.family == "msvc" and not imports <= {"kernel32.dll"}:
+        # No CRT DLL import but MSVC family with real imports → statically
+        # linked CRT (/MT).  Weak signal; only asserted when the family is
+        # already established by a stronger backend.
+        info.crt = "LIBCMT"
+        info.crt_linkage = "static"
+        info.base_cflags = "/MT"
     if not imports:
         info.add("no imports (standalone build)")
     elif imports <= {"kernel32.dll"}:

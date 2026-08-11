@@ -142,6 +142,9 @@ def detect_cmd(
         "arch": info.arch,
         "flags": info.flags,
         "evidence": info.evidence,
+        "crt": info.crt or None,
+        "crt_linkage": info.crt_linkage or None,
+        "base_cflags_hint": info.base_cflags or None,
         "compatible_profiles": sorted(compat) if compat else None,
     }
 
@@ -180,6 +183,10 @@ def detect_cmd(
         console.print(f"  arch:      {info.arch}")
     if info.flags:
         console.print(f"  flags:     {' '.join(info.flags)}")
+    if info.crt:
+        console.print(f"  crt:       {info.crt} ({info.crt_linkage})")
+        if info.base_cflags:
+            console.print(f"  base flags: {info.base_cflags} (use in [cyan]base_cflags[/])")
     for e in info.evidence:
         console.print(f"  [dim]•[/dim] {e}")
     compat = data["compatible_profiles"]
