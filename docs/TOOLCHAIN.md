@@ -75,12 +75,21 @@ a vendored host path (`tools/…`) or PATH binary when docker or the image is
 unavailable — the same profile works either way.
 
 Current toolchains (`rebrew toolchain list`): `msvc6` (wine; image
-`rebrew/msvc6:6.0-linux-x64` — MSVC 6.0 under wine in a container, from
-the OmniBlade decomp.me msvcwin9x tarball), `delphi16` (DOSBox), `gcc-pe`
-(native MinGW), `watcom` (native Open Watcom 2.0 — installed at
+`rebrew/msvc6:6.0-linux-x64` built+verified — MSVC 6.0 under wine in a
+container, from the OmniBlade decomp.me msvcwin9x tarball), `delphi16`
+(DOSBox; image `rebrew/delphi16:1.0-linux-x64` built+verified — a
+containerized Delphi 1.0 compile produces a genuine NE 6.01 executable),
+`gcc-pe` (native MinGW), `watcom` (native Open Watcom 2.0 — installed at
 `tools/WATCOM`; image `rebrew/watcom:2.0-linux-x64` built and verified —
 the docker-first compile produces the same object + relocs as the host
-path), `msvc1.52` (16-bit, DOSBox via `rebrew.msvc16`).
+path), `msvc1.52` (16-bit, DOSBox via `rebrew.msvc16`; image
+`rebrew/msvc152:1.52-linux-x64` built+verified — containerized CL.EXE
+produces a genuine 16-bit OMF object; the `cl16` wrapper takes the source
+as its single argument and adds `/nologo /c` itself).
+
+**Every registry toolchain now has a verified containerized path** (the
+four images above + gcc-pe native) — the docker-first standardization is
+complete for the whole matrix.
 
 **Image layout convention** (Godbolt-style): Dockerfiles live at
 `toolchain-images/<compiler>/<version>-<arch>/Dockerfile` and produce
