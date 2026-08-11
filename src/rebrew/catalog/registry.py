@@ -175,6 +175,39 @@ def _resolve_canonical_size(
 # ---------------------------------------------------------------------------
 
 
+def _iat_slot_vas(bin_path: Path | None) -> set[int]:
+    """Absolute VAs of the PE import-address-table slots, or ``set()``.
+
+    MSVC PEs place the IAT at the START of ``.text`` (before the code), so
+    linear-sweep discovery walks it as code and emits a fake function per
+    slot (``sym.imp.`` entries from rizin, or generic ``fcn.`` names from
+    other sweeps).  The registry must not treat those data slots as
+    functions — skeleton generation would create bogus source files for
+    them.  Returns ``{}`` on any failure (non-PE, unparsable, absent file).
+    """
+    if not bin_path or not Path(bin_path).exists():
+        return set()
+    try:
+        import lief
+
+        if not lief.is_pe(str(bin_path)):
+            return set()
+        pe = lief.PE.parse(str(bin_path))
+        if pe is None:
+            return set()
+        image_base = int(getattr(pe, "imagebase", 0) or 0)
+        out: set[int] = set()
+        for entry in pe.imports:
+            for imp in entry.entries:
+                va = int(getattr(imp, "iat_address", 0) or 0)
+                if va:
+                    # LIEF reports the IAT slot as an RVA; canonicalize.
+                    out.add((va + image_base) & 0xFFFFFFFF)
+        return out
+    except Exception:
+        return set()
+
+
 def build_function_registry(
     funcs: list[dict[str, Any]],
     cfg: ProjectConfig | None,
@@ -191,13 +224,19 @@ def build_function_registry(
         is_export: bool
         canonical_size: best-known size
         size_reason: explanation for chosen canonical size
+
+    VAs inside the PE import-address table are dropped (see
+    :func:`_iat_slot_vas`) — they are data, not functions.
     """
     registry: dict[int, RegistryEntry] = {}
+    iat_vas = _iat_slot_vas(bin_path) if bin_path else set()
 
     # --- Function list ---
     r2_bogus = set(getattr(cfg, "r2_bogus_vas", [])) if cfg else _DEFAULT_R2_BOGUS_SIZES
     for func in funcs:
         va = int(func["va"])
+        if va in iat_vas:
+            continue
         entry = registry.setdefault(va, _new_registry_entry(va, cfg))
         if "list" not in entry["detected_by"]:
             entry["detected_by"].append("list")
@@ -213,7 +252,7 @@ def build_function_registry(
 
     for struc_func in structure_entries:
         va = struc_func.va
-        if va == 0 or struc_func.size == 0:
+        if va == 0 or struc_func.size == 0 or va in iat_vas:
             continue
 
         entry = registry.setdefault(va, _new_registry_entry(va, cfg))

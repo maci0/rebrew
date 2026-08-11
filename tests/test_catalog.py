@@ -404,3 +404,26 @@ class TestCatalogFunctional:
         reg = build_function_registry(funcs, cfg)
         assert bogus_va in reg
         assert "list" not in reg[bogus_va]["size_by_tool"]
+
+
+class TestParseFunctionListImportFilter:
+    """rizin names IAT slots `sym.imp.<DLL>.<func>` — parse_function_list
+    must skip them (they are import-table data, not functions)."""
+
+    def test_skips_sym_imp_entries(self, tmp_path: Path) -> None:
+        f = tmp_path / "funcs.txt"
+        f.write_text(
+            "0x1000127c sym.imp.MFC42u.DLL_CWnd::EnableWindow 8\n"
+            "0x100018c0 sym.imp.MFC42u.DLL_CWndconstCWnd::wndTop 12\n"
+            "0x10002000 fcn.01002000 64\n",
+            encoding="utf-8",
+        )
+        result = parse_function_list(f)
+        assert len(result) == 1
+        assert result[0]["va"] == 0x10002000
+
+    def test_size_first_format(self, tmp_path: Path) -> None:
+        f = tmp_path / "funcs.txt"
+        f.write_text("12 0x100018c0 sym.imp.MFC42u.DLL_X 12\n", encoding="utf-8")
+        result = parse_function_list(f)
+        assert result == []

@@ -148,6 +148,13 @@ def parse_function_list(path: Path) -> list[dict[str, Any]]:
 
         m1 = _FUNC_LINE_RE_SIZE_FIRST.match(line)
         if m1:
+            if m1.group(3).startswith("sym.imp."):
+                # rizin names IAT slots `sym.imp.<DLL>.<func>` — the import
+                # address table lives INSIDE .text on MSVC PEs, so discovery
+                # walks it as code and emits a fake "function" per slot.
+                # They are data, not functions; skip (see build_function_registry
+                # for the VA-based guard that catches non-`sym.imp.` names too).
+                continue
             funcs.append(
                 make_func_entry(
                     va=int(m1.group(1), 16),
@@ -159,6 +166,8 @@ def parse_function_list(path: Path) -> list[dict[str, Any]]:
 
         m2 = _FUNC_LINE_RE_NAME_FIRST.match(line)
         if m2:
+            if m2.group(2).startswith("sym.imp."):
+                continue
             funcs.append(
                 make_func_entry(
                     va=int(m2.group(1), 16),
