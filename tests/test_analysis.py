@@ -144,6 +144,29 @@ class TestScanReferences:
         assert by_from[syms["and_mem"]].kind == "and_mem"
         assert by_from[syms["and_mem"]].to_va == syms["hello"]
 
+    def test_ne_16bit_refs(self, tmp_path: Path) -> None:
+        """16-bit NE scanning: near calls resolve within their segment and
+        [imm16] operands resolve against the autodata segment."""
+        from test_ne_loader import _build_ne
+
+        # Code: push bp; mov bp,sp; call rel16; les di, [0x1234].
+        # autodata = segment 2 (a data segment holding the 0x1234 global).
+        code = bytes.fromhex("55 8b ec e8 00 00 c4 3e 34 12 5d c3")
+        data = b"\x02\x00" + b"\x00" * 0x2000  # data segment (autodata)
+        raw = _build_ne(segments=[(b"\x01\x00" + code, 0x01), (data, 0x00)], autodata=2)
+        p = tmp_path / "app.ne"
+        p.write_bytes(raw)
+        info = load_binary(p)
+        refs = scan_references(info)
+        by_from = {r.from_va: r for r in refs}
+        # Code starts at 0x10002 (after the 2-byte Borland marker):
+        # push bp(0x10002); mov bp,sp(0x10003); call 0x10008(0x10005)
+        assert by_from[0x10005].kind == "call"
+        assert by_from[0x10005].to_va == 0x10008
+        # les di, [0x1234] at 0x10008 → autodata seg 2 << 16 | 0x1234
+        assert by_from[0x10008].kind == "les_mem"
+        assert by_from[0x10008].to_va == (2 << 16) | 0x1234
+
     def test_target_filter(self, tmp_path: Path) -> None:
         path, syms = _make_binary(tmp_path)
         info = load_binary(path)

@@ -25,6 +25,7 @@ def _build_ne(
     segments: list[tuple[bytes, int]] | None = None,
     exports: list[tuple[str, int]] | None = None,
     modules: list[str] | None = None,
+    autodata: int = 0,
 ) -> bytes:
     """Assemble a minimal NE file.
 
@@ -91,6 +92,7 @@ def _build_ne(
     ne[3] = 2
     struct.pack_into("<H", ne, 0x04, entry_off)
     struct.pack_into("<H", ne, 0x06, 0)  # entry table length
+    struct.pack_into("<H", ne, 0x0E, autodata)
     struct.pack_into("<H", ne, 0x1C, len(segs))
     struct.pack_into("<H", ne, 0x1E, len(modules or []))
     struct.pack_into("<H", ne, 0x22, segtab_off)
