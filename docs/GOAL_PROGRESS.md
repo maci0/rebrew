@@ -6603,3 +6603,19 @@ Continuing the docker-first standardization (ADR-006) to full delivery:
 
 Remaining external items: bcc32 (needs the BC++ floppy set), 16-bit OMF
 dialect parser, console port (docs/ROADMAP_CONSOLES.md proposal).
+
+## 2026-08-11 — Toolchain surface completed (CLI lifecycle, init, sweeps)
+
+- `rebrew toolchain build <name>` — builds the image from its
+  toolchain-images/<name>/<ver>-<arch>/Dockerfile; CLI lifecycle complete
+  (list/status/pull/build).
+- `rebrew init --compiler watcom/msvc1.52` — working configs (command +
+  includes/libs from the toolchain); fixed the target arch hardcode
+  (now follows the profile: msvc1.52 → x86_16).
+- GA flag sweeps for watcom (wcc386 -flags) + msvc1.52 (16-bit /flags).
+- Agent skills (matching/workflow) reflect the toolchain model; minimalism
+  review of the new modules: clean (no dead code).
+- Commits c5f0871 → latest (init, build, sweeps, skills).
+
+Remaining external/large items: bcc32 (WinWorld source), 16-bit MSVC OMF
+dialect parser, console port (ROADMAP_CONSOLES.md).
