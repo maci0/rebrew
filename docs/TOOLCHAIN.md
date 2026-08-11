@@ -75,15 +75,15 @@ a vendored host path (`tools/…`) or PATH binary when docker or the image is
 unavailable — the same profile works either way.
 
 Current toolchains (`rebrew toolchain list`): `msvc6` (wine; image
-`rebrew/msvc6:6.0-linux-x64` built+verified — MSVC 6.0 under wine in a
+`rebrew/msvc:6.0-linux-x64` built+verified — MSVC 6.0 under wine in a
 container, from the OmniBlade decomp.me msvcwin9x tarball), `delphi16`
-(DOSBox; image `rebrew/delphi16:1.0-linux-x64` built+verified — a
+(DOSBox; image `rebrew/delphi:1.0-linux-x64` built+verified — a
 containerized Delphi 1.0 compile produces a genuine NE 6.01 executable),
 `gcc-pe` (native MinGW), `watcom` (native Open Watcom 2.0 — installed at
 `tools/WATCOM`; image `rebrew/watcom:2.0-linux-x64` built and verified —
 the docker-first compile produces the same object + relocs as the host
 path), `msvc1.52` (16-bit, DOSBox via `rebrew.msvc16`; image
-`rebrew/msvc152:1.52-linux-x64` built+verified — containerized CL.EXE
+`rebrew/msvc:1.52-linux-x64` built+verified — containerized CL.EXE
 produces a genuine 16-bit OMF object; the `cl16` wrapper takes the source
 as its single argument and adds `/nologo /c` itself).
 
@@ -92,11 +92,15 @@ four images above + gcc-pe native) — the docker-first standardization is
 complete for the whole matrix.
 
 **Image layout convention** (Godbolt-style): Dockerfiles live at
-`toolchain-images/<compiler>/<version>-<arch>/Dockerfile` and produce
-`rebrew/<compiler>:<version>-<arch>` — the version **and** the target
-architecture are part of both the directory path and the image tag, so
-`watcom/2.0-linux-x64/`, `watcom/1.9-linux-x64/`, or a future
-`msvc6/6.0-windows-x86/` coexist without ambiguity.
+`toolchain-images/<family>/<version>-<arch>/Dockerfile` and produce
+`rebrew/<family>:<version>-<arch>` — the top-level directory is the
+**unversioned compiler family** (`msvc/`, `delphi/`, `watcom/`) and the
+version + target architecture live in the subdirectory and image tag, so
+`msvc/6.0-linux-x64/`, `msvc/1.52-linux-x64/`, or a future
+`msvc/6.0-windows-x86/` coexist without ambiguity.  (The old
+`msvc6/6.0-linux-x64` / `msvc152/1.52-linux-x64` / `delphi16/1.0-linux-x64`
+names were ambiguous — `msvc152` read as "MSVC 152" and `delphi16` as
+"Delphi 16" — and are retired.)
 
 **Image entry convention:** an image whose `ENTRYPOINT` *is* the compiler
 wrapper (e.g. wcc386) is invoked without an explicit command

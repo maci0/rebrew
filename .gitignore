@@ -99,4 +99,4 @@ rebrew-function.toml.lock
 # elsewhere).
 /toolchain-images/**/delphi10/
 /toolchain-images/**/delphi-lib/
-/toolchain-images/msvc152/**/msvc152/
+/toolchain-images/msvc/**/msvc152/

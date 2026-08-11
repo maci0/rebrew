@@ -4,8 +4,8 @@
 # SIGFPEs on modern glibc (known issue), but `ow-snapshot.tar.xz` from the
 # Last-CI-build release is a plain archive that extracts cleanly.
 #
-# Build:  docker build -t rebrew/watcom:latest toolchain-images/watcom
-# Invoke: docker run --rm -v "$PWD":/work -w /work rebrew/watcom:latest wcc386 ...
+# Build:  docker build -t rebrew/watcom:2.0-linux-x64 toolchain-images/watcom/2.0-linux-x64
+# Invoke: docker run --rm -v "$PWD":/work -w /work rebrew/watcom:2.0-linux-x64 wcc386 ...
 
 FROM debian:bookworm-slim
 
