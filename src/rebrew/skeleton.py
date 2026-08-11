@@ -345,6 +345,35 @@ def generate_diff_command(filepath: str, symbol: str, cflags: str) -> str:
     return f'rebrew diff {filepath} --symbol "{symbol}" --cflags "{cflags}"'
 
 
+def _is_thunk(cfg: ProjectConfig, va: int) -> bool:
+    """True when the function at *va* is a jump/import/call thunk — a single
+    ``jmp`` (IAT or relative) or ``call X; jmp Y`` stub — rather than real
+    code.  Batch skeleton generation skips these: they have no decompilable
+    body.  32-bit PE only (16-bit NE disassembly needs the 16-bit decoder)."""
+    if getattr(cfg, "arch", "") != "x86_32":
+        return False
+    try:
+        import capstone
+
+        from rebrew.binary_loader import extract_raw_bytes
+
+        raw = extract_raw_bytes(cfg.target_binary, va, 16)
+        if len(raw) < 2:
+            return False
+        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        insns = list(md.disasm(raw, va, count=3))
+        if not insns:
+            return False
+        i0 = insns[0]
+        if i0.mnemonic == "jmp":
+            return True  # import thunk / jump thunk
+        if i0.mnemonic == "call" and len(insns) > 1 and insns[1].mnemonic == "jmp":
+            return True  # call thunk (hotpatch / chained stub)
+    except Exception:  # noqa: BLE001 — best-effort filter
+        return False
+    return False
+
+
 def list_uncovered(
     ghidra_funcs: list[FunctionEntry],
     existing_vas: dict[int, str],
@@ -353,8 +382,9 @@ def list_uncovered(
     max_size: int = 9999,
 ) -> list[tuple[int, int, str]]:
     """List uncovered functions. Returns [(va, size, name)]."""
-    ignored_syms = set(cfg.ignored_symbols or [])
-    # Ghidra cache first (preferred sizes), then function-list-only functions
+    ignored_syms = set(
+        cfg.ignored_symbols or []
+    )  # Ghidra cache first (preferred sizes), then function-list-only functions
     # (r2/radare2) — the cache often misses recently added / CRT functions,
     # and batch mode must still be able to skeletonize them.
     funcs_by_va: dict[int, tuple[int, str]] = {}
@@ -393,6 +423,8 @@ def list_uncovered(
             continue
         if name in ignored_syms:
             continue
+        if _is_thunk(cfg, va):
+            continue  # no decompilable body — don't waste a skeleton slot
 
         uncovered.append((va, size, name))
 

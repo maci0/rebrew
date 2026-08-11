@@ -549,3 +549,77 @@ class TestDecompBody:
             decomp_body=False,
         )
         assert "=== Decompilation (r2ghidra) ===" in content  # comment mode intact
+
+
+class TestThunkFilter:
+    """list_uncovered skips import/jump/call thunks — they have no
+    decompilable body and waste batch skeleton slots."""
+
+    def _cfg(self, tmp_path: Path) -> ProjectConfig:
+        return ProjectConfig(
+            root=tmp_path,
+            ignored_symbols=[],
+            arch="x86_32",
+            target_binary=tmp_path / "x.exe",
+        )
+
+    def test_skips_import_thunk(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.skeleton import list_uncovered
+
+        cfg = self._cfg(tmp_path)
+        ghidra = [
+            FunctionEntry(va=0x10001000, tool_name="import_thunk", size=16),
+            FunctionEntry(va=0x10002000, tool_name="real_func", size=64),
+        ]
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes",
+            lambda p, va, n: b"\xff\x25\x00\x00\x00\x00" if va == 0x10001000 else b"\x55\x8b\xec",
+        )
+        result = list_uncovered(ghidra, {}, cfg)
+        vas = {va for va, _, _ in result}
+        assert 0x10001000 not in vas
+        assert 0x10002000 in vas
+
+    def test_skips_call_thunk(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.skeleton import list_uncovered
+
+        cfg = self._cfg(tmp_path)
+        ghidra = [
+            FunctionEntry(va=0x10001000, tool_name="call_thunk", size=32),
+            FunctionEntry(va=0x10002000, tool_name="real_func", size=64),
+        ]
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes",
+            lambda p, va, n: (
+                b"\xe8\x00\x00\x00\x00\xe9\x00\x00\x00\x00" if va == 0x10001000 else b"\x55\x8b\xec"
+            ),
+        )
+        result = list_uncovered(ghidra, {}, cfg)
+        vas = {va for va, _, _ in result}
+        assert 0x10001000 not in vas
+        assert 0x10002000 in vas
+
+    def test_keeps_real_function(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.skeleton import list_uncovered
+
+        cfg = self._cfg(tmp_path)
+        ghidra = [FunctionEntry(va=0x10001000, tool_name="real_func", size=64)]
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes",
+            lambda p, va, n: b"\x55\x8b\xec\x83\xec\x10",
+        )
+        result = list_uncovered(ghidra, {}, cfg)
+        assert [va for va, _, _ in result] == [0x10001000]
+
+    def test_skips_non_x86_32(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.skeleton import list_uncovered
+
+        cfg = self._cfg(tmp_path)
+        cfg.arch = "x86_16"  # thunk detection is 32-bit-only
+        ghidra = [FunctionEntry(va=0x10001000, tool_name="maybe_thunk", size=16)]
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes",
+            lambda p, va, n: b"\xff\x25\x00\x00\x00\x00",
+        )
+        result = list_uncovered(ghidra, {}, cfg)
+        assert [va for va, _, _ in result] == [0x10001000]
