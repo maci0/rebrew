@@ -49,7 +49,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew lint` | `lint.py` | Lint source marker standards in decomp C files |
 | `rebrew extract` | `extract.py` | Batch extract and disassemble functions from binary |
 | `rebrew match` | `match.py` / `matcher/` | GA matching engine (single-function or `--all` batch); `--fix-blocker`; `--json` structured output |
-| `rebrew verify` | `verify.py` | Compile all `.c` files and verify byte match against target binary; `--compare` regression detection; `--json` structured reports. 16-bit NE targets short-circuit with a notice (no compile profile yet — ADR-001) |
+| `rebrew verify` | `verify.py` | Compile all `.c` files and verify byte match against target binary; `--compare` regression detection; `--json` structured reports. 16-bit NE targets run when `profile = "msvc1.52"` is configured, otherwise short-circuit with a notice naming the required profile |
 | `rebrew todo` | `todo.py` | Prioritized action list: what to work on next, ROI-ranked across all signals |
 | `rebrew cache` | `cache_cli.py` | Compile cache management (`stats` reports hit rate + disk usage, `clear` purges cache) |
 | `rebrew cfg` | `cfg.py` | Read and edit `rebrew-project.toml` programmatically (see [CONFIG.md](CONFIG.md)) |

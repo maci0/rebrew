@@ -182,7 +182,7 @@ for r in MSVC420 MSVC500; do   # repo names are lowercase: msvc420 msvc500 ...
 done
 ```
 
-### 16-bit Windows NE Binaries (native parsing + disassembly; matching future work)
+### 16-bit Windows NE Binaries (native parsing + disassembly + byte matching)
 
 `rebrew` primarily targets 32-bit PE/ELF/Mach-O with MSVC6/MinGW, but
 **16-bit Windows 3.x NE executables** (MZ stub + `NE` header — e.g. 1990s
@@ -215,18 +215,26 @@ DOS/Windows games and Borland Delphi 1.0 apps) are now parsed natively:
    by their segment markers — Borland markers → `delphi` (high confidence),
    markerless segments with content → `msvc` (16-bit MSVC-style) — falling
    back to RTL string evidence when segments are absent.
-6. **16-bit compile profile / byte matching — FUTURE WORK**: a genuine 16-bit
-   compiler (Borland Turbo C 2.0, Microsoft C 7.0 / Visual C++ 1.5) under
-   Wine producing 16-bit OMF objects, plus segment-relative reloc handling in
-   `smart_reloc_compare`.  NOTE: the vendored `tools/MSVC420` is the *32-bit*
-   VC 4.2 compiler (i386 COFF output) — NOT suitable for 16-bit matching.
+6. **16-bit compile profile / byte matching — DONE**: the `msvc1.52`
+   profile (Microsoft C 1.52, 16-bit, via the `rebrew/msvc:1.52-linux-x64`
+   DOSBox image or the vendored `tools/MSVC152` host path) compiles C89 to
+   16-bit OMF objects, decoded by the built-in `omf16` parser (objconv
+   crashes on both the unoptimized 0xA0 and /O-optimized 0xC2 dialects;
+   reloc slots: e8/e9 rel16, absolute disp16, and far-call 9a/ea via
+   capstone).  `rebrew test`, `verify`, and `match --flag-sweep-only`
+   (memory-model axis `/AS /AM /AC /AL`) all work on 16-bit NE targets.
+   The GA sweep for msvc1.52 covers 75 targeted combos through the image.
+   NOTE: the vendored `tools/MSVC420` is the *32-bit* VC 4.2 compiler
+   (i386 COFF output) — NOT suitable for 16-bit matching.
 
 The workflow for a 16-bit target is: `rebrew intake <ne.exe>` (enumerates +
 documents every function as a STUB blocker — Delphi functions are marked
 audit-only in `rebrew todo -c documented`), `rebrew analyze <ne.exe>` for the
 intelligence dossier (format, toolchain family, imports, strings),
-`rebrew asm <va>` for disassembly.  `rebrew verify` short-circuits 16-bit
-targets with a notice (no 16-bit compile profile — see item 6).
+`rebrew asm <va>` for disassembly.  For byte matching, configure
+`profile = "msvc1.52"` in `rebrew-project.toml` — `rebrew verify` then runs
+the full compile/compare loop (137 functions on ski16.exe compile through
+DOSBox with 0 COMPILE_ERROR).
 
 **Delphi 1.0 toolchain (vendored, verified working):** for 16-bit *Delphi*
 targets (e.g. `holiday.exe`, a Delphi 1.0 VCL app), `tools/DELPHI10/` now
@@ -235,8 +243,9 @@ Sep 1995), `DELPHI.DSL` (compiler symbol table), the `CMDLINE.PAK` tools,
 and the RTL/VCL units (`UNITS.PAK` + `LIB.PAK`).  It compiles real 16-bit
 NE 6.01 GUI executables; the working recipe and the reverse-engineered
 **Quantum archive format** (`tools/DELPHI10/pak_extract.py`) are documented
-in `tools/DELPHI10/README.md`.  Matching 16-bit output is still future work
-(above).
+in `tools/DELPHI10/README.md`.  Delphi's Borland ABI has no matchable
+rebrew compiler profile — functions are documented as blockers, but the
+toolchain is used for verification-style research (compile + NE parse).
 
 Layout: `bin/cl.exe` + `include/` + `lib/` (case varies by version).  The
 `msvc420` profile is backed by this source; `msvc5` (VC 5.0, 11.00.7022) is
