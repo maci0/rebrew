@@ -285,15 +285,6 @@ def is_ne(path: str | Path) -> bool:
     return head[e_lfanew : e_lfanew + 2] == b"NE"
 
 
-_NE_UNSUPPORTED_MSG = (
-    "16-bit NE Windows executable (Windows 3.x) detected — rebrew targets "
-    "32-bit PE/ELF/Mach-O and cannot parse NE yet. The 16-bit path (NE "
-    "parser, capstone x86-16 disassembly, a genuine 16-bit compiler profile "
-    "such as Borland Turbo C — the vendored MSVC420 is 32-bit) is documented "
-    "in docs/TOOLCHAIN.md."
-)
-
-
 def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     """Parse a binary file and return a ``BinaryInfo``.
 
@@ -315,11 +306,13 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     if not path.exists():
         raise FileNotFoundError(f"Binary not found: {path}")
 
-    # 16-bit Windows NE executables are detected explicitly — lief.parse
-    # returns None for them and the generic "unknown format" error would
-    # mislead.  The specific message names the format and the path forward.
+    # 16-bit Windows NE executables are parsed natively (Borland Delphi /
+    # Turbo Pascal Windows targets) — segments become sections with synthetic
+    # flat VAs of (segment_index << 16).
     if is_ne(path):
-        raise ValueError(_NE_UNSUPPORTED_MSG)
+        from rebrew.ne_loader import load_ne_binary
+
+        return load_ne_binary(path)
 
     # Bounded cache keyed on resolved path + format to avoid re-parsing.
     # Lock protects concurrent reads/writes from multiple workers.

@@ -72,6 +72,13 @@ class _ArchPreset(TypedDict):
 
 
 _ARCH_PRESETS: dict[str, _ArchPreset] = {
+    "x86_16": {
+        "capstone_arch": "CS_ARCH_X86",
+        "capstone_mode": "CS_MODE_16",
+        "pointer_size": 2,
+        "padding_bytes": [0x90, 0x00],
+        "symbol_prefix": "_",
+    },
     "x86_32": {
         "capstone_arch": "CS_ARCH_X86",
         "capstone_mode": "CS_MODE_32",

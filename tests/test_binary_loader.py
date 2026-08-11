@@ -367,8 +367,8 @@ class TestMalformedInputRobustness:
 
 
 class TestNEDetection:
-    """16-bit Windows NE executables must be detected and rejected with a
-    clear format-specific message, not a generic parse failure."""
+    """16-bit Windows NE executables are detected and parsed natively
+    (Borland Delphi / Turbo Pascal Windows targets)."""
 
     @staticmethod
     def _write_ne(tmp_path: Path, e_lfanew: int = 0x100) -> Path:
@@ -393,11 +393,13 @@ class TestNEDetection:
         pe.write_bytes(b"MZ" + b"\x00" * 0x40 + b"\x00" * 0x40 + b"PE\x00\x00")
         assert is_ne(pe) is False
 
-    def test_load_binary_raises_clear_message(self, tmp_path: Path) -> None:
-        from rebrew.binary_loader import _NE_UNSUPPORTED_MSG, load_binary
+    def test_load_binary_parses_ne(self, tmp_path: Path) -> None:
+        """A minimal NE loads as format='ne' with parsed tables (the old
+        behavior rejected NE outright — the 16-bit path is now supported)."""
+        from rebrew.binary_loader import BinaryInfo, load_binary
 
         ne = self._write_ne(tmp_path)
-        with pytest.raises(ValueError) as exc:
-            load_binary(ne)
-        assert "16-bit NE" in str(exc.value)
-        assert str(exc.value) == _NE_UNSUPPORTED_MSG
+        info = load_binary(ne)
+        assert isinstance(info, BinaryInfo)
+        assert info.format == "ne"
+        assert info.sections == {}
