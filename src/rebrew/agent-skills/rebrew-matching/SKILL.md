@@ -135,6 +135,14 @@ rebrew match --all --sweep-then-ga                                        # swee
 rebrew match --all --sweep-then-ga --skip-recent 24                       # resume: skip stubs GA-run in last 24h
 ```
 
+The sweep axes are per-profile: `msvc6/msvc7` (decomp.me-synced `/` flags),
+`watcom` (wcc386 `-os/-ot/-ol/-ox`, `-3..-6`, `-zp`, `-mf/-fpc` —
+quick=5, targeted=25), `msvc1.52` (16-bit `/O`, `/G2/G3`, `/Aw/Au`,
+`/Gs`/`/Za` — quick=5, targeted=15).  The compiler itself comes from the
+toolchain abstraction (`rebrew.toolchain`): docker image first
+(`rebrew toolchain pull <profile>`), vendored `tools/` binary fallback —
+see `docs/TOOLCHAIN.md`.
+
 **Read the codegen to pick the flag direction before sweeping** (validated on a
 fresh MSVC6 C++ project): the target's instruction choices reveal the original
 optimization level, so try `/O2` (or `/O1`) manually first instead of a blind
