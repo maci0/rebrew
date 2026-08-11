@@ -518,7 +518,7 @@ def compile_to_obj(
     # toolchain-backed profiles (watcom, msvc1.52) go through rebrew.toolchain's
     # standardized runner (docker image or vendored host binary).
     profile = getattr(cfg, "compiler_profile", "")
-    is_posix_style = profile in ("gcc", "gcc-pe", "clang")
+    is_posix_style = profile in ("gcc", "gcc-pe", "clang", "watcom")
 
     # The two new toolchain-runner profiles.  gcc-pe/msvc6 stay on their
     # specialized posix/msvc paths (well-tested); the abstraction serves

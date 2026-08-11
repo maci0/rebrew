@@ -1781,7 +1781,7 @@ def resolve_build_params(
     cflags = _compile_cflags(
         cflags,
         getattr(compile_cfg, "base_cflags", "") or "",
-        posix_style=getattr(compile_cfg, "compiler_profile", "") in ("gcc", "gcc-pe", "clang"),
+        posix_style=bool(getattr(compile_cfg, "posix_style", False)),
     )
 
     if not target_va:
@@ -1950,7 +1950,7 @@ def run_flag_sweep(
         cflags = _compile_cflags(
             cflags,
             getattr(cfg, "base_cflags", "") or "",
-            posix_style=getattr(cfg, "compiler_profile", "") in ("gcc", "gcc-pe", "clang"),
+            posix_style=bool(getattr(cfg, "posix_style", False)),
         )
 
     # NOTE: no redirect_stdout here — mutating process-global stdout is not
@@ -2290,7 +2290,7 @@ def _run_one_stub_ga(
     cflags = _compile_cflags(
         cflags,
         getattr(cfg, "base_cflags", "") or "",
-        posix_style=getattr(cfg, "compiler_profile", "") in ("gcc", "gcc-pe", "clang"),
+        posix_style=bool(getattr(cfg, "posix_style", False)),
     )
 
     seed_src, _ = read_source_text(filepath)

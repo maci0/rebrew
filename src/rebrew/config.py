@@ -212,12 +212,16 @@ class ProjectConfig:
     def posix_style(self) -> bool:
         """True when the compiler profile uses POSIX-style flags (-I/-o/-c).
 
-        POSIX-style profiles (gcc, gcc-pe, clang) take ``-I``/``-o``/``-c``
-        and ship their own headers; MSVC profiles use ``/I``/``/Fo``/``/c``.
+        POSIX-style profiles (gcc, gcc-pe, clang, watcom — wcc386 takes
+        ``-I``/``-fo=``/``-c``) take dash flags and ship their own headers;
+        MSVC profiles use ``/I``/``/Fo``/``/c``.  Watcom was previously
+        missing from this check, so ``_compile_cflags`` prepended the
+        MSVC-style ``/nologo /c`` glue and wcc386 failed with "E1139:
+        more than one file to compile".
         Single source of truth for compile/flag routing across compile.py,
         diff.py, match.py, and matcher/compiler.py.
         """
-        return self.compiler_profile in ("gcc", "gcc-pe", "clang")
+        return self.compiler_profile in ("gcc", "gcc-pe", "clang", "watcom")
 
     # --- Computed from arch ---
     pointer_size: int = 4
