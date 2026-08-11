@@ -212,6 +212,47 @@ def check_arch_format(cfg: ProjectConfig) -> CheckResult:
     )
 
 
+def _toolchain_download_hint(path_str: str) -> str:
+    """A download URL for a missing vendored toolchain, keyed by path.
+
+    Order matters: "msvc6.3"/"msvc6.6" also contain "msvc6".  Returns the
+    hint text (with the leading space) or "" when unknown.
+    """
+    if "msvc6.3" in path_str:
+        return (
+            " Download: https://github.com/OmniBlade/decomp.me/"
+            "releases/download/msvcwin9x/msvc6.3.tar.gz"
+        )
+    if "msvc6.6" in path_str:
+        return (
+            " Download: https://github.com/OmniBlade/decomp.me/"
+            "releases/download/msvcwin9x/msvc6.6.tar.gz"
+        )
+    if "msvc7" in path_str:
+        return (
+            " Download: https://github.com/OmniBlade/decomp.me/"
+            "releases/download/msvcwin9x/msvc7.0.tar.gz"
+        )
+    if "msvc500" in path_str or "msvc5" in path_str:
+        return (
+            " Download: https://codeload.github.com/archaic-msvc/msvc500/tar.gz/refs/heads/master"
+        )
+    if "msvc6" in path_str:
+        return " Download: https://github.com/itsmattkc/MSVC600"
+    if "msvc400" in path_str:
+        return " Download: https://github.com/itsmattkc/MSVC400"
+    if "msvc420" in path_str:
+        return " Download: https://github.com/itsmattkc/MSVC420"
+    if "wcc" in path_str or "watcom" in path_str:
+        return (
+            " Download (Watcom C/C++): https://github.com/OmniBlade/"
+            "decomp.me/releases/download/wcc10.5/wcc11.0.tar.gz"
+        )
+    if "msvc152" in path_str:
+        return " Download (MSVC 1.52): https://archive.org/details/en_vc152_202512"
+    return ""
+
+
 def check_compiler(cfg: ProjectConfig) -> CheckResult:
     """Check that the compiler command is executable."""
     # A 16-bit NE target needs the msvc1.52 profile (DOSBox CL.EXE).  With
@@ -255,11 +296,12 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
         if local_exe.exists():
             exe_path = str(local_exe)
         else:
+            hint = _toolchain_download_hint(str(exe).lower())
             return CheckResult(
                 name="Compiler",
                 status=_FAIL,
                 message=f"Executable '{exe}' not found in PATH or project",
-                fix=f"Install '{exe}' or update compiler.command in rebrew-project.toml.",
+                fix=(f"Install '{exe}' or update compiler.command in rebrew-project.toml.{hint}"),
             )
 
     if is_wibo_runner and exe_path is None:
@@ -301,40 +343,10 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
             if not cl_path.is_absolute():
                 cl_path = cfg.root / cl_path
             if not cl_path.exists():
-                fix_msg = "Place MSVC toolchain at the configured path or update compiler.command."
-                cl_path_str = str(cl_path).lower()
-                # Order matters: "msvc6.3"/"msvc6.6" also contain "msvc6".
-                if "msvc6.3" in cl_path_str:
-                    fix_msg += (
-                        " Download: https://github.com/OmniBlade/decomp.me/"
-                        "releases/download/msvcwin9x/msvc6.3.tar.gz"
-                    )
-                elif "msvc6.6" in cl_path_str:
-                    fix_msg += (
-                        " Download: https://github.com/OmniBlade/decomp.me/"
-                        "releases/download/msvcwin9x/msvc6.6.tar.gz"
-                    )
-                elif "msvc7" in cl_path_str:
-                    fix_msg += (
-                        " Download: https://github.com/OmniBlade/decomp.me/"
-                        "releases/download/msvcwin9x/msvc7.0.tar.gz"
-                    )
-                elif "msvc500" in cl_path_str or "msvc5" in cl_path_str:
-                    fix_msg += (
-                        " Download: https://codeload.github.com/archaic-msvc/"
-                        "msvc500/tar.gz/refs/heads/master"
-                    )
-                elif "msvc6" in cl_path_str:
-                    fix_msg += " Download: https://github.com/itsmattkc/MSVC600"
-                elif "msvc400" in cl_path_str:
-                    fix_msg += " Download: https://github.com/itsmattkc/MSVC400"
-                elif "msvc420" in cl_path_str:
-                    fix_msg += " Download: https://github.com/itsmattkc/MSVC420"
-                elif "wcc" in cl_path_str or "watcom" in cl_path_str:
-                    fix_msg += (
-                        " Download (Watcom C/C++): https://github.com/OmniBlade/"
-                        "decomp.me/releases/download/wcc10.5/wcc11.0.tar.gz"
-                    )
+                fix_msg = (
+                    "Place MSVC toolchain at the configured path or update compiler.command."
+                    + _toolchain_download_hint(str(cl_path).lower())
+                )
 
                 return CheckResult(
                     name="Compiler",
