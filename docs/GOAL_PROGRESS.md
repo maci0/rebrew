@@ -6575,3 +6575,31 @@ Surveyed `turbo-c-v-4.5` exhaustively for bcc32:
 - **No BCC32/BCC/TLINK anywhere on the CD** — it's the Windows-IDE-only
   release.  The compiler needs the Borland C++ 4.5/5.0 floppy set from a
   different source.  Extraction deferred (documented in TOOLCHAIN.md).
+
+## 2026-08-11 — Toolchain arc completed (images, compile loop, sweeps)
+
+Continuing the docker-first standardization (ADR-006) to full delivery:
+
+- **Image matrix complete**: `rebrew/msvc6:6.0-linux-x64` (wine + OmniBlade
+  msvcwin9x tarball + cl wrapper), `rebrew/watcom:2.0-linux-x64` (native),
+  `rebrew/delphi16:1.0-linux-x64` (DOSBox + DCC + RTL units + dcc wrapper),
+  `rebrew/msvc152:1.52-linux-x64` (DOSBox + BIN/INCLUDE/LIB + cl16 wrapper)
+  all built and verified — containerized compiles produce real objects
+  (i386 COFF, OMF, NE 6.01).  gcc-pe stays native.  Wrapper scripts are
+  tracked; build-context binaries gitignored.
+- **Compile loop**: watcom routes through run_toolchain (wcc386 -fo=/-I);
+  msvc1.52 prefers the cl16 image (FAT-uppercase .OBJ handled) with host
+  DOSBox fallback.
+- **OMF**: objconv (vendored) converts Watcom 32-bit OMF→COFF for LIEF —
+  Watcom byte matching enabled; 16-bit MSVC OMF dialect recorded (objconv
+  crashes on it — custom parser deferred).
+- **GA flag sweeps**: watcom (wcc386 -os/-ot/-ol/-ox, -3..-6, -zp, -mf/-fpc)
+  and msvc1.52 (16-bit /O, /G2/G3, /Aw/Au, /Gs//Za) axes — quick/targeted
+  combos verified.
+- **Doctor**: generic check_toolchain_backed (vendored/image readiness with
+  `rebrew toolchain pull` fix); intake routes watcom family to the watcom
+  profile.
+- Commits: 82fed58 → 1accfac (8 slices).
+
+Remaining external items: bcc32 (needs the BC++ floppy set), 16-bit OMF
+dialect parser, console port (docs/ROADMAP_CONSOLES.md proposal).
