@@ -922,3 +922,43 @@ class TestPosixStyleProfiles:
     def test_watcom_default_profile(self) -> None:
         cfg = ProjectConfig(root=Path("."), compiler_profile="watcom")
         assert cfg.posix_style is True  # regression: was False -> /nologo /c glue -> E1139
+
+
+class TestInstallToolsFallback:
+    """config resolves missing project-relative tools/ paths against the
+    rebrew install's vendored tree (fresh projects without a tools/ symlink
+    compile out of the box)."""
+
+    TOML = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "original/main.exe"
+
+[compiler]
+profile = "msvc6"
+command = "wine tools/MSVC600/VC98/Bin/CL.EXE"
+"""
+
+    def test_missing_includes_falls_back(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew import utils as rebrew_utils
+
+        fake = tmp_path / "tools" / "MSVC600" / "VC98" / "Include"
+        fake.mkdir(parents=True)
+        (fake / "stdio.h").write_text("")
+        monkeypatch.setattr(rebrew_utils, "_REPO_ROOT", tmp_path)
+        root = _make_project(tmp_path, self.TOML)
+        cfg = load_config(root)
+        assert cfg.compiler_includes == fake
+
+    def test_existing_project_path_wins(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew import utils as rebrew_utils
+
+        # Project-local tools/ present -> used, install copy ignored.
+        (tmp_path / "tools" / "MSVC600" / "VC98" / "Include").mkdir(parents=True)
+        (tmp_path / "tools" / "MSVC600" / "VC98" / "Include" / "stdio.h").write_text("")
+        monkeypatch.setattr(rebrew_utils, "_REPO_ROOT", tmp_path)
+        root = _make_project(tmp_path, self.TOML)
+        cfg = load_config(root)
+        assert cfg.compiler_includes == tmp_path / "tools" / "MSVC600" / "VC98" / "Include"

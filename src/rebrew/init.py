@@ -34,6 +34,7 @@ app = typer.Typer(
         "[bold]Compiler profiles:[/bold]\n\n"
         "  msvc400 · MSVC 4.0 (C89, PE/x86_32) — via Wine (or wibo)\n\n"
         "  msvc420 · MSVC 4.2 (C89, PE/x86_32) — via Wine (or wibo)\n\n"
+        "  msvc5 · · MSVC 5.0 (C89, PE/x86_32) — via Wine (or wibo)\n\n"
         "  msvc6 · · MSVC 6.0 (C89, PE/x86_32) — via Wine (or wibo)\n\n"
         "  msvc7 · · MSVC 7.x (C99 subset, PE/x86_32) — via Wine (or wibo)\n\n"
         "  gcc · · · GCC (C99, ELF/x86_64)\n\n"

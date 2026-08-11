@@ -129,7 +129,12 @@ class TestCli:
         import json
 
         data = json.loads(result.stdout)
-        assert {t["name"] for t in data["toolchains"]} >= {"msvc6", "delphi16"}
+        assert {t["name"] for t in data["toolchains"]} >= {
+            "msvc5",
+            "msvc420",
+            "msvc6",
+            "delphi16",
+        }
 
     def test_unknown_status_errors(self) -> None:
         from typer.testing import CliRunner
@@ -157,6 +162,80 @@ class TestCli:
         result = CliRunner().invoke(umbrella, ["toolchain", "pull", "nope"])
         assert result.exit_code == 2
         assert "unknown toolchain" in result.output
+
+    def test_detect_json_standalone(self, tmp_path: Path, monkeypatch) -> None:
+        """`toolchain detect` works without a project; no profile keys in JSON."""
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+        from rebrew.toolchain_detect import ToolchainInfo
+
+        bin_path = tmp_path / "x.exe"
+        bin_path.write_bytes(b"MZ\x90\x00")
+        monkeypatch.chdir(tmp_path)  # no rebrew-project.toml here — standalone mode
+        info = ToolchainInfo(
+            family="msvc",
+            version_hint="MSVC 6.0",
+            confidence="high",
+            detected_by="die",
+            evidence=["Compiler: Microsoft Visual C/C++"],
+        )
+        monkeypatch.setattr("rebrew.toolchain_detect.detect_toolchain", lambda p: info)
+        result = CliRunner().invoke(umbrella, ["toolchain", "detect", str(bin_path), "--json"])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.stdout)
+        assert data["family"] == "msvc"
+        assert data["version_hint"] == "MSVC 6.0"
+        assert data["confidence"] == "high"
+        assert "msvc6" in data["compatible_profiles"]
+        assert "profile" not in data and "aligned" not in data
+
+    def test_detect_alignment_mismatch(self, tmp_path: Path, monkeypatch) -> None:
+        """A project profile that cannot byte-match the detection is flagged."""
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+        from rebrew.toolchain_detect import ToolchainInfo
+
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\nname = "t"\ndefault_target = "main"\n'
+            '[targets."main"]\nbinary = "original/x.exe"\n'
+            '[compiler]\nprofile = "msvc6"\n'
+        )
+        bin_path = tmp_path / "x.exe"
+        bin_path.write_bytes(b"MZ\x90\x00")
+        monkeypatch.chdir(tmp_path)
+        info = ToolchainInfo(
+            family="msvc",
+            version_hint="16-bit MSVC-style NE",
+            confidence="medium",
+            detected_by="heuristics",
+            arch="x86_16",
+        )
+        monkeypatch.setattr("rebrew.toolchain_detect.detect_toolchain", lambda p: info)
+        result = CliRunner().invoke(umbrella, ["toolchain", "detect", "x.exe", "--json"])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.stdout)
+        assert data["profile"] == "msvc6"
+        assert data["aligned"] is False
+        assert "msvc1.52" in data["explanation"]
+
+    def test_detect_missing_binary_errors(self, tmp_path: Path, monkeypatch) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(umbrella, ["toolchain", "detect", "nope.exe", "--json"])
+        assert result.exit_code == 2
+        data = json.loads(result.stdout)
+        assert data["error"] and data["code"] == 2
 
     def test_build_host_only_errors(self, monkeypatch) -> None:
         from typer.testing import CliRunner
@@ -255,6 +334,35 @@ class TestResolveBinaryCaseInsensitive:
             host_path=str(tmp_path),
         )
         assert _resolve_binary(spec) == str(tmp_path / "Bin" / "cl")
+
+    def test_exe_suffix_tolerated_in_subdir(self, tmp_path: Path) -> None:
+        """binary="cl" must resolve CL.EXE in the host_bin subdir (vendored
+        Windows trees store the .exe; specs name the bare binary)."""
+        from rebrew.toolchain import ToolchainSpec, _resolve_binary
+
+        (tmp_path / "Bin").mkdir()
+        (tmp_path / "Bin" / "CL.EXE").write_bytes(b"")
+        spec = ToolchainSpec(
+            name="msvc5",
+            image=None,
+            binary="cl",
+            host_bin="Bin",
+            host_path=str(tmp_path),
+        )
+        assert _resolve_binary(spec) == str(tmp_path / "Bin" / "CL.EXE")
+
+    def test_exe_suffix_tolerated_at_root(self, tmp_path: Path) -> None:
+        """binary="cl" must also resolve cl.exe directly in host_path."""
+        from rebrew.toolchain import ToolchainSpec, _resolve_binary
+
+        (tmp_path / "cl.exe").write_bytes(b"")
+        spec = ToolchainSpec(
+            name="msvc5",
+            image=None,
+            binary="cl",
+            host_path=str(tmp_path),
+        )
+        assert _resolve_binary(spec) == str(tmp_path / "cl.exe")
 
     def test_status_uses_shared_resolver(self, monkeypatch, tmp_path: Path) -> None:
         """toolchain status must agree with _resolve_binary (case-insensitive

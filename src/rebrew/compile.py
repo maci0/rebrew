@@ -304,6 +304,17 @@ def resolve_cl_command(cfg: ProjectConfig) -> list[str]:
         cl_abs = found or str(cfg.root / cl_rel)
     else:
         cl_abs = str(cfg.root / cl_rel) if not cl_rel.is_absolute() else str(cl_rel)
+        if not cl_rel.is_absolute():
+            cl_path = Path(cl_abs)
+            if not cl_path.exists():
+                # Project-local tools/ absent (no --link-tools-from)?  Fall
+                # back to the rebrew install's own vendored tree so fresh
+                # projects compile out of the box.
+                from rebrew.utils import find_install_tool
+
+                alt = find_install_tool(cl_rel)
+                if alt is not None:
+                    cl_abs = str(alt)
     command = [cl_abs, *cmd_parts[1:]]
     if runner:
         return [runner, *command]

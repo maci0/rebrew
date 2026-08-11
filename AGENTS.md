@@ -177,7 +177,7 @@ src/rebrew/
 ├── msvc16.py            # MSVC 1.52 (16-bit) compile support — DOSBox + OMF object
 ├── dosbox.py            # Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads)
 ├── toolchain.py         # Toolchain abstraction: spec registry, docker-first runner, host fallback
-├── toolchain_cli.py     # `rebrew toolchain` CLI (list/status/pull)
+├── toolchain_cli.py     # `rebrew toolchain` CLI (list/status/detect/pull/build)
 ├── toolchain-images/    # Dockerfiles per toolchain (Godbolt-style: image = toolchain + wrapper)
 ├── cu_map.py            # Compilation unit boundary inference (contiguity + call graph)
 ├── todo.py              # Prioritized action list: what to work on next
