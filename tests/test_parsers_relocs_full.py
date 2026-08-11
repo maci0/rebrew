@@ -309,3 +309,15 @@ def test_msvc16_omf_far_code_model() -> None:
     assert code_c is not None
     assert code_c.hex() == "9a0000000003060000cb"  # lcall + patch slot
     assert relocs_c == {1: "far16", 7: "disp16"}
+
+
+def test_parse_obj_symbol_bytes_handles_omf() -> None:
+    """parse_obj_symbol_bytes must route OMF (16-bit MSVC) through the
+    built-in parser — the GA flag sweep for msvc1.52 depends on it."""
+    from rebrew.matcher.parsers import parse_obj_symbol_bytes
+
+    obj = _FIXTURES / "tg_msvc16.obj"
+    code, relocs = parse_obj_symbol_bytes(obj, "_add")
+    assert code is not None
+    assert code[:2] == bytes.fromhex("55 8b")
+    assert relocs == {7: "rel16", 18: "rel16"}

@@ -18,6 +18,7 @@ import subprocess
 import tempfile
 import warnings
 from pathlib import Path
+from typing import Any
 
 from rebrew.compile_cache import CompileCache, compile_cache_key
 from rebrew.utils import safe_shlex_split
@@ -238,6 +239,8 @@ def build_candidate_obj_only(
     timeout: int = 60,
     extra_include_dirs: list[str] | None = None,
     posix_style: bool = False,
+    profile: str = "",
+    cfg: Any = None,
 ) -> BuildResult:
     """Compile source to .obj and extract symbol bytes (no linking).
 
@@ -245,7 +248,53 @@ def build_candidate_obj_only(
     keyed by ``(source_content, source_filename, cflags, include_dirs,
     toolchain_id, source_ext)``.  On cache hit only the fast LIEF symbol
     extraction runs, skipping the 200-500 ms Wine/wibo subprocess entirely.
+
+    Toolchain-backed profiles (``watcom``, ``msvc1.52``) route through the
+    shared ``compile_to_obj`` runner (docker image or vendored host binary)
+    instead of the raw subprocess path — this is how the 16-bit / Watcom
+    flag sweeps actually reach the compiler.
     """
+    if profile in ("watcom", "msvc1.52"):
+        if cfg is None:
+            from types import SimpleNamespace
+
+            cfg = SimpleNamespace(
+                root=Path.cwd(),
+                compiler_profile=profile,
+                compiler_command=cl_cmd,
+                compiler_includes=inc_dir,
+                base_cflags="",
+                compile_timeout=timeout,
+            )
+        from rebrew.compile import compile_to_obj
+
+        with tempfile.TemporaryDirectory(prefix="matcher_") as _td:
+            # Write the source into a *sibling* dir of the compile workdir:
+            # compile_to_obj copies source_path -> workdir, which fails when
+            # they are already the same path.
+            base = Path(_td)
+            src_dir = base / "src"
+            src_dir.mkdir()
+            src_path = src_dir / f"cand{source_ext}"
+            src_path.write_text(source_code, encoding="utf-8")
+            workdir = base / "work"
+            workdir.mkdir()
+            obj_file, err = compile_to_obj(
+                cfg,
+                src_path,
+                shlex.split(cflags),
+                workdir,
+                use_cache=cache is not None,
+                cache=cache,
+                obj_name="cand.obj",
+            )
+            if obj_file is None:
+                return BuildResult(ok=False, error_msg=f"Compile failed: {err}")
+            code, relocs = parse_obj_symbol_bytes(str(obj_file), symbol)
+            if code is None:
+                return BuildResult(ok=False, error_msg=f"Symbol {symbol} not found in .obj")
+            return BuildResult(ok=True, obj_bytes=code, reloc_offsets=relocs)
+
     src_name = f"cand{source_ext}"
     all_flags = shlex.split(cflags)
     extra_inc = extra_include_dirs or []
@@ -410,6 +459,8 @@ def flag_sweep(
     timeout: int = 60,
     extra_include_dirs: list[str] | None = None,
     posix_style: bool = False,
+    profile: str = "",
+    cfg: Any = None,
 ) -> list[tuple[float, str]]:
     """Sweep compiler flags to find the best match.
 
@@ -426,13 +477,17 @@ def flag_sweep(
         source_ext: Extension of the source file.
         cache: Optional ``CompileCache`` for cross-run persistence.
         timeout: Subprocess timeout in seconds.
+        profile: Compiler profile id ("msvc6", "watcom", "msvc1.52", ...) —
+            selects the flag set and (for toolchain-backed profiles) the
+            compile runner.
+        cfg: Optional project config for toolchain-backed compile routing.
 
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     from .scoring import precompute_target, score_candidate
 
-    combos = generate_flag_combinations(tier=tier)
+    combos = generate_flag_combinations(tier=tier, profile=profile)
     log.info("Sweeping %d flag combinations (tier=%s)...", len(combos), tier)
 
     # Pre-compute target normalization and mnemonics once for all workers
@@ -456,6 +511,8 @@ def flag_sweep(
             timeout=timeout,
             extra_include_dirs=extra_include_dirs,
             posix_style=posix_style,
+            profile=profile,
+            cfg=cfg,
         )
         if res.ok and res.obj_bytes:
             score = score_candidate(

@@ -1857,6 +1857,8 @@ def _run_single_flag_sweep(
         cache=p.cc,
         timeout=p.cfg.compile_timeout,
         extra_include_dirs=[str(p.seed_c.parent.resolve())],
+        profile=getattr(p.cfg, "compiler_profile", ""),
+        cfg=p.cfg,
     )
 
     sim_res = None
@@ -1870,6 +1872,8 @@ def _run_single_flag_sweep(
         cache=p.cc,
         timeout=p.cfg.compile_timeout,
         posix_style=getattr(p.cfg, "posix_style", False),
+        profile=getattr(p.cfg, "compiler_profile", ""),
+        cfg=p.cfg,
     )
     if res.ok and res.obj_bytes:
         obj_bytes = res.obj_bytes
@@ -1965,6 +1969,8 @@ def run_flag_sweep(
         cache=cc,
         extra_include_dirs=[str(filepath.parent.resolve())],
         timeout=cfg.compile_timeout,
+        profile=getattr(cfg, "compiler_profile", ""),
+        cfg=cfg,
     )
 
     if not results:
