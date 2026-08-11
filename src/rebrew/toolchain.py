@@ -273,6 +273,17 @@ def run_toolchain(
         return RunResult(r.returncode, r.stdout, r.stderr, backend="docker")
 
     # Host fallback.
+    if spec.runtime == "dosbox":
+        # A DOS binary cannot be exec'd natively; the DOSBox sandbox lives
+        # in the toolchain modules (rebrew.msvc16.compile_c for msvc1.52,
+        # rebrew.delphi16.compile_ne for delphi16) — compile_to_obj routes
+        # there already.  A direct run_toolchain call has no DOSBox glue,
+        # so fail clearly instead of exec'ing a DOS executable.
+        raise ToolchainError(
+            f"toolchain {spec.name!r} is dosbox-runtime: no host fallback in run_toolchain "
+            f"(image {spec.image or 'n/a'} not pulled). Use rebrew.msvc16.compile_c / "
+            f"rebrew.delphi16.compile_ne for host-side compilation."
+        )
     binary = _resolve_binary(spec)
     env = dict(os.environ)
     if spec.runtime == "wine":
