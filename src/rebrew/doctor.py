@@ -770,6 +770,7 @@ def run_doctor(target: str | None = None) -> DoctorReport:
     report.checks.append(check_target_binary(cfg))
     report.checks.append(check_arch_format(cfg))
     report.checks.append(check_toolchain_alignment(cfg))
+    report.checks.append(check_crt_linkage(cfg))
     report.checks.append(check_delphi16_toolchain(cfg))
     report.checks.append(check_toolchain_backed(cfg))
     report.checks.append(check_compiler(cfg))
@@ -1078,4 +1079,46 @@ def check_ghidra_sync(cfg: ProjectConfig) -> CheckResult:
         name="Ghidra sync",
         status=_PASS,
         message=f"ReVa backend ready (program: {program_path})",
+    )
+
+
+def check_crt_linkage(cfg: ProjectConfig) -> CheckResult:
+    """Check that base_cflags matches the binary's detected CRT linkage.
+
+    A dynamic CRT (``msvcrt.dll`` import) needs ``/MD``; a statically
+    linked CRT needs ``/MT``.  Compiling libc-calling functions with the
+    wrong linkage breaks byte-matching at every CRT call site (memcpy
+    becomes a rel32 call instead of an IAT call), so flag the mismatch
+    with the fix.
+    """
+    binary = getattr(cfg, "target_binary", None)
+    if binary is None or not Path(binary).exists():
+        return CheckResult(name="CRT linkage", status=_SKIP, message="binary not available")
+    profile = getattr(cfg, "compiler_profile", "") or ""
+    if not profile.startswith("msvc"):
+        return CheckResult(name="CRT linkage", status=_SKIP, message="non-msvc profile")
+
+    from rebrew.toolchain_detect import detect_toolchain
+
+    try:
+        info = detect_toolchain(binary)
+    except Exception:
+        return CheckResult(name="CRT linkage", status=_SKIP, message="detection failed")
+    if not info.base_cflags:
+        return CheckResult(name="CRT linkage", status=_SKIP, message="CRT linkage not identifiable")
+
+    base_cflags = getattr(cfg, "base_cflags", "") or ""
+    detected = info.base_cflags  # e.g. "/MD" or "/MT"
+    if detected in base_cflags:
+        return CheckResult(
+            name="CRT linkage",
+            status=_PASS,
+            message=f"{info.crt} ({info.crt_linkage}) — base_cflags matches ({detected})",
+        )
+    return CheckResult(
+        name="CRT linkage",
+        status=_WARN,
+        message=f"{info.crt} ({info.crt_linkage}) needs base_cflags {detected}, "
+        f"project has '{base_cflags or '(unset)'}'",
+        fix=f'Set base_cflags = "/nologo /c {detected}" in rebrew-project.toml',
     )
