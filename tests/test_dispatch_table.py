@@ -173,3 +173,43 @@ class TestFindDispatchTables:
 
         tables = find_dispatch_tables(binary, sections, {}, min_entries=3)
         assert len(tables) == 0
+
+
+class TestNeDispatchTables:
+    """find_dispatch_tables with an NE BinaryInfo finds far-pointer VMTs."""
+
+    def test_ne_vmt_detected(self, tmp_path: Path) -> None:
+        from test_ne_loader import _build_ne
+
+        from rebrew.binary_loader import load_binary
+
+        # Code segment: 3 functions with push bp prologs (so enumeration is
+        # not even needed — the dispatch scan just needs pointer targets in
+        # the code segment's range).
+        code = (
+            b"\x01\x00"
+            + bytes.fromhex("55 8b ec 5d c3")  # fn @ 0x2
+            + b"\x00" * 8
+            + bytes.fromhex("55 8b ec 5d c3")  # fn @ 0x10
+            + b"\x00" * 8
+            + bytes.fromhex("55 8b ec 5d c3")  # fn @ 0x1e
+            + b"\x00" * 8
+        )
+        # Data segment: a VMT of 4 far pointers (off, seg) -> synthetic VAs
+        # 0x10002, 0x10010, 0x1001e, 0x10002.
+        vmt = b"\x02\x00\x01\x00\x10\x00\x01\x00\x1e\x00\x01\x00\x02\x00\x01\x00"
+        data = b"\x02\x00" + vmt + b"\x00" * 32
+        raw = _build_ne(segments=[(code, 0x01), (data, 0x00)], autodata=2)
+        p = tmp_path / "app.ne"
+        p.write_bytes(raw)
+        info = load_binary(p)
+
+        from rebrew.binary_loader import section_dict
+        from rebrew.data import find_dispatch_tables
+
+        sec_dict = section_dict(info)
+        tables = find_dispatch_tables(info.data, sec_dict, {}, min_entries=3, info=info)
+        assert len(tables) == 1
+        assert tables[0].num_entries == 4
+        targets = {e.target_va for e in tables[0].entries}
+        assert 0x10002 in targets and 0x10010 in targets and 0x1001E in targets

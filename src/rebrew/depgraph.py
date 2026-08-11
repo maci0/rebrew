@@ -610,6 +610,7 @@ def main(
                 known_functions,
                 min_entries=min_table_len,
                 max_stride=max_pointer_stride,
+                info=info,
             )
         except (ImportError, OSError, ValueError) as exc:
             error_exit(f"Failed to load dispatch tables: {exc}", json_mode=json_output)

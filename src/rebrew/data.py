@@ -389,33 +389,52 @@ def find_dispatch_tables(
     ptr_size: int = 4,
     min_entries: int = 3,
     max_stride: int | None = None,
+    info: Any = None,
 ) -> list[DispatchTable]:
     """Detect dispatch tables / vtables in data sections.
 
-    Scans ``.data`` and ``.rdata`` sections for contiguous pointer-sized entries
-    that all point into ``.text``.  Groups consecutive entries into tables.
+    Scans data sections for contiguous pointer-sized entries that all point
+    into code sections.  Groups consecutive entries into tables.
+
+    For 16-bit NE binaries (*info* provided, ``format == "ne"``), the code
+    sections are the code segments (probe-classified) and the data sections
+    the rest; a far pointer ``seg:off`` stored little-endian as 4 bytes
+    decodes to the synthetic flat VA ``(seg << 16) | off`` — exactly the
+    format the NE loader assigns, so the pointer-into-code check works
+    unchanged.  This finds Borland Delphi VMTs (arrays of far pointers to
+    methods).
 
     Args:
         binary_data: Raw binary file bytes.
         sections: Section dict from binary_loader ({name: {va, size, file_offset, raw_size}}).
         known_functions: Map of VA -> {"name": str, "status": str} for reversed funcs.
-        ptr_size: Pointer size in bytes (4 for 32-bit PE).
+        ptr_size: Pointer size in bytes (4 for 32-bit PE and 16-bit far pointers).
         min_entries: Minimum entries to qualify as a dispatch table.
         max_stride: Maximum byte distance between consecutive pointer-sized slots to still
             be considered part of the same table.  Defaults to ``ptr_size`` (contiguous).
-            Raising this allows sparse tables (e.g. mixed-payload entries) to be detected.
+        info: Optional BinaryInfo; enables NE-aware section selection.
 
     """
     stride = max_stride if max_stride is not None else ptr_size
 
-    text_sec = sections.get(".text")
-    if not text_sec:
-        return []
-
-    text_va = text_sec["va"]
-    text_end = text_va + text_sec["size"]
-
-    data_sections = [(name, sec) for name, sec in sections.items() if name in (".data", ".rdata")]
+    if info is not None and info.format == "ne":
+        ne_segs = info.ne_segments
+        code_names = [f"SEG{s.index}" for s in ne_segs if s.is_code]
+        data_names = [f"SEG{s.index}" for s in ne_segs if not s.is_code]
+        code_ranges = [
+            (sections[n]["va"], sections[n]["va"] + sections[n]["size"])
+            for n in code_names
+            if n in sections
+        ]
+        data_sections = [(n, sections[n]) for n in data_names if n in sections]
+    else:
+        text_sec = sections.get(".text")
+        if not text_sec:
+            return []
+        code_ranges = [(text_sec["va"], text_sec["va"] + text_sec["size"])]
+        data_sections = [
+            (name, sec) for name, sec in sections.items() if name in (".data", ".rdata")
+        ]
 
     fmt = "<I" if ptr_size == 4 else "<Q"
     tables: list[DispatchTable] = []
@@ -424,6 +443,13 @@ def find_dispatch_tables(
         sec_offset = sec.get("file_offset", 0)
         sec_raw_size = sec.get("raw_size", sec.get("size", 0))
         sec_va = sec["va"]
+
+        # NE data segments carry the 2-byte Borland index marker before their
+        # content — the VMT far pointers start after it.
+        if info is not None and info.format == "ne":
+            sec_offset += 2
+            sec_raw_size = max(0, sec_raw_size - 2)
+            sec_va += 2
 
         if sec_offset + sec_raw_size > len(binary_data):
             continue
@@ -457,8 +483,8 @@ def find_dispatch_tables(
             val = struct.unpack_from(fmt, sec_bytes, i)[0]
             entry_va = sec_va + i
 
-            if text_va <= val < text_end:
-                # This looks like a function pointer into .text
+            if any(lo <= val < hi for lo, hi in code_ranges):
+                # This looks like a function pointer into a code section
                 gap = (i - last_ptr_i) if last_ptr_i is not None else 0
                 if current_entries and gap > stride:
                     # Gap exceeds the stride — the table ended; start a new run.
@@ -1285,6 +1311,7 @@ def main(
             known_functions,
             min_entries=min_table_len,
             max_stride=max_pointer_stride,
+            info=bin_info,
         )
 
         if json_output:
