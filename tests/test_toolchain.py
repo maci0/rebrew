@@ -51,6 +51,18 @@ class TestRegistry:
         assert spec.binary == "DCC.EXE"
         assert spec.image_binary is None
 
+    def test_family_derived_from_image_tag(self) -> None:
+        """The toolchain-images/ top-level dir is the unversioned family
+        (Godbolt-style), derived from the image repository — never the
+        version-encoded profile id (msvc1.52 -> msvc/, delphi16 ->
+        delphi/)."""
+        assert TOOLCHAINS["msvc6"].family == "msvc"
+        assert TOOLCHAINS["msvc1.52"].family == "msvc"
+        assert TOOLCHAINS["delphi16"].family == "delphi"
+        assert TOOLCHAINS["watcom"].family == "watcom"
+        # host-only spec: falls back to its name
+        assert TOOLCHAINS["gcc-pe"].family == "gcc-pe"
+
 
 class TestRunToolchain:
     def test_docker_backend_uses_image_and_mount(self, tmp_path: Path, monkeypatch) -> None:

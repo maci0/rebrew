@@ -39,7 +39,7 @@ class ToolchainSpec:
     """How to invoke one compiler version."""
 
     name: str  # e.g. "msvc6", "delphi16", "watcom"
-    image: str | None  # docker image tag, e.g. "rebrew/msvc6:latest"; None = host-only
+    image: str | None  # docker image tag, e.g. "rebrew/msvc:6.0-linux-x64"; None = host-only
     binary: str = ""  # host executable name (vendored dir / PATH)
     image_binary: str | None = None  # entry binary inside the container (a shim,
     # e.g. "dcc" wrapping DCC.EXE); defaults to *binary*
@@ -51,6 +51,19 @@ class ToolchainSpec:
     host_bin: str = "Bin"  # subdir of host_path holding the compiler (Bin for
     # MSVC, binl for Watcom, "" for the root — Delphi)
     description: str = ""
+
+    @property
+    def family(self) -> str:
+        """Unversioned compiler family — the toolchain-images/ top-level dir.
+
+        Derived from the image repository basename (``rebrew/msvc:…`` ->
+        ``msvc``) so the folder layout and the image tag can never drift.
+        Host-only specs have no image: fall back to the name (gcc-pe).
+        """
+        if self.image and ":" in self.image:
+            repo = self.image.rsplit(":", 1)[0]
+            return repo.rsplit("/", 1)[-1]
+        return self.name
 
 
 @dataclass
@@ -82,7 +95,7 @@ def _vendored(sub: str) -> Path:
 TOOLCHAINS: dict[str, ToolchainSpec] = {
     "msvc6": ToolchainSpec(
         name="msvc6",
-        image="rebrew/msvc6:6.0-linux-x64",
+        image="rebrew/msvc:6.0-linux-x64",
         binary="cl",
         runtime="wine",
         flags_style="msvc",
@@ -92,7 +105,7 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
     ),
     "delphi16": ToolchainSpec(
         name="delphi16",
-        image="rebrew/delphi16:1.0-linux-x64",
+        image="rebrew/delphi:1.0-linux-x64",
         binary="DCC.EXE",
         image_binary=None,  # the image ENTRYPOINT is the dcc wrapper
         runtime="dosbox",
@@ -124,7 +137,7 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
     ),
     "msvc1.52": ToolchainSpec(
         name="msvc1.52",
-        image="rebrew/msvc152:1.52-linux-x64",
+        image="rebrew/msvc:1.52-linux-x64",
         binary="CL.EXE",
         image_binary=None,  # the image ENTRYPOINT is the cl16 wrapper
         runtime="dosbox",

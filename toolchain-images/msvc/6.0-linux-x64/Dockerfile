@@ -4,8 +4,8 @@
 # command-line toolchain (5 MB tarball); the image adds wine and exposes a
 # `cl` wrapper that translates POSIX-ish argv into wine + MSVC calls.
 #
-# Build:  docker build -t rebrew/msvc6:6.0-linux-x64 toolchain-images/msvc6/6.0-linux-x64
-# Invoke: docker run --rm -v "$PWD":/work -w /work rebrew/msvc6:6.0-linux-x64 cl /c f.c
+# Build:  docker build -t rebrew/msvc:6.0-linux-x64 toolchain-images/msvc/6.0-linux-x64
+# Invoke: docker run --rm -v "$PWD":/work -w /work rebrew/msvc:6.0-linux-x64 cl /c f.c
 
 FROM debian:bookworm-slim
 

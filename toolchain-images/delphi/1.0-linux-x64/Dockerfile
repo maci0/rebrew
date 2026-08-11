@@ -6,8 +6,8 @@
 # sandbox — DOSBox 0.74-3 breaks on tmpfs) and runs DCC headless, writing
 # the .EXE back to the mounted /work.
 #
-# Build:  docker build -t rebrew/delphi16:1.0-linux-x64 toolchain-images/delphi16/1.0-linux-x64
-# Invoke: docker run --rm -v "$PWD":/work -w /work rebrew/delphi16:1.0-linux-x64 dcc hello.dpr
+# Build:  docker build -t rebrew/delphi:1.0-linux-x64 toolchain-images/delphi/1.0-linux-x64
+# Invoke: docker run --rm -v "$PWD":/work -w /work rebrew/delphi:1.0-linux-x64 dcc hello.dpr
 
 FROM debian:bookworm-slim
 

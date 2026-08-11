@@ -4,8 +4,8 @@
 # and the `cl16` wrapper stages them into a fresh C: drive, runs
 # CL.EXE /c headless, and writes the .OBJ back to the mounted /work.
 #
-# Build:  docker build -t rebrew/msvc152:1.52-linux-x64 toolchain-images/msvc152/1.52-linux-x64
-# Invoke: docker run --rm -v "$PWD":/work -w /work rebrew/msvc152:1.52-linux-x64 cl16 /c test.c
+# Build:  docker build -t rebrew/msvc:1.52-linux-x64 toolchain-images/msvc/1.52-linux-x64
+# Invoke: docker run --rm -v "$PWD":/work -w /work rebrew/msvc:1.52-linux-x64 cl16 /c test.c
 
 FROM debian:bookworm-slim
 

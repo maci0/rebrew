@@ -585,8 +585,8 @@ Standardized toolchain management — the docker-first abstraction
 | `list` | List known toolchains + how each is invoked (`--json`) |
 | `status NAME` | How one toolchain resolves (image pulled? host binary present?) |
 | `pull NAME` | Pull a toolchain's docker image |
-| `build NAME` | Build a toolchain's docker image from its `toolchain-images/<name>/<ver>-<arch>/Dockerfile` |
-| `build NAME` | Build a toolchain's docker image from its `toolchain-images/<name>/<ver>-<arch>/Dockerfile` |
+| `build NAME` | Build a toolchain's docker image from its `toolchain-images/<family>/<ver>-<arch>/Dockerfile` |
+| `build NAME` | Build a toolchain's docker image from its `toolchain-images/<family>/<ver>-<arch>/Dockerfile` |
 
 ### `rebrew binsync-export`
 

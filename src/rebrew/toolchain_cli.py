@@ -152,7 +152,7 @@ def build_cmd(
             console.print(f"[red]Error:[/red] {msg}")
         raise typer.Exit(code=2)
     tag, verarch = spec.image.rsplit(":", 1)
-    build_dir = Path(__file__).resolve().parents[2] / "toolchain-images" / name / verarch
+    build_dir = Path(__file__).resolve().parents[2] / "toolchain-images" / spec.family / verarch
     if not (build_dir / "Dockerfile").exists():
         msg = f"no Dockerfile at {build_dir}"
         if json_output:

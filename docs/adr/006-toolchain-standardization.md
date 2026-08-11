@@ -26,7 +26,10 @@ finicky installer — build once, share).
   host path) and a runner that picks backend in order: **docker image
   present → vendored host path → PATH binary**.
 - `rebrew toolchain list/status/pull` exposes the registry.
-- `toolchain-images/<name>/Dockerfile` are the canonical build specs.
+- `toolchain-images/<family>/<version>-<arch>/Dockerfile` are the
+  canonical build specs (top-level dir = unversioned family — `msvc/`,
+  `delphi/`, `watcom/` — so version and arch appear exactly once, in the
+  subdir and image tag).
 - The shared `rebrew.dosbox` runner (mount a sandbox as `C:`, run
   autoexec, read FAT-uppercased outputs) is reused by both 16-bit
   compilers (delphi16, msvc16).
