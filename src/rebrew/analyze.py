@@ -723,7 +723,7 @@ def main(
         console.print(f"[bold]Dispatch tables:[/bold] {len(dispatch)} detected")
         for t in dispatch[:10]:
             console.print(
-                f"  [dim]0x{t['va']}[/dim] ({t['section']}, {t['entries']} entries, {t['resolved']} resolved)"
+                f"  [dim]{t['va']}[/dim] ({t['section']}, {t['entries']} entries, {t['resolved']} resolved)"
             )
 
     library = dossier.get("library") or []
