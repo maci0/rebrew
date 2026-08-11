@@ -770,7 +770,10 @@ def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, 
     # PE/ELF.  This catches the "msvc6 profile on a 16-bit NE project"
     # misconfiguration that silently produces COMPILE_ERROR for every
     # function (skifree16-rebrew regression).
-    _BITNESS_16 = {"msvc1.52", "watcom"}
+    # msvc1.52 is the only 16-bit-capable profile; watcom's wcc386 is a
+    # 32-bit compiler (Open Watcom 2.0 x86-32) and must NOT be flagged as
+    # 16-bit — a detected Watcom 32-bit binary would falsely fail doctor.
+    _BITNESS_16 = {"msvc1.52"}
     if info.arch == "x86_16" and profile not in _BITNESS_16:
         return (
             False,

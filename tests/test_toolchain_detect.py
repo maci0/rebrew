@@ -520,3 +520,16 @@ class TestNEStringDetection:
         info = ToolchainInfo(family="msvc", arch="")
         aligned, _ = profile_matches_detection("msvc6", info)
         assert aligned is True
+
+    def test_watcom_32bit_not_rejected(self) -> None:
+        """watcom's wcc386 is a 32-bit compiler — a detected Watcom 32-bit
+        binary must pass alignment (regression: watcom was wrongly in the
+        16-bit-only set, false-failing doctor on Watcom PE targets)."""
+        info = ToolchainInfo(family="watcom", arch="x86_32")
+        aligned, expl = profile_matches_detection("watcom", info)
+        assert aligned is True, expl
+
+    def test_watcom_unknown_arch_not_rejected(self) -> None:
+        info = ToolchainInfo(family="watcom", arch="")
+        aligned, expl = profile_matches_detection("watcom", info)
+        assert aligned is True, expl
