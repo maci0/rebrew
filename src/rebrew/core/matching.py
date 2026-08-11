@@ -78,11 +78,17 @@ def build_symbol_resolver(
 
 
 def build_iat_region(cfg: ProjectConfig) -> set[int]:
-    """Return the set of import-address-slot VAs (the PE IAT).
+    """Return the set of import-related slot VAs to mask in comparisons.
 
     Used by :func:`smart_reloc_compare` to mask DIR32 slots whose target
-    value lands inside the import table.  IAT entries are linker-filled
-    pointers — a catalog name↔VA mismatch there (e.g. swapped ordinal
+    value lands in a linker-filled pointer region:
+
+    - the PE **import-address table** (``imp.iat_address``), and
+    - configured ``iat_thunks`` (jmp-stub trampolines, e.g.
+      ``ff 25 <addr>`` in ``.text``) — a function calling *through* a stub
+      dereferences the stub address, not the IAT slot.
+
+    A catalog name↔VA mismatch in these regions (e.g. swapped ordinal
     import names, common for ws2_32) must not demote a RELOC match into a
     byte mismatch.  Returns ``{}`` when the binary can't be loaded or has
     no import table.
@@ -90,16 +96,20 @@ def build_iat_region(cfg: ProjectConfig) -> set[int]:
     binary = getattr(cfg, "target_binary", None)
     if not binary or not Path(binary).exists():
         return set()
+    region: set[int] = set()
+    # Configured jmp-stub trampolines first (works even without LIEF).
+    for va in getattr(cfg, "iat_thunks", None) or []:
+        if isinstance(va, int) and va:
+            region.add(va & 0xFFFFFFFF)
     try:
         import lief
 
         if not lief.is_pe(str(binary)):
-            return set()
+            return region or set()
         pe = lief.PE.parse(str(binary))
         if pe is None:
-            return set()
+            return region or set()
         image_base = int(getattr(pe, "imagebase", 0) or 0)
-        region: set[int] = set()
         for entry in pe.imports:
             for imp in entry.entries:
                 va = int(getattr(imp, "iat_address", 0) or 0)
@@ -109,7 +119,7 @@ def build_iat_region(cfg: ProjectConfig) -> set[int]:
                     region.add((va + image_base) & 0xFFFFFFFF)
         return region
     except Exception:
-        return set()
+        return region or set()
 
 
 def build_name_to_va(cfg: ProjectConfig) -> dict[str, int]:
