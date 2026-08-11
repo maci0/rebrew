@@ -9,6 +9,7 @@ invoked (docker image vs vendored path vs PATH binary).
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import typer
@@ -123,6 +124,59 @@ def pull_cmd(
         json_print({"pulled": tag})
     else:
         console.print(f"[green]Pulled[/green] {tag}")
+
+
+@app.command("build")
+def build_cmd(
+    name: str = typer.Argument(..., help="Toolchain name (e.g. watcom, msvc6)"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+) -> None:
+    """Build a toolchain's docker image from toolchain-images/<name>/<ver>-<arch>/Dockerfile."""
+    import subprocess
+
+    from rebrew.toolchain import get_toolchain
+
+    spec = get_toolchain(name)
+    if spec.image is None:
+        msg = f"toolchain {name!r} is host-only (no image to build)"
+        if json_output:
+            json_print({"error": msg, "code": 2})
+        else:
+            console.print(f"[red]Error:[/red] {msg}")
+        raise typer.Exit(code=2)
+    if spec.image is None or ":" not in spec.image:
+        msg = f"toolchain {name!r} image tag {spec.image!r} has no version-arch tag"
+        if json_output:
+            json_print({"error": msg, "code": 2})
+        else:
+            console.print(f"[red]Error:[/red] {msg}")
+        raise typer.Exit(code=2)
+    tag, verarch = spec.image.rsplit(":", 1)
+    build_dir = Path(__file__).resolve().parents[2] / "toolchain-images" / name / verarch
+    if not (build_dir / "Dockerfile").exists():
+        msg = f"no Dockerfile at {build_dir}"
+        if json_output:
+            json_print({"error": msg, "code": 2})
+        else:
+            console.print(f"[red]Error:[/red] {msg}")
+        raise typer.Exit(code=2)
+    r = subprocess.run(
+        ["docker", "build", "-t", spec.image, str(build_dir)],
+        capture_output=True,
+        text=True,
+        timeout=3600,
+    )
+    if r.returncode != 0:
+        msg = f"docker build {spec.image} failed: {r.stderr[-300:]}"
+        if json_output:
+            json_print({"error": msg, "code": 2})
+        else:
+            console.print(f"[red]Error:[/red] {msg}")
+        raise typer.Exit(code=2)
+    if json_output:
+        json_print({"built": spec.image})
+    else:
+        console.print(f"[green]Built[/green] {spec.image}")
 
 
 def main_entry() -> None:
