@@ -501,6 +501,14 @@ NASM-style listing (`--nas`).  `--imports`/`--strings`/`--hints` annotate the
 listing with IAT imports, referenced strings, and codegen hints; `--json`
 emits the structured instruction list (address, bytes, mnemonic, operands).
 
+Both outputs include the inferred **calling convention** (cdecl / stdcall /
+thiscall / thiscall-with-no-stack-args / ctor thunk / EH-guard thunk),
+derived from the epilogue (`ret` vs `ret N`) and this-pointer usage (ECX
+dereferenced or saved to ESI/EDI/EBX without a prior memory load).  This is
+the per-function answer that determines the C signature — `__stdcall`,
+`__fastcall` this emulation, or naked asm for thiscall-with-stack-args on
+MSVC 5.0 — before writing any code.
+
 ### `rebrew imports`
 
 `rebrew imports [--json] [--target NAME]`

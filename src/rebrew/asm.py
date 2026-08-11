@@ -179,6 +179,79 @@ def _hint_for(insns: list[Any], i: int) -> str | None:
     return None
 
 
+def _calling_convention(insns: list[Any]) -> str:
+    """Infer the calling convention from a disassembled function.
+
+    Rules (x86/32, MSVC-flavoured):
+    - ends in a plain ``ret`` → cdecl (caller cleans).
+    - ends in ``ret N`` → stdcall or thiscall; if ECX is used as a pointer
+      (``[ecx`` memory access) or saved to a callee-saved register early
+      (``mov esi, ecx``) → thiscall, else stdcall.
+    - ends in an unconditional ``jmp`` → tail call / thunk; ``mov ecx, imm``
+      opening → thiscall ctor thunk; ``mov ecx, [ebp-X]`` opening → EH-guard
+      thunk; otherwise a generic tail-call thunk.
+    - no terminator found → unknown.
+
+    This is the per-function calling-convention answer that every manual
+    decompilation pass re-derives from the epilogue — surfaced here so the
+    C signature (``__stdcall`` vs ``__fastcall``/``__thiscall`` emulation vs
+    naked asm) is known before writing a single line.
+    """
+    if not insns:
+        return "unknown"
+    first = insns[0]
+    # If the very first instruction loads ecx from memory (`mov ecx,[esp+4]`
+    # passing an argument), ecx is NOT the this pointer — a thiscall keeps
+    # the incoming this in ecx untouched.
+    loads_ecx_from_mem_first = (
+        first.mnemonic == "mov"
+        and first.op_str.startswith("ecx, ")
+        and "[" in first.op_str
+    )
+    ecx_as_this = not loads_ecx_from_mem_first and any(
+        "[ecx" in i.op_str
+        or (
+            i.mnemonic == "mov"
+            and "," in i.op_str
+            and i.op_str.split(",")[1].strip() == "ecx"
+            and i.op_str.split(",")[0].strip() in ("esi", "edi", "ebx")
+        )
+        for i in insns[:10]
+    )
+    # The extraction can run past the function's end into the next one.  A
+    # function ends with its LAST ret (early returns precede it); if there is
+    # no ret at all it is a tail-jmp thunk (which has no internal branches).
+    rets = [insn for insn in insns if insn.mnemonic.startswith("ret")]
+    if rets:
+        last = rets[-1]
+    else:
+        jmps = [insn for insn in insns if insn.mnemonic == "jmp"]
+        if not jmps:
+            return "unknown"
+        last = jmps[0]
+    m = last.mnemonic
+    if m == "jmp":
+        first = insns[0]
+        if first.mnemonic == "mov" and "ecx" in first.op_str:
+            if "[" in first.op_str and "ebp" in first.op_str:
+                return "thiscall (EH-guard thunk)"
+            if "0x" in first.op_str:
+                return "thiscall (ctor thunk)"
+        return "tail-call thunk"
+    if m.startswith("ret"):
+        raw = last.op_str
+        try:
+            n = int(raw, 16) if raw.startswith(("0x", "0X")) else int(raw)
+        except ValueError:
+            n = 0
+        if n == 0:
+            # Plain ret: cdecl, or thiscall with NO stack args (ecx=this only
+            # — the caller has nothing to clean).
+            return "thiscall (no stack args)" if ecx_as_this else "cdecl"
+        return "thiscall" if ecx_as_this else "stdcall"
+    return "unknown"
+
+
 def _extract_hex_operand(op_str: str) -> int | None:
     """Return the first ``0x...`` absolute operand, or None."""
     import re
@@ -293,6 +366,7 @@ def _run_hex_mode(
             shown_list = insn_list[shown_offset:]
 
             if json_output:
+                conv = _calling_convention(shown_list)
                 instr_json = []
                 for idx, insn in enumerate(shown_list):
                     entry: dict[str, Any] = {
@@ -314,6 +388,7 @@ def _run_hex_mode(
                         "size": len(data),
                         "requested_size": size,
                         "truncated": truncated,
+                        "calling_convention": conv,
                         "instruction_count": len(shown_list),
                         "instructions": instr_json,
                     }
@@ -325,6 +400,9 @@ def _run_hex_mode(
             )
             if ne_seg is not None:
                 console.print(f"  [dim]SEG{ne_seg}:0x{va_int & 0xFFFF:04x} ({ne_seg_name})[/dim]")
+            conv = _calling_convention(shown_list)
+            if conv != "unknown":
+                console.print(f"  [dim]calling convention: {conv}[/dim]")
             console.print()
             for idx, insn in enumerate(shown_list):
                 hex_bytes = insn.bytes.hex()
