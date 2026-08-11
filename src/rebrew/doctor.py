@@ -496,6 +496,47 @@ def check_delphi16_toolchain(cfg: ProjectConfig) -> CheckResult:
     )
 
 
+def check_toolchain_backed(cfg: ProjectConfig) -> CheckResult:
+    """For profiles backed by the toolchain abstraction (watcom, msvc1.52),
+    report how the toolchain resolves: vendored host binary present, or the
+    docker image pulled.  Replaces the misleading "binary not in PATH" the
+    generic compiler check would give (vendored compilers live under
+    tools/, not PATH).  Skipped for other profiles."""
+    profile = str(getattr(cfg, "compiler_profile", ""))
+    if profile not in ("watcom", "msvc1.52"):
+        return CheckResult(name="Toolchain", status=_SKIP, message="not a toolchain-backed profile")
+
+    from rebrew.toolchain import ToolchainError, _image_present, get_toolchain
+
+    try:
+        spec = get_toolchain(profile)
+    except ToolchainError as exc:
+        return CheckResult(name="Toolchain", status=_FAIL, message=str(exc))
+
+    host_ok = None
+    if spec.host_path is not None:
+        host = Path(spec.host_path)
+        host_ok = (host / spec.binary).exists() or (host / spec.host_bin / spec.binary).exists()
+    image_ok = _image_present(spec.image) if spec.image is not None else None
+
+    ready = bool(host_ok) or bool(image_ok)
+    bits = []
+    if host_ok:
+        bits.append(f"vendored {spec.host_path}")
+    if image_ok:
+        bits.append(f"image {spec.image} pulled")
+    status = _PASS if ready else _WARN
+    if not ready:
+        status = _FAIL
+    message = f"{profile}: {' + '.join(bits) if bits else 'no vendored binary and no image pulled'}"
+    fix = (
+        ""
+        if ready
+        else f"Run `rebrew toolchain pull {profile}` or vendor the toolchain under tools/."
+    )
+    return CheckResult(name="Toolchain", status=status, message=message, fix=fix)
+
+
 def check_runner(cfg: ProjectConfig) -> CheckResult:
     """Check that the configured runner (wine/wibo) is available."""
     runner = str(getattr(cfg, "compiler_runner", "")).strip()
@@ -704,6 +745,7 @@ def run_doctor(target: str | None = None) -> DoctorReport:
     report.checks.append(check_arch_format(cfg))
     report.checks.append(check_toolchain_alignment(cfg))
     report.checks.append(check_delphi16_toolchain(cfg))
+    report.checks.append(check_toolchain_backed(cfg))
     report.checks.append(check_compiler(cfg))
     report.checks.append(check_runner(cfg))
     report.checks.append(check_includes(cfg))

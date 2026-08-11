@@ -20,6 +20,10 @@
   identified from runtime strings (dossier + blocker wording); Watcom
   family now aligns with the `watcom` profile in doctor; `msvc1.52` joins
   the msvc-compatible profile set.
+- **doctor toolchain check**: generic `check_toolchain_backed` reports how
+  the watcom/msvc1.52 toolchains resolve (vendored binary / pulled image)
+  with a `rebrew toolchain pull` fix — no more misleading "not in PATH"
+  for vendored compilers.
 - **Watcom usable in the compile loop**: `rebrew compile` routes the
   `watcom` profile through the toolchain runner (wcc386 `-fo=`/`-I` shape,
   docker image or vendored binary) and `msvc1.52` through
