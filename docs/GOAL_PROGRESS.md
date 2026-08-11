@@ -6350,3 +6350,33 @@ Commits: e187f15 (perf F2/F3/F4). Full suite green (4013 passed).
   single-pass source-scanning redesign remains a documented design item.
 
 Commits: d192758 (test fix), f254c64 (F6/F11/doc#10), 635b846 (F5 revert).
+
+## 2026-08-11 — holiday.exe reversal: 16-bit NE toolchain path
+
+Goal: reverse holiday.exe (Borland Delphi 1.0, NE 6.01 — the German
+"Holiday Island"), improving the toolchain as gaps surfaced.
+
+- **NE parsing** (src/rebrew/ne_loader.py): NE header, segment table (sector
+  math), resident name table (exports), module reference + imported names
+  (Win16 imports).  Segments → BinaryInfo sections with synthetic flat VAs
+  (segment << 16 | offset).  A capstone probe classifies code vs data
+  segments (Borland marks all segments identically; segments are
+  [index\x00][name-string][content]).
+- **x86_16 arch preset** (CS_MODE_16, 2-byte pointers) — asm/similar/cu_map
+  disassemble segmented x86-16; intake sets the target arch for NE.
+- **Function enumeration**: Delphi 1.0 linear sweep (push bp / enter
+  prologs, ret/retf epilogs) → 646 functions on holiday.exe.
+- **intake flow fixes**: NE targets use the sweep instead of rizin (which
+  cannot analyze NE); re-runs are idempotent (skip init); classify_all
+  batches metadata writes — 646-function intake dropped from 5+ min
+  (timeout) to 3 s.
+- **Pascal strings**: NE targets scan data segments for length-prefixed
+  strings — 3739 strings (German UI: "Ich bin ein...", SETUP.EXE,
+  ratten.avi/saufbier.avi/spreng.avi/stink.avi animations).
+- **16-bit xrefs** (analysis): scan_references handles NE — CS_MODE_16,
+  near call/jmp within-segment targets, [imm16] data refs against the
+  autodata segment.  rebrew describe reports callees + referenced strings;
+  rebrew xrefs finds e.g. 146 code refs to the animation global.
+- **Report**: rebrew report generates the HTML site for the NE project.
+
+Commits: 9f46b2e, 1607f40, b71ab1c, d3ae3ea, 91b5112.
