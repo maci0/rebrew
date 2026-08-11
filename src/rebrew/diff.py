@@ -266,7 +266,12 @@ def run_diff(
         cache=p.cc,
         timeout=p.cfg.compile_timeout,
         extra_include_dirs=[str(p.seed_c.parent.resolve())],
-        posix_style=getattr(p.cfg, "compiler_profile", "") in ("gcc", "gcc-pe", "clang"),
+        posix_style=bool(getattr(p.cfg, "posix_style", False)),
+        # Toolchain-backed profiles (watcom, msvc1.52) route through the
+        # shared compile_to_obj runner — without this, diff compiled them
+        # via the raw subprocess path and failed on the relative command.
+        profile=getattr(p.cfg, "compiler_profile", ""),
+        cfg=p.cfg,
     )
     if not (res.ok and res.obj_bytes):
         error_exit(f"Build failed: {res.error_msg}", json_mode=json_output, code=EXIT_ERROR)

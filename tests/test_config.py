@@ -903,3 +903,22 @@ class TestParseStrDict:
 
         with pytest.warns(UserWarning):
             assert _parse_str_dict({"a": 1}, "x") == {}
+
+
+class TestPosixStyleProfiles:
+    """config.posix_style is the single source of truth for flag routing —
+    watcom (wcc386, -I/-fo=/-zq) must be POSIX-style, not MSVC."""
+
+    def test_posix_profiles(self) -> None:
+        for prof in ("gcc", "gcc-pe", "clang", "watcom"):
+            cfg = ProjectConfig(root=Path("."), compiler_profile=prof)
+            assert cfg.posix_style is True, prof
+
+    def test_msvc_profiles_not_posix(self) -> None:
+        for prof in ("msvc6", "msvc1.52", "msvc7"):
+            cfg = ProjectConfig(root=Path("."), compiler_profile=prof)
+            assert cfg.posix_style is False, prof
+
+    def test_watcom_default_profile(self) -> None:
+        cfg = ProjectConfig(root=Path("."), compiler_profile="watcom")
+        assert cfg.posix_style is True  # regression: was False -> /nologo /c glue -> E1139

@@ -1,6 +1,14 @@
 ## [Unreleased]
 
 ### Added
+- **watcom is POSIX-style**: `ProjectConfig.posix_style` now includes
+  watcom (wcc386 takes `-I`/`-fo=`/`-zq`).  Previously the flag routing
+  treated it as MSVC-style and prepended `/nologo /c` glue — wcc386 then
+  failed with "E1139: more than one file to compile" in `rebrew diff`
+  (which also wasn't passing profile/cfg to the toolchain-backed compile
+  runner).  diff/match/compile now route watcom through the shared
+  `compile_to_obj` runner; verified test/diff/GA-sweep on a watcom
+  project.
 - **verify: 16-bit NE targets with the msvc1.52 profile now run the full
   pipeline** — the old gate short-circuited every NE target with a stale
   "16-bit matching is future work (ADR-001)" notice, silently hiding the
