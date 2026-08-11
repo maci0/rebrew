@@ -102,9 +102,14 @@ Notes:
 - **MSVC 1.52** (`tools/MSVC152`, from archive.org `en_vc152_202512`) is a
   Phar Lap TNT DOS-extender binary — runs headless under DOSBox via the
   shared `rebrew.dosbox` runner; produces 16-bit OMF objects.
-- **Borland C++ (bcc32)**: installer CD obtained (`turbo-c-v-4.5`); the
-  16-bit Windows SETUP.EXE needs a Windows 3.x environment — install
-  extraction pending.
+- **Borland C++ (bcc32)**: the `turbo-c-v-4.5` CD was fully surveyed —
+  its 207 `.PAK` files are **Quantum** archives (extractable with
+  `tools/DELPHI10/pak_extract.py`), the `.CA1`/`.CA2` containers hold an
+  embedded Quantum stream at offset 5 (`[count u32][DS\0Z …]`; TCW.CA1 =
+  the TCW IDE + DLLs), but **the CD carries no compiler binary** (no
+  BCC32/BCC/TLINK anywhere — it is the Windows-IDE-only release).  The
+  compiler needs the actual **Borland C++ 4.5/5.0 floppy set** (different
+  archive.org item), not this CD — extraction deferred pending that source.
 - **Symantec C++ / Zortech C++ / Intel C++**: detected (family hints) but
   no byte-matching profile.
 
