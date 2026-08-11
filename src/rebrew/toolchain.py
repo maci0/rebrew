@@ -82,7 +82,7 @@ def _vendored(sub: str) -> Path:
 TOOLCHAINS: dict[str, ToolchainSpec] = {
     "msvc6": ToolchainSpec(
         name="msvc6",
-        image="rebrew/msvc6:latest",
+        image="rebrew/msvc6:6.0-linux-x64",
         binary="cl",
         runtime="wine",
         flags_style="msvc",
@@ -92,7 +92,7 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
     ),
     "delphi16": ToolchainSpec(
         name="delphi16",
-        image="rebrew/delphi16:latest",
+        image="rebrew/delphi16:1.0-linux-x64",
         binary="DCC.EXE",
         image_binary="dcc",
         runtime="dosbox",
@@ -112,8 +112,9 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
     ),
     "watcom": ToolchainSpec(
         name="watcom",
-        image="rebrew/watcom:latest",
+        image="rebrew/watcom:2.0-linux-x64",
         binary="wcc386",
+        image_binary=None,  # the image ENTRYPOINT is wcc386
         runtime="native",
         flags_style="posix",
         obj_ext=".o",  # wcc386 emits OMF (8086 relocatable) — see OMF note
@@ -123,7 +124,7 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
     ),
     "msvc1.52": ToolchainSpec(
         name="msvc1.52",
-        image="rebrew/msvc152:latest",
+        image="rebrew/msvc152:1.52-linux-x64",
         binary="CL.EXE",
         image_binary="cl16",
         runtime="dosbox",
@@ -227,7 +228,6 @@ def run_toolchain(
     workdir.mkdir(parents=True, exist_ok=True)
 
     if spec.image is not None and _image_present(spec.image):
-        entry = spec.image_binary or spec.binary
         cmd = [
             "docker",
             "run",
@@ -237,9 +237,10 @@ def run_toolchain(
             "-w",
             "/work",
             spec.image,
-            entry,
-            *args,
         ]
+        if spec.image_binary is not None:
+            cmd.append(spec.image_binary)
+        cmd.extend(args)
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         except (OSError, subprocess.TimeoutExpired) as exc:

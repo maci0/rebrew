@@ -18,7 +18,14 @@
   runner (refactored out of `delphi16`), producing 16-bit OMF objects.
 - **Detection hints**: Symantec C++ / Zortech C++ / Intel C++ families
   identified from runtime strings (dossier + blocker wording); Watcom
-  family now aligns with the `watcom` profile in doctor.
+  family now aligns with the `watcom` profile in doctor; `msvc1.52` joins
+  the msvc-compatible profile set.
+- **Docker-first toolchain verified**: `rebrew/watcom:latest` image built
+  from `toolchain-images/watcom/Dockerfile` (snapshot tarball — the
+  installer SIGFPE workaround); `run_toolchain` compiles through it with
+  byte-identical results to the host path (same reloc offsets).  Image
+  entrypoint convention documented (`image_binary=None` = ENTRYPOINT is
+  the compiler).
 - **OMF support via objconv**: vendored `tools/objconv` (Agner Fog's
   object-file converter) converts OMF→COFF, so `parse_obj_symbol_and_relocs`
   now handles **Open Watcom 32-bit OMF** objects transparently (reloc

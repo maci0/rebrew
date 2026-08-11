@@ -721,7 +721,9 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
 #: Compiler profiles that can byte-match each detected family.
 #: ``None`` means no supported rebrew compiler can match that family.
 _PROFILE_COMPAT: dict[str, set[str] | None] = {
-    "msvc": {"msvc400", "msvc420", "msvc5", "msvc6", "msvc6.3", "msvc6.6", "msvc7"},
+    # msvc1.52 is the 16-bit profile — the detection hint distinguishes
+    # "16-bit MSVC-style NE" from 32-bit targets.
+    "msvc": {"msvc400", "msvc420", "msvc5", "msvc6", "msvc6.3", "msvc6.6", "msvc7", "msvc1.52"},
     "mingw": {"gcc-pe"},
     "zig": {"gcc-pe"},  # may match structurally only (LLVM vs GCC codegen)
     "watcom": {"watcom"},  # profile exists; byte matching needs the OMF parser (docs/OMF_NOTES.md)
