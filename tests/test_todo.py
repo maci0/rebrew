@@ -1,6 +1,7 @@
 """Tests for rebrew todo prioritized action dashboard."""
 
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -1125,37 +1126,34 @@ class TestProverCandidateFiltering:
     def _existing(self, size: str) -> dict[int, dict[str, str]]:
         return {0x1000: {"status": "NEAR_MATCHING", "symbol": "a", "size": size}}
 
-    def test_low_match_excluded(self) -> None:
-        import sys
+    def test_low_match_excluded(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace as SN
 
         from rebrew.todo import _collect_prover_candidates
 
-        sys.modules["angr"] = SN()  # type: ignore[assignment]
+        monkeypatch.setitem(sys.modules, "angr", SN())  # fake: treat as available
         existing = self._existing("50")
         verify = {"0x00001000": SN(result=SN(status="NEAR_MATCHING", match_percent=65.0, delta=17))}
         items = _collect_prover_candidates(existing, {0x1000: 50}, verify)  # type: ignore[arg-type]
         assert items == []
 
-    def test_metadata_size_preferred_over_ghidra(self) -> None:
-        import sys
+    def test_metadata_size_preferred_over_ghidra(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace as SN
 
         from rebrew.todo import _collect_prover_candidates
 
-        sys.modules["angr"] = SN()  # type: ignore[assignment]
+        monkeypatch.setitem(sys.modules, "angr", SN())  # fake: treat as available
         # Ghidra says 50, but metadata SIZE (600) is the real extent → skipped.
         existing = self._existing("600")
         items = _collect_prover_candidates(existing, {0x1000: 50}, {})  # type: ignore[arg-type]
         assert items == []
 
-    def test_metadata_size_smaller_than_ghidra_kept(self) -> None:
-        import sys
+    def test_metadata_size_smaller_than_ghidra_kept(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace as SN
 
         from rebrew.todo import _collect_prover_candidates
 
-        sys.modules["angr"] = SN()  # type: ignore[assignment]
+        monkeypatch.setitem(sys.modules, "angr", SN())  # fake: treat as available
         # Ghidra says 600, metadata says 50 → the real extent is small → kept.
         existing = self._existing("50")
         verify = {"0x00001000": SN(result=SN(status="NEAR_MATCHING", match_percent=96.0, delta=2))}
@@ -1163,13 +1161,12 @@ class TestProverCandidateFiltering:
         assert len(items) == 1
         assert items[0].va == 0x1000
 
-    def test_unmeasured_candidate_kept(self) -> None:
-        import sys
+    def test_unmeasured_candidate_kept(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace as SN
 
         from rebrew.todo import _collect_prover_candidates
 
-        sys.modules["angr"] = SN()  # type: ignore[assignment]
+        monkeypatch.setitem(sys.modules, "angr", SN())  # fake: treat as available
         # No verify cache → match_pct unknown → still eligible.
         existing = self._existing("50")
         items = _collect_prover_candidates(existing, {0x1000: 50}, {})  # type: ignore[arg-type]
