@@ -20,8 +20,10 @@ overflow) and LIEF cannot parse.  Empirically mapped (docs/OMF_NOTES.md):
     0xC2 code records, so function ``i`` maps to code record ``i``.
 
 This parser extracts function code bytes + public offsets — enough for
-`parse_obj_symbol_and_relocs` to serve the 16-bit path (relocs are the
-``e8``/``e9`` displacement slots; the 0x8C/0x9C fixup records are
+`parse_obj_symbol_and_relocs` to serve the 16-bit path.  Reloc slots are
+the ``e8``/``e9`` rel16 displacement positions **plus** absolute ``disp16``
+operands (global-variable access: ``a0-a3`` moffs forms and modrm
+``mod=00 rm=110``), located via capstone (the 0x8C/0x9C fixup records are
 documented follow-up).
 """
 
@@ -143,18 +145,50 @@ def parse_omf16(data: bytes) -> Omf16Module:
     return mod
 
 
+_CS_PREFIXES = {0x66, 0x67, 0x26, 0x2E, 0x36, 0x3E, 0x64, 0x65, 0xF0, 0xF2, 0xF3}
+_CS_MOFFS = {0xA0, 0xA1, 0xA2, 0xA3}  # mov al/ax, moffs / mov moffs, al/ax
+
+
 def _code_relocs(code: bytes, start: int, end: int) -> dict[int, str]:
     """Reloc slots within ``code[start:end]``, offsets relative to *start*.
 
     16-bit MSVC codegen never emits literal ``e8``/``e9`` opcodes (calls and
     jumps are always linker-patched rel16 slots), so every ``e8``/``e9``
-    marks a 2-byte relocation at ``opcode+1``.  Empirically verified on real
-    compile_c objects (the __aNchkstk prolog call and intra-module calls
-    land exactly on these slots)."""
+    marks a 2-byte relocation at ``opcode+1``.  Global-variable access adds
+    absolute ``disp16`` slots: the ``a0-a3`` moffs forms (``mov ax,[g]``)
+    and any modrm with ``mod=00 rm=110`` (``add ax,[g]``, ``push [g]``...).
+    Capstone (already a matcher dependency) locates those operands exactly;
+    the pure e8/e9 scan is the fallback when capstone is unavailable."""
+    import capstone
+
     relocs: dict[int, str] = {}
+    # e8/e9 rel16 slots — always apply (byte scan, cheap)
     for i in range(start, end):
         if code[i] in (0xE8, 0xE9) and i + 2 < end:
             relocs[i + 1 - start] = "rel16"
+    # disp16 absolute-operand slots via capstone (locates them exactly)
+    try:
+        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_16)
+        md.detail = True
+    except Exception:  # pragma: no cover — capstone is a core dep
+        return relocs
+    for insn in md.disasm(code[start:end], 0):
+        raw = bytes(insn.bytes)
+        for op in insn.operands:
+            if op.type == capstone.x86.X86_OP_MEM and op.mem.base == 0 and op.mem.index == 0:
+                i = 0
+                while i < len(raw) and raw[i] in _CS_PREFIXES:
+                    i += 1
+                opcode = raw[i] if i < len(raw) else 0
+                if opcode in _CS_MOFFS:
+                    relocs[insn.address + i + 1] = "disp16"
+                    continue
+                if opcode == 0x0F:
+                    i += 2
+                else:
+                    i += 1
+                if i < len(raw) and raw[i] & 0xC7 == 0x06:
+                    relocs[insn.address + i + 1] = "disp16"
     return relocs
 
 

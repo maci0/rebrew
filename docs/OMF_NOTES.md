@@ -160,5 +160,8 @@ Key facts:
   optimized public-list `0x96` does not — that byte disambiguates the two.
 - objconv buffer-overflows on this dialect too; the built-in parser handles
   both via `rebrew.matcher.omf16` (detect 0xA0 *or* 0xC2 code records).
-- Relocs: same `e8`/`e9` rel16-slot scan applies; disp16 relocs (e.g.
-  `a1 00 00` = `mov ax,[global]`) are not yet decoded (documented gap).
+- Relocs: `e8`/`e9` rel16-slot scan **plus** absolute disp16 operands
+  (`a1 00 00` = `mov ax,[global]`, and modrm `mod=00 rm=110` forms like
+  `add ax,[global]` / `push [global]`) — located via capstone in 16-bit
+  mode, which pinpoints the displacement byte exactly.  Verified on real
+  /O1 objects: `_f` = `{1: disp16}`, `_callg` = `{1: rel16, 5: disp16}`.
