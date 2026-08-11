@@ -46,10 +46,10 @@ class TestRegistry:
 
     def test_delphi16_host_binary_name(self) -> None:
         # The host executable is DCC.EXE (uppercase on disk); the docker
-        # entry is the "dcc" shim.
+        # image's ENTRYPOINT is the dcc wrapper, so no command is passed.
         spec = TOOLCHAINS["delphi16"]
         assert spec.binary == "DCC.EXE"
-        assert spec.image_binary == "dcc"
+        assert spec.image_binary is None
 
 
 class TestRunToolchain:
