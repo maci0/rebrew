@@ -577,3 +577,60 @@ class TestInitCompletions:
         assert (tmp_path / "completions" / "rebrew.bash").is_file()
         assert (tmp_path / "completions" / "rebrew.zsh").is_file()
         assert (tmp_path / "completions" / "rebrew.fish").is_file()
+
+
+class TestBinaryFormatDetection:
+    """rebrew init auto-detects format/arch from a binary already in
+    original/ instead of hardcoding the profile's pe/x86_32 defaults."""
+
+    def test_detects_pe(self) -> None:
+        from rebrew.init import _detect_binary_format
+
+        pe = Path(__file__).resolve().parent / "fixtures" / "mini_pe.exe"
+        assert _detect_binary_format(pe) == ("pe", "x86_32")
+
+    def test_detects_ne(self) -> None:
+        from rebrew.init import _detect_binary_format
+
+        ne = Path(__file__).resolve().parent / "fixtures" / "mini_ne.exe"
+        if not ne.exists():
+            # build a minimal NE fixture on the fly (MZ stub + NE header)
+            data = bytearray(0x140)
+            data[0:2] = b"MZ"
+            data[0x3C:0x40] = (0x100).to_bytes(4, "little")
+            data[0x100:0x102] = b"NE"
+            ne.write_bytes(bytes(data))
+        assert _detect_binary_format(ne) == ("ne", "x86_16")
+
+    def test_missing_binary_returns_none(self, tmp_path: Path) -> None:
+        from rebrew.init import _detect_binary_format
+
+        assert _detect_binary_format(tmp_path / "nope.exe") is None
+
+    def test_init_writes_detected_ne_format(self, tmp_path: Path, monkeypatch) -> None:
+        """End-to-end: init on a project with an NE binary writes
+        format = "ne" / arch = "x86_16" (skifree16 got pe/x86_32 before)."""
+
+        from typer.testing import CliRunner
+
+        from rebrew.init import app
+
+        original = tmp_path / "original"
+        original.mkdir()
+        ne = original / "game.exe"
+        data = bytearray(0x140)
+        data[0:2] = b"MZ"
+        data[0x3C:0x40] = (0x100).to_bytes(4, "little")
+        data[0x100:0x102] = b"NE"
+        ne.write_bytes(bytes(data))
+
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(
+            app, ["--target", "game", "--binary", "original/game.exe", "--json"]
+        )
+        assert result.exit_code == 0, result.output
+        toml = (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
+        assert 'format = "ne"' in toml
+        assert 'arch = "x86_16"' in toml
+        agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+        assert "(ne, x86_16)" in agents
