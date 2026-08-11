@@ -232,3 +232,20 @@ def test_watcom_trailing_underscore_symbol_matches() -> None:
     code, relocs, records = parse_obj_symbol_and_relocs(omf, "_callg")
     assert code is not None
     assert relocs == {6: "__CHK", 11: "f_", 17: "_g"}
+
+
+def test_msvc16_omf_code_extraction() -> None:
+    """MSVC 1.52's 16-bit OMF (objconv crashes on it) decodes via the
+    built-in parser — _add/_main extract with correct function bytes."""
+    from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
+
+    obj = _FIXTURES / "tg_msvc16.obj"
+    assert obj.exists()
+    code, relocs, recs = parse_obj_symbol_and_relocs(obj, "_add")
+    assert code is not None
+    assert code[:2] == bytes.fromhex("55 8b")  # push bp; mov bp,sp
+    assert code[-1] == 0xC3  # ret
+    assert relocs == {}  # fixup decoding is documented follow-up
+    code_main, _, _ = parse_obj_symbol_and_relocs(obj, "_main")
+    assert code_main is not None
+    assert code_main != code  # distinct function bodies

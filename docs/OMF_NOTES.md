@@ -111,3 +111,16 @@ Reliable decoding (0xA0 offsets + 0x8C/0xB2 fixup semantics + MODEND
 public mapping) needs a focused reverse-engineering effort with more
 ground-truth objects — **deferred**; objconv covers the 32-bit Watcom path
 in the meantime.
+
+## Update 2026-08-11 — 16-bit MSVC dialect: code extraction DONE
+
+`rebrew.matcher.omf16` now parses the MSVC 1.52 16-bit dialect (wired
+into `parse_obj_symbol_and_relocs` as the fallback when objconv crashes):
+- `0xA0` records → concatenated code (`[seg:1][offset:2][code...]`)
+- `0x90` MODEND → public name/offset pairs (verified: `_main @ 0x1a`
+  lands exactly at the second function in the code stream)
+- symbol matched across conventions (`_add`/`add`/`add_`)
+Verified on a real compile_c object: `_add` and `_main` extract with
+correct 16-bit function bytes.  **Reloc decoding (0x8C/0xB2 fixup
+records) remains the follow-up** — relocs are reported as `{}` for now,
+so 16-bit byte comparison works without reloc masking.

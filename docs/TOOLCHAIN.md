@@ -111,8 +111,11 @@ Notes:
   `profile = "watcom"` compiles through the toolchain runner in
   `rebrew compile` (`-fo=`/`-I` flag shape, docker image or vendored
   host binary), so `rebrew test`/`verify` work for Watcom targets.
-  objconv crashes on 16-bit OMF, so MSVC 1.52 matching still needs the
-  custom 16-bit parser — see [OMF_NOTES.md](OMF_NOTES.md).
+  objconv crashes on 16-bit OMF — `rebrew.matcher.omf16` now decodes the
+  MSVC 1.52 dialect (code from 0xA0 records, publics from MODEND), so
+  16-bit function bytes extract through `parse_obj_symbol_and_relocs`;
+  reloc decoding (0x8C/0xB2 fixups) remains follow-up — see
+  [OMF_NOTES.md](OMF_NOTES.md).
 - **MSVC 1.52** (`tools/MSVC152`, from archive.org `en_vc152_202512`) is a
   Phar Lap TNT DOS-extender binary — runs headless under DOSBox via the
   shared `rebrew.dosbox` runner; produces 16-bit OMF objects.
