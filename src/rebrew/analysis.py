@@ -197,7 +197,10 @@ def scan_references(
             continue
         va, size = rng
         raw = extract_bytes(info, va, size)
-        for insn in md.disasm(raw, va):
+        # NE code segments carry a 2-byte Borland index marker before the
+        # instruction stream — skipping it keeps the disasm aligned.
+        start = 2 if info.format == "ne" else 0
+        for insn in md.disasm(raw[start:], va + start):
             if insn.mnemonic == "db":  # skipdata placeholder
                 continue
             ref = _classify_insn(info, insn)
@@ -252,8 +255,9 @@ def _classify_insn(info: BinaryInfo, insn: Any) -> tuple[str, int, int] | None:
         if mnemonic in ("call", "jmp"):
             op = ops[0]
             if op.type == op_imm:
-                # near relative: target = from_va + insn.size + rel
-                return mnemonic, from_va, from_va + insn.size + op.imm
+                # capstone resolves 16-bit relative branches to the absolute
+                # target already.
+                return mnemonic, from_va, int(op.imm)
             return None
         # Absolute [imm16] operands: a1/a3 (mov), and generic [abs] memory ops
         for op in ops:
