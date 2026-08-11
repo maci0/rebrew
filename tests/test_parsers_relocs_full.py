@@ -251,3 +251,38 @@ def test_msvc16_omf_code_extraction() -> None:
     assert code_main is not None
     assert code_main != code  # distinct function bodies
     assert 7 in relocs_main  # the prolog chkstk call slot
+
+
+def test_msvc16_omf_optimized_dialect_code_extraction() -> None:
+    """MSVC 1.52 compiled with /O1 switches to a different OMF dialect
+    (0xC2 code records + 0x96/0xCA name lists) that also crashes objconv —
+    the parser must decode it too (this is what the GA flag sweep emits)."""
+    from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
+
+    obj = _FIXTURES / "tg_msvc16_o1.obj"
+    assert obj.exists()
+
+    # int f(void) { return g; } -> mov ax,[g]; ret
+    code_f, relocs_f, _ = parse_obj_symbol_and_relocs(obj, "_f")
+    assert code_f is not None
+    assert code_f.hex() == "a10000c3"
+    assert relocs_f == {}  # disp16 reloc not yet decoded
+
+    # int callg(void) { return f() + g; } -> call f; add ax,[g]; ret
+    code_c, relocs_c, _ = parse_obj_symbol_and_relocs(obj, "_callg")
+    assert code_c is not None
+    assert code_c.hex() == "e8000003060000c3"
+    assert relocs_c == {1: "rel16"}  # the call f slot
+
+
+def test_msvc16_omf_optimized_dialect_static_and_publics() -> None:
+    """The optimized dialect's 0xCA (static) + 0x96 (public) name records
+    map to 0xC2 code records in stream order."""
+    from rebrew.matcher.omf16 import Omf16Module, parse_omf16
+
+    data = (_FIXTURES / "tg_msvc16_o1.obj").read_bytes()
+    mod = parse_omf16(data)
+    assert isinstance(mod, Omf16Module)
+    assert mod.names == ["_f", "_callg"]
+    assert [r.hex() for r in mod.code_records] == ["a10000c3", "e8000003060000c3"]
+    assert mod.code == b"".join(mod.code_records)

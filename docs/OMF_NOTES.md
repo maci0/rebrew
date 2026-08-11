@@ -128,3 +128,37 @@ verified: `_add` relocs at 7 (__aNchkstk call) + 18 (tail jmp); `_caller`
 at 7/20/30 (chkstk, intra-module call, global disp16).  The 0x8C/0xB2
 records are structural (identical across objects); the e8/e9 scan is the
 reliable reloc source.
+
+## Update 2026-08-11 (2) — /O-optimized dialect: record layout differs
+
+CL 1.52 compiled with **any /O flag** (the GA flag sweep's default — and
+the init profile's default `cflags: /O1`) emits a *different* dialect than
+the unoptimized one above.  Empirically mapped on real `/O1` objects
+(`g` + `f` + `callg`; `glob1/glob2` + static `helper` + `alpha`/`beta`):
+
+| Type | Meaning (observed, /O1 dialect) |
+|------|----------------------------------|
+| `0x80` | THEADR |
+| `0x88` | COMENT — compiler banner, default libs (SLIBCE, OLDNAMES.LIB) |
+| `0x96` | GRPDEF (**starts with `00`** — group/segment names) |
+| `0x98` | SEGDEF (4 segments, same shape as unoptimized) |
+| `0x9A` / `0x9C` | segment/fixup tables (structural) |
+| `0xB0` | EXTDEF — external globals (`[len][name][type...]`) |
+| `0xCA` | **static/local name list** `[len][name]...` (e.g. `helper`) |
+| `0x96` (no `00` prefix) | **public name list** `[len][name]...` (e.g. `_f`, `_callg`) |
+| `0xC2` | **code record**: `[header:9][code...][checksum:1]` — one per function |
+| `0x8A` | MODEND |
+
+Key facts:
+- **Code lives in `0xC2` records** — 9-byte header (constant shape
+  `XX 00 00 00 00 00 00 01 NN`), then the function bytes, then a trailing
+  checksum byte (whole record sums to 0 mod 256).  One record per function.
+- **Name records (0xCA then 0x96) are in code-record order** — function
+  `i` maps to code record `i`.  Static functions appear in 0xCA *before*
+  the 0x96 publics, in stream order, matching the 0xC2 code order.
+- The unoptimized GRPDEF `0x96` starts with a `00` group-index byte; the
+  optimized public-list `0x96` does not — that byte disambiguates the two.
+- objconv buffer-overflows on this dialect too; the built-in parser handles
+  both via `rebrew.matcher.omf16` (detect 0xA0 *or* 0xC2 code records).
+- Relocs: same `e8`/`e9` rel16-slot scan applies; disp16 relocs (e.g.
+  `a1 00 00` = `mov ax,[global]`) are not yet decoded (documented gap).

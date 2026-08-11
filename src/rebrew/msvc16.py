@@ -71,6 +71,11 @@ def compile_c(
         src_text = str(c_source)
         src_name = "probe.c"
 
+    # CL.EXE 1.52 is a 16-bit Phar Lap DOS program — it cannot open long
+    # filenames (DOSBox 8.3-truncates them, C1083).  Stage the source under
+    # a fixed short 8.3-safe name; the produced object keeps that stem.
+    staged_name = "SRC.C"
+
     sandbox = Path(workdir) if workdir is not None else _default_workdir()
     sandbox.mkdir(parents=True, exist_ok=True)
 
@@ -80,10 +85,10 @@ def compile_c(
         link = sandbox / sub
         if not link.exists():
             link.symlink_to(vc / sub, target_is_directory=True)
-    (sandbox / src_name).write_text(src_text, encoding="utf-8")
+    (sandbox / staged_name).write_text(src_text, encoding="utf-8")
 
     flags = cflags if cflags is not None else ["/c", "/nologo"]
-    cmd = "C:\\BIN\\CL.EXE " + " ".join(flags) + f" {src_name} > C:\\clout.txt"
+    cmd = "C:\\BIN\\CL.EXE " + " ".join(flags) + f" {staged_name} > C:\\clout.txt"
     try:
         run_dosbox(
             sandbox,
@@ -94,7 +99,7 @@ def compile_c(
         raise Msvc16Error(str(exc)) from exc
 
     log = read_uppercase(sandbox, "clout.txt")
-    stem = Path(src_name).stem
+    stem = Path(staged_name).stem
     obj = next(
         (
             p
@@ -104,7 +109,9 @@ def compile_c(
         None,
     )
     if obj is None:
-        raise Msvc16Error(f"CL produced no object for {src_name} (log below):\n{log.strip()}")
+        raise Msvc16Error(
+            f"CL produced no object for {src_name} (staged as {staged_name}; log below):\n{log.strip()}"
+        )
     return Msvc16Result(obj_path=obj, log=log)
 
 

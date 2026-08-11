@@ -13,8 +13,8 @@ def _fake_cl(monkeypatch, sandbox: Path) -> None:
     """Simulate a successful DOSBox run: write the CL log + a .OBJ."""
 
     def _run(args, **kwargs):  # noqa: ARG001
-        (sandbox / "CLOUT.TXT").write_text("test.c\n", encoding="utf-8")
-        (sandbox / "TEST.OBJ").write_bytes(b"\x80\x08\x00fake")
+        (sandbox / "CLOUT.TXT").write_text("src.c\n", encoding="utf-8")
+        (sandbox / "SRC.OBJ").write_bytes(b"\x80\x08\x00fake")
         return type("R", (), {"returncode": 0})()
 
     monkeypatch.setattr("rebrew.dosbox.subprocess.run", _run)
@@ -27,8 +27,20 @@ class TestCompileC:
         workdir = tmp_path / "sandbox"
         _fake_cl(monkeypatch, workdir)
         r = compile_c(src, workdir)
-        assert r.obj_path.name == "TEST.OBJ"  # FAT-uppercased
-        assert "test.c" in r.log
+        # Source is staged under the short 8.3-safe name SRC.C (CL 1.52
+        # cannot open long filenames in DOSBox); the object keeps its stem.
+        assert r.obj_path.name == "SRC.OBJ"  # FAT-uppercased
+        assert "src.c" in r.log
+
+    def test_long_source_name_compiles(self, tmp_path: Path, monkeypatch) -> None:
+        """A long source basename (fcn_010015ec.c) must not reach CL verbatim
+        — it would 8.3-truncate in DOSBox and fail with C1083."""
+        src = tmp_path / "fcn_010015ec.c"
+        src.write_text("int f(void) { return 1; }\n", encoding="utf-8")
+        workdir = tmp_path / "sandbox"
+        _fake_cl(monkeypatch, workdir)
+        r = compile_c(src, workdir)
+        assert r.obj_path.name == "SRC.OBJ"
 
     def test_stages_toolchain_symlinks(self, tmp_path: Path, monkeypatch) -> None:
         src = tmp_path / "test.c"

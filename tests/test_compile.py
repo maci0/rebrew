@@ -373,8 +373,36 @@ class TestCompileToObjMsvc152Image:
         obj, err = compile_to_obj(self._cfg(tmp_path), src, [], workdir, use_cache=False)
         assert obj is not None and obj.endswith("T.OBJ")
         assert err == ""
-        # image path passes only the source (wrapper adds /nologo /c)
+        # image path passes source first, then CL flags (wrapper adds /nologo /c)
         assert captured["args"] == ["t.c"]
+
+    def test_image_path_forwards_cflags(self, tmp_path: Path, monkeypatch) -> None:
+        """The GA flag sweep relies on per-function cflags reaching CL — the
+        cl16 wrapper must receive them after the source."""
+        from rebrew.compile import compile_to_obj
+        from rebrew.toolchain import RunResult
+
+        captured: dict = {}
+        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: True)
+
+        def _fake_run(spec, args, *, workdir, timeout):  # noqa: ARG001
+            captured["args"] = args
+            (workdir / "T.OBJ").write_bytes(b"OMF")
+            return RunResult(0, "", "", backend="docker")
+
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+
+        src = tmp_path / "t.c"
+        src.write_text("int f(void) { return 1; }\n", encoding="utf-8")
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+        obj, err = compile_to_obj(
+            self._cfg(tmp_path), src, ["/O1", "/Gs"], workdir, use_cache=False
+        )
+        assert obj is not None and err == ""
+        # source first (wrapper convention), then the cflags verbatim
+        assert captured["args"] == ["t.c", "/O1", "/Gs"]
 
     def test_host_fallback_when_no_image(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.compile import compile_to_obj
