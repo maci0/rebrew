@@ -5,10 +5,10 @@ DPMI app, run headless under DOSBox per the proven recipe in
 ``tools/DELPHI10/README.md``) and parses the resulting 16-bit NE
 executable with the native NE loader.
 
-This is the foundation for the ADR-001 "16-bit compile profile" future
-work: rebrew already parses, enumerates, and detects the compiler's output
-natively — this module makes the compiler itself invocable from Python, in
-a self-contained DOSBox sandbox (no mutation of the user's Wine C: drive).
+Used for research (compile + NE parse) on Delphi targets.  Note: 16-bit
+matching in rebrew is implemented via the separate ``msvc1.52`` profile
+(DOSBox CL.EXE → OMF objects); Delphi's Borland ABI has no matchable
+rebrew profile, so its functions are documented as blockers.
 """
 
 from __future__ import annotations
