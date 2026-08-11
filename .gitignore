@@ -80,3 +80,5 @@ Thumbs.db
 *.dbg
 *.bsc
 *.map
+# Cross-process metadata write lock (flock sidecar — must persist)
+rebrew-function.toml.lock
