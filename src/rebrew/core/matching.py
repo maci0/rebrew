@@ -101,25 +101,12 @@ def build_iat_region(cfg: ProjectConfig) -> set[int]:
     for va in getattr(cfg, "iat_thunks", None) or []:
         if isinstance(va, int) and va:
             region.add(va & 0xFFFFFFFF)
-    try:
-        import lief
+    # The raw import-address table (shared LIEF scan with the catalog
+    # registry — see rebrew.binary_loader.iat_slot_vas).
+    from rebrew.binary_loader import iat_slot_vas
 
-        if not lief.is_pe(str(binary)):
-            return region or set()
-        pe = lief.PE.parse(str(binary))
-        if pe is None:
-            return region or set()
-        image_base = int(getattr(pe, "imagebase", 0) or 0)
-        for entry in pe.imports:
-            for imp in entry.entries:
-                va = int(getattr(imp, "iat_address", 0) or 0)
-                if va:
-                    # LIEF reports the IAT slot as an RVA relative to the
-                    # image base; canonicalize to an absolute VA.
-                    region.add((va + image_base) & 0xFFFFFFFF)
-        return region
-    except Exception:
-        return region or set()
+    region |= iat_slot_vas(binary)
+    return region
 
 
 def build_name_to_va(cfg: ProjectConfig) -> dict[str, int]:
