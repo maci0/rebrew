@@ -520,3 +520,17 @@ class TestCheckGhidraSync:
         result = check_ghidra_sync(cfg)  # type: ignore[arg-type]
         assert result.status == _WARN
         assert "no ghidra-cli binary" in result.message
+
+
+class TestCheckArchFormat16Bit:
+    """ne/x86_16 are valid for 16-bit NE targets (msvc1.52 pipeline live)."""
+
+    def test_ne_format_valid(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(tmp_path, binary_format="ne", arch="x86_16")
+        result = check_arch_format(cfg)
+        assert result.status == _PASS
+
+    def test_x86_16_arch_valid(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(tmp_path, binary_format="pe", arch="x86_16")
+        result = check_arch_format(cfg)
+        assert result.status == _PASS
