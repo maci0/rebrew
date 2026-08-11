@@ -146,13 +146,21 @@ the unoptimized one above.  Empirically mapped on real `/O1` objects
 | `0xB0` | EXTDEF — external globals (`[len][name][type...]`) |
 | `0xCA` | **static/local name list** `[len][name]...` (e.g. `helper`) |
 | `0x96` (no `00` prefix) | **public name list** `[len][name]...` (e.g. `_f`, `_callg`) |
-| `0xC2` | **code record**: `[header:9][code...][checksum:1]` — one per function |
+| `0xC2` | **code record**: `[header:7or9][code...][checksum:1]` — one per function; 7-byte header for far-code models (`SRC_TEXT`) |
 | `0x8A` | MODEND |
 
 Key facts:
-- **Code lives in `0xC2` records** — 9-byte header (constant shape
-  `XX 00 00 00 00 00 00 01 NN`), then the function bytes, then a trailing
-  checksum byte (whole record sums to 0 mod 256).  One record per function.
+- **Code lives in `0xC2` records** — then the function bytes, then a
+  trailing checksum byte (whole record sums to 0 mod 256).  One record per
+  function.  The header length depends on the **code model**:
+  - near-code models (`/AS` small, `/AC` compact): **9-byte header**
+    (constant shape `XX 00 00 00 00 00 00 01 NN`)
+  - far-code models (`/AM` medium, `/AL` large): **7-byte header**
+    (`00 01 02 00 00 00 NN`) — functions end in `retf` and far calls are
+    `lcall`/`ljmp` (`9a`/`ea`) with a 4-byte ptr16:16 patch slot
+  - The GRPDEF names the code segment `_TEXT` (near) vs `SRC_TEXT` (far)
+    — the parser reads that to pick the header length.  Far-code models
+    are what 16-bit Windows 3.x games (e.g. the skifree16 NE target) use.
 - **Name records (0xCA then 0x96) are in code-record order** — function
   `i` maps to code record `i`.  Static functions appear in 0xCA *before*
   the 0x96 publics, in stream order, matching the 0xC2 code order.
@@ -162,6 +170,8 @@ Key facts:
   both via `rebrew.matcher.omf16` (detect 0xA0 *or* 0xC2 code records).
 - Relocs: `e8`/`e9` rel16-slot scan **plus** absolute disp16 operands
   (`a1 00 00` = `mov ax,[global]`, and modrm `mod=00 rm=110` forms like
-  `add ax,[global]` / `push [global]`) — located via capstone in 16-bit
-  mode, which pinpoints the displacement byte exactly.  Verified on real
-  /O1 objects: `_f` = `{1: disp16}`, `_callg` = `{1: rel16, 5: disp16}`.
+  `add ax,[global]` / `push [global]`) **plus** far-call/ljmp ptr16:16
+  patch slots (`9a`/`ea`) — located via capstone in 16-bit mode, which
+  pinpoints the displacement byte exactly.  Verified on real objects:
+  `_f` (near) = `{1: disp16}`, `_callg` (near) = `{1: rel16, 5: disp16}`,
+  `_callg` (far) = `{1: far16, 7: disp16}`.

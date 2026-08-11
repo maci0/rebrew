@@ -971,7 +971,7 @@ def test_code_relocs_are_valid_slots(code: bytes) -> None:
         assert 0 <= off < len(code)
         # a 2-byte reloc slot must not overrun the code
         assert off + 2 <= len(code)
-        assert kind in ("rel16", "disp16")
+        assert kind in ("rel16", "disp16", "far16")
     # every reloc slot's first byte is a real opcode position: e8/e9 for
     # rel16, an absolute-operand instruction for disp16
     for off, kind in relocs.items():

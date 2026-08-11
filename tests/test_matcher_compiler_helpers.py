@@ -47,11 +47,16 @@ class TestGenerateFlagCombinations:
 
     def test_msvc152_profile_uses_16bit_flags(self) -> None:
         combos = generate_flag_combinations("targeted", "msvc1.52")
-        # 5 opt x 3 codegen (+none) = 15; flags are /-style
-        assert len(combos) == 15
+        # 5 opt x 5 model (incl. none) x 3 codegen (+none each) = 75; flags
+        # are /-style.  The memory-model axis (/AS /AM /AC /AL) is
+        # essential: far-code models emit retf/lcall and are what 16-bit
+        # Windows games use.
+        assert len(combos) == 75
         for c in combos:
             assert c.startswith("/") or c == ""
         assert any("/G2" in c for c in combos)
+        assert any("/AM" in c for c in combos)
+        assert any("/AL" in c for c in combos)
 
 
 class TestMapSymbolRe:
