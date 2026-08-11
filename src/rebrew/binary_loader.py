@@ -306,16 +306,11 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     if not path.exists():
         raise FileNotFoundError(f"Binary not found: {path}")
 
-    # 16-bit Windows NE executables are parsed natively (Borland Delphi /
-    # Turbo Pascal Windows targets) — segments become sections with synthetic
-    # flat VAs of (segment_index << 16).
-    if is_ne(path):
-        from rebrew.ne_loader import load_ne_binary
-
-        return load_ne_binary(path)
-
     # Bounded cache keyed on resolved path + format to avoid re-parsing.
-    # Lock protects concurrent reads/writes from multiple workers.
+    # Lock protects concurrent reads/writes from multiple workers.  This
+    # covers NE binaries too — without it every extract_raw_bytes call
+    # re-parsed the 16-bit target (0.18s each → minutes for a 1783-function
+    # similar scan).
     cache_key = (str(path.resolve()), fmt)
     with _load_binary_lock:
         cached = _load_binary_cache.get(cache_key)
@@ -326,13 +321,37 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
             _load_binary_cache[cache_key] = _load_binary_cache.pop(cache_key)
             return cached
 
-    # Parsing happens outside the lock (expensive I/O, no shared state)
+    # 16-bit Windows NE executables are parsed natively (Borland Delphi /
+    # Turbo Pascal Windows targets) — segments become sections with synthetic
+    # flat VAs of (segment_index << 16).
+    if is_ne(path):
+        from rebrew.ne_loader import load_ne_binary
+
+        result = load_ne_binary(path)
+    else:
+        result = _parse_regular(path, fmt)
+
+    # Store in cache under the lock (double-checked; another thread may have
+    # populated it while we parsed).
+    with _load_binary_lock:
+        if cache_key not in _load_binary_cache:
+            # Evict oldest entry when cache is full.
+            if len(_load_binary_cache) >= _LOAD_BINARY_CACHE_MAX:
+                oldest_key = next(iter(_load_binary_cache))
+                del _load_binary_cache[oldest_key]
+            _load_binary_cache[cache_key] = result
+    return result
+
+
+def _parse_regular(path: Path, fmt: str) -> BinaryInfo:
+    """Parse a PE/ELF/Mach-O binary via LIEF (used by load_binary)."""
+    import lief
+
     spath = str(path)
     result: BinaryInfo
     # lief.parse returns a polymorphic Binary union; the isinstance dispatch
     # below handles runtime narrowing, so Any is the pragmatic annotation.
     binary: Any = None
-
     try:
         if fmt == "auto":
             binary = lief.parse(spath)
@@ -365,16 +384,6 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
             raise ValueError(f"Unknown binary format: {fmt!r}")
     except OSError as exc:
         raise FileNotFoundError(f"Binary not found: {path}") from exc
-
-    with _load_binary_lock:
-        # Double-check: another thread may have parsed the same binary
-        if cache_key in _load_binary_cache:
-            return _load_binary_cache[cache_key]
-        # Evict oldest entry when cache is full
-        if len(_load_binary_cache) >= _LOAD_BINARY_CACHE_MAX:
-            oldest_key = next(iter(_load_binary_cache))
-            del _load_binary_cache[oldest_key]
-        _load_binary_cache[cache_key] = result
     return result
 
 
