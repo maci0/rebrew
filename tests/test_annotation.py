@@ -1721,3 +1721,34 @@ class TestMarkerConsistencyStub:
             library_modules={"MSVCRT"}
         )
         assert any("inconsistent with module" in w for w in warnings)
+
+    def test_fastcall_decorated_symbol(self) -> None:
+        """__fastcall functions get @name@N symbols (ecx/edx args counted)."""
+        from rebrew.annotation import parse_new_format
+
+        lines = [
+            "// FUNCTION: SERVER 0x10009ff4",
+            "",
+            "void __fastcall fcn_01009ff4(int *this, int unused, int v)",
+            "{",
+            "    this[9] = v;",
+            "}",
+        ]
+        result = parse_new_format(lines)
+        assert result is not None
+        assert result.name == "fcn_01009ff4"
+        assert result.symbol == "@fcn_01009ff4@12"
+
+    def test_fastcall_two_args_symbol(self) -> None:
+        from rebrew.annotation import parse_new_format
+
+        lines = [
+            "// FUNCTION: SERVER 0x10030a82",
+            "",
+            "void __fastcall fcn_01030a82(int *this, int unused)",
+            "{",
+            "}",
+        ]
+        result = parse_new_format(lines)
+        assert result is not None
+        assert result.symbol == "@fcn_01030a82@8"
