@@ -66,7 +66,7 @@ jobs = 4                           # default parallelism for verify/batch/GA
 
 [targets."{target_name}"]
 binary = "original/{binary_name}"
-format = "pe"                        # pe | elf | macho
+format = "__TARGET_FORMAT__"               # pe | elf | macho | ne
 arch = "__TARGET_ARCH__"               # x86_16 | x86_32 | x86_64 | arm32 | arm64
 reversed_dir = "src/{target_name}"   # directory containing reversed .c files
 function_list = "src/{target_name}/functions.txt"
@@ -266,6 +266,30 @@ _AGENT_SKILLS_SRC = Path(__file__).parent / "agent-skills"
 _PRINCIPLES_SRC = Path(__file__).parent / "PRINCIPLES.md"
 
 
+def _detect_binary_format(path: Path) -> tuple[str, str] | None:
+    """Detect ``(format, arch)`` from a binary already placed in original/.
+
+    Uses the shared LIEF-based ``detect_format_and_arch`` (PE/ELF/Mach-O)
+    plus the native NE loader for 16-bit Windows targets.  Returns ``None``
+    when the format cannot be determined (the caller then keeps the profile
+    defaults).
+    """
+    from rebrew.binary_loader import detect_format_and_arch, is_ne
+
+    try:
+        fmt, arch = detect_format_and_arch(path)
+        if fmt and arch:
+            return fmt, arch
+    except Exception:
+        pass  # not PE/ELF/Mach-O — try NE next
+    try:
+        if is_ne(path):
+            return "ne", "x86_16"
+    except Exception:
+        pass
+    return None
+
+
 def _copy_agent_skills(dest: Path, target_name: str) -> None:
     """Copy bundled agent-skills/ into the project under .agents/skills, substituting <target>."""
     if not _AGENT_SKILLS_SRC.is_dir():
@@ -440,6 +464,19 @@ def main(
         # and every compile fails with a bogus argv).
         compiler_command = compiler_command[len("wine ") :]
 
+    # Auto-detect the binary's format/arch when it is already in place
+    # (original/<name>) — otherwise the profile's hardcoded defaults (pe /
+    # x86_32) silently mislabel NE 16-bit targets (skifree16 got
+    # "pe, x86_32" while its binary is NE 16-bit).  The detected values
+    # override the profile defaults for both the config and AGENTS.md.
+    binary_format = profile.get("format", "pe")
+    target_arch = profile.get("arch", "x86_32")
+    binary_path = cwd / "original" / binary_name
+    if binary_path.exists():
+        detected = _detect_binary_format(binary_path)
+        if detected is not None:
+            binary_format, target_arch = detected
+
     # 1. Write rebrew-project.toml
     toml_content = DEFAULT_REBREW_TOML.format(
         project_name=cwd.name,
@@ -454,7 +491,8 @@ def main(
         base_cflags=profile.get("base_cflags", "/nologo /c /MT"),
     )
     toml_content = toml_content.replace("__COMPILER_RUNNER__", runner)
-    toml_content = toml_content.replace("__TARGET_ARCH__", profile.get("arch", "x86_32"))
+    toml_content = toml_content.replace("__TARGET_FORMAT__", binary_format)
+    toml_content = toml_content.replace("__TARGET_ARCH__", target_arch)
     atomic_write_text(toml_path, toml_content, encoding="utf-8")
     console.print(f"[green]Created {toml_path.name}[/]")
 
@@ -471,8 +509,8 @@ def main(
         project_name=cwd.name,
         target_name=target_name,
         binary_name=binary_name,
-        binary_format=profile.get("format", "pe"),
-        arch=profile.get("arch", "x86_32"),
+        binary_format=binary_format,
+        arch=target_arch,
         compiler_profile=compiler_profile,
         compiler_command=profile["command"],
         compiler_constraints=constraints,
