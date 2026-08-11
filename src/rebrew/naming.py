@@ -418,10 +418,18 @@ def make_filename(
     custom_name: str | None = None,
     cfg: ProjectConfig | None = None,
 ) -> str:
-    """Generate the .c filename following project naming conventions."""
+    """Generate the source filename following project naming conventions.
+
+    Uses the first configured source extension (``cfg.source_ext`` may be a
+    comma-separated list for mixed C/C++ projects — skeletons always use the
+    first extension as the canonical one).
+    """
     # sanitize_name already converts FUN_<hex> to func_<hex> and strips
     # path-hostile characters, so the result is always a safe filename.
     base = custom_name or sanitize_name(ghidra_name)
 
-    ext = cfg.source_ext if cfg is not None else ".c"
+    from rebrew.cli import source_exts
+
+    exts = source_exts(cfg)
+    ext = exts[0] if exts else ".c"
     return base + ext

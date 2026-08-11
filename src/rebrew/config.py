@@ -422,7 +422,11 @@ def _parse_profiles(value: Any) -> dict[str, dict[str, str]]:
 
 
 def _parse_source_ext(value: Any) -> str:
-    """Parse and normalize the configured source extension."""
+    """Parse and normalize the configured source extension(s).
+
+    Accepts a single extension (``".c"``) or a comma-separated list
+    (``".c,.cpp"``) so projects with mixed C/C++ sources can declare both.
+    """
     if value is None:
         return ".c"
     if not isinstance(value, str):
@@ -430,17 +434,20 @@ def _parse_source_ext(value: Any) -> str:
             f"Expected string for source_ext, got {type(value).__name__}; using default .c"
         )
         return ".c"
-    ext = value.strip()
-    if not ext or ext == ".":
+    exts = [part.strip() for part in value.split(",") if part.strip()]
+    if not exts or exts == ["."]:
         _config_warn("Expected non-empty source_ext; using default .c")
         return ".c"
-    if "/" in ext or "\\" in ext:
-        _config_warn(f"source_ext must be a file extension, got {value!r}; using default .c")
-        return ".c"
-    if not ext.startswith("."):
-        _config_warn(f"source_ext {value!r} is missing a leading dot; using .{ext}")
-        ext = f".{ext}"
-    return ext
+    normalized: list[str] = []
+    for ext in exts:
+        if "/" in ext or "\\" in ext:
+            _config_warn(f"source_ext must be a file extension, got {value!r}; using default .c")
+            return ".c"
+        if not ext.startswith("."):
+            _config_warn(f"source_ext {ext!r} is missing a leading dot; using .{ext}")
+            ext = f".{ext}"
+        normalized.append(ext)
+    return ",".join(normalized)
 
 
 def _as_table(value: Any, field_name: str) -> dict[str, Any]:

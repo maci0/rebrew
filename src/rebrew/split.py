@@ -29,7 +29,7 @@ from rebrew.cli import (
     json_print,
     rel_display_path,
     require_config,
-    source_glob,
+    source_exts,
     target_marker,
 )
 from rebrew.utils import atomic_write_text, read_source_text, strip_comment_blocks
@@ -144,10 +144,10 @@ def main(
     if not source_path.exists() or not source_path.is_file():
         error_exit(f"Source file not found: {source_path}", json_mode=json_output)
 
-    expected_ext = source_glob(cfg).removeprefix("*")
-    if source_path.suffix != expected_ext:
+    expected_exts = set(source_exts(cfg)) or {".c"}
+    if source_path.suffix not in expected_exts:
         error_exit(
-            f"Source must match configured extension '{expected_ext}': {source_path.name}",
+            f"Source must match configured extension(s) '{','.join(sorted(expected_exts))}': {source_path.name}",
             json_mode=json_output,
         )
 

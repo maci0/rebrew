@@ -826,7 +826,10 @@ class TestParseLibraryHeader:
         assert results[0].va == 0x10050000
         assert results[0].symbol == "_deflate"
 
-    def test_target_filter(self, tmp_path: Path) -> None:
+    def test_target_filter_not_applied_to_library_entries(self, tmp_path: Path) -> None:
+        # LIBRARY modules are library names (MSVCRT, ZLIB, ...), not target
+        # markers — parse_library_header must return every entry even when a
+        # target_name is passed (the filter applies only to FUNCTION markers).
         hfile = tmp_path / "library_msvc.h"
         hfile.write_text(
             "// LIBRARY: SERVER 0x1001A18A\n"
@@ -835,8 +838,9 @@ class TestParseLibraryHeader:
             "// __fclose_lk\n"
         )
         results = parse_library_header(hfile, target_name="SERVER")
-        assert len(results) == 1
+        assert len(results) == 2
         assert results[0].va == 0x1001A18A
+        assert results[1].va == 0x1001A1BB
 
     def test_empty_file(self, tmp_path: Path) -> None:
         hfile = tmp_path / "library_msvc.h"
@@ -1455,16 +1459,18 @@ class TestParseLibraryHeaderKv:
         assert ann.cflags == "/O2 /Gd"
         assert ann.source == "deflate.c"
 
-    def test_target_filter(self, tmp_path: Path) -> None:
+    def test_target_filter_not_applied(self, tmp_path: Path) -> None:
         from rebrew.annotation import parse_library_header
 
+        # LIBRARY module names are library identifiers — never filtered by
+        # target_name (which is a project marker, not a library name).
         h = tmp_path / "library_msvc.h"
         h.write_text(
             "// LIBRARY: OTHER 0x1000\n// _fflush\n// LIBRARY: SERVER 0x2000\n// _malloc\n",
             encoding="utf-8",
         )
         results = parse_library_header(h, target_name="SERVER")
-        assert [r.va for r in results] == [0x2000]
+        assert [r.va for r in results] == [0x1000, 0x2000]
 
     def test_default_status_exact(self, tmp_path: Path) -> None:
         from rebrew.annotation import parse_library_header

@@ -290,3 +290,49 @@ class TestResolveCflags:
 
         cfg = SimpleNamespace(cflags="/O2 /Gd", cflags_presets={"GAME": "/O1"})
         assert resolve_cflags(cfg, "   ", "GAME") == "/O1"
+
+
+# ---------------------------------------------------------------------------
+# source_exts() / source_glob() / iter_sources()
+# ---------------------------------------------------------------------------
+
+
+class TestSourceExtensions:
+    def test_single_ext_default(self) -> None:
+        from rebrew.cli import source_exts, source_glob
+
+        cfg = SimpleNamespace(source_ext=".c")
+        assert source_exts(cfg) == [".c"]
+        assert source_glob(cfg) == "*.c"
+
+    def test_multi_ext_list(self) -> None:
+        from rebrew.cli import source_exts, source_glob
+
+        cfg = SimpleNamespace(source_ext=".c,.cpp")
+        assert source_exts(cfg) == [".c", ".cpp"]
+        assert source_glob(cfg) == "*.{c,cpp}"
+
+    def test_missing_ext_falls_back(self) -> None:
+        from rebrew.cli import source_exts, source_glob
+
+        assert source_exts(None) == [".c"]
+        assert source_glob(None) == "*.c"
+
+    def test_iter_sources_multi_ext(self, tmp_path: Path) -> None:
+        from rebrew.cli import iter_sources
+
+        (tmp_path / "a.c").write_text("int a;")
+        (tmp_path / "b.cpp").write_text("int b;")
+        (tmp_path / "c.h").write_text("int c;")
+        cfg = SimpleNamespace(source_ext=".c,.cpp")
+        found = [p.name for p in iter_sources(tmp_path, cfg)]
+        assert found == ["a.c", "b.cpp"]
+
+    def test_iter_sources_single_ext(self, tmp_path: Path) -> None:
+        from rebrew.cli import iter_sources
+
+        (tmp_path / "a.c").write_text("int a;")
+        (tmp_path / "b.cpp").write_text("int b;")
+        cfg = SimpleNamespace(source_ext=".c")
+        found = [p.name for p in iter_sources(tmp_path, cfg)]
+        assert found == ["a.c"]

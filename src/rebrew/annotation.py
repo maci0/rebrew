@@ -1296,10 +1296,9 @@ def parse_library_header(
             module = m.group("module")
             va = int(m.group("va"), 16)
 
-            # Apply target filter
-            if target_name and module.lower() != target_name.lower():
-                i += 1
-                continue
+            # NOTE: no target-module filter here — the LIBRARY module is the
+            # library name (MSVCRT, ZLIB, ...), not the project marker, so a
+            # filter against target_name would silently drop every entry.
 
             # Look for symbol on next non-blank comment line
             symbol = ""
