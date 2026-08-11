@@ -531,13 +531,15 @@ def compile_to_obj(
                 all_flags + inc_flags + [f"-I{str(src_parent)}", f"-fo={obj_name}", "-zq", src_name]
             )
         elif profile == "msvc1.52":
-            # Prefer the docker image (cl16 wrapper: source arg only, adds
-            # /nologo /c itself) when pulled; fall back to the host DOSBox
-            # sandbox via rebrew.msvc16.
+            # Prefer the docker image (cl16 wrapper: source first, then
+            # CL flags) when pulled; fall back to the host DOSBox sandbox
+            # via rebrew.msvc16.  CL 1.52 is 16-bit — the wrapper stages
+            # the source under a short 8.3-safe name (C1083 on long
+            # names), so source-name length is not our problem here.
             from rebrew.toolchain import _image_present
 
             if spec.image is not None and _image_present(spec.image):
-                args = [src_name]
+                args = [src_name, *all_flags]
             else:
                 from rebrew.msvc16 import Msvc16Error, compile_c
 
@@ -545,7 +547,10 @@ def compile_to_obj(
                     res = compile_c(
                         local_src,
                         workdir,
-                        cflags=[*all_flags, f"/I{inc_path}"],
+                        # /IC:\INCLUDE — the vendored include tree is staged
+                        # as C:\INCLUDE inside the DOSBox sandbox; the host
+                        # inc_path would not resolve there.
+                        cflags=[*all_flags, "/IC:\\INCLUDE"],
                         timeout=use_timeout,
                     )
                 except Msvc16Error as exc:

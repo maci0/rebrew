@@ -95,7 +95,8 @@ rebrew-function.toml.lock
 /tools/objconv/
 
 # toolchain-images build contexts (vendored toolchain copies — the
-# Dockerfiles are tracked; the staged binaries re-fetch/vendor elsewhere).
+# Dockerfiles + wrappers are tracked; the staged binaries re-fetch/vendor
+# elsewhere).
 /toolchain-images/**/delphi10/
 /toolchain-images/**/delphi-lib/
-/toolchain-images/**/msvc152/
+/toolchain-images/msvc152/**/msvc152/
