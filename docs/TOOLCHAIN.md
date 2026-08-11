@@ -113,8 +113,8 @@ Notes:
   host binary), so `rebrew test`/`verify` work for Watcom targets.
   objconv crashes on 16-bit OMF — `rebrew.matcher.omf16` now decodes the
   MSVC 1.52 dialect (code from 0xA0 records, publics from MODEND), so
-  16-bit function bytes extract through `parse_obj_symbol_and_relocs`;
-  reloc decoding (0x8C/0xB2 fixups) remains follow-up — see
+  16-bit function bytes + reloc slots extract through
+  `parse_obj_symbol_and_relocs` (e8/e9 rel16 slots) — see
   [OMF_NOTES.md](OMF_NOTES.md).
 - **MSVC 1.52** (`tools/MSVC152`, from archive.org `en_vc152_202512`) is a
   Phar Lap TNT DOS-extender binary — runs headless under DOSBox via the

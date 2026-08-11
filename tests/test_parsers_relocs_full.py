@@ -245,7 +245,9 @@ def test_msvc16_omf_code_extraction() -> None:
     assert code is not None
     assert code[:2] == bytes.fromhex("55 8b")  # push bp; mov bp,sp
     assert code[-1] == 0xC3  # ret
-    assert relocs == {}  # fixup decoding is documented follow-up
-    code_main, _, _ = parse_obj_symbol_and_relocs(obj, "_main")
+    # reloc slots: the __aNchkstk prolog call (e8 at 6) and the tail jmp (e9)
+    assert relocs == {7: "rel16", 18: "rel16"}
+    code_main, relocs_main, _ = parse_obj_symbol_and_relocs(obj, "_main")
     assert code_main is not None
     assert code_main != code  # distinct function bodies
+    assert 7 in relocs_main  # the prolog chkstk call slot
