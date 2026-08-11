@@ -120,7 +120,11 @@ into `parse_obj_symbol_and_relocs` as the fallback when objconv crashes):
 - `0x90` MODEND → public name/offset pairs (verified: `_main @ 0x1a`
   lands exactly at the second function in the code stream)
 - symbol matched across conventions (`_add`/`add`/`add_`)
-Verified on a real compile_c object: `_add` and `_main` extract with
-correct 16-bit function bytes.  **Reloc decoding (0x8C/0xB2 fixup
-records) remains the follow-up** — relocs are reported as `{}` for now,
-so 16-bit byte comparison works without reloc masking.
+Verified on real compile_c objects: `_add`/`_main`/`_caller` extract
+with correct 16-bit function bytes.  **Relocs are decoded too**: every
+`e8`/`e9` opcode marks a 2-byte rel16 slot (16-bit MSVC codegen never
+emits literal call/jump opcodes — they are always linker-patched) —
+verified: `_add` relocs at 7 (__aNchkstk call) + 18 (tail jmp); `_caller`
+at 7/20/30 (chkstk, intra-module call, global disp16).  The 0x8C/0xB2
+records are structural (identical across objects); the e8/e9 scan is the
+reliable reloc source.

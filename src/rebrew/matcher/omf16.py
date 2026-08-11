@@ -85,11 +85,26 @@ def parse_omf16(data: bytes) -> Omf16Module:
     return mod
 
 
+def _code_relocs(code: bytes, start: int, end: int) -> dict[int, str]:
+    """Reloc slots within ``code[start:end]``, offsets relative to *start*.
+
+    16-bit MSVC codegen never emits literal ``e8``/``e9`` opcodes (calls and
+    jumps are always linker-patched rel16 slots), so every ``e8``/``e9``
+    marks a 2-byte relocation at ``opcode+1``.  Empirically verified on real
+    compile_c objects (the __aNchkstk prolog call and intra-module calls
+    land exactly on these slots)."""
+    relocs: dict[int, str] = {}
+    for i in range(start, end):
+        if code[i] in (0xE8, 0xE9) and i + 2 < end:
+            relocs[i + 1 - start] = "rel16"
+    return relocs
+
+
 def parse_obj_omf16(obj_path: str | Path, symbol: str) -> tuple[bytes | None, dict[int, str]]:
     """Extract ``(code_bytes, reloc_offsets)`` for *symbol* from a 16-bit OMF.
 
     The symbol is matched across compiler conventions (``_name``/``name_``/
-    ``name``); relocs are not yet decoded (empty dict)."""
+    ``name``); reloc slots are the ``e8``/``e9`` displacement positions."""
     data = Path(obj_path).read_bytes()
     mod = parse_omf16(data)
     candidates = [symbol]
@@ -104,7 +119,7 @@ def parse_obj_omf16(obj_path: str | Path, symbol: str) -> tuple[bytes | None, di
             for other in mod.publics.values():
                 if other > off and other < end:
                     end = other
-            return mod.code[off:end], {}
+            return mod.code[off:end], _code_relocs(mod.code, off, end)
     return None, {}
 
 
