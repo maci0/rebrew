@@ -1,6 +1,26 @@
 ## [Unreleased]
 
 ### Added
+- **16-bit Windows NE support** — `holiday.exe` (Borland Delphi 1.0,
+  NE 6.01) can now be onboarded and analyzed end-to-end:
+  - `rebrew.ne_loader`: NE header/segment-table/resident-name/module-table
+    parsing; segments map to `BinaryInfo` sections with synthetic flat VAs
+    (`segment << 16 | offset`); a capstone probe classifies code vs data
+    segments (Borland marks all segments identically).
+  - `load_binary` parses NE natively (the old "16-bit not supported"
+    rejection is gone); `x86_16` arch preset (CS_MODE_16) drives asm/similar/
+    cu_map.
+  - `enumerate_ne_functions`: Delphi 1.0 linear sweep (push bp / enter
+    prologs, ret/retf epilogs) — 646 functions on holiday.exe.  `rebrew
+    intake` uses it for NE targets instead of rizin.
+  - `iter_strings`: NE targets scan data segments and recognize Pascal
+    (length-prefixed) strings — holiday.exe yields 3739 strings (German UI).
+  - `rebrew analyze` reports NE imports as module blocks and the toolchain
+    family (delphi).
+- `rebrew intake` fixes: skips `rebrew init` when the project already exists
+  (idempotent re-runs), and `classify_all` batches its metadata writes
+  (set_fields_batch + update_statuses_batch) — a 646-function intake dropped
+  from ~5 minutes (timeout) to 3 seconds.
 - `rebrew verify --fix-sizes` now backfills **missing** annotation SIZEs,
   not just stale ones: intake/documented stubs without a SIZE (which
   `rebrew test` refused with "Invalid SIZE: 0" and verify reported as
