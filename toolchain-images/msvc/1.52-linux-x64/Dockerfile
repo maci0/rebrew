@@ -5,7 +5,7 @@
 # CL.EXE /c headless, and writes the .OBJ back to the mounted /work.
 #
 # Build:  docker build -t rebrew/msvc:1.52-linux-x64 toolchain-images/msvc/1.52-linux-x64
-# Invoke: docker run --rm -v "$PWD":/work -w /work rebrew/msvc:1.52-linux-x64 cl16 /c test.c
+# Invoke: docker run --rm -v "$PWD":/work -w /work rebrew/msvc:1.52-linux-x64 /c test.c  (ENTRYPOINT is the cl16 wrapper)
 
 FROM debian:bookworm-slim
 
