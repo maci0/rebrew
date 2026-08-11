@@ -444,12 +444,18 @@ def find_dispatch_tables(
         sec_raw_size = sec.get("raw_size", sec.get("size", 0))
         sec_va = sec["va"]
 
-        # NE data segments carry the 2-byte Borland index marker before their
-        # content — the VMT far pointers start after it.
+        # Borland NE data segments carry the 2-byte [index\x00] marker
+        # before their content — the VMT far pointers start after it.  MSVC
+        # 16-bit NE segments (e.g. the 1991 SkiFree) have no marker, so the
+        # skip is applied only when the marker is actually present.
         if info is not None and info.format == "ne":
-            sec_offset += 2
-            sec_raw_size = max(0, sec_raw_size - 2)
-            sec_va += 2
+            from rebrew.ne_loader import has_borland_marker
+
+            seg_index = int(sec_name[3:]) if sec_name.startswith("SEG") else 0
+            if has_borland_marker(binary_data, sec_offset, seg_index):
+                sec_offset += 2
+                sec_raw_size = max(0, sec_raw_size - 2)
+                sec_va += 2
 
         if sec_offset + sec_raw_size > len(binary_data):
             continue

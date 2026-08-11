@@ -230,6 +230,26 @@ class TestVerifyCli:
         assert data["summary"]["total"] == 1
         assert data["summary"]["exact"] == 1
 
+    def test_ne_target_skips_compile_loop(self, tmp_path: Path, monkeypatch) -> None:
+        """16-bit NE targets (no compile profile yet — ADR-001) short-circuit
+        with a clear notice instead of compiling every stub into
+        COMPILE_ERROR rows."""
+        from rebrew.verify import app
+
+        ne = tmp_path / "game.ne"
+        data = bytearray(0x140)
+        data[0:2] = b"MZ"
+        data[0x3C:0x40] = (0x100).to_bytes(4, "little")
+        data[0x100:0x102] = b"NE"
+        ne.write_bytes(bytes(data))
+        cfg = _cfg(tmp_path, target_binary=ne)
+        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        result = CliRunner().invoke(app, ["--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data.get("skipped") is True
+        assert "NE" in data["reason"]
+
     def test_failed_exits_mismatch(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.verify import app
 

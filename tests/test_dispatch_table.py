@@ -213,3 +213,40 @@ class TestNeDispatchTables:
         assert tables[0].num_entries == 4
         targets = {e.target_va for e in tables[0].entries}
         assert 0x10002 in targets and 0x10010 in targets and 0x1001E in targets
+
+    def test_ne_vmt_detected_markerless(self, tmp_path: Path) -> None:
+        """Regression: an MSVC-style NE data segment (no [index\x00]
+        marker — e.g. the 1991 SkiFree) must be scanned from offset 0, not
+        skip 2 bytes like Borland segments."""
+        from test_ne_loader import _build_ne
+
+        from rebrew.binary_loader import load_binary
+
+        code = (
+            b"\x01\x00"
+            + bytes.fromhex("55 8b ec 5d c3")
+            + b"\x00" * 8
+            + bytes.fromhex("55 8b ec 5d c3")
+            + b"\x00" * 8
+            + bytes.fromhex("55 8b ec 5d c3")
+            + b"\x00" * 8
+        )
+        # No 2-byte Borland marker before the VMT: the far pointers start at
+        # the segment start.  A pointer value of 0x0001 (off=1, seg=0) at the
+        # skipped position would decode to VA 1 — outside code — so an
+        # unconditional skip would shift the scan and lose the table.
+        vmt = b"\x00\x00\x02\x00\x10\x00\x01\x00\x1e\x00\x01\x00\x02\x00\x01\x00"
+        data = vmt + b"\x00" * 32
+        raw = _build_ne(segments=[(code, 0x01), (data, 0x00)], autodata=2)
+        p = tmp_path / "app.ne"
+        p.write_bytes(raw)
+        info = load_binary(p)
+
+        from rebrew.binary_loader import section_dict
+        from rebrew.data import find_dispatch_tables
+
+        sec_dict = section_dict(info)
+        tables = find_dispatch_tables(info.data, sec_dict, {}, min_entries=3, info=info)
+        assert len(tables) == 1, tables
+        targets = {e.target_va for e in tables[0].entries}
+        assert 0x10002 in targets and 0x10010 in targets and 0x1001E in targets

@@ -230,6 +230,14 @@ def main(
     cfg = require_config(target=target, json_mode=json_output)
 
     entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
+    # Normalize a hex VA identifier once (functions.txt writes zero-padded
+    # 0x000100a0; other tools accept both — rename must too).
+    va_ident: int | None = None
+    if target_ident.lower().startswith("0x"):
+        try:
+            va_ident = int(target_ident, 16)
+        except ValueError:
+            va_ident = None
     matches = []
     for e in entries:
         name = getattr(e, "name", "")
@@ -239,7 +247,15 @@ def main(
 
         va_str = f"0x{va:x}"
         va_str_upper = f"0x{va:X}"
-        if target_ident in (name, sym, str(fp), Path(str(fp)).name, va_str, va_str_upper, str(va)):
+        if target_ident in (
+            name,
+            sym,
+            str(fp),
+            Path(str(fp)).name,
+            va_str,
+            va_str_upper,
+            str(va),
+        ) or (va_ident is not None and va == va_ident):
             matches.append(e)
 
     if not matches:

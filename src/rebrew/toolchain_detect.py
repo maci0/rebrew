@@ -83,6 +83,11 @@ _WATCOM_MARKERS = ("Open Watcom", "Watcom C/C++", "Watcom Run-time Library", "WA
 # Borland C/C++ (Turbo C, C++Builder) — distinct from Delphi: same CODE/DATA/
 # BSS section layout but no Delphi RTL strings, and its own runtime imports.
 _BORLANDC_MARKERS = ("Borland C++", "Borland C Runtime", "Turbo C", "BORLAND")
+#: Compilers with no rebrew byte-matching profile yet — detected for the
+#: dossier, documented as blockers (diec identifies them reliably).
+_SYMANTEC_MARKERS = ("Symantec C++", "Symantec C/C++", "Symantec C++ Runtime")
+_ZORTECH_MARKERS = ("Zortech C++", "Zortech C")
+_ICC_MARKERS = ("Intel C++ Compiler", "Intel(R) C++ Compiler", "Intel C/C++")
 _BORLANDC_IMPORTS = {
     "cw32.dll",
     "cc32.dll",
@@ -181,6 +186,25 @@ def _run_diec(path: Path, diec: Path | None = None) -> list[dict[str, object]] |
     return data.get("detects") or []
 
 
+def _linker_era_hint(ver: str) -> str:
+    """MSVC era implied by the Microsoft Linker version (a fallback when
+    diec misses the compiler record — e.g. explorer.exe on Win2K SP4, which
+    only yields a Linker + Installer detection)."""
+    if ver.startswith(("5.10", "5.11", "5.12")):
+        return "MSVC 5.0"
+    if ver.startswith("6."):
+        return "MSVC 6.0"
+    if ver.startswith("7.1"):
+        return "MSVC 7.1"
+    if ver.startswith("7."):
+        return "MSVC 7.0"
+    if ver.startswith("8."):
+        return "MSVC 8.0"
+    if ver.startswith("9."):
+        return "MSVC 9.0"
+    return ""
+
+
 def _diec_version_hint(dets: list[dict[str, object]]) -> str:
     """Derive a version hint from DIE's compiler/linker version strings."""
     for det in dets:
@@ -205,6 +229,20 @@ def _diec_version_hint(dets: list[dict[str, object]]) -> str:
                 if ver:
                     return f"GCC {ver}".strip()
                 return "MinGW GCC" if "MinGW" in name else "GNU C"
+    # No compiler record — fall back to the linker version, which still pins
+    # the MSVC era.
+    for det in dets:
+        values = det.get("values") or []
+        if not isinstance(values, list):
+            continue
+        for v in values:
+            if not isinstance(v, dict):
+                continue
+            if str(v.get("name") or "") == "Microsoft Linker":
+                ver = str(v.get("version") or "")
+                if ver:
+                    era = _linker_era_hint(ver)
+                    return f"{era or 'MSVC-era'} (linker {ver})"
     return ""
 
 
@@ -464,6 +502,9 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
     msvc_hits = [s for s in strings if s in _MSVC_MARKERS]
     watcom_hits = [m for m in _WATCOM_MARKERS if any(m in s for s in strings)]
     borlandc_hits = [m for m in _BORLANDC_MARKERS if any(m in s for s in strings)]
+    symantec_hits = [m for m in _SYMANTEC_MARKERS if any(m in s for s in strings)]
+    zortech_hits = [m for m in _ZORTECH_MARKERS if any(m in s for s in strings)]
+    icc_hits = [m for m in _ICC_MARKERS if any(m in s for s in strings)]
     if delphi_hits:
         info.add(f"Delphi RTL strings: {', '.join(delphi_hits[:3])}")
     if msvc_hits:
@@ -472,6 +513,12 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
         info.add(f"Watcom runtime strings: {', '.join(watcom_hits[:2])}")
     if borlandc_hits and not delphi_hits:
         info.add(f"Borland C/C++ strings: {', '.join(borlandc_hits[:2])}")
+    if symantec_hits:
+        info.add(f"Symantec C++ strings: {', '.join(symantec_hits[:2])}")
+    if zortech_hits:
+        info.add(f"Zortech C++ strings: {', '.join(zortech_hits[:2])}")
+    if icc_hits:
+        info.add(f"Intel C++ strings: {', '.join(icc_hits[:2])}")
 
     try:
         binfo = load_binary(path)
@@ -487,6 +534,45 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
                 info.family = "borlandc"
                 info.confidence = "medium"
                 info.version_hint = "Borland C/C++ runtime strings present"
+        return info
+
+    # --- 16-bit NE targets: the segment marker convention tells the family ---
+    if getattr(binfo, "format", "") == "ne":
+        from rebrew.ne_loader import has_borland_marker
+
+        data = binfo.data
+        ne_segments = getattr(binfo, "ne_segments", []) or []
+        marker_segs = sum(
+            1
+            for seg in ne_segments
+            if seg.length and has_borland_marker(data, seg.file_offset, seg.index)
+        )
+        ne_imports = getattr(binfo, "ne_imports", []) or []
+        if ne_imports:
+            info.add(f"NE imports: {', '.join(m.module for m in ne_imports[:6])}")
+        if info.family == "unknown":
+            # String evidence outranks the marker heuristic (a synthetic or
+            # stripped NE may lack segment markers but still carry RTL strings).
+            if delphi_hits:
+                info.family = "delphi"
+                info.confidence = "medium"
+                info.version_hint = "Delphi RTL strings present"
+            elif marker_segs:
+                info.family = "delphi"
+                info.confidence = "high"
+                info.version_hint = "Borland (Delphi/Turbo Pascal) NE segment markers"
+            elif borlandc_hits:
+                info.family = "borlandc"
+                info.confidence = "medium"
+                info.version_hint = "Borland C/C++ runtime strings present"
+            elif any(getattr(seg, "length", 0) for seg in ne_segments):
+                # A real markerless NE with content is MSVC-style 16-bit
+                # (entry code opens ``push ds/pop ax/nop/inc bp``); a
+                # truncated/synthetic NE with no segments stays unknown.
+                info.family = "msvc"
+                info.confidence = "medium"
+                info.version_hint = "16-bit MSVC-style NE (no Borland segment markers)"
+            info.detected_by = "ne"
         return info
 
     sections = {s.name for s in binfo.sections.values()}
@@ -588,6 +674,18 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
         info.family = "watcom"
         info.confidence = "medium"
         info.version_hint = "Watcom C/C++ (section layout)"
+    elif symantec_hits:
+        info.family = "symantec"
+        info.confidence = "medium"
+        info.version_hint = "Symantec C++ (runtime strings)"
+    elif zortech_hits:
+        info.family = "zortech"
+        info.confidence = "medium"
+        info.version_hint = "Zortech C++ (runtime strings)"
+    elif icc_hits:
+        info.family = "icc"
+        info.confidence = "medium"
+        info.version_hint = "Intel C++ (runtime strings)"
     elif has_buildid and gnu_nops:
         info.family = "mingw"
         info.confidence = "high"
@@ -626,9 +724,12 @@ _PROFILE_COMPAT: dict[str, set[str] | None] = {
     "msvc": {"msvc400", "msvc420", "msvc5", "msvc6", "msvc6.3", "msvc6.6", "msvc7"},
     "mingw": {"gcc-pe"},
     "zig": {"gcc-pe"},  # may match structurally only (LLVM vs GCC codegen)
+    "watcom": {"watcom"},  # profile exists; byte matching needs the OMF parser (docs/OMF_NOTES.md)
     "delphi": None,
-    "watcom": None,
     "borlandc": None,
+    "symantec": None,
+    "zortech": None,
+    "icc": None,
     "unknown": None,
 }
 

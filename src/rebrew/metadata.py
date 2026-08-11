@@ -432,6 +432,34 @@ def _delete_field(directory: Path, va: int, key: str, module: str) -> bool:
         return False
 
 
+def delete_metadata_entry(directory: Path, va: int, module: str) -> bool:
+    """Remove the entire metadata entry for *(module, va)*.
+
+    Used when a function disappears from the target on re-discovery (e.g.
+    ``rebrew intake`` stale-stub pruning after an enumeration fix).  Only
+    touches the metadata file — never a source file.
+    """
+    path = (directory / METADATA_FILENAME).resolve()
+    if not path.exists():
+        return False
+    toml_key = qualified_key(module, va)
+
+    with _metadata_write_lock(directory):
+        try:
+            doc = tomlkit.parse(path.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to parse metadata %s: %s", path, exc)
+            return False
+
+        doc_dict = typing.cast(dict[str, Any], doc)
+        if toml_key not in doc_dict:
+            return False
+        del doc_dict[toml_key]
+        atomic_write_text(path, tomlkit.dumps(doc))
+        _metadata_cache.pop(path, None)
+        return True
+
+
 def update_field(directory: Path, va: int, key: str, value: Any, module: str) -> None:
     """Central gatekeeper for all metadata field writes.
 

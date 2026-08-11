@@ -552,6 +552,32 @@ format = "coff"
             cfg = load_config(root)
         assert cfg.binary_format == "pe"
 
+    def test_ne_format_accepted(self, tmp_path: Path) -> None:
+        """format = "ne" (written by intake for 16-bit NE targets) must load
+        without the unknown-format fallback warning."""
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+format = "ne"
+arch = "x86_16"
+"""
+        root = _make_project(tmp_path, toml)
+        # A real (minimal) NE binary so is_ne() routes to the native loader.
+        ne = bytearray(0x300)
+        ne[0:2] = b"MZ"
+        ne[0x3C:0x40] = (0x100).to_bytes(4, "little")
+        ne[0x100:0x102] = b"NE"
+        (root / "test.exe").write_bytes(bytes(ne))
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)  # no unknown-format warn
+            cfg = load_config(root)
+        assert cfg.binary_format == "ne"
+
     def test_unknown_profile_falls_back_to_msvc6(self, tmp_path: Path) -> None:
         toml = """\
 [project]

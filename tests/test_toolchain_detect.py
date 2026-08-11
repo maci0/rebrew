@@ -48,6 +48,16 @@ class TestDiecVersionHint:
     def test_no_compiler(self) -> None:
         assert _diec_version_hint([]) == ""
 
+    def test_linker_fallback(self) -> None:
+        # explorer.exe on Win2K yields only a Linker record — the era comes
+        # from the linker version.
+        dets = [{"values": [{"name": "Microsoft Linker", "version": "5.12.9049"}]}]
+        assert _diec_version_hint(dets) == "MSVC 5.0 (linker 5.12.9049)"
+
+    def test_linker_fallback_unmapped_era(self) -> None:
+        dets = [{"values": [{"name": "Microsoft Linker", "version": "9.00.30729"}]}]
+        assert _diec_version_hint(dets) == "MSVC 9.0 (linker 9.00.30729)"
+
 
 class TestProfileMatches:
     def test_msvc_profile_matches_msvc(self) -> None:
@@ -78,7 +88,18 @@ class TestProfileMatches:
         info = ToolchainInfo(family="delphi")
         aligned, expl = profile_matches_detection("msvc6", info)
         assert aligned is False
-        assert "Delphi" in (expl or "")
+
+    def test_watcom_profile_matches_watcom(self) -> None:
+        """Open Watcom now has a profile — doctor alignment must pass."""
+        info = ToolchainInfo(family="watcom")
+        aligned, expl = profile_matches_detection("watcom", info)
+        assert aligned is True
+
+    def test_symantec_never_matches(self) -> None:
+        info = ToolchainInfo(family="symantec")
+        aligned, expl = profile_matches_detection("msvc6", info)
+        assert aligned is False
+        assert "symantec" in (expl or "")
 
     def test_zig_is_structural_caveat(self) -> None:
         info = ToolchainInfo(family="zig")
@@ -358,6 +379,21 @@ class TestHeuristicsFamilies:
         info = detect_toolchain(tmp_path / "prog.exe")
         assert info.family == "unknown"
 
+    def test_symantec_strings_detected(self, monkeypatch, tmp_path: Path) -> None:
+        monkeypatch.setattr("rebrew.toolchain_detect._run_diec", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.toolchain_detect.detect_with_pdb", lambda *a, **k: None)
+        monkeypatch.setattr(
+            "rebrew.toolchain_detect.load_binary",
+            lambda *a, **k: _fake_binary(["CODE", "DATA"]),
+        )
+        monkeypatch.setattr(
+            "rebrew.toolchain_detect._scan_strings",
+            lambda *a, **k: ["Symantec C++ Runtime"],
+        )
+        info = detect_toolchain(tmp_path / "prog.exe")
+        assert info.family == "symantec"
+        assert info.confidence == "medium"
+
 
 class TestNEStringDetection:
     """16-bit NE binaries (unparseable by load_binary) are identified from
@@ -394,3 +430,61 @@ class TestNEStringDetection:
 
         info = detect_toolchain(ne)
         assert info.family == "unknown"
+
+    def test_ne_borland_markers_detected(self, tmp_path: Path, monkeypatch) -> None:
+        """A real Borland NE (segments prefixed ``[index\\x00][name]``) is
+        identified from its segment markers — the 16-bit holiday.exe path."""
+        from rebrew.toolchain_detect import detect_toolchain
+
+        ne = tmp_path / "app.ne"
+        data = bytearray(0x4000)
+        data[0:2] = b"MZ"
+        data[0x3C:0x40] = (0x100).to_bytes(4, "little")
+        data[0x100:0x102] = b"NE"
+        # One segment: [index=1][\x00][name="UNIT"][code]
+        seg = bytes([1, 0, 4]) + b"UNIT" + bytes.fromhex("55 8b ec 5d c3")
+        data[0x200 : 0x200 + len(seg)] = seg
+        data[0x11C:0x11E] = (1).to_bytes(2, "little")  # segment count
+        data[0x132:0x134] = (4).to_bytes(2, "little")  # sector shift
+        data[0x122:0x124] = (0x40).to_bytes(2, "little")  # segment table offset
+        data[0x140:0x148] = (
+            (0x20).to_bytes(2, "little")  # sector offset of segment data
+            + (len(seg)).to_bytes(2, "little")  # length
+            + (1).to_bytes(2, "little")  # flags (code)
+            + (len(seg)).to_bytes(2, "little")  # minimum allocation
+        )
+        ne.write_bytes(bytes(data))
+
+        monkeypatch.setattr("rebrew.toolchain_detect._scan_strings", lambda *a, **k: [])
+        info = detect_toolchain(ne)
+        assert info.family == "delphi"
+        assert info.confidence == "high"
+        assert "segment markers" in info.version_hint
+
+    def test_ne_markerless_with_segments_is_msvc(self, tmp_path: Path, monkeypatch) -> None:
+        """A markerless NE with real segment content (the 16-bit MSVC path —
+        e.g. the original 1991 SkiFree) is reported as MSVC-style."""
+        from rebrew.toolchain_detect import detect_toolchain
+
+        ne = tmp_path / "app.ne"
+        data = bytearray(0x4000)
+        data[0:2] = b"MZ"
+        data[0x3C:0x40] = (0x100).to_bytes(4, "little")
+        data[0x100:0x102] = b"NE"
+        seg = bytes.fromhex("1e 58 90 45 55 8b ec 83 ec 02 5d c3")  # MSVC 16-bit entry
+        data[0x200 : 0x200 + len(seg)] = seg
+        data[0x11C:0x11E] = (1).to_bytes(2, "little")  # segment count
+        data[0x132:0x134] = (4).to_bytes(2, "little")  # sector shift
+        data[0x122:0x124] = (0x40).to_bytes(2, "little")  # segment table offset
+        data[0x140:0x148] = (
+            (0x20).to_bytes(2, "little")
+            + (len(seg)).to_bytes(2, "little")
+            + (1).to_bytes(2, "little")
+            + (len(seg)).to_bytes(2, "little")
+        )
+        ne.write_bytes(bytes(data))
+
+        monkeypatch.setattr("rebrew.toolchain_detect._scan_strings", lambda *a, **k: [])
+        info = detect_toolchain(ne)
+        assert info.family == "msvc"
+        assert "MSVC" in info.version_hint

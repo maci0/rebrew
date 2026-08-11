@@ -270,19 +270,23 @@ _load_binary_lock = threading.Lock()
 def is_ne(path: str | Path) -> bool:
     """True when *path* is a 16-bit Windows NE executable (MZ stub + "NE"
     header at the MZ ``e_lfanew`` offset).  Windows 3.x binaries use this
-    format; rebrew targets 32-bit PE/ELF/Mach-O, so they are detected and
-    reported explicitly rather than failing as "unknown format"."""
+    format.  The NE header offset is read from ``e_lfanew`` rather than
+    assumed to sit within the MZ stub: Borland linkers emit it close to the
+    start (e.g. 0x40) but MSVC 16-bit linkers place it far past the stub
+    (e.g. 0x400), which a fixed-length header read would miss."""
     try:
         with open(path, "rb") as f:
-            head = f.read(0x104)
+            head = f.read(0x40)
+            if len(head) < 0x40 or head[:2] != b"MZ":
+                return False
+            e_lfanew = int.from_bytes(head[0x3C:0x40], "little")
+            if e_lfanew == 0:
+                return False
+            f.seek(e_lfanew)
+            sig = f.read(2)
     except OSError:
         return False
-    if len(head) < 0x104 or head[:2] != b"MZ":
-        return False
-    e_lfanew = int.from_bytes(head[0x3C:0x40], "little")
-    if e_lfanew + 2 > len(head):
-        return False
-    return head[e_lfanew : e_lfanew + 2] == b"NE"
+    return sig == b"NE"
 
 
 def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
@@ -380,6 +384,10 @@ def _parse_regular(path: Path, fmt: str) -> BinaryInfo:
             if binary is None:
                 raise ValueError(f"Failed to parse Mach-O: {path}")
             result = _load_macho(binary, path)
+        elif fmt == "ne":
+            # A real NE file is routed to the native loader by is_ne() before
+            # this branch; reaching here means the file is not NE.
+            raise ValueError(f"Not a 16-bit Windows NE executable: {path}")
         else:
             raise ValueError(f"Unknown binary format: {fmt!r}")
     except OSError as exc:

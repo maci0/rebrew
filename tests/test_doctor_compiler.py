@@ -19,10 +19,49 @@ def _cfg(**overrides: object) -> SimpleNamespace:
 
 
 class TestCheckCompiler:
-    def test_empty_command_fails(self) -> None:
-        result = check_compiler(_cfg(compiler_command=""))
+    def test_x86_16_target_warns_not_fails(self) -> None:
+        """16-bit NE targets have no compile profile (ADR-001) — a missing
+        toolchain is expected, so the compiler check downgrades to a
+        warning instead of failing the project."""
+        result = check_compiler(_cfg(arch="x86_16", compiler_command="wine missing/CL.EXE"))
+        assert result.status == _WARN
+        assert "16-bit" in result.message
+
+    def test_x86_32_target_still_checks(self) -> None:
+        result = check_compiler(_cfg(arch="x86_32", compiler_command=""))
         assert result.status == _FAIL
-        assert "No compiler command" in result.message
+
+
+class TestCheckDelphi16Toolchain:
+    def test_skipped_for_non_16bit(self) -> None:
+        from rebrew.doctor import _SKIP, check_delphi16_toolchain
+
+        result = check_delphi16_toolchain(_cfg(arch="x86_32"))
+        assert result.status == _SKIP
+
+    def test_missing_toolchain_fails(self, monkeypatch) -> None:
+        from rebrew.delphi16 import Delphi16Error
+        from rebrew.doctor import _FAIL, check_delphi16_toolchain
+
+        monkeypatch.setattr(
+            "rebrew.delphi16._find_dcc", lambda: (_ for _ in ()).throw(Delphi16Error("not found"))
+        )
+        result = check_delphi16_toolchain(_cfg(arch="x86_16"))
+        assert result.status == _FAIL
+        assert "not found" in result.message
+
+    def test_ready_passes(self, monkeypatch, tmp_path: Path) -> None:
+        from rebrew.doctor import _PASS, check_delphi16_toolchain
+
+        dcc_dir = tmp_path / "tools" / "DELPHI10"
+        dcc_dir.mkdir(parents=True)
+        (dcc_dir / "DCC.EXE").write_bytes(b"MZ")
+        (dcc_dir / "RTM.EXE").write_bytes(b"MZ")
+        monkeypatch.setattr("rebrew.delphi16._find_dcc", lambda: dcc_dir / "DCC.EXE")
+        monkeypatch.setattr("rebrew.doctor.shutil.which", lambda *a, **k: "/usr/bin/dosbox")
+        result = check_delphi16_toolchain(_cfg(arch="x86_16"))
+        assert result.status == _PASS
+        assert "ready" in result.message
 
     def test_shlex_valueerror_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Unbalanced quotes → shlex.split raises → plain split fallback."""
@@ -425,6 +464,24 @@ class TestCheckToolchainAlignment:
         from rebrew.doctor import _FAIL, check_toolchain_alignment
         from rebrew.toolchain_detect import ToolchainInfo
 
+        # A genuine mismatch — a MinGW-built binary with the msvc6 profile
+        # configured — is a hard failure (a compiler exists but is wrong).
+        monkeypatch.setattr(
+            "rebrew.toolchain_detect.detect_toolchain",
+            lambda *a, **k: ToolchainInfo(family="mingw", confidence="high", version_hint="GCC 8"),
+        )
+        result = check_toolchain_alignment(self._cfg_with_binary(tmp_path))
+        assert result.status == _FAIL
+        assert "mingw" in result.message
+        assert "does not align" in (result.fix or "")
+
+    def test_delphi_mismatch_warns(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """A Delphi target has no matchable profile at all (ADR-001-style:
+        documented blockers, analysis-only) — the alignment check downgrades
+        to a warning instead of failing the project."""
+        from rebrew.doctor import _WARN, check_toolchain_alignment
+        from rebrew.toolchain_detect import ToolchainInfo
+
         monkeypatch.setattr(
             "rebrew.toolchain_detect.detect_toolchain",
             lambda *a, **k: ToolchainInfo(
@@ -432,7 +489,7 @@ class TestCheckToolchainAlignment:
             ),
         )
         result = check_toolchain_alignment(self._cfg_with_binary(tmp_path))
-        assert result.status == _FAIL
+        assert result.status == _WARN
         assert "delphi" in result.message
         assert "Delphi" in (result.fix or "")
 

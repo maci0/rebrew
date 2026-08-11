@@ -768,6 +768,24 @@ def main(
     if jobs is None:
         jobs = cfg.default_jobs
 
+    # 16-bit NE targets cannot be byte-compiled yet (ADR-001: 16-bit
+    # matching is future work — no 16-bit compiler profile exists).  A full
+    # verify would burn every stub through the compile loop into
+    # COMPILE_ERROR rows; short-circuit with a clear notice instead.
+    from rebrew.binary_loader import is_ne
+
+    if getattr(cfg, "target_binary", None) and is_ne(cfg.target_binary):
+        msg = (
+            "verify: 16-bit NE targets have no compile profile yet (ADR-001 — "
+            "byte matching for Windows 3.x binaries is future work); skipping "
+            "the compile/compare loop"
+        )
+        if json_output:
+            json_print({"skipped": True, "reason": msg, "arch": "x86_16"})
+        else:
+            console.print(f"[yellow]{msg}[/yellow]")
+        return
+
     if watch:
         from rebrew.cli import iter_sources
         from rebrew.utils import watch_files

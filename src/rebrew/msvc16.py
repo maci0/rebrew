@@ -1,0 +1,117 @@
+"""msvc16.py — MSVC 1.52 (16-bit) compilation support.
+
+Wraps the vendored 16-bit Microsoft Visual C++ 1.52 command-line compiler
+(``tools/MSVC152``): the CL.EXE driver is a Phar Lap TNT DOS-extender PE
+that runs headless under DOSBox (wine's DOS-memory allocation fails for
+it).  Produces 16-bit OMF objects — the OMF parser (docs/OMF_NOTES.md) is
+the enabling piece for byte matching.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from rebrew.dosbox import DosboxError, read_uppercase, run_dosbox
+
+
+class Msvc16Error(RuntimeError):
+    """Compilation failed (toolchain missing, DOSBox absent, or CL error)."""
+
+
+@dataclass
+class Msvc16Result:
+    """Outcome of an MSVC 1.52 compile."""
+
+    obj_path: Path
+    log: str = ""
+
+
+def _find_vc152() -> Path:
+    repo_tools = Path(__file__).resolve().parents[2] / "tools"
+    vc = repo_tools / "MSVC152"
+    if (vc / "BIN" / "CL.EXE").exists():
+        return vc
+    raise Msvc16Error(
+        "vendored MSVC 1.52 not found under tools/MSVC152 (BIN/INCLUDE/LIB "
+        "required — extract from archive.org item en_vc152_202512)"
+    )
+
+
+def compile_c(
+    c_source: str | Path,
+    workdir: str | Path | None = None,
+    *,
+    cflags: list[str] | None = None,
+    timeout: int = 240,
+) -> Msvc16Result:
+    """Compile a C file to a 16-bit OMF object with MSVC 1.52.
+
+    Stages a DOSBox sandbox (on a non-tmpfs filesystem) with the vendored
+    BIN/INCLUDE/LIB symlinked in, runs ``CL /nologo /c`` headless, and
+    returns the produced ``.OBJ`` (FAT-uppercased name) plus the log.
+
+    Args:
+        c_source: Path to the C source (or source text).
+        workdir: Sandbox dir (default: a fresh dir under the user home —
+            DOSBox breaks on tmpfs mounts).
+        cflags: Extra CL flags (default ``["/c", "/nologo"]``).
+        timeout: DOSBox subprocess timeout.
+
+    Raises:
+        Msvc16Error: toolchain/DOSBox missing, compile failure, or no object.
+    """
+    vc = _find_vc152()
+
+    src_path = Path(c_source) if Path(c_source).exists() else None
+    if src_path is not None:
+        src_text = src_path.read_text(encoding="utf-8", errors="replace")
+        src_name = src_path.name
+    else:
+        src_text = str(c_source)
+        src_name = "probe.c"
+
+    sandbox = Path(workdir) if workdir is not None else _default_workdir()
+    sandbox.mkdir(parents=True, exist_ok=True)
+
+    # Symlink the read-only toolchain tree into the sandbox (DOSBox follows
+    # symlinks on the mounted host dir); only the source is copied.
+    for sub in ("BIN", "INCLUDE", "LIB"):
+        link = sandbox / sub
+        if not link.exists():
+            link.symlink_to(vc / sub, target_is_directory=True)
+    (sandbox / src_name).write_text(src_text, encoding="utf-8")
+
+    flags = cflags if cflags is not None else ["/c", "/nologo"]
+    cmd = "C:\\BIN\\CL.EXE " + " ".join(flags) + f" {src_name} > C:\\clout.txt"
+    try:
+        run_dosbox(
+            sandbox,
+            ["set INCLUDE=C:\\INCLUDE", "set LIB=C:\\LIB", cmd],
+            timeout=timeout,
+        )
+    except DosboxError as exc:
+        raise Msvc16Error(str(exc)) from exc
+
+    log = read_uppercase(sandbox, "clout.txt")
+    stem = Path(src_name).stem
+    obj = next(
+        (
+            p
+            for p in sandbox.iterdir()
+            if p.suffix.upper() == ".OBJ" and p.stem.upper() == stem.upper()
+        ),
+        None,
+    )
+    if obj is None:
+        raise Msvc16Error(f"CL produced no object for {src_name} (log below):\n{log.strip()}")
+    return Msvc16Result(obj_path=obj, log=log)
+
+
+def _default_workdir() -> Path:
+    import tempfile
+
+    return Path(tempfile.mkdtemp(prefix="msvc16-", dir=Path.home()))
+
+
+__all__ = ["Msvc16Error", "Msvc16Result", "compile_c"]

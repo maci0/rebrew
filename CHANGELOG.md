@@ -1,6 +1,29 @@
 ## [Unreleased]
 
 ### Added
+- **Toolchain standardization (docker-first)**: `rebrew.toolchain` — a
+  uniform spec registry + runner modeled on Godbolt's Compiler Explorer
+  (one image per toolchain-version, wrapper inside the image, uniform
+  `docker run <image> <compiler> <args>`; host-path/PATH fallback when
+  docker or the image is unavailable), the `rebrew toolchain` CLI
+  (`list`/`status`/`pull`), and `toolchain-images/<name>/Dockerfile` build
+  specs.
+- **Open Watcom profile**: Open Watcom 2.0 installed at `tools/WATCOM`
+  (native Linux `wcc386`, verified compiling; emits OMF objects — the OMF
+  parser is the documented enabling follow-up in `docs/OMF_NOTES.md` with
+  the empirically-mapped record layout).
+- **MSVC 1.52 (16-bit) profile**: `tools/MSVC152` (archive.org
+  `en_vc152_202512`) + `rebrew.msvc16.compile_c` — the Phar Lap TNT
+  CL.EXE runs headless under DOSBox via the new shared `rebrew.dosbox`
+  runner (refactored out of `delphi16`), producing 16-bit OMF objects.
+- **Detection hints**: Symantec C++ / Zortech C++ / Intel C++ families
+  identified from runtime strings (dossier + blocker wording); Watcom
+  family now aligns with the `watcom` profile in doctor.
+- **ADR documentation**: architectural decisions now recorded in
+  `docs/adr/` (Nygard format) — native NE parsing, NE function-enumeration
+  conventions, the import-degradation policy, intake stale-stub pruning,
+  and toolchain-detection ordering; the convention itself is in
+  `AGENTS.md` so it stays maintained.
 - **16-bit Windows NE support** — `holiday.exe` (Borland Delphi 1.0,
   NE 6.01) can now be onboarded and analyzed end-to-end:
   - `rebrew.ne_loader`: NE header/segment-table/resident-name/module-table
@@ -329,6 +352,77 @@
   key the config reader ignores.
 
 ### Fixed
+- **16-bit NE support for MSVC-built targets** (the original 1991 SkiFree):
+  `is_ne` read only the first 0x104 bytes, but the MSVC 16-bit linker places
+  the NE header at `e_lfanew` = 0x400 (Borland uses 0x40) — NE binaries were
+  silently misdetected as PE and enumerated by rizin into garbage.  `is_ne`
+  now seeks to `e_lfanew`; `probe_is_code` skips the Borland `[index\x00]`
+  marker only when it is actually present; `enumerate_ne_functions` treats a
+  markerless segment's start as a function boundary (MSVC 16-bit entry code
+  opens `push ds/pop ax/nop/inc bp`, not `push bp`), recovering the entry
+  function (ski16.exe: 137 funcs vs 233 garbage; holiday.exe unchanged at
+  1783).
+- `rebrew intake` re-discovery (project already exists) now prunes
+  auto-generated STUB files + metadata for functions absent from the new
+  function list — a changed enumeration (rizin update, NE fix) previously
+  left orphaned stubs that inflated `rebrew status` totals (233 stale stubs
+  on the SkiFree NE re-onboarding).  Only exact auto-stub content is pruned;
+  edited/renamed sources and progressed metadata are never touched.
+- **NE import parsing no longer fabricates garbage**: the classic Win16
+  import table does not exist in many binaries (MSVC-built NEs like the
+  1991 SkiFree place the non-resident name table right after the entry
+  table, and Borland binaries differ too) — the old parse read those bytes
+  as counts and emitted tens of thousands of fake ordinal imports (holiday:
+  WAVEMIX "18443 imports").  `parse_imports` now sanity-gates the count and
+  validates by-name offsets, degrading to the module list only (KERNEL/GDI/
+  USER on ski16), and `rebrew imports` reports module-level NE records so
+  the DLL set stays visible.  Per-API Win16 imports (entry-table entries)
+  remain future work.
+- `rebrew intake` writes `format = "ne"` for 16-bit NE targets (was `"pe"`,
+  cosmetic since `load_binary` auto-detects, but misleading in the config);
+  `load_config` accepts `format = "ne"` without the unknown-format fallback
+  warning, and `load_binary` reports "Not a 16-bit Windows NE executable"
+  for `fmt="ne"` on a non-NE file instead of a generic format error.
+- `rebrew verify` short-circuits 16-bit NE targets with a clear notice
+  (no compile profile exists yet — ADR-001) instead of running every stub
+  through the compile loop into COMPILE_ERROR rows.
+- `rebrew data --dispatch` scans MSVC-style NE data segments from offset 0
+  (the Borland `[index\x00]` skip is now conditional on the marker being
+  present) — VMT/dispatch detection on the 1991 SkiFree was misaligned by
+  2 bytes.
+- `rebrew rename` accepts zero-padded hex VA identifiers (functions.txt
+  writes `0x000100a0`; the strict string match rejected them while every
+  other VA-taking tool accepts both forms).
+- `rebrew discover-functions` routes 16-bit NE binaries through the native
+  NE loader's linear sweep instead of rizin (whose NE output is garbage
+  file-offset "functions" — the source of the original SkiFree 233-func
+  false enumeration).
+- `rebrew doctor` no longer fails 16-bit NE projects: the compiler + include
+  checks downgrade to warnings for `x86_16` targets (no compile profile —
+  ADR-001), and the toolchain-alignment check warns instead of failing for
+  Delphi-family targets (documented-blocker, analysis-only).  Both NE corpus
+  targets now report "Project looks healthy!".
+- Property-based test for `bytes_to_pat_line` (hypothesis): lead masking,
+  CRC-window truncation before the first tail relocation, size field, and
+  determinism hold for arbitrary code bytes + reloc offsets.
+- **`rebrew.delphi16.compile_ne`** — the ADR-001 16-bit compile foundation:
+  a self-contained DOSBox sandbox (compiler trio + `RTM.EXE` + RTL units +
+  staged `DCC.CFG`) compiles a `.dpr` headless and parses the resulting NE
+  with the native loader.  Hard-won requirements documented: `RTM.EXE`
+  (DPMI runtime — DCC silently fails without it) and a non-tmpfs mounted
+  drive (DOSBox 0.74-3's shell breaks on tmpfs).  `hello.dpr` →
+  `HELLO.EXE` → 15 functions enumerated.
+- Property test for inline annotation update/remove symmetry: for arbitrary
+  file-owned keys and printable values, `update_annotation_key` followed by
+  `remove_annotation_key` restores the source file byte-for-byte.
+- `rebrew analyze` `functions.total`/`total_bytes` were 0 for projects
+  without a Ghidra export — the dossier now falls back to the project's
+  own `functions.txt` via the canonical `parse_function_list`.
+- `detect_toolchain` identifies 16-bit NE targets from their segment
+  markers (Borland `[index\x00]` → `delphi`, markerless segments → `msvc`
+  16-bit) and falls back to the Microsoft Linker version when diec misses
+  the compiler record (explorer.exe on Win2K SP4 → "MSVC 5.0 (linker
+  5.12.9049)").
 - `rebrew verify --fix-sizes`: auto-corrects stale annotation SIZE from the
   binary-derived canonical size for every reported divergence (stale sizes
   cause false SIZE_MISMATCH / truncated byte extraction). `--dry-run`

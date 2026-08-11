@@ -50,6 +50,48 @@ semantic decomp and blocker the byte delta rather than forcing a pass.
 use `aa; aap` (function-prelude analysis) for the function list.  Ghidra
 headless gives correct boundaries but is slow on loaded machines.
 
+---
+
+## Delphi 1.0 (16-bit NE compile backend — future matching)
+
+The vendored `tools/DELPHI10` toolchain (DCC.EXE, DOS DPMI app run under
+DOSBox headless) compiles 16-bit Windows 3.x NE executables; the
+`rebrew.delphi16.compile_ne` wrapper makes it invocable from Python and
+parses the output with the native NE loader.  Byte matching is not yet
+wired (ADR-001) — see `tools/DELPHI10/README.md` for the recipe and the
+RTM.EXE / non-tmpfs requirements, and the NE section below for the
+analysis-side support matrix.
+
+---
+
+## Toolchain standardization (docker-first)
+
+`rebrew toolchain` (see [CLI.md](CLI.md)) manages compiler toolchains
+through a uniform abstraction (`rebrew.toolchain`), modeled on Godbolt's
+Compiler Explorer convention: **one container image per toolchain-version**,
+with the compiler behind a wrapper inside the image, so the host invocation
+is always `docker run <image> <compiler> <args>`.  The runner falls back to
+a vendored host path (`tools/…`) or PATH binary when docker or the image is
+unavailable — the same profile works either way.
+
+Current toolchains (`rebrew toolchain list`): `msvc6` (wine), `delphi16`
+(DOSBox), `gcc-pe` (native MinGW), `watcom` (native Open Watcom 2.0 —
+installed at `tools/WATCOM`), `msvc1.52` (16-bit, DOSBox via
+`rebrew.msvc16`).  Dockerfiles live in `toolchain-images/<name>/Dockerfile`.
+
+Notes:
+
+- **Watcom** (`wcc386`) emits **OMF** objects by default — LIEF cannot
+  parse OMF; the OMF parser is the enabling follow-up (see
+  [OMF_NOTES.md](OMF_NOTES.md) for the empirically-mapped record layout).
+- **MSVC 1.52** (`tools/MSVC152`, from archive.org `en_vc152_202512`) is a
+  Phar Lap TNT DOS-extender binary — runs headless under DOSBox via the
+  shared `rebrew.dosbox` runner; produces 16-bit OMF objects.
+- **Borland C++ (bcc32)**: installer CD obtained (`turbo-c-v-4.5`); the
+  16-bit Windows SETUP.EXE needs a Windows 3.x environment — install
+  extraction pending.
+- **Symantec C++ / Zortech C++ / Intel C++**: detected (family hints) but
+  no byte-matching profile.
 
 ### Toolchain Detection (doctor alignment check)
 
@@ -104,18 +146,28 @@ DOS/Windows games and Borland Delphi 1.0 apps) are now parsed natively:
    `BinaryInfo` sections with synthetic flat VAs `(segment << 16 | offset)`,
    so `load_binary`, `extract_raw_bytes`, `rebrew strings`, and `rebrew
    analyze` work on NE targets.  A capstone-based probe classifies code vs
-   data segments (Borland marks all segments identically; segments are
-   `[index\x00][name-string][content]`).
+   data segments: Borland segments carry a `[index\x00][name-string][content]`
+   marker (detected conditionally — MSVC 16-bit segments start directly with
+   code and the probe does not skip bytes for them).  `is_ne` reads the
+   signature at `e_lfanew` (Borland puts it at 0x40; the MSVC 16-bit linker
+   places it at 0x400, past a fixed stub read).
 2. **16-bit disassembly — DONE**: the `x86_16` arch preset (`CS_MODE_16`,
    2-byte pointers) makes `asm`, `similar`, and `cu_map` disassemble
    segmented x86-16 (far calls, segment registers).
 3. **Function enumeration — DONE**: `rebrew.ne_loader.enumerate_ne_functions`
-   runs a Delphi 1.0 linear sweep (`push bp` / `enter` prologs, `ret`/`retf`
-   epilogs); `rebrew intake` uses it for NE targets instead of rizin (which
-   cannot analyze NE).  holiday.exe → 646 functions.
+   runs a 16-bit linear sweep (`push bp` / `enter` prologs, `ret`/`retf`
+   epilogs) that handles both conventions — Borland (skip marker+name) and
+   MSVC (code from offset 0, with the segment entry forced as a function
+   start since MSVC entry code opens `push ds/pop ax/nop/inc bp`).
+   holiday.exe (Borland) → 1783 functions; ski16.exe, the original 1991
+   16-bit SkiFree (MSVC) → 137.
 4. **Strings — DONE for Delphi**: NE targets scan data segments and recognize
    Pascal (length-prefixed) strings in addition to ASCII/UTF-16 runs.
-5. **16-bit compile profile / byte matching — FUTURE WORK**: a genuine 16-bit
+5. **Toolchain detection — DONE**: `detect_toolchain` identifies NE targets
+   by their segment markers — Borland markers → `delphi` (high confidence),
+   markerless segments with content → `msvc` (16-bit MSVC-style) — falling
+   back to RTL string evidence when segments are absent.
+6. **16-bit compile profile / byte matching — FUTURE WORK**: a genuine 16-bit
    compiler (Borland Turbo C 2.0, Microsoft C 7.0 / Visual C++ 1.5) under
    Wine producing 16-bit OMF objects, plus segment-relative reloc handling in
    `smart_reloc_compare`.  NOTE: the vendored `tools/MSVC420` is the *32-bit*
@@ -125,7 +177,8 @@ The workflow for a 16-bit target is: `rebrew intake <ne.exe>` (enumerates +
 documents every function as a STUB blocker — Delphi functions are marked
 audit-only in `rebrew todo -c documented`), `rebrew analyze <ne.exe>` for the
 intelligence dossier (format, toolchain family, imports, strings),
-`rebrew asm <va>` for disassembly.
+`rebrew asm <va>` for disassembly.  `rebrew verify` short-circuits 16-bit
+targets with a notice (no 16-bit compile profile — see item 6).
 
 **Delphi 1.0 toolchain (vendored, verified working):** for 16-bit *Delphi*
 targets (e.g. `holiday.exe`, a Delphi 1.0 VCL app), `tools/DELPHI10/` now

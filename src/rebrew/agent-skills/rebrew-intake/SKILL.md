@@ -83,6 +83,16 @@ pipeline (MSVC6 vs MinGW GCC):
   (document the semantic decomp + blocker the byte delta).
 - If MSVC: continue with FLIRT from `msvcrt.lib` **and** `libcmt.lib`
   (statically-linked CRT code only matches libcmt signatures).
+- If 16-bit NE (Windows 3.x): `file <binary>` shows "NE version N for MS
+  Windows 3.x".  `rebrew intake` handles it end-to-end — native NE parsing,
+  the loader's linear sweep for function discovery (rizin cannot analyze
+  NE), auto `format = "ne"` + `arch = "x86_16"`, and family detection from
+  the Borland segment-marker convention (`delphi` vs MSVC-style).  There is
+  **no compile profile** for byte matching yet (ADR-001): `rebrew verify`
+  short-circuits, `rebrew doctor` reports Delphi 1.0 toolchain readiness,
+  and functions are documented as BLOCKER stubs for analysis only.
+  `rebrew.delphi16.compile_ne` can already compile 16-bit executables
+  headless (the future matching foundation).  See `docs/TOOLCHAIN.md`.
 
 ### 1. Health Check — run `rebrew doctor` first
 

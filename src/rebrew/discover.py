@@ -212,7 +212,25 @@ def _validate_and_refine(
 
 
 def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
-    """Chain rizin + capstone strategies and merge into validated functions."""
+    """Chain rizin + capstone strategies and merge into validated functions.
+
+    16-bit NE binaries short-circuit to the native NE loader's linear sweep
+    — rizin cannot analyze NE, and its output is garbage file-offset
+    "functions" (the 233-function false enumeration that once polluted the
+    SkiFree intake).
+    """
+    from rebrew.binary_loader import is_ne, load_binary
+
+    if is_ne(binary):
+        from rebrew.ne_loader import enumerate_ne_functions
+
+        info = load_binary(binary)
+        funcs = [(f.va, f.size, f.name) for f in enumerate_ne_functions(info) if f.size >= min_size]
+        d = Discovery()
+        d.functions = funcs
+        d.sources = {"ne loader": len(funcs)}
+        return d
+
     d = Discovery()
 
     aaa = _rizin_functions(binary, ["aaa"])

@@ -49,7 +49,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew lint` | `lint.py` | Lint source marker standards in decomp C files |
 | `rebrew extract` | `extract.py` | Batch extract and disassemble functions from binary |
 | `rebrew match` | `match.py` / `matcher/` | GA matching engine (single-function or `--all` batch); `--fix-blocker`; `--json` structured output |
-| `rebrew verify` | `verify.py` | Compile all `.c` files and verify byte match against target binary; `--compare` regression detection; `--json` structured reports |
+| `rebrew verify` | `verify.py` | Compile all `.c` files and verify byte match against target binary; `--compare` regression detection; `--json` structured reports. 16-bit NE targets short-circuit with a notice (no compile profile yet — ADR-001) |
 | `rebrew todo` | `todo.py` | Prioritized action list: what to work on next, ROI-ranked across all signals |
 | `rebrew cache` | `cache_cli.py` | Compile cache management (`stats` reports hit rate + disk usage, `clear` purges cache) |
 | `rebrew cfg` | `cfg.py` | Read and edit `rebrew-project.toml` programmatically (see [CONFIG.md](CONFIG.md)) |
@@ -58,7 +58,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew prove` | `prove.py` | Prove semantic equivalence via angr symbolic execution (optional dep) |
 | `rebrew flirt` | `flirt.py` | FLIRT signature scanning (see [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md)) |
 | `rebrew gen-flirt-pat` | `gen_flirt_pat.py` | Generate FLIRT `.pat` files from COFF `.lib` archives |
-| `rebrew imports` | `imports.py` | List PE import-table symbols and detect `jmp [iat]` stubs (library identification) |
+| `rebrew imports` | `imports.py` | List import-table symbols — PE IAT (with `jmp [iat]` stub detection) or 16-bit NE module references (library identification) |
 | `rebrew strings` | `strings.py` | Extract printable ASCII/UTF-16 strings from data sections, with cross-references (`--xref`, `--filter`, `--min-len`, `--section`) |
 | `rebrew xrefs` | `xrefs.py` | Cross-reference explorer: find code that references an address (calls, jumps, `push`/`mov`/`lea`, IAT slots) |
 | `rebrew describe` | `describe.py` | Per-function recon dossier: callers, callees, strings, globals, imports (project-based) |
@@ -67,7 +67,8 @@ for `--compare` (not “better than EXACT”).
 | `rebrew crt-match` | `crt_match.py` | CRT source cross-reference matcher (index, match, ASM detection) |
 | `rebrew data` | `data.py` | Global data scanner for .data/.rdata/.bss; `--bss` layout verification; `--dispatch` vtable detection |
 | `rebrew graph` | `depgraph.py` | Function dependency graph (mermaid, DOT, summary); `--cu-map` infers compilation unit boundaries |
-| `rebrew doctor` | `doctor.py` | Diagnostic checks for project health (config, compiler, binary, paths); `--install-wibo`; `--json` |
+| `rebrew doctor` | `doctor.py` | Diagnostic checks for project health (config, compiler, binary, paths); Delphi 1.0 toolchain readiness for 16-bit targets; `--install-wibo`; `--json` |
+| `rebrew toolchain` | `toolchain_cli.py` | Standardized toolchain management (`list`, `status`, `pull`) — docker-first invocation with host fallback |
 | `rebrew binsync-export` | `binsync_export.py` | Export source markers and metadata to BinSync state directory (prototype, STATUS/CFLAGS, globals, structs) |
 | `rebrew build-db` | `build_db.py` | Build SQLite `db/coverage.db` from `data_*.json` ([schema docs](DB_FORMAT.md)) |
 | `rebrew status` | `status.py` | At-a-glance reversing progress overview (per-module coverage, status ladder counts) |
@@ -572,6 +573,19 @@ history (`.rebrew/ga_runs.jsonl`).  Read-only.
 | `list` | List bundled agent skills |
 | `show NAME` | Print a skill's SKILL.md |
 
+### `rebrew toolchain`
+
+Standardized toolchain management — the docker-first abstraction
+(one image per toolchain-version, uniform `docker run <image> <compiler>
+<args>`, with vendored-host/PATH fallback).  See
+[TOOLCHAIN.md](TOOLCHAIN.md) for the full model.
+
+| Subcommand | Description |
+|------------|-------------|
+| `list` | List known toolchains + how each is invoked (`--json`) |
+| `status NAME` | How one toolchain resolves (image pulled? host binary present?) |
+| `pull NAME` | Pull a toolchain's docker image |
+
 ### `rebrew binsync-export`
 
 Export annotations to an experimental BinSync state directory (one-way; no import yet).
@@ -644,7 +658,9 @@ Per-function recon dossier: callers, callees, strings, imports, globals.
 
 Chained function enumeration: rizin `aaa` → `aa; aap` → a capstone linear
 sweep, merged with boundary validation and gap-based sizes — fixes rizin's
-garbled merges and short sizes.
+garbled merges and short sizes.  16-bit NE binaries short-circuit to the
+native NE loader's linear sweep (rizin cannot analyze NE — its output is
+garbage file-offset "functions").
 
 ### `rebrew gen-flirt-pat`
 

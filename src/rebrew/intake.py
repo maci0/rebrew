@@ -230,11 +230,55 @@ def classify_all(
     return documented
 
 
-def _set_target_arch(project: Path, target_name: str, arch: str) -> None:
-    """Patch ``[targets.<name>].arch`` in ``rebrew-project.toml`` (format-
-    preserving tomlkit round-trip).  Used to set ``x86_16`` for NE targets —
-    init defaults every profile to x86_32, which mis-disassembles 16-bit
-    code."""
+_AUTO_STUB_RE = re.compile(
+    r"^// STUB: ([A-Za-z0-9_]+) 0x([0-9a-fA-F]{8})\n\nvoid fcn_\2\(void\)\n\{"
+)
+
+
+def prune_stale_stubs(
+    project: Path,
+    src_dir: Path,
+    marker: str,
+    funcs: list[tuple[int, int, str]],
+    metadata_dir: Path | None = None,
+) -> int:
+    """Remove auto-generated STUB files + metadata for functions absent from
+    the (re-discovered) function list.
+
+    Re-running intake after a discovery change (rizin update, NE fix, …) can
+    leave orphaned ``fcn_<va>.c`` stubs behind — they inflate ``rebrew
+    status`` totals and clutter the source tree.  This prunes only files
+    whose content still matches the exact auto-stub pattern for *marker*;
+    any file the user has edited or renamed is untouched.  A metadata entry
+    is removed only together with its stub file, so progressed functions
+    (renamed/edited sources) are never dropped.  Returns the number of
+    stale stubs removed.
+    """
+    from rebrew.metadata import delete_metadata_entry
+
+    valid_vas = {va for va, _size, _name in funcs}
+    meta_base = metadata_dir if metadata_dir is not None else project / "src"
+    removed = 0
+    for path in sorted(src_dir.glob("fcn_*.c")):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        m = _AUTO_STUB_RE.match(text)
+        if m is None or m.group(1) != marker:
+            continue
+        va = int(m.group(2), 16)
+        if va in valid_vas:
+            continue
+        path.unlink()
+        delete_metadata_entry(meta_base, va, marker)
+        removed += 1
+    return removed
+
+
+def _set_target_arch(project: Path, target_name: str, arch: str, fmt: str) -> None:
+    """Patch ``[targets.<name>].arch`` / ``format`` in ``rebrew-project.toml``
+    (format-preserving tomlkit round-trip).  Used to set ``x86_16`` for NE
+    targets — init defaults every profile to x86_32, which mis-disassembles
+    16-bit code — and ``format = "ne"`` so the config does not claim PE for a
+    16-bit Windows 3.x binary."""
     import tomlkit
 
     toml_path = project / "rebrew-project.toml"
@@ -242,6 +286,7 @@ def _set_target_arch(project: Path, target_name: str, arch: str) -> None:
     targets = doc.get("targets")
     if targets is not None and target_name in targets:
         targets[target_name]["arch"] = arch
+        targets[target_name]["format"] = fmt
         toml_path.write_text(tomlkit.dumps(doc), encoding="utf-8")
 
 
@@ -350,7 +395,8 @@ def main(
     from rebrew.init import app as init_app
 
     runner = CliRunner()
-    if (Path(".") / "rebrew-project.toml").exists():
+    project_existed = (Path(".") / "rebrew-project.toml").exists()
+    if project_existed:
         notes.append("project already exists — re-running intake (re-discovery)")
     else:
         init_result = runner.invoke(
@@ -371,7 +417,7 @@ def main(
     from rebrew.binary_loader import is_ne
 
     if is_ne(bin_path):
-        _set_target_arch(project, target_name, "x86_16")
+        _set_target_arch(project, target_name, "x86_16", fmt="ne")
         notes.append("16-bit NE target — target arch set to x86_16 (CS_MODE_16)")
 
     # 2. copy the binary
@@ -416,6 +462,12 @@ def main(
 
     # 5. document unmatched functions
     documented = classify_all(project, src_dir, marker, funcs, family, hint)
+    # 6. prune auto-stubs orphaned by a changed function list (re-discovery
+    #    only — a fresh onboarding has nothing stale).
+    if project_existed:
+        pruned = prune_stale_stubs(project, src_dir, marker, funcs)
+        if pruned:
+            notes.append(f"pruned {pruned} stale auto-stub(s) from the previous discovery")
 
     result = IntakeResult(
         target=target_name,

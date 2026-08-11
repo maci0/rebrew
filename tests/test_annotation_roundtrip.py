@@ -13,6 +13,7 @@ from rebrew.annotation import (
     parse_c_file_multi,
     update_annotation_key,
 )
+from rebrew.metadata import METADATA_FIELDS
 
 
 @pytest.fixture
@@ -138,6 +139,38 @@ def test_inline_key_update_remove_roundtrip(base_file: Path) -> None:
 
     assert remove_annotation_key(base_file, 0x1000, key)
     assert base_file.read_text(encoding="utf-8") == original
+
+
+def test_inline_update_remove_symmetry_property(tmp_path: Path) -> None:
+    """Property: for arbitrary file-owned keys and value strings (incl.
+    values containing ``//`` or odd whitespace), update then remove restores
+    the file byte-for-byte — a value-escaped bug would break the round-trip."""
+    from hypothesis import given, settings
+    from hypothesis import strategies as st
+
+    from rebrew.annotation import remove_annotation_key, update_annotation_key
+
+    @given(
+        st.text(
+            alphabet=st.characters(min_codepoint=0x41, max_codepoint=0x5A), min_size=1, max_size=12
+        ).filter(lambda s: s not in METADATA_FIELDS),
+        # Annotation values are single-line printable text — newlines/control
+        # chars would break the line-based `// KEY:` format by construction.
+        st.text(alphabet=st.characters(min_codepoint=0x20, max_codepoint=0x7E), max_size=40),
+    )
+    @settings(max_examples=120, deadline=None)
+    def _check(key: str, value: str) -> None:
+        f = tmp_path / f"prop_{key}.c"
+        f.write_text(
+            "// FUNCTION: MAIN 0x1000\nvoid start() {}\n",
+            encoding="utf-8",
+        )
+        original = f.read_text(encoding="utf-8")
+        assert update_annotation_key(f, 0x1000, key, value)
+        assert remove_annotation_key(f, 0x1000, key)
+        assert f.read_text(encoding="utf-8") == original, (key, value)
+
+    _check()
 
 
 def test_remove_inline_key_never_creates_metadata(base_file: Path) -> None:

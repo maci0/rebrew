@@ -105,6 +105,81 @@ class TestIntake:
         # scaffold may exist, but no success payload
         assert '"functions"' not in result.output
 
+    def test_rediscovery_prunes_stale_stubs(self, tmp_path: Path, monkeypatch) -> None:
+        """Regression: re-running intake after the function list changes must
+        remove auto-generated stubs (and their metadata) for functions that no
+        longer exist — otherwise status totals inflate (observed on the 16-bit
+        SkiFree NE re-onboarding: 233 orphaned stubs from a broken first run)."""
+        from typer.testing import CliRunner
+
+        import rebrew.main as main_mod
+
+        binary = tmp_path / "game.exe"
+        binary.write_bytes(b"MZ")
+
+        def _fake_rizin_v1(binary: Path) -> list[tuple[int, int, str]]:
+            return [(0x401000, 32, "fcn.00401000"), (0x402000, 64, "fcn.00402000")]
+
+        monkeypatch.setattr("rebrew.intake._run_rizin_functions", _fake_rizin_v1)
+        monkeypatch.setattr(
+            "rebrew.intake._suggest_profile",
+            lambda b: ("msvc6", "msvc", "MSVC 6.0", []),
+        )
+        runner = CliRunner()
+        monkeypatch.chdir(tmp_path)
+        out1 = runner.invoke(main_mod.app, ["intake", "game.exe", "--json"])
+        assert out1.exit_code == 0, out1.output
+        assert (tmp_path / "src" / "game" / "fcn_00402000.c").exists()
+
+        # Re-discovery: one function vanishes, one new one appears.
+        monkeypatch.setattr(
+            "rebrew.intake._run_rizin_functions",
+            lambda b: [(0x401000, 32, "fcn.00401000"), (0x403000, 16, "fcn.00403000")],
+        )
+        out2 = runner.invoke(main_mod.app, ["intake", "game.exe", "--json"])
+        assert out2.exit_code == 0, out2.output
+        # The vanished function's auto-stub is gone; the new one exists.
+        assert not (tmp_path / "src" / "game" / "fcn_00402000.c").exists()
+        assert (tmp_path / "src" / "game" / "fcn_00403000.c").exists()
+        # Metadata entry for the vanished function is gone too.
+        meta = (tmp_path / "src" / "rebrew-function.toml").read_text()
+        assert "0x00402000" not in meta
+        assert "0x00403000" in meta
+
+    def test_rediscovery_keeps_edited_stubs(self, tmp_path: Path, monkeypatch) -> None:
+        """A stub the user has edited (no longer matching the auto-stub
+        pattern) must survive re-discovery even if its VA vanishes."""
+        from typer.testing import CliRunner
+
+        import rebrew.main as main_mod
+
+        binary = tmp_path / "game.exe"
+        binary.write_bytes(b"MZ")
+        monkeypatch.setattr(
+            "rebrew.intake._run_rizin_functions",
+            lambda b: [(0x401000, 32, "fcn.00401000"), (0x402000, 64, "fcn.00402000")],
+        )
+        monkeypatch.setattr(
+            "rebrew.intake._suggest_profile",
+            lambda b: ("msvc6", "msvc", "MSVC 6.0", []),
+        )
+        runner = CliRunner()
+        monkeypatch.chdir(tmp_path)
+        out1 = runner.invoke(main_mod.app, ["intake", "game.exe", "--json"])
+        assert out1.exit_code == 0, out1.output
+
+        # User replaces the stub with real source (no STUB header).
+        stub = tmp_path / "src" / "game" / "fcn_00402000.c"
+        stub.write_text("// my decompilation work\nint real_fn(void) { return 0; }\n")
+
+        monkeypatch.setattr(
+            "rebrew.intake._run_rizin_functions",
+            lambda b: [(0x401000, 32, "fcn.00401000")],
+        )
+        out2 = runner.invoke(main_mod.app, ["intake", "game.exe", "--json"])
+        assert out2.exit_code == 0, out2.output
+        assert stub.exists()  # edited file survives the prune
+
 
 class TestBlockers:
     def test_thunk_reason(self) -> None:

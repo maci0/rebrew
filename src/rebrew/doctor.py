@@ -214,6 +214,19 @@ def check_arch_format(cfg: ProjectConfig) -> CheckResult:
 
 def check_compiler(cfg: ProjectConfig) -> CheckResult:
     """Check that the compiler command is executable."""
+    # 16-bit NE targets have no compile profile yet (ADR-001) — a 32-bit
+    # CL.EXE cannot build them, so a missing toolchain is expected, not a
+    # project defect.  Downgrade to a warning instead of a hard failure.
+    if getattr(cfg, "arch", "") == "x86_16":
+        return CheckResult(
+            name="Compiler",
+            status=_WARN,
+            message="16-bit NE target — no 16-bit compile profile exists yet (ADR-001); "
+            "byte matching is future work",
+            fix="Analysis/documentation work as normal; matching needs a future "
+            "16-bit compiler profile.",
+        )
+
     cmd_str = cfg.compiler_command
     if not cmd_str:
         return CheckResult(
@@ -415,11 +428,71 @@ def check_toolchain_alignment(cfg: ProjectConfig) -> CheckResult:
                 name="Toolchain alignment", status=_WARN, message=detail, fix=explanation
             )
         return CheckResult(name="Toolchain alignment", status=_PASS, message=detail)
+    # Families no rebrew compiler profile can ever match (e.g. Borland
+    # Delphi) are a documented-blocker situation, not a broken project:
+    # intake already marks their functions BLOCKER and analysis works.
+    # Downgrade to a warning so `rebrew doctor` reports a healthy analysis
+    # project instead of a misleading hard failure.
+    if info.family == "delphi":
+        return CheckResult(
+            name="Toolchain alignment",
+            status=_WARN,
+            message=detail,
+            fix=explanation
+            or "Delphi functions are documented as blockers — analysis works, matching does not.",
+        )
     return CheckResult(
         name="Toolchain alignment",
         status=_FAIL,
         message=detail,
         fix=explanation or "Switch the [compiler] profile to match the detected family.",
+    )
+
+
+def check_delphi16_toolchain(cfg: ProjectConfig) -> CheckResult:
+    """For 16-bit NE targets, report the Delphi 1.0 compile-path readiness.
+
+    The vendored DCC.EXE + RTM.EXE + dosbox can already compile 16-bit
+    executables headless (``rebrew.delphi16.compile_ne``), though byte
+    matching is not yet wired (ADR-001).  Skipped for non-16-bit targets.
+    """
+    if getattr(cfg, "arch", "") != "x86_16":
+        return CheckResult(name="Delphi 1.0 toolchain", status=_SKIP, message="not a 16-bit target")
+
+    from rebrew.delphi16 import Delphi16Error, _find_dcc
+
+    try:
+        dcc = _find_dcc()
+    except Delphi16Error as exc:
+        return CheckResult(
+            name="Delphi 1.0 toolchain",
+            status=_FAIL,
+            message=str(exc),
+            fix="Restore the vendored toolchain (DCC.EXE + DELPHI.DSL + "
+            "DPMI16BI.OVL + RTM.EXE) under tools/DELPHI10.",
+        )
+
+    rtm = dcc.parent / "RTM.EXE"
+    if not rtm.exists():
+        return CheckResult(
+            name="Delphi 1.0 toolchain",
+            status=_WARN,
+            message=f"{dcc.name} found but RTM.EXE missing — DCC (a DPMI app) "
+            "silently fails without the DOS Runtime Manager",
+            fix="Copy RTM.EXE next to DCC.EXE (tools/DELPHI10).",
+        )
+    if shutil.which("dosbox") is None:
+        return CheckResult(
+            name="Delphi 1.0 toolchain",
+            status=_WARN,
+            message=f"{dcc.parent.name} toolchain found but dosbox not in PATH",
+            fix="Install dosbox (DCC is a DOS DPMI app and must run under DOSBox).",
+        )
+    return CheckResult(
+        name="Delphi 1.0 toolchain",
+        status=_PASS,
+        message=f"{dcc.parent} + dosbox ready — 16-bit compile path works "
+        "(matching not yet wired, ADR-001)",
     )
 
 
@@ -463,6 +536,15 @@ def check_runner(cfg: ProjectConfig) -> CheckResult:
 
 def check_includes(cfg: ProjectConfig) -> CheckResult:
     """Check that the compiler include directory exists."""
+    # 16-bit NE targets have no compile profile (ADR-001) — the include path
+    # is moot, same as the compiler check.
+    if getattr(cfg, "arch", "") == "x86_16":
+        return CheckResult(
+            name="Include path",
+            status=_WARN,
+            message="16-bit NE target — no compile profile (ADR-001)",
+            fix="Analysis/docs work fine; includes apply to future 16-bit matching.",
+        )
     inc_path: Path = cfg.compiler_includes
     if not inc_path.exists():
         return CheckResult(
@@ -621,6 +703,7 @@ def run_doctor(target: str | None = None) -> DoctorReport:
     report.checks.append(check_target_binary(cfg))
     report.checks.append(check_arch_format(cfg))
     report.checks.append(check_toolchain_alignment(cfg))
+    report.checks.append(check_delphi16_toolchain(cfg))
     report.checks.append(check_compiler(cfg))
     report.checks.append(check_runner(cfg))
     report.checks.append(check_includes(cfg))

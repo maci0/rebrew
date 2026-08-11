@@ -173,6 +173,12 @@ src/rebrew/
 ├── crt_match.py         # CRT source cross-reference matcher (index, match, ASM detection)
 ├── cache_cli.py         # `rebrew cache stats` / `rebrew cache clear` CLI
 ├── prove.py             # Symbolic equivalence prover via angr (optional dep)
+├── delphi16.py          # Delphi 1.0 (16-bit) compile support — DOSBox sandbox + NE parse
+├── msvc16.py            # MSVC 1.52 (16-bit) compile support — DOSBox + OMF object
+├── dosbox.py            # Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads)
+├── toolchain.py         # Toolchain abstraction: spec registry, docker-first runner, host fallback
+├── toolchain_cli.py     # `rebrew toolchain` CLI (list/status/pull)
+├── toolchain-images/    # Dockerfiles per toolchain (Godbolt-style: image = toolchain + wrapper)
 ├── cu_map.py            # Compilation unit boundary inference (contiguity + call graph)
 ├── todo.py              # Prioritized action list: what to work on next
 ├── similar.py           # Find structurally similar functions in the target binary
@@ -332,6 +338,12 @@ source text via tree-sitter AST queries — never regex.
 ### Key Architectural Rules
 
 - **Config-driven**: All tools read `rebrew-project.toml` — never hardcode paths
+- **ADR documentation**: Architectural decisions (new formats/profiles/
+  backends, behavioral contract changes, deliberate trade-offs) are recorded
+  in `docs/adr/` (`NNN-short-title.md`, Nygard format: Status / Context /
+  Decision / Consequences) and listed in `docs/adr/README.md`.  Keep the
+  records current when a decision evolves.  Small fixes belong in
+  `CHANGELOG.md`, not an ADR.
 - **Idempotent**: Every tool safe to re-run without side effects
 - **Source discovery**: Always use `iter_sources(directory, cfg)` from `cli.py`; use `iter_library_headers(directory)` for `library_*.h` files
 - **Batch annotation loading**: Always use `iter_annotations(sources, target=...)` from `cli.py` — it wraps `parse_c_file_multi` with silent error handling and returns `[(path, [Annotation])]` pairs

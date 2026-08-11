@@ -25,11 +25,35 @@ console = Console(stderr=True)
 
 
 def parse_imports(binary_path: Path) -> list[dict[str, Any]]:
-    """Parse the PE import table of *binary_path*.
+    """Parse the import table of *binary_path* — the PE import table via
+    LIEF, or the 16-bit NE module/name imports via the native NE loader.
 
     Returns a list of ``{"dll": str, "name": str, "iat_va": int}`` records,
-    one per imported API.  Empty list for non-PE files or parse failures.
+    one per imported API — or one per referenced module with an empty ``name``
+    when a 16-bit NE carries no classic import table.  ``iat_va`` is 0 for NE
+    imports (Win16 uses per-segment thunks, not an IAT).  Empty list for
+    unrecognized files or parse failures.
     """
+    from rebrew.binary_loader import is_ne, load_binary
+
+    if is_ne(binary_path):
+        try:
+            info = load_binary(binary_path)
+        except (OSError, KeyError, ValueError):
+            return []
+        ne_out: list[dict[str, Any]] = []
+        for mod in getattr(info, "ne_imports", []) or []:
+            if mod.imports:
+                for imp in mod.imports:
+                    name = imp.name if imp.name is not None else f"ordinal_{imp.ordinal}"
+                    ne_out.append({"dll": mod.module, "name": name, "iat_va": 0})
+            else:
+                # Module reference with no per-API detail (many Win16 binaries
+                # carry no classic import table) — still report the module so
+                # the DLL set is visible.
+                ne_out.append({"dll": mod.module, "name": "", "iat_va": 0})
+        return ne_out
+
     import lief
 
     try:
@@ -139,7 +163,7 @@ def mark_import_stubs(
 
 
 app = typer.Typer(
-    help="List PE import-table symbols and detect import stubs.",
+    help="List import-table symbols (PE IAT or 16-bit NE modules) and detect import stubs.",
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
@@ -223,7 +247,11 @@ def main(
         return
     console.print(f"[bold]{len(imports)}[/] imported APIs from [bold]{binary}[/]:")
     for rec in sorted(imports, key=lambda r: r["iat_va"]):
-        console.print(f"  0x{rec['iat_va']:08x}  {rec['name']:30s}  {rec['dll']}")
+        if rec["name"]:
+            console.print(f"  0x{rec['iat_va']:08x}  {rec['name']:30s}  {rec['dll']}")
+        else:
+            # Module-level record (16-bit NE without a classic import table).
+            console.print(f"  [dim]0x00000000  {rec['dll']:30s} (16-bit module)[/dim]")
     if stubs:
         console.print(f"\n[bold]{len(stubs)}[/] import stubs found in .text:")
         for va, name in sorted(stubs.items()):
