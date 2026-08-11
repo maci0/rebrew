@@ -31,6 +31,20 @@ class TestGenerateFlagCombinations:
         for c in combos[:20]:
             assert c.startswith("/") or c == ""
 
+    def test_watcom_profile_uses_watcom_flags(self) -> None:
+        combos = generate_flag_combinations("targeted", "watcom")
+        assert len(combos) > 0
+        # wcc386 flags are -style: -os/-ot/-ol/-ox x -3..-6 + none = 25
+        assert len(combos) == 25
+        for c in combos:
+            assert c.startswith("-") or c == ""
+        assert any("-ox" in c for c in combos)
+        assert not any("/" in c for c in combos)  # no MSVC flags
+
+    def test_watcom_quick_tier(self) -> None:
+        combos = generate_flag_combinations("quick", "watcom")
+        assert len(combos) == 5  # opt axis only
+
 
 class TestMapSymbolRe:
     def test_escapes_special_chars(self) -> None:
