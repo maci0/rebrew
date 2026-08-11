@@ -243,15 +243,35 @@ def parse_va(va_str: str, *, json_mode: bool = False) -> int:
         error_exit(f"Invalid hex VA: {va_str!r}", json_mode=json_mode, code=EXIT_ERROR)
 
 
+def source_exts(cfg: ProjectConfig | None) -> list[str]:
+    """Return the configured source extensions as a list, e.g. ``[".c", ".cpp"]``.
+
+    ``cfg.source_ext`` may hold a single extension or a comma-separated
+    list (``".c,.cpp"``); falls back to ``[".c"]`` when the attribute is
+    missing or empty.
+    """
+    raw = cfg.source_ext if cfg is not None else ".c"
+    if not raw:
+        return [".c"]
+    return [ext for ext in (part.strip() for part in raw.split(",")) if ext]
+
+
 def source_glob(cfg: ProjectConfig | None) -> str:
     """Return glob pattern for source files based on the configured extension.
 
-    Uses ``cfg.source_ext`` (e.g. ``".c"``, ``".cpp"``) to build a pattern
-    like ``"*.c"`` or ``"*.cpp"``.  Falls back to ``"*.c"`` if the attribute
-    is missing.
+    Uses ``cfg.source_ext`` (e.g. ``".c"``, ``".cpp"``, ``".c,.cpp"``) to
+    build a pattern like ``"*.c"``, ``"*.cpp"`` or ``"*.{c,cpp}"``.  Falls
+    back to ``"*.c"`` if the attribute is missing.  The brace form is a
+    display/validation convenience — :func:`iter_sources` expands multi-
+    extension configs by filtering suffixes rather than relying on brace
+    support in ``pathlib``.
     """
-    ext = cfg.source_ext if cfg is not None else ".c"
-    return f"*{ext}"
+    exts = source_exts(cfg)
+    if not exts:
+        return "*.c"
+    if len(exts) == 1:
+        return f"*{exts[0]}"
+    return f"*.{{{','.join(e.lstrip('.') for e in exts)}}}"
 
 
 def target_marker(cfg: ProjectConfig | None) -> str | None:
@@ -287,13 +307,18 @@ def iter_library_headers(directory: Path) -> list[Path]:
 def iter_sources(directory: Path, cfg: ProjectConfig | None = None) -> list[Path]:
     """Return all source files under *directory*, recursively, sorted by path.
 
-    Uses :func:`source_glob` to determine the file extension and ``rglob``
-    to descend into nested subdirectories.  This is the single entry point
-    for discovering reversed source files — using it everywhere ensures
-    consistent support for both flat and nested directory layouts.
+    Uses :func:`source_exts` to determine the file extensions and ``rglob``
+    to descend into nested subdirectories.  Multi-extension configs (e.g.
+    ``source_ext = ".c,.cpp"``) are expanded by suffix filtering since
+    ``pathlib`` globs do not support brace alternation.  This is the single
+    entry point for discovering reversed source files — using it everywhere
+    ensures consistent support for both flat and nested directory layouts.
     """
-    pattern = source_glob(cfg)
-    return sorted(directory.rglob(pattern))
+    exts = source_exts(cfg) or [".c"]
+    if len(exts) == 1:
+        return sorted(directory.rglob(f"*{exts[0]}"))
+    suffixes = {ext.lower() for ext in exts}
+    return sorted(p for p in directory.rglob("*") if p.is_file() and p.suffix.lower() in suffixes)
 
 
 def iter_annotations(

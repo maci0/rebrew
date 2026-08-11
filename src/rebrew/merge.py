@@ -18,7 +18,7 @@ from rebrew.cli import (
     json_print,
     rel_display_path,
     require_config,
-    source_glob,
+    source_exts,
     target_marker,
 )
 from rebrew.config import ProjectConfig
@@ -85,7 +85,7 @@ def _merge_preambles(preambles: list[str]) -> str:
 
 def _collect_input_files(paths: list[str], cfg: ProjectConfig) -> list[Path]:
     """Resolve input arguments into unique source-file paths."""
-    expected_ext = source_glob(cfg).removeprefix("*")
+    expected_exts = set(source_exts(cfg)) or {".c"}
     files: list[Path] = []
     seen: set[Path] = set()
 
@@ -100,7 +100,7 @@ def _collect_input_files(paths: list[str], cfg: ProjectConfig) -> list[Path]:
 
         if not p.exists() or not p.is_file():
             continue
-        if p.suffix != expected_ext:
+        if p.suffix not in expected_exts:
             continue
         if p not in seen:
             seen.add(p)

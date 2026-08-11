@@ -328,6 +328,32 @@ source_ext = "src/*.c"
             cfg = load_config(root)
         assert cfg.source_ext == ".c"
 
+    def test_source_ext_multi_list(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+source_ext = ".c,.cpp"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.source_ext == ".c,.cpp"
+
+    def test_source_ext_multi_normalized(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+source_ext = "c, cpp"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.source_ext == ".c,.cpp"
+
 
 class TestRunnerField:
     def test_runner_from_toml(self, tmp_path: Path) -> None:
