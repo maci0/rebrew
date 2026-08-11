@@ -334,3 +334,66 @@ class TestCompileToObjToolchainProfiles:
         obj, err = compile_to_obj(self._cfg(tmp_path, "watcom"), src, [], workdir, use_cache=False)
         assert obj is None
         assert "E1139" in err
+
+
+class TestCompileToObjMsvc152Image:
+    """msvc1.52 prefers the docker image (cl16 wrapper) when pulled."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            root=tmp_path,
+            compiler_profile="msvc1.52",
+            compiler_command="CL.EXE",
+            base_cflags="",
+            compiler_includes=tmp_path,
+            compiler_runner="",
+            compile_timeout=30,
+        )
+
+    def test_image_preferred_when_pulled(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.compile import compile_to_obj
+        from rebrew.toolchain import RunResult
+
+        captured: dict = {}
+        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: True)
+
+        def _fake_run(spec, args, *, workdir, timeout):  # noqa: ARG001
+            captured["args"] = args
+            # DOSBox FAT-uppercases the object
+            (workdir / "T.OBJ").write_bytes(b"OMF")
+            return RunResult(0, "", "", backend="docker")
+
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+
+        src = tmp_path / "t.c"
+        src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+        obj, err = compile_to_obj(self._cfg(tmp_path), src, [], workdir, use_cache=False)
+        assert obj is not None and obj.endswith("T.OBJ")
+        assert err == ""
+        # image path passes only the source (wrapper adds /nologo /c)
+        assert captured["args"] == ["t.c"]
+
+    def test_host_fallback_when_no_image(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.compile import compile_to_obj
+
+        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
+        captured: dict = {}
+
+        def _fake_msvc16_compile(local_src, workdir, cflags, timeout):  # noqa: ARG001
+            captured["host"] = True
+            (workdir / "T.OBJ").write_bytes(b"OMF")
+            return type("R", (), {"obj_path": workdir / "T.OBJ"})()
+
+        monkeypatch.setattr("rebrew.msvc16.compile_c", _fake_msvc16_compile)
+        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+
+        src = tmp_path / "t.c"
+        src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+        obj, err = compile_to_obj(self._cfg(tmp_path), src, [], workdir, use_cache=False)
+        assert obj is not None
+        assert captured.get("host") is True
