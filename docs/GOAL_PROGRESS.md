@@ -6404,3 +6404,21 @@ Commits: 9f46b2e, 1607f40, b71ab1c, d3ae3ea, 91b5112.
   91 functions, arch x86_16, watcom family detected.
 
 Commits: 91b5112 (16-bit xrefs), 5927b9b (far-call catalog).
+
+## 2026-08-11 — NE function enumeration boundary fix (646 -> 1783 on holiday)
+
+Deep-diving the "busiest call hub" exposed an artifact: the linear sweep
+only terminated functions at ret/retf, so unconditional jmps (tail calls)
+ran the disassembly through the next function to a distant ret — a 12KB
+merged span with 150+ bogus callees.  Fixes:
+
+- ``jmp`` now terminates a function (tail calls end the body in a linear
+  sweep).
+- Overlapping candidates split the outer function at a verified ret/jmp
+  boundary instead of being dropped (the old dedup swallowed real inner
+  functions).
+
+holiday.exe: 646 -> 1783 well-bounded functions (max 2364B; 15/15 sampled
+functions start at a prolog and end at ret/jmp).  The binary call graph
+grew 56 -> 613 edges; the "busiest caller" went from a 192-callee artifact
+to a 4-callee real function.  Commit 926fe41.
