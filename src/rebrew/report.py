@@ -202,7 +202,38 @@ def _target_binary(cfg: ProjectConfig) -> Path | None:
 # ---------------------------------------------------------------------------
 
 
-def _render_index(target: str, report: StatusReport, functions: list[dict[str, Any]]) -> str:
+def _ne_summary(cfg: ProjectConfig) -> dict[str, Any] | None:
+    """16-bit NE summary for the report index (None for non-NE targets)."""
+    bin_path = getattr(cfg, "target_binary", None)
+    if not bin_path or not Path(bin_path).exists():
+        return None
+    try:
+        from rebrew.binary_loader import load_binary, section_dict
+        from rebrew.data import find_dispatch_tables
+        from rebrew.ne_loader import enumerate_ne_functions
+
+        info = load_binary(bin_path)
+        if info.format != "ne":
+            return None
+        funcs = enumerate_ne_functions(info)
+        vmt = find_dispatch_tables(info.data, section_dict(info), {}, min_entries=3, info=info)
+        ne_segs = info.ne_segments  # type: ignore[attr-defined]
+        return {
+            "segments": len(ne_segs),
+            "code_segments": sum(1 for s in ne_segs if s.is_code),
+            "functions": len(funcs),
+            "vmt_tables": len(vmt),
+        }
+    except Exception:  # noqa: BLE001 — best-effort summary
+        return None
+
+
+def _render_index(
+    target: str,
+    report: StatusReport,
+    functions: list[dict[str, Any]],
+    ne: dict[str, Any] | None = None,
+) -> str:
     """Render index.html: summary cards + full function table."""
     sc = report.status_counts
     matched = sc.get("EXACT", 0) + sc.get("RELOC", 0) + sc.get("PROVEN", 0)
@@ -250,7 +281,27 @@ def _render_index(target: str, report: StatusReport, functions: list[dict[str, A
     else:
         table = "<p class='note'>No reversed functions found in the project.</p>"
 
-    body = f"<h2>Function index</h2><div class='cards'>{card_html}</div>{table}"
+    # 16-bit NE targets get their own card set (segments, VMTs).
+    ne_html = ""
+    if ne:
+        ne_cards = "".join(
+            "<div class='card'>"
+            f"<div class='value'>{html.escape(str(v))}</div>"
+            f"<div class='label'>{html.escape(k)}</div>"
+            "</div>"
+            for k, v in (
+                ("Format", "16-bit NE"),
+                (
+                    "Segments",
+                    f"{ne['code_segments']} code / {ne['segments'] - ne['code_segments']} data",
+                ),
+                ("Functions", str(ne["functions"])),
+                ("VMTs", str(ne["vmt_tables"])),
+            )
+        )
+        ne_html = f"<h2>16-bit NE target</h2><div class='cards'>{ne_cards}</div>"
+
+    body = f"<h2>Function index</h2><div class='cards'>{card_html}</div>{ne_html}{table}"
     return _page("Function index", target, "index.html", body)
 
 
@@ -477,7 +528,7 @@ def generate_report(cfg: ProjectConfig, out: Path) -> dict[str, Any]:
     target = _target_name(cfg)
 
     pages = [
-        ("index.html", _render_index(target, report, functions)),
+        ("index.html", _render_index(target, report, functions, ne=_ne_summary(cfg))),
         ("strings.html", _render_strings(cfg)),
         ("imports.html", _render_imports(cfg)),
         ("graph.html", _render_graph(cfg)),
