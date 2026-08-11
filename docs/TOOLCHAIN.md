@@ -52,15 +52,18 @@ headless gives correct boundaries but is slow on loaded machines.
 
 ---
 
-## Delphi 1.0 (16-bit NE compile backend — future matching)
+## Delphi 1.0 (16-bit NE compile backend — research; Borland ABI unmatchable)
 
 The vendored `tools/DELPHI10` toolchain (DCC.EXE, DOS DPMI app run under
 DOSBox headless) compiles 16-bit Windows 3.x NE executables; the
 `rebrew.delphi16.compile_ne` wrapper makes it invocable from Python and
-parses the output with the native NE loader.  Byte matching is not yet
-wired (ADR-001) — see `tools/DELPHI10/README.md` for the recipe and the
-RTM.EXE / non-tmpfs requirements, and the NE section below for the
-analysis-side support matrix.
+parses the output with the native NE loader.  Note: 16-bit *matching* is
+implemented in rebrew via the `msvc1.52` profile (DOSBox CL.EXE → OMF
+objects) — but **Delphi's Borland ABI has no matchable rebrew profile**,
+so Delphi functions are documented as blockers and this toolchain is for
+research (compile + NE parse).  See `tools/DELPHI10/README.md` for the
+recipe and the RTM.EXE / non-tmpfs requirements, and the NE section
+below for the analysis-side support matrix.
 
 ---
 
