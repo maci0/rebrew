@@ -82,3 +82,10 @@ Thumbs.db
 *.map
 # Cross-process metadata write lock (flock sidecar — must persist)
 rebrew-function.toml.lock
+
+# Vendored Open Watcom 2.0 (tools/WATCOM) — kept out of git.
+# Re-fetch from open-watcom/open-watcom-v2 Last-CI-build ow-snapshot.tar.xz.
+/tools/WATCOM/
+# Vendored MSVC 1.52 (tools/MSVC152) — kept out of git.
+# Re-fetch from archive.org item en_vc152_202512.
+/tools/MSVC152/

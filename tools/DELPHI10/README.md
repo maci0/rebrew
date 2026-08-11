@@ -92,3 +92,25 @@ Note: DOSBox writes FAT-uppercased filenames (`DCCOUT.TXT`, not
 Not yet supported: rebrew targets 32-bit PE/ELF/Mach-O. The documented
 16-bit path (NE parsing, segment-relative relocs, OMF objects) is in
 `docs/TOOLCHAIN.md`.
+
+**Verified (2026-08-11):** the compile → parse loop works end-to-end.
+`hello.dpr` compiled headless via the DOSBox recipe above produces a
+genuine NE 6.01 executable that `rebrew` loads natively (`is_ne` ✓, 15
+functions enumerated with synthetic flat VAs, `detect_toolchain` →
+`delphi`).  What's missing for byte matching is the rebrew-side glue: a
+`delphi16` compiler profile wrapping this invocation, parsing DCC's
+output, and segment-relative relocation comparison in
+`smart_reloc_compare`.
+
+**Two hard requirements discovered while staging a self-contained sandbox
+(`rebrew.delphi16.compile_ne`):**
+
+1. **`RTM.EXE` (DOS Runtime Manager) must be present** — DCC is a DPMI app
+   and its runtime init silently fails without it (no output, no error).
+2. **The mounted drive must NOT be on tmpfs** — DOSBox 0.74-3 mishandles
+   tmpfs mounts (e.g. `/tmp`): the autoexec shell starts treating commands
+   as `cd` ("Unable to change to: ...") and DCC never runs.  The sandbox
+   defaults to the user home (`~`) instead of `/tmp`.
+
+Also: DOSBox writes FAT-uppercased output filenames (`HELLO.EXE`,
+`DCCOUT.TXT`) — look them up case-insensitively.

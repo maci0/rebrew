@@ -186,6 +186,56 @@ class TestBytesToPatLine:
         line2 = bytes_to_pat_line("_det", code, set())
         assert line1 == line2
 
+    def test_property_fields_consistent(self) -> None:
+        """Property: for arbitrary code bytes + reloc offsets, the emitted
+        line's fields are internally consistent (lead length, CRC window
+        length truncated before the first tail reloc, total size) and the
+        output is deterministic."""
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        @given(
+            st.binary(min_size=0, max_size=300), st.sets(st.integers(min_value=0, max_value=299))
+        )
+        @settings(max_examples=150, deadline=None)
+        def _check(code: bytes, relocs: set[int]) -> None:
+            line = bytes_to_pat_line("_prop", code, relocs)
+            parts = line.split()
+            assert parts[-2] == ":0000"
+            # A 0-byte function produces an empty lead that vanishes on split
+            # (the line starts with a space), shifting the field indices;
+            # real functions are >= 1 byte.
+            if len(code) == 0:
+                assert len(parts) == 5
+                assert int(parts[0], 16) == 0  # crc_len
+                return
+            lead = parts[0]
+            crc_len = int(parts[1], 16)
+            total_size = int(parts[3], 16)
+
+            lead_len = min(len(code), 32)
+            assert len(lead) == 2 * lead_len
+            # Lead is all hex except reloc positions, which are ".."
+            for i in range(lead_len):
+                pair = lead[2 * i : 2 * i + 2]
+                if i in relocs:
+                    assert pair == "..", (i, pair)
+                else:
+                    int(pair, 16)  # must be valid hex
+
+            tail_relocs = sorted(r for r in relocs if r >= lead_len)
+            expected_crc_len = (
+                min(max(tail_relocs[0] - lead_len, 0), len(code) - lead_len, 255)
+                if tail_relocs
+                else min(len(code) - lead_len, 255)
+            )
+            assert crc_len == expected_crc_len
+            assert total_size == len(code)
+            # Determinism
+            assert bytes_to_pat_line("_prop", code, relocs) == line
+
+        _check()
+
     def test_crc_differs_with_different_code(self) -> None:
         """Different code bytes beyond the lead produce different CRC."""
         # Make code longer than max_lead so CRC portion differs

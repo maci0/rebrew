@@ -688,7 +688,7 @@ _KNOWN_PROJECT_KEYS = {
     "default_target",
 }
 
-_KNOWN_FORMATS = {"pe", "elf", "macho"}
+_KNOWN_FORMATS = {"pe", "elf", "macho", "ne"}
 _KNOWN_PROFILES = {
     "msvc400",
     "msvc420",
@@ -697,9 +697,11 @@ _KNOWN_PROFILES = {
     "msvc6.3",
     "msvc6.6",
     "msvc7",
+    "msvc1.52",
     "gcc",
     "gcc-pe",
     "clang",
+    "watcom",
 }
 
 

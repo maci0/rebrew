@@ -234,6 +234,15 @@ def _collect_far_calls(binary: Path) -> list[dict[str, Any]] | None:
     return out
 
 
+def _function_list_stats(cfg: Any) -> tuple[int, int]:
+    """``(count, total_bytes)`` from ``cfg.function_list`` (functions.txt) —
+    the fallback when the project has no Ghidra export."""
+    from rebrew.catalog.loaders import parse_function_list
+
+    funcs = parse_function_list(Path(getattr(cfg, "function_list", "")))
+    return len(funcs), sum(int(f.get("size") or 0) for f in funcs)
+
+
 def _collect_functions(cfg: Any) -> dict[str, Any] | None:
     """Reversed-function coverage from the project's function data."""
     from rebrew.naming import load_data
@@ -242,9 +251,15 @@ def _collect_functions(cfg: Any) -> dict[str, Any] | None:
         ghidra_funcs, existing, _covered = load_data(cfg)
     except Exception:  # noqa: BLE001 — coverage needs the function list
         return None
-    total_bytes = sum(getattr(f, "size", 0) or 0 for f in ghidra_funcs)
+    if ghidra_funcs:
+        total = len(ghidra_funcs)
+        total_bytes = sum(getattr(f, "size", 0) or 0 for f in ghidra_funcs)
+    else:
+        # No Ghidra export — fall back to the project's own function list so
+        # functions.total reflects the real target size instead of 0.
+        total, total_bytes = _function_list_stats(cfg)
     return {
-        "total": len(ghidra_funcs),
+        "total": total,
         "covered": len(existing),
         "total_bytes": total_bytes,
     }

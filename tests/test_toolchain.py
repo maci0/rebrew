@@ -1,56 +1,120 @@
-"""Tests for core/toolchain.py — MSVC env construction."""
+"""Tests for rebrew.toolchain — standardized toolchain invocation."""
+
+from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 
-from rebrew.core.toolchain import msvc_env_from_config
+import pytest
 
-
-def _cfg(
-    command: str = "/opt/vc6/bin/CL.EXE",
-    runner: str | None = "wine",
-    root: Path | None = None,
-) -> SimpleNamespace:
-    return SimpleNamespace(
-        compiler_command=command,
-        compiler_runner=runner,
-        root=root or Path("/project"),
-        compiler_includes=Path("/inc"),
-        compiler_libs=Path("/lib"),
-    )
+from rebrew.toolchain import (
+    TOOLCHAINS,
+    ToolchainError,
+    ToolchainSpec,
+    get_toolchain,
+    run_toolchain,
+)
 
 
-class TestMsvcEnvFromConfig:
-    def test_wine_runner_sets_debug_env(self) -> None:
-        env = msvc_env_from_config(_cfg())
-        assert env["WINEDEBUG"] == "-all"
-        assert env["REBREW_COMPILER_RUNNER"] == "wine"
-        assert env["INCLUDE"] == "/inc"
-        assert env["LIB"] == "/lib"
+class _FakeProc:
+    def __init__(self, rc: int = 0, out: str = "", err: str = "") -> None:
+        self.returncode = rc
+        self.stdout = out
+        self.stderr = err
 
-    def test_runner_auto_detected_from_command(self) -> None:
-        env = msvc_env_from_config(_cfg(command="wine /opt/CL.EXE", runner=None))
-        assert env["REBREW_COMPILER_RUNNER"] == "wine"
-        assert env["WINEDEBUG"] == "-all"
 
-    def test_relative_cl_path_resolved(self) -> None:
-        env = msvc_env_from_config(_cfg(command="tools/vc6/CL.EXE", runner=None))
-        # bin dir = /project/tools/vc6
-        assert "/project/tools/vc6" in env["WINEPATH"]
-        assert "/project/tools/vc6" in env["PATH"]
+def _monkey_docker(monkeypatch, *, available: bool = True, image: bool = True) -> list[list[str]]:
+    """Fake docker availability + image presence + capture invocations."""
+    calls: list[list[str]] = []
 
-    def test_empty_command_empty_bin_dir(self) -> None:
-        env = msvc_env_from_config(_cfg(command="", runner=""))
-        # No CL.EXE → no runner key, no debug env, no bin dir contribution.
-        assert "REBREW_COMPILER_RUNNER" not in env
-        assert "WINEDEBUG" not in env
+    def _run(cmd, **kwargs):
+        calls.append(cmd)
+        return _FakeProc(0, "compiled ok", "")
 
-    def test_preserves_existing_winepath(self) -> None:
-        env = msvc_env_from_config(_cfg())
-        # Second call on a fresh env — verify the env is copied from os.environ.
-        assert "WINEPATH" in env
+    monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: available)
+    monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: available and image)
+    monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
+    return calls
 
-    def test_non_wine_runner_no_debug(self) -> None:
-        env = msvc_env_from_config(_cfg(command="cl", runner="msvc"))
-        assert "WINEDEBUG" not in env
-        assert env["REBREW_COMPILER_RUNNER"] == "msvc"
+
+class TestRegistry:
+    def test_known_toolchains(self) -> None:
+        assert {"msvc6", "delphi16", "gcc-pe"} <= set(TOOLCHAINS)
+
+    def test_get_unknown_raises(self) -> None:
+        with pytest.raises(ToolchainError, match="unknown toolchain"):
+            get_toolchain("nope")
+
+    def test_delphi16_host_binary_name(self) -> None:
+        # The host executable is DCC.EXE (uppercase on disk); the docker
+        # entry is the "dcc" shim.
+        spec = TOOLCHAINS["delphi16"]
+        assert spec.binary == "DCC.EXE"
+        assert spec.image_binary == "dcc"
+
+
+class TestRunToolchain:
+    def test_docker_backend_uses_image_and_mount(self, tmp_path: Path, monkeypatch) -> None:
+        spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="cl")
+        calls = _monkey_docker(monkeypatch)
+        r = run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path)
+        assert r.backend == "docker"
+        assert r.ok
+        assert calls[0][:5] == ["docker", "run", "--rm", "-v", f"{tmp_path.resolve()}:/work"]
+        assert calls[0][5:9] == ["-w", "/work", "rebrew/t:latest", "cl"]
+        assert calls[0][9:] == ["/c", "f.c"]
+
+    def test_docker_uses_image_binary_shim(self, tmp_path: Path, monkeypatch) -> None:
+        spec = ToolchainSpec(
+            name="t", image="rebrew/t:latest", binary="DCC.EXE", image_binary="dcc"
+        )
+        calls = _monkey_docker(monkeypatch)
+        run_toolchain(spec, ["hello.dpr"], workdir=tmp_path)
+        assert calls[0][8] == "dcc"
+
+    def test_host_fallback_uses_vendored_path(self, tmp_path: Path, monkeypatch) -> None:
+        dcc = tmp_path / "DELPHI10" / "DCC.EXE"
+        dcc.parent.mkdir(parents=True)
+        dcc.write_bytes(b"MZ")
+        spec = ToolchainSpec(
+            name="t", image=None, binary="DCC.EXE", host_path=tmp_path / "DELPHI10"
+        )
+        calls: list[list[str]] = []
+
+        def _run(cmd, **kwargs):
+            calls.append(cmd)
+            return _FakeProc(1, "", "err")
+
+        monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
+        r = run_toolchain(spec, ["x.dpr"], workdir=tmp_path)
+        assert r.backend == "host"
+        assert not r.ok
+        assert calls[0][0] == str(dcc)
+
+    def test_no_backend_raises(self, tmp_path: Path, monkeypatch) -> None:
+        _monkey_docker(monkeypatch, available=False, image=False)
+        monkeypatch.setattr("rebrew.toolchain.shutil.which", lambda *a, **k: None)
+        spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="nope")
+        with pytest.raises(ToolchainError, match="no host binary"):
+            run_toolchain(spec, [], workdir=tmp_path)
+
+
+class TestCli:
+    def test_list_registered_in_umbrella(self) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        result = CliRunner().invoke(umbrella, ["toolchain", "list", "--json"])
+        assert result.exit_code == 0, result.output
+        import json
+
+        data = json.loads(result.stdout)
+        assert {t["name"] for t in data["toolchains"]} >= {"msvc6", "delphi16"}
+
+    def test_unknown_status_errors(self) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        result = CliRunner().invoke(umbrella, ["toolchain", "status", "nope"])
+        assert result.exit_code != 0

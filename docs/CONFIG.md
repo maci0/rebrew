@@ -15,8 +15,8 @@ default_target = "target_name"           # Default target when --target is not p
 
 [targets.target_name]
 binary = "original/target.dll"          # Target binary (relative to project root)
-format = "pe"                            # Binary format: pe, elf, macho
-arch = "x86_32"                          # Architecture: x86_32, x86_64, arm32, arm64
+format = "pe"                            # Binary format: pe, elf, macho, ne
+arch = "x86_32"                          # Architecture: x86_16, x86_32, x86_64, arm32, arm64
 # marker = "TARGET_NAME"                 # Defaults to target key uppercased (see below)
 reversed_dir = "src/target_name"         # Where reversed .c files live
 function_list = "src/target_name/functions.txt"
@@ -68,10 +68,15 @@ libs = "tools/MSVC600/VC98/Lib"
 
 | Arch | Capstone | Pointer Size | Padding | Symbol Prefix |
 |------|----------|-------------|---------|---------------|
+| `x86_16` | `CS_ARCH_X86, CS_MODE_16` | 2 | `0x90, 0x00` | `_` |
 | `x86_32` | `CS_ARCH_X86, CS_MODE_32` | 4 | `0xCC, 0x90` | `_` |
 | `x86_64` | `CS_ARCH_X86, CS_MODE_64` | 8 | `0xCC, 0x90` | (empty) |
 | `arm32` | `CS_ARCH_ARM, CS_MODE_ARM` | 4 | `0x00` | (empty) |
 | `arm64` | `CS_ARCH_ARM64, CS_MODE_ARM` | 8 | `0x00` | (empty) |
+
+`x86_16` targets are 16-bit Windows 3.x NE executables (Borland Delphi 1.0 /
+MSVC 16-bit); `rebrew intake` sets `format = "ne"` + `arch = "x86_16"`
+automatically.  See `docs/TOOLCHAIN.md` for the NE support matrix.
 
 ## Target Marker (`marker`)
 

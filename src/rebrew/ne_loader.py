@@ -103,20 +103,25 @@ def _looks_like_name_string(data: bytes, off: int) -> bool:
     return all(0x20 <= c < 0x7F for c in data[off + 1 : off + 1 + ln])
 
 
-def probe_is_code(data: bytes, file_offset: int, length: int) -> bool:
+def probe_is_code(data: bytes, file_offset: int, length: int, index: int = 0) -> bool:
     """Heuristically decide whether a segment holds 16-bit code.
 
     Borland NE segments are ``[index\\x00][name-string][content]`` — the
     leading string is a Delphi unit/app name and the content that follows
-    may be code or data.  This finds the first *code anchor* (ENTER / PUSH
+    may be code or data.  MSVC 16-bit NE segments start directly with code
+    and carry no marker.  When *index* is given and the ``[index\\x00]``
+    marker is actually present, it is skipped; otherwise the scan starts at
+    the raw segment start.  This finds the first *code anchor* (ENTER / PUSH
     BP / call / jmp) after any name string and verifies it with a clean
     capstone x86-16 decode: code when ≥ 8 instructions decode with control
     flow before hitting invalid bytes.
     """
     import capstone
 
-    content = file_offset + 2  # skip the Borland index marker
-    window = data[content : content + min(length - 2, 512)]
+    content = file_offset
+    if index and has_borland_marker(data, file_offset, index):
+        content = file_offset + 2  # Borland [index\x00] marker
+    window = data[content : content + min(length - (content - file_offset), 512)]
     if len(window) < 4:
         return False
 
@@ -159,6 +164,31 @@ class NeFunction:
     name: str
 
 
+def has_borland_marker(data: bytes, file_offset: int, index: int) -> bool:
+    """True when the segment at *file_offset* starts with the Borland
+    ``[index\\x00]`` marker (Delphi 1.0 / Turbo Pascal for Windows).
+    MSVC 16-bit NE segments carry no marker and start directly with code."""
+    return (
+        len(data) >= file_offset + 2 and data[file_offset] == index and data[file_offset + 1] == 0
+    )
+
+
+def _segment_content_start(raw: bytes, index: int) -> int:
+    """Offset of real content within an NE code segment.
+
+    Borland segments are ``[index\\x00][name-string][content]`` while MSVC
+    16-bit NE segments start directly with code.  Returns the offset just
+    past the marker and any length-prefixed name string, or 0 when no
+    marker is present (MSVC-style).
+    """
+    if has_borland_marker(raw, 0, index):
+        off = 2
+        while _looks_like_name_string(raw, off):
+            off += 1 + raw[off]
+        return off
+    return 0
+
+
 def _is_prolog(raw: bytes, off: int) -> bool:
     """True when *off* starts a Delphi 1.0 function prolog.
 
@@ -191,11 +221,13 @@ def enumerate_ne_functions(info: BinaryInfo) -> list[NeFunction]:
     """Linear-sweep function discovery over an NE binary's code segments.
 
     Scans each code segment (as classified by :func:`probe_is_code`) for
-    Delphi 1.0 prologs (``push bp`` / ``enter``) and walks the instruction
-    stream to the next ``ret``/``retf`` to size each function.  Functions
-    whose body fails to decode or whose size is implausible (< 3 bytes) are
-    dropped.  Returns a list sorted by VA with synthetic flat VAs
-    (``segment << 16 | offset``).
+    prologs (``push bp`` / ``enter``) and walks the instruction stream to the
+    next ``ret``/``retf`` to size each function.  Handles both Borland
+    segments (``[index\\x00][name-string][content]``) and MSVC 16-bit
+    segments (code from offset 0, with the segment entry forced as a
+    function start).  Functions whose body fails to decode or whose size is
+    implausible (< 3 bytes) are dropped.  Returns a list sorted by VA with
+    synthetic flat VAs (``segment << 16 | offset``).
     """
     import capstone
 
@@ -208,16 +240,27 @@ def enumerate_ne_functions(info: BinaryInfo) -> list[NeFunction]:
         raw = data[seg.file_offset : seg.file_offset + seg.length]
         if len(raw) < 4:
             continue
-        # Find candidate prologs.
-        candidates: list[int] = []
-        for off in range(len(raw) - 3):
+        # Find candidate prologs, starting after any Borland marker/name
+        # prefix (MSVC segments have none, so the scan starts at 0).
+        content_start = _segment_content_start(raw, seg.index)
+        candidates: set[int] = set()
+        for off in range(content_start, len(raw) - 3):
             if _is_prolog(raw, off):
-                candidates.append(off)
+                candidates.add(off)
+        # MSVC-style code segments (no Borland ``[index\x00]`` marker) start
+        # directly with a real function — the segment entry — even when it
+        # does not open with a recognizable prolog (16-bit MSVC entry code
+        # begins ``push ds/pop ax/nop/inc bp``).  Forcing a candidate keeps
+        # the entry function from being orphaned.  Borland segments must NOT
+        # get this: the content after their name string can be a far-call
+        # fixup table, and the real function only starts at its own prolog.
+        if content_start == 0 and content_start < len(raw) - 3:
+            candidates.add(content_start)
         if not candidates:
             continue
         # Disassemble from each candidate; the function ends at the first
         # ret/retf that terminates a balanced run (bounded to segment end).
-        for start in candidates:
+        for start in sorted(candidates):
             body = raw[start:]
             va = seg.base_va + start
             size = 0
@@ -386,19 +429,36 @@ def parse_imports(data: bytes, ne_offset: int, header: NeHeader) -> list[NeImpor
     set = import by name (low 15 bits = offset into the imported names table),
     clear = import by ordinal (the value itself).
 
-    The per-import detail is best-effort: Borland linkers emit non-standard
-    layouts and some binaries carry no import table at all, so a malformed
-    block degrades to the module list only rather than failing the load.
+    The per-import detail is best-effort: Borland and MSVC 16-bit linkers
+    emit different layouts and some binaries carry no classic import table at
+    all (Win16 imports then flow through entry-table entries + segment
+    thunks).  A malformed or implausible block — a count that is not a
+    sane value, or by-name offsets that do not resolve to printable Pascal
+    strings — degrades to the module list only rather than fabricating
+    ordinal garbage.
     """
     h = ne_offset
     impnames = h + header.imported_names_offset
     modtab = h + header.module_ref_table_offset
+    impnames_end = h + header.entry_table_offset  # names table ends at the entry table
 
     modules: list[NeImportModule] = []
     for i in range(header.module_reference_count):
         name_off = _u16(data, modtab + i * 2)
         name, _ = _pascal_string(data, impnames + name_off)
         modules.append(NeImportModule(module=name))
+
+    # The named-import region must be within the imported names table.
+    def _name_ok(off: int) -> bool:
+        pos = impnames + off
+        if not (impnames <= pos < impnames_end):
+            return False
+        ln = data[pos]
+        return (
+            1 <= ln <= 40
+            and pos + 1 + ln <= impnames_end
+            and all(0x20 <= c < 0x7F for c in data[pos + 1 : pos + 1 + ln])
+        )
 
     try:
         # Import table starts right after the entry table.
@@ -410,19 +470,26 @@ def parse_imports(data: bytes, ne_offset: int, header: NeHeader) -> list[NeImpor
             pos += 2
             if count == 0xFFFF:
                 break  # table terminator
-            if pos + count * 2 > len(data):
+            # A plausible per-module import count; larger values mean this
+            # region is not an import table (observed on MSVC-built NEs like
+            # the 1991 SkiFree, where the bytes after the entry table are the
+            # non-resident name table instead).
+            if not (0 < count <= 0x1000) or pos + count * 2 > len(data):
                 break
             for _ in range(count):
                 v = _u16(data, pos)
                 pos += 2
                 if v & 0x8000:
+                    if not _name_ok(v & 0x7FFF):
+                        raise ValueError("by-name offset outside names table")
                     nm, _ = _pascal_string(data, impnames + (v & 0x7FFF))
                     mod.imports.append(NeImport(name=nm))
                 else:
                     mod.imports.append(NeImport(ordinal=v))
-    except (struct.error, IndexError):
-        # Malformed import table — keep the module names we already have.
-        pass
+    except (struct.error, IndexError, ValueError):
+        # Malformed/misplaced import table — keep the module names we have.
+        for mod in modules:
+            mod.imports.clear()
     return modules
 
 
@@ -473,7 +540,7 @@ def load_ne_binary(path: Path) -> BinaryInfo:
     sections: dict[str, SectionInfo] = {}
     for seg in segments:
         raw_size = 0 if seg.is_iterated else min(seg.length, len(data) - seg.file_offset)
-        seg.is_code = probe_is_code(data, seg.file_offset, seg.length)
+        seg.is_code = probe_is_code(data, seg.file_offset, seg.length, seg.index)
         sections[f"SEG{seg.index}"] = SectionInfo(
             name=f"SEG{seg.index}",
             va=seg.base_va,

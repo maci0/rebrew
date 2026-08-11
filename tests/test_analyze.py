@@ -19,6 +19,53 @@ def _cfg() -> SimpleNamespace:
     return SimpleNamespace(root=Path("/nonexistent"), target_binary=FIXTURES / "mini_pe.exe")
 
 
+class TestCollectFunctions:
+    def test_ghidra_functions_preferred(self, tmp_path: Path, monkeypatch) -> None:
+        """A Ghidra export takes precedence for functions.total."""
+        from rebrew.analyze import _collect_functions
+
+        cfg = SimpleNamespace(
+            function_list=tmp_path / "functions.txt",
+            reversed_dir=tmp_path / "src",
+            metadata_dir=tmp_path / "src",
+        )
+        (tmp_path / "functions.txt").write_text(
+            "0x00401000 f1 32\n0x00401020 f2 64\n", encoding="utf-8"
+        )
+
+        def _fake_load_data(cfg):
+            class _F:
+                size = 100
+
+            return [_F()], {}, {}
+
+        monkeypatch.setattr("rebrew.naming.load_data", _fake_load_data)
+        out = _collect_functions(cfg)
+        assert out["total"] == 1  # Ghidra list wins
+        assert out["total_bytes"] == 100
+
+    def test_functions_txt_fallback(self, tmp_path: Path) -> None:
+        """Without a Ghidra export, functions.total comes from functions.txt
+        (regression: a functions.txt-only project reported total=0)."""
+        from rebrew.analyze import _collect_functions
+
+        (tmp_path / "functions.txt").write_text(
+            "0x00401000 f1 32\n0x00401020 f2 64\n# comment line\n", encoding="utf-8"
+        )
+        (tmp_path / "src").mkdir()
+        out = _collect_functions(
+            SimpleNamespace(
+                function_list=tmp_path / "functions.txt",
+                reversed_dir=tmp_path / "src",
+                metadata_dir=tmp_path / "src",
+                marker="S",
+                source_ext=".c",
+            )
+        )
+        assert out["total"] == 2
+        assert out["total_bytes"] == 96
+
+
 class TestBuildDossier:
     def test_pe_dossier_sections(self) -> None:
         d = build_dossier(_cfg(), FIXTURES / "mini_pe.exe")

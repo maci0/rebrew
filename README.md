@@ -28,7 +28,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | `rebrew rename` | Rename a function across the entire codebase (symbol, filename, cross-references) |
 | `rebrew split` | Break multi-function `.c` files into individual files; `--va` to extract one function |
 | `rebrew merge` | Combine single-function files into one multi-function file |
-| `rebrew lint` | Validate source marker correctness (E000–E017, W001–W017) |
+| `rebrew lint` | Validate source marker correctness (E000–E017, W001–W022, incl. W019 inline-metadata and W020 asm-dump warnings) |
 
 ### Analysis
 
@@ -73,7 +73,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 ### Design
 
 - **Config-driven** — all tools read from `rebrew-project.toml`, zero manual path arguments
-- **Multi-target** — PE, ELF, Mach-O across x86, x64, ARM32/64 with `--target` selection
+- **Multi-target** — PE, ELF, Mach-O, and 16-bit Windows NE across x86-16, x86, x64, ARM32/64 with `--target` selection
 - **Idempotent** — every tool safe to re-run without side effects
 - **Composable** — small single-purpose tools designed for scripting and AI agent chaining
 - **Compile cache** — disk-backed SHA-256 cache avoids redundant recompilations
@@ -200,8 +200,11 @@ rebrew sync --pull --dry-run        # preview pull without modifying files
 
 | Architecture | Binary Format | Compiler | Binary Loading | Object Parsing | GA Matching | Verification |
 |:------------|:-------------|:---------|:--------------:|:--------------:|:-----------:|:------------:|
-| x86 (32-bit) | PE (`.exe`/`.dll`) | MSVC 6.0 | ✅ | ✅ | ✅ | ✅ |
-| x86 (32-bit) | PE | MSVC 7.x+| ✅ | ✅ | ✅ | ✅ |
+| x86 (16-bit) | NE (Windows 3.x) | Borland Delphi 1.0 / Turbo Pascal | ✅ | ⬜ | ⬜ | ⬜ |
+| x86 (16-bit) | NE (Windows 3.x) | MSVC 16-bit (C 7.0 / VC 1.x) | ✅ | ⬜ | ⬜ | ⬜ |
+| x86 (32-bit) | PE (`.exe`/`.dll`) | MSVC 5.0 / 6.0 | ✅ | ✅ | ✅ | ✅ |
+| x86 (32-bit) | PE | MSVC 7.x+ | ✅ | ✅ | ✅ | ✅ |
+| x86 (32-bit) | PE | MinGW GCC / Zig (`gcc-pe` profile) | ✅ | ✅ | ✅ | ✅ |
 | x86 (32-bit) | PE | Watcom C | ✅ | ⬜ | ✅ | ⬜ |
 | x86 (32-bit) | ELF (`.so`/exec) | GCC/Clang| ✅ | ✅ | ⬜ | ⬜ |
 | x86_64     | PE | MSVC     | ✅ | ✅ | ⬜ | ⬜ |
@@ -212,6 +215,25 @@ rebrew sync --pull --dry-run        # preview pull without modifying files
 | ARM64      | Mach-O| Clang    | ✅ | ✅ | ⬜ | ⬜ |
 
 **Legend:** ✅ Supported  ⬜ Planned / Not yet implemented
+
+16-bit NE targets are parsed, enumerated, and analyzed natively (intake,
+analyze, asm, describe, data, report — see `docs/TOOLCHAIN.md`); byte
+matching and verification short-circuit with a notice because no 16-bit
+compiler profile exists yet (ADR-001).
+
+**Toolchain detection:** `rebrew intake`/`analyze` auto-detect the compiler
+family and version — DIE (`diec`) signatures first, then PDB records, then
+structural heuristics (strings, imports, codegen style, section layout).
+16-bit NE family comes from the Borland segment-marker convention
+(`delphi` vs MSVC-style markerless segments).  When diec misses a compiler
+record, the Microsoft Linker version still pins the MSVC era.
+
+**Compiler profiles:** `msvc6` is the default (MSVC 6.0 via Wine/wibo);
+`gcc-pe` targets MinGW GCC / Zig PE builds; point-version MSVC profiles
+(`msvc5`, `msvc6.3`, `msvc6.6`, `msvc7`, `msvc420`) cover the 1995–2003
+era, and `tools/DELPHI10` holds the Delphi 1.0 16-bit toolchain (not yet
+wired for byte matching — ADR-001).  Profile selection happens
+automatically on `rebrew intake` from the detected family.
 
 ## 🛠️ Development
 

@@ -6464,3 +6464,101 @@ behavior.
   negative-offset class-name fields.
 
 Commits: 9482a35 (NE cache), d1d7df3 (VMT detection).
+
+## 2026-08-11 — NE MSVC corpus: 14 fixes across the toolchain
+
+**Motivation:** user asked to find more binaries (SkiFree 16/32-bit + the
+20 Win2K system exes) and improve the tooling with them.  No downloadable
+90s game named "freeski" exists — substituted the real 1991 **SkiFree**
+(author's official site; ski32.exe MD5-verified against the yuv422 decomp
+project) + its 32-bit sequel, plus all 20 `win2k_binaries` (MSVC 5.0/6.0
+era).  Corpus now 22 targets + holiday; every CLI tool validated on it.
+
+**Fixes (all with tests; suite 1893 → 4052):**
+
+- **NE detection**: `is_ne` read only 0x104 bytes but the MSVC 16-bit
+  linker puts the NE header at `e_lfanew`=0x400 — NE was silently
+  misdetected as PE and enumerated by rizin into garbage.  Now seeks.
+- **NE enumeration**: Borland `[index\x00]` marker detected conditionally;
+  MSVC-style markerless segments force the segment-entry function (ski16:
+  137 real funcs vs 233 garbage; holiday unchanged at 1783).
+- **NE imports**: classic Win16 import table absent in most binaries —
+  parser fabricated 21K fake ordinals; now sanity-gated, degrades to the
+  real module list (KERNEL/GDI/USER), `rebrew imports` reports modules.
+- **NE detection family**: segment markers → `delphi`/`msvc` (16-bit);
+  linker-version fallback when diec misses the compiler record
+  (explorer.exe → "MSVC 5.0 (linker 5.12.9049)").
+- **NE dispatch**: `data --dispatch` Borland marker skip made conditional
+  (MSVC data segments were misaligned by 2 bytes).
+- **NE discovery**: `discover-functions` routed NE through the native
+  loader instead of rizin (same garbage that polluted the first intake).
+- **Intake**: re-discovery prunes stale auto-stubs (233 orphans on ski16
+  re-onboarding) via new `delete_metadata_entry`; writes `format="ne"`.
+- **analyze**: `functions.total` fallback to functions.txt for non-Ghidra
+  projects; **verify**: short-circuits x86_16 (no compile profile, ADR-001);
+  **rename**: zero-padded VA identifiers; **doctor**: x86_16/delphi checks
+  downgraded to warnings ("Project looks healthy!" on both NE targets).
+- **config**: accepts `format="ne"`; `load_binary` clear NE error.
+- **Property tests**: `bytes_to_pat_line` (FLIRT CRC fields) + inline
+  annotation update/remove symmetry (hypothesis).
+
+**Docs:** ADR convention created (`docs/adr/` README + 001-005), AGENTS.md
+ADR rule, README supported-platforms/detection/profiles updated,
+TOOLCHAIN.md NE section + verify note, CHANGELOG entries.
+
+**State:** 30 files modified, +1047/−66, uncommitted (awaiting user go-ahead
+on commit+push).
+
+## 2026-08-11 — 16-bit compile path feasibility probe (ADR-001)
+
+Verified the ADR-001 future-work premise end-to-end: the vendored Delphi
+1.0 toolchain (`tools/DELPHI10`, DOS DPMI app) compiles `hello.dpr` to a
+genuine NE 6.01 Windows 3.10 GUI executable headlessly — DOSBox directly
+(not wine's winevdm bridge), with `DELPHI.DSL` in cwd and the RTL units at
+`C:\DELPHI\LIB` (extracted in the holiday mission).  Result:
+`5 lines, 1710 bytes code, 252 bytes data` → HELLO.EXE (2816 B), which
+`rebrew` loads natively (is_ne ✓, 15 functions enumerated, detect →
+`delphi`).  What remains for byte matching: a `delphi16` compiler profile
+wrapping this invocation + segment-relative reloc comparison.  Recorded in
+`tools/DELPHI10/README.md`.
+
+## 2026-08-11 — Full docs refresh for the NE/delphi16 session
+
+Audited all docs/ + agent skills for staleness against the session's
+changes and updated: CONFIG.md (format `ne` accepted, x86_16 arch row with
+verified presets: CS_MODE_16, 2-byte pointers, `0x90 0x00` padding),
+CLI.md (verify 16-bit short-circuit, imports NE modules, doctor Delphi 1.0
+readiness, discover-functions NE routing), ARCHITECTURE.md (delphi16.py
+module + imports NE), TOOLCHAIN.md (Delphi 1.0 backend section), and the
+rebrew-intake SKILL.md (16-bit NE onboarding branch).  README/CHANGELOG/
+AGENTS.md/ADR were already current from the session slices.
+
+## 2026-08-11 — Toolchain standardization (docker-first) + new compilers
+
+User directive: "do all of the above" (MSVC 1.52, bcc32, Watcom profiles
++ detection hints) "but ideally dockerize and standardize toolchains and
+their invocation".  Studied Godbolt/Compiler Explorer's model (one image
+per toolchain-version, wrapper inside the image, uniform docker run) and
+implemented it as ADR-006:
+
+- `rebrew.toolchain`: ToolchainSpec registry + docker-first runner with
+  vendored-host/PATH fallback; `rebrew toolchain list/status/pull` CLI;
+  `toolchain-images/<name>/Dockerfile` build specs (watcom).
+- Shared `rebrew.dosbox` headless runner (mount sandbox as C:, FAT-uppercase
+  reads); delphi16 refactored onto it; new `rebrew.msvc16` (MSVC 1.52).
+- **Open Watcom 2.0**: installed tools/WATCOM (native wcc386 verified
+  compiling; installer SIGFPEs on modern glibc — used the CI snapshot
+  tarball).  Emits OMF objects — mapped the record layout empirically
+  (docs/OMF_NOTES.md): 0xA1 code records, checksum-in-length framing, the
+  e8/a1 reloc slots.  OMF parser = the enabling follow-up for Watcom AND
+  16-bit matching (LIEF can't parse OMF).
+- **MSVC 1.52**: tools/MSVC152 from archive.org en_vc152_202512 (RAR SFX
+  extracted); CL.EXE is a Phar Lap TNT DOS-extender PE — runs headless
+  under DOSBox via rebrew.dosbox; rebrew.msvc16.compile_c produces 16-bit
+  OMF objects (verified live).
+- **Borland C++ (bcc32)**: turbo-c-v-4.5 CD obtained; 16-bit Windows
+  SETUP.EXE needs Win3.x — install extraction pending (documented).
+- **Detection hints**: Symantec/Zortech/ICC families from runtime strings;
+  watcom family now aligns with the watcom profile.
+
+Tests: toolchain 9, msvc16 6, delphi16 5, detection +4.

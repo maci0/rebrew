@@ -164,6 +164,25 @@ class TestParseImports:
         mods = parse_imports(raw, 0x100, hdr)
         assert [m.module for m in mods] == ["KERNEL", "USER"]
 
+    def test_garbage_import_table_degrades_to_modules(self) -> None:
+        """Regression: a misplaced/absent import table (MSVC-built NEs like
+        the 1991 SkiFree put the non-resident name table where the classic
+        import table should be) must not fabricate ordinal garbage — the
+        parser degrades to module names only."""
+        raw = _build_ne(segments=[(_CODE, 0x01)], modules=["KERNEL"])
+        hdr = parse_ne_header(raw, 0x100)
+        # Give the entry table a nonzero length so the "import table" position
+        # lands past the module ref + imported names tables, then overwrite it
+        # with a Pascal string ("Ski Free") whose first two bytes 0x08 0x53
+        # read as an absurd import count (0x5308).
+        blob = bytearray(raw)
+        blob[0x106:0x108] = (0x10).to_bytes(2, "little")  # entry table length
+        pos = 0x100 + hdr.entry_table_offset + 0x10
+        blob[pos : pos + 8] = b"\x08Ski Free"
+        mods = parse_imports(bytes(blob), 0x100, hdr)
+        assert [m.module for m in mods] == ["KERNEL"]
+        assert all(m.imports == [] for m in mods)
+
 
 class TestLoadNeBinary:
     def test_binary_info_shape(self, tmp_path: Path) -> None:
@@ -188,6 +207,17 @@ class TestProbeIsCode:
 
     def test_data_segment(self) -> None:
         assert probe_is_code(b"\x02\x00" + _DATA, 0, len(_DATA) + 2) is False
+
+    def test_markerless_code_segment(self) -> None:
+        # MSVC 16-bit NE segments have no [index\x00] marker — code starts
+        # directly at offset 0 (e.g. ``push ds/pop ax/nop/inc bp``).
+        entry = bytes.fromhex("1e 58 90 45 55 8b ec") + _CODE
+        assert probe_is_code(entry, 0, len(entry)) is True
+
+    def test_marker_only_skipped_with_index(self) -> None:
+        # With the segment index supplied, the [index\x00] marker is skipped
+        # so a data segment that merely resembles the marker is not code.
+        assert probe_is_code(b"\x01\x00" + _DATA, 0, len(_DATA) + 2, index=1) is False
 
 
 class TestEnumerateFunctions:
@@ -219,3 +249,19 @@ class TestEnumerateFunctions:
             body = extract_bytes_at_va(info, f.va, f.size, trim_padding=False) or b""
             insns = list(md.disasm(body, f.va))
             assert insns and insns[-1].mnemonic in ("ret", "retf", "retn")
+
+    def test_markerless_segment_entry_recovered(self, tmp_path: Path) -> None:
+        # An MSVC-style segment (no Borland marker) starts directly with the
+        # entry function, even when it opens with push ds/pop ax/nop/inc bp
+        # rather than a push bp prolog.  The entry function must be found.
+        from rebrew.binary_loader import load_binary
+        from rebrew.ne_loader import enumerate_ne_functions
+
+        entry = bytes.fromhex("1e 58 90 45 55 8b ec 83 ec 02 5d c3")  # entry + ret
+        code = entry + bytes.fromhex("90 90 90 90") + _CODE
+        raw = _build_ne(segments=[(code, 0x01)])
+        p = tmp_path / "app.ne"
+        p.write_bytes(raw)
+        info = load_binary(p)
+        funcs = enumerate_ne_functions(info)
+        assert any(f.va == 0x10000 for f in funcs), [hex(f.va) for f in funcs]

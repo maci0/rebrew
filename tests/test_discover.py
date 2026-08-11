@@ -42,6 +42,33 @@ def _patch_extract(monkeypatch):
 
 
 class TestDiscoverFunctions:
+    def test_ne_uses_native_loader(self, tmp_path: Path, monkeypatch) -> None:
+        """Regression: a 16-bit NE binary must route through the native NE
+        loader's linear sweep, not rizin — rizin emits garbage file-offset
+        "functions" (the 233-function false enumeration that polluted the
+        SkiFree intake before the fix)."""
+        from test_ne_loader import _build_ne
+
+        code = (
+            b"\x01\x00"
+            + bytes.fromhex("55 8b ec 5d c3")  # fn @ 0x2
+            + b"\x00" * 8
+            + bytes.fromhex("55 8b ec 5d c3")  # fn @ 0x10
+            + b"\x00" * 8
+        )
+        raw = _build_ne(segments=[(code, 0x01)])
+        p = tmp_path / "app.ne"
+        p.write_bytes(raw)
+        # rizin must not even be invoked for NE targets.
+        called: list = []
+        monkeypatch.setattr(
+            "rebrew.discover._rizin_functions", lambda *a, **k: called.append(1) or []
+        )
+        d = discover_functions(p, min_size=1)
+        assert d.sources == {"ne loader": 2}
+        assert [va for va, _s, _n in d.functions] == [0x10002, 0x1000F]
+        assert not called
+
     def test_merge_and_validation(self, monkeypatch) -> None:
         # rizin aaa gives one garbled huge function; aap gives the real set;
         # the sweep adds an interior false positive that must be dropped.

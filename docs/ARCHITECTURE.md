@@ -60,11 +60,16 @@ flowchart LR
 | `rebrew/crt_match.py` | CRT source cross-reference matcher (index, match, ASM detection) |
 | `rebrew/flirt.py` | FLIRT signature scanning |
 | `rebrew/prove.py` | Symbolic equivalence prover via angr (optional dep) |
+| `rebrew/delphi16.py` | Delphi 1.0 (16-bit) compile support — headless DOSBox sandbox + NE parse (ADR-001 foundation) |
+| `rebrew/msvc16.py` | MSVC 1.52 (16-bit) compile support — DOSBox + 16-bit OMF objects |
+| `rebrew/dosbox.py` | Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads) |
+| `rebrew/toolchain.py` | Toolchain abstraction: spec registry, docker-first runner with host fallback |
+| `rebrew/toolchain_cli.py` | `rebrew toolchain` CLI (`list`/`status`/`pull`) |
 | `rebrew/round_trip.py` | Splice matched functions back into the target PE, verify byte equality |
 | `rebrew/similar.py` | Structural clone detection (mnemonic-histogram similarity) |
 | `rebrew/near_diag.py` | NEAR_MATCHING delta classification (register/reloc/structural buckets) |
 | `rebrew/dashboard.py` | Read-only web dashboard over `db/coverage.db` |
-| `rebrew/imports.py` | PE import-table symbol listing + `jmp [iat]` stub detection |
+| `rebrew/imports.py` | Import-table symbol listing — PE IAT + `jmp [iat]` stub detection, 16-bit NE module references |
 | `rebrew/skills.py` | Agent-skill discovery CLI (`list`/`show` subcommands) |
 | `rebrew/agent-skills/` | Bundled `SKILL.md` workflows (intake, matching, data analysis, ghidra sync) |
 
