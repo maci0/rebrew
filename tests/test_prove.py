@@ -838,13 +838,16 @@ class TestPrepareProveInputsDir32:
             relocs: object,
             name_to_va: object = None,
             section_va: object = None,
+            iat_region: object = None,
         ) -> tuple[bool, int, int, list[int], list[int]]:
             captured["name_to_va"] = name_to_va
             captured["section_va"] = section_va
+            captured["iat_region"] = iat_region
             return (False, 0, 0, [], [])  # not matched → proceed to prove
 
         monkeypatch.setattr(pm, "smart_reloc_compare", fake_smart_reloc_compare)
         monkeypatch.setattr(pm, "build_name_to_va", lambda cfg: {"g_counter": 0x2000})
+        monkeypatch.setattr(pm, "build_iat_region", lambda cfg: {0x24178})
         monkeypatch.setattr(pm, "extract_raw_bytes", lambda b, va, size: b"\x00" * 16)
         monkeypatch.setattr(pm, "compile_to_obj", lambda cfg, src, cflags, wd: ("obj.obj", ""))
         monkeypatch.setattr(pm, "parse_obj_symbol_bytes", lambda obj, sym: (b"\x00" * 16, {}))
@@ -854,6 +857,7 @@ class TestPrepareProveInputsDir32:
         inputs = pm._prepare_prove_inputs(cfg, src, ann, None)
         assert captured["name_to_va"] == {"g_counter": 0x2000}
         assert captured["section_va"] == 0x1000
+        assert captured["iat_region"] == {0x24178}
         assert inputs.symbol == "_f"
         assert inputs.size == 16
 
@@ -893,7 +897,13 @@ class TestPrepareProveInputsDir32:
         monkeypatch.setattr(
             pm,
             "smart_reloc_compare",
-            lambda obj, tgt, relocs, name_to_va=None, section_va=None: (True, 16, 16, [0x1000], []),
+            lambda obj, tgt, relocs, name_to_va=None, section_va=None, iat_region=None: (
+                True,
+                16,
+                16,
+                [0x1000],
+                [],
+            ),
         )
         monkeypatch.setattr(pm, "build_name_to_va", lambda cfg: {})
         monkeypatch.setattr(pm, "extract_raw_bytes", lambda b, va, size: b"\x00" * 16)
@@ -1083,7 +1093,13 @@ class TestProveInputsWatchedVasMetadata:
         monkeypatch.setattr(
             pm,
             "smart_reloc_compare",
-            lambda obj, tgt, relocs, name_to_va=None, section_va=None: (False, 0, 0, [], []),
+            lambda obj, tgt, relocs, name_to_va=None, section_va=None, iat_region=None: (
+                False,
+                0,
+                0,
+                [],
+                [],
+            ),
         )
         monkeypatch.setattr(pm, "build_name_to_va", lambda cfg: {})
         monkeypatch.setattr(pm, "extract_raw_bytes", lambda b, va, size: b"\x00" * 16)
