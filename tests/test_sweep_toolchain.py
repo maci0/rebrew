@@ -70,3 +70,33 @@ def test_toolchain_sweep_orders_best_first(monkeypatch, capsys) -> None:
     assert out["results"][0]["toolchain"] == "good"
     assert out["results"][0]["matched"] is True
     assert out["results"][1]["toolchain"] == "bad"
+
+
+def test_toolchain_flag_sweep_reports_per_toolchain(monkeypatch, capsys) -> None:
+    """--sweep-toolchain --flag-sweep-only combines both dimensions: each
+    toolchain gets its own flag sweep and the best flags are reported."""
+    import json
+
+    from rebrew.match import _run_single_toolchain_flag_sweep
+
+    monkeypatch.setattr(
+        "rebrew.match._vendored_msvc_toolchains",
+        lambda cfg, cl, inc: [("good", "wine good", "/good"), ("bad", "wine bad", "/bad")],
+    )
+
+    def _fake_flag_sweep(src, target, cl_cmd, inc_dir, cflags, symbol, jobs, tier=None, **kw):  # noqa: ARG001
+        if "good" in cl_cmd:
+            return [(0.0, "/O1")]
+        return [(42.0, "")]
+
+    monkeypatch.setattr("rebrew.match.flag_sweep", _fake_flag_sweep)
+
+    _run_single_toolchain_flag_sweep(_make_params(), tier="quick", jobs=2, json_output=True)
+    out = json.loads(capsys.readouterr().out)
+    assert out["sweep"] == "toolchain+flags"
+    assert out["best"] == "good"
+    by_name = {r["toolchain"]: r for r in out["results"]}
+    assert by_name["good"]["exact"] is True
+    assert by_name["good"]["flags"] == "/O1"
+    assert by_name["bad"]["exact"] is False
+    assert by_name["bad"]["best_score"] == 42.0
