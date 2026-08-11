@@ -50,6 +50,7 @@ _TOOLCHAIN_LINKS: dict[str, tuple[str, str]] = {
     "msvc7": ("MSVC7", "msvc7.0"),
     "msvc5": ("MSVC500", "MSVC500"),
     "msvc420": ("MSVC420", "MSVC420"),
+    "msvc1.52": ("MSVC152", "MSVC152"),
 }
 
 _REPO_TOOLS = Path(__file__).resolve().parents[2] / "tools"
