@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from rebrew.annotation import (
+    VALID_MARKERS,
     parse_c_file_multi,
     update_annotation_key,
 )
@@ -153,7 +154,7 @@ def test_inline_update_remove_symmetry_property(tmp_path: Path) -> None:
     @given(
         st.text(
             alphabet=st.characters(min_codepoint=0x41, max_codepoint=0x5A), min_size=1, max_size=12
-        ).filter(lambda s: s not in METADATA_FIELDS),
+        ).filter(lambda s: s not in METADATA_FIELDS and s not in VALID_MARKERS),
         # Annotation values are single-line printable text — newlines/control
         # chars would break the line-based `// KEY:` format by construction.
         st.text(alphabet=st.characters(min_codepoint=0x20, max_codepoint=0x7E), max_size=40),

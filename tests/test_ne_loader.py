@@ -198,6 +198,9 @@ class TestLoadNeBinary:
         assert info.sections["SEG1"].va == 0x10000  # segment 1 → 0x10000
         assert info.sections["SEG2"].va == 0x20000
         assert info.ne_segments[0].base_va == 0x10000  # type: ignore[attr-defined]
+        # text_size aggregates code segments (catalog coverage needs it)
+        assert info.text_size > 0
+        assert info.text_va == info.sections["SEG1"].va
 
 
 class TestProbeIsCode:
