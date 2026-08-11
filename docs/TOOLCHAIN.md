@@ -96,9 +96,12 @@ Notes:
 
 - **Watcom** (`wcc386`) emits **OMF** objects — converted to COFF via the
   vendored **objconv** (tools/objconv) and parsed by LIEF transparently;
-  32-bit OMF byte-matching is enabled.  objconv crashes on 16-bit OMF, so
-  MSVC 1.52 matching still needs the custom 16-bit parser — see
-  [OMF_NOTES.md](OMF_NOTES.md).
+  32-bit OMF byte-matching is enabled.  A project configured with
+  `profile = "watcom"` compiles through the toolchain runner in
+  `rebrew compile` (`-fo=`/`-I` flag shape, docker image or vendored
+  host binary), so `rebrew test`/`verify` work for Watcom targets.
+  objconv crashes on 16-bit OMF, so MSVC 1.52 matching still needs the
+  custom 16-bit parser — see [OMF_NOTES.md](OMF_NOTES.md).
 - **MSVC 1.52** (`tools/MSVC152`, from archive.org `en_vc152_202512`) is a
   Phar Lap TNT DOS-extender binary — runs headless under DOSBox via the
   shared `rebrew.dosbox` runner; produces 16-bit OMF objects.
