@@ -488,7 +488,10 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
             skipped_files.append(f"{src.name}: {exc}")
             continue
         for a in annos:
-            if a.status == "NEAR_MATCHING" and a.size:
+            # Mirror prove --all: SIZE_MISMATCH functions are equally valid
+            # classification targets (they do not byte-match and deserve a
+            # blocker note); NEAR_MATCHING is not the only candidate status.
+            if a.status in ("NEAR_MATCHING", "SIZE_MISMATCH") and a.size:
                 candidates.append((src, a))
 
     if not candidates:
@@ -503,7 +506,7 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
                 }
             )
         else:
-            console.print("[dim]No NEAR_MATCHING functions found to diagnose.[/dim]")
+            console.print("[dim]No NEAR_MATCHING/SIZE_MISMATCH functions found to diagnose.[/dim]")
             for skip in skipped_files:
                 console.print(f"[yellow]  skipped: {skip}[/yellow]")
         return
