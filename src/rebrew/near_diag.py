@@ -448,9 +448,20 @@ def _diagnose_one(
         if dry_run:
             blocker_written = True  # would write, but --dry-run skips it
         else:
-            from rebrew.metadata import set_field
+            from rebrew.metadata import set_field, update_source_status
 
             set_field(cfg.metadata_dir, va_int, "blocker", _blocker_text(result), module=ann.module)
+            # A blocker note implies NEAR_MATCHING — keep the documented state
+            # consistent so status reports count it as documented, not as a
+            # bare STUB (previously the status stayed missing/STUB while the
+            # blocker said NEAR_MATCHING).
+            update_source_status(
+                cfg.metadata_dir,
+                "NEAR_MATCHING",
+                ann.module,
+                va_int,
+                clear_blockers=False,
+            )
             blocker_written = True
     result["blocker_written"] = blocker_written
     return result
