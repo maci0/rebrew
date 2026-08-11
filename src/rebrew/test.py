@@ -11,6 +11,7 @@ Usage:
     rebrew test --all --dir src/game_dll/ # batch mode, restrict to subdir
 """
 
+import contextlib
 import json
 import logging
 import tempfile
@@ -48,7 +49,7 @@ from rebrew.compile import (
 from rebrew.config import ProjectConfig
 from rebrew.core import build_iat_region, build_name_to_va, smart_reloc_compare
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
-from rebrew.metadata import update_source_status
+from rebrew.metadata import update_field, update_source_status
 
 console = Console(stderr=True)
 
@@ -513,6 +514,15 @@ def main(
     elif va_str:
         va_int_for_promote = parse_va(va_str, json_mode=json_output)
         anno_module = lint_annos[0].module if lint_annos else ""
+        # Persist the resolved SIZE alongside STATUS so downstream tools
+        # (diff, near-diag) can resolve it from metadata like STATUS — a
+        # hand-written fresh function would otherwise stay at SIZE=0 forever
+        # and `rebrew diff` fails with "Invalid SIZE: 0".
+        if size_val and not no_promote and not dry_run:
+            with contextlib.suppress(Exception):  # metadata write is best-effort
+                update_field(
+                    cfg.metadata_dir, va_int_for_promote, "size", int(size_val), anno_module
+                )
         old_status = lint_annos[0].status if lint_annos else ""
         # Prefer CompareResult.status so SIZE_MISMATCH / COMPILE_ERROR are preserved.
         new_status = (

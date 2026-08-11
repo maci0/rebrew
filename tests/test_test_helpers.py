@@ -1,5 +1,8 @@
 """Tests for test.py result-dict builders and reloc helpers."""
 
+from pathlib import Path
+from typing import Any
+
 from rebrew.compile import CompareResult
 from rebrew.test import (
     _expand_reloc_offsets,
@@ -112,3 +115,98 @@ class TestBuildResultDictFromCompare:
         assert d["status"] == "COMPILE_ERROR"
         assert d["obj_size"] == 0
         assert d["mismatches"] == []
+
+
+class TestSizePersistence:
+    """`rebrew test --va --size` must persist the resolved SIZE to metadata so
+    downstream tools (diff, near-diag) can resolve it without re-supplying it."""
+
+    def test_persists_size_on_promote(self, tmp_path: Path, monkeypatch: Any) -> None:
+        import shutil
+
+        from typer.testing import CliRunner
+
+        from rebrew.compile import CompareResult
+        from rebrew.main import app as umbrella
+
+        fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
+        (tmp_path / "original").mkdir()
+        shutil.copy(fixture, tmp_path / "original" / "x.exe")
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "x"\n'
+            '[targets.x]\nbinary = "original/x.exe"\n'
+            '[compiler]\nprofile = "msvc6"\n'
+        )
+        src_dir = tmp_path / "src" / "x"
+        src_dir.mkdir(parents=True)
+        (src_dir / "f.c").write_text("// FUNCTION: TEST 0x1000\nint f(void) { return 1; }\n")
+
+        def _fake_compile(*a, **k):
+            return CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"\xc3",
+                reloc_offsets=[],
+            )
+
+        monkeypatch.setattr("rebrew.test.compile_and_compare", _fake_compile)
+        result = CliRunner().invoke(
+            umbrella,
+            ["test", "src/x/f.c", "--va", "0x1000", "--size", "4", "--symbol", "_f"],
+        )
+        assert result.exit_code == 0, result.output
+        meta = (tmp_path / "src" / "rebrew-function.toml").read_text()
+        assert "size = 4" in meta
+
+    def test_no_promote_skips_size_write(self, tmp_path: Path, monkeypatch: Any) -> None:
+        import shutil
+
+        from typer.testing import CliRunner
+
+        from rebrew.compile import CompareResult
+        from rebrew.main import app as umbrella
+
+        fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
+        (tmp_path / "original").mkdir()
+        shutil.copy(fixture, tmp_path / "original" / "x.exe")
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "x"\n'
+            '[targets.x]\nbinary = "original/x.exe"\n'
+            '[compiler]\nprofile = "msvc6"\n'
+        )
+        src_dir = tmp_path / "src" / "x"
+        src_dir.mkdir(parents=True)
+        (src_dir / "f.c").write_text("// FUNCTION: TEST 0x1000\nint f(void) { return 1; }\n")
+
+        monkeypatch.setattr(
+            "rebrew.test.compile_and_compare",
+            lambda *a, **k: CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"\xc3",
+                reloc_offsets=[],
+            ),
+        )
+        result = CliRunner().invoke(
+            umbrella,
+            [
+                "test",
+                "src/x/f.c",
+                "--va",
+                "0x1000",
+                "--size",
+                "4",
+                "--symbol",
+                "_f",
+                "--no-promote",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        meta_path = tmp_path / "src" / "rebrew-function.toml"
+        assert not meta_path.exists() or "size = 4" not in meta_path.read_text()

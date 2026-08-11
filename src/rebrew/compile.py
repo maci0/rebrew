@@ -337,14 +337,7 @@ def resolve_compiler_env(
         may be None if the cache database cannot be opened.
 
     """
-    cl_parts = safe_shlex_split(cfg.compiler_command)
-    cl_res: list[str] = []
-    for part in cl_parts:
-        p = cfg.root / part
-        cl_res.append(str(p) if p.exists() else part)
-    cl_cmd = " ".join(cl_res)
-    if not cl_cmd:
-        cl_cmd = " ".join(str(p) for p in resolve_cl_command(cfg))
+    cl_cmd = " ".join(resolve_cl_command(cfg))
 
     inc_dir = str(cfg.compiler_includes)
     inc_path = cfg.root / inc_dir

@@ -443,3 +443,27 @@ class TestCompileToObjMsvc152Image:
         obj, err = compile_to_obj(self._cfg(tmp_path), src, [], workdir, use_cache=False)
         assert obj is not None
         assert captured.get("host") is True
+
+
+def test_resolve_compiler_env_falls_back_to_install(tmp_path: Path, monkeypatch) -> None:
+    """resolve_compiler_env (the GA/flag-sweep path) must resolve the CL path
+    with the install-tools fallback — previously it kept the relative path,
+    and `rebrew match` failed with wine rc 53 on projects without a local
+    tools/ symlink while `rebrew test` worked."""
+    from rebrew import utils as rebrew_utils
+    from rebrew.compile import resolve_compiler_env
+    from rebrew.config import ProjectConfig
+
+    fake = tmp_path / "tools" / "MSVC500" / "bin" / "cl.exe"
+    fake.parent.mkdir(parents=True)
+    fake.write_bytes(b"MZ")
+    (tmp_path / "tools" / "MSVC500" / "include").mkdir(parents=True)
+    monkeypatch.setattr(rebrew_utils, "_REPO_ROOT", tmp_path)
+
+    cfg = ProjectConfig(
+        root=tmp_path / "project",
+        compiler_command="wine tools/MSVC500/bin/cl.exe",
+        compiler_includes="tools/MSVC500/include",
+    )
+    cl_cmd, _inc_dir, _env, _cc = resolve_compiler_env(cfg)
+    assert cl_cmd == f"wine {fake}"  # inc_dir fallback is a load_config concern
