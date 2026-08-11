@@ -176,3 +176,48 @@ class TestCli:
         result = CliRunner().invoke(umbrella, ["toolchain", "build", "watcom"])
         assert result.exit_code == 2
         assert "Dockerfile" in result.output
+
+
+class TestPullToolchain:
+    """pull_toolchain treats locally-present images as a successful no-op
+    (they are built via `toolchain build`, not pulled from a registry)."""
+
+    def test_already_present_skips_docker_pull(self, monkeypatch) -> None:
+        from rebrew.toolchain import pull_toolchain
+
+        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: True)
+        called: list[str] = []
+        monkeypatch.setattr(
+            "rebrew.toolchain.subprocess.run",
+            lambda *a, **k: called.append(a) or type("R", (), {"returncode": 0})(),
+        )
+        tag, was_present = pull_toolchain("msvc6")
+        assert tag == "rebrew/msvc:6.0-linux-x64"
+        assert was_present is True
+        assert not called  # no docker pull subprocess for a local image
+
+    def test_absent_image_does_pull(self, monkeypatch) -> None:
+        from rebrew.toolchain import pull_toolchain
+
+        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
+        monkeypatch.setattr(
+            "rebrew.toolchain.subprocess.run",
+            lambda *a, **k: type("R", (), {"returncode": 0})(),
+        )
+        tag, was_present = pull_toolchain("msvc6")
+        assert tag == "rebrew/msvc:6.0-linux-x64"
+        assert was_present is False
+
+    def test_cli_reports_already_present(self, monkeypatch) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: True)
+        result = CliRunner().invoke(umbrella, ["toolchain", "pull", "msvc6", "--json"])
+        assert result.exit_code == 0
+        assert '"already_present": true' in result.output
+        assert '"pulled": "rebrew/msvc:6.0-linux-x64"' in result.output

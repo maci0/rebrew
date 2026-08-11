@@ -298,13 +298,22 @@ def list_toolchains() -> list[dict[str, Any]]:
     ]
 
 
-def pull_toolchain(name: str, timeout: int = 1200) -> str:
-    """Pull a toolchain's docker image (docker backend)."""
+def pull_toolchain(name: str, timeout: int = 1200) -> tuple[str, bool]:
+    """Pull a toolchain's docker image (docker backend).
+
+    Locally-built images (via ``rebrew toolchain build``) are already
+    present and have no registry to pull from — treat that as a successful
+    no-op instead of a confusing "pull access denied" failure.
+
+    Returns ``(image_tag, was_already_present)``.
+    """
     spec = get_toolchain(name)
     if spec.image is None:
         raise ToolchainError(f"toolchain {name!r} has no docker image (host-only)")
     if not docker_available():
         raise ToolchainError("docker is not available — cannot pull images")
+    if _image_present(spec.image):
+        return spec.image, True
     r = subprocess.run(
         ["docker", "pull", spec.image],
         capture_output=True,
@@ -313,7 +322,7 @@ def pull_toolchain(name: str, timeout: int = 1200) -> str:
     )
     if r.returncode != 0:
         raise ToolchainError(f"docker pull {spec.image} failed: {r.stderr[-400:]}")
-    return spec.image
+    return spec.image, False
 
 
 __all__ = [
