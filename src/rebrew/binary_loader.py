@@ -498,6 +498,43 @@ def extract_raw_bytes(binary_path: Path, va: int, size: int) -> bytes:
 # ---------------------------------------------------------------------------
 
 
+def iat_slot_vas(binary_path: Path | str) -> set[int]:
+    """Absolute VAs of the PE import-address-table slots, or ``set()``.
+
+    MSVC PEs place the IAT at the START of ``.text`` (before the code), so
+    linear-sweep discovery walks it as code and emits a fake function per
+    slot (``sym.imp.`` entries from rizin, or generic ``fcn.`` names from
+    other sweeps).  The registry must not treat those data slots as
+    functions, and reloc masking must know their addresses.  Returns
+    ``set()`` on any failure (non-PE, unparsable, absent file).
+
+    Shared by ``rebrew.core.build_iat_region`` (reloc masking) and the
+    catalog registry (function filtering) — one LIEF scan, two consumers.
+    """
+    path = Path(binary_path)
+    if not path.exists():
+        return set()
+    try:
+        import lief
+
+        if not lief.is_pe(str(path)):
+            return set()
+        pe = lief.PE.parse(str(path))
+        if pe is None:
+            return set()
+        image_base = int(getattr(pe, "imagebase", 0) or 0)
+        out: set[int] = set()
+        for entry in pe.imports:
+            for imp in entry.entries:
+                va = int(getattr(imp, "iat_address", 0) or 0)
+                if va:
+                    # LIEF reports the IAT slot as an RVA; canonicalize.
+                    out.add((va + image_base) & 0xFFFFFFFF)
+        return out
+    except Exception:
+        return set()
+
+
 def detect_source_language(binary_path: Path) -> tuple[str, str]:
     """Detect likely source language from binary symbol names and sections.
 

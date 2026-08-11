@@ -183,29 +183,14 @@ def _iat_slot_vas(bin_path: Path | None) -> set[int]:
     slot (``sym.imp.`` entries from rizin, or generic ``fcn.`` names from
     other sweeps).  The registry must not treat those data slots as
     functions — skeleton generation would create bogus source files for
-    them.  Returns ``{}`` on any failure (non-PE, unparsable, absent file).
+    them.  Thin wrapper over the shared LIEF scan (also used by reloc
+    masking); returns ``set()`` on any failure.
     """
-    if not bin_path or not Path(bin_path).exists():
+    if not bin_path:
         return set()
-    try:
-        import lief
+    from rebrew.binary_loader import iat_slot_vas
 
-        if not lief.is_pe(str(bin_path)):
-            return set()
-        pe = lief.PE.parse(str(bin_path))
-        if pe is None:
-            return set()
-        image_base = int(getattr(pe, "imagebase", 0) or 0)
-        out: set[int] = set()
-        for entry in pe.imports:
-            for imp in entry.entries:
-                va = int(getattr(imp, "iat_address", 0) or 0)
-                if va:
-                    # LIEF reports the IAT slot as an RVA; canonicalize.
-                    out.add((va + image_base) & 0xFFFFFFFF)
-        return out
-    except Exception:
-        return set()
+    return iat_slot_vas(bin_path)
 
 
 def build_function_registry(
