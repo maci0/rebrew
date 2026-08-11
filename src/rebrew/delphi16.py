@@ -51,6 +51,17 @@ def _find_dcc() -> Path:
     )
 
 
+def _is_83_safe(name: str) -> bool:
+    """True when *name* fits the DOS 8.3 filename convention (<=8 chars
+    before the first dot, <=3 after, no spaces or DOS-special chars)."""
+    base, dot, ext = name.partition(".")
+    if dot and "." in ext:  # more than one dot
+        return False
+    if not base or len(base) > 8 or len(ext) > 3:
+        return False
+    return all(33 <= ord(c) < 127 and c not in '*?<>|"\\/' for c in name)
+
+
 def _default_workdir() -> Path:
     """A fresh sandbox dir on a NON-tmpfs filesystem.
 
@@ -105,13 +116,18 @@ def compile_ne(
         src_text = str(dpr_source)
         src_name = "probe.dpr"
 
+    # DCC.EXE is a 16-bit DOS program — it cannot open long filenames
+    # inside DOSBox (8.3-truncated, "Error 15: File not found").  Stage a
+    # short 8.3-safe name when the source basename exceeds 8.3.
+    staged_name = src_name if _is_83_safe(src_name) else "SRC.dpr"
+
     sandbox = Path(workdir) if workdir is not None else _default_workdir()
     sandbox.mkdir(parents=True, exist_ok=True)
 
     # Stage the compiler trio + source into the sandbox (the DOSBox C:).
     for fname in _DCC_FILES:
         shutil.copy2(dcc.parent / fname, sandbox / fname)
-    (sandbox / src_name).write_text(src_text, encoding="utf-8")
+    (sandbox / staged_name).write_text(src_text, encoding="utf-8")
 
     # Stage the RTL/VCL units + a DCC.CFG that points at them, when found.
     # The mission (tools/DELPHI10/README.md) established DCC.CFG's unit path
@@ -135,7 +151,7 @@ def compile_ne(
 
     from rebrew.dosbox import DosboxError, read_uppercase, run_dosbox
 
-    cmd = f"C:\\DCC.EXE {src_name} > C:\\dccout.txt"
+    cmd = f"C:\\DCC.EXE {staged_name} > C:\\dccout.txt"
     try:
         run_dosbox(sandbox, [cmd], timeout=timeout)
     except DosboxError as exc:
@@ -143,7 +159,7 @@ def compile_ne(
 
     log = read_uppercase(sandbox, "dccout.txt")
     # DOSBox writes FAT-uppercased filenames (HELLO.EXE, not hello.EXE).
-    stem = Path(src_name).stem
+    stem = Path(staged_name).stem
     exe = next(
         (
             p

@@ -88,3 +88,45 @@ class TestCompileNe:
         src.write_text("program Hello;\n", encoding="utf-8")
         with pytest.raises(Delphi16Error, match="DOSBox"):
             compile_ne(src, tmp_path / "sandbox", units_dir=tmp_path / "u")
+
+
+class TestLongSourceName:
+    def test_long_source_name_staged_short(self, tmp_path: Path, monkeypatch) -> None:
+        """DCC is a 16-bit DOS program — a long .dpr basename would be
+        8.3-truncated in DOSBox (Error 15: File not found).  compile_ne
+        must stage it under the short name SRC.DPR instead."""
+        src = tmp_path / "very_long_program_name.dpr"
+        src.write_text("program VeryLong;\nbegin\nend.\n", encoding="utf-8")
+        workdir = tmp_path / "sandbox"
+
+        calls: list[str] = []
+
+        def _run(args, **kwargs):  # noqa: ARG001
+            from test_ne_loader import _build_ne
+
+            code = b"\x01\x00" + bytes.fromhex("55 8b ec 5d c3") + b"\x00" * 8
+            (workdir / "DCCOUT.TXT").write_text(
+                "Delphi Compiler  Version 8.0\nSRC.DPR(1)\n2 lines, 8 bytes code.\n",
+                encoding="utf-8",
+            )
+            (workdir / "SRC.EXE").write_bytes(_build_ne(segments=[(code, 0x01)]))
+            return type("R", (), {"returncode": 0})()
+
+        monkeypatch.setattr("rebrew.dosbox.subprocess.run", _run)
+
+        # spy on the autoexec line DCC receives: must be the short name
+        real_run_dosbox = __import__("rebrew.dosbox", fromlist=["run_dosbox"]).run_dosbox
+
+        def _spy_run_dosbox(sandbox, autoexec, **kwargs):  # noqa: ARG001
+            calls.append(autoexec)
+            return real_run_dosbox(sandbox, autoexec, **kwargs)
+
+        monkeypatch.setattr("rebrew.dosbox.run_dosbox", _spy_run_dosbox)
+
+        r = compile_ne(src, workdir, units_dir=tmp_path / "units")
+        assert r.exe_path.name == "SRC.EXE"
+        # the staged source is the short name, not the long basename
+        staged = next(p for p in workdir.iterdir() if p.suffix.lower() == ".dpr")
+        assert staged.read_text(encoding="utf-8").startswith("program")
+        assert not (workdir / "very_long_program_name.dpr").exists()
+        assert calls and "C:\\DCC.EXE SRC.dpr" in calls[0][0]
