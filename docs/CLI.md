@@ -480,6 +480,11 @@ Merge multiple single-function `.c` files into one multi-function file. Preamble
 | `--compiler PROFILE` | Compiler profile (default: `msvc6`) |
 | `--json` | Output results as JSON |
 
+- `--link-tools-from PATH` — symlink `tools/<profile>` from a master toolchain
+  directory (e.g. the rebrew repo's `tools/`).  Optional: compiler
+  command/includes/libs that are missing under the project's `tools/` resolve
+  against the rebrew install's own vendored `tools/` automatically, so a
+  fresh project compiles out of the box without the symlink.
 - `--install-completions` — write bash/zsh/fish completion scripts into `completions/`
 
 ### `rebrew asm`
