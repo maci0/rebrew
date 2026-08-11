@@ -771,6 +771,7 @@ def run_doctor(target: str | None = None) -> DoctorReport:
     report.checks.append(check_arch_format(cfg))
     report.checks.append(check_toolchain_alignment(cfg))
     report.checks.append(check_crt_linkage(cfg))
+    report.checks.append(check_opt_level(cfg))
     report.checks.append(check_delphi16_toolchain(cfg))
     report.checks.append(check_toolchain_backed(cfg))
     report.checks.append(check_compiler(cfg))
@@ -1121,4 +1122,69 @@ def check_crt_linkage(cfg: ProjectConfig) -> CheckResult:
         message=f"{info.crt} ({info.crt_linkage}) needs base_cflags {detected}, "
         f"project has '{base_cflags or '(unset)'}'",
         fix=f'Set base_cflags = "/nologo /c {detected}" in rebrew-project.toml',
+    )
+
+
+def check_opt_level(cfg: ProjectConfig) -> CheckResult:
+    """Check the project's optimization flag against the binary's detected one.
+
+    MSVC /O1 vs /O2 produce different argument-passing codegen for wrapper
+    functions (push-[mem] + pop ecx vs load-first + add esp), so compiling
+    with the wrong level silently breaks byte-matching at every wrapper call
+    site.  The detection fingerprint (see toolchain_detect) reports the
+    dominant level — or "mixed" when the binary was built with per-file /O
+    overrides, in which case a project-wide flag cannot be right and the
+    user should flag-sweep per function.
+    """
+    binary = getattr(cfg, "target_binary", None)
+    if binary is None or not Path(binary).exists():
+        return CheckResult(name="Optimization level", status=_SKIP, message="binary not available")
+    profile = getattr(cfg, "compiler_profile", "") or ""
+    if not profile.startswith("msvc"):
+        return CheckResult(name="Optimization level", status=_SKIP, message="non-msvc profile")
+
+    from rebrew.toolchain_detect import detect_toolchain
+
+    try:
+        info = detect_toolchain(binary)
+    except Exception:
+        return CheckResult(name="Optimization level", status=_SKIP, message="detection failed")
+    if not info.opt_level:
+        return CheckResult(
+            name="Optimization level",
+            status=_SKIP,
+            message="codegen fingerprint inconclusive (no wrapper-style evidence)",
+        )
+
+    cflags = getattr(cfg, "cflags", "") or ""
+    if info.opt_level.startswith("mixed"):
+        # Mixed build: no single project flag is right.  Only flag when the
+        # project pins one level (a hint, not an error — the user may be
+        # mid-sweep).
+        if "/O1" in cflags or "/O2" in cflags:
+            return CheckResult(
+                name="Optimization level",
+                status=_PASS,
+                message=f"binary shows {info.opt_level} wrapper styles — project cflags "
+                f"'{cflags}' can only match one half; use per-function flag sweeps",
+                fix="rebrew match <file> --flag-sweep-only",
+            )
+        return CheckResult(
+            name="Optimization level",
+            status=_PASS,
+            message=f"{info.opt_level} detected — project uses per-function flags",
+        )
+
+    detected = info.opt_level  # "/O1" or "/O2"
+    if detected in cflags:
+        return CheckResult(
+            name="Optimization level",
+            status=_PASS,
+            message=f"binary fingerprint shows {detected} — cflags matches",
+        )
+    return CheckResult(
+        name="Optimization level",
+        status=_WARN,
+        message=f"binary fingerprint shows {detected}, project cflags is '{cflags or '(unset)'}'",
+        fix=f'Set compiler cflags to "{detected}" in rebrew-project.toml (or per-function metadata)',
     )

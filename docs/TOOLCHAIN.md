@@ -182,6 +182,17 @@ best-first:
 3. **Structural heuristics** — `.buildid` section, GNU `0f 1f` nops vs
    MSVC alignment nops / int3 padding, imports, Delphi RTL strings, and
    GCC-arg-passing era (pre-8 push style vs modern accumulate style).
+4. **MSVC optimization fingerprint** — wrapper-call codegen in `.text`
+   identifies the optimization level the binary was built with: `/O2`
+   (load-first `mov eax,[esp+4]; push eax` + `add esp,N`) vs `/O1`
+   (push-[mem] `push dword [esp+4]` + `pop ecx`), or `mixed` when both
+   styles appear (per-file /O overrides — common in MS products, e.g.
+   Win2K's mspaint).  `/O1` vs `/O2` change wrapper codegen, so compiling
+   with the wrong level silently breaks byte-matching at every wrapper
+   call site.  The fingerprint feeds `rebrew analyze` (Optimization
+   line), `rebrew init` (seeds the compiler cflags), and a `rebrew
+   doctor` "Optimization level" check that warns on mismatch and points
+   mixed builds at per-function flag sweeps.
 
 The check fails when the detected family has no compatible profile
 (Delphi: document blockers) and passes with a warning for families that may

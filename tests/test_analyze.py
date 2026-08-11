@@ -81,6 +81,7 @@ class TestBuildDossier:
             "confidence",
             "detected_by",
             "flags",
+            "opt_level",
             "evidence",
         }
         # The fixture imports exactly one API.

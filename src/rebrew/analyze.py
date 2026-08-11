@@ -94,6 +94,7 @@ def _collect_toolchain(binary: Path) -> dict[str, Any] | None:
         "confidence": info.confidence,
         "detected_by": info.detected_by,
         "flags": info.flags,
+        "opt_level": info.opt_level,
         "evidence": info.evidence,
     }
 
@@ -480,6 +481,8 @@ def _render_markdown(dossier: dict[str, Any], fn: dict[str, Any] | None) -> str:
         )
         if tc["flags"]:
             out.append(f"- Flags: `{' '.join(tc['flags'])}`")
+        if tc.get("opt_level"):
+            out.append(f"- Optimization: `{tc['opt_level']}` (codegen fingerprint)")
         out.append(f"- Detected by: `{tc['detected_by'] or 'heuristics'}`")
         for e in tc["evidence"]:
             out.append(f"  - {e}")
@@ -696,6 +699,7 @@ def main(
             f"[bold]Toolchain:[/bold] {tc['family']} ({tc['version_hint'] or 'unknown version'}, "
             f"{tc['confidence']} confidence)"
             + (f", flags: {' '.join(tc['flags'])}" if tc["flags"] else "")
+            + (f", opt: {tc['opt_level']}" if tc.get("opt_level") else "")
         )
     else:
         console.print("[dim]Toolchain: not identified[/dim]")
