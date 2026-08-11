@@ -1,6 +1,13 @@
 ## [Unreleased]
 
 ### Added
+- **IAT-aware reloc masking**: `smart_reloc_compare` accepts an
+  `iat_region` (the PE import-address slots, via new `build_iat_region`)
+  and masks DIR32 relocs whose target value lands there even when the
+  catalog maps the symbol to a different VA — swapped ordinal import
+  names (e.g. WS2_32 WSAStartup/WSACleanup) no longer demote a RELOC
+  match into a byte mismatch.  Fixes the guild-rebrew CreateListenSocket
+  regression (NEAR_MATCHING → RELOC, 411/419 → 419/419).
 - **Toolchain standardization (docker-first)**: `rebrew.toolchain` — a
   uniform spec registry + runner modeled on Godbolt's Compiler Explorer
   (one image per toolchain-version, wrapper inside the image, uniform

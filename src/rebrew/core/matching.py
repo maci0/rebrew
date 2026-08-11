@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import struct
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
@@ -74,6 +75,41 @@ def build_symbol_resolver(
         return None
 
     return resolve
+
+
+def build_iat_region(cfg: ProjectConfig) -> set[int]:
+    """Return the set of import-address-slot VAs (the PE IAT).
+
+    Used by :func:`smart_reloc_compare` to mask DIR32 slots whose target
+    value lands inside the import table.  IAT entries are linker-filled
+    pointers — a catalog name↔VA mismatch there (e.g. swapped ordinal
+    import names, common for ws2_32) must not demote a RELOC match into a
+    byte mismatch.  Returns ``{}`` when the binary can't be loaded or has
+    no import table.
+    """
+    binary = getattr(cfg, "target_binary", None)
+    if not binary or not Path(binary).exists():
+        return set()
+    try:
+        import lief
+
+        if not lief.is_pe(str(binary)):
+            return set()
+        pe = lief.PE.parse(str(binary))
+        if pe is None:
+            return set()
+        image_base = int(getattr(pe, "imagebase", 0) or 0)
+        region: set[int] = set()
+        for entry in pe.imports:
+            for imp in entry.entries:
+                va = int(getattr(imp, "iat_address", 0) or 0)
+                if va:
+                    # LIEF reports the IAT slot as an RVA relative to the
+                    # image base; canonicalize to an absolute VA.
+                    region.add((va + image_base) & 0xFFFFFFFF)
+        return region
+    except Exception:
+        return set()
 
 
 def build_name_to_va(cfg: ProjectConfig) -> dict[str, int]:
@@ -201,16 +237,22 @@ def _validate_dir32(
     symbol: str,
     name_to_va: dict[str, int],
     catalog_vas: list[int],
+    iat_region: set[int] | None = None,
 ) -> bool:
     """Return True if the DIR32 slot is valid (or uncatalogued)."""
     target_va = _lookup_symbol_va(name_to_va, symbol)
-    if target_va is None:
-        return True  # uncatalogued — mask only
     try:
         addend = struct.unpack_from("<I", obj_bytes, offset)[0]
         actual = struct.unpack_from("<I", target_bytes, offset)[0]
     except struct.error:
         return False
+    # A value inside the import-address table is a linker-filled pointer,
+    # not a data address — catalog name↔VA mismatch there (e.g. swapped
+    # ordinal import names) must not demote a RELOC match.  Mask by position.
+    if iat_region and actual in iat_region:
+        return True
+    if target_va is None:
+        return True  # uncatalogued — mask only
     expected = (target_va + addend) & 0xFFFFFFFF
     if actual == expected:
         return True
@@ -249,6 +291,7 @@ def smart_reloc_compare(
     name_to_va: dict[str, int] | None = None,
     *,
     section_va: int | None = None,
+    iat_region: set[int] | None = None,
 ) -> tuple[bool, int, int, list[int], list[int]]:
     """Compare bytes with relocation masking and target validation.
 
@@ -266,6 +309,12 @@ def smart_reloc_compare(
     - **None**: Falls back to zero-span detection (scanning for ``00 00 00 00``
       runs in *obj_bytes* aligned with non-zero *target_bytes*).
 
+    *iat_region* is a set of VAs that are import-address-table slots (the
+    ``.idata`` section).  A DIR32 whose target value lands inside it is masked
+    without symbol-name validation: IAT slots are linker-filled pointers, so a
+    catalog name↔VA mismatch there (e.g. swapped ordinal import names) must not
+    convert a RELOC match into a byte mismatch.
+
     Args:
         obj_bytes: The compiled output bytes to verify.
         target_bytes: The original target bytes to compare against.
@@ -273,6 +322,7 @@ def smart_reloc_compare(
         name_to_va: Global VA lookup table from the active Data Catalog.
         section_va: Function start VA — enables precise REL32 checks for typed
             reloc records.  Optional.
+        iat_region: Set of import-address-slot VAs (``.idata``) — optional.
 
     Returns:
         (matched, match_count, total_bytes, valid_relocs, invalid_relocs)
@@ -305,7 +355,13 @@ def smart_reloc_compare(
                 if name_to_va:
                     if rec.type == _REL_DIR32:
                         valid = _validate_dir32(
-                            obj_bytes, target_bytes, r, rec.symbol, name_to_va, catalog_vas
+                            obj_bytes,
+                            target_bytes,
+                            r,
+                            rec.symbol,
+                            name_to_va,
+                            catalog_vas,
+                            iat_region,
                         )
                     elif rec.type == _REL_REL32 and section_va is not None:
                         valid = _validate_rel32(
@@ -325,7 +381,13 @@ def smart_reloc_compare(
                 valid = True
                 if name_to_va:
                     valid = _validate_dir32(
-                        obj_bytes, target_bytes, r, str(raw_sym), name_to_va, catalog_vas
+                        obj_bytes,
+                        target_bytes,
+                        r,
+                        str(raw_sym),
+                        name_to_va,
+                        catalog_vas,
+                        iat_region,
                     )
                 if valid:
                     valid_relocs.append(r)

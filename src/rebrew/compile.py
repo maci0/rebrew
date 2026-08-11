@@ -53,7 +53,7 @@ import numpy as np
 from rebrew.cli import NEAR_MATCH_THRESHOLD
 from rebrew.compile_cache import CompileCache, compile_cache_key, get_compile_cache
 from rebrew.config import ProjectConfig
-from rebrew.core import msvc_env_from_config, smart_reloc_compare
+from rebrew.core import build_iat_region, msvc_env_from_config, smart_reloc_compare
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 from rebrew.toolchain import TOOLCHAINS, ToolchainError, run_toolchain
 from rebrew.utils import safe_shlex_split
@@ -646,6 +646,7 @@ def _extract_and_compare(
     *,
     name_to_va: dict[str, int] | None = None,
     section_va: int | None = None,
+    iat_region: set[int] | None = None,
 ) -> CompareResult:
     """Extract *symbol* from a compiled .obj and compare against *target_bytes*.
 
@@ -683,6 +684,7 @@ def _extract_and_compare(
         coff_relocs,
         name_to_va=name_to_va,
         section_va=section_va,
+        iat_region=iat_region,
     )
     if size_mismatch:
         # Length differs even if the common prefix matches — never EXACT/RELOC.
@@ -773,6 +775,7 @@ def compile_and_compare(
                     target_bytes,
                     name_to_va=name_to_va,
                     section_va=section_va,
+                    iat_region=build_iat_region(cfg),
                 )
             except (ValueError, OSError) as exc:
                 # Post-compile object extraction/compare failure — the source
