@@ -43,6 +43,7 @@ def _cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
         "base_cflags": "/O2",
         "compiler_includes": [],
         "compiler_libs": [],
+        "function_list": src / "functions.txt",
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -231,9 +232,9 @@ class TestVerifyCli:
         assert data["summary"]["exact"] == 1
 
     def test_ne_target_skips_compile_loop(self, tmp_path: Path, monkeypatch) -> None:
-        """16-bit NE targets (no compile profile yet — ADR-001) short-circuit
-        with a clear notice instead of compiling every stub into
-        COMPILE_ERROR rows."""
+        """A 16-bit NE target with no 16-bit compiler profile (default
+        msvc6) short-circuits with a clear notice instead of compiling every
+        stub into COMPILE_ERROR rows."""
         from rebrew.verify import app
 
         ne = tmp_path / "game.ne"
@@ -249,6 +250,28 @@ class TestVerifyCli:
         data = json.loads(result.output)
         assert data.get("skipped") is True
         assert "NE" in data["reason"]
+
+    def test_ne_target_with_msvc152_profile_runs(self, tmp_path: Path, monkeypatch) -> None:
+        """With the msvc1.52 profile configured, verify must NOT short-circuit
+        a 16-bit NE target — the DOSBox compile pipeline (omf16 objects) is
+        live.  The fake cfg lacks the fields the deeper pipeline needs, so the
+        run fails for an unrelated reason — the point is the NE gate no longer
+        fires (no 'skipped' JSON with the stale "future work" reason)."""
+        from rebrew.verify import app
+
+        ne = tmp_path / "game.ne"
+        data = bytearray(0x140)
+        data[0:2] = b"MZ"
+        data[0x3C:0x40] = (0x100).to_bytes(4, "little")
+        data[0x100:0x102] = b"NE"
+        ne.write_bytes(bytes(data))
+        cfg = _cfg(tmp_path, target_binary=ne, compiler_profile="msvc1.52")
+        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        result = CliRunner().invoke(app, ["--json"])
+        # exit code is not 0 (deeper pipeline needs a fuller cfg), but the
+        # 16-bit gate must not have produced its skip JSON.
+        assert "skipped" not in result.output
+        assert "future work" not in result.output
 
     def test_failed_exits_mismatch(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.verify import app

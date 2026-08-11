@@ -1,6 +1,13 @@
 ## [Unreleased]
 
 ### Added
+- **verify: 16-bit NE targets with the msvc1.52 profile now run the full
+  pipeline** — the old gate short-circuited every NE target with a stale
+  "16-bit matching is future work (ADR-001)" notice, silently hiding the
+  DOSBox compile + omf16 object pipeline.  The skip now fires only when
+  no 16-bit profile (`msvc1.52`) is configured, with a message naming the
+  required profile.  Verified on the skifree16 NE project: 137 functions
+  compile through DOSBox with 0 COMPILE_ERROR (was: skipped entirely).
 - **IAT/jmp-stub reloc masking**: `build_iat_region` now also includes
   the configured `iat_thunks` (jmp-stub trampolines, `ff 25 <addr>` in
   `.text`) — functions calling *through* a stub dereference the stub
