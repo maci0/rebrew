@@ -227,6 +227,22 @@ def _run_hex_mode(
     if annotate and not json_output:
         func_lookup = build_function_lookup(cfg)
 
+    # NE context: the segment containing the requested VA (for the header).
+    ne_seg: int | None = None
+    ne_seg_name = ""
+    try:
+        from rebrew.binary_loader import load_binary
+
+        info = load_binary(bin_path)
+        if info.format == "ne":
+            for s in info.ne_segments:  # type: ignore[attr-defined]
+                if s.base_va <= va_int < s.base_va + s.length:
+                    ne_seg = s.index
+                    ne_seg_name = "code" if s.is_code else "data"
+                    break
+    except Exception:  # noqa: BLE001 — segment context is cosmetic
+        pass
+
     import_map: dict[int, str] = {}
     string_map: dict[int, str] = {}
     if resolve_imports:
@@ -307,6 +323,8 @@ def _run_hex_mode(
             console.print(
                 f"Dumping [cyan]0x{va_int:08x}[/] ({len(data)} bytes) from {bin_path.name}:"
             )
+            if ne_seg is not None:
+                console.print(f"  [dim]SEG{ne_seg}:0x{va_int & 0xFFFF:04x} ({ne_seg_name})[/dim]")
             console.print()
             for idx, insn in enumerate(shown_list):
                 hex_bytes = insn.bytes.hex()
@@ -320,6 +338,22 @@ def _run_hex_mode(
                             name, status = func_lookup[target_va]
                             tag = f" ({status})" if status else ""
                             line += f"  ; {name}{tag}"
+                    except ValueError:
+                        pass
+                if annotate and insn.mnemonic == "lcall":
+                    # 16-bit far call: annotate the target segment.  Borland
+                    # index convention: selectors at or below the segment
+                    # count equal the segment index (the \\xNN\\x00 marker);
+                    # 0x0:0xffff is the loader-patched system-call pattern.
+                    try:
+                        parts = [p.strip() for p in insn.op_str.split(",")]
+                        if len(parts) == 2:
+                            seg = int(parts[0], 16)
+                            off = int(parts[1], 16)
+                            if seg == 0:
+                                line += "  ; system far call"
+                            elif ne_seg is not None and 1 <= seg <= info.ne_header.segment_count:  # type: ignore[attr-defined]
+                                line += f"  ; SEG{seg}:0x{off:04x} (far)"
                     except ValueError:
                         pass
                 if resolve_imports and insn.mnemonic in ("call", "jmp"):
