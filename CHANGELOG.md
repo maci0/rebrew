@@ -27,6 +27,9 @@
   the watcom/msvc1.52 toolchains resolve (vendored binary / pulled image)
   with a `rebrew toolchain pull` fix — no more misleading "not in PATH"
   for vendored compilers.
+- **msvc1.52 compile-loop prefers the docker image** (cl16 wrapper) when
+  pulled, falling back to the host DOSBox sandbox; FAT-uppercased .OBJ
+  handled in compile_to_obj.
 - **Watcom usable in the compile loop**: `rebrew compile` routes the
   `watcom` profile through the toolchain runner (wcc386 `-fo=`/`-I` shape,
   docker image or vendored binary) and `msvc1.52` through

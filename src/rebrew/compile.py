@@ -531,22 +531,30 @@ def compile_to_obj(
                 all_flags + inc_flags + [f"-I{str(src_parent)}", f"-fo={obj_name}", "-zq", src_name]
             )
         elif profile == "msvc1.52":
-            from rebrew.msvc16 import Msvc16Error, compile_c
+            # Prefer the docker image (cl16 wrapper: source arg only, adds
+            # /nologo /c itself) when pulled; fall back to the host DOSBox
+            # sandbox via rebrew.msvc16.
+            from rebrew.toolchain import _image_present
 
-            try:
-                res = compile_c(
-                    local_src,
-                    workdir,
-                    cflags=[*all_flags, f"/I{inc_path}"],
-                    timeout=use_timeout,
-                )
-            except Msvc16Error as exc:
-                return None, str(exc)
-            obj_file = res.obj_path
-            if cc is not None and cache_key is not None:
-                with contextlib.suppress(OSError):
-                    cc.put(cache_key, obj_file.read_bytes())
-            return str(obj_file), ""
+            if spec.image is not None and _image_present(spec.image):
+                args = [src_name]
+            else:
+                from rebrew.msvc16 import Msvc16Error, compile_c
+
+                try:
+                    res = compile_c(
+                        local_src,
+                        workdir,
+                        cflags=[*all_flags, f"/I{inc_path}"],
+                        timeout=use_timeout,
+                    )
+                except Msvc16Error as exc:
+                    return None, str(exc)
+                obj_file = res.obj_path
+                if cc is not None and cache_key is not None:
+                    with contextlib.suppress(OSError):
+                        cc.put(cache_key, obj_file.read_bytes())
+                return str(obj_file), ""
         else:
             # msvc6/delphi16/etc. — msvc-shaped args for the image wrapper.
             args = all_flags + [f"/I{inc_path}", f"/I{str(src_parent)}", f"/Fo{obj_name}", src_name]
@@ -555,6 +563,17 @@ def compile_to_obj(
         except ToolchainError as exc:
             return None, str(exc)
         obj_file = workdir / obj_name
+        if profile == "msvc1.52" and not obj_file.exists():
+            # The cl16 wrapper's DOSBox FAT-uppercases the object (T.OBJ).
+            stem = Path(obj_name).stem
+            obj_file = next(
+                (
+                    p
+                    for p in workdir.iterdir()
+                    if p.suffix.upper() == ".OBJ" and p.stem.upper() == stem.upper()
+                ),
+                obj_file,
+            )
         if tr.returncode != 0 or not obj_file.exists():
             err = (tr.stdout + "\n" + tr.stderr).strip()
             return None, err
