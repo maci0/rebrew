@@ -5,7 +5,7 @@
 # Last-CI-build release is a plain archive that extracts cleanly.
 #
 # Build:  docker build -t rebrew/watcom:2.0-linux-x64 toolchain-images/watcom/2.0-linux-x64
-# Invoke: docker run --rm -v "$PWD":/work -w /work rebrew/watcom:2.0-linux-x64 wcc386 ...
+# Invoke: docker run --rm -v "$PWD":/work -w /work rebrew/watcom:2.0-linux-x64 ...  (ENTRYPOINT is wcc386)
 
 FROM debian:bookworm-slim
 

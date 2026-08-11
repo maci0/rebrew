@@ -7,7 +7,7 @@
 # the .EXE back to the mounted /work.
 #
 # Build:  docker build -t rebrew/delphi:1.0-linux-x64 toolchain-images/delphi/1.0-linux-x64
-# Invoke: docker run --rm -v "$PWD":/work -w /work rebrew/delphi:1.0-linux-x64 dcc hello.dpr
+# Invoke: docker run --rm -v "$PWD":/work -w /work rebrew/delphi:1.0-linux-x64 hello.dpr  (ENTRYPOINT is the dcc wrapper)
 
 FROM debian:bookworm-slim
 

@@ -5,7 +5,7 @@
 # `cl` wrapper that translates POSIX-ish argv into wine + MSVC calls.
 #
 # Build:  docker build -t rebrew/msvc:6.0-linux-x64 toolchain-images/msvc/6.0-linux-x64
-# Invoke: docker run --rm -v "$PWD":/work -w /work rebrew/msvc:6.0-linux-x64 cl /c f.c
+# Invoke: docker run --rm -v "$PWD":/work -w /work rebrew/msvc:6.0-linux-x64 /c f.c  (ENTRYPOINT is the cl wrapper)
 
 FROM debian:bookworm-slim
 
