@@ -263,3 +263,49 @@ class TestCflagsPersistence:
         self._run(tmp_path, monkeypatch)
         meta = (tmp_path / "src" / "rebrew-function.toml").read_text()
         assert "cflags" not in meta
+
+
+class TestCliSizeLintSuppression:
+    """`rebrew test --va --size` must not report "Invalid SIZE: 0" for a
+    fresh function whose annotation lacks a Size: line (CLI size is
+    authoritative for the lint pass)."""
+
+    def test_cli_size_suppresses_lint_error(self, tmp_path: Path, monkeypatch: Any) -> None:
+        import shutil
+
+        from typer.testing import CliRunner
+
+        from rebrew.compile import CompareResult
+        from rebrew.main import app as umbrella
+
+        fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
+        (tmp_path / "original").mkdir()
+        shutil.copy(fixture, tmp_path / "original" / "x.exe")
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "x"\n'
+            '[targets.x]\nbinary = "original/x.exe"\n'
+            '[compiler]\nprofile = "msvc6"\n'
+        )
+        src_dir = tmp_path / "src" / "x"
+        src_dir.mkdir(parents=True)
+        (src_dir / "f.c").write_text(
+            "// FUNCTION: TEST 0x1000\nint f(void) { return 1; }\n"  # no Size: line
+        )
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(
+            "rebrew.test.compile_and_compare",
+            lambda *a, **k: CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"\xc3",
+                reloc_offsets=[],
+            ),
+        )
+        result = CliRunner().invoke(
+            umbrella,
+            ["test", "src/x/f.c", "--va", "0x1000", "--size", "4", "--symbol", "_f"],
+        )
+        assert result.exit_code == 0, result.output
+        assert "Invalid SIZE" not in result.output
