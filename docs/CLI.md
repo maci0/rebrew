@@ -68,8 +68,9 @@ for `--compare` (not “better than EXACT”).
 | `rebrew data` | `data.py` | Global data scanner for .data/.rdata/.bss; `--bss` layout verification; `--dispatch` vtable detection |
 | `rebrew graph` | `depgraph.py` | Function dependency graph (mermaid, DOT, summary); `--cu-map` infers compilation unit boundaries |
 | `rebrew doctor` | `doctor.py` | Diagnostic checks for project health (config, compiler, binary, paths); Delphi 1.0 toolchain readiness for 16-bit targets; `--install-wibo`; `--json` |
-| `rebrew toolchain` | `toolchain_cli.py` | Standardized toolchain management (`list`, `status`, `pull`) — docker-first invocation with host fallback |
-| `rebrew binsync-export` | `binsync_export.py` | Export source markers and metadata to BinSync state directory (prototype, STATUS/CFLAGS, globals, structs) |
+| `rebrew toolchain` | `toolchain_cli.py` | Standardized toolchain management (`list`, `status`, `detect`, `pull`, `build`) — docker-first invocation with host fallback |
+| `rebrew binsync-export` | `binsync_export.py` | Export source markers and metadata to BinSync state directory (prototype, STATUS/CFLAGS, globals with real types, structs with fields; `--module`, `--git`) |
+| `rebrew binsync-import` | `binsync_import.py` | Import a BinSync state directory into rebrew metadata (names, prototypes, globals; `--accept-binsync`/`--accept-local`, `--module`) |
 | `rebrew build-db` | `build_db.py` | Build SQLite `db/coverage.db` from `data_*.json` ([schema docs](DB_FORMAT.md)) |
 | `rebrew status` | `status.py` | At-a-glance reversing progress overview (per-module coverage, status ladder counts) |
 | `rebrew similar` | `similar.py` | Find structurally similar functions in the target binary (clone detection) |
@@ -584,18 +585,42 @@ Standardized toolchain management — the docker-first abstraction
 |------------|-------------|
 | `list` | List known toolchains + how each is invoked (`--json`) |
 | `status NAME` | How one toolchain resolves (image pulled? host binary present?) |
+| `detect BINARY` | Detect which compiler/toolchain built a binary (diec → PDB → heuristics); with a project present, also reports whether the configured profile can byte-match it (`--json`) |
 | `pull NAME` | Pull a toolchain's docker image (locally-built images are reported as already present, not re-pulled) |
-| `build NAME` | Build a toolchain's docker image from its `toolchain-images/<family>/<ver>-<arch>/Dockerfile` |
 | `build NAME` | Build a toolchain's docker image from its `toolchain-images/<family>/<ver>-<arch>/Dockerfile` |
 
 ### `rebrew binsync-export`
 
-Export annotations to an experimental BinSync state directory (one-way; no import yet).
+Export annotations to a BinSync state directory.  Merges reversed annotations
+(`scan_reversed_dir`) with the **project file / catalog** (`functions.txt` +
+`function_structure.json` → `build_function_registry`, canonical sizes) so that
+catalog-only functions appear in BinSync with correct offsets/sizes even before
+they have a `.c` file.  Collaborators in IDA/BinSync see the same function list
+and offsets as your project file.
 
 | Flag | Description |
 |------|-------------|
 | `--dry-run` | Preview changes without writing |
 | `--json` | JSON structured output |
+| `--module NAME` | Only this module (e.g. SERVER) |
+| `--git` | Stage + `git commit` the state directory after writing |
+| `--target NAME` | Select a target from `rebrew-project.toml` |
+
+### `rebrew binsync-import`
+
+Import a BinSync state directory into rebrew metadata.  Also reads the project
+file / catalog so that BinSync names for **catalog-known but not yet reversed**
+functions surface as `proposed_missing`; pass `--create-missing` to materialize
+them as STUB files.
+
+| Flag | Description |
+|------|-------------|
+| `--dry-run` | Preview changes without writing |
+| `--json` | JSON structured output |
+| `--module NAME` | Only this module (e.g. SERVER) |
+| `--accept-binsync` | Accept BinSync names for all conflicts |
+| `--accept-local` | Keep local, record BinSync name as GHIDRA provenance |
+| `--create-missing` | Create STUB files for BinSync functions present in the catalog but not yet in `src/` |
 | `--target NAME` | Select a target from `rebrew-project.toml` |
 
 ### `rebrew near-diag`

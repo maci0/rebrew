@@ -93,6 +93,26 @@ def _vendored(sub: str) -> Path:
 
 
 TOOLCHAINS: dict[str, ToolchainSpec] = {
+    "msvc420": ToolchainSpec(
+        name="msvc420",
+        image=None,  # OmniBlade mirror has no 4.2 tarball — host-only via tools/MSVC420
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("MSVC420") if _vendored("MSVC420").exists() else None,
+        description="MSVC 4.2 (32-bit PE, C89) — wine or wibo (host-only, tools/MSVC420)",
+    ),
+    "msvc5": ToolchainSpec(
+        name="msvc5",
+        image=None,  # OmniBlade mirror has no 5.0 tarball — host-only via tools/MSVC500
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("MSVC500") if _vendored("MSVC500").exists() else None,
+        description="MSVC 5.0 (32-bit PE, C89) — wine or wibo (host-only, tools/MSVC500)",
+    ),
     "msvc6": ToolchainSpec(
         name="msvc6",
         image="rebrew/msvc:6.0-linux-x64",
@@ -193,25 +213,40 @@ def _image_present(tag: str) -> bool:
     return _image_presence[tag]
 
 
+def _match_binary(dir: Path, binary: str) -> Path | None:
+    """Case-insensitive match of *binary* in *dir*, tolerating a ``.exe``
+    suffix (vendored Windows trees store ``CL.EXE`` / ``cl.exe`` while specs
+    name the binary ``cl``)."""
+    want = {binary.lower(), (binary + ".exe").lower()}
+    try:
+        for entry in dir.iterdir():
+            if entry.is_file() and entry.name.lower() in want:
+                return entry
+    except OSError:
+        pass
+    return None
+
+
 def _resolve_binary(spec: ToolchainSpec) -> str:
     """The host-side compiler path for a spec (host fallback): vendored dir /
     PATH binary.  Raises ToolchainError when nothing resolvable exists."""
     if spec.host_path is not None:
         host = Path(spec.host_path)
-        candidates = [host / spec.binary, host / spec.host_bin / spec.binary]
-        for c in candidates:
-            if c.exists():
-                return str(c)
-        # DOS-era vendored trees are uppercase (BIN, not Bin) — match the
-        # host_bin subdir case-insensitively before giving up (MSVC 1.52's
-        # tools/MSVC152/BIN/CL.EXE would otherwise never resolve).
+        hit = _match_binary(host, spec.binary)
+        if hit is not None:
+            return str(hit)
+        # The compiler usually lives in a subdir (Bin for MSVC, binl for
+        # Watcom); DOS-era vendored trees are uppercase (BIN, not Bin) —
+        # match the host_bin subdir case-insensitively before giving up
+        # (MSVC 1.52's tools/MSVC152/BIN/CL.EXE would otherwise never
+        # resolve).
         if spec.host_bin:
             try:
                 for entry in host.iterdir():
                     if entry.is_dir() and entry.name.lower() == spec.host_bin.lower():
-                        c = entry / spec.binary
-                        if c.exists():
-                            return str(c)
+                        hit = _match_binary(entry, spec.binary)
+                        if hit is not None:
+                            return str(hit)
             except OSError:
                 pass
     found = shutil.which(spec.binary)

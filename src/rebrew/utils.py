@@ -15,6 +15,26 @@ from tomlkit import TOMLDocument
 
 logger = logging.getLogger(__name__)
 
+# The rebrew package's own vendored toolchains (tools/MSVC500, tools/WATCOM,
+# ...).  Projects resolve compiler paths project-relative first, then fall
+# back here so a freshly-inited project works without a local tools/ symlink.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_INSTALL_TOOLS = _REPO_ROOT / "tools"
+
+
+def find_install_tool(rel: str | Path) -> Path | None:
+    """Resolve *rel* (a project-relative ``tools/...`` path) against the
+    rebrew install's own vendored tree, or None when absent.
+
+    Used by the config/compile layers so vendored toolchains (MSVC, Watcom,
+    Delphi, diec) resolve out of the box; a project-local ``tools/`` symlink
+    (via ``rebrew init --link-tools-from``) still takes precedence because
+    callers check the project path first.
+    """
+    p = _REPO_ROOT / rel
+    return p if p.exists() else None
+
+
 # Candidate encodings for C sources, most strict first.  MSVC6-era sources
 # are often CP1252 (Western) or Shift-JIS (Japanese games) — the exact
 # audience this tool targets.  UTF-8 first keeps the common case

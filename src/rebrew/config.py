@@ -494,6 +494,17 @@ def _required_path(root: Path, value: Any, default: str, field_name: str) -> Pat
     return resolved
 
 
+def _install_tool_alt(path: Path, root: Path) -> Path | None:
+    """The rebrew-install copy of a missing project-relative tools/ path."""
+    try:
+        rel = path.relative_to(root)
+    except ValueError:
+        return None
+    from rebrew.utils import find_install_tool
+
+    return find_install_tool(rel)
+
+
 def _split_compiler_runner(compiler: dict[str, Any]) -> tuple[str, str]:
     command_raw = _as_str(compiler.get("command"), "wine CL.EXE", "compiler.command")
     if not command_raw.strip():
@@ -889,12 +900,24 @@ def load_config(
             "tools/MSVC600/VC98/Include",
             "compiler.includes",
         )
+        # Project-local tools/ absent (no --link-tools-from)?  Fall back to
+        # the rebrew install's own vendored tree so fresh projects compile
+        # out of the box.  Only for project-relative defaults — an explicit
+        # absolute path is the user's own.
+        if not compiler_includes.exists():
+            alt = _install_tool_alt(compiler_includes, root)
+            if alt is not None:
+                compiler_includes = alt
     if _explicit_empty("libs"):
         compiler_libs = Path("")
     else:
         compiler_libs = _required_path(
             root, compiler.get("libs"), "tools/MSVC600/VC98/Lib", "compiler.libs"
         )
+        if not compiler_libs.exists():
+            alt = _install_tool_alt(compiler_libs, root)
+            if alt is not None:
+                compiler_libs = alt
 
     source_ext = _parse_source_ext(tgt.get("source_ext", ".c"))
 

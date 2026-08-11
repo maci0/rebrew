@@ -25,6 +25,24 @@ class TestResolveClCommand:
         assert result[0] == "wine"
         assert result[1] == str(tmp_path / "tools/MSVC600/VC98/Bin/CL.EXE")
 
+    def test_missing_relative_path_falls_back_to_install(self, tmp_path: Path, monkeypatch) -> None:
+        """A project-relative CL path absent under the project root resolves
+        against the rebrew install's vendored tools/ (fresh projects without
+        a tools/ symlink still compile)."""
+        from rebrew import utils as rebrew_utils
+
+        fake = tmp_path / "tools" / "MSVC600" / "VC98" / "Bin" / "CL.EXE"
+        fake.parent.mkdir(parents=True)
+        fake.write_bytes(b"MZ")
+        monkeypatch.setattr(rebrew_utils, "_REPO_ROOT", tmp_path)
+        cfg = ProjectConfig(
+            root=tmp_path / "project",
+            compiler_command="wine tools/MSVC600/VC98/Bin/CL.EXE",
+        )
+        result = resolve_cl_command(cfg)
+        assert result[0] == "wine"
+        assert result[1] == str(fake)
+
     def test_wine_absolute_path(self, tmp_path: Path) -> None:
         """wine + absolute CL.EXE path is preserved as-is."""
         cfg = ProjectConfig(

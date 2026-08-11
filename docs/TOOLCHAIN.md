@@ -88,11 +88,17 @@ the docker-first compile produces the same object + relocs as the host
 path), `msvc1.52` (16-bit, DOSBox via `rebrew.msvc16`; image
 `rebrew/msvc:1.52-linux-x64` built+verified — containerized CL.EXE
 produces a genuine 16-bit OMF object; the `cl16` wrapper takes the source
-as its single argument and adds `/nologo /c` itself).
+as its single argument and adds `/nologo /c` itself), plus two
+**host-only** archived toolchains that share the wine-based MSVC paths:
+`msvc420` (`tools/MSVC420`, no mirror tarball) and `msvc5`
+(`tools/MSVC500`, no mirror tarball — Win2K-era binaries were built with
+MSVC 5.0, so this is the profile for byte-matching them).
 
-**Every registry toolchain now has a verified containerized path** (the
-four images above + gcc-pe native) — the docker-first standardization is
-complete for the whole matrix.
+**Every registry toolchain with a mirror tarball has a verified
+containerized path** (the four images above + gcc-pe native) — the
+docker-first standardization is complete for the whole matrix; the two
+host-only entries resolve via their vendored `tools/` trees under wine
+instead.
 
 **Image layout convention** (Godbolt-style): Dockerfiles live at
 `toolchain-images/<family>/<version>-<arch>/Dockerfile` and produce
@@ -143,7 +149,12 @@ Notes:
 
 `rebrew doctor` runs a "Toolchain alignment" check that guesses what
 actually built the target and warns when the configured `[compiler] profile`
-cannot byte-match it.  Detection is layered, best-first:
+cannot byte-match it.  The detector is also exposed directly:
+`rebrew toolchain detect <binary>` (works standalone, outside any project —
+handy for "what built this exe?" before onboarding a new binary).  With a
+project present it additionally reports whether the configured profile can
+byte-match the detection (`--json` machine-readable).  Detection is layered,
+best-first:
 
 1. **Detect It Easy** (`diec -j --heuristicscan`) — the strongest signatures
    for MSVC (per-version, e.g. `12.00.9782` = MSVC 6.0), Borland/Delphi,

@@ -16,7 +16,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from rebrew.cli import json_print
+from rebrew.cli import TargetOption, json_print
 from rebrew.toolchain import (
     ToolchainError,
     docker_available,
@@ -108,6 +108,92 @@ def status_cmd(
     console.print(
         f"  host:   {spec.host_path or spec.binary}  {'✅ present' if host_ok else '⬜ absent'}"
     )
+
+
+@app.command("detect")
+def detect_cmd(
+    binary: str = typer.Argument(..., help="Path to the target binary (PE/NE/ELF/Mach-O)"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Detect which compiler/toolchain built a binary; check profile alignment."""
+    from rebrew.cli import error_exit
+    from rebrew.toolchain_detect import (
+        _PROFILE_COMPAT,
+        detect_toolchain,
+        profile_matches_detection,
+    )
+
+    binary_path = Path(binary)
+    if not binary_path.is_file():
+        error_exit(f"Binary not found: {binary}", json_mode=json_output, code=2)
+    try:
+        info = detect_toolchain(binary_path)
+    except Exception as exc:  # noqa: BLE001 — detection is best-effort
+        error_exit(f"Detection failed: {exc}", json_mode=json_output, code=2)
+
+    compat: set[str] | None = _PROFILE_COMPAT.get(info.family)
+    data: dict[str, Any] = {
+        "binary": str(binary_path),
+        "family": info.family,
+        "version_hint": info.version_hint,
+        "confidence": info.confidence,
+        "detected_by": info.detected_by,
+        "arch": info.arch,
+        "flags": info.flags,
+        "evidence": info.evidence,
+        "compatible_profiles": sorted(compat) if compat else None,
+    }
+
+    # Alignment against a configured project profile (optional — detect works
+    # standalone; the check is what init/intake/doctor surface per-project).
+    cfg = None
+    try:
+        from rebrew.config import load_config
+
+        cfg = load_config(target=target)
+    except FileNotFoundError:
+        pass  # no project — report detection only
+    except (KeyError, ValueError) as exc:
+        if not json_output:
+            console.print(
+                f"[yellow]warning:[/yellow] config error ({exc}); alignment check disabled"
+            )
+    if cfg is not None:
+        profile = getattr(cfg, "compiler_profile", "") or "msvc6"
+        aligned, explanation = profile_matches_detection(profile, info)
+        data["profile"] = profile
+        data["aligned"] = aligned
+        data["explanation"] = explanation
+
+    if json_output:
+        json_print(data)
+        return
+
+    console.print(
+        f"[bold]{info.family}[/bold]"
+        f"{(' — ' + info.version_hint) if info.version_hint else ''}"
+        f"  [dim](confidence: {info.confidence}"
+        f"{', via ' + info.detected_by if info.detected_by else ''})[/dim]"
+    )
+    if info.arch:
+        console.print(f"  arch:      {info.arch}")
+    if info.flags:
+        console.print(f"  flags:     {' '.join(info.flags)}")
+    for e in info.evidence:
+        console.print(f"  [dim]•[/dim] {e}")
+    compat = data["compatible_profiles"]
+    if compat:
+        console.print(f"  compatible profiles: {', '.join(compat)}")
+    elif info.family != "unknown":
+        console.print("[yellow]  no rebrew compiler profile can byte-match this family[/yellow]")
+    if "aligned" in data:
+        if data["aligned"]:
+            console.print(f"[green]  profile {data['profile']} aligns with detection[/green]")
+        else:
+            console.print(
+                f"[red]  profile {data['profile']} does NOT align:[/red] {data['explanation']}"
+            )
 
 
 @app.command("pull")
