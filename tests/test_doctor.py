@@ -534,3 +534,64 @@ class TestCheckArchFormat16Bit:
         cfg = _make_cfg(tmp_path, binary_format="pe", arch="x86_16")
         result = check_arch_format(cfg)
         assert result.status == _PASS
+
+
+class TestCrtLinkage:
+    def _cfg(self, tmp_path: Path, **overrides: object) -> SimpleNamespace:
+        from rebrew.doctor import check_crt_linkage
+
+        self.check = check_crt_linkage
+        exe = tmp_path / "test.exe"
+        exe.write_bytes(b"MZ")
+        return SimpleNamespace(
+            root=tmp_path,
+            target_binary=exe,
+            compiler_profile=overrides.pop("compiler_profile", "msvc6"),
+            base_cflags=overrides.pop("base_cflags", "/nologo /c /MT"),
+        )
+
+    def test_matching_md(self, tmp_path: Path, monkeypatch) -> None:
+        import rebrew.toolchain_detect as td
+
+        monkeypatch.setattr(
+            td,
+            "detect_toolchain",
+            lambda *a, **k: SimpleNamespace(
+                crt="msvcrt.dll", crt_linkage="dynamic", base_cflags="/MD"
+            ),
+        )
+        cfg = self._cfg(tmp_path, base_cflags="/nologo /c /MD")
+        res = self.check(cfg)
+        assert res.status == _PASS
+
+    def test_mismatch_md_vs_mt(self, tmp_path: Path, monkeypatch) -> None:
+        import rebrew.toolchain_detect as td
+
+        monkeypatch.setattr(
+            td,
+            "detect_toolchain",
+            lambda *a, **k: SimpleNamespace(
+                crt="msvcrt.dll", crt_linkage="dynamic", base_cflags="/MD"
+            ),
+        )
+        cfg = self._cfg(tmp_path, base_cflags="/nologo /c /MT")
+        res = self.check(cfg)
+        assert res.status == _WARN
+        assert "/MD" in res.fix
+
+    def test_non_msvc_skips(self, tmp_path: Path) -> None:
+        cfg = self._cfg(tmp_path, compiler_profile="gcc-pe")
+        res = self.check(cfg)
+        assert res.status == "skip"
+
+    def test_unknown_crt_skips(self, tmp_path: Path, monkeypatch) -> None:
+        import rebrew.toolchain_detect as td
+
+        monkeypatch.setattr(
+            td,
+            "detect_toolchain",
+            lambda *a, **k: SimpleNamespace(crt="", crt_linkage="", base_cflags=""),
+        )
+        cfg = self._cfg(tmp_path)
+        res = self.check(cfg)
+        assert res.status == "skip"
