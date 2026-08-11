@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -89,3 +90,121 @@ class TestListSizeFor:
 
         cfg = SimpleNamespace(function_list=str(tmp_path / "nope.txt"))
         assert _list_size_for(cfg, 0x1000) is None
+
+
+class TestCallingConvention:
+    """rebrew asm infers the per-function calling convention from the
+    epilogue + this-pointer usage — the answer every manual decompilation
+    pass re-derives from the disassembly."""
+
+    @staticmethod
+    def _i(mnemonic: str, op: str = "") -> Any:
+        from types import SimpleNamespace as NS
+
+        return NS(mnemonic=mnemonic, op_str=op)
+
+    def test_plain_ret_is_cdecl(self) -> None:
+        from rebrew.asm import _calling_convention
+
+        insns = [self._i("mov", "eax, [esp+4]"), self._i("ret")]
+        assert _calling_convention(insns) == "cdecl"
+
+    def test_ret_n_without_ecx_is_stdcall(self) -> None:
+        from rebrew.asm import _calling_convention
+
+        insns = [
+            self._i("mov", "eax, [esp+4]"),
+            self._i("mov", "ecx, [esp+8]"),
+            self._i("ret", "8"),
+        ]
+        assert _calling_convention(insns) == "stdcall"
+
+    def test_ecx_pointer_deref_is_thiscall(self) -> None:
+        from rebrew.asm import _calling_convention
+
+        insns = [
+            self._i("mov", "esi, ecx"),
+            self._i("mov", "eax, [ecx+0xd4]"),
+            self._i("test", "eax, eax"),
+            self._i("ret", "4"),
+        ]
+        assert _calling_convention(insns) == "thiscall"
+
+    def test_ecx_save_is_thiscall_no_stack_args(self) -> None:
+        from rebrew.asm import _calling_convention
+
+        insns = [
+            self._i("push", "esi"),
+            self._i("mov", "esi, ecx"),
+            self._i("mov", "eax, [esi+0x6c]"),
+            self._i("ret"),
+        ]
+        assert _calling_convention(insns) == "thiscall (no stack args)"
+
+    def test_mov_ecx_from_mem_first_is_not_thiscall(self) -> None:
+        """mov ecx,[esp+4] passes an ARGUMENT in ecx — not the this pointer."""
+        from rebrew.asm import _calling_convention
+
+        insns = [
+            self._i("mov", "ecx, [esp+4]"),
+            self._i("mov", "eax, ecx"),
+            self._i("idiv", "esi"),
+            self._i("ret", "4"),
+        ]
+        assert _calling_convention(insns) == "stdcall"
+
+    def test_ctor_thunk(self) -> None:
+        from rebrew.asm import _calling_convention
+
+        insns = [self._i("mov", "ecx, 0x103d9f8"), self._i("jmp", "0x1014469")]
+        assert _calling_convention(insns) == "thiscall (ctor thunk)"
+
+    def test_eh_guard_thunk(self) -> None:
+        from rebrew.asm import _calling_convention
+
+        insns = [self._i("mov", "ecx, [ebp-0x10]"), self._i("jmp", "0x102f79c")]
+        assert _calling_convention(insns) == "thiscall (EH-guard thunk)"
+
+    def test_internal_jmp_before_ret_is_not_thunk(self) -> None:
+        """An internal branch (jmp L2) is not a tail call — the LAST ret ends."""
+        from rebrew.asm import _calling_convention
+
+        insns = [
+            self._i("cmp", "[esp+4], 0"),
+            self._i("je", "L1"),
+            self._i("mov", "eax, [0x103c794]"),
+            self._i("jmp", "L2"),
+            self._i("mov", "eax, [ecx+0x24]"),
+            self._i("push", "eax"),
+            self._i("call", "0x101495b"),
+            self._i("ret", "4"),
+        ]
+        assert _calling_convention(insns) == "thiscall"
+
+    def test_extraction_past_ret_uses_last_ret(self) -> None:
+        """The disassembly can run past the function into the next one."""
+        from rebrew.asm import _calling_convention
+
+        insns = [
+            self._i("push", "esi"),
+            self._i("mov", "esi, ecx"),
+            self._i("ret"),
+            self._i("push", "ebp"),
+            self._i("mov", "ebp, esp"),
+            self._i("sub", "esp, 0x428"),
+        ]
+        assert _calling_convention(insns) == "thiscall (no stack args)"
+
+    def test_hex_ret_operand(self) -> None:
+        from rebrew.asm import _calling_convention
+
+        insns = [
+            self._i("mov", "eax, [esp+4]"),
+            self._i("ret", "0x10"),
+        ]
+        assert _calling_convention(insns) == "stdcall"
+
+    def test_empty_unknown(self) -> None:
+        from rebrew.asm import _calling_convention
+
+        assert _calling_convention([]) == "unknown"

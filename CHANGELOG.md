@@ -1,6 +1,15 @@
 ## [Unreleased]
 
 ### Added
+- **`rebrew asm` calling-convention inference**: both the hex dump and
+  `--json` now report the function's calling convention (cdecl / stdcall /
+  thiscall / thiscall-with-no-stack-args / ctor thunk / EH-guard thunk),
+  derived from the epilogue (`ret` vs `ret N`) and this-pointer usage (ECX
+  dereferenced or saved to a callee-saved register without a prior memory
+  load).  This is the per-function answer that decides the C signature —
+  `__stdcall`, `__fastcall` this-emulation, or naked asm for
+  thiscall-with-stack-args on MSVC 5.0 — before writing any code; it was
+  previously re-derived by hand from every function's epilogue.
 - **MSVC optimization-level fingerprint**: `detect_toolchain` now inspects
   .text for wrapper-call codegen and reports the optimization level the
   binary was built with — `/O2` (load-first `mov eax,[esp+4]; push eax` +
