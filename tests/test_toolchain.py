@@ -54,7 +54,7 @@ class TestRegistry:
 
 class TestRunToolchain:
     def test_docker_backend_uses_image_and_mount(self, tmp_path: Path, monkeypatch) -> None:
-        spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="cl")
+        spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="cl", image_binary="cl")
         calls = _monkey_docker(monkeypatch)
         r = run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path)
         assert r.backend == "docker"
@@ -62,6 +62,14 @@ class TestRunToolchain:
         assert calls[0][:5] == ["docker", "run", "--rm", "-v", f"{tmp_path.resolve()}:/work"]
         assert calls[0][5:9] == ["-w", "/work", "rebrew/t:latest", "cl"]
         assert calls[0][9:] == ["/c", "f.c"]
+
+    def test_docker_entrypoint_image_passes_no_command(self, tmp_path: Path, monkeypatch) -> None:
+        """image_binary=None means the image ENTRYPOINT is the compiler —
+        no command is appended after the image tag (Godbolt convention)."""
+        spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="wcc386")
+        calls = _monkey_docker(monkeypatch)
+        run_toolchain(spec, ["-zq", "f.c"], workdir=tmp_path)
+        assert calls[0][8:] == ["-zq", "f.c"]
 
     def test_docker_uses_image_binary_shim(self, tmp_path: Path, monkeypatch) -> None:
         spec = ToolchainSpec(

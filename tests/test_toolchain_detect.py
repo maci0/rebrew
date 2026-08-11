@@ -89,6 +89,11 @@ class TestProfileMatches:
         aligned, expl = profile_matches_detection("msvc6", info)
         assert aligned is False
 
+    def test_msvc152_profile_matches_msvc(self) -> None:
+        info = ToolchainInfo(family="msvc")
+        aligned, expl = profile_matches_detection("msvc1.52", info)
+        assert aligned is True
+
     def test_watcom_profile_matches_watcom(self) -> None:
         """Open Watcom now has a profile — doctor alignment must pass."""
         info = ToolchainInfo(family="watcom")

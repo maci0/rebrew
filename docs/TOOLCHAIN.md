@@ -76,8 +76,21 @@ unavailable — the same profile works either way.
 
 Current toolchains (`rebrew toolchain list`): `msvc6` (wine), `delphi16`
 (DOSBox), `gcc-pe` (native MinGW), `watcom` (native Open Watcom 2.0 —
-installed at `tools/WATCOM`), `msvc1.52` (16-bit, DOSBox via
-`rebrew.msvc16`).  Dockerfiles live in `toolchain-images/<name>/Dockerfile`.
+installed at `tools/WATCOM`; image `rebrew/watcom:2.0-linux-x64` built and
+verified — the docker-first compile produces the same object + relocs as
+the host path), `msvc1.52` (16-bit, DOSBox via `rebrew.msvc16`).
+
+**Image layout convention** (Godbolt-style): Dockerfiles live at
+`toolchain-images/<compiler>/<version>-<arch>/Dockerfile` and produce
+`rebrew/<compiler>:<version>-<arch>` — the version **and** the target
+architecture are part of both the directory path and the image tag, so
+`watcom/2.0-linux-x64/`, `watcom/1.9-linux-x64/`, or a future
+`msvc6/6.0-windows-x86/` coexist without ambiguity.
+
+**Image entry convention:** an image whose `ENTRYPOINT` *is* the compiler
+wrapper (e.g. wcc386) is invoked without an explicit command
+(`image_binary=None`); images exposing a shim (e.g. `dcc`) pass it
+explicitly.  This mirrors Godbolt's "image = toolchain + wrapper" model.
 
 Notes:
 

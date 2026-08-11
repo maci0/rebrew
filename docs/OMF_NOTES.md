@@ -84,3 +84,30 @@ the `03 05` disp32).  Watcom (32-bit OMF) byte-matching is therefore
 terminated") on MSVC 1.52's 16-bit OMF objects.  The 16-bit path still
 needs the custom parser (record layout above) — objconv 2.52 only handles
 the 32-bit dialect reliably.
+
+## Update 2026-08-11 — MSVC 1.52 16-bit dialect (decoding deferred)
+
+objconv crashes on 16-bit OMF, so the built-in parser was scoped.  Record
+dump of a real `msvc16.compile_c` object (test.c: `add` + `main`):
+
+| Type | Meaning (observed) |
+|------|--------------------|
+| `0x80` | THEADR |
+| `0x88` | LEDATA — debug/aux data, NOT code |
+| `0x96` | EXTDEF — segment/group names ("CODE","DATA","CONST","BSS", "_TEXT"…) |
+| `0x98` | SEGDEF (`48 3c 00 0b 02 01 00` — 4 segments) |
+| `0x99` | segment class/size records |
+| `0x9A` | PUBDEF (`0f ff 02 ff 03 ff 04 00`) |
+| `0x9C` | COMDEF |
+| `0x8C` | FIXUPP — carries embedded names (`__aNchkstk`, `__acrtused`) |
+| `0xA0` | **code record**: `01 00 00 55 8b ec b8 00 00 e8 00 00 …` (real 16-bit code) |
+| `0x90` | MODEND — **publics live here** (`_add`, `_main` + offsets, 0x1a = main) |
+| `0xB2` | fixup table (`01 01 04 00 02 00 1e 00 02 00 00`) |
+| `0x8A` | LIDATA |
+
+This dialect diverges from both classic OMF and OW's 32-bit OMF (names in
+EXTDEF, code in 0xA0, publics in MODEND, no checksum-in-length framing).
+Reliable decoding (0xA0 offsets + 0x8C/0xB2 fixup semantics + MODEND
+public mapping) needs a focused reverse-engineering effort with more
+ground-truth objects — **deferred**; objconv covers the 32-bit Watcom path
+in the meantime.
