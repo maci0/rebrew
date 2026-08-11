@@ -93,3 +93,9 @@ rebrew-function.toml.lock
 # Vendored objconv (OMF→COFF converter) — kept out of git (>500KB).
 # Build from github.com/gitGNU/objconv (g++ -O2 src/objconv.cpp).
 /tools/objconv/
+
+# toolchain-images build contexts (vendored toolchain copies — the
+# Dockerfiles are tracked; the staged binaries re-fetch/vendor elsewhere).
+/toolchain-images/**/delphi10/
+/toolchain-images/**/delphi-lib/
+/toolchain-images/**/msvc152/
