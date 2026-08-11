@@ -196,6 +196,18 @@ class TestBlockers:
 
 
 class TestSuggestProfile:
+    def test_watcom_routes_to_watcom_profile(self, monkeypatch) -> None:
+        from rebrew.toolchain_detect import ToolchainInfo
+
+        def _fake_detect(path) -> ToolchainInfo:
+            return ToolchainInfo(family="watcom", confidence="high", version_hint="Watcom C/C++")
+
+        monkeypatch.setattr("rebrew.toolchain_detect.detect_toolchain", _fake_detect)
+        profile, family, hint, notes = _suggest_profile(Path("x.exe"))
+        assert profile == "watcom"
+        assert family == "watcom"
+        assert any("watcom" in n for n in notes)
+
     def test_auto_detection_routing(self, monkeypatch) -> None:
         from rebrew.toolchain_detect import ToolchainInfo
 

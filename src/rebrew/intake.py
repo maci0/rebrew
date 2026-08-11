@@ -82,6 +82,12 @@ def _suggest_profile(binary: Path) -> tuple[str, str, str, list[str]]:
         profile = "msvc6"
     elif family in ("mingw", "zig"):
         profile = "gcc-pe"
+    elif family == "watcom":
+        profile = "watcom"
+        notes.append(
+            "binary looks Watcom C/C++ — byte matching works via the watcom "
+            "profile (OMF objects, see docs/OMF_NOTES.md)"
+        )
     elif family == "delphi":
         profile = "msvc6"
         notes.append(
