@@ -647,3 +647,113 @@ class TestValidatedRelocMasking:
         result = nd.analyze(MOV_EAX_1 + RET, MOV_EAX_1 + RET, {1}, 0x1000)
         assert result["categories"]["reloc"]["bytes"] == 5
         assert result["categories"]["match"]["bytes"] == 1
+
+
+class TestFixBlockerDryRun:
+    """near-diag --fix-blocker --dry-run previews the write without touching
+    metadata (project convention: every file-modifying CLI honors --dry-run)."""
+
+    def test_dry_run_skips_write(self, tmp_path: Path, monkeypatch) -> None:
+        from types import SimpleNamespace as NS
+
+        from typer.testing import CliRunner
+
+        from rebrew.near_diag import app
+
+        cfg = NS(
+            root=tmp_path,
+            reversed_dir=tmp_path,
+            metadata_dir=tmp_path,
+            marker="S",
+            source_ext=".c",
+            target_name="S",
+            target_binary=tmp_path / "x.exe",
+        )
+        monkeypatch.setattr(
+            "rebrew.near_diag.require_config", lambda target=None, json_mode=False: cfg
+        )
+        monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, s: s)
+        src = tmp_path / "f.c"
+        src.write_text(
+            "// FUNCTION: S 0x1000\n// SIZE: 8\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        calls: list[object] = []
+        monkeypatch.setattr("rebrew.metadata.set_field", lambda *a, **k: calls.append(1))
+        monkeypatch.setattr(
+            "rebrew.near_diag.analyze",
+            lambda *a, **k: {
+                "verdict": "STRUCTURAL (90% of delta)",
+                "suggestion": "Different layout.",
+                "mutations": [],
+                "categories": {},
+            },
+        )
+        monkeypatch.setattr(
+            "rebrew.annotation.parse_c_file_multi",
+            lambda *a, **k: [NS(va=0x1000, size=8, symbol="_f", module="S", cflags="")],
+        )
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x55\x8b\xec\x5d\xc3"
+        )
+        monkeypatch.setattr("rebrew.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), ""))
+        monkeypatch.setattr(
+            "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
+            lambda *a, **k: (b"\x90" * 8, {}, []),
+        )
+        result = CliRunner().invoke(app, ["--fix-blocker", "--dry-run", str(src)])
+        assert result.exit_code == 0, result.output
+        assert calls == []  # set_field never invoked under --dry-run
+
+    def test_dry_run_reports_would_write_in_json(self, tmp_path: Path, monkeypatch) -> None:
+        import json
+        from types import SimpleNamespace as NS
+
+        from typer.testing import CliRunner
+
+        from rebrew.near_diag import app
+
+        cfg = NS(
+            root=tmp_path,
+            reversed_dir=tmp_path,
+            metadata_dir=tmp_path,
+            marker="S",
+            source_ext=".c",
+            target_name="S",
+            target_binary=tmp_path / "x.exe",
+        )
+        monkeypatch.setattr(
+            "rebrew.near_diag.require_config", lambda target=None, json_mode=False: cfg
+        )
+        monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, s: s)
+        src = tmp_path / "f.c"
+        src.write_text(
+            "// FUNCTION: S 0x1000\n// SIZE: 8\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr("rebrew.metadata.set_field", lambda *a, **k: None)
+        monkeypatch.setattr(
+            "rebrew.near_diag.analyze",
+            lambda *a, **k: {
+                "verdict": "STRUCTURAL (90% of delta)",
+                "suggestion": "Different layout.",
+                "mutations": [],
+                "categories": {},
+            },
+        )
+        monkeypatch.setattr(
+            "rebrew.annotation.parse_c_file_multi",
+            lambda *a, **k: [NS(va=0x1000, size=8, symbol="_f", module="S", cflags="")],
+        )
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x55\x8b\xec\x5d\xc3"
+        )
+        monkeypatch.setattr("rebrew.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), ""))
+        monkeypatch.setattr(
+            "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
+            lambda *a, **k: (b"\x90" * 8, {}, []),
+        )
+        result = CliRunner().invoke(app, ["--fix-blocker", "--dry-run", "--json", str(src)])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["blocker_written"] is True  # would write, but dry-run skipped it
