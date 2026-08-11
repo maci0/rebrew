@@ -6422,3 +6422,25 @@ holiday.exe: 646 -> 1783 well-bounded functions (max 2364B; 15/15 sampled
 functions start at a prolog and end at ret/jmp).  The binary call graph
 grew 56 -> 613 edges; the "busiest caller" went from a 192-callee artifact
 to a 4-callee real function.  Commit 926fe41.
+
+## 2026-08-11 — holiday.exe reversal: runtime validation + subsystem findings
+
+- **Reversal findings documented** in the holiday project (via metadata notes):
+  - fcn_00170002 / fcn_00171162 (seg23): map-grid logic — 2D array access
+    with row stride 251 (imul 0xfb) via a base pointer (game world terrain).
+  - seg35 (autodata): map cell data (~0x5000) + the animation filename table
+    (spleite/ratten/saufbier/spreng/stink.avi as packed Pascal strings).
+  - fcn_0007200b references the animation file table.
+- **Runtime validation**: wine runs holiday.exe (16-bit NE under winevdm/
+  toolhelp16).  setup.dat is absent, so the app hits the exact "Bitte
+  starten Sie zuerst SETUP.EXE von der HOLIDAY ISLAND CD" message the
+  static analysis located at 0x2353a6 — static and dynamic agree.  The
+  maps/ folder ships tutorial.map (the grid data the stride-251 functions
+  read).
+- describe surfaces metadata notes/blockers in terminal mode (JSON strips
+  them by design — a documented contract).
+
+The 16-bit NE toolchain is complete for intelligence work: parse → enumerate
+(1783 funcs) → intake → strings → imports → xrefs → far-call catalog →
+call graph → report; validated on two NE binaries and against runtime
+behavior.
