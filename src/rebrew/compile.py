@@ -55,6 +55,7 @@ from rebrew.compile_cache import CompileCache, compile_cache_key, get_compile_ca
 from rebrew.config import ProjectConfig
 from rebrew.core import msvc_env_from_config, smart_reloc_compare
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
+from rebrew.toolchain import TOOLCHAINS, ToolchainError, run_toolchain
 from rebrew.utils import safe_shlex_split
 
 # ---------------------------------------------------------------------------
@@ -513,8 +514,55 @@ def compile_to_obj(
     # Build full command: [wine, cl.exe] + base + user flags + includes + output + source file
     # Include the source file's original parent dir so that relative
     # #include "../../..." paths still resolve after the copy.
-    # POSIX-style compilers (gcc-pe/mingw, clang) use -I/-o/-c; MSVC uses /I//Fo.
-    is_posix_style = getattr(cfg, "compiler_profile", "") in ("gcc", "gcc-pe", "clang")
+    # POSIX-style compilers (gcc-pe/mingw, clang) use -I/-o/-c; MSVC uses /I//Fo;
+    # toolchain-backed profiles (watcom, msvc1.52) go through rebrew.toolchain's
+    # standardized runner (docker image or vendored host binary).
+    profile = getattr(cfg, "compiler_profile", "")
+    is_posix_style = profile in ("gcc", "gcc-pe", "clang")
+
+    # The two new toolchain-runner profiles.  gcc-pe/msvc6 stay on their
+    # specialized posix/msvc paths (well-tested); the abstraction serves
+    # them via `rebrew toolchain`.
+    if profile in ("watcom", "msvc1.52"):
+        spec = TOOLCHAINS[profile]
+        if profile == "watcom":
+            inc_flags = [f"-I{inc_path}"] if inc_path else []
+            args = (
+                all_flags + inc_flags + [f"-I{str(src_parent)}", f"-fo={obj_name}", "-zq", src_name]
+            )
+        elif profile == "msvc1.52":
+            from rebrew.msvc16 import Msvc16Error, compile_c
+
+            try:
+                res = compile_c(
+                    local_src,
+                    workdir,
+                    cflags=[*all_flags, f"/I{inc_path}"],
+                    timeout=use_timeout,
+                )
+            except Msvc16Error as exc:
+                return None, str(exc)
+            obj_file = res.obj_path
+            if cc is not None and cache_key is not None:
+                with contextlib.suppress(OSError):
+                    cc.put(cache_key, obj_file.read_bytes())
+            return str(obj_file), ""
+        else:
+            # msvc6/delphi16/etc. — msvc-shaped args for the image wrapper.
+            args = all_flags + [f"/I{inc_path}", f"/I{str(src_parent)}", f"/Fo{obj_name}", src_name]
+        try:
+            tr = run_toolchain(spec, args, workdir=workdir, timeout=use_timeout)
+        except ToolchainError as exc:
+            return None, str(exc)
+        obj_file = workdir / obj_name
+        if tr.returncode != 0 or not obj_file.exists():
+            err = (tr.stdout + "\n" + tr.stderr).strip()
+            return None, err
+        if cc is not None and cache_key is not None:
+            with contextlib.suppress(OSError):
+                cc.put(cache_key, obj_file.read_bytes())
+        return str(obj_file), ""
+
     if is_posix_style:
         inc_flags = [f"-I{inc_path}"] if inc_path else []
         cmd = (

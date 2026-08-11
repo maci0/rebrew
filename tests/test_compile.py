@@ -275,3 +275,62 @@ class TestFilterWineStderr:
     def test_filter_no_noise(self) -> None:
         text = "CL : Command line warning D9002 : ignoring unknown option '/bad'"
         assert filter_wine_stderr(text) == text
+
+
+class TestCompileToObjToolchainProfiles:
+    """watcom / msvc1.52 profiles route through rebrew.toolchain's runner."""
+
+    def _cfg(self, tmp_path: Path, profile: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            root=tmp_path,
+            compiler_profile=profile,
+            compiler_command="wcc386",
+            base_cflags="",
+            compiler_includes=tmp_path / "h",
+            compiler_runner="",
+            compile_timeout=30,
+        )
+
+    def test_watcom_uses_toolchain_runner(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.compile import compile_to_obj
+        from rebrew.toolchain import RunResult
+
+        captured: dict = {}
+
+        def _fake_run(spec, args, *, workdir, timeout):  # noqa: ARG001
+            captured["args"] = args
+            obj = workdir / "t.obj"
+            obj.write_bytes(b"OMF")
+            return RunResult(0, "", "", backend="docker")
+
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compile.compile_cache_key", lambda **k: "k")
+        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+
+        src = tmp_path / "t.c"
+        src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+        obj, err = compile_to_obj(self._cfg(tmp_path, "watcom"), src, [], workdir, use_cache=False)
+        assert obj is not None and err == ""
+        # wcc386 flag shape: -fo= output, -I includes, -zq quiet
+        assert "-fo=t.obj" in captured["args"]
+        assert "-zq" in captured["args"]
+
+    def test_watcom_runner_failure_surfaces(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.compile import compile_to_obj
+        from rebrew.toolchain import RunResult
+
+        def _fake_run(spec, args, *, workdir, timeout):  # noqa: ARG001
+            return RunResult(1, "", "Error! E1139", backend="host")
+
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+
+        src = tmp_path / "t.c"
+        src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+        obj, err = compile_to_obj(self._cfg(tmp_path, "watcom"), src, [], workdir, use_cache=False)
+        assert obj is None
+        assert "E1139" in err

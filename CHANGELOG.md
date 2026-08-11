@@ -20,6 +20,10 @@
   identified from runtime strings (dossier + blocker wording); Watcom
   family now aligns with the `watcom` profile in doctor; `msvc1.52` joins
   the msvc-compatible profile set.
+- **Watcom usable in the compile loop**: `rebrew compile` routes the
+  `watcom` profile through the toolchain runner (wcc386 `-fo=`/`-I` shape,
+  docker image or vendored binary) and `msvc1.52` through
+  `rebrew.msvc16` — `rebrew test`/`verify` now work for those targets.
 - **Docker-first toolchain verified**: `rebrew/watcom:latest` image built
   from `toolchain-images/watcom/Dockerfile` (snapshot tarball — the
   installer SIGFPE workaround); `run_toolchain` compiles through it with
