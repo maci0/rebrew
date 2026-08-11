@@ -584,7 +584,7 @@ Standardized toolchain management — the docker-first abstraction
 |------------|-------------|
 | `list` | List known toolchains + how each is invoked (`--json`) |
 | `status NAME` | How one toolchain resolves (image pulled? host binary present?) |
-| `pull NAME` | Pull a toolchain's docker image |
+| `pull NAME` | Pull a toolchain's docker image (locally-built images are reported as already present, not re-pulled) |
 | `build NAME` | Build a toolchain's docker image from its `toolchain-images/<family>/<ver>-<arch>/Dockerfile` |
 | `build NAME` | Build a toolchain's docker image from its `toolchain-images/<family>/<ver>-<arch>/Dockerfile` |
 

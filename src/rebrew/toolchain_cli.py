@@ -113,7 +113,7 @@ def pull_cmd(
 ) -> None:
     """Pull a toolchain's docker image."""
     try:
-        tag = pull_toolchain(name)
+        tag, was_present = pull_toolchain(name)
     except ToolchainError as exc:
         if json_output:
             json_print({"error": str(exc), "code": 2})
@@ -121,9 +121,12 @@ def pull_cmd(
             console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(code=2)
     if json_output:
-        json_print({"pulled": tag})
+        json_print({"pulled": tag, "already_present": was_present})
     else:
-        console.print(f"[green]Pulled[/green] {tag}")
+        if was_present:
+            console.print(f"[green]Already present[/green] {tag} (locally built)")
+        else:
+            console.print(f"[green]Pulled[/green] {tag}")
 
 
 @app.command("build")
