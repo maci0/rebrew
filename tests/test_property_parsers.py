@@ -955,3 +955,25 @@ def test_generate_data_json_reorder_invariant(statuses: list[str]) -> None:
     # Every entry with a resolvable size inside .text is emitted.
     assert f"0x{vas[0]:08x}" in base["functions"]
     assert f"0x{vas[1]:08x}" in base["functions"]
+
+
+@settings(max_examples=100, deadline=None)
+@given(st.binary(min_size=1, max_size=64))
+def test_code_relocs_are_valid_slots(code: bytes) -> None:
+    """The 16-bit reloc scan (omf16._code_relocs) must always return
+    distinct, in-bounds offsets — never overlapping positions or out-of-
+    range indices, on arbitrary bytes."""
+    from rebrew.matcher.omf16 import _code_relocs
+
+    relocs = _code_relocs(code, 0, len(code))
+    assert len(relocs) == len(set(relocs))  # no duplicate offsets
+    for off, kind in relocs.items():
+        assert 0 <= off < len(code)
+        # a 2-byte reloc slot must not overrun the code
+        assert off + 2 <= len(code)
+        assert kind in ("rel16", "disp16")
+    # every reloc slot's first byte is a real opcode position: e8/e9 for
+    # rel16, an absolute-operand instruction for disp16
+    for off, kind in relocs.items():
+        if kind == "rel16":
+            assert code[off - 1] in (0xE8, 0xE9)

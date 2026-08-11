@@ -266,13 +266,13 @@ def test_msvc16_omf_optimized_dialect_code_extraction() -> None:
     code_f, relocs_f, _ = parse_obj_symbol_and_relocs(obj, "_f")
     assert code_f is not None
     assert code_f.hex() == "a10000c3"
-    assert relocs_f == {}  # disp16 reloc not yet decoded
+    assert relocs_f == {1: "disp16"}  # the mov ax,[g] absolute operand
 
     # int callg(void) { return f() + g; } -> call f; add ax,[g]; ret
     code_c, relocs_c, _ = parse_obj_symbol_and_relocs(obj, "_callg")
     assert code_c is not None
     assert code_c.hex() == "e8000003060000c3"
-    assert relocs_c == {1: "rel16"}  # the call f slot
+    assert relocs_c == {1: "rel16", 5: "disp16"}  # call f slot + add ax,[g] disp
 
 
 def test_msvc16_omf_optimized_dialect_static_and_publics() -> None:
