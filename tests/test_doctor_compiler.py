@@ -519,3 +519,37 @@ class TestCheckToolchainAlignment:
         )
         assert result.status == _WARN
         assert "structural" in (result.fix or "")
+
+
+class TestCheckToolchainBacked:
+    def test_skipped_for_other_profiles(self) -> None:
+        from rebrew.doctor import _SKIP, check_toolchain_backed
+
+        result = check_toolchain_backed(
+            SimpleNamespace(compiler_profile="msvc6", root=Path("/tmp"))
+        )
+        assert result.status == _SKIP
+
+    def test_watcom_vendored_passes(self, monkeypatch) -> None:
+        from rebrew.doctor import _PASS, check_toolchain_backed
+
+        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
+        cfg = SimpleNamespace(compiler_profile="watcom", root=Path("/tmp"))
+        result = check_toolchain_backed(cfg)
+        assert result.status == _PASS
+        assert "WATCOM" in result.message
+
+    def test_missing_toolchain_fails(self, monkeypatch) -> None:
+        from rebrew.doctor import _FAIL, check_toolchain_backed
+
+        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
+        monkeypatch.setattr(
+            "rebrew.toolchain.get_toolchain",
+            lambda name: __import__("rebrew.toolchain", fromlist=["ToolchainSpec"]).ToolchainSpec(
+                name=name, image=None, binary="nope", host_path=None
+            ),
+        )
+        cfg = SimpleNamespace(compiler_profile="watcom", root=Path("/tmp"))
+        result = check_toolchain_backed(cfg)
+        assert result.status == _FAIL
+        assert "toolchain pull" in (result.fix or "")
