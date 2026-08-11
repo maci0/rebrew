@@ -286,3 +286,26 @@ def test_msvc16_omf_optimized_dialect_static_and_publics() -> None:
     assert mod.names == ["_f", "_callg"]
     assert [r.hex() for r in mod.code_records] == ["a10000c3", "e8000003060000c3"]
     assert mod.code == b"".join(mod.code_records)
+
+
+def test_msvc16_omf_far_code_model() -> None:
+    """MSVC 1.52 far-code models (/AM medium, /AL large) name the code
+    segment SRC_TEXT and use a 7-byte 0xC2 header — retf endings and
+    lcall/ljmp patch slots.  This is the dialect 16-bit Windows games
+    (e.g. skifree16's NE target) are built with."""
+    from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
+
+    obj = _FIXTURES / "tg_msvc16_far.obj"
+    assert obj.exists()
+
+    # int f(void) { return g; } -> mov ax,[g]; retf
+    code_f, relocs_f, _ = parse_obj_symbol_and_relocs(obj, "_f")
+    assert code_f is not None
+    assert code_f.hex() == "a10000cb"  # retf, not ret
+    assert relocs_f == {1: "disp16"}
+
+    # int callg(void) { return f() + g; } -> lcall f; add ax,[g]; retf
+    code_c, relocs_c, _ = parse_obj_symbol_and_relocs(obj, "_callg")
+    assert code_c is not None
+    assert code_c.hex() == "9a0000000003060000cb"  # lcall + patch slot
+    assert relocs_c == {1: "far16", 7: "disp16"}

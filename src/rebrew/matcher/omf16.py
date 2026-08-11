@@ -9,10 +9,13 @@ overflow) and LIEF cannot parse.  Empirically mapped (docs/OMF_NOTES.md):
     (verified: `_main` @ 0x1a lands exactly at the second function in the
     concatenated code stream of a real compile_c object).
 - **Optimized dialect** (/O1 etc. — the GA flag sweep's default):
-  - ``0xC2`` records carry the code: ``[header:9][code...][checksum:1]``
-    (one record per function; the header is a constant 9-byte prefix
-    `XX 00 00 00 00 00 00 01 NN`, the trailing byte makes the record sum
-    ≡ 0 mod 256).
+  - ``0xC2`` records carry the code: ``[header][code...][checksum:1]``
+    (one record per function, trailing byte makes the record sum ≡ 0 mod 256).
+    The header length depends on the **code model**: near-code models
+    (/AS small, /AC compact) use a 9-byte header and name the code segment
+    ``_TEXT``; far-code models (/AM medium, /AL large) use a **7-byte
+    header** and name it ``SRC_TEXT``.  The GRPDEF code-segment name picks
+    the length.
   - ``0x96`` = public name list ``[len][name]...`` (distinct from the
     unoptimized GRPDEF ``0x96`` which starts with a ``00`` byte).
   - ``0xCA`` = static (local) name list ``[len][name]...``.
@@ -95,11 +98,16 @@ def parse_omf16(data: bytes) -> Omf16Module:
     """Parse the 16-bit MSVC OMF dialect (see module docstring).
 
     Handles both the unoptimized (0xA0 code + 0x90 publics) and the
-    optimized (0xC2 code + 0x96/0xCA name lists) dialects.
+    optimized (0xC2 code + 0x96/0xCA name lists) dialects, and both code
+    models within the optimized dialect (near-code 9-byte 0xC2 header vs
+    far-code 7-byte — the GRPDEF code-segment name ``_TEXT``/``SRC_TEXT``
+    picks the length).
     """
     mod = Omf16Module()
     pos = 0
     saw_code = False
+    c2_bodies: list[bytes] = []
+    grp_names: list[str] = []
     while pos + 3 <= len(data):
         t = data[pos]
         ln = _record_len(data, pos)
@@ -115,9 +123,7 @@ def parse_omf16(data: bytes) -> Omf16Module:
             mod.code = mod.code[:off] + code_chunk + mod.code[off + len(code_chunk) :]
         elif t == 0xC2:  # optimized dialect: one code record per function
             saw_code = True
-            if ln >= 10:  # 9-byte header + >=1 code byte + checksum
-                mod.code_records.append(body[9:-1])
-                mod.code += body[9:-1]
+            c2_bodies.append(body)
         elif t == 0x90:  # MODEND — public name/offset pairs (unoptimized)
             i = 0
             while i + 3 <= len(body):
@@ -137,11 +143,23 @@ def parse_omf16(data: bytes) -> Omf16Module:
             # optimized dialect: public name list (unoptimized GRPDEF
             # starts with a 00 group-index byte).
             mod.names.extend(_parse_name_list(body))
+        elif t == 0x96 and body and body[0] == 0x00:
+            # GRPDEF — capture the code-segment name to pick the 0xC2
+            # header length (near "_TEXT" -> 9B, far "SRC_TEXT" -> 7B).
+            grp_names.extend(_parse_name_list(body[1:]))
         elif t == 0xCA:  # optimized dialect: static (local) name list
             mod.names.extend(_parse_name_list(body))
         pos += 3 + ln
     if not saw_code:
         raise Omf16Error("no 0xA0/0xC2 code record — not a 16-bit MSVC OMF")
+    # Slice the collected 0xC2 bodies now that the code model is known:
+    # far-code models (SRC_TEXT segment) carry a 7-byte header.
+    header_len = 7 if "SRC_TEXT" in grp_names else 9
+    for body in c2_bodies:
+        if len(body) > header_len:
+            code_chunk = body[header_len:-1]  # trailing byte = checksum
+            mod.code_records.append(code_chunk)
+            mod.code += code_chunk
     return mod
 
 
@@ -157,8 +175,10 @@ def _code_relocs(code: bytes, start: int, end: int) -> dict[int, str]:
     marks a 2-byte relocation at ``opcode+1``.  Global-variable access adds
     absolute ``disp16`` slots: the ``a0-a3`` moffs forms (``mov ax,[g]``)
     and any modrm with ``mod=00 rm=110`` (``add ax,[g]``, ``push [g]``...).
-    Capstone (already a matcher dependency) locates those operands exactly;
-    the pure e8/e9 scan is the fallback when capstone is unavailable."""
+    Far-code models add ``lcall``/``ljmp`` (``9a``/``ea``) — a 4-byte
+    ptr16:16 patch slot.  Capstone (already a matcher dependency) locates
+    these operands exactly; the pure e8/e9 scan is the fallback when
+    capstone is unavailable."""
     import capstone
 
     relocs: dict[int, str] = {}
@@ -189,6 +209,9 @@ def _code_relocs(code: bytes, start: int, end: int) -> dict[int, str]:
                     i += 1
                 if i < len(raw) and raw[i] & 0xC7 == 0x06:
                     relocs[insn.address + i + 1] = "disp16"
+            # far-call/jump: 9a/ea opcode + 4-byte ptr16:16 patch slot
+            if op.type == capstone.x86.X86_OP_IMM and insn.mnemonic in ("lcall", "ljmp"):
+                relocs[insn.address + 1] = "far16"
     return relocs
 
 

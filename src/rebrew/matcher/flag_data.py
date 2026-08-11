@@ -146,11 +146,17 @@ WATCOM_SWEEP_TIERS: dict[str, list[str] | None] = {
 
 # MSVC 1.52 (16-bit) — 16-bit codegen flags (DOSBox CL.EXE).  The 16-bit
 # compiler shares /O opt levels; codegen is /G2 (286) /G3 (386); /Aw /Au
-# select far data (huge/small memory models).
+# select far data (huge/small memory models); /AS /AM /AC /AL are the
+# memory models — far-code models (AM/AL) emit retf + lcall/ljmp and are
+# what 16-bit Windows games are typically built with.
 MSVC152_FLAGS: Flags = [
     FlagSet(
         id="msvc152_opt",
         flags=("/Od", "/O1", "/O2", "/Ox"),
+    ),
+    FlagSet(
+        id="msvc152_model",
+        flags=("/AS", "/AM", "/AC", "/AL"),
     ),
     FlagSet(
         id="msvc152_codegen",
@@ -165,11 +171,18 @@ MSVC152_FLAGS: Flags = [
 ]
 
 MSVC152_SWEEP_TIERS: dict[str, list[str] | None] = {
-    "quick": ["msvc152_opt"],
-    "targeted": ["msvc152_opt", "msvc152_codegen"],
-    "normal": ["msvc152_opt", "msvc152_codegen", "msvc152_data", "msvc152_stack_check"],
+    "quick": ["msvc152_opt", "msvc152_model"],
+    "targeted": ["msvc152_opt", "msvc152_model", "msvc152_codegen"],
+    "normal": [
+        "msvc152_opt",
+        "msvc152_model",
+        "msvc152_codegen",
+        "msvc152_data",
+        "msvc152_stack_check",
+    ],
     "thorough": [
         "msvc152_opt",
+        "msvc152_model",
         "msvc152_codegen",
         "msvc152_data",
         "msvc152_stack_check",
