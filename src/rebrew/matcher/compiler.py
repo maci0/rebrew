@@ -23,7 +23,13 @@ from rebrew.compile_cache import CompileCache, compile_cache_key
 from rebrew.utils import safe_shlex_split
 
 from .core import BuildResult
-from .flag_data import COMMON_MSVC_FLAGS, MSVC6_FLAGS, MSVC_SWEEP_TIERS
+from .flag_data import (
+    COMMON_MSVC_FLAGS,
+    MSVC6_FLAGS,
+    MSVC_SWEEP_TIERS,
+    WATCOM_FLAGS,
+    WATCOM_SWEEP_TIERS,
+)
 from .flags import Checkbox, Flags, FlagSet
 from .parsers import extract_function_from_binary, parse_obj_symbol_bytes
 
@@ -72,6 +78,7 @@ _FLAGS_MAP: dict[str, Flags] = {
     "msvc": COMMON_MSVC_FLAGS,
     "msvc7": COMMON_MSVC_FLAGS,
     "msvc6": MSVC6_FLAGS,  # excludes MSVC 7.x+ only flags (/fp:*, /GS-)
+    "watcom": WATCOM_FLAGS,
 }
 
 
@@ -178,9 +185,10 @@ def generate_flag_combinations(tier: str = "targeted", profile: str = "msvc6") -
     """
     # Use synced Flags for this profile, falling back to msvc6
     flags = _FLAGS_MAP.get(profile, _FLAGS_MAP["msvc6"])
-    if tier not in MSVC_SWEEP_TIERS:
-        raise ValueError(f"Unknown sweep tier {tier!r}, valid: {list(MSVC_SWEEP_TIERS)}")
-    tier_ids = MSVC_SWEEP_TIERS[tier]  # None = all axes
+    tiers = WATCOM_SWEEP_TIERS if profile == "watcom" else MSVC_SWEEP_TIERS
+    if tier not in tiers:
+        raise ValueError(f"Unknown sweep tier {tier!r}, valid: {list(tiers)}")
+    tier_ids = tiers[tier]  # None = all axes
     axes = _flags_to_axes(flags, tier_ids)
 
     # The Cartesian product of all axes can be enormous (full ≈ 2.5M combos,

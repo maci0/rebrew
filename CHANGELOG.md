@@ -20,6 +20,9 @@
   identified from runtime strings (dossier + blocker wording); Watcom
   family now aligns with the `watcom` profile in doctor; `msvc1.52` joins
   the msvc-compatible profile set.
+- **Watcom flag sweep**: `generate_flag_combinations` supports the watcom
+  profile (wcc386 `-`-style flags: opt/codegen/pack/flat axes) — the GA's
+  `--flag-sweep` works for watcom projects.
 - **doctor toolchain check**: generic `check_toolchain_backed` reports how
   the watcom/msvc1.52 toolchains resolve (vendored binary / pulled image)
   with a `rebrew toolchain pull` fix — no more misleading "not in PATH"

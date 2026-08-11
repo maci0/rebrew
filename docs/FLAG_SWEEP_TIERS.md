@@ -110,3 +110,10 @@ rebrew match --all --flag-sweep --fix-cflags
 
 See also [CLI.md](CLI.md) under `rebrew match` for the full flag reference,
 and `rebrew-matching/SKILL.md` for the AI-agent workflow that wraps the GA engine.
+
+## Watcom profile
+
+`rebrew match --flag-sweep --profile watcom` sweeps wcc386 flags
+(`-os/-ot/-ol/-ox` optimization, `-3..-6` codegen, `-zp` packing,
+`-mf`/`-fpc` toggles) — quick=5, targeted=25 combinations.  The flag
+strings are `-`-style (wcc386), never MSVC `/`-style.

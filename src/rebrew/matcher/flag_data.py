@@ -108,3 +108,37 @@ MSVC_SWEEP_TIERS = {
     ],
     "full": None,
 }
+
+
+# Open Watcom wcc386 — 32-bit OMF codegen.  Flags are wcc386's own:
+# -o{space|time|all} optimization, -5/-6 codegen, -zp packing, -bm memory.
+WATCOM_FLAGS: Flags = [
+    FlagSet(
+        id="watcom_opt",
+        flags=("-os", "-ot", "-ol", "-ox"),
+    ),
+    FlagSet(
+        id="watcom_codegen",
+        flags=("-3", "-4", "-5", "-6"),
+    ),
+    FlagSet(
+        id="watcom_pack",
+        flags=("-zp1", "-zp2", "-zp4", "-zp8"),
+    ),
+    Checkbox(id="watcom_flat", flag="-mf"),
+    Checkbox(id="watcom_fp_emulate", flag="-fpc"),
+]
+
+WATCOM_SWEEP_TIERS: dict[str, list[str] | None] = {
+    "quick": ["watcom_opt"],
+    "targeted": ["watcom_opt", "watcom_codegen"],
+    "normal": ["watcom_opt", "watcom_codegen", "watcom_pack", "watcom_flat"],
+    "thorough": [
+        "watcom_opt",
+        "watcom_codegen",
+        "watcom_pack",
+        "watcom_flat",
+        "watcom_fp_emulate",
+    ],
+    "full": None,
+}
