@@ -312,3 +312,8 @@ rebrew graph --cu-map --json            # infer compilation unit boundaries
 
 For Ghidra integration, see the `rebrew-ghidra-sync` skill.
 For GA matching and batch processing, see the `rebrew-matching` skill.
+
+## Toolchains
+
+Compiler selection uses the toolchain abstraction (`rebrew.toolchain` — docker image first, vendored fallback): `rebrew toolchain list/status/pull`; see docs/TOOLCHAIN.md.
+
