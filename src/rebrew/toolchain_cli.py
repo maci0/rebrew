@@ -66,15 +66,19 @@ def status_cmd(
     """Show how one toolchain resolves (image pulled? host binary present?)."""
     import shutil
 
-    from rebrew.toolchain import get_toolchain
+    from rebrew.toolchain import ToolchainError, _resolve_binary, get_toolchain
 
     spec = get_toolchain(name)
-    host_ok = None
+    host_ok: bool | None = None
     if spec.host_path is not None:
-        from pathlib import Path as _Path
-
-        host = _Path(spec.host_path)
-        host_ok = (host / spec.binary).exists() or (host / spec.host_bin / spec.binary).exists()
+        # Use the shared resolver (case-insensitive host_bin subdir — the
+        # vendored DOS-era trees are BIN, not Bin) so status agrees with
+        # run_toolchain's host fallback.
+        try:
+            _resolve_binary(spec)
+            host_ok = True
+        except ToolchainError:
+            host_ok = False
     elif spec.image is None:
         host_ok = shutil.which(spec.binary) is not None
     image_ok: bool | None = None
