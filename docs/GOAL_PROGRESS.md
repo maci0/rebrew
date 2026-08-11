@@ -6326,3 +6326,27 @@ Deferred (documented at-scale design item): F5 (single-pass source scanning
 shared across status/todo/verify — medium-term design change).
 
 Commits: e187f15 (perf F2/F3/F4). Full suite green (4013 passed).
+
+## 2026-08-11 — deferred work closed (F6 flock, F11 taxonomy, doc #10, test pollution)
+
+- **Test pollution fixed**: test_todo's prover-candidate tests installed
+  sys.modules['angr'] = SimpleNamespace() without restoring it — running
+  test_todo before test_prove broke 29 angr tests.  Now uses
+  monkeypatch.setitem (auto-restores).  Full suite: 4015 green.
+- **error-review F6**: metadata read-modify-writes are now guarded by a
+  combined thread lock + fcntl flock on a sidecar
+  `rebrew-function.toml.lock` (all 6 write helpers).  Validated with two
+  concurrent processes × 20 writes each: both landed, no lost updates.
+  Lockfile gitignored (rebrew + smygb + guild).
+- **functionality-review F11**: parse_va exits EXIT_ERROR (2) for invalid
+  hex — usage errors are now distinct from EXIT_MISMATCH (1) "needs code
+  work".  Test updated to the new contract.
+- **doc-review #10**: MinGW/Zig blocker no longer says "; documented"
+  (structural matching is viable) — resolves the contradiction where todo
+  kept those stubs actionable despite the suffix.
+- **perf-review F5**: attempted memoizing _headers_stat_fingerprint; the
+  tests correctly rejected it (headers change within a process; a stale
+  fingerprint defeats cache invalidation) — reverted with a comment.  The
+  single-pass source-scanning redesign remains a documented design item.
+
+Commits: d192758 (test fix), f254c64 (F6/F11/doc#10), 635b846 (F5 revert).
