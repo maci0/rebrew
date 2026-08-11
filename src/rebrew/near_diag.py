@@ -377,6 +377,7 @@ def _diagnose_one(
     va_int: int,
     size_val: int,
     fix_blocker: bool,
+    dry_run: bool = False,
 ) -> dict[str, Any]:
     """Compile and classify ONE function; returns the analysis result.
 
@@ -444,15 +445,18 @@ def _diagnose_one(
     )
     blocker_written = False
     if fix_blocker and not result["verdict"].startswith("MATCH"):
-        from rebrew.metadata import set_field
+        if dry_run:
+            blocker_written = True  # would write, but --dry-run skips it
+        else:
+            from rebrew.metadata import set_field
 
-        set_field(cfg.metadata_dir, va_int, "blocker", _blocker_text(result), module=ann.module)
-        blocker_written = True
+            set_field(cfg.metadata_dir, va_int, "blocker", _blocker_text(result), module=ann.module)
+            blocker_written = True
     result["blocker_written"] = blocker_written
     return result
 
 
-def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool) -> None:
+def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool = False) -> None:
     """Classify every NEAR_MATCHING function in the project (--all).
 
     Mirrors ``prove --all`` collection: iterate sources, keep annotations with
@@ -514,7 +518,7 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool) -> None:
             "error": None,
         }
         try:
-            result = _diagnose_one(cfg, src, ann, ann.va, ann.size, fix_blocker)
+            result = _diagnose_one(cfg, src, ann, ann.va, ann.size, fix_blocker, dry_run)
         except _DiagnoseError as e:
             failed += 1
             if not json_output:
@@ -564,7 +568,8 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool) -> None:
         console.print(f"  [yellow bold]{failed}[/yellow bold] failed")
     if fix_blocker:
         written = sum(1 for r in results if r["blocker_written"])
-        console.print(f"  [green bold]{written}[/green bold] BLOCKER metadata written")
+        verb = "would write" if dry_run else "written"
+        console.print(f"  [green bold]{written}[/green bold] BLOCKER metadata {verb}")
 
 
 app = typer.Typer(
@@ -598,6 +603,7 @@ def main(
         "--fix-blocker",
         help="Write the verdict as BLOCKER metadata for the function (skipped on a match)",
     ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -614,7 +620,7 @@ def main(
             error_exit("A SOURCE argument cannot be combined with --all", json_mode=json_output)
         if va:
             error_exit("--va cannot be combined with --all", json_mode=json_output)
-        _run_all_batch(cfg, fix_blocker, json_output)
+        _run_all_batch(cfg, fix_blocker, json_output, dry_run)
         return
 
     if not source:
@@ -672,7 +678,7 @@ def main(
         )
 
     try:
-        result = _diagnose_one(cfg, source_path, ann, va_int, size_val, fix_blocker)
+        result = _diagnose_one(cfg, source_path, ann, va_int, size_val, fix_blocker, dry_run)
     except _DiagnoseError as e:
         error_exit(str(e), json_mode=json_output)
     blocker_written = result["blocker_written"]
