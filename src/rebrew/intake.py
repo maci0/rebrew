@@ -230,6 +230,21 @@ def classify_all(
     return documented
 
 
+def _set_target_arch(project: Path, target_name: str, arch: str) -> None:
+    """Patch ``[targets.<name>].arch`` in ``rebrew-project.toml`` (format-
+    preserving tomlkit round-trip).  Used to set ``x86_16`` for NE targets —
+    init defaults every profile to x86_32, which mis-disassembles 16-bit
+    code."""
+    import tomlkit
+
+    toml_path = project / "rebrew-project.toml"
+    doc = tomlkit.parse(toml_path.read_text(encoding="utf-8"))
+    targets = doc.get("targets")
+    if targets is not None and target_name in targets:
+        targets[target_name]["arch"] = arch
+        toml_path.write_text(tomlkit.dumps(doc), encoding="utf-8")
+
+
 def _link_toolchain(project: Path, profile: str) -> str | None:
     """Symlink the vendored toolchain into project/tools; None when not needed/available."""
     if profile == "gcc-pe":
@@ -351,6 +366,14 @@ def main(
             raise typer.Exit(code=EXIT_ERROR)
 
     project = Path(".")
+    # 16-bit NE targets must disassemble as x86-16 — init defaults every
+    # profile to x86_32, which misdecodes segmented 16-bit code.
+    from rebrew.binary_loader import is_ne
+
+    if is_ne(bin_path):
+        _set_target_arch(project, target_name, "x86_16")
+        notes.append("16-bit NE target — target arch set to x86_16 (CS_MODE_16)")
+
     # 2. copy the binary
     original_dir = project / "original"
     original_dir.mkdir(exist_ok=True)
