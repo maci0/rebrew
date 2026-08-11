@@ -634,3 +634,67 @@ class TestBinaryFormatDetection:
         assert 'arch = "x86_16"' in toml
         agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
         assert "(ne, x86_16)" in agents
+
+
+class TestProfileMismatchWarning:
+    """init warns when the detected binary contradicts the chosen profile
+    (a 16-bit NE binary with a 32-bit msvc6 profile would fail doctor)."""
+
+    def test_ne_binary_warns_on_msvc6(self, capsys) -> None:
+        from rebrew.init import _warn_profile_mismatch
+
+        _warn_profile_mismatch("msvc6", "ne", "x86_16")
+        out = capsys.readouterr().err
+        assert "16-bit NE binary" in out
+        assert "msvc1.52" in out
+
+    def test_ne_binary_silent_on_msvc152(self, capsys) -> None:
+        from rebrew.init import _warn_profile_mismatch
+
+        _warn_profile_mismatch("msvc1.52", "ne", "x86_16")
+        assert "warning" not in capsys.readouterr().err
+
+    def test_32bit_pe_warns_on_msvc152(self, capsys) -> None:
+        from rebrew.init import _warn_profile_mismatch
+
+        _warn_profile_mismatch("msvc1.52", "pe", "x86_32")
+        out = capsys.readouterr().err
+        assert "16-bit compiler" in out
+
+    def test_32bit_pe_silent_on_msvc6(self, capsys) -> None:
+        from rebrew.init import _warn_profile_mismatch
+
+        _warn_profile_mismatch("msvc6", "pe", "x86_32")
+        assert "warning" not in capsys.readouterr().err
+
+    def test_init_emits_warning_stderr_not_stdout(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        """--json mode: the mismatch warning goes to stderr so stdout stays
+        pure JSON (the main init payload remains machine-parseable)."""
+        import json
+
+        from rebrew.init import init
+
+        original = tmp_path / "original"
+        original.mkdir()
+        ne = original / "game.exe"
+        data = bytearray(0x140)
+        data[0:2] = b"MZ"
+        data[0x3C:0x40] = (0x100).to_bytes(4, "little")
+        data[0x100:0x102] = b"NE"
+        ne.write_bytes(bytes(data))
+
+        monkeypatch.chdir(tmp_path)
+        init(
+            target_name="game",
+            binary_name="game.exe",
+            compiler_profile="msvc6",
+            json_output=True,
+        )
+        out = capsys.readouterr()
+        # stdout parses as pure JSON (no warning interleaved)
+        payload = json.loads(out.out)
+        assert isinstance(payload, dict)
+        # stderr carries the mismatch warning
+        assert "16-bit NE binary" in out.err
