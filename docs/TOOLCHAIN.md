@@ -108,6 +108,7 @@ instead.
 >
 > ```bash
 > wine reg delete "HKCU\\Software\\Wine\\Explorer" /v Desktop /f
+> wine reg delete "HKCU\\Software\\Wine\\Explorer\\Desktops" /f
 > ```
 
 **Image layout convention** (Godbolt-style): Dockerfiles live at
