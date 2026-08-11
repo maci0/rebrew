@@ -7,9 +7,15 @@
   of surfacing a `SIZE_MISMATCH` the user must resolve by hand.  Works in
   both the single-function and multi-function paths; `--dry-run` previews;
   file-scoped (batch repair stays `rebrew verify --fix-sizes`).  `CompareResult`
-  gains `full_obj_size` so the SIZE_MISMATCH path reports the real compiled
-  length in JSON/display instead of the common-prefix slice, and the
-  SIZE_MISMATCH hint now points at `--fix-size`.
+  gains `full_obj_size`/`full_obj_bytes` so the SIZE_MISMATCH path reports
+  the real compiled length in JSON/display instead of the common-prefix
+  slice, and the SIZE_MISMATCH hint now points at `--fix-size`.  The fix is
+  gated on an evidence check: when the compiled function is longer than the
+  annotated slice the binary is re-extracted at the compiled size and the
+  newly visible bytes must match; when it is shorter the excess annotated
+  bytes must be padding — a false fix (partial decompilation matched only
+  over the prefix) would otherwise write a size that hides unreproduced
+  code.
 - **watcom is POSIX-style**: `ProjectConfig.posix_style` now includes
   watcom (wcc386 takes `-I`/`-fo=`/`-zq`).  Previously the flag routing
   treated it as MSVC-style and prepended `/nologo /c` glue — wcc386 then

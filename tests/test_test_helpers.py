@@ -286,7 +286,15 @@ class TestFixSize:
             reloc_offsets=[5],
             message="SIZE_MISMATCH",
             full_obj_size=12,
+            full_obj_bytes=b"\x8b\x44\x24\x04\xa3\x00\x00\x00\x00\xc2\x04\x00",
         )
+
+    @staticmethod
+    def _real_binary_bytes() -> bytes:
+        # The 12-byte "real" function at 0x1000; the 9-byte slice is the stale
+        # annotation (missing `ret 4`).  Reloc slot 5-8 differs between
+        # compiled (a3 00000000) and binary (a3 20 da 03 01).
+        return b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01\xc2\x04\x00"
 
     def test_fixes_size_and_promotes(self, tmp_path: Path, monkeypatch: Any) -> None:
         from typer.testing import CliRunner
@@ -297,6 +305,10 @@ class TestFixSize:
         monkeypatch.setattr(
             "rebrew.test.compile_and_compare",
             lambda *a, **k: self._size_mismatch_result(100.0),
+        )
+        monkeypatch.setattr(
+            "rebrew.test.extract_raw_bytes",
+            lambda binpath, va, size: self._real_binary_bytes()[:size],
         )
         result = CliRunner().invoke(
             umbrella,
@@ -329,6 +341,10 @@ class TestFixSize:
             "rebrew.test.compile_and_compare",
             lambda *a, **k: self._size_mismatch_result(90.0),
         )
+        monkeypatch.setattr(
+            "rebrew.test.extract_raw_bytes",
+            lambda binpath, va, size: self._real_binary_bytes()[:size],
+        )
         result = CliRunner().invoke(
             umbrella,
             [
@@ -357,6 +373,10 @@ class TestFixSize:
         monkeypatch.setattr(
             "rebrew.test.compile_and_compare",
             lambda *a, **k: self._size_mismatch_result(100.0),
+        )
+        monkeypatch.setattr(
+            "rebrew.test.extract_raw_bytes",
+            lambda binpath, va, size: self._real_binary_bytes()[:size],
         )
         result = CliRunner().invoke(
             umbrella,
@@ -510,7 +530,8 @@ class TestMultiFixSize:
             default_jobs=1,
             compile_timeout=60,
         )
-        (tmp_path / "x.bin").write_bytes(b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01")  # 9B
+        # 12-byte real function: 9-byte annotation slice is stale (missing ret 4).
+        (tmp_path / "x.bin").write_bytes(b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01\xc2\x04\x00")
 
         writes: list[tuple[str, int, int]] = []
 
@@ -539,12 +560,12 @@ class TestMultiFixSize:
         monkeypatch.setattr(testmod, "parse_obj_symbol_and_relocs", _fake_parse)
         monkeypatch.setattr(testmod, "smart_reloc_compare", _fake_compare)
         monkeypatch.setattr(testmod, "set_fields_batch", _fake_set_fields)
-        # extract_raw_bytes must return the 9-byte annotation-sized slice.
-        monkeypatch.setattr(
-            testmod,
-            "extract_raw_bytes",
-            lambda binpath, va, size: (tmp_path / "x.bin").read_bytes(),
-        )
+        # extract_raw_bytes must slice by size (the evidence check re-extracts
+        # at the full compiled size).
+        def _fake_extract(binpath, va, size):
+            return (tmp_path / "x.bin").read_bytes()[:size]
+
+        monkeypatch.setattr(testmod, "extract_raw_bytes", _fake_extract)
         # Suppress status promotion side effects (validated by the single-path
         # CLI tests).
         monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: None)
@@ -573,7 +594,7 @@ class TestMultiFixSize:
             default_jobs=1,
             compile_timeout=60,
         )
-        (tmp_path / "x.bin").write_bytes(b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01")
+        (tmp_path / "x.bin").write_bytes(b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01\xc2\x04\x00")
 
         writes: list[tuple[str, int, int]] = []
 
@@ -606,7 +627,7 @@ class TestMultiFixSize:
         monkeypatch.setattr(
             testmod,
             "extract_raw_bytes",
-            lambda binpath, va, size: (tmp_path / "x.bin").read_bytes(),
+            lambda binpath, va, size: (tmp_path / "x.bin").read_bytes()[:size],
         )
         monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: None)
         monkeypatch.setattr(testmod, "_patch_verify_cache", lambda *a, **k: None)
@@ -619,3 +640,89 @@ class TestMultiFixSize:
             fix_size=False,
         )
         assert writes == []
+
+
+class TestFixSizeEvidence:
+    """--fix-size's evidence gate must refuse a fix when the region beyond
+    the common prefix hides a mismatch — the false-fix hazard."""
+
+    @staticmethod
+    def _cfg(tmp_path: Path) -> Any:
+        from types import SimpleNamespace as NS
+
+        return NS(target_binary=str(tmp_path / "x.bin"))
+
+    def test_extension_tail_matches(self, tmp_path: Path, monkeypatch: Any) -> None:
+        (tmp_path / "x.bin").write_bytes(b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01\xc2\x04\x00")
+        # compiled 12B > annotated 9B; tail (ret 4) matches the binary.
+        from rebrew.test import _fix_size_evidence_ok
+
+        monkeypatch.setattr(
+            "rebrew.test.extract_raw_bytes",
+            lambda binpath, va, size: Path(binpath).read_bytes()[:size],
+        )
+        ok = _fix_size_evidence_ok(
+            self._cfg(tmp_path),
+            0x1000,
+            b"\x8b\x44\x24\x04\xa3\x00\x00\x00\x00\xc2\x04\x00",  # reloc at 5
+            b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01",
+            [5],
+        )
+        assert ok is True
+
+    def test_extension_tail_differs_refuses(self, tmp_path: Path, monkeypatch: Any) -> None:
+        # The annotated slice cut the function short AND the tail differs —
+        # fixing the size would hide unreproduced code.
+        (tmp_path / "x.bin").write_bytes(b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01\xeb\x05\x00")
+        from rebrew.test import _fix_size_evidence_ok
+
+        monkeypatch.setattr(
+            "rebrew.test.extract_raw_bytes",
+            lambda binpath, va, size: Path(binpath).read_bytes()[:size],
+        )
+        ok = _fix_size_evidence_ok(
+            self._cfg(tmp_path),
+            0x1000,
+            b"\x8b\x44\x24\x04\xa3\x00\x00\x00\x00\xc2\x04\x00",
+            b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01",
+            [5],
+        )
+        assert ok is False
+
+    def test_annotation_extra_padding_allowed(self, tmp_path: Path) -> None:
+        # Annotation 12B > compiled 9B; extra bytes are int3 padding.
+        (tmp_path / "x.bin").write_bytes(b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01\xcc\xcc\xcc")
+        from rebrew.test import _fix_size_evidence_ok
+
+        ok = _fix_size_evidence_ok(
+            self._cfg(tmp_path),
+            0x1000,
+            b"\x8b\x44\x24\x04\xa3\x00\x00\x00\x00",
+            b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01\xcc\xcc\xcc",
+            [5],
+        )
+        assert ok is True
+
+    def test_annotation_extra_real_code_refuses(self, tmp_path: Path) -> None:
+        # Annotation 12B > compiled 9B; extra bytes are REAL code (partial
+        # reproduction hazard — shrinking the size would false-EXACT).
+        (tmp_path / "x.bin").write_bytes(b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01\xe8\x00\x00")
+        from rebrew.test import _fix_size_evidence_ok
+
+        ok = _fix_size_evidence_ok(
+            self._cfg(tmp_path),
+            0x1000,
+            b"\x8b\x44\x24\x04\xa3\x00\x00\x00\x00",
+            b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01\xe8\x00\x00",
+            [5],
+        )
+        assert ok is False
+
+    def test_equal_lengths_trivially_ok(self, tmp_path: Path) -> None:
+        (tmp_path / "x.bin").write_bytes(b"\x55\x8b\xec")
+        from rebrew.test import _fix_size_evidence_ok
+
+        assert (
+            _fix_size_evidence_ok(self._cfg(tmp_path), 0x1000, b"\x55\x8b\xec", b"\x55\x8b\xec", [])
+            is True
+        )

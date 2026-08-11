@@ -89,6 +89,11 @@ class CompareResult:
             path), else ``None``.  ``rebrew test --fix-size`` uses this to
             correct a stale SIZE annotation with the definitive compiled
             size instead of re-deriving it by hand.
+        full_obj_bytes: Full compiled ``.obj`` bytes (untruncated) on the
+            SIZE_MISMATCH path, else ``None``.  Lets ``--fix-size`` verify
+            the bytes beyond the annotated slice before declaring the SIZE
+            annotation stale — a false fix would otherwise write a size
+            that hides unreproduced code.
         message: Human-readable detail string (compiler error, mismatch counts, …).
 
     """
@@ -102,6 +107,7 @@ class CompareResult:
     message: str = ""
     inv_reloc_offsets: list[int] = field(default_factory=list)
     full_obj_size: int | None = None
+    full_obj_bytes: bytes | None = None
 
 
 def classify_compare_result(
@@ -115,6 +121,7 @@ def classify_compare_result(
     size_mismatch: bool = False,
     size_delta: int = 0,
     full_obj_size: int | None = None,
+    full_obj_bytes: bytes | None = None,
 ) -> CompareResult:
     """Classify a raw compile-and-compare outcome into a :class:`CompareResult`.
 
@@ -166,6 +173,7 @@ def classify_compare_result(
             # rebuilds a matched result from a truncated SIZE_MISMATCH view
             # and needs the full size preserved for reporting.
             full_obj_size=full_obj_size,
+            full_obj_bytes=full_obj_bytes,
         )
 
     if "EXTRACT_ERROR" in msg:
@@ -254,6 +262,7 @@ def classify_compare_result(
         message=msg,
         inv_reloc_offsets=inv,
         full_obj_size=full_obj_size,
+        full_obj_bytes=full_obj_bytes,
     )
 
 
@@ -689,6 +698,7 @@ def _extract_and_compare(
 
     size_mismatch = len(obj_bytes) != len(target_bytes)
     orig_obj_len = len(obj_bytes)
+    orig_obj_bytes = obj_bytes  # full bytes — the truncated view loses the tail
     orig_tgt_len = len(target_bytes)
     if size_mismatch:
         # Truncate longer side so smart_reloc_compare can still
@@ -725,6 +735,7 @@ def _extract_and_compare(
             size_mismatch=True,
             size_delta=abs(orig_obj_len - orig_tgt_len),
             full_obj_size=orig_obj_len,
+            full_obj_bytes=orig_obj_bytes,
         )
     msg = (
         f"RELOC-NORM MATCH ({len(relocs)} relocs)"
