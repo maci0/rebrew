@@ -20,7 +20,7 @@ from __future__ import annotations
 import importlib
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from rebrew.catalog import FunctionEntry
@@ -66,6 +66,8 @@ def _render_annotation_block(
     ghidra_name: str,
     todo_text: str | None = None,
     decomp_body: bool = False,
+    convention_stub: str | None = None,
+    convention_note: str | None = None,
 ) -> str:
     lines = [f"// {marker}: {cfg_marker} 0x{va:08x}\n"]
     if xref_context:
@@ -86,10 +88,13 @@ def _render_annotation_block(
         lines.append(f"{decomp_code}\n")
         lines.append("/* === End decompilation === */\n")
     else:
-        lines.append(f"int __cdecl {func_name}(void)\n")
+        signature = convention_stub or f"int __cdecl {func_name}(void)"
+        lines.append(f"{signature}\n")
         lines.append("{\n")
         if todo_text:
             lines.append(f"    /* TODO: {todo_text} */\n")
+            if convention_note:
+                lines.append(f"    /* {convention_note} */\n")
             lines.append(f"    /* Ghidra name: {ghidra_name} */\n")
         else:
             lines.append(f"    /* TODO: Implement — Ghidra name: {ghidra_name} */\n")
@@ -131,6 +136,12 @@ def generate_skeleton(
 
     todo = "Implement based on Ghidra decompilation"
 
+    # Calling-convention-aware stub: the skeleton signature should match the
+    # target's convention (rebrew asm's inference), not always `int __cdecl
+    # f(void)` — for MFC-heavy binaries most functions are thiscall, and a
+    # wrong starting signature costs a rewrite per function.
+    signature, conv_note = _convention_stub(cfg, va, func_name)
+
     return _render_annotation_block(
         marker=marker,
         cfg_marker=cfg.marker,
@@ -142,7 +153,74 @@ def generate_skeleton(
         decomp_backend=decomp_backend or "decompiler",
         todo_text=todo,
         decomp_body=decomp_body,
+        convention_stub=signature,
+        convention_note=conv_note,
     )
+
+
+def _convention_stub(cfg: ProjectConfig, va: int, func_name: str) -> tuple[str, str | None]:
+    """Return a (signature_line, note) stub for *va* based on its calling
+    convention, or ``(None, None)`` to keep the plain ``int __cdecl f(void)``
+    default.  Best-effort: returns the default on any disassembly failure.
+
+    Emits:
+    - ``void __fastcall f(void *self)`` for thiscall with no stack args
+      (ecx=this, plain ``ret``).
+    - a naked-asm template for thiscall with stack args (MSVC 5.0 has no
+      ``__thiscall`` keyword — the body must be hand-written asm).
+    - ``int __stdcall f(int a1, ...)`` for stdcall with N args.
+    - the plain default for cdecl, with a note for ctor/EH-guard thunks.
+    """
+    if getattr(cfg, "arch", "") != "x86_32":
+        return None, None
+    try:
+        import capstone
+
+        from rebrew.asm import calling_convention
+        from rebrew.binary_loader import extract_raw_bytes
+
+        raw = extract_raw_bytes(cfg.target_binary, va, 48)
+        if not raw:
+            return None, None
+        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        insns = list(md.disasm(raw, va))
+        if not insns:
+            return None, None
+        conv = calling_convention(insns)
+    except Exception:  # noqa: BLE001 — best-effort stub shape
+        return None, None
+
+    if conv == "thiscall (no stack args)":
+        return f"int __fastcall {func_name}(void *self)", None
+    if conv == "thiscall":
+        n = _ret_arg_count(insns)
+        args = ", ".join(f"int a{i}" for i in range(1, n + 1))
+        retn = n * 4
+        return (
+            f"__declspec(naked) int {func_name}(void *self{', ' + args if args else ''})",
+            f"thiscall + {n} stack arg(s) — MSVC 5.0 has no __thiscall; "
+            f"write the body as inline asm (this in ecx) and end with `ret {retn}`",
+        )
+    if conv == "stdcall":
+        n = _ret_arg_count(insns)
+        args = ", ".join(f"int a{i}" for i in range(1, n + 1))
+        return f"int __stdcall {func_name}({args or 'void'})", None
+    if conv in ("thiscall (ctor thunk)", "thiscall (EH-guard thunk)", "tail-call thunk"):
+        return None, f"{conv} — implement as a naked asm tail-jump"
+    return None, None
+
+
+def _ret_arg_count(insns: list[Any]) -> int:
+    """Number of stack args implied by the function's ``ret N`` epilogue."""
+    for insn in reversed(insns):
+        if insn.mnemonic.startswith("ret"):
+            raw = insn.op_str
+            try:
+                n = int(raw, 16) if raw.startswith(("0x", "0X")) else int(raw)
+            except ValueError:
+                return 0
+            return max(0, n // 4) if n else 0
+    return 0
 
 
 def generate_annotation_block(

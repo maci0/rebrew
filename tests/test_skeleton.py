@@ -623,3 +623,71 @@ class TestThunkFilter:
         )
         result = list_uncovered(ghidra, {}, cfg)
         assert [va for va, _, _ in result] == [0x10001000]
+
+
+class TestConventionStub:
+    """rebrew skeleton emits a calling-convention-aware signature instead of
+    the generic `int __cdecl f(void)` — thiscall/stdcall shapes from rebrew
+    asm's inference."""
+
+    def _cfg(self, tmp_path: Path) -> Any:
+        from types import SimpleNamespace as NS
+
+        return NS(arch="x86_32", target_binary=str(tmp_path / "x.exe"))
+
+    def test_thiscall_no_args(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.skeleton import _convention_stub
+
+        # push esi; mov esi,ecx; mov eax,[esi+0x6c]; test; ret
+        code = bytes.fromhex("56 8b f1 8b 46 6c 85 c0 5e c3")
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code
+        )
+        sig, note = _convention_stub(self._cfg(tmp_path), 0x1000, "f")
+        assert sig == "int __fastcall f(void *self)"
+        assert note is None
+
+    def test_thiscall_with_stack_args_naked(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.skeleton import _convention_stub
+
+        # mov esi,ecx; mov eax,[esi]; call [eax+0x40]; ret 8
+        code = bytes.fromhex("8b f1 8b 06 ff 50 40 c2 08 00")
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code
+        )
+        sig, note = _convention_stub(self._cfg(tmp_path), 0x1000, "f")
+        assert sig == "__declspec(naked) int f(void *self, int a1, int a2)"
+        assert note is not None and "ret 8" in note
+
+    def test_stdcall_args(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.skeleton import _convention_stub
+
+        # mov eax,[esp+4]; mov ecx,[esp+8]; ret 8
+        code = bytes.fromhex("8b 44 24 04 8b 4c 24 08 c2 08 00")
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code
+        )
+        sig, note = _convention_stub(self._cfg(tmp_path), 0x1000, "f")
+        assert sig == "int __stdcall f(int a1, int a2)"
+        assert note is None
+
+    def test_cdecl_default(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.skeleton import _convention_stub
+
+        # mov eax,[esp+4]; ret
+        code = bytes.fromhex("8b 44 24 04 c3")
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code
+        )
+        sig, note = _convention_stub(self._cfg(tmp_path), 0x1000, "f")
+        assert sig is None
+        assert note is None
+
+    def test_non_x86_arch_default(self, tmp_path: Path) -> None:
+        from types import SimpleNamespace as NS
+
+        from rebrew.skeleton import _convention_stub
+
+        cfg = NS(arch="x86_16", target_binary=str(tmp_path / "x.exe"))
+        sig, note = _convention_stub(cfg, 0x1000, "f")
+        assert sig is None and note is None

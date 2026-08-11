@@ -179,7 +179,7 @@ def _hint_for(insns: list[Any], i: int) -> str | None:
     return None
 
 
-def _calling_convention(insns: list[Any]) -> str:
+def calling_convention(insns: list[Any]) -> str:
     """Infer the calling convention from a disassembled function.
 
     Rules (x86/32, MSVC-flavoured):
@@ -366,7 +366,7 @@ def _run_hex_mode(
             shown_list = insn_list[shown_offset:]
 
             if json_output:
-                conv = _calling_convention(shown_list)
+                conv = calling_convention(shown_list)
                 instr_json = []
                 for idx, insn in enumerate(shown_list):
                     entry: dict[str, Any] = {
@@ -400,7 +400,7 @@ def _run_hex_mode(
             )
             if ne_seg is not None:
                 console.print(f"  [dim]SEG{ne_seg}:0x{va_int & 0xFFFF:04x} ({ne_seg_name})[/dim]")
-            conv = _calling_convention(shown_list)
+            conv = calling_convention(shown_list)
             if conv != "unknown":
                 console.print(f"  [dim]calling convention: {conv}[/dim]")
             console.print()
