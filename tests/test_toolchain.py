@@ -285,3 +285,39 @@ class TestResolveBinaryCaseInsensitive:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["host_binary_present"] is True
+
+
+class TestDosboxHostFallbackGuard:
+    """run_toolchain must not exec a DOS binary natively when the image is
+    absent — dosbox-runtime specs fail with a clear routing error instead
+    of a cryptic Permission denied / Exec format error."""
+
+    def test_msvc152_dosbox_guard(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.toolchain import TOOLCHAINS, ToolchainError, run_toolchain
+
+        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
+        with pytest.raises(ToolchainError, match="dosbox-runtime"):
+            run_toolchain(TOOLCHAINS["msvc1.52"], ["t.c", "/O1"], workdir=tmp_path)
+
+    def test_delphi16_dosbox_guard(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.toolchain import TOOLCHAINS, ToolchainError, run_toolchain
+
+        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
+        with pytest.raises(ToolchainError, match="dosbox-runtime"):
+            run_toolchain(TOOLCHAINS["delphi16"], ["hello.dpr"], workdir=tmp_path)
+
+    def test_watcom_host_fallback_unaffected(self, tmp_path: Path, monkeypatch) -> None:
+        """native-runtime toolchains keep the plain vendored-host fallback."""
+        from rebrew.toolchain import TOOLCHAINS, run_toolchain
+
+        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
+        spec = TOOLCHAINS["watcom"]
+        # watcom has no vendored host on this box in CI — force resolution to fail
+        # with the resolver error, NOT the dosbox guard (proves the guard doesn't
+        # fire for native-runtime specs).
+        monkeypatch.setattr(
+            "rebrew.toolchain._resolve_binary",
+            lambda spec: (_ for _ in ()).throw(ToolchainError("no host binary")),
+        )
+        with pytest.raises(ToolchainError, match="no host binary"):
+            run_toolchain(spec, ["-zq", "f.c"], workdir=tmp_path)
