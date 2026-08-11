@@ -615,3 +615,46 @@ class TestCheckCompilerRelativeCommand:
         result = check_compiler(cfg)
         assert result.status == _FAIL
         assert "not found" in result.message
+
+
+class TestToolchainDownloadHint:
+    """check_compiler's fix text includes a download URL for the missing
+    vendored toolchain — including msvc1.52 (direct DOSBox command)."""
+
+    def test_msvc152_hint(self) -> None:
+        from rebrew.doctor import _toolchain_download_hint
+
+        hint = _toolchain_download_hint("tools/msvc152/bin/cl.exe")
+        assert "archive.org" in hint
+        assert "MSVC 1.52" in hint
+
+    def test_watcom_hint(self) -> None:
+        from rebrew.doctor import _toolchain_download_hint
+
+        hint = _toolchain_download_hint("tools/watcom/binl/wcc386")
+        assert "watcom" in hint.lower()
+
+    def test_msvc6_3_before_msvc6_order(self) -> None:
+        from rebrew.doctor import _toolchain_download_hint
+
+        hint = _toolchain_download_hint("tools/msvc6.3/bin/cl.exe")
+        assert "msvc6.3" in hint  # must not match the generic msvc6 branch
+
+    def test_unknown_no_hint(self) -> None:
+        from rebrew.doctor import _toolchain_download_hint
+
+        assert _toolchain_download_hint("tools/weird/cc") == ""
+
+    def test_direct_command_fix_has_hint(self, tmp_path: Path) -> None:
+        from rebrew.doctor import check_compiler
+
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            arch="x86_16",
+            compiler_profile="msvc1.52",
+            compiler_command="tools/MSVC152/BIN/CL.EXE",
+            compiler_runner="",
+        )
+        result = check_compiler(cfg)
+        assert result.status == _FAIL
+        assert "archive.org" in (result.fix or "")
