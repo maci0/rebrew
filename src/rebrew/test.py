@@ -559,6 +559,11 @@ def main(
             full_obj_size=new_size,
             full_obj_bytes=cmp.full_obj_bytes,
         )
+        # The extraction at the STALE annotation size no longer reflects the
+        # function — re-extract at the fixed size so JSON/display totals are
+        # self-consistent (a too-big annotation would otherwise report
+        # total=old-size against the new size metadata).
+        target_bytes = extract_raw_bytes(cfg.target_binary, section_va, new_size)
 
     if json_output:
         result_dict = build_result_dict_from_compare(
@@ -776,6 +781,13 @@ def _fix_size_evidence_ok(
       compiled function must be padding (0xCC/0x90).  If they are real code,
       the annotation may cover a function my C only partially reproduces —
       shrinking the size would produce a false EXACT on later runs.
+
+    Fallback: when the padding/extension checks refuse (e.g. a discovery
+    boundary merged the NEXT function into the annotation), consult the
+    disassembly extent — the authoritative function end.  If it equals the
+    compiled size, the compiled function IS the whole function, so fixing to
+    the compiled size is safe.  The walk is conservative: a premature stop
+    (loop ``jmp`` read as a tail call) yields a smaller extent and refuses.
     """
     if len(obj_bytes) > len(target_bytes):
         ext = extract_raw_bytes(cfg.target_binary, ann_va, len(obj_bytes))
@@ -784,11 +796,33 @@ def _fix_size_evidence_ok(
             return False
         n = len(obj_bytes)
         masked = _expand_reloc_offsets(reloc_offsets, n)
-        return all(i in masked or obj_bytes[i] == ext[i] for i in range(n))
+        if all(i in masked or obj_bytes[i] == ext[i] for i in range(n)):
+            return True
+        # Tail mismatch — the compiled bytes do not reproduce the binary
+        # beyond the annotated slice.  Only the disassembly extent can save
+        # this, and only if it agrees with the compiled size.
+        extent = _disasm_extent(cfg, ann_va)
+        return extent is not None and extent == len(obj_bytes)
     if len(target_bytes) > len(obj_bytes):
         extra = target_bytes[len(obj_bytes) :]
-        return all(b in PADDING_BYTES for b in extra)
+        if all(b in PADDING_BYTES for b in extra):
+            return True
+        # The annotation covers real code beyond the compiled function.  If
+        # the disassembly extent matches the compiled size, the annotation
+        # merged the next function (or trailing data) — safe to fix.
+        extent = _disasm_extent(cfg, ann_va)
+        return extent is not None and extent == len(obj_bytes)
     return True
+
+
+def _disasm_extent(cfg: ProjectConfig, va: int) -> int | None:
+    """Disassembly-derived function extent at *va* (best-effort)."""
+    from rebrew.binary_loader import function_extent_from_disasm
+
+    try:
+        return function_extent_from_disasm(cfg.target_binary, va)
+    except Exception:
+        return None
 
 
 def _print_compare_result(cmp: CompareResult, target_bytes: bytes) -> None:

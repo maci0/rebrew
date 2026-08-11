@@ -403,3 +403,55 @@ class TestNEDetection:
         assert isinstance(info, BinaryInfo)
         assert info.format == "ne"
         assert info.sections == {}
+
+
+class TestFunctionExtentFromDisasm:
+    """function_extent_from_disasm finds the authoritative function end —
+    the disassembly terminator — independent of discovery-derived sizes."""
+
+    def _run(self, monkeypatch, text: bytes, tmp_path: Path) -> int | None:
+        from types import SimpleNamespace as NS
+
+        import rebrew.binary_loader as bl
+
+        exe = tmp_path / "x.exe"
+        exe.write_bytes(b"MZ" + text)
+        monkeypatch.setattr(
+            bl,
+            "load_binary",
+            lambda *a, **k: NS(text_va=0x1000, text_size=len(text), data=text),
+        )
+        monkeypatch.setattr(
+            bl,
+            "extract_bytes_at_va",
+            lambda info, va, size, trim_padding=True: text[:size],
+        )
+        return bl.function_extent_from_disasm(exe, 0x1000)
+
+    def test_thunk_ends_at_tail_jmp(self, monkeypatch, tmp_path: Path) -> None:
+        # mov ecx,0x103d9d8; jmp 0x1014469  → 10 bytes
+        text = bytes.fromhex("b9 d8 d9 03 01 e9 8a 0f 00 00")
+        assert self._run(monkeypatch, text, tmp_path) == 10
+
+    def test_plain_function_ends_at_ret(self, monkeypatch, tmp_path: Path) -> None:
+        # mov eax,[esp+4]; push 1; push eax; call; add esp,8; ret → 16 bytes
+        text = bytes.fromhex("8b 44 24 04 6a 01 50 e8 00 00 00 00 83 c4 08 c3")
+        assert self._run(monkeypatch, text, tmp_path) == 16
+
+    def test_ret_n_terminator(self, monkeypatch, tmp_path: Path) -> None:
+        # mov eax,[esp+4]; mov [g],eax; ret 4 → 12 bytes (0x103da20)
+        text = bytes.fromhex("8b 44 24 04 a3 20 da 03 01 c2 04 00")
+        assert self._run(monkeypatch, text, tmp_path) == 12
+
+    def test_conditional_branch_continues_to_ret(self, monkeypatch, tmp_path: Path) -> None:
+        # cmp [esp+4],0 (5); je +2 (2); mov eax,1 (5); ret (1) → 13 bytes
+        text = bytes.fromhex("83 7c 24 04 00 74 02 b8 01 00 00 00 c3")
+        assert self._run(monkeypatch, text, tmp_path) == 13
+
+    def test_int3_padding_terminates(self, monkeypatch, tmp_path: Path) -> None:
+        text = bytes.fromhex("c3 cc cc cc")
+        assert self._run(monkeypatch, text, tmp_path) == 1
+
+    def test_unterminated_returns_none(self, monkeypatch, tmp_path: Path) -> None:
+        text = bytes.fromhex("90 90 90 90")
+        assert self._run(monkeypatch, text, tmp_path) is None
