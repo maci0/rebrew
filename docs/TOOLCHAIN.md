@@ -100,6 +100,16 @@ docker-first standardization is complete for the whole matrix; the two
 host-only entries resolve via their vendored `tools/` trees under wine
 instead.
 
+> **Headless wine:** compiling with the host wine runner works fine with
+> no display window — the only annoyance is the Wine *virtual desktop*,
+> which pops a desktop window on every compile.  Disable it once per
+> prefix (it re-enables if you run `winecfg` and check "Emulate a
+> virtual desktop"):
+>
+> ```bash
+> wine reg delete "HKCU\\Software\\Wine\\Explorer" /v Desktop /f
+> ```
+
 **Image layout convention** (Godbolt-style): Dockerfiles live at
 `toolchain-images/<family>/<version>-<arch>/Dockerfile` and produce
 `rebrew/<family>:<version>-<arch>` — the top-level directory is the
