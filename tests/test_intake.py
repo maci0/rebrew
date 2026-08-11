@@ -251,3 +251,24 @@ class TestSuggestProfile16Bit:
         profile, family, hint, notes = _suggest_profile(Path("x.exe"))
         assert profile == "msvc6"
         assert family == "msvc"
+
+
+class TestToolchainLinks:
+    """intake's profile -> vendored-toolchain link map must cover every
+    matchable profile, including msvc1.52 (16-bit NE onboarding)."""
+
+    def test_msvc152_has_link_entry(self) -> None:
+        from rebrew.intake import _TOOLCHAIN_LINKS
+
+        assert "msvc1.52" in _TOOLCHAIN_LINKS
+        link_name, src_name = _TOOLCHAIN_LINKS["msvc1.52"]
+        assert link_name == "MSVC152"
+        assert src_name == "MSVC152"
+
+    def test_every_matchable_profile_has_entry(self) -> None:
+        from rebrew.intake import _TOOLCHAIN_LINKS
+
+        # profiles that have a vendored tools/ dir in the repo should be
+        # linkable (msvc400 lacks a vendored dir and is fine to skip)
+        for profile in ("msvc6", "msvc1.52", "msvc5", "msvc420", "msvc6.3", "msvc6.6", "msvc7"):
+            assert profile in _TOOLCHAIN_LINKS, profile
