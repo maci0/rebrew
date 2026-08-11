@@ -222,3 +222,47 @@ class TestXrefsCli:
         result = CliRunner().invoke(app, [str(path), "not-an-address"])
         assert result.exit_code != 0
         assert "Invalid hex VA" in result.output
+
+
+class TestVaFirstPositional:
+    """`rebrew xrefs <va>` (documented) must work with the project binary —
+    previously the first positional bound to `binary` and VA was missing."""
+
+    def test_looks_like_va(self) -> None:
+        from rebrew.xrefs import _looks_like_va
+
+        assert _looks_like_va("0x401000") is True
+        assert _looks_like_va("0x401000") is True
+        assert _looks_like_va("401000") is True  # bare hex
+        assert _looks_like_va("game.exe") is False
+        assert _looks_like_va("original/game.exe") is False
+        assert _looks_like_va("") is False
+
+    def test_va_first_with_project_binary(self, tmp_path: Path, monkeypatch) -> None:
+        from types import SimpleNamespace as NS
+
+        from typer.testing import CliRunner
+
+        from rebrew.xrefs import app
+
+        path, _ = _make_binary(tmp_path)
+        cfg = NS(
+            root=tmp_path,
+            target_name="t",
+            target_binary=path,
+            reversed_dir=tmp_path,
+        )
+        monkeypatch.setattr("rebrew.xrefs.require_config", lambda **kw: cfg)
+        result = CliRunner().invoke(app, ["0x401000"])
+        assert result.exit_code == 0, result.output
+        assert "no references" in result.output
+
+    def test_binary_first_still_works(self, tmp_path: Path) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.xrefs import app
+
+        path, _ = _make_binary(tmp_path)
+        result = CliRunner().invoke(app, [str(path), "0x401000"])
+        assert result.exit_code == 0, result.output
+        assert "no references" in result.output

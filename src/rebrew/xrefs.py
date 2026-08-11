@@ -34,6 +34,24 @@ console = Console(stderr=True)
 # ---------------------------------------------------------------------------
 
 
+def _looks_like_va(arg: str) -> bool:
+    """True when *arg* reads as a hex/int address rather than a file path.
+
+    Used to disambiguate ``rebrew xrefs <va> [binary]`` positionals — a VA
+    is ``0x...`` hex or a bare integer, never a path with a dot extension.
+    """
+    a = arg.strip()
+    if a.lower().startswith("0x") or a.lower().startswith("-0x"):
+        return True
+    if not a or any(ch in a for ch in "/\\."):
+        return False
+    try:
+        int(a, 16)
+        return True
+    except ValueError:
+        return False
+
+
 def _insn_text_by_va(info: BinaryInfo) -> dict[int, str]:
     """Map instruction VA -> disassembly text for the ``.text`` section.
 
@@ -86,13 +104,20 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    binary: Path | None = typer.Argument(None, help="Binary path (default: project target)"),
     va: str = typer.Argument(..., help="Target address (hex or int)"),
+    binary: Path | None = typer.Argument(None, help="Binary path (default: project target)"),
     kind: list[str] = typer.Option(None, "--kind", help="Only show this ref kind (repeatable)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Show every reference to *va* in the binary's code sections."""
+    # Typer binds positionals in declaration order, so `rebrew xrefs <va>`
+    # (the documented primary usage) previously landed on `binary` and left
+    # `va` missing.  With va-first this works; a legacy binary-first call
+    # (`rebrew xrefs game.exe 0x1000`) is detected by the leading arg not
+    # looking like a VA and swapped.
+    if not _looks_like_va(va) and binary is not None and _looks_like_va(str(binary)):
+        va, binary = str(binary), Path(va)
     target_va = parse_va(va, json_mode=json_output)
 
     if binary is None:
