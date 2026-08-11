@@ -98,6 +98,15 @@ def parse_obj_symbol_and_relocs(
     # OMF objects (Open Watcom / MSVC 1.52) are converted to COFF via the
     # vendored objconv first — LIEF cannot parse OMF.
     if _detect_obj_format(str(obj_path)) == "omf":
+        # 16-bit MSVC OMF crashes objconv — use the built-in minimal parser.
+        data = Path(obj_path).read_bytes()
+        from rebrew.matcher.omf16 import detect_omf16, parse_obj_omf16
+
+        if detect_omf16(data):
+            code, reloc_dict = parse_obj_omf16(obj_path, symbol)
+            if code is not None:
+                return code, reloc_dict, []
+            return None, None, []
         import tempfile
 
         with tempfile.NamedTemporaryFile(suffix=".coff", delete=False) as tf:

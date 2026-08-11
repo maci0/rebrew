@@ -30,6 +30,10 @@
 - **msvc1.52 compile-loop prefers the docker image** (cl16 wrapper) when
   pulled, falling back to the host DOSBox sandbox; FAT-uppercased .OBJ
   handled in compile_to_obj.
+- **16-bit OMF parser** (`rebrew.matcher.omf16`): MSVC 1.52's OMF dialect
+  (objconv crashes on it) decodes code from `0xA0` records + publics from
+  MODEND — `parse_obj_symbol_and_relocs` extracts 16-bit function bytes
+  (relocs `{}` pending 0x8C/0xB2 fixup decoding).
 - **Symbol lookup across compiler conventions**: `parse_obj_symbol_and_relocs`
   tries `_name` / `name_` / `name` variants — the annotation layer derives
   MSVC-style leading-underscore symbols, but wcc386 emits trailing
