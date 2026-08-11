@@ -160,9 +160,10 @@ consumers can learn whether the blocker landed (mirrors `near-diag`'s
 function. On a multi-function file, `--va` selects the annotation AT that VA
 (symbol and fallback size come from it); pass `--symbol` too to override the
 symbol explicitly. With no `--va`/`--symbol`/`--size`, every annotated
-function in the file is tested.  A resolved size is persisted to
-`rebrew-function.toml` alongside STATUS, so `rebrew diff` / `rebrew near-diag`
-can resolve it later without re-supplying `--size`.
+function in the file is tested.  A resolved size and any explicit `--cflags`
+override are persisted to `rebrew-function.toml` alongside STATUS, so
+`rebrew diff` / `rebrew near-diag` can resolve them later without re-supplying
+them, and `rebrew verify` recompiles with the flags that produced the match.
 
 ### `rebrew rename`
 

@@ -523,6 +523,14 @@ def main(
                 update_field(
                     cfg.metadata_dir, va_int_for_promote, "size", int(size_val), anno_module
                 )
+        # Persist an EXPLICIT --cflags override so `rebrew verify` recompiles
+        # with the flags that produced the match — without this, verify uses
+        # the project defaults and demotes an EXACT /O1 match to NEAR_MATCHING.
+        if cflags and not no_promote and not dry_run:
+            with contextlib.suppress(Exception):  # metadata write is best-effort
+                update_field(
+                    cfg.metadata_dir, va_int_for_promote, "cflags", cflags_str, anno_module
+                )
         old_status = lint_annos[0].status if lint_annos else ""
         # Prefer CompareResult.status so SIZE_MISMATCH / COMPILE_ERROR are preserved.
         new_status = (
