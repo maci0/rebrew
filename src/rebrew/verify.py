@@ -768,23 +768,28 @@ def main(
     if jobs is None:
         jobs = cfg.default_jobs
 
-    # 16-bit NE targets cannot be byte-compiled yet (ADR-001: 16-bit
-    # matching is future work — no 16-bit compiler profile exists).  A full
-    # verify would burn every stub through the compile loop into
-    # COMPILE_ERROR rows; short-circuit with a clear notice instead.
+    # 16-bit NE targets need a 16-bit compiler profile (msvc1.52 — DOSBox
+    # image / rebrew.msvc16).  When one is configured, verify runs normally
+    # through compile_and_compare (which routes the 16-bit OMF objects via
+    # omf16).  Only short-circuit when the project has no 16-bit profile —
+    # otherwise every stub would burn the compile loop into COMPILE_ERROR
+    # rows.  (The original skip predated the msvc1.52 profile and silently
+    # hid the working 16-bit pipeline.)
     from rebrew.binary_loader import is_ne
 
     if getattr(cfg, "target_binary", None) and is_ne(cfg.target_binary):
-        msg = (
-            "verify: 16-bit NE targets have no compile profile yet (ADR-001 — "
-            "byte matching for Windows 3.x binaries is future work); skipping "
-            "the compile/compare loop"
-        )
-        if json_output:
-            json_print({"skipped": True, "reason": msg, "arch": "x86_16"})
-        else:
-            console.print(f"[yellow]{msg}[/yellow]")
-        return
+        profile = getattr(cfg, "compiler_profile", "") or "msvc6"
+        if profile != "msvc1.52":
+            msg = (
+                "verify: 16-bit NE targets need the msvc1.52 profile "
+                "(DOSBox CL.EXE — 'profile = \"msvc1.52\"' in rebrew-project.toml); "
+                f"current profile is {profile!r}.  Skipping the compile/compare loop."
+            )
+            if json_output:
+                json_print({"skipped": True, "reason": msg, "arch": "x86_16"})
+            else:
+                console.print(f"[yellow]{msg}[/yellow]")
+            return
 
     if watch:
         from rebrew.cli import iter_sources
