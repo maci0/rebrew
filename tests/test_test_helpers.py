@@ -210,3 +210,56 @@ class TestSizePersistence:
         assert result.exit_code == 0, result.output
         meta_path = tmp_path / "src" / "rebrew-function.toml"
         assert not meta_path.exists() or "size = 4" not in meta_path.read_text()
+
+
+class TestCflagsPersistence:
+    """`rebrew test --cflags` must persist the explicit override so verify
+    recompiles with the flags that produced the match (else an /O1 EXACT
+    match is demoted to NEAR_MATCHING by project-default recompiles)."""
+
+    def _run(self, tmp_path: Path, monkeypatch: Any, *extra: str) -> None:
+        import shutil
+
+        from typer.testing import CliRunner
+
+        from rebrew.compile import CompareResult
+        from rebrew.main import app as umbrella
+
+        fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
+        (tmp_path / "original").mkdir()
+        shutil.copy(fixture, tmp_path / "original" / "x.exe")
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "x"\n'
+            '[targets.x]\nbinary = "original/x.exe"\n'
+            '[compiler]\nprofile = "msvc6"\n'
+        )
+        src_dir = tmp_path / "src" / "x"
+        src_dir.mkdir(parents=True)
+        (src_dir / "f.c").write_text("// FUNCTION: TEST 0x1000\nint f(void) { return 1; }\n")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(
+            "rebrew.test.compile_and_compare",
+            lambda *a, **k: CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"\xc3",
+                reloc_offsets=[],
+            ),
+        )
+        result = CliRunner().invoke(
+            umbrella,
+            ["test", "src/x/f.c", "--va", "0x1000", "--size", "4", "--symbol", "_f", *extra],
+        )
+        assert result.exit_code == 0, result.output
+
+    def test_persists_explicit_cflags(self, tmp_path: Path, monkeypatch: Any) -> None:
+        self._run(tmp_path, monkeypatch, "--cflags", "/O1")
+        meta = (tmp_path / "src" / "rebrew-function.toml").read_text()
+        assert 'cflags = "/O1"' in meta
+
+    def test_no_cflags_no_persist(self, tmp_path: Path, monkeypatch: Any) -> None:
+        self._run(tmp_path, monkeypatch)
+        meta = (tmp_path / "src" / "rebrew-function.toml").read_text()
+        assert "cflags" not in meta
