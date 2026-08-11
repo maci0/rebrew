@@ -364,6 +364,15 @@ def main(
     lint_annos = parse_c_file_multi(
         Path(source), target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
     )
+    # CLI overrides are authoritative — apply them to the parsed annotation
+    # before validating, so a fresh function tested with --va/--size does not
+    # report "Invalid SIZE: 0" (the values are right there on the command
+    # line; the annotation SIZE is only a fallback).  Only SIZE is applied:
+    # --va SELECTS the annotation in multi-function files, so it must not be
+    # overwritten.
+    if size is not None:
+        for anno in lint_annos:
+            anno.size = size
     for anno in lint_annos:
         eval_errs, eval_warns = anno.validate()
         if not json_output:
