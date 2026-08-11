@@ -58,7 +58,7 @@ from rebrew.cli import (
 )
 from rebrew.compile import compile_to_obj
 from rebrew.config import ProjectConfig
-from rebrew.core import build_name_to_va, smart_reloc_compare
+from rebrew.core import build_iat_region, build_name_to_va, smart_reloc_compare
 from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
 from rebrew.utils import safe_shlex_split
 
@@ -1520,7 +1520,12 @@ def _prepare_prove_inputs(
         if name_to_va is None:
             name_to_va = build_name_to_va(cfg)
         matched, _mc, _tot, _vr, _ir = smart_reloc_compare(
-            obj_bytes, target_bytes, reloc_offsets, name_to_va=name_to_va, section_va=va
+            obj_bytes,
+            target_bytes,
+            reloc_offsets,
+            name_to_va=name_to_va,
+            section_va=va,
+            iat_region=build_iat_region(cfg),
         )
         if matched:
             raise _AlreadyMatched("RELOC" if _vr else "EXACT")

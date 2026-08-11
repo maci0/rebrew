@@ -54,7 +54,7 @@ def test_toolchain_sweep_orders_best_first(monkeypatch, capsys) -> None:
     )
     monkeypatch.setattr(
         "rebrew.match.smart_reloc_compare",
-        lambda obj, tgt, rel, name_to_va=None, section_va=None: (
+        lambda obj, tgt, rel, name_to_va=None, section_va=None, iat_region=None: (
             obj == tgt,
             len(obj),
             len(tgt),

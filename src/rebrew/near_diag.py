@@ -390,7 +390,7 @@ def _diagnose_one(
     from rebrew.binary_loader import extract_raw_bytes
     from rebrew.cli import resolve_cflags
     from rebrew.compile import compile_to_obj
-    from rebrew.core import build_name_to_va, smart_reloc_compare
+    from rebrew.core import build_iat_region, build_name_to_va, smart_reloc_compare
     from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 
     target_bytes = extract_raw_bytes(cfg.target_binary, va_int, size_val)
@@ -430,6 +430,7 @@ def _diagnose_one(
                 coff_relocs,
                 name_to_va=name_to_va,
                 section_va=va_int,
+                iat_region=build_iat_region(cfg),
             )
             reloc_offsets = set(valid_relocs)
 

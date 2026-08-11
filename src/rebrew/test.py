@@ -46,7 +46,7 @@ from rebrew.compile import (
     compile_to_obj,
 )
 from rebrew.config import ProjectConfig
-from rebrew.core import build_name_to_va, smart_reloc_compare
+from rebrew.core import build_iat_region, build_name_to_va, smart_reloc_compare
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 from rebrew.metadata import update_source_status
 
@@ -822,6 +822,7 @@ def _test_multi(
                 coff_relocs,
                 name_to_va=name_to_va,
                 section_va=ann.va,
+                iat_region=build_iat_region(cfg),
             )
             # Same classifier as compile_and_compare / verify.
             va_hint = f"0x{ann.va:08x}" if getattr(ann, "va", None) else "<source>"

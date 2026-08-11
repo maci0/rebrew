@@ -60,7 +60,7 @@ from rebrew.cli import (
 from rebrew.compile import resolve_compiler_env
 from rebrew.compile_cache import CompileCache
 from rebrew.config import ProjectConfig
-from rebrew.core import msvc_env_from_config, smart_reloc_compare
+from rebrew.core import build_iat_region, msvc_env_from_config, smart_reloc_compare
 from rebrew.diff import print_structural_similarity
 from rebrew.matcher import (
     BuildCache,
@@ -2041,6 +2041,7 @@ def _run_single_toolchain_sweep(p: _BuildParams, json_output: bool) -> None:
             res.reloc_offsets,
             name_to_va=getattr(p, "name_to_va", None),
             section_va=p.va_int,
+            iat_region=build_iat_region(p.cfg),
         )
         results.append((score_val, matched, count, total, profile))
 
