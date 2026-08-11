@@ -454,9 +454,11 @@ def check_toolchain_alignment(cfg: ProjectConfig) -> CheckResult:
 def check_delphi16_toolchain(cfg: ProjectConfig) -> CheckResult:
     """For 16-bit NE targets, report the Delphi 1.0 compile-path readiness.
 
-    The vendored DCC.EXE + RTM.EXE + dosbox can already compile 16-bit
-    executables headless (``rebrew.delphi16.compile_ne``), though byte
-    matching is not yet wired (ADR-001).  Skipped for non-16-bit targets.
+    The vendored DCC.EXE + RTM.EXE + dosbox can compile 16-bit NE
+    executables headless (``rebrew.delphi16.compile_ne``); Delphi's
+    Borland ABI has no matchable rebrew profile, so the toolchain is for
+    research (compile + NE parse), and Delphi functions are documented as
+    blockers.  Skipped for non-16-bit targets.
     """
     if getattr(cfg, "arch", "") != "x86_16":
         return CheckResult(name="Delphi 1.0 toolchain", status=_SKIP, message="not a 16-bit target")
