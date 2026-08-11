@@ -74,18 +74,21 @@ class StringEntry:
 # ---------------------------------------------------------------------------
 
 
-def _capstone(skipdata: bool = False) -> Any:
-    """Return a capstone ``Cs`` disassembler for the default x86-32 target.
+def _capstone(skipdata: bool = False, info: BinaryInfo | None = None) -> Any:
+    """Return a capstone ``Cs`` disassembler.
 
-    With *skipdata* set, undecodable bytes are emitted as ``.byte`` pseudo
-    instructions instead of terminating the linear scan — required for real
-    binaries whose ``.text`` contains embedded data (jump tables, alignment).
+    Defaults to x86-32; for 16-bit NE binaries (``info.format == "ne"``)
+    uses ``CS_MODE_16``.  With *skipdata* set, undecodable bytes are emitted
+    as ``.byte`` pseudo instructions instead of terminating the linear scan —
+    required for real binaries whose code contains embedded data.
     """
     try:
-        from capstone import CS_ARCH_X86, CS_MODE_32, Cs
+        from capstone import CS_ARCH_X86, CS_MODE_16, CS_MODE_32, Cs
     except ImportError as exc:
         raise RuntimeError("capstone not installed") from exc
-    md = Cs(CS_ARCH_X86, CS_MODE_32)
+
+    mode = CS_MODE_16 if info is not None and info.format == "ne" else CS_MODE_32
+    md = Cs(CS_ARCH_X86, mode)
     md.detail = True
     if skipdata:
         md.skipdata = True
@@ -185,8 +188,8 @@ def scan_references(
     Without it, every absolute reference found is returned (in address order).
     The scan covers *section_names* (default ``[".text"]``).
     """
-    names = section_names if section_names is not None else [".text"]
-    md = _capstone(skipdata=True)
+    names = section_names if section_names is not None else _default_scan_sections(info)
+    md = _capstone(skipdata=True, info=info)
     xrefs: list[Xref] = []
     for name in names:
         rng = section_range(info, name)
@@ -210,6 +213,26 @@ def scan_references(
     return xrefs
 
 
+def _ne_code_segments(info: BinaryInfo) -> list[str]:
+    """Section names of an NE binary's code segments (for scans)."""
+    return [f"SEG{s.index}" for s in info.ne_segments if s.is_code]  # type: ignore[attr-defined]
+
+
+def _default_scan_sections(info: BinaryInfo) -> list[str]:
+    """Sections scanned for references: code segments for NE, else .text."""
+    if info.format == "ne":
+        return _ne_code_segments(info)
+    return [".text"]
+
+
+def _ne_segment_of(info: BinaryInfo, va: int) -> int | None:
+    """Segment index (1-based) containing a synthetic VA, or None."""
+    for seg in info.ne_segments:  # type: ignore[attr-defined]
+        if seg.base_va <= va < seg.base_va + seg.length:
+            return int(seg.index)
+    return None
+
+
 def _classify_insn(info: BinaryInfo, insn: Any) -> tuple[str, int, int] | None:
     """Classify one capstone instruction into ``(kind, from_va, to_va)``."""
     from_va = insn.address
@@ -218,6 +241,36 @@ def _classify_insn(info: BinaryInfo, insn: Any) -> tuple[str, int, int] | None:
         return None
     mnemonic = insn.mnemonic
     op_reg, op_imm, op_mem = _op_constants()
+
+    # 16-bit NE: near call/jmp targets are relative within the segment;
+    # absolute data reads/writes (e.g. ``mov ax, [imm16]``) address the DS
+    # segment (the NE autodata segment).
+    if info.format == "ne":
+        seg_index = _ne_segment_of(info, from_va)
+        if seg_index is None:
+            return None
+        if mnemonic in ("call", "jmp"):
+            op = ops[0]
+            if op.type == op_imm:
+                # near relative: target = from_va + insn.size + rel
+                return mnemonic, from_va, from_va + insn.size + op.imm
+            return None
+        # Absolute [imm16] operands: a1/a3 (mov), and generic [abs] memory ops
+        for op in ops:
+            if (
+                op.type == op_mem
+                and op.mem.base == 0
+                and op.mem.index == 0
+                and op.mem.disp is not None
+            ):
+                disp = int(op.mem.disp)
+                if 0 <= disp <= 0xFFFF:
+                    autodata = getattr(info, "ne_header", None)
+                    data_seg = autodata.autodata_segment if autodata is not None else 1
+                    to_va = (data_seg << 16) | disp
+                    kind = "mov_mem" if mnemonic == "mov" else f"{mnemonic}_mem"
+                    return kind, from_va, to_va
+        return None
 
     if mnemonic in ("call", "jmp"):
         op = ops[0]
