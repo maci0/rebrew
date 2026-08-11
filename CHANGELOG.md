@@ -30,6 +30,10 @@
 - **msvc1.52 compile-loop prefers the docker image** (cl16 wrapper) when
   pulled, falling back to the host DOSBox sandbox; FAT-uppercased .OBJ
   handled in compile_to_obj.
+- **Symbol lookup across compiler conventions**: `parse_obj_symbol_and_relocs`
+  tries `_name` / `name_` / `name` variants — the annotation layer derives
+  MSVC-style leading-underscore symbols, but wcc386 emits trailing
+  underscores (`callg_`); validated end-to-end with a watcom `rebrew test`.
 - **Watcom usable in the compile loop**: `rebrew compile` routes the
   `watcom` profile through the toolchain runner (wcc386 `-fo=`/`-I` shape,
   docker image or vendored binary) and `msvc1.52` through
