@@ -1,8 +1,9 @@
 # Rebrew for Consoles — 5th Gen Onwards
 
-> **Status:** Research / proposal — 2026-08-11
-> **Scope:** PlayStation (PS1), Nintendo 64, GameCube, Sega Saturn, Dreamcast
->            (with notes on PS2 / PS2-era spillover)
+> **Status:** Research / proposal — 2026-08-11 (rev. 2026-08-12 — Wii/360/PSP/Switch + GBA/DS/3DS + PS3 promoted from spillover)
+> **Scope:** PlayStation (PS1), Nintendo 64, GameCube, Sega Saturn, Dreamcast,
+>            Wii, Xbox 360, PSP / Vita, Switch, GBA / DS / 3DS, PS3
+>            (plus PS2 / Xbox carry-over — all 5th-gen onwards, C/C++ only)
 > **Why this document:**  These consoles are *all* C/C++ targets with
 > deterministic cross-compilers — exactly the problem Rebrew solves for
 > PC (MSVC6 / MinGW).  This doc maps how the current engine transfers,
@@ -16,9 +17,10 @@
 |----------|--------|
 | **Are these consoles C/C++?** | Yes — every 5th-gen-onward console shipped a C (and later C++) SDK. Studios used vendor compilers, not hand-written ASM, for >90% of game code. |
 | **Does Rebrew's model apply?** | Directly.  The loop `C source → cross-compile → obj bytes → reloc-aware compare → STATUS` is compiler-agnostic.  What changes is the *backend*: CPU arch, binary container, object format, flag set, and relocation model. |
-| **Closest win** | **N64 (IDO) and GameCube (CodeWarrior)** — both already have decomp.me-grade toolchains, deterministic codegen, and active matching decomp communities to borrow flag definitions from. |
-| **Hardest** | **Saturn SH-2 dual-CPU** (shared-memory synchronization) and **PS1 Psy-Q** (obsolete proprietary toolchain that is hard to source legally). |
-| **Recommended order** | MIPS family first (PS1 + N64 + PS2 share MIPS), then PowerPC (GC), then SuperH (Saturn → Dreamcast). |
+| **Closest win** | **N64 (IDO) and GameCube (CodeWarrior)** — both already have decomp.me-grade toolchains, deterministic codegen, and active matching decomp communities to borrow flag definitions from. Next cheapest: **Wii** (GC's twin, ~3 days) and **Switch/GBA** (`arm64`/`arm32` already in config). |
+| **Hardest** | **Saturn SH-2 dual-CPU** (shared-memory synchronization) and **PS1 Psy-Q** (obsolete proprietary toolchain that is hard to source legally). PS3 SPU deferred entirely (vector microcode, not C). |
+| **Recommended order** | MIPS (N64→PS1→PS2) → PPC (GC→Wii→360) → SuperH (Saturn→DC) → ARM (GBA→DS→3DS→Switch) → Cell (PS3 PPU, SPU deferred). |
+| **Added in rev.** | Wii/360/PSP/Vita/Switch/GBA/DS/3DS/PS3 (§3.7 + §6 phases 5–7) — all `deterministic C/C++ cross-compiler` targets; MD/SNES/PS2 VU stay excluded (ASM era / vector microcode). |
 
 **One-line pitch:**  Rebrew already knows how to do byte-exact C matching for x86 PE.  Consoles replace `CL.EXE + COFF + PE` with `ccpsx/ido/mwcc/sh-elf-gcc + ELF/COFF + PS-EXE/ROM/DOL` — the rest (catalog, scoring, GA, todo, verify, round-trip) transfers.
 
@@ -112,15 +114,33 @@ Rebrew's value is not "MSVC6" — it is the *compiler-in-the-loop workbench*:
 | **Decomp precedents** | Active but fragmented: `dreamcast decomp` (Sonic Adventure, Shenmue splits), `KallistiOS` + `dc-tool` for ELF extraction, `ghidra-dreamcast-loader` (descramble + load). SH-4 decomp leans heavily on Ghidra's SH-4 processor + `sh4-dis`. Matching decomp pattern mirrors GC: `sh-elf-gcc` with `-m4-single -ml -m4-nofpu` flag sensitivity. |
 | **Rebrew fit** | High (shared with Saturn SH path). Discriminated by **SH-4 LE vs SH-2 BE** + FPU codegen. Simplification: use KallistoS `sh-elf-gcc` ELF (LIEF works) and treat Hitachi SHC as an optional Wine profile (same pattern as `mwcceppc`). Dreamcast's descramble step parallels Rebrew's "header parity" — `round-trip --fix-headers` analogue is `descramble → patch → rescramble → GD-ROM rebuild`. |
 
-### 3.6 Spillover: PlayStation 2, Xbox, PSP (6th gen, same pattern)
+### 3.6 6th-gen carry-over: PS2, Xbox, PSP
 
 | Target | CPU | Compiler | Binary container | Notes |
 |--------|-----|----------|------------------|-------|
-| **PS2** | MIPS R5900 (EE, MIPS-III + 107 new EE opcodes + VU0/VU1) | `ee-gcc` 2.9/3.2 (Sony SN toolchain), `ee-g++` | **ELF** (EE ELF, `0x00100000`, little-endian; `IOP` is MIPS-I EL ELF) — LIEF parses directly | PS2 decomp is the natural sequel to PS1/N64 MIPS work; `ee-gcc` flag space tiny. |
-| **Xbox** | x86 Pentium III (Coppermine) | MSVC 6/7 (same as Rebrew today!) | **XBE** (Xbox Executable — PE-derived, `XBEH` instead of `MZ`) | Trivial port — add XBE loader (LIEF already handles XBE as PE variant). |
-| **PSP** | MIPS R4000 (Allegrex, VFPU) | `psp-gcc` 4.x | **ELF/PRX** (PRX = relocatable PSP ELF with `~PSP` magic) | Same MIPS EL family as PS1/PS2. |
+| **PS2** | MIPS R5900 (EE, MIPS-III + 107 new EE opcodes + VU0/VU1) | `ee-gcc` 2.9/3.2 (Sony SN toolchain), `ee-g++` | **ELF** (EE ELF, `0x00100000`, little-endian; `IOP` is MIPS-I EL ELF) — LIEF parses directly | PS2 decomp is the natural sequel to PS1/N64 MIPS work; `ee-gcc` flag space tiny. Promoted to **Phase 1C** in §6. |
+| **Xbox** | x86 Pentium III (Coppermine) | MSVC 6/7 (same as Rebrew today!) | **XBE** (Xbox Executable — PE-derived, `XBEH` instead of `MZ`) | Trivial port — add XBE loader (LIEF already handles XBE as PE variant). Promoted to **Phase 5A**. |
+| **PSP** | MIPS R4000 (Allegrex, VFPU) | `psp-gcc` 4.x | **ELF/PRX** (PRX = relocatable PSP ELF with `~PSP` magic) | Same MIPS EL family as PS1/PS2. Promoted to **Phase 5C**. |
 
-These are listed for prioritization: PS2 and Xbox are *strictly* cheaper than Saturn because the ISA/format/toolchain already overlap with shipped Rebrew paths.
+PS2/Xbox/PSP are *strictly* cheaper than Saturn because the ISA/format/toolchain already overlap with shipped paths — they graduate from spillover to committed scope in §6.
+
+### 3.7 New: Wii, Xbox 360, GBA / DS / 3DS, Switch, PS3
+
+> These were "Tier 1–2 extras" in the review pass — all `C/C++ + deterministic cross-compiler + community decomp` targets.
+> Each one reuses a Phase 0–3 ISA/container/toolchain pattern, so cost is incremental not green-field. Committed in Phase 5–7.
+
+| Target | Gen | CPU | Compiler | Binary container | Why it belongs | Rebrew cost |
+|--------|-----|-----|----------|------------------|----------------|-------------|
+| **Wii** | 7 | PPC Broadway (Gekko+, 729 MHz, BE) | **CodeWarrior 3.x** (`mwcceppc`, same as GC 2.7+) | **DOL** `main.dol` inside **WBFS** (`WBFS` magic, WII `6` header) / `RVL` disc | GC's twin — 99% reuse of DOL/REL/GCM pipeline; same big-endian PPC, just `cw 3.x`. Largest GC-adjacent library; skipping Wii after GC is leaving half the value. | **~3 days** — `wbfs` magic + `cw_wii` profile alias. |
+| **Xbox 360** | 7 | PPC Xenon (3× PowerPC, BE) + Xenos | **MSVC 8/9** (`CL 14/15`, `msvc8`/`msvc9` via `archaic-msvc`) + `X360 XDK` | **XEX** (`XEX2` magic, PE-derived — LIEF parses as PE variant) | GC→Wii→360 is the PPC lineage; huge 360 library (Halo 3, Gears). MSVC 8/9 are already in `archaic-msvc`. | **~1 week** — `xex` loader + `msvc8/9` profiles (no new Capstone). |
+| **GBA** | 5 | ARM7TDMI (ARMv4T, LE) | `agbcc` / `arm-none-eabi-gcc -mthumb -mcpu=arm7tdmi` | **Flat ROM** `0x08000000`, `GBA` header (`0x96 00` entry) + `Nintendo` logo CRC | Gold-standard matching decomp (`pokeemerald`, `pokefirered` via `agbcc`); deterministic, community FLIRT for `libgba`. | **~1 week** — `gba` flat loader + `agbcc`/`arm-gba` profile. |
+| **DS** | 6 | ARM9 + ARM7 (dual-binary, LE) | `arm-none-eabi-gcc -mcpu=arm946e-s / arm7tdmi` + Nitro SDK `mwccarm` | **NDS** Nitro header → `arm9.bin` + `arm7.bin` (dual-binary, same Saturn dual-CPU problem) | DS is the canonical dual-binary Rebrew project (like Saturn §3.4); Nitro header (`NTRJ`/`NDS` magic at `0x00`) directly parallels GC GCM FST. | **~1 week** after GBA — `nds` header → two `BinaryInfo` views. |
+| **3DS** | 8 | ARM11 + ARM9 (CXI/CIA, NCCH) | `arm-none-eabi-gcc -mcpu=mpcore` + CTR SDK `mwcc` | **CXI/CIA** (`NCCH` magic) → `Code` (`.code` ELF, `0x00100000`) | 3DS homebrew/decomp (citra lineage) uses same GCC ARM as GBA/DS; one Capstone `ARM/THUMB` dispatch covers all three. | **~1 week** — `cxi`/`cia` loader. |
+| **Switch** | 8 | ARM64 Cortex-A57 (LE) | LLVM/Clang `aarch64-none-elf-clang` (`aarch64-none-elf-ld`) | **NRO** (`NRO0`) + **NSO** (`NSO0`) inside **NSP/XCI** (`PFS0`/`HFS0`); `NRO`/`NSO` = ELF with `MOD0` | Modern but is Rebrew's sweet spot: `arm64` preset already exists, `NRO/NSO` = ELF deterministically linked; massive decomp scene. Future-proofs roadmap beyond retro. | **~1 week** — `nro`/`nso` loader (ELF) + `clang-aarch64` profile. |
+| **PS3** | 7 | Cell: **PPC PPU** + 6× **SPU** (vector) | `ppu-gcc` (PPC64) + `spu-gcc` (SPU ELF) | **SELF / ELF** — PPU = `elf64-powerpc` (BE), SPU = `SPU` ELF (`e_machine 0x17`) | Prestige target (MGS4, Demon's Souls); PPU→SPU offload is the only "not C" seam (like PS2 VU). | **3–4 weeks** — `ppu-elf` + `spu-elf` dual catalog (like Saturn). **Phase 7** — defer SPU byte-matching (doc as ASM blocker). |
+
+Excluded (deliberately): MD/SNES/PC Engine/Jaguar/3DO/CD-i — 68000/ARM hand-ASM era, not C/C++ Rebrew targets. PS2 VU0/VU1 also stays an ASM blocker (§5.4, Phase 5).
+PS4 / Xbox One / Series X are `x86_64` ELF/PE + clang/msvc — already covered by `x86_64` preset (`gcc`/`clang`); listed as "already supported — no work" per Appendix A.
 
 ---
 
@@ -322,16 +342,44 @@ Each phase is shippable independently and ordered by (decreasing payoff) / (incr
 - [ ] **Ghidra processor selection**: `ghidra/client.py` already passes VA; ensure console `arch` selects the correct Ghidra processor (MIPS:le:32, MIPS:be:32, ppc:BE:32, SuperH:*/SH2/SH4, ARM:LE:32:ARM).
 - [ ] **GAP_ANALYSIS + IDEAS housekeeping**: flip console gap family to IMPLEMENT and move the accepted §8 brainstorm items (overlay editing, GP-relative, vtable triage) into `IDEAS.md` Open with `needs: Phase {N}` tags (see §5.5.2).
 
-### Phase 5 — Reach / Convergence (optional, 2–4 weeks)
+### Phase 5 — PPC / Big-Endian Convergence: Wii + Xbox 360 + PSP / Vita + Switch (2–4 weeks, committed)
 
-> Nice-to-haves that become cheap once Phases 0–4 exist.
+> Reuses the GC PPC (§2) and MIPS (§1) seams + existing `x86_64`/`arm64` presets.
+> All four ship independently; no new Capstone mode beyond what Phase 0 already adds.
+> Each is one native loader + one `ToolchainSpec` (ADR-001/006).
 
-- Xbox XBE (trivial — add `xbe` loader, LIEF treats it as PE variant; MSVC profiles already exist).
-- PSP PRX / PSVita ELF (MIPS Allegrex).
-- PS2 VU microcode (VU0/VU1 COP2/VCmd) — not C; document as ASM-only blocker (like SEH helpers today).
-- Automatic `splat` ↔ Rebrew two-way sync (edit YAML from Rebrew, re-split ROM).
-- Consensus decomp helpers: auto-detect `-G` gp register value from ROM (N64), auto-detect `__gp` for PS1.
-- Cross-project `solutions_db` for `cw_gc`/`ido71` — sharing winning cflags across functions already works once the profile exists.
+- [ ] **5A Wii** (GC's twin — ship first, ~3 days): **WBFS/RVL disc → `main.dol`** loader — detect `WBFS` magic or `WII` disc magic (`0x5D1C9EA3` at `0x18`), extract DOL path from `boot.bin`/`main.dol` offset; synthesize same 18 `SectionInfo` as DOL; reuse `n64rom`/`dol` overlay machinery. **Profile** `cw_wii` (alias of `cw_gc`, `mwcceppc` Wine runner, versions `3.x`); flag axes identical to GC (`decomp.me/mwcc`). GCM/FST helpers already cover WBFS.
+- [ ] **5B Xbox 360** (~1 week): **XEX** loader (`XEX2` magic at `0x00`, PE-derived — LIEF parses as PE variant; synthesize `Sections` from XEX header file/VA table). **Profiles** `msvc8`/`msvc9` via `archaic-msvc` (`CL 14/15`, same Wine runner as `msvc6`); objects are COFF, already parsed. No new Capstone (Xenon = PPC BE, same as GC/Wii). Flag axes from `decomp.me` win32.
+- [ ] **5C PSP / Vita** (~1 week, MIPS family): **PRX** loader (`~PSP` magic at `0x00`, relocatable ELF — LIEF ELF + custom `PRX` reloc fixup; like REL, synthesize `Sections` from PRX header). **Profiles** `psp-gcc` (`mipsel-psp-elf-gcc -march=allegrex -G 0`) + `vita-gcc` (`arm-vita-eabi-gcc -mcpu=cortex-a9` for Vita ARM). Flag space tiny. Completes MIPS lineage PS1→PS2→PSP (Capstone `MIPS+LE` already done in Phase 1).
+- [ ] **5D Switch** (~1 week, future-proofing): **NRO/NSO** loader (`NRO0` at `0x10` / `NSO0` at `0x00` + `MOD0` magic, inside `PFS0`/`HFS0` NSP/XCI) — each is ELF with `MOD0` header (`.text` at `0x00`); LIEF ELF parse + descramble for `NSO` compression (BLZ-like). **Profile** `clang-aarch64` (`aarch64-none-elf-clang`, posix flags, no runner); `arm64` Capstone preset already exists. Container fixture + `docs/NRONSO_NOTES.md`.
+- [ ] **Deferrals (still ASM-only blockers):** PS2 VU0/VU1 COP2/VCmd microcode — not C; document as blocker like SEH helpers (`CODEGEN_PATTERNS_MIPS`).
+- [ ] **Shared deliverable:** `rebrew doctor` names `WBFS/XEX/PRX/NRO/NSO` containers; `rebrew intake` accepts WBFS/XCI/ISO and extracts inner DOL/NRO/`~PSP` ELF (same `7z`-or-error policy as GCM/GD, §5.2).
+
+**ADRs at ship:** `ADR-00S: Wii WBFS + XEX native loaders` (DOL-family extension), `ADR-00T: PRX + NRO/NSO loaders` (MIPS/ARM ELF variants).
+
+### Phase 6 — ARM Handheld Cluster: GBA → DS → 3DS (2–3 weeks)
+
+> One ISA dispatch, three containers. Closes the ARM family started by `arm32/64` and `sh4/arm7` (DC).
+> GBA is the cheapest proof (flat ROM, single binary); DS introduces the dual-binary catalog (like Saturn §3.4); 3DS is NCCH on top.
+
+- [ ] **6A GBA** (ship first, ~1 week — gold-standard `agbcc` decomp): **GBA flat ROM** loader (`Nintendo` logo CRC at `0xA0`, entry `0x08000000` `b` at `0x00`); single `SectionInfo` at `0x08000000`. **Profile** `agbcc` (Wine `agbcc` / `arm-none-eabi-gcc -mthumb -mcpu=arm7tdmi`). Capstone `ARM + ARM/THUMB` dispatch already covers it (Phase 0). Fixture `docs/GBA_NOTES.md`.
+- [ ] **6B DS** (~1 week, dual-binary like Saturn): **NDS Nitro header** → `arm9.bin` + `arm7.bin` loader (`NTR`/`NDS` magic at `0x00`, ARM9 at `0x02000000`, ARM7 at `0x03800000`, `arm9.bin` offset at `0x20`); synthesize two `BinaryInfo` views (or `overlay` = `arm9`/`arm7`). Dual-binary catalog reuse of Saturn's `cpu`/`overlay` metadata field (§5.5.2). **Profile** inherits `arm-eabi-gcc` (`-mcpu=arm946e-s / arm7tdmi`) + Nitro SDK `mwccarm` (alias).
+- [ ] **6C 3DS** (CXI/CIA, ~1 week): **NCCH** loader (`NCCH` magic at `0x100`, `Code` segment at `Code offset` → `.code` ELF at `0x00100000` inside `CXI`/`CIA`); parse `CXI` header → extract `.code` ELF via `BinaryInfo` (LIEF ELF). Handles CIA (`PFS0`) container. Fixture `docs/CXI_NOTES.md`.
+- [ ] **Shared:** `CODEGEN_PATTERNS_ARM.md` seeded from `agbcc`/`gcc-arm` decomp.me axes (`-mthumb/-marm`, `-mcpu`, `-O1/-O2`, `-fomit-frame-pointer`); ARM delay-slot / literal-pool tracking (same GP-relative note as MIPS §8.2).
+
+**ADRs at ship:** `ADR-00U: ARM handheld loaders (GBA/NDS/3DS)` (flat/Nitro/NCCH).
+
+### Phase 7 — Cell (PS3 PPU, SPU deferred) — optional prestige (3–4 weeks)
+
+> PS3 completes the PPC timeline Wii→360→PS3. Only the PPU is C/C++; SPU is vector microcode.
+> High signal (MGS4, Demon's Souls) but after ARM — ship only when a project needs it.
+
+- [ ] **PPU loader** (`ppu-elf`, ELF64-BE): `elf64-powerpc` (LIEF `elf64`); Capstone `PPC + 64` (`CS_ARCH_PPC + CS_MODE_64`). Single `SectionInfo` set. **Profile** `ppu-gcc` (`powerpc64-elf-gcc`, Wine optional). Flag space tiny.
+- [ ] **SPU loader (parse-only)** (`spu-elf`): `SPU` ELF (`e_machine 0x17` / `0x07`); Capstone `SPU` mode (`CS_ARCH_SPARC?` — verify, else treat as raw SPU dump + Ghidra processor `Cell Broadband Engine` / `MIPS:SPU`). Dual catalog (like Saturn/DS) with `cpu: ppu/spu`.
+- [ ] **SPU byte-matching DEFERRED:** document SPU microcode as ASM-only BLOCKER (same class as VU0/VU1, SEH helpers `CODEGEN_PATTERNS.md`). No GA/mutator for SPU in Phase 7.
+- [ ] **Ghidra:** PPU = `PowerPC:BE:64:64`, SPU = `Cell:SPU:32` — ensure `ghidra/client.py` processor selection covers both.
+
+**ADRs at ship:** `ADR-00V: PS3 PPU/SPU dual catalog` (parse-only SPU).
 
 ---
 
@@ -451,46 +499,77 @@ Ideas beyond "port the existing engine" — native console strengths that would 
 
 ## 10. Appendix: Quick-Reference Tables
 
-### A. ISA at a glance
+### A. ISA at a glance (rev. — includes Wii/360/GBA/DS/3DS/Switch/PS3)
 
 | Console | ISA family | Arch preset (proposed) | Capstone | Endian | ptr | Notable |
 |---------|-----------|------------------------|----------|--------|-----|---------|
 | PS1 | MIPS-I (R3000) | `mipsel` | `MIPS + MIPS32 + LE` | LE | 4 | Delay slot |
 | N64 | MIPS-III (R4300) | `mips` | `MIPS + MIPS32R6 (BE)` | BE | 4 | o32 ABI, `$gp` |
 | GC | PowerPC 750 | `ppc_gekko` | `PPC + MODE_32` | BE | 4 | Paired singles |
+| **Wii** | PPC Broadway (750CL+, Gekko+) | `ppc_broadway` (alias `ppc`) | `PPC + MODE_32` | BE | 4 | GC→Wii, cw `3.x` |
+| **Xbox 360** | PPC Xenon (PPC, 3 cores) | `ppc_xenon` | `PPC + MODE_32/64` | BE | 4 | XEX, PPU-family |
 | Saturn | SuperH SH-2 | `sh2` | `SH + SH2 + BE` | BE | 4 | 16-bit enc. |
 | DC | SuperH SH-4 (+ ARM7) | `sh4` / `arm7` | `SH+SH4+LE` / `ARM+ARM` | LE | 4 | FPU vec |
+| **GBA** | ARM7TDMI (ARMv4T) | `arm7` (`arm_gba`) | `ARM + ARM/THUMB` | LE | 4 | `agbcc`, flat `0x08000000` |
+| **DS** | ARM9 + ARM7 (dual) | `arm9` + `arm7` (two `BinaryInfo`) | `ARM + ARM/THUMB` | LE | 4 | Dual-binary like Saturn |
+| **3DS** | ARM11 + ARM9 (CXI/CIA) | `arm11` (`arm_3ds`) | `ARM + ARM/THUMB` | LE | 4 | NCCH, `Code` ELF |
+| **Switch** | ARM64 Cortex-A57 | `arm64` (ships) | `ARM64 + ARM` | LE | 8* | `NRO0`/`NSO0` ELF, `MOD0` |
+| **PS3 PPU** | PPC64 PPU (Cell) | `ppc64` | `PPC + 64` | BE | 8 | `elf64-powerpc` |
+| PS3 SPU | SPU (vector, deferred) | `spu` (parse-only) | `SPU` (verify) | LE | 4 | ASM blocker — no GA |
 | PS2 | MIPS R5900 | `r5900` | `MIPS+MIPS32+LE` | LE | 4 | COP2 VIF/VU |
 | Xbox | x86 PIII | `x86_32` | `X86+32` | LE | 4 | Already ships |
 | PSP | MIPS Allegrex | `allegrex` | `MIPS+MIPS32+LE` | LE | 4 | VFPU |
+| Vita | ARM Cortex-A9 | `arm_vita` (alias `arm32`) | `ARM + ARM` | LE | 4 | Like Switch arm32 variant |
+| PS4 etc | x86_64 | `x86_64` | `X86+64` | LE | 8 | `already supported — no work` |
 
-### B. Binary-container at a glance
+\*Switch pointer size is 8 (A64); all other consoles listed are 4. PS3 PPU is 64-bit ELF64.
+
+### B. Binary-container at a glance (rev.)
 
 | Console | Container(s) | Detected by | Loader synthesis | Round-trip check |
 |---------|--------------|-------------|------------------|------------------|
 | PS1 | PS-X EXE (inside ISO9660) | `PS-X EXE` magic + `CD001` | 1 Section `@0x80010000`, off `0x800` | `SYSTEM.CNF` entry + EXE header |
 | N64 | ROM (`z64` BE) | `0x80371240` / IPL3 | 1 outer + overlay Sections from `splat.yaml` | N64 checksum (`CRC1/CRC2`) |
 | GC | DOL + REL (inside GCM) | DOL text/data off table + GCM magic | 18 Sections + per-REL Sections | DOL BSS + FST + `bi2.bin` |
+| **Wii** | DOL `main.dol` (inside GCM/WBFS `WBFS`/`RVL`) | `WBFS`/`WII` magic + DOL table | 18 Sections (identical to GC) | DOL + `boot.bin` + FST |
 | Saturn | Flat bin (inside ISO9660 `SEGASATURN`) | `SEGA SEGASATURN` IP | 1 Section `@0x06004000` | IP + first-executable CRC |
 | DC | `IP.BIN` + `1ST_READ.BIN` (scrambled ELF) | `SEGA SEGAKATANA` | Descrambled ELF via existing ELF path | Scramble parity + `IP.BIN` |
+| **GBA** | Flat ROM `0x08000000` | `Nintendo` logo CRC + `0x08000000` entry | 1 Section `@0x08000000` | Logo CRC |
+| **DS** | `arm9.bin` + `arm7.bin` (inside NDS Nitro header) | `NTR`/`NDS` magic (`0x00`), Nitro header (`arm9 off @0x20`) | 2 `BinaryInfo` (`arm9` `@0x02000000`, `arm7` `@0x03800000`) | Nitro CRCs + `arm9`/`arm7` headers |
+| **3DS** | `.code` ELF (`0x00100000`) inside CXI/CIA `NCCH` | `NCCH` header + `0x100` magic | 1 ELF Section `@0x00100000` (LIEF) | NCCH hash + `Code` offset |
+| **Switch** | NRO (`NRO0`) + NSO (`NSO0`+`MOD0`) inside NSP/XCI `PFS0`/`HFS0` | `NRO0`/`NSO0` + `MOD0` | 1 ELF Section `@0x00` (`MOD0`-derived) | NRO hash / NSO BLZ descramble |
+| **PS3** | PPU `SELF`/ELF64 + SPU `SPU` ELF (dual) | ELF `e_machine` (`PPC64`/`SPU 0x07/0x17`) | PPU Sections + SPU Sections (deferred) | PPU ELF entry |
+| **Xbox 360** | XEX (`XEX2` inside `XEX` container) | `XEX2` magic | Sections from XEX file/VA table (PE-variant) | XEX header + LIEF PE |
+| PS1 spillover | PSEXE/ISO already in §3.5–3.6 | — | — | — |
 | PS2 | ELF (EE) + IOP ELF | ELF `e_machine=0x08` | LIEF ELF | ELF entry |
 | Xbox | XBE | `XBEH` magic | LIEF PE-variant | PE headers (already LIEF) |
+| PSP | PRX (`~PSP`) | `~PSP` magic | PRX ELF (reloc fixup) | `~PSP` header + relocs |
+| Vita | ARM SELF | `SCE` magic | LIEF ELF | ARM SELF |
+| Switch extra | See row above | | | |
 
-### C. Compiler → Rebrew profile mapping
+### C. Compiler → Rebrew profile mapping (rev.)
 
 | Compiler family | Versions seen | Rebrew profile(s) | Runner | Object | Notes |
 |-----------------|---------------|-------------------|--------|--------|-------|
 | Psy-Q `CCPSX` | 3.2–4.7 | `psyq` (proxy: `mipsel-elf-gcc`) | `ccpsx.exe` (Wine, optional) | PSYOBJ / ELF (GCC) | `maspsx` for ASM stubs |
 | IDO / MIPSPro | 5.3, 7.1, 7.30 | `ido53`, `ido71` | Docker `ido-static-recomp` (Linux) | ELF | Flag space tiny |
 | EGCS / GCC MIPS | 2.7, 2.95, 4.x | `gcc` (`-march=mips2/3`) | native `mips-elf-gcc` | ELF | Rare third parties |
-| CodeWarrior PPC | 1.0–2.7 | `cw_gc` (`cw1.0..cw2.7`) | `mwcceppc.exe` via Wine | ELF | decomp.me axes exist |
+| CodeWarrior PPC (GC) | 1.0–2.7 | `cw_gc` (`cw1.0..cw2.7`) | `mwcceppc.exe` via Wine | ELF | decomp.me axes exist |
+| CodeWarrior PPC (Wii) | 2.7–3.x | `cw_wii` (alias `cw_gc`) | `mwcceppc.exe` via Wine | ELF | WBFS → DOL, same as GC |
+| MSVC XBE (Xbox) | 6, 7 | `msvc6`/`msvc7` | `wine CL.EXE` | COFF | Already ships |
+| **MSVC X360** | 8, 9 (`CL 14/15`) | `msvc8`/`msvc9` | `wine CL.EXE` via `archaic-msvc` | COFF | XEX PE-variant |
+| **PPU-GCC (PS3)** | 4.x–9 | `ppu-gcc` | `powerpc64-elf-gcc` | ELF64-BE | PPU only; SPU deferred |
+| **PSP-GCC** | 4.x | `psp-gcc` | `mipsel-psp-elf-gcc` | PRX ELF | Allegrex `R4000` |
+| **Vita GCC** | 4.x–10 | `vita-gcc` | `arm-vita-eabi-gcc` | ARM ELF | Cortex-A9 |
+| **agbcc / ARM GBA** | 2.95 + agbcc | `agbcc` / `arm-gba` | `agbcc` (Wine) / `arm-none-eabi-gcc -mthumb` | ELF / flat | GBA `0x08000000` |
+| **ARM DS/3DS** | 4.x–10 | `arm-ds` / `arm-3ds` | `arm-none-eabi-gcc` | ELF / Nitro/NCCH | Dual-binary (DS), CIA/CXI |
+| **Clang AArch64 (Switch)** | 9–17 | `clang-aarch64` | `aarch64-none-elf-clang` | ELF (NRO/NSO) | `MOD0`, NSO BLZ |
 | Hitachi SHC | 5.0, 6.x, 7.x | `shc` | `shc.exe` via Wine | SH COFF | Optional after GCC |
 | GCC SH | 2.95..13 | `sh-elf-gcc` (`sh2`/`sh4` subs) | native `sh-elf-gcc` | ELF | Primary for Sega |
 | EE-GCC | 2.9, 3.2 | `ee-gcc` | native `mips64r5900el-elf-gcc` | ELF | PS2 |
-| MSVC XBE | 6, 7 | `msvc6`/`msvc7` | `wine CL.EXE` | COFF | Already ships |
-| ARM GCC | 4.x..13 | `gcc` (`-march=armv4t`) | native `arm-none-eabi-gcc` | ELF | DC ARM7, GBA-adj. |
+| ARM GCC (DC ARM7) | 4.x..13 | `gcc` (`-march=armv4t`) | native `arm-none-eabi-gcc` | ELF | DC ARM7; template for GBA/DS |
 
-### D. Effort envelope (engineering estimate)
+### D. Effort envelope (engineering estimate) — rev.
 
 | Phase | Scope | Est. | Dependencies | Can ship alone |
 |-------|-------|------|--------------|----------------|
@@ -501,9 +580,11 @@ Ideas beyond "port the existing engine" — native console strengths that would 
 | **2 GC** | DOL/REL loaders + CW profile | 3–4 w | 0 | **Yes** |
 | **3 Saturn/DC SH** | Saturn bin + SH COFF + DC descramble | 4–6 w | 0 (SH ISA) | **Yes** |
 | **4 Hardening** | Overlays, reloc typing, disc-aware intake, FLIRT packs | 2–3 w | 1A, 2, 3 | **Yes** |
-| **5 Reach** | XBE/PSP/VU/asset diff/decomp.me import | 2–4 w | prior | **Yes** |
+| **5 PPC convergence** | **5A Wii (~3d) + 5B 360 (~1w) + 5C PSP/Vita (~1w) + 5D Switch (~1w)** | **2–4 w** | 0, 1, 2 | **Yes — each sub-phase ships alone** |
+| **6 ARM handhelds** | **6A GBA + 6B DS (dual) + 6C 3DS (NCCH)** | **2–3 w** | 0 (ARM ISA) | **Yes** |
+| **7 Cell (PS3)** | PPU ELF64-BE (SPU parse-only, deferred GA) | 3–4 w | 5A (PPC) | **Yes (optional)** |
 
-*All phases overlap; wall-clock with one engineer ≈ 3–4 months to "usable for PS1+N64+GC".*
+*All phases overlap; wall-clock with one engineer ≈ 4–6 months to "usable for PS1+N64+GC+Wii+Switch+GBA" (the old 3-4 mo estimate was pre-§3.7). Phases 5–7 each compound on 0's ISA dispatch so no new sequels to Phase 0.*
 
 ---
 
@@ -519,12 +600,159 @@ Ideas beyond "port the existing engine" — native console strengths that would 
 
 ---
 
-## 12. Decision Proposal
+## 12. Decision Proposal (rev. — phases 5–7 committed)
 
-1. Approve **Phase 0** immediately — zero risk, unblocks all console work, and improves the x86/ARM path (ISA-dispatched heuristics).
-2. Green-light **1A N64** as the pilot (lowest risk, highest community leverage, most reusable for PS1/PS2) with a single E2E ROM as the exit criterion.
-3. Queue **2 GC** in parallel with **1B PS1** — both exercise MIPS vs PPC independently.
-4. Defer **PSYOBJ and SH COFF custom parsers** until a real project requires them — ELF/GCC paths unblock 80% of current open-source decomp efforts.
-5. Record as ADRs: `ADR-XXX: Overlay-aware catalog`, `ADR-YYY: Disc-image intake`, `ADR-ZZZ: Console arch presets` when each ships.
+1. Approve **Phase 0** immediately — zero risk, unblocks all console work, and improves the x86/ARM path (ISA-dispatched heuristics). Adds the one rule reviewers will enforce: **one tiny hex fixture + one `NOTES.md` per container** (OMF_NOTES.md pattern, §5.5.2).
+2. Green-light **1A N64** as the pilot (lowest risk, highest community leverage, most reusable for PS1/PS2) with a single E2E ROM as the exit criterion. Ship with `db_version 5` overlay migration + `CODEGEN_PATTERNS_MIPS.md`.
+3. Queue **2 GC** in parallel with **1B PS1** — both exercise MIPS vs PPC independently. GC ships `CODEGEN_PATTERNS_PPC.md`; PS1 defers PSYOBJ (ADR-003).
+4. **Phase 5 now committed** — promote Wii (`cw_wii`, ~3d), 360 (`msvc8/9` + XEX, ~1w), PSP/Vita (PRX, ~1w), Switch (NRO/NSO + `clang-aarch64`, ~1w) from spillover. Reuses GC PPC + MIPS + `arm64` seams; no new Capstone beyond Phase 0. Each sub-phase `5A–5D` ships alone.
+5. **Phase 6 ARM handhelds committed** — GBA (`agbcc`, flat `0x08000000`, ~1w) → DS (Nitro `arm9`+`arm7` dual-binary, like Saturn, ~1w) → 3DS (NCCH `Code` ELF, ~1w). Closes ARM family started by `arm32/64` + DC `arm7`. One `CODEGEN_PATTERNS_ARM.md`.
+6. **Phase 7 Cell optional** — PS3 PPU `elf64-powerpc` (SPU parse-only, GA deferred) 3–4w, after 5A. Ship only when a project needs it; until then list PS4/One/Series X as "already supported — no work" (Appendix A).
+7. Defer **PSYOBJ and SH COFF custom parsers + SPU GA + VU microcode** until a real project requires them — ELF/GCC paths unblock 80%+ of current open-source decomp efforts. Every deferral is an honest `BLOCKER: ASM-only` (SEH-helper analogue, CODEGEN_PATTERNS.md invariant).
+8. Record as ADRs on ship: `00N` overlay catalog + N64 ROM, `00O` DOL/REL, `00P` CW Docker, `00Q` SuperH loaders + SH COFF seam, `00R` dual-CPU metadata, `00S` Wii+360, `00T` PRX+NRO/NSO, `00U` GBA/DS/3DS, `00V` Cell dual catalog. Each ADR gets its own `docs/prd/` when the phase becomes active.
 
-*This doc is the backlog; each phase gets its own `docs/prd/` and ADR as it becomes active work.*
+*This doc is the backlog — `§3.7` + `§6 phases 5–7` + `§10 A/B/C/D (rev.)` are the rev. diff. Each phase gets its own `docs/prd/` and ADR as it becomes active work.*
+
+---
+
+## Addendum A — Assembly Era Consoles (2nd–4th Gen) — Brainstorm
+
+> **Status:** Brainstorm / non-committed — 2026-08-12
+> **Scope:** NES, Master System / Game Gear, Game Boy (/Color), PC Engine / TurboGrafx-16,
+>            Mega Drive / Genesis, SNES, Neo Geo, Atari 2600/7800 — i.e. the
+>            hand-written assembly era *before* 5th-gen C.
+> **Why an addendum:** These consoles were deliberately excluded from the main
+> roadmap (§3.7). The main roadmap is a *compiler-in-the-loop* story.
+> Assembly-era games have **no compiler to loop** — they are 95% hand-written ASM.
+> Rebrew's matching engine does not apply verbatim, but *most of the workbench*
+> does. This addendum brainstorms how Rebrew could still be useful without
+> pretending the problem is C.
+
+### A.1 Why the assembly era is a different problem
+
+| Axis | 5th-gen+ (main roadmap) | 2nd–4th gen (this addendum) |
+|------|--------------------------|------------------------------|
+| Language | C/C++ (deterministic cross-compiler) | Hand-written ASM (ca65/wla-dx/rgbds/bass *after* the fact) |
+| Matching target | `C source → compiler → obj bytes → reloc-aware compare` | `ASM source → assembler → ROM bytes → verbatim compare` |
+| Flags matter? | Yes (`-O2` vs `-O1`, `-G`, `cw -inline`…) → `flag_sweep` + `BLOCKER: flag` | No — assembler is 1:1. Options are bank layout / macro style / directive choice. `flag_sweep` is irrelevant. |
+| GA useful? | Yes (120 `mut_*` C rewrites nudge the compiler) | No — `mutator.py` is dead weight. ASM "matching" is formatting/structuring, not logic search. |
+| `BLOCKER` taxonomy | Register allocation, `reloc`, `switch table`, `SEH helper` | Bank boundary, self-modifying code, cycle-timed raster, mapper IRQ, CHR bankswitch |
+| Community output | Matching *recompilation* (`rebrew verify → EXACT`) | Full *disassembly* (`disasm + split + data = rebuildable ROM`) |
+
+**Takeaway:** Rebrew's value for assembly era is not `match.py` — it is
+`catalog + asm + data + status + todo + similar + xrefs + Ghidra sync + round-trip`,
+i.e. the **disassembly workbench** around the loop.
+
+### A.2 Dossier — assembly targets at a glance
+
+| Console | CPU | ISA family | Capstone | Endian | Arch preset (proposed) | Assembler (modern) | Binary container | Notes |
+|---------|-----|------------|----------|--------|------------------------|--------------------|------------------|-------|
+| **NES** | Ricoh 2A03 (6502, no decimal) | MOS 6502 | `MOS65XX + 6502` | LE | `mos6502` | `ca65` (cc65), `asm6`, `wla-6502` | **iNES / NES 2.0** (`NES\x1A` + 16 B header + PRG + CHR) → mapper 0..~500 | PRG = `0x8000` flat; mappers = bankswitch (MMC1/3/5, VRC6). |
+| **Master System / GG** | Zilog Z80 | Z80 | `Z80` | LE | `z80` | `wla-z80`, `sjasmplus` | Flat ROM (`0x0000`, `TMR SEGA` at `0x7FF0`) + `.sms` header | Page size 16K, Sega mapper. |
+| **Game Boy / Color** | LR35902 (SM83 — Z80-like, not Z80) | SM83 | `Z80`¹ or custom (see §A.5) | LE | `sm83` (`gbz80`) | `rgbds` (`rgbasm/rgb­link`), `wla-gb` | **GB ROM** (`0x100` entry `JP`, Nintendo logo at `0x104`, header at `0x134`, MBC1/3/5) | Header checksum + global checksum; `RGBDS` is canon. |
+| **PC Engine / TG-16** | HuC6280 (65C02 + PSG) | 65C02 / HuC6280 | `MOS65XX + 65C02` | LE | `huc6280` (alias `mos6502`) | `wla-huc6280`, `pceas` | **HuCard** flat (`0xE000` vector, `0x1FFF` bank) | 8K banks; `wla-huC6280` is de-facto. |
+| **Mega Drive / Genesis** | 68000 @ 7.6 MHz + Z80 (sound) | M68K (68000) | `M68K + 68000` | BE | `m68k` | `vasm`/`asl`/`wla-68000`, `sjasm` | Flat ROM (`vector table` at `0x00`: `SP, PC`, `SEGA` at `0x100`, `0x0000`–) | 68000 BE; Z80 co-CPU is a second target (see DS analogy). |
+| **SNES** | WDC 65816 (6502→16-bit) + SPC700 (audio) | 65816 + SPC700 | `MOS65XX + M65816`¹ + `SPC700`² | LE | `w65816` (alias `mos65816`) + `spc700` | `wla-65816` / `bass` / `asar` | **LoROM/HiROM/ExHiROM** (`SMC` 0/512 B + `0x7FC0`/`0xFFC0` header `SNES` map byte) → `SFC` | Bank `0x8000` mirrored; SPC700 is a second target. |
+| **Neo Geo** | 68000 + Z80 | M68K+Z80 | `M68K+68000` / `Z80` | BE/LE | `m68k` + `z80` | `vasm`, `wla` | Flat P-ROM + S-ROM + C-ROM (multi-binary like DOL) | Multi-binary = reuse §6 dual-binary pattern. |
+| **Atari 2600/7800** | 6502 / MARIA+6502 | MOS 6502 | `MOS65XX + 6502` | LE | `mos6502` | `dasm`, `ca65` | Flat 2K/4K/8K (`0xF000`/`0x1000`) | Trivial; useful as "hello world" loader test. |
+
+¹ Capstone 5.x: `MOS65XX` covers 6502/65C02 via `CS_MODE_MOS65XX_6502`/`_65C02`; M65816 is a
+`MOS65XX` sub-mode (verify against `capstone 5.0.9` constants — fall back to a tiny
+custom 65816 decoder if mode flag is absent; the addendum does not block on it).
+GB SM83 is Z80 with removed `IX/IY` + `LDH` — Capstone `Z80` disassembles 95% correctly;
+GB-specific encodings (`LDH`, `STOP`) need a post-pass or RGBDS's own disasm.
+² SPC700 is a small 6502-like ISA — add `spc700` as `mos65xx`-adjacent or vendor `spc700-dis`.
+
+### A.3 What Rebrew *already* does for assembly projects (no new engine)
+
+| Rebrew subsystem | Assembly-era use verbatim |
+|------------------|--------------------------|
+| **Catalog** (`catalog/`, `_load_*`) | iNES/SMC header → PRG/CHR `SectionInfo`; SNES Lo/Hi map → banked Sections; Genesis vector table → `0x0000` Section. Every `BinaryInfo.section` becomes a *bank*. `function_structure.json` is replaced by bank+routine boundaries (labels). Same `build_db` pipeline. |
+| **Disasm** (`asm.py`, `scoring.py` mnemonic histogram) | Swap Capstone `arch/mode` (above). `asm 0x8000 --arch mos6502` works once preset exists. No reloc masking needed — asm bytes are verbatim. |
+| **Xrefs / data scan** (`analysis.py`, `data.py`, `xrefs.py`) | Identical: `scan_references` (capstone once per section) finds `JSR/JMP` targets, `LDA absolute` data refs, CHR/level pointer tables. `data --scan --dispatch` already handles jump tables — SNES/GB pointer tables are the same. |
+| **Similar** (`similar.py`) | Mnemonic-histogram clone detection is ISA-agnostic — finds copy-pasted PPU routines, sound drivers across banks. |
+| **TODO / status / verify** | `STATUS` vocabulary changes (see §A.6) but the overlay (`metadata STATUS` vs `verify cache effective STATUS`) is identical. `rebrew todo -c start-function` becomes `todo -c start-routine`. |
+| **Ghidra sync** | Ghidra has `6502`, `z80`, `68000`, `65816` processors; ReVa MCP works for any ISA (§5.5.3). Labels/comments/structs sync unchanged. |
+| **Report / dashboard** | `build_db → coverage.db → dashboard` is container-agnostic; banked Sections render as bank grid. |
+| **Lint / annotations** | Marker line generalizes: `// ROUTINE: BANK 0x8000` vs `// FUNCTION:` — or keep `FUNCTION` and add `BANK` field in `rebrew-function.toml` (same seam as `overlay` in §5.5.2). |
+| **Round-trip** | Assembler round-trip: `ca65/rgbasm/wla → ld/link → ROM → header checksum fix → verify`. Same `round-trip.py` shape as N64 checksum / DOL BSS — just a different header patch. |
+
+### A.4 Brainstorm — 10 assembly-era workflows Rebrew could enable
+
+> Rated ★ (nice-to-have) → ★★★ (Rebrew's killer feature for ASM). Each is a *lightweight* extension, not a new matching engine.
+
+| # | Idea | What it builds on | Payoff | Effort |
+|---|------|-------------------|--------|--------|
+| **A1** | **Disassembly workbench with bank-aware `intake`** `rebrew intake mario.nes` → detects iNES header, mapper, PRG banks → `src/NES/bank_00/`… / `src/GB/bank_00/` — exactly N64 `splat.yaml` intake (§1A) but with `ines_loader` / `snes_loader` / `gb_loader`. | `intake.py` + new `*_loader.py` (ADR-001) | ★★★ — one command from ROM to browsable source tree; today's toolchains require 3 tools. | S per console |
+| **A2** | **Assembler-in-the-loop verify** — `rebrew verify` repurposed: assemble each `*.asm` (`ca65`/`rgbasm`/`wla`) → extract routine bytes → verbatim compare to PRG bank. No flag sweep, no GA. `verify --watch` is a *live assembler*. | `compile.py` compile path + `ToolchainSpec` (`ca65`/`rgbasm`/`wla`, native, no Wine) | ★★★ — the only missing piece for "rebrew for ASM" to feel like "rebrew for C". | S |
+| **A3** | **CHR / tile / palette data pipeline** — `rebrew data --scan` extended for 2bpp CHR banks, OAM, nametables, palette tables; `--gen-header` emits `chr_bank_00.inc` / `tiles.h` with correct `.incbin` offsets. | `data.py --dispatch` (pointer tables already) + new CHR heuristics | ★★★ for GB/NES/PC Engine; the bulk of a disassembly is data, not code. | M |
+| **A4** | **Mapper-aware symbol relocation** — `core/matching.py` `smart_reloc_compare` disabled (no relocs); instead `build_db` + `xrefs` understand bankswitch: `JSR $8000` means different things per bank. Catalog stores `(bank, va)` not flat VA — reuse `(overlay, VA)` from §5.5.2 verbatim. | DB `overlay` migration (`db_version 5`) | ★★ — correctness; without it, cross-bank xrefs are garbage (same VA, different code). | S (already planned) |
+| **A5** | **Cycle-timed raster / self-modifying code (SMC) awareness** — `todo`/`near_diag` flag routines that self-modify (`STA $addr` where `$addr` is inside `.text`), use `WSYNC`/`HBLANK` (`STA WSYNC`), or depend on exact cycle counts (2600 `RESP0` kernels). Mark as `BLOCKER: cycle-timed` / `BLOCKER: SMC` — like SEH helpers (`CODEGEN_PATTERNS.md`), honest ASM blockers. | `analysis.py` scan + new `BLOCKER` taxonomy | ★★ — prevents wasted effort on unmatchable-by-structure routines. | S |
+| **A6** | **Non-matching (C) recompilation assist** — many ASM decomps evolve from "verbatim ASM" → "C reimplementation that is *functionally* equivalent but not byte-identical". Rebrew can track both: `STATUS: ASM_EXACT` (assembler loop) vs `STATUS: C_EQUIVALENT` (`prove.py` angr/vex already lifts 6502/68000/Z80). | `prove.py` (angr VEX lifts M68K/Z80/ARM; add 6502/65816 via `py65` or angr's `mos65xx`) | ★★ — bridges the classic "disassembly → decompilation" gap for ASM platforms. | M |
+| **A7** | **Library / mapper / sound-driver FLIRT** — FLIRT for common ASM libraries (Nintendo's `apu`, `ppu` init, Konami mapper, Capcom sound drivers, GB `gbdk` stubs). Same `rebrew flirt` as §5, just different `.pat` packs: `flirt --pack nes-mappers / gbsound / snes-spc700`. | `flirt.py` + `python-flirt` (already) | ★★ — filters the 20% of ROM that is stock SDK/mapper boilerplate. | S (per pack) |
+| **A8** | **ToolchainSpec for assemblers** (ADR-006 reuse) — `ca65`, `rgbds` (`rgbasm+rgblink+rgbfix`), `wla-*`, `bass`, `asar` as `ToolchainSpec` entries (`docker-first → vendored → PATH`); `rebrew toolchain list` shows them. No Wine (all native). `flag_data.py` not needed — assemblers have ~2 flags (`--cpu`, `-o`). | `toolchain.py` (already) | ★ — uniformity; today's ASM toolchains are even more fragmented than C. | S |
+| **A9** | **Splat/bass/GB disassembly import** — `rebrew intake --splat splat.yaml` already in §1A; add `rebrew intake --rgbds symfile.sym` / `--ca65 labels.txt` / `--bass bankmap.asm` to import an *in-progress* community disassembly. Reuse decomp.me import idea (§8.7) for ASM. | `intake.py` importers | ★★ — porting `pret/pokeemerald` or `smbdisasm` into Rebrew in minutes. | M |
+| **A10** | **Asset diff + graphics preview** — extend `rebrew resource --diff-iso` (§8.5) to CHR diff: extract nametables/sprites after rebuild and `diff` as images (via `matplotlib`, already an available dep). `rebrew report` embeds CHR preview. | `resource.py` + `report.py` | ★ — visible payoff; a byte diff on CHR is unreadable, an image diff is instant. | M |
+
+### A.5 Assembly-specific arch details (what Phase 0 misses)
+
+| Item | MOS6502 / 65816 / HuC6280 | Z80 | SM83 (GB) | M68K 68000 | SPC700 |
+|------|--------------------------|-----|-----------|------------|--------|
+| Capstone arch | `CS_ARCH_MOS65XX` + `CS_MODE_MOS65XX_6502/65C02/M65816` | `CS_ARCH_Z80` | `CS_ARCH_Z80` (+ SM83 post-pass) | `CS_ARCH_M68K` + `CS_MODE_M68K_68000` | `CS_ARCH_MOS65XX`¹ or vendored |
+| Pointer size | 2 (16-bit addr) | 2 | 2 | 4 (32-bit, flat `0x0000`) | 2 |
+| Padding byte | `0xEA` (`NOP`), `0xFF` (`RST`) on HuC6280 | `0x00` (`NOP`) | `0x00` | `0x4E71` (`NOP`) as 2-byte | `0x00` |
+| Function boundary | No `push bp` — `JSR` targets + `RTS/RTI` + fall-through. Use call-graph (`JSR`/`JMP` trace) + `RTS` sweep (same as NE `ret` sweep, ADR-002). | `CALL` + `RET` (like 16-bit) — existing sweep transfers with `CS_MODE_16`→`CS_MODE_Z80`. | `CALL`/`RST` + `RET/RETI` — same as Z80. | `JSR/BSR` + `RTS/RTE` — 32-bit sweep, like x86. | `CALL` + `RET` (6502-like). |
+| Bank/mirror trap | Zero-page + stack page `0x0100` are reloc-like (`LDA $00,X`) — not zeroed. | I/O ports `IN`/`OUT` not relocs. | `LDH [rX], A` / `LDH A, [rX]` is reg-like (`HRAM` `0xFF00`). | `LEA`/`MOVEA` abs32 are reloc-like. | — |
+| Toolchain detect | Logo CRC + `NES`/`SEGA`/`Nintendo` strings + master header `SNES` map byte `0x7FC0–0xFFC0` | same | `RGBDS` linker version string in GB header at `0x134` | `SEGA` at `0x100` (Genesis) | — |
+
+¹ Verify SPC700 capstone availability at implementation; SPC700 disasm is <500 lines to vendor if absent.
+
+**NE analogy (ADR-001/002):** Every assembly loader is a *native loader* (like `ne_loader.py`): it parses the console header (iNES/SMC/GB/MD), derives PRG bank layout, and synthesizes `BinaryInfo` with stable synthetic VAs (`bank<<16|off` reuse of `segment<<16|off` — same invariant §5.5.3). Enumeration is a *conditional probe* (ADR-002): PRG bank vs CHR bank vs RAM mirror are the two conventions; `probe_is_code(info, bank)` gates the sweep.
+
+### A.6 Assembly-adapted `STATUS` + `BLOCKER` vocabulary
+
+Keep the *mechanism* (`rebrew-function.toml` + `update_source_status`, `AGENTS.md` invariant) — only the *words* change so `STATUS` remains honest:
+
+| STATUS (proposed new) | Meaning | Analogue in `main` |
+|-----------------------|---------|---------------------|
+| `ASM_EXACT` | Assembled bytes verbatim match PRG bank (assembler loop). Authoritative. | `EXACT` |
+| `ASM_RELOC` | Matches after mapper/bank base fixup (bank number in `LDA #bank` differs). Rare. | `RELOC` |
+| `C_EQUIVALENT` | C reimplementation proven equivalent via `rebrew prove` (symbolic). | `PROVEN` |
+| `STUB` | Unfinished routine — `RTS` stub / TODO. | `STUB` |
+| `BLOCKER: cycle-timed` | Raster kernel (Atari 2600 `RESP0`, NES `PPU` nametable mid-scan). | `BLOCKER: SEH helper` |
+| `BLOCKER: SMC` | Self-modifying code (`STA $code+1`). | `BLOCKER: non-matchable` |
+| `BLOCKER: mapper IRQ` | Mapper interrupt (`MMC3 IRQ`, `VRC6`) — bankswitch timing. | same |
+| `BLOCKER: audio` | APU/SPC700 driver — cycle-timed audio. | same |
+
+These are additive — C-era `EXACT`/`RELOC`/`PROVEN`/`STUB`/`BLOCKER` stay. Lint `W019` and `verify --compare` treat `ASM_EXACT` as `matched` (like `EXACT`). No schema break until someone needs it; then `db_version 6` adds a `kind` column (`c` vs `asm`) rather than a new table.
+
+### A.7 Risks specific to ASM era
+
+| Risk | Mitigation |
+|------|------------|
+| **Capstone not a full 6502/SM83 canon** — GB `LDH`/`STOP`, 65816 `MVN`, HuC6280 `TAM` may decode as `UNDEF`. | Gate each arch preset with a hex-fixture round-trip (`tests/fixtures/{mos6502,z80,m68k,sm83}`) before any sweep — same rule as §9. Vendor a 200-line 65816/SPC700 table if a mode flag is missing. |
+| **Bank aliasing is worse than N64 overlays** — same PRG VA `0x8000` in 16 banks; flat `functions.txt` collapses them. | Reuse `db_version 5` overlay field as `bank` (already committed for N64/DOL). `todo`/`status` filter by `--bank`. |
+| **No FLIRT packs for mappers** — mappers *are* the SDK but no `.pat` packs ship. | Start from `rebrew gen-flirt-pat` on vendored `mapper/*.asm` → `.pat` (same as `libultra`). One pack per mapper family (MMC3 etc.) — S per pack. |
+| **RGBDS/ca65 are native — no Docker** — assembling is 10× faster than compiling, so optimization loop is different. | Lean into it: `rebrew verify --watch` is a *live assembler watch* (A2) — sub-second feedback, beats C's 60 s timeout. Document as the headline feature. |
+| **Prove/angr for 6502/65816 is immature** — VEX lifts 6502 partially. | Mark `C_EQUIVALENT` as opt-in (`--prove`) and keep `ASM_EXACT` authoritative. Do not block ASM decomps on symbolic proof. |
+
+### A.8 Minimal Phase Sketch (not committed — sketch only)
+
+> These are additive to `§6 Phase 0–7` and intentionally lighter. Each is one
+> loader + one assembler spec + one header fixup. Serve as `IDEAS.md` candidates
+> when an ASM project wants Rebrew.
+
+| Phase | Scope | Est. | Depends |
+|-------|-------|------|---------|
+| **A0 Foundation (8-bit ISA)** | Add `mos6502`/`w65816`/`huc6280`/`z80`/`sm83`/`m68k`/`spc700` to `_ARCH_PRESETS` + `_KNOWN_FORMATS` `ines`/`sfc`/`smc`/`gb`/`gbc`/`pce`/`md` + native loaders (`ines_loader`/`snes_loader`/`gb_loader`/`md_loader`) as one hex fixture + one `docs/*_NOTES.md` each (OMF_NOTES.md template). | 1–2 w | Phase 0 |
+| **A1 NES + GB** | `ca65`/`rgbds` as `ToolchainSpec` (native), `ASM_EXACT` status, `rebrew verify` assembler path, CHR/tile `--gen-header`. Two E2E fixtures: a 32K NROM (`mario` stub) and a tiny GB ROM (`rgbds` `hello`). | 1–2 w | A0, 4 |
+| **A2 Genesis + SNES** | `vasm`/`wla-65816` loaders (LoROM/HiROM detect at `0x7FC0`/`0xFFC0`, Genesis vector table at `0x00`), 68000/65816 Capstone modes, `m68k` FLIRT pack. | 2 w | A0 |
+| **A3 Polish** | Mapper FLIRT packs, SPC700/Z80 co-CPU dual-binary (like DS/Saturn), `rebrew resource --chr-diff` image preview, `import --rgbds`/`--ca65`. | 1–2 w | A1/A2 |
+
+### A.9 How to read this addendum with the main roadmap
+
+- **Main (§1–6):** `compiler-in-the-loop matching` — the engine (`match.py`, `mutator.py`, `flag_sweep`, `CODEGEN_PATTERNS`) is the star. Consoles are WLA-like to PC: same loop, new arch/format.
+- **Addendum (§A):** `disassembly + assembler-in-the-loop workbench` — the engine idles (`match.py`/`mutator.py` unused), the workbench shines (`catalog`, `asm`, `data`, `xrefs`, `todo`, `status`, `verify --watch`, `round-trip`, `report`).
+- **Shared contract (§5.5.3 invariants):** config-driven, idempotent, `STATUS` via metadata only, synthetic VA stability, disc→inner-binary honesty — all hold for ASM era with `bank` as the synthetic axis.
+
+*This addendum is the backlog for idea A2/A3/A6 in `IDEAS.md` after Phase 4 ships. It intentionally proposes no new deps beyond `capstone` modes already added in Phase 0 — assemblers are PATH natives, FLIRT packs are `.pat` files, and CHR preview reuses `matplotlib` (Available per `TOOLCHAIN.md`).*
