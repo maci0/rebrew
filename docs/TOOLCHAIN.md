@@ -88,11 +88,16 @@ the docker-first compile produces the same object + relocs as the host
 path), `msvc1.52` (16-bit, DOSBox via `rebrew.msvc16`; image
 `rebrew/msvc:1.52-win16` built+verified — containerized CL.EXE
 produces a genuine 16-bit OMF object; the `cl16` wrapper takes the source
-as its single argument and adds `/nologo /c` itself), plus two
-**host-only** archived toolchains that share the wine-based MSVC paths:
-`msvc420` (`toolchain/msvc/4.2-win32`, no mirror tarball) and `msvc5`
-(`toolchain/msvc/5.0-win32`, no mirror tarball — Win2K-era binaries were built with
-MSVC 5.0, so this is the profile for byte-matching them).
+as its single argument and adds `/nologo /c` itself), `borlandc55`
+(Borland C++ 5.5 free command-line tools under wine; image
+`rebrew/borland:5.5-win32` built+verified — bcc32 emits OMF objects that
+parse via objconv; vendored from the archive.org `BorlandC55` item),
+`watcom16` (Open Watcom 2.0 `wcc`, 16-bit DOS, native — same snapshot as
+`watcom`), plus two **host-only** archived toolchains that share the
+wine-based MSVC paths: `msvc420` (`toolchain/msvc/4.2-win32`, no mirror
+tarball) and `msvc5` (`toolchain/msvc/5.0-win32`, no mirror tarball —
+Win2K-era binaries were built with MSVC 5.0, so this is the profile for
+byte-matching them).
 
 **Every registry toolchain with a mirror tarball has a verified
 containerized path** (the four images above + gcc-pe native) — the

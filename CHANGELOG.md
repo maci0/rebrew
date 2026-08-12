@@ -198,6 +198,21 @@
   end-to-end: the API compiled C with `msvc6` (i386 COFF object served
   back) and `watcom`; unit tests cover the catalog, image resolution and
   the 400/404 error paths (no docker needed).
+- **Toolchain zoo additions**: `borlandc55` (Borland C++ 5.5 free
+  command-line tools — bcc32 under wine, OMF objects that parse via
+  objconv; image `rebrew/borland:5.5-win32`) and `watcom16` (Open Watcom
+  `wcc`, 16-bit DOS, native) — the detector's `borlandc`/`watcom` families
+  now have profiles to byte-match with, and `rebrew init` warns on family
+  mismatch with the correct counterpart.
+- **Toolchain images are deterministic and self-contained**: every
+  Dockerfile builds from a clean checkout with only docker — the base pins
+  the debian digest, msvc6/watcom/borland downloads verify sha256 (the
+  moving watcom tag is pinned by checksum), and msvc1.52 + delphi use
+  committed in-repo tarballs (the archive.org en_vc152 RAR SFX extracts
+  corrupt files under both 7z and unar; the Delphi RTL units have no
+  public tarball).  7z extraction tolerates warning exits but verifies the
+  compiler binary, so a bad extraction fails loudly.  All five images
+  verified building + compiling.
 - **`functions.similarity` documented as reserved**: the column was
   documented as a structural-similarity score but no catalog producer ever
   emitted it (it needs both target AND recompiled bytes, which only
