@@ -10,7 +10,12 @@
 
 FROM rebrew/base:1.0
 
-WORKDIR /opt
+# OCI provenance labels (org.opencontainers.image).
+LABEL org.opencontainers.image.source="https://github.com/maci0/rebrew" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.title="rebrew Borland C++ 5.5 (win32, wine)" \
+      org.opencontainers.image.description="Borland C++ 5.5 (win32, wine) toolchain image"
+
 
 # Borland C++ 5.5 free command-line tools: the archive.org zip holds an
 # InstallShield self-extractor (freecommandLinetools.exe) whose payload

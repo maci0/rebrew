@@ -12,7 +12,12 @@
 
 FROM rebrew/base:1.0
 
-WORKDIR /opt
+# OCI provenance labels (org.opencontainers.image).
+LABEL org.opencontainers.image.source="https://github.com/maci0/rebrew" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.title="rebrew MSVC 1.52 (win16, DOSBox)" \
+      org.opencontainers.image.description="MSVC 1.52 (win16, DOSBox) toolchain image"
+
 
 # Vendored MSVC 1.52 command-line tree (BIN/INCLUDE/LIB at the tarball top).
 COPY msvc152.tar.xz /tmp/msvc152.tar.xz
