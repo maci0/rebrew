@@ -128,8 +128,12 @@ def parse_obj_symbol_and_relocs(
     else:
         sym_names.append("_" + symbol)
         sym_names.append(symbol + "_")
+    # Materialize the symbols once: lazily-iterated coff.symbols generators
+    # hold nanobind iterator refs that LIEF's refleak detector flags at
+    # interpreter shutdown (every parse leaked → non-zero exit).
+    symbols = list(coff.symbols)
     target_sym = next(
-        (s for s in coff.symbols if s.name in sym_names and s.section is not None),
+        (s for s in symbols if s.name in sym_names and s.section is not None),
         None,
     )
     if target_sym is None:
@@ -140,7 +144,7 @@ def parse_obj_symbol_and_relocs(
     func_start = target_sym.value
     sec_offsets = sorted(
         s.value
-        for s in coff.symbols
+        for s in symbols
         if s.section is not None
         and s.section.name == section.name
         and not str(s.name).startswith("$")
