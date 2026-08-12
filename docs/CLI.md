@@ -69,7 +69,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew data` | `data.py` | Global data scanner for .data/.rdata/.bss; `--bss` layout verification; `--dispatch` vtable detection |
 | `rebrew graph` | `depgraph.py` | Function dependency graph (mermaid, DOT, summary); `--cu-map` infers compilation unit boundaries |
 | `rebrew doctor` | `doctor.py` | Diagnostic checks for project health (config, compiler, binary, paths); Delphi 1.0 toolchain readiness for 16-bit targets; `--install-wibo`; `--json` |
-| `rebrew toolchain` | `toolchain_cli.py` | Standardized toolchain management (`list`, `status`, `detect`, `pull`, `build`) — docker-first invocation with host fallback |
+| `rebrew toolchain` | `toolchain_cli.py` | Standardized toolchain management (`list`, `status`, `detect`, `pull`, `build`, `vendor`, `smoke`) — docker-first invocation with host fallback |
 | `rebrew binsync-export` | `binsync_export.py` | Export source markers and metadata to BinSync state directory (prototype, STATUS/CFLAGS, globals with real types, structs with fields; `--module`, `--git`) |
 | `rebrew binsync-import` | `binsync_import.py` | Import a BinSync state directory into rebrew metadata (names, prototypes, globals; `--accept-binsync`/`--accept-local`, `--module`) |
 | `rebrew binsync-diff` | `binsync_diff.py` | Read-only divergence report between rebrew and a BinSync state directory (`--module`, `--target`; exits 1 on any divergence) |
@@ -506,10 +506,10 @@ Merge multiple single-function `.c` files into one multi-function file. Preamble
 | `--compiler PROFILE` | Compiler profile (default: `msvc6`) |
 | `--json` | Output results as JSON |
 
-- `--link-tools-from PATH` — symlink `tools/<profile>` from a master toolchain
-  directory (e.g. the rebrew repo's `tools/`).  Optional: compiler
-  command/includes/libs that are missing under the project's `tools/` resolve
-  against the rebrew install's own vendored `tools/` automatically, so a
+- `--link-tools-from PATH` — symlink `toolchain/<family>/<version>-<arch>` from a master toolchain
+  directory (e.g. the rebrew repo's `toolchain/`).  Optional: compiler
+  command/includes/libs that are missing under the project's `toolchain/` resolve
+  against the rebrew install's own vendored `toolchain/` automatically, so a
   fresh project compiles out of the box without the symlink.
 - `--install-completions` — write bash/zsh/fish completion scripts into `completions/`
 
@@ -611,7 +611,7 @@ history (`.rebrew/ga_runs.jsonl`).  Read-only.
 | `add-module` / `remove-module` | Manage `reversed_dir` modules |
 | `set-cflags MODULE FLAGS` | Set a module's cflags preset (global, or per-target with `--target`) |
 | `set-compiler TARGET PROFILE` | Write a compiler profile (`msvc6`, `msvc7`, `clang`, `gcc`) onto a target |
-| `detect-crt` | Scan `tools/` for known MSVC CRT source dirs |
+| `detect-crt` | Scan `toolchain/` for known MSVC CRT source dirs |
 | `raw` | Dump `rebrew-project.toml` as JSON (`--format toml` for TOML) |
 | `path` | Print the path to `rebrew-project.toml` |
 
@@ -632,10 +632,12 @@ Standardized toolchain management — the docker-first abstraction
 | Subcommand | Description |
 |------------|-------------|
 | `list` | List known toolchains + how each is invoked (`--json`) |
-| `status NAME` | How one toolchain resolves (image pulled? host binary present?) |
+| `status NAME` | How one toolchain resolves (image pulled? host binary present? resolved-mirror layout reported when the master is absent) |
 | `detect BINARY` | Detect which compiler/toolchain built a binary (diec → PDB → heuristics); with a project present, also reports whether the configured profile can byte-match it (`--json`) |
 | `pull NAME` | Pull a toolchain's docker image (locally-built images are reported as already present, not re-pulled) |
-| `build NAME` | Build a toolchain's docker image from its `toolchain-images/<family>/<ver>-<arch>/Dockerfile` |
+| `build NAME` | Build a toolchain's docker image from its `toolchain/<family>/<ver>-<arch>/Dockerfile` (builds the shared `rebrew/base` dependency first) |
+| `vendor NAME` | Assemble the host tree from the pinned source — the committed in-repo tarball (msvc1.52, delphi) or a sha256-verified download (borland, watcom, msvc6).  Refuses to clobber an existing tree; fails loudly if the compiler binary is missing |
+| `smoke [NAME]` | Compile the fixed smoke source in each image and verify the object sha256 against the golden bytes — the byte-reproducibility gate (all five images pass; MSVC6's COFF build-time stamp is masked) |
 
 ### `rebrew binsync-export`
 

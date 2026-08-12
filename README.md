@@ -281,6 +281,13 @@ Rebrew is part of a broader decompilation ecosystem. These are the notable proje
 | [Ghidra](https://github.com/NationalSecurityAgency/ghidra) | NSA's reverse engineering suite | Primary disassembler/decompiler; connected via ReVa MCP |
 | [FLIRTDB](https://github.com/Maktm/FLIRTDB) | FLIRT signature database | Signatures for MSVC, Borland, MinGW used by `rebrew flirt` |
 
+## Companion Projects
+
+| Project | What it is |
+|---------|-----------|
+| [recompile.online](https://github.com/maci0/recompile) | Compiler-as-a-service API over the rebrew toolchain zoo — submit C + a toolchain id, get the compiled artifact (separate workspace: `../recompile`) |
+| [recoverage](https://github.com/maci0/recoverage) | Coverage database / dashboard over `rebrew build-db` output |
+
 ## License
 
 MIT

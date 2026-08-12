@@ -191,6 +191,35 @@ Notes:
 - **Symantec C++ / Zortech C++ / Intel C++**: detected (family hints) but
   no byte-matching profile.
 
+### Reproducible, self-contained builds
+
+Every toolchain image builds **reproducibly from a clean checkout with only
+docker** — no host files:
+
+- **Base** (`toolchain/base/`, `rebrew/base:1.0`) pins the debian digest,
+  so apt resolves the same snapshot on every build.
+- **Downloads are sha256-verified** (msvc6 tarball, watcom snapshot — the
+  moving `Last-CI-build` tag is pinned by the checksum — and the Borland
+  InstallShield payload).  A changed source fails the build loudly.
+- **In-repo tarballs** (`msvc152.tar.xz`, `delphi10.tar.xz`) are used for
+  msvc1.52 + delphi — the archive.org en_vc152 RAR SFX extracts corrupt
+  files under both 7z and unar, and the Delphi RTL units have no public
+  tarball.  The verified trees are committed instead.
+- Extraction tolerates 7z's warning exits but **verifies the compiler
+  binary exists**, so a bad extraction fails loudly.
+- All images carry **OCI provenance labels** (source/license/title).
+
+`rebrew toolchain smoke` is the **byte-reproducibility gate**: it compiles
+a fixed source in each image with deterministic inputs (fixed work dir +
+fixed source mtime — OMF/COFF objects embed the source path and
+modification time) and verifies the object sha256 against golden bytes.
+MSVC6's COFF TimeDateStamp (build time) is the only non-deterministic byte
+and is masked; all five images pass.
+
+`rebrew toolchain vendor <name>` assembles the **host tree** from the same
+pinned source the image builds from (in-repo tarball or sha256-verified
+download), so host trees and containers are byte-identical.
+
 ### Toolchain Detection (doctor alignment check)
 
 `rebrew doctor` runs a "Toolchain alignment" check that guesses what

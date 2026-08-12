@@ -29,6 +29,20 @@ that contains the actual binaries, source files, and toolchains.
   requires the author's exact GCC version; old builds usually match only
   structurally (document the semantic decomp + blocker).
 - **`gcc` / `clang`**: ELF/x86_64 targets.
+- **`borlandc55`**: Borland C++ 5.5 free command-line tools (bcc32 under
+  wine; OMF objects, parsed via objconv) — image `rebrew/borland:5.5-win32`
+  or `toolchain/borland/5.5-win32`.  Use for Borland-built PE/x86_32
+  targets (detector family `borlandc`).
+- **`watcom16`**: Open Watcom 2.0 `wcc` (16-bit DOS, native Linux) —
+  same snapshot as `watcom`.  Use for 16-bit DOS/Watcom targets
+  (detector family `watcom`).
+- **`msvc1.52` / `delphi16`**: 16-bit targets via DOSBox
+  (`toolchain/msvc/1.52-win16`, `toolchain/delphi/1.0-win16`).
+
+Every toolchain image is assembled reproducibly (pinned sources,
+sha256-verified downloads or committed in-repo tarballs; shared
+`rebrew/base` with a pinned debian digest) and `rebrew toolchain smoke`
+gates byte-reproducible objects — see `docs/TOOLCHAIN.md`.
 
 ## Build & Test Commands
 
