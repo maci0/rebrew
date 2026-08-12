@@ -25,7 +25,12 @@
 # debian:bookworm-slim@sha256:362e64223cc0da95422b3b13c045186fc0a81250e765d31c025fbddf257f6143
 FROM debian:bookworm-slim@sha256:362e64223cc0da95422b3b13c045186fc0a81250e765d31c025fbddf257f6143
 
-RUN dpkg --add-architecture i386 \
+# OCI provenance labels (org.opencontainers.image).
+LABEL org.opencontainers.image.source="https://github.com/maci0/rebrew" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.title="rebrew base (OS + wine + dosbox + wrapper helpers)" \
+      org.opencontainers.image.description="base (OS + wine + dosbox + wrapper helpers) toolchain image"
+
     && apt-get update \
     && apt-get install -y --no-install-recommends \
         wine wine32 dosbox dumb-init curl ca-certificates xz-utils \

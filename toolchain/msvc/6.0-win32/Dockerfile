@@ -9,7 +9,12 @@
 
 FROM rebrew/base:1.0
 
-WORKDIR /opt
+# OCI provenance labels (org.opencontainers.image).
+LABEL org.opencontainers.image.source="https://github.com/maci0/rebrew" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.title="rebrew MSVC 6.0 (win32, wine)" \
+      org.opencontainers.image.description="MSVC 6.0 (win32, wine) toolchain image"
+
 
 # MSVC 6.0 command-line toolchain (Bin/Include/Lib — top-level in the tarball).
 RUN curl -sL -o /tmp/msvc6.tar.gz \

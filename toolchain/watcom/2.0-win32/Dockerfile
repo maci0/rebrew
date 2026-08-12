@@ -11,7 +11,12 @@
 
 FROM rebrew/base:1.0
 
-WORKDIR /opt
+# OCI provenance labels (org.opencontainers.image).
+LABEL org.opencontainers.image.source="https://github.com/maci0/rebrew" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.title="rebrew Open Watcom 2.0 (win32, native)" \
+      org.opencontainers.image.description="Open Watcom 2.0 (win32, native) toolchain image"
+
 
 RUN curl -sL -o /tmp/ow.tar.xz \
         "https://github.com/open-watcom/open-watcom-v2/releases/download/Last-CI-build/ow-snapshot.tar.xz" \

@@ -14,7 +14,12 @@
 
 FROM rebrew/base:1.0
 
-WORKDIR /opt
+# OCI provenance labels (org.opencontainers.image).
+LABEL org.opencontainers.image.source="https://github.com/maci0/rebrew" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.title="rebrew Delphi 1.0 (win16, DOSBox)" \
+      org.opencontainers.image.description="Delphi 1.0 (win16, DOSBox) toolchain image"
+
 
 # Vendored Delphi 1.0 toolchain: DCC.EXE, DELPHI.DSL, DPMI16BI.OVL, RTM.EXE
 # and the RTL/VCL units (delphi-lib → /opt/delphi10/DELPHI/LIB).
