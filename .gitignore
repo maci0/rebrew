@@ -117,6 +117,7 @@ rebrew-function.toml.lock
 !/toolchain/**/Dockerfile
 !/toolchain/**/*.sh
 !/toolchain/**/pak_extract.py
+!/toolchain/**/*.tar.xz
 
 # tools/ symlinks back to the vendored toolchain/ trees (existing projects
 # keep resolving tools/<name> → toolchain/<family>/<version>-<arch>).

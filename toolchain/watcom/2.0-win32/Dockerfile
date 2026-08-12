@@ -1,20 +1,25 @@
 # Open Watcom 2.0 (C) — x86 32-bit codegen compiler (native Linux).
 #
-# Inherits the shared rebrew/base (debian + wine + dosbox + common wrappers);
-# this image adds the Open Watcom 2.0 snapshot (CI tarball — the official
-# self-extracting installer SIGFPEs on modern glibc, known issue) and uses
-# wcc386 directly as the entrypoint.
+# Inherits the shared rebrew/base; this image downloads the Open Watcom 2.0
+# CI snapshot (ow-snapshot.tar.xz — the official self-extracting installer
+# SIGFPEs on modern glibc, known issue), sha256-pinned so the moving
+# Last-CI-build tag is deterministic, and uses wcc386 as the entrypoint.
+# Fully self-contained: no host files.
 #
 # Build:  docker build -t rebrew/watcom:2.0-win32 toolchain/watcom/2.0-win32
-# Invoke: docker run --rm -v "$PWD":/work -w /work rebrew/watcom:2.0-win32 -c -o out.o f.c  (ENTRYPOINT is wcc386)
+# Invoke: docker run --rm -v "$PWD":/work -w /work rebrew/watcom:2.0-win32 -fo=out.o f.c  (ENTRYPOINT is wcc386)
 
 FROM rebrew/base:1.0
 
 WORKDIR /opt
 
-COPY binl/ /opt/watcom/binl/
-COPY h/ /opt/watcom/h/
-COPY lib386/ /opt/watcom/lib386/
+RUN curl -sL -o /tmp/ow.tar.xz \
+        "https://github.com/open-watcom/open-watcom-v2/releases/download/Last-CI-build/ow-snapshot.tar.xz" \
+    && echo "984ff0d9a3f36bdb7596d8751299b3630cc259560c8386fb3337caa0037f3b4c  /tmp/ow.tar.xz" | sha256sum -c - \
+    && mkdir -p /opt/watcom \
+    && tar xJf /tmp/ow.tar.xz -C /opt/watcom --strip-components=1 \
+    && rm /tmp/ow.tar.xz \
+    && ls /opt/watcom/binl/wcc386
 
 # wcc386 (32-bit x86, native) — rebrew's entrypoint.  Emits OMF objects by
 # default (8086 relocatable); the OMF parser is the enabling follow-up.

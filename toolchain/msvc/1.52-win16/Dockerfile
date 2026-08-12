@@ -1,10 +1,11 @@
 # MSVC 1.52 — 16-bit compiler (Phar Lap TNT CL under DOSBox).
 #
-# Inherits the shared rebrew/base (debian + wine + dosbox + common wrappers);
-# this image adds the vendored MSVC 1.52 command-line tree and the `cl16`
-# entrypoint wrapper, which stages BIN/INCLUDE/LIB into a fresh DOSBox C:
-# drive, runs CL.EXE /c headless, and writes the .OBJ back to the mounted
-# /work.
+# Inherits the shared rebrew/base; this image adds the MSVC 1.52
+# command-line tree from the committed msvc152.tar.xz (extracted from the
+# archive.org en_vc152_202512 RAR SFX — the download itself is corrupt for
+# 7z/unar, so the verified tree is vendored in-repo) and exposes the
+# `cl16` entrypoint wrapper.  Fully self-contained: no host files, no
+# downloads.
 #
 # Build:  docker build -t rebrew/msvc:1.52-win16 toolchain/msvc/1.52-win16
 # Invoke: docker run --rm -v "$PWD":/work -w /work rebrew/msvc:1.52-win16 /c test.c  (ENTRYPOINT is the cl16 wrapper)
@@ -13,10 +14,12 @@ FROM rebrew/base:1.0
 
 WORKDIR /opt
 
-# Vendored MSVC 1.52 command-line tree (archive.org en_vc152_202512).
-COPY BIN/ /opt/msvc152/BIN/
-COPY INCLUDE/ /opt/msvc152/INCLUDE/
-COPY LIB/ /opt/msvc152/LIB/
+# Vendored MSVC 1.52 command-line tree (BIN/INCLUDE/LIB at the tarball top).
+COPY msvc152.tar.xz /tmp/msvc152.tar.xz
+RUN mkdir -p /opt/msvc152 \
+    && tar xJf /tmp/msvc152.tar.xz -C /opt/msvc152 \
+    && rm /tmp/msvc152.tar.xz \
+    && ls /opt/msvc152/BIN/CL.EXE
 
 # The `cl16` wrapper (see cl16-wrapper.sh — uses wrapper-common.sh helpers).
 COPY cl16-wrapper.sh /usr/local/bin/cl16

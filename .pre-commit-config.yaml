@@ -9,7 +9,9 @@ repos:
     hooks:
       - id: trailing-whitespace
       - id: check-added-large-files
-        args: [--maxkb=500]
+        # 10 MB: the repo vendors two toolchain tarballs (msvc152.tar.xz,
+        # delphi10.tar.xz) so the images build without host files.
+        args: [--maxkb=10240]
       - id: debug-statements
       - id: end-of-file-fixer
       - id: check-merge-conflict
