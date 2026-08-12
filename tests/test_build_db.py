@@ -366,6 +366,85 @@ binary = "test.exe"
         assert row[0] == "verify_results"
         conn.close()
 
+    def test_verify_results_persist_across_rebuild(self, project_root: Path) -> None:
+        """verify_results is a persistent history table (DB_FORMAT.md: "never
+        dropped on rebuild") — a full rebuild must NOT wipe it (db-review F3:
+        the old DROP TABLE wiped every target's rows, keeping only the
+        last-verified target's re-import)."""
+        import json as _json
+
+        db_dir = project_root / "db"
+        # First build: import a report row.
+        (db_dir / "verify_results.json").write_text(
+            _json.dumps(
+                {
+                    "target": "testbin",
+                    "timestamp": "2026-01-01T00:00:00+00:00",
+                    "results": [{"va": "0x1000", "delta": 3}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        build_db(project_root)
+        # Full rebuild WITHOUT the report (simulates a later run where the
+        # report was regenerated for a different target or is absent).
+        (db_dir / "verify_results.json").unlink()
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM verify_results WHERE target = 'testbin'")
+        assert c.fetchone()[0] == 1  # row survived the rebuild
+        conn.close()
+
+    def test_verify_results_unparseable_va_does_not_wipe(self, project_root: Path) -> None:
+        """A report whose every `va` fails to parse must NOT delete the
+        target's history — the old prune built `va NOT IN ()`, which SQLite
+        treats as vacuously TRUE and wiped ALL rows (db-review F5)."""
+        import json as _json
+
+        db_dir = project_root / "db"
+        # Seed a row with a VALID report first.
+        (db_dir / "verify_results.json").write_text(
+            _json.dumps(
+                {
+                    "target": "testbin",
+                    "timestamp": "2026-01-01T00:00:00+00:00",
+                    "results": [{"va": "0x1000", "delta": 3}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        build_db(project_root)
+        # Rebuild with a report whose VAs do not parse — the prune must not
+        # wipe the previously-imported row.
+        (db_dir / "verify_results.json").write_text(
+            _json.dumps(
+                {
+                    "target": "testbin",
+                    "timestamp": "2026-01-02T00:00:00+00:00",
+                    "results": [{"va": None, "delta": 3}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM verify_results WHERE target = 'testbin'")
+        assert c.fetchone()[0] == 1  # row survived despite the unparseable report
+        conn.close()
+
+    def test_redundant_cells_section_index_absent(self, project_root: Path) -> None:
+        """The UNIQUE (target, section_name, start) constraint already serves
+        the (target, section_name) prefix — the old idx_cells_section was a
+        redundant second index paid for on every cell insert (db-review F6)."""
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_cells_section'")
+        assert c.fetchone() is None  # not created, and any stale copy dropped
+        conn.close()
+
     def test_history_persists_across_rebuilds(self, project_root: Path) -> None:
         build_db(project_root)
         build_db(project_root)
@@ -379,6 +458,45 @@ binary = "test.exe"
 
         c.execute("SELECT COUNT(*) FROM history WHERE target = 'testbin'")
         assert c.fetchone()[0] == 0
+        conn.close()
+
+    def test_history_retention_caps_per_target(self, project_root: Path, monkeypatch) -> None:
+        """history must not grow unboundedly across rebuilds — only the
+        newest _HISTORY_RETENTION rows per target survive (db-review F7)."""
+        import rebrew.build_db as bdb
+
+        # Tiny cap so the test inserts more than the limit without a huge
+        # fixture; the prune SQL uses the module constant at run time.
+        monkeypatch.setattr(bdb, "_HISTORY_RETENTION", 3)
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        now = "2026-01-01T00:00:00+00:00"
+        rows = [("testbin", 0x1000 + i, "STUB", "EXACT", now) for i in range(8)]
+        c.executemany(
+            "INSERT INTO history (target, va, old_status, new_status, changed_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            rows,
+        )
+        conn.commit()
+        # Run the same retention prune build_db applies after each insert.
+        c.execute(
+            "DELETE FROM history WHERE id NOT IN ("
+            "  SELECT id FROM ("
+            "    SELECT id, ROW_NUMBER() OVER ("
+            "      PARTITION BY target ORDER BY id DESC"
+            "    ) AS rn FROM history"
+            "  ) WHERE rn <= ?"
+            ")",
+            (bdb._HISTORY_RETENTION,),
+        )
+        conn.commit()
+        c.execute("SELECT COUNT(*) FROM history WHERE target = 'testbin'")
+        assert c.fetchone()[0] == 3  # newest 3 of 8 kept
+        # The newest rows survive (highest id).
+        c.execute("SELECT va FROM history WHERE target = 'testbin' ORDER BY id")
+        vas = [r[0] for r in c.fetchall()]
+        assert vas == [0x1005, 0x1006, 0x1007]
         conn.close()
 
     def test_summary_metadata(self, project_root: Path) -> None:

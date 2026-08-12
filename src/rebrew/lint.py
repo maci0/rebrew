@@ -896,6 +896,14 @@ def main(
 
     # Apply --fix: migrate inline metadata to rebrew-function.toml /
     # rebrew-data.toml (the destination depends on the marker type).
+    # Without a loaded config the migration has nowhere to write — say so
+    # instead of silently doing nothing (functionality-review: a user running
+    # --fix outside a project saw zero effect and no explanation).
+    if fix and not cfg:
+        console.print(
+            "[yellow]warning:[/yellow] --fix needs a rebrew-project.toml — "
+            "no config loaded, nothing migrated"
+        )
     if fix and cfg:
         from rebrew.annotation import remove_inline_annotation_key
         from rebrew.data_metadata import get_data_entry, set_data_field

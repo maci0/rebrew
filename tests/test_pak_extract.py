@@ -1,6 +1,8 @@
 """tests/test_pak_extract.py — Quantum .PAK decoder robustness + validity.
 
-``tools/DELPHI10/pak_extract.py`` is the from-scratch Quantum archive decoder
+``toolchain/delphi/1.0-win16/pak_extract.py`` (symlinked as ``tools/DELPHI10`` for
+import compatibility — hyphenated dirs cannot be imported) is the from-scratch
+Quantum archive decoder
 (arithmetic-coded LZ77) that unpacks the Borland Delphi 1.0 installer
 archives.  These tests pin two contracts:
 

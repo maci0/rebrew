@@ -92,11 +92,11 @@ class TestRunToolchain:
         assert calls[0][8] == "dcc"
 
     def test_host_fallback_uses_vendored_path(self, tmp_path: Path, monkeypatch) -> None:
-        dcc = tmp_path / "DELPHI10" / "DCC.EXE"
+        dcc = tmp_path / "delphi-1.0-win16" / "DCC.EXE"
         dcc.parent.mkdir(parents=True)
         dcc.write_bytes(b"MZ")
         spec = ToolchainSpec(
-            name="t", image=None, binary="DCC.EXE", host_path=tmp_path / "DELPHI10"
+            name="t", image=None, binary="DCC.EXE", host_path=tmp_path / "delphi-1.0-win16"
         )
         calls: list[list[str]] = []
 
@@ -272,7 +272,7 @@ class TestPullToolchain:
             lambda *a, **k: called.append(a) or type("R", (), {"returncode": 0})(),
         )
         tag, was_present = pull_toolchain("msvc6")
-        assert tag == "rebrew/msvc:6.0-linux-x64"
+        assert tag == "rebrew/msvc:6.0-win32"
         assert was_present is True
         assert not called  # no docker pull subprocess for a local image
 
@@ -286,7 +286,7 @@ class TestPullToolchain:
             lambda *a, **k: type("R", (), {"returncode": 0})(),
         )
         tag, was_present = pull_toolchain("msvc6")
-        assert tag == "rebrew/msvc:6.0-linux-x64"
+        assert tag == "rebrew/msvc:6.0-win32"
         assert was_present is False
 
     def test_cli_reports_already_present(self, monkeypatch) -> None:
@@ -299,7 +299,7 @@ class TestPullToolchain:
         result = CliRunner().invoke(umbrella, ["toolchain", "pull", "msvc6", "--json"])
         assert result.exit_code == 0
         assert '"already_present": true' in result.output
-        assert '"pulled": "rebrew/msvc:6.0-linux-x64"' in result.output
+        assert '"pulled": "rebrew/msvc:6.0-win32"' in result.output
 
 
 class TestResolveBinaryCaseInsensitive:

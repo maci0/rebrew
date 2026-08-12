@@ -53,7 +53,8 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | `rebrew cache` | Compile cache management (`stats`, `clear`) |
 | `rebrew cfg` | Read/write `rebrew-project.toml` settings |
 | `rebrew extract` | Batch extract function bytes and disassembly |
-| `rebrew binsync-export` | Export source markers and metadata to BinSync state directory (IDA/BinNinja import) |
+| `rebrew binsync-export` | Export source markers and metadata to BinSync state directory (IDA/BinNinja import; real types + struct fields, `--module`, `--git`) |
+| `rebrew binsync-import` | Import a BinSync state directory into rebrew metadata (names + prototypes + globals, `--accept-binsync`/`--accept-local`, `--module`) |
 | `rebrew round-trip` | Splice matched functions back into the target PE and verify byte equality |
 | `rebrew asm` | Quick offline disassembly |
 | `rebrew skills` | List/show the bundled agent skills |
@@ -156,6 +157,7 @@ rebrew catalog --data-json          # write db/data_<target>.json
 rebrew catalog --export-ghidra-labels  # generate ghidra_data_labels.json from detected tables
 rebrew build-db                     # build SQLite coverage database from catalog
 rebrew binsync-export ./binsync_out # export source markers and metadata to BinSync state directory
+rebrew binsync-import ./binsync_out --dry-run # import names + prototypes + globals from a BinSync state (dry-run)
 
 # Matching
 rebrew match --diff-only src/target_name/f.c       # side-by-side disassembly diff
@@ -230,8 +232,8 @@ record, the Microsoft Linker version still pins the MSVC era.
 
 **Compiler profiles:** `msvc6` is the default (MSVC 6.0 via Wine/wibo);
 `gcc-pe` targets MinGW GCC / Zig PE builds; point-version MSVC profiles
-(`msvc5`, `msvc6.3`, `msvc6.6`, `msvc7`, `msvc420`) cover the 1995–2003
-era, and `tools/DELPHI10` holds the Delphi 1.0 16-bit toolchain (not yet
+(`msvc5`, `msvc-6.0-sp3-win32`, `msvc-6.0-sp6-win32`, `msvc7`, `msvc420`) cover the 1995–2003
+era, and `toolchain/delphi/1.0-win16` holds the Delphi 1.0 16-bit toolchain (not yet
 wired for byte matching — ADR-001).  Profile selection happens
 automatically on `rebrew intake` from the detected family.
 

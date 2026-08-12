@@ -15,7 +15,7 @@ from tomlkit import TOMLDocument
 
 logger = logging.getLogger(__name__)
 
-# The rebrew package's own vendored toolchains (tools/MSVC500, tools/WATCOM,
+# The rebrew package's own vendored toolchains (toolchain/msvc/5.0-win32, toolchain/watcom/2.0-win32,
 # ...).  Projects resolve compiler paths project-relative first, then fall
 # back here so a freshly-inited project works without a local tools/ symlink.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -33,6 +33,56 @@ def find_install_tool(rel: str | Path) -> Path | None:
     """
     p = _REPO_ROOT / rel
     return p if p.exists() else None
+
+
+#: Candidate MSVC toolchain layouts per profile, best first: the full master
+#: (Bin+Include+Lib) then the vendored compile-only mirrors (newer codegen
+#: first — docs/TOOLCHAIN.md notes SP3 codegen differs from SP6).  The mirror
+#: dirs carry version suffixes (msvc-6.0-sp3-win32/6.6/7.0) while the master keeps the
+#: classic names (msvc-6.0-win32/VC98, msvc-7.0-win32), so a machine with only the mirrors
+#: must not be handed a broken master path.
+_MSVC_LAYOUTS: dict[str, tuple[tuple[str, str, str], ...]] = {
+    "msvc6": (
+        (
+            "toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE",
+            "toolchain/msvc/6.0-win32/VC98/Include",
+            "toolchain/msvc/6.0-win32/VC98/Lib",
+        ),
+        ("toolchain/msvc/6.0-sp6-win32/Bin/CL.EXE", "toolchain/msvc/6.0-sp6-win32/Include", ""),
+        ("toolchain/msvc/6.0-sp3-win32/Bin/CL.EXE", "toolchain/msvc/6.0-sp3-win32/Include", ""),
+    ),
+    "msvc7": (
+        (
+            "toolchain/msvc/7.0-win32/Bin/cl.exe",
+            "toolchain/msvc/7.0-win32/Include",
+            "toolchain/msvc/7.0-win32/Lib",
+        ),
+        ("toolchain/msvc/7.0-win32/Bin/cl.exe", "toolchain/msvc/7.0-win32/Include", ""),
+    ),
+}
+
+
+def resolve_msvc_toolchain(root: Path, profile: str) -> tuple[str, str, str] | None:
+    """Resolve the best available layout for an MSVC *profile* in a project
+    rooted at *root*: ``(command, includes, libs)`` as project-relative
+    ``toolchain/...`` strings, or None when no layout exists (project
+    ``toolchain/`` or the rebrew install's own vendored tree).
+
+    The command keeps the ``wine`` prefix; libs is empty for the
+    compile-only mirrors.
+    """
+    for cl, inc, lib in _MSVC_LAYOUTS.get(profile, ()):
+        if (root / cl).exists() or find_install_tool(cl) is not None:
+            return f"wine {cl}", inc, lib
+    return None
+
+
+def toolchain_link_candidates(profile: str) -> list[str]:
+    """``toolchain/<family>/<version>-<arch>`` subpaths to try when linking
+    *profile* from a master directory, best first (master then mirrors) —
+    derived from the same layout table as :func:`resolve_msvc_toolchain` so
+    the two cannot drift."""
+    return ["/".join(cl.split("/")[1:3]) for cl, _, _ in _MSVC_LAYOUTS.get(profile, ())]
 
 
 # Candidate encodings for C sources, most strict first.  MSVC6-era sources
@@ -258,6 +308,7 @@ def watch_files(
     paths: list[Path],
     retest: Callable[[], None],
     interval: float = 1.0,
+    path_provider: Callable[[], list[Path]] | None = None,
 ) -> None:
     """Poll *paths* and call *retest* whenever any file's mtime changes.
 
@@ -266,14 +317,22 @@ def watch_files(
     reported and swallowed so the loop keeps watching for a fix.  Files that
     are deleted or not yet created are tolerated (editors that
     delete-and-rename keep working).
+
+    With *path_provider*, the watched set is re-resolved every poll — new
+    files created during the session (e.g. a ``rebrew skeleton`` generating a
+    fresh ``.c`` while ``verify --watch`` runs) are picked up instead of the
+    loop silently stopping to cover them (idempotency-review F8).
     """
     from rich.console import Console
 
     _console = Console(stderr=True)
 
+    def _current_paths() -> list[Path]:
+        return path_provider() if path_provider is not None else paths
+
     def _mtimes() -> dict[Path, int]:
         out: dict[Path, int] = {}
-        for p in paths:
+        for p in _current_paths():
             try:
                 out[p] = p.stat().st_mtime_ns
             except OSError:
@@ -282,7 +341,7 @@ def watch_files(
 
     last = _mtimes()
     _console.print(
-        f"[dim]Watching {len(paths)} file(s) — re-run on every save (Ctrl+C to stop)...[/dim]"
+        f"[dim]Watching {len(last)} file(s) — re-run on every save (Ctrl+C to stop)...[/dim]"
     )
     try:
         while True:

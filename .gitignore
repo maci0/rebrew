@@ -64,6 +64,11 @@ Thumbs.db
 # Vendored Detect It Easy (diec) — optional; detection falls back to PATH diec
 /tools/diec/
 
+# wibo — lightweight Win32 PE loader (auto-downloaded by init/doctor/CI; see
+# src/rebrew/wibo.py).  Kept out of git; re-download or build from
+# github.com/decompals/wibo.
+/tools/wibo
+
 # Vendored MSVC toolchain downloads (docs/TOOLCHAIN.md: "kept out of git").
 # Re-fetch/extract from github.com/OmniBlade/decomp.me msvcwin9x releases.
 /tools/msvc6.3/
@@ -100,3 +105,34 @@ rebrew-function.toml.lock
 /toolchain-images/**/delphi10/
 /toolchain-images/**/delphi-lib/
 /toolchain-images/msvc/**/msvc152/
+
+# Vendored toolchain trees under toolchain/ stay out of git — only the build
+# source is tracked: Dockerfiles, wrapper scripts, the shared base image, and
+# the Quantum-archive decoder the tests import.
+/toolchain/**
+!/toolchain/
+!/toolchain/base/
+!/toolchain/*/
+!/toolchain/*/*/
+!/toolchain/**/Dockerfile
+!/toolchain/**/*.sh
+!/toolchain/**/pak_extract.py
+
+# tools/ symlinks back to the vendored toolchain/ trees (existing projects
+# keep resolving tools/<name> → toolchain/<family>/<version>-<arch>).
+/tools/DELPHI10
+/tools/MSVC152
+/tools/MSVC420
+/tools/MSVC500
+/tools/WATCOM
+/tools/delphi-1.0-win16
+/tools/msvc-1.52-win16
+/tools/msvc-4.2-win32
+/tools/msvc-5.0-win32
+/tools/msvc-6.0-sp3-win32
+/tools/msvc-6.0-sp6-win32
+/tools/msvc-7.0-win32
+/tools/msvc6.3
+/tools/msvc6.6
+/tools/msvc7.0
+/tools/watcom-win32

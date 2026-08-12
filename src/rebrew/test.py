@@ -11,8 +11,7 @@ Usage:
     rebrew test --all --dir src/game_dll/ # batch mode, restrict to subdir
 """
 
-import contextlib
-import json
+import hashlib
 import logging
 import tempfile
 from collections.abc import Callable
@@ -83,8 +82,14 @@ def _patch_verify_cache(
     *delta* overrides the recomputed ``total - match_count`` when the
     caller has a real byte delta (the batch path gets one from verify;
     recomputing from match_percent would store a percent-scale number).
+
+    Thin local wrapper over the single shared implementation
+    :func:`rebrew.verify.patch_verify_cache_entries` (identity check +
+    cross-process lock included).
     """
-    _patch_verify_cache_batch(
+    from rebrew.verify import patch_verify_cache_entries
+
+    patch_verify_cache_entries(
         cfg,
         [
             {
@@ -96,69 +101,6 @@ def _patch_verify_cache(
             }
         ],
     )
-
-
-def _patch_verify_cache_batch(cfg: ProjectConfig, patches: list[dict[str, Any]]) -> None:
-    """Apply many verify-cache patches with ONE read + ONE write.
-
-    ``test --all`` previously called the single-function patch per result,
-    each a full read+write of verify_cache.json — O(N) file rewrites for an
-    N-function batch.  All in-memory patches are applied first, then a single
-    atomic write flushes them.
-    """
-    if not patches:
-        return
-    cache_path = cfg.root / ".rebrew" / "verify_cache.json"
-    if not cache_path.exists():
-        return
-    try:
-        raw = json.loads(cache_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
-        # A corrupt/unreadable cache must not go unnoticed: status/todo read
-        # this store and would keep reporting the stale pre-test state.
-        logging.warning("Could not read verify cache %s — status may be stale: %s", cache_path, exc)
-        return
-
-    entries = raw.get("entries", {})
-    changed = False
-    for p in patches:
-        va_key = f"0x{p['va']:08x}"
-        entry = entries.get(va_key)
-        if entry is None:
-            continue  # No cached entry to patch
-        result = entry.get("result", {})
-        old_status = result.get("status", "")
-        if old_status == p["status"]:
-            continue  # Already in sync
-        # Patch the result fields
-        result["status"] = p["status"]
-        total = p["total"]
-        match_pct = round(100.0 * p["match_count"] / total, 1) if total > 0 else 0.0
-        result["match_percent"] = match_pct
-        result["passed"] = is_matched(p["status"])
-        if p["delta"] is not None:
-            result["delta"] = p["delta"]
-        elif total > 0:
-            result["delta"] = total - p["match_count"]
-        entry["result"] = result
-        entries[va_key] = entry
-        changed = True
-
-    if not changed:
-        return
-    raw["entries"] = entries
-
-    try:
-        from rebrew.utils import atomic_write_text
-
-        atomic_write_text(cache_path, json.dumps(raw, indent=2), encoding="utf-8")
-    except (OSError, TypeError) as exc:
-        # Best-effort — don't crash test on cache write failure — but do say
-        # so: a silently dropped patch lets status/todo diverge from the
-        # canonical metadata STATUS that test just promoted.
-        logging.warning(
-            "Could not patch verify cache %s — status may be stale: %s", cache_path, exc
-        )
 
 
 _EPILOG = (
@@ -309,7 +251,8 @@ def main(
         source = str(resolve_source_arg(cfg, source))
 
     if watch and all_sources:
-        error_exit("--watch cannot be combined with --all", json_mode=json_output)
+        # Flag-combination usage error — exit 2, not "needs code work" (1).
+        error_exit("--watch cannot be combined with --all", json_mode=json_output, code=EXIT_ERROR)
 
     if source is not None:
         source_path = Path(source).resolve()
@@ -340,8 +283,11 @@ def main(
         return
 
     if source is None:
+        # Usage error — exit 2, not "needs code work" (1).
         error_exit(
-            "Provide a source file, or use --all to batch test all files.", json_mode=json_output
+            "Provide a source file, or use --all to batch test all files.",
+            json_mode=json_output,
+            code=EXIT_ERROR,
         )
         return
 
@@ -423,34 +369,33 @@ def main(
 
     meta = parse_source_metadata(source, metadata_dir=cfg.metadata_dir)
 
-    # Derive symbol from annotation (C function definition)
+    # Derive symbol from annotation (C function definition).  The
+    # VA-based selection happens UNCONDITIONALLY (not just when symbol is
+    # absent): an explicit --va on a multi-module file must target the
+    # function AT that VA for symbol derivation AND for the metadata
+    # promotion below — with --symbol given, the old code fell to
+    # lint_annos[0], writing SIZE/CFLAGS/STATUS under the FIRST module
+    # even though the function tested was at the requested VA.
     sel_ann: Annotation | None = None
-    if not symbol:
-        if va is not None:
-            # An explicit --va targets ONE function in (possibly) a
-            # multi-function file: derive the symbol (and fallback size) from
-            # the annotation whose VA matches.  Before this, main() used
-            # lint_annos[0] — `rebrew test multi.c --va 0x2000` silently
-            # tested the FIRST function's symbol at 0x2000 (e.g.
-            # _exit_handler@12 instead of _CreateListenSocket).  Same rule as
-            # diff/prove/near-diag: a requested VA picks its own function.
-            # When NO annotation matches, the explicit --va is a user override
-            # of a stale/absent annotation VA — fall back to the first
-            # annotation's symbol/size (the near-diag va_from_flag semantics).
-            sel_ann = _select_annotation_for_va(lint_annos, va, json_output)
-            if sel_ann is None:
-                sel_ann = lint_annos[0] if lint_annos else None
-            if sel_ann and sel_ann.symbol:
-                symbol = sel_ann.symbol
-            if size is None and sel_ann and sel_ann.size:
-                size = sel_ann.size
-        else:
-            # First try the parsed annotation object (derives from C func def)
+    if va is not None:
+        # An explicit --va targets ONE function in (possibly) a
+        # multi-function file: derive the symbol (and fallback size) from
+        # the annotation whose VA matches.  Same rule as diff/prove/
+        # near-diag: a requested VA picks its own function.  When NO
+        # annotation matches, the explicit --va is a user override of a
+        # stale/absent annotation VA — fall back to the first annotation's
+        # symbol/size (the near-diag va_from_flag semantics).
+        sel_ann = _select_annotation_for_va(lint_annos, va, json_output)
+        if sel_ann is None:
             sel_ann = lint_annos[0] if lint_annos else None
-            if sel_ann and sel_ann.symbol:
-                symbol = sel_ann.symbol
     else:
+        # No --va: first try the parsed annotation object (derives from
+        # the C function definition).
         sel_ann = lint_annos[0] if lint_annos else None
+    if not symbol and sel_ann and sel_ann.symbol:
+        symbol = sel_ann.symbol
+    if size is None and sel_ann and sel_ann.size:
+        size = sel_ann.size
     if not symbol:
         error_exit(
             "Could not derive symbol from C function definition or CLI args", json_mode=json_output
@@ -536,8 +481,14 @@ def main(
         new_size = cmp.full_obj_size
         anno_module = lint_annos[0].module if lint_annos else ""
         if not dry_run:
-            with contextlib.suppress(Exception):  # metadata write is best-effort
+            try:
                 update_field(cfg.metadata_dir, section_va, "size", new_size, anno_module)
+            except Exception as exc:  # noqa: BLE001 — metadata write is best-effort
+                logging.warning(
+                    "Could not persist fixed SIZE 0x%x: %s (the .c still claims the stale size)",
+                    section_va,
+                    exc,
+                )
         else:
             if not json_output:
                 console.print(
@@ -588,25 +539,45 @@ def main(
             console.print(f"[dim]STATUS update skipped ({_status_skip_reason})[/dim]")
     elif va_str:
         va_int_for_promote = parse_va(va_str, json_mode=json_output)
-        anno_module = lint_annos[0].module if lint_annos else ""
+        # The metadata writes must target the FUNCTION ACTUALLY TESTED — with
+        # `--va` on a multi-annotation file, that is the selected annotation,
+        # not the file's first (writing under the first module's key created
+        # a phantom (first_module, requested_va) entry while the real entry
+        # stayed stale).
+        promote_ann = sel_ann if sel_ann is not None else (lint_annos[0] if lint_annos else None)
+        anno_module = promote_ann.module if promote_ann else ""
         # Persist the resolved SIZE alongside STATUS so downstream tools
         # (diff, near-diag) can resolve it from metadata like STATUS — a
         # hand-written fresh function would otherwise stay at SIZE=0 forever
         # and `rebrew diff` fails with "Invalid SIZE: 0".
         if size_val and not no_promote and not dry_run:
-            with contextlib.suppress(Exception):  # metadata write is best-effort
+            try:
                 update_field(
                     cfg.metadata_dir, va_int_for_promote, "size", int(size_val), anno_module
+                )
+            except Exception as exc:  # noqa: BLE001 — metadata write is best-effort
+                logging.warning(
+                    "Could not persist SIZE for 0x%x: %s (downstream diff/near-diag "
+                    "may report an invalid size)",
+                    va_int_for_promote,
+                    exc,
                 )
         # Persist an EXPLICIT --cflags override so `rebrew verify` recompiles
         # with the flags that produced the match — without this, verify uses
         # the project defaults and demotes an EXACT /O1 match to NEAR_MATCHING.
         if cflags and not no_promote and not dry_run:
-            with contextlib.suppress(Exception):  # metadata write is best-effort
+            try:
                 update_field(
                     cfg.metadata_dir, va_int_for_promote, "cflags", cflags_str, anno_module
                 )
-        old_status = lint_annos[0].status if lint_annos else ""
+            except Exception as exc:  # noqa: BLE001 — metadata write is best-effort
+                logging.warning(
+                    "Could not persist CFLAGS for 0x%x: %s (verify may recompile "
+                    "with different flags and demote the match)",
+                    va_int_for_promote,
+                    exc,
+                )
+        old_status = promote_ann.status if promote_ann else ""
         # Prefer CompareResult.status so SIZE_MISMATCH / COMPILE_ERROR are preserved.
         new_status = (
             cmp.status if cmp.status else classify_match_status(matched, match_count, total, relocs)
@@ -646,41 +617,6 @@ def main(
     # (NEAR_MATCHING/STUB/SIZE_MISMATCH), 2 = build error (above).
     if not is_matched(cmp.status):
         raise typer.Exit(code=EXIT_MISMATCH)
-
-
-def build_result_dict(
-    source: str,
-    symbol: str,
-    va_str: str,
-    size_val: int,
-    matched: bool,
-    match_count: int,
-    total: int,
-    relocs: list[int],
-    obj_bytes: bytes,
-    target_bytes: bytes,
-    invalid_relocs: list[int] | None = None,
-) -> dict[str, Any]:
-    """Build structured JSON output for one compile-and-compare result.
-
-    Prefer :func:`build_result_dict_from_compare` when a :class:`CompareResult`
-    is already available.
-    """
-    status = classify_match_status(matched, match_count, total, relocs)
-    return _result_dict_body(
-        source,
-        symbol,
-        va_str,
-        size_val,
-        status,
-        matched,
-        match_count,
-        total,
-        relocs,
-        obj_bytes,
-        target_bytes,
-        invalid_relocs or [],
-    )
 
 
 def build_result_dict_from_compare(
@@ -735,8 +671,8 @@ def _result_dict_body(
     mismatches: list[dict[str, str | int]] = []
     if not matched and obj_bytes:
         min_len = min(len(obj_bytes), len(target_bytes))
-        reloc_set = _expand_reloc_offsets(relocs, min_len)
-        inv_reloc_set = _expand_reloc_offsets(invalid_relocs, min_len)
+        reloc_set = _expand_reloc_offsets(relocs or [], min_len)
+        inv_reloc_set = _expand_reloc_offsets(invalid_relocs or [], min_len)
         mismatches.extend(
             {
                 "offset": i,
@@ -860,7 +796,9 @@ def _print_compare_result(cmp: CompareResult, target_bytes: bytes) -> None:
             f"(compiled {obj_len}B vs annotation {len(target_bytes)}B) — "
             f"re-run with --fix-size to correct it"
         )
-    console.print(f"[{color}]{cmp.status}[/{color}]: {match_count}/{total} bytes{near_hint}{size_hint}")
+    console.print(
+        f"[{color}]{cmp.status}[/{color}]: {match_count}/{total} bytes{near_hint}{size_hint}"
+    )
     if not obj_bytes:
         if cmp.message:
             console.print(cmp.message)
@@ -911,6 +849,14 @@ def _test_multi(
         return resolve_cflags(cfg, ann.cflags, getattr(ann, "module", ""))
 
     results_list: list[dict[str, Any]] = []
+    # Tracks whether ANY function came back unmatched — the documented exit
+    # contract (help: "1 NEAR_MATCHING or STUB") must hold for multi-function
+    # files too, not just single-function and --all (the multi path
+    # previously always exited 0, a false green for CI gates).
+    any_failed = False
+    # Tooling failures (extraction/obj problems) exit 2 like COMPILE_ERROR —
+    # a CI script must not read them as "fix your code" (exit 1).
+    any_extract_error = False
 
     with tempfile.TemporaryDirectory(prefix="test_multi_") as workdir:
         objs: dict[str, Any] = {}
@@ -919,8 +865,6 @@ def _test_multi(
             # .obj name from the source stem, so without this every group
             # would overwrite the same obj and all but the last would compare
             # against the wrong bytes.
-            import hashlib
-
             obj_name = f"{Path(source).stem}_{hashlib.sha256(cf.encode()).hexdigest()[:8]}.obj"
             obj_path, err = compile_to_obj(cfg, source, cf.split(), workdir, obj_name=obj_name)
             if obj_path is None:
@@ -960,46 +904,83 @@ def _test_multi(
                 continue
 
             target_bytes = extract_raw_bytes(cfg.target_binary, ann.va, ann.size)
-            obj_path = objs[_effective_cflags(ann)]
-            # Single LIEF parse for symbol bytes + typed relocs.
-            obj_bytes, reloc_dict, full_relocs = parse_obj_symbol_and_relocs(obj_path, sym)
-
-            if obj_bytes is None:
+            if not target_bytes:
+                any_extract_error = True
                 if json_output:
                     results_list.append(
                         {
                             "symbol": sym,
                             "va": f"0x{ann.va:08x}",
                             "size": ann.size,
-                            "status": "ERROR",
-                            "error": "Symbol not found in .obj",
+                            "status": "EXTRACT_ERROR",
+                            "error": "Cannot extract target bytes",
                         }
                     )
                 else:
-                    console.print(f"[red]MISSING[/red] {sym} — not found in .obj")
+                    console.print(f"[red]EXTRACT_ERROR[/red] {sym} — cannot extract target bytes")
                 continue
+            try:
+                obj_path = objs[_effective_cflags(ann)]
+                # Single LIEF parse for symbol bytes + typed relocs.
+                obj_bytes, reloc_dict, full_relocs = parse_obj_symbol_and_relocs(obj_path, sym)
 
-            coff_relocs = full_relocs if full_relocs else reloc_dict
+                if obj_bytes is None:
+                    if json_output:
+                        results_list.append(
+                            {
+                                "symbol": sym,
+                                "va": f"0x{ann.va:08x}",
+                                "size": ann.size,
+                                "status": "ERROR",
+                                "error": "Symbol not found in .obj",
+                            }
+                        )
+                    else:
+                        console.print(f"[red]MISSING[/red] {sym} — not found in .obj")
+                    continue
 
-            # Size mismatch must be computed on the ORIGINAL lengths — truncating
-            # first makes an over-long obj report false EXACT (and get promoted).
-            size_mismatch = len(obj_bytes) != len(target_bytes)
-            cmp_obj = obj_bytes
-            cmp_tgt = target_bytes
-            if size_mismatch:
-                if len(cmp_obj) > len(cmp_tgt):
-                    cmp_obj = cmp_obj[: len(cmp_tgt)]
+                coff_relocs = full_relocs if full_relocs else reloc_dict
+
+                # Size mismatch must be computed on the ORIGINAL lengths — truncating
+                # first makes an over-long obj report false EXACT (and get promoted).
+                size_mismatch = len(obj_bytes) != len(target_bytes)
+                cmp_obj = obj_bytes
+                cmp_tgt = target_bytes
+                if size_mismatch:
+                    if len(cmp_obj) > len(cmp_tgt):
+                        cmp_obj = cmp_obj[: len(cmp_tgt)]
+                    else:
+                        cmp_tgt = cmp_tgt[: len(cmp_obj)]
+
+                matched, match_count, total, relocs, inv_relocs = smart_reloc_compare(
+                    cmp_obj,
+                    cmp_tgt,
+                    coff_relocs,
+                    name_to_va=name_to_va,
+                    section_va=ann.va,
+                    iat_region=build_iat_region(cfg),
+                )
+            except (ValueError, OSError) as exc:
+                # Post-compile object extraction/compare failure — the source
+                # compiled fine, so this is NOT a COMPILE_ERROR.  Mirror
+                # compile_and_compare's EXTRACT_ERROR labeling so a malformed
+                # .obj aborts only this symbol, never the whole multi-function
+                # file (previously a LIEF raise crashed the batch with a
+                # traceback and no JSON output).
+                any_extract_error = True
+                if json_output:
+                    results_list.append(
+                        {
+                            "symbol": sym,
+                            "va": f"0x{ann.va:08x}",
+                            "size": ann.size,
+                            "status": "EXTRACT_ERROR",
+                            "error": str(exc)[:200],
+                        }
+                    )
                 else:
-                    cmp_tgt = cmp_tgt[: len(cmp_obj)]
-
-            matched, match_count, total, relocs, inv_relocs = smart_reloc_compare(
-                cmp_obj,
-                cmp_tgt,
-                coff_relocs,
-                name_to_va=name_to_va,
-                section_va=ann.va,
-                iat_region=build_iat_region(cfg),
-            )
+                    console.print(f"[red]EXTRACT_ERROR[/red] {sym} — {exc}")
+                continue
             # --fix-size: when ALL common bytes match, the SIZE annotation is
             # stale, not the code — write the compiled size into metadata and
             # reclassify as a real match (mirrors verify --fix-sizes, but the
@@ -1074,6 +1055,8 @@ def _test_multi(
             match_count = (
                 total if matched else int(round(cmp.match_percent / 100.0 * total)) if total else 0
             )
+            if not matched:
+                any_failed = True
 
             if json_output:
                 result_dict = build_result_dict_from_compare(
@@ -1144,6 +1127,16 @@ def _test_multi(
 
         if json_output:
             json_print({"source": source, "results": results_list})
+
+    if not dry_run:
+        # Honor the documented exit-code contract (help: "0 EXACT or RELOC
+        # match; 1 NEAR_MATCHING or STUB; 2 Build error") — the multi-
+        # function path previously always exited 0, a false green for CI
+        # gates (mirrors _run_all_batch).
+        if any_extract_error:
+            raise typer.Exit(code=EXIT_ERROR)
+        if any_failed:
+            raise typer.Exit(code=EXIT_MISMATCH)
 
     return
 
@@ -1322,7 +1315,9 @@ def _run_all_batch(
             )
         # One read + one write for the whole batch (the per-result patch was
         # O(N) full-file rewrites of verify_cache.json).
-        _patch_verify_cache_batch(cfg, patches)
+        from rebrew.verify import patch_verify_cache_entries
+
+        patch_verify_cache_entries(cfg, patches)
 
     # Build transitions for summary display
     transitions: list[tuple[str, str]] = []
@@ -1347,7 +1342,7 @@ def _run_all_batch(
             }
         )
     else:
-        _print_batch_summary(transitions, unique_files, 0)
+        _print_batch_summary(transitions, unique_files)
 
     if not dry_run:
         # Honor the documented exit-code contract (help: "0 EXACT or RELOC
@@ -1367,7 +1362,6 @@ def _run_all_batch(
 def _print_batch_summary(
     transitions: list[tuple[str, str]],
     total_files: int,
-    skipped_no_size: int,
 ) -> None:
     """Print a rich summary table after batch testing."""
     if not transitions:
@@ -1397,8 +1391,6 @@ def _print_batch_summary(
     console.print(
         f"  [bold]{len(transitions)}[/bold] functions tested across {total_files} file(s)"
     )
-    if skipped_no_size:
-        console.print(f"  [dim]{skipped_no_size} file(s) skipped (no SIZE)[/dim]")
     console.print()
 
     for status in ("EXACT", "RELOC", "PROVEN", "NEAR_MATCHING", "STUB"):

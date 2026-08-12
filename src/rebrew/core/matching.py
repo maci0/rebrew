@@ -6,6 +6,7 @@ with COFF relocation masking, using NumPy vectorization for performance.
 
 from __future__ import annotations
 
+import logging
 import struct
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -17,6 +18,8 @@ from rebrew.matcher.parsers import CoffRelocRecord
 
 if TYPE_CHECKING:
     from rebrew.config import ProjectConfig
+
+log = logging.getLogger(__name__)
 
 # IMAGE_REL_I386_*
 _REL_DIR32 = 0x0006
@@ -156,7 +159,14 @@ def build_name_to_va(cfg: ProjectConfig) -> dict[str, int]:
             for ann in parse_c_file_multi(path):
                 if ann.name and ann.va:
                     name_to_va[ann.name] = ann.va
-    except (ImportError, OSError, ValueError, KeyError, AttributeError):
+    except (ImportError, OSError, ValueError, KeyError, AttributeError) as exc:
+        # A scan failure returning {} is indistinguishable from "nothing to
+        # validate" — every caller (verify, test) then silently skips reloc
+        # validation, masking wrong-callee calls as valid RELOC.  Surface the
+        # failure at WARNING so the degraded run is visible.
+        log.warning(
+            "build_name_to_va: global/function scan failed — reloc validation degraded: %s", exc
+        )
         return {}
     return name_to_va
 

@@ -76,7 +76,7 @@ class TestVerifyEntryBranches:
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
         result = verify_entry(_ann(0x10), cfg)  # type: ignore[arg-type]  # below MIN_VALID_VA
-        assert result.status == "COMPILE_ERROR"
+        assert result.status == "INVALID_VA"
         assert "INVALID_VA" in (result.message or "")
 
     def test_missing_size(self, tmp_path: Path) -> None:
@@ -95,7 +95,7 @@ class TestVerifyEntryBranches:
         (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
         monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *a, **k: None)
         result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
-        assert result.status == "COMPILE_ERROR"
+        assert result.status == "EXTRACT_ERROR"
         assert "Cannot extract" in (result.message or "")
 
     def test_success_delegates(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -117,6 +117,66 @@ class TestVerifyEntryBranches:
         assert result.status == "EXACT"
         assert seen["symbol"] == "_my_func"
         assert seen["cflags"] == "/O2"
+
+    def test_unmatched_populates_diff_lines(self, tmp_path: Path, monkeypatch) -> None:
+        """verify_entry must populate diff_lines for UNMATCHED functions so
+        the recoverage-consumed verify_results.diff_lines column carries real
+        data (db-review F2: it was documented but never produced)."""
+        import rebrew.binary_loader
+        import rebrew.compile
+        import rebrew.verify as verify_mod
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "f.c").write_text("int my_func(void) { return 0; }\n", encoding="utf-8")
+        monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
+
+        def _unmatched(cfg, cfile, symbol, target_bytes, cflags, **kw):
+            from rebrew.compile import CompareResult
+
+            return CompareResult(
+                matched=False,
+                status="NEAR_MATCHING",
+                match_percent=60.0,
+                delta=2,
+                obj_bytes=b"\x90\x91" + b"\x90" * 6,
+                reloc_offsets=[],
+                message="NEAR_MATCHING: 2 byte diffs",
+            )
+
+        def _fake_diff(target, cand, relocs, as_dict=True, **kw):
+            return {"summary": {"structural": 2}}
+
+        monkeypatch.setattr(rebrew.compile, "compile_and_compare", _unmatched)
+        monkeypatch.setattr(rebrew.matcher.scoring, "diff_functions", _fake_diff)
+        result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+        assert result.diff_lines == 2
+
+    def test_matched_skips_diff_lines_compute(self, tmp_path: Path, monkeypatch) -> None:
+        """Matched functions must not pay for a disassembly diff — diff_lines
+        stays None (0 diffs trivially)."""
+        import rebrew.binary_loader
+        import rebrew.compile
+        import rebrew.verify as verify_mod
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "f.c").write_text("int my_func(void) { return 0; }\n", encoding="utf-8")
+        monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
+        calls = {"n": 0}
+
+        def _compare(cfg, cfile, symbol, target_bytes, cflags, **kw):
+            return _ok_result()
+
+        monkeypatch.setattr(rebrew.compile, "compile_and_compare", _compare)
+        monkeypatch.setattr(
+            rebrew.matcher.scoring,
+            "diff_functions",
+            lambda *a, **k: (
+                calls.__setitem__("n", calls["n"] + 1) or {"summary": {"structural": 1}}
+            ),
+        )
+        result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+        assert result.diff_lines is None
+        assert calls["n"] == 0  # diff_functions never invoked
 
 
 class TestDiffReports:
@@ -733,7 +793,7 @@ class TestVerifyWatch:
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         calls = {"n": 0}
 
-        def _watch(sources, retest):
+        def _watch(sources, retest, **kwargs):
             calls["n"] += 1
             retest()  # invoke once to prove the nested main() path works
 
@@ -903,6 +963,23 @@ class TestRunVerification:
         assert all(r["passed"] is True for r in results)
         assert len(deferred) == 2
 
+    def test_batch_larger_than_jobs_processes_all(self, tmp_path, monkeypatch) -> None:
+        """The bounded submit-as-you-go loop must process EVERY entry, not
+        just the first pool's worth — a regression test for the refill
+        indentation bug that silently dropped all but the last batch."""
+        from rebrew.verify import run_verification
+
+        self._patch(monkeypatch, {})
+        entries = [_ann(0x1000 + i) for i in range(7)]
+        passed, failed, fail_details, results, deferred = run_verification(
+            entries, _cfg(tmp_path), jobs=2, total=7, cached_count=0, json_output=True
+        )
+        assert passed == 7
+        assert failed == 0
+        assert len(results) == 7
+        assert len(deferred) == 7
+        assert {r["va"] for r in results} == {f"0x{0x1000 + i:08x}" for i in range(7)}
+
     def test_failures_recorded(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.verify import run_verification
 
@@ -928,9 +1005,13 @@ class TestRunVerification:
         assert deferred[0][1] == "STUB"
         assert deferred[0][2] == 5
 
-    def test_internal_error_counts_as_mismatch(
+    def test_internal_error_gets_own_status(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """A worker crash is a tooling failure, not a code verdict: it gets
+        INTERNAL_ERROR status (so the --compare gate never treats it as a
+        code regression), is excluded from fail_details, and is not deferred
+        for a STATUS write (the function's real status must survive)."""
         from rebrew.verify import run_verification
 
         def _boom(e, cfg, cache=None, name_to_va=None):
@@ -944,8 +1025,12 @@ class TestRunVerification:
         )
         assert passed == 0
         assert failed == 1
-        assert results[0]["status"] == "COMPILE_ERROR"
+        assert results[0]["status"] == "INTERNAL_ERROR"
         assert "INTERNAL_ERROR" in results[0]["message"]
+        # Not a code failure — absent from the failure list and no STATUS
+        # promotion/demotion is deferred on its account.
+        assert fail_details == []
+        assert deferred == []
 
     def test_stub_not_promoted_to_size_mismatch(self, tmp_path: Path) -> None:
         """A STUB's placeholder always size-mismatches; the user's STUB

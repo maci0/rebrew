@@ -45,7 +45,7 @@ class TestCheckCompiler:
             _cfg(
                 arch="x86_16",
                 compiler_profile="msvc1.52",
-                compiler_command="tools/MSVC152/BIN/CL.EXE",
+                compiler_command="toolchain/msvc/1.52-win16/BIN/CL.EXE",
                 root=Path("/"),
             )
         )
@@ -79,7 +79,7 @@ class TestCheckDelphi16Toolchain:
     def test_ready_passes(self, monkeypatch, tmp_path: Path) -> None:
         from rebrew.doctor import _PASS, check_delphi16_toolchain
 
-        dcc_dir = tmp_path / "tools" / "DELPHI10"
+        dcc_dir = tmp_path / "tools" / "delphi-1.0-win16"
         dcc_dir.mkdir(parents=True)
         (dcc_dir / "DCC.EXE").write_bytes(b"MZ")
         (dcc_dir / "RTM.EXE").write_bytes(b"MZ")
@@ -124,7 +124,7 @@ class TestCheckDelphi16Toolchain:
         )
         assert result.status == _FAIL
         assert "CL.EXE not found" in result.message
-        assert "MSVC600" in result.fix  # msvc6 hint
+        assert "msvc-6.0-win32" in result.fix  # msvc6 hint
 
     def test_wine_cl_missing_msvc400_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
@@ -140,24 +140,30 @@ class TestCheckDelphi16Toolchain:
         monkeypatch.setattr(
             "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
         )
-        result = check_compiler(_cfg(compiler_command="wine Bin/CL.EXE", root=Path("/opt/msvc6.3")))
+        result = check_compiler(
+            _cfg(compiler_command="wine Bin/CL.EXE", root=Path("/opt/msvc-6.0-sp3-win32"))
+        )
         assert "OmniBlade" in result.fix
-        assert "msvc6.3.tar.gz" in result.fix
-        assert "itsmattkc" not in result.fix  # msvc6.3 must not hit the SP6-era hint
+        assert "msvc-6.0-sp3-win32.tar.gz" in result.fix
+        assert "itsmattkc" not in result.fix  # msvc-6.0-sp3-win32 must not hit the SP6-era hint
 
     def test_wine_cl_missing_msvc70_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
             "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
         )
-        result = check_compiler(_cfg(compiler_command="wine Bin/cl.exe", root=Path("/opt/msvc7.0")))
-        assert "msvc7.0.tar.gz" in result.fix
+        result = check_compiler(
+            _cfg(compiler_command="wine Bin/cl.exe", root=Path("/opt/msvc-7.0-win32"))
+        )
+        assert "msvc-7.0-win32.tar.gz" in result.fix
 
     def test_wine_cl_missing_msvc500_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """VC5.0 (archaic-msvc) gets the codeload URL, not itsmattkc."""
         monkeypatch.setattr(
             "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
         )
-        result = check_compiler(_cfg(compiler_command="wine bin/cl.exe", root=Path("/opt/MSVC500")))
+        result = check_compiler(
+            _cfg(compiler_command="wine bin/cl.exe", root=Path("/opt/msvc-5.0-win32"))
+        )
         assert "archaic-msvc" in result.fix
         assert "msvc500" in result.fix
 
@@ -264,6 +270,21 @@ class TestCheckRunner:
         result = check_runner(_cfg(compiler_runner="wine"))
         assert result.status == _PASS
 
+    def test_wine_with_wibo_available_suggests_switch(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """wine configured + a wibo binary around → advisory recommending the
+        faster headless runner (with the exact config change)."""
+        monkeypatch.setattr(
+            "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
+        )
+        monkeypatch.setattr("rebrew.wibo.find_wibo", lambda root: Path("/tmp/wibo"))
+        result = check_runner(_cfg(compiler_runner="wine"))
+        assert result.status == _WARN
+        assert "wibo is available" in result.message
+        assert "tools/wibo" in (result.fix or "")
+        assert "compiler.command" in (result.fix or "")
+
     def test_unknown_runner_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("rebrew.doctor.shutil.which", lambda exe: None)
         result = check_runner(_cfg(compiler_runner="mystery"))
@@ -279,7 +300,7 @@ class TestCheckCompilerMore:
         result = check_compiler(
             _cfg(compiler_command="wine tools/CL.EXE", root=Path("/opt/msvc420"))
         )
-        assert "MSVC420" in result.fix
+        assert "msvc-4.2-win32" in result.fix
 
 
 class TestCheckMetadataFiles:
@@ -556,6 +577,10 @@ class TestCheckToolchainBacked:
         )
         assert result.status == _SKIP
 
+    @pytest.mark.skipif(
+        not (Path(__file__).resolve().parents[1] / "tools" / "watcom-win32").is_dir(),
+        reason="vendored watcom-win32 toolchain not present (toolchain/watcom/2.0-win32)",
+    )
     def test_watcom_vendored_passes(self, monkeypatch) -> None:
         from rebrew.doctor import _PASS, check_toolchain_backed
 
@@ -563,7 +588,7 @@ class TestCheckToolchainBacked:
         cfg = SimpleNamespace(compiler_profile="watcom", root=Path("/tmp"))
         result = check_toolchain_backed(cfg)
         assert result.status == _PASS
-        assert "WATCOM" in result.message
+        assert "watcom/2.0-win32" in result.message
 
     def test_missing_toolchain_fails(self, monkeypatch) -> None:
         from rebrew.doctor import _FAIL, check_toolchain_backed
@@ -583,33 +608,37 @@ class TestCheckToolchainBacked:
 
 class TestCheckCompilerRelativeCommand:
     """check_compiler resolves a project-relative command (e.g.
-    tools/MSVC152/BIN/CL.EXE) against the project root — the msvc1.52
+    toolchain/msvc/1.52-win16/BIN/CL.EXE) against the project root — the msvc1.52
     direct command is not on PATH."""
 
     def test_relative_command_resolves(self, tmp_path: Path) -> None:
         from rebrew.doctor import _PASS, check_compiler
 
-        cl = tmp_path / "tools" / "MSVC152" / "BIN" / "CL.EXE"
+        cl = tmp_path / "tools" / "msvc-1.52-win16" / "BIN" / "CL.EXE"
         cl.parent.mkdir(parents=True)
         cl.write_bytes(b"")  # presence is what matters
         cfg = SimpleNamespace(
             root=tmp_path,
             arch="x86_16",
             compiler_profile="msvc1.52",
-            compiler_command="tools/MSVC152/BIN/CL.EXE",
+            compiler_command="toolchain/msvc/1.52-win16/BIN/CL.EXE",
             compiler_runner="",
         )
         result = check_compiler(cfg)
         assert result.status == _PASS
 
-    def test_relative_command_missing_fails(self, tmp_path: Path) -> None:
+    def test_relative_command_missing_fails(self, tmp_path: Path, monkeypatch) -> None:
+        # Point the install-tools fallback away from the real repo so the
+        # missing project-local path is genuinely missing.
+        from rebrew import utils as rebrew_utils
         from rebrew.doctor import _FAIL, check_compiler
 
+        monkeypatch.setattr(rebrew_utils, "_REPO_ROOT", tmp_path)
         cfg = SimpleNamespace(
             root=tmp_path,
             arch="x86_16",
             compiler_profile="msvc1.52",
-            compiler_command="tools/MSVC152/BIN/CL.EXE",
+            compiler_command="toolchain/msvc/1.52-win16/BIN/CL.EXE",
             compiler_runner="",
         )
         result = check_compiler(cfg)
@@ -637,22 +666,24 @@ class TestToolchainDownloadHint:
     def test_msvc6_3_before_msvc6_order(self) -> None:
         from rebrew.doctor import _toolchain_download_hint
 
-        hint = _toolchain_download_hint("tools/msvc6.3/bin/cl.exe")
-        assert "msvc6.3" in hint  # must not match the generic msvc6 branch
+        hint = _toolchain_download_hint("toolchain/msvc/6.0-sp3-win32/bin/cl.exe")
+        assert "msvc-6.0-sp3-win32" in hint  # must not match the generic msvc6 branch
 
     def test_unknown_no_hint(self) -> None:
         from rebrew.doctor import _toolchain_download_hint
 
         assert _toolchain_download_hint("tools/weird/cc") == ""
 
-    def test_direct_command_fix_has_hint(self, tmp_path: Path) -> None:
+    def test_direct_command_fix_has_hint(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew import utils as rebrew_utils
         from rebrew.doctor import check_compiler
 
+        monkeypatch.setattr(rebrew_utils, "_REPO_ROOT", tmp_path)
         cfg = SimpleNamespace(
             root=tmp_path,
             arch="x86_16",
             compiler_profile="msvc1.52",
-            compiler_command="tools/MSVC152/BIN/CL.EXE",
+            compiler_command="toolchain/msvc/1.52-win16/BIN/CL.EXE",
             compiler_runner="",
         )
         result = check_compiler(cfg)

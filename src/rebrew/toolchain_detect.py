@@ -26,7 +26,7 @@ Families:
 - ``borlandc`` — Borland C/C++ (Turbo C, C++Builder).  Same ``CODE``/``DATA``/
   ``BSS`` layout as Delphi but no Delphi RTL strings; runtime imports
   (``CW32.DLL``, ``CC3250MT.DLL``, ``BORLNDMM.DLL``) or Borland runtime strings.
-- ``watcom`` — Watcom C/C++ (WATCOM 9.x–11.0, Open Watcom).  Evidence:
+- ``watcom`` — Watcom C/C++ (watcom-win32 9.x–11.0, Open Watcom).  Evidence:
   underscore-prefixed ``_TEXT``/``_DATA``/``_BSS`` sections and Watcom runtime
   strings.  No rebrew profile can byte-match these (or borlandc/delphi) yet —
   ``rebrew doctor`` flags them as blockers; the OmniBlade mirror hosts wcc
@@ -75,7 +75,7 @@ _MSVC_MARKERS = (
 
 _BORLAND_SECTIONS = {"CODE", "DATA", "BSS"}
 
-# Watcom C/C++ (Open Watcom / WATCOM 9.x-11.0) uses underscore-prefixed
+# Watcom C/C++ (Open Watcom / watcom-win32 9.x-11.0) uses underscore-prefixed
 # section names instead of MSVC's dotted or Borland's bare ones.
 _WATCOM_SECTIONS = {"_TEXT", "_DATA", "_BSS"}
 _WATCOM_MARKERS = ("Open Watcom", "Watcom C/C++", "Watcom Run-time Library", "WATCOM C/C++")
@@ -131,6 +131,20 @@ class ToolchainInfo:
 
     def add(self, text: str) -> None:
         self.evidence.append(text)
+
+
+#: User-facing names for the detection backends (doctor/analyze messages must
+#: not leak the internal ids).
+_BACKEND_DISPLAY: dict[str, str] = {
+    "die": "Detect It Easy (diec)",
+    "pdb": "PDB",
+    "heuristics": "codegen heuristics",
+}
+
+
+def backend_display_name(detected_by: str) -> str:
+    """Human-readable name for a detection backend id, or the id itself."""
+    return _BACKEND_DISPLAY.get(detected_by, detected_by)
 
 
 # ---------------------------------------------------------------------------
@@ -702,15 +716,11 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
         if o2_wrappers >= 3 and o2_wrappers >= o1_wrappers * 2:
             info.opt_level = "/O2"
             info.add(
-                f"{o2_wrappers} load-first wrapper calls "
-                f"(`mov eax,[esp+4]; push eax`) → /O2-style"
+                f"{o2_wrappers} load-first wrapper calls (`mov eax,[esp+4]; push eax`) → /O2-style"
             )
         elif o1_wrappers >= 3 and o1_wrappers >= o2_wrappers * 2:
             info.opt_level = "/O1"
-            info.add(
-                f"{o1_wrappers} push-[mem] wrapper calls "
-                f"(`push dword [esp+4]`) → /O1-style"
-            )
+            info.add(f"{o1_wrappers} push-[mem] wrapper calls (`push dword [esp+4]`) → /O1-style")
         elif o2_wrappers >= 3 and o1_wrappers >= 3:
             info.opt_level = "mixed (/O1 + /O2)"
             info.add(

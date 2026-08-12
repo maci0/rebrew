@@ -49,8 +49,10 @@ class TestCountStatusesInvariants:
     @given(annotation_list())
     def test_every_bucketed_va_counted_once(self, annos: list[Annotation]) -> None:
         """Every function VA whose status intersects the four buckets is counted
-        exactly once; statuses outside the buckets (PROVEN, SIZE_MISMATCH, "")
-        legitimately fall through the breakdown (totals come from len(fn_vas))."""
+        exactly once; PROVEN is bucketed with RELOC (it ranks with RELOC in
+        _STATUS_RANK and is fully matched); statuses outside the buckets
+        (SIZE_MISMATCH, "") legitimately fall through the breakdown (totals
+        come from len(fn_vas))."""
         by_va: dict[int, list[Annotation]] = {}
         for a in annos:
             by_va.setdefault(a.va, []).append(a)
@@ -59,7 +61,8 @@ class TestCountStatusesInvariants:
             for va, vas in by_va.items()
             if any(e.get("marker_type") not in ("GLOBAL", "DATA") for e in vas)
             and any(
-                e.get("status") in ("EXACT", "RELOC", "NEAR_MATCHING", "NEAR_MATCH", "STUB")
+                e.get("status")
+                in ("EXACT", "RELOC", "PROVEN", "NEAR_MATCHING", "NEAR_MATCH", "STUB")
                 for e in vas
             )
         }

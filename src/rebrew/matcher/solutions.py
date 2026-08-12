@@ -290,11 +290,24 @@ def load_ga_runs(
     """Read recent GA run records, newest first, optionally filtered by *target*.
 
     Malformed lines are skipped.  Returns at most *limit* records.
+
+    Uses a bounded deque (maxlen=limit): the log is append-only and
+    chronological, so only the newest ``limit`` records can be returned —
+    keeping the whole (unbounded) history in memory per call was wasted
+    work once the log grows past thousands of runs (``--ga-history`` and
+    batch ``--skip-recent`` read it every run).
     """
+    from collections import deque
+
     p = project_root / ".rebrew" / _GA_RUNS_FILE
     if not p.exists():
         return []
-    records: list[dict[str, Any]] = []
+    # Bounded deque: the log is append-only and chronological, so only the
+    # newest ``limit`` records can be returned.  The bound is applied AFTER
+    # target filtering so "limit" means "up to limit records for this
+    # target" (a filtered target must not lose its older records to other
+    # targets' newer ones).
+    records: deque[dict[str, Any]] = deque(maxlen=limit)
     with p.open(encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -304,9 +317,11 @@ def load_ga_runs(
                 record = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if isinstance(record, dict):
-                records.append(record)
-    if target:
-        records = [r for r in records if r.get("target") == target]
-    records.reverse()  # newest first
-    return records[:limit]
+            if not isinstance(record, dict):
+                continue
+            if target and record.get("target") != target:
+                continue
+            records.append(record)
+    out = list(records)
+    out.reverse()  # newest first
+    return out

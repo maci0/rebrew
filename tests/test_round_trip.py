@@ -1228,3 +1228,27 @@ class TestFixHeaders:
         assert fields.values["linker_version_major"] == 5
         assert fields.values["linker_version_minor"] == 12
         assert fields.values["timestamp"] == 0x37F6657C
+
+    def test_malformed_link_version_warns(self, tmp_path: Path) -> None:
+        """A malformed `linker_version` ("5", "abc") must warn, not silently
+        drop the patch — the old `except ValueError: pass` made --fix-headers
+        skip the field while the parity report showed an unexplained mismatch
+        (config-review F7)."""
+        import pytest
+
+        from rebrew.config import LinkConfig
+
+        with pytest.warns(UserWarning, match="not a valid 'N.N' version"):
+            fields = LinkConfig(linker_version="5").to_patch_fields()
+        assert "linker_version_major" not in fields
+
+        with pytest.warns(UserWarning, match="not a valid 'N.N' version"):
+            fields = LinkConfig(os_version="abc").to_patch_fields()
+        assert "os_version_major" not in fields
+
+        # Valid forms still parse.
+        fields = LinkConfig(linker_version="5.12", subsystem_version="4.0").to_patch_fields()
+        assert fields["linker_version_major"] == 5
+        assert fields["linker_version_minor"] == 12
+        assert fields["subsystem_version_major"] == 4
+        assert fields["subsystem_version_minor"] == 0

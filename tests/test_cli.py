@@ -250,10 +250,20 @@ class TestAngrAvailable:
         """
         import logging
 
-        logging.getLogger("angr").setLevel(logging.NOTSET)
-        result = angr_available()
-        if result:  # angr installed — verify the silencing side-effect
-            assert logging.getLogger("angr").getEffectiveLevel() == logging.CRITICAL
+        logger = logging.getLogger("angr")
+        original = logger.getEffectiveLevel()
+        try:
+            logger.setLevel(logging.NOTSET)
+            result = angr_available()
+            if result:  # angr installed — verify the silencing side-effect
+                assert logger.getEffectiveLevel() == logging.CRITICAL
+            # Either way the probe returns a bool without raising.
+            assert isinstance(result, bool)
+        finally:
+            # Restore the pre-test level: the probe permanently raises the
+            # angr logger to CRITICAL (by design), which must not leak into
+            # later tests in the same process (test-review F8).
+            logger.setLevel(original)
 
 
 class TestResolveCflags:
@@ -290,6 +300,20 @@ class TestResolveCflags:
 
         cfg = SimpleNamespace(cflags="/O2 /Gd", cflags_presets={"GAME": "/O1"})
         assert resolve_cflags(cfg, "   ", "GAME") == "/O1"
+
+    def test_explicit_empty_cflags_means_no_flags(self) -> None:
+        """`cflags = ""` in the TOML means "no default flags" — the /O2 /Gd
+        fallback applies only when the key is ABSENT (config-review F5: an
+        explicitly empty cflags previously compiled with /O2 /Gd silently)."""
+        from rebrew.cli import resolve_cflags
+
+        # Explicitly present but empty → no fallback.
+        cfg = SimpleNamespace(cflags="", cflags_presets={}, cflags_explicit=True)
+        assert resolve_cflags(cfg, "", "GAME") == ""
+        # Absent (the common hand-written config / SimpleNamespace default) →
+        # fallback preserved.
+        cfg2 = SimpleNamespace(cflags="", cflags_presets={})
+        assert resolve_cflags(cfg2, "", "GAME") == "/O2 /Gd"
 
 
 # ---------------------------------------------------------------------------

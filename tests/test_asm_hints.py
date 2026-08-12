@@ -50,6 +50,65 @@ def _cfg(tmp_path: Path, binary: Path) -> SimpleNamespace:
 
 
 class TestHintFor:
+    def test_switch_dispatch(self) -> None:
+        # jmp dword ptr [eax*4 + 0x10313d0] — jump-table switch dispatch
+        insns = _insns("ff 24 85 d0 13 03 01")
+        hint = _hint_for(insns, 0) or ""
+        assert "switch dispatch" in hint
+        assert "rebrew switch" in hint
+
+    def test_plain_jmp_no_hint(self) -> None:
+        # jmp 0x1009c76 — direct tail call, not a dispatch
+        insns = _insns("e9 76 9c 01 00")
+        assert _hint_for(insns, 0) is None
+
+    def test_eh_ctor_prolog_hint(self) -> None:
+        # mov eax, 0x1033d1e; call 0x1030660 — EH-ctor registration prolog
+        insns = _insns("b8 1e 3d 03 01 e8 ce 74 02 00")
+        hint = _hint_for(insns, 1) or ""
+        assert "EH-ctor" in hint
+        assert "not C-reproducible" in hint
+
+    def test_esp_disp8_hint(self) -> None:
+        # mov eax, dword ptr [esp + 0x1c] — MASM folds the disp8 encoding
+        insns = _insns("8b 44 24 1c")
+        hint = _hint_for(insns, 0) or ""
+        assert "_emit" in hint
+        assert "disp8" in hint
+
+    def test_iat_forwarder_hint(self) -> None:
+        """7 reversed pushes + call [IAT] → forwarder hint with the stdcall
+        callee lesson (the forwarder itself is cdecl)."""
+        code = (
+            "8b 44 24 1c 8b 4c 24 18 8b 54 24 14 50 8b 44 24 14 51 "
+            "8b 4c 24 14 52 8b 54 24 14 50 8b 44 24 14 51 52 50 "
+            "ff 15 5c 12 00 01 c3"
+        )
+        insns = _insns(code)
+        call_idx = next(i for i, x in enumerate(insns) if x.mnemonic == "call")
+        hint = _hint_for(insns, call_idx) or ""
+        assert "forwarder" in hint
+        assert "7-arg" in hint
+
+    def test_iat_forwarder_hint_with_lookbehind_prefix(self) -> None:
+        """The backward scan must not be broken by a lookbehind prefix
+        (instructions before the function start) — the pushes immediately
+        before the call count regardless of what precedes them."""
+        # Prefix (previous function tail: `add esp,8; ret`), then the
+        # forwarder's 3 pushes + call [IAT].
+        code = "83 c4 08 c3 " + "8b 44 24 10 50 8b 44 24 10 50 8b 44 24 10 50 ff 15 5c 12 00 01 c3"
+        insns = _insns(code)
+        call_idx = next(i for i, x in enumerate(insns) if x.mnemonic == "call")
+        hint = _hint_for(insns, call_idx) or ""
+        assert "forwarder" in hint
+
+    def test_byte_compressed_switch_hint(self) -> None:
+        # mov dl, byte ptr [ecx+0x103125c]; ...; jmp dword ptr [edx*4+0x1031240]
+        insns = _insns("8a 91 5c 12 03 01 ff 24 95 40 12 03 01")
+        hint = _hint_for(insns, 1) or ""
+        assert "byte-compressed switch" in hint
+        assert "may not reproduce" in hint
+
     def test_post_decrement_counter(self) -> None:
         # mov esi,ecx; dec ecx; test esi,esi; jne
         insns = _insns("8bf14985f675f3")
@@ -81,6 +140,19 @@ class TestHintFor:
         insns = _insns("66ff05305b4100")
         hint = _hint_for(insns, 0)
         assert hint is not None and "declared global" in hint
+
+    def test_equality_boolean_hint(self) -> None:
+        # cmp eax, 1; sbb eax, eax; inc eax — MSVC `!x` lowering; plain C
+        # under MSVC5 compiles to a different epilogue (neg/sbb/neg/dec)
+        insns = _insns("83 f8 01 1b c0 40")
+        hint = _hint_for(insns, 1) or ""
+        assert "equality-boolean" in hint
+        assert "naked asm" in hint
+
+    def test_equality_boolean_needs_cmp_1(self) -> None:
+        # sbb without the preceding `cmp reg,1` — no hint
+        insns = _insns("1b c0 40")
+        assert _hint_for(insns, 0) is None
 
 
 class TestAnnotationForOperand:

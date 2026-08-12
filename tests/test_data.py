@@ -316,6 +316,41 @@ class TestBssFix:
         assert entry_2["size"] == 32
         assert entry_2["section"] == ".bss"
 
+    def test_rerun_preserves_existing_declarations(self, tmp_path: Path) -> None:
+        """Re-running --fix-bss must NOT delete the arrays written by the
+        first run: the generated file's own DATA annotations close the gaps
+        they fill, so a second scan reports FEWER gaps — regenerating from
+        scratch would empty bss_padding.c while rebrew-data.toml still
+        claims coverage (idempotency-review F4)."""
+        report1 = BssReport(
+            bss_va=0x1000,
+            bss_size=0x200,
+            gaps=[BssGap(offset=0x1010, size=16, before="g_a", after="g_b")],
+        )
+        _generate_bss_fix(report1, tmp_path, "GAME")
+        fix_file = tmp_path / "bss_padding.c"
+        first = fix_file.read_text(encoding="utf-8")
+        assert "char gap_00001010[16];" in first
+
+        # Second run: the 0x1010 gap is gone from the scan (its array now
+        # fills it), but a NEW gap at 0x1030 appears.
+        report2 = BssReport(
+            bss_va=0x1000,
+            bss_size=0x200,
+            gaps=[BssGap(offset=0x1030, size=32, before="g_b", after="g_c")],
+        )
+        _generate_bss_fix(report2, tmp_path, "GAME")
+        second = fix_file.read_text(encoding="utf-8")
+        # Old declaration survives; new one added.
+        assert "char gap_00001010[16];" in second
+        assert "char gap_00001030[32];" in second
+
+        # Third run with NO new gaps: file unchanged (up-to-date message).
+        report3 = BssReport(bss_va=0x1000, bss_size=0x200, gaps=[])
+        _generate_bss_fix(report3, tmp_path, "GAME")
+        third = fix_file.read_text(encoding="utf-8")
+        assert third == second
+
 
 def test_verify_bss_layout_clamps_coverage(tmp_path: Path) -> None:
     _write_c(tmp_path, "bss_large.c", BSS_LARGE_ENTRY)

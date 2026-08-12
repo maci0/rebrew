@@ -58,14 +58,15 @@ from rebrew.cli import (
     target_marker,
 )
 from rebrew.compile import resolve_compiler_env
-from rebrew.compile_cache import CompileCache
+from rebrew.compile_cache import CompileCache, _source_digest
 from rebrew.config import ProjectConfig
-from rebrew.core import build_iat_region, msvc_env_from_config, smart_reloc_compare
+from rebrew.core import build_iat_region, smart_reloc_compare
 from rebrew.diff import print_structural_similarity
 from rebrew.matcher import (
     BuildCache,
     BuildResult,
     GACheckpoint,
+    SolutionEntry,
     build_candidate,
     build_candidate_obj_only,
     compute_population_diversity,
@@ -86,6 +87,21 @@ _metadata_lock = threading.Lock()
 console = Console(stderr=True)
 
 
+def _ga_runs_dir(cfg: ProjectConfig, rel: Path | None = None) -> Path:
+    """Resolve the GA run output directory, honoring ``[project].output_dir``.
+
+    ``cfg.output_dir`` defaults to ``output`` (config.py), so the default
+    path is unchanged — but a project setting ``output_dir = "artifacts"``
+    must route GA runs there too.  The old code hardcoded ``cfg.root /
+    "output"`` while ``rebrew report`` used the config value, so the same
+    documented option behaved differently per tool (config-review F4).
+    """
+    base = getattr(cfg, "output_dir", None) or (cfg.root / "output")
+    if rel is None:
+        return base / "ga_runs"
+    return base / "ga_runs" / rel.with_suffix("")
+
+
 def _compile_cflags(cflags: str, base_cf: str, posix_style: bool = False) -> str:
     """Build the effective compile flags: base_cflags first (when it carries
     ``/c``), else the ``/nologo /c`` glue.  ONE definition shared by the
@@ -95,12 +111,18 @@ def _compile_cflags(cflags: str, base_cf: str, posix_style: bool = False) -> str
 
     For POSIX-style compilers (gcc-pe/mingw, clang) the ``/nologo /c`` glue
     is omitted — ``-c`` is added by the compile command builders.
+
+    A ``base_cf`` WITHOUT ``/c`` (e.g. a bare ``/MT``) is preserved AND gets
+    the glue inserted: the old code dropped it entirely in that branch — the
+    same silent flag-loss regression class this function consolidates.
     """
     if posix_style:
         return f"{base_cf} {cflags}".strip() if base_cf else cflags
     if base_cf and "/c" in base_cf:
         return f"{base_cf} {cflags}".strip()
     if "/c" not in cflags:
+        if base_cf:
+            return f"/nologo /c {base_cf} {cflags}".strip()
         return f"/nologo /c {cflags}".strip()
     return cflags
 
@@ -200,8 +222,6 @@ def _ga_cache_key(
     # Incremental hashing — the old code built a full material buffer per
     # candidate (src.encode() + joins), and the source hash was recomputed
     # every call despite being constant within a GA run (perf-review F3).
-    from rebrew.compile_cache import _source_digest
-
     h = hashlib.sha256()
     h.update(_source_digest(src).encode())
     h.update(b"\x00cflags=" + cflags.encode())
@@ -291,10 +311,16 @@ class BinaryMatchingGA:
         self.compile_cache = compile_cache
         self.extra_seeds = extra_seeds or []
 
-        # Scope every mutation query to the target function's byte range —
-        # only that function's compiled bytes are scored, so mutating
-        # sibling functions in a multi-function file is pure waste (and the
-        # whole-file query cost was ~270x higher on large seeds).
+        # Process-local fitness memo keyed by source hash.  The disk-backed
+        # BuildCache stores BuildResult objects WITHOUT the fitness field
+        # (it is populated after scoring, and put() already ran in
+        # _compile_source), so a cache.get() always returns a fresh
+        # unpickled object whose getattr(res, "fitness", None) is None —
+        # the warm-scoring fast path in _compute_fitness could never fire.
+        # Elite sources persist across generations unchanged, so a dict
+        # here (no extra disk write) captures the real win.
+        self._fitness_memo: dict[str, float] = {}
+
         # Scope mutation queries to the target function's byte range — only
         # that function's compiled bytes are scored, so mutating siblings in
         # a multi-function file is pure waste (whole-file query cost was
@@ -393,12 +419,17 @@ class BinaryMatchingGA:
             if self.verbose:
                 console.print(line)
 
-        # Warm-cache fast path: a BuildResult that was already scored in this
-        # process (or a prior run of the same stub — the cache is per-stub,
-        # so target bytes are fixed) carries its fitness; skip the
-        # disassembly + numpy scoring entirely.
+        # Warm-scoring fast path: a source hash already scored in this
+        # process (same stub, same flags → same obj bytes → same score)
+        # skips re-disassembly + re-scoring entirely.  Perf-review F6:
+        # ~2.8s per 300k-candidate warm batch of elite/unchanged sources
+        # that persist across generations.
+        memoized = self._fitness_memo.get(src_hash)
+        if memoized is not None:
+            return memoized
         cached_fitness = getattr(res, "fitness", None)
         if res.ok and cached_fitness is not None:
+            self._fitness_memo[src_hash] = float(cached_fitness)
             return float(cached_fitness)
 
         if not res.ok or res.obj_bytes is None:
@@ -438,6 +469,7 @@ class BinaryMatchingGA:
         # 300k-candidate warm batch).  getattr guards pickles written before
         # the field existed.
         res.fitness = total
+        self._fitness_memo[src_hash] = total
         _log(
             f"[{src_hash}] SUCCESS. Score={total:.2f} (len_bytes={len(obj_bytes)}, excess={excess})"
         )
@@ -449,9 +481,12 @@ class BinaryMatchingGA:
         return total
 
     def _write_pair(self, src: str, obj_bytes: bytes, score: float) -> None:
-        """Append a source-binary pair to the JSONL collection file."""
-        import json
+        """Append a source-binary pair to the JSONL collection file.
 
+        The caller guards ``collect_pairs_path is not None`` before calling,
+        so no in-function re-check is needed (the old one sat AFTER the
+        record was built, i.e. unreachable).
+        """
         record = {
             "source": src,
             "compiled_bytes": obj_bytes.hex(),
@@ -460,9 +495,7 @@ class BinaryMatchingGA:
             "cflags": self.cflags,
             "symbol": self.symbol,
         }
-        if self.collect_pairs_path is None:
-            return
-        with open(self.collect_pairs_path, "a", encoding="utf-8") as f:
+        with open(self.collect_pairs_path, "a", encoding="utf-8") as f:  # type: ignore[arg-type]
             f.write(json.dumps(record) + "\n")
         self._pairs_count += 1
 
@@ -508,7 +541,11 @@ class BinaryMatchingGA:
                         res = BuildResult(
                             ok=False, error_msg=f"exception during compilation: {exc}"
                         )
-                    src_hash = hashlib.sha256(futures[fut].encode()).hexdigest()[:8]
+                    # Source digest memoized per unique string (compile_cache
+                    # lru_cache) — the old full hashlib.sha256 per candidate
+                    # per generation re-hashed the same elite sources every
+                    # generation (perf-review F5).
+                    src_hash = _source_digest(futures[fut])[:8]
                     scored_pop.append(
                         (self._compute_fitness(res, src_hash, futures[fut]), futures[fut])
                     )
@@ -1036,15 +1073,18 @@ def update_stub_to_matched(
     if not (spliced and module is not None and va_int is not None):
         return False
 
-    # Promote only when the splice actually landed and the file re-parses —
-    # otherwise the metadata would claim RELOC on an unchanged stub body.
+    # Promote only when the splice actually landed, the file re-parses, AND
+    # the write succeeded — otherwise the metadata would claim RELOC on an
+    # unchanged stub body (a failed atomic_write_text — disk full, read-only
+    # dir — must not leave rebrew-function.toml saying RELOC while the .c
+    # still holds the stub).  The promotion therefore runs AFTER the write.
     from rebrew.metadata import update_source_status
-
-    meta_root = metadata_dir or filepath.parent
-    update_source_status(meta_root, "RELOC", module, va_int)
 
     shutil.copy2(filepath, bak_path)
     atomic_write_text(filepath, updated, encoding=encoding)
+
+    meta_root = metadata_dir or filepath.parent
+    update_source_status(meta_root, "RELOC", module, va_int)
 
     from rebrew.cli import rel_display_path
 
@@ -1339,14 +1379,17 @@ def main(
 
     # Validate --tier up front: generate_flag_combinations raises a bare
     # ValueError that would otherwise escape as a traceback mid-sweep.
-    if flag_sweep_only or all_mode:
-        from rebrew.matcher.flag_data import MSVC_SWEEP_TIERS
+    # Checked unconditionally — `rebrew match f.c --tier nonsense` silently
+    # succeeded before (tier is only consulted in sweep paths, so the typo
+    # went unnoticed instead of erroring at invocation time).
+    from rebrew.matcher.flag_data import MSVC_SWEEP_TIERS
 
-        if tier not in MSVC_SWEEP_TIERS:
-            error_exit(
-                f"Unknown sweep tier {tier!r}, valid: {', '.join(MSVC_SWEEP_TIERS)}",
-                json_mode=json_output,
-            )
+    if tier not in MSVC_SWEEP_TIERS:
+        error_exit(
+            f"Unknown sweep tier {tier!r}, valid: {', '.join(MSVC_SWEEP_TIERS)}",
+            json_mode=json_output,
+            code=EXIT_ERROR,
+        )
 
     if watch and all_mode:
         error_exit("--watch cannot be combined with --all", json_mode=json_output)
@@ -1382,7 +1425,7 @@ def main(
         )
 
     if all_mode:
-        _run_all(
+        matched, failed = _run_all(
             cfg=cfg,
             jobs=jobs,
             generations=generations,
@@ -1409,6 +1452,11 @@ def main(
             resume=resume,
             mutation_weights=batch_mutation_weights,
         )
+        # Documented exit contract (epilog): 1 = no match found.  A batch
+        # with any failed stub is not a success for CI gates — mirror
+        # `rebrew test --all`'s failed>0 → EXIT_MISMATCH.
+        if failed > 0 and not dry_run:
+            raise typer.Exit(code=EXIT_MISMATCH)
         return
 
     if all_targets:
@@ -1488,6 +1536,9 @@ def main(
                 f"\n[bold]All targets: {total_matched} matched, {total_failed} failed "
                 f"across {len(names)} target(s)[/]"
             )
+        # Same exit contract as --all: 1 = no match found (any failed stub).
+        if total_failed > 0 and not dry_run:
+            raise typer.Exit(code=EXIT_MISMATCH)
         return
 
     # Single-function mode requires seed_c
@@ -1714,8 +1765,8 @@ def resolve_build_params(
     # different function and reported a false match).
     anno = _select_annotation(annos, symbol)
     if anno is None and target_va:
-        # target_va is validated by the parse below (line ~1389) before bytes
-        # are extracted, so it is safe to parse here for the VA match.
+        # target_va is validated by the parse below before bytes are
+        # extracted, so it is safe to parse here for the VA match.
         want_va = parse_va(target_va, json_mode=json_output)
         anno = next((a for a in annos if a.va == want_va), None)
     if anno is None:
@@ -1747,10 +1798,11 @@ def resolve_build_params(
 
     meta = parse_source_metadata(seed_c, metadata_dir=cfg.metadata_dir)
     compile_cfg = cfg
-    msvc_env = msvc_env_from_config(compile_cfg)
 
-    # Use shared helper for compiler env resolution
-    cl_resolved, inc_resolved, _, cc = resolve_compiler_env(cfg)
+    # Use shared helper for compiler env resolution — the returned msvc_env
+    # IS msvc_env_from_config(cfg) (the old code computed it a second time
+    # and discarded the helper's copy).
+    cl_resolved, inc_resolved, msvc_env, cc = resolve_compiler_env(cfg)
     if cl is not None:
         # Caller override: resolve paths relative to root
         try:
@@ -1994,11 +2046,11 @@ def run_flag_sweep(
 #: the archaic-msvc VC4/5/7 line).  Used by ``--sweep-toolchain`` to answer
 #: "which MSVC version built this function?".
 _MSVC_TOOLCHAIN_PATHS: list[tuple[str, str, str]] = [
-    ("msvc6.3", "msvc6.3/Bin/CL.EXE", "msvc6.3/Include"),
-    ("msvc6.6", "msvc6.6/Bin/CL.EXE", "msvc6.6/Include"),
-    ("msvc7.0", "msvc7.0/Bin/cl.exe", "msvc7.0/Include"),
-    ("MSVC420", "MSVC420/bin/CL.EXE", "MSVC420/include"),
-    ("MSVC500", "MSVC500/bin/cl.exe", "MSVC500/include"),
+    ("msvc6.3", "msvc/6.0-sp3-win32/Bin/CL.EXE", "msvc/6.0-sp3-win32/Include"),
+    ("msvc6.6", "msvc/6.0-sp6-win32/Bin/CL.EXE", "msvc/6.0-sp6-win32/Include"),
+    ("msvc-7.0-win32", "msvc/7.0-win32/Bin/cl.exe", "msvc/7.0-win32/Include"),
+    ("msvc-4.2-win32", "msvc/4.2-win32/bin/CL.EXE", "msvc/4.2-win32/include"),
+    ("msvc-5.0-win32", "msvc/5.0-win32/bin/cl.exe", "msvc/5.0-win32/include"),
 ]
 
 
@@ -2006,7 +2058,7 @@ def _vendored_msvc_toolchains(
     cfg: Any, baseline_cl: str, baseline_inc: str
 ) -> list[tuple[str, str, str]]:
     """Return (profile, cl_cmd, inc_dir) for vendored toolchains with a CL present."""
-    tools = Path(__file__).resolve().parents[2] / "tools"
+    tools = Path(__file__).resolve().parents[2] / "toolchain"
     out: list[tuple[str, str, str]] = []
     for profile, cl_sub, inc_sub in _MSVC_TOOLCHAIN_PATHS:
         cl = tools / cl_sub
@@ -2021,6 +2073,14 @@ def _vendored_msvc_toolchains(
 def _run_single_toolchain_sweep(p: _BuildParams, json_output: bool) -> None:
     """Compile the seed with each vendored MSVC toolchain and report the best."""
     toolchains = _vendored_msvc_toolchains(p.cfg, p.cl, p.inc)
+    # Catalog + IAT region are constant across toolchains — computed once,
+    # not per iteration (the old code called build_iat_region inside the
+    # loop and passed name_to_va via a getattr that never existed, so reloc
+    # targets were never validated: a wrong-callee source could tag "EXACT").
+    from rebrew.core import build_name_to_va
+
+    name_to_va = build_name_to_va(p.cfg)
+    iat_region = build_iat_region(p.cfg)
     results: list[tuple[float, bool, int, int, str]] = []
     for profile, cl_cmd, inc_dir in toolchains:
         res = build_candidate_obj_only(
@@ -2044,9 +2104,9 @@ def _run_single_toolchain_sweep(p: _BuildParams, json_output: bool) -> None:
             obj[: len(p.target_bytes)],
             p.target_bytes,
             res.reloc_offsets,
-            name_to_va=getattr(p, "name_to_va", None),
+            name_to_va=name_to_va,
             section_va=p.va_int,
-            iat_region=build_iat_region(p.cfg),
+            iat_region=iat_region,
         )
         results.append((score_val, matched, count, total, profile))
 
@@ -2201,6 +2261,15 @@ def _run_single_ga(
                 "[yellow]warning:[/yellow] --llm-seed set but no LLM endpoint configured "
                 "(set \\[llm] endpoint or REBREW_LLM_ENDPOINT) — running without LLM seeds"
             )
+            # --dry-run promised "preview, no GA" — without an endpoint there
+            # is nothing to preview and the GA must NOT run (it used to fall
+            # through here and burn hours of Wine compiles despite --dry-run).
+            if dry_run:
+                console.print(
+                    "\n[bold]Dry run:[/bold] --llm-seed with no LLM endpoint — "
+                    "nothing to preview; skipping the GA run."
+                )
+                return
         else:
             llm_snippets = request_seeds(p.cfg, p.seed_src)
             if llm_snippets:
@@ -2299,8 +2368,16 @@ def _save_solution(
     source_file: str,
     score: float,
     generations: int,
+    *,
+    collect_out: list[SolutionEntry] | None = None,
 ) -> None:
-    """Save an exact-match solution to the solutions database."""
+    """Save an exact-match solution to the solutions database.
+
+    With *collect_out* set, the entry is appended to that list instead of
+    written — the batch GA driver collects one entry per matched stub and
+    flushes via ``save_solutions`` once, so N matches cost one whole-file
+    read-modify-write instead of N (the flag-sweep batch already does this).
+    """
     try:
         from rebrew.matcher.solutions import SolutionEntry, save_solution
 
@@ -2313,6 +2390,9 @@ def _save_solution(
             score=score,
             generations=generations,
         )
+        if collect_out is not None:
+            collect_out.append(entry)
+            return
         save_solution(cfg.root, entry)
     except Exception:  # noqa: BLE001
         # A failed save silently breaks --seed-from-solved / find_similar for
@@ -2337,19 +2417,22 @@ def _run_one_stub_ga(
     rng_seed: int | None = None,
     resume_from: GACheckpoint | None = None,
     mutation_weights: dict[str, float] | None = None,
+    solutions_out: list[SolutionEntry] | None = None,
 ) -> tuple[bool, str]:
     """Run one GA pass for a single stub in-process. Returns (matched, summary).
 
     *cflags_override* replaces ``stub.cflags`` (used by ``--sweep-then-ga``
     to seed the GA with the flag-sweep's best variant).  *resume_from* is a
-    validated :class:`GACheckpoint` (batch ``--resume``).
+    validated :class:`GACheckpoint` (batch ``--resume``).  *solutions_out*
+    collects SolutionEntry for the batch driver's single end-of-batch flush
+    (see ``_save_solution``); when None the entry is written immediately.
     """
     filepath = stub.filepath
     try:
         rel = filepath.relative_to(cfg.root)
     except ValueError:
         rel = Path(filepath.stem)
-    out_dir = cfg.root / "output" / "ga_runs" / rel.with_suffix("")
+    out_dir = _ga_runs_dir(cfg, rel)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     va_int = int(stub.va, 16)
@@ -2423,6 +2506,54 @@ def _run_one_stub_ga(
             # prepends base_cflags itself, and embedding the prefix would
             # break later base_cflags changes (duplicate /MT etc.).
             persist_cflags = cflags_override if cflags_override is not None else stub.cflags
+            # Authoritative validation before splicing/promoting: the GA
+            # scores with score_candidate, which masks every reloc slot —
+            # a candidate differing ONLY in a call/mov displacement scores
+            # 0.0 without checking the reloc TARGET against the catalog, so
+            # a wrong-callee source would be spliced and promoted RELOC that
+            # the next test/verify immediately demotes (functionality-review
+            # F3).  Confirm with the same predicate test/verify use.
+            confirmed = False
+            try:
+                from rebrew.cli import resolve_cflags
+                from rebrew.compile import compile_and_compare
+                from rebrew.core import build_name_to_va
+
+                n2v = build_name_to_va(cfg)
+                if n2v and best_c.exists():
+                    # The GA ran with _compile_cflags(this, base); pass the
+                    # resolved user-facing flags (compile_and_compare prepends
+                    # base itself) to reproduce the same compile — NOT the
+                    # already-prefixed `cflags` variable, which would
+                    # double-apply base_cflags.
+                    resolved = (
+                        cflags_override
+                        if cflags_override is not None
+                        else resolve_cflags(cfg, stub.cflags, getattr(stub, "module", ""))
+                    )
+                    cmp_res = compile_and_compare(
+                        cfg,
+                        best_c,
+                        stub.symbol,
+                        target_bytes,
+                        resolved,
+                        name_to_va=n2v,
+                        section_va=va_int,
+                    )
+                    confirmed = cmp_res.matched
+                    if not confirmed:
+                        log.warning(
+                            "GA match for %s not confirmed by reloc validation "
+                            "(%s: %s) — not promoting",
+                            stub.symbol,
+                            cmp_res.status,
+                            cmp_res.message[:120],
+                        )
+            except Exception as exc:  # noqa: BLE001 — validation is best-effort
+                log.warning("GA match validation failed for %s: %s", stub.symbol, exc)
+            if not confirmed:
+                matched = False
+                output_summary = f"best_score={best_score:.2f} (reloc-masked only, not confirmed)"
             spliced_ok = False
             if best_c.exists():
                 try:
@@ -2438,6 +2569,34 @@ def _run_one_stub_ga(
                             update_cflags_annotation(
                                 filepath, persist_cflags, metadata_dir=cfg.metadata_dir
                             )
+                        # Keep status/todo in sync: the verify cache may still
+                        # hold a STUB entry from the last full verify — without
+                        # this patch, `rebrew status` reads the stale cached
+                        # STUB over the fresh RELOC metadata until the next
+                        # verify (functionality-review F4).  Best-effort: a
+                        # failed cache write must not undo the splice.
+                        if spliced_ok:
+                            try:
+                                from rebrew.verify import patch_verify_cache_entries
+
+                                patch_verify_cache_entries(
+                                    cfg,
+                                    [
+                                        {
+                                            "va": int(stub.va, 16),
+                                            "status": "RELOC",
+                                            "match_count": stub.size or 0,
+                                            "total": stub.size or 0,
+                                            "delta": 0,
+                                        }
+                                    ],
+                                )
+                            except Exception:  # noqa: BLE001 — cache patch is best-effort
+                                log.warning(
+                                    "Verify-cache patch failed for %s (status may be stale)",
+                                    stub.symbol,
+                                    exc_info=True,
+                                )
                 except (RuntimeError, OSError) as e:
                     console.print(
                         f"  [yellow]warning:[/yellow] GA matched but failed to update source: {e}"
@@ -2455,6 +2614,7 @@ def _run_one_stub_ga(
                         str(filepath),
                         best_score,
                         generations,
+                        collect_out=solutions_out,
                     )
             # Only claim a match when the source was actually updated — a
             # stub whose block could not be spliced is still a stub, and
@@ -2512,7 +2672,7 @@ def _filter_recently_run(
 ) -> list[StubInfo]:
     """Drop stubs that already have a GA run record within the last *hours*.
 
-    Lets long batch runs resume without re-attempting recently-processed
+    Let's long batch runs resume without re-attempting recently-processed
     stubs (see ``--skip-recent``).
     """
     from datetime import UTC, datetime, timedelta
@@ -2650,12 +2810,22 @@ def _run_all(  # noqa: PLR0913
         return 0, 0
 
     if flag_sweep:
+        from rebrew.core import build_name_to_va
+
+        # Shared relocation-validation catalog (same as test/verify): the
+        # sweep's reloc-masked score alone cannot certify a match — a
+        # candidate differing only in a call/mov displacement scores 0.0
+        # without checking the reloc TARGET, so a wrong-callee source could
+        # be promoted EXACT/RELOC and demoted by the next test/verify
+        # (functionality-review F3).  Validate every sweep "exact" against
+        # the catalog before promoting.
+        name_to_va = build_name_to_va(cfg)
         matched, failed = _run_batch_flag_sweep(
-            stubs, cfg, tier, jobs, fix_cflags, json_output, mode_label
+            stubs, cfg, tier, jobs, fix_cflags, json_output, mode_label, name_to_va=name_to_va
         )
         return matched, failed
 
-    (cfg.root / "output" / "ga_runs").mkdir(parents=True, exist_ok=True)
+    _ga_runs_dir(cfg).mkdir(parents=True, exist_ok=True)
 
     matched_count = 0
     failed_count = 0
@@ -2698,7 +2868,10 @@ def _run_all(  # noqa: PLR0913
                         f"from {seed_solutions_path}"
                     )
         except Exception:  # noqa: BLE001
-            log.debug("Solution list load failed", exc_info=True)
+            # Seeding is a batch-time enhancement, but a failed load silently
+            # disables --seed-from-solved for the whole batch — warn at
+            # WARNING so the user knows the run was not seed-informed.
+            log.warning("Solution list load failed — cross-project seeding disabled", exc_info=True)
 
     stub_seeds: list[list[str]] = []
     stub_seed_cflags: list[str | None] = []
@@ -2736,7 +2909,10 @@ def _run_all(  # noqa: PLR0913
                                 f"({sol.size}B, {sol.cflags})"
                             )
             except Exception:  # noqa: BLE001
-                log.debug("Solution lookup failed", exc_info=True)
+                # Per-stub seed lookup failure — warn so a stub that would
+                # otherwise have been seed-informed is not silently run from
+                # its bare seed.
+                log.warning("Solution lookup failed for %s", stub.symbol, exc_info=True)
         stub_seeds.append(extra_ga_paths)
         stub_seed_cflags.append(seed_cflags)
 
@@ -2744,6 +2920,11 @@ def _run_all(  # noqa: PLR0913
     # total concurrency stays at ~jobs (MSVC under wine is not cheap).
     # The cooperative deadline (no SIGALRM) keeps this thread-safe.
     intra_jobs = 1 if jobs > 1 else jobs
+
+    # Collect solution entries across all stubs and flush ONCE at the end —
+    # _save_solution per matched stub re-read and rewrote the whole
+    # solutions file per match (O(matches × file size)).
+    solutions_out: list[SolutionEntry] = []
 
     def _run_stub(
         stub: StubInfo, seeds: list[str], seed_cflags: str | None
@@ -2763,7 +2944,15 @@ def _run_all(  # noqa: PLR0913
                             f"  [dim]Flag sweep:[/] {stub.symbol} best flags {best_flags}"
                         )
             except Exception:  # noqa: BLE001 — sweep failure falls back to stub flags
-                log.debug("Flag sweep failed for %s", stub.symbol, exc_info=True)
+                # A sweep failure silently degrades the GA to the stub's own
+                # cflags — visible at WARNING (batch workflow default hides
+                # DEBUG), so the user can tell the result was not
+                # sweep-informed.
+                log.warning(
+                    "Flag sweep failed for %s — GA will run with stub cflags",
+                    stub.symbol,
+                    exc_info=True,
+                )
 
         # --resume: continue from the stub's last checkpoint (the GA
         # constructor re-validates args_hash — a stale one restarts fresh).
@@ -2773,7 +2962,7 @@ def _run_all(  # noqa: PLR0913
                 rel = stub.filepath.relative_to(cfg.root)
             except ValueError:
                 rel = Path(stub.filepath.stem)
-            stub_out_dir = cfg.root / "output" / "ga_runs" / rel.with_suffix("")
+            stub_out_dir = _ga_runs_dir(cfg, rel)
             resume_from = read_ga_checkpoint(stub_out_dir, stub.symbol)
             if resume_from is not None and not json_output:
                 console.print(
@@ -2792,6 +2981,7 @@ def _run_all(  # noqa: PLR0913
                 rng_seed=stub_seed,
                 resume_from=resume_from,
                 mutation_weights=mutation_weights,
+                solutions_out=solutions_out,
             )
         except Exception as exc:  # noqa: BLE001 — one bad stub must not abort the batch
             log.debug("GA run failed for %s", stub.symbol, exc_info=True)
@@ -2868,6 +3058,16 @@ def _run_all(  # noqa: PLR0913
             f"Results: [green]{matched_count} matched[/], [red]{failed_count} failed[/], {len(stubs)} total"
         )
         console.print(f"[bold]{'=' * 60}[/]")
+
+    # Flush all collected solutions in one read-modify-write (see
+    # solutions_out) — mirrors the batch flag-sweep path.
+    if solutions_out:
+        try:
+            from rebrew.matcher.solutions import save_solutions
+
+            save_solutions(cfg.root, solutions_out)
+        except Exception:  # noqa: BLE001
+            log.warning("Batch solution save failed", exc_info=True)
     return matched_count, failed_count
 
 
@@ -2879,6 +3079,7 @@ def _run_batch_flag_sweep(
     fix_cflags: bool,
     json_output: bool,
     mode_label: str,
+    name_to_va: dict[str, int] | None = None,
 ) -> tuple[int, int]:
     """Execute batch flag sweep across all discovered NEAR_MATCHING functions.
 
@@ -2930,8 +3131,57 @@ def _run_batch_flag_sweep(
 
         cflags_updated = False
         if is_exact:
-            exact_count += 1
-            if fix_cflags and best_flags:
+            # The sweep's reloc-masked score alone cannot certify a match:
+            # score_candidate masks every reloc slot, so a candidate that
+            # differs ONLY in a call/mov displacement scores 0.0 without
+            # checking the reloc TARGET — promoting it would write
+            # EXACT/RELOC that the next test/verify (which validates reloc
+            # targets against the catalog) immediately demotes
+            # (functionality-review F3).  Re-verify with the authoritative
+            # predicate before touching STATUS.
+            confirmed = False
+            if fix_cflags and best_flags and name_to_va:
+                try:
+                    from rebrew.binary_loader import extract_raw_bytes
+                    from rebrew.cli import resolve_cflags
+                    from rebrew.compile import compile_and_compare
+
+                    target_bytes = extract_raw_bytes(cfg.target_binary, int(stub.va, 16), stub.size)
+                    if target_bytes:
+                        # Same effective flags the sweep used: resolved stub
+                        # cflags (per-function → preset → compiler.cflags)
+                        # PLUS the winning combo.  compile_and_compare prepends
+                        # cfg.base_cflags itself, so pass the raw resolved set —
+                        # bare best_flags would drop the stub's own cflags and
+                        # validate a DIFFERENT compile than the sweep scored.
+                        resolved = resolve_cflags(cfg, stub.cflags, getattr(stub, "module", ""))
+                        cmp_res = compile_and_compare(
+                            cfg,
+                            stub.filepath,
+                            stub.symbol,
+                            target_bytes,
+                            f"{resolved} {best_flags}".strip(),
+                            name_to_va=name_to_va,
+                            section_va=int(stub.va, 16),
+                        )
+                        confirmed = cmp_res.matched
+                        if not confirmed and not json_output:
+                            console.print(
+                                f"  [yellow]sweep exact not confirmed:[/] {stub.symbol} "
+                                f"({cmp_res.status}: {cmp_res.message[:80]}) — not promoting"
+                            )
+                except Exception as exc:  # noqa: BLE001 — validation is best-effort
+                    log.warning(
+                        "Match validation failed for %s — not promoting: %s",
+                        stub.symbol,
+                        exc,
+                    )
+            if not confirmed:
+                # Not promoted: the reported exact flag was reloc-masked only.
+                result_entry["exact"] = False
+                is_exact = False
+            else:
+                exact_count += 1
                 cflags_updated = update_cflags_annotation(
                     stub.filepath, best_flags, metadata_dir=cfg.metadata_dir
                 )
@@ -2943,6 +3193,29 @@ def _run_batch_flag_sweep(
                     va=int(stub.va, 16),
                     clear_blockers=True,
                 )
+                # Keep status/todo in sync with the fresh EXACT metadata (the
+                # verify cache may hold a stale NEAR_MATCHING entry).
+                try:
+                    from rebrew.verify import patch_verify_cache_entries
+
+                    patch_verify_cache_entries(
+                        cfg,
+                        [
+                            {
+                                "va": int(stub.va, 16),
+                                "status": "EXACT",
+                                "match_count": stub.size or 0,
+                                "total": stub.size or 0,
+                                "delta": 0,
+                            }
+                        ],
+                    )
+                except Exception:  # noqa: BLE001 — cache patch is best-effort
+                    log.warning(
+                        "Verify-cache patch failed for %s (status may be stale)",
+                        stub.symbol,
+                        exc_info=True,
+                    )
                 solved_entries.append(
                     SolutionEntry(
                         symbol=stub.symbol,

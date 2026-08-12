@@ -3,6 +3,9 @@
 from pathlib import Path
 from typing import Any
 
+import pytest
+import typer
+
 from rebrew.compile import CompareResult
 from rebrew.test import (
     _expand_reloc_offsets,
@@ -130,7 +133,9 @@ class TestBuildResultDictFromCompare:
             message="SIZE_MISMATCH",
             full_obj_size=12,
         )
-        d = build_result_dict_from_compare("f.c", "_f", "0x1000", 9, cmp, b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01")
+        d = build_result_dict_from_compare(
+            "f.c", "_f", "0x1000", 9, cmp, b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01"
+        )
         assert d["status"] == "SIZE_MISMATCH"
         assert d["obj_size"] == 12
         assert d["total"] == 12
@@ -150,7 +155,9 @@ class TestBuildResultDictFromCompare:
             message="RELOC-NORM MATCH (1 relocs)",
             full_obj_size=12,
         )
-        d = build_result_dict_from_compare("f.c", "_f", "0x1000", 12, cmp, b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01")
+        d = build_result_dict_from_compare(
+            "f.c", "_f", "0x1000", 12, cmp, b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01"
+        )
         assert d["status"] == "RELOC"
         assert d["total"] == 12
         assert d["match_count"] == 12
@@ -200,6 +207,62 @@ class TestSizePersistence:
         assert result.exit_code == 0, result.output
         meta = (tmp_path / "src" / "rebrew-function.toml").read_text()
         assert "size = 4" in meta
+
+    def test_va_promotes_under_selected_module_not_first(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """`rebrew test multi.c --va 0x2000` on a multi-module file must write
+        SIZE/CFLAGS/STATUS under the SECOND function's module, not the first's
+        (the old code used lint_annos[0] for every write — a phantom
+        (first_module, 0x2000) entry while the real one stayed stale).  An
+        empty marker means the parser keeps every module in the file."""
+        import shutil
+
+        from typer.testing import CliRunner
+
+        from rebrew.compile import CompareResult
+        from rebrew.main import app as umbrella
+
+        fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
+        (tmp_path / "original").mkdir()
+        shutil.copy(fixture, tmp_path / "original" / "x.exe")
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "x"\n'
+            '[targets.x]\nbinary = "original/x.exe"\nmarker = ""\n'
+            '[compiler]\nprofile = "msvc6"\n'
+        )
+        src_dir = tmp_path / "src" / "x"
+        src_dir.mkdir(parents=True)
+        (src_dir / "multi.c").write_text(
+            "// FUNCTION: SERVER 0x1000\nint f1(void) { return 1; }\n\n"
+            "// FUNCTION: CLIENT 0x2000\nint f2(void) { return 2; }\n"
+        )
+
+        monkeypatch.setattr(
+            "rebrew.test.compile_and_compare",
+            lambda *a, **k: CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"\xc3",
+                reloc_offsets=[],
+            ),
+        )
+        result = CliRunner().invoke(
+            umbrella,
+            ["test", "src/x/multi.c", "--va", "0x2000", "--size", "8", "--symbol", "_f2"],
+        )
+        assert result.exit_code == 0, result.output
+        meta = (tmp_path / "src" / "rebrew-function.toml").read_text()
+        # The CLIENT entry got the SIZE + EXACT status; no phantom SERVER.0x2000.
+        assert "CLIENT.0x00002000" in meta
+        assert "size = 8" in meta
+        assert 'status = "EXACT"' in meta
+        assert "SERVER.0x00002000" not in meta
+        # The first function's entry is untouched (no status written for it).
+        assert "SERVER.0x00001000" not in meta
 
     def test_no_promote_skips_size_write(self, tmp_path: Path, monkeypatch: Any) -> None:
         import shutil
@@ -271,9 +334,7 @@ class TestFixSize:
         )
         src_dir = tmp_path / "src" / "x"
         src_dir.mkdir(parents=True)
-        (src_dir / "f.c").write_text(
-            "// FUNCTION: X 0x1000\nvoid __stdcall f(int a) { g = a; }\n"
-        )
+        (src_dir / "f.c").write_text("// FUNCTION: X 0x1000\nvoid __stdcall f(int a) { g = a; }\n")
 
     def _size_mismatch_result(self, match_percent: float) -> CompareResult:
         return CompareResult(
@@ -328,7 +389,7 @@ class TestFixSize:
         assert result.exit_code == 0, result.output
         meta = (tmp_path / "src" / "rebrew-function.toml").read_text()
         assert "size = 12" in meta
-        assert "status = \"RELOC\"" in meta
+        assert 'status = "RELOC"' in meta
 
     def test_real_mismatch_not_fixed(self, tmp_path: Path, monkeypatch: Any) -> None:
         from typer.testing import CliRunner
@@ -560,6 +621,7 @@ class TestMultiFixSize:
         monkeypatch.setattr(testmod, "parse_obj_symbol_and_relocs", _fake_parse)
         monkeypatch.setattr(testmod, "smart_reloc_compare", _fake_compare)
         monkeypatch.setattr(testmod, "set_fields_batch", _fake_set_fields)
+
         # extract_raw_bytes must slice by size (the evidence check re-extracts
         # at the full compiled size).
         def _fake_extract(binpath, va, size):
@@ -619,10 +681,10 @@ class TestMultiFixSize:
         monkeypatch.setattr(
             testmod,
             "set_fields_batch",
-            lambda metadata_dir, updates: writes.extend(
-                (u["module"], u["va"], u["fields"]["size"]) for u in updates
-            )
-            or len(updates),
+            lambda metadata_dir, updates: (
+                writes.extend((u["module"], u["va"], u["fields"]["size"]) for u in updates)
+                or len(updates)
+            ),
         )
         monkeypatch.setattr(
             testmod,
@@ -632,13 +694,16 @@ class TestMultiFixSize:
         monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: None)
         monkeypatch.setattr(testmod, "_patch_verify_cache", lambda *a, **k: None)
 
-        testmod._test_multi(
-            cfg,
-            str(tmp_path / "f.c"),
-            [self._ann()],
-            None,
-            fix_size=False,
-        )
+        with pytest.raises(typer.Exit) as exc_info:
+            testmod._test_multi(
+                cfg,
+                str(tmp_path / "f.c"),
+                [self._ann()],
+                None,
+                fix_size=False,
+            )
+        # SIZE_MISMATCH is unmatched → exit 1 per the documented contract.
+        assert exc_info.value.exit_code == 1
         assert writes == []
 
 
@@ -743,7 +808,8 @@ class TestFixSizeDisasmFallback:
             lambda binpath, va, size: b"",
         )
         monkeypatch.setattr(
-            "rebrew.test._disasm_extent", lambda cfg, va: 10  # matches compiled
+            "rebrew.test._disasm_extent",
+            lambda cfg, va: 10,  # matches compiled
         )
         from types import SimpleNamespace as NS
 
@@ -764,7 +830,8 @@ class TestFixSizeDisasmFallback:
             lambda binpath, va, size: b"",
         )
         monkeypatch.setattr(
-            "rebrew.test._disasm_extent", lambda cfg, va: 22  # function continues
+            "rebrew.test._disasm_extent",
+            lambda cfg, va: 22,  # function continues
         )
         from types import SimpleNamespace as NS
 

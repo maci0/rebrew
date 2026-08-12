@@ -613,7 +613,9 @@ class TestOptLevelFingerprint:
         monkeypatch.setattr(td, "_run_diec", lambda *a, **k: None)
         monkeypatch.setattr(td, "detect_with_pdb", lambda *a, **k: None)
         monkeypatch.setattr(td, "detect_with_die", lambda *a, **k: self._msvc_die())
-        monkeypatch.setattr(td, "load_binary", lambda *a, **k: _fake_binary([".text"], text=text_bytes))
+        monkeypatch.setattr(
+            td, "load_binary", lambda *a, **k: _fake_binary([".text"], text=text_bytes)
+        )
         monkeypatch.setattr(
             "rebrew.binary_loader.extract_bytes_at_va",
             lambda binfo, va, size: text_bytes[:size],
@@ -657,3 +659,21 @@ class TestOptLevelFingerprint:
         )
         info = detect_toolchain(Path("/tmp/nonexistent-prog.exe"))
         assert info.opt_level == ""
+
+
+class TestBackendDisplayName:
+    """User-facing backend names — doctor/analyze must not leak the internal
+    ids ("die" for diec, "pdb", "heuristics")."""
+
+    def test_known_backends(self) -> None:
+        from rebrew.toolchain_detect import backend_display_name
+
+        assert "diec" in backend_display_name("die")
+        assert backend_display_name("pdb") == "PDB"
+        assert "heuristics" in backend_display_name("heuristics")
+
+    def test_unknown_backend_passthrough(self) -> None:
+        from rebrew.toolchain_detect import backend_display_name
+
+        assert backend_display_name("mystery") == "mystery"
+        assert backend_display_name("") == ""

@@ -8,11 +8,13 @@ import re
 import shutil
 from pathlib import Path
 
+import tomlkit
 import typer
 from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
-from rebrew.utils import atomic_write_text
+from rebrew.toolchain_detect import ToolchainInfo
+from rebrew.utils import atomic_write_text, toolchain_link_candidates
 
 console = Console(stderr=True)
 
@@ -82,7 +84,7 @@ marker = "{marker}"                  # annotation marker (e.g. // FUNCTION: SERV
 
 # Per-target compiler override (optional — falls back to global [compiler]).
 # [targets."{target_name}".compiler]
-# command = "wine tools/MSVC600/VC98/Bin/CL.EXE"
+# command = "wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE"
 
 # ---------------------------------------------------------------------------
 # Global compiler settings — shared across all targets
@@ -123,9 +125,9 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
     },
     "msvc420": {
         "runner": "wine",
-        "command": "wine tools/MSVC420/bin/cl.exe",
-        "includes": "tools/MSVC420/include",
-        "libs": "tools/MSVC420/lib",
+        "command": "wine toolchain/msvc/4.2-win32/bin/cl.exe",
+        "includes": "toolchain/msvc/4.2-win32/include",
+        "libs": "toolchain/msvc/4.2-win32/lib",
         "cflags": "/O2 /Gd",
         "base_cflags": "/nologo /c /MT",
         "format": "pe",
@@ -134,9 +136,9 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
     },
     "msvc5": {
         "runner": "wine",
-        "command": "wine tools/MSVC500/bin/cl.exe",
-        "includes": "tools/MSVC500/include",
-        "libs": "tools/MSVC500/lib",
+        "command": "wine toolchain/msvc/5.0-win32/bin/cl.exe",
+        "includes": "toolchain/msvc/5.0-win32/include",
+        "libs": "toolchain/msvc/5.0-win32/lib",
         "cflags": "/O2 /Gd",
         "base_cflags": "/nologo /c /MT",
         "format": "pe",
@@ -145,9 +147,9 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
     },
     "msvc6": {
         "runner": "wine",  # Alternative: "wibo" (faster, auto-downloadable via rebrew doctor)
-        "command": "wine tools/MSVC600/VC98/Bin/CL.EXE",
-        "includes": "tools/MSVC600/VC98/Include",
-        "libs": "tools/MSVC600/VC98/Lib",
+        "command": "wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE",
+        "includes": "toolchain/msvc/6.0-win32/VC98/Include",
+        "libs": "toolchain/msvc/6.0-win32/VC98/Lib",
         "cflags": "/O2 /Gd",
         "base_cflags": "/nologo /c /MT",
         "format": "pe",
@@ -156,8 +158,8 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
     },
     "msvc6.3": {
         "runner": "wine",
-        "command": "wine tools/msvc6.3/Bin/CL.EXE",
-        "includes": "tools/msvc6.3/Include",
+        "command": "wine toolchain/msvc/6.0-sp3-win32/Bin/CL.EXE",
+        "includes": "toolchain/msvc/6.0-sp3-win32/Include",
         "libs": "",
         "cflags": "/O2 /Gd",
         "base_cflags": "/nologo /c /MT",
@@ -167,8 +169,8 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
     },
     "msvc6.6": {
         "runner": "wine",
-        "command": "wine tools/msvc6.6/Bin/CL.EXE",
-        "includes": "tools/msvc6.6/Include",
+        "command": "wine toolchain/msvc/6.0-sp6-win32/Bin/CL.EXE",
+        "includes": "toolchain/msvc/6.0-sp6-win32/Include",
         "libs": "",
         "cflags": "/O2 /Gd",
         "base_cflags": "/nologo /c /MT",
@@ -178,9 +180,9 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
     },
     "msvc7": {
         "runner": "wine",  # Alternative: "wibo" (faster, auto-downloadable via rebrew doctor)
-        "command": "wine tools/MSVC7/Bin/cl.exe",
-        "includes": "tools/MSVC7/Include",
-        "libs": "tools/MSVC7/Lib",
+        "command": "wine toolchain/msvc/7.0-win32/Bin/cl.exe",
+        "includes": "toolchain/msvc/7.0-win32/Include",
+        "libs": "toolchain/msvc/7.0-win32/Lib",
         "cflags": "/O2 /Gd",
         "base_cflags": "/nologo /c /MT",
         "format": "pe",
@@ -222,9 +224,9 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
     },
     "watcom": {
         "runner": "",
-        "command": "tools/WATCOM/binl/wcc386",
-        "includes": "tools/WATCOM/h",
-        "libs": "tools/WATCOM/lib386",
+        "command": "toolchain/watcom/2.0-win32/binl/wcc386",
+        "includes": "toolchain/watcom/2.0-win32/h",
+        "libs": "toolchain/watcom/2.0-win32/lib386",
         "cflags": "-zq -ot",
         "base_cflags": "",
         "format": "pe",
@@ -233,9 +235,9 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
     },
     "msvc1.52": {
         "runner": "",
-        "command": "tools/MSVC152/BIN/CL.EXE",
-        "includes": "tools/MSVC152/INCLUDE",
-        "libs": "tools/MSVC152/LIB",
+        "command": "toolchain/msvc/1.52-win16/BIN/CL.EXE",
+        "includes": "toolchain/msvc/1.52-win16/INCLUDE",
+        "libs": "toolchain/msvc/1.52-win16/LIB",
         "cflags": "/O1",
         "base_cflags": "/nologo /c",
         "format": "pe",
@@ -265,6 +267,54 @@ GCC_CONSTRAINTS = """- **C99/C11**: standard modern C
 
 _AGENT_SKILLS_SRC = Path(__file__).parent / "agent-skills"
 _PRINCIPLES_SRC = Path(__file__).parent / "PRINCIPLES.md"
+
+
+#: Compiler families each profile expects (for init's family-alignment
+#: warning; "unknown" detections never warn).
+_PROFILE_FAMILIES: dict[str, frozenset[str]] = {
+    "msvc400": frozenset({"msvc"}),
+    "msvc420": frozenset({"msvc"}),
+    "msvc5": frozenset({"msvc"}),
+    "msvc6": frozenset({"msvc"}),
+    "msvc6.3": frozenset({"msvc"}),
+    "msvc6.6": frozenset({"msvc"}),
+    "msvc7": frozenset({"msvc"}),
+    "msvc1.52": frozenset({"msvc"}),
+    "gcc-pe": frozenset({"zig", "gcc", "clang", "mingw"}),
+    "gcc": frozenset({"gcc", "clang", "icc"}),
+    "clang": frozenset({"gcc", "clang", "icc"}),
+    "watcom": frozenset({"watcom"}),
+}
+
+#: Opposite profile to suggest when the detection contradicts the choice.
+_FAMILY_COUNTERPART: dict[str, str] = {
+    "zig": "gcc-pe",
+    "gcc": "gcc-pe",
+    "clang": "gcc-pe",
+    "mingw": "gcc-pe",
+    "msvc": "msvc6",
+    "watcom": "watcom",
+}
+
+
+def _warn_profile_family_mismatch(profile: str, tc: ToolchainInfo) -> None:
+    """Warn when a high-confidence compiler-family detection contradicts the
+    chosen profile — a Zig-built DLL with an ``msvc6`` profile can never
+    byte-match, so say so at init instead of after the first verify."""
+    family = getattr(tc, "family", "") or ""
+    expected = _PROFILE_FAMILIES.get(profile)
+    if not expected or family in expected or family == "unknown":
+        return
+    if getattr(tc, "confidence", "") != "high":
+        return
+    hint = getattr(tc, "version_hint", "") or ""
+    alt = _FAMILY_COUNTERPART.get(family)
+    alt_msg = f" — use --compiler {alt}" if alt else ""
+    console.print(
+        f"[yellow]warning:[/yellow] binary looks like {family}"
+        f"{' ' + hint if hint else ''} (high confidence) but profile is "
+        f"'{profile}'{alt_msg}; byte matching will not converge"
+    )
 
 
 def _warn_profile_mismatch(profile: str, binary_format: str, arch: str) -> None:
@@ -373,12 +423,12 @@ def _write_completion_scripts(project_root: Path) -> list[Path]:
 #: Vendored tools/ subdirectory per compiler profile (for --link-tools-from).
 _PROFILE_TOOLS: dict[str, str] = {
     "msvc400": "MSVC400",
-    "msvc420": "MSVC420",
-    "msvc5": "MSVC500",
-    "msvc6": "MSVC600",
-    "msvc6.3": "msvc6.3",
-    "msvc6.6": "msvc6.6",
-    "msvc7": "MSVC7",
+    "msvc420": "msvc/4.2-win32",
+    "msvc5": "msvc/5.0-win32",
+    "msvc6": "msvc/6.0-win32",
+    "msvc6.3": "msvc/6.0-sp3-win32",
+    "msvc6.6": "msvc/6.0-sp6-win32",
+    "msvc7": "msvc/7.0-win32",
 }
 
 
@@ -403,22 +453,46 @@ def _link_toolchain(
         )
         return None
 
-    src = Path(master).expanduser() / tools_name
-    if not src.is_dir():
+    candidates = toolchain_link_candidates(compiler_profile) or [tools_name]
+    src: Path | None = None
+    for cand in candidates:
+        cand_path = Path(master).expanduser() / cand
+        if cand_path.is_dir():
+            src = cand_path
+            break
+    if src is None:
         error_exit(
-            f"Toolchain not found at {src} (pass --link-tools-from <dir containing {tools_name}>)",
+            f"Toolchain not found in {Path(master).expanduser()} "
+            f"(looked for {', '.join(candidates)})",
             json_mode=json_output,
         )
 
-    dest = cwd / "tools" / tools_name
-    dest.parent.mkdir(exist_ok=True)
+    rel = src.relative_to(Path(master).expanduser())
+    dest = cwd / "toolchain" / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.is_symlink() or dest.exists():
-        console.print(f"[yellow]tools/{tools_name} already exists; leaving it as-is[/]")
+        console.print(f"[yellow]toolchain/{rel} already exists; leaving it as-is[/]")
         return dest
 
     dest.symlink_to(src, target_is_directory=True)
-    console.print(f"[green]Linked tools/{tools_name} -> {src}[/]")
+    console.print(f"[green]Linked toolchain/{rel} -> {src}[/]")
     return dest
+
+
+def _rewrite_compiler_paths(toml_path: Path, layout: tuple[str, str, str]) -> None:
+    """Point the generated ``[compiler]`` section at *layout* (command,
+    includes, libs) — used after ``--link-tools-from`` may have surfaced a
+    better toolchain layout than the pre-write resolution saw."""
+    cmd, inc, lib = layout
+    doc = tomlkit.parse(toml_path.read_text(encoding="utf-8"))
+    compiler = doc.get("compiler", tomlkit.table())
+    compiler["command"] = cmd
+    if inc:
+        compiler["includes"] = inc
+    if lib:
+        compiler["libs"] = lib
+    doc["compiler"] = compiler
+    atomic_write_text(toml_path, tomlkit.dumps(doc), encoding="utf-8")
 
 
 @app.callback(invoke_without_command=True)
@@ -484,6 +558,19 @@ def main(
             json_mode=json_output,
         )
     profile = COMPILER_DEFAULTS[compiler_profile]
+    if compiler_profile in ("msvc6", "msvc7"):
+        # The msvc6/msvc7 defaults point at the full master layouts
+        # (toolchain/msvc/6.0-win32/VC98, toolchain/msvc/7.0-win32).  Machines that only vendor the
+        # compile-only mirrors (toolchain/msvc/6.0-sp6-win32 / msvc-6.0-sp3-win32 / msvc-7.0-win32) must not
+        # get a broken path — resolve the best layout actually present
+        # (project tools/ first, then the rebrew install's own vendored
+        # tree) and write those paths into the generated config.
+        from rebrew.utils import resolve_msvc_toolchain
+
+        layout = resolve_msvc_toolchain(cwd, compiler_profile)
+        if layout is not None:
+            cmd, inc, lib = layout
+            profile = {**profile, "command": cmd, "includes": inc, "libs": lib}
     runner = "tools/wibo" if install_wibo else profile["runner"]
     compiler_command = profile["command"]
     if install_wibo and compiler_command.startswith("wine "):
@@ -511,6 +598,19 @@ def main(
     # it as a misalignment; surface it here instead of after the fact).
     _warn_profile_mismatch(compiler_profile, binary_format, target_arch)
 
+    # Compiler-family alignment: a high-confidence detection that contradicts
+    # the profile (Zig-built DLL with msvc6) can never byte-match — warn at
+    # init, not after the first verify.  Also used below for CRT linkage.
+    tc = None
+    if binary_path.exists():
+        try:
+            from rebrew.toolchain_detect import detect_toolchain
+
+            tc = detect_toolchain(binary_path)
+            _warn_profile_family_mismatch(compiler_profile, tc)
+        except Exception:
+            pass  # detection is best-effort; keep the profile default
+
     # Auto-detect CRT linkage when the binary is already in place: a dynamic
     # CRT (msvcrt.dll import) requires /MD rather than the /MT default.
     # Compiling libc-calling functions with the wrong linkage breaks
@@ -518,28 +618,22 @@ def main(
     # call instead of an IAT call).
     base_cflags = profile.get("base_cflags", "/nologo /c /MT")
     cflags = profile.get("cflags", "/O2 /Gd")
-    if binary_path.exists() and compiler_profile.startswith("msvc"):
-        try:
-            from rebrew.toolchain_detect import detect_toolchain
-
-            detected = detect_toolchain(binary_path)
-            if detected.base_cflags:
-                base_cflags = f"/nologo /c {detected.base_cflags}"
-                console.print(
-                    f"[cyan]CRT linkage:[/cyan] {detected.crt} "
-                    f"({detected.crt_linkage}) — base_cflags={detected.base_cflags}"
-                )
-            # Optimization fingerprint: /O1 vs /O2 change wrapper codegen, so
-            # seed the project default from the binary instead of assuming /O2.
-            # A "mixed" verdict is left at the default (per-function sweeps).
-            if detected.opt_level in ("/O1", "/O2") and detected.opt_level != cflags.split()[0]:
-                console.print(
-                    f"[cyan]Optimization:[/cyan] fingerprint shows {detected.opt_level} — "
-                    f"setting compiler cflags"
-                )
-                cflags = f"{detected.opt_level} /Gd"
-        except Exception:
-            pass  # detection is best-effort; keep the profile default
+    if tc is not None and compiler_profile.startswith("msvc"):
+        if tc.base_cflags:
+            base_cflags = f"/nologo /c {tc.base_cflags}"
+            console.print(
+                f"[cyan]CRT linkage:[/cyan] {tc.crt} "
+                f"({tc.crt_linkage}) — base_cflags={tc.base_cflags}"
+            )
+        # Optimization fingerprint: /O1 vs /O2 change wrapper codegen, so
+        # seed the project default from the binary instead of assuming /O2.
+        # A "mixed" verdict is left at the default (per-function sweeps).
+        if tc.opt_level in ("/O1", "/O2") and tc.opt_level != cflags.split()[0]:
+            console.print(
+                f"[cyan]Optimization:[/cyan] fingerprint shows {tc.opt_level} — "
+                f"setting compiler cflags"
+            )
+            cflags = f"{tc.opt_level} /Gd"
 
     # 1. Write rebrew-project.toml
     toml_content = DEFAULT_REBREW_TOML.format(
@@ -634,6 +728,15 @@ def main(
     linked_toolchain: Path | None = None
     if toolchain_dir is not None:
         linked_toolchain = _link_toolchain(cwd, compiler_profile, toolchain_dir, json_output)
+        # The link may have just created a better layout than the pre-write
+        # resolution saw (e.g. a master toolchain/msvc/6.0-win32) — re-resolve and
+        # point the written [compiler] section at it.
+        if compiler_profile in ("msvc6", "msvc7"):
+            from rebrew.utils import resolve_msvc_toolchain
+
+            layout = resolve_msvc_toolchain(cwd, compiler_profile)
+            if layout is not None:
+                _rewrite_compiler_paths(toml_path, layout)
 
     # 10. Optionally write shell completion scripts
     completion_paths: list[Path] = []

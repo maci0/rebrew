@@ -71,9 +71,11 @@ class TestLoadMacho:
 class TestLoadBinaryFmtDispatch:
     def setup_method(self) -> None:
         bl._load_binary_cache.clear()
+        bl._iat_slot_cache.clear()
 
     def teardown_method(self) -> None:
         bl._load_binary_cache.clear()
+        bl._iat_slot_cache.clear()
 
     def test_fmt_pe(self, tmp_path: Path) -> None:
         f = _make_pe_stub(tmp_path / "x.exe")

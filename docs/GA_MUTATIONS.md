@@ -1,6 +1,6 @@
 # GA Mutation Engine Reference
 
-The Genetic Algorithm (GA) matching engine uses **121 C source mutation operators** to
+The Genetic Algorithm (GA) matching engine uses **114 C source mutation operators** to
 explore the MSVC6 code generation space.  Each mutation transforms syntactically valid
 C89 source into a semantically plausible variant, compiles it with MSVC6 (via Wine/wibo),
 and scores the resulting binary against the target function's bytes.
@@ -377,3 +377,12 @@ See contributor guidelines in [`AGENTS.md`](../AGENTS.md#adding-a-new-ga-mutatio
 > of the Phase-3 `mut_split_and_condition`/`mut_merge_nested_ifs`) were removed —
 > they double/triple-weighted identical transforms in the GA.  Use the survivor
 > in each family.
+
+### 19. Constant Tuning
+
+Adjust numeric literals (field offsets, sizes, magic numbers) by small
+deltas.
+
+| Mutation | Transform | MSVC6 Rationale |
+|----------|-----------|-----------------|
+| `mut_tweak_integer_literal` | `+ 0x70` → `+ 0x6c` (small ±deltas) | The GA could previously never FIX a wrong constant — structural mutations leave an off-by-N offset stuck at the seed score forever (a broken field offset plateaued at 5000 for 960 evals).  Small-biased deltas (±1/±2/±4/±8/±0x10) cover the off-by-N mistakes decompilation actually makes; hex vs decimal radix is preserved.  With it, the same search converges to `exact: True`. |

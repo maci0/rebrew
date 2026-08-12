@@ -215,40 +215,43 @@ def check_arch_format(cfg: ProjectConfig) -> CheckResult:
 def _toolchain_download_hint(path_str: str) -> str:
     """A download URL for a missing vendored toolchain, keyed by path.
 
-    Order matters: "msvc6.3"/"msvc6.6" also contain "msvc6".  Returns the
-    hint text (with the leading space) or "" when unknown.
+    Matches the nested ``toolchain/<family>/<version>-<arch>`` layout and the
+    legacy names (old projects may still reference pre-restructure dirs).
+    Order matters: the SP mirrors contain ``msvc/6.0`` and the legacy
+    ``msvc6.3``/``msvc6.6`` contain bare ``msvc6``.  Returns the hint text
+    (with the leading space) or "" when unknown.
     """
-    if "msvc6.3" in path_str:
+    if "6.0-sp3-win32" in path_str or "msvc6.3" in path_str:
         return (
             " Download: https://github.com/OmniBlade/decomp.me/"
-            "releases/download/msvcwin9x/msvc6.3.tar.gz"
+            "releases/download/msvcwin9x/msvc-6.0-sp3-win32.tar.gz"
         )
-    if "msvc6.6" in path_str:
+    if "6.0-sp6-win32" in path_str or "msvc6.6" in path_str:
         return (
             " Download: https://github.com/OmniBlade/decomp.me/"
-            "releases/download/msvcwin9x/msvc6.6.tar.gz"
+            "releases/download/msvcwin9x/msvc-6.0-sp6-win32.tar.gz"
         )
-    if "msvc7" in path_str:
+    if "7.0-win32" in path_str or "msvc7" in path_str:
         return (
             " Download: https://github.com/OmniBlade/decomp.me/"
-            "releases/download/msvcwin9x/msvc7.0.tar.gz"
+            "releases/download/msvcwin9x/msvc-7.0-win32.tar.gz"
         )
-    if "msvc500" in path_str or "msvc5" in path_str:
+    if "5.0-win32" in path_str or "msvc500" in path_str or "msvc5" in path_str:
         return (
             " Download: https://codeload.github.com/archaic-msvc/msvc500/tar.gz/refs/heads/master"
         )
-    if "msvc6" in path_str:
-        return " Download: https://github.com/itsmattkc/MSVC600"
+    if "6.0-win32" in path_str or "msvc6" in path_str:
+        return " Download: https://github.com/itsmattkc/msvc-6.0-win32"
     if "msvc400" in path_str:
         return " Download: https://github.com/itsmattkc/MSVC400"
-    if "msvc420" in path_str:
-        return " Download: https://github.com/itsmattkc/MSVC420"
+    if "4.2-win32" in path_str or "msvc420" in path_str:
+        return " Download: https://github.com/itsmattkc/msvc-4.2-win32"
     if "wcc" in path_str or "watcom" in path_str:
         return (
             " Download (Watcom C/C++): https://github.com/OmniBlade/"
             "decomp.me/releases/download/wcc10.5/wcc11.0.tar.gz"
         )
-    if "msvc152" in path_str:
+    if "1.52-win16" in path_str or "msvc152" in path_str:
         return " Download (MSVC 1.52): https://archive.org/details/en_vc152_202512"
     return ""
 
@@ -267,7 +270,7 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
             message="16-bit NE target — configure 'profile = \"msvc1.52\"' in "
             "rebrew-project.toml for byte matching (DOSBox CL.EXE)",
             fix='Set compiler.profile = "msvc1.52" (and compiler.command = '
-            "tools/MSVC152/BIN/CL.EXE); analysis/docs work either way.",
+            "toolchain/msvc/1.52-win16/BIN/CL.EXE); analysis/docs work either way.",
         )
 
     cmd_str = cfg.compiler_command
@@ -288,7 +291,7 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
     exe = parts[0] if parts else ""
     exe_path = shutil.which(exe)
     is_wibo_runner = Path(exe).name == "wibo"
-    # A relative command (e.g. tools/MSVC152/BIN/CL.EXE) resolves against the
+    # A relative command (e.g. toolchain/msvc/1.52-win16/BIN/CL.EXE) resolves against the
     # project root — do not require it on PATH (msvc1.52's direct DOSBox
     # command, watcom, gcc-pe vendored paths).
     if exe_path is None and exe != "wine" and not is_wibo_runner:
@@ -296,13 +299,23 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
         if local_exe.exists():
             exe_path = str(local_exe)
         else:
-            hint = _toolchain_download_hint(str(exe).lower())
-            return CheckResult(
-                name="Compiler",
-                status=_FAIL,
-                message=f"Executable '{exe}' not found in PATH or project",
-                fix=(f"Install '{exe}' or update compiler.command in rebrew-project.toml.{hint}"),
-            )
+            # Same install-tools fallback resolve_cl_command uses — a wibo
+            # config has no runner prefix, so exe is the CL.EXE path.
+            from rebrew.utils import find_install_tool
+
+            alt = find_install_tool(exe)
+            if alt is not None:
+                exe_path = str(alt)
+            else:
+                hint = _toolchain_download_hint(str(exe).lower())
+                return CheckResult(
+                    name="Compiler",
+                    status=_FAIL,
+                    message=f"Executable '{exe}' not found in PATH or project",
+                    fix=(
+                        f"Install '{exe}' or update compiler.command in rebrew-project.toml.{hint}"
+                    ),
+                )
 
     if is_wibo_runner and exe_path is None:
         # `init --install-wibo` writes a relative runner like tools/wibo —
@@ -343,17 +356,26 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
             if not cl_path.is_absolute():
                 cl_path = cfg.root / cl_path
             if not cl_path.exists():
-                fix_msg = (
-                    "Place MSVC toolchain at the configured path or update compiler.command."
-                    + _toolchain_download_hint(str(cl_path).lower())
-                )
+                # Project-local tools/ absent?  Fall back to the rebrew
+                # install's own vendored tree — resolve_cl_command does the
+                # same, so a missing symlink is NOT a broken compiler.
+                from rebrew.utils import find_install_tool
 
-                return CheckResult(
-                    name="Compiler",
-                    status=_FAIL,
-                    message=f"CL.EXE not found at: {cl_path}",
-                    fix=fix_msg,
-                )
+                alt = find_install_tool(parts[1])
+                if alt is not None:
+                    cl_path = alt
+                else:
+                    fix_msg = (
+                        "Place MSVC toolchain at the configured path or update compiler.command."
+                        + _toolchain_download_hint(str(cl_path).lower())
+                    )
+
+                    return CheckResult(
+                        name="Compiler",
+                        status=_FAIL,
+                        message=f"CL.EXE not found at: {cl_path}",
+                        fix=fix_msg,
+                    )
 
             # Quick smoke test: try running cl.exe with no args.  Use the
             # RESOLVED runner path (exe_path) — a relative tools/wibo would be
@@ -362,16 +384,31 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
             runner_token = exe_path if exe_path else ("wine" if exe == "wine" else exe)
             display_runner = "wibo" if is_wibo_runner else "Wine"
             try:
-                subprocess.run(
+                from rebrew.compile import maybe_headless_wine
+
+                smoke_cmd, smoke_env = maybe_headless_wine(
                     [runner_token, str(cl_path)],
+                    {**os.environ, "WINEDEBUG": "-all"},
+                )
+                subprocess.run(
+                    smoke_cmd,
                     capture_output=True,
                     timeout=10,
-                    env={**os.environ, "WINEDEBUG": "-all"},
+                    env=smoke_env,
                 )
+                note = ""
+                if exe == "wine":
+                    if shutil.which("Xvfb") is not None:
+                        note = " — headless (Xvfb)"
+                    else:
+                        note = (
+                            " — a virtual-desktop window may pop; install xvfb "
+                            "for headless, or use wibo (rebrew init --install-wibo)"
+                        )
                 return CheckResult(
                     name="Compiler",
                     status=_PASS,
-                    message=f"{display_runner} + {cl_path.name} (reachable)",
+                    message=f"{display_runner} + {cl_path.name} (reachable){note}",
                 )
             except subprocess.TimeoutExpired:
                 return CheckResult(
@@ -438,7 +475,9 @@ def check_toolchain_alignment(cfg: ProjectConfig) -> CheckResult:
     aligned, explanation = profile_matches_detection(profile, info)
     detail = f"detected {info.family} ({info.version_hint or 'unknown version'})"
     if info.detected_by:
-        detail += f" via {info.detected_by}"
+        from rebrew.toolchain_detect import backend_display_name
+
+        detail += f" via {backend_display_name(info.detected_by)}"
     if any("diec not found" in e for e in info.evidence):
         detail += "; diec not found (add tools/diec or PATH diec for stronger detection)"
     if info.flags:
@@ -492,7 +531,7 @@ def check_delphi16_toolchain(cfg: ProjectConfig) -> CheckResult:
             status=_FAIL,
             message=str(exc),
             fix="Restore the vendored toolchain (DCC.EXE + DELPHI.DSL + "
-            "DPMI16BI.OVL + RTM.EXE) under tools/DELPHI10.",
+            "DPMI16BI.OVL + RTM.EXE) under toolchain/delphi/1.0-win16.",
         )
 
     rtm = dcc.parent / "RTM.EXE"
@@ -502,7 +541,7 @@ def check_delphi16_toolchain(cfg: ProjectConfig) -> CheckResult:
             status=_WARN,
             message=f"{dcc.name} found but RTM.EXE missing — DCC (a DPMI app) "
             "silently fails without the DOS Runtime Manager",
-            fix="Copy RTM.EXE next to DCC.EXE (tools/DELPHI10).",
+            fix="Copy RTM.EXE next to DCC.EXE (toolchain/delphi/1.0-win16).",
         )
     if shutil.which("dosbox") is None:
         return CheckResult(
@@ -568,17 +607,17 @@ def check_runner(cfg: ProjectConfig) -> CheckResult:
             name="Runner", status=_PASS, message="No runner configured (native compiler)"
         )
 
-    if shutil.which(runner):
-        return CheckResult(name="Runner", status=_PASS, message=f"{runner} found in PATH")
-
-    # `init --install-wibo` writes a relative runner like tools/wibo — resolve
-    # it against the project root (and fall back to the shared wibo cache).
     if Path(runner).name == "wibo":
-        from rebrew.wibo import find_wibo
-
+        # `init --install-wibo` writes a relative runner like tools/wibo —
+        # resolve it against the project root (and fall back to the shared
+        # wibo cache / PATH).
+        if shutil.which(runner):
+            return CheckResult(name="Runner", status=_PASS, message=f"{runner} found in PATH")
         local = Path(runner) if Path(runner).is_absolute() else cfg.root / Path(runner)
         if local.exists():
             return CheckResult(name="Runner", status=_PASS, message=f"wibo found at {local}")
+        from rebrew.wibo import find_wibo
+
         found = find_wibo(cfg.root)
         if found:
             return CheckResult(name="Runner", status=_PASS, message=f"wibo found at {found}")
@@ -593,7 +632,26 @@ def check_runner(cfg: ProjectConfig) -> CheckResult:
         )
 
     if runner == "wine":
+        # Advisory: wibo is a headless PE loader with no X dependency —
+        # faster (no wine boot) and fully headless.  If a wibo binary is
+        # already around, recommend the switch; the compile path supports
+        # `runner = "tools/wibo"` + a command without the wine prefix.
+        from rebrew.wibo import find_wibo
+
+        if shutil.which("wine") is not None and find_wibo(cfg.root) is not None:
+            return CheckResult(
+                name="Runner",
+                status=_WARN,
+                message="wine configured, but wibo is available",
+                fix=(
+                    "Switch for faster headless compiles: set [compiler] runner = "
+                    "'tools/wibo' and strip the 'wine ' prefix from compiler.command"
+                ),
+            )
         return CheckResult(name="Runner", status=_PASS, message="Wine (checked by compiler check)")
+
+    if shutil.which(runner):
+        return CheckResult(name="Runner", status=_PASS, message=f"{runner} found in PATH")
 
     return CheckResult(name="Runner", status=_WARN, message=f"Unknown runner '{runner}'")
 
@@ -602,7 +660,7 @@ def check_includes(cfg: ProjectConfig) -> CheckResult:
     """Check that the compiler include directory exists."""
     # A 16-bit NE target without the msvc1.52 profile has no usable compile
     # path — the include dir is moot, same as the compiler check.  With
-    # msvc1.52 configured, the vendored MSVC152/INCLUDE is staged into the
+    # msvc1.52 configured, the vendored msvc-1.52-win16/INCLUDE is staged into the
     # DOSBox sandbox as C:\INCLUDE, so the host path check still applies.
     if getattr(cfg, "arch", "") == "x86_16" and getattr(cfg, "compiler_profile", "") != "msvc1.52":
         return CheckResult(

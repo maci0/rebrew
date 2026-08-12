@@ -163,7 +163,11 @@ def _collect_imports(binary: Path) -> dict[str, Any]:
             {
                 "dll": rec.get("dll", ""),
                 "name": rec.get("name", ""),
-                "iat_va": f"0x{int(rec['iat_va']):08x}",
+                # .get(..., 0) — a record without iat_va must not KeyError
+                # and abort the whole dossier (the caller treats any raise
+                # as "Analyze failed", violating the module's one-broken-
+                # backend-never-aborts-the-others contract).
+                "iat_va": f"0x{int(rec.get('iat_va', 0)):08x}",
             }
             for rec in imports
         ],
@@ -476,6 +480,8 @@ def _render_markdown(dossier: dict[str, Any], fn: dict[str, Any] | None) -> str:
     tc = dossier["toolchain"]
     out += ["", "## Toolchain"]
     if tc and tc["family"] != "unknown":
+        from rebrew.toolchain_detect import backend_display_name
+
         out.append(
             f"- Family: `{tc['family']}` ({tc['version_hint'] or 'unknown version'}, {tc['confidence']} confidence)"
         )
@@ -483,7 +489,9 @@ def _render_markdown(dossier: dict[str, Any], fn: dict[str, Any] | None) -> str:
             out.append(f"- Flags: `{' '.join(tc['flags'])}`")
         if tc.get("opt_level"):
             out.append(f"- Optimization: `{tc['opt_level']}` (codegen fingerprint)")
-        out.append(f"- Detected by: `{tc['detected_by'] or 'heuristics'}`")
+        out.append(
+            f"- Detected by: `{backend_display_name(tc.get('detected_by') or 'heuristics')}`"
+        )
         for e in tc["evidence"]:
             out.append(f"  - {e}")
     else:

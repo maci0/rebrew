@@ -1,6 +1,7 @@
 """Tests for build_db.py pure helpers."""
 
 import json
+import logging
 import sqlite3
 from pathlib import Path
 
@@ -37,6 +38,15 @@ class TestNormalizeCellRow:
         assert row[3] == 64
         assert row[5] == "exact"
 
+    def test_unknown_state_warns(self, caplog: pytest.LogCaptureFixture) -> None:
+        """An out-of-set cell state (hand-edited JSON typo) must warn — it
+        otherwise vanishes silently into section_cell_stats.other_count
+        (db-review F4)."""
+        with caplog.at_level(logging.WARNING):
+            row = _normalize_cell_row("T", ".text", {"state": "excat"})
+        assert row[5] == "excat"  # value preserved; the warning signals it
+        assert any("not in known set" in r.message for r in caplog.records)
+
     def test_clamping(self) -> None:
         row = _normalize_cell_row("T", ".text", {"start": -5, "end": -1})
         assert row[2] == 0  # start clamped
@@ -66,13 +76,14 @@ class TestFunctionStats:
             ("T", 0x3000, "g", 16, "none", "GAME", "_g", "GLOBAL", "g.c"),
         ]
         conn.executemany("INSERT INTO functions VALUES (?,?,?,?,?,?,?,?,?)", rows)
-        total, by_status, by_module, covered = _function_stats(conn.cursor(), "T")
+        total, by_status, by_module, covered, matched = _function_stats(conn.cursor(), "T")
         # GLOBAL/DATA rows are excluded by the query's markerType filter.
         assert total == 2
         assert by_status["EXACT"] == 1
         assert by_status["STUB"] == 1
         assert len(by_module["GAME"]) == 2
-        assert covered == 64 + 32  # from the two FUNCTION rows
+        assert covered == 64 + 32  # identified: both FUNCTION rows
+        assert matched == 64  # matched: EXACT/RELOC/PROVEN only (STUB excluded)
         conn.close()
 
 

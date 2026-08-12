@@ -15,9 +15,13 @@ for CI / pre-commit hooks).
 """
 
 import concurrent.futures
+import contextlib
+import functools
 import hashlib
 import json
 import logging
+import threading
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -100,7 +104,11 @@ def verify_entry(
         return _failed_result("MISSING_FILE", f"MISSING_FILE: {cfile}")
 
     if entry.va < MIN_VALID_VA:
-        return _failed_result("COMPILE_ERROR", "INVALID_VA: VA too low")
+        # A VA below the valid floor is an annotation problem (a data-range
+        # VA that slipped past the marker filter), NOT a compile failure —
+        # labeling it COMPILE_ERROR showed a bogus "compile error" in the
+        # summary and tripped the CI gate as if the source failed to build.
+        return _failed_result("INVALID_VA", "INVALID_VA: VA too low")
     if entry.size <= 0:
         return _failed_result("MISSING_SIZE", "MISSING_SIZE: No SIZE annotation")
 
@@ -116,9 +124,13 @@ def verify_entry(
 
     target_bytes = extract_raw_bytes(cfg.target_binary, entry.va, entry.size)
     if not target_bytes:
-        return _failed_result("COMPILE_ERROR", "Cannot extract DLL bytes")
+        # Extraction failure is a binary/tooling problem, not a source
+        # compile problem — EXTRACT_ERROR (same stage label compile.py uses
+        # for post-compile extraction failures), so the summary and CI gate
+        # don't blame the .c file.
+        return _failed_result("EXTRACT_ERROR", "Cannot extract DLL bytes")
 
-    return compile_and_compare(
+    result = compile_and_compare(
         cfg,
         cfile,
         symbol,
@@ -128,6 +140,28 @@ def verify_entry(
         name_to_va=name_to_va,
         section_va=entry.va,
     )
+    if not result.matched and result.obj_bytes:
+        # Populate diff_lines (number of differing disassembly lines) for
+        # UNMATCHED functions only — matched functions are 0 trivially, and
+        # a full disassembly diff per function is wasted work on the common
+        # exact/reloc path.  Feeds the recoverage-consumed
+        # verify_results.diff_lines column (db-review F2: it was documented
+        # but never produced, so every row was NULL).  Best-effort: any
+        # disassembly failure leaves it None.
+        try:
+            from rebrew.matcher.scoring import diff_functions
+
+            d = diff_functions(
+                target_bytes,
+                result.obj_bytes,
+                result.reloc_offsets,
+                as_dict=True,
+            )
+            if d is not None:
+                result.diff_lines = int(d["summary"]["structural"])
+        except Exception:  # noqa: BLE001 — diff_lines is best-effort
+            result.diff_lines = None
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +209,15 @@ _STATUS_RANK: dict[str, int] = {
     "EXTRACT_ERROR": 3,
     "MISSING_FILE": 4,
     "MISSING_SIZE": 4,
+    # Pre-compile annotation failure (VA outside the image / below the valid
+    # floor) — a metadata problem, not a compile failure.  Ranked with the
+    # other MISSING_* annotation problems so it never shows up as a bogus
+    # "compile error" in the summary or the CI gate.
+    "INVALID_VA": 4,
+    # A tooling failure, not a code verdict — kept out of the --compare
+    # regression gate entirely (see diff_reports), so a worker crash on a
+    # previously-EXACT function never looks like a code regression in CI.
+    "INTERNAL_ERROR": 6,
     "FAIL": 5,
 }
 
@@ -192,47 +235,49 @@ _STATUS_ORDER: dict[str, int] = {
     "EXTRACT_ERROR": 5,
     "MISSING_FILE": 6,
     "MISSING_SIZE": 6,
+    "INVALID_VA": 6,
+    "INTERNAL_ERROR": 8,
     "FAIL": 7,
 }
 
 
+@functools.lru_cache(maxsize=1)
 def _compare_logic_hash() -> str:
     """Hash of the rebrew modules whose logic changes verification RESULTS.
 
     The version string alone is static during development (editable installs
     stay "0.1.0" across code changes), so it cannot invalidate a cache written
     by an earlier build of the same version.  Hashing the source of the
-    modules that drive comparison/extraction/symbol-derivation means any code
-    change to that pipeline invalidates cached results — stale EXTRACT_ERROR
-    or wrong RELOC/NEAR_MATCHING entries can never be served as truth after a
-    fix.  Computed once per process (source files are stable for the lifetime
-    of one rebrew invocation).
+    comparison pipeline means any code change invalidates cached results —
+    stale EXTRACT_ERROR or wrong RELOC/NEAR_MATCHING entries can never be
+    served as truth after a fix.  Computed once per process (source files are
+    stable for the lifetime of one rebrew invocation).
+
+    The hash covers the WHOLE ``rebrew`` package source rather than a
+    hand-maintained module list: result-affecting code lives across
+    ``core.matching`` (reloc validation), ``core.toolchain`` (compiler env),
+    ``cli.resolve_cflags`` (flags), ``binary_loader`` (IAT masking) and
+    others, and a manual list inevitably drifts — a missed module then ships
+    a fix without invalidating caches written by the pre-fix build.
+
+    The ``lru_cache`` lives on THIS function (not a nested helper): the old
+    version decorated an inner ``_hash()`` re-created on every call, so the
+    full-package source hash was recomputed on every verify run despite the
+    "once per process" claim (slop-review).
     """
-    import functools
+    import rebrew
 
-    from rebrew.annotation import _kv_to_annotation
-    from rebrew.binary_loader import extract_raw_bytes
-    from rebrew.compile import _extract_and_compare, classify_compare_result
-    from rebrew.core.matching import smart_reloc_compare
-    from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
-
-    @functools.lru_cache(maxsize=1)
-    def _hash() -> str:
-        h = hashlib.sha256()
-        for mod in (
-            _kv_to_annotation,
-            classify_compare_result,
-            smart_reloc_compare,
-            parse_obj_symbol_and_relocs,
-            _extract_and_compare,
-            extract_raw_bytes,
-        ):
-            src = Path(mod.__code__.co_filename).read_bytes()
-            h.update(src)
-            h.update(b"\x00")
-        return h.hexdigest()
-
-    return _hash()
+    h = hashlib.sha256()
+    pkg_root = Path(rebrew.__file__).resolve().parent
+    # Deterministic order; only .py source (skip vendored binaries,
+    # __pycache__, .so/.pyd extensions).
+    for path in sorted(pkg_root.rglob("*.py")):
+        try:
+            h.update(path.read_bytes())
+        except OSError:
+            continue
+        h.update(b"\x00")
+    return h.hexdigest()
 
 
 def _compiler_config_hash(cfg: ProjectConfig) -> str:
@@ -247,9 +292,11 @@ def _compiler_config_hash(cfg: ProjectConfig) -> str:
         # / STUB-symbol fixes) must invalidate cached results.  The package
         # version string alone is static during development.
         _compare_logic_hash(),
-        # NOTE: cfg.cflags and cfg.cflags_presets are INTENTIONALLY absent —
-        # verify never reads them (per-function CFLAGS come from metadata and
-        # are part of each cache entry).  Do not add them here.
+        # NOTE: cfg.cflags and cfg.cflags_presets are NOT hashed here — they
+        # feed the effective-flags resolution, which is stored PER ENTRY in
+        # the cache (see _save_verify_cache) and compared at hit-check time,
+        # so a config-level cflags/preset edit invalidates the affected
+        # entries without nuking the whole cache.
     ]
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
@@ -486,6 +533,135 @@ def _binary_id(cfg: ProjectConfig) -> str:
     return hashlib.sha256(f"{st.st_mtime_ns}:{st.st_size}".encode()).hexdigest()
 
 
+_VERIFY_CACHE_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def _verify_cache_write_lock(cache_path: Path) -> Iterator[None]:
+    """Thread + cross-process lock around a verify-cache read-modify-write.
+
+    Same discipline as metadata.py's ``_metadata_write_lock``: the thread
+    lock serializes in-process writers; an advisory ``flock`` on a sidecar
+    ``.lock`` file serializes concurrent processes (e.g. ``rebrew verify
+    --watch`` saving while ``rebrew test`` patches a promotion — without
+    it, interleaved read-modify-writes silently drop one side's update and
+    status/todo serve a stale entry).  Falls back to the thread lock alone
+    on platforms without ``fcntl``.
+    """
+    try:
+        import fcntl
+    except ImportError:  # non-POSIX (no advisory file locks)
+        fcntl = None  # type: ignore[assignment]
+
+    with _VERIFY_CACHE_LOCK:
+        if fcntl is None:
+            yield
+            return
+        lock_path = Path(str(cache_path) + ".lock")
+        with lock_path.open("w", encoding="utf-8") as lock_fh:
+            fcntl.flock(lock_fh, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_fh, fcntl.LOCK_UN)
+
+
+def verify_cache_matches_cfg(cache_path: Path, cfg: ProjectConfig) -> bool:
+    """True when the verify cache was written for this project's identity.
+
+    The cache stores its ``target``/``compiler_hash``/``headers_hash``/
+    ``binary_id`` provenance; patchers (``rebrew test`` promoting a STATUS)
+    must not write into a cache that belongs to a DIFFERENT target or
+    compiler — in a multi-target project, ``rebrew test -t CLIENT`` would
+    otherwise patch the entries a previous ``verify -t SERVER`` wrote, and
+    the next SERVER verify would accept the whole file and serve CLIENT's
+    status for SERVER functions at the same VA.
+    """
+    if not cache_path.exists():
+        return False
+    try:
+        data = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return False
+    return bool(
+        data.get("target") == cfg.target_name
+        and data.get("compiler_hash") == _compiler_config_hash(cfg)
+    )
+
+
+def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]) -> None:
+    """Apply verify-cache patches with ONE read + ONE write, guarded.
+
+    Shared by every STATUS promotion site (``rebrew test``, ``rebrew match``
+    GA splice, batch flag sweep) so ``rebrew status``/``rebrew todo`` agree
+    with the freshly-promoted metadata immediately — previously only test
+    patched the cache, so a match run's ``STUB → RELOC`` promotion left
+    status/todo reporting the stale cached STUB until the next full verify.
+
+    Guards: the cache must belong to THIS project's identity (target +
+    compiler_hash — a multi-target `test -t CLIENT` must not patch entries a
+    `verify -t SERVER` wrote), and the read-modify-write runs under the
+    shared cross-process lock so a concurrent ``verify --watch`` save cannot
+    interleave and drop the patch.
+
+    *patches*: list of dicts with ``va`` (int), ``status``, ``match_count``,
+    ``total``, optional ``delta`` (int|None).
+    """
+    if not patches:
+        return
+    cache_path = cfg.root / ".rebrew" / "verify_cache.json"
+    if not verify_cache_matches_cfg(cache_path, cfg):
+        # Wrong identity (or absent) — patching would misattribute status to
+        # the wrong target/compiler.  Nothing to do; the next real verify
+        # writes a correct cache.
+        return
+    with _verify_cache_write_lock(cache_path):
+        try:
+            raw = json.loads(cache_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            logging.warning(
+                "Could not read verify cache %s — status may be stale: %s", cache_path, exc
+            )
+            return
+
+        entries = raw.get("entries", {})
+        changed = False
+        for p in patches:
+            va_key = f"0x{p['va']:08x}"
+            entry = entries.get(va_key)
+            if entry is None:
+                continue  # No cached entry to patch
+            result = entry.get("result", {})
+            old_status = result.get("status", "")
+            if old_status == p["status"]:
+                continue  # Already in sync
+            result["status"] = p["status"]
+            total = p["total"]
+            match_pct = round(100.0 * p["match_count"] / total, 1) if total > 0 else 0.0
+            result["match_percent"] = match_pct
+            result["passed"] = p["status"] in ("EXACT", "RELOC", "PROVEN")
+            if p.get("delta") is not None:
+                result["delta"] = p["delta"]
+            elif total > 0:
+                result["delta"] = total - p["match_count"]
+            entry["result"] = result
+            entries[va_key] = entry
+            changed = True
+
+        if not changed:
+            return
+        raw["entries"] = entries
+
+        try:
+            from rebrew.utils import atomic_write_text
+
+            atomic_write_text(cache_path, json.dumps(raw, indent=2), encoding="utf-8")
+        except (OSError, TypeError) as exc:
+            logging.warning(
+                "Could not patch verify cache %s — status may be stale: %s", cache_path, exc
+            )
+
+
 def _load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> VerifyCache | None:
     if not cache_path.exists():
         return None
@@ -520,7 +696,15 @@ def _save_verify_cache(
     size_by_va: dict[str, int] = {}
     for entry in entries:
         va_key = f"0x{entry.va:08x}"
-        cflags_by_va[va_key] = entry.cflags or ""
+        # Store the RESOLVED effective flags (per-function metadata → module
+        # preset → [compiler].cflags → default) — the flags the compile
+        # actually used.  The old code stored only the metadata CFLAGS, so a
+        # `rebrew cfg set-cflags` or [compiler].cflags edit changed the
+        # effective flags without changing the cache key or entry guard, and
+        # stale results kept being served (config-review F3).
+        from rebrew.cli import resolve_cflags
+
+        cflags_by_va[va_key] = resolve_cflags(cfg, entry.cflags, getattr(entry, "module", ""))
         size_by_va[va_key] = entry.size or 0
         relative_path = getattr(entry, "filepath", "")
         if not relative_path:
@@ -574,7 +758,8 @@ def _save_verify_cache(
         entries={str(k): VerifyCacheEntry.from_dict(v) for k, v in cache_entries.items()},
     )
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(cache_path, json.dumps(cache_data.to_dict(), indent=2), encoding="utf-8")
+    with _verify_cache_write_lock(cache_path):
+        atomic_write_text(cache_path, json.dumps(cache_data.to_dict(), indent=2), encoding="utf-8")
 
 
 def _canonical_va_key(va: Any) -> Any:
@@ -641,6 +826,15 @@ def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str,
     for va in sorted(current_results, key=_sort_key):
         current_item = current_results[va]
         current_status = str(current_item.get("status", "FAIL"))
+
+        # A tooling crash is not a code verdict: skip INTERNAL_ERROR rows
+        # entirely (no regression/improvement/new classification), so a
+        # worker exception on a previously-EXACT function never shows up as
+        # a code regression in the --compare CI gate.  The count is still
+        # surfaced separately by run_verification's internal_errors report.
+        if current_status == "INTERNAL_ERROR":
+            continue
+
         current_order = _STATUS_ORDER.get(current_status, fail_rank)
 
         if va not in previous_results:
@@ -795,7 +989,12 @@ def main(
         from rebrew.cli import iter_sources
         from rebrew.utils import watch_files
 
-        sources = list(iter_sources(cfg.reversed_dir, cfg))
+        def _sources() -> list[Path]:
+            # Re-resolve every poll so a .c created DURING the session (e.g.
+            # `rebrew skeleton` for a newly discovered function) is watched —
+            # the old code captured the list once at startup and silently
+            # stopped covering new files (idempotency-review F8).
+            return list(iter_sources(cfg.reversed_dir, cfg))
 
         def _retest() -> None:
             main(
@@ -812,7 +1011,7 @@ def main(
                 target=target,
             )
 
-        watch_files(sources, _retest)
+        watch_files(_sources(), _retest, path_provider=_sources)
         return
 
     out_file = Path(output_path) if output_path else cfg.db_dir / "verify_results.json"
@@ -975,13 +1174,18 @@ def main(
             # failures degrade performance invisibly.
             logging.warning("Could not write verify cache to %s", cache_path)
 
-    if json_output or output_path or diff_mode:
+    if json_output or output_path or diff_mode or not dry_run:
         report_json = json.dumps(report, indent=2)
         # In --compare mode the report IS the baseline for future runs — a
         # regressed run must not overwrite the last good baseline, or the
         # gate would self-heal on the next invocation.  Plain verify always
         # records the report (pre-existing failures are the baseline's
-        # business); --compare advances it only on a passing gate.
+        # business); --compare advances it only on a passing gate.  The
+        # default location is honored in PLAIN mode too — the help promises
+        # "default: project db_dir/verify_results.json", and a first
+        # `rebrew verify --compare` needs a baseline from a prior plain run
+        # (previously nothing was written unless --json/--output/--compare
+        # were passed, so --compare's first run was a silent no-op gate).
         if not dry_run and not (diff_mode and gate_failed):
             out_file.parent.mkdir(parents=True, exist_ok=True)
             atomic_write_text(out_file, report_json, encoding="utf-8")
@@ -1194,9 +1398,16 @@ def prepare_entries(
         if cached_entry.filepath != getattr(entry, "filepath", ""):
             continue
 
-        # CFLAGS come from rebrew-function.toml, not the .c file, so a flag
-        # change is invisible to the source hash below.
-        if cached_entry.cflags != (entry.cflags or ""):
+        # CFLAGS come from rebrew-function.toml AND the config fallback chain
+        # (module preset → [compiler].cflags), so a flag change is invisible
+        # to the source hash below.  The entry stores the RESOLVED effective
+        # flags the compile used; compare against the freshly-resolved value
+        # so a `rebrew cfg set-cflags` / [compiler].cflags edit invalidates
+        # cached results (previously only the metadata CFLAGS were compared,
+        # leaving stale EXACT/RELOC served after a config change).
+        from rebrew.cli import resolve_cflags
+
+        if cached_entry.cflags != resolve_cflags(cfg, entry.cflags, getattr(entry, "module", "")):
             continue
 
         # SIZE is metadata-only too (catalog --fix-sizes rewrites it without
@@ -1338,71 +1549,95 @@ def run_verification(
             progress.update(task, advance=cached_count, description="cached")
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=effective_jobs) as pool:
-            futures = {pool.submit(_verify, e): e for e in entries_to_verify}
-            for future in concurrent.futures.as_completed(futures):
-                entry = futures[future]
-                is_internal_error = False
-                try:
-                    _entry, result = future.result()
-                except Exception as exc:  # noqa: BLE001
-                    is_internal_error = True
-                    internal_errors += 1
-                    log.debug(
-                        "Internal error verifying %s",
-                        getattr(entry, "name", "?"),
-                        exc_info=True,
-                    )
-                    if internal_errors <= 5:
-                        console.print(
-                            f"[yellow]warning:[/yellow] internal error verifying "
-                            f"{getattr(entry, 'name', '?')}: {exc}"
+            # Bounded submission: submitting every entry up front (verify
+            # batches can be thousands of functions) builds one Future + one
+            # queued task per entry — the exact pattern flag_sweep was
+            # deliberately changed away from (compiler.py:541).  Submit
+            # effective_jobs at a time and refill as each completes, so
+            # memory stays proportional to the worker count, not the corpus.
+            futures: dict[concurrent.futures.Future[Any], Annotation] = {}
+            entry_iter = iter(entries_to_verify)
+            for _ in range(min(effective_jobs, len(entries_to_verify))):
+                with contextlib.suppress(StopIteration):
+                    e = next(entry_iter)
+                    futures[pool.submit(_verify, e)] = e
+            # Drain-and-refill: as_completed snapshots at call time, so new
+            # submissions need the outer while to re-arm the iterator.
+            while futures:
+                for future in concurrent.futures.as_completed(futures):
+                    entry = futures.pop(future)
+                    is_internal_error = False
+                    try:
+                        _entry, result = future.result()
+                    except Exception as exc:  # noqa: BLE001
+                        is_internal_error = True
+                        internal_errors += 1
+                        log.debug(
+                            "Internal error verifying %s",
+                            getattr(entry, "name", "?"),
+                            exc_info=True,
                         )
-                    from rebrew.compile import CompareResult
+                        if internal_errors <= 5:
+                            console.print(
+                                f"[yellow]warning:[/yellow] internal error verifying "
+                                f"{getattr(entry, 'name', '?')}: {exc}"
+                            )
+                        from rebrew.compile import CompareResult
 
-                    result = CompareResult(
-                        matched=False,
-                        status="COMPILE_ERROR",
-                        match_percent=0.0,
-                        delta=0,
-                        obj_bytes=None,
-                        reloc_offsets=None,
-                        message=f"INTERNAL_ERROR: {exc}",
+                        result = CompareResult(
+                            matched=False,
+                            status="INTERNAL_ERROR",
+                            match_percent=0.0,
+                            delta=0,
+                            obj_bytes=None,
+                            reloc_offsets=None,
+                            message=f"INTERNAL_ERROR: {exc}",
+                        )
+                    # Refill the pool slot with the next entry (if any).
+                    with contextlib.suppress(StopIteration):
+                        e = next(entry_iter)
+                        futures[pool.submit(_verify, e)] = e
+
+                    name = entry.name
+                    progress.update(task, advance=1, description=name)
+
+                    if result.matched:
+                        passed += 1
+                    else:
+                        failed += 1
+                        # Tooling failures are reported via the internal-errors
+                        # warning, not the code-failure list — a crash is not a
+                        # verdict on the function's source.
+                        if not is_internal_error:
+                            fail_details.append((entry, result.message))
+
+                    # An INTERNAL_ERROR is a tooling failure, not a verification
+                    # verdict — never let it overwrite the function's real STATUS
+                    # in rebrew-function.toml (previously EXACT/NEAR_MATCHING were
+                    # permanently demoted to COMPILE_ERROR).
+                    if not is_internal_error:
+                        deferred_fixes.append((entry, result.status, result.delta))
+
+                    results.append(
+                        {
+                            "va": f"0x{entry.va:08x}",
+                            "name": name,
+                            "filepath": getattr(entry, "filepath", ""),
+                            "size": getattr(entry, "size", 0),
+                            "status": result.status,
+                            "message": result.message,
+                            "passed": result.matched,
+                            "match_percent": result.match_percent,
+                            "delta": result.delta,
+                            "diff_lines": result.diff_lines,
+                        }
                     )
-
-                name = entry.name
-                progress.update(task, advance=1, description=name)
-
-                if result.matched:
-                    passed += 1
-                else:
-                    failed += 1
-                    fail_details.append((entry, result.message))
-
-                # An INTERNAL_ERROR is a tooling failure, not a verification
-                # verdict — never let it overwrite the function's real STATUS
-                # in rebrew-function.toml (previously EXACT/NEAR_MATCHING were
-                # permanently demoted to COMPILE_ERROR).
-                if not is_internal_error:
-                    deferred_fixes.append((entry, result.status, result.delta))
-
-                results.append(
-                    {
-                        "va": f"0x{entry.va:08x}",
-                        "name": name,
-                        "filepath": getattr(entry, "filepath", ""),
-                        "size": getattr(entry, "size", 0),
-                        "status": result.status,
-                        "message": result.message,
-                        "passed": result.matched,
-                        "match_percent": result.match_percent,
-                        "delta": result.delta,
-                    }
-                )
 
     if internal_errors > 0 and not json_output:
         console.print(
             f"[yellow]warning:[/yellow] {internal_errors} function(s) failed with internal errors "
-            f"(counted as mismatches)"
+            f"(tooling failures — counted in the failed total but NOT treated as "
+            f"code regressions by --compare)"
         )
 
     return passed, failed, fail_details, results, deferred_fixes
@@ -1600,7 +1835,13 @@ def _print_results(
                 console.print(
                     rf"  [red bold]\[{match_pct:.1f}%][/] 0x{entry.va:08X} {entry.name}{fp_suffix}: {msg}"
                 )
-            elif st in ("COMPILE_ERROR", "MISSING_FILE"):
+            elif st in (
+                "COMPILE_ERROR",
+                "EXTRACT_ERROR",
+                "MISSING_FILE",
+                "MISSING_SIZE",
+                "INVALID_VA",
+            ):
                 console.print(
                     rf"  [red bold]\[{st}][/] 0x{entry.va:08X} {entry.name}{fp_suffix}: {msg}"
                 )

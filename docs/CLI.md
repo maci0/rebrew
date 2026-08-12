@@ -1,6 +1,6 @@
 # CLI Reference
 
-All 33 CLI commands are registered under the unified `rebrew` entry point in `main.py`.
+All 48 CLI commands are registered under the unified `rebrew` entry point in `main.py`.
 Every tool supports `--target / -t` to select a target from `rebrew-project.toml` and
 reads defaults (binary path, reversed_dir, compiler settings) from the project config.
 
@@ -42,6 +42,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew init` | `init.py` | Scaffold a new project directory and `rebrew-project.toml` |
 | `rebrew test` | `test.py` | Compile-and-compare; auto-promotes STATUS on EXACT/RELOC; `--no-promote` to skip; `--json` output |
 | `rebrew asm` | `asm.py` | Dump disassembly (`--format hex`) or NASM (`--format nasm`) from target binary at a VA |
+| `rebrew switch` | `switch.py` | Decode jump-table switch dispatches in a function (case → handler map; `--window`) |
 | `rebrew diff` | `diff.py` | Side-by-side disassembly diff against target binary; `--fix-blocker` writes BLOCKER metadata |
 | `rebrew skeleton` | `skeleton.py` | Generate annotated `.c` skeleton from VA (with `--decomp`, `--xrefs`, `--append` for multi-function files) |
 | `rebrew catalog` | `catalog/` | Parse annotations, generate catalog + coverage JSON |
@@ -71,6 +72,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew toolchain` | `toolchain_cli.py` | Standardized toolchain management (`list`, `status`, `detect`, `pull`, `build`) — docker-first invocation with host fallback |
 | `rebrew binsync-export` | `binsync_export.py` | Export source markers and metadata to BinSync state directory (prototype, STATUS/CFLAGS, globals with real types, structs with fields; `--module`, `--git`) |
 | `rebrew binsync-import` | `binsync_import.py` | Import a BinSync state directory into rebrew metadata (names, prototypes, globals; `--accept-binsync`/`--accept-local`, `--module`) |
+| `rebrew binsync-diff` | `binsync_diff.py` | Read-only divergence report between rebrew and a BinSync state directory (`--module`, `--target`; exits 1 on any divergence) |
 | `rebrew build-db` | `build_db.py` | Build SQLite `db/coverage.db` from `data_*.json` ([schema docs](DB_FORMAT.md)) |
 | `rebrew status` | `status.py` | At-a-glance reversing progress overview (per-module coverage, status ladder counts) |
 | `rebrew similar` | `similar.py` | Find structurally similar functions in the target binary (clone detection) |
@@ -100,7 +102,7 @@ for `--compare` (not “better than EXACT”).
 | `--extra-seed FILE` | Extra `.c` file(s) to seed GA population from solved functions |
 | `--no-seed` | Disable cross-function solution seeding |
 | `--mutation-focus CAT` | Bias GA mutation selection: `register` / `equivalent` / `structural`, or `auto` (derives the category from the function's BLOCKER metadata; single-function only) — the category's suggested operators get 6x selection weight |
-| `--link COMMAND` | LINK.EXE command (for non-obj comparison) |
+| `--cl COMMAND` | CL.EXE command (auto from rebrew-project.toml) |
 | `--lib DIR` | Lib dir (for non-obj comparison) |
 | `--ldflags FLAGS` | Linker flags (for non-obj comparison) |
 | `--flag-sweep-only` | Exhaustive flag-combination sweep; skip GA |
@@ -211,9 +213,19 @@ carry a `mutations` array in `--json` (the GA operators to try next) and a
 | `--name NAME` | Override function name |
 | `-o FILE` / `--output FILE` | Output file path |
 | `--force` | Overwrite existing files |
+
+The generated stub signature follows the target's calling convention
+(thiscall → `__fastcall`/naked `__declspec(naked)` with `ret N`, stdcall →
+`__stdcall` with N args), inferred from the disassembly extent — functions
+longer than a fixed 48-byte window no longer fall back to a wrong
+`int __cdecl f(void)` default.  When the resolved size is stale (the
+disassembly extent runs past it — a truncated `functions.txt` entry),
+skeleton warns with the real extent and suggests `rebrew asm --size
+<extent>` / `rebrew test --fix-size`; JSON output carries `size_warning`.
 | `--batch N` | Generate N skeletons (smallest first) |
 | `--min-size N` | Minimum function size (default 10) |
 | `--max-size N` | Maximum function size (default 9999) |
+| `--skip-fragments` | (batch) Exclude entries whose first bytes look like data/misaligned fragments (no common function-start prefix) |
 | `--dry-run` | Preview skeletons without writing files or metadata |
 | `--json` | Output results as JSON (for batch mode) |
 
@@ -293,6 +305,15 @@ Output prefixes for unambiguous parsing:
 |------|-------------|
 | `--install-wibo` | Auto-download wibo (lightweight Wine alternative for Linux) |
 | `--json` | Output results as JSON |
+
+Checks: project toml, target binary, arch/format, toolchain alignment
+(diec → PDB → heuristics), CRT linkage, optimization level, compiler +
+CL.EXE reachability, runner, include/lib paths, function list, source
+dirs, FLIRT signatures, Ghidra sync, optional tools (angr/claripy), and
+metadata files.  The **Runner** check also flags a `wine`-configured
+project that has wibo available, with the exact config switch
+(`runner = "tools/wibo"` + strip the `wine ` prefix) for faster headless
+compiles.
 
 ### `rebrew data`
 
@@ -494,7 +515,7 @@ Merge multiple single-function `.c` files into one multi-function file. Preamble
 
 ### `rebrew asm`
 
-`rebrew asm <VA> [--bytes | --nas] [--imports] [--strings] [--hints] [--json] [--target NAME]`
+`rebrew asm <VA> [--format hex|nasm] [--size N] [--imports] [--strings] [--hints] [--json] [--target NAME]`
 
 Disassemble a single function from the target binary as a hex dump (default) or
 NASM-style listing (`--nas`).  `--imports`/`--strings`/`--hints` annotate the
@@ -502,12 +523,21 @@ listing with IAT imports, referenced strings, and codegen hints; `--json`
 emits the structured instruction list (address, bytes, mnemonic, operands).
 
 Both outputs include the inferred **calling convention** (cdecl / stdcall /
-thiscall / thiscall-with-no-stack-args / ctor thunk / EH-guard thunk),
+thiscall / thiscall-with-no-stack-args / ctor thunk / EH-guard thunk /
+tail call / tail-call thunk),
 derived from the epilogue (`ret` vs `ret N`) and this-pointer usage (ECX
 dereferenced or saved to ESI/EDI/EBX without a prior memory load).  This is
 the per-function answer that determines the C signature — `__stdcall`,
 `__fastcall` this emulation, or naked asm for thiscall-with-stack-args on
-MSVC 5.0 — before writing any code.
+MSVC 5.0 — before writing any code.  A jmp-terminated function with a real
+body (>2 insns) is a `tail call` (forwarding function); only 1-2 insn
+jmp sequences are pure `tail-call thunk`s.
+
+When the function-list size is stale (the code continues past the declared
+size, e.g. a `functions.txt` entry that truncates mid-instruction), `asm`
+warns and extends the dump to the disassembly extent; an explicit `--size`
+is honored as-is (warn only).  The JSON report carries `stale_size` and the
+pre-extension `requested_size`.
 
 ### `rebrew imports`
 
@@ -641,6 +671,23 @@ them as STUB files.
 | `--create-missing` | Create STUB files for BinSync functions present in the catalog but not yet in `src/` |
 | `--target NAME` | Select a target from `rebrew-project.toml` |
 
+### `rebrew binsync-diff`
+
+`rebrew binsync-diff STATE_DIR [--module NAME] [--json] [--target NAME]`
+
+Read-only divergence report between the local project (reversed annotations +
+catalog/project file) and a BinSync state directory — every place the two
+disagree on functions, names, prototypes, and globals, without touching disk.
+Designed for CI: exits 1 when any divergence exists, pure JSON on stdout with
+`--json`.  Same filtering semantics as `binsync-import --dry-run`; a useful
+preview before an import.
+
+| Flag | Description |
+|------|-------------|
+| `--json` | JSON structured output |
+| `--module NAME` | Only this module (e.g. SERVER) |
+| `--target NAME` | Select a target from `rebrew-project.toml` |
+
 ### `rebrew near-diag`
 
 `rebrew near-diag <source> [--va HEX] [--size N] [--json] [--fix-blocker] [--target NAME]`
@@ -770,6 +817,27 @@ command line) — feeds toolchain detection and per-function CFLAGS discovery.
 Generate a static self-contained HTML documentation site (`index.html`,
 `strings.html`, `imports.html`, `graph.html`). The function index table
 includes a `Blocker` column carrying near-diag/diff blocker guidance.
+
+### `rebrew switch`
+
+`rebrew switch <VA> [--window N] [--json] [--target NAME]`
+`rebrew switch --all [--json] [--target NAME]`
+
+Decode jump-table switch dispatches inside a function.  MSVC compiles
+`switch` statements into a bounds-checked indirect jump
+(`jmp dword ptr [edx*4 + 0x...]`); `switch` locates those dispatches,
+reads the dispatch table from the binary, and prints the case table
+(index → handler VA → known function name).  Functions whose body is a
+jump-table switch (the hard-to-decompile category) become readable before
+writing any C.  Best-effort: no dispatch in the window → empty result;
+unresolvable entries are shown as raw VAs; the entry count comes from the
+preceding `cmp reg, N` bounds check when found, else from walking the
+table until a non-image entry (capped at 256).
+
+`--all` scans every function-list entry and reports the ones containing
+dispatches (the "which of my remaining functions are switches?" recon
+pass) — one line per function with dispatch/case counts and the exact
+`rebrew switch <va>` command to decode it.
 
 ### `rebrew strings`
 
@@ -920,7 +988,7 @@ graph TD
 rebrew round-trip                       # splice + write reasm + exit 1 on mismatch
 rebrew round-trip --json                # machine-readable report
 rebrew round-trip --out path/to/file    # override output PE path
-rebrew round-trip --no-write            # in-memory only
+rebrew round-trip --dry-run             # in-memory only
 rebrew round-trip --filter SUBSTR       # restrict to matching symbols
 ```
 
@@ -973,7 +1041,7 @@ See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 | `matcher/flags.py` | `FlagSet`/`Checkbox` primitives (compatible with decomp.me) |
 | `matcher/flag_data.py` | Auto-generated MSVC flags + sweep tiers (from `tools/sync_decomp_flags.py`) |
 | `matcher/parsers.py` | COFF `.obj` and PE byte extraction (LIEF-based) |
-| `matcher/mutator.py` | 120 C mutation operators for GA |
+| `matcher/mutator.py` | 114 C mutation operators for GA |
 | `matcher/core.py` | SQLite `BuildCache` + GA checkpointing |
 | `solutions.py` | Cross-function solution transfer database (`.rebrew/solutions.json`) |
 

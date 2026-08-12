@@ -23,7 +23,8 @@ function_list = "src/target_name/functions.txt"
 bin_dir = "bin/target_name"
 # source_ext = ".c"                      # Source file extension (default: ".c")
 # ghidra_program_path = ""               # Ghidra program path for ReVa MCP sync
-# origins = ["GAME", "ZLIB"]             # Origin list for annotation filtering
+# origins = ["GAME", "ZLIB"]             # Recorded by `rebrew cfg add-target`; informational
+# only — module filters come from the annotations themselves
 # library_modules = ["MSVCRT", "ZLIB"]   # Modules that should use LIBRARY markers
 
 # Add more targets as needed:
@@ -33,9 +34,9 @@ bin_dir = "bin/target_name"
 
 [compiler]
 profile = "msvc6"                        # Compiler profile: msvc6, gcc, clang
-command = "wine tools/MSVC600/VC98/Bin/CL.EXE"
-includes = "tools/MSVC600/VC98/Include"
-libs = "tools/MSVC600/VC98/Lib"
+command = "wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE"
+includes = "toolchain/msvc/6.0-win32/VC98/Include"
+libs = "toolchain/msvc/6.0-win32/VC98/Lib"
 ```
 
 ## What the Config Loader Provides
@@ -149,18 +150,18 @@ Compiler settings are resolved in layers. Each layer overrides the previous:
 [compiler]
 profile = "msvc6"
 runner = "wine"
-command = "wine tools/MSVC600/VC98/Bin/CL.EXE"
-includes = "tools/MSVC600/VC98/Include"
-libs = "tools/MSVC600/VC98/Lib"
+command = "wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE"
+includes = "toolchain/msvc/6.0-win32/VC98/Include"
+libs = "toolchain/msvc/6.0-win32/VC98/Lib"
 cflags = "/O2 /Gd"
 base_cflags = "/nologo /c /MT"
 timeout = 60
 
 # Per-target override — only command differs, everything else inherited
 [targets."client.exe".compiler]
-command = "wine tools/MSVC7/Bin/CL.EXE"
-includes = "tools/MSVC7/Include"
-libs = "tools/MSVC7/Lib"
+command = "wine toolchain/msvc/7.0-win32/Bin/CL.EXE"
+includes = "toolchain/msvc/7.0-win32/Include"
+libs = "toolchain/msvc/7.0-win32/Lib"
 ```
 
 ### Compiler Keys
@@ -169,23 +170,23 @@ libs = "tools/MSVC7/Lib"
 |-----|------|---------|-------------|
 | `profile` | `string` | `"msvc6"` | Selects flag sweep axes for `rebrew match` |
 | `command` | `string` | `"wine CL.EXE"` | Compiler invocation (resolved relative to project root) |
-| `includes` | `string` | `"tools/MSVC600/VC98/Include"` | Path to compiler include directory |
-| `libs` | `string` | `"tools/MSVC600/VC98/Lib"` | Path to compiler lib directory |
+| `includes` | `string` | `"toolchain/msvc/6.0-win32/VC98/Include"` | Path to compiler include directory. For `msvc6`/`msvc7` the default resolves the best layout actually present (full master, then the vendored compile-only mirrors `toolchain/msvc/6.0-sp6-win32`/`msvc-6.0-sp3-win32`/`msvc-7.0-win32`) — see `rebrew init` output and docs/TOOLCHAIN.md |
+| `libs` | `string` | `"toolchain/msvc/6.0-win32/VC98/Lib"` | Path to compiler lib directory (empty for the compile-only mirrors, which ship no `Lib/`) |
 | `cflags` | `string` | `""` | Default compiler flags |
 | `base_cflags` | `string` | `"/nologo /c /MT"` | Always-on flags prepended to every compile |
-| `runner` | `string` | `""` | Win32 PE runner (`wine`, `wibo`, or empty for native). Auto-detected from `command` if not set explicitly. |
+| `runner` | `string` | `""` | Win32 PE runner (`wine`, `wibo`, or empty for native). Auto-detected from `command` if not set explicitly. A relative path like `tools/wibo` (what `rebrew init --install-wibo` writes) resolves against the project root and needs a `command` without the runner prefix, e.g. `command = "toolchain/msvc/5.0-win32/bin/cl.exe"`. |
 | `timeout` | `integer` | `60` | Compile subprocess timeout in seconds |
 
 ### Custom Compiler Profiles
 
-Define alternative compiler profiles under `[compiler.profiles.<name>]`. Each profile is a full set of compiler keys that can be selected at runtime.
+Define alternative compiler profiles under `[compiler.profiles.<name>]`. Each profile is a full set of compiler keys.
 
 ```toml
 [compiler]
 profile = "msvc6"
-command = "wine tools/MSVC600/VC98/Bin/CL.EXE"
-includes = "tools/MSVC600/VC98/Include"
-libs = "tools/MSVC600/VC98/Lib"
+command = "wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE"
+includes = "toolchain/msvc/6.0-win32/VC98/Include"
+libs = "toolchain/msvc/6.0-win32/VC98/Lib"
 cflags = "/O2 /Gd"
 
 [compiler.profiles.clang]
@@ -201,13 +202,18 @@ libs = ""
 cflags = "-O2 -march=pentium4"
 
 [compiler.profiles.msvc7]
-command = "wine tools/MSVC7/Bin/CL.EXE"
-includes = "tools/MSVC7/Include"
-libs = "tools/MSVC7/Lib"
+command = "wine toolchain/msvc/7.0-win32/Bin/CL.EXE"
+includes = "toolchain/msvc/7.0-win32/Include"
+libs = "toolchain/msvc/7.0-win32/Lib"
 cflags = "/O2 /Gd"
 ```
 
-Profiles are stored in `cfg.compiler_profiles` as a `dict[str, dict[str, str]]` for tools that need to switch compilers programmatically.
+> [!WARNING]
+> `[compiler.profiles.*]` is **reserved and currently has no effect**: no tool
+> consumes `cfg.compiler_profiles` yet — the active compiler comes from the
+> target's `[targets.<T>.compiler]` table (see `rebrew cfg set-compiler`).  The
+> loader warns on every load if profiles are defined.  Define per-target
+> compiler settings with `rebrew cfg set-compiler <target> <profile>` instead.
 
 ### Origin-Based Flag Presets (`cflags_presets`)
 
@@ -229,7 +235,7 @@ Per-target presets override global presets for the same origin key.
 
 ### Per-Target Compiler Overrides
 
-When different targets need different compilers (e.g. one DLL was built with MSVC6 and another with MSVC7):
+When different targets need different compilers (e.g. one DLL was built with MSVC6 and another with msvc-7.0-win32):
 
 ```toml
 [targets."server.dll"]
@@ -237,16 +243,16 @@ binary = "original/Server/server.dll"
 
 [targets."server.dll".compiler]
 profile = "msvc6"
-command = "wine tools/MSVC600/VC98/Bin/CL.EXE"
-includes = "tools/MSVC600/VC98/Include"
+command = "wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE"
+includes = "toolchain/msvc/6.0-win32/VC98/Include"
 
 [targets."client.exe"]
 binary = "original/Client/client.exe"
 
 [targets."client.exe".compiler]
 profile = "msvc7"
-command = "wine tools/MSVC7/Bin/CL.EXE"
-includes = "tools/MSVC7/Include"
+command = "wine toolchain/msvc/7.0-win32/Bin/CL.EXE"
+includes = "toolchain/msvc/7.0-win32/Include"
 ```
 
 Only the keys you specify in the per-target `[compiler]` section override the global `[compiler]`. Unspecified keys fall back to the global defaults.
@@ -256,6 +262,13 @@ Only the keys you specify in the per-target `[compiler]` section override the gl
 Configuration precedence is: CLI flags > per-function metadata > `rebrew-project.toml` > environment variables > defaults.
 
 - `REBREW_COMPLETE` — shell-completion mode marker (used by `rebrew` completion).
+- `REBREW_WINE_HEADLESS` — set to `0` to disable headless wine (run bare
+  wine, e.g. if you genuinely want the window).  Default: wine compiles
+  against a persistent `Xvfb` virtual display whenever the `Xvfb` binary
+  is on PATH.
+- `REBREW_XVFB_DISPLAY` — display (e.g. `:99`) of the virtual X server
+  headless wine uses.  Set by rebrew itself on first use; override to pin
+  a specific display (it must host a live Xvfb).
 - `REBREW_GLOBALS_H` — path to an additional `globals.h`-style header loaded by
   the C parser (for decomp projects that keep globals in an external header).
 - `REBREW_LLM_ENDPOINT` / `REBREW_LLM_API_KEY` — LLM seeding endpoint + key
@@ -276,7 +289,7 @@ The config loader fail-fasts on missing/invalid structure:
 It emits warnings (and applies safe defaults) if:
 - Unrecognized keys are found in top-level, project, global compiler, target, or per-target
   compiler tables (likely typos).
-- `format` is not `pe`, `elf`, or `macho` (falls back to `pe` — never stores the bad value).
+- `format` is not one of `pe`, `elf`, `macho`, `ne` (falls back to `pe` — never stores the bad value).
 - `arch` is not one of the known presets (falls back to `x86_32`).
 - `profile` is not a known compiler profile (falls back to `msvc6`).
 - String fields (`cflags`, `base_cflags`, `marker`, …) have non-string types.
@@ -373,5 +386,5 @@ rebrew cfg path                                 # print path to config file
 
 `rebrew init --compiler <profile>` supports the full matrix — MSVC
 (400/420/5/6/6.3/6.6/7/1.52), gcc/gcc-pe/clang, and **watcom** (wcc386,
-`tools/WATCOM/binl/wcc386` + `tools/WATCOM/h`).  The target `arch` follows
+`toolchain/watcom/2.0-win32/binl/wcc386` + `toolchain/watcom/2.0-win32/h`).  The target `arch` follows
 the profile (`msvc1.52` → `x86_16`).

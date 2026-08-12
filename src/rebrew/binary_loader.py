@@ -14,12 +14,15 @@ Usage::
     code = extract_bytes_at_va(info, va=0x10001000, size=64)
 """
 
+import logging
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, overload
 
 import lief
+
+log = logging.getLogger(__name__)
 
 _MAX_BINARY_SIZE = 512 * 1024 * 1024  # 512 MB safety limit
 
@@ -266,6 +269,14 @@ _load_binary_cache: dict[tuple[str, str], BinaryInfo] = {}
 _LOAD_BINARY_CACHE_MAX = 16
 _load_binary_lock = threading.Lock()
 
+# Bounded memo for :func:`iat_slot_vas` (IAT slot VAs).  Keyed on the
+# resolved path — the same binary is scanned once per run, not once per
+# function comparison.  Same lock/bounded-dict discipline as
+# ``_load_binary_cache`` so tests can clear it when they rewrite a fixture.
+_iat_slot_cache: dict[str, set[int]] = {}
+_IAT_SLOT_CACHE_MAX = 32
+_iat_slot_lock = threading.Lock()
+
 
 def is_ne(path: str | Path) -> bool:
     """True when *path* is a 16-bit Windows NE executable (MZ stub + "NE"
@@ -498,11 +509,23 @@ def extract_raw_bytes(binary_path: Path, va: int, size: int) -> bytes:
 # ---------------------------------------------------------------------------
 
 
+@overload
+def function_extent_from_disasm(
+    binary_path: Path | str, va: int, max_size: int = 512
+) -> int | None: ...
+@overload
+def function_extent_from_disasm(
+    binary_path: Path | str, va: int, max_size: int = 512, *, with_kind: Literal[True]
+) -> tuple[int, str] | None: ...
+
+
 def function_extent_from_disasm(
     binary_path: Path | str,
     va: int,
     max_size: int = 512,
-) -> int | None:
+    *,
+    with_kind: bool = False,
+) -> int | tuple[int, str] | None:
     """Disassembly-derived function extent (size in bytes), or ``None``.
 
     Walks instructions from *va* until a terminator — ``ret``/``ret N``/
@@ -511,6 +534,11 @@ def function_extent_from_disasm(
     *authoritative* function end, independent of any discovery-derived
     annotation size (which often merges the next function or includes
     padding).
+
+    With ``with_kind=True``, returns ``(extent, kind)`` where ``kind`` is
+    ``"ret"`` or ``"jmp"`` — callers that need to distinguish a real
+    epilogue from a branch-merge jmp (e.g. padding past a mid-function
+    jmp to reach the true epilogue) can branch on it.
 
     Conservative by design: the walk stops at the first terminator, so a
     ``jmp`` that is really a loop branch yields a *smaller* extent — callers
@@ -527,6 +555,7 @@ def function_extent_from_disasm(
         if not data:
             return None
     except Exception:
+        log.debug("failed to load bytes at 0x%x from %s", va, path, exc_info=True)
         return None
 
     import capstone
@@ -537,18 +566,21 @@ def function_extent_from_disasm(
     for insn in md.disasm(data, va):
         mnem = insn.mnemonic
         if mnem in ("ret", "retf", "iret", "iretd", "int3"):
-            return offset + insn.size
+            extent = offset + insn.size
+            return (extent, "ret") if with_kind else extent
         if mnem == "jmp":
             # Unconditional jump: tail call / thunk terminator (a backward
             # loop jmp underestimates the extent — callers refuse, which is
             # the safe direction).
-            return offset + insn.size
+            extent = offset + insn.size
+            return (extent, "jmp") if with_kind else extent
         if mnem.startswith("j"):
             # Conditional jumps continue the walk.
             offset += insn.size
             continue
         if mnem in ("ud2", "hlt"):
-            return offset + insn.size
+            extent = offset + insn.size
+            return (extent, "ud2") if with_kind else extent
         offset += insn.size
     return None
 
@@ -565,10 +597,23 @@ def iat_slot_vas(binary_path: Path | str) -> set[int]:
 
     Shared by ``rebrew.core.build_iat_region`` (reloc masking) and the
     catalog registry (function filtering) — one LIEF scan, two consumers.
+
+    Memoized per resolved path (bounded dict + lock, mirroring
+    ``_load_binary_cache``): ``compile_and_compare`` calls this once per
+    function (via :func:`build_iat_region`) even on compile-cache hits, so
+    a full verify/test batch re-parsed the *same immutable PE* N times
+    (0.05-0.3s each).  The target binary never changes mid-run, so the
+    cache cannot go stale.
     """
     path = Path(binary_path)
     if not path.exists():
         return set()
+    cache_key = str(path.resolve())
+    with _iat_slot_lock:
+        cached = _iat_slot_cache.get(cache_key)
+        if cached is not None:
+            _iat_slot_cache[cache_key] = _iat_slot_cache.pop(cache_key)
+            return set(cached)
     try:
         import lief
 
@@ -585,8 +630,22 @@ def iat_slot_vas(binary_path: Path | str) -> set[int]:
                 if va:
                     # LIEF reports the IAT slot as an RVA; canonicalize.
                     out.add((va + image_base) & 0xFFFFFFFF)
+        with _iat_slot_lock:
+            if cache_key not in _iat_slot_cache:
+                if len(_iat_slot_cache) >= _IAT_SLOT_CACHE_MAX:
+                    oldest_key = next(iter(_iat_slot_cache))
+                    del _iat_slot_cache[oldest_key]
+                _iat_slot_cache[cache_key] = set(out)
         return out
-    except Exception:
+    except Exception as exc:
+        # A silent empty result here would silently disable IAT reloc
+        # masking (DIR32 slots into the IAT then fail validation and
+        # demote true RELOC matches) — surface the failure once.
+        log.warning(
+            "iat_slot_vas: IAT scan failed for %s (reloc masking degraded): %s",
+            path,
+            exc,
+        )
         return set()
 
 

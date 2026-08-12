@@ -340,7 +340,11 @@ class TestSkeletonCliModes:
             "// FUNCTION: SERVER 0x1000\nint func_a(void) { return 0; }\n", encoding="utf-8"
         )
         result = CliRunner().invoke(app, ["--append", "multi.c", "0x1000"])
-        assert result.exit_code == 0  # exits 0 without appending
+        # Refusal is an ERROR (non-zero), not success — the old exit 0 told
+        # automation "appended" when nothing was written.  Exit 1 (mismatch:
+        # needs --force) per the tool's refusal semantics.
+        assert result.exit_code != 0
+        assert "already in" in result.output
         assert target.read_text(encoding="utf-8").count("0x1000") == 1
 
     def test_batch_existing_skips(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

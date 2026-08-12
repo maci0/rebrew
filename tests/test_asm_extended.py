@@ -292,3 +292,142 @@ class TestHexModeTruncation:
         assert payload["requested_size"] == 100
         assert payload["size"] == 8
         assert "warning" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# Stale function-list size: warn + extend (or warn-only with explicit --size)
+# ---------------------------------------------------------------------------
+
+
+class TestStaleSizeWarning:
+    """A stale function-list size truncates the dump mid-instruction and
+    breaks calling-convention inference — `rebrew asm` must warn and extend
+    (default size) or warn only (explicit --size)."""
+
+    _PROJECT_TOML = """\
+[project]
+name = "stale-probe"
+default_target = "SERVER"
+jobs = 1
+
+[targets."SERVER"]
+binary = "original/mini_pe.exe"
+format = "pe"
+arch = "x86_32"
+reversed_dir = "src/SERVER"
+function_list = "src/SERVER/functions.txt"
+bin_dir = "bin/SERVER"
+source_ext = ".c"
+marker = "SERVER"
+
+[compiler]
+profile = "gcc-pe"
+runner = ""
+command = "i686-w64-mingw32-gcc"
+includes = ""
+libs = ""
+cflags = "-O2"
+base_cflags = ""
+timeout = 60
+"""
+
+    def _project(self, tmp_path: Path) -> Path:
+        from bin_util import make_pe
+
+        root = tmp_path / "project"
+        (root / "original").mkdir(parents=True)
+        (root / "src" / "SERVER").mkdir(parents=True)
+        (root / "bin" / "SERVER").mkdir(parents=True)
+        # 64 bytes of real (non-padding) code so a 60-byte dump extracts
+        # cleanly and is not trimmed away as linker padding.
+        code = bytes.fromhex("558bec83ec08b801000000c9c3") * 4
+        (root / "original" / "mini_pe.exe").write_bytes(make_pe(code, text_va=0x1000))
+        (root / "rebrew-project.toml").write_text(self._PROJECT_TOML, encoding="utf-8")
+        # No functions.txt → effective size falls back to 32.
+        return root
+
+    def test_default_size_extends_and_warns(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app
+
+        root = self._project(tmp_path)
+        # The real function runs past the declared size.
+        monkeypatch.setattr("rebrew.binary_loader.function_extent_from_disasm", lambda *a, **k: 60)
+        monkeypatch.chdir(root)
+        result = CliRunner().invoke(app, ["asm", "0x401000", "--json"])
+        assert result.exit_code == 0, result.stdout
+        payload = json.loads(result.stdout)
+        assert payload["stale_size"] is True
+        assert payload["requested_size"] == 32  # the stale default
+        assert payload["size"] == 60  # extended dump
+        assert "stale" in result.stderr
+
+    def test_explicit_size_warns_but_honors_request(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app
+
+        root = self._project(tmp_path)
+        monkeypatch.setattr("rebrew.binary_loader.function_extent_from_disasm", lambda *a, **k: 60)
+        monkeypatch.chdir(root)
+        result = CliRunner().invoke(app, ["asm", "0x401000", "--size", "10", "--json"])
+        assert result.exit_code == 0, result.stdout
+        payload = json.loads(result.stdout)
+        assert payload["stale_size"] is False  # explicit --size honored
+        assert payload["requested_size"] == 10
+        assert payload["size"] == 10
+        assert "may be stale" in result.stderr
+
+    def test_accurate_size_no_warning(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app
+
+        root = self._project(tmp_path)
+        # Extent smaller than the default window → nothing stale.
+        monkeypatch.setattr("rebrew.binary_loader.function_extent_from_disasm", lambda *a, **k: 16)
+        monkeypatch.chdir(root)
+        result = CliRunner().invoke(app, ["asm", "0x401000", "--json"])
+        assert result.exit_code == 0, result.stdout
+        payload = json.loads(result.stdout)
+        assert payload["stale_size"] is False
+        assert "stale" not in result.stderr
+
+    def test_non_x86_skips_extent_check(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app
+
+        root = self._project(tmp_path)
+        toml = self._PROJECT_TOML.replace('arch = "x86_32"', 'arch = "x86_16"')
+        (root / "rebrew-project.toml").write_text(toml, encoding="utf-8")
+        calls: list[object] = []
+
+        def _boom(*a, **k):
+            calls.append(a)  # would raise for a 16-bit target if called
+            raise AssertionError("extent check must not run for non-x86_32")
+
+        monkeypatch.setattr("rebrew.binary_loader.function_extent_from_disasm", _boom)
+        monkeypatch.chdir(root)
+        result = CliRunner().invoke(app, ["asm", "0x401000", "--json"])
+        assert result.exit_code == 0, result.stdout
+        payload = json.loads(result.stdout)
+        assert payload["stale_size"] is False
+        assert calls == []  # never invoked

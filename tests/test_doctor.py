@@ -649,9 +649,7 @@ class TestOptLevel:
     def test_inconclusive_skips(self, tmp_path: Path, monkeypatch: object) -> None:
         import rebrew.toolchain_detect as td
 
-        monkeypatch.setattr(
-            td, "detect_toolchain", lambda *a, **k: SimpleNamespace(opt_level="")
-        )
+        monkeypatch.setattr(td, "detect_toolchain", lambda *a, **k: SimpleNamespace(opt_level=""))
         cfg = self._cfg(tmp_path)
         res = self.check(cfg)
         assert res.status == "skip"

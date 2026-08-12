@@ -68,7 +68,7 @@ Stores details regarding decompiled and original functions.
 | `blocker` | `TEXT` | Blocker description (e.g. "needs vtable", "missing struct"). Empty string if none. |
 | `blockerDelta` | `INTEGER` | Byte difference from target when blocker is set. NULL if no blocker. |
 | `size_reason` | `TEXT` | Explanation of how canonical size was determined (e.g. "ghidra", "list", "annotation"). Empty string if unknown. |
-| `similarity` | `REAL` | Structural similarity score (0.0–1.0). NULL if not computed. |
+| `similarity` | `REAL` | Structural similarity score (0.0–1.0). **Reserved** — needs both target and recompiled bytes, which only `rebrew match`/`diff` have; the catalog producer emits no such key, so the column is always NULL (recoverage displays it only when non-null). |
 
 **Primary Key**: `(target, va)`
 **Indexes**:
@@ -123,7 +123,9 @@ Represents chunks (cells) of memory to be rendered in the UI coverage map.
 | `parent_function` | `TEXT` | Optional name of the parent function (for data / thunk cells that immediately follow a function). |
 
 **Indexes**:
-- `idx_cells_section` on `(target, section_name)`
+- `UNIQUE (target, section_name, start)` serves the `(target, section_name)`
+  prefix used by `section_cell_stats` and per-section queries — no separate
+  `idx_cells_section` is created (db-review F6).
 
 #### Cell States
 
@@ -132,7 +134,10 @@ Represents chunks (cells) of memory to be rendered in the UI coverage map.
 | `none` | Uncovered / unmatched region | Gray |
 | `exact` | Byte-identical match | Green |
 | `reloc` | Match after relocation normalization | Cyan |
-| `matching` | Functionally matching (not byte-identical) | Yellow |
+| `near_matching` / `near_match` | Functionally matching (not byte-identical) | Yellow |
+| `proven` | PROVEN status (post-verify semantic promotion) | Bold cyan |
+| `size_mismatch` | SIZE_MISMATCH status | Yellow |
+| `compile_error`, `missing_file`, `missing_size`, `skip`, `unknown` | Error/other states (counted in `other_count`) | Red/Dim |
 | `stub` | Stub implementation (placeholder) | Red |
 | `padding` | NOP/INT3 alignment padding | Silver |
 | `data` | Non-code data in .text (residual switch tables, etc.) | Purple |
@@ -156,7 +161,7 @@ whenever the schema changes.
 
 | Version | Change |
 |---|---|
-| `"4"` | Cell rows normalized and range-checked on insert (`start >= 0`, `end >= start`, `span > 0`); `cells` gained a `FOREIGN KEY (target, section_name)` to `sections` with `ON DELETE CASCADE`. |
+| `"4"` | Cell rows normalized and range-checked on insert (`start >= 0`, `end >= start`, `span > 0`); `cells` gained a `FOREIGN KEY (target, section_name)` to `sections` with `ON DELETE CASCADE`; `section_cell_stats` gained `other_count`; `verify_results` no longer dropped on full rebuild. |
 | `"3"` | Baseline documented schema. |
 
 ### `verify_results` Table
@@ -170,12 +175,14 @@ written directly by `rebrew verify`.
 | `va` | `INTEGER` | Function VA. Part of primary key. |
 | `verified_at` | `TEXT` | ISO 8601 timestamp of verification. |
 | `byte_delta` | `INTEGER` | Number of differing bytes. |
-| `diff_lines` | `INTEGER` | Number of differing disassembly lines. |
+| `diff_lines` | `INTEGER` | Number of differing disassembly lines (emitted by `rebrew verify`). |
 
 **Primary Key**: `(target, va)`
 
 > [!NOTE]
-> This table is persistent (`IF NOT EXISTS`) — never dropped on rebuild.
+> This table is persistent — never dropped on rebuild (the per-target
+> `INSERT OR REPLACE` + prune in `build_db` keeps it current; a full rebuild
+> preserves every target's rows).
 
 ### `history` Table
 Tracks function status changes over time.
@@ -190,7 +197,10 @@ Tracks function status changes over time.
 | `changed_at` | `TEXT` | ISO 8601 timestamp of the change. |
 
 > [!NOTE]
-> This table is persistent (`IF NOT EXISTS`) — never dropped on rebuild.
+> This table is persistent — never dropped on rebuild, but retention-capped:
+> only the newest 10,000 rows per target survive each rebuild
+> (`_HISTORY_RETENTION` in `build_db`), so long-lived projects that
+> regenerate often do not accumulate rows forever (db-review F7).
 
 ### `section_cell_stats` (View)
 A SQLite view aggregating matching metrics to quickly pull total/exact/stub cells per section.
@@ -202,12 +212,15 @@ A SQLite view aggregating matching metrics to quickly pull total/exact/stub cell
 | `total_cells` | Total number of cells |
 | `exact_count` | Cells with `state = 'exact'` |
 | `reloc_count` | Cells with `state = 'reloc'` |
-| `matching_count` | Cells with `state = 'matching'` |
+| `near_match_count` | Cells with `state IN ('near_match', 'near_matching')` |
 | `stub_count` | Cells with `state = 'stub'` |
 | `padding_count` | Cells with `state = 'padding'` |
 | `data_count` | Cells with `state = 'data'` |
 | `thunk_count` | Cells with `state = 'thunk'` |
 | `none_count` | Cells with `state = 'none'` |
+| `proven_count` | Cells with `state = 'proven'` |
+| `size_mismatch_count` | Cells with `state = 'size_mismatch'` |
+| `other_count` | Cells in any other state (compile_error, missing_*, skip, unknown) — so `total_cells` always equals the sum of the counted columns |
 
 ---
 
@@ -242,12 +255,25 @@ Each `data_<target>.json` file is the output of `rebrew catalog --data-json`. It
       "size_by_tool": {"ghidra": 302, "list": 302},
       "ghidra_name": "FUN_10001000", "list_name": "fcn.10001000",
       "is_thunk": false, "is_export": false,
-      "blocker": "", "blockerDelta": null, "size_reason": "ghidra", "similarity": 1.0
+      "blocker": "", "blockerDelta": null, "size_reason": "ghidra", "similarity": null
     }
   },
   "paths": { "originalDll": "/original/Server/server.dll", "sourceRoot": "/src/server.dll" }
 }
 ```
+
+> [!NOTE] Coverage definitions
+> Two coverage figures exist and measure different things:
+> - `summary.coveragePercent` (catalog/grid) = **cell-based** coverage:
+>   `(func_cell_bytes + padding + data + thunk) / textSize` — every accounted
+>   byte, including padding and data.  A binary whose functions are all STUB
+>   placeholders still reports high coverage here.
+> - `metadata.function_stats.coverage_pct` (dashboard headline) = **matched
+>   bytes** `(EXACT + RELOC + PROVEN sizes) / textSize` — the genuine progress
+>   metric.  `identified_pct` (`covered_bytes`, every function incl. stubs) is
+>   stored alongside so "fully documented" stays visible separately
+>   (db-review F1: the dashboard previously summed every function's size, so
+>   an all-STUB binary showed ~100% "coverage").
 
 > [!NOTE]
 > All PE sections are now included dynamically in the catalog and database (not just the standard `.text`, `.rdata`, `.data`, and `.bss`).

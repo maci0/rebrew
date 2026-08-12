@@ -7,7 +7,7 @@ The image encapsulates the runtime quirks (MSVC under wine, DCC under
 DOSBox), so the host-side code never needs per-toolchain runner glue.
 
 Rebrew adds a **host-path fallback**: a spec may resolve to a vendored
-directory (``tools/MSVC600`` etc.) or a PATH binary instead of an image, so
+directory (``toolchain/msvc/6.0-win32`` etc.) or a PATH binary instead of an image, so
 the same profile works whether or not docker is available.  The runner picks
 the backend in order: docker image → host path → PATH.
 
@@ -39,7 +39,7 @@ class ToolchainSpec:
     """How to invoke one compiler version."""
 
     name: str  # e.g. "msvc6", "delphi16", "watcom"
-    image: str | None  # docker image tag, e.g. "rebrew/msvc:6.0-linux-x64"; None = host-only
+    image: str | None  # docker image tag, e.g. "rebrew/msvc:6.0-win32"; None = host-only
     binary: str = ""  # host executable name (vendored dir / PATH)
     image_binary: str | None = None  # entry binary inside the container (a shim,
     # e.g. "dcc" wrapping DCC.EXE); defaults to *binary*
@@ -54,7 +54,7 @@ class ToolchainSpec:
 
     @property
     def family(self) -> str:
-        """Unversioned compiler family — the toolchain-images/ top-level dir.
+        """Unversioned compiler family — the toolchain/ top-level dir.
 
         Derived from the image repository basename (``rebrew/msvc:…`` ->
         ``msvc``) so the folder layout and the image tag can never drift.
@@ -85,7 +85,7 @@ class RunResult:
 # these by name; `rebrew toolchain list` shows them.
 # ---------------------------------------------------------------------------
 
-_REPO_TOOLS = Path(__file__).resolve().parents[2] / "tools"
+_REPO_TOOLS = Path(__file__).resolve().parents[2] / "toolchain"
 
 
 def _vendored(sub: str) -> Path:
@@ -95,43 +95,43 @@ def _vendored(sub: str) -> Path:
 TOOLCHAINS: dict[str, ToolchainSpec] = {
     "msvc420": ToolchainSpec(
         name="msvc420",
-        image=None,  # OmniBlade mirror has no 4.2 tarball — host-only via tools/MSVC420
+        image=None,  # OmniBlade mirror has no 4.2 tarball — host-only via toolchain/msvc/4.2-win32
         binary="cl",
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
-        host_path=_vendored("MSVC420") if _vendored("MSVC420").exists() else None,
-        description="MSVC 4.2 (32-bit PE, C89) — wine or wibo (host-only, tools/MSVC420)",
+        host_path=_vendored("msvc/4.2-win32") if _vendored("msvc/4.2-win32").exists() else None,
+        description="MSVC 4.2 (32-bit PE, C89) — wine or wibo (host-only, toolchain/msvc/4.2-win32)",
     ),
     "msvc5": ToolchainSpec(
         name="msvc5",
-        image=None,  # OmniBlade mirror has no 5.0 tarball — host-only via tools/MSVC500
+        image=None,  # OmniBlade mirror has no 5.0 tarball — host-only via toolchain/msvc/5.0-win32
         binary="cl",
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
-        host_path=_vendored("MSVC500") if _vendored("MSVC500").exists() else None,
-        description="MSVC 5.0 (32-bit PE, C89) — wine or wibo (host-only, tools/MSVC500)",
+        host_path=_vendored("msvc/5.0-win32") if _vendored("msvc/5.0-win32").exists() else None,
+        description="MSVC 5.0 (32-bit PE, C89) — wine or wibo (host-only, toolchain/msvc/5.0-win32)",
     ),
     "msvc6": ToolchainSpec(
         name="msvc6",
-        image="rebrew/msvc:6.0-linux-x64",
+        image="rebrew/msvc:6.0-win32",
         binary="cl",
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
-        host_path=_vendored("MSVC600") if _vendored("MSVC600").exists() else None,
+        host_path=_vendored("msvc/6.0-win32") if _vendored("msvc/6.0-win32").exists() else None,
         description="MSVC 6.0 (32-bit PE, C89) — wine or wibo",
     ),
     "delphi16": ToolchainSpec(
         name="delphi16",
-        image="rebrew/delphi:1.0-linux-x64",
+        image="rebrew/delphi:1.0-win16",
         binary="DCC.EXE",
         image_binary=None,  # the image ENTRYPOINT is the dcc wrapper
         runtime="dosbox",
         flags_style="msvc",
         obj_ext=".exe",  # DCC emits a linked NE, not an object
-        host_path=_vendored("DELPHI10"),
+        host_path=_vendored("delphi/1.0-win16"),
         description="Borland Delphi 1.0 (16-bit NE) — DOSBox",
     ),
     "gcc-pe": ToolchainSpec(
@@ -145,25 +145,25 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
     ),
     "watcom": ToolchainSpec(
         name="watcom",
-        image="rebrew/watcom:2.0-linux-x64",
+        image="rebrew/watcom:2.0-win32",
         binary="wcc386",
         image_binary=None,  # the image ENTRYPOINT is wcc386
         runtime="native",
         flags_style="posix",
         obj_ext=".o",  # wcc386 emits OMF (8086 relocatable) — see OMF note
-        host_path=_vendored("WATCOM") if _vendored("WATCOM").exists() else None,
+        host_path=_vendored("watcom/2.0-win32") if _vendored("watcom/2.0-win32").exists() else None,
         host_bin="binl",
         description="Open Watcom 2.0 (x86 32-bit) — native Linux wcc386",
     ),
     "msvc1.52": ToolchainSpec(
         name="msvc1.52",
-        image="rebrew/msvc:1.52-linux-x64",
+        image="rebrew/msvc:1.52-win16",
         binary="CL.EXE",
         image_binary=None,  # the image ENTRYPOINT is the cl16 wrapper
         runtime="dosbox",
         flags_style="msvc",
         obj_ext=".obj",  # 16-bit OMF — see docs/OMF_NOTES.md
-        host_path=_vendored("MSVC152") if _vendored("MSVC152").exists() else None,
+        host_path=_vendored("msvc/1.52-win16") if _vendored("msvc/1.52-win16").exists() else None,
         description="MSVC 1.52 (16-bit, Windows 3.x) — DOSBox via rebrew.msvc16",
     ),
 }
@@ -238,7 +238,7 @@ def _resolve_binary(spec: ToolchainSpec) -> str:
         # The compiler usually lives in a subdir (Bin for MSVC, binl for
         # Watcom); DOS-era vendored trees are uppercase (BIN, not Bin) —
         # match the host_bin subdir case-insensitively before giving up
-        # (MSVC 1.52's tools/MSVC152/BIN/CL.EXE would otherwise never
+        # (MSVC 1.52's toolchain/msvc/1.52-win16/BIN/CL.EXE would otherwise never
         # resolve).
         if spec.host_bin:
             try:

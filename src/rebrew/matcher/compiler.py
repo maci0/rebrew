@@ -50,6 +50,15 @@ def _filter_wine_stderr(text: str) -> str:
     return filter_wine_stderr(text)
 
 
+def _maybe_headless_wine(
+    cmd: list[str], env: dict[str, str] | None
+) -> tuple[list[str], dict[str, str] | None]:
+    """Wrap a ``wine`` command under xvfb-run (lazy-imported, see above)."""
+    from rebrew.compile import maybe_headless_wine
+
+    return maybe_headless_wine(cmd, env)
+
+
 # Fallback function size (in bytes) when both LIEF symbol table and MAP
 # heuristics fail to determine the actual size.  1000 bytes is a conservative
 # upper bound that covers most MSVC6 game functions without reading too far
@@ -96,7 +105,7 @@ def _ensure_wine_env(env: dict[str, str] | None, cmd: list[str]) -> dict[str, st
     if env is not None:
         return env
     env = {**os.environ}
-    cmd_head = cmd[0].lower() if cmd else ""
+    cmd_head = Path(cmd[0]).name.lower() if cmd else ""
     if cmd_head in {"wine", "wibo"}:
         env["WINEDEBUG"] = "-all"
     return env
@@ -338,6 +347,7 @@ def build_candidate_obj_only(
             )
         )
         env = _ensure_wine_env(env, cmd)
+        cmd, env = _maybe_headless_wine(cmd, env)
 
         try:
             r = subprocess.run(cmd, capture_output=True, cwd=workdir, env=env, timeout=timeout)
@@ -400,6 +410,7 @@ def build_candidate(
         )
 
         env = _ensure_wine_env(env, cmd)
+        cmd, env = _maybe_headless_wine(cmd, env)
         try:
             r = subprocess.run(cmd, capture_output=True, cwd=workdir, env=env, timeout=timeout)
         except subprocess.TimeoutExpired:

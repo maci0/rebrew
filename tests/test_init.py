@@ -1,6 +1,7 @@
 """Tests for the rebrew init command."""
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from click.exceptions import Exit
@@ -218,6 +219,59 @@ class TestInit:
         assert "server" in content
         assert "server.dll" in content
 
+    def test_msvc6_resolves_available_toolchain(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """msvc6 init must not write a broken toolchain/msvc/6.0-win32 path when the
+        machine only has the vendored mirrors (or no layout at all)."""
+        monkeypatch.chdir(tmp_path)
+        init(
+            target_name="server",
+            binary_name="server.dll",
+            compiler_profile="msvc6",
+            install_wibo=False,
+            json_output=False,
+            install_completions=False,
+        )
+        content = (tmp_path / "rebrew-project.toml").read_text()
+
+        from rebrew.utils import resolve_msvc_toolchain
+
+        layout = resolve_msvc_toolchain(tmp_path, "msvc6")
+        if layout is not None:
+            # A layout exists (project tools/ or the rebrew install's own
+            # vendored tree) — the generated command must point at it.
+            assert layout[0] in content, f"expected {layout[0]!r} in generated config"
+        else:
+            # No layout anywhere (CI: tools/ is gitignored) — the documented
+            # master default is kept, and the config-layer fallback reports
+            # the missing toolchain via doctor.
+            assert "toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE" in content
+
+    def test_msvc7_resolves_available_toolchain(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Same guarantee for msvc7: the profile default points at
+        toolchain/msvc/7.0-win32, the vendored mirror is toolchain/msvc/7.0-win32."""
+        monkeypatch.chdir(tmp_path)
+        init(
+            target_name="server",
+            binary_name="server.dll",
+            compiler_profile="msvc7",
+            install_wibo=False,
+            json_output=False,
+            install_completions=False,
+        )
+        content = (tmp_path / "rebrew-project.toml").read_text()
+
+        from rebrew.utils import resolve_msvc_toolchain
+
+        layout = resolve_msvc_toolchain(tmp_path, "msvc7")
+        if layout is not None:
+            assert layout[0] in content, f"expected {layout[0]!r} in generated config"
+        else:
+            assert "toolchain/msvc/7.0-win32/Bin/cl.exe" in content
+
     def test_creates_agents_md(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """init() creates AGENTS.md."""
         monkeypatch.chdir(tmp_path)
@@ -298,9 +352,9 @@ class TestInit:
     def test_link_tools_from_creates_symlink(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """--link-tools-from symlinks tools/MSVC600 to the master directory."""
+        """--link-tools-from symlinks toolchain/msvc/6.0-win32 to the master directory."""
         master = tmp_path / "master"
-        (master / "MSVC600").mkdir(parents=True)
+        (master / "msvc" / "6.0-win32").mkdir(parents=True)
         monkeypatch.chdir(tmp_path)
         init(
             target_name="t",
@@ -311,9 +365,33 @@ class TestInit:
             install_completions=False,
             toolchain_dir=master,
         )
-        link = tmp_path / "tools" / "MSVC600"
+        link = tmp_path / "toolchain" / "msvc" / "6.0-win32"
         assert link.is_symlink()
-        assert link.resolve() == (master / "MSVC600").resolve()
+        assert link.resolve() == (master / "msvc" / "6.0-win32").resolve()
+
+    def test_link_tools_from_mirror_only_master(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--link-tools-from must accept a master dir that only has the
+        compile-only mirror (no msvc-6.0-win32 master) — link toolchain/msvc/6.0-sp6-win32."""
+        master = tmp_path / "master"
+        (master / "msvc" / "6.0-sp6-win32").mkdir(parents=True)
+        monkeypatch.chdir(tmp_path)
+        init(
+            target_name="t",
+            binary_name="t.exe",
+            compiler_profile="msvc6",
+            install_wibo=False,
+            json_output=False,
+            install_completions=False,
+            toolchain_dir=master,
+        )
+        link = tmp_path / "toolchain" / "msvc" / "6.0-sp6-win32"
+        assert link.is_symlink()
+        assert link.resolve() == (master / "msvc" / "6.0-sp6-win32").resolve()
+        # The generated command must reference the linked mirror.
+        content = (tmp_path / "rebrew-project.toml").read_text()
+        assert "wine toolchain/msvc/6.0-sp6-win32/Bin/CL.EXE" in content
 
     def test_link_tools_from_missing_toolchain_fails(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -416,6 +494,43 @@ class TestInit:
 # ---------------------------------------------------------------------------
 # init template checks
 # ---------------------------------------------------------------------------
+# init template checks
+# ---------------------------------------------------------------------------
+
+
+class TestFamilyMismatchWarning:
+    """init warns when a high-confidence compiler-family detection
+    contradicts the chosen profile (Zig/MinGW binary + msvc6)."""
+
+    def _tc(self, family: str, confidence: str = "high", hint: str = "") -> SimpleNamespace:
+        return SimpleNamespace(family=family, confidence=confidence, version_hint=hint)
+
+    def test_mismatch_warns(self, capsys: pytest.CaptureFixture[str]) -> None:
+        from rebrew.init import _warn_profile_family_mismatch
+
+        _warn_profile_family_mismatch("msvc6", self._tc("zig", hint="Zig/LLVM 20.1"))
+        out = capsys.readouterr()
+        assert "looks like zig" in out.err
+        assert "gcc-pe" in out.err  # suggests the counterpart profile
+
+    def test_matching_family_silent(self, capsys: pytest.CaptureFixture[str]) -> None:
+        from rebrew.init import _warn_profile_family_mismatch
+
+        _warn_profile_family_mismatch("gcc-pe", self._tc("mingw"))
+        _warn_profile_family_mismatch("msvc6", self._tc("msvc"))
+        assert "looks like" not in capsys.readouterr().err
+
+    def test_low_confidence_silent(self, capsys: pytest.CaptureFixture[str]) -> None:
+        from rebrew.init import _warn_profile_family_mismatch
+
+        _warn_profile_family_mismatch("msvc6", self._tc("zig", confidence="low"))
+        assert "looks like" not in capsys.readouterr().err
+
+    def test_unknown_family_silent(self, capsys: pytest.CaptureFixture[str]) -> None:
+        from rebrew.init import _warn_profile_family_mismatch
+
+        _warn_profile_family_mismatch("msvc6", self._tc("unknown"))
+        assert "looks like" not in capsys.readouterr().err
 
 
 class TestInitTemplate:

@@ -233,6 +233,8 @@ class TestDescribeCli:
             "status",
             "size",
             "cflags",
+            "pattern",
+            "convention",
             "callers",
             "callees",
             "strings",
@@ -300,3 +302,20 @@ class TestDescribeCli:
         data = json.loads(result.output)
         assert data["name"] == "fcn_00401000"
         assert {"va": dstart, "kind": "mov_mem"} in data["globals"]
+
+    def test_strings_paths_agree(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """_compute_strings with the dossier's all_refs (single-scan path)
+        returns the same rows as the standalone string_refs path — the
+        double-disassembly elimination must be behavior-preserving."""
+        _make_project(tmp_path)
+        _make_binary(tmp_path)
+        from rebrew.analysis import scan_references
+        from rebrew.binary_loader import load_binary
+        from rebrew.describe import _compute_strings
+
+        info = load_binary(tmp_path / "game.exe")
+        all_refs = scan_references(info)
+        start, end = PROBE_VA, PROBE_VA + 22
+        via_all_refs = _compute_strings(info, start, end, all_refs)
+        standalone = _compute_strings(info, start, end)
+        assert via_all_refs == standalone

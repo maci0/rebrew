@@ -1,7 +1,7 @@
 """msvc16.py — MSVC 1.52 (16-bit) compilation support.
 
 Wraps the vendored 16-bit Microsoft Visual C++ 1.52 command-line compiler
-(``tools/MSVC152``): the CL.EXE driver is a Phar Lap TNT DOS-extender PE
+(``toolchain/msvc/1.52-win16``): the CL.EXE driver is a Phar Lap TNT DOS-extender PE
 that runs headless under DOSBox (wine's DOS-memory allocation fails for
 it).  Produces 16-bit OMF objects — the OMF parser (docs/OMF_NOTES.md) is
 the enabling piece for byte matching.
@@ -28,12 +28,12 @@ class Msvc16Result:
 
 
 def _find_vc152() -> Path:
-    repo_tools = Path(__file__).resolve().parents[2] / "tools"
-    vc = repo_tools / "MSVC152"
+    repo_tools = Path(__file__).resolve().parents[2] / "toolchain"
+    vc = repo_tools / "msvc" / "1.52-win16"
     if (vc / "BIN" / "CL.EXE").exists():
         return vc
     raise Msvc16Error(
-        "vendored MSVC 1.52 not found under tools/MSVC152 (BIN/INCLUDE/LIB "
+        "vendored MSVC 1.52 not found under toolchain/msvc/1.52-win16 (BIN/INCLUDE/LIB "
         "required — extract from archive.org item en_vc152_202512)"
     )
 

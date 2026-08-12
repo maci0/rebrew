@@ -120,7 +120,10 @@ class TestMatchAllTargets:
 
         monkeypatch.setattr("rebrew.match._run_all", _fake_run_all)
         result = CliRunner().invoke(app, ["--all-targets", "--json"])
-        assert result.exit_code == 0
+        # Documented exit contract: 1 = no match found — a batch with any
+        # failed stub is not a success (previously always exited 0, a false
+        # green for CI gates).
+        assert result.exit_code == 1
         assert calls == ["server_dll", "client_exe"]
         import json
 

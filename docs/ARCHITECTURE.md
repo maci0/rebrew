@@ -45,7 +45,7 @@ flowchart LR
 | Package / module | Responsibility |
 |---|---|
 | `rebrew/` top-level tools | One CLI command each (`test`, `verify`, `diff`, `match`, `lint`, `data`, `status`, `todo`, …), registered in `main.py` |
-| `rebrew/main.py` | Umbrella CLI. Flat `app.command()` for single-command modules, `app.add_typer()` for multi-command (`cfg`, `cache`, `extract`, `skills`) |
+| `rebrew/main.py` | Umbrella CLI. Flat `app.command()` for single-command modules, `app.add_typer()` for multi-command (`cfg`, `cache`, `extract`, `skills`, `resource`, `toolchain`) |
 | `rebrew/cli.py` | Shared options/helpers: `TargetOption`, `require_config`, `iter_sources`, `iter_annotations`, `error_exit`, `json_print`, exit codes |
 | `rebrew/config.py` | `ProjectConfig` dataclass + `rebrew-project.toml` loader (multi-target) |
 | `rebrew/annotation.py` | Marker/KV annotation parsing (`// FUNCTION: MOD 0xVA`), key classification (file-only vs metadata) |
@@ -68,6 +68,14 @@ flowchart LR
 | `rebrew/round_trip.py` | Splice matched functions back into the target PE, verify byte equality |
 | `rebrew/similar.py` | Structural clone detection (mnemonic-histogram similarity) |
 | `rebrew/near_diag.py` | NEAR_MATCHING delta classification (register/reloc/structural buckets) |
+| `rebrew/headless.py` | Persistent per-process Xvfb for headless wine compiles (no window, no DISPLAY needed) |
+| `rebrew/toolchain_detect.py` | Layered compiler-family detector: Detect It Easy (diec) → PDB → codegen heuristics; feeds init's CRT/opt seeding and doctor's alignment check |
+| `rebrew/wibo.py` | Auto-download + SHA256-verify the wibo runner (fast headless wine alternative) |
+| `rebrew/binsync_export.py` / `binsync_import.py` / `binsync_diff.py` | BinSync state export/import/diff (TOML-based, no libbs dependency) |
+| `rebrew/document_unmatched.py` | Bulk classifier for unmatched functions (library/CRT/dispatch buckets) |
+| `rebrew/discover.py` | Function enumeration: rizin aaa→aap→capstone linear sweep with size cross-checks |
+| `rebrew/pdb_info.py` | PDB metadata extraction (S_COMPILE3 compiler + command line) |
+| `rebrew/identify_library.py` | Library-function identification backends (CRT/ZLIB marking) |
 | `rebrew/dashboard.py` | Read-only web dashboard over `db/coverage.db` |
 | `rebrew/imports.py` | Import-table symbol listing — PE IAT + `jmp [iat]` stub detection, 16-bit NE module references |
 | `rebrew/skills.py` | Agent-skill discovery CLI (`list`/`show` subcommands) |

@@ -12,8 +12,15 @@ that contains the actual binaries, source files, and toolchains.
 
 ## Compiler Profiles
 
-- **`msvc6`** (default): `wine tools/MSVC600/VC98/Bin/CL.EXE` — MSVC-flavored flags
-  (`/I`, `/Fo`, `/c`), Wine/wibo runner, `tools/MSVC600` toolchain. C89.
+- **`msvc6`** (default): `wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE` — MSVC-flavored flags
+  (`/I`, `/Fo`, `/c`), Wine/wibo runner, `toolchain/msvc/6.0-win32` toolchain. C89.
+  When the full master layout is absent, `rebrew init` (and the config
+  layer) resolve the best available layout instead — `toolchain/msvc/6.0-sp6-win32` (SP6,
+  compile-only) then `toolchain/msvc/6.0-sp3-win32` — so a fresh project never gets a
+  broken `toolchain/msvc/6.0-win32` path out of the box.
+  Wine runner is auto-headless via a persistent `Xvfb` virtual display when
+  available (`REBREW_WINE_HEADLESS=0` opts out); prefer wibo for the
+  fastest, fully-headless path.
 - **`gcc-pe`**: `i686-w64-mingw32-gcc` — POSIX-flavored flags (`-I`, `-o`, `-c`),
   no runner, PATH resolution of the bare toolchain name, empty `includes`/`libs`
   allowed. Use for MinGW GCC / Zig-built PE/x86_32 targets (`.buildid` section,
@@ -178,7 +185,7 @@ src/rebrew/
 ├── dosbox.py            # Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads)
 ├── toolchain.py         # Toolchain abstraction: spec registry, docker-first runner, host fallback
 ├── toolchain_cli.py     # `rebrew toolchain` CLI (list/status/detect/pull/build)
-├── toolchain-images/    # Dockerfiles per toolchain (Godbolt-style: image = toolchain + wrapper)
+├── toolchain/           # Vendored toolchains + Dockerfiles per family (toolchain/<family>/<version>-<arch>/, shared rebrew/base)
 ├── cu_map.py            # Compilation unit boundary inference (contiguity + call graph)
 ├── todo.py              # Prioritized action list: what to work on next
 ├── similar.py           # Find structurally similar functions in the target binary
@@ -188,8 +195,9 @@ src/rebrew/
 ├── test.py              # Compile, byte-compare, auto-update STATUS annotation
 ├── verify.py            # Bulk verification (incremental, cached)
 ├── diff.py              # Compile and diff against target binary
-├── asm.py               # Disassemble function (hex/NASM); --imports/--strings/--hints annotate IAT, strings, codegen patterns
-├── skeleton.py          # Generate skeleton C files for matching
+├── asm.py               # Disassemble function (hex/NASM); --imports/--strings/--hints annotate IAT, strings, codegen patterns (post-decrement, SEH, CRT magic, switch dispatch incl. byte-compressed, IAT forwarder, EH-ctor, esp-disp8); detect_function_pattern + calling_convention for recon
+├── switch.py            # `rebrew switch` — decode jump-table switch dispatches (case → handler map; --all recon pass)
+├── skeleton.py          # Generate skeleton C files for matching (convention-aware stubs; --batch --skip-fragments; stale-size warnings)
 ├── lint.py              # Lint C annotations
 ├── llm_seed.py          # LLM alternative-implementation seeding for the GA (--llm-seed)
 ├── near_diag.py         # Classify why a NEAR_MATCHING function does not byte-match
@@ -233,7 +241,7 @@ src/rebrew/
 │   ├── core.py          # Data types: Score, BuildResult, BuildCache, GACheckpoint
 │   ├── compiler.py      # MSVC6 compilation + flag sweep (Wine/wibo subprocess)
 │   ├── scoring.py       # Byte-level scoring, structural similarity (capstone + numpy)
-│   ├── mutator.py       # 120+ C source mutation operators for GA exploration
+│   ├── mutator.py       # 114 C source mutation operators for GA exploration
 │   ├── ast_engine.py    # tree-sitter AST mutation helpers
 │   ├── parsers.py       # Object file parsing (COFF/ELF/Mach-O via LIEF)
 │   ├── flags.py         # FlagSet/Checkbox primitives (decomp.me compatible)
@@ -310,6 +318,11 @@ All CLI tools follow these conventions for a consistent user experience:
 GA mutations live in [`src/rebrew/matcher/mutator.py`](src/rebrew/matcher/mutator.py).
 All mutation functions use the `mut_` prefix (see Naming rules above) and operate on
 source text via tree-sitter AST queries — never regex.
+
+Numeric constants need explicit coverage: the GA has no way to fix a wrong
+field offset / magic number / size unless a tweak operator exists
+(`mut_tweak_integer_literal` covers small ±deltas; add targeted operators
+for other constant classes if the search plateaus on one).
 
 1. **Write the function** in `mutator.py`:
    ```python

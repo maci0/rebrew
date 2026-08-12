@@ -127,3 +127,52 @@ class TestClassifyCompareResult:
         r = classify_compare_result(True, "match", b"\x55", b"\x55", None, full_obj_size=12)
         assert r.matched is True
         assert r.full_obj_size == 12
+
+    def test_minimal_body_vs_large_target_is_stub(self) -> None:
+        """A 3-byte `return 0` skeleton body against a 42-byte target must
+        classify STUB (unimplemented skeleton), not a bare SIZE_MISMATCH —
+        the caller truncates the longer side, so the original lengths arrive
+        via full_obj_size / full_target_size."""
+        r = classify_compare_result(
+            False,
+            "SIZE_MISMATCH: Size 3B vs 42B (0 byte diffs in common prefix)",
+            b"\x33\xc0\xc3",  # target truncated to candidate length by caller
+            b"\x33\xc0\xc3",
+            None,
+            size_mismatch=True,
+            size_delta=39,
+            full_obj_size=3,
+            full_target_size=42,
+        )
+        assert r.status == "STUB"
+        assert "stub body" in r.message
+        assert "42B" in r.message
+
+    def test_minimal_body_without_full_sizes_stays_size_mismatch(self) -> None:
+        """Without the original lengths (other callers), the heuristic falls
+        back to the truncated view — no false STUB."""
+        r = classify_compare_result(
+            False,
+            "SIZE_MISMATCH",
+            b"\x33\xc0\xc3",
+            b"\x33\xc0\xc3",
+            None,
+            size_mismatch=True,
+        )
+        assert r.status == "SIZE_MISMATCH"
+
+    def test_real_tiny_function_not_stub(self) -> None:
+        """A genuinely tiny candidate (5B) against a small target (8B) is not
+        a stub — target < _STUB_TARGET_MIN."""
+        r = classify_compare_result(
+            False,
+            "SIZE_MISMATCH",
+            b"\x33\xc0\xc3\x90\x90\x90\x90\x90",  # target truncated to 5
+            b"\x33\xc0\xc3\x90\x90",
+            None,
+            size_mismatch=True,
+            size_delta=3,
+            full_obj_size=5,
+            full_target_size=8,
+        )
+        assert r.status == "SIZE_MISMATCH"

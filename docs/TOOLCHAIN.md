@@ -6,7 +6,7 @@ External tools that rebrew integrates with or builds on top of.
 
 ## MSVC6 Toolchain (Compile Backend)
 
-All run under Wine from `tools/MSVC600/VC98/Bin/`:
+All run under Wine from `toolchain/msvc/6.0-win32/VC98/Bin/`:
 
 | Tool | Purpose |
 |------|---------|
@@ -54,14 +54,14 @@ headless gives correct boundaries but is slow on loaded machines.
 
 ## Delphi 1.0 (16-bit NE compile backend — research; Borland ABI unmatchable)
 
-The vendored `tools/DELPHI10` toolchain (DCC.EXE, DOS DPMI app run under
+The vendored `toolchain/delphi/1.0-win16` toolchain (DCC.EXE, DOS DPMI app run under
 DOSBox headless) compiles 16-bit Windows 3.x NE executables; the
 `rebrew.delphi16.compile_ne` wrapper makes it invocable from Python and
 parses the output with the native NE loader.  Note: 16-bit *matching* is
 implemented in rebrew via the `msvc1.52` profile (DOSBox CL.EXE → OMF
 objects) — but **Delphi's Borland ABI has no matchable rebrew profile**,
 so Delphi functions are documented as blockers and this toolchain is for
-research (compile + NE parse).  See `tools/DELPHI10/README.md` for the
+research (compile + NE parse).  See `toolchain/delphi/1.0-win16/README.md` for the
 recipe and the RTM.EXE / non-tmpfs requirements, and the NE section
 below for the analysis-side support matrix.
 
@@ -78,20 +78,20 @@ a vendored host path (`tools/…`) or PATH binary when docker or the image is
 unavailable — the same profile works either way.
 
 Current toolchains (`rebrew toolchain list`): `msvc6` (wine; image
-`rebrew/msvc:6.0-linux-x64` built+verified — MSVC 6.0 under wine in a
+`rebrew/msvc:6.0-win32` built+verified — MSVC 6.0 under wine in a
 container, from the OmniBlade decomp.me msvcwin9x tarball), `delphi16`
-(DOSBox; image `rebrew/delphi:1.0-linux-x64` built+verified — a
+(DOSBox; image `rebrew/delphi:1.0-win16` built+verified — a
 containerized Delphi 1.0 compile produces a genuine NE 6.01 executable),
 `gcc-pe` (native MinGW), `watcom` (native Open Watcom 2.0 — installed at
-`tools/WATCOM`; image `rebrew/watcom:2.0-linux-x64` built and verified —
+`toolchain/watcom/2.0-win32`; image `rebrew/watcom:2.0-win32` built and verified —
 the docker-first compile produces the same object + relocs as the host
 path), `msvc1.52` (16-bit, DOSBox via `rebrew.msvc16`; image
-`rebrew/msvc:1.52-linux-x64` built+verified — containerized CL.EXE
+`rebrew/msvc:1.52-win16` built+verified — containerized CL.EXE
 produces a genuine 16-bit OMF object; the `cl16` wrapper takes the source
 as its single argument and adds `/nologo /c` itself), plus two
 **host-only** archived toolchains that share the wine-based MSVC paths:
-`msvc420` (`tools/MSVC420`, no mirror tarball) and `msvc5`
-(`tools/MSVC500`, no mirror tarball — Win2K-era binaries were built with
+`msvc420` (`toolchain/msvc/4.2-win32`, no mirror tarball) and `msvc5`
+(`toolchain/msvc/5.0-win32`, no mirror tarball — Win2K-era binaries were built with
 MSVC 5.0, so this is the profile for byte-matching them).
 
 **Every registry toolchain with a mirror tarball has a verified
@@ -100,27 +100,57 @@ docker-first standardization is complete for the whole matrix; the two
 host-only entries resolve via their vendored `tools/` trees under wine
 instead.
 
-> **Headless wine:** compiling with the host wine runner works fine with
-> no display window — the only annoyance is the Wine *virtual desktop*,
-> which pops a desktop window on every compile.  Disable it once per
-> prefix (it re-enables if you run `winecfg` and check "Emulate a
-> virtual desktop"):
+> **Headless wine:** rebrew runs the host wine runner against a persistent
+> `Xvfb` virtual display whenever the `Xvfb` binary is on PATH — compiles
+> run invisibly, so no desktop window pops (and bare wine works under CI
+> with no `DISPLAY` at all).  The server is spawned once per process and
+> reused across the whole verify/GA batch; a live Xvfb left by an earlier
+> run is reused rather than re-spawned.  Set `REBREW_WINE_HEADLESS=0` to
+> force bare wine (e.g. if you genuinely want the window); if `Xvfb` is
+> missing, rebrew falls back to a per-invocation `xvfb-run` wrapper
+> (slower — ~3 s overhead each) and then to bare wine.  The only remaining
+> annoyance is the Wine *virtual desktop* configured per prefix, which pops
+> a window on every compile when neither `Xvfb` nor `xvfb-run` is
+> installed — disable it once per prefix (it re-enables if you run
+> `winecfg` and check "Emulate a virtual desktop"):
 >
 > ```bash
 > wine reg delete "HKCU\\Software\\Wine\\Explorer" /v Desktop /f
 > wine reg delete "HKCU\\Software\\Wine\\Explorer\\Desktops" /f
 > ```
+>
+> For the fastest and fully headless path, use **wibo** instead
+> (`rebrew init --install-wibo`, or set `runner = "wibo"` + a command
+> without the `wine ` prefix): a lightweight PE loader with no X
+> dependency at all.
 
 **Image layout convention** (Godbolt-style): Dockerfiles live at
-`toolchain-images/<family>/<version>-<arch>/Dockerfile` and produce
+`toolchain/<family>/<version>-<arch>/Dockerfile` and produce
 `rebrew/<family>:<version>-<arch>` — the top-level directory is the
 **unversioned compiler family** (`msvc/`, `delphi/`, `watcom/`) and the
 version + target architecture live in the subdirectory and image tag, so
-`msvc/6.0-linux-x64/`, `msvc/1.52-linux-x64/`, or a future
+`msvc/6.0-win32/`, `msvc/1.52-win16/`, or a future
 `msvc/6.0-windows-x86/` coexist without ambiguity.  (The old
 `msvc6/6.0-linux-x64` / `msvc152/1.52-linux-x64` / `delphi16/1.0-linux-x64`
 names were ambiguous — `msvc152` read as "MSVC 152" and `delphi16` as
 "Delphi 16" — and are retired.)
+
+**Shared base image**: every toolchain Dockerfile inherits
+`FROM rebrew/base:1.0` (`toolchain/base/`), which carries the OS + wine +
+wine32 + dosbox + download tooling and the common env
+(`WINEDEBUG=-all`, `WINEPREFIX=/opt/wineprefix`,
+`SDL_VIDEODRIVER=dummy`).  `rebrew toolchain build` builds the base
+automatically when the toolchain's Dockerfile references it.  Each
+toolchain image only adds its compiler + an entrypoint wrapper; the
+vendored tree lives at the top level of the version dir (so the host and
+the image share one layout).
+
+**Common wrapper helpers**: `toolchain/base/wrapper-common.sh` provides the
+shared entrypoint machinery — `rebrew_pick_source` (locates the readable
+source among MSVC-style flags-first argv), `rebrew_dosbox_run` (headless
+DOSBox sandbox), `rebrew_copy_back` (artifact copy-back) — and each
+wrapper (`cl`, `cl16`, `dcc`) sources it instead of re-implementing the
+sandbox logic.
 
 **Image entry convention:** an image whose `ENTRYPOINT` *is* the compiler
 wrapper (e.g. wcc386) is invoked without an explicit command
@@ -142,12 +172,12 @@ Notes:
   function bytes + reloc slots extract through
   `parse_obj_symbol_and_relocs` (e8/e9 rel16 slots) — see
   [OMF_NOTES.md](OMF_NOTES.md).
-- **MSVC 1.52** (`tools/MSVC152`, from archive.org `en_vc152_202512`) is a
+- **MSVC 1.52** (`toolchain/msvc/1.52-win16`, from archive.org `en_vc152_202512`) is a
   Phar Lap TNT DOS-extender binary — runs headless under DOSBox via the
   shared `rebrew.dosbox` runner; produces 16-bit OMF objects.
 - **Borland C++ (bcc32)**: the `turbo-c-v-4.5` CD was fully surveyed —
   its 207 `.PAK` files are **Quantum** archives (extractable with
-  `tools/DELPHI10/pak_extract.py`), the `.CA1`/`.CA2` containers hold an
+  `toolchain/delphi/1.0-win16/pak_extract.py`), the `.CA1`/`.CA2` containers hold an
   embedded Quantum stream at offset 5 (`[count u32][DS\0Z …]`; TCW.CA1 =
   the TCW IDE + DLLs), but **the CD carries no compiler binary** (no
   BCC32/BCC/TLINK anywhere — it is the Windows-IDE-only release).  The
@@ -212,7 +242,7 @@ VC 5.0 + SPs, VC 7.0/7.1, VC 8.0/9.0/10.0).  Download via codeload tarball:
 
 ```bash
 cd tools
-for r in MSVC420 MSVC500; do   # repo names are lowercase: msvc420 msvc500 ...
+for r in msvc-4.2-win32 msvc-5.0-win32; do   # repo names are lowercase: msvc420 msvc500 ...
   curl -L -o $r.tar.gz "https://codeload.github.com/archaic-msvc/${r,,}/tar.gz/refs/heads/master"
   mkdir -p $r && tar xzf $r.tar.gz --strip-components=1 -C $r
 done
@@ -252,15 +282,15 @@ DOS/Windows games and Borland Delphi 1.0 apps) are now parsed natively:
    markerless segments with content → `msvc` (16-bit MSVC-style) — falling
    back to RTL string evidence when segments are absent.
 6. **16-bit compile profile / byte matching — DONE**: the `msvc1.52`
-   profile (Microsoft C 1.52, 16-bit, via the `rebrew/msvc:1.52-linux-x64`
-   DOSBox image or the vendored `tools/MSVC152` host path) compiles C89 to
+   profile (Microsoft C 1.52, 16-bit, via the `rebrew/msvc:1.52-win16`
+   DOSBox image or the vendored `toolchain/msvc/1.52-win16` host path) compiles C89 to
    16-bit OMF objects, decoded by the built-in `omf16` parser (objconv
    crashes on both the unoptimized 0xA0 and /O-optimized 0xC2 dialects;
    reloc slots: e8/e9 rel16, absolute disp16, and far-call 9a/ea via
    capstone).  `rebrew test`, `verify`, and `match --flag-sweep-only`
    (memory-model axis `/AS /AM /AC /AL`) all work on 16-bit NE targets.
    The GA sweep for msvc1.52 covers 75 targeted combos through the image.
-   NOTE: the vendored `tools/MSVC420` is the *32-bit* VC 4.2 compiler
+   NOTE: the vendored `toolchain/msvc/4.2-win32` is the *32-bit* VC 4.2 compiler
    (i386 COFF output) — NOT suitable for 16-bit matching.
 
 The workflow for a 16-bit target is: `rebrew intake <ne.exe>` (enumerates +
@@ -273,13 +303,13 @@ the full compile/compare loop (137 functions on ski16.exe compile through
 DOSBox with 0 COMPILE_ERROR).
 
 **Delphi 1.0 toolchain (vendored, verified working):** for 16-bit *Delphi*
-targets (e.g. `holiday.exe`, a Delphi 1.0 VCL app), `tools/DELPHI10/` now
+targets (e.g. `holiday.exe`, a Delphi 1.0 VCL app), `toolchain/delphi/1.0-win16/` now
 ships the exact command-line toolchain — `DCC.EXE` (Delphi Compiler 8.0,
 Sep 1995), `DELPHI.DSL` (compiler symbol table), the `CMDLINE.PAK` tools,
 and the RTL/VCL units (`UNITS.PAK` + `LIB.PAK`).  It compiles real 16-bit
 NE 6.01 GUI executables; the working recipe and the reverse-engineered
-**Quantum archive format** (`tools/DELPHI10/pak_extract.py`) are documented
-in `tools/DELPHI10/README.md`.  Delphi's Borland ABI has no matchable
+**Quantum archive format** (`toolchain/delphi/1.0-win16/pak_extract.py`) are documented
+in `toolchain/delphi/1.0-win16/README.md`.  Delphi's Borland ABI has no matchable
 rebrew compiler profile — functions are documented as blockers, but the
 toolchain is used for verification-style research (compile + NE parse).
 
@@ -295,29 +325,34 @@ msvc6.0/6.3/6.4/6.5/6.5pp/6.6/7.0 only, no Lib dir):
 | Version | File | CL version | Notes |
 |---------|------|------------|-------|
 | msvc6.0 | `msvc6.0.tar.gz` (6.2 MB) | 12.00.x | same SP line as the local master |
-| msvc6.3 | `msvc6.3.tar.gz` (6.6 MB) | 12.00.8168 | **SP3 — codegen differs from SP6** |
-| msvc6.6 | `msvc6.6.tar.gz` (6.6 MB) | 12.00.8804 | **SP6 — same compiler as the local master** |
-| msvc7.0 | `msvc7.0.tar.gz` (33 MB) | 13.10.3077 | **VC7 — enables the `msvc7` profile** |
+| msvc-6.0-sp3-win32 | `msvc-6.0-sp3-win32.tar.gz` (6.6 MB) | 12.00.8168 | **SP3 — codegen differs from SP6** |
+| msvc-6.0-sp6-win32 | `msvc-6.0-sp6-win32.tar.gz` (6.6 MB) | 12.00.8804 | **SP6 — same compiler as the local master** |
+| msvc-7.0-win32 | `msvc-7.0-win32.tar.gz` (33 MB) | 13.10.3077 | **VC7 — enables the `msvc7` profile** |
 | msvc4.x/7.1/8.0 | not published | — | document + skip |
 
-Layout notes (differ from the local `tools/MSVC600/VC98/...`):
+Layout notes (differ from the local `toolchain/msvc/6.0-win32/VC98/...`):
 
-- msvc6.3/6.6: `Bin/CL.EXE`, `Include/`, **no `Lib/`** (compile-only; link with
+- msvc-6.0-sp3-win32/6.6: `Bin/CL.EXE`, `Include/`, **no `Lib/`** (compile-only; link with
   a full toolchain's Lib, e.g. the master's).
-- msvc7.0: `Bin/cl.exe` (lowercase!), `Include/`, `MFC/`, **no `Lib/`**.
+- msvc-7.0-win32: `Bin/cl.exe` (lowercase!), `Include/`, `MFC/`, **no `Lib/`**.
+
+When the master (`toolchain/msvc/6.0-win32`, `toolchain/msvc/7.0-win32`) is absent, `rebrew init
+--compiler msvc6|msvc7` and the config layer resolve the best present layout
+instead (newest mirror first) so a fresh project compiles out of the box
+rather than pointing at a master path that does not exist.
   Case matters on Linux — point `[compiler] command` at the lowercase file.
 
 Fetch + extract (kept out of git — `tools/` is ignored; ~75 MB total):
 
 ```bash
 cd tools
-for v in msvc6.3 msvc6.6 msvc7.0; do
+for v in msvc-6.0-sp3-win32 msvc-6.0-sp6-win32 msvc-7.0-win32; do
   curl -L -o $v.tar.gz https://github.com/OmniBlade/decomp.me/releases/download/msvcwin9x/$v.tar.gz
   mkdir -p $v && tar xzf $v.tar.gz -C $v
 done
 ```
 
-`rebrew init --compiler msvc6.3|msvc6.6` sets up the profiles; each is proven by
+`rebrew init --compiler msvc-6.0-sp3-win32|msvc-6.0-sp6-win32` sets up the profiles; each is proven by
 `tests/test_toolchain_roundtrip.py` (compile → compare → EXACT; skipped when the
 tarballs are absent).  Round-trip validation: compile a snippet with the
 toolchain, link against a full toolchain's Lib, intake the result, and
@@ -374,10 +409,10 @@ Not integrated into the pipeline. Potential uses:
 Part of the MSVC6 toolchain. Run via Wine:
 
 ```bash
-wine tools/MSVC600/VC98/Bin/DUMPBIN.EXE /EXPORTS target.dll
-wine tools/MSVC600/VC98/Bin/DUMPBIN.EXE /IMPORTS target.dll
-wine tools/MSVC600/VC98/Bin/DUMPBIN.EXE /HEADERS target.dll
-wine tools/MSVC600/VC98/Bin/DUMPBIN.EXE /DISASM /RAWDATA:1 some_file.obj
+wine toolchain/msvc/6.0-win32/VC98/Bin/DUMPBIN.EXE /EXPORTS target.dll
+wine toolchain/msvc/6.0-win32/VC98/Bin/DUMPBIN.EXE /IMPORTS target.dll
+wine toolchain/msvc/6.0-win32/VC98/Bin/DUMPBIN.EXE /HEADERS target.dll
+wine toolchain/msvc/6.0-win32/VC98/Bin/DUMPBIN.EXE /DISASM /RAWDATA:1 some_file.obj
 ```
 
 ### objconv

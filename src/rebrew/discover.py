@@ -142,6 +142,7 @@ def _is_padding(info: Any, va: int, end: int) -> bool:
     try:
         raw = extract_bytes(info, va, end - va)
     except Exception:
+        logging.debug("extract_bytes failed at 0x%x", va, exc_info=True)
         return False
     i = 0
     while i < len(raw):

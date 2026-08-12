@@ -36,7 +36,7 @@ def run_dosbox(
     if shutil.which("dosbox") is None:
         raise DosboxError(
             "dosbox not found in PATH — 16-bit DOS toolchains must run under "
-            "DOSBox (see tools/DELPHI10/README.md)"
+            "DOSBox (see toolchain/delphi/1.0-win16/README.md)"
         )
     sandbox.mkdir(parents=True, exist_ok=True)
     conf = sandbox / "run.conf"

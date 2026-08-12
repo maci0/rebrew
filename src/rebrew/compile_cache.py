@@ -177,6 +177,7 @@ def include_fingerprint(include_dir: str) -> str:
     return h.hexdigest()
 
 
+@lru_cache(maxsize=1024)
 def _source_digest(source_content: str) -> str:
     """SHA-256 hex of C source text, memoized per unique string.
 
@@ -185,8 +186,15 @@ def _source_digest(source_content: str) -> str:
     on a warm cache (perf-review F3: 1-8s per 258k-combo sweep).  Python
     strings cache their own ``hash()`` after the first call, so the
     lru_cache lookup is cheap once a source string has been seen.
+
+    Encodes with ``errors="surrogateescape"``: sources are read with
+    ``decode("utf-8", errors="surrogateescape")`` (lossless for legacy
+    cp1252/shift_jis bytes), so the strict ``encode("utf-8")`` round-trip
+    raised ``UnicodeEncodeError`` for any non-UTF-8 source — which
+    ``compile_and_compare`` then mislabeled as a COMPILE_ERROR, making
+    legacy-encoded files permanently untestable.
     """
-    return hashlib.sha256(source_content.encode("utf-8")).hexdigest()
+    return hashlib.sha256(source_content.encode("utf-8", errors="surrogateescape")).hexdigest()
 
 
 def compile_cache_key(

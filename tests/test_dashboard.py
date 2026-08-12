@@ -108,8 +108,13 @@ class TestQueryLayer:
         assert s is not None
         assert s["function_stats"]["total"] == 2
         assert s["function_stats"]["by_status"] == {"EXACT": 1, "STUB": 1}
-        # 96 covered bytes of 128 .text bytes
-        assert s["coverage_pct"] == 75.0
+        # Headline coverage = MATCHED bytes only (EXACT/RELOC/PROVEN): the
+        # EXACT function's 64B of 128B .text = 50%.  The STUB counts toward
+        # identified_pct (96/128 = 75%), not matched (db-review F1 — the old
+        # coverage_pct counted every function, so an all-STUB binary showed
+        # ~100% "coverage").
+        assert s["coverage_pct"] == 50.0
+        assert s["identified_pct"] == 75.0
 
     def test_summary_unknown_target(self, dashboard: Dashboard) -> None:
         assert dashboard.summary("nope") is None

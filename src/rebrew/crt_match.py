@@ -480,7 +480,7 @@ def main(
     if not cfg.crt_sources:
         error_exit(
             "No crt_sources configured. Add entries like "
-            'crt_sources.MSVCRT = "tools/MSVC600/VC98/CRT/SRC" in rebrew-project.toml.',
+            'crt_sources.MSVCRT = "toolchain/msvc/6.0-win32/VC98/CRT/SRC" in rebrew-project.toml.',
             json_mode=json_output,
         )
 

@@ -626,3 +626,54 @@ class TestConcurrentWrites:
                 assert md.get(key, {}).get("cflags") == f"/O{i}"
             else:
                 assert "note" not in md.get(key, {})
+
+
+# ---------------------------------------------------------------------------
+# Cross-process metadata write safety (concurrency-review; error-review F6)
+# ---------------------------------------------------------------------------
+
+
+def _write_statuses_child(metadata_dir: str, worker_id: int, count: int) -> None:
+    """Child-process worker: promote *count* unique VAs for *worker_id*.
+
+    Module-level so multiprocessing can import it under the spawn context.
+    """
+    from rebrew.metadata import update_statuses_batch
+
+    updates = [
+        {
+            "module": "T",
+            "va": 0x1000 + worker_id * count + i,
+            "new_status": "EXACT",
+        }
+        for i in range(count)
+    ]
+    update_statuses_batch(Path(metadata_dir), updates)
+
+
+class TestCrossProcessMetadataLock:
+    """Concurrent *processes* must not lose STATUS promotions (error-review F6).
+
+    The thread lock is per-process; without the flock sidecar an interleaved
+    read-modify-write from two processes silently drops one side's updates.
+    Regression: 4 processes x 20 unique VAs each — all 80 must survive.
+    """
+
+    def test_concurrent_processes_do_not_lose_updates(self, tmp_path: Path) -> None:
+        import multiprocessing as mp
+
+        ctx = mp.get_context("spawn")
+        procs = [
+            ctx.Process(target=_write_statuses_child, args=(str(tmp_path), w, 20)) for w in range(4)
+        ]
+        for p in procs:
+            p.start()
+        for p in procs:
+            p.join(timeout=90)
+            assert p.exitcode == 0, f"worker exited {p.exitcode}"
+
+        md = load_metadata(tmp_path)
+        for w in range(4):
+            for i in range(20):
+                key = ("T", 0x1000 + w * 20 + i)
+                assert md.get(key, {}).get("status") == "EXACT", f"lost update for {key}"

@@ -89,6 +89,39 @@ class TestWatchFiles:
         watch_files([a], retest)
         assert calls == ["fail", "retest"]
 
+    def test_path_provider_picks_up_new_files(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A file created DURING the session (path_provider re-resolves the
+        set every poll) must be watched — the old code captured the list
+        once at startup and silently stopped covering new files
+        (idempotency-review F8)."""
+        from rebrew.utils import watch_files
+
+        a = tmp_path / "a.c"
+        a.write_text("1", encoding="utf-8")
+        new_file = tmp_path / "new.c"  # created mid-session
+        calls: list[str] = []
+
+        def fake_sleep(_seconds: float) -> None:
+            if not new_file.exists():
+                new_file.write_text("1", encoding="utf-8")  # appears now
+                os.utime(new_file, ns=(1_800_000_000_000_000_000, 1_800_000_000_000_000_001))
+            elif not calls:
+                # Touch the NEW file — only reachable if the provider added it.
+                os.utime(new_file, ns=(1_800_000_000_000_000_000, 1_800_000_000_000_000_002))
+            else:
+                raise KeyboardInterrupt
+
+        monkeypatch.setattr("rebrew.utils.time.sleep", fake_sleep)
+        watch_files(
+            [a],
+            lambda: calls.append("retest"),
+            path_provider=lambda: [a, new_file],
+        )
+        # The new file's mtime change triggered a retest — provider works.
+        assert calls == ["retest"]
+
 
 class TestVerifyWatchCli:
     def test_watch_dispatches_to_watch_files(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -104,7 +137,7 @@ class TestVerifyWatchCli:
             "rebrew.cli.iter_sources", lambda _d, _c: [Path("/tmp/a.c"), Path("/tmp/b.c")]
         )
 
-        def fake_watch(paths: list[Path], retest: object) -> None:
+        def fake_watch(paths: list[Path], retest: object, **kwargs: object) -> None:
             seen["paths"] = paths
             seen["retest"] = retest
 

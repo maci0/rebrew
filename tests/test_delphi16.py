@@ -8,6 +8,11 @@ import pytest
 
 from rebrew.delphi16 import Delphi16Error, compile_ne
 
+# compile_ne requires BOTH the vendored Delphi 1.0 toolchain (toolchain/delphi/1.0-win16)
+# and a dosbox binary on PATH (CI: tools/ is gitignored, dosbox absent).
+_REPO_TOOLS = Path(__file__).resolve().parents[1] / "tools"
+_has_delphi_toolchain = (_REPO_TOOLS / "delphi-1.0-win16").is_dir()
+
 
 def _fake_compile(monkeypatch, sandbox: Path) -> None:
     """Simulate a successful DOSBox run: write the compiler log + a compiled
@@ -28,6 +33,10 @@ def _fake_compile(monkeypatch, sandbox: Path) -> None:
     monkeypatch.setattr("rebrew.dosbox.subprocess.run", _run)
 
 
+@pytest.mark.skipif(
+    not _has_delphi_toolchain,
+    reason="vendored Delphi 1.0 toolchain not present (toolchain/delphi/1.0-win16)",
+)
 class TestCompileNe:
     def test_compiles_and_parses(self, tmp_path: Path, monkeypatch) -> None:
         """A successful DOSBox compile yields a parsed NE with its functions
@@ -90,6 +99,10 @@ class TestCompileNe:
             compile_ne(src, tmp_path / "sandbox", units_dir=tmp_path / "u")
 
 
+@pytest.mark.skipif(
+    not _has_delphi_toolchain,
+    reason="vendored Delphi 1.0 toolchain not present (toolchain/delphi/1.0-win16)",
+)
 class TestLongSourceName:
     def test_long_source_name_staged_short(self, tmp_path: Path, monkeypatch) -> None:
         """DCC is a 16-bit DOS program — a long .dpr basename would be

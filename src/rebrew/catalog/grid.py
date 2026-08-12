@@ -36,15 +36,25 @@ _BSS_CELL_BYTES = 4096
 _DEFAULT_CELL_BYTES = 16
 _GRID_COLUMNS = 64
 
-# Highest-priority status group per VA (first matching group wins)
-_STATUS_PRIORITY = (("EXACT",), ("RELOC",), ("NEAR_MATCHING", "NEAR_MATCH"), ("STUB",))
+# Highest-priority status group per VA (first matching group wins).
+# PROVEN is grouped with RELOC: it ranks with RELOC everywhere else
+# (verify._STATUS_RANK), and a proven function IS fully matched — omitting
+# it made count_statuses drop PROVEN annotations into no bucket, so
+# exact+reloc+near+stub could undercount totalFunctions and the catalog's
+# "Matched: N/M" line lied (test-review F2).
+_STATUS_PRIORITY = (
+    ("EXACT",),
+    ("RELOC", "PROVEN"),
+    ("NEAR_MATCHING", "NEAR_MATCH"),
+    ("STUB",),
+)
 
 
 def count_statuses(by_va: dict[int, list[Annotation]]) -> dict[str, int]:
     """Count function VAs by highest-priority status present.
 
     GLOBAL/DATA markers are excluded.  Returns a dict keyed by the four
-    status groups: EXACT, RELOC, NEAR_MATCHING, STUB.
+    status groups: EXACT, RELOC (incl. PROVEN), NEAR_MATCHING, STUB.
     """
     counters = {"EXACT": 0, "RELOC": 0, "NEAR_MATCHING": 0, "STUB": 0}
     for vas in by_va.values():
@@ -124,6 +134,48 @@ def _find_ghidra_data_label(
         if dl_va <= va < dl_va + dl_info.size:
             return dl_va, dl_info
     return None
+
+
+def _build_cells(
+    segments: list[tuple[int, int, str, list[Any], str | None, str | None]],
+    unit_bytes: int,
+    columns: int,
+) -> list[dict[str, Any]]:
+    """Walk *segments* into coverage cells, wrapping at *columns* per row.
+
+    Invariants (property-tested): cells are contiguous and gap-free over the
+    section span, each cell's ``span`` is ``ceil((end - start) / unit_bytes)``
+    with ``span <= columns``, and ``end`` never passes the segment end.
+    """
+    cells: list[dict[str, Any]] = []
+    col = 0
+    for seg_start, seg_end, state, seg_fns, seg_label, seg_parent in segments:
+        remaining = seg_end - seg_start
+        seg_cols = max(1, int(math.ceil(remaining / unit_bytes)))
+        cur = seg_start
+        cols_left = seg_cols
+
+        while cols_left > 0:
+            take_cols = min(cols_left, columns - col)
+            take_bytes = min(seg_end - cur, take_cols * unit_bytes)
+            span = max(1, int(math.ceil(take_bytes / unit_bytes)))
+            cell_end = cur + take_bytes
+            cell_dict: dict[str, Any] = {
+                "start": cur,
+                "end": cell_end,
+                "span": span,
+                "state": state,
+                "functions": seg_fns,
+            }
+            if seg_label:
+                cell_dict["label"] = seg_label
+            if seg_parent:
+                cell_dict["parent_function"] = seg_parent
+            cells.append(cell_dict)
+            col = (col + span) % columns
+            cols_left -= span
+            cur = cell_end
+    return cells
 
 
 def generate_data_json(
@@ -524,34 +576,7 @@ def generate_data_json(
                 segments.append((off, gap_end, gap_state, [], gap_label, gap_parent))
             off = gap_end
 
-        cells = []
-        col = 0
-        for seg_start, seg_end, state, seg_fns, seg_label, seg_parent in segments:
-            remaining = seg_end - seg_start
-            seg_cols = max(1, int(math.ceil(remaining / unit_bytes)))
-            cur = seg_start
-            cols_left = seg_cols
-
-            while cols_left > 0:
-                take_cols = min(cols_left, columns - col)
-                take_bytes = min(seg_end - cur, take_cols * unit_bytes)
-                span = max(1, int(math.ceil(take_bytes / unit_bytes)))
-                cell_end = cur + take_bytes
-                cell_dict: dict[str, Any] = {
-                    "start": cur,
-                    "end": cell_end,
-                    "span": span,
-                    "state": state,
-                    "functions": seg_fns,
-                }
-                if seg_label:
-                    cell_dict["label"] = seg_label
-                if seg_parent:
-                    cell_dict["parent_function"] = seg_parent
-                cells.append(cell_dict)
-                col = (col + span) % columns
-                cols_left -= span
-                cur = cell_end
+        cells = _build_cells(segments, unit_bytes, columns)
 
         sec_data["cells"] = cells
         sec_data["unitBytes"] = unit_bytes

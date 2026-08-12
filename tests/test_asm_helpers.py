@@ -165,6 +165,32 @@ class TestCallingConvention:
         insns = [self._i("mov", "ecx, [ebp-0x10]"), self._i("jmp", "0x102f79c")]
         assert calling_convention(insns) == "thiscall (EH-guard thunk)"
 
+    def test_real_body_ending_in_tail_jmp_is_tail_call(self) -> None:
+        """A function with a real body (>2 insns) ending in an unconditional
+        jmp is a forwarding tail call, not a pure thunk — the jmp IS the
+        body only for 1-2 instruction thunks."""
+        from rebrew.asm import calling_convention
+
+        insns = [
+            self._i("call", "dword ptr [0x1001d0c]"),
+            self._i("mov", "ecx, dword ptr [0x103dfd8]"),
+            self._i("test", "ecx, ecx"),
+            self._i("je", "0x10194d7"),
+            self._i("mov", "eax, dword ptr [ecx]"),
+            self._i("push", "1"),
+            self._i("call", "dword ptr [eax + 4]"),
+            self._i("and", "dword ptr [0x103dfd8], 0"),
+            self._i("jmp", "0x1009c76"),
+        ]
+        assert calling_convention(insns) == "tail call"
+
+    def test_two_insn_jmp_sequence_still_thunk(self) -> None:
+        """`push X; jmp Y` (2 insns) is still a pure thunk."""
+        from rebrew.asm import calling_convention
+
+        insns = [self._i("push", "0x10"), self._i("jmp", "0x1014469")]
+        assert calling_convention(insns) == "tail-call thunk"
+
     def test_internal_jmp_before_ret_is_not_thunk(self) -> None:
         """An internal branch (jmp L2) is not a tail call — the LAST ret ends."""
         from rebrew.asm import calling_convention
@@ -208,3 +234,49 @@ class TestCallingConvention:
         from rebrew.asm import calling_convention
 
         assert calling_convention([]) == "unknown"
+
+
+class TestDetectFunctionPattern:
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(arch="x86_32", target_binary=tmp_path / "x.exe")
+
+    def test_import_thunk(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.asm import detect_function_pattern
+
+        (tmp_path / "x.exe").write_bytes(b"MZ")
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes",
+            lambda p, va, n: bytes.fromhex("ff 25 c8 30 41 00"),
+        )
+        p = detect_function_pattern(self._cfg(tmp_path), 0x1000)
+        assert p is not None and "import thunk" in p
+
+    def test_eh_ctor(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.asm import detect_function_pattern
+
+        (tmp_path / "x.exe").write_bytes(b"MZ")
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes",
+            lambda p, va, n: bytes.fromhex("b8 1e 3d 03 01 e8 ce 74 02 00"),
+        )
+        p = detect_function_pattern(self._cfg(tmp_path), 0x1000)
+        assert p is not None and "EH-ctor" in p
+
+    def test_iat_forwarder(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.asm import detect_function_pattern
+
+        (tmp_path / "x.exe").write_bytes(b"MZ")
+        code = bytes.fromhex("8b 44 24 10 50 8b 44 24 10 50 8b 44 24 10 50 ff 15 5c 12 00 01 c3")
+        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code)
+        p = detect_function_pattern(self._cfg(tmp_path), 0x1000)
+        assert p is not None and "forwarder" in p
+
+    def test_plain_code_none(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.asm import detect_function_pattern
+
+        (tmp_path / "x.exe").write_bytes(b"MZ")
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes",
+            lambda p, va, n: bytes.fromhex("55 8b ec 83 ec 08 b8 01 00 00 00 c9 c3"),
+        )
+        assert detect_function_pattern(self._cfg(tmp_path), 0x1000) is None

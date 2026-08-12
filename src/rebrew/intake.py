@@ -44,14 +44,14 @@ app = typer.Typer(help="One-shot binary onboarding: init + detect + functions + 
 
 #: profile -> (project tools/ link name, vendored toolchain dir in the repo)
 _TOOLCHAIN_LINKS: dict[str, tuple[str, str]] = {
-    "msvc6": ("MSVC600", "MSVC600"),
-    "msvc6.3": ("msvc6.3", "msvc6.3"),
-    "msvc6.6": ("msvc6.6", "msvc6.6"),
-    "msvc7": ("MSVC7", "msvc7.0"),
-    "msvc5": ("MSVC500", "MSVC500"),
-    "msvc420": ("MSVC420", "MSVC420"),
-    "msvc1.52": ("MSVC152", "MSVC152"),
-    "watcom": ("WATCOM", "WATCOM"),
+    "msvc6": ("msvc/6.0-win32", "msvc/6.0-win32"),
+    "msvc6.3": ("msvc/6.0-sp3-win32", "msvc/6.0-sp3-win32"),
+    "msvc6.6": ("msvc/6.0-sp6-win32", "msvc/6.0-sp6-win32"),
+    "msvc7": ("msvc/7.0-win32", "msvc/7.0-win32"),
+    "msvc5": ("msvc/5.0-win32", "msvc/5.0-win32"),
+    "msvc420": ("msvc/4.2-win32", "msvc/4.2-win32"),
+    "msvc1.52": ("msvc/1.52-win16", "msvc/1.52-win16"),
+    "watcom": ("watcom/2.0-win32", "watcom/2.0-win32"),
 }
 
 _REPO_TOOLS = Path(__file__).resolve().parents[2] / "tools"
@@ -215,9 +215,8 @@ def classify_all(
     # Two batched metadata writes (fields + statuses) instead of per-function
     # RMWs — the old loop was O(N) full toml rewrites (~5 min for a
     # 646-function NE target; perf-review F2 shape, discovered via intake).
-    existing_sizes = {
-        (mod, va): fields.get("size") for (mod, va), fields in load_metadata(meta_base).items()
-    }
+    existing = load_metadata(meta_base)
+    existing_sizes = {(mod, va): fields.get("size") for (mod, va), fields in existing.items()}
     field_updates: list[dict[str, Any]] = []
     status_updates: list[dict[str, Any]] = []
     for va, size, _name in funcs:
@@ -230,7 +229,24 @@ def classify_all(
             from rebrew.utils import atomic_write_text
 
             atomic_write_text(out, stub)
-        fields: dict[str, Any] = {"blocker": reason}
+        prev = existing.get((marker, va), {})
+        prev_status = str(prev.get("status") or "STUB")
+        # Onboarding is a one-shot document step — a RE-RUN (re-discovery
+        # via `rebrew intake` on an existing project) must never demote a
+        # function the user has since worked on.  Skip the STUB status
+        # write for any non-STUB entry (EXACT/RELOC/NEAR_MATCHING/...), and
+        # never clobber a user-written blocker (only the auto-generated
+        # reason is replaced on re-documentation).
+        if prev_status != "STUB":
+            continue
+        prev_blocker = str(prev.get("blocker") or "")
+        fields: dict[str, Any] = {}
+        if prev_blocker and prev_blocker != reason:
+            # A user-supplied blocker survives re-runs; only the auto reason
+            # for a fresh/unblocked stub is written.
+            pass
+        else:
+            fields["blocker"] = reason
         # Record the disassembly-derived size in metadata: a documented stub
         # without a SIZE is untestable (rebrew test refuses "Invalid SIZE: 0",
         # verify reports MISSING_SIZE, and the vacuous 0-byte diff pollutes
@@ -238,7 +254,8 @@ def classify_all(
         # size.
         if size > 0 and existing_sizes.get((marker, va)) is None:
             fields["size"] = size
-        field_updates.append({"module": marker, "va": va, "fields": fields})
+        if fields:
+            field_updates.append({"module": marker, "va": va, "fields": fields})
         status_updates.append(
             {"module": marker, "va": va, "new_status": "STUB", "clear_blockers": False}
         )

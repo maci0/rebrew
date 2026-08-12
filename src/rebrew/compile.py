@@ -33,7 +33,7 @@ Configuration
 ~~~~~~~~~~~~~
 All functions read from ``cfg`` (a ``ProjectConfig`` instance):
 
-- ``cfg.compiler_command`` — e.g. ``"wine tools/MSVC600/bin/CL.EXE"``
+- ``cfg.compiler_command`` — e.g. ``"wine toolchain/msvc/6.0-win32/bin/CL.EXE"``
 - ``cfg.compiler_includes`` — path to MSVC include directory
 - ``cfg.base_cflags`` — always-on flags (e.g. ``/nologo /c /MT``)
 - ``cfg.compile_timeout`` — seconds before subprocess is killed
@@ -41,6 +41,7 @@ All functions read from ``cfg`` (a ``ProjectConfig`` instance):
 """
 
 import contextlib
+import os
 import re
 import shutil
 import subprocess
@@ -53,7 +54,13 @@ import numpy as np
 from rebrew.cli import NEAR_MATCH_THRESHOLD
 from rebrew.compile_cache import CompileCache, compile_cache_key, get_compile_cache
 from rebrew.config import ProjectConfig
-from rebrew.core import build_iat_region, msvc_env_from_config, smart_reloc_compare
+from rebrew.core import (
+    build_iat_region,
+    msvc_env_from_config,
+    resolve_runner_path,
+    smart_reloc_compare,
+)
+from rebrew.headless import ensure_xvfb
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 from rebrew.toolchain import TOOLCHAINS, ToolchainError, run_toolchain
 from rebrew.utils import safe_shlex_split
@@ -90,7 +97,7 @@ class CompareResult:
             correct a stale SIZE annotation with the definitive compiled
             size instead of re-deriving it by hand.
         full_obj_bytes: Full compiled ``.obj`` bytes (untruncated) on the
-            SIZE_MISMATCH path, else ``None``.  Lets ``--fix-size`` verify
+            SIZE_MISMATCH path, else ``None``.  Let's ``--fix-size`` verify
             the bytes beyond the annotated slice before declaring the SIZE
             annotation stale — a false fix would otherwise write a size
             that hides unreproduced code.
@@ -108,6 +115,11 @@ class CompareResult:
     inv_reloc_offsets: list[int] = field(default_factory=list)
     full_obj_size: int | None = None
     full_obj_bytes: bytes | None = None
+    #: Number of differing disassembly lines between the compiled and target
+    #: bytes (``None`` when not computed).  Populated by ``rebrew verify`` for
+    #: unmatched functions so the recoverage-consumed ``verify_results``
+    #: ``diff_lines`` column carries real data instead of NULL (db-review F2).
+    diff_lines: int | None = None
 
 
 def classify_compare_result(
@@ -122,6 +134,7 @@ def classify_compare_result(
     size_delta: int = 0,
     full_obj_size: int | None = None,
     full_obj_bytes: bytes | None = None,
+    full_target_size: int | None = None,
 ) -> CompareResult:
     """Classify a raw compile-and-compare outcome into a :class:`CompareResult`.
 
@@ -244,7 +257,35 @@ def classify_compare_result(
         delta = abs(len(target_bytes) - len(obj_bytes)) + mismatches + size_delta
 
     if size_mismatch or "SIZE_MISMATCH" in msg:
-        status = "SIZE_MISMATCH"
+        # A minimal candidate against a much larger target is an
+        # UNIMPLEMENTED stub (a freshly generated skeleton's default
+        # `return 0` body, ~3-8 bytes), not a size mismatch to puzzle over
+        # — name it STUB with a clear message instead of a bare
+        # SIZE_MISMATCH.  Genuinely tiny functions match byte-for-byte and
+        # never reach here (EXACT/RELOC above).  The caller truncates the
+        # LONGER side before classifying, so the original lengths arrive via
+        # full_obj_size / full_target_size.
+        orig_cand = full_obj_size if full_obj_size is not None else len(obj_bytes or b"")
+        if full_target_size is not None:
+            orig_tgt = full_target_size
+        elif size_delta > 0:
+            # Candidate was the shorter side → target was truncated.
+            orig_tgt = len(target_bytes or b"") + size_delta
+        else:
+            orig_tgt = len(target_bytes or b"")
+        if (
+            obj_bytes is not None
+            and orig_cand <= _STUB_BODY_MAX_BYTES
+            and orig_tgt >= _STUB_TARGET_MIN_BYTES
+            and orig_tgt > orig_cand * 2
+        ):
+            status = "STUB"
+            msg = (
+                f"candidate is a minimal {orig_cand}B stub body — the target is "
+                f"{orig_tgt}B; the skeleton default was never implemented"
+            )
+        else:
+            status = "SIZE_MISMATCH"
     elif match_percent >= NEAR_MATCH_THRESHOLD * 100:
         status = "NEAR_MATCHING"
         if msg and not msg.startswith("NEAR_MATCHING"):
@@ -292,6 +333,52 @@ def filter_wine_stderr(text: str) -> str:
     for pat in _WINE_NOISE_PATTERNS:
         text = pat.sub("", text)
     return text.strip()
+
+
+#: A candidate body this small against a much larger target is an
+#: unimplemented skeleton stub (see classify_compare_result).
+_STUB_BODY_MAX_BYTES = 8
+_STUB_TARGET_MIN_BYTES = 12
+
+
+# Wine prefixes configured with "Emulate a virtual desktop" (winecfg) pop a
+# window on every compiler invocation, and bare `wine` fails outright under
+# CI with no DISPLAY.  We point wine at a persistent Xvfb (headless.py) —
+# invisible AND cheap: xvfb-run's wrapper costs ~3 s per invocation, a
+# persistent server pays ~200 ms once and amortizes over a whole batch.
+_XVFB_SERVER_ARGS = "-screen 0 1280x1024x24"
+
+
+def maybe_headless_wine(
+    cmd: list[str], env: dict[str, str] | None
+) -> tuple[list[str], dict[str, str] | None]:
+    """Run a ``wine`` invocation headlessly (no window, works without DISPLAY).
+
+    When the first command token is ``wine`` (or a path to it), the
+    ``DISPLAY`` env is pointed at a persistent ``Xvfb`` (see
+    ``rebrew.headless.ensure_xvfb``) so the compile runs on an invisible
+    virtual display.  ``wibo`` is already headless and is left untouched.
+    Set ``REBREW_WINE_HEADLESS=0`` in the environment to force bare wine
+    (e.g. when you genuinely want the window).
+
+    Falls back to wrapping the command in ``xvfb-run`` when no ``Xvfb``
+    binary is available, then to bare wine when neither exists.
+
+    Returns the (possibly wrapped) command and the env dict (a copy with
+    ``DISPLAY`` set when headless was applied).
+    """
+    if not cmd or Path(cmd[0]).name != "wine":
+        return cmd, env
+    if env is not None and env.get("REBREW_WINE_HEADLESS", "") == "0":
+        return cmd, env
+    display = ensure_xvfb()
+    if display is not None:
+        env = dict(env) if env is not None else {**os.environ}
+        env["DISPLAY"] = display
+        return cmd, env
+    if shutil.which("xvfb-run") is not None:
+        return ["xvfb-run", "-a", "-s", _XVFB_SERVER_ARGS, *cmd], env
+    return cmd, env
 
 
 def resolve_cl_command(cfg: ProjectConfig) -> list[str]:
@@ -342,7 +429,7 @@ def resolve_cl_command(cfg: ProjectConfig) -> list[str]:
                     cl_abs = str(alt)
     command = [cl_abs, *cmd_parts[1:]]
     if runner:
-        return [runner, *command]
+        return [resolve_runner_path(runner, cfg.root), *command]
     return command
 
 
@@ -547,7 +634,11 @@ def compile_to_obj(
     # toolchain-backed profiles (watcom, msvc1.52) go through rebrew.toolchain's
     # standardized runner (docker image or vendored host binary).
     profile = getattr(cfg, "compiler_profile", "")
-    is_posix_style = profile in ("gcc", "gcc-pe", "clang", "watcom")
+    # Use the config's single source of truth (ProjectConfig.posix_style) —
+    # the old local profile tuple duplicated it, so adding a POSIX profile to
+    # one list but not the other silently switched flag routing and broke
+    # compiles (config-review F6).
+    is_posix_style = bool(getattr(cfg, "posix_style", False))
 
     # The two new toolchain-runner profiles.  gcc-pe/msvc6 stay on their
     # specialized posix/msvc paths (well-tested); the abstraction serves
@@ -589,9 +680,6 @@ def compile_to_obj(
                     with contextlib.suppress(OSError):
                         cc.put(cache_key, obj_file.read_bytes())
                 return str(obj_file), ""
-        else:
-            # msvc6/delphi16/etc. — msvc-shaped args for the image wrapper.
-            args = all_flags + [f"/I{inc_path}", f"/I{str(src_parent)}", f"/Fo{obj_name}", src_name]
         try:
             tr = run_toolchain(spec, args, workdir=workdir, timeout=use_timeout)
         except ToolchainError as exc:
@@ -636,12 +724,15 @@ def compile_to_obj(
             ]
         )
 
+    env: dict[str, str] | None = msvc_env_from_config(cfg)
+    cmd, env = maybe_headless_wine(cmd, env)
+
     try:
         r = subprocess.run(
             cmd,
             capture_output=True,
             cwd=str(workdir),
-            env=msvc_env_from_config(cfg),
+            env=env,
             timeout=use_timeout,
         )
     except subprocess.TimeoutExpired:
@@ -736,6 +827,7 @@ def _extract_and_compare(
             size_delta=abs(orig_obj_len - orig_tgt_len),
             full_obj_size=orig_obj_len,
             full_obj_bytes=orig_obj_bytes,
+            full_target_size=orig_tgt_len,
         )
     msg = (
         f"RELOC-NORM MATCH ({len(relocs)} relocs)"
