@@ -96,3 +96,25 @@ class TestMainEntryExitPaths:
         with pytest.raises(SystemExit) as exc:
             main_mod.main()
         assert exc.value.code == EXIT_ERROR
+
+
+class TestJsonRequested:
+    """_json_requested must match the EXACT --json token — the old argv
+    substring scan matched any argument containing the literal (cli-review
+    F11: a file named x--json.c or --cflags "--json" wrongly switched the
+    error envelope to JSON mode)."""
+
+    def test_exact_json_matches(self) -> None:
+        from rebrew.main import _json_requested
+
+        assert _json_requested(["rebrew", "test", "f.c", "--json"])
+        assert _json_requested(["rebrew", "test", "--json=true"])
+
+    def test_substring_does_not_match(self) -> None:
+        from rebrew.main import _json_requested
+
+        assert not _json_requested(["rebrew", "test", "x--json.c"])
+        # A VALUE containing "--json" (e.g. --cflags "--json") is one token
+        # and must not match; the old substring scan matched it.
+        assert not _json_requested(["rebrew", "match", "--cflags=--json"])
+        assert not _json_requested([])

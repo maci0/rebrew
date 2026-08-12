@@ -41,6 +41,69 @@ def _patch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace:
 
 
 class TestCatalogCli:
+    def test_function_structure_refreshed_when_catalog_generated(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The catalog-generated function_structure.json is provenance-stamped
+        and REFRESHED on re-run after the function list changes — the old
+        `not exists()` guard wrote it once and never updated it, leaving a
+        stale structure cache diverging from the freshly-written data JSON
+        (idempotency-review F5)."""
+        cfg = _patch(monkeypatch, tmp_path)
+        monkeypatch.setattr(
+            catalog_cli,
+            "parse_function_list",
+            lambda _p: [
+                {"va": "0x10001000", "size": 32, "name": "f_a"},
+                {"va": "0x10002000", "size": 64, "name": "f_b"},
+            ],
+        )
+        r1 = runner.invoke(catalog_cli.app, ["--data-json"])
+        assert r1.exit_code == 0
+        ghidra_path = cfg.reversed_dir / "function_structure.json"
+        assert ghidra_path.exists()
+        data1 = json.loads(ghidra_path.read_text())
+        assert len(data1) == 2
+        assert data1[0]["_generated_by"] == "rebrew catalog"
+
+        # Function list changed — re-run must refresh the catalog-generated file.
+        monkeypatch.setattr(
+            catalog_cli,
+            "parse_function_list",
+            lambda _p: [
+                {"va": "0x10001000", "size": 32, "name": "f_a"},
+                {"va": "0x10003000", "size": 16, "name": "f_c"},
+            ],
+        )
+        r2 = runner.invoke(catalog_cli.app, ["--data-json"])
+        assert r2.exit_code == 0
+        data2 = json.loads(ghidra_path.read_text())
+        names = [d["name"] for d in data2]
+        assert "f_c" in names  # refreshed
+        assert "f_b" not in names  # stale entry gone
+
+    def test_function_structure_never_overwrites_ghidra_export(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A REAL Ghidra export (no catalog marker) is authoritative and must
+        never be overwritten by the catalog's compatibility export."""
+        cfg = _patch(monkeypatch, tmp_path)
+        ghidra_path = cfg.reversed_dir / "function_structure.json"
+        ghidra_path.write_text(
+            json.dumps([{"va": 0x10001000, "size": 32, "tool_name": "FUN_10001000"}]) + "\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            catalog_cli,
+            "parse_function_list",
+            lambda _p: [{"va": "0x10001000", "size": 32, "name": "f_a"}],
+        )
+        r = runner.invoke(catalog_cli.app, ["--data-json"])
+        assert r.exit_code == 0
+        data = json.loads(ghidra_path.read_text())
+        assert data[0]["tool_name"] == "FUN_10001000"  # untouched
+        assert "_generated_by" not in data[0]
+
     def test_data_json_written(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _patch(monkeypatch, tmp_path)
         r = runner.invoke(catalog_cli.app, ["--data-json"])
@@ -67,19 +130,24 @@ class TestCatalogCli:
         r = runner.invoke(catalog_cli.app, ["--json"])
         assert r.exit_code == 0
         payload = json.loads(r.stdout)
-        assert payload == {
+        expected = {
             "target": "T",
             "annotations": 0,
             "unique_vas": 0,
             "registry": 0,
             "total_functions": 0,
             "covered_bytes": 0,
-            "text_size": 0x24000,
+            # No fabricated 0x24000 fallback: with the binary missing the
+            # size is 0 and the payload says so (code-review F9).
+            "text_size": 0,
             "coverage_pct": 0.0,
             "wrote_data_json": False,
             "wrote_catalog": False,
             "wrote_csv": False,
         }
+        assert {k: v for k, v in payload.items() if k != "warning"} == expected
+        assert payload["warning"].startswith("target binary missing (")
+        assert "text_size=0" in payload["warning"]
 
     def test_export_ghidra_prints_instructions(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -88,6 +156,15 @@ class TestCatalogCli:
         r = runner.invoke(catalog_cli.app, ["--export-ghidra"])
         assert r.exit_code == 0
         assert "get-functions" in r.output
+
+    def test_export_ghidra_json_refused(self, tmp_path: Path, monkeypatch) -> None:
+        """--export-ghidra prints instructions and emits no JSON document —
+        combining it with --json would break the JSON contract (cli-review
+        F9), so the combination is refused up front."""
+        _patch(monkeypatch, tmp_path)
+        r = runner.invoke(catalog_cli.app, ["--export-ghidra", "--json"])
+        assert r.exit_code != 0
+        assert "cannot be combined with --json" in r.output
 
     def test_default_runs_all(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _patch(monkeypatch, tmp_path)

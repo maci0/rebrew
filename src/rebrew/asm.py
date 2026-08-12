@@ -30,6 +30,7 @@ from rich.console import Console
 from rebrew.annotation import parse_c_file_multi
 from rebrew.catalog import load_function_structure
 from rebrew.cli import (
+    EXIT_ERROR,
     TargetOption,
     error_exit,
     iter_sources,
@@ -145,6 +146,32 @@ def _hint_for(insns: list[Any], i: int) -> str | None:
     m = insn.mnemonic
     ops = insn.op_str
 
+    # EH-ctor prolog: `mov eax, imm32; call <helper>` — the compiler-
+    # generated __eh_ctor registration pattern (58 functions in the mspaint
+    # corpus).  Not C-reproducible: skip or document, don't decompile.
+    if m == "call" and i >= 1:
+        prev = insns[i - 1]
+        if (
+            prev.mnemonic == "mov"
+            and prev.op_str.startswith("eax, ")
+            and prev.op_str.split(",")[1].strip().startswith("0x")
+        ):
+            return (
+                "EH-ctor prolog (compiler-generated __eh_ctor) — not C-reproducible, skip/document"
+            )
+
+    # `lea reg, [esp+X]` / `cmp [esp+X], imm` in naked asm: MASM folds these
+    # into short/disp8 encodings that do NOT match MSVC's `8d 44 24 XX`
+    # disp8 forms — force the bytes with _emit (a recurring naked-asm
+    # mismatch in the mspaint corpus).
+    if m in ("lea", "cmp", "add", "sub", "mov", "push", "and", "or", "xor", "test") and re.search(
+        r"\[esp", ops
+    ):
+        return (
+            "esp-relative disp8 in naked asm — MASM folds to a short form; "
+            "force the exact encoding with _emit if the bytes differ"
+        )
+
     # Post-decrement loop counter: mov r1,r2 / dec r2 / test r1 / jcc
     if m in ("je", "jne", "jg", "jle", "ja", "jae", "jb", "jbe") and i >= 3:
         t = insns[i - 1]
@@ -176,6 +203,111 @@ def _hint_for(insns: list[Any], i: int) -> str | None:
     if m == "inc" and "word ptr" in ops:
         return "word-global inc — C needs a declared global symbol (cast-deref won't match)"
 
+    # IAT forwarding stub: an indirect call through an IAT slot preceded by
+    # several `mov reg,[esp+X]; push reg` pairs is an N-arg forwarder to an
+    # imported (usually stdcall) function.  The forwarder's own convention
+    # is cdecl (plain ret) while the callee cleans — declare a __stdcall
+    # function pointer for the call or MSVC emits a spurious `add esp,N`.
+    if m == "call" and re.search(r"dword ptr \[0x[0-9a-fA-F]+\]", ops):
+        push_count = 0
+        # Scan BACKWARD from the call: count the contiguous reversed-push
+        # sequence (`mov reg,[esp+X]; push reg` pairs) right before it.
+        for j in range(i - 1, max(0, i - 16) - 1, -1):
+            if insns[j].mnemonic == "push":
+                push_count += 1
+            elif insns[j].mnemonic != "mov":
+                break
+        if push_count >= 3:
+            return (
+                f"{push_count}-arg IAT forwarder — declare a __stdcall function "
+                "pointer for the call (the callee cleans; the forwarder is cdecl)"
+            )
+
+    # Jump-table switch dispatch: jmp dword ptr [reg*4 + 0x...]
+    if m == "jmp" and re.search(r"dword ptr \[[a-z0-9]+\s*\*\s*4", ops):
+        # Two-level (byte-compressed) form: the index is fetched from a
+        # byte table first (mov dl, byte ptr [reg + 0x...]) — MSVC uses
+        # this for sparse switches with shared handlers, and a plain C
+        # switch often does NOT reproduce it (the compiler may pick a
+        # direct table instead).  Warn so the user doesn't chase the
+        # lowering difference after writing the obvious switch.
+        for j in range(max(0, i - 5), i):
+            prev = insns[j]
+            if prev.mnemonic == "mov" and re.search(r"byte ptr \[[a-z0-9]+\s*\+\s*0x", prev.op_str):
+                return (
+                    "byte-compressed switch (two-level dispatch) — decode with "
+                    "`rebrew switch <va>`; a plain C switch may not reproduce this"
+                )
+        return "switch dispatch (jump table) — decode the case table with `rebrew switch <va>`"
+
+    # `cmp reg,1; sbb reg,reg` (+ optional inc) — MSVC's equality-boolean
+    # lowering (x == 0 → -1/0, or with inc → 0/1 for `!x`).  Plain C
+    # compiles these to a different epilogue under MSVC5 (neg/sbb/neg/dec
+    # or setcc) — a naked-asm function needs the exact bytes.
+    if m == "sbb" and i >= 1:
+        prev = insns[i - 1]
+        if prev.mnemonic == "cmp" and prev.op_str.split(",")[-1].strip() in ("1", "0x1"):
+            return (
+                "equality-boolean idiom (cmp 1/sbb) — `!x`/`x==0` lowering; "
+                "plain C may compile to a different epilogue, write it in naked asm"
+            )
+
+    return None
+
+
+def detect_function_pattern(cfg: ProjectConfig, va: int) -> str | None:
+    """Return the decomp-relevant codegen pattern for the function at *va*,
+    or ``None`` for plain code.  Function-level counterpart to ``_hint_for``:
+    the recognizable categories that decide skip-vs-decompile up front.
+    Best-effort (any disassembly failure → None).  x86-32 only."""
+    if getattr(cfg, "arch", "") != "x86_32" or not cfg.target_binary.exists():
+        return None
+    try:
+        from rebrew.binary_loader import extract_raw_bytes
+
+        raw = extract_raw_bytes(cfg.target_binary, va, 64)
+        if not raw:
+            return None
+        import capstone
+
+        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        insns = list(md.disasm(raw, va))
+        if not insns:
+            return None
+
+        i0 = insns[0]
+        # Import thunk: jmp [IAT] (1-2 insns total).
+        if i0.mnemonic == "jmp" and "[" in i0.op_str and "0x" in i0.op_str:
+            return "import thunk (jmp [IAT]) — linker glue, not a decomp target"
+        # EH-ctor: mov eax, imm32; call helper.
+        if (
+            len(insns) >= 2
+            and i0.mnemonic == "mov"
+            and i0.op_str.startswith("eax, ")
+            and i0.op_str.split(",")[1].strip().startswith("0x")
+            and insns[1].mnemonic == "call"
+        ):
+            return "EH-ctor prolog (__eh_ctor) — not C-reproducible"
+        # Switch dispatch anywhere in the window.
+        if any(
+            x.mnemonic == "jmp" and re.search(r"dword ptr \[[a-z0-9]+\s*\*\s*4", x.op_str)
+            for x in insns
+        ):
+            return "switch dispatch (jump table)"
+        # IAT forwarder: ≥3 reversed pushes + call [IAT] (+ ret after).
+        call = next((x for x in reversed(insns) if x.mnemonic == "call"), None)
+        if call and re.search(r"dword ptr \[0x[0-9a-fA-F]+\]", call.op_str):
+            ci = insns.index(call)
+            pushes = 0
+            for j in range(ci - 1, max(0, ci - 12) - 1, -1):
+                if insns[j].mnemonic == "push":
+                    pushes += 1
+                elif insns[j].mnemonic != "mov":
+                    break
+            if pushes >= 3:
+                return f"IAT forwarder ({pushes}-arg) — stdcall callee; the forwarder is cdecl"
+    except Exception:  # noqa: BLE001 — best-effort pattern tag
+        return None
     return None
 
 
@@ -204,9 +336,7 @@ def calling_convention(insns: list[Any]) -> str:
     # passing an argument), ecx is NOT the this pointer — a thiscall keeps
     # the incoming this in ecx untouched.
     loads_ecx_from_mem_first = (
-        first.mnemonic == "mov"
-        and first.op_str.startswith("ecx, ")
-        and "[" in first.op_str
+        first.mnemonic == "mov" and first.op_str.startswith("ecx, ") and "[" in first.op_str
     )
     ecx_as_this = not loads_ecx_from_mem_first and any(
         "[ecx" in i.op_str
@@ -221,6 +351,10 @@ def calling_convention(insns: list[Any]) -> str:
     # The extraction can run past the function's end into the next one.  A
     # function ends with its LAST ret (early returns precede it); if there is
     # no ret at all it is a tail-jmp thunk (which has no internal branches).
+    # Use the LAST jmp too: the extent-padded window can bleed into the next
+    # function, and a jmp-table dispatcher followed by the next function's
+    # code yields several jmps with no ret — the terminal one is the
+    # function's true end (matching the rets[-1] logic above).
     rets = [insn for insn in insns if insn.mnemonic.startswith("ret")]
     if rets:
         last = rets[-1]
@@ -228,7 +362,7 @@ def calling_convention(insns: list[Any]) -> str:
         jmps = [insn for insn in insns if insn.mnemonic == "jmp"]
         if not jmps:
             return "unknown"
-        last = jmps[0]
+        last = jmps[-1]
     m = last.mnemonic
     if m == "jmp":
         first = insns[0]
@@ -237,6 +371,11 @@ def calling_convention(insns: list[Any]) -> str:
                 return "thiscall (EH-guard thunk)"
             if "0x" in first.op_str:
                 return "thiscall (ctor thunk)"
+        # A jmp that ends a REAL body (>2 instructions) is a tail call from
+        # a forwarding function, not a pure thunk — the jmp IS the body only
+        # for 1-2 instruction thunks (e.g. `jmp [IAT]`, `push; jmp`).
+        if len(insns) > 2:
+            return "tail call"
         return "tail-call thunk"
     if m.startswith("ret"):
         raw = last.op_str
@@ -252,10 +391,51 @@ def calling_convention(insns: list[Any]) -> str:
     return "unknown"
 
 
+def calling_convention_at(cfg: ProjectConfig, va: int) -> str:
+    """Infer the calling convention of the function at *va* (extent-based).
+
+    Shared by ``rebrew describe`` and skeleton generation: disassembles an
+    EXTENT-derived window (not a flat 64-byte slice — a flat window
+    truncated longer functions mid-code, so the epilogue ``ret`` was never
+    visible and inference said "unknown"; see skeleton.py's `_convention_stub`
+    for the original diagnosis).  Returns ``"unknown"`` on any failure.
+    """
+    if getattr(cfg, "arch", "") != "x86_32":
+        return "unknown"
+    try:
+        import capstone
+
+        from rebrew.binary_loader import extract_raw_bytes, function_extent_from_disasm
+
+        kind = None
+        extent: int | None = None
+        extent_kind = function_extent_from_disasm(cfg.target_binary, va, with_kind=True)
+        if extent_kind is not None:
+            extent, kind = extent_kind
+        if (
+            kind == "jmp"
+            and extent is not None
+            and extent <= 16
+            or kind == "ret"
+            and extent is not None
+        ):
+            window = extent
+        else:
+            window = min(max(extent or 0, 48) + 96, 256)
+        raw = extract_raw_bytes(cfg.target_binary, va, window)
+        if not raw:
+            return "unknown"
+        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        insns = list(md.disasm(raw, va))
+        if not insns:
+            return "unknown"
+        return calling_convention(insns)
+    except Exception:  # noqa: BLE001 — best-effort inference
+        return "unknown"
+
+
 def _extract_hex_operand(op_str: str) -> int | None:
     """Return the first ``0x...`` absolute operand, or None."""
-    import re
-
     m = re.search(r"0x([0-9a-fA-F]+)", op_str)
     return int(m.group(1), 16) if m else None
 
@@ -290,6 +470,8 @@ def _run_hex_mode(
     resolve_imports: bool = False,
     resolve_strings: bool = False,
     pattern_hints: bool = False,
+    stale_size: bool = False,
+    declared_size: int | None = None,
 ) -> None:
     """Capstone hex-dump disassembly (default format)."""
     bin_path = cfg.target_binary
@@ -386,8 +568,9 @@ def _run_hex_mode(
                     {
                         "va": f"0x{va_int:08x}",
                         "size": len(data),
-                        "requested_size": size,
+                        "requested_size": declared_size if stale_size else size,
                         "truncated": truncated,
+                        "stale_size": stale_size,
                         "calling_convention": conv,
                         "instruction_count": len(shown_list),
                         "instructions": instr_json,
@@ -834,7 +1017,7 @@ app = typer.Typer(
 def _list_size_for(cfg: ProjectConfig, va_int: int) -> int | None:
     """Function-list size for *va_int*, if the list knows it.
 
-    Lets ``rebrew asm <va>`` default to the real function size instead of a
+    Let's ``rebrew asm <va>`` default to the real function size instead of a
     hardcoded 32-byte window (which bleeds into the adjacent function).
     """
     func_list_path = getattr(cfg, "function_list", "")
@@ -893,7 +1076,8 @@ def main(
     """Disassemble a function from the target binary."""
     cfg = require_config(target=target, json_mode=json_output)
     if fmt not in ("hex", "nasm"):
-        error_exit("--format must be 'hex' or 'nasm'", json_mode=json_output)
+        # Bad argument value — usage error (2), not "needs code work" (1).
+        error_exit("--format must be 'hex' or 'nasm'", json_mode=json_output, code=EXIT_ERROR)
 
     # --- NASM batch modes ---
     if fmt == "nasm" and (extract_all or batch_stubs):
@@ -917,6 +1101,33 @@ def main(
     # given — 32 is only a fallback for functions the list does not know.
     effective_size = size or (_list_size_for(cfg, va_int) if va_int else None) or 32
 
+    # A stale function-list size truncates the dump mid-instruction and
+    # breaks the calling-convention inference (no `ret` in the truncated
+    # window → "unknown" → wrong skeleton signature).  When the
+    # disassembly extent runs past the declared size, extend the dump to it
+    # with a warning.  An explicit `--size` is user intent: warn, but honor
+    # the request.  x86-32 only — the extent walker is an x86 disassembler.
+    stale_size = False
+    declared_size = effective_size
+    if va_int is not None and getattr(cfg, "arch", "") == "x86_32" and cfg.target_binary.exists():
+        from rebrew.binary_loader import function_extent_from_disasm
+
+        disasm_extent = function_extent_from_disasm(cfg.target_binary, va_int)
+        if disasm_extent is not None and effective_size < disasm_extent:
+            if size is None:
+                console.print(
+                    f"[yellow]warning:[/yellow] function-list size {effective_size}B is stale — "
+                    f"code continues to at least {disasm_extent}B; extending the dump"
+                )
+                effective_size = disasm_extent
+                stale_size = True
+            else:
+                console.print(
+                    f"[yellow]warning:[/yellow] size {size}B may be stale — "
+                    f"disassembly continues to at least {disasm_extent}B (re-run with --size "
+                    f"{disasm_extent} to see it)"
+                )
+
     # --- hex format ---
     if fmt == "hex":
         if not va_str:
@@ -931,6 +1142,8 @@ def main(
             resolve_imports=resolve_imports,
             resolve_strings=resolve_strings,
             pattern_hints=pattern_hints,
+            stale_size=stale_size,
+            declared_size=declared_size,
         )
         return
 

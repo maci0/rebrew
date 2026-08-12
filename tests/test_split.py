@@ -179,6 +179,24 @@ class TestSplitBasic:
         assert result.exit_code != 0
         assert "Output file already exists" in result.output
 
+    def test_conflict_aborts_before_writing_any_block(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A mid-batch conflict must not leave earlier blocks written: the old
+        interleaved check-then-write aborted after writing blocks 1..N-1, and
+        every re-run then failed on block 1's now-existing output (the split
+        could never complete without --force).  Two-phase validation writes
+        NOTHING on any conflict."""
+        _write(tmp_path / "multi.c", _multi_two())
+        # func_a is the FIRST block; func_b the second.  Conflict on the
+        # SECOND path must still prevent the first from being written.
+        _write(tmp_path / "func_b.c", "stale\n")
+
+        result, src = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code != 0
+        assert "Output file already exists" in result.output
+        assert not (tmp_path / "func_a.c").exists()
+
     def test_force_overwrites_existing_files(self, tmp_path: Path, monkeypatch: Any) -> None:
         _write(tmp_path / "multi.c", _multi_two())
         existing = _write(tmp_path / "func_a.c", "stale\n")

@@ -231,7 +231,7 @@ def build_cmd(
     name: str = typer.Argument(..., help="Toolchain name (e.g. watcom, msvc6)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
-    """Build a toolchain's docker image from toolchain-images/<name>/<ver>-<arch>/Dockerfile."""
+    """Build a toolchain's docker image from toolchain/<name>/<ver>-<arch>/Dockerfile."""
     import subprocess
 
     from rebrew.toolchain import get_toolchain
@@ -252,7 +252,7 @@ def build_cmd(
             console.print(f"[red]Error:[/red] {msg}")
         raise typer.Exit(code=2)
     tag, verarch = spec.image.rsplit(":", 1)
-    build_dir = Path(__file__).resolve().parents[2] / "toolchain-images" / spec.family / verarch
+    build_dir = Path(__file__).resolve().parents[2] / "toolchain" / spec.family / verarch
     if not (build_dir / "Dockerfile").exists():
         msg = f"no Dockerfile at {build_dir}"
         if json_output:
@@ -260,6 +260,33 @@ def build_cmd(
         else:
             console.print(f"[red]Error:[/red] {msg}")
         raise typer.Exit(code=2)
+
+    # Every toolchain image inherits FROM rebrew/base — build it first so a
+    # fresh docker daemon resolves the dependency.
+    base_dir = Path(__file__).resolve().parents[2] / "toolchain" / "base"
+    base_from = None
+    for line in (build_dir / "Dockerfile").read_text(encoding="utf-8").splitlines():
+        if line.upper().startswith("FROM "):
+            base_from = line.split()[1]
+            break
+    if base_from and base_from.startswith("rebrew/"):
+        base_tag = base_from
+        base_dockerfile = base_dir / "Dockerfile"
+        if base_dockerfile.exists():
+            r = subprocess.run(
+                ["docker", "build", "-t", base_tag, str(base_dir)],
+                capture_output=True,
+                text=True,
+                timeout=3600,
+            )
+            if r.returncode != 0:
+                msg = f"docker build {base_tag} failed: {r.stderr[-300:]}"
+                if json_output:
+                    json_print({"error": msg, "code": 2})
+                else:
+                    console.print(f"[red]Error:[/red] {msg}")
+                raise typer.Exit(code=2)
+
     r = subprocess.run(
         ["docker", "build", "-t", spec.image, str(build_dir)],
         capture_output=True,

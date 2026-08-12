@@ -89,6 +89,55 @@ class TestGenerateTestCommand:
 
 
 # -------------------------------------------------------------------------
+# _stale_size_note
+# -------------------------------------------------------------------------
+
+
+class TestStaleSizeNote:
+    """skeleton warns when the resolved size is stale (disassembly extent
+    runs past it) so the first `rebrew test --size N` does not fail with
+    SIZE_MISMATCH on a truncated functions.txt entry."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            arch="x86_32",
+            target_binary=tmp_path / "x.exe",
+        )
+
+    def test_extent_larger_warns(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.skeleton import _stale_size_note
+
+        (tmp_path / "x.exe").write_bytes(b"MZ")
+        monkeypatch.setattr("rebrew.binary_loader.function_extent_from_disasm", lambda p, va: 121)
+        note = _stale_size_note(self._cfg(tmp_path), 0x1000, 44)
+        assert note is not None
+        assert "44B is stale" in note
+        assert "121B" in note
+        assert "--fix-size" in note
+
+    def test_accurate_size_no_warning(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.skeleton import _stale_size_note
+
+        (tmp_path / "x.exe").write_bytes(b"MZ")
+        monkeypatch.setattr("rebrew.binary_loader.function_extent_from_disasm", lambda p, va: 42)
+        assert _stale_size_note(self._cfg(tmp_path), 0x1000, 50) is None
+
+    def test_missing_binary_no_warning(self, tmp_path: Path) -> None:
+        from rebrew.skeleton import _stale_size_note
+
+        assert _stale_size_note(self._cfg(tmp_path), 0x1000, 44) is None
+
+    def test_non_x86_arch_no_warning(self, tmp_path: Path) -> None:
+        from types import SimpleNamespace as NS
+
+        from rebrew.skeleton import _stale_size_note
+
+        (tmp_path / "x.exe").write_bytes(b"MZ")
+        cfg = NS(arch="x86_16", target_binary=tmp_path / "x.exe")
+        assert _stale_size_note(cfg, 0x1000, 44) is None
+
+
+# -------------------------------------------------------------------------
 # generate_diff_command
 # -------------------------------------------------------------------------
 
@@ -550,6 +599,25 @@ class TestDecompBody:
         )
         assert "=== Decompilation (r2ghidra) ===" in content  # comment mode intact
 
+    def test_cli_rejects_decomp_body_without_decomp(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--decomp-body alone was an accepted-but-inert flag: it silently
+        produced a plain stub (functionality-review F7).  The CLI must fail
+        loudly instead of pretending the option applied."""
+        from typer.testing import CliRunner
+
+        import rebrew.skeleton as sk
+        from rebrew.main import app as umbrella
+
+        cfg = self._cfg(tmp_path)
+        monkeypatch.setattr(sk, "require_config", lambda target=None, json_mode=False: cfg)
+        result = CliRunner().invoke(umbrella, ["skeleton", "0x10001000", "--decomp-body"])
+        assert result.exit_code != 0
+        assert "requires --decomp" in result.output
+        # Nothing written.
+        assert not list((tmp_path / "src").glob("*.c"))
+
 
 class TestThunkFilter:
     """list_uncovered skips import/jump/call thunks — they have no
@@ -640,9 +708,7 @@ class TestConventionStub:
 
         # push esi; mov esi,ecx; mov eax,[esi+0x6c]; test; ret
         code = bytes.fromhex("56 8b f1 8b 46 6c 85 c0 5e c3")
-        monkeypatch.setattr(
-            "rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code
-        )
+        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code)
         sig, note = _convention_stub(self._cfg(tmp_path), 0x1000, "f")
         assert sig == "int __fastcall f(void *self)"
         assert note is None
@@ -652,9 +718,7 @@ class TestConventionStub:
 
         # mov esi,ecx; mov eax,[esi]; call [eax+0x40]; ret 8
         code = bytes.fromhex("8b f1 8b 06 ff 50 40 c2 08 00")
-        monkeypatch.setattr(
-            "rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code
-        )
+        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code)
         sig, note = _convention_stub(self._cfg(tmp_path), 0x1000, "f")
         assert sig == "__declspec(naked) int f(void *self, int a1, int a2)"
         assert note is not None and "ret 8" in note
@@ -664,9 +728,7 @@ class TestConventionStub:
 
         # mov eax,[esp+4]; mov ecx,[esp+8]; ret 8
         code = bytes.fromhex("8b 44 24 04 8b 4c 24 08 c2 08 00")
-        monkeypatch.setattr(
-            "rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code
-        )
+        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code)
         sig, note = _convention_stub(self._cfg(tmp_path), 0x1000, "f")
         assert sig == "int __stdcall f(int a1, int a2)"
         assert note is None
@@ -676,9 +738,7 @@ class TestConventionStub:
 
         # mov eax,[esp+4]; ret
         code = bytes.fromhex("8b 44 24 04 c3")
-        monkeypatch.setattr(
-            "rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code
-        )
+        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code)
         sig, note = _convention_stub(self._cfg(tmp_path), 0x1000, "f")
         assert sig is None
         assert note is None
@@ -691,3 +751,146 @@ class TestConventionStub:
         cfg = NS(arch="x86_16", target_binary=str(tmp_path / "x.exe"))
         sig, note = _convention_stub(cfg, 0x1000, "f")
         assert sig is None and note is None
+
+    def test_long_function_with_branch_merge_jmp(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """A function whose real body extends past the old 48-byte flat window
+        (extent walk terminated on a mid-function branch-merge jmp) must still
+        get the correct thiscall stub — the window is padded past the jmp."""
+        from rebrew.skeleton import _convention_stub
+
+        # mov esi,ecx; (NOPs); ...; ret 0x10  — 60 bytes total, real thiscall
+        code = bytes.fromhex("8b f1") + b"\x90" * 56 + bytes.fromhex("c2 10 00")
+        assert len(code) > 48  # the old window would have truncated before ret
+        monkeypatch.setattr(
+            "rebrew.binary_loader.function_extent_from_disasm",
+            lambda p, va, with_kind=True: (20, "jmp"),  # branch-merge jmp, not a thunk
+        )
+        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code[:n])
+        sig, note = _convention_stub(self._cfg(tmp_path), 0x1000, "f")
+        assert sig == "__declspec(naked) int f(void *self, int a1, int a2, int a3, int a4)"
+        assert note is not None and "ret 16" in note
+
+    def test_tail_call_arg_count_resolves_decorated_callee(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A forwarding tail call resolves the callee's @N decoration to the
+        caller's stack-arg count (stdcall forwarding pattern)."""
+        from types import SimpleNamespace as NS
+
+        from rebrew.skeleton import _tail_call_arg_count
+
+        cfg = NS(arch="x86_32", target_binary=str(tmp_path / "x.exe"))
+        monkeypatch.setattr(
+            "rebrew.asm.build_function_lookup",
+            lambda c: {0x1009C76: ("@fcn_01009c76@8", "RELOC")},
+        )
+        insns = [
+            type("I", (), {"mnemonic": "call", "op_str": "dword ptr [0x1001d0c]"})(),
+            type("I", (), {"mnemonic": "jmp", "op_str": "0x1009c76"})(),
+        ]
+        n, callee = _tail_call_arg_count(insns, cfg)  # type: ignore[arg-type]
+        assert n == 2
+        assert "fcn_01009c76@8" in callee
+
+    def test_tail_call_with_unresolved_callee_generic_note(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """No decorated name for the target → plain signature + note."""
+        from rebrew.skeleton import _convention_stub
+
+        monkeypatch.setattr("rebrew.asm.build_function_lookup", lambda c: {})
+        monkeypatch.setattr(
+            "rebrew.binary_loader.function_extent_from_disasm",
+            lambda p, va, with_kind=True: (42, "jmp"),
+        )
+        # mov esi,ecx; ...; jmp 0x1009c76  (real body, tail call)
+        code = bytes.fromhex("8b f1 8b 01 ff 50 04 e9 00 00 00 00")
+        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code)
+        sig, note = _convention_stub(self._cfg(tmp_path), 0x1000, "f")
+        assert sig is None
+        assert note is not None and "tail call" in note
+
+    def test_tail_call_thunk_stays_exact(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """A small jmp-terminated region (≤16 B) is a real tail-call thunk —
+        the window must NOT be padded past it (would misread the next
+        function's epilogue as ours)."""
+        from rebrew.skeleton import _convention_stub
+
+        # jmp [0x4130c8]  → 6-byte import thunk
+        code = bytes.fromhex("ff 25 c8 30 41 00")
+        monkeypatch.setattr(
+            "rebrew.binary_loader.function_extent_from_disasm",
+            lambda p, va, with_kind=True: (6, "jmp"),
+        )
+        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code[:n])
+        sig, note = _convention_stub(self._cfg(tmp_path), 0x1000, "f")
+        assert sig is None
+        assert note is not None and "tail-call thunk" in note
+
+
+class TestLooksLikeFragment:
+    """Data regions / misaligned discovery entries start with non-code
+    bytes — the opt-in --skip-fragments filter flags them so batch skeleton
+    slots are not wasted on non-code."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        from types import SimpleNamespace as NS
+
+        return NS(arch="x86_32", target_binary=tmp_path / "x.exe")
+
+    def test_data_start_flagged(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.skeleton import _looks_like_fragment
+
+        (tmp_path / "x.exe").write_bytes(b"MZ")
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: bytes.fromhex("13 24")
+        )
+        assert _looks_like_fragment(self._cfg(tmp_path), 0x1000) is True
+
+    def test_prologue_start_not_flagged(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.skeleton import _looks_like_fragment
+
+        (tmp_path / "x.exe").write_bytes(b"MZ")
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: bytes.fromhex("55 8b")
+        )
+        assert _looks_like_fragment(self._cfg(tmp_path), 0x1000) is False
+
+    def test_non_x86_not_flagged(self, tmp_path: Path) -> None:
+        from types import SimpleNamespace as NS
+
+        from rebrew.skeleton import _looks_like_fragment
+
+        cfg = NS(arch="x86_16", target_binary=tmp_path / "x.exe")
+        assert _looks_like_fragment(cfg, 0x1000) is False
+
+
+class TestMergedRegionNote:
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(arch="x86_32", target_binary=tmp_path / "x.exe")
+
+    def test_multiple_epilogues_warns(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.skeleton import _stale_size_note
+
+        (tmp_path / "x.exe").write_bytes(b"MZ")
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes",
+            lambda p, va, n: bytes.fromhex("b8 01 00 00 00 c3 b8 02 00 00 00 c3"),
+        )
+        monkeypatch.setattr("rebrew.binary_loader.function_extent_from_disasm", lambda p, va: None)
+        note = _stale_size_note(self._cfg(tmp_path), 0x1000, 12)
+        assert note is not None
+        assert "multiple functions" in note
+        assert "3" not in note  # 2 epilogues
+        assert "2 ret-terminated" in note
+
+    def test_single_epilogue_no_merged_warning(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.skeleton import _stale_size_note
+
+        (tmp_path / "x.exe").write_bytes(b"MZ")
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes",
+            lambda p, va, n: bytes.fromhex("55 8b ec 83 ec 08 b8 01 00 00 00 c9 c3"),
+        )
+        monkeypatch.setattr("rebrew.binary_loader.function_extent_from_disasm", lambda p, va: 12)
+        assert _stale_size_note(self._cfg(tmp_path), 0x1000, 12) is None

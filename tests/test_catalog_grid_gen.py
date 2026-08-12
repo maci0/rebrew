@@ -3,6 +3,7 @@
 import struct
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 from rebrew.annotation import Annotation
 from rebrew.catalog.grid import generate_data_json
@@ -361,6 +362,24 @@ class TestGenerateDataJsonGrid:
 
 class TestGenerateDataJsonNoBinary:
     """Without a binary: fallback .text section, 'none' gap states, no hashes."""
+
+    def test_proven_counts_as_matched(self) -> None:
+        """A PROVEN annotation must be counted as matched (ranked with RELOC)
+        — the status-priority groups previously omitted PROVEN, so count_statuses
+        dropped it into no bucket and exact+reloc+near+stub undercounted
+        totalFunctions (test-review F2)."""
+        from rebrew.catalog.grid import count_statuses
+
+        entries = [
+            _ann(TEXT_VA + 0x0, "fn_proven", "PROVEN", 0x40),
+            _ann(TEXT_VA + 0x40, "fn_stub", "STUB", 0x20),
+        ]
+        by_va: dict[int, list[Any]] = {}
+        for e in entries:
+            by_va.setdefault(e.va, []).append(e)
+        counters = count_statuses(by_va)
+        assert counters["RELOC"] == 1  # PROVEN lands in the RELOC bucket
+        assert counters["STUB"] == 1
 
     def test_no_binary_fallback_section(self) -> None:
         entries = [

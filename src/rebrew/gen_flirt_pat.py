@@ -24,7 +24,7 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew gen-flirt-pat tools/MSVC600/VC98/Lib/LIBCMT.LIB\n\n"
+        "  rebrew gen-flirt-pat toolchain/msvc/6.0-win32/VC98/Lib/LIBCMT.LIB\n\n"
         "  rebrew gen-flirt-pat LIBCMT.LIB -o flirt_sigs/libcmt_vc6.pat\n\n"
         "[dim]Reads COFF .obj members from a .lib archive, extracts public function "
         "symbols with relocations, and emits FLIRT .pat-format signatures.[/dim]"

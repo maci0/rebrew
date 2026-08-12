@@ -32,6 +32,43 @@ def _make_ga(tmp_path: Path, **kwargs) -> BinaryMatchingGA:
     return BinaryMatchingGA(**defaults)
 
 
+class TestCompileCflags:
+    """_compile_cflags is the ONE shared flag-glue definition for the
+    single-function, flag-sweep, and batch-GA paths — a divergent copy in the
+    sweep path silently dropped base_cflags (e.g. /MT), so a sweep-reported
+    exact demoted on the next test/verify.  Every branch needs a test
+    (config-review F8)."""
+
+    def test_posix_style_prepends_base(self) -> None:
+        from rebrew.match import _compile_cflags
+
+        assert _compile_cflags("/O2", "-O2", posix_style=True) == "-O2 /O2"
+
+    def test_posix_style_no_base(self) -> None:
+        from rebrew.match import _compile_cflags
+
+        assert _compile_cflags("/O2", "", posix_style=True) == "/O2"
+
+    def test_msvc_base_with_c_glue(self) -> None:
+        """base_cf carries /c → base first, no /nologo /c insertion."""
+        from rebrew.match import _compile_cflags
+
+        assert _compile_cflags("/O2 /Gd", "/nologo /c /MT") == "/nologo /c /MT /O2 /Gd"
+
+    def test_msvc_base_without_c_inserts_glue(self) -> None:
+        """base_cf lacks /c and cflags lacks it → the /nologo /c glue is
+        inserted (the watcom E1139 regression class)."""
+        from rebrew.match import _compile_cflags
+
+        assert _compile_cflags("/O2", "/MT") == "/nologo /c /MT /O2"
+
+    def test_cflags_already_has_c(self) -> None:
+        """cflags already carries /c → passed through verbatim."""
+        from rebrew.match import _compile_cflags
+
+        assert _compile_cflags("/nologo /c /O1", "") == "/nologo /c /O1"
+
+
 class TestBinaryMatchingGAInit:
     """Tests for BinaryMatchingGA constructor and _init_population."""
 
@@ -171,6 +208,23 @@ class TestComputeFitness:
         assert res.fitness == score
         assert score == ga._compute_fitness(res, "test_hash", "int f() { return 0; }")
 
+    def test_fresh_pickle_result_skips_rescore_via_memo(self, tmp_path: Path) -> None:
+        """A BuildResult freshly unpickled from the disk cache carries
+        fitness=None (the field is populated after put), so the warm path
+        must consult the process-local memo — the disk-backed BuildCache
+        alone could never trigger the old getattr fast path (perf-review
+        F6: elites persist across generations, so this is the real win)."""
+        from rebrew.matcher import BuildResult
+
+        ga = _make_ga(tmp_path)
+        first = BuildResult(ok=True, obj_bytes=b"\x55\x8b\xec\xc3")
+        score = ga._compute_fitness(first, "same_src_hash", "int f() { return 0; }")
+        # Simulate a cache.get(): a fresh object with the same key but no
+        # fitness field populated.
+        second = BuildResult(ok=True, obj_bytes=b"\x55\x8b\xec\xc3")
+        assert second.fitness is None
+        assert ga._compute_fitness(second, "same_src_hash", "int f() { return 0; }") == score
+
 
 # ---------------------------------------------------------------------------
 # Batch orchestration (_run_all): discovery, filtering, dry-run, execution
@@ -301,6 +355,7 @@ class TestRunAllBatch:
             rng_seed=None,
             resume_from=None,
             mutation_weights=None,
+            solutions_out=None,
         ):
             return True, "MATCHED"
 
@@ -332,6 +387,7 @@ class TestRunAllBatch:
             rng_seed=None,
             resume_from=None,
             mutation_weights=None,
+            solutions_out=None,
         ):
             if "bad" in stub.symbol:
                 raise RuntimeError("boom")
@@ -349,7 +405,7 @@ class TestRunAllBatch:
         monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
         monkeypatch.setattr(
             "rebrew.match._run_one_stub_ga",
-            lambda stub, cfg, gens, pop, jobs, timeout, seeds, cflags_override=None, rng_seed=None, resume_from=None, mutation_weights=None: (
+            lambda stub, cfg, gens, pop, jobs, timeout, seeds, cflags_override=None, rng_seed=None, resume_from=None, mutation_weights=None, solutions_out=None: (
                 True,
                 "MATCHED",
             ),
@@ -423,6 +479,159 @@ class TestUpdateStubToMatched:
         assert "return 2;" not in text
         assert "return 3;" in text  # sibling AFTER the target survives
         assert "0x10003000" in text
+
+
+class TestFlagSweepMatchValidation:
+    """A flag-sweep "exact" is reloc-masked only — the batch driver must
+    confirm it against the symbol catalog (compile_and_compare) before
+    promoting EXACT/RELOC (functionality-review F3)."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=tmp_path / "src" / "T",
+            target_name="T",
+            ignored_symbols=[],
+            metadata_dir=tmp_path,
+            image_base=0x10000000,
+            dll_exports={},
+            target_binary=tmp_path / "test.dll",
+            function_list="",
+            all_targets=["T"],
+            source_ext=".c",
+            base_cflags="",
+        )
+
+    def test_unconfirmed_sweep_exact_not_promoted(self, tmp_path, monkeypatch) -> None:
+        """The sweep reports score 0 (reloc-masked) but the authoritative
+        compile-and-compare rejects it (wrong callee) — STATUS must NOT be
+        promoted and no solution saved."""
+        from rebrew.match import _run_batch_flag_sweep
+
+        cfg = self._cfg(tmp_path)
+        src_dir = tmp_path / "src" / "T"
+        src_dir.mkdir(parents=True, exist_ok=True)
+        f = src_dir / "near.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x10001000\n// STATUS: NEAR_MATCHING\n"
+            "int near(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        stub = StubInfo(
+            filepath=f,
+            va="0x10001000",
+            size=64,
+            symbol="near",
+            cflags="/O2",
+            status="NEAR_MATCHING",
+            module="SERVER",
+        )
+
+        def _fake_sweep(stub, cfg, tier="targeted", jobs=1):
+            return 0.0, "/O1", [(0.0, "/O1")]  # reloc-masked exact
+
+        def _fake_compare(cfg, source, symbol, target_bytes, cflags, **kw):
+            from rebrew.compile import CompareResult
+
+            return CompareResult(
+                matched=False,
+                status="NEAR_MATCHING",
+                match_percent=60.0,
+                delta=4,
+                obj_bytes=b"\x90" * 64,
+                reloc_offsets=[],
+                message="NEAR_MATCHING: wrong callee (reloc target mismatch)",
+            )
+
+        monkeypatch.setattr("rebrew.match.run_flag_sweep", _fake_sweep)
+        monkeypatch.setattr("rebrew.compile.compile_and_compare", _fake_compare)
+        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x90" * 64)
+        calls: list[str] = []
+        monkeypatch.setattr(
+            "rebrew.metadata.update_source_status", lambda *a, **k: calls.append("status")
+        )
+        monkeypatch.setattr("rebrew.verify.patch_verify_cache_entries", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.matcher.solutions.save_solutions", lambda *a, **k: None)
+        # update_cflags_annotation is a module-level function in match.py —
+        # bypass it so the test asserts promotion behavior, not the cflags write.
+        monkeypatch.setattr("rebrew.match.update_cflags_annotation", lambda *a, **k: True)
+
+        exact, not_exact = _run_batch_flag_sweep(
+            [stub],
+            cfg,
+            "targeted",
+            1,
+            fix_cflags=True,
+            json_output=True,
+            mode_label="sweep",
+            name_to_va={"near": 0x10001000},
+        )
+        assert exact == 0
+        assert calls == []  # never promoted
+
+    def test_confirmed_sweep_exact_promoted(self, tmp_path, monkeypatch) -> None:
+        """The authoritative compare confirms the reloc-masked exact — the
+        promotion proceeds as before."""
+        from rebrew.match import _run_batch_flag_sweep
+
+        cfg = self._cfg(tmp_path)
+        src_dir = tmp_path / "src" / "T"
+        src_dir.mkdir(parents=True, exist_ok=True)
+        f = src_dir / "near.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x10001000\n// STATUS: NEAR_MATCHING\n"
+            "int near(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        stub = StubInfo(
+            filepath=f,
+            va="0x10001000",
+            size=64,
+            symbol="near",
+            cflags="/O2",
+            status="NEAR_MATCHING",
+            module="SERVER",
+        )
+
+        def _fake_sweep(stub, cfg, tier="targeted", jobs=1):
+            return 0.0, "/O1", [(0.0, "/O1")]
+
+        def _fake_compare(cfg, source, symbol, target_bytes, cflags, **kw):
+            from rebrew.compile import CompareResult
+
+            return CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"\x90" * 64,
+                reloc_offsets=[],
+                message="EXACT MATCH",
+            )
+
+        monkeypatch.setattr("rebrew.match.run_flag_sweep", _fake_sweep)
+        monkeypatch.setattr("rebrew.compile.compile_and_compare", _fake_compare)
+        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x90" * 64)
+        calls: list[str] = []
+        monkeypatch.setattr(
+            "rebrew.metadata.update_source_status", lambda *a, **k: calls.append("status")
+        )
+        monkeypatch.setattr("rebrew.verify.patch_verify_cache_entries", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.matcher.solutions.save_solutions", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.match.update_cflags_annotation", lambda *a, **k: True)
+
+        exact, not_exact = _run_batch_flag_sweep(
+            [stub],
+            cfg,
+            "targeted",
+            1,
+            fix_cflags=True,
+            json_output=True,
+            mode_label="sweep",
+            name_to_va={"near": 0x10001000},
+        )
+        assert exact == 1
+        assert calls == ["status"]  # promoted
 
 
 class TestFindSizeMismatch:
@@ -554,10 +763,9 @@ class TestResolveBuildParamsVATargeting:
         # extract_raw_bytes reads the target binary — stub it with 112 bytes.
         monkeypatch.setattr("rebrew.match.extract_raw_bytes", lambda *a, **k: b"\x90" * 112)
         # read_source_text + parse must run; compiler env resolution can be stubbed.
-        monkeypatch.setattr("rebrew.match.msvc_env_from_config", lambda cfg: {"WINEDEBUG": "-all"})
         monkeypatch.setattr(
             "rebrew.match.resolve_compiler_env",
-            lambda cfg: ("wine CL.EXE", "inc", None, None),
+            lambda cfg: ("wine CL.EXE", "inc", {"WINEDEBUG": "-all"}, None),
         )
 
         params = resolve_build_params(
@@ -623,10 +831,9 @@ class TestResolveBuildParamsVATargeting:
         )
         cfg = self._cfg(tmp_path, src_dir)
         monkeypatch.setattr("rebrew.match.extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
-        monkeypatch.setattr("rebrew.match.msvc_env_from_config", lambda cfg: {"WINEDEBUG": "-all"})
         monkeypatch.setattr(
             "rebrew.match.resolve_compiler_env",
-            lambda cfg: ("wine CL.EXE", "inc", None, None),
+            lambda cfg: ("wine CL.EXE", "inc", {"WINEDEBUG": "-all"}, None),
         )
         params = resolve_build_params(
             cfg,

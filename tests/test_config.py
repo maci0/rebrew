@@ -280,7 +280,7 @@ default_target = "main"
 
 [targets.main]
 binary = "test.exe"
-crt_sources = "tools/MSVC600/VC98/CRT/SRC"
+crt_sources = "toolchain/msvc/6.0-win32/VC98/CRT/SRC"
 """
         root = _make_project(tmp_path, toml)
         with pytest.warns(UserWarning, match="Expected mapping for crt_sources"):
@@ -366,12 +366,12 @@ binary = "test.exe"
 
 [compiler]
 runner = "wibo"
-command = "tools/MSVC600/VC98/Bin/CL.EXE"
+command = "toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE"
 """
         root = _make_project(tmp_path, toml)
         cfg = load_config(root)
         assert cfg.compiler_runner == "wibo"
-        assert cfg.compiler_command == "tools/MSVC600/VC98/Bin/CL.EXE"
+        assert cfg.compiler_command == "toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE"
 
     def test_runner_auto_detect_wine(self, tmp_path: Path) -> None:
         toml = """\
@@ -505,6 +505,48 @@ foo = "bar"
 """
         root = _make_project(tmp_path, toml)
         with pytest.warns(UserWarning, match="unrecognized top-level keys.*bogus_section"):
+            load_config(root)
+
+    def test_llm_section_parsed(self, tmp_path: Path) -> None:
+        """The documented `[llm]` table must reach cfg.llm_endpoint/api_key —
+        it was previously not in the known top-level keys, so the table
+        warned "unrecognized" and the fields were always "" (config-review
+        F2: match --llm-seed's error message points users at `[llm]`)."""
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[llm]
+endpoint = "http://localhost:9000/v1"
+api_key = "secret-key"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.llm_endpoint == "http://localhost:9000/v1"
+        assert cfg.llm_api_key == "secret-key"
+
+    def test_dead_config_keys_warn(self, tmp_path: Path) -> None:
+        """Reserved/no-op keys ([compiler.profiles], game_range_end) must warn
+        at load — a user configuring them gets zero effect, so the no-op must
+        be visible, not silent (config-review F5)."""
+        toml = """\
+[project]
+default_target = "main"
+
+[compiler.profiles.clang]
+command = "clang"
+
+[targets.main]
+binary = "test.exe"
+game_range_end = 0x20000000
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match="RESERVED and currently has no effect"):
+            load_config(root)
+        with pytest.warns(UserWarning, match="legacy no-op key"):
             load_config(root)
 
     def test_unknown_target_key_warns(self, tmp_path: Path) -> None:
@@ -964,13 +1006,13 @@ binary = "original/main.exe"
 
 [compiler]
 profile = "msvc6"
-command = "wine tools/MSVC600/VC98/Bin/CL.EXE"
+command = "wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE"
 """
 
     def test_missing_includes_falls_back(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew import utils as rebrew_utils
 
-        fake = tmp_path / "tools" / "MSVC600" / "VC98" / "Include"
+        fake = tmp_path / "toolchain" / "msvc" / "6.0-win32" / "VC98" / "Include"
         fake.mkdir(parents=True)
         (fake / "stdio.h").write_text("")
         monkeypatch.setattr(rebrew_utils, "_REPO_ROOT", tmp_path)
@@ -978,13 +1020,38 @@ command = "wine tools/MSVC600/VC98/Bin/CL.EXE"
         cfg = load_config(root)
         assert cfg.compiler_includes == fake
 
-    def test_existing_project_path_wins(self, tmp_path: Path, monkeypatch) -> None:
+    def test_missing_includes_falls_back_to_vendored_mirror(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A machine with only the compile-only mirrors (no msvc-6.0-win32 master)
+        must resolve includes against toolchain/msvc/6.0-sp6-win32 (SP6) instead of a broken
+        toolchain/msvc/6.0-win32 path."""
         from rebrew import utils as rebrew_utils
 
-        # Project-local tools/ present -> used, install copy ignored.
-        (tmp_path / "tools" / "MSVC600" / "VC98" / "Include").mkdir(parents=True)
-        (tmp_path / "tools" / "MSVC600" / "VC98" / "Include" / "stdio.h").write_text("")
+        mirror = tmp_path / "toolchain" / "msvc" / "6.0-sp6-win32"
+        (mirror / "Bin").mkdir(parents=True)
+        (mirror / "Bin" / "CL.EXE").write_bytes(b"MZ")
+        (mirror / "Include").mkdir()
+        (mirror / "Include" / "stdio.h").write_text("")
         monkeypatch.setattr(rebrew_utils, "_REPO_ROOT", tmp_path)
         root = _make_project(tmp_path, self.TOML)
         cfg = load_config(root)
-        assert cfg.compiler_includes == tmp_path / "tools" / "MSVC600" / "VC98" / "Include"
+        assert (
+            cfg.compiler_includes == tmp_path / "toolchain" / "msvc" / "6.0-sp6-win32" / "Include"
+        )
+
+    def test_existing_project_path_wins(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew import utils as rebrew_utils
+
+        # Project-local toolchain/ present -> used, install copy ignored.
+        (tmp_path / "toolchain" / "msvc" / "6.0-win32" / "VC98" / "Include").mkdir(parents=True)
+        (tmp_path / "toolchain" / "msvc" / "6.0-win32" / "VC98" / "Include" / "stdio.h").write_text(
+            ""
+        )
+        monkeypatch.setattr(rebrew_utils, "_REPO_ROOT", tmp_path)
+        root = _make_project(tmp_path, self.TOML)
+        cfg = load_config(root)
+        assert (
+            cfg.compiler_includes
+            == tmp_path / "toolchain" / "msvc" / "6.0-win32" / "VC98" / "Include"
+        )

@@ -78,7 +78,7 @@ file directly. Rebrew includes `gen_flirt_pat.py` for this purpose.
 
 ```bash
 # Generate a .pat from the MSVC6 CRT library
-uv run python -m rebrew.gen_flirt_pat tools/MSVC600/VC98/Lib/LIBCMT.LIB \
+uv run python -m rebrew.gen_flirt_pat toolchain/msvc/6.0-win32/VC98/Lib/LIBCMT.LIB \
     -o flirt_sigs/libcmt_vc6.pat
 ```
 
@@ -105,18 +105,18 @@ Each line contains:
 
 | Library | Source Path (MSVC6) | Output |
 |---------|-------------------|--------|
-| CRT (multithreaded) | `tools/MSVC600/VC98/Lib/LIBCMT.LIB` | `flirt_sigs/libcmt_vc6.pat` |
-| CRT (single-threaded) | `tools/MSVC600/VC98/Lib/LIBC.LIB` | `flirt_sigs/libc_vc6.pat` |
-| C++ Standard Library | `tools/MSVC600/VC98/Lib/LIBCP.LIB` | `flirt_sigs/libcp_vc6.pat` |
-| Old I/O streams | `tools/MSVC600/VC98/Lib/OLDNAMES.LIB` | `flirt_sigs/oldnames_vc6.pat` |
+| CRT (multithreaded) | `toolchain/msvc/6.0-win32/VC98/Lib/LIBCMT.LIB` | `flirt_sigs/libcmt_vc6.pat` |
+| CRT (single-threaded) | `toolchain/msvc/6.0-win32/VC98/Lib/LIBC.LIB` | `flirt_sigs/libc_vc6.pat` |
+| C++ Standard Library | `toolchain/msvc/6.0-win32/VC98/Lib/LIBCP.LIB` | `flirt_sigs/libcp_vc6.pat` |
+| Old I/O streams | `toolchain/msvc/6.0-win32/VC98/Lib/OLDNAMES.LIB` | `flirt_sigs/oldnames_vc6.pat` |
 
 **For third-party libraries**, build them from source with the same compiler
 version and flags, then generate a `.pat` from the resulting `.lib`:
 
 ```bash
 # Example: build zlib 1.1.3 with MSVC6 and generate signatures
-wine tools/MSVC600/VC98/Bin/CL.EXE /nologo /c /O2 /MT references/zlib-1.1.3/*.c
-wine tools/MSVC600/VC98/Bin/LIB.EXE /nologo /out:zlib_vc6.lib *.obj
+wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE /nologo /c /O2 /MT references/zlib-1.1.3/*.c
+wine toolchain/msvc/6.0-win32/VC98/Bin/LIB.EXE /nologo /out:zlib_vc6.lib *.obj
 uv run python -m rebrew.gen_flirt_pat zlib_vc6.lib -o flirt_sigs/zlib113_vc6.pat
 ```
 

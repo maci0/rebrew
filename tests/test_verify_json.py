@@ -56,6 +56,32 @@ class TestVerifyDiff:
         assert diff["improvements"][0]["current_status"] == "EXACT"
         assert diff["regressions"] == []
 
+    def test_diff_internal_error_never_regression(self) -> None:
+        """A worker crash on a previously-EXACT function must not appear as a
+        code regression — INTERNAL_ERROR rows are skipped entirely by the
+        --compare gate (the count is surfaced separately)."""
+        previous = {
+            "results": [{"va": "0x10001000", "name": "func_a", "status": "EXACT", "delta": 0}]
+        }
+        current = {
+            "results": [
+                {
+                    "va": "0x10001000",
+                    "name": "func_a",
+                    "status": "INTERNAL_ERROR",
+                    "message": "INTERNAL_ERROR: crash",
+                    "delta": 0,
+                }
+            ]
+        }
+
+        diff = diff_reports(previous, current)
+        assert diff["regressions"] == []
+        assert diff["improvements"] == []
+        assert diff["new"] == []
+        assert diff["removed"] == []
+        assert diff["unchanged_count"] == 0
+
     def test_diff_new_function(self) -> None:
         previous = {"results": []}
         current = {

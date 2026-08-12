@@ -289,11 +289,29 @@ def score_candidate(
     else:
         diff_mask = np.array([], dtype=bool)
 
-    # 1. Byte similarity (weighted towards prologue)
+    # Relocation mask — a reloc'd call/jmp/ptr displacement is
+    # linker-determined, not source-determined, so its bytes are not a
+    # source-level mismatch.  Built once and applied to BOTH the byte and
+    # reloc scores.  (Excluding them from byte_score too was the missing
+    # half: every reloc-bearing candidate previously sat at a byte_score
+    # floor of ~N reloc bytes, so the GA/flag-sweep `exact: score < 0.1`
+    # gate could never accept a RELOC match — it kept mutating a perfect
+    # candidate and sweeps reported no match.)
+    reloc_mask: np.ndarray | None = None
+    if reloc_offsets is not None and min_len > 0:
+        reloc_mask = np.zeros(min_len, dtype=bool)
+        for ro in reloc_offsets:
+            start = max(0, ro)
+            end = min(ro + pointer_size, min_len)
+            if start < end:
+                reloc_mask[start:end] = True
+
+    # 1. Byte similarity (weighted towards prologue) — reloc sites excluded
     if min_len > 0:
+        byte_diff = diff_mask & ~reloc_mask if reloc_mask is not None else diff_mask
         prologue_len = min(_PROLOGUE_LEN, min_len)
-        prologue_diffs = np.count_nonzero(diff_mask[:prologue_len])
-        body_diffs = np.count_nonzero(diff_mask[prologue_len:])
+        prologue_diffs = np.count_nonzero(byte_diff[:prologue_len])
+        body_diffs = np.count_nonzero(byte_diff[prologue_len:])
         byte_score = float(prologue_diffs * _PROLOGUE_WEIGHT + body_diffs)
     else:
         byte_score = 0.0
@@ -310,13 +328,7 @@ def score_candidate(
     cand_mnems: list[str] | None = None
     target_mnems: list[str] | None = None
     if reloc_offsets is not None:
-        if min_len > 0:
-            reloc_mask = np.zeros(min_len, dtype=bool)
-            for ro in reloc_offsets:
-                start = max(0, ro)
-                end = min(ro + pointer_size, min_len)
-                if start < end:
-                    reloc_mask[start:end] = True
+        if min_len > 0 and reloc_mask is not None:
             reloc_score = float(np.count_nonzero(diff_mask & ~reloc_mask))
     else:
         # Fallback to heuristic normalization — reuse pre-computed target if
@@ -345,15 +357,19 @@ def score_candidate(
     # Reuse pre-computed target mnemonics if available (GA hot path); the
     # candidate mnemonics may already exist from the merged reloc-fallback
     # disassembly above, and the target mnemonics from the same pass.
+    # ``disasm_lite`` returns (addr, size, mnemonic, op_str) tuples instead of
+    # CsInsn objects — identical output at ~2.7x the speed (no per-instruction
+    # ctypes objects), which matters here: the GA scores thousands of
+    # candidates per run and this disasm dominates the call.
     target_mnems = (
         _pre_target_mnems
         if _pre_target_mnems is not None
         else target_mnems
         if target_mnems is not None
-        else [i.mnemonic for i in md.disasm(target_bytes, 0x1000)]
+        else [m for (_a, _s, m, _o) in md.disasm_lite(target_bytes, 0x1000)]
     )
     if cand_mnems is None:
-        cand_mnems = [i.mnemonic for i in md.disasm(candidate_bytes, 0x1000)]
+        cand_mnems = [m for (_a, _s, m, _o) in md.disasm_lite(candidate_bytes, 0x1000)]
 
     # Fast path: identical mnemonic sequences (the GA's common case — bytes
     # differ only in immediates/reloc slots, e.g. `mov eax, 0x10` vs
@@ -432,7 +448,7 @@ def precompute_target(
     """
     norm_target = _normalize_reloc_x86_32(target_bytes, cs_arch, cs_mode)
     md = _get_cs(cs_arch, cs_mode)
-    target_mnems = [i.mnemonic for i in md.disasm(target_bytes, 0x1000)]
+    target_mnems = [m for (_a, _s, m, _o) in md.disasm_lite(target_bytes, 0x1000)]
     return norm_target, target_mnems
 
 
@@ -658,8 +674,8 @@ def structural_similarity(
     structural = s["structural"]
 
     md = _get_cs(cs_arch, cs_mode)
-    target_mnems = [i.mnemonic for i in md.disasm(target_bytes, 0)]
-    cand_mnems = [i.mnemonic for i in md.disasm(candidate_bytes, 0)]
+    target_mnems = [m for (_a, _s, m, _o) in md.disasm_lite(target_bytes, 0)]
+    cand_mnems = [m for (_a, _s, m, _o) in md.disasm_lite(candidate_bytes, 0)]
     sm = difflib.SequenceMatcher(None, target_mnems, cand_mnems)
     mnemonic_ratio = sm.ratio()
 

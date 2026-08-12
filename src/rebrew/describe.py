@@ -72,6 +72,8 @@ _JSON_KEYS = (
     "status",
     "size",
     "cflags",
+    "pattern",
+    "convention",
     "callers",
     "callees",
     "strings",
@@ -249,10 +251,28 @@ def _compute_callees(
     return out
 
 
-def _compute_strings(info: BinaryInfo, start: int, end: int) -> list[dict[str, Any]]:
-    """Strings referenced from inside the function range."""
+def _compute_strings(
+    info: BinaryInfo, start: int, end: int, all_refs: list[Xref] | None = None
+) -> list[dict[str, Any]]:
+    """Strings referenced from inside the function range.
+
+    *all_refs* is the dossier's already-computed ``scan_references`` result;
+    when provided, string-target refs are filtered from it instead of running
+    a second full ``.text`` disassembly (the dossier previously scanned the
+    whole section twice — ``scan_references`` for callers/globals/imports and
+    again inside ``string_refs``).
+    """
     strings = _dossier_strings(info)
-    refs = string_refs(info, strings)
+    if all_refs is not None:
+        targets = {s.va for s in strings}
+        refs: dict[int, list[Xref]] = {}
+        for xref in all_refs:
+            if xref.to_va in targets:
+                refs.setdefault(xref.to_va, []).append(xref)
+        for key in refs:
+            refs[key].sort(key=lambda x: x.from_va)
+    else:
+        refs = string_refs(info, strings)
     out: list[dict[str, Any]] = []
     for s in sorted(strings, key=lambda s: s.va):
         if any(start <= r.from_va < end for r in refs.get(s.va, [])):
@@ -333,6 +353,28 @@ def build_dossier(cfg: ProjectConfig, info: BinaryInfo, va: int) -> dict[str, An
     all_refs = _safe_section(lambda: scan_references(info), [])
     import_table = _import_table(cfg)
 
+    # Function-level pattern + calling convention (rebrew asm's inference) —
+    # the skip-vs-decompile decision at a glance.
+    pattern: str | None = None
+    convention: str | None = None
+    if getattr(cfg, "arch", "") == "x86_32":
+        try:
+            from rebrew.asm import detect_function_pattern
+
+            pattern = detect_function_pattern(cfg, va)
+        except Exception:  # noqa: BLE001 — best-effort tag
+            pattern = None
+        # Extent-based inference (shared helper) — the old flat 64-byte
+        # window truncated longer functions mid-code, so the epilogue `ret`
+        # was never visible and inference said "unknown" (the same bug
+        # skeleton.py already diagnosed and fixed).
+        try:
+            from rebrew.asm import calling_convention_at
+
+            convention = calling_convention_at(cfg, va) or None
+        except Exception:  # noqa: BLE001 — best-effort tag
+            convention = None
+
     return {
         "va": va,
         "name": name,
@@ -341,11 +383,13 @@ def build_dossier(cfg: ProjectConfig, info: BinaryInfo, va: int) -> dict[str, An
         "cflags": cflags,
         "blocker": blocker,
         "note": note,
+        "pattern": pattern,
+        "convention": convention,
         "callers": _safe_section(lambda: _compute_callers(all_refs, va, names, ranges), []),
         "callees": _safe_section(
             lambda: _compute_callees(all_refs, start, end, names, import_table), []
         ),
-        "strings": _safe_section(lambda: _compute_strings(info, start, end), []),
+        "strings": _safe_section(lambda: _compute_strings(info, start, end, all_refs), []),
         "globals": _safe_section(lambda: _compute_globals(info, all_refs, start, end), []),
         "imports": _safe_section(lambda: _compute_imports(all_refs, start, end, import_table), []),
     }

@@ -521,6 +521,7 @@ class TestRunAllParallel:
             rng_seed=None,
             resume_from=None,
             mutation_weights=None,
+            solutions_out=None,
         ):
             seen.append((stub.symbol, jobs))
             return False, "best_score=5.00"
@@ -583,6 +584,7 @@ class TestRunAllParallel:
             rng_seed=None,
             resume_from=None,
             mutation_weights=None,
+            solutions_out=None,
         ):
             seen.append(jobs)
             return False, "best_score=5.00"
@@ -709,6 +711,7 @@ class TestSweepThenGa:
             rng_seed=None,
             resume_from=None,
             mutation_weights=None,
+            solutions_out=None,
         ):
             seen["override"] = cflags_override
             return False, "best_score=5.00"
@@ -782,6 +785,7 @@ class TestSweepThenGa:
             rng_seed=None,
             resume_from=None,
             mutation_weights=None,
+            solutions_out=None,
         ):
             seen["override"] = cflags_override
             return False, "best_score=5.00"
@@ -920,7 +924,7 @@ class TestOutDirRejection:
                 target_binary=tmp_path / "x.dll",
             ),
         )
-        monkeypatch.setattr("rebrew.match._run_all", lambda **kw: None)
+        monkeypatch.setattr("rebrew.match._run_all", lambda **kw: (0, 0))
         result = CliRunner().invoke(app, ["--all"])
         assert result.exit_code == 0
 
@@ -1314,6 +1318,7 @@ class TestCrossProjectSeeding:
             rng_seed=None,
             resume_from=None,
             mutation_weights=None,
+            solutions_out=None,
         ):
             seen["cflags_override"] = cflags_override
             seen["seeds"] = seeds
@@ -1447,7 +1452,7 @@ class TestCrossProjectSeeding:
 class TestToolchainRoutedBuildCandidate:
     """build_candidate_obj_only must route toolchain-backed profiles
     (watcom, msvc1.52) through the shared compile_to_obj runner — the raw
-    subprocess path invokes `wine tools/MSVC152/BIN/CL.EXE` and silently
+    subprocess path invokes `wine toolchain/msvc/1.52-win16/BIN/CL.EXE` and silently
     drops the 16-bit flag sweep."""
 
     def test_msvc152_profile_delegates_to_compile_to_obj(
@@ -1465,11 +1470,17 @@ class TestToolchainRoutedBuildCandidate:
             return str(obj), ""
 
         monkeypatch.setattr("rebrew.compile.compile_to_obj", _fake_compile_to_obj)
+        # Deterministic parse result in every environment: routing is what this
+        # test asserts — without the mock, a missing vendored objconv (CI)
+        # raises FileNotFoundError instead of the graceful "not found" path.
+        monkeypatch.setattr(
+            "rebrew.matcher.compiler.parse_obj_symbol_bytes", lambda *a, **k: (None, [])
+        )
         # OMF-ish magic so parse_obj_symbol_bytes tries omf16 and fails
         # gracefully on the fake payload — we only assert routing happened.
         res = build_candidate_obj_only(
             "int f(void){return 0;}",
-            "tools/MSVC152/BIN/CL.EXE",
+            "toolchain/msvc/1.52-win16/BIN/CL.EXE",
             "/inc",
             "/O1",
             "_f",
@@ -1477,7 +1488,7 @@ class TestToolchainRoutedBuildCandidate:
             cfg=SimpleNamespace(
                 root=Path.cwd(),
                 compiler_profile="msvc1.52",
-                compiler_command="tools/MSVC152/BIN/CL.EXE",
+                compiler_command="toolchain/msvc/1.52-win16/BIN/CL.EXE",
                 compiler_includes="/inc",
                 base_cflags="",
                 compile_timeout=30,

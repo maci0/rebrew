@@ -6,12 +6,13 @@ optional dependencies don't prevent the entire CLI from loading.
 Single-command modules are registered as flat ``app.command()`` entries,
 avoiding the Typer "group" behaviour of ``add_typer()`` which expects a
 ``COMMAND [ARGS]...`` token after callback arguments.  Only true
-multi-command modules (``extract``, ``cfg``, ``cache``, ``skills``) use
-``add_typer()``.
+multi-command modules (``extract``, ``cfg``, ``cache``, ``skills``,
+``resource``, ``toolchain``) use ``add_typer()``.
 """
 
 import importlib
 import logging
+import sys
 from collections.abc import Callable
 
 import typer
@@ -138,6 +139,7 @@ _COMMAND_PANELS: dict[str, str] = {
     "diff": "Matching",
     "extract": "Matching",
     "asm": "Matching",
+    "switch": "Matching",
     "prove": "Matching",
     "solutions": "Analysis",
     "round-trip": "Matching",
@@ -147,6 +149,8 @@ _COMMAND_PANELS: dict[str, str] = {
     "dashboard": "Export & Sync",
     "sync": "Export & Sync",
     "binsync-export": "Export & Sync",
+    "binsync-import": "Export & Sync",
+    "binsync-diff": "Export & Sync",
 }
 
 # Single-command modules – registered as flat commands via app.command().
@@ -160,6 +164,11 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("match", "rebrew.match", "GA matching engine — single file or batch (--all)."),
     ("diff", "rebrew.diff", "Compile and diff a reversed function against the target binary."),
     ("asm", "rebrew.asm", "Disassemble a function (hex dump or NASM source)."),
+    (
+        "switch",
+        "rebrew.switch",
+        "Decode jump-table switch dispatches in a function (case → handler map).",
+    ),
     ("init", "rebrew.init", "Initialize a new rebrew project."),
     (
         "intake",
@@ -247,6 +256,16 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "binsync-export",
         "rebrew.binsync_export",
         "Export annotations to an experimental BinSync state directory.",
+    ),
+    (
+        "binsync-import",
+        "rebrew.binsync_import",
+        "Import a BinSync state directory into rebrew metadata.",
+    ),
+    (
+        "binsync-diff",
+        "rebrew.binsync_diff",
+        "Show where rebrew and a BinSync state diverge (read-only).",
     ),
     (
         "catalog",
@@ -337,6 +356,21 @@ for _name, _module, _help in _MULTI_COMMANDS:
         )
 
 
+def _json_requested(argv: list[str] | None = None) -> bool:
+    """True when the invocation asked for JSON output.
+
+    Checks the EXACT ``--json`` / ``--json=true`` tokens — the old
+    substring scan (``"--json" in sys.argv``) matched any argument
+    containing the literal, e.g. a file named ``x--json.c`` or
+    ``--cflags "--json"``, switching the uncaught-exception envelope to
+    JSON mode without the user passing ``--json`` (cli-review F11).
+    """
+    for arg in argv if argv is not None else sys.argv:
+        if arg == "--json" or arg == "--json=true":
+            return True
+    return False
+
+
 def main() -> None:
     """Package entry point for the ``rebrew`` umbrella CLI."""
     try:
@@ -346,11 +380,9 @@ def main() -> None:
         # becomes an uncaught-exception traceback with a lying exit 1.
         # Print the friendly message (JSON envelope when --json was passed)
         # and exit with EXIT_ERROR instead.
-        import sys
-
         from rebrew.cli import EXIT_ERROR
 
-        if "--json" in sys.argv:
+        if _json_requested():
             import json
 
             print(json.dumps({"error": str(e), "code": EXIT_ERROR}))

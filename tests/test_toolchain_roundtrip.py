@@ -1,14 +1,15 @@
 """Round-trip integration tests for the decomp.me MSVC toolchains.
 
 Each test compiles a snippet with one of the vendored decomp.me toolchains
-(msvc6.3, msvc6.6, msvc7.0 under tools/), extracts the function bytes from
+(msvc-6.0-sp3-win32, msvc-6.0-sp6-win32, msvc-7.0-win32 under tools/), extracts the function bytes from
 the produced COFF object, and re-runs the compile+compare pipeline — the
 profile is proven when the result classifies EXACT (compile → parse →
 byte-compare all agree).
 
-These tests SKIP when wine or the toolchain tarballs are not present (they
-are gitignored; fetch from the OmniBlade decomp.me release mirror — see
-docs/TOOLCHAIN.md).
+These tests SKIP when neither wine nor wibo (or the toolchain tarballs) is
+present — they are gitignored; fetch from the OmniBlade decomp.me release
+mirror (see docs/TOOLCHAIN.md).  wibo is preferred when available (headless,
+~14x faster than wine for these compiles); CI installs it best-effort.
 """
 
 from __future__ import annotations
@@ -35,10 +36,17 @@ int f(int n)
 """
 
 
+def _find_wibo() -> Path | None:
+    """wibo binary for the repo (PATH or tools/wibo), if any."""
+    from rebrew.wibo import find_wibo
+
+    return find_wibo(_REPO)
+
+
 def _cfg(root: Path, toolchain: str) -> SimpleNamespace:
     """Build a compile config for a vendored toolchain, tolerating the
-    decomp.me (msvc6.3/6.6/7.0, lowercase, Bin) and archaic-msvc
-    (MSVC420/MSVC500, uppercase, bin) layouts."""
+    decomp.me (msvc-6.0-sp3-win32/6.6/7.0, lowercase, Bin) and archaic-msvc
+    (msvc-4.2-win32/msvc-5.0-win32, uppercase, bin) layouts."""
     candidates = [
         ("Bin", "CL.EXE"),
         ("Bin", "cl.exe"),
@@ -61,10 +69,20 @@ def _cfg(root: Path, toolchain: str) -> SimpleNamespace:
         ),
         _TOOLS / toolchain / "Include",
     )
+    # Prefer wibo (the recommended runner — headless, no wine boot) when it
+    # is around; fall back to wine.  wibo executes CL.EXE directly, so the
+    # command has no runner prefix.
+    wibo = _find_wibo()
+    if wibo is not None:
+        compiler_command = str(cl)
+        compiler_runner = str(wibo)
+    else:
+        compiler_command = f"wine {cl}"
+        compiler_runner = "wine"
     return SimpleNamespace(
         root=root,
-        compiler_command=f"wine {cl}",
-        compiler_runner="wine",
+        compiler_command=compiler_command,
+        compiler_runner=compiler_runner,
         compiler_includes=inc,
         compiler_libs=Path(""),
         compiler_profile="msvc6",
@@ -81,7 +99,8 @@ def _toolchain_available(toolchain: str) -> bool:
         _TOOLS / toolchain / "Bin" / "cl.exe",
         _TOOLS / toolchain / "bin" / "cl.exe",
     ]
-    return any(c.exists() for c in candidates) and shutil.which("wine") is not None
+    runner_ok = shutil.which("wine") is not None or _find_wibo() is not None
+    return any(c.exists() for c in candidates) and runner_ok
 
 
 def _compile_extract_compare(tmp_path: Path, toolchain: str, cflags: list[str]) -> str:
@@ -110,9 +129,9 @@ def _compile_extract_compare(tmp_path: Path, toolchain: str, cflags: list[str]) 
     [
         ("msvc6.3", ["/O2", "/Gd"]),
         ("msvc6.6", ["/O2", "/Gd"]),
-        ("msvc7.0", ["/O2", "/Ob0", "/Gd"]),
-        ("MSVC420", ["/O2", "/Gd"]),
-        ("MSVC500", ["/O2", "/Gd"]),
+        ("msvc-7.0-win32", ["/O2", "/Ob0", "/Gd"]),
+        ("msvc-4.2-win32", ["/O2", "/Gd"]),
+        ("msvc-5.0-win32", ["/O2", "/Gd"]),
     ],
 )
 def test_toolchain_roundtrip_exact(tmp_path: Path, toolchain: str, cflags: list[str]) -> None:

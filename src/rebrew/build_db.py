@@ -6,6 +6,7 @@ into a single SQLite database for querying and reporting.
 
 import contextlib
 import json
+import logging
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,6 +22,12 @@ console = Console(stderr=True)
 
 
 _CURRENT_DB_VERSION = "4"
+
+#: Per-target retention cap for the history table: only the newest N status-
+#: change rows per target are kept after each rebuild.  The dashboard pages
+#: the newest 100 (max 5000) — keeping 10k per target preserves 2+ full
+#: pages of history while bounding unbounded growth (db-review F7).
+_HISTORY_RETENTION = 10_000
 
 # Reserved metadata target holding the schema-level db_version stamp, so the
 # version is read deterministically regardless of which targets exist (a
@@ -41,6 +48,32 @@ def _parse_int(value: Any, default: int = 0) -> int:
     return default
 
 
+#: Known cell states emitted by catalog/grid.py (grid.py sets
+#: `state = item["status"].lower()` for function cells plus the gap states
+#: none/padding/data/thunk and Ghidra label states).  Used to WARN on
+#: out-of-set states from hand-edited JSON — an unknown state otherwise
+#: vanishes silently into the section_cell_stats `other_count` bucket with no
+#: signal (db-review F4).
+_KNOWN_CELL_STATES = {
+    "exact",
+    "reloc",
+    "proven",
+    "near_matching",
+    "near_match",
+    "stub",
+    "size_mismatch",
+    "compile_error",
+    "missing_file",
+    "missing_size",
+    "skip",
+    "unknown",
+    "none",
+    "padding",
+    "data",
+    "thunk",
+}
+
+
 def _normalize_cell_row(
     target_name: str, sec_name: str, cell: dict[str, Any]
 ) -> tuple[str, str, int, int, int, str, str, str | None, str | None]:
@@ -49,6 +82,14 @@ def _normalize_cell_row(
     end = max(start, _parse_int(cell.get("end"), start))
     span = max(1, _parse_int(cell.get("span"), 1))
     state = str(cell.get("state") or "none")
+    if state not in _KNOWN_CELL_STATES:
+        logging.warning(
+            "build_db: cell state %r not in known set — it will land in "
+            "section_cell_stats.other_count (check the generator or hand-"
+            "edited JSON); known: %s",
+            state,
+            ", ".join(sorted(_KNOWN_CELL_STATES)),
+        )
     functions = cell.get("functions", [])
     if not isinstance(functions, list):
         functions = []
@@ -69,8 +110,16 @@ def _normalize_cell_row(
 
 def _function_stats(
     c: sqlite3.Cursor, target_name: str
-) -> tuple[int, dict[str, int], dict[str, list[Any]], int]:
-    """Return (total, by_status, by_module, covered_bytes) for a target's functions."""
+) -> tuple[int, dict[str, int], dict[str, list[Any]], int, int]:
+    """Return (total, by_status, by_module, covered_bytes, matched_bytes).
+
+    ``covered_bytes`` = sum of EVERY function's size regardless of status
+    ("identified bytes" — a STUB placeholder counts fully).  ``matched_bytes``
+    = sum of EXACT/RELOC/PROVEN sizes only (db-review F1: the dashboard
+    headline used covered_bytes, so an all-STUB binary reported ~100%
+    "coverage").  The headline metric is matched bytes; identified bytes is
+    the separate "fully documented" figure.
+    """
     c.execute(
         "SELECT va, name, size, status, module, symbol, markerType, files "
         "FROM functions WHERE target = ? AND markerType NOT IN ('GLOBAL', 'DATA') ORDER BY va",
@@ -80,6 +129,7 @@ def _function_stats(
     by_status: dict[str, int] = {}
     by_module: dict[str, list[Any]] = {}
     covered_bytes: int = 0
+    matched_bytes: int = 0
     for fn in c.fetchall():
         total += 1
         st = fn[3] or "UNKNOWN"
@@ -90,7 +140,9 @@ def _function_stats(
         # Function statuses are EXACT/RELOC/STUB/... — never "none" (a cell
         # state); the old `st != "none"` guard was always true and misleading.
         covered_bytes += size if size is not None else 0
-    return total, by_status, by_module, covered_bytes
+        if st in ("EXACT", "RELOC", "PROVEN"):
+            matched_bytes += size if size is not None else 0
+    return total, by_status, by_module, covered_bytes, matched_bytes
 
 
 def _resolve_db_dir(root_dir: Path, *, json_output: bool = False) -> Path:
@@ -354,10 +406,12 @@ def build_db(
             c.execute("DROP TABLE IF EXISTS globals")
             c.execute("DROP TABLE IF EXISTS sections")
             c.execute("DROP TABLE IF EXISTS metadata")
-            # verify_results is rebuilt by CREATE TABLE IF NOT EXISTS below;
-            # dropping it here prevents orphan rows for targets/functions
-            # that no longer exist in the data.
-            c.execute("DROP TABLE IF EXISTS verify_results")
+            # verify_results is NOT dropped here: it is a persistent history
+            # table (DB_FORMAT.md documents "never dropped on rebuild"), and
+            # dropping it wiped every target's verification rows except the
+            # last-verified target's (re-imported below from
+            # verify_results.json).  The per-target INSERT OR REPLACE + prune
+            # below keeps it current without the drop.
             # v3-era index superseded by idx_history_target_id — history is
             # never dropped (accumulates by design), so remove the dead index
             # explicitly or it survives every rebuild.
@@ -455,7 +509,14 @@ def build_db(
             "CREATE INDEX IF NOT EXISTS idx_functions_marker ON functions(target, markerType)"
         )
         c.execute("CREATE INDEX IF NOT EXISTS idx_globals_name ON globals(target, name)")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_cells_section ON cells(target, section_name)")
+        # idx_cells_section is deliberately NOT created: the
+        # UNIQUE (target, section_name, start) constraint already serves the
+        # same leftmost prefix (target, section_name) for the view's
+        # GROUP BY and any WHERE target=? AND section_name=? query — a second
+        # index would be paid for on every cell insert and never be the only
+        # usable one (db-review F6).  Drop any pre-existing copy from older
+        # builds explicitly or it survives every rebuild.
+        c.execute("DROP INDEX IF EXISTS idx_cells_section")
 
         c.execute("""
             CREATE TABLE IF NOT EXISTS history (
@@ -467,10 +528,13 @@ def build_db(
                 changed_at TEXT NOT NULL
             )
         """)
-        # history rows are appended on every rebuild and never pruned; the
-        # dashboard pages them with WHERE target = ? ORDER BY id DESC LIMIT ?,
-        # so (target, id) is the serving index (a plain (target, va) index
-        # would not serve the ORDER BY id).
+        # history rows are appended on every rebuild; the dashboard pages them
+        # with WHERE target = ? ORDER BY id DESC LIMIT ?, so (target, id) is
+        # the serving index (a plain (target, va) index would not serve the
+        # ORDER BY id).  Growth is bounded by a per-target retention cap —
+        # only the newest _HISTORY_RETENTION rows per target are kept, so a
+        # long-lived project that regenerates often does not accumulate rows
+        # forever (db-review F7).
         c.execute("CREATE INDEX IF NOT EXISTS idx_history_target_id ON history(target, id)")
 
         c.execute("""
@@ -500,7 +564,15 @@ def build_db(
                 SUM(CASE WHEN state = 'thunk' THEN 1 ELSE 0 END) as thunk_count,
                 SUM(CASE WHEN state = 'none' THEN 1 ELSE 0 END) as none_count,
                 SUM(CASE WHEN state = 'proven' THEN 1 ELSE 0 END) as proven_count,
-                SUM(CASE WHEN state = 'size_mismatch' THEN 1 ELSE 0 END) as size_mismatch_count
+                SUM(CASE WHEN state = 'size_mismatch' THEN 1 ELSE 0 END) as size_mismatch_count,
+                -- Catch-all for every other state (compile_error,
+                -- missing_file, missing_size, skip, unknown, ...): without
+                -- it total_cells never equals the sum of the counted columns
+                -- and per-section stats silently undercount (db-review F4).
+                SUM(CASE WHEN state NOT IN (
+                    'exact', 'reloc', 'near_match', 'near_matching', 'stub',
+                    'padding', 'data', 'thunk', 'none', 'proven', 'size_mismatch'
+                ) THEN 1 ELSE 0 END) as other_count
             FROM cells
             GROUP BY target, section_name
         """)
@@ -742,7 +814,9 @@ def build_db(
                     cell_rows,
                 )
 
-            total, by_status, by_module, covered_bytes_func = _function_stats(c, target_name)
+            total, by_status, by_module, covered_bytes_func, matched_bytes = _function_stats(
+                c, target_name
+            )
 
             text_section_data = data.get("sections", {}).get(".text", {})
             total_bytes: int = text_section_data.get("size", 0)
@@ -756,7 +830,12 @@ def build_db(
                     json.dumps(
                         {
                             "total": total,
+                            # "covered_bytes" = identified bytes (every
+                            # function, incl. STUB placeholders).
                             "covered_bytes": covered_bytes_func,
+                            # "matched_bytes" = EXACT/RELOC/PROVEN only — the
+                            # dashboard's headline coverage metric.
+                            "matched_bytes": matched_bytes,
                             "total_bytes": total_bytes,
                             "by_status": by_status,
                             "by_module_counts": {
@@ -798,6 +877,20 @@ def build_db(
                     "VALUES (?, ?, ?, ?, ?)",
                     history_rows,
                 )
+            # Retention: keep only the newest _HISTORY_RETENTION rows per
+            # target.  ROW_NUMBER over (target, id DESC) keeps the newest N;
+            # older rows are deleted so the table does not grow unboundedly
+            # across rebuilds (db-review F7).
+            c.execute(
+                "DELETE FROM history WHERE id NOT IN ("
+                "  SELECT id FROM ("
+                "    SELECT id, ROW_NUMBER() OVER ("
+                "      PARTITION BY target ORDER BY id DESC"
+                "    ) AS rn FROM history"
+                "  ) WHERE rn <= ?"
+                ")",
+                (_HISTORY_RETENTION,),
+            )
 
             # Import the last `rebrew verify -o` report (db/verify_results.json)
             # so the verify_results table carries real per-function data instead
@@ -834,14 +927,21 @@ def build_db(
                         )
                     # Prune rows for functions absent from the latest report
                     # (the report is best-effort and can legitimately shrink).
-                    if vr_data.get("results"):
+                    # Guard on the PARSED vr_rows, not the raw results list:
+                    # a report whose every `va` fails to parse (e.g. null)
+                    # yields an empty IN-list, and SQLite treats `x NOT IN ()`
+                    # as vacuously TRUE — deleting the target's ENTIRE history
+                    # silently (db-review F5).  With no parseable VAs, prune
+                    # nothing; only a report with results AND parseable VAs
+                    # prunes its stale rows.
+                    if vr_rows:
                         c.execute(
                             "DELETE FROM verify_results WHERE target = ? AND va NOT IN ("
                             + ",".join("?" * len(vr_rows))
                             + ")",
                             (target_name, *(r[1] for r in vr_rows)),
                         )
-                    else:
+                    elif not vr_data.get("results"):
                         c.execute("DELETE FROM verify_results WHERE target = ?", (target_name,))
 
             # Schema version stamp: written under a reserved __schema__ row so

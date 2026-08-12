@@ -94,8 +94,15 @@ class TestPrepareEntriesCache:
         mtime: int = 0,
         source_hash: str = "",
         size: int = 64,
-        cflags: str = "",
+        cflags: str | None = None,
     ) -> dict:
+        if cflags is None:
+            # Mirror the new writer: the cache stores the RESOLVED effective
+            # flags (config fallback chain applied), not the raw metadata
+            # value — a hit requires the freshly-resolved value to match.
+            from rebrew.cli import resolve_cflags
+
+            cflags = resolve_cflags(_cfg(Path("/tmp")), None, "")
         if not source_hash:
             p = Path(cfg_reversed_dir()) / filepath
             source_hash = verify_mod._source_hash(p) if p.exists() else "no-file"
@@ -212,7 +219,37 @@ class TestPrepareEntriesCache:
         _, _, _, _, _, cached, _, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
         assert cached == 0
 
-    def test_cached_fail_recorded(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_config_cflags_change_invalidates_cache(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A cached result must be re-verified after [compiler].cflags or a
+        module preset changes — the entry stores the RESOLVED effective flags
+        (config fallback chain applied), so a config edit that changes what a
+        function compiles with invalidates it (config-review F3: the old code
+        compared only metadata CFLAGS, leaving stale EXACT/RELOC served)."""
+        entry = _ann(0x1000)  # annotation cflags "" → resolves from config
+        cfg = self._setup(tmp_path, monkeypatch, entry)
+        # Cache was written when the config resolved to the default.
+        cache = {
+            "0x00001000": verify_mod.VerifyCacheEntry.from_dict(
+                self._cache_entry("f.c", cflags="/O2 /Gd")
+            )
+        }
+        monkeypatch.setattr(
+            verify_mod,
+            "_load_verify_cache",
+            lambda *a, **k: verify_mod.VerifyCache(
+                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+            ),
+        )
+        # First pass: cache hit (resolved flags match the cached entry).
+        _, _, _, _, _, cached, _, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        assert cached == 1
+        # Config-level cflags change: the same source now compiles differently
+        # → the cached result is stale and must be re-verified.
+        cfg.cflags = "/O1"
+        _, _, _, _, _, cached, _, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        assert cached == 0
         entry = _ann(0x1000)
         cfg = self._setup(tmp_path, monkeypatch, entry)
         cache = {

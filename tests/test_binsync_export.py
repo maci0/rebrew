@@ -374,6 +374,188 @@ class TestBinsyncGhidraComment:
         assert "[rebrew:ghidra]" not in out.read_text(encoding="utf-8")
 
 
+class TestBinsyncExportModuleFilter:
+    def test_module_filter(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _make_project(
+            tmp_path,
+            {
+                "a.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nint a(void){return 1;}\n",
+                "b.c": "// FUNCTION: OTHER 0x10002000\n// STATUS: EXACT\n// SIZE: 4\nint b(void){return 2;}\n",
+            },
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch, "--module", "SERVER")
+        assert result.exit_code == 0
+        assert (outdir / "functions" / "10001000.toml").exists()
+        assert not (outdir / "functions" / "10002000.toml").exists()
+
+    def test_module_filter_unknown_exits_nonzero(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _make_project(
+            tmp_path,
+            {
+                "a.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nint a(void){return 1;}\n"
+            },
+        )
+        result, _ = _invoke(tmp_path, monkeypatch, "--module", "UNKNOWN", "--json")
+        assert result.exit_code != 0
+
+    def test_module_filter_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import json as _json
+
+        _make_project(
+            tmp_path,
+            {
+                "a.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nint a(void){return 1;}\n"
+            },
+        )
+        result, _ = _invoke(tmp_path, monkeypatch, "--module", "SERVER", "--json")
+        assert result.exit_code == 0
+        data = _json.loads(result.stdout)
+        assert data["module"] == "SERVER"
+
+
+class TestBinsyncStructFields:
+    def test_parse_struct_fields(self) -> None:
+        from rebrew.binsync_export import _parse_struct_fields
+
+        fields = _parse_struct_fields("typedef struct { int x; int y; char name[32]; } Foo;")
+        names = [f["name"] for f in fields]
+        assert "x" in names and "y" in names and "name" in names
+
+    def test_struct_with_fields_written(self, tmp_path: Path) -> None:
+        from rebrew.binsync_export import _write_struct_toml
+
+        out = tmp_path / "MyStruct.toml"
+        _write_struct_toml(
+            out, "MyStruct", fields=[{"name": "x", "type": "int"}, {"name": "y", "type": "float"}]
+        )
+        doc = tomlkit.loads(out.read_text())
+        assert "fields" in doc
+        fields = cast(dict[str, Any], doc["fields"])
+        assert fields["x"]["type"] == "int"
+        assert fields["y"]["type"] == "float"
+
+    def test_struct_fields_from_header(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Real struct definitions via headers should produce fields, not placeholders
+        _make_project(
+            tmp_path,
+            {
+                "a.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nint a(void){return 1;}\n",
+            },
+        )
+        # Add a header with a real typedef struct
+        (tmp_path / "src" / "types.h").write_text(
+            "typedef struct {\n    int x;\n    float y;\n} Point;\n", encoding="utf-8"
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0
+        p = outdir / "structs" / "Point.toml"
+        assert p.exists()
+        doc = tomlkit.loads(p.read_text())
+        assert "fields" in doc
+
+
+class TestBinsyncCatalogSync:
+    def test_catalog_only_functions_exported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _TOML_WITH_SERVER = """
+[project]
+default_target = "server"
+
+[targets.server]
+binary = "server.dll"
+reversed_dir = "src/server"
+"""
+        (tmp_path / "rebrew-project.toml").write_text(_TOML_WITH_SERVER, encoding="utf-8")
+        (tmp_path / "src" / "server").mkdir(parents=True)
+        (tmp_path / "src" / "server" / "foo.c").write_text(
+            "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 10\nint foo(void){return 1;}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "src" / "server" / "functions.txt").write_text(
+            "0x10001000 10 foo\n0x10002000 16 bar_func\n", encoding="utf-8"
+        )
+        outdir = tmp_path / "binsync_out"
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(app, ["binsync-export", str(outdir), "--json"])
+        assert result.exit_code == 0, result.output
+        assert (outdir / "functions" / "10001000.toml").exists()
+        assert (outdir / "functions" / "10002000.toml").exists()
+        # Catalog-only gets no rebrew comment; name is raw (no _ prefix for catalog entries)
+        doc = tomlkit.loads((outdir / "functions" / "10002000.toml").read_text())
+        assert "comments" not in doc
+        assert cast(dict[str, Any], doc["info"])["name"] in ("bar_func", "_bar_func")
+
+    def test_catalog_clean_removes_orphans(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _TOML_WITH_SERVER = """
+[project]
+default_target = "server"
+
+[targets.server]
+binary = "server.dll"
+reversed_dir = "src/server"
+"""
+
+        (tmp_path / "rebrew-project.toml").write_text(_TOML_WITH_SERVER, encoding="utf-8")
+        (tmp_path / "src" / "server").mkdir(parents=True)
+        (tmp_path / "src" / "server" / "foo.c").write_text(
+            "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 10\nint foo(void){return 1;}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "src" / "server" / "functions.txt").write_text(
+            "0x10001000 10 foo\n0x10002000 16 bar_func\n", encoding="utf-8"
+        )
+        outdir = tmp_path / "binsync_out_clean"
+        monkeypatch.chdir(tmp_path)
+        r = runner.invoke(app, ["binsync-export", str(outdir), "--json"])
+        assert r.exit_code == 0, r.output
+        # Orphan a file
+        (outdir / "functions" / "99999999.toml").write_text('[info]\nname = "orphan"\naddr = 1\n')
+        # Remove bar from catalog, then --clean should delete both 10002000 and orphan
+        (tmp_path / "src" / "server" / "functions.txt").write_text(
+            "0x10001000 10 foo\n", encoding="utf-8"
+        )
+        r2 = runner.invoke(app, ["binsync-export", str(outdir), "--clean", "--json"])
+        assert r2.exit_code == 0, r2.output
+        import json as _j
+
+        assert not (outdir / "functions" / "10002000.toml").exists()
+        assert not (outdir / "functions" / "99999999.toml").exists()
+        assert len(_j.loads(r2.stdout).get("cleaned", [])) == 2
+
+    def test_module_filter_still_works_with_catalog(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Catalog VAs have module="" so --module SERVER should filter them out?  Export
+        # module filter applies to annotation entries; catalog entries are module-less
+        # and should still export when no filter is set.
+        _TOML_WITH_SERVER = """
+[project]
+default_target = "server"
+
+[targets.server]
+binary = "server.dll"
+reversed_dir = "src/server"
+"""
+        (tmp_path / "rebrew-project.toml").write_text(_TOML_WITH_SERVER, encoding="utf-8")
+        (tmp_path / "src" / "server").mkdir(parents=True)
+        (tmp_path / "src" / "server" / "functions.txt").write_text(
+            "0x10002000 16 bar_func\n", encoding="utf-8"
+        )
+        outdir = tmp_path / "binsync_out2"
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(app, ["binsync-export", str(outdir), "--json"])
+        # No annotations, but catalog has a function — should still export (not "No annotations found")
+        assert result.exit_code == 0, result.output
+        assert (outdir / "functions" / "10002000.toml").exists()
+
+
 class TestBinsyncStructNames:
     def test_struct_annotation_creates_struct_file(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

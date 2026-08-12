@@ -12,8 +12,9 @@ from typing import Any
 import pytest
 
 from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH
+from rebrew.compile import CompareResult
 from rebrew.matcher.scoring import diff_functions
-from rebrew.test import _run_all_batch, build_result_dict
+from rebrew.test import _run_all_batch, build_result_dict_from_compare
 
 # ---------------------------------------------------------------------------
 # diff_functions(as_dict=True)
@@ -132,21 +133,39 @@ class TestDiffFunctionsAsDict:
 
 
 class TestBuildResultDict:
-    """Test the rebrew-test JSON result dict builder."""
+    """Test the rebrew-test JSON result dict builder (via the canonical
+    CompareResult-based entry point)."""
+
+    def _cmp(
+        self,
+        *,
+        matched: bool,
+        status: str,
+        match_percent: float,
+        obj_bytes: bytes,
+        reloc_offsets: list[int] | None = None,
+        inv_reloc_offsets: list[int] | None = None,
+    ) -> CompareResult:
+        return CompareResult(
+            matched=matched,
+            status=status,
+            match_percent=match_percent,
+            delta=0,
+            obj_bytes=obj_bytes,
+            reloc_offsets=reloc_offsets,
+            inv_reloc_offsets=inv_reloc_offsets,
+            message="",
+        )
 
     def test_exact_match(self) -> None:
         data = b"\x55\x8b\xec\x5d\xc3"
-        result = build_result_dict(
+        result = build_result_dict_from_compare(
             "src/test.c",
             "_func",
             "0x10001000",
             5,
-            matched=True,
-            match_count=5,
-            total=5,
-            relocs=[],
-            obj_bytes=data,
-            target_bytes=data,
+            self._cmp(matched=True, status="EXACT", match_percent=100.0, obj_bytes=data),
+            data,
         )
         assert result["status"] == "EXACT"
         assert result["match_count"] == 5
@@ -154,17 +173,16 @@ class TestBuildResultDict:
         assert result["obj_size"] == 5
 
     def test_reloc_match(self) -> None:
-        result = build_result_dict(
+        data = b"\x00" * 10
+        result = build_result_dict_from_compare(
             "src/test.c",
             "_func",
             "0x10001000",
             10,
-            matched=True,
-            match_count=10,
-            total=10,
-            relocs=[2],
-            obj_bytes=b"\x00" * 10,
-            target_bytes=b"\x00" * 10,
+            self._cmp(
+                matched=True, status="RELOC", match_percent=100.0, obj_bytes=data, reloc_offsets=[2]
+            ),
+            data,
         )
         assert result["status"] == "RELOC"
         assert result["reloc_count"] == 1
@@ -172,17 +190,13 @@ class TestBuildResultDict:
     def test_stub_status(self) -> None:
         target = b"\x55\x8b\xec\x5d\xc3"
         candidate = b"\x55\x8b\xec\xaa\xaa"
-        result = build_result_dict(
+        result = build_result_dict_from_compare(
             "src/test.c",
             "_func",
             "0x10001000",
             5,
-            matched=False,
-            match_count=2,
-            total=5,
-            relocs=[],
-            obj_bytes=candidate,
-            target_bytes=target,
+            self._cmp(matched=False, status="STUB", match_percent=40.0, obj_bytes=candidate),
+            target,
         )
         assert result["status"] == "STUB"
         assert len(result["mismatches"]) == 2
@@ -192,17 +206,19 @@ class TestBuildResultDict:
         """Mismatches list should not include bytes covered by relocations."""
         target = b"\xe8\x10\x00\x00\x00"
         candidate = b"\xe8\x20\x00\x00\x00"
-        result = build_result_dict(
+        result = build_result_dict_from_compare(
             "src/test.c",
             "_func",
             "0x10001000",
             5,
-            matched=False,
-            match_count=4,
-            total=5,
-            relocs=[1],
-            obj_bytes=candidate,
-            target_bytes=target,
+            self._cmp(
+                matched=False,
+                status="STUB",
+                match_percent=80.0,
+                obj_bytes=candidate,
+                reloc_offsets=[1],
+            ),
+            target,
         )
         # Bytes 1-4 are reloc, so no mismatches should be reported there
         mismatch_offsets = {m["offset"] for m in result["mismatches"]}
@@ -213,17 +229,13 @@ class TestBuildResultDict:
 
     def test_json_serializable(self) -> None:
         data = b"\x55\x8b\xec"
-        result = build_result_dict(
+        result = build_result_dict_from_compare(
             "src/test.c",
             "_func",
             "0x10001000",
             3,
-            matched=True,
-            match_count=2,
-            total=3,
-            relocs=[],
-            obj_bytes=data,
-            target_bytes=data,
+            self._cmp(matched=True, status="EXACT", match_percent=66.7, obj_bytes=data),
+            data,
         )
         serialized = json.dumps(result)
         parsed = json.loads(serialized)
@@ -232,17 +244,13 @@ class TestBuildResultDict:
     def test_all_required_keys(self) -> None:
         """Result dict should have all documented keys."""
         data = b"\x55\x8b\xec"
-        result = build_result_dict(
+        result = build_result_dict_from_compare(
             "src/test.c",
             "_func",
             "0x10001000",
             3,
-            matched=True,
-            match_count=2,
-            total=3,
-            relocs=[],
-            obj_bytes=data,
-            target_bytes=data,
+            self._cmp(matched=True, status="EXACT", match_percent=66.7, obj_bytes=data),
+            data,
         )
         required_keys = {
             "source",

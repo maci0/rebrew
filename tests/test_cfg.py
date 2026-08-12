@@ -778,36 +778,36 @@ class TestDetectCrtSources:
         assert detect_crt_sources(tmp_path) == {}
 
     def test_msvc600_detected(self, tmp_path: Path) -> None:
-        """Standard MSVC600 layout is detected."""
-        crt_dir = tmp_path / "tools" / "MSVC600" / "VC98" / "CRT" / "SRC"
+        """Standard msvc-6.0-win32 layout is detected."""
+        crt_dir = tmp_path / "toolchain" / "msvc" / "6.0-win32" / "VC98" / "CRT" / "SRC"
         crt_dir.mkdir(parents=True)
         result = detect_crt_sources(tmp_path)
         assert "MSVCRT" in result
-        assert "MSVC600" in result["MSVCRT"]
+        assert "msvc/6.0-win32" in result["MSVCRT"]
 
     def test_case_insensitive(self, tmp_path: Path) -> None:
         """CRT path detection is case-insensitive."""
-        crt_dir = tmp_path / "tools" / "msvc600" / "vc98" / "crt" / "src"
+        crt_dir = tmp_path / "toolchain" / "msvc" / "6.0-win32" / "vc98" / "crt" / "src"
         crt_dir.mkdir(parents=True)
         result = detect_crt_sources(tmp_path)
         assert "MSVCRT" in result
 
     def test_msvc7_detected(self, tmp_path: Path) -> None:
-        crt_dir = tmp_path / "tools" / "MSVC7" / "crt" / "src"
+        crt_dir = tmp_path / "toolchain" / "msvc" / "7.0-win32" / "crt" / "src"
         crt_dir.mkdir(parents=True)
         result = detect_crt_sources(tmp_path)
         assert "MSVCRT" in result
-        assert "MSVC7" in result["MSVCRT"]
+        assert "msvc/7.0-win32" in result["MSVCRT"]
 
     def test_first_match_wins(self, tmp_path: Path) -> None:
         """Only the first matching pattern per origin is returned."""
-        crt1 = tmp_path / "tools" / "MSVC600" / "VC98" / "CRT" / "SRC"
+        crt1 = tmp_path / "toolchain" / "msvc" / "6.0-win32" / "VC98" / "CRT" / "SRC"
         crt1.mkdir(parents=True)
-        crt2 = tmp_path / "tools" / "MSVC7" / "crt" / "src"
+        crt2 = tmp_path / "toolchain" / "msvc" / "7.0-win32" / "crt" / "src"
         crt2.mkdir(parents=True)
         result = detect_crt_sources(tmp_path)
-        # MSVC600 pattern appears first in _CRT_SOURCE_PATTERNS
-        assert "MSVC600" in result["MSVCRT"]
+        # msvc-6.0-win32 pattern appears first in _CRT_SOURCE_PATTERNS
+        assert "msvc/6.0-win32" in result["MSVCRT"]
 
 
 class TestCLIDetectCrt:
@@ -820,7 +820,7 @@ class TestCLIDetectCrt:
 
     def test_detect_crt_found(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
-        crt_dir = tmp_path / "tools" / "MSVC600" / "VC98" / "CRT" / "SRC"
+        crt_dir = tmp_path / "toolchain" / "msvc" / "6.0-win32" / "VC98" / "CRT" / "SRC"
         crt_dir.mkdir(parents=True)
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["detect-crt"])
@@ -829,7 +829,7 @@ class TestCLIDetectCrt:
 
     def test_detect_crt_write(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
-        crt_dir = tmp_path / "tools" / "MSVC600" / "VC98" / "CRT" / "SRC"
+        crt_dir = tmp_path / "toolchain" / "msvc" / "6.0-win32" / "VC98" / "CRT" / "SRC"
         crt_dir.mkdir(parents=True)
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["detect-crt", "--write"])
@@ -837,7 +837,10 @@ class TestCLIDetectCrt:
         assert "Wrote" in result.output
         doc, _ = _load_toml(tmp_path)
         assert "crt_sources" in doc["targets"]["server.dll"]
-        assert doc["targets"]["server.dll"]["crt_sources"]["MSVCRT"] == "tools/MSVC600/VC98/CRT/SRC"
+        assert (
+            doc["targets"]["server.dll"]["crt_sources"]["MSVCRT"]
+            == "toolchain/msvc/6.0-win32/VC98/CRT/SRC"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -911,6 +914,10 @@ class TestCLISetCompiler:
         compiler_tbl = doc["targets"]["server.dll"]["compiler"]
         assert "CL.EXE" in compiler_tbl["command"]
         assert "Include" in compiler_tbl["includes"] or "include" in compiler_tbl["includes"]
+        # profile is the routing key every tool reads — must be written too
+        # (config-review F1: the old code wrote only command/includes/libs,
+        # so the target stayed on the default profile with wrong flag routing).
+        assert compiler_tbl["profile"] == "msvc6"
 
     def test_set_compiler_gcc(self, tmp_path: Path, monkeypatch) -> None:
         """set-compiler writes correct gcc profile."""
@@ -919,7 +926,9 @@ class TestCLISetCompiler:
         result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "gcc"])
         assert result.exit_code == 0
         doc, _ = _load_toml(tmp_path)
-        assert doc["targets"]["server.dll"]["compiler"]["command"] == "gcc"
+        compiler_tbl = doc["targets"]["server.dll"]["compiler"]
+        assert compiler_tbl["command"] == "gcc"
+        assert compiler_tbl["profile"] == "gcc"
 
     def test_set_compiler_unknown_profile_rejected(self, tmp_path: Path, monkeypatch) -> None:
         """set-compiler rejects unknown profiles with a list of valid choices."""
@@ -1090,7 +1099,7 @@ class TestCfgCli:
         assert "/O1 /Gy" in (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
 
     def test_detect_crt(self, tmp_path: Path, monkeypatch: object) -> None:
-        tools = tmp_path / "tools" / "MSVC600" / "VC98" / "CRT" / "SRC"
+        tools = tmp_path / "toolchain" / "msvc" / "6.0-win32" / "VC98" / "CRT" / "SRC"
         tools.mkdir(parents=True)
         (tools / "MALLOC.C").write_text("int malloc(void);\n", encoding="utf-8")
         result = self._invoke(tmp_path, monkeypatch, ["detect-crt"])

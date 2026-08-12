@@ -4,7 +4,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
-from rebrew.compile import compile_to_obj, filter_wine_stderr, resolve_cl_command
+from rebrew.compile import (
+    compile_to_obj,
+    filter_wine_stderr,
+    maybe_headless_wine,
+    resolve_cl_command,
+)
 from rebrew.config import ProjectConfig
 
 # ---------------------------------------------------------------------------
@@ -19,11 +24,11 @@ class TestResolveClCommand:
         """wine + relative CL.EXE path is resolved against cfg.root."""
         cfg = ProjectConfig(
             root=tmp_path,
-            compiler_command="wine tools/MSVC600/VC98/Bin/CL.EXE",
+            compiler_command="wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE",
         )
         result = resolve_cl_command(cfg)
         assert result[0] == "wine"
-        assert result[1] == str(tmp_path / "tools/MSVC600/VC98/Bin/CL.EXE")
+        assert result[1] == str(tmp_path / "toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE")
 
     def test_missing_relative_path_falls_back_to_install(self, tmp_path: Path, monkeypatch) -> None:
         """A project-relative CL path absent under the project root resolves
@@ -31,13 +36,13 @@ class TestResolveClCommand:
         a tools/ symlink still compile)."""
         from rebrew import utils as rebrew_utils
 
-        fake = tmp_path / "tools" / "MSVC600" / "VC98" / "Bin" / "CL.EXE"
+        fake = tmp_path / "toolchain" / "msvc" / "6.0-win32" / "VC98" / "Bin" / "CL.EXE"
         fake.parent.mkdir(parents=True)
         fake.write_bytes(b"MZ")
         monkeypatch.setattr(rebrew_utils, "_REPO_ROOT", tmp_path)
         cfg = ProjectConfig(
             root=tmp_path / "project",
-            compiler_command="wine tools/MSVC600/VC98/Bin/CL.EXE",
+            compiler_command="wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE",
         )
         result = resolve_cl_command(cfg)
         assert result[0] == "wine"
@@ -211,6 +216,7 @@ class TestCompileToObjPosix:
             compiler_runner="",
             compiler_libs=tmp_path,
             compiler_profile=profile,
+            posix_style=profile in ("gcc", "gcc-pe", "clang", "watcom"),
             msvc_env=lambda: {},
         )
         src_dir = tmp_path / "src"
@@ -454,16 +460,132 @@ def test_resolve_compiler_env_falls_back_to_install(tmp_path: Path, monkeypatch)
     from rebrew.compile import resolve_compiler_env
     from rebrew.config import ProjectConfig
 
-    fake = tmp_path / "tools" / "MSVC500" / "bin" / "cl.exe"
+    fake = tmp_path / "toolchain" / "msvc" / "5.0-win32" / "bin" / "cl.exe"
     fake.parent.mkdir(parents=True)
     fake.write_bytes(b"MZ")
-    (tmp_path / "tools" / "MSVC500" / "include").mkdir(parents=True)
+    (tmp_path / "toolchain" / "msvc" / "5.0-win32" / "include").mkdir(parents=True)
     monkeypatch.setattr(rebrew_utils, "_REPO_ROOT", tmp_path)
 
     cfg = ProjectConfig(
         root=tmp_path / "project",
-        compiler_command="wine tools/MSVC500/bin/cl.exe",
-        compiler_includes="tools/MSVC500/include",
+        compiler_command="wine toolchain/msvc/5.0-win32/bin/cl.exe",
+        compiler_includes="toolchain/msvc/5.0-win32/include",
     )
     cl_cmd, _inc_dir, _env, _cc = resolve_compiler_env(cfg)
     assert cl_cmd == f"wine {fake}"  # inc_dir fallback is a load_config concern
+
+
+# ---------------------------------------------------------------------------
+# maybe_headless_wine
+# ---------------------------------------------------------------------------
+
+
+class TestMaybeHeadlessWine:
+    """Tests for maybe_headless_wine() — wine runs headless via a persistent Xvfb."""
+
+    def test_wine_gets_display_env(self, monkeypatch) -> None:
+        """wine → command unchanged, env gains DISPLAY pointing at an Xvfb."""
+        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
+        cmd, env = maybe_headless_wine(["wine", "/opt/CL.EXE"], {"WINEDEBUG": "-all"})
+        assert cmd == ["wine", "/opt/CL.EXE"]
+        assert env == {"WINEDEBUG": "-all", "DISPLAY": ":99"}
+
+    def test_absolute_wine_path_gets_display(self, monkeypatch) -> None:
+        """A path to wine (e.g. /usr/bin/wine) is matched by basename."""
+        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
+        cmd, env = maybe_headless_wine(["/usr/bin/wine", "/opt/CL.EXE"], None)
+        assert cmd == ["/usr/bin/wine", "/opt/CL.EXE"]
+        assert env["DISPLAY"] == ":99"
+
+    def test_wibo_not_touched(self, monkeypatch) -> None:
+        """wibo is already headless — left untouched."""
+        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
+        cmd, env = maybe_headless_wine(["wibo", "/opt/CL.EXE"], None)
+        assert cmd == ["wibo", "/opt/CL.EXE"]
+        assert env is None
+
+    def test_gcc_not_touched(self, monkeypatch) -> None:
+        """Non-wine commands are never touched."""
+        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
+        cmd, env = maybe_headless_wine(["gcc", "-c", "t.c"], None)
+        assert cmd == ["gcc", "-c", "t.c"]
+        assert env is None
+
+    def test_no_xvfb_falls_back_to_xvfb_run(self, monkeypatch) -> None:
+        """No Xvfb binary but xvfb-run present → slow wrapper fallback."""
+        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: None)
+        monkeypatch.setattr(
+            "rebrew.compile.shutil.which",
+            lambda name: "/usr/bin/xvfb-run" if name == "xvfb-run" else None,
+        )
+        cmd, env = maybe_headless_wine(["wine", "/opt/CL.EXE"], {"WINEDEBUG": "-all"})
+        assert cmd[0] == "xvfb-run"
+        assert cmd[4:] == ["wine", "/opt/CL.EXE"]
+        assert env == {"WINEDEBUG": "-all"}
+
+    def test_no_xvfb_no_wrapper_bare_wine(self, monkeypatch) -> None:
+        """Neither Xvfb nor xvfb-run → bare wine as-is."""
+        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: None)
+        monkeypatch.setattr("rebrew.compile.shutil.which", lambda name: None)
+        cmd, env = maybe_headless_wine(["wine", "/opt/CL.EXE"], None)
+        assert cmd == ["wine", "/opt/CL.EXE"]
+        assert env is None
+
+    def test_headless_opt_out_env(self, monkeypatch) -> None:
+        """REBREW_WINE_HEADLESS=0 forces bare wine even with Xvfb available."""
+        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
+        cmd, _env = maybe_headless_wine(["wine", "/opt/CL.EXE"], {"REBREW_WINE_HEADLESS": "0"})
+        assert cmd == ["wine", "/opt/CL.EXE"]
+
+    def test_empty_command_untouched(self, monkeypatch) -> None:
+        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
+        cmd, env = maybe_headless_wine([], {"WINEDEBUG": "-all"})
+        assert cmd == []
+        assert env == {"WINEDEBUG": "-all"}
+
+
+# ---------------------------------------------------------------------------
+# Relative runner path resolution (--install-wibo config shape)
+# ---------------------------------------------------------------------------
+
+
+class TestRelativeRunnerResolution:
+    """A relative runner like ``tools/wibo`` must anchor to the project root,
+    not the (temp) compile workdir."""
+
+    def test_resolve_cl_command_anchors_relative_runner(self, tmp_path: Path) -> None:
+        """runner='tools/wibo' + command without prefix → root-anchored runner."""
+        cfg = ProjectConfig(
+            root=tmp_path,
+            compiler_command="toolchain/msvc/5.0-win32/bin/cl.exe",
+            compiler_runner="tools/wibo",
+        )
+        result = resolve_cl_command(cfg)
+        assert result[0] == str(tmp_path / "tools/wibo")
+        assert result[1].endswith("toolchain/msvc/5.0-win32/bin/cl.exe")
+
+    def test_resolve_cl_command_bare_runner_untouched(self, tmp_path: Path) -> None:
+        """Bare runner names (wine/wibo on PATH) pass through unchanged."""
+        cfg = ProjectConfig(
+            root=tmp_path,
+            compiler_command="toolchain/msvc/5.0-win32/bin/cl.exe",
+            compiler_runner="wine",
+        )
+        result = resolve_cl_command(cfg)
+        assert result[0] == "wine"
+
+    def test_msvc_env_runner_resolved_and_winedebug(self, tmp_path: Path) -> None:
+        """msvc_env_from_config resolves the relative runner for the GA path
+        and sets WINEDEBUG by basename (tools/wibo is still wibo)."""
+        from rebrew.core.toolchain import msvc_env_from_config
+
+        cfg = ProjectConfig(
+            root=tmp_path,
+            compiler_command="toolchain/msvc/5.0-win32/bin/cl.exe",
+            compiler_runner="tools/wibo",
+            compiler_includes="toolchain/msvc/5.0-win32/include",
+            compiler_libs="toolchain/msvc/5.0-win32/lib",
+        )
+        env = msvc_env_from_config(cfg)
+        assert env["REBREW_COMPILER_RUNNER"] == str(tmp_path / "tools/wibo")
+        assert env["WINEDEBUG"] == "-all"

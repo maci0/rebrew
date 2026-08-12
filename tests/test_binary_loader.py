@@ -270,14 +270,16 @@ class TestDetectFormat:
 
 class TestLoadBinaryCache:
     def setup_method(self) -> None:
-        from rebrew.binary_loader import _load_binary_cache
+        from rebrew.binary_loader import _iat_slot_cache, _load_binary_cache
 
         _load_binary_cache.clear()
+        _iat_slot_cache.clear()
 
     def teardown_method(self) -> None:
-        from rebrew.binary_loader import _load_binary_cache
+        from rebrew.binary_loader import _iat_slot_cache, _load_binary_cache
 
         _load_binary_cache.clear()
+        _iat_slot_cache.clear()
 
     def test_cache_hit(self, tmp_path: Path) -> None:
         from rebrew.binary_loader import load_binary
@@ -455,3 +457,32 @@ class TestFunctionExtentFromDisasm:
     def test_unterminated_returns_none(self, monkeypatch, tmp_path: Path) -> None:
         text = bytes.fromhex("90 90 90 90")
         assert self._run(monkeypatch, text, tmp_path) is None
+
+    def test_with_kind_returns_terminator_kind(self, monkeypatch, tmp_path: Path) -> None:
+        """with_kind=True returns (extent, kind) so callers can distinguish a
+        real epilogue from a branch-merge jmp."""
+        from rebrew.binary_loader import function_extent_from_disasm
+
+        # plain function → ret
+        ret_text = bytes.fromhex("8b 44 24 04 c3")
+        assert function_extent_from_disasm(tmp_path, 0x1000, with_kind=True) is None  # absent file
+        exe = tmp_path / "y.exe"
+        exe.write_bytes(b"MZ" + ret_text)
+        # thunk → jmp
+        jmp_text = bytes.fromhex("b9 d8 d9 03 01 e9 8a 0f 00 00")
+        monkeypatch.setattr(
+            "rebrew.binary_loader.load_binary",
+            lambda *a, **k: type(
+                "I", (), {"text_va": 0x1000, "text_size": len(ret_text), "data": ret_text}
+            )(),
+        )
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_bytes_at_va",
+            lambda info, va, size, trim_padding=True: ret_text[:size],
+        )
+        assert function_extent_from_disasm(exe, 0x1000, with_kind=True) == (5, "ret")
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_bytes_at_va",
+            lambda info, va, size, trim_padding=True: jmp_text[:size],
+        )
+        assert function_extent_from_disasm(exe, 0x1000, with_kind=True) == (10, "jmp")

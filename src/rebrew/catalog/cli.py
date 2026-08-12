@@ -9,6 +9,7 @@ Orchestrates annotation scanning, registry building, and output generation
 
 import json
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -52,13 +53,32 @@ app = typer.Typer(
 )
 
 
+def _is_catalog_generated_structure(path: Path) -> bool:
+    """True when *path* is a `function_structure.json` written by rebrew catalog.
+
+    The catalog-generated compatibility export stamps every entry with
+    ``_generated_by: "rebrew catalog"`` so a re-run can refresh it after the
+    function list changed — while a REAL Ghidra export (no marker) placed at
+    the same path is treated as authoritative and never overwritten.
+    """
+    if not path.exists():
+        return False
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return False
+    if not isinstance(data, list):
+        return False
+    return any(isinstance(d, dict) and d.get("_generated_by") == "rebrew catalog" for d in data)
+
+
 @app.callback(invoke_without_command=True)
 def main(
     gen_data_json: bool = typer.Option(False, "--data-json", help="Write db/data_<target>.json"),
     catalog: bool = typer.Option(
         False, "--catalog", help="Generate CATALOG.md in reversed directory"
     ),
-    summary: bool = typer.Option(False, "--summary", help="Print summary to stdout"),
+    summary: bool = typer.Option(False, "--summary", help="Print summary table (stderr)"),
     csv: bool = typer.Option(
         False, "--csv", help="Generate reccmp-compatible CSV (written to db/<target>_functions.csv)"
     ),
@@ -122,6 +142,16 @@ def main(
             )
 
     if export_ghidra:
+        # --export-ghidra prints interactive instructions and emits NO JSON
+        # document — combining it with --json would produce zero stdout,
+        # breaking the JSON contract (cli-review F9).  Refuse up front like
+        # the --fix-sizes --json guard above.
+        if json_output:
+            error_exit(
+                "--export-ghidra prints instructions and produces no data — "
+                "it cannot be combined with --json",
+                json_mode=True,
+            )
         console.print(
             "To export Ghidra functions, run this in the MCP console:\n"
             f"  get-functions programPath=/{bin_path.name} filterDefaultNames=false\n"
@@ -138,7 +168,21 @@ def main(
     entries = scan_reversed_dir(reversed_dir, cfg=cfg)
     funcs = parse_function_list(func_list_path)
 
-    text_size = get_text_section_size(bin_path) if bin_path and bin_path.exists() else 0x24000
+    # The .text size drives the coverage percentage.  A missing binary used
+    # to fall back to a fabricated 0x24000 (92160B) section — coverage was
+    # then reported against a made-up denominator, indistinguishable from a
+    # real measurement and ingested as truth by build-db/dashboards
+    # (code-review F9).  Use 0 instead (coverage_pct → 0.0) and say so.
+    text_size = 0
+    binary_missing = bin_path is None or not bin_path.exists()
+    if not binary_missing:
+        text_size = get_text_section_size(bin_path)
+    if binary_missing:
+        console.print(
+            f"[yellow]warning:[/yellow] target binary missing ({bin_path}) — "
+            "text_size=0, coverage reported as 0%",
+            style="dim",
+        )
 
     registry = build_function_registry(funcs, cfg, ghidra_json_path, bin_path)
 
@@ -236,16 +280,31 @@ def main(
             atomic_write_text(json_path, json.dumps(data, indent=2) + "\n", encoding="utf-8")
             console.print(f"Wrote {json_path}", style="dim")
 
-            # Export function_structure.json for compatibility if we parsed from a list
-            if funcs and not ghidra_json_path.exists():
-                struct_data = [
-                    {"va": f["va"], "size": f["size"], "name": f["name"], "tool_name": f["name"]}
-                    for f in funcs
-                ]
-                atomic_write_text(
-                    ghidra_json_path, json.dumps(struct_data, indent=2) + "\n", encoding="utf-8"
-                )
-                console.print(f"Wrote {ghidra_json_path}", style="dim")
+            # Export function_structure.json for compatibility if we parsed from a list.
+            # Provenance-stamped: the catalog-generated file carries a
+            # `_generated_by` marker on every entry, so a RE-RUN refreshes it
+            # when the function list changed — but a real Ghidra export placed
+            # at the same path (no marker) is never overwritten
+            # (idempotency-review F5: the old `not exists()` guard wrote the
+            # file once and never refreshed it, so re-discovery left a stale
+            # structure cache diverging from the freshly-written data JSON).
+            if funcs:
+                is_catalog_generated = _is_catalog_generated_structure(ghidra_json_path)
+                if not ghidra_json_path.exists() or is_catalog_generated:
+                    struct_data = [
+                        {
+                            "va": f["va"],
+                            "size": f["size"],
+                            "name": f["name"],
+                            "tool_name": f["name"],
+                            "_generated_by": "rebrew catalog",
+                        }
+                        for f in funcs
+                    ]
+                    atomic_write_text(
+                        ghidra_json_path, json.dumps(struct_data, indent=2) + "\n", encoding="utf-8"
+                    )
+                    console.print(f"Wrote {ghidra_json_path}", style="dim")
 
         if export_ghidra_labels:
             text_sec = data.get("sections", {}).get(".text", {})
@@ -308,21 +367,22 @@ def main(
         console.print(f"[green]Updated {updated} SIZE annotations[/] ({skipped} skipped)")
 
     if json_output:
-        json_print(
-            {
-                "target": target,
-                "annotations": len(entries),
-                "unique_vas": len({e["va"] for e in entries}),
-                "registry": len(registry),
-                "total_functions": len(registry),
-                "covered_bytes": covered_bytes,
-                "text_size": text_size,
-                "coverage_pct": round(coverage_pct, 1),
-                "wrote_data_json": gen_data_json,
-                "wrote_catalog": catalog,
-                "wrote_csv": csv,
-            }
-        )
+        payload: dict[str, Any] = {
+            "target": target,
+            "annotations": len(entries),
+            "unique_vas": len({e["va"] for e in entries}),
+            "registry": len(registry),
+            "total_functions": len(registry),
+            "covered_bytes": covered_bytes,
+            "text_size": text_size,
+            "coverage_pct": round(coverage_pct, 1),
+            "wrote_data_json": gen_data_json,
+            "wrote_catalog": catalog,
+            "wrote_csv": csv,
+        }
+        if binary_missing:
+            payload["warning"] = f"target binary missing ({bin_path}) — text_size=0, coverage is 0%"
+        json_print(payload)
 
 
 def main_entry() -> None:

@@ -271,7 +271,7 @@ class TestBuildSigs:
         from bin_util import make_coff_obj, make_lib_archive
 
         root = tmp_path / "proj"
-        lib_dir = root / "tools" / "MSVC600" / "VC98" / "Lib"
+        lib_dir = root / "tools" / "msvc-6.0-win32" / "VC98" / "Lib"
         lib_dir.mkdir(parents=True)
         obj = make_coff_obj(
             bytes.fromhex("55 8b ec 83 ec 10 57 56 c7 45 fc 00 00 00 00 8b 45 fc 5f 5e 5d c3"),
@@ -391,7 +391,7 @@ class TestBuildSigsRobustness:
     def test_corrupt_lib_skipped_not_abort(self, tmp_path: Path) -> None:
         from rebrew.identify_library import build_flirt_sigs
 
-        lib_dir = tmp_path / "tools" / "MSVC600" / "VC98" / "Lib"
+        lib_dir = tmp_path / "tools" / "msvc-6.0-win32" / "VC98" / "Lib"
         lib_dir.mkdir(parents=True)
         # A valid lib with a real function + a corrupt one.
         from bin_util import make_coff_obj, make_lib_archive

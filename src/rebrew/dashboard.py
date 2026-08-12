@@ -149,7 +149,8 @@ async function loadSummary() {
     get("/api/summary?target=" + encodeURIComponent(t)));
   const cards = [
     ["Functions", s.function_stats.total],
-    ["Coverage", (s.coverage_pct ?? 0).toFixed(1) + "%"],
+    ["Matched", (s.coverage_pct ?? 0).toFixed(1) + "%"],
+    ["Identified", (s.identified_pct ?? 0).toFixed(1) + "%"],
   ];
   for (const [k, v] of Object.entries(s.function_stats.by_status || {}))
     cards.push([k, v]);
@@ -226,8 +227,19 @@ class Dashboard:
         try:
             stats = json.loads(row[0])
         except (json.JSONDecodeError, TypeError):
-            stats = {"total": 0, "covered_bytes": 0, "total_bytes": 0, "by_status": {}}
-        covered = int(stats.get("covered_bytes") or 0)
+            stats = {
+                "total": 0,
+                "covered_bytes": 0,
+                "matched_bytes": 0,
+                "total_bytes": 0,
+                "by_status": {},
+            }
+        # Headline coverage = MATCHED bytes (EXACT/RELOC/PROVEN) / text size —
+        # the old covered_bytes summed every function's size, so an all-STUB
+        # binary reported ~100% "coverage" (db-review F1).  Identified bytes
+        # (incl. stubs) stays available as a separate field.
+        covered = int(stats.get("matched_bytes") or 0)
+        identified = int(stats.get("covered_bytes") or 0)
         total_b = int(stats.get("total_bytes") or 0)
         if total_bytes is not None:
             try:
@@ -239,6 +251,7 @@ class Dashboard:
             "target": target,
             "function_stats": stats,
             "coverage_pct": round(covered / total_b * 100.0, 1) if total_b else 0.0,
+            "identified_pct": round(identified / total_b * 100.0, 1) if total_b else 0.0,
         }
 
     def functions(

@@ -290,7 +290,17 @@ def main(
 
     existing_sources = set(iter_sources(out_dir, cfg)) if out_dir.exists() else set()
     planned: list[dict[str, str]] = []
+    # (block_text, out_path) for phase 2 — only blocks that passed the
+    # module filter and are not pre-existing.
+    to_write: list[tuple[str, Path]] = []
     split_count = 0
+    # Phase 1 — validate EVERY output path before writing ANY file.  The old
+    # interleaved check-then-write aborted mid-batch on the first existing
+    # output, leaving blocks 1..N-1 written — and every re-run then failed on
+    # block 1's now-existing file, so the split could never complete without
+    # --force (renaming/overwriting).  Two-phase: report every conflict up
+    # front, write nothing on any conflict (rename.py's pattern).
+    conflicts: list[Path] = []
     for block in blocks:
         meta = _block_metadata(block)
         if meta is None:
@@ -304,7 +314,8 @@ def main(
         out_path = out_dir / out_name
 
         if not force and (out_path.exists() or out_path in existing_sources):
-            error_exit(f"Output file already exists: {out_path}", json_mode=json_output)
+            conflicts.append(out_path)
+            continue
 
         planned.append(
             {
@@ -314,13 +325,24 @@ def main(
                 "output": rel_display_path(out_path, out_dir),
             }
         )
+        to_write.append((block, out_path))
+        split_count += 1
 
-        if not dry_run:
-            out_dir.mkdir(parents=True, exist_ok=True)
-            out_preamble = strip_comment_blocks(preamble)
+    if conflicts:
+        error_exit(
+            f"Output file already exists: {conflicts[0]} "
+            f"({len(conflicts)} conflict(s) total — nothing was written; "
+            f"re-run with --force to overwrite)",
+            json_mode=json_output,
+        )
+
+    # Phase 2 — all paths validated: write every block.
+    if not dry_run and to_write:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_preamble = strip_comment_blocks(preamble)
+        for block, out_path in to_write:
             out_content = out_preamble + "\n" + block if out_preamble else block
             atomic_write_text(out_path, out_content, encoding=encoding)
-        split_count += 1
 
     if split_count < 2:
         error_exit(

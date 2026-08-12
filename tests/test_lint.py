@@ -280,6 +280,30 @@ class TestNoConfig:
         assert result.passed
         assert not any((c in ("E011", "E012") for _, c, _ in result.errors))
 
+    def test_fix_without_config_warns_instead_of_silent_noop(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--fix outside a project must explain that nothing can migrate
+        (functionality-review: previously a silent no-op — the user saw zero
+        effect with no message)."""
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+
+        f = _write_c(
+            tmp_path,
+            "fcn.c",
+            "// FUNCTION: SERVER 0x00401000\n// STATUS: EXACT\n// SIZE: 16\n"
+            "int __cdecl f(void) { return 0; }\n",
+        )
+        monkeypatch.chdir(tmp_path)  # no rebrew-project.toml here
+        result = CliRunner().invoke(app, ["--fix", str(f)])
+        assert result.exit_code == 0
+        assert "needs a rebrew-project.toml" in result.output
+        # The inline keys must remain untouched.
+        assert "// STATUS:" in f.read_text()
+        assert "// SIZE:" in f.read_text()
+
 
 class TestVAHexCase:
     def test_w015_mixed_case_va(self, tmp_path: Path) -> None:

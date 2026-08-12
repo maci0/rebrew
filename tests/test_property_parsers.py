@@ -977,3 +977,66 @@ def test_code_relocs_are_valid_slots(code: bytes) -> None:
     for off, kind in relocs.items():
         if kind == "rel16":
             assert code[off - 1] in (0xE8, 0xE9)
+
+
+# ---------------------------------------------------------------------------
+# catalog/grid._build_cells — coverage-cell invariants
+# ---------------------------------------------------------------------------
+
+
+def _contiguous_segments(
+    lengths: list[int], states: list[str]
+) -> list[tuple[int, int, str, list[Any], None, None]]:
+    """Build contiguous (start, end) segments with per-segment states."""
+    out = []
+    cur = 0
+    for ln, state in zip(lengths, states, strict=True):
+        out.append((cur, cur + ln, state, [], None, None))
+        cur += ln
+    return out
+
+
+@given(
+    st.lists(st.integers(min_value=1, max_value=500), min_size=1, max_size=12),
+    st.integers(min_value=1, max_value=64),
+    st.integers(min_value=1, max_value=16),
+)
+def test_build_cells_cover_contiguously(lengths: list[int], unit_bytes: int, columns: int) -> None:
+    """Cells tile the section exactly: no gaps, no overlap, no overrun."""
+    import math
+
+    from rebrew.catalog.grid import _build_cells
+
+    total = sum(lengths)
+    states = ["code"] * len(lengths)
+    cells = _build_cells(_contiguous_segments(lengths, states), unit_bytes, columns)
+
+    assert cells, "non-empty section must produce cells"
+    assert cells[0]["start"] == 0
+    for i in range(len(cells) - 1):
+        a, b = cells[i], cells[i + 1]
+        assert a["end"] == b["start"], "cells must be contiguous"
+    assert cells[-1]["end"] == total, "cells must cover the whole section"
+
+    for c in cells:
+        assert c["start"] < c["end"]
+        expected_span = max(1, math.ceil((c["end"] - c["start"]) / unit_bytes))
+        assert c["span"] == expected_span
+        assert c["span"] <= columns, "a cell must not exceed the row width"
+
+
+@given(
+    st.lists(st.integers(min_value=1, max_value=300), min_size=1, max_size=10),
+    st.sampled_from(["code", "gap", "padding", "data"]),
+    st.integers(min_value=1, max_value=32),
+    st.integers(min_value=1, max_value=8),
+)
+def test_build_cells_preserve_segment_state(
+    lengths: list[int], state: str, unit_bytes: int, columns: int
+) -> None:
+    """Every cell keeps the state of the segment it was carved from."""
+    from rebrew.catalog.grid import _build_cells
+
+    cells = _build_cells(_contiguous_segments(lengths, [state] * len(lengths)), unit_bytes, columns)
+    assert cells
+    assert all(c["state"] == state for c in cells)

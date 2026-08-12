@@ -121,6 +121,28 @@ class TestScoreCandidate:
             f"with={score_with_reloc.total}, without={score_no_reloc.total}"
         )
 
+    def test_reloc_only_match_scores_zero(self) -> None:
+        """A candidate whose ONLY diffs are at known reloc sites must score
+        ~0 — the byte score excludes relocation bytes too, not just the
+        reloc score.  Previously byte_score counted the 4 reloc bytes raw
+        (floor of ~4000) so the GA/flag-sweep `exact: score < 0.1` gate
+        never accepted a RELOC match and kept mutating a perfect candidate."""
+        target = b"\x55\x8b\xec\xe8\x01\x02\x03\x04\xc3"
+        cand = b"\x55\x8b\xec\xe8\xff\xfe\xfd\xfc\xc3"
+        score = score_candidate(target, cand, reloc_offsets=[4])
+        assert score.byte_score == 0.0
+        assert score.reloc_score == 0.0
+        assert score.mnemonic_score == 0.0
+        assert score.total < 0.1  # the GA/sweep exact gate
+
+    def test_non_reloc_diff_still_counts(self) -> None:
+        """Masking must not hide REAL mismatches: a plain byte diff outside
+        the reloc sites still raises byte_score."""
+        target = b"\x55\x8b\xec\xe8\x01\x02\x03\x04\xc3"
+        cand = b"\x55\x8b\xec\xe8\x01\x02\x03\x04\x90"  # ret -> nop
+        score = score_candidate(target, cand, reloc_offsets=[4])
+        assert score.byte_score > 0.0
+
     def test_empty(self) -> None:
         score = score_candidate(b"", b"")
         assert isinstance(score, Score)

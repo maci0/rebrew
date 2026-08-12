@@ -180,6 +180,51 @@ class TestIntake:
         assert out2.exit_code == 0, out2.output
         assert stub.exists()  # edited file survives the prune
 
+    def test_rediscovery_never_demotes_matched_or_clobbers_blocker(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Regression: re-running intake must NOT demote a function the user
+        has matched (EXACT/RELOC/NEAR_MATCHING → STUB) nor clobber a
+        user-written BLOCKER — the old classify_all wrote STUB + auto blocker
+        for every function on every re-run, silently resetting the corpus."""
+        from typer.testing import CliRunner
+
+        import rebrew.main as main_mod
+
+        binary = tmp_path / "game.exe"
+        binary.write_bytes(b"MZ")
+        monkeypatch.setattr(
+            "rebrew.intake._run_rizin_functions",
+            lambda b: [(0x401000, 32, "fcn.00401000"), (0x402000, 64, "fcn.00402000")],
+        )
+        monkeypatch.setattr(
+            "rebrew.intake._suggest_profile",
+            lambda b: ("msvc6", "msvc", "MSVC 6.0", []),
+        )
+        runner = CliRunner()
+        monkeypatch.chdir(tmp_path)
+        out1 = runner.invoke(main_mod.app, ["intake", "game.exe", "--json"])
+        assert out1.exit_code == 0, out1.output
+
+        # User matches one function (RELOC) and hand-writes a BLOCKER on the
+        # other — both must survive a re-run.
+        from rebrew.metadata import update_source_status
+
+        update_source_status(tmp_path / "src", "RELOC", "game", 0x401000)
+        blocker = tmp_path / "src" / "game" / "fcn_00402000.c"
+        blocker.write_text(
+            "// STUB: game 0x00402000\n\nvoid fcn_00402000(void)\n{\n    /* user: needs float math */\n}\n"
+        )
+
+        out2 = runner.invoke(main_mod.app, ["intake", "game.exe", "--json"])
+        assert out2.exit_code == 0, out2.output
+        meta = (tmp_path / "src" / "rebrew-function.toml").read_text()
+        # The matched function is NOT demoted back to STUB.
+        assert 'status = "RELOC"' in meta
+        assert "0x00402000" in meta
+        # The user blocker text survives (not replaced by the auto reason).
+        assert "needs float math" in blocker.read_text()
+
 
 class TestBlockers:
     def test_thunk_reason(self) -> None:
@@ -262,8 +307,8 @@ class TestToolchainLinks:
 
         assert "msvc1.52" in _TOOLCHAIN_LINKS
         link_name, src_name = _TOOLCHAIN_LINKS["msvc1.52"]
-        assert link_name == "MSVC152"
-        assert src_name == "MSVC152"
+        assert link_name == "msvc/1.52-win16"
+        assert src_name == "msvc/1.52-win16"
 
     def test_every_matchable_profile_has_entry(self) -> None:
         from rebrew.intake import _TOOLCHAIN_LINKS
@@ -276,12 +321,12 @@ class TestToolchainLinks:
 
 class TestWatcomLink:
     """watcom must be in the intake toolchain-link map so intake on a
-    Watcom binary auto-links tools/WATCOM (like msvc1.52's MSVC152)."""
+    Watcom binary auto-links toolchain/watcom/2.0-win32 (like msvc1.52's msvc-1.52-win16)."""
 
     def test_watcom_has_link_entry(self) -> None:
         from rebrew.intake import _TOOLCHAIN_LINKS
 
         assert "watcom" in _TOOLCHAIN_LINKS
         link_name, src_name = _TOOLCHAIN_LINKS["watcom"]
-        assert link_name == "WATCOM"
-        assert src_name == "WATCOM"
+        assert link_name == "watcom/2.0-win32"
+        assert src_name == "watcom/2.0-win32"

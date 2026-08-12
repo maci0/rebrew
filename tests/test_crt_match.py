@@ -273,14 +273,14 @@ default_target = "main"
 binary = "test.exe"
 
 [targets.main.crt_sources]
-MSVCRT = "tools/MSVC600/VC98/CRT/SRC"
+MSVCRT = "toolchain/msvc/6.0-win32/VC98/CRT/SRC"
 """
         (tmp_path / "rebrew-project.toml").write_text(toml, encoding="utf-8")
 
         cfg = load_config(tmp_path)
 
         assert hasattr(cfg, "crt_sources")
-        assert cfg.crt_sources == {"MSVCRT": "tools/MSVC600/VC98/CRT/SRC"}
+        assert cfg.crt_sources == {"MSVCRT": "toolchain/msvc/6.0-win32/VC98/CRT/SRC"}
 
     def test_crt_sources_default_empty(self) -> None:
         cfg = ProjectConfig(root=Path("."))

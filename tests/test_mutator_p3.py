@@ -288,3 +288,52 @@ class TestAllMutationsNoDuplicates:
             "mut_commute_float_operands",
         }
         assert expected.issubset(names), f"Missing: {expected - names}"
+
+
+class TestTweakIntegerLiteral:
+    def test_tweak_hex_literal(self) -> None:
+        import random
+
+        from rebrew.matcher.mutator import mut_tweak_integer_literal
+
+        s = "int f(void *o) { return *(int*)((char*)o + 0x70); }"
+        seen = set()
+        for seed in range(200):
+            out = mut_tweak_integer_literal(s, random.Random(seed))
+            if out and out != s:
+                seen.add(out)
+        assert seen, "mutator never fired"
+        # The wrong-offset case must be reachable (0x70 -> 0x6c).
+        assert any("0x6c" in o for o in seen), "0x70 -> 0x6c not reachable"
+        # Hex radix preserved.
+        assert all("0x" in o for o in seen), "hex literals must stay hex"
+
+    def test_tweak_decimal_literal(self) -> None:
+        import random
+
+        from rebrew.matcher.mutator import mut_tweak_integer_literal
+
+        s = "int f(void) { return 112; }"
+        out = mut_tweak_integer_literal(s, random.Random(3))
+        assert out is not None and out != s
+        assert "0x" not in out  # decimal stays decimal
+
+    def test_no_literal_returns_none(self) -> None:
+        import random
+
+        from rebrew.matcher.mutator import mut_tweak_integer_literal
+
+        assert mut_tweak_integer_literal("int f(int x) { return x; }", random.Random(0)) is None
+
+    def test_char_literal_skipped(self) -> None:
+        import random
+
+        from rebrew.matcher.mutator import mut_tweak_integer_literal
+
+        assert mut_tweak_integer_literal("int f(void) { return 'a'; }", random.Random(0)) is None
+
+    def test_registered(self) -> None:
+        from rebrew.matcher.mutator import ALL_MUTATIONS
+
+        names = {m.__name__ for m in ALL_MUTATIONS}
+        assert "mut_tweak_integer_literal" in names

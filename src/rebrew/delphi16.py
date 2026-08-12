@@ -2,7 +2,7 @@
 
 Wraps the vendored 16-bit Borland Delphi 1.0 compiler (``DCC.EXE``, a DOS
 DPMI app, run headless under DOSBox per the proven recipe in
-``tools/DELPHI10/README.md``) and parses the resulting 16-bit NE
+``toolchain/delphi/1.0-win16/README.md``) and parses the resulting 16-bit NE
 executable with the native NE loader.
 
 Used for research (compile + NE parse) on Delphi targets.  Note: 16-bit
@@ -39,14 +39,13 @@ class Delphi16Result:
 
 
 def _find_dcc() -> Path:
-    """Locate the vendored DCC.EXE (repo tools/DELPHI10, then DELPHI10/*)."""
-    repo_tools = Path(__file__).resolve().parents[2] / "tools"
-    for candidate in (repo_tools / "DELPHI10", repo_tools / "delphi10"):
-        dcc = candidate / "DCC.EXE"
-        if dcc.exists():
-            return dcc
+    """Locate the vendored DCC.EXE (repo toolchain/delphi/1.0-win16)."""
+    repo_tools = Path(__file__).resolve().parents[2] / "toolchain"
+    dcc = repo_tools / "delphi" / "1.0-win16" / "DCC.EXE"
+    if dcc.exists():
+        return dcc
     raise Delphi16Error(
-        "vendored Delphi 1.0 toolchain not found under tools/DELPHI10 "
+        "vendored Delphi 1.0 toolchain not found under toolchain/delphi/1.0-win16 "
         "(DCC.EXE + DELPHI.DSL + DPMI16BI.OVL are required)"
     )
 
@@ -130,7 +129,7 @@ def compile_ne(
     (sandbox / staged_name).write_text(src_text, encoding="utf-8")
 
     # Stage the RTL/VCL units + a DCC.CFG that points at them, when found.
-    # The mission (tools/DELPHI10/README.md) established DCC.CFG's unit path
+    # The mission (toolchain/delphi/1.0-win16/README.md) established DCC.CFG's unit path
     # is required for unit-using programs; DELPHI.DSL alone suffices for the
     # built-in units (System, WinTypes, WinProcs).
     lib_dir: Path | None = None

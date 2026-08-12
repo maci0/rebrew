@@ -160,7 +160,180 @@ class TestLoadVerifyCache:
         assert _load_verify_cache(cache_path, cfg) is None
 
 
-class TestSaveVerifyCache:
+class TestVerifyCacheMatchesCfg:
+    """The identity guard patchers (rebrew test) rely on before writing into
+    the verify cache — a multi-target project must not let `test -t CLIENT`
+    patch entries a `verify -t SERVER` wrote."""
+
+    def test_matching_identity(self, tmp_path: Path) -> None:
+        from rebrew.verify import verify_cache_matches_cfg
+
+        cfg = _make_cfg(tmp_path)
+        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "version": 1,
+            "compiler_hash": _compiler_config_hash(cfg),
+            "headers_hash": _headers_hash(cfg),
+            "target": cfg.target_name,
+            "entries": {},
+        }
+        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        assert verify_cache_matches_cfg(cache_path, cfg)
+
+    def test_wrong_target_rejected(self, tmp_path: Path) -> None:
+        from rebrew.verify import verify_cache_matches_cfg
+
+        cfg = _make_cfg(tmp_path)
+        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "version": 1,
+            "compiler_hash": _compiler_config_hash(cfg),
+            "headers_hash": _headers_hash(cfg),
+            "target": "OTHER",
+            "entries": {},
+        }
+        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        assert not verify_cache_matches_cfg(cache_path, cfg)
+
+    def test_wrong_compiler_rejected(self, tmp_path: Path) -> None:
+        from rebrew.verify import verify_cache_matches_cfg
+
+        cfg = _make_cfg(tmp_path)
+        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "version": 1,
+            "compiler_hash": "deadbeef",
+            "headers_hash": _headers_hash(cfg),
+            "target": cfg.target_name,
+            "entries": {},
+        }
+        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        assert not verify_cache_matches_cfg(cache_path, cfg)
+
+    def test_missing_cache_rejected(self, tmp_path: Path) -> None:
+        from rebrew.verify import verify_cache_matches_cfg
+
+        cfg = _make_cfg(tmp_path)
+        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        assert not verify_cache_matches_cfg(cache_path, cfg)
+
+
+class TestPatchVerifyCacheEntries:
+    """The shared STATUS-sync helper behind test/match promotions: after a
+    match run promotes metadata, status/todo must read the fresh status from
+    the verify cache (functionality-review F4)."""
+
+    def _make_cache(self, tmp_path: Path, cfg: ProjectConfig, status: str) -> Path:
+        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "version": 1,
+            "compiler_hash": _compiler_config_hash(cfg),
+            "headers_hash": _headers_hash(cfg),
+            "target": cfg.target_name,
+            "entries": {
+                "0x00001000": {
+                    "source_hash": "abc",
+                    "filepath": "func_a.c",
+                    "mtime_ns": 1,
+                    "result": {
+                        "status": status,
+                        "va": "0x00001000",
+                        "size": 8,
+                        "filepath": "func_a.c",
+                        "name": "func_a",
+                        "symbol": "_func_a",
+                        "delta": 3,
+                        "match_percent": 50.0,
+                        "passed": False,
+                        "message": "",
+                    },
+                    "cflags": "",
+                    "size": 8,
+                }
+            },
+        }
+        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        return cache_path
+
+    def test_patches_status(self, tmp_path: Path) -> None:
+        from rebrew.verify import patch_verify_cache_entries
+
+        cfg = _make_cfg(tmp_path)
+        self._make_cache(tmp_path, cfg, status="STUB")
+        patch_verify_cache_entries(
+            cfg,
+            [
+                {
+                    "va": 0x1000,
+                    "status": "RELOC",
+                    "match_count": 8,
+                    "total": 8,
+                    "delta": 0,
+                }
+            ],
+        )
+        raw = json.loads((tmp_path / ".rebrew" / "verify_cache.json").read_text())
+        entry = raw["entries"]["0x00001000"]["result"]
+        assert entry["status"] == "RELOC"
+        assert entry["passed"] is True
+        assert entry["match_percent"] == 100.0
+        assert entry["delta"] == 0
+
+    def test_wrong_target_not_patched(self, tmp_path: Path) -> None:
+        """A cache written for a different target must not be touched."""
+        from rebrew.verify import patch_verify_cache_entries
+
+        cfg = _make_cfg(tmp_path)
+        self._make_cache(tmp_path, cfg, status="STUB")
+        other = SimpleNamespace(
+            root=tmp_path,
+            target_name="CLIENT",
+            target_binary=cfg.target_binary,
+            reversed_dir=cfg.reversed_dir,
+            function_list=cfg.function_list,
+            compiler_command=cfg.compiler_command,
+            base_cflags=cfg.base_cflags,
+            compiler_includes=cfg.compiler_includes,
+            compiler_libs=cfg.compiler_libs,
+        )
+        patch_verify_cache_entries(
+            other,
+            [
+                {
+                    "va": 0x1000,
+                    "status": "RELOC",
+                    "match_count": 8,
+                    "total": 8,
+                    "delta": 0,
+                }
+            ],
+        )
+        raw = json.loads((tmp_path / ".rebrew" / "verify_cache.json").read_text())
+        assert raw["entries"]["0x00001000"]["result"]["status"] == "STUB"
+
+    def test_no_patch_when_absent(self, tmp_path: Path) -> None:
+        """No cache file → no crash, no file created."""
+        from rebrew.verify import patch_verify_cache_entries
+
+        cfg = _make_cfg(tmp_path)
+        patch_verify_cache_entries(
+            cfg,
+            [
+                {
+                    "va": 0x1000,
+                    "status": "RELOC",
+                    "match_count": 8,
+                    "total": 8,
+                    "delta": 0,
+                }
+            ],
+        )
+        assert not (tmp_path / ".rebrew" / "verify_cache.json").exists()
+
     def test_save_and_round_trip(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         source_path = cfg.reversed_dir / "func_a.c"

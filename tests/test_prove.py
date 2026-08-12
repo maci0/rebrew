@@ -136,6 +136,10 @@ class TestParsePrototype:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(
+    not has_angr,
+    reason="angr not installed (run 'uv sync --all-extras' to enable prove tests)",
+)
 class TestProveCLIStatusGuard:
     """The CLI must reject functions that aren't NEAR_MATCHING/SIZE_MISMATCH.
 
@@ -296,6 +300,10 @@ class TestProveCLIStatusGuard:
         assert entry.get("note") == "mine: hand analysis"
 
 
+@pytest.mark.skipif(
+    not has_angr,
+    reason="angr not installed (run 'uv sync --all-extras' to enable prove tests)",
+)
 class TestWin32SimProcedures:
     """Verify the Win32 SimProcedure registry is populated correctly."""
 

@@ -294,13 +294,18 @@ workflows, and limitations.
 - **Suggested fix:** Document explicitly which pull modes work offline, or extend the
   cache to store struct/signature/comment payloads for offline use.
 
-### Gap: `rebrew binsync-export` is one-way
+### Gap: `rebrew binsync-export` is one-way _(fixed)_
 
-- **Gap:** PRD lists this as a known limitation. Today there is no `binsync-import`
-  command.
-- **Evidence:** `src/rebrew/binsync_export.py`.
-- **Severity:** enhancement
-- **Suggested fix:** Spec a `binsync-import` command if any user demand materialises.
+- **Previously:** PRD listed this as a known limitation. There was no `binsync-import` command.
+- **Now:** `src/rebrew/binsync_import.py` provides `rebrew binsync-import <state-dir>` (reads
+  `functions/*.toml` + `global_vars.toml` back into `rebrew-function.toml` / `rebrew-data.toml`
+  for names/prototypes/globals, with `--accept-binsync`/`--accept-local` conflict handling,
+  `--module` filter, `--dry-run`/`--json`). The exporter also now writes real global types
+  and struct fields, and supports `--module` + `--git` (opt-in commit). Full `libbs`/stack-var
+  bidirectional sync remains in [PRD 09](09-binsync-full.md).
+- **Evidence:** `src/rebrew/binsync_export.py`, `src/rebrew/binsync_import.py`, `docs/BINSYNC_INTEGRATION.md`.
+- **Severity:** enhancement (fixed)
+- **Suggested fix:** Done; keep `docs/BINSYNC_INTEGRATION.md` as the user-facing reference for the current scope.
 
 ### Gap: `rebrew sync --refresh-cache` doesn't refresh data labels
 

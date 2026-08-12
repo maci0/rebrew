@@ -413,6 +413,8 @@ _QUERY_CONST_ADD_FOLD = _LazyQuery(
 """,
 )
 
+_QUERY_NUMBER_LITERAL = _LazyQuery(_C_LANGUAGE, "(number_literal) @lit")
+
 _QUERY_CONST_ADD_UNFOLD = _LazyQuery(
     _C_LANGUAGE,
     """
@@ -1486,6 +1488,69 @@ def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
     start = captures["stmt1"].start_byte
     end = captures["stmt2"].end_byte
     return (b_source[:start] + replacement + b_source[end:]).decode("utf-8")
+
+
+def _parse_int_literal(raw: str) -> int | None:
+    """Parse a C integer literal (decimal / hex / octal, optional u/l/U/L
+    suffix) — None for floats, chars, or other non-integers."""
+    body = raw.strip()
+    if not body:
+        return None
+    if body[0] == "'":  # char literal
+        return None
+    # strip integer suffixes
+    while body and body[-1] in "uUlL":
+        body = body[:-1]
+    if not body:
+        return None
+    try:
+        if body.lower().startswith("0x"):
+            return int(body, 16)
+        if len(body) > 1 and body.startswith("0"):
+            return int(body, 8)
+        return int(body, 10)
+    except ValueError:
+        return None
+
+
+def mut_tweak_integer_literal(s: str, rng: random.Random) -> str | None:
+    """Tweak a numeric literal by a small delta (field offsets, sizes, magic
+    numbers, enum values).
+
+    Without this the GA can never FIX a wrong constant: structural
+    mutations leave ``+ 0x70`` stuck when the target wants ``+ 0x6c``, so a
+    function whose only defect is a wrong offset plateaus at its seed score
+    forever.  Deltas are biased small (±1/±2/±4/±8/±0x10) — the off-by-N
+    mistakes decompilation actually makes.  The literal's radix (hex vs
+    decimal) is preserved.
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+    cursor = _cursor(_QUERY_NUMBER_LITERAL)
+
+    valid: list[tuple[Any, str, int]] = []
+    for match in cursor.matches(tree.root_node):
+        lit = _first_caps(match[1]).get("lit")
+        if lit is None:
+            continue
+        raw = b_source[lit.start_byte : lit.end_byte].decode("utf-8")
+        value = _parse_int_literal(raw)
+        if value is None:
+            continue
+        valid.append((lit, raw, value))
+
+    if not valid:
+        return None
+
+    lit, raw, value = rng.choice(valid)
+    delta = rng.choice([1, -1, 2, -2, 4, -4, 8, -8, 0x10, -0x10])
+    new_value = value + delta
+    if new_value < 0 or new_value == value:
+        return None
+    new_raw = hex(new_value) if raw.lower().startswith("0x") else str(new_value)
+    return (b_source[: lit.start_byte] + new_raw.encode("utf-8") + b_source[lit.end_byte :]).decode(
+        "utf-8"
+    )
 
 
 def mut_unfold_constant_add(s: str, rng: random.Random) -> str | None:
@@ -5398,6 +5463,7 @@ def mut_hoist_repeated_deref(s: str, rng: random.Random) -> str | None:
 
 ALL_MUTATIONS = [
     mut_hoist_repeated_deref,
+    mut_tweak_integer_literal,
     mut_flip_eq_zero,
     mut_flip_lt_ge,
     mut_add_redundant_parens,

@@ -55,8 +55,11 @@ STATUS_COLORS: dict[str, str] = {
     "SIZE_MISMATCH": "yellow",
     "STUB": "dim",
     "COMPILE_ERROR": "red",
+    "EXTRACT_ERROR": "red",
     "MISSING_FILE": "red",
     "MISSING_SIZE": "red",
+    "INVALID_VA": "red",
+    "INTERNAL_ERROR": "red",
     "SKIP": "dim",
 }
 
@@ -378,7 +381,13 @@ def resolve_cflags(
     if not cflags and cfg is not None:
         cflags = getattr(cfg, "cflags_presets", {}).get(module.upper(), "")
     if not cflags:
-        cflags = (getattr(cfg, "cflags", "") if cfg is not None else "") or "/O2 /Gd"
+        cfg_cflags = getattr(cfg, "cflags", "") if cfg is not None else ""
+        # An EXPLICITLY set empty cflags means "no default flags" — the
+        # /O2 /Gd fallback applies only when the key is absent (config-review
+        # F5: `cflags = ""` previously compiled with /O2 /Gd silently).
+        if not (cfg is not None and getattr(cfg, "cflags_explicit", False)):
+            cfg_cflags = cfg_cflags or "/O2 /Gd"
+        cflags = cfg_cflags
     return cflags
 
 

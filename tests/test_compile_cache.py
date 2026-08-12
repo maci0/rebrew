@@ -92,6 +92,20 @@ class TestCompileCacheKey:
         k2 = compile_cache_key("int f(){return 1;}", "f.c", ["/O2"], ["/inc2"], "wine CL")
         assert k1 != k2
 
+    def test_legacy_encoded_source_does_not_crash(self) -> None:
+        """A cp1252/shift_jis source (decoded with surrogateescape, as
+        read_source_text does) must hash losslessly — the strict utf-8
+        encode previously raised UnicodeEncodeError, which compile_and_compare
+        mislabeled as COMPILE_ERROR, making legacy-encoded sources
+        permanently untestable."""
+        src = b"void f(void){int x=\x93;}\n".decode("utf-8", "surrogateescape")
+        k1 = compile_cache_key(src, "f.c", ["/O2"], ["/inc"], "wine CL")
+        k2 = compile_cache_key(src, "f.c", ["/O2"], ["/inc"], "wine CL")
+        assert k1 == k2  # deterministic
+        # Round-trip: the same bytes decoded the same way produce the same key
+        again = b"void f(void){int x=\x93;}\n".decode("utf-8", "surrogateescape")
+        assert compile_cache_key(again, "f.c", ["/O2"], ["/inc"], "wine CL") == k1
+
     def test_different_source_ext_different_key(self) -> None:
         k1 = compile_cache_key("int f(){return 1;}", "f.c", ["/O2"], ["/inc"], "wine CL", ".c")
         k2 = compile_cache_key("int f(){return 1;}", "f.c", ["/O2"], ["/inc"], "wine CL", ".cpp")

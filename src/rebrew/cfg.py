@@ -699,16 +699,13 @@ def set_cflags(
 @app.command("set-compiler")
 def set_compiler(
     target: str = typer.Argument(..., help="Target name (e.g. 'mygame')."),
-    profile: str = typer.Argument(..., help="Compiler profile: msvc6, msvc7, clang, gcc."),
+    profile: str = typer.Argument(..., help="Compiler profile (see --help for the list)."),
 ) -> None:
     """Set the compiler profile for a target.
 
-    Writes ``targets.<TARGET>.compiler.command``,
-    ``targets.<TARGET>.compiler.includes``, and
-    ``targets.<TARGET>.compiler.libs`` from the named profile preset.
+    Writes ``targets.<TARGET>.compiler.profile`` plus
+    ``command``/``includes``/``libs`` from the named profile preset.
     Existing values for that target are overwritten.
-
-    Known profiles: msvc6, msvc7, clang, gcc.
     """
     # Import profile presets from init (single source of truth)
     from rebrew.init import COMPILER_DEFAULTS
@@ -730,12 +727,20 @@ def set_compiler(
         compiler_tbl = tomlkit.table()
         tgt["compiler"] = compiler_tbl
 
+    # `profile` is the routing key every tool reads (load_config →
+    # posix_style, toolchain branches, 16-bit gate).  The old code wrote
+    # only command/includes/libs — the target's profile stayed whatever it
+    # was (default msvc6), so `cfg set-compiler T gcc` compiled with gcc
+    # command but MSVC-style /I /Fo flag routing and never engaged the
+    # posix/toolchain branches (config-review F1).
+    compiler_tbl["profile"] = profile
     compiler_tbl["command"] = preset["command"]
     compiler_tbl["includes"] = preset["includes"]
     compiler_tbl["libs"] = preset["libs"]
 
     _save_toml(doc, toml_path)
     console.print(f'[green]Set compiler profile "{profile}" on target "{target_name}".[/green]')
+    console.print(f"  profile   = {profile}")
     console.print(f"  command  = {preset['command']}")
     console.print(f"  includes = {preset['includes']}")
     console.print(f"  libs     = {preset['libs']}")
@@ -754,7 +759,7 @@ def detect_crt(
     root = _find_root()
     detected = detect_crt_sources(root)
     if not detected:
-        console.print("[yellow]No CRT source directories found under tools/.[/yellow]")
+        console.print("[yellow]No CRT source directories found under toolchain/.[/yellow]")
         return
 
     for origin, rel_path in sorted(detected.items()):

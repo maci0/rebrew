@@ -31,7 +31,7 @@ skeleton → single-function GA → bounded batch with `--resume`.
 | Single function | `rebrew skeleton 0x00407480` → `rebrew match --generations 5 --pop-size 8` | Pipeline runs end-to-end under wine (best_score 65024, not yet a match — skeleton seed) |
 | Bounded batch | `rebrew match --all --max-stubs 2 --resume --json` | see result JSON (matched/failed) |
 
-**Toolchain blockers found:** none — the project's MSVC600 toolchain is
+**Toolchain blockers found:** none — the project's msvc-6.0-win32 toolchain is
 reachable (doctor all-pass); the matching ceiling is seed quality (skeleton
 bodies need real decompilation before the GA can converge).
 

@@ -11,13 +11,22 @@ repos:
       - id: check-added-large-files
         args: [--maxkb=500]
       - id: debug-statements
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-toml
+      - id: mixed-line-ending
+        args: [--fix=lf]
 
   # ---------- Local tools (use uv-managed versions) ----------
   - repo: local
     hooks:
       - id: skills-ref
         name: Validate Agent Skills
-        entry: bash -c 'command -v skills-ref >/dev/null 2>&1 || exit 0; for f in "$@"; do uv run skills-ref validate "$f" || exit 1; done' --
+        # The skills-ref package exposes the `agentskills` binary; the old
+        # hook checked for a nonexistent `skills-ref` command and silently
+        # exited 0, so a broken SKILL.md passed CI (infra-review F6).
+        entry: bash -c 'for f in "$@"; do uv run agentskills validate "$f" || exit 1; done' --
         language: system
         pass_filenames: true
         files: ^src/rebrew/agent-skills/

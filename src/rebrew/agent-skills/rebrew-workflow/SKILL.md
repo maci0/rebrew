@@ -316,4 +316,3 @@ For GA matching and batch processing, see the `rebrew-matching` skill.
 ## Toolchains
 
 Compiler selection uses the toolchain abstraction (`rebrew.toolchain` — docker image first, vendored fallback): `rebrew toolchain list/status/pull`; see docs/TOOLCHAIN.md.
-

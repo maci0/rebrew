@@ -6,7 +6,7 @@ BLOCKER_DELTA metadata based on structural analysis.
 
 Usage:
     rebrew diff src/game/my_func.c
-    rebrew diff src/game/my_func.c --mm
+    rebrew diff src/game/my_func.c -m
     rebrew diff src/game/my_func.c --fix-blocker
     rebrew diff src/game/my_func.c --json
 """
@@ -394,7 +394,10 @@ def run_diff(
                 )
             print_structural_similarity(sim)
 
-        if fix_blocker:
+        if fix_blocker and not json_output:
+            # JSON mode already wrote the blocker above (the payload reports
+            # the outcome); this terminal-only write would redo the metadata
+            # I/O and print status chatter against the JSON contract.
             _write_blocker(p, blockers, obj_bytes, dry_run, json_output=False)
 
         summary_obj = summary.get("summary", {})
@@ -413,8 +416,8 @@ _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
     "  rebrew diff src/game/my_func.c · · · · · · · · Show full byte diff\n\n"
     "  rebrew diff 0x10009310 · · · · · · · · · · · · Resolve VA to its source and diff\n\n"
-    "  rebrew diff src/game/my_func.c --mm · · · · · · Show only structural mismatches (**)\n\n"
-    "  rebrew diff src/game/my_func.c --rr · · · · · · Normalize register encodings (mark as RR)\n\n"
+    "  rebrew diff src/game/my_func.c -m · · · · · · · · Show only structural mismatches (**)\n\n"
+    "  rebrew diff src/game/my_func.c -r · · · · · · · · Normalize register encodings (mark as RR)\n\n"
     "  rebrew diff src/game/my_func.c --fix-blocker · · Auto-write BLOCKER from diff analysis\n\n"
     "  rebrew diff src/game/my_func.c --format csv · · · CSV output\n\n"
     "  rebrew diff src/game/my_func.c --json · · · · · JSON structured diff\n\n"
@@ -471,7 +474,8 @@ def main(
 ) -> None:
     """Compile a reversed function and show a byte diff against the target."""
     if fmt not in ("terminal", "csv"):
-        error_exit("--format must be 'terminal' or 'csv'", json_mode=json_output)
+        # Bad argument value — usage error (2), not "needs code work" (1).
+        error_exit("--format must be 'terminal' or 'csv'", json_mode=json_output, code=EXIT_ERROR)
 
     csv_output = fmt == "csv"
 

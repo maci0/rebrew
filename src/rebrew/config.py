@@ -130,27 +130,39 @@ class LinkConfig:
     subsystem_version: str | None = None  # e.g. "4.0"
     timestamp: int | None = None  # seconds since epoch, hex-accepting
 
+    def _version_pair(self, label: str, ver: str | None) -> tuple[int, int] | None:
+        """Parse a ``"N.N"`` version string into ``(major, minor)``, or None.
+
+        Warns on malformed values (``"5"``, ``"abc"``) instead of silently
+        dropping them — a typo'd ``linker_version`` otherwise makes
+        ``--fix-headers`` skip the patch while the parity report shows a
+        mismatch the user cannot explain (config-review F7).
+        """
+        if not ver:
+            return None
+        try:
+            major, minor = ver.split(".", 1)
+            return int(major), int(minor)
+        except ValueError:
+            _config_warn(
+                f"link.{label} = {ver!r} is not a valid 'N.N' version — "
+                "the header patch for it will be skipped"
+            )
+            return None
+
     def to_patch_fields(self) -> dict[str, int]:
         """Map configured values to pe_headers field labels (empty if unset)."""
         fields: dict[str, int] = {}
-        if self.linker_version:
-            try:
-                major, minor = self.linker_version.split(".", 1)
-                fields["linker_version_major"] = int(major)
-                fields["linker_version_minor"] = int(minor)
-            except ValueError:
-                pass
+        vp = self._version_pair("linker_version", self.linker_version)
+        if vp is not None:
+            fields["linker_version_major"], fields["linker_version_minor"] = vp
         for label, ver in (
             ("os_version", self.os_version),
             ("subsystem_version", self.subsystem_version),
         ):
-            if ver:
-                try:
-                    major, minor = ver.split(".", 1)
-                    fields[f"{label}_major"] = int(major)
-                    fields[f"{label}_minor"] = int(minor)
-                except ValueError:
-                    pass
+            vp = self._version_pair(label, ver)
+            if vp is not None:
+                fields[f"{label}_major"], fields[f"{label}_minor"] = vp
         if self.tsaware is not None:
             fields["dll_characteristics"] = 0x8000 if self.tsaware else 0
         if self.stack_reserve is not None:
@@ -197,6 +209,10 @@ class ProjectConfig:
     compiler_includes: Path = field(default_factory=lambda: Path())
     compiler_libs: Path = field(default_factory=lambda: Path())
     cflags: str = ""  # Default compiler flags (from [compiler] or per-target override)
+    # True when `cflags` was EXPLICITLY present in the TOML — an empty
+    # string then means "no default flags", not "fall back to /O2 /Gd".
+    # (config-review F5: `cflags = ""` silently compiled with /O2 /Gd.)
+    cflags_explicit: bool = False
     cflags_presets: dict[str, str] = field(default_factory=dict)
     """Per-module compiler flag overrides (``rebrew cfg set-cflags``).
 
@@ -207,6 +223,12 @@ class ProjectConfig:
     """
     base_cflags: str = "/nologo /c /MT"  # Always-on flags prepended to every compile
     compile_timeout: int = 60  # Seconds before a compile subprocess is killed
+
+    # --- [llm] section: optional LLM-assisted GA seeding ---
+    # ``[llm] endpoint``/``api_key`` in rebrew-project.toml; env vars
+    # REBREW_LLM_ENDPOINT/REBREW_LLM_API_KEY are the fallback.
+    llm_endpoint: str = ""
+    llm_api_key: str = ""
 
     @property
     def posix_style(self) -> bool:
@@ -571,18 +593,18 @@ def _detect_binary_layout(bin_path: Path, fmt: str = "auto") -> dict[str, int]:
         return {"image_base": 0, "text_va": 0, "text_raw_offset": 0}
 
 
-# Well-known MSVC CRT source directory patterns (relative to project root).
-# Each tuple is (relative_path_from_tools, origin_name).
+# Well-known MSVC CRT source directory patterns (relative to the project's
+# toolchain/ dir).  Each tuple is (relative_path_from_toolchain, origin_name).
 _CRT_SOURCE_PATTERNS: list[tuple[str, str]] = [
-    ("MSVC600/VC98/CRT/SRC", "MSVCRT"),
+    ("msvc/6.0-win32/VC98/CRT/SRC", "MSVCRT"),
     ("MSVC400/CRT/SRC", "MSVCRT"),
-    ("MSVC420/CRT/SRC", "MSVCRT"),
-    ("MSVC7/crt/src", "MSVCRT"),
+    ("msvc/4.2-win32/CRT/SRC", "MSVCRT"),
+    ("msvc/7.0-win32/crt/src", "MSVCRT"),
 ]
 
 
 def detect_crt_sources(root: Path) -> dict[str, str]:
-    """Scan the ``tools/`` directory for known MSVC CRT source trees.
+    """Scan the ``toolchain/`` directory for known MSVC CRT source trees.
 
     Returns a dict mapping origin names (e.g. ``"MSVCRT"``) to relative paths
     suitable for use in ``crt_sources`` config entries.  Uses case-insensitive
@@ -591,7 +613,7 @@ def detect_crt_sources(root: Path) -> dict[str, str]:
     Only returns the *first* match per origin so that projects with multiple
     MSVC versions don't get duplicate entries.
     """
-    tools_dir = root / "tools"
+    tools_dir = root / "toolchain"
     if not tools_dir.is_dir():
         return {}
 
@@ -649,7 +671,7 @@ def find_root(start: Path | None = None) -> Path:
 # Known TOML keys — validated at load time to catch typos
 # ---------------------------------------------------------------------------
 
-_KNOWN_TOP_KEYS = {"targets", "compiler", "project", "link"}
+_KNOWN_TOP_KEYS = {"targets", "compiler", "project", "link", "llm"}
 
 _KNOWN_LINK_KEYS = {
     "file_align",
@@ -797,6 +819,16 @@ def load_config(
 
     global_compiler = {k: v for k, v in global_compiler_raw.items() if k not in ("profiles",)}
     compiler_profiles = _parse_profiles(global_compiler_raw.get("profiles", {}))
+    if compiler_profiles:
+        # Documented in CONFIG.md as runtime-selectable, but no tool consumes
+        # cfg.compiler_profiles yet — a user configuring [compiler.profiles]
+        # gets zero effect, so say so at load instead of a silent no-op
+        # (config-review F5).
+        _config_warn(
+            f"[compiler].profiles defines {len(compiler_profiles)} profile(s) but "
+            "is RESERVED and currently has no effect (no profile-switch path "
+            "consumes it yet)"
+        )
 
     if target is None:
         target = project_raw.get("default_target")
@@ -893,7 +925,7 @@ def load_config(
 
     # An explicitly empty includes/libs is valid and means "no extra dir" —
     # needed by gcc-pe/mingw (own headers) and by decomp.me MSVC tarballs
-    # (msvc6.3/6.6/7.0 ship Bin+Include but no Lib).  A *missing* key still
+    # (msvc-6.0-sp3-win32/6.6/7.0 ship Bin+Include but no Lib).  A *missing* key still
     # falls back to the conventional default path.
     def _explicit_empty(key: str) -> bool:
         return compiler.get(key) is not None and not str(compiler.get(key) or "").strip()
@@ -901,10 +933,19 @@ def load_config(
     if _explicit_empty("includes"):
         compiler_includes = Path("")
     else:
+        default_inc = "toolchain/msvc/6.0-win32/VC98/Include"
+        # The master layouts may be absent (machines with only the vendored
+        # msvc-6.0-sp3-win32/6.6/7.0 mirrors) — resolve the best present layout so a
+        # fresh project with no explicit paths still compiles out of the box.
+        from rebrew.utils import resolve_msvc_toolchain
+
+        msvc_layout = resolve_msvc_toolchain(root, profile_val)
+        if msvc_layout is not None and msvc_layout[1]:
+            default_inc = msvc_layout[1]
         compiler_includes = _required_path(
             root,
             compiler.get("includes"),
-            "tools/MSVC600/VC98/Include",
+            default_inc,
             "compiler.includes",
         )
         # Project-local tools/ absent (no --link-tools-from)?  Fall back to
@@ -918,9 +959,10 @@ def load_config(
     if _explicit_empty("libs"):
         compiler_libs = Path("")
     else:
-        compiler_libs = _required_path(
-            root, compiler.get("libs"), "tools/MSVC600/VC98/Lib", "compiler.libs"
-        )
+        default_lib = "toolchain/msvc/6.0-win32/VC98/Lib"
+        if msvc_layout is not None and msvc_layout[2]:
+            default_lib = msvc_layout[2]
+        compiler_libs = _required_path(root, compiler.get("libs"), default_lib, "compiler.libs")
         if not compiler_libs.exists():
             alt = _install_tool_alt(compiler_libs, root)
             if alt is not None:
@@ -974,6 +1016,7 @@ def load_config(
         # User-facing defaults (optimization/codegen). base_cflags are always-on
         # flags prepended by compile_to_obj; they must stay separate.
         cflags=_as_str(compiler.get("cflags"), "", "compiler.cflags"),
+        cflags_explicit="cflags" in compiler,
         cflags_presets=_merge_cflags_presets(global_compiler, target_compiler),
         base_cflags=_as_str(compiler.get("base_cflags"), "/nologo /c /MT", "compiler.base_cflags"),
         compile_timeout=_positive_int(compiler.get("timeout", 60), 60, "compiler.timeout"),
@@ -1032,5 +1075,24 @@ def load_config(
         subsystem_version=_opt_str("subsystem_version"),
         timestamp=_parse_optional_int(link_raw.get("timestamp"), "link.timestamp"),
     )
+
+    # --- [llm] section: optional LLM-assisted GA seeding ---
+    # Documented in CONFIG.md but previously never parsed — the TOML keys
+    # were not in _KNOWN_TOP_KEYS, so a `[llm]` table triggered an
+    # "unrecognized top-level keys" warning and cfg.llm_endpoint was always
+    # "" (only the env-var fallback worked).  The match --llm-seed error
+    # message even pointed users at `[llm] endpoint` (config-review F2).
+    llm_raw = _as_table(raw.get("llm", {}), "llm")
+    cfg.llm_endpoint = _as_str(llm_raw.get("endpoint"), "", "llm.endpoint")
+    cfg.llm_api_key = _as_str(llm_raw.get("api_key"), "", "llm.api_key")
+
+    if cfg.game_range_end is not None:
+        # Legacy/no-op key: parsed and stored but never read by any tool
+        # (config.py documents it as such).  Warn so a user setting it does
+        # not believe it constrains discovery (config-review F5).
+        _config_warn(
+            f"game_range_end = {cfg.game_range_end:#x} is a legacy no-op key — "
+            "no tool reads it; remove it from rebrew-project.toml"
+        )
 
     return cfg

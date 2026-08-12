@@ -1025,7 +1025,7 @@ fixtures), gen_flirt_pat.py (needs .lib archives).
 ### Slice 89 — doctor.py coverage 72% → 95% — DONE
 - New tests/test_doctor_compiler.py (25 tests): check_compiler branches
   (empty command, shlex ValueError fallback, exe missing from PATH, native
-  pass, wine not installed, CL.EXE missing with MSVC600/MSVC400/MSVC420
+  pass, wine not installed, CL.EXE missing with msvc-6.0-win32/MSVC400/msvc-4.2-win32
   download hints — relative CL path resolved against cfg.root, wine smoke
   test pass/timeout WARN/FileNotFoundError FAIL, wine without CL path WARN);
   check_runner (no runner, in-PATH, wibo via find_wibo, wibo missing WARN,
@@ -3473,7 +3473,7 @@ fixtures), gen_flirt_pat.py (needs .lib archives).
   (no status write).
 
 ### Slice 154 (16h goal) — cfg subcommands verified — DONE
-- rebrew cfg detect-crt resolves MSVCRT → tools/MSVC600/VC98/CRT/SRC;
+- rebrew cfg detect-crt resolves MSVCRT → toolchain/msvc/6.0-win32/VC98/CRT/SRC;
   cfg path prints the project toml (no --json flag on that subcommand — my
   invocation was wrong, not a bug). The multi-command cfg surface works.
 
@@ -3819,7 +3819,7 @@ fixtures), gen_flirt_pat.py (needs .lib archives).
 
 ### Slice 174 (16h goal) — crt-match single-VA index fallback — DONE
 - Exercised `rebrew crt-match` on the workspace (VC6 CRT sources present at
-  tools/MSVC600/VC98/CRT/SRC, configured as crt_sources.MSVCRT):
+  toolchain/msvc/6.0-win32/VC98/CRT/SRC, configured as crt_sources.MSVCRT):
   --all --dry-run found 10 matches (malloc/free/realloc/calloc × DBGHEAP +
   plain .C, __tzset, cvtdate) — all confirming existing EXACT catalog
   identifications with source-line proof (DBGHEAP.C:126 for _malloc etc.).
@@ -6512,7 +6512,7 @@ on commit+push).
 ## 2026-08-11 — 16-bit compile path feasibility probe (ADR-001)
 
 Verified the ADR-001 future-work premise end-to-end: the vendored Delphi
-1.0 toolchain (`tools/DELPHI10`, DOS DPMI app) compiles `hello.dpr` to a
+1.0 toolchain (`toolchain/delphi/1.0-win16`, DOS DPMI app) compiles `hello.dpr` to a
 genuine NE 6.01 Windows 3.10 GUI executable headlessly — DOSBox directly
 (not wine's winevdm bridge), with `DELPHI.DSL` in cwd and the RTL units at
 `C:\DELPHI\LIB` (extracted in the holiday mission).  Result:
@@ -6520,7 +6520,7 @@ genuine NE 6.01 Windows 3.10 GUI executable headlessly — DOSBox directly
 `rebrew` loads natively (is_ne ✓, 15 functions enumerated, detect →
 `delphi`).  What remains for byte matching: a `delphi16` compiler profile
 wrapping this invocation + segment-relative reloc comparison.  Recorded in
-`tools/DELPHI10/README.md`.
+`toolchain/delphi/1.0-win16/README.md`.
 
 ## 2026-08-11 — Full docs refresh for the NE/delphi16 session
 
@@ -6546,13 +6546,13 @@ implemented it as ADR-006:
   `toolchain-images/<name>/Dockerfile` build specs (watcom).
 - Shared `rebrew.dosbox` headless runner (mount sandbox as C:, FAT-uppercase
   reads); delphi16 refactored onto it; new `rebrew.msvc16` (MSVC 1.52).
-- **Open Watcom 2.0**: installed tools/WATCOM (native wcc386 verified
+- **Open Watcom 2.0**: installed toolchain/watcom/2.0-win32 (native wcc386 verified
   compiling; installer SIGFPEs on modern glibc — used the CI snapshot
   tarball).  Emits OMF objects — mapped the record layout empirically
   (docs/OMF_NOTES.md): 0xA1 code records, checksum-in-length framing, the
   e8/a1 reloc slots.  OMF parser = the enabling follow-up for Watcom AND
   16-bit matching (LIEF can't parse OMF).
-- **MSVC 1.52**: tools/MSVC152 from archive.org en_vc152_202512 (RAR SFX
+- **MSVC 1.52**: toolchain/msvc/1.52-win16 from archive.org en_vc152_202512 (RAR SFX
   extracted); CL.EXE is a Phar Lap TNT DOS-extender PE — runs headless
   under DOSBox via rebrew.dosbox; rebrew.msvc16.compile_c produces 16-bit
   OMF objects (verified live).
@@ -6581,7 +6581,7 @@ Surveyed `turbo-c-v-4.5` exhaustively for bcc32:
 Continuing the docker-first standardization (ADR-006) to full delivery:
 
 - **Image matrix complete**: `rebrew/msvc6:6.0-linux-x64` (wine + OmniBlade
-  msvcwin9x tarball + cl wrapper), `rebrew/watcom:2.0-linux-x64` (native),
+  msvcwin9x tarball + cl wrapper), `rebrew/watcom:2.0-win32` (native),
   `rebrew/delphi16:1.0-linux-x64` (DOSBox + DCC + RTL units + dcc wrapper),
   `rebrew/msvc152:1.52-linux-x64` (DOSBox + BIN/INCLUDE/LIB + cl16 wrapper)
   all built and verified — containerized compiles produce real objects
