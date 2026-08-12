@@ -16,7 +16,7 @@ concurrency:
 # Pin the uv installer so CI does not drift with setup-uv@v5's default "latest".
 # Bump deliberately when upgrading the local toolchain (see `uv --version`).
 env:
-  UV_VERSION: "0.12.2"
+  UV_VERSION: "0.12.3"
 
 jobs:
   lint:
@@ -32,13 +32,24 @@ jobs:
           enable-cache: true
           python-version-file: ".python-version"
       - name: Install dependencies
-        run: uv sync --frozen
+        # --all-extras matters for mypy: prove.py's angr/SimProcedure stubs
+        # only type-check correctly with angr installed (otherwise mypy
+        # reports phantom unused-ignore / Any-subclass errors).
+        run: uv sync --frozen --all-extras
       - name: Ruff lint
         run: uv run ruff check src/ tests/ tools/
       - name: Ruff format check
         run: uv run ruff format --check src/ tests/ tools/
       - name: Mypy type check
         run: uv run mypy src/rebrew/
+      - name: Dependency vulnerability audit
+        # Advisory gate: `uv audit` exits 1 on known-vulnerable packages
+        # (deps-review F1 — the lock previously pinned 35 CVEs and --frozen
+        # CI re-pinned them forever).  diskcache's unsafe-pickle advisory
+        # (GHSA-w8v5-vhqr-4h9v) is ignored only while unfixed: the cache
+        # stores only compiled .obj bytes, never untrusted input, and a
+        # fixed release flips this step red to force the upgrade.
+        run: uv audit --locked --ignore-until-fixed GHSA-w8v5-vhqr-4h9v
 
   test:
     runs-on: ubuntu-latest
@@ -58,6 +69,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
         run: uv sync --frozen --all-extras
+      - name: Install nasm (NASM round-trip verification in asm tests)
+        run: sudo apt-get update && sudo apt-get install -y nasm
       - name: Run tests
         run: uv run pytest tests/ -v --tb=short
       - name: Fixture freshness (checked-in fixtures match the generator)
@@ -117,6 +130,25 @@ jobs:
             exit 1
           fi
           ls -la dist/
+      - name: Verify wheel reproducibility (second clean build)
+        # The wheel must be byte-identical across builds of the same commit:
+        # --no-cache + a fresh out-dir forces a real second build (no cache
+        # hit), and the same SOURCE_DATE_EPOCH must yield the same hash.
+        # The sdist is excluded — setuptools leaves entry mtimes unnormalized
+        # (documented Makefile limitation; wheels are the reproducibility
+        # contract).
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          export SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
+          first_sha=$(sha256sum dist/*.whl | cut -d' ' -f1)
+          TZ=UTC LC_ALL=C uv build --wheel --no-cache --out-dir dist-repro 2>&1 | tail -1
+          second_sha=$(sha256sum dist-repro/*.whl | cut -d' ' -f1)
+          if [[ "$first_sha" != "$second_sha" ]]; then
+            echo "::error::wheel is not reproducible (first=$first_sha second=$second_sha)" >&2
+            exit 1
+          fi
+          echo "wheel reproducible: $first_sha"
       - name: Install wheel into clean venv and smoke-import
         run: |
           set -euo pipefail

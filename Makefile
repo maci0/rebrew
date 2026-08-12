@@ -40,3 +40,23 @@ build:
 
 # Run all non-mutating verification gates
 all: format-check lint test
+
+# Release preflight (release-review): verify the version/changelog/tag contract
+# from CONTRIBUTING.md without mutating anything.  Passes only when a release
+# is actually being prepared: __version__ bumped past the last tag, a matching
+# [Unreleased]-style section present, and a clean tree to tag.
+release-check:
+	@set -euo pipefail; \
+	V=$$(uv run python -c "from rebrew import __version__; print(__version__)"); \
+	LAST=$$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0); \
+	LASTV=$${LAST#v}; \
+	if [ "$$V" = "$$LASTV" ]; then \
+	  echo "ERROR: __version__ ($$V) not bumped from last tag ($$LAST)"; exit 1; \
+	fi; \
+	if [ -n "$$(git status --porcelain)" ]; then \
+	  echo "ERROR: working tree not clean (commit first)"; exit 1; \
+	fi; \
+	if ! grep -q "^## \[$$V\]" CHANGELOG.md; then \
+	  echo "ERROR: CHANGELOG.md has no [$$V] section (date the [Unreleased] block)"; exit 1; \
+	fi; \
+	echo "release preflight OK: version $$V (last tag $$LAST)"

@@ -1,6 +1,621 @@
 ## [Unreleased]
+### Fixed
+- **Dependency floors raised to close advisories (deps-review F1)**:
+  `typer>=0.10` (the 0.9 floor admitted a version the CLI cannot start on —
+  `rich_markup_mode` requires 0.10), `pytest>=9.0.3` (CVE-2025-71176
+  `tmpdir`), and a declared `click>=8.3.3` (direct import in `init.py` shell
+  completion; 8.3.3 fixes CVE-2025-6143/6144).  `uv audit` went from 35
+  vulnerable packages to 2 (diskcache has no fixed release; its cache only
+  stores compiled `.obj` bytes, documented in `pyproject.toml`).
+- **`prove` extra now declares its own imports**: `claripy` (imported by
+  `prove.py`/`doctor.py`) and `gitpython>=3.1.58` (angr's transitive dep with
+  RCE-class advisories fixed in 3.1.58) — `uv pip install -e ".[prove]"` no
+  longer relies on luck to pull them (deps-review F3).
+- **`skills-ref` pre-commit hook fixed from a silent no-op**: the hook
+  checked for a nonexistent `skills-ref` command and exited 0, so a broken
+  SKILL.md passed CI.  The package's real binary is `agentskills`; the hook
+  now runs `uv run agentskills validate` (infra-review F6).
+- **CI drops the dead "Install wibo" step**: it swallowed download failures
+  with `set +e` and no test consumed the binary (no wine on the ubuntu
+  runner, vendored MSVC is gitignored).  The lint job now gates on
+  `uv audit --locked` (exits 1 on vulnerable packages; diskcache's
+  unfixed advisory is ignored only while no fix exists) (infra-review F5).
+- **Pre-commit hygiene hooks added**: `end-of-file-fixer`,
+  `check-merge-conflict`, `check-yaml`, `check-toml`, and
+  `mixed-line-ending` (LF) — trailing-newline/conflict-marker/YAML/TOML
+  breakage no longer lands silently (infra-review F6).
+- **`prove` tests skip when angr is absent**: the CLI-status-guard and
+  Win32-SimProcedure tests hard-failed with `ModuleNotFoundError` when the
+  optional `prove` extra wasn't installed; they now honor the same
+  `skipif(not has_angr)` guard as the rest of `test_prove.py`.
+- **mypy is clean on 105 files (was 78 errors)**: the session's new code
+  carried real type errors — `init.py` reused the `detected` variable for a
+  `ToolchainInfo` after a tuple (renamed to `tc`), `binsync_export.py` typed
+  `cfg` as `object` instead of `ProjectConfig` (4 signatures now typed) and
+  shadowed the `warnings` module with a local list (renamed `warnings_list`),
+  `verify.py` returned `Any` from a `bool`-typed helper, `compile.py` rebound
+  `env` to `dict[str, str] | None`, and `binsync_diff.py`/`binsync_export.py`
+  carried stale `# type: ignore` comments.  The remaining 35 prove.py errors
+  were environmental — they vanish with angr installed.
+- **CI lint job installs extras**: `uv sync --frozen --all-extras` — mypy
+  only type-checks prove.py correctly with angr present (phantom
+  unused-ignore / Any-subclass errors otherwise).  The lint mypy gate was
+  red on every recent run for this reason.
+- **CI audit gate corrected**: `uv audit --fail-on` doesn't exist in the
+  pinned uv (0.12.2) — `uv audit` already exits 1 on vulnerable packages.
+  The gate is now `uv audit --locked --ignore-until-fixed
+  GHSA-w8v5-vhqr-4h9v`: diskcache's unsafe-pickle advisory is ignored only
+  while unfixed, so a fixed release flips CI red.
+- **CI test job installs nasm**: the NASM round-trip verification
+  (`disassemble_to_nasm` stats) hard-failed with `nasm_ok == 0` — ubuntu
+  runners don't ship nasm.
+- **Toolchain-dependent tests skip without the vendored toolchains**
+  (CI: `tools/` is gitignored): `test_msvc16.TestCompileC` skips without
+  `tools/MSVC152`, `test_delphi16` without `tools/DELPHI10`,
+  `test_doctor_compiler.test_watcom_vendored_passes` without
+  `tools/WATCOM`; the GA msvc152 routing test now mocks
+  `parse_obj_symbol_bytes` instead of relying on a vendored objconv; the
+  doctor `--json` purity case accepts exit 1 (a failing check keeps stdout
+  pure JSON).
+- **CI pins the uv installer to the local version** (build-review): the
+  workflow pinned uv 0.12.2 while the local toolchain runs 0.12.3 —
+  against the pin's own "bump deliberately when upgrading" comment.  Now
+  0.12.3.
+- **CI gates wheel reproducibility** (build-review): the package job builds
+  the wheel a second time with `--no-cache` into a fresh out-dir under the
+  same `SOURCE_DATE_EPOCH` and fails if the sha256 differs.  The sdist stays
+  excluded — setuptools (≤83) does not honor `SOURCE_DATE_EPOCH` for sdist
+  tar entry mtimes / gzip header (verified: content identical, metadata
+  varies); this is the documented Makefile limitation, and wheels are the
+  reproducibility contract.
+- **sdist no longer ships tests/** (pkg-review): setuptools' default sdist
+  filelist pulled in all 185 test files (tests/ was the only dev tree that
+  leaked).  A `MANIFEST.in` prunes `tests/`, `docs/`, `tools/`,
+  `toolchain-images/` and excludes `*.py[cod]`/`__pycache__`; the wheel is
+  unaffected (contents come from package-data, still byte-reproducible at
+  the same `SOURCE_DATE_EPOCH`), and the pruned sdist still builds a
+  complete wheel with `agent-skills` intact.
+- **Release preflight gate** (release-review): `make release-check` verifies
+  the CONTRIBUTING.md contract before tagging — `__version__` bumped past the
+  last tag, clean tree, and a dated `[<version>]` changelog section — so a
+  release cannot be tagged out of sync with the version or the notes.
+- **Silent best-effort failures now log at debug** (o11y-review): 15
+  swallowed `except Exception` sites in `binsync_diff.py` /
+  `binsync_import.py` (both gained a module logger), `binary_loader.py` and
+  `discover.py` now emit `logger.debug(..., exc_info=True)` with the VA
+  context — `rebrew -v -v binsync-import …` shows *why* an entry was
+  skipped instead of silently counting it.  The remaining silent fallbacks
+  in the recon primitives (`analyze.py`, `asm.py`) are documented
+  best-effort paths and are left untouched.  No sensitive data (LLM API
+  keys, tokens) is ever logged.
+- **Cross-process metadata lock regression test** (concurrency-review): the
+  flock sidecar guarantee (error-review F6) was validated manually but never
+  committed.  `test_metadata.py::TestCrossProcessMetadataLock` now spawns 4
+  real processes × 20 unique STATUS promotions each and asserts all 80
+  survive — an interleaved read-modify-write without the flock loses keys.
+- **`lint --fix` outside a project warns instead of silently no-oping**
+  (functionality-review): without a `rebrew-project.toml` the migration has
+  nowhere to write, so `--fix` did nothing with zero explanation — a user
+  outside the project dir saw no effect and no message.  It now prints
+  `--fix needs a rebrew-project.toml — no config loaded, nothing migrated`
+  and leaves the inline keys untouched (regression test added).
+- **`init`/config resolve the MSVC toolchain layout instead of assuming the
+  master** (error-review): `rebrew init --compiler msvc6|msvc7` and the
+  config layer's default includes/libs pointed at `tools/MSVC600/VC98` /
+  `tools/MSVC7`, which do not exist on machines that only vendor the
+  compile-only mirrors (`tools/msvc6.6` / `msvc6.3` / `msvc7.0`) — a fresh
+  project's first compile failed with wine `failed to open tools/MSVC600/...`
+  (exit 53).  `rebrew init` now writes the best layout actually present
+  (master → newest mirror → older mirror) and the config fallback resolves
+  the same; verified end-to-end (the resolved `msvc6.6` and `msvc7.0`
+  toolchains compile C → .obj).
+- **`init --link-tools-from` accepts the compile-only mirrors** (error-review):
+  the linker only looked for the master-named dir (`MSVC600` / `MSVC7`) and
+  hard-failed on machines that only vendor `msvc6.3`/`msvc6.6`/`msvc7.0` —
+  it now tries the mirrors in the same order as the config resolution and
+  links whichever exists (regression test: mirror-only master dir).
+- **`init` warns on compiler-family mismatch** (the detector's family now
+  feeds init): a high-confidence detection that contradicts the chosen
+  profile (e.g. a MinGW/Zig-built DLL initialized with `msvc6`) can never
+  byte-match — init prints a warning naming the detected family and the
+  counterpart profile (`--compiler gcc-pe`) instead of failing at the first
+  verify.  `unknown`/low-confidence detections stay silent.
+- **doctor/analyze show the detection backend by its real name**
+  (error-review): the toolchain-alignment message leaked the internal
+  backend id (`detected mingw … via die`); it now renders `via Detect It
+  Easy (diec)` / `via PDB` / `via codegen heuristics` via a shared
+  `backend_display_name` helper (unit-tested).
+- **Toolchain-layout code deduplicated** (minimalism-review): the
+  `--link-tools-from` candidate list in `init.py` duplicated the mirror
+  table in `utils.py` (drift risk) — it is now derived from the same
+  `_MSVC_LAYOUTS` source, and the unused `resolve_msvc6_toolchain`
+  back-compat wrapper was deleted (no callers; the project forbids shims).
+- **Grid-cell generation extracted + property-tested** (fuzz-review): the
+  coverage-cell walk inside `generate_data_json` is now a pure
+  `_build_cells` helper, with hypothesis tests asserting the invariants over
+  random segment layouts — cells tile the section exactly (contiguous,
+  gap-free, no overrun), `span == ceil(bytes / unit)` never exceeds the row
+  width, and per-segment state is preserved.
+- **Module boundary fixed** (arch-review): `init.py` reached into
+  `utils._MSVC_LAYOUTS` (private data) to derive link candidates —
+  replaced by a public `utils.toolchain_link_candidates(profile)` helper,
+  which also removed the module-level derived dict.  `utils` stays a pure
+  leaf module (no rebrew imports).
+- **Toolchain directory naming made platform-explicit**: the vendored
+  `tools/` subdirs were a mix of `MSVC152` (reads as "MSVC 152"),
+  `MSVC420`/`MSVC500`, `DELPHI10`, `WATCOM` (uppercase, no version dots) and
+  `msvc6.3`/`msvc6.6`/`msvc7.0` (lowercase) — none conveying that these are
+  **Windows-targeting** toolchains run under Wine/DOSBox on Linux.  Renamed
+  to a `compiler-version-target` scheme: `msvc-1.52-win16`, `msvc-4.2-win32`,
+  `msvc-5.0-win32`, `msvc-6.0-win32` (master), `msvc-6.0-sp3-win32`,
+  `msvc-6.0-sp6-win32`, `msvc-7.0-win32`, `delphi-1.0-win16`,
+  `watcom-win32` — the same naming the OmniBlade mirror tarballs already
+  use.  Every code/test/doc reference updated (~520), the CLI profile
+  identifiers (`--compiler msvc6.3|msvc6.6`) are unchanged, and legacy dir
+  names remain as symlinks so existing projects keep working (verified:
+  mspaint corpus still verifies 251/251 through the `MSVC500` symlink).
+- **Toolchain image folders aligned to the documented
+  `<family>/<version>-<arch>` layout**: `toolchain-images/` used
+  `msvc/6.0-linux-x64`-style names (the image *platform*), which said
+  nothing about the compiled target and disagreed with the `tools/` scheme.
+  Renamed to the layout docs/TOOLCHAIN.md already prescribed —
+  `msvc/6.0-win32`, `msvc/1.52-win16`, `delphi/1.0-win16`,
+  `watcom/2.0-win32` — and the image tags (`rebrew/msvc:6.0-win32`, …) and
+  Dockerfile build/invoke comments updated (29 references).
+- **Toolchains moved from `tools/` into a `toolchain/` folder structured like
+  the docker images**: `toolchain/<family>/<version>-<arch>/` (e.g.
+  `toolchain/msvc/6.0-sp6-win32/`, `toolchain/delphi/1.0-win16/`), with each
+  dir's `Dockerfile` living alongside the toolchain it packages.  This is
+  now the **default** — `rebrew init`, the config fallbacks, the GA
+  toolchain sweep, the CRT-source detection and `--link-tools-from` all
+  resolve `toolchain/…` paths (verified: fresh init writes
+  `wine toolchain/msvc/6.0-sp6-win32/Bin/CL.EXE`; `docker build
+  toolchain/msvc/6.0-win32` produces `rebrew/msvc:6.0-win32` which compiles
+  C end-to-end).  `tools/` keeps the Linux-native helpers (diec, objconv,
+  wibo) plus old-name symlinks so existing projects keep working (mspaint
+  corpus still verifies 251/251).  `toolchain-images/` is gone (content
+  merged into `toolchain/`).
+- **Shared toolchain base image + common wrappers**: all toolchain
+  Dockerfiles now inherit `FROM rebrew/base:1.0` (`toolchain/base/` — OS +
+  wine + wine32 + dosbox + download tooling + common env), built
+  automatically as a dependency by `rebrew toolchain build`.  The
+  entrypoint wrappers (`cl`, `cl16`, `dcc`) share
+  `toolchain/base/wrapper-common.sh` (`rebrew_pick_source` handles
+  MSVC-style flags-first argv; `rebrew_dosbox_run` / `rebrew_copy_back`
+  are one implementation instead of per-toolchain copies).  The vendored
+  compiler trees sit at the top level of each
+  `toolchain/<family>/<version>-<arch>/` dir so host and image share one
+  layout.  Verified: all four images (`rebrew/msvc:6.0-win32`,
+  `rebrew/msvc:1.52-win16`, `rebrew/delphi:1.0-win16`,
+  `rebrew/watcom:2.0-win32`) compile C end-to-end from the base.
+- **`recompile/` service skeleton** (recompile.online): a FastAPI
+  compiler-as-a-service package that dispatches each compile into the
+  matching toolchain container — `GET /api/v1/compilers` (catalog derived
+  from the rebrew toolchain registry), `POST /api/v1/compile`
+  (`{compiler, source, flags}` → status/artifact URL/compiler version/log,
+  executed via `docker run` against the pinned image), and
+  `GET /api/v1/artifacts/{id}` (path-traversal guarded).  Verified
+  end-to-end: the API compiled C with `msvc6` (i386 COFF object served
+  back) and `watcom`; unit tests cover the catalog, image resolution and
+  the 400/404 error paths (no docker needed).
+- **`functions.similarity` documented as reserved**: the column was
+  documented as a structural-similarity score but no catalog producer ever
+  emitted it (it needs both target AND recompiled bytes, which only
+  `rebrew match`/`diff` have) — every row was NULL and the doc's example
+  showed a misleading `1.0` (db-review F14).  The doc now states it is
+  reserved/always-NULL until a producer exists; recoverage displays it only
+  when non-null, so no consumer is affected.
+- **`history` table is retention-capped**: status-change rows were appended
+  on every rebuild and never pruned — a long-lived project that regenerates
+  often accumulated rows forever (db-review F7).  Only the newest 10,000
+  rows per target now survive each rebuild (the dashboard pages the newest
+  100, max 5000), bounding growth while preserving full history depth.
+- **Removed the redundant `cells` index**: the `UNIQUE (target,
+  section_name, start)` constraint already served the `(target,
+  section_name)` prefix used by `section_cell_stats` and per-section
+  queries — a separate `idx_cells_section` was paid for on every cell
+  insert and never the only usable index (db-review F6).  Stale copies
+  from older builds are dropped.
+- **Unknown cell states warn instead of vanishing**: an out-of-set
+  `cells.state` (a typo in hand-edited JSON) fell into the
+  `section_cell_stats.other_count` bucket with no signal (db-review F4).
+  `_normalize_cell_row` now logs a warning naming the state and the known
+  set; the value is preserved so the count still reconciles.
+- **Dashboard "coverage" now means matched bytes**: the headline `coverage_pct`
+  summed EVERY function's size regardless of status — an all-STUB binary
+  reported ~100% "coverage" (db-review F1).  It now uses matched bytes
+  (EXACT/RELOC/PROVEN sizes) / text size, with a separate `identified_pct`
+  ("fully documented", incl. stubs) stored alongside in `function_stats`.
+  DB_FORMAT.md documents both definitions.
+- **`verify_results` no longer dropped on full rebuild**: `rebrew build-db`
+  wiped the table on every full rebuild (contradicting DB_FORMAT's "never
+  dropped" promise), then re-imported only the last-verified target's rows —
+  in multi-target projects every other target's verification history was
+  silently lost (db-review F3).  The per-target `INSERT OR REPLACE` + prune
+  now keeps it current without the drop.
+- **`verify_results` prune no longer wipes on unparseable reports**: when a
+  report's `va` values failed to parse, the prune built `va NOT IN ()` —
+  which SQLite treats as vacuously TRUE, deleting the target's entire
+  history (db-review F5).  The prune now guards on the parsed VAs.
+- **`verify_results.diff_lines` is now populated**: the column was documented
+  and recoverage-consumed but no producer ever emitted it — every row was
+  NULL (db-review F2).  `rebrew verify` now computes the differing-
+  disassembly-line count for unmatched functions (best-effort; matched
+  functions skip the disassembly diff entirely, leaving NULL = 0 diffs).
+- **`section_cell_stats` gained an `other_count` catch-all**: cells in
+  states outside the counted buckets (compile_error, missing_*, skip,
+  unknown) fell into no column, so `total_cells` never equaled the sum of
+  the counted columns and per-section stats silently undercounted
+  (db-review F4).
+- **`rebrew` umbrella detects `--json` by exact token, not substring**: the
+  uncaught-exception handler scanned `"--json" in sys.argv`, so any
+  argument containing the literal (a file named `x--json.c`, or
+  `--cflags "--json"`) switched the error envelope to JSON mode without
+  the user passing `--json` (cli-review F11).  `_json_requested` now
+  matches the exact `--json`/`--json=true` tokens.
+- **`rebrew catalog --export-ghidra --json` is refused**: the export path
+  prints interactive instructions and emits no JSON document — combining
+  it with `--json` produced zero stdout, breaking the JSON contract
+  (cli-review F9).  The combination now errors up front, like the existing
+  `--fix-sizes --json` guard.
+- **Malformed `[link]` version strings warn instead of silently no-op**: a
+  typo'd `linker_version`/`os_version`/`subsystem_version` (e.g. `"5"` or
+  `"abc"`) was swallowed by `except ValueError: pass` — `--fix-headers`
+  skipped the field while the parity report showed an unexplained mismatch.
+  A shared parser now warns on the malformed value (config-review F7).
+- **GA run output honors `[project].output_dir`**: `rebrew match`'s GA
+  checkpoints/resume paths hardcoded `output/ga_runs` while `rebrew report`
+  used the config value — the same documented option behaved differently
+  per tool.  All three sites now route through a shared helper honoring
+  `cfg.output_dir` (default `output`, so existing projects are unchanged).
+- **Reserved/no-op config keys warn at load**: `[compiler.profiles]` is
+  documented as runtime-selectable but no tool consumes it, and
+  `game_range_end` is a documented legacy no-op — both silently did
+  nothing.  They now emit a load-time warning so a user configuring them
+  sees the no-op instead of believing it works (config-review F5).
+- **`cflags = ""` means "no default flags"**: an explicitly-empty
+  `[compiler].cflags` silently compiled with the hardcoded `/O2 /Gd`
+  fallback, indistinguishable from an absent key.  A presence flag
+  (`cflags_explicit`) now distinguishes the two — the `/O2 /Gd` fallback
+  applies only when the key is absent (config-review F5).
+- **Verify cache invalidates on config-level CFLAGS changes**: the cache
+  entry stored only the metadata CFLAGS, so a `rebrew cfg set-cflags` or
+  `[compiler].cflags` edit changed the effective flags (via the config
+  fallback chain) without changing the cache key or entry guard — stale
+  EXACT/RELOC kept being served while `rebrew test --all` recompiled and
+  demoted.  Entries now store the RESOLVED effective flags and the hit
+  check compares the freshly-resolved value; the `_compiler_config_hash`
+  comment claiming "verify never reads them" was false and is corrected.
+- **`rebrew cfg set-compiler` writes the `profile` key**: it previously
+  wrote only command/includes/libs, so the target's profile stayed at the
+  default (msvc6) — compiling with a gcc command but MSVC-style `/I /Fo`
+  routing, and never engaging the posix/toolchain branches
+  (config-review F1).
+- **`[llm]` config section is now parsed**: documented in CONFIG.md but
+  never in the known top-level keys — a `[llm]` table warned
+  "unrecognized" and `cfg.llm_endpoint` was always "" (only the env-var
+  fallback worked), while `match --llm-seed`'s error message pointed users
+  at the dead `[llm] endpoint` key.  The table now populates
+  `cfg.llm_endpoint`/`cfg.llm_api_key`.
+- **`compile_to_obj` routes POSIX flags through `cfg.posix_style`**: the
+  local profile tuple duplicated the config property's "single source of
+  truth" — adding a POSIX profile to one list but not the other silently
+  switched flag routing and broke compiles.
+- **Grid status counters count PROVEN as matched**: `count_statuses` had no
+  PROVEN group, so a PROVEN annotation fell into no bucket and
+  exact+reloc+near+stub could undercount `totalFunctions` — the catalog's
+  "Matched: N/M" line lied for proven-but-not-byte-equal functions.
+  PROVEN now ranks with RELOC, matching `_STATUS_RANK` everywhere else.
+- **`_compile_cflags` no longer silently drops a `/c`-less base**: a
+  `base_cflags` without `/c` (e.g. a bare `/MT`) was discarded in the glue
+  branch — the same silent flag-loss class the function was consolidated to
+  prevent.  It is now preserved alongside the `/nologo /c` glue (caught by
+  the new unit tests for all five branches).
+- **`rebrew catalog` no longer fabricates coverage from a missing binary**:
+  a missing target binary fell back to a hardcoded `0x24000` (92160B)
+  section, and coverage was reported against that made-up denominator —
+  indistinguishable from a real measurement and ingested as truth by
+  build-db/dashboards (code-review F9).  The size is now 0 (coverage 0%)
+  with a warning on stderr and a `warning` field in the JSON payload.
+- **`catalog --summary` help matches behavior**: it claimed "Print summary
+  to stdout" but every summary line goes to stderr (the console).  Help
+  text corrected.
+- **Batch match runs honor the documented exit contract**: `rebrew match
+  --all` / `--all-targets` always exited 0 even when every stub failed —
+  a false green for CI gates against the epilog's "1 = no match found".
+  Both batch paths now exit `EXIT_MISMATCH` when any stub failed (mirroring
+  `rebrew test --all`); dry-run is unaffected.
+- **`rebrew test <multi-function.c>` honors the exit contract**: the
+  multi-annotation path printed results and always exited 0, so a file of
+  all-STUB functions reported success.  It now exits 1 when any function is
+  unmatched and 2 on tooling (EXTRACT_ERROR) failures, matching the
+  single-function and `--all` paths.
+- **`--dry-run --llm-seed` no longer runs the full GA**: when no LLM
+  endpoint is configured, the warning printed and control fell through to
+  `ga.run()` — hours of Wine compiles despite `--dry-run`'s "preview, no
+  write" promise.  It now returns after the warning.
+- **`--tier bogus` errors in every mode**: tier was only validated in sweep
+  paths, so `rebrew match f.c --tier nonsense` silently succeeded in plain
+  GA mode.  Now validated unconditionally at invocation time.
+- **Usage errors exit 2 (EXIT_ERROR), not 1**: bad `--format` values
+  (diff/asm), `--decomp-body` without `--decomp`, `--watch`+`--all`, and
+  missing-source errors reported exit 1 = "needs code work" — violating
+  cli.py's documented rule ("a bad argument is a usage error — exit 2") and
+  typer's own convention.  All now exit 2.
+- **`rebrew skeleton --append` refusal exits non-zero**: appending a VA
+  already in the file printed a hint and exited 0 (success) with nothing
+  appended — a false signal for automation.  It now errors via `error_exit`.
+- **`rebrew verify` writes the default report in plain mode**: `--output`
+  help promises "default: project db_dir/verify_results.json", but plain
+  `rebrew verify` wrote nothing — so a first `--compare` run had no
+  baseline and silently became one.  The report (already assembled) is now
+  written in plain mode too.
+- **`rebrew diff --fix-blocker --json` writes the blocker once**: the
+  terminal-only write ran after the JSON branch had already written it —
+  redoing metadata I/O and printing status chatter against the JSON
+  contract.  Guarded with `not json_output`.
+- **`rebrew diff` help no longer advertises nonexistent `--mm`/`--rr`**:
+  the epilog and docstring examples used flags that don't exist (the real
+  ones are `-m/--mismatches-only` and `-r/--register-aware`) — copying the
+  documented example failed with "No such option".
+- **Calling-convention inference uses the LAST jump**: `calling_convention`
+  picked the first `jmp` for ret-less functions — the extent-padded window
+  can bleed into the next function, and a jmp-table dispatcher followed by
+  the next function's code produced several jmps with no ret.  The terminal
+  jump is now used (matching the `rets[-1]` logic), so skeleton signatures
+  no longer mis-derive from a mid-body switch dispatch.
+- **`--sweep-toolchain` now validates reloc targets**: the per-toolchain
+  match passed `name_to_va` via a `getattr(p, "name_to_va", None)` that
+  never existed — every sweep ran with reloc validation disabled, so a
+  wrong-callee source could tag "EXACT" (the same false-match class the GA
+  and flag-sweep paths now guard against).  The catalog map and IAT region
+  are computed once and threaded in.
+- **`rebrew skeleton --append` now emits convention-aware stubs**: append
+  mode (the common multi-function path) silently degraded to
+  `int __cdecl f(void)` — the thiscall/stdcall stub work was
+  single-file-only.  `generate_annotation_block` now computes and forwards
+  the convention stub like `generate_skeleton` does.
+- **`rebrew describe` convention inference is extent-based**: the dossier
+  disassembled a flat 64-byte window — the exact bug skeleton.py already
+  diagnosed (longer functions truncated mid-code → "unknown" → wrong
+  cdecl default).  A shared `asm.calling_convention_at` helper (extent-
+  derived window) now serves both.
+- **verify's "once per process" logic hash actually caches**: the
+  `lru_cache` decorated a nested `_hash()` re-created on every call, so the
+  full-package source hash was recomputed on every verify run despite the
+  docstring claim.  The decorator now sits on the outer function.
+- **`rebrew data --fix-bss` is idempotent on re-run**: the generated
+  `bss_padding.c`'s own `// DATA:` annotations close the gaps they fill, so
+  a second run's gap scan reported fewer gaps — regenerating from scratch
+  deleted the first run's arrays while `rebrew-data.toml` still claimed
+  coverage (idempotency-review F4).  Existing auto-generated declarations
+  are now merged with new gaps, and the file is written BEFORE its metadata
+  so a crash between the two can never leave metadata claiming coverage the
+  source does not declare.
+- **`rebrew catalog` refreshes its own `function_structure.json`**: the
+  compatibility export was written once (`not exists()` guard) and never
+  refreshed, so re-discovery left a stale structure cache diverging from
+  the freshly-written data JSON.  Catalog-generated entries are now stamped
+  `_generated_by: "rebrew catalog"` and refreshed on re-run, while a REAL
+  Ghidra export (no marker) is never overwritten.
+- **`verify --watch` picks up files created during the session**: the
+  watched set was captured once at startup, so a `.c` generated mid-session
+  (e.g. `rebrew skeleton` for a newly discovered function) was never
+  covered.  `watch_files` gains an optional `path_provider` that re-resolves
+  the set every poll; verify passes one.
+- **GA / flag-sweep "matches" are now validated like test/verify before
+  promoting**: both the batch flag sweep and the GA splice promoted
+  EXACT/RELOC on the reloc-masked score alone (`score_candidate` masks
+  every reloc slot, so a candidate differing only in a call/mov
+  displacement scored 0.0 without checking the reloc TARGET against the
+  catalog).  A wrong-callee source could be promoted and immediately
+  demoted by the next test/verify.  Each match is now confirmed with an
+  authoritative `compile_and_compare` (with `name_to_va` + `section_va`)
+  before STATUS is touched; unconfirmed sweeps report the flag and skip
+  promotion.
+- **`rebrew match` STATUS promotions now sync the verify cache**: the GA
+  splice (STUB → RELOC) and batch flag-sweep EXACT promotion previously
+  left `.rebrew/verify_cache.json` holding the stale pre-match entry, so
+  `rebrew status`/`todo` contradicted the fresh metadata until the next
+  full verify.  Both now call the shared `patch_verify_cache_entries`
+  (identity-checked + cross-process locked), the same helper `rebrew test`
+  uses — one implementation behind every promotion site.
+- **`rebrew verify` labels pre-compile failures correctly**: an `INVALID_VA`
+  (below the valid floor) was reported as COMPILE_ERROR — a bogus "compile
+  error" in the summary that tripped the CI gate as if the source failed
+  to build.  It now has its own `INVALID_VA` status (ranked with the
+  MISSING_* annotation problems), and "Cannot extract DLL bytes" is
+  `EXTRACT_ERROR` (the stage label compile.py already uses), so neither
+  blames the `.c` file.
+- **`rebrew skeleton --decomp-body` without `--decomp` is rejected**: the
+  flag was accepted-but-inert, silently producing a plain stub.  It now
+  fails with "requires --decomp" and writes nothing.
+- **Legacy-encoded `.c` sources compile again**: sources are read with
+  `decode("utf-8", errors="surrogateescape")` (lossless for cp1252/
+  shift_jis bytes), but the compile-cache key re-encoded with strict
+  `utf-8` — raising `UnicodeEncodeError` for any non-UTF-8 source, which
+  `compile_and_compare` mislabeled as COMPILE_ERROR.  Every legacy-encoded
+  file was permanently untestable and `verify` demoted its STATUS.  The
+  digest now round-trips with `errors="surrogateescape"`.
+- **`rebrew intake` on an existing project no longer resets the corpus**:
+  re-discovery called `classify_all` with every function, writing
+  STUB + auto-blocker for each — silently demoting EXACT/RELOC/
+  NEAR_MATCHING back to STUB and clobbering user-written BLOCKERs
+  (the `size` write already had a "never clobber" guard; status/blocker
+  did not).  Non-STUB entries are now skipped and user blockers survive.
+- **`rebrew test file.c --va X` promotes under the right module**: with
+  `--symbol` given, the VA-based annotation selection was skipped entirely,
+  so SIZE/CFLAGS/STATUS were written under the FIRST annotation's module —
+  a phantom `(first_module, X)` key while the real entry stayed stale in
+  multi-module files.  VA selection now happens unconditionally.
+- **`rebrew split` (full mode) validates all outputs before writing any**:
+  the interleaved check-then-write aborted mid-batch on the first existing
+  output, leaving earlier blocks written — and every re-run then failed on
+  block 1's now-existing file, so the split could never complete without
+  `--force`.  Two-phase: every conflict is reported up front, nothing is
+  written on any conflict (rename.py's pattern).
+- **verify-cache patching is identity-checked and locked**: `rebrew test`
+  patched `.rebrew/verify_cache.json` by VA only — in a multi-target
+  project, `test -t CLIENT` could patch entries a `verify -t SERVER` wrote
+  (and the next SERVER verify would serve CLIENT's status).  The patch now
+  verifies the cache's target + compiler identity, and both the patch and
+  `verify`'s save run under a shared cross-process lock (mirroring
+  metadata.py's flock discipline).
+- **`rebrew switch` stops at non-image table entries**: the case walk now
+  halts at the first dispatch-table entry that is not a code address in the
+  image, even when a bounds check suggests more — a misread/over-estimated
+  `cmp reg, N` previously dragged garbage into the case list (observed on
+  the mspaint corpus: a table with 7 real cases but a `cmp 0xb` bound).
+- **`rebrew skeleton` warns on merged discovery entries**: a `functions.txt`
+  entry that spans several functions (multiple ret-terminated epilogues
+  within the declared size — e.g. the mspaint corpus's 53B entry covering
+  three tiny functions) is flagged with "spans multiple functions — split
+  into per-function files", so the user doesn't treat a merged region as
+  one decomp target.  Single functions (including early-return bodies) are
+  unaffected.
+- **GA STATUS promotion runs only after the source write succeeds**: in
+  `update_stub_to_matched` the `update_source_status(…, "RELOC")` call ran
+  BEFORE `atomic_write_text` — a failed write (disk full, read-only dir)
+  left `rebrew-function.toml` claiming RELOC on a `.c` whose body was still
+  a stub, a false green until the next verify self-healed.  The promotion
+  now happens after the write, matching the function's documented contract.
+- **`rebrew verify` no longer counts tooling crashes as code regressions**:
+  a worker exception now gets its own `INTERNAL_ERROR` status — excluded
+  from the `--compare` regression/improvement classification and from the
+  code-failure list, so a transient crash on a previously-EXACT function
+  can never fail the CI gate as a false code regression.  The count is
+  still surfaced in the run report.
+- **`rebrew test` (multi-function) labels post-compile failures
+  EXTRACT_ERROR instead of crashing the batch**: a LIEF raise on a
+  malformed `.obj`, or a VA yielding no target bytes, previously aborted
+  the whole file with a traceback (no JSON, wrong exit).  Each symbol now
+  records an `EXTRACT_ERROR` row and the batch continues, mirroring
+  `compile_and_compare`'s stage labeling.
+- **`rebrew test` metadata writes are no longer silent**: the SIZE/CFLAGS
+  persistence sites used `contextlib.suppress(Exception)` — a failed write
+  (read-only metadata, corrupt TOML) was invisible while downstream
+  `rebrew diff`/`verify` later failed with no link to the cause.  They now
+  log a warning naming the VA and the consequence, matching `verify`'s
+  metadata-write handling.
+- **`iat_slot_vas` failures are surfaced**: the LIEF IAT scan swallowed
+  every exception and returned `set()` — indistinguishable from "no IAT",
+  which silently disabled IAT reloc masking and demoted true RELOC matches.
+  A raised failure now logs a warning.
+- **`rebrew verify` cache invalidation now covers the whole package**: the
+  verify-cache logic hash was a hand-maintained list of six modules that had
+  already drifted (reloc validation, IAT masking, flags, compiler env are
+  all result-affecting but unlisted).  It now hashes the entire `rebrew`
+  package source, so a fix to any comparison-affecting module invalidates
+  caches written by the pre-fix build.
+- **Batch GA degradations are visible**: flag-sweep failure (falling back to
+  stub cflags), solution-list load failure (disabling `--seed-from-solved`),
+  and per-stub seed lookup failure were logged at DEBUG — invisible in the
+  headline `rebrew match --all` workflow.  All three now log at WARNING, so
+  a run that was not sweep/seed-informed says so.
+- **`build_name_to_va` scan failures are surfaced**: the global/function
+  catalog scan returned `{}` on any failure — indistinguishable from
+  "nothing to validate", so verify/test silently skipped reloc validation
+  and wrong-callee calls could pass as RELOC.  The failure now logs a
+  warning naming the cause.
+- **`rebrew analyze` no longer aborts the whole dossier on an import record
+  without `iat_va`**: the entry list did an unguarded `rec['iat_va']` —
+  a KeyError/TypeError there escaped the per-section guards and the caller
+  reported "Analyze failed", violating the module's contract that one
+  broken backend never aborts the others.  The field now defaults to 0.
+- **`rebrew verify` uses bounded pool submission**: it previously submitted
+  every entry to the ThreadPoolExecutor up front — the exact pattern
+  flag_sweep was deliberately changed away from (compiler.py).  It now
+  submits `jobs` at a time and refills as each completes, so memory stays
+  proportional to the worker count, not the corpus size (thousands of
+  futures on large batches).  A regression test covers batches larger than
+  the worker count.
+- **`load_ga_runs` keeps only the newest `limit` records**: the GA-run log
+  reader held the entire (unbounded, append-only) history in memory before
+  trimming to `limit` — `--ga-history` and batch `--skip-recent` read it
+  every run.  A bounded deque (applied after target filtering, so "limit"
+  still means "up to limit records for this target") bounds memory without
+  changing results.
+- **`rebrew describe` scans `.text` once instead of twice**: the dossier
+  ran `scan_references` for callers/globals/imports and then `string_refs`
+  re-ran the same full-section disassembly for the strings section.  The
+  string refs are now filtered from the already-computed reference pass
+  (identical output, verified by an equivalence test) — a per-dossier
+  full-`.text` disassembly saved on every `describe`/`analyze --function`
+  call.
 
-### Added
+- **Tail-calling functions no longer misclassified as pure thunks**: a
+  function whose jmp-terminated disassembly has a real body (>2 insns) is
+  now classified `tail call` — a forwarding function — instead of
+  `tail-call thunk` (the "implement as a naked asm tail-jump" note was
+  wrong for it).  `rebrew skeleton` resolves the jmp target's decorated
+  name (`name@N`, via the function lookup) to emit the correct
+  `int __stdcall f(int a1, ...)` signature with a "N stack arg(s)
+  forwarded" note; unresolved targets get a plain signature + guidance.
+  Pure 1-2 insn thunks (`jmp [IAT]`, `mov ecx,imm; jmp`, `push; jmp`)
+  keep the thunk classification.
+- **Toolchain round-trip tests run ~14x faster with wibo**: the suite's
+  compile tests hardcoded `wine`; they now prefer wibo when available
+  (headless, no wine boot — the round-trip suite dropped 23.3 s → 1.6 s)
+  and fall back to wine.  CI installs wibo best-effort before the test
+  job, so the recommended runner is exercised in CI and the suite stays
+  fast there.  `tools/wibo` is now gitignored.
+- **Fresh skeletons classify as STUB, not a bare SIZE_MISMATCH**: a minimal
+  candidate body (the skeleton's default `return 0`, ~3-8 bytes) against a
+  much larger target is an unimplemented stub — `rebrew test` now reports
+  STUB with a message naming both sizes ("the skeleton default was never
+  implemented") instead of a confusing SIZE_MISMATCH.  Genuinely tiny
+  functions byte-match (EXACT/RELOC) and never hit this path; near-size
+  mismatches still report SIZE_MISMATCH.  `classify_compare_result` gained
+  a `full_target_size` kwarg (the caller truncates the longer side before
+  classifying, so the original lengths must be threaded explicitly).
+- **`rebrew skeleton` warns on stale sizes**: the generated file's size (and
+  the `--size N` in the suggested test command) comes from the Ghidra cache
+  / function registry, which can hold a stale `functions.txt` entry.  When
+  the disassembly extent runs past the resolved size, skeleton now warns
+  with the real extent and points at `rebrew asm --size <extent>` /
+  `rebrew test --fix-size` — previously the first `rebrew test` failed with
+  SIZE_MISMATCH on a truncated size and the user had to rediscover the
+  discrepancy by hand.  JSON output gains a `size_warning` field — in
+  single-VA mode and per item in `--batch` mode (with a console warning
+  line per stale function).
+- **GA/flag-sweep never accepted RELOC matches**: `score_candidate`'s byte
+  score counted relocation bytes as raw mismatches, so a candidate whose
+  only diffs were at reloc sites (linker-determined call displacements)
+  sat at a fitness floor of ~N×1000 and the `exact: score < 0.1` gate
+  never fired — the GA kept mutating a byte-perfect candidate and flag /
+  toolchain sweeps reported no match for RELOC-able functions.  The reloc
+  mask now applies to the byte score too; a reloc-only match scores ~0 and
+  is accepted.  Real mismatches outside reloc sites still count.
+- **`rebrew asm` detects stale function-list sizes**: a size that truncates
+  the function mid-code (stale `functions.txt` entry) now warns and extends
+  the dump to the disassembly extent — previously the dump silently ended
+  mid-instruction, which also broke the calling-convention inference
+  (truncated window → "unknown" → wrong skeleton signature).  An explicit
+  `--size` is honored (warn-only); the JSON report gains a `stale_size`
+  field (`requested_size` keeps the pre-extension value).  x86-32 only —
+  the extent walker is an x86 disassembler.
+- **`rebrew skeleton` convention stub no longer truncates long functions**:
+  the calling-convention window was a flat 48 bytes, so a function whose
+  real body extended past it got the wrong default (`__cdecl` instead of a
+  thiscall/stdcall shape — e.g. an MFC `ret 0x10` method with a 100+ byte
+  body was emitted as `int __cdecl f(void)`).  The window is now the
+  disassembly extent: exact when it terminated on a `ret`, padded past a
+  mid-function branch-merge `jmp` (small ≤16 B jmp regions stay exact —
+  they are real tail-call thunks).  `function_extent_from_disasm` gained a
+  non-breaking `with_kind=True` returning `(extent, "ret"|"jmp")`.
+- **Relative runner paths now anchor to the project root**: the config
+  shape `rebrew init --install-wibo` writes (`runner = "tools/wibo"`,
+  command without the runner prefix) previously broke under the temp
+  compile workdir with "No such file or directory: 'tools/wibo'".  Both
+  the `rebrew compile` path and the GA/flag-sweep path (via
+  `REBREW_COMPILER_RUNNER`) resolve relative runner paths against the
+  project root now, and `WINEDEBUG` is set by runner basename
+  (`tools/wibo` is still wibo).
+- **`rebrew doctor` false "CL.EXE not found"**: the Compiler check now
+  honors the install-tools fallback used by `resolve_cl_command`, so
+  projects without a local `tools/` symlink (fresh `rebrew init`, no
+  `--link-tools-from`) report the compiler as reachable instead of a FAIL
+  that contradicts working compiles.
 - **`rebrew skeleton` emits calling-convention-aware stubs**: the generated
   skeleton now matches the target's convention instead of always being
   `int __cdecl f(void)` — `int __fastcall f(void *self)` for thiscall with
@@ -462,7 +1077,6 @@
   `marker`) to `[targets.<default>]` instead of silently writing a top-level
   key the config reader ignores.
 
-### Fixed
 - **16-bit NE support for MSVC-built targets** (the original 1991 SkiFree):
   `is_ne` read only the first 0x104 bytes, but the MSVC 16-bit linker places
   the NE header at `e_lfanew` = 0x400 (Borland uses 0x40) — NE binaries were
@@ -707,6 +1321,93 @@
   from the command).
 - `rebrew data --gen-header` / catalog warn on globals whose VA falls
   outside every PE section.
+### Added
+- **`rebrew asm --hints` flags the equality-boolean idiom**: `cmp reg,1;
+  sbb reg,reg` (+ optional `inc`) is MSVC's `!x`/`x==0` lowering, which
+  plain C under MSVC5 compiles to a different epilogue (`neg/sbb/neg/dec` /
+  `setcc`) — the hint advises writing it in naked asm (a repeated mismatch
+  in the mspaint corpus).
+- **GA can now fix wrong constants**: new `mut_tweak_integer_literal`
+  mutation operator adjusts numeric literals (field offsets, sizes, magic
+  numbers) by small ±deltas, preserving hex/decimal radix.  Previously the
+  GA had no way to change a literal — a function whose only defect was an
+  off-by-N offset plateaued at its seed score forever (a broken field
+  offset stuck at 5000 for 960 evals).  With the operator the same search
+  converges to `exact: True`.
+- **`rebrew describe` reports the function pattern + calling convention**:
+  the dossier gains `pattern` (import thunk / EH-ctor / switch dispatch /
+  IAT forwarder — the skip-vs-decompile decision from `rebrew asm --hints`
+  at function level) and `convention` (rebrew asm's inference) fields, so a
+  single `rebrew describe <va>` call shows the recognizer's verdict plus
+  the callers/callees/strings/imports.  JSON contract updated.
+- **`rebrew asm --hints` flags esp-relative disp8 in naked asm**: MASM
+  folds `lea/cmp/mov [esp+X]` operands into short-form encodings that
+  don't match MSVC's `8d 44 24 XX` disp8 forms — the hint warns to force
+  the exact bytes with `_emit` (a recurring naked-asm mismatch).
+- **`rebrew asm --hints` flags EH-ctor prologs**: a `call` preceded by
+  `mov eax, imm32` (the compiler-generated `__eh_ctor` registration
+  pattern — 58 functions in the mspaint corpus) is annotated as not
+  C-reproducible, so the user skips/documents instead of decompiling.
+- **`rebrew asm --hints` flags IAT forwarding stubs**: a call through an
+  IAT slot preceded by ≥3 reversed `mov reg,[esp+X]; push reg` pairs is an
+  N-arg forwarder to an imported (usually stdcall) function.  The hint
+  names the forwarder and the lesson from matching one byte-for-byte: the
+  forwarder itself is cdecl (plain `ret`) while the callee cleans — declare
+  a `__stdcall` function pointer for the call or MSVC emits a spurious
+  `add esp,N`.  (The backward scan is immune to the asm `--hints` lookbehind
+  prefix, which previously broke the pattern.)
+- **`rebrew skeleton --batch --skip-fragments`**: excludes discovery
+  entries whose first bytes match none of the common function-start
+  prefixes — data regions and misaligned fragments (a bad function-list
+  boundary) that are not decompilable code.  Opt-in because the heuristic
+  can misflag an unusual real function; on the mspaint corpus it filters
+  the known data entries (e.g. 0x1001794) while leaving real functions
+  untouched.  ~10% of discovery entries in that corpus are non-code.
+- **`rebrew asm --hints` flags byte-compressed switches**: a two-level
+  dispatch (index fetched from a byte table before the indirect jmp —
+  MSVC's sparse-switch form) is annotated with a warning that a plain C
+  switch often does not reproduce the lowering (the compiler may pick a
+  direct table instead) plus the `rebrew switch <va>` decode command — so
+  the user knows up front not to chase the structure difference.
+- **`rebrew switch --all` — recon pass**: scans every function-list entry
+  and reports the ones containing jump-table dispatches (dispatch/case
+  counts + the exact decode command per function).  On the mspaint corpus
+  it surfaces 28 switch-dispatch functions in one command.  Also fixes a
+  `0x0x` double-prefix in the console VA display.
+- **`rebrew asm --hints` flags switch dispatches**: an indirect jump-table
+  dispatch (`jmp dword ptr [reg*4 + 0x...]`) is now annotated with
+  `switch dispatch (jump table) — decode the case table with
+  rebrew switch <va>` — the recon hint surfaces where the user already
+  looks, and points at the new decoder.
+- **`rebrew switch <VA>` — jump-table switch decoder**: locates the
+  bounds-checked indirect dispatch (`jmp dword ptr [edx*4 + table]`) in a
+  function, reads the dispatch table from the binary, and prints the case
+  table (index → handler VA → known function name).  The entry count comes
+  from the preceding `cmp reg, N` bounds check when found (any register —
+  MSVC copies the index into the scaled register between the cmp and the
+  jmp), else from walking the table until a non-image entry (capped at
+  256).  This is the "jump-table switch" category of functions that manual
+  decompilation has to untangle by hand — the structure is now visible
+  before writing any C.  `--json` for machine-readable case tables.
+- **`rebrew doctor` Runner advisory**: when the project runs `wine` but a
+  wibo binary is already available (PATH or `tools/wibo`), the Runner check
+  warns with the exact config switch (`runner = "tools/wibo"` + strip the
+  `wine ` prefix) — wibo is a headless PE loader with no X dependency, so
+  compiles get faster and fully headless.
+- **Headless wine by default**: every `wine` compiler invocation (compile
+  and link, both the `rebrew compile` path and the GA flag-sweep path)
+  runs against a **persistent `Xvfb` virtual display** — spawned once per
+  process and reused across the whole verify/GA batch, with live Xvfb
+  servers from earlier runs reused rather than re-spawned.  No more
+  virtual-desktop window popping on each compile, and bare wine now works
+  under CI with no `DISPLAY`.  The per-invocation `xvfb-run` wrapper costs
+  ~3 s per compile, so a persistent server is the difference between a
+  4 s cold compile and ~0.5 s (the toolchain round-trip suite halved:
+  48 s → 23 s).  Opt out per-run with `REBREW_WINE_HEADLESS=0`;
+  falls back to `xvfb-run` then bare wine when no Xvfb binary exists.
+  `rebrew doctor` notes the headless setup (or points at wibo) for wine
+  runners.
+
 ### Changed
 - **Breaking (JSON):** `rebrew imports --json` now emits stub VAs as hex
   strings (`{"va": "0x...", "name": ...}` list) and `iat_va` as hex, matching
@@ -753,6 +1454,33 @@
   `rebrew graph --cu-map`).
 
 ### Performance
+- **`score_candidate` GA hot loop ~3x faster**: mnemonic extraction now uses
+  capstone's `disasm_lite` (tuple-returning, no per-instruction ctypes
+  objects) instead of `disasm` — identical output, ~2.7x cheaper disassembly.
+  With the explicit-reloc GA path (precomputed target + reloc mask) a 60-insn
+  candidate scores in ~47µs instead of ~143µs.
+- **`iat_slot_vas` memoized per binary path**: `compile_and_compare` calls
+  it once per function even on compile-cache hits, so a full verify/test
+  batch re-parsed the same immutable PE N times (0.05–0.3s each).  Now
+  scanned once per resolved path (bounded dict + lock, mirroring the
+  `load_binary` cache).
+- **GA source-digest memoization actually works**: `_source_digest` was
+  documented as lru_cached but had no decorator — every flag-sweep combo
+  and GA candidate re-ran a full SHA-256 of the source (perf-review F3:
+  1-8s per 258k-combo sweep).  The `@lru_cache` the docstring promised is
+  now applied; the GA loop's per-candidate re-hash for log lines now reuses
+  the same memoized digest.
+- **GA fitness memoization fixed**: `BuildResult.fitness` was populated
+  after the disk-cache `put()`, so every `cache.get()` returned a fresh
+  unpickled object whose fitness was `None` — the warm-scoring fast path
+  could never fire, even for elites persisting across generations.  A
+  process-local `{src_hash: fitness}` dict now makes it real (no extra disk
+  write); a fresh-pickle result with the same hash skips re-scoring.
+- **Batch GA flushes solutions once**: `_save_solution` per matched stub
+  re-read and rewrote the whole solutions file per match (O(matches × file
+  size)); the batch driver now collects `SolutionEntry`s across stubs and
+  calls `save_solutions` once, mirroring the batch flag-sweep path.
+
 - GA/flag-sweep hot path: `score_candidate`'s no-reloc fallback now
   disassembles the candidate ONCE (merged normalization + mnemonic
   extraction, `_normalize_and_mnems_x86_32`) and threads the target's

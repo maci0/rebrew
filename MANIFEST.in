@@ -1,0 +1,11 @@
+# sdist manifest — ship only what a source build needs.
+# setuptools' default sdist filelist pulls in every .py under the project,
+# including tests/ (185 files of test-only code).  Prune the dev-only trees
+# so the release sdist stays small and clean; the wheel is unaffected (its
+# contents come from package-data, not this manifest).
+prune tests
+prune docs
+prune tools
+prune toolchain-images
+global-exclude *.py[cod]
+global-exclude __pycache__
