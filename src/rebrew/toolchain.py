@@ -92,6 +92,61 @@ def _vendored(sub: str) -> Path:
     return _REPO_TOOLS / sub
 
 
+@dataclass(frozen=True)
+class ToolchainSource:
+    """Pinned assembly source for one toolchain.
+
+    Either an in-repo tarball (``in_repo`` — the deterministic option, no
+    network) or a remote download verified by ``sha256``.  ``host_dir`` is
+    the ``toolchain/<family>/<version>-<arch>`` directory the vendored host
+    tree is assembled into; ``layout`` drives the extraction.
+    """
+
+    url: str = ""
+    sha256: str = ""
+    in_repo: str = ""  # repo-relative path to a committed tarball
+    layout: str = "tar"  # tar | tar-strip1 | zip-installshield
+    host_dir: str = ""  # toolchain/<family>/<version>-<arch> (host tree target)
+
+    def is_in_repo(self) -> bool:
+        return bool(self.in_repo)
+
+
+#: Pinned sources for assembling each toolchain (used by ``rebrew toolchain
+#: vendor`` and mirrored in the Dockerfiles).  Same sha256 as the images
+#: download, so host trees and containers are byte-identical.
+_SOURCES: dict[str, ToolchainSource] = {
+    "msvc6": ToolchainSource(
+        url="https://github.com/OmniBlade/decomp.me/releases/download/msvcwin9x/msvc6.0.tar.gz",
+        sha256="5c81e9c2ab0ac5545022c1418a23392cb514db950cf6dcb1f48327270403fcd3",
+        layout="tar",
+        host_dir="msvc/6.0-win32",
+    ),
+    "msvc1.52": ToolchainSource(
+        in_repo="toolchain/msvc/1.52-win16/msvc152.tar.xz",
+        layout="tar",
+        host_dir="msvc/1.52-win16",
+    ),
+    "delphi16": ToolchainSource(
+        in_repo="toolchain/delphi/1.0-win16/delphi10.tar.xz",
+        layout="tar",
+        host_dir="delphi/1.0-win16",
+    ),
+    "borlandc55": ToolchainSource(
+        url="https://archive.org/download/BorlandC55/Borland%20C%2B%2B%205.5.zip",
+        sha256="12affb942db2b9823292697faaa6f465b18c381ba347f9f4bf8efae6ff34cca1",
+        layout="zip-installshield",
+        host_dir="borland/5.5-win32",
+    ),
+    "watcom": ToolchainSource(
+        url="https://github.com/open-watcom/open-watcom-v2/releases/download/Last-CI-build/ow-snapshot.tar.xz",
+        sha256="984ff0d9a3f36bdb7596d8751299b3630cc259560c8386fb3337caa0037f3b4c",
+        layout="tar-strip1",
+        host_dir="watcom/2.0-win32",
+    ),
+}
+
+
 TOOLCHAINS: dict[str, ToolchainSpec] = {
     "msvc420": ToolchainSpec(
         name="msvc420",
