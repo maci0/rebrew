@@ -243,6 +243,242 @@ def pull_cmd(
             console.print(f"[green]Pulled[/green] {tag}")
 
 
+@app.command("vendor")
+def vendor_cmd(
+    name: str = typer.Argument(..., help="Toolchain name (e.g. msvc1.52, borlandc55)"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+) -> None:
+    """Assemble the host toolchain tree from the pinned source.
+
+    Downloads (sha256-verified) or extracts the committed in-repo tarball
+    into ``toolchain/<family>/<version>-<arch>`` — the same source the
+    docker image builds from, so host trees and containers are
+    byte-identical.  Refuses to clobber an existing tree unless empty.
+    """
+    import hashlib
+    import subprocess
+    import tempfile
+
+    from rebrew.toolchain import _REPO_TOOLS, _SOURCES
+
+    src = _SOURCES.get(name)
+    if src is None:
+        msg = f"no pinned source for toolchain {name!r} (known: {sorted(_SOURCES)})"
+        if json_output:
+            json_print({"error": msg, "code": 2})
+        else:
+            console.print(f"[red]Error:[/red] {msg}")
+        raise typer.Exit(code=2)
+
+    host = _REPO_TOOLS / src.host_dir
+    if host.exists() and any(host.iterdir()):
+        msg = f"{host} already has files — refusing to clobber"
+        if json_output:
+            json_print({"error": msg, "code": 2})
+        else:
+            console.print(f"[yellow]{msg}[/yellow]")
+        raise typer.Exit(code=2)
+    host.mkdir(parents=True, exist_ok=True)
+
+    try:
+        if src.is_in_repo():
+            tarball = Path(__file__).resolve().parents[2] / src.in_repo
+            subprocess.run(
+                ["tar", "xJf", str(tarball), "-C", str(host)],
+                check=True,
+                capture_output=True,
+            )
+            console.print(f"[green]Extracted[/green] {src.in_repo} -> {src.host_dir}")
+        else:
+            with tempfile.TemporaryDirectory(prefix="rebrew_vendor_") as td:
+                archive = Path(td) / "src.bin"
+                subprocess.run(
+                    ["curl", "-sL", "-o", str(archive), src.url],
+                    check=True,
+                    timeout=1800,
+                    capture_output=True,
+                )
+                actual = hashlib.sha256(archive.read_bytes()).hexdigest()
+                if actual != src.sha256:
+                    msg = f"sha256 mismatch for {name}: expected {src.sha256}, got {actual}"
+                    if json_output:
+                        json_print({"error": msg, "code": 2})
+                    else:
+                        console.print(f"[red]Error:[/red] {msg}")
+                    raise typer.Exit(code=2)
+                if src.layout == "zip-installshield":
+                    subprocess.run(
+                        ["unzip", "-q", str(archive), "-d", td + "/zip"],
+                        check=True,
+                        capture_output=True,
+                    )
+                    installer = next(Path(td + "/zip").iterdir())
+                    subprocess.run(
+                        ["7z", "x", "-y", str(installer), f"-o{td}/pay"],
+                        capture_output=True,
+                    )  # warning exits tolerated — the final check below guards
+                    payload = Path(td + "/pay")
+                    for sub in ("Bin", "Include", "Lib"):
+                        (payload / sub).rename(host / sub)
+                elif src.layout == "tar-strip1":
+                    subprocess.run(
+                        ["tar", "xJf", str(archive), "-C", str(host), "--strip-components=1"],
+                        check=True,
+                        capture_output=True,
+                    )
+                else:
+                    subprocess.run(
+                        ["tar", "xzf", str(archive), "-C", str(host)],
+                        check=True,
+                        capture_output=True,
+                    )
+                console.print(f"[green]Downloaded + verified[/green] {src.url} -> {src.host_dir}")
+    except (subprocess.CalledProcessError, OSError) as exc:
+        msg = f"vendor {name} failed: {exc}"
+        if json_output:
+            json_print({"error": msg, "code": 2})
+        else:
+            console.print(f"[red]Error:[/red] {msg}")
+        raise typer.Exit(code=2)
+
+    # Guard: a bad extraction must fail loudly (the images do the same).
+    from rebrew.toolchain import get_toolchain
+
+    spec = get_toolchain(name)
+    probe = host / spec.host_bin / spec.binary
+    if not probe.exists():
+        probe = host / spec.binary
+    if not probe.exists():
+        msg = f"vendor {name} produced no {spec.binary} under {host}"
+        if json_output:
+            json_print({"error": msg, "code": 2})
+        else:
+            console.print(f"[red]Error:[/red] {msg}")
+        raise typer.Exit(code=2)
+    if json_output:
+        json_print({"vendored": src.host_dir, "binary": str(probe)})
+
+
+#: Golden object hashes — the byte-exact output each toolchain image must
+#: produce for the fixed smoke source (reproducibility evidence: the same
+#: source + toolchain → the same object, every build).
+_SMOKE_SOURCE = "int add(int a, int b) { return a + b; }\n"
+_SMOKE_DPR = "program hello;\nbegin\nend.\n"
+_SMOKE_GOLDEN: dict[str, tuple[list[str], str, str, str, tuple[int, int] | None]] = {
+    # name -> (flags, out, golden, src, timestamp-mask (zeroed before hashing) | None)
+    "msvc6": (
+        ["/c", "t.c"],
+        "t.obj",
+        "4b50f0dbba945a5bc80f9e40ed05bcfb06505fff2204a4b567192c7e5fb1e224",
+        "t.c",
+        (4, 8),
+    ),  # COFF TimeDateStamp
+    "msvc1.52": (
+        ["/c", "t.c"],
+        "t.OBJ",
+        "d3bf67158b4d52bd24cb7b137e803491080cf221ffcd6b5dc9dafb885ab36dc2",
+        "t.c",
+        None,
+    ),
+    "borlandc55": (
+        ["-c", "t.c"],
+        "t.obj",
+        "76f45489734e9e2d58ed42d999f570204755566d135e757d27a754c194fdc8f1",
+        "t.c",
+        None,
+    ),
+    "watcom": (
+        ["-fo=w.o", "t.c"],
+        "w.o",
+        "44a6354f779f2c504384019c6786ec1831ca7b5cc20721e1a678295753f08220",
+        "t.c",
+        None,
+    ),
+    "delphi16": (
+        ["hello.dpr"],
+        "hello.EXE",
+        "efd1ee34584a19852afe42cccf0b9e03b217c006c7132f50651a601c595630b9",
+        "hello.dpr",
+        None,
+    ),
+}
+
+
+@app.command("smoke")
+def smoke_cmd(
+    name: str | None = typer.Argument(None, help="Toolchain name; all image-backed by default"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+) -> None:
+    """Compile the fixed smoke source in each image and verify the object
+    hash matches the golden bytes (reproducibility gate).
+
+    Deterministic inputs: a FIXED work directory (/tmp/rebrew-smoke) and a
+    FIXED source mtime (the object metadata embeds both the source path and
+    its modification time — fresh writes would break the golden hashes).
+    """
+    import hashlib
+    import os
+    import shutil
+    import subprocess
+
+    from rebrew.toolchain import get_toolchain
+
+    # SOURCE_DATE_EPOCH convention: a fixed source mtime makes the object
+    # metadata deterministic across runs.
+    _SDE = 1767225600  # 2026-01-01 00:00:00 UTC
+
+    targets = [name] if name else sorted(_SMOKE_GOLDEN)
+    results: dict[str, str] = {}
+    ok = True
+    workdir = Path("/tmp/rebrew-smoke")
+    shutil.rmtree(workdir, ignore_errors=True)
+    workdir.mkdir(parents=True)
+    for tool in targets:
+        spec = get_toolchain(tool)
+        if spec.image is None:
+            results[tool] = "skip (host-only)"
+            continue
+        flags, out_name, golden, src_name, mask = _SMOKE_GOLDEN[tool]
+        src = _SMOKE_SOURCE if src_name == "t.c" else _SMOKE_DPR
+        src_path = workdir / src_name
+        src_path.write_text(src, encoding="utf-8")
+        os.utime(src_path, (int(_SDE), int(_SDE)))
+        r = subprocess.run(
+            ["docker", "run", "--rm", "-v", f"{workdir}:/work", "-w", "/work", spec.image, *flags],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        obj = workdir / out_name
+        if not obj.exists():
+            results[tool] = "FAIL (no object: " + (r.stdout + r.stderr)[-120:].strip() + ")"
+            ok = False
+            continue
+        raw = obj.read_bytes()
+        if mask is not None:
+            # Zero the compiler's build-timestamp field (e.g. the COFF
+            # TimeDateStamp) — MSVC6 stamps the build time, so the rest of
+            # the object is what determinism covers.
+            masked = bytearray(raw)
+            masked[mask[0] : mask[1]] = b"\x00" * (mask[1] - mask[0])
+            raw = bytes(masked)
+        actual = hashlib.sha256(raw).hexdigest()
+        results[tool] = "OK" if actual == golden else f"MISMATCH ({actual[:12]}…)"
+        ok = ok and actual == golden
+        obj.unlink(missing_ok=True)
+    if json_output:
+        json_print({"results": results, "passed": ok})
+        return
+    for tool, status in results.items():
+        console.print(f"  [{'green' if status == 'OK' else 'red'}]{tool:12s}[/] {status}")
+    if ok:
+        console.print(
+            f"[green]Smoke: {sum(1 for s in results.values() if s == 'OK')} toolchains byte-reproducible[/green]"
+        )
+    else:
+        raise typer.Exit(code=2)
+
+
 @app.command("build")
 def build_cmd(
     name: str = typer.Argument(..., help="Toolchain name (e.g. watcom, msvc6)"),
