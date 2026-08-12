@@ -49,6 +49,10 @@ the config schema, or an on-disk format; nothing here is frozen until `1.0.0`.
   the `Added` / `Changed` / `Fixed` / `Removed` group that fits.  Anything that
   breaks an existing project (renamed CLI flag, changed default, format bump,
   raised minimum Python) goes under `Changed` prefixed with `**Breaking:**`.
+- **Preflight before tagging with `make release-check`**: verifies
+  `__version__` is bumped past the last tag, the tree is clean, and the
+  changelog has a dated `[<version>]` section — no release can be tagged out
+  of sync with the version or the notes.
 
 ## Before submitting
 
