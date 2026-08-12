@@ -244,6 +244,28 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_16",
         "lang": "C89",
     },
+    "borlandc55": {
+        "runner": "wine",
+        "command": "wine toolchain/borland/5.5-win32/Bin/bcc32.exe",
+        "includes": "toolchain/borland/5.5-win32/Include",
+        "libs": "toolchain/borland/5.5-win32/Lib",
+        "cflags": "-O2",
+        "base_cflags": "-c",
+        "format": "pe",
+        "arch": "x86_32",
+        "lang": "C89",
+    },
+    "watcom16": {
+        "runner": "",
+        "command": "toolchain/watcom/2.0-win32/binl/wcc",
+        "includes": "toolchain/watcom/2.0-win32/h",
+        "libs": "toolchain/watcom/2.0-win32/lib386",
+        "cflags": "-bt=dos",
+        "base_cflags": "-c",
+        "format": "pe",
+        "arch": "x86_16",
+        "lang": "C89",
+    },
 }
 
 _AGENTS_MD_TEMPLATE = Path(__file__).parent / "AGENTS.md.template"
@@ -280,6 +302,8 @@ _PROFILE_FAMILIES: dict[str, frozenset[str]] = {
     "msvc6.6": frozenset({"msvc"}),
     "msvc7": frozenset({"msvc"}),
     "msvc1.52": frozenset({"msvc"}),
+    "borlandc55": frozenset({"borlandc"}),
+    "watcom16": frozenset({"watcom"}),
     "gcc-pe": frozenset({"zig", "gcc", "clang", "mingw"}),
     "gcc": frozenset({"gcc", "clang", "icc"}),
     "clang": frozenset({"gcc", "clang", "icc"}),
@@ -294,6 +318,9 @@ _FAMILY_COUNTERPART: dict[str, str] = {
     "mingw": "gcc-pe",
     "msvc": "msvc6",
     "watcom": "watcom",
+    "borlandc": "borlandc55",
+    "symantec": "borlandc55",  # Digital Mars — closest free match
+    "zortech": "borlandc55",
 }
 
 
@@ -429,6 +456,8 @@ _PROFILE_TOOLS: dict[str, str] = {
     "msvc6.3": "msvc/6.0-sp3-win32",
     "msvc6.6": "msvc/6.0-sp6-win32",
     "msvc7": "msvc/7.0-win32",
+    "borlandc55": "borland/5.5-win32",
+    "watcom16": "watcom/2.0-win32",
 }
 
 
