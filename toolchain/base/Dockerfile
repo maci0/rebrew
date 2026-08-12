@@ -12,16 +12,24 @@
 #   - dosbox (16-bit DOS compilers, e.g. MSVC 1.52, Delphi 1.0)
 #   - dumb-init (signal handling for the compile containers)
 #   - curl / ca-certificates / xz-utils (tarball-based toolchains)
+#   - p7zip + unrar (extract the Borland InstallShield / MSVC 1.52 RAR SFX
+#     archives the toolchain Dockerfiles download)
 #   - /usr/local/lib/rebrew/wrapper-common.sh (shared wrapper helpers)
 #   - common env: WINEDEBUG=-all, WINEPREFIX=/opt/wineprefix,
 #     SDL_VIDEODRIVER=dummy (headless)
+#
+# Determinism: the debian base is pinned to a digest so apt resolves the
+# same snapshot on every build.  Toolchain downloads are pinned by sha256
+# in the per-toolchain Dockerfiles.
 
-FROM debian:bookworm-slim
+# debian:bookworm-slim@sha256:362e64223cc0da95422b3b13c045186fc0a81250e765d31c025fbddf257f6143
+FROM debian:bookworm-slim@sha256:362e64223cc0da95422b3b13c045186fc0a81250e765d31c025fbddf257f6143
 
 RUN dpkg --add-architecture i386 \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
         wine wine32 dosbox dumb-init curl ca-certificates xz-utils \
+        p7zip-full \
     && rm -rf /var/lib/apt/lists/*
 
 ENV WINEDEBUG=-all \
