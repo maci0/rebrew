@@ -23,7 +23,12 @@
 | [FLAG_SWEEP_TIERS.md](FLAG_SWEEP_TIERS.md) | MSVC6 flag-sweep tiers (quick/targeted/normal/thorough/full) — axes and combination counts |
 | [DB_FORMAT.md](DB_FORMAT.md) | SQLite schema for `coverage.db`, JSON intermediate format, REST API |
 | [NAME_NORMALIZATION.md](NAME_NORMALIZATION.md) | Cross-tool function name normalization (Ghidra/r2/IDA → canonical `func_` form) |
-| [TOOLCHAIN.md](TOOLCHAIN.md) | External tools (Ghidra, r2, MSVC6), Python dependencies |
+| [TOOLCHAIN.md](TOOLCHAIN.md) | The toolchain zoo — compilers (MSVC 1.52–7, Borland C++ 5.5, Open Watcom, Delphi 1.0), docker images, reproducible builds (`rebrew toolchain vendor`/`smoke`), external tools, Python deps |
+| [OMF_NOTES.md](OMF_NOTES.md) | OMF object format research (Watcom wcc386 32-bit + MSVC 1.52 16-bit dialects, reloc decoding) |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Module map, data flow, metadata routing rules, architectural conventions |
+| [CI.md](CI.md) | CI pipeline: lint/test/package/cli-contract jobs, gates, reproducibility |
+| [DEVELOPMENT.md](DEVELOPMENT.md) | Developer workflow (if present) |
+| [PERFORMANCE.md](PERFORMANCE.md) | Performance notes and hot paths |
 
 ## Integration
 
@@ -38,5 +43,7 @@
 |----------|-------------|
 | [PRINCIPLES.md](PRINCIPLES.md) | Core architectural philosophy (idempotency, score monotonicity, snowball effect) |
 | [USER_STORIES.md](USER_STORIES.md) | Personas, acceptance criteria, and mermaid workflow diagrams |
+| [CAMPAIGNS.md](CAMPAIGNS.md) | Record of systematic `rebrew match` runs across the corpus |
+| [GAP_ANALYSIS.md](GAP_ANALYSIS.md) | Known gaps / missing-feature analysis for the toolchain |
 | [IDEAS.md](IDEAS.md) | Open improvement ideas and completed-work log |
 | [ML_TRAINING.md](ML_TRAINING.md) | Aspirational: generating binary-source pair datasets and training ML models (not shipped) |
