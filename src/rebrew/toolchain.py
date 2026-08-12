@@ -166,6 +166,29 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_path=_vendored("msvc/1.52-win16") if _vendored("msvc/1.52-win16").exists() else None,
         description="MSVC 1.52 (16-bit, Windows 3.x) — DOSBox via rebrew.msvc16",
     ),
+    "borlandc55": ToolchainSpec(
+        name="borlandc55",
+        image="rebrew/borland:5.5-win32",
+        binary="bcc32.exe",
+        runtime="wine",
+        flags_style="posix",
+        obj_ext=".obj",
+        host_path=_vendored("borland/5.5-win32")
+        if _vendored("borland/5.5-win32").exists()
+        else None,
+        description="Borland C++ 5.5 (32-bit PE, C89) — wine or wibo (free command-line tools)",
+    ),
+    "watcom16": ToolchainSpec(
+        name="watcom16",
+        image=None,  # host-only: wcc runs natively from the watcom snapshot
+        binary="wcc",
+        runtime="native",
+        flags_style="posix",
+        obj_ext=".obj",  # 16-bit OMF — parses via omf16/objconv
+        host_path=_vendored("watcom/2.0-win32") if _vendored("watcom/2.0-win32").exists() else None,
+        host_bin="binl",
+        description="Open Watcom 2.0 wcc (16-bit DOS, OMF) — native Linux wcc",
+    ),
 }
 
 

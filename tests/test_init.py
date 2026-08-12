@@ -25,7 +25,7 @@ class TestCompilerDefaults:
     """Tests for the COMPILER_DEFAULTS constant."""
 
     def test_has_expected_profiles(self) -> None:
-        assert len(COMPILER_DEFAULTS) == 12
+        assert len(COMPILER_DEFAULTS) == 14
 
     def test_known_profiles(self) -> None:
         assert set(COMPILER_DEFAULTS.keys()) == {
@@ -41,6 +41,8 @@ class TestCompilerDefaults:
             "msvc6.6",
             "watcom",
             "msvc1.52",
+            "borlandc55",
+            "watcom16",
         }
 
     @pytest.mark.parametrize(
