@@ -70,6 +70,7 @@ def status_cmd(
 
     spec = get_toolchain(name)
     host_ok: bool | None = None
+    resolved_cmd: str | None = None
     if spec.host_path is not None:
         # Use the shared resolver (case-insensitive host_bin subdir — the
         # vendored DOS-era trees are BIN, not Bin) so status agrees with
@@ -79,6 +80,18 @@ def status_cmd(
             host_ok = True
         except ToolchainError:
             host_ok = False
+            # The master layout may be absent (machines with only the
+            # compile-only mirrors) — resolve the best present layout and
+            # report it instead of a bare "absent".
+            try:
+                from rebrew.utils import resolve_msvc_toolchain
+
+                root = Path(__file__).resolve().parents[2]
+                layout = resolve_msvc_toolchain(root, name)
+                if layout is not None:
+                    resolved_cmd = layout[0]
+            except Exception:
+                pass
     elif spec.image is None:
         host_ok = shutil.which(spec.binary) is not None
     image_ok: bool | None = None
@@ -95,6 +108,7 @@ def status_cmd(
         "image": spec.image,
         "image_pulled": image_ok,
         "host_binary_present": host_ok,
+        "resolved_host": resolved_cmd,
         "binary": spec.binary,
         "description": spec.description,
     }
@@ -105,9 +119,12 @@ def status_cmd(
     console.print(
         f"  image:  {spec.image or 'host-only'}  {'✅ pulled' if image_ok else ('⬜ not pulled' if image_ok is False else '')}"
     )
-    console.print(
-        f"  host:   {spec.host_path or spec.binary}  {'✅ present' if host_ok else '⬜ absent'}"
-    )
+    if resolved_cmd:
+        console.print(f"  host:   {resolved_cmd}  ✅ present (resolved mirror)")
+    else:
+        console.print(
+            f"  host:   {spec.host_path or spec.binary}  {'✅ present' if host_ok else '⬜ absent'}"
+        )
 
 
 @app.command("detect")
