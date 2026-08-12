@@ -26,7 +26,19 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from tools.DELPHI10.pak_extract import parse_archive, quantum_decompress
+# pak_extract.py lives in the vendored Delphi toolchain tree (symlinked as
+# tools/DELPHI10 — hyphenated dirs can't be imported).  Skip when the tree
+# isn't vendored (CI: toolchain/ is gitignored).
+try:
+    from tools.DELPHI10.pak_extract import parse_archive, quantum_decompress
+except ModuleNotFoundError:  # pragma: no cover — environment-dependent
+    parse_archive = None  # type: ignore[assignment]
+    quantum_decompress = None  # type: ignore[assignment]
+
+pytestmark = pytest.mark.skipif(
+    parse_archive is None,
+    reason="vendored Delphi 1.0 tree not present (tools/DELPHI10)",
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
