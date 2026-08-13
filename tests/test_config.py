@@ -978,7 +978,7 @@ class TestPosixStyleProfiles:
     watcom (wcc386, -I/-fo=/-zq) must be POSIX-style, not MSVC."""
 
     def test_posix_profiles(self) -> None:
-        for prof in ("gcc", "gcc-pe", "clang", "watcom"):
+        for prof in ("gcc", "gcc-pe", "clang", "watcom", "watcom16"):
             cfg = ProjectConfig(root=Path("."), compiler_profile=prof)
             assert cfg.posix_style is True, prof
 

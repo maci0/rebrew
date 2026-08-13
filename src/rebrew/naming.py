@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 from rebrew.annotation import parse_c_file_multi, parse_library_header
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va
-from rebrew.cli import MIN_VALID_VA
+from rebrew.cli import min_valid_va_for
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 
 # ---------------------------------------------------------------------------
@@ -253,7 +253,7 @@ def load_data(
         for entry in entries:
             if entry.marker_type in ("GLOBAL", "DATA"):
                 continue
-            if entry.va < MIN_VALID_VA:
+            if entry.va < min_valid_va_for(cfg):
                 continue
             existing[entry.va] = {
                 "filename": rel_name,
@@ -272,7 +272,7 @@ def load_data(
     for hfile in iter_library_headers(src_dir):
         lib_entries = parse_library_header(hfile, target_name=target_marker(cfg))
         for entry in lib_entries:
-            if entry.va < MIN_VALID_VA:
+            if entry.va < min_valid_va_for(cfg):
                 continue
             existing[entry.va] = {
                 "filename": hfile.name,
@@ -320,7 +320,7 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
         for entry in entries:
             if entry.marker_type in ("GLOBAL", "DATA"):
                 continue
-            if entry.va < MIN_VALID_VA:
+            if entry.va < min_valid_va_for(cfg):
                 continue
             existing[entry.va] = rel_name
 
@@ -328,7 +328,7 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
     for hfile in iter_library_headers(src_path):
         lib_entries = parse_library_header(hfile, target_name=target_marker(cfg))
         for entry in lib_entries:
-            if entry.va < MIN_VALID_VA:
+            if entry.va < min_valid_va_for(cfg):
                 continue
             existing[entry.va] = hfile.name
 

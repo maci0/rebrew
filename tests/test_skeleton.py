@@ -894,3 +894,86 @@ class TestMergedRegionNote:
         )
         monkeypatch.setattr("rebrew.binary_loader.function_extent_from_disasm", lambda p, va: 12)
         assert _stale_size_note(self._cfg(tmp_path), 0x1000, 12) is None
+
+
+class TestProfileAwareSignature:
+    """The skeleton default signature is profile-aware: MSVC profiles get
+    `__cdecl`; TCC/bcc32/wcc/gcc get plain `int f(void)` (cdecl is their
+    default convention, and `__cdecl` is a syntax error in TCC 3.1)."""
+
+    def _cfg(self, tmp_path: Path, profile: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            root=tmp_path,
+            compiler_profile=profile,
+            marker="MAIN",
+            target_binary=tmp_path / "x.exe",
+            reversed_dir=tmp_path / "src",
+            library_modules=set(),
+        )
+
+    def test_tc16_signature_omits_cdecl(self, tmp_path: Path) -> None:
+        from rebrew.skeleton import _render_annotation_block
+
+        out = _render_annotation_block(
+            marker="FUNCTION",
+            cfg_marker="MAIN",
+            va=0x1000,
+            xref_context=None,
+            decomp_code=None,
+            decomp_backend="",
+            func_name="main",
+            ghidra_name="fcn.1000",
+            todo_text="stub",
+            profile="tc16",
+        )
+        assert "int main(void)" in out
+        assert "__cdecl" not in out
+
+    def test_msvc6_signature_keeps_cdecl(self, tmp_path: Path) -> None:
+        from rebrew.skeleton import _render_annotation_block
+
+        out = _render_annotation_block(
+            marker="FUNCTION",
+            cfg_marker="MAIN",
+            va=0x1000,
+            xref_context=None,
+            decomp_code=None,
+            decomp_backend="",
+            func_name="main",
+            ghidra_name="fcn.1000",
+            todo_text="stub",
+            profile="msvc6",
+        )
+        assert "int __cdecl main(void)" in out
+
+
+def test_convention_stub_16bit_pascal(tmp_path: Path) -> None:
+    """16-bit DOS functions with a `ret N` epilogue get a convention-aware
+    skeleton stub (`int pascal f(a1, ...)` for Borland profiles) instead of
+    the generic `int f(void)`."""
+    import struct
+    from types import SimpleNamespace
+
+    from rebrew.skeleton import _convention_stub
+
+    # Synthetic minimal MZ: header + one stdcall function at VA 0x28d
+    # (`push bp; mov bp,sp; mov ax,[bp+4]; ret 4`).  The MZ loader maps
+    # VA(F) = F - code_offset (32), so VA 0x28d = file offset 32 + 0x28d.
+    code = bytes.fromhex("55 8b ec 8b 46 04 c2 04 00")
+    func_va = 0x28D
+    header = bytearray(32)
+    header[0:2] = b"MZ"
+    struct.pack_into("<H", header, 2, (len(header) + func_va + len(code)) & 0x1FF)  # cblp
+    struct.pack_into("<H", header, 4, (len(header) + func_va + len(code) + 511) // 512)  # cp
+    struct.pack_into("<H", header, 8, 2)  # cparhdr (32-byte header)
+    exe = tmp_path / "stdcall16.exe"
+    exe.write_bytes(bytes(header) + b"\x00" * func_va + code)
+
+    cfg = SimpleNamespace(arch="x86_16", target_binary=exe, compiler_profile="tc16")
+    stub, note = _convention_stub(cfg, func_va, "add")
+    assert stub == "int pascal add(int a1, int a2)"
+    assert note is None
+    # non-Borland 16-bit profiles keep __stdcall
+    cfg2 = SimpleNamespace(arch="x86_16", target_binary=exe, compiler_profile="msvc1.52")
+    stub2, _ = _convention_stub(cfg2, func_va, "add")
+    assert stub2 == "int __stdcall add(int a1, int a2)"

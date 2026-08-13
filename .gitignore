@@ -120,11 +120,14 @@ rebrew-function.toml.lock
 !/toolchain/**/*.tar.xz
 
 # tools/ symlinks back to the vendored toolchain/ trees (existing projects
-# keep resolving tools/<name> → toolchain/<family>/<version>-<arch>).
+# keep resolving tools/<name> → toolchain/<family>/<version>-<arch>; the
+# aliases are recreated by `rebrew toolchain vendor` via ensure_compat_links).
 /tools/DELPHI10
 /tools/MSVC152
 /tools/MSVC420
 /tools/MSVC500
+/tools/MSVC600
+/tools/MSVC7
 /tools/WATCOM
 /tools/delphi-1.0-win16
 /tools/msvc-1.52-win16
@@ -132,8 +135,10 @@ rebrew-function.toml.lock
 /tools/msvc-5.0-win32
 /tools/msvc-6.0-sp3-win32
 /tools/msvc-6.0-sp6-win32
+/tools/msvc-6.0-win32
 /tools/msvc-7.0-win32
 /tools/msvc6.3
 /tools/msvc6.6
 /tools/msvc7.0
+/tools/TC
 /tools/watcom-win32

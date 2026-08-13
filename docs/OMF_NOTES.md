@@ -80,15 +80,21 @@ predicted slots — `{6: __CHK, 11: f_, 17: _g}` (the e8 call targets and
 the `03 05` disp32).  Watcom (32-bit OMF) byte-matching is therefore
 **enabled** — the earlier custom-parser plan is superseded for 32-bit.
 
-**16-bit OMF caveat:** objconv **crashes** ("buffer overflow detected:
-terminated") on MSVC 1.52's 16-bit OMF objects.  The 16-bit path still
-needs the custom parser (record layout above) — objconv 2.52 only handles
-the 32-bit dialect reliably.
+**16-bit OMF caveat:** the *stock* objconv 2.52 **crashes** ("buffer
+overflow detected: terminated") on MSVC 1.52's 16-bit OMF objects — the
+built-in custom parser (record layout above) handles the 16-bit path.
+The vendored `tools/objconv/objconv` is the **fixed build from the objconv
+fork** (16-bit relocation methods + COMDAT→COFF-section support, see the
+fork's PR-16BIT-OMF.md); rebrew prefers the vendored binary over a PATH
+objconv, and `parse_obj_symbol_and_relocs` falls through to it when the
+custom parser cannot decode a dialect (the /O1 and far-code COMDAT
+models).
 
 ## Update 2026-08-11 — MSVC 1.52 16-bit dialect (decoding deferred)
 
-objconv crashes on 16-bit OMF, so the built-in parser was scoped.  Record
-dump of a real `msvc16.compile_c` object (test.c: `add` + `main`):
+The stock objconv crashes on 16-bit OMF (the vendored fixed build does
+not), so the built-in parser was scoped as the primary 16-bit path.
+Record dump of a real `msvc16.compile_c` object (test.c: `add` + `main`):
 
 | Type | Meaning (observed) |
 |------|--------------------|

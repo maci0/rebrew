@@ -63,3 +63,26 @@ class TestMapSymbolRe:
     def test_escapes_special_chars(self) -> None:
         pat = _map_symbol_re("_func+[1]")
         assert re.escape("_func+[1]") in pat.pattern
+
+
+class TestFlagSweepsNewProfiles:
+    """tc16/borlandc55 sweep the Borland flag dialect (-O1/-O2/-Od, no
+    msvc-style / flags); watcom16 shares the wcc flag family."""
+
+    def test_tc16_uses_borland_flags(self) -> None:
+        combos = generate_flag_combinations("targeted", "tc16")
+        assert len(combos) > 0
+        for c in combos:
+            assert c.startswith("-") or c == ""
+            assert "/" not in c
+        assert any("-O2" in c for c in combos)
+
+    def test_borlandc55_uses_borland_flags(self) -> None:
+        combos = generate_flag_combinations("quick", "borlandc55")
+        assert combos == ["", "-O1", "-O2", "-Od"]
+
+    def test_watcom16_shares_watcom_flags(self) -> None:
+        combos = generate_flag_combinations("targeted", "watcom16")
+        assert len(combos) == 25  # same wcc axes as watcom
+        for c in combos:
+            assert c.startswith("-") or c == ""

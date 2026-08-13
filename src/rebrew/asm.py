@@ -398,9 +398,12 @@ def calling_convention_at(cfg: ProjectConfig, va: int) -> str:
     EXTENT-derived window (not a flat 64-byte slice — a flat window
     truncated longer functions mid-code, so the epilogue ``ret`` was never
     visible and inference said "unknown"; see skeleton.py's `_convention_stub`
-    for the original diagnosis).  Returns ``"unknown"`` on any failure.
+    for the original diagnosis).  Works for 16-bit DOS/NE targets too (the
+    epilogue ``ret`` vs ``ret N`` rule is word-size-independent).  Returns
+    ``"unknown"`` on any failure.
     """
-    if getattr(cfg, "arch", "") != "x86_32":
+    arch = getattr(cfg, "arch", "")
+    if arch not in ("x86_32", "x86_16"):
         return "unknown"
     try:
         import capstone
@@ -425,7 +428,8 @@ def calling_convention_at(cfg: ProjectConfig, va: int) -> str:
         raw = extract_raw_bytes(cfg.target_binary, va, window)
         if not raw:
             return "unknown"
-        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        mode = capstone.CS_MODE_32 if arch == "x86_32" else capstone.CS_MODE_16
+        md = capstone.Cs(capstone.CS_ARCH_X86, mode)
         insns = list(md.disasm(raw, va))
         if not insns:
             return "unknown"

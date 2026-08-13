@@ -243,7 +243,7 @@ def _validate_dir32(
     offset: int,
     symbol: str,
     name_to_va: dict[str, int],
-    catalog_vas: list[int],
+    catalog_va_set: set[int],
     iat_region: set[int] | None = None,
 ) -> bool:
     """Return True if the DIR32 slot is valid (or uncatalogued)."""
@@ -263,10 +263,12 @@ def _validate_dir32(
     expected = (target_va + addend) & 0xFFFFFFFF
     if actual == expected:
         return True
-    # Wrong absolute symbol with the same addend?
-    return not any(
-        other != target_va and actual == ((other + addend) & 0xFFFFFFFF) for other in catalog_vas
-    )
+    # Wrong absolute symbol with the same addend?  The membership test is
+    # algebraic: actual == (other + addend) & mask  ⟺  other == (actual -
+    # addend) & mask.  O(1) instead of scanning the catalog per failing
+    # DIR32 (perf-review: ~500x on the failing-reloc path).
+    other = (actual - addend) & 0xFFFFFFFF
+    return other not in catalog_va_set or other == target_va
 
 
 def _validate_rel32(
@@ -345,6 +347,9 @@ def smart_reloc_compare(
     valid_relocs: list[int] = []
     invalid_relocs: list[int] = []
 
+    # Fast set lookup for absolute-address validation (built once per compare).
+    catalog_va_set: set[int] = set(name_to_va.values()) if name_to_va else set()
+
     if coff_relocs is not None:
         # Prefer typed CoffRelocRecord sequence when present.
         if (
@@ -352,7 +357,6 @@ def smart_reloc_compare(
             and coff_relocs
             and isinstance(coff_relocs[0], CoffRelocRecord)
         ):
-            catalog_vas: list[int] = list(name_to_va.values()) if name_to_va else []
             typed_relocs = cast(Sequence[CoffRelocRecord], coff_relocs)
             for rec in typed_relocs:
                 r = rec.offset
@@ -367,7 +371,7 @@ def smart_reloc_compare(
                             r,
                             rec.symbol,
                             name_to_va,
-                            catalog_vas,
+                            catalog_va_set,
                             iat_region,
                         )
                     elif rec.type == _REL_REL32 and section_va is not None:
@@ -381,7 +385,6 @@ def smart_reloc_compare(
                     invalid_relocs.append(r)
         elif isinstance(coff_relocs, dict):
             # Dict branch: offset -> symbol_name with heuristic DIR32 validation.
-            catalog_vas = list(name_to_va.values()) if name_to_va else []
             for r, raw_sym in coff_relocs.items():
                 if r + 4 > min_len:
                     continue
@@ -393,7 +396,7 @@ def smart_reloc_compare(
                         r,
                         str(raw_sym),
                         name_to_va,
-                        catalog_vas,
+                        catalog_va_set,
                         iat_region,
                     )
                 if valid:

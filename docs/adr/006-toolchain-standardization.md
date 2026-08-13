@@ -37,8 +37,15 @@ finicky installer — build once, share).
 - The shared `rebrew.dosbox` runner (mount a sandbox as `C:`, run
   autoexec, read FAT-uppercased outputs) is reused by both 16-bit
   compilers (delphi16, msvc16).
-- First toolchains through the abstraction: `watcom` (native Open Watcom
-  2.0), `msvc1.52` (DOSBox), alongside the existing `msvc6`/`gcc-pe`.
+- Toolchains through the abstraction (as of 2026-08): `watcom` (native
+  Open Watcom 2.0), `msvc1.52` (DOSBox), `watcom16` (native wcc),
+  `tc16` (Turbo C++ 3.1, DOSBox), `borlandc55` (bcc32, wine),
+  `delphi16`, alongside the existing `msvc6`/`gcc-pe` — each with a
+  vendored tree, docker image, and a slot in the byte-reproducibility
+  smoke gate (6/6 images).  The model was subsequently completed — every
+  registry toolchain now has a pinned source shared by image and host
+  tree, and all eleven toolchains are smoke-gated (see
+  [ADR-007](007-complete-containerization-reproducibility.md)).
 
 ## Consequences
 
@@ -48,7 +55,9 @@ finicky installer — build once, share).
 - Host fallback keeps existing vendored toolchains working without docker.
 - Watcom/32-bit OMF objects are converted to COFF via the vendored
   **objconv** and parsed by LIEF — 32-bit OMF byte matching is enabled.
-  objconv crashes on 16-bit OMF, so MSVC 1.52 matching still needs the
-  custom 16-bit parser (docs/OMF_NOTES.md has the mapped layout).
-- Borland C++ (bcc32) install extraction remains pending (16-bit Windows
-  installer).
+  The vendored objconv carries the 16-bit OMF fix from the objconv fork
+  (relocation methods + COMDAT→COFF sections, see the fork's
+  PR-16BIT-OMF.md); 16-bit MSVC/Borland/Watcom objects parse via the
+  custom `omf16` decoder (docs/OMF_NOTES.md has the mapped layout).
+- Borland 16-bit (Turbo C++ 3.1) and 32-bit (bcc32) installs are both
+  vendored in-repo (archive.org `turboc3.1_202112` / `BorlandC55` items).

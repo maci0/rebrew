@@ -106,7 +106,7 @@ for `--compare` (not “better than EXACT”).
 | `--lib DIR` | Lib dir (for non-obj comparison) |
 | `--ldflags FLAGS` | Linker flags (for non-obj comparison) |
 | `--flag-sweep-only` | Exhaustive flag-combination sweep; skip GA |
-| `--sweep-toolchain` | Try each vendored MSVC toolchain (SP versions); combine with `--flag-sweep-only` to flag-sweep with each toolchain ("which MSVC version + flags built this function?" — the combined mode reports the best flags per toolchain) |
+| `--sweep-toolchain` | Try each vendored MSVC toolchain (the full 4.0→7.0 line: 6.0-sp3/sp6, 7.0, 4.2, 5.0, 4.0); combine with `--flag-sweep-only` to flag-sweep with each toolchain ("which MSVC version + flags built this function?" — the combined mode reports the best flags per toolchain) |
 | `--tier NAME` | Flag-sweep tier: `quick`, `targeted` (default), `normal`, `thorough`, `full` — see [FLAG_SWEEP_TIERS.md](FLAG_SWEEP_TIERS.md) |
 | `--collect-pairs FILE` | Save source/binary pairs to JSONL for ML training |
 | `--json` | Output results as JSON |
@@ -504,6 +504,7 @@ Merge multiple single-function `.c` files into one multi-function file. Preamble
 | `--target NAME` / `-t NAME` | Name of the initial target (default: `main`) |
 | `--binary NAME` | Binary filename (default: `program.exe`) |
 | `--compiler PROFILE` | Compiler profile (default: `msvc6`) |
+| `--guess-compiler` | Auto-select the compiler profile from the target binary (diec → PDB → heuristics; prefers the 16-bit profile for DOS/NE binaries — requires the binary in `original/`) |
 | `--json` | Output results as JSON |
 
 - `--link-tools-from PATH` — symlink `toolchain/<family>/<version>-<arch>` from a master toolchain
@@ -634,10 +635,10 @@ Standardized toolchain management — the docker-first abstraction
 | `list` | List known toolchains + how each is invoked (`--json`) |
 | `status NAME` | How one toolchain resolves (image pulled? host binary present? resolved-mirror layout reported when the master is absent) |
 | `detect BINARY` | Detect which compiler/toolchain built a binary (diec → PDB → heuristics); with a project present, also reports whether the configured profile can byte-match it (`--json`) |
-| `pull NAME` | Pull a toolchain's docker image (locally-built images are reported as already present, not re-pulled) |
+| `pull NAME` | Pull a toolchain's docker image (locally-built images are reported as already present, not re-pulled; a failed pull on an absent image points at `toolchain build`, since rebrew images are built from pinned sources, not hosted on a registry) |
 | `build NAME` | Build a toolchain's docker image from its `toolchain/<family>/<ver>-<arch>/Dockerfile` (builds the shared `rebrew/base` dependency first) |
-| `vendor NAME` | Assemble the host tree from the pinned source — the committed in-repo tarball (msvc1.52, delphi) or a sha256-verified download (borland, watcom, msvc6).  Refuses to clobber an existing tree; fails loudly if the compiler binary is missing |
-| `smoke [NAME]` | Compile the fixed smoke source in each image and verify the object sha256 against the golden bytes — the byte-reproducibility gate (all five images pass; MSVC6's COFF build-time stamp is masked) |
+| `vendor NAME` | Assemble the host tree from the pinned source — a committed in-repo tarball (msvc1.52, delphi, tc16, tc20) or a sha256-verified download (borland 5.5, watcom, msvc6, msvc400/4.2/5.0 via the archaic-msvc / itsmattkc codeload snapshots).  MSVC 6.0 is wrapped into the classic `VC98/` layout; after a successful vendor the gitignored `tools/<name>` compat symlinks (`MSVC600`, `MSVC7`, `MSVC400`, `msvc-4.0-win32`, `msvc6.3`, …) are recreated for legacy projects.  Refuses to clobber an existing tree; fails loudly if the compiler binary is missing |
+| `smoke [NAME]` | Compile the fixed smoke source in each image and verify the object sha256 against the golden bytes — the byte-reproducibility gate (all eleven toolchains pass: msvc6/5/4.2/4.0/1.52, borlandc55, watcom/watcom16, tc16/tc20, delphi16 — image and host fallback paths gate the same goldens; MSVC's COFF and Turbo C's COMENT build-time stamps are masked).  `--print-goldens` recomputes the masked hashes WITHOUT comparing, so bumping a pinned source is a mechanical two-step (run twice, verify stable, paste into `_SMOKE_GOLDEN`) |
 
 ### `rebrew binsync-export`
 
@@ -847,6 +848,30 @@ pass) — one line per function with dispatch/case counts and the exact
 
 Extract printable strings from the binary's data sections, with
 cross-references.
+
+### `rebrew unpack-lzexe`
+
+`rebrew unpack-lzexe <binary> [--output out] [--json]`
+
+Unpack an LZEXE 0.90/0.91 compressed DOS executable.  Many DOS games
+(1990s shareware especially) shipped packed with Fabrice Bellard's LZEXE
+compressor: the visible code is a decompressor stub appended to the file,
+so static analysis (function discovery, strings, compiler detection) sees
+almost nothing until the image is restored.  This command rebuilds the
+original MZ executable — decompressed image, reconstructed header, and a
+standard relocation table — validated byte-for-byte against the classic
+`unlzexe` reference implementation.
+
+Detection matches the decompressor stub (both the canonical and the patched
+0.91 variants), not just the `LZ91` magic, so plain MZ files are rejected.
+`rebrew toolchain detect` reports `packed: lzexe 0.91` with a pointer to
+this command when it recognizes a packed binary.
+
+| Flag | Description |
+|------|-------------|
+| `<binary>` | Path to the LZEXE-packed executable |
+| `--output -o` | Output path (default: `<binary>.unpacked.exe`) |
+| `--json` | JSON structured result `{packed, version, output, size}` |
 
 ### `rebrew xrefs`
 

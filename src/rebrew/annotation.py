@@ -91,15 +91,22 @@ ALL_KNOWN_KEYS = OPTIONAL_KEYS | METADATA_KEYS | {"MARKER", "VA"}
 
 # New format — line-comment style (the canonical output format).
 # Quick match (no captures): used to test if a line is a marker line.
-NEW_FUNC_RE = re.compile(r"//\s*(?:FUNCTION|LIBRARY|STUB|GLOBAL|DATA):\s*\S+\s+0x[0-9a-fA-F]+")
+# Marker lines accept both ``// FUNCTION:`` (the default style) and
+# ``/* FUNCTION: ... */`` (emitted for C89-strict 16-bit compilers like
+# Turbo C 2.0 that reject ``//`` comments).
+NEW_FUNC_RE = re.compile(
+    r"(?://|/\*)\s*(?:FUNCTION|LIBRARY|STUB|GLOBAL|DATA):\s*\S+\s+0x[0-9a-fA-F]+"
+)
 # Full capture: extracts the marker type and VA.
 NEW_FUNC_CAPTURE_RE = re.compile(
-    r"//\s*(?P<type>FUNCTION|LIBRARY|STUB|GLOBAL|DATA):\s*(?P<module>\S+)\s+(?P<va>0x[0-9a-fA-F]+)"
+    r"(?://|/\*)\s*(?P<type>FUNCTION|LIBRARY|STUB|GLOBAL|DATA):\s*(?P<module>\S+)\s+(?P<va>0x[0-9a-fA-F]+)"
 )
 # Key-value comment lines (``// KEY: value``) — used by library headers
 # (``// STATUS: EXACT``, ``// SIZE: 120``).  Metadata-owned fields are
 # written to ``rebrew-function.toml``, not inline.
-NEW_KV_RE = re.compile(r"//\s*(?P<key>[A-Z_]+):\s*(?P<value>.*)")
+# Value capture strips a trailing ``*/`` for block-comment KVs
+# (``/* SIZE: 64 */`` → "64", not "64 */").
+NEW_KV_RE = re.compile(r"(?://|/\*)\s*(?P<key>[A-Z_]+):\s*(?P<value>.*?)\s*(?:\*/)?\s*$")
 
 # Function name hint — bare ``// FunctionName`` comment after a marker line.
 # Matches a single-word identifier (no colon, no spaces) that is not a KV key.
@@ -160,10 +167,11 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
     lines = text.splitlines(keepends=True)
     marker_indexes: list[int] = []
     for idx, line in enumerate(lines):
-        # Marker regex requires a leading `//` — quick reject avoids the
-        # `.strip()` + regex on the vast majority of source lines.
+        # Marker regex accepts `//` and `/*` (C89-strict 16-bit skeletons
+        # emit `/* FUNCTION: ... */`) — quick reject avoids the `.strip()`
+        # + regex on the vast majority of source lines.
         stripped = line.lstrip()
-        if not stripped.startswith("//"):
+        if not (stripped.startswith("//") or stripped.startswith("/*")):
             continue
         if NEW_FUNC_CAPTURE_RE.match(stripped.rstrip()):
             marker_indexes.append(idx)
@@ -413,6 +421,7 @@ class Annotation:
         self,
         filepath: Path | None = None,
         library_modules: set[str] | None = None,
+        min_va: int = MIN_VALID_VA,
     ) -> tuple[list[str], list[str]]:
         """Validate annotation fields. Returns (errors, warnings)."""
         errors: list[str] = []
@@ -426,8 +435,8 @@ class Annotation:
                 f"Multiple annotations found on the same line: '{self.inline_error}' (please separate them into different lines)"
             )
 
-        if self.va < MIN_VALID_VA:
-            errors.append(f"VA 0x{self.va:x} is suspicious (below 0x{MIN_VALID_VA:x})")
+        if self.va < min_va:
+            errors.append(f"VA 0x{self.va:x} is suspicious (below 0x{min_va:x})")
 
         if self.size <= 0:
             errors.append(f"Invalid SIZE: {self.size}")
@@ -783,9 +792,10 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
         if not stripped:
             continue
 
-        # Fast pre-filter: marker/KV/hint regexes all start with `//`; most
+        # Fast pre-filter: marker/KV/hint regexes start with `//` or `/*`
+        # (block-comment markers are emitted for C89-strict compilers); most
         # source lines are C code and can skip the regex calls entirely.
-        is_comment = stripped.startswith("//")
+        is_comment = stripped.startswith("//") or stripped.startswith("/*")
 
         # Check for marker
         m = NEW_FUNC_CAPTURE_RE.match(stripped) if is_comment else None
@@ -932,7 +942,7 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
 
         # Fast pre-filter: marker/KV/hint regexes all require a leading `//`;
         # most C source lines are code and can skip the regex calls entirely.
-        is_comment = stripped.startswith("//")
+        is_comment = stripped.startswith("//") or stripped.startswith("/*")
 
         # Check for a new marker line (starts a new block)
         m = NEW_FUNC_CAPTURE_RE.match(stripped) if is_comment else None

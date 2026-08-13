@@ -112,3 +112,30 @@ class TestDiscoverFunctions:
         assert 0x401028 in vas
         # every function has a positive size
         assert all(size > 0 for _va, size, _n in d.functions)
+
+
+class TestDiscoverMZ:
+    """Plain DOS MZ binaries short-circuit to the 16-bit capstone sweep
+    (rizin cannot analyze MZ) — the DOS-game discovery path."""
+
+    def test_mz_detection(self) -> None:
+        from rebrew.binary_loader import is_mz
+
+        fixture = Path(__file__).parent / "fixtures" / "tc16_hello.exe"
+        assert fixture.exists()
+        assert is_mz(fixture) is True
+        assert is_mz(Path(__file__).parent / "fixtures" / "tg_msvc16.obj") is False
+
+    def test_mz_sweep_finds_entry_and_functions(self) -> None:
+        from rebrew.discover import discover_functions
+
+        fixture = Path(__file__).parent / "fixtures" / "tc16_hello.exe"
+        d = discover_functions(fixture)
+        assert "mz sweep" in d.sources
+        assert len(d.functions) > 0
+        vas = {va for va, _size, _name in d.functions}
+        # The CS:IP entry is always a candidate — the fixture's tiny-model
+        # header has e_cs=0 (entry at image start), so its entry VA is 0.
+        assert 0 in vas
+        # The cdecl prologue pattern (push bp; mov bp,sp) must fire somewhere.
+        assert len(vas) > 3

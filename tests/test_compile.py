@@ -21,14 +21,18 @@ class TestResolveClCommand:
     """Tests for resolve_cl_command()."""
 
     def test_wine_relative_path(self, tmp_path: Path) -> None:
-        """wine + relative CL.EXE path is resolved against cfg.root."""
+        """wine + relative CL.EXE path is resolved against cfg.root (the
+        project-local file wins over the rebrew install's vendored tree)."""
+        fake = tmp_path / "toolchain" / "msvc" / "6.0-win32" / "VC98" / "Bin" / "CL.EXE"
+        fake.parent.mkdir(parents=True)
+        fake.write_bytes(b"MZ")
         cfg = ProjectConfig(
             root=tmp_path,
             compiler_command="wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE",
         )
         result = resolve_cl_command(cfg)
         assert result[0] == "wine"
-        assert result[1] == str(tmp_path / "toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE")
+        assert result[1] == str(fake)
 
     def test_missing_relative_path_falls_back_to_install(self, tmp_path: Path, monkeypatch) -> None:
         """A project-relative CL path absent under the project root resolves
@@ -341,6 +345,38 @@ class TestCompileToObjToolchainProfiles:
         assert "-fo=t.obj" in captured["args"]
         assert "-zq" in captured["args"]
 
+    def test_watcom16_uses_toolchain_runner(self, tmp_path: Path, monkeypatch) -> None:
+        """watcom16 (wcc 16-bit) routes through rebrew.toolchain's runner with
+        the same posix flag shape as wcc386 — but without -c (wcc16 rejects
+        it: E1073)."""
+        from rebrew.compile import compile_to_obj
+        from rebrew.toolchain import RunResult
+
+        captured: dict = {}
+
+        def _fake_run(spec, args, *, workdir, timeout):  # noqa: ARG001
+            captured["args"] = args
+            obj = workdir / "t.obj"
+            obj.write_bytes(b"OMF")
+            return RunResult(0, "", "", backend="host")
+
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compile.compile_cache_key", lambda **k: "k")
+        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+
+        src = tmp_path / "t.c"
+        src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+        obj, err = compile_to_obj(
+            self._cfg(tmp_path, "watcom16"), src, [], workdir, use_cache=False
+        )
+        assert obj is not None and err == ""
+        # wcc flag shape: -fo= output, -I includes, -zq quiet; no -c
+        assert "-fo=t.obj" in captured["args"]
+        assert "-zq" in captured["args"]
+        assert "-c" not in captured["args"]
+
     def test_watcom_runner_failure_surfaces(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.compile import compile_to_obj
         from rebrew.toolchain import RunResult
@@ -589,3 +625,46 @@ class TestRelativeRunnerResolution:
         env = msvc_env_from_config(cfg)
         assert env["REBREW_COMPILER_RUNNER"] == str(tmp_path / "tools/wibo")
         assert env["WINEDEBUG"] == "-all"
+
+
+class TestCompileToObjBorlandc55:
+    """borlandc55 routes through the toolchain runner with bcc32 flags
+    (`-c` compile-only; the object follows the source stem — `-o obj` would
+    misparse obj as an input file in Borland's flag dialect)."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            root=tmp_path,
+            compiler_profile="borlandc55",
+            compiler_command="bcc32.exe",
+            base_cflags="",
+            compiler_includes=tmp_path / "h",
+            compiler_runner="",
+            compile_timeout=30,
+        )
+
+    def test_borlandc55_uses_toolchain_runner(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.compile import compile_to_obj
+        from rebrew.toolchain import RunResult
+
+        captured: dict = {}
+
+        def _fake_run(spec, args, *, workdir, timeout):  # noqa: ARG001
+            captured["args"] = args
+            obj = workdir / "t.obj"
+            obj.write_bytes(b"OMF")
+            return RunResult(0, "", "", backend="host")
+
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compile.compile_cache_key", lambda **k: "k")
+        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+
+        src = tmp_path / "t.c"
+        src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+        obj, err = compile_to_obj(self._cfg(tmp_path), src, [], workdir, use_cache=False)
+        assert obj is not None and err == ""
+        assert "-c" in captured["args"]
+        assert "t.c" in captured["args"]
+        assert "-o" not in captured["args"]

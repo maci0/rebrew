@@ -33,11 +33,11 @@ from rebrew.analysis import StringEntry, Xref, iter_strings, string_refs
 from rebrew.annotation import Annotation
 from rebrew.binary_loader import load_binary
 from rebrew.cli import (
-    MIN_VALID_VA,
     TargetOption,
     iter_annotations,
     iter_sources,
     json_print,
+    min_valid_va_for,
     rel_display_path,
     require_config,
     target_marker,
@@ -166,7 +166,7 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
         for ann in annos:
             if ann.marker_type in ("GLOBAL", "DATA"):
                 continue
-            if ann.va < MIN_VALID_VA:
+            if ann.va < min_valid_va_for(cfg):
                 continue
             md = {}
             metadata_dir = getattr(cfg, "metadata_dir", None)

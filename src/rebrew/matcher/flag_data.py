@@ -190,3 +190,25 @@ MSVC152_SWEEP_TIERS: dict[str, list[str] | None] = {
     ],
     "full": None,
 }
+
+
+# Borland Turbo C++ 3.1 (tc16, 16-bit DOS) / Borland C++ 5.5 (borlandc55,
+# 32-bit) — shared Borland flag dialect (-O1 size / -O2 speed / -Od none;
+# -K unsigned char default; -Z suppress redundant reloads).  Verified
+# against the real compilers (TCC under DOSBox, bcc32 under wine).
+BORLAND_FLAGS: Flags = [
+    FlagSet(
+        id="borland_opt",
+        flags=("-O1", "-O2", "-Od"),
+    ),
+    Checkbox(id="borland_unsigned_char", flag="-K"),
+    Checkbox(id="borland_redundant_loads", flag="-Z"),
+]
+
+BORLAND_SWEEP_TIERS: dict[str, list[str] | None] = {
+    "quick": ["borland_opt"],
+    "targeted": ["borland_opt", "borland_unsigned_char"],
+    "normal": ["borland_opt", "borland_unsigned_char", "borland_redundant_loads"],
+    "thorough": ["borland_opt", "borland_unsigned_char", "borland_redundant_loads"],
+    "full": None,
+}

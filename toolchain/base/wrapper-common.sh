@@ -48,7 +48,7 @@ rebrew_dosbox_run() {
     autoexec="$2"
     printf '[sdl]\nfullscreen=false\n\n[cpu]\ncycles=fixed 30000\n\n[autoexec]\nmount c %s\nC:\ncd \\\n%s\nexit\n' \
         "$sandbox" "$autoexec" > "$sandbox/toolchain.conf"
-    SDL_VIDEODRIVER=dummy dosbox -conf "$sandbox/toolchain.conf" -noconsole >/dev/null 2>&1 || true
+    SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy dosbox -conf "$sandbox/toolchain.conf" -noconsole >/dev/null 2>&1 || true
 }
 
 # rebrew_copy_back <sandbox> <src-name> <dest-name> — copies an artifact the

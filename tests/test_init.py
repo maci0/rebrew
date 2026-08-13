@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import typer
 from click.exceptions import Exit
 
 from rebrew.init import (
@@ -25,7 +26,7 @@ class TestCompilerDefaults:
     """Tests for the COMPILER_DEFAULTS constant."""
 
     def test_has_expected_profiles(self) -> None:
-        assert len(COMPILER_DEFAULTS) == 14
+        assert len(COMPILER_DEFAULTS) == 16
 
     def test_known_profiles(self) -> None:
         assert set(COMPILER_DEFAULTS.keys()) == {
@@ -43,6 +44,8 @@ class TestCompilerDefaults:
             "msvc1.52",
             "borlandc55",
             "watcom16",
+            "tc20",
+            "tc16",
         }
 
     @pytest.mark.parametrize(
@@ -762,8 +765,11 @@ class TestProfileMismatchWarning:
 
         _warn_profile_mismatch("msvc6", "ne", "x86_16")
         out = capsys.readouterr().err
-        assert "16-bit NE binary" in out
+        assert "16-bit binary (ne/x86_16)" in out
+        # the suggestion lists the 16-bit-capable profiles (derived from
+        # COMPILER_DEFAULTS, so tc16/watcom16 are included too)
         assert "msvc1.52" in out
+        assert "tc16" in out
 
     def test_ne_binary_silent_on_msvc152(self, capsys) -> None:
         from rebrew.init import _warn_profile_mismatch
@@ -814,4 +820,141 @@ class TestProfileMismatchWarning:
         payload = json.loads(out.out)
         assert isinstance(payload, dict)
         # stderr carries the mismatch warning
-        assert "16-bit NE binary" in out.err
+        assert "16-bit binary" in out.err
+
+
+class TestInitTc16:
+    """rebrew init --compiler tc16 must generate a config that loads
+    without an unknown-profile fallback (COMPILER_DEFAULTS + _KNOWN_PROFILES
+    cover the new profile)."""
+
+    def test_init_tc16_project(self, tmp_path: Path, monkeypatch) -> None:
+        import warnings
+
+        from rebrew.config import load_config
+        from rebrew.init import init
+
+        monkeypatch.chdir(tmp_path)
+        init(
+            target_name="main",
+            binary_name="main.exe",
+            compiler_profile="tc16",
+            install_wibo=False,
+            json_output=False,
+            install_completions=False,
+        )
+        content = (tmp_path / "rebrew-project.toml").read_text()
+        assert 'profile = "tc16"' in content
+        assert "TCC.EXE" in content
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            cfg = load_config(tmp_path, "main")
+        assert cfg.compiler_profile == "tc16"
+        assert not any("unknown profile" in str(x.message) for x in w)
+
+
+class TestInitGuessCompiler:
+    """rebrew init --guess-compiler auto-selects the profile from the
+    target binary (diec → PDB → heuristics), preferring the 16-bit profile
+    for DOS/NE binaries."""
+
+    def test_guess_borlandc_from_real_exe(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.init import init
+
+        fixture = Path(__file__).parent / "fixtures" / "tc16_hello.exe"
+        if not fixture.exists():
+            pytest.skip("tc16_hello.exe fixture not present")
+        (tmp_path / "original").mkdir()
+        import shutil
+
+        shutil.copy(fixture, tmp_path / "original" / "game.exe")
+        monkeypatch.chdir(tmp_path)
+        init(
+            target_name="main",
+            binary_name="game.exe",
+            guess_compiler=True,
+            install_wibo=False,
+            json_output=False,
+            install_completions=False,
+        )
+        content = (tmp_path / "rebrew-project.toml").read_text()
+        assert 'profile = "tc16"' in content
+
+    def test_guess_msvc16_ne_binary(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.init import init
+        from rebrew.toolchain_detect import ToolchainInfo
+
+        def _fake_detect(path):  # noqa: ARG001
+            return ToolchainInfo(
+                family="msvc",
+                version_hint="16-bit MSVC-style NE",
+                confidence="high",
+                arch="x86_16",
+                detected_by="ne",
+            )
+
+        monkeypatch.setattr("rebrew.toolchain_detect.detect_toolchain", _fake_detect)
+        (tmp_path / "original").mkdir()
+        (tmp_path / "original" / "prog.exe").write_bytes(b"MZ")
+        monkeypatch.chdir(tmp_path)
+        init(
+            target_name="main",
+            binary_name="prog.exe",
+            guess_compiler=True,
+            install_wibo=False,
+            json_output=False,
+            install_completions=False,
+        )
+        content = (tmp_path / "rebrew-project.toml").read_text()
+        assert 'profile = "msvc1.52"' in content
+
+    def test_guess_missing_binary_errors(self, tmp_path: Path, monkeypatch, capsys) -> None:
+        from rebrew.init import init
+
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(typer.Exit):
+            init(
+                target_name="main",
+                binary_name="ghost.exe",
+                guess_compiler=True,
+                install_wibo=False,
+                json_output=False,
+                install_completions=False,
+            )
+
+
+class TestGuessCompilerFailure:
+    """init --guess-compiler on an unrecognizable binary must fail with a
+    hint to pass --compiler explicitly (perf of the onboarding UX)."""
+
+    def test_unknown_family_suggests_explicit_compiler(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        from rebrew.init import init
+        from rebrew.toolchain_detect import ToolchainInfo
+
+        def _fake_detect(path):  # noqa: ARG001
+            return ToolchainInfo(
+                family="unknown",
+                version_hint="",
+                confidence="low",
+                arch="",
+                detected_by="heuristics",
+            )
+
+        monkeypatch.setattr("rebrew.toolchain_detect.detect_toolchain", _fake_detect)
+        (tmp_path / "original").mkdir()
+        (tmp_path / "original" / "weird.bin").write_bytes(b"\x00" * 64)
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(typer.Exit):
+            init(
+                target_name="main",
+                binary_name="weird.bin",
+                guess_compiler=True,
+                install_wibo=False,
+                json_output=False,
+                install_completions=False,
+            )
+        captured = capsys.readouterr()
+        assert "cannot guess" in captured.err
+        assert "--compiler" in captured.err  # the actionable hint

@@ -26,3 +26,4 @@ itself, and the consequences (including trade-offs accepted).
 | 004 | Intake re-discovery prunes only exact auto-stubs |
 | 005 | Toolchain detection: backend order + NE marker family + linker fallback |
 | 006 | Standardized toolchain invocation (docker-first, host fallback) |
+| 007 | Complete containerization + unified byte-reproducibility gate |

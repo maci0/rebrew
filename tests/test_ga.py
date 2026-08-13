@@ -1094,6 +1094,8 @@ class TestGABuildCacheKey:
             timeout=60,
             extra_include_dirs=None,
             posix_style=False,
+            profile="",
+            cfg=None,
         ):
             seen.append(cflags)
             return BuildResult(ok=False, error_msg="fake")

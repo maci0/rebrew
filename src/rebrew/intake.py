@@ -36,6 +36,7 @@ from rich.console import Console
 from typer.testing import CliRunner
 
 from rebrew.cli import EXIT_ERROR, EXIT_OK, json_print
+from rebrew.skeleton import _C89_STRICT_PROFILES
 from rebrew.utils import atomic_write_text
 
 console = Console(stderr=True)
@@ -52,6 +53,9 @@ _TOOLCHAIN_LINKS: dict[str, tuple[str, str]] = {
     "msvc420": ("msvc/4.2-win32", "msvc/4.2-win32"),
     "msvc1.52": ("msvc/1.52-win16", "msvc/1.52-win16"),
     "watcom": ("watcom/2.0-win32", "watcom/2.0-win32"),
+    "watcom16": ("watcom/2.0-win32", "watcom/2.0-win32"),
+    "tc16": ("borland/3.1-win16", "borland/3.1-win16"),
+    "tc20": ("borland/2.0-win16", "borland/2.0-win16"),
 }
 
 _REPO_TOOLS = Path(__file__).resolve().parents[2] / "tools"
@@ -74,41 +78,36 @@ class IntakeResult:
 
 def _suggest_profile(binary: Path) -> tuple[str, str, str, list[str]]:
     """Detect the toolchain and pick a profile. Returns (profile, family, hint, notes)."""
-    from rebrew.toolchain_detect import detect_toolchain
+    from rebrew.toolchain_detect import detect_toolchain, suggest_profile
 
     info = detect_toolchain(binary)
     notes: list[str] = []
     family = info.family
     hint = info.version_hint
-    if family == "msvc":
-        if info.arch == "x86_16":
-            # The NE detector sets arch=x86_16 — a 32-bit msvc6 profile
-            # cannot byte-match a 16-bit NE target; pick the DOSBox CL.EXE
-            # profile (skifree16-class binaries).
-            profile = "msvc1.52"
-            notes.append(
-                "binary is 16-bit NE (x86_16) — using the msvc1.52 profile "
-                "(DOSBox CL.EXE, 16-bit OMF objects)"
-            )
-        else:
-            profile = "msvc6"
-    elif family in ("mingw", "zig"):
-        profile = "gcc-pe"
+    profile = suggest_profile(info, binary)
+    if family == "msvc" and info.arch == "x86_16":
+        notes.append(
+            "binary is 16-bit NE (x86_16) — using the msvc1.52 profile "
+            "(DOSBox CL.EXE, 16-bit OMF objects)"
+        )
     elif family == "watcom":
-        profile = "watcom"
         notes.append(
             "binary looks Watcom C/C++ — byte matching works via the watcom "
             "profile (OMF objects, see docs/OMF_NOTES.md)"
         )
     elif family == "delphi":
-        profile = "msvc6"
         notes.append(
             "binary looks Borland Delphi — no rebrew compiler profile can byte-match it; "
             "intake will document functions as blockers"
         )
-    else:
+    if profile is None:
         profile = "msvc6"
         notes.append("compiler family not identified — defaulting to msvc6 (check `rebrew doctor`)")
+    elif family == "borlandc":
+        notes.append(
+            f"binary looks Borland C/C++ — using the {profile} profile "
+            "(Turbo C++ 3.1 / bcc32 objects, see docs/TOOLCHAIN.md)"
+        )
     return profile, family, hint, notes
 
 
@@ -200,6 +199,7 @@ def classify_all(
     family: str,
     hint: str,
     metadata_dir: Path | None = None,
+    profile: str = "",
 ) -> int:
     """Write a STUB .c + blocker for every function (document-unmatched step).
 
@@ -221,9 +221,19 @@ def classify_all(
     status_updates: list[dict[str, Any]] = []
     for va, size, _name in funcs:
         reason = blocker_reason(family, size, hint)
-        stub = (
-            f"// STUB: {marker} 0x{va:08x}\n\nvoid fcn_{va:08x}(void)\n{{\n    /* {reason} */\n}}\n"
-        )
+        # C89-strict 16-bit profiles (Turbo C 2.0 etc.) reject `//` —
+        # emit the block-comment marker form so the stub still compiles.
+        use_block = profile in _C89_STRICT_PROFILES
+        if use_block:
+            stub = (
+                f"/* STUB: {marker} 0x{va:08x} */\n\n"
+                f"void fcn_{va:08x}(void)\n{{\n    /* {reason} */\n}}\n"
+            )
+        else:
+            stub = (
+                f"// STUB: {marker} 0x{va:08x}\n\n"
+                f"void fcn_{va:08x}(void)\n{{\n    /* {reason} */\n}}\n"
+            )
         out = src_dir / f"fcn_{va:08x}.c"
         if not out.exists():
             from rebrew.utils import atomic_write_text
@@ -266,7 +276,7 @@ def classify_all(
 
 
 _AUTO_STUB_RE = re.compile(
-    r"^// STUB: ([A-Za-z0-9_]+) 0x([0-9a-fA-F]{8})\n\nvoid fcn_\2\(void\)\n\{"
+    r"^(?://|/\*) STUB: ([A-Za-z0-9_]+) 0x([0-9a-fA-F]{8})(?: \*)?\n\nvoid fcn_\2\(void\)\n\{"
 )
 
 
@@ -447,13 +457,17 @@ def main(
             raise typer.Exit(code=EXIT_ERROR)
 
     project = Path(".")
-    # 16-bit NE targets must disassemble as x86-16 — init defaults every
-    # profile to x86_32, which misdecodes segmented 16-bit code.
-    from rebrew.binary_loader import is_ne
+    # 16-bit DOS/NE targets must disassemble as x86-16 — init defaults every
+    # profile to x86_32, which misdecodes segmented 16-bit code — and the
+    # config must not claim PE for them.
+    from rebrew.binary_loader import is_mz, is_ne
 
     if is_ne(bin_path):
         _set_target_arch(project, target_name, "x86_16", fmt="ne")
         notes.append("16-bit NE target — target arch set to x86_16 (CS_MODE_16)")
+    elif is_mz(bin_path):
+        _set_target_arch(project, target_name, "x86_16", fmt="mz")
+        notes.append("plain DOS MZ target — target arch set to x86_16 (CS_MODE_16)")
 
     # 2. copy the binary
     original_dir = project / "original"
@@ -496,7 +510,7 @@ def main(
     )
 
     # 5. document unmatched functions
-    documented = classify_all(project, src_dir, marker, funcs, family, hint)
+    documented = classify_all(project, src_dir, marker, funcs, family, hint, profile=profile)
     # 6. prune auto-stubs orphaned by a changed function list (re-discovery
     #    only — a fresh onboarding has nothing stale).
     if project_existed:

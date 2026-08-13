@@ -35,7 +35,7 @@ Use this skill exactly once per new target. Re-run individual steps later if nee
 A `rebrew-project.toml` must exist with the new target configured. If starting from scratch:
 
 ```bash
-rebrew init --target <name> --binary <filename> --compiler msvc6
+rebrew init --target <name> --binary <filename> --guess-compiler   # auto-selects the profile from the binary
 rebrew init --install-wibo            # fresh Linux/macOS setup: download wibo runner now
 ```
 
@@ -83,16 +83,40 @@ pipeline (MSVC6 vs MinGW GCC):
   (document the semantic decomp + blocker the byte delta).
 - If MSVC: continue with FLIRT from `msvcrt.lib` **and** `libcmt.lib`
   (statically-linked CRT code only matches libcmt signatures).
+- If a plain DOS MZ executable (`file` shows "MS-DOS executable, MZ"):
+  **check for packing first** — `rebrew toolchain detect` reports
+  `packed: lzexe 0.91` (or `packed: pklite` — PKWARE's compressor, also
+  very common in the era) when the file is packed (very common for 1990s
+  shareware; the visible code is only a decompressor stub, so
+  discovery/detection see almost nothing until unpacked).  For LZEXE run
+  `rebrew unpack-lzexe <binary>` first and analyze the unpacked file;
+  PKLITE has no built-in unpacker — find an unpacked copy.  Borland Turbo C/C++ targets
+  byte-match with the `tc16` profile (Turbo C++ 3.1) or `tc20` (Turbo C
+  2.0 — the 1988/89-era compiler diec reports as "Borland C/C++ 1991";
+  C89-strict, so skeletons use `/* */` markers); Open Watcom wcc16-built
+  DOS targets use `watcom16`.  `rebrew init --guess-compiler` picks the
+  profile automatically, and `rebrew discover-functions` runs the 16-bit
+  capstone sweep over the MZ code region (rizin cannot analyze MZ) — the
+  full unpack → init → discover → skeleton → test loop is verified
+  end-to-end (see `tests/fixtures/tc16_hello_lzexe.exe`, packed with the
+  original LZEXE.EXE).
 - If 16-bit NE (Windows 3.x): `file <binary>` shows "NE version N for MS
   Windows 3.x".  `rebrew intake` handles it end-to-end — native NE parsing,
   the loader's linear sweep for function discovery (rizin cannot analyze
   NE), auto `format = "ne"` + `arch = "x86_16"`, and family detection from
-  the Borland segment-marker convention (`delphi` vs MSVC-style).  There is
-  **no compile profile** for byte matching yet (ADR-001): `rebrew verify`
-  short-circuits, `rebrew doctor` reports Delphi 1.0 toolchain readiness,
-  and functions are documented as BLOCKER stubs for analysis only.
-  `rebrew.delphi16.compile_ne` can already compile 16-bit executables
-  headless (the future matching foundation).  See `docs/TOOLCHAIN.md`.
+  the Borland segment-marker convention (`delphi` vs MSVC-style).
+  **MSVC-style NE byte-matches with the `msvc1.52` profile** (DOSBox
+  CL.EXE → 16-bit OMF, parsed by `rebrew.matcher.omf16` — skifree16-class
+  targets).  Borland *Delphi* NE remains unmatchable (ADR-001): `rebrew
+  verify` short-circuits, `rebrew doctor` reports Delphi 1.0 toolchain
+  readiness, and functions are documented as BLOCKER stubs for analysis
+  only.  `rebrew.delphi16.compile_ne` can already compile 16-bit
+  executables headless (the future matching foundation).  Borland *Turbo
+  C/C++* DOS targets (plain MZ, e.g. 1990s shareware games) byte-match
+  with the `tc16` profile (Turbo C++ 3.1) or `tc20` (Turbo C 2.0 — the
+  earlier codegen generation; pick it when the binary is
+  1988/89-era-built or `tc16` output drifts).  See
+  `docs/TOOLCHAIN.md`.
 
 ### 1. Health Check — run `rebrew doctor` first
 

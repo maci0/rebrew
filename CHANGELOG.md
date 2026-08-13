@@ -1,5 +1,444 @@
 ## [Unreleased]
 ### Fixed
+- **MZ code offset ignored the reloc-table position** (functionality-review
+  HIGH): `parse_mz_header` computed `code_offset = cparhdr*16 + crlc*4`,
+  but the MZ loader maps the file from `cparhdr*16` onward as the image —
+  when the relocation table fits inside the header (the usual case, incl.
+  the tc16 fixture and every LZEXE-unpacked file), the first `crlc*4`
+  bytes of code were skipped and EVERY function VA shifted (the Keen 6
+  demo's functions sat 0x2358 bytes off; the entry at VA 0 pointed 4 bytes
+  into the startup).  `code_offset = max(cparhdr*16, lfarlc + crlc*4)`
+  now.  Fixture VAs re-calibrated (`add` 0x28d → 0x291, `main` 0x29a →
+  0x29e); the Keen demo re-discovers **690 functions** (was 572 — the
+  previously-skipped code region is now addressed, and VA 0 is the real
+  entry).
+- **`match --all` stub collector used a hardcoded 0x1000 VA floor**
+  (functionality-review HIGH): `_parse_annotations` silently dropped every
+  16-bit DOS function from the `match --all` / `find_*` collections.  The
+  parse/find helpers now take `min_va` and the batch collectors pass
+  `min_valid_va_for(cfg)`.
+- **tc20 missing from the flag-sweep plumbing** (functionality-review):
+  `_FLAGS_MAP` and the sweep-tier branch covered tc16/borlandc55 only — a
+  tc20 flag sweep generated MSVC flags (`/Od /Gd /MT ...`) that TCC 2.0
+  rejects, so every combo failed.  tc20 now uses `BORLAND_FLAGS` /
+  `BORLAND_SWEEP_TIERS`.
+- **doctor's 16-bit profile set lacked tc20**: a tc20 project got a
+  spurious "configure a 16-bit compiler profile" warning and no toolchain
+  diagnosis.  `_16BIT` and the toolchain-backed tuple now include tc20.
+- **intake did not link the Borland/Watcom 16-bit toolchains**: a DOS MZ
+  intake (tc16/tc20/watcom16) printed "toolchain not found — symlink
+  tools/ yourself" instead of linking the vendored tree.  The toolchain
+  link map now covers them.
+- **`rebrew report` dropped every 16-bit function**: the HTML report's
+  hardcoded `MIN_VALID_VA` floor hid all MZ functions (and its docstring
+  claimed status.py had the same floor — it doesn't).  Now arch-aware.
+- **LZEXE v0.90 reloc-table truncation detected**: `_reloc_table90` now
+  raises on EOF before the final segment group (mirroring v0.91), plus
+  unit tests for the v0.90 decode/truncation paths (the v0.90 path had
+  zero test coverage).
+- **`rebrew unpack-lzexe` probed the file twice**: `lzexe_version` ran
+  once in the CLI and again inside the unpack; the CLI now derives the
+  version from a single `unpack_lzexe` result (also makes the error
+  handling single-path).
+- **`_parse_annotations`** (match.py) hardcoded VA floor fixed — see above.
+### Added
+- **PKLITE packer detection**: `rebrew toolchain detect` now reports
+  `packed: pklite` for PKWARE-compressed DOS executables (the stub carries
+  its banner near the header) with a "no built-in unpacker; find an
+  unpacked copy" evidence line — so a packed binary's family is not trusted
+  blindly from stub/compressed strings.  New fixture
+  `tests/fixtures/tc16_hello_pklite.exe` (packed with the original PKLITE
+  1.03 under DOSBox).  The intake skill documents the PKLITE vs LZEXE
+  handling.
+- **`tc20` joins the toolchain smoke gate — 7/7 images byte-reproducible**:
+  a `rebrew/borland:2.0-win16` docker image (Dockerfile + DOSBox `tcc`
+  wrapper mirroring the 3.1 image, built from the committed `tc20.tar.xz`)
+  now gives Turbo C 2.0 a fully containerized path alongside the host
+  DOSBox fallback, and the smoke gate covers it (its COMENT run-timestamp
+  ticks + record checksum at offsets 44-49/57-58 are masked — computed by
+  diffing consecutive compiles).  `rebrew toolchain smoke` → `Smoke: 7
+  toolchains byte-reproducible`.
+### Fixed
+- **LZEXE unpacker hardened against corrupt files** (error-review): header
+  geometry (param-block offset, stream offset) is bounds-checked before
+  reads; `struct.error`/`IndexError` from corrupted-but-stub-intact files
+  are converted to a clean `NotLzexeError`; match distances exceeding the
+  output (negative back-references) raise instead of wrapping to garbage;
+  the v0.90/0.91 relocation tables require their terminator (a truncated
+  table previously returned a partial reloc list silently); the CLI error
+  names the input file.  `lzexe_version` now reads only the header + stub
+  region instead of the whole file (no more full read of 100 MB targets
+  just to reject them).
+- **OMF→COFF temp file leak**: `parse_obj_symbol_and_relocs` used
+  `NamedTemporaryFile(delete=False)` and never unlinked — every 16-bit
+  compile that fell through to the objconv path leaked a `/tmp/*.coff`.
+  The conversion now runs inside a `TemporaryDirectory`.
+- **`/* */` annotation markers honored in more paths** (error-review):
+  `split_annotation_sections` only admitted `//` lines, so C89-style
+  16-bit sources (tc20/msvc1.52/watcom16 skeletons) split into 0 blocks
+  (merge/split would drop their annotations); and the KV regex captured a
+  trailing `*/` into values (`/* SIZE: 64 */` → `int("64 */")` crashed to
+  `size = 0`).  Both fixed.
+- **`rebrew intake` stubs now profile-aware**: document-unmatched wrote
+  `// STUB:` markers unconditionally — for C89-strict 16-bit profiles
+  (Turbo C 2.0 rejects `//`) every intake-generated stub failed to
+  compile.  The stub template (and the stale-stub prune regex) now emit
+  /match the `/* STUB: ... */` form for those profiles.
+- **MZ file size undercounted for exact-512-multiple files**: `cblp == 0`
+  means the last page is exactly 512 bytes (per the MZ spec), but the
+  `(cp-1)*512 + cblp` formula yielded `cp*512 - 512` — an empty code
+  region for such files.  Now `cp*512` when `cblp == 0`.
+- **GA compiles bypassed the toolchain routing**: `BinaryMatchingGA`'s
+  `_compile_source` called `build_candidate_obj_only` without `profile`/
+  `cfg`, so the toolchain-backed routing (fixed earlier for the flag-sweep
+  path) never activated inside the GA — every GA compile on a 16-bit
+  project tried to run the DOS compiler natively ("Permission denied:
+  .../TCC.EXE").  The GA constructor now accepts `profile`/`cfg` and
+  forwards them; both construction sites pass them from the config.  A
+  smoke GA run on the Keen 6 demo function now compiles through DOSBox
+  end-to-end (the 16-bit GA loop: compile → parse → score → mutate).
+- **`rebrew intake` mislabeled MZ binaries as PE**: the one-shot onboarding
+  only patched the config's format/arch for NE binaries — an MZ target got
+  `format = "pe"` (only the arch came out right from the profile default).
+  Intake now sets `format = "mz"` + `arch = "x86_16"` for plain DOS MZ
+  binaries, matching init.
+- **`toolchain detect` left the arch empty for die-detected MZ binaries**:
+  the MZ branch only ran when the family was unknown — a diec/PDB-detected
+  DOS binary (e.g. the unpacked Keen 6: `borlandc` via diec) returned with
+  `arch: ""`, mislabeling 16-bit code.  The MZ branch now applies to every
+  MZ executable (arch `x86_16` unconditionally; family from strings only
+  when no stronger backend named it, and `detected_by` is preserved).
+- **`profile_matches_detection` used a stale `_BITNESS_16 = {msvc1.52}`**:
+  the arch-alignment check only treated msvc1.52 as 16-bit-capable (so
+  tc16/tc20/watcom16 projects falsely failed doctor on 16-bit targets) and
+  mislabeled MZ as "NE".  The set is now `{msvc1.52, tc16, tc20,
+  watcom16}` with corrected wording, and the converse check (16-bit profile
+  on a 32/64-bit binary) uses the same set.  The tc16 fixture's alignment
+  test was updated: `borlandc55` (32-bit bcc32) now correctly rejects a
+  16-bit binary, and the fixture's arch assertion locks in `x86_16`.
+- **`rebrew diff` / GA compiled DOS sources via the raw subprocess path**:
+  `build_candidate_obj_only` routed toolchain-backed profiles through
+  `compile_to_obj` only for `("watcom", "msvc1.52")` — `tc16`/`tc20`/
+  `watcom16`/`borlandc55` fell through to the raw subprocess path and tried
+  to execute the DOS compiler binary natively ("Permission denied:
+  .../TCC.EXE").  The profile tuple now matches compile.py's routing, so
+  `rebrew diff` and the GA/flag-sweep compile path reach DOSBox for 16-bit
+  projects.
+- **`rebrew diff` disassembled DOS code as 32-bit**: `diff_functions` /
+  `structural_similarity` calls from the diff command (and the GA fitness +
+  flag-sweep scoring) used the 32-bit default mode — a 16-bit function's
+  byte diff rendered `4a` as `dec edx` instead of `dec dx`.  The diff
+  command now derives the mode from the target arch (`_cs_mode_for_cfg`),
+  and `BinaryMatchingGA` gained a `cs_mode` parameter (wired from the
+  config at both construction sites) so structural scoring disassembles
+  16-bit targets in 16-bit mode.
+- **`rebrew verify` batch and naming rejected 16-bit VAs**: the batch
+  verify path had its own hardcoded `MIN_VALID_VA` floor (every MZ function
+  reported `INVALID_VA: VA too low`), and `naming.load_data`/`existing_vas`
+  silently SKIPPED all low-VA entries (16-bit projects appeared empty to
+  todo/similar).  Both now use the arch-aware
+  `min_valid_va_for(cfg)` (0 for x86_16).  Surfaced by running
+  `rebrew verify` on the Keen 6 demo project.
+- **`function_extent_from_disasm` disassembled DOS code as 32-bit**:
+  hardcoded `CS_MODE_32` mis-decoded 16-bit MZ/NE instructions and hit a
+  bogus early `ret`, truncating every DOS function's extent to ~20 bytes
+  (breaking extent-based tooling — `rebrew describe`, skeleton convention
+  inference, size validation — on all 16-bit targets).  The mode now
+  follows the binary format (`mz`/`ne` → 16-bit); the Keen 6 demo's
+  `fcn_042e` extent went from 24 to the correct 38.
+- **16-bit DOS VAs are valid below 0x1000**: the annotation/lint "VA
+  suspicious (below 0x1000)" check assumed PE-era image bases and flagged
+  every MZ binary function (VA 0x42e, the code region base).  New
+  `rebrew.cli.min_valid_va_for(cfg)` returns 0 for `x86_16` targets; wired
+  into `Annotation.validate(min_va=...)`, `rebrew test`, `rebrew match`,
+  and lint's E002.  Surfaced by running `rebrew test` on a real Keen 6
+  demo function.
+- **`extract_function_name_and_proto` misparsed `void far *pascal f(...)`**:
+  tree-sitter marks the non-C89 keywords `far`/`pascal` as ERROR nodes, and
+  the declarator walk recursed into them, returning "pascal" as the
+  function name (breaking symbol resolution → "Symbol '_pascal' not
+  found").  The pointer-declarator walk now prioritizes the nested
+  `function_declarator` (the real name) before falling back.
+- **Borland pascal OMF symbols resolve by the C-level name**: a `pascal`
+  function compiles to an UPPERCASE no-underscore symbol (`FCN_042E`);
+  `_match_symbol` now tries `name.strip("_").upper()` in addition to the
+  cdecl `_name`/`name`/`name_` dialects, so `rebrew test` finds the
+  compiled function without renaming.
+### Added
+- **16-bit calling-convention skeleton stubs**: `calling_convention_at`
+  now infers conventions for `x86_16` targets too (16-bit disassembly; the
+  `ret` vs `ret N` epilogue rule is word-size independent), and skeleton
+  generation emits real stubs for DOS functions — `int pascal f(a1, a2)`
+  for the Borland 16-bit profiles (tc16/tc20/borlandc55), `__stdcall` for
+  MSVC/Watcom 16-bit — instead of the generic `int f(void)`.  The Keen 6
+  demo's `fcn_042e` (`ret 4`) now skeletons as `int pascal fcn_042e(int
+  a1, int a2)`.  `_ret_arg_count` gained a word-size parameter (2 for
+  16-bit).
+- **`rebrew unpack-lzexe` — LZEXE 0.90/0.91 unpacker**: restores DOS
+  executables packed with Fabrice Bellard's LZEXE compressor (many 1990s
+  games shipped packed; the visible code is only a decompressor stub, so
+  discovery/detection see nothing until the image is restored).  The
+  format is documented only by its own stub — it was reverse-engineered
+  from the decompressor disassembly of a real packed game (Commander Keen
+  6 demo) and validated byte-for-byte against the classic `unlzexe`
+  reference implementation on both the canonical and the patched 0.91 stub
+  variants.  Rebuilds the original MZ: decompressed image, reconstructed
+  header (cblp/cp/crlc/cparhdr/minalloc/maxalloc/ss/sp/ip/cs), and the
+  relocation table re-encoded as standard MZ entries.  `rebrew toolchain
+  detect` reports `packed: lzexe 0.91` and points at the command.  New
+  fixture `tests/fixtures/tc16_hello_lzexe.exe` (packed with the original
+  LZEXE.EXE under DOSBox) locks the round-trip: image and relocation
+  entries equal the pre-pack original.
+- **`tc20` profile — Turbo C 2.0 (16-bit DOS)**: the 1988/89-era Borland
+  compiler (the classic DOS-game compiler generation, and the one diec
+  reports as "Borland C/C++ 1991" for binaries like Commander Keen 6) is
+  now in the zoo (`toolchain/borland/2.0-win16`, assembled from the
+  archive.org `turboc20` floppy images: TCC.EXE 2.0 + TLINK/CPP + runtime
+  libs + headers).  `rebrew.tc16.compile_c` gained a `version` parameter
+  ("3.1" default, "2.0"), the profile routes through `compile_to_obj`, and
+  simple functions compile byte-identically to TCC 3.1.  `init --compiler
+  tc20` works; `toolchain detect`/`doctor` accept the profile via
+  `_PROFILE_COMPAT`.
+- **C89-strict skeleton markers**: Turbo C 2.0 rejects `//` comments
+  ("Declaration syntax error" — verified), so skeletons for the C89-strict
+  16-bit profiles (`tc20`, `msvc1.52`, `watcom16`) now emit
+  `/* FUNCTION: MODULE 0xVA */` markers, and the annotation parser
+  (`NEW_FUNC_RE`, `NEW_FUNC_CAPTURE_RE`, `NEW_KV_RE`, `is_comment`
+  pre-filter) accepts both comment styles.  `tc20` was also missing from
+  the skeleton `__cdecl` strip-list (TCC 2.0 would choke on `__cdecl`).
+  Round-trip: tc20 skeleton → parse → TC 2.0 compile works end-to-end.
+- **`rebrew.tc16` workdir reuse is version-safe**: reusing a sandbox
+  staged for a different TCC version silently kept the old toolchain's
+  symlinks; stale links are now replaced when the target tree differs.
+- **`tc16` joins the smoke gate**: the Turbo C++ 3.1 image is now part of
+  `rebrew toolchain smoke` (6/6 images byte-reproducible).  TCC's objects
+  embed a per-run sub-second timestamp in two Borland COMENT records, so
+  the smoke mask now supports a list of ranges (the ticks bytes + record
+  checksums are zeroed before hashing); determinism verified across
+  consecutive runs.
+- **`tc16` profile — Turbo C++ 3.1 (16-bit DOS)**: the classic DOS-game
+  compiler is now in the zoo (`toolchain/borland/3.1-win16`, vendored
+  in-repo from the archive.org `turboc3.1_202112` item).  `TCC.EXE` runs
+  headless under DOSBox via the new `rebrew.tc16` module (mirroring
+  `rebrew.msvc16`), `compile_to_obj` routes the profile through it, and the
+  Borland 16-bit OMF parses via `rebrew.matcher.omf16` (verified:
+  cdecl prologue/epilogue extracted).  Image `rebrew/borland:3.1-win16`
+  with a `tcc` DOSBox wrapper.
+### Added
+- **`rebrew init --guess-compiler`**: auto-selects the compiler profile
+  from the target binary (diec → PDB → heuristics, reusing the detector
+  `_PROFILE_COMPAT` mapping), preferring the 16-bit profile for DOS/NE
+  binaries — verified: a Turbo C++ 3.1-built DOS MZ exe guesses `tc16`, a
+  MSVC 16-bit NE binary guesses `msvc1.52`.  Errors loudly when the binary
+  is missing or the family has no matchable profile.
+### Added
+- **DOS MZ function discovery**: `rebrew discover-functions` (and intake)
+  can now enumerate plain DOS MZ executables — rizin cannot analyze them
+  (0 functions), so a 16-bit capstone linear sweep over the code region
+  (after the MZ header + relocation table) finds the CS:IP entry, cdecl
+  prologues (`push bp; mov bp,sp`), padding runs, and `e8 rel16` call
+  targets.  `binary_loader` gains `is_mz`/`parse_mz_header`.  Verified on
+  the TCC-built `tc16_hello.exe` fixture (44 candidates incl. the entry).
+### Fixed
+- **MZ header parse read `e_ss` as the code segment**: `parse_mz_header`
+  read the entry CS from offset 0x0E — that is `e_ss` (the stack segment),
+  not `e_cs` (0x16).  Any DOS program with separate code and data segments
+  (SS != CS) got a wrong entry VA and a shifted address space; the TCC
+  fixture only worked because tiny-model SS == 0.  The entry VA is now
+  `e_cs*16 + e_ip`, and the whole MZ VA scheme is corrected to the
+  segment-relative convention `VA(F) = F - code_offset` (the file IS the
+  load image minus the header), so the header's segments land at their
+  real linear addresses (`e_cs*16`, `e_ss*16`).  Fixture VAs rebased
+  (`add` 0x10cd → 0x28d) with tests updated.  Found by real-game
+  validation: Commander Keen 6 demo.
+- **MZ string-based compiler detection**: `load_binary` succeeding for MZ
+  made `toolchain detect` fall through the unparseable/NE family-assignment
+  branches, leaving LZEXE-packed and plain DOS binaries at `unknown`
+  despite clear Borland/Watcom runtime strings.  An MZ branch now assigns
+  the family from string evidence (mirroring the NE branch), so a packed
+  or plain DOS game detects as `borlandc`/`watcom`/`delphi` instead of
+  `unknown`.
+- **init mislabeled MZ/16-bit profiles**: `init` wrote `format = "pe"`
+  for MZ binaries (format detection covered PE/ELF/Mach-O/NE but not MZ —
+  `"mz"` is now a known format) and the profile-mismatch warning called
+  any 16-bit binary "NE" and treated only `msvc1.52` as 16-bit.  It now
+  derives the 16-bit profile set from `COMPILER_DEFAULTS` (msvc1.52/tc16/
+  watcom16) and says "16-bit binary (mz/x86_16)".
+- **`_omf_to_coff` resolved the wrong vendored objconv path**: `parents[2]`
+  from `src/rebrew/matcher/parsers.py` is the repo `src/` dir, so the
+  pinned 16-bit-OMF-capable objconv at `tools/objconv/` was never found
+  and every OMF parse silently used whatever `objconv` was on PATH (stock
+  2.56, which rejects 16-bit data relocations with `Error 2316`).  The
+  vendored path now uses `parents[3]` (repo root); the fork build converts
+  TCC 3.1 OMF with `disp16` data relocations cleanly.
+- **16-bit intra-binary call relocations mask in the MZ path**: `main`
+  from the TCC-built fixture (a cdecl call to `add`, `e8 rel16`) matches
+  **RELOC 20/20** through the CLI — the compiled call slot is correctly
+  relocation-masked against the binary's target address.  Locked in by an
+  end-to-end test (second fixture function matched, this one
+  reloc-bearing).
+- **`rebrew doctor` handles 16-bit profiles correctly**: the Compiler
+  check only warned for `msvc1.52` on 16-bit targets — a tc16/watcom16
+  project got a stale "set msvc1.52" warning.  It now accepts all three
+  16-bit-capable profiles, and for 32-bit profiles on 16-bit targets
+  suggests the right profile via the shared detector (`suggest_profile` —
+  a Borland MZ binary suggests `tc16`).  Intake skill documents the DOS
+  MZ flow.
+- **DOS match loop locked end-to-end**: the MZ fixture's `add` (extracted
+  at its discovered VA 0x10cd via the MZ loader) is now asserted to equal
+  the tc16-compiled code and match EXACT — plus the CLI workflow verified:
+  `rebrew test` promotes STATUS to EXACT in the metadata and
+  `rebrew verify` (cached and `--full`) re-derives 1/1.  The complete
+  DOS-game reversing loop (init → discover → source → test → promote →
+  verify) is proven and CI-locked.
+- **omf16 drops the TCC/wcc16 LEDATA checksum byte**: Borland/Open Watcom
+  16-bit objects end their 0xA0 code records with an OMF checksum byte
+  (whole record incl. type+length ≡ 0 mod 256) that the parser included in
+  the code slice — a spurious trailing byte that broke byte-matching.
+  Detection is by the record sum, so MSVC 1.52 objects (no checksum) are
+  unaffected.  This unlocked the first real DOS-game match: `rebrew test`
+  on `add` from the TCC-built `tc16_hello.exe` returns **EXACT 13/13**
+  through the full pipeline (init `--guess-compiler` → discover → source →
+  tc16 compile → byte-compare); wcc16 objects parse clean too (11-byte
+  `add` + rel16 slot).  Regression test added.
+- **DOS MZ binaries now flow through the whole pipeline**: `load_binary`
+  parses plain MZ executables (pseudo `.text` section, VAs as linear
+  `segment*16+offset` addresses from the CS entry base) so
+  `va_to_file_offset`/`extract_raw_bytes` work for DOS targets; the
+  discovery sweep uses the same VA convention and computes sizes from
+  candidate spacing (was 0, blocking skeleton).  Skeleton generation is
+  profile-aware: non-MSVC profiles emit `int f(void)` instead of
+  `__cdecl` (a syntax error in TCC 3.1 — "Declaration syntax error").
+  Verified end-to-end on the TCC-built `tc16_hello.exe`: init
+  (`--guess-compiler` → tc16) → discover (43 sized candidates incl. the
+  CS:IP entry) → skeleton (`int main(void)`) → `rebrew test` (compiles via
+  tc16, compares against the MZ target bytes).
+- **Roadmap/ADR/OMF docs reconciled with the shipped zoo**: the consoles
+  roadmap's "only five real profiles" row now reflects the 15-profile zoo;
+  ADR-006's status section lists the toolchains actually through the
+  abstraction (incl. tc16/borlandc55/watcom16) and drops the stale
+  "bcc32 extraction pending" note; OMF_NOTES's "objconv crashes on 16-bit"
+  caveat now documents the vendored fixed build + the fall-through path.
+- **Agent skills updated for the 16-bit zoo**: `rebrew-matching` documents
+  the tc16/borlandc55/watcom16 flag-sweep axes; `rebrew-intake` now
+  recommends `--guess-compiler`, and its NE section reflects that MSVC-style
+  NE byte-matches via `msvc1.52` and plain-DOS Borland targets via `tc16`
+  (only Borland *Delphi* NE remains unmatchable, ADR-001).  All skills
+  re-validated with `agentskills validate`.
+- **`rebrew intake` now suggests the right profile for Borland binaries**:
+  intake's hand-rolled family→profile mapping was inconsistent with the
+  detector — a Borland DOS binary fell through to `msvc6`.  Family→profile
+  selection is now unified in `rebrew.toolchain_detect.suggest_profile`
+  (the single source of truth shared by init's `--guess-compiler`, intake,
+  and doctor), so intake suggests `tc16` for Borland DOS and `msvc1.52`
+  for MSVC 16-bit NE binaries.  Locked in by intake regression tests.
+- **Flag sweeps use the right dialect for the new profiles**: the GA flag
+  sweep fell back to msvc6's `/`-style flags for any profile outside the
+  map — `tc16`/`borlandc55` would have fed `/O2` to TCC/bcc32.  Added a
+  shared `BORLAND_FLAGS` set (`-O1`/`-O2`/`-Od`, `-K`, `-Z` — verified
+  against the real compilers) with `BORLAND_SWEEP_TIERS`, and wired
+  `watcom16` to the existing wcc flag family.  Locked in by sweep tests.
+- **`rebrew init --compiler tc16` works**: `tc16` was missing from
+  `COMPILER_DEFAULTS` (init rejected it as an unknown profile).  It now
+  generates the full toolchain-backed config (command/includes/libs under
+  `toolchain/borland/3.1-win16`) that loads without an unknown-profile
+  fallback — locked in by an init regression test (profile-set assertions
+  updated to 15 profiles).
+- **`tc16` validated on a real artifact**: a Turbo C++ 3.1 + TLINK-built
+  DOS executable (compiled under DOSBox with the vendored toolchain) now
+  has a committed test fixture (`tests/fixtures/tc16_hello.exe`) and a
+  detector regression test — diec identifies it as Borland C/C++ 1991 /
+  TLINK 5.0, the detector maps it to the `borlandc` family, and the
+  `tc16`/`borlandc55` profiles align (msvc6 correctly rejected with a
+  "tc16 would fit" hint).  The whole build→detect→align loop for a new
+  DOS-game target is now proven.
+- **16-bit native profiles verified end-to-end**: `tc16` and `watcom16`
+  now have proven full matching loops — `compile_and_compare` returns
+  EXACT (TCC) / RELOC 100% (wcc, the chkstk rel16 slot masks) against
+  their own compiled objects, closing the long-standing "compile works,
+  matching unverified" note for watcom16.  Locked in by a roundtrip
+  regression test.
+- **`rebrew doctor` knows the new toolchain-backed profiles**: the
+  Toolchain check now covers `watcom16`, `tc16` and `borlandc55` (was
+  only `watcom`/`msvc1.52`) — it reports the vendored-binary/image
+  resolution instead of the misleading "binary not in PATH" for these
+  profiles.
+- **Host and image DOSBox drivers are now byte-identical**: the host
+  `rebrew.dosbox` and the toolchain-image `wrapper-common.sh`
+  (`rebrew_dosbox_run`) generate the same DOSBox config — extracted into
+  `_build_dosbox_conf` and enforced by `TestDosboxDriverSync`, so a
+  headless/driver fix in one can no longer drift from the other (the
+  docker-less fallback and the containerized path stay in lockstep).
+- **`borlandc55` profile compiles again**: bcc32 was missing from
+  `posix_style` and fell into the MSVC env path (msvc_env_from_config on a
+  bcc32 command) — and even with the flag fix, the generic posix `-o obj`
+  invocation misparses `obj` as an input file in Borland's flag dialect
+  (`-o` is compile-only).  It now routes through the toolchain runner with
+  bcc32 flags (`-c`, object follows the source stem).  Also added `tc16`
+  to `posix_style` and all three new profiles (`watcom16`, `borlandc55`,
+  `tc16`) to `_KNOWN_PROFILES` — a tc16/borlandc55 project no longer
+  silently falls back to msvc6 on config load.
+- **Detector profile alignment**: `borlandc` family now maps to
+  `{tc16, borlandc55}` and `watcom` to `{watcom, watcom16}` — `rebrew
+  doctor` no longer flags Borland/Watcom binaries as unmatchable (the
+  "no profile can byte-match these yet" docstring was outdated).
+- **DOSBox runs fully headless**: both the host runner (`rebrew.dosbox`,
+  used by msvc16/delphi16/tc16) and the container wrapper
+  (`wrapper-common.sh` → `rebrew_dosbox_run`) now set
+  `SDL_AUDIODRIVER=dummy` alongside the existing
+  `SDL_VIDEODRIVER=dummy` — a compile never pops a window (verified with
+  `DISPLAY` unset) and never touches audio (the ALSA chatter in logs is
+  gone).  Locked in by regression tests.
+- **Failed objconv conversions raise loudly**: `_omf_to_coff` now requires a
+  non-empty output file and a clean objconv exit — the caller pre-creates
+  the output tempfile, so the old `exists()` check never fired and a failed
+  conversion (objconv aborts before writing on errors) left an empty file
+  that LIEF silently parsed as `None` (a phantom failed match instead of a
+  readable error).
+- **16-bit MSVC OMF dialects parse end-to-end**: `parse_obj_symbol_and_relocs`
+  now falls through to the objconv→COFF path when the minimal `omf16`
+  decoder cannot extract code (the `/O1` and far-code COMDAT models), instead
+  of returning `None` outright; and `_omf_to_coff` prefers the vendored
+  (pinned) objconv over a PATH binary.  The vendored `tools/objconv/objconv`
+  should be the fixed build from the objconv fork (16-bit OMF relocation +
+  COMDAT support); the stock build errors on 16-bit input.  The O1/far
+  fixtures themselves parse via `omf16` with their real symbols (`_callg`,
+  `_f` — far `lcall` model with rel16/disp16 slots), now covered by tests.
+- **`watcom16` profile compiles through the toolchain runner**: the 16-bit
+  `wcc` profile fell into the generic MSVC flag path (`/nologo /c` glue →
+  E1139/E1073) and was absent from `posix_style`, so a watcom16 project
+  could not compile at all.  It now routes through `rebrew.toolchain`
+  with the wcc flag shape (`-fo=`/`-I`/`-zq`, no `-c` — wcc16 rejects it),
+  and its OMF objects parse via the omf16 decoder — verified end-to-end
+  (wcc → OMF → `parse_obj_symbol_and_relocs` yields code + rel16 slots).
+- **Persisted machine statuses now validate**: `rebrew test` / `rebrew verify`
+  pass `CompareResult.status` straight to `update_source_status`, which can
+  persist `SIZE_MISMATCH`, `COMPILE_ERROR`, `EXTRACT_ERROR`, `MISSING_SIZE`
+  and `MISSING_FILE` — but `KNOWN_STATUSES` (the gate used by
+  `MetadataEntry.apply` and lint) only knew the six user classifications, so
+  the validation layer contradicted the canonical writer (bench's stored
+  `SIZE_MISMATCH` flagged invalid).  `KNOWN_STATUSES` now covers the full
+  persistable vocabulary.
+- **Legacy projects resolve the restructured toolchains again**: the
+  gitignored `tools/<name>` compat symlinks were hand-made and missing
+  `MSVC600`/`MSVC7` — 22 projects (win2k-*, skifree16/32) referencing
+  `tools/MSVC600/VC98/...` silently broke after the `tools/` → `toolchain/`
+  restructure.  `rebrew toolchain vendor` now (re)creates the full alias set
+  (`MSVC600`, `MSVC7`, `msvc6.3`, …) after every successful vendor, so fresh
+  clones get them automatically; the aliases are also covered by
+  `.gitignore` so they cannot drift back in.  `resolve_msvc_toolchain` now
+  prefers project-provisioned layouts (linked toolchain dirs) over the
+  rebrew install's own vendored tree, so `--link-tools-from` projects keep
+  the layout they actually linked instead of silently switching to the
+  install's master.
+- **`vendor msvc6` produced an unusable flat tree**: the OmniBlade
+  decomp.me tarball is flat (Bin/Include/MFC/ATL at top level), but the
+  canonical master layout and every legacy reference expect the classic
+  `VC98/` wrapper.  `ToolchainSource.vc98_wrap` (msvc6 only) makes both
+  `vendor` and the Dockerfile wrap the tree in `VC98/`, so host trees and
+  containers stay byte-identical (smoke re-verified).  The mirror ships no
+  `Lib` tree — `doctor` warns, which is expected for compile-only `/c`
+  builds.
 - **Dependency floors raised to close advisories (deps-review F1)**:
   `typer>=0.10` (the 0.9 floor admitted a version the CLI cannot start on —
   `rich_markup_mode` requires 0.10), `pytest>=9.0.3` (CVE-2025-71176
@@ -1502,6 +1941,209 @@
   mnemonics from the same pass — 4 disassemblies per call down to 2
   (~1.14x on reloc-less candidates; byte-identical scores, verified
   against the precomputed hot path).
+- **GA fitness memo checked BEFORE the compile pool**: `_run_inner`
+  consulted the disk BuildCache first, then the process-local memo — every
+  elite/unchanged source still paid a sqlite read + unpickle per
+  generation.  The memo is now consulted while building the futures dict,
+  so fully-memoized generations skip `_compile_source` entirely
+  (regression test: a whole-population memo hit makes zero compile
+  submissions).  The memo key also switched from the truncated `[:8]` hex
+  (32 bits — ~10 expected collision pairs at 300k unique sources) to the
+  full SHA-256 digest; log lines still show the short form.
+- **Reloc-mask construction vectorized in `score_candidate`**: the
+  per-offset Python loop that slice-stamped `reloc_mask[start:end] = True`
+  became one index-array build (`offsets[:, None] + arange(4)` with
+  bounds masking); `reloc_score` now reuses the already-computed
+  `byte_diff` instead of re-running `diff_mask & ~reloc_mask`.  5000-case
+  fuzz + 300 end-to-end trials confirm byte-identical scores.
+- **`_validate_dir32` catalog scan → set membership**: the smart-reloc
+  comparator validated each DIR32 slot with a linear `any(...)` scan over
+  every catalog VA — O(relocs × catalog) per function.  The caller now
+  builds a `set` of catalog VAs once per compare and the validation is an
+  algebraic `in` check; typed-reloc and dict branches share the one set.
+- **OMF format detection no longer double-reads the object**:
+  `parse_obj_symbol_and_relocs` opened the file to detect the format, then
+  read it again for the OMF path.  A new data-based
+  `_detect_obj_format_data` detects from the already-loaded bytes (the
+  file-based wrapper delegates to it), removing one open+read per compiled
+  candidate on the compile hot path.
+- **`precompute_target` disassembles the target once, not twice**: the GA
+  init path normalized with a `detail=True` pass and then re-disassembled
+  the same bytes via `disasm_lite` for the mnemonic list.  It now
+  delegates to `_normalize_and_mnems_x86_32` (the merged pass), halving
+  the per-stub target disassembly in batch GA runs (byte-identical
+  normalization + mnemonic list, verified across 300 trials).
+- **`mutate_code` weight-list construction cached**: the GA passes the
+  same `mutation_weights` dict for every call, but the 114-entry
+  per-mutation weight list (a dict lookup per mutation function) was
+  rebuilt on every call.  A `lru_cache` keyed on the sorted mapping turns
+  it into a cache hit (~58x on the construction itself; semantics
+  identical, unknown names still default to weight 1.0 and an all-zero
+  mapping still falls back to uniform selection).
+- **`compile_to_obj` skips the workdir source copy on cache hits**: the
+  copy exists only for the compiler subprocess (Wine path mapping), but it
+  was made before the cache lookup and the freshly-copied file was then
+  read back to compute the cache key — one write + one read per warm
+  compile.  The key is now hashed from the original source (copy2 is
+  byte-identical) and the copy happens only on the miss path; regression
+  test asserts a cache-hit workdir contains no source file.
+- **Reloc-less `diff_functions` disassembles each buffer once, not twice**:
+  the old path disassembled plain for the row diff, then
+  `_normalize_reloc_x86_32` re-disassembled with `detail=True` for
+  normalization.  The reloc-less branch now uses one detail pass per
+  buffer for both (detail mode produces identical rows — verified —
+  and the normalization is the same `_zero_reloc_fields` logic inline).
+  Diff match markers byte-identical to the old path across 250 fuzz
+  trials.
+- **Smoke gate now covers the host-only toolchains**: `rebrew toolchain
+  smoke` previously ran only the docker-image toolchains (7), silently
+  skipping the vendored host trees without images — msvc420/msvc5 (wine)
+  and watcom16 (native wcc) had NO byte-reproducibility gate, so a wine
+  update or vendored-tree drift went unnoticed.  Host-only specs are now
+  compiled in the same fixed-workdir/fixed-mtime contract via the uniform
+  host runner and verified against golden hashes (msvc420/msvc5 mask the
+  COFF TimeDateStamp like msvc6; watcom16 embeds no timestamp).  Gate is
+  now 10/10 byte-reproducible.
+- **`run_toolchain` host fallback wine-prefixes wine-runtime specs**: the
+  host backend exec'd the vendored binary directly, so a wine-runtime spec
+  without an image (exactly msvc420/msvc5) could never run — Linux
+  EACCES on a Windows PE.  `wine` is now prepended for `runtime="wine"`
+  specs; native specs unchanged (regression test asserts the
+  `["wine", CL.EXE, ...]` command shape).
+- **msvc400/msvc420/msvc5 pinned sources + msvc400 registry entry**: the
+  three old-MSV C trees were vendored (and now smoke-gated) but had no
+  `ToolchainSource`, so `rebrew toolchain vendor` said "no pinned source"
+  and a fresh clone could not reproduce them.  Sources pinned with
+  sha256-verified codeload tarballs (archaic-msvc/msvc420, msvc500 —
+  verified byte-identical to the committed trees; itsmattkc/MSVC400),
+  and the vendored `toolchain vendor` tar extraction auto-detects
+  compression now (gzip codeload tarballs vs the watcom xz snapshot —
+  `tar xJf` hardcoded xz).  `msvc400` also joins the TOOLCHAINS registry
+  (config/init/detector already knew it — the toolchain CLI was the only
+  surface missing it), the `tools/MSVC400` compat symlink alias is wired,
+  and doctor's download hints for 4.0/4.2/5.0 now point at the pinned
+  sources.
+- **`msvc400` vendored + smoke-gated (11/11)**: the 4.0 tree is now
+  committed alongside 4.2/5.0 (reproducible via the pinned source) and
+  joins the smoke gate — its masked COFF object is byte-identical to
+  msvc420's (same compiler lineage, cross-validating both goldens).
+- **`toolchain vendor` guard case-insensitive**: the post-extraction probe
+  built `host/Bin/cl` case-sensitively and rejected MSVC 4.0's all-caps
+  `BIN/CL.EXE` layout (the 4.2/5.0 trees are lowercase, so it never
+  tripped before).  The probe now reuses a new `_vendored_binary` helper
+  (case-insensitive on subdir AND filename, extracted from
+  `_resolve_binary`'s host logic) against the actual extracted dir — the
+  spec's `host_path` is captured at import time and can predate the
+  extraction.
+- **`--sweep-toolchain` covers the full 4.0→7.0 line**: the sweep's MSVC
+  version list gained the now-vendored 4.0 (uppercase BIN/INCLUDE layout
+  — the sweep path is case-sensitive, so it had to be spelled exactly).
+  The detector can suggest any of these profiles, so the sweep can now
+  answer "which MSVC built this function" for every vendored version.
+- **wine stderr filter strips libEGL/DRI3 display noise**: headless Xvfb
+  compiles emit `libEGL warning: DRI3 error...` / `Ensure your X server
+  supports DRI3...` lines with no `[hex]:` prefix, so the noise patterns
+  missed them and a failed wine-runtime compile (e.g. MSVC 4.0/5.0 under
+  Xvfb) reported only display chatter, drowning the real compiler error.
+  `libEGL warning:`/`libGL warning:`/`MESA:` lines are now stripped
+  (verified: the sample noise collapses to just the C2143 error).
+- **Integration-validated the old-MSV C profiles through the full
+  pipeline**: `compile_to_obj` with real configs for msvc400/msvc420/msvc5
+  (vendored trees, wine runner, msvc-style flags) produces real .obj
+  files end-to-end — the smoke gate covers the raw compilers; this
+  confirms the config → resolve_cl_command → wine → CL.EXE glue too.
+- **Old-MSV C line containerized** (`rebrew/msvc:4.0-win32`,
+  `rebrew/msvc:4.2-win32`, `rebrew/msvc:5.0-win32`): the three were the
+  last wine-runtime toolchains without docker images (their mirror
+  tarballs were only pinned for the host tree in the previous session).
+  New Dockerfiles follow the shared rebrew/base pattern (sha256-verified
+  download inside the image, `cl` wrapper from wrapper-common.sh,
+  OCI labels) with the same pinned sources as `rebrew toolchain vendor`,
+  so images and host trees stay byte-identical; the smoke gate's COFF
+  goldens carry over unchanged (path-independent objects — the images
+  pass 11/11 via the docker path).  `spec.family` for these now derives
+  `msvc` from the image repo, which also fixes `toolchain build`'s
+  directory resolution (`toolchain/msvc/4.2-win32`, not the wrong
+  `toolchain/msvc420/...`).  Host fallback remains for image-less
+  environments.
+- **`rebrew/base` Dockerfile fixed — `toolchain build` broken for every
+  image since the OCI-label commit**: adding the LABEL block to
+  `toolchain/base/Dockerfile` accidentally deleted the leading
+  `RUN dpkg --add-architecture i386` line, leaving a lone
+  `&& apt-get update` (a Dockerfile parse error).  `toolchain build`
+  rebuilds base first for every image, so ALL image builds via the CLI
+  failed (direct `docker build` worked only because the old
+  `rebrew/base:1.0` image was already present).  The RUN line is
+  restored and a CI-safe static test now pins the structure (no lone
+  `&&` without a preceding `RUN` in any tracked Dockerfile), so the same
+  class of edit regression is caught in CI without docker.
+- **`init --guess-compiler` failure message is actionable**: an
+  unrecognizable binary (detector family unknown) now tells the user to
+  pass `--compiler <profile>` explicitly instead of a bare "cannot
+  guess".  (Workflow validation: `doctor` on a real msvc420 project is
+  all-clear — compiler reachable under headless wine, include/lib
+  resolve; `init --guess-compiler` on a real DOS binary bootstraps a
+  correct tc16 project with MZ/x86_16 config.)
+- **Dependency audit (deps-review)**: `pygments` removed from the main
+  dependencies — declared but never imported anywhere in src/tools/tests
+  (rich's `Syntax` highlighting is unused; pygments remains in the lock
+  as rich's transitive optional).  The `idna>=3.15` pin is documented as
+  a no-direct-import transitive security floor (Unicode-property DoS in
+  idna <3.15, forced through httpx's tree) — previously an unexplained
+  zero-import pin that looked like a removal candidate.
+- **Roundtrip suite covers the full MSVC line incl. 4.0**:
+  `msvc-4.0-win32` joins the compile → extract → compare → EXACT
+  roundtrip (its all-caps `BIN`/`INCLUDE` layout was missing from the
+  config candidate lists, and the `msvc-4.0-win32` compat alias — the
+  lowercase form every other version has — was absent, only `MSVC400`
+  existed).  All 6 roundtrip toolchains (6.3/6.6/7.0/4.2/5.0/4.0) now
+  prove byte-exact through the full pipeline.
+- **New guard: every image-backed toolchain's Dockerfile must be
+  git-tracked** — five images (msvc400/msvc420/msvc5 + tc16/tc20) are
+  built from UNTRACKED Dockerfiles/tarballs, so a fresh clone cannot
+  rebuild them at all (the smoke goldens and vendor sources all reference
+  these files; only the local working tree has them).  The guard runs
+  `git ls-files` against the image registry and asserts each Dockerfile
+  is committed.  It currently **xfails (documented)** because those five
+  files await the session commit; it goes green the moment
+  `toolchain/msvc/{4.0,4.2,5.0}-win32/Dockerfile`,
+  `toolchain/borland/{2.0,3.1}-win16/{Dockerfile,tc*-run.sh,*.tar.xz}`
+  land in git.
+- **`toolchain smoke --print-goldens`** — regeneration path for the
+  golden table: recomputes each toolchain's masked sha256 WITHOUT
+  comparing, so bumping a pinned source (new tarball/snapshot) is a
+  mechanical two-step (run, verify stable across a second run, paste into
+  `_SMOKE_GOLDEN`) instead of hand-deriving hashes.  Full-table
+  cross-check: all 11 stored goldens recompute to MATCH (zero drift).
+  Unit test pins the masked-hash output shape.
+- **`toolchain pull` failure suggests `toolchain build`**: rebrew images
+  are BUILT from pinned sources, not pushed to a registry — pulling an
+  absent image returned a raw "pull access denied" dead end.  The error
+  now says to run `rebrew toolchain build <name>` (regression test).
+  TOOLCHAIN.md's smoke section documents `--print-goldens` and the
+  11/11 image+host gating.
+- **Flag-sweep fallback pinned for the expanded MSVC line**: verified
+  msvc400/msvc420/msvc5/6.3/6.6/7 all share the msvc6 flag set in
+  `generate_flag_combinations` (correct — they're MSVC-style; the tier
+  routing also correctly stays on the MSVC tiers).  New regression test
+  pins the equivalence so a future profile-specific flag set cannot
+  silently diverge the sweep for these profiles.
+- **tc16/tc20 docker wrappers embed the TCC log in the error**: the old
+  message was "TCC produced no object (see /work/tcout.txt)" — a
+  container-internal path the user cannot read (compile_to_obj's temp
+  workdir is cleaned up before the error is seen).  The wrapper now
+  embeds the compiler log in the error itself (matching the host
+  `tc16.py` behavior), so a bad stub reports the actual TCC diagnostic
+  (e.g. "Declaration syntax error") through `rebrew test --json`.
+  Surfaced while validating the 16-bit DOSBox workflow end-to-end
+  (init → discover → skeleton → test → SIZE_MISMATCH on the fixture).
+- **ADR-007 records the completed containerization contract**: every
+  registry toolchain now satisfies three invariants — a pinned source
+  shared by image AND host tree (byte-identical by construction), a
+  docker image (gcc-pe the documented exception), and a smoke-gate slot
+  (image path or uniform host-runner path).  The git-tracked-Dockerfile
+  guard enforces the tc16/tc20 class of regression; ADR-006's stale
+  "6/6 images" line now points at ADR-007.
 
 ## [0.1.0] - 2026-08-08
 

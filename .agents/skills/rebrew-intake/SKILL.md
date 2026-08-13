@@ -35,13 +35,13 @@ Use this skill exactly once per new target. Re-run individual steps later if nee
 A `rebrew-project.toml` must exist with the new target configured. If starting from scratch:
 
 ```bash
-rebrew init --target <name> --binary <filename> --compiler msvc6
+rebrew init --target <name> --binary <filename> --guess-compiler   # auto-selects the profile from the binary
 rebrew init --install-wibo            # fresh Linux/macOS setup: download wibo runner now
 ```
 
 Then place the binary at the path specified in `rebrew-project.toml` (default: `original/<filename>`).
 
-`rebrew init` creates `rebrew-project.toml`, `AGENTS.md`, `original/`, `src/bench/`, and
+`rebrew init` creates `rebrew-project.toml`, `AGENTS.md`, `original/`, `src/<target>/`, and
 empty `src/rebrew-function.toml` + `src/rebrew-data.toml` metadata files. Prefer
 `--install-wibo` from a fresh environment so compiles run through wibo (a lightweight Win32
 PE loader) instead of full Wine — it also writes `runner = "tools/wibo"` into the config.
@@ -83,16 +83,40 @@ pipeline (MSVC6 vs MinGW GCC):
   (document the semantic decomp + blocker the byte delta).
 - If MSVC: continue with FLIRT from `msvcrt.lib` **and** `libcmt.lib`
   (statically-linked CRT code only matches libcmt signatures).
+- If a plain DOS MZ executable (`file` shows "MS-DOS executable, MZ"):
+  **check for packing first** — `rebrew toolchain detect` reports
+  `packed: lzexe 0.91` (or `packed: pklite` — PKWARE's compressor, also
+  very common in the era) when the file is packed (very common for 1990s
+  shareware; the visible code is only a decompressor stub, so
+  discovery/detection see almost nothing until unpacked).  For LZEXE run
+  `rebrew unpack-lzexe <binary>` first and analyze the unpacked file;
+  PKLITE has no built-in unpacker — find an unpacked copy.  Borland Turbo C/C++ targets
+  byte-match with the `tc16` profile (Turbo C++ 3.1) or `tc20` (Turbo C
+  2.0 — the 1988/89-era compiler diec reports as "Borland C/C++ 1991";
+  C89-strict, so skeletons use `/* */` markers); Open Watcom wcc16-built
+  DOS targets use `watcom16`.  `rebrew init --guess-compiler` picks the
+  profile automatically, and `rebrew discover-functions` runs the 16-bit
+  capstone sweep over the MZ code region (rizin cannot analyze MZ) — the
+  full unpack → init → discover → skeleton → test loop is verified
+  end-to-end (see `tests/fixtures/tc16_hello_lzexe.exe`, packed with the
+  original LZEXE.EXE).
 - If 16-bit NE (Windows 3.x): `file <binary>` shows "NE version N for MS
   Windows 3.x".  `rebrew intake` handles it end-to-end — native NE parsing,
   the loader's linear sweep for function discovery (rizin cannot analyze
   NE), auto `format = "ne"` + `arch = "x86_16"`, and family detection from
-  the Borland segment-marker convention (`delphi` vs MSVC-style).  There is
-  **no compile profile** for byte matching yet (ADR-001): `rebrew verify`
-  short-circuits, `rebrew doctor` reports Delphi 1.0 toolchain readiness,
-  and functions are documented as BLOCKER stubs for analysis only.
-  `rebrew.delphi16.compile_ne` can already compile 16-bit executables
-  headless (the future matching foundation).  See `docs/TOOLCHAIN.md`.
+  the Borland segment-marker convention (`delphi` vs MSVC-style).
+  **MSVC-style NE byte-matches with the `msvc1.52` profile** (DOSBox
+  CL.EXE → 16-bit OMF, parsed by `rebrew.matcher.omf16` — skifree16-class
+  targets).  Borland *Delphi* NE remains unmatchable (ADR-001): `rebrew
+  verify` short-circuits, `rebrew doctor` reports Delphi 1.0 toolchain
+  readiness, and functions are documented as BLOCKER stubs for analysis
+  only.  `rebrew.delphi16.compile_ne` can already compile 16-bit
+  executables headless (the future matching foundation).  Borland *Turbo
+  C/C++* DOS targets (plain MZ, e.g. 1990s shareware games) byte-match
+  with the `tc16` profile (Turbo C++ 3.1) or `tc20` (Turbo C 2.0 — the
+  earlier codegen generation; pick it when the binary is
+  1988/89-era-built or `tc16` output drifts).  See
+  `docs/TOOLCHAIN.md`.
 
 ### 1. Health Check — run `rebrew doctor` first
 
@@ -121,7 +145,7 @@ Common failures and fixes:
 - FLIRT signatures missing → generate from a `.lib` or drop `.sig` files into `flirt_sigs/`:
 
 ```bash
-rebrew gen-flirt-pat tools/MSVC600/VC98/Lib/msvcrt.lib --output flirt_sigs/msvcrt_vc6.pat
+rebrew gen-flirt-pat toolchain/msvc/6.0-win32/VC98/Lib/msvcrt.lib --output flirt_sigs/msvcrt_vc6.pat
 ```
 
 If the target is missing, add it (the binary must already exist, or pass `--force`):
@@ -156,16 +180,16 @@ since the original source is often available.
 ### 3. Build Function Catalog + Coverage DB
 
 ```bash
-rebrew catalog --data-json              # write db/data_bench.json
+rebrew catalog --data-json              # write db/data_<target>.json
 rebrew catalog --export-ghidra-labels   # write ghidra_data_labels.json (switch tables etc.)
 rebrew catalog --fix-sizes              # backfill SIZE in rebrew-function.toml from catalog
 rebrew build-db                         # build SQLite coverage database (db/coverage.db)
 ```
 
-- `catalog --data-json` scans reversed sources + the function list into `db/data_bench.json`;
-  it also writes `src/bench/function_structure.json` from `functions.txt` when no Ghidra
+- `catalog --data-json` scans reversed sources + the function list into `db/data_<target>.json`;
+  it also writes `src/<target>/function_structure.json` from `functions.txt` when no Ghidra
   export exists (skeleton generation needs one of the two).
-- `--export-ghidra-labels` writes `src/bench/ghidra_data_labels.json` (data cells, switch
+- `--export-ghidra-labels` writes `src/<target>/ghidra_data_labels.json` (data cells, switch
   tables) for labeling non-function addresses in Ghidra.
 - `--fix-sizes` edits metadata in place — it prompts interactively, so pass `--force` when
   scripting or in `--json` mode (`--json` without `--force` errors out).
@@ -232,7 +256,7 @@ rebrew skeleton 0x<VA> --xrefs          # with caller context from Ghidra
 decompiler (`--decomp-backend`: `auto`, `r2ghidra`, `r2dec`, `ghidra`; default `auto`).
 
 For library functions identified by FLIRT, check if reference source is available
-(e.g. `tools/MSVC600/VC98/CRT/SRC/` for MSVCRT, `references/zlib-1.1.3/` for zlib).
+(e.g. `toolchain/msvc/6.0-win32/VC98/CRT/SRC/` for MSVCRT, `references/zlib-1.1.3/` for zlib).
 
 ### 9. Sync to Ghidra (Optional)
 

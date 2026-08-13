@@ -66,6 +66,22 @@ class TestFilterWineStderr:
 
         assert filter_wine_stderr("") == ""
 
+    def test_strips_libegl_dri3_noise(self) -> None:
+        """Headless Xvfb compiles emit libEGL/DRI3 display noise with no
+        [hex]: prefix — it must be stripped so a real compile error is not
+        drowned (seen on wine-runtime MSVC 4.0/5.0 under Xvfb)."""
+        from rebrew.compile import filter_wine_stderr
+
+        noisy = (
+            "libEGL warning: DRI3 error: Could not get DRI3 device\n"
+            "libEGL warning: Ensure your X server supports DRI3 to get accelerated rendering\n"
+            "f.c(3) : error C2143: syntax error\n"
+        )
+        result = filter_wine_stderr(noisy)
+        assert "libEGL" not in result
+        assert "DRI3" not in result
+        assert "error C2143" in result
+
 
 class TestQualifiedKey:
     def test_with_module(self) -> None:

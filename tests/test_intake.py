@@ -330,3 +330,38 @@ class TestWatcomLink:
         link_name, src_name = _TOOLCHAIN_LINKS["watcom"]
         assert link_name == "watcom/2.0-win32"
         assert src_name == "watcom/2.0-win32"
+
+
+class TestSuggestProfileBorland:
+    """intake's profile suggestion now shares the detector's
+    family→profile mapping — a Borland DOS binary must suggest tc16 (was
+    wrongly defaulting to msvc6 before the unification)."""
+
+    def test_borlandc_suggests_tc16_from_real_exe(self) -> None:
+        import pytest as _pt
+
+        fixture = Path(__file__).parent / "fixtures" / "tc16_hello.exe"
+        if not fixture.exists():
+            _pt.skip("tc16_hello.exe fixture not present")
+        profile, family, _, notes = _suggest_profile(fixture)
+        assert family == "borlandc"
+        assert profile == "tc16"
+        assert any("tc16" in n for n in notes)
+
+    def test_msvc16_ne_suggests_msvc152(self, monkeypatch) -> None:
+        from rebrew.toolchain_detect import ToolchainInfo
+
+        def _fake_detect(path):  # noqa: ARG001
+            return ToolchainInfo(
+                family="msvc",
+                version_hint="16-bit MSVC-style NE",
+                confidence="high",
+                arch="x86_16",
+                detected_by="ne",
+            )
+
+        monkeypatch.setattr("rebrew.toolchain_detect.detect_toolchain", _fake_detect)
+        profile, family, _, notes = _suggest_profile(Path("/tmp/fake.exe"))
+        assert family == "msvc"
+        assert profile == "msvc1.52"
+        assert any("msvc1.52" in n for n in notes)

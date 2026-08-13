@@ -13,6 +13,7 @@ import random
 import re
 import threading
 from collections.abc import Callable
+from functools import lru_cache
 from typing import Any, Literal, overload
 
 import tree_sitter as ts
@@ -1806,10 +1807,7 @@ def mut_insert_noop_block(s: str, rng: random.Random) -> str | None:
 
     tree = parse_c_ast(b_source)
     # Find all statements inside compound_statements
-    q = _LazyQuery(
-        _C_LANGUAGE,
-        """(compound_statement [(expression_statement) (declaration) (return_statement)] @stmt)""",
-    )
+    q = _QUERY_INSERT_NOOP_BLOCK
     cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
     if not matches:
@@ -1827,10 +1825,7 @@ def mut_introduce_local_alias(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
-    q = _LazyQuery(
-        _C_LANGUAGE,
-        """(expression_statement (assignment_expression right: (identifier) @var)) @stmt""",
-    )
+    q = _QUERY_INTRODUCE_LOCAL_ALIAS
     cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
     if not matches:
@@ -1858,12 +1853,7 @@ def mut_reorder_declarations(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
 
     tree = parse_c_ast(b_source)
-    q = _LazyQuery(
-        _C_LANGUAGE,
-        """
-        (compound_statement (declaration) @d1 (declaration) @d2)
-    """,
-    )
+    q = _QUERY_REORDER_DECLARATIONS
     cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
     if not matches:
@@ -2158,7 +2148,7 @@ def mut_hoist_return(s: str, rng: random.Random) -> str | None:
         return None
 
     tree = parse_c_ast(b_source)
-    q = _LazyQuery(_C_LANGUAGE, "(return_statement (_) @val) @stmt")
+    q = _QUERY_HOIST_RETURN
     cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
@@ -2502,7 +2492,7 @@ def mut_negate_condition(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
 
-    q = _LazyQuery(_C_LANGUAGE, "(if_statement condition: (parenthesized_expression) @cond) @stmt")
+    q = _QUERY_NEGATE_CONDITION
     cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
@@ -2700,7 +2690,7 @@ def mut_inject_dummy_var(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
 
     # Find function body compound statements
-    q = _LazyQuery(_C_LANGUAGE, "(function_definition body: (compound_statement) @body)")
+    q = _QUERY_INJECT_DUMMY_VAR
     cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
@@ -2731,7 +2721,7 @@ def mut_inject_dummy_array(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
 
-    q = _LazyQuery(_C_LANGUAGE, "(function_definition body: (compound_statement) @body)")
+    q = _QUERY_INJECT_DUMMY_ARRAY
     cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
@@ -2764,16 +2754,7 @@ def mut_scope_variable(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
 
     # Find declarations inside the function body (top-level compound_statement)
-    q = _LazyQuery(
-        _C_LANGUAGE,
-        """
-        (function_definition body: (compound_statement
-            (declaration type: (_) @type declarator: (_) @decl) @d1
-            .
-            (expression_statement) @next_stmt
-        ))
-    """,
-    )
+    q = _QUERY_SCOPE_VARIABLE
     cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
@@ -3041,18 +3022,7 @@ def mut_add_volatile_intermediate(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
 
-    q = _LazyQuery(
-        _C_LANGUAGE,
-        """
-        (expression_statement
-            (assignment_expression
-                left: (identifier) @var
-                operator: "="
-                right: (binary_expression) @rhs
-            )
-        ) @stmt
-    """,
-    )
+    q = _QUERY_ADD_VOLATILE_INTERMEDIATE
     cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
@@ -4509,21 +4479,7 @@ def mut_ternary_arg_to_if_else_call(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
 
     # Find call expressions that have a conditional_expression in their argument list
-    q = _LazyQuery(
-        _C_LANGUAGE,
-        """
-        (expression_statement
-            (call_expression
-                function: (_) @fn
-                arguments: (argument_list
-                    (conditional_expression
-                        condition: (_) @cond
-                        consequence: (_) @val_true
-                        alternative: (_) @val_false) @ternary)
-            ) @call
-        ) @stmt
-    """,
-    )
+    q = _QUERY_TERNARY_ARG_TO_IF_ELSE_CALL
     cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
@@ -4691,24 +4647,7 @@ def mut_sink_common_tail(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
 
     # Find if/else followed by a sibling statement
-    q = _LazyQuery(
-        _C_LANGUAGE,
-        """
-        (compound_statement
-            (if_statement
-                condition: (parenthesized_expression) @cond
-                consequence: (compound_statement) @if_body
-                alternative: (else_clause
-                    (compound_statement) @else_body)
-            ) @if_stmt
-            .
-            [
-                (expression_statement)
-                (return_statement)
-            ] @next_stmt
-        )
-    """,
-    )
+    q = _QUERY_SINK_COMMON_TAIL
     cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
@@ -5128,6 +5067,52 @@ _QUERY_COMPLEX_ARG = _LazyQuery(
 """,
 )
 
+_QUERY_INSERT_NOOP_BLOCK = _LazyQuery(
+    _C_LANGUAGE,
+    "(compound_statement [(expression_statement) (declaration) (return_statement)] @stmt)",
+)
+_QUERY_INTRODUCE_LOCAL_ALIAS = _LazyQuery(
+    _C_LANGUAGE, "(expression_statement (assignment_expression right: (identifier) @var)) @stmt"
+)
+_QUERY_REORDER_DECLARATIONS = _LazyQuery(
+    _C_LANGUAGE, "\n        (compound_statement (declaration) @d1 (declaration) @d2)\n    "
+)
+_QUERY_HOIST_RETURN = _LazyQuery(_C_LANGUAGE, "(return_statement (_) @val) @stmt")
+_QUERY_NEGATE_CONDITION = _LazyQuery(
+    _C_LANGUAGE, "(if_statement condition: (parenthesized_expression) @cond) @stmt"
+)
+_QUERY_INJECT_DUMMY_VAR = _LazyQuery(
+    _C_LANGUAGE, "(function_definition body: (compound_statement) @body)"
+)
+_QUERY_INJECT_DUMMY_ARRAY = _LazyQuery(
+    _C_LANGUAGE, "(function_definition body: (compound_statement) @body)"
+)
+_QUERY_SCOPE_VARIABLE = _LazyQuery(
+    _C_LANGUAGE,
+    "\n        (function_definition body: (compound_statement\n            (declaration type: (_) @type declarator: (_) @decl) @d1\n            .\n            (expression_statement) @next_stmt\n        ))\n    ",
+)
+_QUERY_ADD_VOLATILE_INTERMEDIATE = _LazyQuery(
+    _C_LANGUAGE,
+    '\n        (expression_statement\n            (assignment_expression\n                left: (identifier) @var\n                operator: "="\n                right: (binary_expression) @rhs\n            )\n        ) @stmt\n    ',
+)
+_QUERY_TERNARY_ARG_TO_IF_ELSE_CALL = _LazyQuery(
+    _C_LANGUAGE,
+    "\n        (expression_statement\n            (call_expression\n                function: (_) @fn\n                arguments: (argument_list\n                    (conditional_expression\n                        condition: (_) @cond\n                        consequence: (_) @val_true\n                        alternative: (_) @val_false) @ternary)\n            ) @call\n        ) @stmt\n    ",
+)
+_QUERY_SINK_COMMON_TAIL = _LazyQuery(
+    _C_LANGUAGE,
+    "\n        (compound_statement\n            (if_statement\n                condition: (parenthesized_expression) @cond\n                consequence: (compound_statement) @if_body\n                alternative: (else_clause\n                    (compound_statement) @else_body)\n            ) @if_stmt\n            .\n            [\n                (expression_statement)\n                (return_statement)\n            ] @next_stmt\n        )\n    ",
+)
+_QUERY_DUMMY_STACK_VARS = _LazyQuery(
+    _C_LANGUAGE, "(function_definition body: (compound_statement) @body)"
+)
+_QUERY_INJECT_DUMMY_REGISTERS = _LazyQuery(
+    _C_LANGUAGE, "(function_definition body: (compound_statement) @body)"
+)
+_QUERY_HOIST_REPEATED_DEREF = _LazyQuery(
+    _C_LANGUAGE, "(function_definition body: (compound_statement) @body)"
+)
+
 
 # Operator inversion map for De Morgan-aware if/else inversion.
 # NOTE: && ↔ || are deliberately absent — inverting them requires negating
@@ -5226,7 +5211,7 @@ def mut_dummy_stack_vars(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
 
-    q = _LazyQuery(_C_LANGUAGE, "(function_definition body: (compound_statement) @body)")
+    q = _QUERY_DUMMY_STACK_VARS
     cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
@@ -5280,7 +5265,7 @@ def mut_inject_dummy_registers(s: str, rng: random.Random) -> str | None:
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
 
-    q = _LazyQuery(_C_LANGUAGE, "(function_definition body: (compound_statement) @body)")
+    q = _QUERY_INJECT_DUMMY_REGISTERS
     cursor = _cursor(q)
     matches = cursor.matches(tree.root_node)
 
@@ -5420,7 +5405,7 @@ def mut_hoist_repeated_deref(s: str, rng: random.Random) -> str | None:
     """
     b_source = s.encode("utf-8")
     tree = parse_c_ast(b_source)
-    q = _LazyQuery(_C_LANGUAGE, "(function_definition body: (compound_statement) @body)")
+    q = _QUERY_HOIST_REPEATED_DEREF
     cursor = _cursor(q)
     matches = list(cursor.matches(tree.root_node))
     if not matches:
@@ -5596,6 +5581,25 @@ __all__ = [
 ]
 
 
+@lru_cache(maxsize=64)
+def _mutation_weight_list(
+    weights_items: tuple[tuple[str, float], ...],
+) -> tuple[float, ...] | None:
+    """Flatten a mutation-weight mapping into the per-mutation weight list.
+
+    Cached: the GA passes the same ``mutation_weights`` dict for every
+    ``mutate_code`` call (perf-review: rebuilding the 114-entry list with a
+    dict lookup per mutation function on every call was pure overhead in
+    the per-generation mutation loop).  Returns ``None`` when no weight is
+    positive (caller then falls back to uniform ``rng.choice``).
+    """
+    mapping = dict(weights_items)
+    weights = [mapping.get(m.__name__, 1.0) for m in ALL_MUTATIONS]
+    if not any(w > 0 for w in weights):
+        return None
+    return tuple(weights)
+
+
 @overload
 def mutate_code(
     source: str,
@@ -5631,11 +5635,9 @@ def mutate_code(
     """
     preamble, body = _split_preamble_body(source)
 
-    weights: list[float] | None = None
+    weights: tuple[float, ...] | None = None
     if mutation_weights:
-        weights = [mutation_weights.get(m.__name__, 1.0) for m in ALL_MUTATIONS]
-        if not any(w > 0 for w in weights):
-            weights = None
+        weights = _mutation_weight_list(tuple(sorted(mutation_weights.items())))
 
     for _ in range(_MUTATION_ATTEMPTS):
         if weights:

@@ -110,6 +110,34 @@ class TestRunToolchain:
         assert not r.ok
         assert calls[0][0] == str(dcc)
 
+    def test_host_fallback_wine_runtime_prefixes_wine(self, tmp_path: Path, monkeypatch) -> None:
+        """A wine-runtime spec without an image (msvc420/msvc5) must invoke
+        the vendored PE through the wine loader — the old host fallback
+        exec'd CL.EXE directly, which can never run on Linux (EACCES)."""
+        cl = tmp_path / "vc" / "bin" / "CL.EXE"
+        cl.parent.mkdir(parents=True)
+        cl.write_bytes(b"MZ")
+        spec = ToolchainSpec(
+            name="t",
+            image=None,
+            binary="cl",
+            runtime="wine",
+            host_path=tmp_path / "vc",
+            host_bin="Bin",
+        )
+        calls: list[list[str]] = []
+
+        def _run(cmd, **kwargs):
+            calls.append(cmd)
+            return _FakeProc(0, "", "")
+
+        monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
+        monkeypatch.setattr("rebrew.toolchain.os.environ", {"HOME": str(tmp_path)})
+        r = run_toolchain(spec, ["/c", "t.c"], workdir=tmp_path)
+        assert r.backend == "host"
+        assert r.ok
+        assert calls[0] == ["wine", str(cl), "/c", "t.c"]
+
     def test_no_backend_raises(self, tmp_path: Path, monkeypatch) -> None:
         _monkey_docker(monkeypatch, available=False, image=False)
         monkeypatch.setattr("rebrew.toolchain.shutil.which", lambda *a, **k: None)
@@ -429,3 +457,211 @@ class TestDosboxHostFallbackGuard:
         )
         with pytest.raises(ToolchainError, match="no host binary"):
             run_toolchain(spec, ["-zq", "f.c"], workdir=tmp_path)
+
+
+class TestVc98Wrap:
+    """MSVC 6.0's master layout wraps the tree in VC98/ (classic install
+    layout — every legacy tools/MSVC600/VC98/... reference expects it); the
+    decomp.me tarball is flat, so vendor and the docker image re-wrap."""
+
+    def test_msvc6_source_wraps(self) -> None:
+        from rebrew.toolchain import _SOURCES
+
+        assert _SOURCES["msvc6"].vc98_wrap is True
+
+    def test_other_sources_do_not_wrap(self) -> None:
+        from rebrew.toolchain import _SOURCES
+
+        for name, src in _SOURCES.items():
+            if name != "msvc6":
+                assert src.vc98_wrap is False, name
+
+    def test_old_msvc_sources_pinned(self) -> None:
+        """msvc400/msvc420/msvc5 must have pinned, sha256-verified sources:
+        their host trees are smoke-gated for byte-reproducibility, so a fresh
+        clone must be able to reproduce them via `rebrew toolchain vendor`
+        (they were vendored but unpinnable before)."""
+        from rebrew.toolchain import _SOURCES
+
+        for name, expected_dir in (
+            ("msvc400", "msvc/4.0-win32"),
+            ("msvc420", "msvc/4.2-win32"),
+            ("msvc5", "msvc/5.0-win32"),
+        ):
+            src = _SOURCES[name]
+            assert src.host_dir == expected_dir, name
+            assert src.url.startswith("https://") and src.sha256, name
+            assert len(src.sha256) == 64, name
+            assert src.layout == "tar-strip1", name
+
+
+class TestCompatLinks:
+    """ensure_compat_links recreates the gitignored tools/<alias> symlinks
+    that legacy projects resolve tool paths through."""
+
+    def _make_tree(self, tmp_path: Path, family: str = "msvc", version: str = "6.0-win32") -> Path:
+        tree = tmp_path / "toolchain" / family / version
+        (tree / "VC98" / "Bin").mkdir(parents=True)
+        (tree / "VC98" / "Bin" / "CL.EXE").write_bytes(b"MZ")
+        return tree
+
+    def test_creates_legacy_alias(self, tmp_path: Path) -> None:
+        from rebrew.toolchain_cli import ensure_compat_links
+
+        self._make_tree(tmp_path)
+        created = ensure_compat_links(tmp_path)
+        names = {c.name for c in created}
+        assert "MSVC600" in names
+        link = tmp_path / "tools" / "MSVC600"
+        assert link.is_symlink()
+        assert (link / "VC98" / "Bin" / "CL.EXE").exists()
+
+    def test_skips_missing_trees(self, tmp_path: Path) -> None:
+        from rebrew.toolchain_cli import ensure_compat_links
+
+        # No toolchain tree at all — nothing dangling should be created.
+        created = ensure_compat_links(tmp_path)
+        assert created == []
+        assert not (tmp_path / "tools").exists() or not list((tmp_path / "tools").iterdir())
+
+    def test_does_not_clobber_existing_link(self, tmp_path: Path) -> None:
+        from rebrew.toolchain_cli import ensure_compat_links
+
+        self._make_tree(tmp_path)
+        tools = tmp_path / "tools"
+        tools.mkdir()
+        other = tmp_path / "somewhere-else"
+        other.mkdir()
+        (tools / "MSVC600").symlink_to(other, target_is_directory=True)
+        created = ensure_compat_links(tmp_path)
+        assert (tools / "MSVC600").readlink() == other
+        assert not any(c.name == "MSVC600" for c in created)
+
+
+class TestDockerfileSanity:
+    """The toolchain Dockerfiles must stay parseable — a prior commit that
+    added OCI labels to toolchain/base/Dockerfile accidentally deleted the
+    leading `RUN dpkg --add-architecture i386` line, leaving a lone
+    `&& apt-get update` that broke `rebrew toolchain build` for EVERY
+    image (build_cmd rebuilds base first).  Static, CI-safe checks (no
+    docker required) pin the structure."""
+
+    _REPO = Path(__file__).resolve().parents[1]
+
+    def _read(self, rel: str) -> str:
+        return (self._REPO / rel).read_text(encoding="utf-8")
+
+    def test_base_apt_block_has_run(self) -> None:
+        text = self._read("toolchain/base/Dockerfile")
+        # The apt block must be a single RUN continuation — a lone
+        # `&& apt-get` (missing RUN) is a parse error.
+        idx = text.index("&& apt-get update")
+        prefix = text[:idx]
+        assert "RUN dpkg --add-architecture i386" in prefix, (
+            "base Dockerfile apt block lost its RUN prefix"
+        )
+
+    def test_no_lone_continuation_after_label_blocks(self) -> None:
+        """Every tracked Dockerfile: any `&& ` line must be preceded (within
+        the same block) by a `RUN ` line — the OCI-label insertion pattern
+        dropped RUN prefixes in some files."""
+        for f in sorted(Path(self._REPO / "toolchain").rglob("Dockerfile")):
+            if "linux-x64" in str(f):
+                continue
+            lines = f.read_text(encoding="utf-8").splitlines()
+            in_run = False
+            for ln in lines:
+                if ln.startswith("RUN "):
+                    in_run = True
+                    continue
+                if ln.strip().startswith("&& ") and not in_run:
+                    raise AssertionError(f"{f.relative_to(self._REPO)}: '&&' without RUN: {ln!r}")
+                if ln.strip() and not ln.startswith((" ", "\t")) and not ln.startswith("#"):
+                    in_run = False  # new instruction (RUN/LABEL/ENV/COPY/...)
+
+    def test_every_image_spec_dockerfile_is_tracked(self) -> None:
+        """Every image-backed toolchain must have its Dockerfile in git — a
+        fresh clone must be able to rebuild the image (tc16/tc20 images
+        were built from UNTRACKED Dockerfiles, silently unreproducible)."""
+        import subprocess
+
+        from rebrew.toolchain import TOOLCHAINS
+
+        tracked = set(
+            subprocess.run(
+                ["git", "ls-files", "toolchain/"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.splitlines()
+        )
+        missing = []
+        for name, spec in TOOLCHAINS.items():
+            if spec.image is None:
+                continue
+            tag, verarch = spec.image.rsplit(":", 1)
+            df = f"toolchain/{spec.family}/{verarch}/Dockerfile"
+            if df not in tracked:
+                missing.append(f"{name} ({df})")
+        assert not missing, (
+            "image-backed toolchains with untracked Dockerfiles (a fresh "
+            "clone cannot rebuild them): " + ", ".join(missing)
+        )
+
+
+class TestSmokePrintGoldens:
+    """`toolchain smoke --print-goldens` recomputes the masked hashes
+    without comparing (the regeneration path for _SMOKE_GOLDEN after a
+    toolchain source change)."""
+
+    def test_print_goldens_emits_masked_hash(self, tmp_path: Path, monkeypatch, capsys) -> None:
+        import hashlib
+        import json
+        import subprocess
+        from types import SimpleNamespace
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        obj = b"OBJ" + b"\x01\x02\x03\x04" + b"TAIL"
+
+        def _fake_run(cmd, **kwargs):  # noqa: ARG001
+            # docker run ... image /c t.c → writes the object into /work (the
+            # mounted host workdir /tmp/rebrew-smoke).
+            from pathlib import Path
+
+            (Path("/tmp/rebrew-smoke") / "t.obj").write_bytes(obj)
+            return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+
+        monkeypatch.setattr(subprocess, "run", _fake_run)
+        result = CliRunner().invoke(
+            umbrella, ["toolchain", "smoke", "msvc6", "--print-goldens", "--json"]
+        )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert set(payload) == {"goldens"}
+        # msvc6 mask is (4,8): the TimeDateStamp is zeroed before hashing.
+        masked = bytearray(obj)
+        masked[4:8] = b"\x00" * 4
+        assert payload["goldens"]["msvc6"] == hashlib.sha256(bytes(masked)).hexdigest()
+
+
+class TestPullToolchainHint:
+    """pull on an absent locally-built image must point at `toolchain
+    build` — rebrew images are built from pinned sources, not on a
+    registry, so a raw docker-pull failure is a dead end."""
+
+    def test_pull_failure_suggests_build(self, monkeypatch) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.toolchain import ToolchainError, pull_toolchain
+
+        def _fake_run(cmd, **kwargs):  # noqa: ARG001
+            return SimpleNamespace(returncode=1, stdout=b"", stderr=b"pull access denied")
+
+        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
+        monkeypatch.setattr("rebrew.toolchain.subprocess.run", _fake_run)
+        with pytest.raises(ToolchainError, match="toolchain build msvc420"):
+            pull_toolchain("msvc420")

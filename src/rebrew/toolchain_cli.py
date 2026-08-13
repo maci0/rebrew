@@ -9,6 +9,7 @@ invoked (docker image vs vendored path vs PATH binary).
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -162,6 +163,7 @@ def detect_cmd(
         "crt": info.crt or None,
         "crt_linkage": info.crt_linkage or None,
         "base_cflags_hint": info.base_cflags or None,
+        "packed": info.packed or None,
         "compatible_profiles": sorted(compat) if compat else None,
     }
 
@@ -198,6 +200,8 @@ def detect_cmd(
     )
     if info.arch:
         console.print(f"  arch:      {info.arch}")
+    if info.packed:
+        console.print(f"  packed:    [yellow]{info.packed}[/yellow] (unpack before analysis)")
     if info.flags:
         console.print(f"  flags:     {' '.join(info.flags)}")
     if info.crt:
@@ -243,6 +247,60 @@ def pull_cmd(
             console.print(f"[green]Pulled[/green] {tag}")
 
 
+#: Legacy ``tools/<name>`` aliases → ``toolchain/<family>/<version>-<arch>``
+#: dir, so projects whose rebrew-project.toml predates the restructure keep
+#: resolving ``tools/<name>/...`` through the rebrew install
+#: (find_install_tool fallback in config/compile).  Classic MSVC names
+#: (MSVC600/VC98, MSVC7) and the dash-versioned aliases both map here; the
+#: links are gitignored and recreated by ``ensure_compat_links`` on every
+#: vendor, so fresh clones get them automatically.
+_COMPAT_LINK_ALIASES: dict[str, str] = {
+    "MSVC600": "msvc/6.0-win32",
+    "msvc-6.0-win32": "msvc/6.0-win32",
+    "MSVC500": "msvc/5.0-win32",
+    "msvc-5.0-win32": "msvc/5.0-win32",
+    "MSVC420": "msvc/4.2-win32",
+    "msvc-4.2-win32": "msvc/4.2-win32",
+    "MSVC400": "msvc/4.0-win32",
+    "msvc-4.0-win32": "msvc/4.0-win32",
+    "MSVC7": "msvc/7.0-win32",
+    "msvc7.0": "msvc/7.0-win32",
+    "msvc-7.0-win32": "msvc/7.0-win32",
+    "msvc6.3": "msvc/6.0-sp3-win32",
+    "msvc-6.0-sp3-win32": "msvc/6.0-sp3-win32",
+    "msvc6.6": "msvc/6.0-sp6-win32",
+    "msvc-6.0-sp6-win32": "msvc/6.0-sp6-win32",
+    "MSVC152": "msvc/1.52-win16",
+    "msvc-1.52-win16": "msvc/1.52-win16",
+    "DELPHI10": "delphi/1.0-win16",
+    "delphi-1.0-win16": "delphi/1.0-win16",
+    "WATCOM": "watcom/2.0-win32",
+    "watcom-win32": "watcom/2.0-win32",
+    "TC": "borland/3.1-win16",
+}
+
+
+def ensure_compat_links(root: Path) -> list[Path]:
+    """Create missing ``tools/<alias> → ../toolchain/<dir>`` compat symlinks.
+
+    Only aliases whose vendored tree exists are linked (a fresh clone with no
+    trees gets nothing dangling).  Returns the links created.
+    """
+    created: list[Path] = []
+    tools_dir = root / "tools"
+    tools_dir.mkdir(parents=True, exist_ok=True)
+    for alias, rel in sorted(_COMPAT_LINK_ALIASES.items()):
+        target = root / "toolchain" / rel
+        if not target.is_dir():
+            continue
+        dest = tools_dir / alias
+        if dest.is_symlink() or dest.exists():
+            continue
+        dest.symlink_to(f"../toolchain/{rel}", target_is_directory=True)
+        created.append(dest)
+    return created
+
+
 @app.command("vendor")
 def vendor_cmd(
     name: str = typer.Argument(..., help="Toolchain name (e.g. msvc1.52, borlandc55)"),
@@ -271,7 +329,20 @@ def vendor_cmd(
         raise typer.Exit(code=2)
 
     host = _REPO_TOOLS / src.host_dir
-    if host.exists() and any(host.iterdir()):
+    # Tracked metadata lives beside the vendored tree (Dockerfile, wrapper
+    # scripts, the in-repo tarball the tree is extracted from, pak_extract.py)
+    # — those are not vendored content, so a dir holding only them is empty
+    # for clobber purposes.
+    _META = {
+        "Dockerfile",
+        "pak_extract.py",
+        "wrapper-common.sh",
+        *("*.sh", "*.tar.xz"),
+    }
+    content = (
+        [p for p in host.iterdir() if not any(p.match(m) for m in _META)] if host.exists() else []
+    )
+    if content:
         msg = f"{host} already has files — refusing to clobber"
         if json_output:
             json_print({"error": msg, "code": 2})
@@ -284,7 +355,9 @@ def vendor_cmd(
         if src.is_in_repo():
             tarball = Path(__file__).resolve().parents[2] / src.in_repo
             subprocess.run(
-                ["tar", "xJf", str(tarball), "-C", str(host)],
+                # No explicit -z/-J: GNU tar auto-detects gzip/xz compression,
+                # so in-repo .tar.xz and remote codeload .tar.gz both extract.
+                ["tar", "xf", str(tarball), "-C", str(host)],
                 check=True,
                 capture_output=True,
             )
@@ -320,9 +393,27 @@ def vendor_cmd(
                     payload = Path(td + "/pay")
                     for sub in ("Bin", "Include", "Lib"):
                         (payload / sub).rename(host / sub)
+                elif src.layout == "zip-strip1":
+                    # A zip with a single top-level wrapper dir (e.g. TC/) —
+                    # strip the wrapper so BIN/INCLUDE/LIB sit at the top of
+                    # the host tree like the other toolchains.
+                    subprocess.run(
+                        ["unzip", "-q", str(archive), "-d", td + "/zip"],
+                        check=True,
+                        capture_output=True,
+                    )
+                    payload = Path(td + "/zip")
+                    contents = [p for p in payload.iterdir() if p.is_dir()]
+                    if len(contents) == 1 and not any(p.is_file() for p in payload.iterdir()):
+                        payload = contents[0]
+                    for child in payload.iterdir():
+                        child.rename(host / child.name)
                 elif src.layout == "tar-strip1":
                     subprocess.run(
-                        ["tar", "xJf", str(archive), "-C", str(host), "--strip-components=1"],
+                        # Auto-detect compression (no -z/-J): the pinned
+                        # sources are gzip codeload tarballs (msvc400/420/5)
+                        # and xz snapshots (watcom) alike.
+                        ["tar", "xf", str(archive), "-C", str(host), "--strip-components=1"],
                         check=True,
                         capture_output=True,
                     )
@@ -341,22 +432,45 @@ def vendor_cmd(
             console.print(f"[red]Error:[/red] {msg}")
         raise typer.Exit(code=2)
 
+    # MSVC 6.0's classic master layout wraps the tree in VC98/ (the decomp.me
+    # tarball is flat) — canonical config paths and every legacy
+    # tools/MSVC600/VC98/... reference expect the wrapper.
+    if src.vc98_wrap and not (host / "VC98").exists():
+        vc98 = host / "VC98"
+        vc98.mkdir()
+        for child in list(host.iterdir()):
+            if child == vc98 or any(child.match(m) for m in _META):
+                continue
+            child.rename(vc98 / child.name)
+
     # Guard: a bad extraction must fail loudly (the images do the same).
-    from rebrew.toolchain import get_toolchain
+    # Probe the ACTUAL extracted dir (src.host_dir) — the spec's host_path
+    # is captured at import time and may predate the extraction.
+    from rebrew.toolchain import _vendored_binary, get_toolchain
 
     spec = get_toolchain(name)
-    probe = host / spec.host_bin / spec.binary
-    if not probe.exists():
-        probe = host / spec.binary
-    if not probe.exists():
+    probe = _vendored_binary(replace(spec, host_path=host))
+    if probe is None:
+        # Legacy VC98-wrapped layout (MSVC 6 master tree).
+        probe = _vendored_binary(replace(spec, host_path=host / "VC98"))
+    if probe is None:
         msg = f"vendor {name} produced no {spec.binary} under {host}"
         if json_output:
             json_print({"error": msg, "code": 2})
         else:
             console.print(f"[red]Error:[/red] {msg}")
         raise typer.Exit(code=2)
+
+    # Existing projects resolve legacy tools/<name> paths through the
+    # gitignored compat links — recreate any that are missing now that the
+    # tree exists.
+    root = Path(__file__).resolve().parents[2]
+    created = ensure_compat_links(root)
+    for link in created:
+        console.print(f"[dim]linked tools/{link.name} -> {link.readlink()}[/dim]")
+
     if json_output:
-        json_print({"vendored": src.host_dir, "binary": str(probe)})
+        json_print({"vendored": src.host_dir, "binary": str(probe), "compat_links": len(created)})
 
 
 #: Golden object hashes — the byte-exact output each toolchain image must
@@ -364,8 +478,32 @@ def vendor_cmd(
 #: source + toolchain → the same object, every build).
 _SMOKE_SOURCE = "int add(int a, int b) { return a + b; }\n"
 _SMOKE_DPR = "program hello;\nbegin\nend.\n"
-_SMOKE_GOLDEN: dict[str, tuple[list[str], str, str, str, tuple[int, int] | None]] = {
+_SMOKE_GOLDEN: dict[
+    str, tuple[list[str], str, str, str, tuple[int, int] | list[tuple[int, int]] | None]
+] = {
     # name -> (flags, out, golden, src, timestamp-mask (zeroed before hashing) | None)
+    "msvc400": (
+        ["/c", "t.c"],
+        "t.obj",
+        "d420f2d9626c270866ba1d1d718a19cd39a59d07c8fe9d2999bde3ffd4bd9f4a",
+        "t.c",
+        (4, 8),
+    ),  # COFF TimeDateStamp — identical masked object to msvc420 (same
+    # compiler lineage; cross-validates both goldens) (host-only — wine)
+    "msvc420": (
+        ["/c", "t.c"],
+        "t.obj",
+        "d420f2d9626c270866ba1d1d718a19cd39a59d07c8fe9d2999bde3ffd4bd9f4a",
+        "t.c",
+        (4, 8),
+    ),  # COFF TimeDateStamp (host-only — wine runner, see smoke_cmd)
+    "msvc5": (
+        ["/c", "t.c"],
+        "t.obj",
+        "3fdf875c176b0abc8614f7208053d0b53193e73466f0c52c3cabc80a065dc897",
+        "t.c",
+        (4, 8),
+    ),  # COFF TimeDateStamp (host-only — wine runner, see smoke_cmd)
     "msvc6": (
         ["/c", "t.c"],
         "t.obj",
@@ -394,12 +532,40 @@ _SMOKE_GOLDEN: dict[str, tuple[list[str], str, str, str, tuple[int, int] | None]
         "t.c",
         None,
     ),
+    "watcom16": (
+        ["-fo=w.o", "t.c"],
+        "w.o",
+        "c44434a24aa1c6dbb36fe3a0a203992f79ea6e11cd95233da66e968ed4111acd",
+        "t.c",
+        None,  # wcc embeds the source path (fixed /tmp/rebrew-smoke) but no
+        # timestamp — fixed-workdir runs are byte-identical (host-only).
+    ),
     "delphi16": (
         ["hello.dpr"],
         "hello.EXE",
         "efd1ee34584a19852afe42cccf0b9e03b217c006c7132f50651a601c595630b9",
         "hello.dpr",
         None,
+    ),
+    "tc16": (
+        ["t.c"],
+        "t.OBJ",
+        "2fc719cfdfa0ba7c61667505f41f8bbccf22cf716614ff53056073f40a48cd85",
+        "t.c",
+        [
+            (48, 60),
+            (201, 207),
+        ],  # Borland COMENT run-timestamp (sub-second ticks) + record checksums
+    ),
+    "tc20": (
+        ["t.c"],
+        "t.OBJ",
+        "20f53956d747afe5d0d66f2e3f2b9a8dbc8b7c150fd85dfdf774d12b5925cecc",
+        "t.c",
+        [
+            (44, 49),
+            (57, 58),
+        ],  # Borland COMENT run-timestamp (sub-second ticks) + record checksum
     ),
 }
 
@@ -408,6 +574,12 @@ _SMOKE_GOLDEN: dict[str, tuple[list[str], str, str, str, tuple[int, int] | None]
 def smoke_cmd(
     name: str | None = typer.Argument(None, help="Toolchain name; all image-backed by default"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    print_goldens: bool = typer.Option(
+        False,
+        "--print-goldens",
+        help="Print the computed masked sha256 per toolchain (for updating "
+        "_SMOKE_GOLDEN after a toolchain source change) instead of comparing",
+    ),
 ) -> None:
     """Compile the fixed smoke source in each image and verify the object
     hash matches the golden bytes (reproducibility gate).
@@ -415,6 +587,11 @@ def smoke_cmd(
     Deterministic inputs: a FIXED work directory (/tmp/rebrew-smoke) and a
     FIXED source mtime (the object metadata embeds both the source path and
     its modification time — fresh writes would break the golden hashes).
+
+    --print-goldens recomputes the masked hashes WITHOUT comparing, so a
+    maintainer who bumps a pinned toolchain source (new tarball/snapshot)
+    can regenerate the _SMOKE_GOLDEN table mechanically: run it, verify the
+    new hashes are stable across a second run, then paste them in.
     """
     import hashlib
     import os
@@ -435,39 +612,77 @@ def smoke_cmd(
     workdir.mkdir(parents=True)
     for tool in targets:
         spec = get_toolchain(tool)
-        if spec.image is None:
-            results[tool] = "skip (host-only)"
+        if spec.image is None and spec.host_path is None:
+            results[tool] = "skip (no image, no vendored host tree)"
             continue
         flags, out_name, golden, src_name, mask = _SMOKE_GOLDEN[tool]
         src = _SMOKE_SOURCE if src_name == "t.c" else _SMOKE_DPR
         src_path = workdir / src_name
         src_path.write_text(src, encoding="utf-8")
         os.utime(src_path, (int(_SDE), int(_SDE)))
-        r = subprocess.run(
-            ["docker", "run", "--rm", "-v", f"{workdir}:/work", "-w", "/work", spec.image, *flags],
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
+        if spec.image is not None:
+            r = subprocess.run(
+                [
+                    "docker",
+                    "run",
+                    "--rm",
+                    "-v",
+                    f"{workdir}:/work",
+                    "-w",
+                    "/work",
+                    spec.image,
+                    *flags,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            detail = (r.stdout + r.stderr)[-120:].strip()
+        else:
+            # Host-only vendored toolchain (msvc420/msvc5 under wine, watcom16
+            # native wcc): gate its reproducibility through the uniform host
+            # runner (resolves the vendored binary, sets the wine env).  The
+            # same fixed-workdir + fixed-mtime determinism contract applies —
+            # previously these had NO reproducibility gate at all.
+            from rebrew.toolchain import ToolchainError, run_toolchain
+
+            try:
+                rr = run_toolchain(spec, flags, workdir=workdir, timeout=300)
+                detail = (rr.stdout + rr.stderr)[-120:].strip()
+            except ToolchainError as exc:
+                results[tool] = "FAIL (" + str(exc)[-120:] + ")"
+                ok = False
+                continue
         obj = workdir / out_name
         if not obj.exists():
-            results[tool] = "FAIL (no object: " + (r.stdout + r.stderr)[-120:].strip() + ")"
+            results[tool] = "FAIL (no object: " + detail + ")"
             ok = False
             continue
         raw = obj.read_bytes()
         if mask is not None:
-            # Zero the compiler's build-timestamp field (e.g. the COFF
-            # TimeDateStamp) — MSVC6 stamps the build time, so the rest of
-            # the object is what determinism covers.
+            # Zero the compiler's build-timestamp fields (e.g. the COFF
+            # TimeDateStamp, or Turbo C's per-run COMENT ticks + record
+            # checksums) — the rest of the object is what determinism
+            # covers.  A single range or a list of ranges both work.
+            ranges = mask if isinstance(mask, list) else [mask]
             masked = bytearray(raw)
-            masked[mask[0] : mask[1]] = b"\x00" * (mask[1] - mask[0])
+            for start, end in ranges:
+                masked[start:end] = b"\x00" * (end - start)
             raw = bytes(masked)
         actual = hashlib.sha256(raw).hexdigest()
+        if print_goldens:
+            results[tool] = actual
+            obj.unlink(missing_ok=True)
+            continue
         results[tool] = "OK" if actual == golden else f"MISMATCH ({actual[:12]}…)"
         ok = ok and actual == golden
         obj.unlink(missing_ok=True)
     if json_output:
-        json_print({"results": results, "passed": ok})
+        json_print({"goldens": results} if print_goldens else {"results": results, "passed": ok})
+        return
+    if print_goldens:
+        for tool, h in results.items():
+            console.print(f"  {tool:12s} {h}")
         return
     for tool, status in results.items():
         console.print(f"  [{'green' if status == 'OK' else 'red'}]{tool:12s}[/] {status}")

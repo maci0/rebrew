@@ -300,7 +300,10 @@ class TestCheckCompilerMore:
         result = check_compiler(
             _cfg(compiler_command="wine tools/CL.EXE", root=Path("/opt/msvc420"))
         )
-        assert "msvc-4.2-win32" in result.fix
+        # The hint must match the PINNED ToolchainSource (archaic-msvc/msvc420),
+        # not the older itsmattkc mirror — vendor reproduces the vendored tree.
+        assert "archaic-msvc/msvc420" in result.fix
+        assert "itsmattkc" not in result.fix
 
 
 class TestCheckMetadataFiles:
@@ -689,3 +692,65 @@ class TestToolchainDownloadHint:
         result = check_compiler(cfg)
         assert result.status == _FAIL
         assert "archive.org" in (result.fix or "")
+
+
+class TestCheckToolchainBackedNewProfiles:
+    def test_tc16_vendored_passes(self, monkeypatch) -> None:
+        from rebrew.doctor import _PASS, check_toolchain_backed
+
+        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
+        cfg = SimpleNamespace(compiler_profile="tc16", root=Path("/tmp"))
+        result = check_toolchain_backed(cfg)
+        assert result.status == _PASS
+        assert "3.1-win16" in result.message
+
+    def test_borlandc55_vendored_passes(self, monkeypatch) -> None:
+        from rebrew.doctor import _PASS, check_toolchain_backed
+
+        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
+        cfg = SimpleNamespace(compiler_profile="borlandc55", root=Path("/tmp"))
+        result = check_toolchain_backed(cfg)
+        assert result.status == _PASS
+
+    def test_watcom16_not_skipped(self, monkeypatch) -> None:
+        from rebrew.doctor import _SKIP, check_toolchain_backed
+
+        result = check_toolchain_backed(
+            SimpleNamespace(compiler_profile="watcom16", root=Path("/tmp"))
+        )
+        assert result.status != _SKIP
+
+
+class TestCheckCompiler16BitProfiles:
+    """The 16-bit compiler check accepts any 16-bit-capable profile
+    (msvc1.52, tc16, watcom16) and suggests the right one via the
+    detector for 32-bit profiles on 16-bit targets."""
+
+    def test_tc16_profile_not_warned(self) -> None:
+        result = check_compiler(_cfg(arch="x86_16", compiler_profile="tc16", compiler_command=""))
+        assert result.status == _FAIL  # empty command -> real path failure, not the 16-bit warn
+        assert "16-bit" not in (result.message or "")
+
+    def test_watcom16_profile_not_warned(self) -> None:
+        result = check_compiler(
+            _cfg(arch="x86_16", compiler_profile="watcom16", compiler_command="")
+        )
+        assert "16-bit" not in (result.message or "")
+
+    def test_borland_mz_suggests_tc16(self, monkeypatch) -> None:
+        from rebrew.toolchain_detect import ToolchainInfo
+
+        monkeypatch.setattr(
+            "rebrew.toolchain_detect.detect_toolchain",
+            lambda p: ToolchainInfo(
+                family="borlandc",
+                version_hint="Borland C/C++ 1991",
+                confidence="high",
+                detected_by="die",
+            ),
+        )
+        result = check_compiler(
+            _cfg(arch="x86_16", compiler_profile="msvc6", compiler_command="missing")
+        )
+        assert result.status == _WARN
+        assert "tc16" in (result.message or "") + (result.fix or "")

@@ -21,6 +21,11 @@ that contains the actual binaries, source files, and toolchains.
   Wine runner is auto-headless via a persistent `Xvfb` virtual display when
   available (`REBREW_WINE_HEADLESS=0` opts out); prefer wibo for the
   fastest, fully-headless path.
+  **Legacy `tools/<name>` paths** (e.g. `tools/MSVC600/VC98/...` in pre-restructure
+  projects) resolve through gitignored compat symlinks that
+  `rebrew toolchain vendor` recreates automatically; `rebrew/tools/MSVC600`
+  points at `toolchain/msvc/6.0-win32` (the mirror ships no `Lib` tree —
+  expected, compile-only).
 - **`gcc-pe`**: `i686-w64-mingw32-gcc` — POSIX-flavored flags (`-I`, `-o`, `-c`),
   no runner, PATH resolution of the bare toolchain name, empty `includes`/`libs`
   allowed. Use for MinGW GCC / Zig-built PE/x86_32 targets (`.buildid` section,
@@ -36,13 +41,17 @@ that contains the actual binaries, source files, and toolchains.
 - **`watcom16`**: Open Watcom 2.0 `wcc` (16-bit DOS, native Linux) —
   same snapshot as `watcom`.  Use for 16-bit DOS/Watcom targets
   (detector family `watcom`).
+- **`tc16`**: Turbo C++ 3.1 `TCC.EXE` (16-bit DOS via DOSBox,
+  `toolchain/borland/3.1-win16`) — the classic DOS-game compiler.
+  Borland 16-bit OMF parses via `rebrew.matcher.omf16`.
 - **`msvc1.52` / `delphi16`**: 16-bit targets via DOSBox
   (`toolchain/msvc/1.52-win16`, `toolchain/delphi/1.0-win16`).
 
 Every toolchain image is assembled reproducibly (pinned sources,
 sha256-verified downloads or committed in-repo tarballs; shared
 `rebrew/base` with a pinned debian digest) and `rebrew toolchain smoke`
-gates byte-reproducible objects — see `docs/TOOLCHAIN.md`.
+gates byte-reproducible objects (image-backed and host-only vendored
+trees alike) — see `docs/TOOLCHAIN.md`.
 
 ## Build & Test Commands
 

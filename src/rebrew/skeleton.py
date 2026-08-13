@@ -55,6 +55,10 @@ from rebrew.utils import atomic_write_text, read_source_text
 
 console = Console(stderr=True)
 
+#: 16-bit DOS profiles whose C compiler rejects ``//`` comments (C89-strict).
+#: Their skeleton markers are emitted as ``/* ... */`` instead.
+_C89_STRICT_PROFILES = frozenset({"tc20", "msvc1.52", "watcom16"})
+
 
 def _render_annotation_block(
     marker: str,
@@ -69,8 +73,18 @@ def _render_annotation_block(
     decomp_body: bool = False,
     convention_stub: str | None = None,
     convention_note: str | None = None,
+    profile: str = "",
 ) -> str:
-    lines = [f"// {marker}: {cfg_marker} 0x{va:08x}\n"]
+    # The annotation marker must use ``/* */`` for the C89-strict 16-bit
+    # compilers that reject ``//`` comments (Turbo C 2.0 errors on any
+    # ``//`` line — verified; MSVC 1.52 and Watcom C are equally strict).
+    # TCC 3.1 and the 32-bit profiles accept both, so ``/* */`` would also
+    # work there — but keep ``//`` (the long-standing convention) for them.
+    use_block_comment = profile in _C89_STRICT_PROFILES
+    if use_block_comment:
+        lines = [f"/* {marker}: {cfg_marker} 0x{va:08x} */\n"]
+    else:
+        lines = [f"// {marker}: {cfg_marker} 0x{va:08x}\n"]
     if xref_context:
         lines.append(f"{xref_context}\n")
     if decomp_code and decomp_body:
@@ -89,7 +103,24 @@ def _render_annotation_block(
         lines.append(f"{decomp_code}\n")
         lines.append("/* === End decompilation === */\n")
     else:
-        signature = convention_stub or f"int __cdecl {func_name}(void)"
+        if convention_stub is not None:
+            signature = convention_stub
+        elif profile in (
+            "tc20",
+            "tc16",
+            "borlandc55",
+            "watcom",
+            "watcom16",
+            "gcc",
+            "gcc-pe",
+            "clang",
+        ):
+            # TCC/bcc32/wcc/gcc: cdecl is the default convention; __cdecl is
+            # a syntax error in TCC 3.1 ("Declaration syntax error").
+            signature = f"int {func_name}(void)"
+        else:
+            # MSVC profiles and the historical default: __cdecl.
+            signature = f"int __cdecl {func_name}(void)"
         lines.append(f"{signature}\n")
         lines.append("{\n")
         if todo_text:
@@ -147,6 +178,7 @@ def generate_skeleton(
         marker=marker,
         cfg_marker=cfg.marker,
         va=va,
+        profile=str(getattr(cfg, "compiler_profile", "")),
         func_name=func_name,
         ghidra_name=ghidra_name,
         xref_context=xref_context,
@@ -174,7 +206,8 @@ def _convention_stub(cfg: ProjectConfig, va: int, func_name: str) -> tuple[str |
     - ``int __stdcall f(int a1, ...)`` for stdcall with N args.
     - the plain default for cdecl, with a note for ctor/EH-guard thunks.
     """
-    if getattr(cfg, "arch", "") != "x86_32":
+    arch = getattr(cfg, "arch", "")
+    if arch not in ("x86_32", "x86_16"):
         return None, None
     try:
         from rebrew.asm import calling_convention_at
@@ -212,11 +245,27 @@ def _convention_stub(cfg: ProjectConfig, va: int, func_name: str) -> tuple[str |
             return None, None
         import capstone
 
-        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        mode = capstone.CS_MODE_32 if arch == "x86_32" else capstone.CS_MODE_16
+        md = capstone.Cs(capstone.CS_ARCH_X86, mode)
         insns = list(md.disasm(raw, va))
         if not insns:
             return None, None
     except Exception:  # noqa: BLE001 — best-effort stub shape
+        return None, None
+
+    # 16-bit targets: word-sized stack args (2 bytes) and the Borland
+    # `pascal` keyword for callee-pop (MSVC/Watcom 16-bit use __stdcall).
+    word_size = 4 if arch == "x86_32" else 2
+    if arch == "x86_16":
+        if conv == "stdcall":
+            n = _ret_arg_count(insns, word_size)
+            args = ", ".join(f"int a{i}" for i in range(1, n + 1))
+            profile = str(getattr(cfg, "compiler_profile", ""))
+            keyword = "pascal" if profile in ("tc16", "tc20", "borlandc55") else "__stdcall"
+            return (
+                f"int {keyword} {func_name}({args or 'void'})",
+                None if keyword == "pascal" else f"{n} word arg(s) popped by callee (__stdcall)",
+            )
         return None, None
 
     if conv == "thiscall (no stack args)":
@@ -284,8 +333,12 @@ def _tail_call_arg_count(insns: list[Any], cfg: ProjectConfig) -> tuple[int, str
     return 0, ""
 
 
-def _ret_arg_count(insns: list[Any]) -> int:
-    """Number of stack args implied by the function's ``ret N`` epilogue."""
+def _ret_arg_count(insns: list[Any], word_size: int = 4) -> int:
+    """Number of stack args implied by the function's ``ret N`` epilogue.
+
+    *word_size* is 4 for x86-32 targets, 2 for 16-bit DOS/NE targets
+    (word-sized stack args).
+    """
     for insn in reversed(insns):
         if insn.mnemonic.startswith("ret"):
             raw = insn.op_str
@@ -293,7 +346,7 @@ def _ret_arg_count(insns: list[Any]) -> int:
                 n = int(raw, 16) if raw.startswith(("0x", "0X")) else int(raw)
             except ValueError:
                 return 0
-            return max(0, n // 4) if n else 0
+            return max(0, n // word_size) if n else 0
     return 0
 
 
@@ -328,6 +381,7 @@ def generate_annotation_block(
         marker=marker,
         cfg_marker=cfg.marker,
         va=va,
+        profile=str(getattr(cfg, "compiler_profile", "")),
         func_name=func_name,
         ghidra_name=ghidra_name,
         xref_context=xref_context,

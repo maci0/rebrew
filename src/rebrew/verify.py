@@ -46,12 +46,12 @@ from rebrew.catalog import (
 )
 from rebrew.cli import (
     EXIT_MISMATCH,
-    MIN_VALID_VA,
     STATUS_COLORS,
     TargetOption,
     error_exit,
     is_matched,
     json_print,
+    min_valid_va_for,
     require_config,
     should_promote_status,
 )
@@ -103,11 +103,13 @@ def verify_entry(
     if not cfile.exists():
         return _failed_result("MISSING_FILE", f"MISSING_FILE: {cfile}")
 
-    if entry.va < MIN_VALID_VA:
+    if entry.va < min_valid_va_for(cfg):
         # A VA below the valid floor is an annotation problem (a data-range
         # VA that slipped past the marker filter), NOT a compile failure —
         # labeling it COMPILE_ERROR showed a bogus "compile error" in the
         # summary and tripped the CI gate as if the source failed to build.
+        # The floor is arch-aware: 16-bit DOS targets address code from
+        # segment 0 (MZ VAs legitimately start at 0).
         return _failed_result("INVALID_VA", "INVALID_VA: VA too low")
     if entry.size <= 0:
         return _failed_result("MISSING_SIZE", "MISSING_SIZE: No SIZE annotation")

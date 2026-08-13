@@ -93,17 +93,28 @@ as its single argument and adds `/nologo /c` itself), `borlandc55`
 `rebrew/borland:5.5-win32` built+verified — bcc32 emits OMF objects that
 parse via objconv; vendored from the archive.org `BorlandC55` item),
 `watcom16` (Open Watcom 2.0 `wcc`, 16-bit DOS, native — same snapshot as
-`watcom`), plus two **host-only** archived toolchains that share the
-wine-based MSVC paths: `msvc420` (`toolchain/msvc/4.2-win32`, no mirror
-tarball) and `msvc5` (`toolchain/msvc/5.0-win32`, no mirror tarball —
-Win2K-era binaries were built with MSVC 5.0, so this is the profile for
-byte-matching them).
+`watcom`), `tc16` (Turbo C++ 3.1, 16-bit DOS under DOSBox via
+`rebrew.tc16`; image `rebrew/borland:3.1-win16` — TCC.EXE produces
+Borland 16-bit OMF that parses via `rebrew.matcher.omf16`; vendored
+in-repo from the archive.org `turboc3.1_202112` item — the classic
+DOS-game compiler, e.g. id Software's early titles; verified:
+`compile_and_compare` returns EXACT against a TCC-built object),
+`tc20` (Turbo C 2.0, 16-bit DOS under DOSBox via the same `rebrew.tc16`
+module with `version="2.0"`; tree `toolchain/borland/2.0-win16` assembled
+from the archive.org `turboc20` floppies; image
+`rebrew/borland:2.0-win16`, in the smoke gate — the 1988/89 compiler that
+diec reports as "Borland C/C++ 1991"; C89-strict: rejects `//` comments,
+so skeletons use `/* */` markers), plus the old-MSV C line
+(`rebrew/msvc:4.0-win32`, `rebrew/msvc:4.2-win32`, `rebrew/msvc:5.0-win32`
+— win2k-era binaries were built with MSVC 5.0, so that is the profile for
+byte-matching them; the 4.0/4.2/5.0 trees are archaic-msvc / itsmattkc
+snapshots, pinned sha256 sources shared with `rebrew toolchain vendor`).
 
-**Every registry toolchain with a mirror tarball has a verified
-containerized path** (the four images above + gcc-pe native) — the
-docker-first standardization is complete for the whole matrix; the two
-host-only entries resolve via their vendored `tools/` trees under wine
-instead.
+**Every registry toolchain with a pinned source has a verified
+containerized path** (the images above + gcc-pe native) — the
+docker-first standardization is complete for the whole matrix; host
+fallback (vendored `tools/` trees under wine) remains for image-less
+environments.
 
 > **Headless wine:** rebrew runs the host wine runner against a persistent
 > `Xvfb` virtual display whenever the `Xvfb` binary is on PATH — compiles
@@ -176,7 +187,17 @@ Notes:
   from 0x96/0xCA name lists** — the GA flag sweep emits this), so 16-bit
   function bytes + reloc slots extract through
   `parse_obj_symbol_and_relocs` (e8/e9 rel16 slots) — see
-  [OMF_NOTES.md](OMF_NOTES.md).
+  [OMF_NOTES.md](OMF_NOTES.md).  When the `omf16` decoder cannot extract
+  code, the parse falls through to the objconv→COFF path; the vendored
+  `tools/objconv/objconv` should be the fixed build from the objconv fork
+  (16-bit OMF relocation methods + COMDAT→COFF-section support — see the
+  fork's `PR-16BIT-OMF.md`), which converts what the stock build rejects.
+  `profile = "watcom16"` (native `wcc`, 16-bit DOS) routes through the
+  same toolchain runner with the wcc flag shape (`-fo=`/`-I`/`-zq`, no
+  `-c` — wcc16 rejects it with E1073); its objects parse via the omf16
+  decoder too, so 16-bit DOS/Watcom targets get compile+compare support
+  (verified: `compile_and_compare` returns RELOC 100% against a wcc-built
+  object — the chkstk call reloc slot masks correctly).
 - **MSVC 1.52** (`toolchain/msvc/1.52-win16`, from archive.org `en_vc152_202512`) is a
   Phar Lap TNT DOS-extender binary — runs headless under DOSBox via the
   shared `rebrew.dosbox` runner; produces 16-bit OMF objects.
@@ -214,11 +235,35 @@ a fixed source in each image with deterministic inputs (fixed work dir +
 fixed source mtime — OMF/COFF objects embed the source path and
 modification time) and verifies the object sha256 against golden bytes.
 MSVC6's COFF TimeDateStamp (build time) is the only non-deterministic byte
-and is masked; all five images pass.
+and the Turbo C 2.0 / 3.1 per-run COMENT ticks are masked; all eleven
+toolchains pass (msvc6, msvc400, msvc420, msvc5, msvc1.52, borlandc55,
+watcom, watcom16, tc16, tc20, delphi16) — the docker-image and the
+host-fallback paths both gate the same goldens (COFF objects embed no
+path, so image and host runs hash identically).  gcc-pe is not gated: it
+is a PATH tool, not a vendored tree.  When a pinned source is bumped
+(new tarball/snapshot), `rebrew toolchain smoke --print-goldens`
+regenerates the masked hashes WITHOUT comparing — run it twice, confirm
+the hashes are stable, then paste them into `_SMOKE_GOLDEN`.
 
 `rebrew toolchain vendor <name>` assembles the **host tree** from the same
 pinned source the image builds from (in-repo tarball or sha256-verified
-download), so host trees and containers are byte-identical.
+download), so host trees and containers are byte-identical.  Two layout
+rules apply during assembly:
+
+- **MSVC 6.0 wraps in `VC98/`** — the decomp.me tarball is flat
+  (Bin/Include/MFC/ATL at top level), but the canonical master layout and
+  every legacy `tools/MSVC600/VC98/...` reference expect the classic
+  `VC98/` wrapper; both the Dockerfile and `vendor` apply it, so the
+  container and host trees stay identical.  Note the mirror ships no `Lib`
+  tree (compile-only) — `rebrew doctor` warns about the missing lib path,
+  which is expected and harmless for `/c` object builds.
+- **`tools/` compat symlinks** — after a successful vendor, the gitignored
+  legacy aliases (`tools/MSVC600 → toolchain/msvc/6.0-win32`,
+  `tools/MSVC7 → toolchain/msvc/7.0-win32`, `tools/msvc6.3`, …) are
+  (re)created so projects whose `rebrew-project.toml` predates the
+  restructure keep resolving `tools/<name>/...` through the rebrew install
+  (`find_install_tool` fallback).  A fresh clone that runs
+  `rebrew toolchain vendor` gets them automatically.
 
 ### Toolchain Detection (doctor alignment check)
 

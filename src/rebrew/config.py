@@ -243,7 +243,16 @@ class ProjectConfig:
         Single source of truth for compile/flag routing across compile.py,
         diff.py, match.py, and matcher/compiler.py.
         """
-        return self.compiler_profile in ("gcc", "gcc-pe", "clang", "watcom")
+        return self.compiler_profile in (
+            "gcc",
+            "gcc-pe",
+            "clang",
+            "watcom",
+            "watcom16",
+            "borlandc55",
+            "tc20",
+            "tc16",
+        )
 
     # --- Computed from arch ---
     pointer_size: int = 4
@@ -732,7 +741,7 @@ _KNOWN_PROJECT_KEYS = {
     "default_target",
 }
 
-_KNOWN_FORMATS = {"pe", "elf", "macho", "ne"}
+_KNOWN_FORMATS = {"pe", "elf", "macho", "ne", "mz"}
 _KNOWN_PROFILES = {
     "msvc400",
     "msvc420",
@@ -746,6 +755,10 @@ _KNOWN_PROFILES = {
     "gcc-pe",
     "clang",
     "watcom",
+    "watcom16",
+    "borlandc55",
+    "tc20",
+    "tc16",
 }
 
 

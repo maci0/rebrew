@@ -321,6 +321,13 @@ _WINE_NOISE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^wineserver:.*\n?", re.MULTILINE),
     re.compile(r"^Could not find Wine Gecko.*\n?", re.MULTILINE),
     re.compile(r"^err:.*\n?", re.MULTILINE),
+    # Display/GL init noise from headless Xvfb compiles (no [hex]: prefix —
+    # emitted by Mesa/wine's EGL probe when DRI3 is unavailable).  These
+    # lines drown the real compiler error, e.g. "libEGL warning: DRI3 error:
+    # Could not get DRI3 device" + "Ensure your X server supports DRI3...".
+    re.compile(r"^libEGL warning:.*\n?", re.MULTILINE),
+    re.compile(r"^libGL warning:.*\n?", re.MULTILINE),
+    re.compile(r"^MESA:.*\n?", re.MULTILINE),
 ]
 
 
@@ -555,7 +562,11 @@ def compile_to_obj(
     source_path = Path(source_path)
     workdir = Path(workdir)
 
-    # Copy source to workdir for Wine compatibility
+    # Workdir source name for Wine compatibility (a copy of the source is
+    # only needed when the compiler subprocess actually runs — a cache hit
+    # skips the copy entirely, saving one write + one read-back per warm
+    # compile; the cache key is computed from the original file, whose
+    # bytes are identical to the copy).
     src_name = source_path.name
     if src_name.startswith(("@", "-")):
         # MSVC interprets a leading '@' as a response file and a leading '-'
@@ -564,10 +575,6 @@ def compile_to_obj(
         # filename.
         src_name = "./" + src_name
     local_src = workdir / src_name
-    try:
-        shutil.copy2(source_path, local_src)
-    except OSError as e:
-        return None, f"Failed to copy source into workdir: {e}"
 
     obj_name = obj_name or (source_path.stem + ".obj")
     inc_path = str(cfg.compiler_includes)
@@ -604,8 +611,10 @@ def compile_to_obj(
     if cc is not None:
         # Hash the raw bytes (via surrogateescape, which is lossless) — a
         # plain utf-8/errors=replace decode would give two sources differing
-        # only in legacy-encoded bytes the same cache key.
-        source_content = local_src.read_bytes().decode("utf-8", errors="surrogateescape")
+        # only in legacy-encoded bytes the same cache key.  Read from the
+        # ORIGINAL source (not the workdir copy): on a cache hit no copy has
+        # been made, and copy2 is byte-identical anyway.
+        source_content = source_path.read_bytes().decode("utf-8", errors="surrogateescape")
         cl_parts = resolve_cl_command(cfg)
         toolchain_id = " ".join(cl_parts)
         include_dirs = [inc_path, str(src_parent)]
@@ -626,6 +635,12 @@ def compile_to_obj(
             return str(obj_file), ""
 
     # --- Cache miss: compile via subprocess ---
+    # The compiler is the only consumer of the workdir source copy, so it
+    # is made here (miss path only) — a cache hit above never needs it.
+    try:
+        shutil.copy2(source_path, local_src)
+    except OSError as e:
+        return None, f"Failed to copy source into workdir: {e}"
 
     # Build full command: [wine, cl.exe] + base + user flags + includes + output + source file
     # Include the source file's original parent dir so that relative
@@ -640,42 +655,64 @@ def compile_to_obj(
     # compiles (config-review F6).
     is_posix_style = bool(getattr(cfg, "posix_style", False))
 
-    # The two new toolchain-runner profiles.  gcc-pe/msvc6 stay on their
+    # The toolchain-runner profiles.  gcc-pe/msvc6 stay on their
     # specialized posix/msvc paths (well-tested); the abstraction serves
     # them via `rebrew toolchain`.
-    if profile in ("watcom", "msvc1.52"):
+    if profile in ("watcom", "watcom16", "msvc1.52", "tc16", "tc20", "borlandc55"):
         spec = TOOLCHAINS[profile]
-        if profile == "watcom":
+        if profile in ("watcom", "watcom16"):
             inc_flags = [f"-I{inc_path}"] if inc_path else []
             args = (
                 all_flags + inc_flags + [f"-I{str(src_parent)}", f"-fo={obj_name}", "-zq", src_name]
             )
-        elif profile == "msvc1.52":
-            # Prefer the docker image (cl16 wrapper: source first, then
-            # CL flags) when pulled; fall back to the host DOSBox sandbox
-            # via rebrew.msvc16.  CL 1.52 is 16-bit — the wrapper stages
-            # the source under a short 8.3-safe name (C1083 on long
-            # names), so source-name length is not our problem here.
+        elif profile == "borlandc55":
+            # bcc32: `-c` compiles only; the object name follows the source
+            # stem (add.c → add.obj), which matches obj_name.  `-o` alone is
+            # compile-only in Borland's flag dialect, so the generic posix
+            # `-o obj` invocation would misparse obj as an input file.
+            inc_flags = [f"-I{inc_path}"] if inc_path else []
+            args = all_flags + inc_flags + [f"-I{str(src_parent)}", "-c", src_name]
+        elif profile in ("msvc1.52", "tc16", "tc20"):
+            # Prefer the docker image (cl16/tcc wrapper) when pulled; fall
+            # back to the host DOSBox sandbox.  The 16-bit compilers stage
+            # the source under a short 8.3-safe name, so source-name length
+            # is not our problem here.
             from rebrew.toolchain import _image_present
 
             if spec.image is not None and _image_present(spec.image):
                 args = [src_name, *all_flags]
             else:
-                from rebrew.msvc16 import Msvc16Error, compile_c
+                if profile == "msvc1.52":
+                    from rebrew.msvc16 import Msvc16Error
+                    from rebrew.msvc16 import compile_c as msvc_compile_c
 
-                try:
-                    res = compile_c(
-                        local_src,
-                        workdir,
-                        # /IC:\INCLUDE — the vendored include tree is staged
-                        # as C:\INCLUDE inside the DOSBox sandbox; the host
-                        # inc_path would not resolve there.
-                        cflags=[*all_flags, "/IC:\\INCLUDE"],
-                        timeout=use_timeout,
-                    )
-                except Msvc16Error as exc:
-                    return None, str(exc)
-                obj_file = res.obj_path
+                    try:
+                        res16 = msvc_compile_c(
+                            local_src,
+                            workdir,
+                            # /IC:\INCLUDE — the vendored include tree is
+                            # staged as C:\INCLUDE inside the DOSBox sandbox;
+                            # the host inc_path would not resolve there.
+                            cflags=[*all_flags, "/IC:\\INCLUDE"],
+                            timeout=use_timeout,
+                        )
+                    except Msvc16Error as exc:
+                        return None, str(exc)
+                else:
+                    from rebrew.tc16 import Tc16Error
+                    from rebrew.tc16 import compile_c as tc_compile_c
+
+                    try:
+                        res_tc = tc_compile_c(
+                            local_src,
+                            workdir,
+                            cflags=all_flags,
+                            timeout=use_timeout,
+                            version="2.0" if profile == "tc20" else "3.1",
+                        )
+                    except Tc16Error as exc:
+                        return None, str(exc)
+                obj_file = (res16 if profile == "msvc1.52" else res_tc).obj_path
                 if cc is not None and cache_key is not None:
                     with contextlib.suppress(OSError):
                         cc.put(cache_key, obj_file.read_bytes())
@@ -685,8 +722,8 @@ def compile_to_obj(
         except ToolchainError as exc:
             return None, str(exc)
         obj_file = workdir / obj_name
-        if profile == "msvc1.52" and not obj_file.exists():
-            # The cl16 wrapper's DOSBox FAT-uppercases the object (T.OBJ).
+        if profile in ("msvc1.52", "tc16", "tc20") and not obj_file.exists():
+            # The DOSBox wrappers FAT-uppercase the object (T.OBJ).
             stem = Path(obj_name).stem
             obj_file = next(
                 (

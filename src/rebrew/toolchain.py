@@ -107,6 +107,9 @@ class ToolchainSource:
     in_repo: str = ""  # repo-relative path to a committed tarball
     layout: str = "tar"  # tar | tar-strip1 | zip-installshield
     host_dir: str = ""  # toolchain/<family>/<version>-<arch> (host tree target)
+    vc98_wrap: bool = False  # wrap the extracted tree in a VC98/ subdir (MSVC 6
+    # classic master layout — Bin/Include/Lib/CRT live under VC98, matching the
+    # canonical config paths and every legacy tools/MSVC600/VC98/... reference)
 
     def is_in_repo(self) -> bool:
         return bool(self.in_repo)
@@ -121,6 +124,7 @@ _SOURCES: dict[str, ToolchainSource] = {
         sha256="5c81e9c2ab0ac5545022c1418a23392cb514db950cf6dcb1f48327270403fcd3",
         layout="tar",
         host_dir="msvc/6.0-win32",
+        vc98_wrap=True,
     ),
     "msvc1.52": ToolchainSource(
         in_repo="toolchain/msvc/1.52-win16/msvc152.tar.xz",
@@ -138,35 +142,90 @@ _SOURCES: dict[str, ToolchainSource] = {
         layout="zip-installshield",
         host_dir="borland/5.5-win32",
     ),
+    "tc20": ToolchainSource(
+        in_repo="toolchain/borland/2.0-win16/tc20.tar.xz",
+        # Assembled from the archive.org turboc20 item (floppy disk images:
+        # TCC.EXE 2.0/TLINK.EXE/CPP.EXE + runtime libs + headers), then
+        # vendored in-repo for deterministic builds.
+        layout="tar",
+        host_dir="borland/2.0-win16",
+    ),
+    "tc16": ToolchainSource(
+        in_repo="toolchain/borland/3.1-win16/tc31.tar.xz",
+        # Original download (sha256-verified once, then vendored in-repo for
+        # deterministic builds): archive.org item turboc3.1_202112 (TC.zip),
+        # sha256 9cf53cd5d229633c2cf60c6fe2b24dba43b40a0ff2ca71e90279fa8649b622e4.
+        layout="tar",
+        host_dir="borland/3.1-win16",
+    ),
     "watcom": ToolchainSource(
         url="https://github.com/open-watcom/open-watcom-v2/releases/download/Last-CI-build/ow-snapshot.tar.xz",
         sha256="984ff0d9a3f36bdb7596d8751299b3630cc259560c8386fb3337caa0037f3b4c",
         layout="tar-strip1",
         host_dir="watcom/2.0-win32",
     ),
+    "msvc420": ToolchainSource(
+        # archaic-msvc snapshot — the vendored toolchain/msvc/4.2-win32 tree
+        # is a byte-identical extraction of this repo tarball (verified: file
+        # list + CL.EXE match).  Previously vendored but NOT pinned, so a
+        # fresh clone could not reproduce it via `rebrew toolchain vendor`.
+        url="https://codeload.github.com/archaic-msvc/msvc420/tar.gz/refs/heads/master",
+        sha256="651db241202416be7e870ff8d98928179b94515068e7895008b8a82cb0b7001c",
+        layout="tar-strip1",
+        host_dir="msvc/4.2-win32",
+    ),
+    "msvc5": ToolchainSource(
+        # archaic-msvc snapshot — vendored toolchain/msvc/5.0-win32 is a
+        # byte-identical extraction (verified).  Same sha256 the doctor hint
+        # for the 5.0 layout already pointed at (codeload archaic-msvc/msvc500).
+        url="https://codeload.github.com/archaic-msvc/msvc500/tar.gz/refs/heads/master",
+        sha256="46745771c0805310212415450f097134f3871d1786434e86c080e0b8cb9a38fb",
+        layout="tar-strip1",
+        host_dir="msvc/5.0-win32",
+    ),
+    "msvc400": ToolchainSource(
+        # itsmattkc/MSVC400 — the classic MSVC 4.0 (1995) tree; BIN/CL.EXE
+        # at the repo root.  Completes the msvc4x/5/6/7 profile set (config,
+        # init, and the detector already knew msvc400; only the toolchain
+        # registry lacked it).
+        url="https://codeload.github.com/itsmattkc/MSVC400/tar.gz/refs/heads/master",
+        sha256="c076ab51bb5a52c805c85603d565ac406beec1a0accf3829127369294f1aff11",
+        layout="tar-strip1",
+        host_dir="msvc/4.0-win32",
+    ),
 }
 
 
 TOOLCHAINS: dict[str, ToolchainSpec] = {
+    "msvc400": ToolchainSpec(
+        name="msvc400",
+        image="rebrew/msvc:4.0-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/4.0-win32") if _vendored("msvc/4.0-win32").exists() else None,
+        description="MSVC 4.0 (32-bit PE, C89) — wine or wibo",
+    ),
     "msvc420": ToolchainSpec(
         name="msvc420",
-        image=None,  # OmniBlade mirror has no 4.2 tarball — host-only via toolchain/msvc/4.2-win32
+        image="rebrew/msvc:4.2-win32",
         binary="cl",
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
         host_path=_vendored("msvc/4.2-win32") if _vendored("msvc/4.2-win32").exists() else None,
-        description="MSVC 4.2 (32-bit PE, C89) — wine or wibo (host-only, toolchain/msvc/4.2-win32)",
+        description="MSVC 4.2 (32-bit PE, C89) — wine or wibo",
     ),
     "msvc5": ToolchainSpec(
         name="msvc5",
-        image=None,  # OmniBlade mirror has no 5.0 tarball — host-only via toolchain/msvc/5.0-win32
+        image="rebrew/msvc:5.0-win32",
         binary="cl",
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
         host_path=_vendored("msvc/5.0-win32") if _vendored("msvc/5.0-win32").exists() else None,
-        description="MSVC 5.0 (32-bit PE, C89) — wine or wibo (host-only, toolchain/msvc/5.0-win32)",
+        description="MSVC 5.0 (32-bit PE, C89) — wine or wibo",
     ),
     "msvc6": ToolchainSpec(
         name="msvc6",
@@ -220,6 +279,32 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
         obj_ext=".obj",  # 16-bit OMF — see docs/OMF_NOTES.md
         host_path=_vendored("msvc/1.52-win16") if _vendored("msvc/1.52-win16").exists() else None,
         description="MSVC 1.52 (16-bit, Windows 3.x) — DOSBox via rebrew.msvc16",
+    ),
+    "tc20": ToolchainSpec(
+        name="tc20",
+        image="rebrew/borland:2.0-win16",
+        binary="TCC.EXE",
+        runtime="dosbox",
+        flags_style="posix",
+        obj_ext=".obj",  # Borland 16-bit OMF — parses via rebrew.matcher.omf16
+        host_path=_vendored("borland/2.0-win16")
+        if _vendored("borland/2.0-win16").exists()
+        else None,
+        host_bin="BIN",
+        description="Turbo C 2.0 (16-bit DOS) — DOSBox via rebrew.tc16 (version=2.0)",
+    ),
+    "tc16": ToolchainSpec(
+        name="tc16",
+        image="rebrew/borland:3.1-win16",
+        binary="TCC.EXE",
+        runtime="dosbox",
+        flags_style="posix",
+        obj_ext=".obj",  # Borland 16-bit OMF — parses via rebrew.matcher.omf16
+        host_path=_vendored("borland/3.1-win16")
+        if _vendored("borland/3.1-win16").exists()
+        else None,
+        host_bin="BIN",
+        description="Turbo C++ 3.1 (16-bit DOS) — DOSBox via rebrew.tc16",
     ),
     "borlandc55": ToolchainSpec(
         name="borlandc55",
@@ -305,28 +390,44 @@ def _match_binary(dir: Path, binary: str) -> Path | None:
     return None
 
 
+def _vendored_binary(spec: ToolchainSpec) -> Path | None:
+    """Locate the spec's compiler inside its vendored host tree.
+
+    Case-insensitive on both the ``host_bin`` subdir (``Bin`` vs ``BIN`` —
+    MSVC400's tree is all-caps, MSVC 4.2/5.0's is lowercase) and the binary
+    name (``cl`` matches ``CL.EXE``).  Returns ``None`` when the spec has
+    no ``host_path`` or nothing matches — the PATH fallback is the caller's
+    decision (``_resolve_binary`` uses it; the vendor guard must not).
+    """
+    if spec.host_path is None:
+        return None
+    host = Path(spec.host_path)
+    hit = _match_binary(host, spec.binary)
+    if hit is not None:
+        return hit
+    # The compiler usually lives in a subdir (Bin for MSVC, binl for
+    # Watcom); DOS-era vendored trees are uppercase (BIN, not Bin) —
+    # match the host_bin subdir case-insensitively before giving up
+    # (MSVC 1.52's toolchain/msvc/1.52-win16/BIN/CL.EXE would otherwise never
+    # resolve).
+    if spec.host_bin:
+        try:
+            for entry in host.iterdir():
+                if entry.is_dir() and entry.name.lower() == spec.host_bin.lower():
+                    hit = _match_binary(entry, spec.binary)
+                    if hit is not None:
+                        return hit
+        except OSError:
+            pass
+    return None
+
+
 def _resolve_binary(spec: ToolchainSpec) -> str:
     """The host-side compiler path for a spec (host fallback): vendored dir /
     PATH binary.  Raises ToolchainError when nothing resolvable exists."""
-    if spec.host_path is not None:
-        host = Path(spec.host_path)
-        hit = _match_binary(host, spec.binary)
-        if hit is not None:
-            return str(hit)
-        # The compiler usually lives in a subdir (Bin for MSVC, binl for
-        # Watcom); DOS-era vendored trees are uppercase (BIN, not Bin) —
-        # match the host_bin subdir case-insensitively before giving up
-        # (MSVC 1.52's toolchain/msvc/1.52-win16/BIN/CL.EXE would otherwise never
-        # resolve).
-        if spec.host_bin:
-            try:
-                for entry in host.iterdir():
-                    if entry.is_dir() and entry.name.lower() == spec.host_bin.lower():
-                        hit = _match_binary(entry, spec.binary)
-                        if hit is not None:
-                            return str(hit)
-            except OSError:
-                pass
+    hit = _vendored_binary(spec)
+    if hit is not None:
+        return str(hit)
     found = shutil.which(spec.binary)
     if found:
         return found
@@ -402,6 +503,12 @@ def run_toolchain(
     if spec.runtime == "wine":
         env.setdefault("WINEDEBUG", "-all")
     cmd = [binary, *args]
+    if spec.runtime == "wine":
+        # Wine-runtime binaries (CL.EXE, bcc32.exe) are Windows PEs — exec'ing
+        # the vendored file directly on Linux fails with EACCES/EINVAL.  Prefix
+        # the wine loader (the host fallback previously could never run a
+        # wine spec without an image, e.g. msvc420/msvc5).
+        cmd = ["wine", *cmd]
     try:
         r = subprocess.run(
             cmd,
@@ -457,7 +564,11 @@ def pull_toolchain(name: str, timeout: int = 1200) -> tuple[str, bool]:
         timeout=timeout,
     )
     if r.returncode != 0:
-        raise ToolchainError(f"docker pull {spec.image} failed: {r.stderr[-400:]}")
+        raise ToolchainError(
+            f"docker pull {spec.image} failed: {r.stderr[-400:]}.  "
+            f"rebrew images are BUILT from pinned sources, not pushed to a "
+            f"registry — run `rebrew toolchain build {name}` instead"
+        )
     return spec.image, False
 
 

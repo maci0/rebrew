@@ -677,3 +677,78 @@ class TestBackendDisplayName:
 
         assert backend_display_name("mystery") == "mystery"
         assert backend_display_name("") == ""
+
+
+class TestBorlandAndWatcomProfileCompat:
+    """borlandc/watcom families now have byte-matchable profiles."""
+
+    def test_tc16_matches_borlandc(self) -> None:
+        info = ToolchainInfo(family="borlandc")
+        aligned, expl = profile_matches_detection("tc16", info)
+        assert aligned is True
+        assert expl is None
+
+    def test_borlandc55_matches_borlandc(self) -> None:
+        info = ToolchainInfo(family="borlandc")
+        aligned, _ = profile_matches_detection("borlandc55", info)
+        assert aligned is True
+
+    def test_watcom16_matches_watcom(self) -> None:
+        info = ToolchainInfo(family="watcom")
+        aligned, _ = profile_matches_detection("watcom16", info)
+        assert aligned is True
+
+
+class TestTc16BuiltBinary:
+    """A real Turbo C++ 3.1 + TLINK-built DOS executable (built under
+    DOSBox with the vendored toolchain) must detect as borlandc and align
+    with the tc16/borlandc55 profiles."""
+
+    def test_detect_tc16_binary(self) -> None:
+        from rebrew.toolchain_detect import detect_toolchain, profile_matches_detection
+
+        binary = Path(__file__).parent / "fixtures" / "tc16_hello.exe"
+        if not binary.exists():
+            import pytest
+
+            pytest.skip("tc16_hello.exe fixture not present")
+        info = detect_toolchain(str(binary))
+        assert info.family == "borlandc"
+        assert "Borland" in (info.version_hint or "")
+        assert info.arch == "x86_16"  # an MZ binary is always 16-bit
+        aligned, _ = profile_matches_detection("tc16", info)
+        assert aligned is True
+        # borlandc55 is the 32-bit bcc32 — it cannot byte-match a 16-bit
+        # binary (the arch dimension rejects it), while tc16 can.
+        aligned, _ = profile_matches_detection("borlandc55", info)
+        assert aligned is False
+        aligned, _ = profile_matches_detection("msvc6", info)
+        assert aligned is False
+
+    def test_detect_lzexe_packed(self) -> None:
+        """An LZEXE-packed MZ reports the packer and warns to unpack first —
+        the family must not be misread from the decompressor stub."""
+        from rebrew.toolchain_detect import detect_toolchain
+
+        packed = Path(__file__).parent / "fixtures" / "tc16_hello_lzexe.exe"
+        if not packed.exists():
+            import pytest
+
+            pytest.skip("tc16_hello_lzexe.exe fixture not present")
+        info = detect_toolchain(str(packed))
+        assert info.packed == "lzexe 0.91"
+        assert any("packed with LZEXE" in e for e in info.evidence)
+
+    def test_detect_pklite_packed(self) -> None:
+        """A PKLITE-compressed MZ reports the packer (its stub carries the
+        PKWARE banner near the header) so the family is not trusted blindly."""
+        from rebrew.toolchain_detect import detect_toolchain
+
+        packed = Path(__file__).parent / "fixtures" / "tc16_hello_pklite.exe"
+        if not packed.exists():
+            import pytest
+
+            pytest.skip("tc16_hello_pklite.exe fixture not present")
+        info = detect_toolchain(str(packed))
+        assert info.packed == "pklite"
+        assert any("PKLITE" in e for e in info.evidence)
