@@ -1,7 +1,7 @@
 [build-system]
 # Pin upper bound so PEP 517 isolated builds cannot silently pick a new
 # setuptools major that changes wheel/sdist layout or metadata.
-requires = ["setuptools>=68.0,<81"]
+requires = ["setuptools>=68.0,<85"]
 build-backend = "setuptools.build_meta"
 
 [project]
