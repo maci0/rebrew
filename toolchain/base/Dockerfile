@@ -31,6 +31,7 @@ LABEL org.opencontainers.image.source="https://github.com/maci0/rebrew" \
       org.opencontainers.image.title="rebrew base (OS + wine + dosbox + wrapper helpers)" \
       org.opencontainers.image.description="base (OS + wine + dosbox + wrapper helpers) toolchain image"
 
+RUN dpkg --add-architecture i386 \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
         wine wine32 dosbox dumb-init curl ca-certificates xz-utils \

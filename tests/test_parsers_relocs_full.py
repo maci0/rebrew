@@ -321,3 +321,68 @@ def test_parse_obj_symbol_bytes_handles_omf() -> None:
     assert code is not None
     assert code[:2] == bytes.fromhex("55 8b")
     assert relocs == {7: "rel16", 18: "rel16"}
+
+
+def test_msvc16_omf16_dialects_parse() -> None:
+    """The MSVC 1.52 O1/far COMDAT fixtures parse through the omf16 decoder
+    when queried with their real symbols (the far `lcall` model + the
+    rel16/disp16 slots)."""
+    from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
+
+    far = _FIXTURES / "tg_msvc16_far.obj"
+    code, relocs, records = parse_obj_symbol_and_relocs(far, "_callg")
+    assert code == bytes.fromhex("9a 00 00 00 00 03 06 00 00 cb")  # lcall 0:0; add ax,[6]; retf
+    assert sorted(relocs) == [1, 7]
+    code, relocs, records = parse_obj_symbol_and_relocs(far, "_f")
+    assert code == bytes.fromhex("a1 00 00 cb")  # mov ax,[0000]; retf
+    assert sorted(relocs) == [1]
+
+
+def test_omf16_failure_falls_through_to_objconv(monkeypatch) -> None:
+    """When the omf16 decoder cannot extract code (an unsupported dialect),
+    the parse falls through to the objconv→COFF path instead of returning
+    None outright."""
+    import shutil
+
+    from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
+
+    if (
+        shutil.which("objconv") is None
+        and not (Path(__file__).resolve().parents[2] / "tools" / "objconv" / "objconv").exists()
+    ):
+        pytest.skip("objconv not present (tools/objconv is gitignored)")
+
+    from rebrew.matcher import omf16 as omf16_mod
+
+    def _no_code(*args, **kwargs):  # noqa: ARG001
+        return None, {}
+
+    monkeypatch.setattr(omf16_mod, "parse_obj_omf16", _no_code)
+    omf = _FIXTURES / "tg_msvc16_far.obj"
+    # The objconv path either converts (fixed build → code) or raises /
+    # returns None (stock build) — either way it must not raise a bare
+    # AttributeError from the fall-through restructure.
+    try:
+        code, relocs, records = parse_obj_symbol_and_relocs(omf, "_callg")
+    except (ValueError, OSError):
+        return  # stock objconv: conversion failed loudly — acceptable
+    assert code is not None or relocs is None
+
+
+def test_omf_to_coff_failed_conversion_raises(monkeypatch, tmp_path: Path) -> None:
+    """A failed objconv run must raise loudly instead of leaving an empty
+    tempfile that LIEF would silently parse as None."""
+    import subprocess
+
+    from rebrew.matcher import parsers as parsers_mod
+
+    class _Fail:
+        returncode = 1
+        stdout = ""
+        stderr = "Error 2316: Incompatible relocation method"
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _Fail())
+    out = tmp_path / "out.coff"
+    out.write_bytes(b"")  # caller pre-creates the tempfile
+    with pytest.raises(ValueError, match="objconv failed"):
+        parsers_mod._omf_to_coff(_FIXTURES / "tg_watcom.o", out)

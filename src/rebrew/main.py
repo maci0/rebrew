@@ -198,6 +198,11 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ),
     ("status", "rebrew.status", "At-a-glance reversing progress overview."),
     ("todo", "rebrew.todo", "Prioritized action list: what to work on next."),
+    (
+        "unpack-lzexe",
+        "rebrew.lzexe_cli",
+        "Unpack an LZEXE 0.90/0.91 compressed DOS executable.",
+    ),
     ("crt-match", "rebrew.crt_match", "CRT source cross-reference matcher."),
     ("imports", "rebrew.imports", "List PE import-table symbols and detect import stubs."),
     (

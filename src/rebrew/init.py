@@ -69,7 +69,7 @@ jobs = 4                           # default parallelism for verify/batch/GA
 
 [targets."{target_name}"]
 binary = "original/{binary_name}"
-format = "__TARGET_FORMAT__"               # pe | elf | macho | ne
+format = "__TARGET_FORMAT__"               # pe | elf | macho | ne | mz
 arch = "__TARGET_ARCH__"               # x86_16 | x86_32 | x86_64 | arm32 | arm64
 reversed_dir = "src/{target_name}"   # directory containing reversed .c files
 function_list = "src/{target_name}/functions.txt"
@@ -244,6 +244,28 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_16",
         "lang": "C89",
     },
+    "tc20": {
+        "runner": "",
+        "command": "toolchain/borland/2.0-win16/BIN/TCC.EXE",
+        "includes": "toolchain/borland/2.0-win16/INCLUDE",
+        "libs": "toolchain/borland/2.0-win16/LIB",
+        "cflags": "",
+        "base_cflags": "-c",
+        "format": "pe",
+        "arch": "x86_16",
+        "lang": "C89",
+    },
+    "tc16": {
+        "runner": "",
+        "command": "toolchain/borland/3.1-win16/BIN/TCC.EXE",
+        "includes": "toolchain/borland/3.1-win16/INCLUDE",
+        "libs": "toolchain/borland/3.1-win16/LIB",
+        "cflags": "",
+        "base_cflags": "-c",
+        "format": "pe",
+        "arch": "x86_16",
+        "lang": "C89",
+    },
     "borlandc55": {
         "runner": "wine",
         "command": "wine toolchain/borland/5.5-win32/Bin/bcc32.exe",
@@ -349,18 +371,21 @@ def _warn_profile_mismatch(profile: str, binary_format: str, arch: str) -> None:
 
     The config is still written with the detected format/arch (so doctor's
     alignment check sees the truth), but the user is told up front — a
-    16-bit NE binary with a 32-bit msvc6 profile would otherwise fail
-    doctor immediately after init.
+    16-bit binary with a 32-bit profile would otherwise fail doctor
+    immediately after init.  The 16-bit profile set is derived from
+    COMPILER_DEFAULTS so newly added 16-bit profiles (tc16, watcom16, ...)
+    are covered automatically instead of a hardcoded list.
     """
     profile_arch = COMPILER_DEFAULTS.get(profile, {}).get("arch", "")
     if not profile_arch:
         return
-    _bitness_16 = {"msvc1.52"}
+    _bitness_16 = {name for name, cfg in COMPILER_DEFAULTS.items() if cfg.get("arch") == "x86_16"}
     if arch == "x86_16" and profile not in _bitness_16:
         msg = (
-            f"detected a 16-bit NE binary ({binary_format}/{arch}) but profile "
-            f"'{profile}' is a 32-bit compiler — switch to --compiler msvc1.52 "
-            "for byte matching (or document functions as blockers)"
+            f"detected a 16-bit binary ({binary_format}/{arch}) but profile "
+            f"'{profile}' is a 32-bit compiler — switch to --compiler "
+            f"{'/'.join(sorted(_bitness_16))} for byte matching (or document "
+            "functions as blockers)"
         )
         # Console is stderr — the --json stdout payload stays pure JSON.
         console.print(f"[yellow]warning:[/yellow] {msg}")
@@ -372,6 +397,20 @@ def _warn_profile_mismatch(profile: str, binary_format: str, arch: str) -> None:
         console.print(f"[yellow]warning:[/yellow] {msg}")
 
 
+def _guess_compiler_profile(tc: ToolchainInfo, binary: Path | None) -> str | None:
+    """Pick the best-matching rebrew profile for a detected toolchain family.
+
+    Delegates to the shared :func:`rebrew.toolchain_detect.suggest_profile`
+    (the single source of truth for family→profile selection, used by init,
+    intake, and doctor), falling back to ``_FAMILY_COUNTERPART`` for
+    families without a compat set.
+    """
+    from rebrew.toolchain_detect import suggest_profile
+
+    guess = suggest_profile(tc, binary)
+    return guess if guess is not None else _FAMILY_COUNTERPART.get(tc.family)
+
+
 def _detect_binary_format(path: Path) -> tuple[str, str] | None:
     """Detect ``(format, arch)`` from a binary already placed in original/.
 
@@ -380,7 +419,7 @@ def _detect_binary_format(path: Path) -> tuple[str, str] | None:
     when the format cannot be determined (the caller then keeps the profile
     defaults).
     """
-    from rebrew.binary_loader import detect_format_and_arch, is_ne
+    from rebrew.binary_loader import detect_format_and_arch, is_mz, is_ne
 
     try:
         fmt, arch = detect_format_and_arch(path)
@@ -391,6 +430,8 @@ def _detect_binary_format(path: Path) -> tuple[str, str] | None:
     try:
         if is_ne(path):
             return "ne", "x86_16"
+        if is_mz(path):
+            return "mz", "x86_16"
     except Exception:
         pass
     return None
@@ -458,6 +499,8 @@ _PROFILE_TOOLS: dict[str, str] = {
     "msvc7": "msvc/7.0-win32",
     "borlandc55": "borland/5.5-win32",
     "watcom16": "watcom/2.0-win32",
+    "tc20": "borland/2.0-win16",
+    "tc16": "borland/3.1-win16",
 }
 
 
@@ -536,6 +579,15 @@ def main(
     compiler_profile: str = typer.Option(
         "msvc6", "--compiler", "-c", help="Compiler profile to use."
     ),
+    guess_compiler: bool = typer.Option(
+        False,
+        "--guess-compiler",
+        help=(
+            "Auto-select the compiler profile from the target binary "
+            "(diec → PDB → heuristics; prefers the 16-bit profile for "
+            "DOS/NE binaries).  Requires the binary to be in place."
+        ),
+    ),
     install_wibo: bool = typer.Option(
         False, "--install-wibo", help="Download wibo runner to tools/wibo."
     ),
@@ -571,6 +623,7 @@ def main(
     from rebrew.cli import option_default
 
     toolchain_dir = option_default(toolchain_dir, None)
+    guess_compiler = option_default(guess_compiler, False)
 
     # Accept both "original/bench.exe" and "bench.exe" — the config already
     # prefixes binary = "original/<name>", so a user-supplied original/
@@ -578,6 +631,36 @@ def main(
     binary_name = binary_name.replace("\\", "/")
     if binary_name.lower().startswith("original/"):
         binary_name = binary_name[len("original/") :]
+
+    # --guess-compiler: auto-select the profile from the target binary
+    # (must already be in place under original/).  Runs before the profile
+    # defaults are looked up so the guessed profile drives the whole
+    # config generation.
+    binary_path = cwd / "original" / binary_name
+    if guess_compiler:
+        if not binary_path.exists():
+            error_exit(
+                f"cannot guess compiler: binary not found at {binary_path} "
+                "(copy it into original/ first)",
+                json_mode=json_output,
+            )
+        from rebrew.toolchain_detect import detect_toolchain
+
+        guess_tc = detect_toolchain(binary_path)
+        guess = _guess_compiler_profile(guess_tc, binary_path)
+        if guess is None:
+            error_exit(
+                f"cannot guess a compiler profile for {binary_path} "
+                f"(detected family {guess_tc.family!r}) — pass --compiler "
+                "<profile> explicitly (see --help for the list)",
+                json_mode=json_output,
+            )
+        if guess != compiler_profile:
+            console.print(
+                f"[green]guessed compiler[/green] {guess} "
+                f"(detected {guess_tc.family} {guess_tc.version_hint or ''})"
+            )
+            compiler_profile = guess
 
     # Look up compiler defaults for the profile
     if compiler_profile not in COMPILER_DEFAULTS:

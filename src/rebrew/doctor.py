@@ -242,10 +242,15 @@ def _toolchain_download_hint(path_str: str) -> str:
         )
     if "6.0-win32" in path_str or "msvc6" in path_str:
         return " Download: https://github.com/itsmattkc/msvc-6.0-win32"
-    if "msvc400" in path_str:
-        return " Download: https://github.com/itsmattkc/MSVC400"
+    if "4.0-win32" in path_str or "msvc400" in path_str:
+        return " Download: https://codeload.github.com/itsmattkc/MSVC400/tar.gz/refs/heads/master"
     if "4.2-win32" in path_str or "msvc420" in path_str:
-        return " Download: https://github.com/itsmattkc/msvc-4.2-win32"
+        # The vendored 4.2 tree comes from the archaic-msvc repo (its own
+        # README + the pinned ToolchainSource); the itsmattkc mirror is a
+        # different, older snapshot.
+        return (
+            " Download: https://codeload.github.com/archaic-msvc/msvc420/tar.gz/refs/heads/master"
+        )
     if "wcc" in path_str or "watcom" in path_str:
         return (
             " Download (Watcom C/C++): https://github.com/OmniBlade/"
@@ -258,19 +263,30 @@ def _toolchain_download_hint(path_str: str) -> str:
 
 def check_compiler(cfg: ProjectConfig) -> CheckResult:
     """Check that the compiler command is executable."""
-    # A 16-bit NE target needs the msvc1.52 profile (DOSBox CL.EXE).  With
-    # it configured, proceed to the normal executable check; otherwise a
-    # 32-bit CL.EXE cannot build the target, so a missing toolchain is
+    # A 16-bit target needs a 16-bit-capable profile (msvc1.52 DOSBox
+    # CL.EXE, tc16 DOSBox TCC.EXE, watcom16 native wcc).  With one
+    # configured, proceed to the normal executable check; otherwise a
+    # 32-bit compiler cannot build the target, so a missing toolchain is
     # expected, not a project defect.  Downgrade to a warning instead of a
-    # hard failure.
-    if getattr(cfg, "arch", "") == "x86_16" and getattr(cfg, "compiler_profile", "") != "msvc1.52":
+    # hard failure, and suggest the right profile via the detector.
+    _16BIT = {"msvc1.52", "tc16", "tc20", "watcom16"}
+    if getattr(cfg, "arch", "") == "x86_16" and getattr(cfg, "compiler_profile", "") not in _16BIT:
+        hint = "msvc1.52, tc16, tc20, or watcom16"
+        try:
+            from rebrew.toolchain_detect import detect_toolchain, suggest_profile
+
+            info = detect_toolchain(cfg.target_binary)
+            guess = suggest_profile(info, cfg.target_binary)
+            if guess:
+                hint = guess
+        except Exception:
+            pass  # best-effort recommendation
         return CheckResult(
             name="Compiler",
             status=_WARN,
-            message="16-bit NE target — configure 'profile = \"msvc1.52\"' in "
-            "rebrew-project.toml for byte matching (DOSBox CL.EXE)",
-            fix='Set compiler.profile = "msvc1.52" (and compiler.command = '
-            "toolchain/msvc/1.52-win16/BIN/CL.EXE); analysis/docs work either way.",
+            message="16-bit target — configure a 16-bit compiler profile for "
+            f"byte matching (e.g. '{hint}')",
+            fix=f'Set compiler.profile = "{hint}"; analysis/docs work either way.',
         )
 
     cmd_str = cfg.compiler_command
@@ -559,13 +575,14 @@ def check_delphi16_toolchain(cfg: ProjectConfig) -> CheckResult:
 
 
 def check_toolchain_backed(cfg: ProjectConfig) -> CheckResult:
-    """For profiles backed by the toolchain abstraction (watcom, msvc1.52),
-    report how the toolchain resolves: vendored host binary present, or the
-    docker image pulled.  Replaces the misleading "binary not in PATH" the
-    generic compiler check would give (vendored compilers live under
-    tools/, not PATH).  Skipped for other profiles."""
+    """For profiles backed by the toolchain abstraction (watcom, watcom16,
+    msvc1.52, tc16, borlandc55), report how the toolchain resolves:
+    vendored host binary present, or the docker image pulled.  Replaces the
+    misleading "binary not in PATH" the generic compiler check would give
+    (vendored compilers live under tools/, not PATH).  Skipped for other
+    profiles."""
     profile = str(getattr(cfg, "compiler_profile", ""))
-    if profile not in ("watcom", "msvc1.52"):
+    if profile not in ("watcom", "watcom16", "msvc1.52", "tc16", "tc20", "borlandc55"):
         return CheckResult(name="Toolchain", status=_SKIP, message="not a toolchain-backed profile")
 
     from rebrew.toolchain import ToolchainError, _image_present, get_toolchain

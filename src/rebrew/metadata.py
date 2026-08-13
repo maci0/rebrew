@@ -734,7 +734,23 @@ def merge_into_annotation(ann: Annotation, directory: Path) -> Annotation:
 # values through coerce_metadata_value.
 
 KNOWN_STATUSES: frozenset[str] = frozenset(
-    {"STUB", "EXACT", "RELOC", "PROVEN", "NEAR_MATCHING", "SKIP"}
+    {
+        # User classification (annotation / user edits).
+        "STUB",
+        "EXACT",
+        "RELOC",
+        "PROVEN",
+        "NEAR_MATCHING",
+        "SKIP",
+        # Machine outcomes persisted by `rebrew test` / `rebrew verify`
+        # (they pass CompareResult.status straight to update_source_status,
+        # so the validation gate must accept the same vocabulary).
+        "SIZE_MISMATCH",
+        "COMPILE_ERROR",
+        "EXTRACT_ERROR",
+        "MISSING_SIZE",
+        "MISSING_FILE",
+    }
 )
 
 

@@ -65,14 +65,31 @@ _MSVC_LAYOUTS: dict[str, tuple[tuple[str, str, str], ...]] = {
 def resolve_msvc_toolchain(root: Path, profile: str) -> tuple[str, str, str] | None:
     """Resolve the best available layout for an MSVC *profile* in a project
     rooted at *root*: ``(command, includes, libs)`` as project-relative
-    ``toolchain/...`` strings, or None when no layout exists (project
-    ``toolchain/`` or the rebrew install's own vendored tree).
+    ``toolchain/...`` strings, or None when no layout exists.
 
     The command keeps the ``wine`` prefix; libs is empty for the
     compile-only mirrors.
+
+    Project-provisioned layouts win over the rebrew install's own vendored
+    tree: a project that linked only ``toolchain/msvc/6.0-sp6-win32`` from a
+    master dir (``--link-tools-from``) must be handed the SP6 mirror even
+    when the install happens to vendor the full 6.0 master — the command has
+    to reference a layout the project itself provisioned.  The generated
+    config then resolves the actual compiler through the same fallback if the
+    linked dir is not yet populated.
     """
-    for cl, inc, lib in _MSVC_LAYOUTS.get(profile, ()):
-        if (root / cl).exists() or find_install_tool(cl) is not None:
+    layouts = _MSVC_LAYOUTS.get(profile, ())
+    candidates = toolchain_link_candidates(profile)
+    # Pass 1: project-provisioned layouts only — a compile-ready CL.EXE path
+    # or a linked toolchain dir (symlink to a master, possibly empty).
+    for i, (cl, inc, lib) in enumerate(layouts):
+        if (root / cl).exists():
+            return f"wine {cl}", inc, lib
+        if i < len(candidates) and (root / "toolchain" / candidates[i]).exists():
+            return f"wine {cl}", inc, lib
+    # Pass 2: fall back to the rebrew install's own vendored tree.
+    for cl, inc, lib in layouts:
+        if find_install_tool(cl) is not None:
             return f"wine {cl}", inc, lib
     return None
 

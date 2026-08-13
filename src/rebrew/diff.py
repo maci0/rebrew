@@ -237,6 +237,13 @@ def _write_blocker(
     return outcome
 
 
+def _cs_mode_for_cfg(cfg: Any) -> int:
+    """Capstone mode for a target config: 16-bit for DOS/NE (x86_16)."""
+    import capstone
+
+    return int(capstone.CS_MODE_16 if getattr(cfg, "arch", "") == "x86_16" else capstone.CS_MODE_32)
+
+
 def run_diff(
     seed_c: str,
     mismatches_only: bool,
@@ -280,6 +287,7 @@ def run_diff(
     if len(obj_bytes) > len(p.target_bytes):
         obj_bytes = obj_bytes[: len(p.target_bytes)]
 
+    cs_mode = _cs_mode_for_cfg(p.cfg)
     summary = diff_functions(
         p.target_bytes,
         obj_bytes,
@@ -287,6 +295,7 @@ def run_diff(
         mismatches_only=mismatches_only,
         register_aware=register_aware,
         as_dict=True,
+        cs_mode=cs_mode,
     )
     if not json_output and not csv_output:
         diff_functions(
@@ -295,6 +304,7 @@ def run_diff(
             res.reloc_offsets,
             mismatches_only=mismatches_only,
             register_aware=register_aware,
+            cs_mode=cs_mode,
         )
 
     if isinstance(summary, dict) and summary.get("instructions"):
@@ -306,7 +316,7 @@ def run_diff(
     has_structural = False
     if summary:
         blockers = classify_blockers(summary)
-        sim = structural_similarity(p.target_bytes, obj_bytes, res.reloc_offsets)
+        sim = structural_similarity(p.target_bytes, obj_bytes, res.reloc_offsets, cs_mode=cs_mode)
 
         # Short-candidate triage: target instructions with no compiled
         # counterpart are the not-yet-decompiled tail (SIZE_MISMATCH class).

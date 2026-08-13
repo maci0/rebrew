@@ -212,15 +212,89 @@ def _validate_and_refine(
     return out
 
 
+def _mz_capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
+    """Linear-sweep candidates for a plain DOS MZ executable.
+
+    Rizin cannot analyze MZ; the code region (after the header + relocation
+    table) is swept in 16-bit mode for the classic cdecl prologue
+    ``push bp; mov bp,sp``, padding runs, the CS:IP entry point, and
+    ``e8 rel16`` call targets inside the region.  VAs are linear
+    ``segment*16+offset`` addresses (the DOS convention).
+    """
+    from rebrew.binary_loader import parse_mz_header
+
+    h = parse_mz_header(binary)
+    with open(binary, "rb") as f:
+        f.seek(h["code_offset"])
+        raw = f.read(h["code_size"])
+    if not raw:
+        return []
+    # VAs are segment-relative linear addresses: the code region starts at
+    # VA 0 and the header's code segment ``e_cs`` lands at ``e_cs*16``
+    # (entry at ``e_cs*16 + e_ip``), consistent with load_binary's pseudo
+    # .text section.  VA(F) = F - code_offset.
+    va_base = h["va_base"]
+    starts: set[int] = set()
+
+    # 1. the code region base and the CS:IP entry are always candidates
+    starts.add(va_base)
+    entry = h["entry_va"]
+    if va_base <= entry < va_base + len(raw):
+        starts.add(entry)
+    # 2. bytes after padding runs (nop alignment)
+    i = 0
+    n = len(raw)
+    while i < n - 1:
+        if raw[i] == 0x90:
+            j = i
+            while j < n and raw[j] in (0x90, 0xCC):
+                j += 1
+            if j - i >= 2 and j < n:
+                starts.add(va_base + j)
+            i = j
+        else:
+            i += 1
+    # 3. `push bp; mov bp,sp` prologue (16-bit cdecl)
+    for m in re.finditer(rb"\x55\x8b\xec", raw):
+        starts.add(va_base + m.start())
+    # 4. direct-call targets (e8 rel16) inside the region
+    try:
+        import capstone
+
+        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_16)
+    except Exception:
+        md = None
+    if md is not None:
+        for insn in md.disasm(raw, va_base):
+            if insn.mnemonic == "call" and insn.op_str.startswith("0x"):
+                try:
+                    tgt = int(insn.op_str, 16)
+                except ValueError:
+                    continue
+                if va_base <= tgt < va_base + n:
+                    starts.add(tgt)
+
+    # Sizes: extent up to the next candidate (linear-sweep convention);
+    # the last candidate runs to the end of the code region.
+    ordered = sorted(starts)
+    region_end = va_base + n
+    out: list[tuple[int, int, str]] = []
+    for i, va in enumerate(ordered):
+        end = ordered[i + 1] if i + 1 < len(ordered) else region_end
+        out.append((va, max(0, end - va), f"fcn.{va:04x}"))
+    return out
+
+
 def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
     """Chain rizin + capstone strategies and merge into validated functions.
 
     16-bit NE binaries short-circuit to the native NE loader's linear sweep
     — rizin cannot analyze NE, and its output is garbage file-offset
     "functions" (the 233-function false enumeration that once polluted the
-    SkiFree intake).
+    SkiFree intake).  Plain DOS MZ binaries short-circuit to the 16-bit
+    capstone sweep (rizin cannot analyze MZ either).
     """
-    from rebrew.binary_loader import is_ne, load_binary
+    from rebrew.binary_loader import is_mz, is_ne, load_binary
 
     if is_ne(binary):
         from rebrew.ne_loader import enumerate_ne_functions
@@ -230,6 +304,13 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
         d = Discovery()
         d.functions = funcs
         d.sources = {"ne loader": len(funcs)}
+        return d
+
+    if is_mz(binary):
+        # Sizes are unknown in a bare MZ sweep (no symbol table) — keep 0.
+        d = Discovery()
+        d.functions = list(_mz_capstone_sweep(binary))
+        d.sources = {"mz sweep": len(d.functions)}
         return d
 
     d = Discovery()

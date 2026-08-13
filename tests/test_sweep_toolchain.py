@@ -33,6 +33,24 @@ def _make_params() -> SimpleNamespace:
     )
 
 
+def test_vendored_enumeration_includes_msvc400() -> None:
+    """The sweep's MSVC version list covers the full vendored 4.0→7.0 line,
+    including the now-vendored 4.0 (uppercase BIN/INCLUDE layout) — the
+    detector can suggest any of these profiles, so the sweep must be able
+    to try each."""
+    from rebrew.match import _MSVC_TOOLCHAIN_PATHS
+
+    profiles = [p for p, _cl, _inc in _MSVC_TOOLCHAIN_PATHS]
+    assert "msvc-4.0-win32" in profiles
+    assert "msvc-4.2-win32" in profiles
+    assert "msvc-5.0-win32" in profiles
+    # 4.0's tree is all-caps (BIN/INCLUDE) — the sweep path must match it.
+    cl = next(cl for p, cl, _i in _MSVC_TOOLCHAIN_PATHS if p == "msvc-4.0-win32")
+    assert "4.0-win32/BIN/CL.EXE" in cl
+    inc = next(i for p, _c, i in _MSVC_TOOLCHAIN_PATHS if p == "msvc-4.0-win32")
+    assert "4.0-win32/INCLUDE" in inc
+
+
 def test_toolchain_sweep_orders_best_first(monkeypatch, capsys) -> None:
     # Two vendored toolchains: "good" compiles byte-identical, "bad" does not.
     good = b"\x55\x8b\xec\x5d\xc3"
@@ -100,3 +118,17 @@ def test_toolchain_flag_sweep_reports_per_toolchain(monkeypatch, capsys) -> None
     assert by_name["good"]["flags"] == "/O1"
     assert by_name["bad"]["exact"] is False
     assert by_name["bad"]["best_score"] == 42.0
+
+
+def test_flag_combos_msvc_line_share_msvc6_flags() -> None:
+    """msvc400/msvc420/msvc5/6.3/6.6 all fall back to the msvc6 flag set in
+    the sweep (they are MSVC-style compilers) — a future profile-specific
+    flag set must not silently diverge the sweep for the expanded line."""
+    from rebrew.matcher.compiler import generate_flag_combinations
+
+    base = generate_flag_combinations(tier="quick", profile="msvc6")
+    for prof in ("msvc400", "msvc420", "msvc5", "msvc6.3", "msvc6.6", "msvc7"):
+        combos = generate_flag_combinations(tier="quick", profile=prof)
+        assert combos == base, prof
+        nonempty = [c for c in combos if c]
+        assert nonempty and all("/" in c for c in nonempty), prof  # MSVC-style

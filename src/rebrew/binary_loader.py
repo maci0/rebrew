@@ -343,6 +343,11 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
         from rebrew.ne_loader import load_ne_binary
 
         result = load_ne_binary(path)
+    elif is_mz(path):
+        # Plain DOS MZ executables: one pseudo code section spanning the
+        # code region, VAs as linear segment*16+offset addresses starting
+        # at the CS segment base (the entry's segment).
+        result = _load_mz(path)
     else:
         result = _parse_regular(path, fmt)
 
@@ -560,7 +565,13 @@ def function_extent_from_disasm(
 
     import capstone
 
-    md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+    # 16-bit DOS/NE code must disassemble in 16-bit mode — parsing it as
+    # 32-bit mis-decodes instructions and hits a bogus early `ret` (the
+    # extent then truncates every DOS function at ~20 bytes).
+    mode = (
+        capstone.CS_MODE_16 if getattr(info, "format", "") in ("mz", "ne") else capstone.CS_MODE_32
+    )
+    md = capstone.Cs(capstone.CS_ARCH_X86, mode)
     md.skipdata = False
     offset = 0
     for insn in md.disasm(data, va):
@@ -792,3 +803,118 @@ def detect_format_and_arch(path: Path) -> tuple[str, str | None]:
             return "macho", _MACHO_CPU_TO_ARCH.get(b.header.cpu_type)
         return "macho", None
     raise ValueError(f"Cannot detect binary format: {path}")
+
+
+def is_mz(path: str | Path) -> bool:
+    """True when *path* is a plain DOS MZ executable (not an NE/PE wrapper)."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(0x40)
+    except OSError:
+        return False
+    if len(head) < 2 or head[:2] != b"MZ":
+        return False
+    if len(head) >= 0x40:
+        e_lfanew = int.from_bytes(head[0x3C:0x40], "little")
+        if e_lfanew + 4 <= 0x10000:
+            with open(path, "rb") as f:
+                f.seek(e_lfanew)
+                sig = f.read(4)
+            if sig[:2] in (b"NE", b"PE", b"LE", b"LX"):
+                return False
+    return True
+
+
+def parse_mz_header(path: str | Path) -> dict[str, int]:
+    """Parse a DOS MZ header, returning the code-region geometry.
+
+    Returns ``code_offset`` (file offset where the code starts — after the
+    header and relocation table), ``code_size`` (remaining file bytes),
+    ``entry_va`` (the CS:IP entry expressed as a linear ``segment*16+offset``
+    address, the classic DOS convention used for function VAs), and
+    ``va_base`` (linear address of ``code_offset`` — the first code byte's
+    segment is unknown for a bare MZ, so 0 is assumed, matching how
+    ``extract_raw_bytes`` would address it).
+
+    Segment semantics: the MZ header's CS/SS fields are *relative to the
+    image start* (the loader maps the image content — file ``code_offset``
+    onward — to a contiguous block, and ``e_cs``/``e_ss`` count paragraphs
+    into it).  Consequently the file itself IS the load image minus the
+    header, and ``VA(file F) = F - code_offset`` — code segment ``e_cs``
+    lands at linear ``e_cs*16`` and the entry at ``e_cs*16 + e_ip``, both
+    matching what a DOS disassembler would show.  (``e_cs`` lives at offset
+    0x16; ``e_ss`` at 0x0E is the stack segment, a common mix-up that
+    silently shifts every VA when the two differ — as in any program with
+    separate code and data segments.)"""
+    with open(path, "rb") as f:
+        head = f.read(0x40)
+    if len(head) < 0x40 or head[:2] != b"MZ":
+        raise ValueError(f"not an MZ executable: {path}")
+    cparhdr = int.from_bytes(head[0x08:0x0A], "little")
+    crlc = int.from_bytes(head[0x06:0x08], "little")
+    lfarlc = int.from_bytes(head[0x18:0x1A], "little")
+    cs = int.from_bytes(head[0x16:0x18], "little")  # e_cs — NOT e_ss (0x0E)!
+    ip = int.from_bytes(head[0x14:0x16], "little")
+    cblp = int.from_bytes(head[0x02:0x04], "little")
+    cp = int.from_bytes(head[0x04:0x06], "little")
+
+    # Degenerate header (no header paragraphs, no pages) — not a real MZ.
+    if cparhdr == 0 and cp == 0:
+        raise ValueError(f"invalid MZ header (no header/pages): {path}")
+    # Per the MZ spec, cblp == 0 means the last page is exactly 512 bytes
+    # (a full page), so the true size is cp * 512 — the (cp-1)*512 + cblp
+    # formula would undercount by 512 and yield an empty code region for
+    # files whose size is an exact multiple of 512.
+    file_size = ((cp - 1) * 512 + cblp) if cp > 0 and cblp > 0 else (cp * 512 if cp > 0 else 0)
+    if file_size == 0:
+        import os
+
+        file_size = os.path.getsize(path)
+    header_size = cparhdr * 16
+    # The code region starts at the end of the header paragraphs — the MZ
+    # loader maps the file from cparhdr*16 onward as the load image.  The
+    # relocation table (at lfarlc, crlc entries) usually lives INSIDE the
+    # header area; only when it extends past the header does the code
+    # effectively start after it.  (The old `header_size + crlc*4` skipped
+    # the first crlc*4 bytes even when the table fit in the header —
+    # shifting every function VA by that amount.)
+    code_offset = max(header_size, lfarlc + crlc * 4)
+    if lfarlc == 0:
+        # No relocation table — code starts right after the header.
+        code_offset = header_size
+    code_size = max(0, file_size - code_offset)
+    entry_va = cs * 16 + ip
+    return {
+        "code_offset": code_offset,
+        "code_size": code_size,
+        "entry_va": entry_va,
+        "va_base": 0,  # VA of the first code byte (seg-relative space, see docstring)
+    }
+
+
+def _load_mz(path: Path) -> BinaryInfo:
+    """Build a BinaryInfo for a plain DOS MZ executable.
+
+    The code region (after the header + relocation table) becomes a single
+    pseudo ``.text`` section in segment-relative linear space: ``VA(F) =
+    F - code_offset``, so the header's code segment ``e_cs`` lands at
+    linear ``e_cs*16`` and the entry at ``e_cs*16 + e_ip`` — matching the
+    addresses a DOS disassembler shows.  ``va_to_file_offset`` and
+    ``extract_raw_bytes`` therefore work for DOS targets.
+    """
+    h = parse_mz_header(path)
+    code_size = h["code_size"]
+    info = BinaryInfo(path=path, format="mz", image_base=0)
+    info.text_va = 0
+    info.text_size = code_size
+    info.text_raw_offset = h["code_offset"]
+    info.sections = {
+        ".text": SectionInfo(
+            name=".text",
+            va=0,
+            size=code_size,
+            file_offset=h["code_offset"],
+            raw_size=code_size,
+        )
+    }
+    return info

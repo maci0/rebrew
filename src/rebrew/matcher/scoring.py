@@ -300,11 +300,18 @@ def score_candidate(
     reloc_mask: np.ndarray | None = None
     if reloc_offsets is not None and min_len > 0:
         reloc_mask = np.zeros(min_len, dtype=bool)
-        for ro in reloc_offsets:
-            start = max(0, ro)
-            end = min(ro + pointer_size, min_len)
-            if start < end:
-                reloc_mask[start:end] = True
+        # Vectorized span marking: every reloc covers [ro, ro + pointer_size),
+        # so build one index array from all offsets at once instead of
+        # slicing per offset in a Python loop.
+        if isinstance(reloc_offsets, dict):
+            offsets = np.asarray(list(reloc_offsets), dtype=np.int64)
+        else:
+            offsets = np.asarray(reloc_offsets, dtype=np.int64)
+        if offsets.size:
+            idx = (offsets[:, None] + np.arange(pointer_size)).ravel()
+            idx = idx[(idx >= 0) & (idx < min_len)]
+            if idx.size:
+                reloc_mask[idx] = True
 
     # 1. Byte similarity (weighted towards prologue) — reloc sites excluded
     if min_len > 0:
@@ -329,7 +336,9 @@ def score_candidate(
     target_mnems: list[str] | None = None
     if reloc_offsets is not None:
         if min_len > 0 and reloc_mask is not None:
-            reloc_score = float(np.count_nonzero(diff_mask & ~reloc_mask))
+            # byte_diff (diff_mask & ~reloc_mask) was already computed above —
+            # reuse it instead of recomputing the boolean AND per candidate.
+            reloc_score = float(np.count_nonzero(byte_diff))
     else:
         # Fallback to heuristic normalization — reuse pre-computed target if
         # available.  The merged detail disasm yields BOTH the normalized
@@ -445,11 +454,15 @@ def precompute_target(
 
     Returns (norm_target, target_mnems) to pass as ``_pre_norm_target``
     and ``_pre_target_mnems`` to ``score_candidate()``.
+
+    Delegates to :func:`_normalize_and_mnems_x86_32`: the old
+    implementation normalized with a ``detail=True`` pass and then
+    re-disassembled the same bytes via ``disasm_lite`` for the mnemonic
+    list — two full disassemblies of the target per GA run.  The combined
+    pass produces byte-identical normalization and the same mnemonics in
+    one disassembly (verified against the old split pass).
     """
-    norm_target = _normalize_reloc_x86_32(target_bytes, cs_arch, cs_mode)
-    md = _get_cs(cs_arch, cs_mode)
-    target_mnems = [m for (_a, _s, m, _o) in md.disasm_lite(target_bytes, 0x1000)]
-    return norm_target, target_mnems
+    return _normalize_and_mnems_x86_32(target_bytes, cs_arch, cs_mode)
 
 
 def diff_functions(
@@ -489,17 +502,31 @@ def diff_functions(
     """
     md = _get_cs(cs_arch, cs_mode)
 
-    # Disassemble at base 0 so instruction addresses equal byte offsets
-    # in the human-readable diff output.
-    target_insns = list(md.disasm(target_bytes, 0))
-    cand_insns = list(md.disasm(candidate_bytes, 0))
-
     if reloc_offsets is not None:
+        # Disassemble at base 0 so instruction addresses equal byte offsets
+        # in the human-readable diff output.
+        target_insns = list(md.disasm(target_bytes, 0))
+        cand_insns = list(md.disasm(candidate_bytes, 0))
         norm_target = _normalize_with_reloc_offsets(target_bytes, reloc_offsets, pointer_size)
         norm_cand = _normalize_with_reloc_offsets(candidate_bytes, reloc_offsets, pointer_size)
     else:
-        norm_target = _normalize_reloc_x86_32(target_bytes, cs_arch, cs_mode)
-        norm_cand = _normalize_reloc_x86_32(candidate_bytes, cs_arch, cs_mode)
+        # Reloc-less diff: normalize with ONE detail disassembly per buffer
+        # instead of two (the old path disassembled plain for the rows, then
+        # _normalize_reloc_x86_32 re-disassembled with detail=True for the
+        # normalization).  Detail mode produces identical rows — verified
+        # (mnemonic/op_str/bytes/address match the plain pass) — so a single
+        # detail pass serves both.
+        md_det = _get_cs(cs_arch, cs_mode, detail=True)
+        target_insns = list(md_det.disasm(target_bytes, 0))
+        cand_insns = list(md_det.disasm(candidate_bytes, 0))
+        norm_target_buf = bytearray(target_bytes)
+        for insn in target_insns:
+            _zero_reloc_fields(insn, norm_target_buf)
+        norm_cand_buf = bytearray(candidate_bytes)
+        for insn in cand_insns:
+            _zero_reloc_fields(insn, norm_cand_buf)
+        norm_target = bytes(norm_target_buf)
+        norm_cand = bytes(norm_cand_buf)
     reg_norm_target = (
         _mask_registers_x86_32(norm_target, cs_arch, cs_mode) if register_aware else None
     )

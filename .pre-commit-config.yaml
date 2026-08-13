@@ -31,7 +31,11 @@ repos:
         entry: bash -c 'for f in "$@"; do uv run agentskills validate "$f" || exit 1; done' --
         language: system
         pass_filenames: true
-        files: ^src/rebrew/agent-skills/
+        # Only actual SKILL.md files — the broader dir pattern matched
+        # references/*.md too, which agentskills validate rejects ("Not a
+        # directory"), failing `pre-commit run --all-files` (CI) on a
+        # valid tree.
+        files: ^src/rebrew/agent-skills/[^/]+/SKILL\.md$
 
       - id: ruff-check
         name: Ruff Lint

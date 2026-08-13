@@ -225,6 +225,29 @@ class TestComputeFitness:
         assert second.fitness is None
         assert ga._compute_fitness(second, "same_src_hash", "int f() { return 0; }") == score
 
+    def test_memo_hit_skips_compile_pool(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """A generation whose whole population is already in the process-local
+        fitness memo must NOT submit _compile_source (perf-review F5) — the
+        old code always ran the disk BuildCache round-trip first and only then
+        found the memo.  Prefill the memo for every member and make any
+        compile call explode."""
+        from rebrew.compile_cache import _source_digest
+
+        ga = _make_ga(tmp_path, num_generations=1, pop_size=4)
+        for src in ga.population:
+            ga._fitness_memo[_source_digest(src)] = 5.0
+        calls: list[str] = []
+
+        def boom(src: str) -> Any:
+            calls.append(src)
+            raise AssertionError("memoized source must not reach the compile pool")
+
+        monkeypatch.setattr(ga, "_compile_source", boom)
+        best_src, best_score = ga._run_inner()
+        assert calls == []
+        assert best_score == 5.0
+        assert best_src in ga.population
+
 
 # ---------------------------------------------------------------------------
 # Batch orchestration (_run_all): discovery, filtering, dry-run, execution

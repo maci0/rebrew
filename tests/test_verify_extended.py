@@ -1316,3 +1316,40 @@ class TestFixSizes:
         ]
         assert _apply_size_fixes(cfg, divergences, dry_run=False) == 1
         assert get_entry(cfg.metadata_dir, 0x2000, "SERVER").get("size") == 16
+
+
+class TestVerifyEntry16BitFloor:
+    def test_low_va_valid_for_x86_16(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A 16-bit DOS target (MZ, x86_16) addresses code from segment 0 —
+        VA 0x42e is valid and must pass the floor check (the compile itself
+        then runs, rather than being rejected as INVALID_VA)."""
+        import rebrew.binary_loader
+        import rebrew.compile
+        import rebrew.verify as verify_mod
+
+        cfg = _cfg(tmp_path, arch="x86_16")
+        (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
+        monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 38)
+        monkeypatch.setattr(
+            rebrew.compile,
+            "compile_and_compare",
+            lambda *a, **k: rebrew.compile.CompareResult(
+                matched=False,
+                status="SIZE_MISMATCH",
+                match_percent=0.0,
+                delta=0,
+                obj_bytes=None,
+                reloc_offsets=None,
+                message="",
+            ),
+        )
+        result = verify_mod.verify_entry(_ann(0x42E, size=38), cfg)  # type: ignore[arg-type]
+        assert result.status == "SIZE_MISMATCH"
+
+    def test_low_va_still_invalid_for_x86_32(self, tmp_path: Path) -> None:
+        from rebrew.verify import verify_entry
+
+        cfg = _cfg(tmp_path, arch="x86_32")
+        (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
+        result = verify_entry(_ann(0x42E, size=38), cfg)  # type: ignore[arg-type]
+        assert result.status == "INVALID_VA"

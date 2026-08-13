@@ -33,6 +33,7 @@ from rebrew.cli import (
     is_matched,
     is_status_sticky,
     json_print,
+    min_valid_va_for,
     parse_va,
     require_config,
     resolve_source_arg,
@@ -336,7 +337,7 @@ def main(
         for anno in lint_annos:
             anno.size = size
     for anno in lint_annos:
-        eval_errs, eval_warns = anno.validate()
+        eval_errs, eval_warns = anno.validate(min_va=min_valid_va_for(cfg))
         if not json_output:
             for e in eval_errs:
                 console.print(f"[bold red]LINT ERROR:[/bold red] {e}")

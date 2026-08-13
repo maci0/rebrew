@@ -45,6 +45,20 @@ NEAR_MATCH_THRESHOLD = 0.60
 # Used across verify, annotation, and naming to reject bad entries early.
 MIN_VALID_VA = 0x1000
 
+
+def min_valid_va_for(cfg: Any) -> int:
+    """The lowest legitimate function VA for a target's architecture.
+
+    16-bit DOS targets (MZ/NE, ``x86_16``) address code from segment 0 —
+    VAs legitimately start at 0 (the MZ code region base), so the 0x1000
+    PE-era floor does not apply.  Returns ``0`` for ``x86_16`` targets,
+    ``MIN_VALID_VA`` otherwise.
+    """
+    if getattr(cfg, "arch", "") == "x86_16":
+        return 0
+    return MIN_VALID_VA
+
+
 # Canonical Rich colour tags for status strings — used across CLI tools
 # for consistent output formatting.
 STATUS_COLORS: dict[str, str] = {

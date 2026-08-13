@@ -227,3 +227,87 @@ def test_update_key_preserves_legacy_encoding(tmp_path: Path) -> None:
     assert remove_inline_annotation_key(f2, 0x2000, "CFLAGS")
     assert b"\xe9" in f2.read_bytes()
     assert b"CFLAGS" not in f2.read_bytes()
+
+
+def test_block_comment_marker_parses(tmp_path: Path) -> None:
+    """C89-strict 16-bit compilers (Turbo C 2.0) reject ``//`` comments, so
+    their skeletons emit ``/* FUNCTION: ... */`` markers — the parser must
+    treat them identically to the ``//`` form."""
+    from rebrew.annotation import parse_c_file_multi
+
+    src = (
+        "/* FUNCTION: MAIN 0x0000042e */\n"
+        "int fcn_042e(void)\n"
+        "{\n"
+        "    /* TODO: Implement */\n"
+        "    return 0;\n"
+        "}\n"
+    )
+    tmp = Path(tmp_path)
+    f = tmp / "fcn_042e.c"
+    f.write_text(src, encoding="utf-8")
+    anns = parse_c_file_multi(f)
+    assert len(anns) == 1
+    assert anns[0].marker_type == "FUNCTION"
+    assert anns[0].va == 0x42E
+    assert anns[0].module == "MAIN"
+
+
+def test_skeleton_marker_style_matches_profile() -> None:
+    """Skeletons use ``/* */`` markers for C89-strict 16-bit profiles and
+    keep ``//`` for the rest."""
+    from rebrew.skeleton import _render_annotation_block
+
+    def first_line(profile: str) -> str:
+        return _render_annotation_block(
+            marker="FUNCTION",
+            cfg_marker="MAIN",
+            va=0x42E,
+            xref_context=None,
+            decomp_code=None,
+            decomp_backend="",
+            func_name="fcn_042e",
+            ghidra_name="",
+            convention_stub=None,
+            profile=profile,
+        ).splitlines()[0]
+
+    assert first_line("tc20") == "/* FUNCTION: MAIN 0x0000042e */"
+    assert first_line("msvc1.52") == "/* FUNCTION: MAIN 0x0000042e */"
+    assert first_line("tc16") == "// FUNCTION: MAIN 0x0000042e"
+    # cdecl is the default convention for the Borland family — no __cdecl.
+    body = _render_annotation_block(
+        marker="FUNCTION",
+        cfg_marker="MAIN",
+        va=0x42E,
+        xref_context=None,
+        decomp_code=None,
+        decomp_backend="",
+        func_name="fcn_042e",
+        ghidra_name="",
+        convention_stub=None,
+        profile="tc20",
+    )
+    assert "int fcn_042e(void)" in body
+    assert "__cdecl" not in body
+
+
+def test_x86_16_va_floor(tmp_path: Path) -> None:
+    """16-bit DOS targets address code from segment 0 — VA 0x42e is valid
+    for an MZ binary and must not trip the 0x1000 PE-era suspicious-VA
+    check when the arch-aware floor is passed."""
+    from types import SimpleNamespace
+
+    from rebrew.annotation import Annotation
+    from rebrew.cli import min_valid_va_for
+
+    cfg16 = SimpleNamespace(arch="x86_16")
+    cfg32 = SimpleNamespace(arch="x86_32")
+    assert min_valid_va_for(cfg16) == 0
+    assert min_valid_va_for(cfg32) == 0x1000
+
+    a = Annotation(marker_type="FUNCTION", module="MAIN", va=0x42E, size=38)
+    errs, _ = a.validate(min_va=min_valid_va_for(cfg16))
+    assert not any("suspicious" in e for e in errs)
+    errs32, _ = a.validate(min_va=min_valid_va_for(cfg32))
+    assert any("suspicious" in e for e in errs32)

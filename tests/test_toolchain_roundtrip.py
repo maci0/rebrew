@@ -46,12 +46,15 @@ def _find_wibo() -> Path | None:
 def _cfg(root: Path, toolchain: str) -> SimpleNamespace:
     """Build a compile config for a vendored toolchain, tolerating the
     decomp.me (msvc-6.0-sp3-win32/6.6/7.0, lowercase, Bin) and archaic-msvc
-    (msvc-4.2-win32/msvc-5.0-win32, uppercase, bin) layouts."""
+    (msvc-4.2-win32/msvc-5.0-win32, lowercase bin; msvc-4.0-win32,
+    all-caps BIN/INCLUDE) layouts."""
     candidates = [
         ("Bin", "CL.EXE"),
         ("Bin", "cl.exe"),
         ("bin", "CL.EXE"),
         ("bin", "cl.exe"),
+        ("BIN", "CL.EXE"),
+        ("BIN", "cl.exe"),
     ]
     cl = next(
         (
@@ -64,7 +67,7 @@ def _cfg(root: Path, toolchain: str) -> SimpleNamespace:
     inc = next(
         (
             _TOOLS / toolchain / d
-            for d in ("Include", "include")
+            for d in ("Include", "include", "INCLUDE")
             if (_TOOLS / toolchain / d).is_dir()
         ),
         _TOOLS / toolchain / "Include",
@@ -98,6 +101,8 @@ def _toolchain_available(toolchain: str) -> bool:
         _TOOLS / toolchain / "bin" / "CL.EXE",
         _TOOLS / toolchain / "Bin" / "cl.exe",
         _TOOLS / toolchain / "bin" / "cl.exe",
+        _TOOLS / toolchain / "BIN" / "CL.EXE",
+        _TOOLS / toolchain / "BIN" / "cl.exe",
     ]
     runner_ok = shutil.which("wine") is not None or _find_wibo() is not None
     return any(c.exists() for c in candidates) and runner_ok
@@ -132,6 +137,7 @@ def _compile_extract_compare(tmp_path: Path, toolchain: str, cflags: list[str]) 
         ("msvc-7.0-win32", ["/O2", "/Ob0", "/Gd"]),
         ("msvc-4.2-win32", ["/O2", "/Gd"]),
         ("msvc-5.0-win32", ["/O2", "/Gd"]),
+        ("msvc-4.0-win32", ["/O2", "/Gd"]),
     ],
 )
 def test_toolchain_roundtrip_exact(tmp_path: Path, toolchain: str, cflags: list[str]) -> None:

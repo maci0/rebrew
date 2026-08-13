@@ -26,11 +26,12 @@ Families:
 - ``borlandc`` — Borland C/C++ (Turbo C, C++Builder).  Same ``CODE``/``DATA``/
   ``BSS`` layout as Delphi but no Delphi RTL strings; runtime imports
   (``CW32.DLL``, ``CC3250MT.DLL``, ``BORLNDMM.DLL``) or Borland runtime strings.
+  Byte-matching: ``tc16`` (Turbo C++ 3.1, 16-bit DOS) and ``borlandc55``
+  (bcc32, 32-bit) both produce Borland-flavored objects rebrew can match.
 - ``watcom`` — Watcom C/C++ (watcom-win32 9.x–11.0, Open Watcom).  Evidence:
   underscore-prefixed ``_TEXT``/``_DATA``/``_BSS`` sections and Watcom runtime
-  strings.  No rebrew profile can byte-match these (or borlandc/delphi) yet —
-  ``rebrew doctor`` flags them as blockers; the OmniBlade mirror hosts wcc
-  toolchains if a profile is ever added.
+  strings.  Byte-matching: ``watcom`` (wcc386) and ``watcom16`` (wcc, 16-bit
+  DOS) profiles exist; ``rebrew doctor`` no longer flags these as blockers.
 
 Usage::
 
@@ -128,6 +129,7 @@ class ToolchainInfo:
     crt_linkage: str = ""  # "dynamic" | "static" | "" (unknown)
     base_cflags: str = ""  # suggested base_cflags: "/MD" or "/MT" for MSVC-family binaries
     opt_level: str = ""  # suggested optimization: "/O1" or "/O2" (MSVC codegen fingerprint)
+    packed: str = ""  # packer name/version when the binary is packed ("lzexe 0.91")
 
     def add(self, text: str) -> None:
         self.evidence.append(text)
@@ -539,6 +541,42 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
     if icc_hits:
         info.add(f"Intel C++ strings: {', '.join(icc_hits[:2])}")
 
+    # --- packer detection: LZEXE-compressed DOS executables ---
+    # A packed MZ reveals nothing about the compiler (the visible code is
+    # the decompressor stub); the detection must say so, or the family
+    # gets misread from stub strings.  ``unpack-lzexe`` restores the image.
+    try:
+        from rebrew.lzexe import lzexe_version
+
+        lz_ver = lzexe_version(path)
+    except Exception:
+        # Best-effort packer probe — a failure must not break detection,
+        # but should be visible when debugging why packed: is absent.
+        import logging
+
+        logging.getLogger(__name__).debug("LZEXE probe failed for %s", path, exc_info=True)
+        lz_ver = None
+    if lz_ver is not None:
+        info.packed = f"lzexe 0.{lz_ver}"
+        info.add(f"packed with LZEXE 0.{lz_ver} — run `rebrew unpack-lzexe` before analysis")
+
+    # PKLITE (PKWARE, 1990s): the stub carries its copyright banner near
+    # the header; the visible strings are the packer's (or compressed
+    # remnants), so a packed flag beats trusting the family detection.
+    # No built-in unpacker — point the user at finding an unpacked copy.
+    if info.packed == "":
+        try:
+            with open(path, "rb") as fh:
+                head = fh.read(0x400)
+        except OSError:
+            head = b""
+        if b"PKLITE" in head:
+            info.packed = "pklite"
+            info.add(
+                "packed with PKLITE (PKWARE) — no built-in unpacker; find an "
+                "unpacked copy before analysis"
+            )
+
     try:
         binfo = load_binary(path)
     except Exception:
@@ -595,6 +633,48 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
             # NE executables are 16-bit x86 — only 16-bit-capable profiles
             # (msvc1.52, watcom) can ever byte-match them.
             info.arch = "x86_16"
+        return info
+
+    # --- 16-bit DOS MZ targets: string evidence identifies the family ---
+    # MZ executables have no PE-style sections, no import table, and 16-bit
+    # codegen (the 32-bit byte patterns below never fire), so the string
+    # hits are the only reliable signal.  Priority mirrors the NE branch:
+    # Delphi RTL strings are the most specific, then Borland C (Turbo C is
+    # the classic DOS-game compiler), then the remaining runtimes.  An MZ
+    # executable is ALWAYS 16-bit x86 — the arch applies even when a
+    # stronger backend (die/PDB) already named the family.
+    if getattr(binfo, "format", "") == "mz":
+        info.arch = "x86_16"
+        if info.family == "unknown":
+            if delphi_hits:
+                info.family = "delphi"
+                info.confidence = "medium"
+                info.version_hint = "Delphi RTL strings present"
+            elif borlandc_hits:
+                info.family = "borlandc"
+                info.confidence = "medium"
+                info.version_hint = "Borland C/C++ runtime strings present"
+            elif watcom_hits:
+                info.family = "watcom"
+                info.confidence = "medium"
+                info.version_hint = "Watcom runtime strings present"
+            elif zortech_hits:
+                info.family = "zortech"
+                info.confidence = "medium"
+                info.version_hint = "Zortech C++ runtime strings present"
+            elif symantec_hits:
+                info.family = "symantec"
+                info.confidence = "medium"
+                info.version_hint = "Symantec C++ runtime strings present"
+            elif msvc_hits:
+                info.family = "msvc"
+                info.confidence = "medium"
+                info.version_hint = "MSVC CRT strings present"
+            if info.family != "unknown":
+                # Only claim the detection when the string evidence itself
+                # named the family — a stronger backend (die/PDB) that ran
+                # first keeps its detected_by.
+                info.detected_by = "mz"
         return info
 
     sections = {s.name for s in binfo.sections.values()}
@@ -804,6 +884,11 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
     return info
 
 
+#: 16-bit-capable profiles for byte-matching DOS/NE targets (used by
+#: profile_matches_detection's arch alignment check).
+_BITNESS_16_PROFILES = frozenset({"msvc1.52", "tc16", "tc20", "watcom16"})
+
+
 #: Compiler profiles that can byte-match each detected family.
 #: ``None`` means no supported rebrew compiler can match that family.
 _PROFILE_COMPAT: dict[str, set[str] | None] = {
@@ -812,9 +897,11 @@ _PROFILE_COMPAT: dict[str, set[str] | None] = {
     "msvc": {"msvc400", "msvc420", "msvc5", "msvc6", "msvc6.3", "msvc6.6", "msvc7", "msvc1.52"},
     "mingw": {"gcc-pe"},
     "zig": {"gcc-pe"},  # may match structurally only (LLVM vs GCC codegen)
-    "watcom": {"watcom"},  # profile exists; byte matching needs the OMF parser (docs/OMF_NOTES.md)
+    "watcom": {"watcom", "watcom16"},  # wcc386 (32-bit) + wcc (16-bit DOS)
     "delphi": None,
-    "borlandc": None,
+    # Turbo C/C++ 3.1 (tc16, 16-bit DOS) and Borland C++ 5.5 (bcc32, 32-bit)
+    # both emit Borland-flavored OMF/COFF that rebrew can byte-match.
+    "borlandc": {"tc20", "tc16", "borlandc55"},
     "symantec": None,
     "zortech": None,
     "icc": None,
@@ -847,23 +934,22 @@ def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, 
             f"configured profile '{profile}' does not align with detected family '{info.family}' "
             f"({', '.join(sorted(compatible))} would fit) — see docs/TOOLCHAIN.md",
         )
-    # Arch dimension: a 16-bit NE binary can only be byte-matched by
+    # Arch dimension: a 16-bit DOS/NE binary can only be byte-matched by
     # 16-bit-capable profiles; conversely msvc1.52 cannot match a 32/64-bit
-    # PE/ELF.  This catches the "msvc6 profile on a 16-bit NE project"
+    # PE/ELF.  This catches the "msvc6 profile on a 16-bit project"
     # misconfiguration that silently produces COMPILE_ERROR for every
-    # function (skifree16-rebrew regression).
-    # msvc1.52 is the only 16-bit-capable profile; watcom's wcc386 is a
-    # 32-bit compiler (Open Watcom 2.0 x86-32) and must NOT be flagged as
-    # 16-bit — a detected Watcom 32-bit binary would falsely fail doctor.
-    _BITNESS_16 = {"msvc1.52"}
-    if info.arch == "x86_16" and profile not in _BITNESS_16:
+    # function (skifree16-rebrew regression).  The 16-bit-capable set is
+    # explicit (msvc1.52 = NE/DOS, tc16/tc20/watcom16 = DOS); watcom's
+    # wcc386 is a 32-bit compiler (Open Watcom 2.0 x86-32) and must NOT be
+    # flagged as 16-bit.
+    if info.arch == "x86_16" and profile not in _BITNESS_16_PROFILES:
         return (
             False,
-            f"detected 16-bit NE binary but profile '{profile}' is a 32/64-bit "
-            f"compiler — switch to one of: {', '.join(sorted(_BITNESS_16))} "
-            "(e.g. msvc1.52) or document the functions as blockers",
+            f"detected 16-bit binary but profile '{profile}' is a 32/64-bit "
+            f"compiler — switch to one of: {', '.join(sorted(_BITNESS_16_PROFILES))} "
+            "(e.g. msvc1.52 / tc16 / tc20) or document the functions as blockers",
         )
-    if info.arch and info.arch != "x86_16" and profile in _BITNESS_16:
+    if info.arch and info.arch != "x86_16" and profile in _BITNESS_16_PROFILES:
         return (
             False,
             f"profile '{profile}' is a 16-bit compiler but the binary is "
@@ -876,3 +962,43 @@ def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, 
             "see docs/TOOLCHAIN.md",
         )
     return True, None
+
+
+def _is_16bit_target(info: ToolchainInfo, binary: Path | None) -> bool:
+    """True when the detected binary is 16-bit (NE x86_16 or a plain DOS MZ
+    executable — the latter has no arch field in the detector)."""
+    if info.arch == "x86_16":
+        return True
+    if binary is None:
+        return False
+    try:
+        head = binary.read_bytes()[:0x40]
+    except OSError:
+        return False
+    if len(head) < 2 or head[:2] != b"MZ":
+        return False
+    from rebrew.binary_loader import is_ne
+
+    return not is_ne(binary)
+
+
+def suggest_profile(info: ToolchainInfo, binary: Path | None = None) -> str | None:
+    """Pick the best rebrew compiler profile for a detected toolchain family.
+
+    The single source of truth for family→profile selection, used by
+    ``rebrew init --guess-compiler``, ``rebrew intake``, and doctor.  Uses
+    ``_PROFILE_COMPAT`` (the byte-match compatibility table) and prefers the
+    16-bit profile when the binary is 16-bit (NE x86_16 or a plain DOS MZ
+    executable).  Returns ``None`` when no rebrew profile can match.
+    """
+    compatible = _PROFILE_COMPAT.get(info.family)
+    if not compatible:
+        return None
+    if _is_16bit_target(info, binary):
+        for p in ("msvc1.52", "tc16", "watcom16"):
+            if p in compatible:
+                return p
+    for p in ("msvc6", "borlandc55", "watcom", "gcc-pe", "clang", "gcc"):
+        if p in compatible:
+            return p
+    return sorted(compatible)[0]

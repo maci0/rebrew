@@ -246,3 +246,25 @@ class TestDeclaratorCorpus:
         if expected is not None:
             assert result is not None
             assert expected in result[1]  # proto carries the name
+
+
+class TestCallingConventionDeclarators:
+    """Borland 16-bit conventions: ``void far *pascal f(...)`` must extract
+    ``f`` as the name — tree-sitter marks ``far``/``pascal`` (non-C89
+    keywords) as ERROR nodes, which used to be picked up as the name."""
+
+    @pytest.mark.parametrize(
+        "proto,expected",
+        [
+            ("void far *pascal fcn_042e(int x, int y) { return 0; }", "fcn_042e"),
+            ("void far * fcn_042e(int x, int y) { return 0; }", "fcn_042e"),
+            ("int pascal fcn_042e(int x, int y) { return 0; }", "fcn_042e"),
+            ("int __stdcall fcn_042e(int x, int y) { return 0; }", "fcn_042e"),
+            ("int far *pascal fcn_042e(int x) { return 0; }", "fcn_042e"),
+        ],
+    )
+    def test_convention_proto(self, proto: str, expected: str) -> None:
+        result = extract_function_name_and_proto(proto)
+        assert result is not None
+        assert result[0] == expected
+        assert expected in result[1]

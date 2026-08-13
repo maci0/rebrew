@@ -25,6 +25,8 @@ from rebrew.utils import safe_shlex_split
 
 from .core import BuildResult
 from .flag_data import (
+    BORLAND_FLAGS,
+    BORLAND_SWEEP_TIERS,
     COMMON_MSVC_FLAGS,
     MSVC6_FLAGS,
     MSVC152_FLAGS,
@@ -92,6 +94,10 @@ _FLAGS_MAP: dict[str, Flags] = {
     "msvc6": MSVC6_FLAGS,  # excludes MSVC 7.x+ only flags (/fp:*, /GS-)
     "msvc1.52": MSVC152_FLAGS,
     "watcom": WATCOM_FLAGS,
+    "watcom16": WATCOM_FLAGS,  # same wcc flag family (16-bit wcc)
+    "tc16": BORLAND_FLAGS,
+    "tc20": BORLAND_FLAGS,
+    "borlandc55": BORLAND_FLAGS,
 }
 
 
@@ -198,10 +204,12 @@ def generate_flag_combinations(tier: str = "targeted", profile: str = "msvc6") -
     """
     # Use synced Flags for this profile, falling back to msvc6
     flags = _FLAGS_MAP.get(profile, _FLAGS_MAP["msvc6"])
-    if profile == "watcom":
+    if profile in ("watcom", "watcom16"):
         tiers = WATCOM_SWEEP_TIERS
     elif profile == "msvc1.52":
         tiers = MSVC152_SWEEP_TIERS
+    elif profile in ("tc16", "tc20", "borlandc55"):
+        tiers = BORLAND_SWEEP_TIERS
     else:
         tiers = MSVC_SWEEP_TIERS
     if tier not in tiers:
@@ -258,12 +266,13 @@ def build_candidate_obj_only(
     toolchain_id, source_ext)``.  On cache hit only the fast LIEF symbol
     extraction runs, skipping the 200-500 ms Wine/wibo subprocess entirely.
 
-    Toolchain-backed profiles (``watcom``, ``msvc1.52``) route through the
-    shared ``compile_to_obj`` runner (docker image or vendored host binary)
+    Toolchain-backed profiles (``watcom``, ``watcom16``, ``msvc1.52``,
+    ``tc16``, ``tc20``, ``borlandc55``) route through the shared
+    ``compile_to_obj`` runner (docker image or vendored host binary)
     instead of the raw subprocess path — this is how the 16-bit / Watcom
     flag sweeps actually reach the compiler.
     """
-    if profile in ("watcom", "msvc1.52"):
+    if profile in ("watcom", "watcom16", "msvc1.52", "tc16", "tc20", "borlandc55"):
         if cfg is None:
             from types import SimpleNamespace
 

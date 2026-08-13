@@ -486,3 +486,47 @@ class TestFunctionExtentFromDisasm:
             lambda info, va, size, trim_padding=True: jmp_text[:size],
         )
         assert function_extent_from_disasm(exe, 0x1000, with_kind=True) == (10, "jmp")
+
+
+def test_mz_extent_uses_16bit_disasm() -> None:
+    """function_extent_from_disasm must disassemble MZ code in 16-bit mode —
+    parsing it as 32-bit mis-decodes instructions and truncates the extent
+    at a bogus early `ret` (a DOS function's real `ret N` epilogue is
+    reached only in 16-bit mode)."""
+    from rebrew.binary_loader import function_extent_from_disasm
+
+    fixture = Path(__file__).parent / "fixtures" / "tc16_hello.exe"
+    if not fixture.exists():
+        import pytest
+
+        pytest.skip("tc16_hello.exe fixture not present")
+    # `add` at VA 0x291 is 13 bytes; the `eb 00` jmp idiom (offset 9) is
+    # the first terminator the walk sees, so the extent is conservatively
+    # 11 (kind jmp) — a sane 16-bit result.  The 32-bit misparse that this
+    # fix prevents decoded the same bytes into a bogus early `ret` (the
+    # regression this test guards against).
+    extent = function_extent_from_disasm(fixture, 0x291, with_kind=True)
+    assert extent == (11, "jmp"), f"got {extent}"
+
+
+def test_mz_file_size_exact_512_multiple(tmp_path: Path) -> None:
+    """An MZ whose size is an exact multiple of 512 (cblp == 0) must not
+    undercount by one page — cp=2/cblp=0 means a full 1024-byte file, not
+    512."""
+    import struct
+
+    from rebrew.binary_loader import extract_bytes_at_va, load_binary, parse_mz_header
+
+    data = bytearray(1024)
+    data[0:2] = b"MZ"
+    struct.pack_into("<H", data, 4, 2)  # cp = 2 pages
+    struct.pack_into("<H", data, 8, 2)  # cparhdr = 32 bytes
+    data[32:37] = bytes.fromhex("55 8b ec 5d c3")
+    exe = tmp_path / "mz1024.exe"
+    exe.write_bytes(bytes(data))
+
+    h = parse_mz_header(exe)
+    assert h["code_offset"] + h["code_size"] == 1024
+    info = load_binary(exe)
+    code = extract_bytes_at_va(info, 0, 5)
+    assert code == bytes.fromhex("55 8b ec 5d c3")

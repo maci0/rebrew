@@ -30,11 +30,12 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import capstone
 import typer
 from rich.console import Console
 
@@ -52,6 +53,7 @@ from rebrew.cli import (
     TargetOption,
     error_exit,
     json_print,
+    min_valid_va_for,
     parse_va,
     require_config,
     resolve_source_arg,
@@ -265,6 +267,9 @@ class BinaryMatchingGA:
         extra_include_dirs: list[str] | None = None,
         posix_style: bool = False,
         resume_from: GACheckpoint | None = None,
+        cs_mode: int | None = None,
+        profile: str = "",
+        cfg: Any = None,
     ) -> None:
         """Initialize the genetic algorithm matching engine.
 
@@ -273,6 +278,14 @@ class BinaryMatchingGA:
         starting fresh from the seed source.
         """
         self.posix_style = posix_style
+        # 16-bit DOS/NE targets disassemble in 16-bit mode for structural
+        # scoring; None keeps the 32-bit default for PE/ELF targets.
+        self.cs_mode = cs_mode if cs_mode is not None else capstone.CS_MODE_32
+        # Toolchain-backed profiles (tc16/tc20/watcom16/...) route GA
+        # compiles through compile_to_obj (DOSBox); without these the GA
+        # ran the DOS compiler binary natively.
+        self.profile = profile
+        self.cfg = cfg
         self.seed_source = seed_source
         self.target_bytes = target_bytes
         self.cl_cmd = cl_cmd
@@ -391,6 +404,8 @@ class BinaryMatchingGA:
                 timeout=self.compile_timeout,
                 extra_include_dirs=self.extra_include_dirs,
                 posix_style=getattr(self, "posix_style", False),
+                profile=self.profile,
+                cfg=self.cfg,
             )
         else:
             if not self.lib_dir or not self.ldflags:
@@ -433,7 +448,7 @@ class BinaryMatchingGA:
             return float(cached_fitness)
 
         if not res.ok or res.obj_bytes is None:
-            _log(f"[{src_hash}] Error during compilation/parsing: {res.error_msg}")
+            _log(f"[{src_hash[:8]}] Error during compilation/parsing: {res.error_msg}")
             return 10000000.0
         obj_bytes = res.obj_bytes
 
@@ -442,7 +457,7 @@ class BinaryMatchingGA:
         # this guard prevents it from exploring that neighbourhood.
         target_len = len(self.target_bytes)
         if target_len > 0 and len(obj_bytes) < target_len * 0.5:
-            _log(f"[{src_hash}] Too small: {len(obj_bytes)}B < 50% of target {target_len}B")
+            _log(f"[{src_hash[:8]}] Too small: {len(obj_bytes)}B < 50% of target {target_len}B")
             return 5000000.0
 
         # Proportional penalty for oversized candidates instead of silent
@@ -451,7 +466,7 @@ class BinaryMatchingGA:
         excess = max(0, len(obj_bytes) - target_len)
         if excess > 0:
             _log(
-                f"[{src_hash}] Candidate {len(obj_bytes)}B > target {target_len}B (+{excess}B excess)"
+                f"[{src_hash[:8]}] Candidate {len(obj_bytes)}B > target {target_len}B (+{excess}B excess)"
             )
         score_bytes = obj_bytes[:target_len]
         sc = score_candidate(
@@ -460,6 +475,7 @@ class BinaryMatchingGA:
             res.reloc_offsets,
             _pre_norm_target=self._pre_norm_target,
             _pre_target_mnems=self._pre_target_mnems,
+            cs_mode=self.cs_mode,
         )
         excess_penalty = excess * 1500.0  # per-byte penalty comparable to byte_score weight
         total = sc.total + excess_penalty
@@ -471,7 +487,7 @@ class BinaryMatchingGA:
         res.fitness = total
         self._fitness_memo[src_hash] = total
         _log(
-            f"[{src_hash}] SUCCESS. Score={total:.2f} (len_bytes={len(obj_bytes)}, excess={excess})"
+            f"[{src_hash[:8]}] SUCCESS. Score={total:.2f} (len_bytes={len(obj_bytes)}, excess={excess})"
         )
 
         # Collect source-binary pair for ML training if enabled
@@ -525,10 +541,24 @@ class BinaryMatchingGA:
             gen_start = time.time()
             scored_pop = []
             with ThreadPoolExecutor(max_workers=self.num_jobs) as executor:
-                futures = {
-                    executor.submit(self._compile_source, src): src for src in self.population
-                }
+                # Perf-review F5: consult the in-process fitness memo BEFORE
+                # submitting — elite/unchanged sources keep their score across
+                # generations, so skipping _compile_source entirely avoids the
+                # disk BuildCache round-trip (sqlite read + unpickle) per
+                # generation for every surviving member.  Key on the full
+                # SHA-256 hex, not the old 32-bit [:8] truncation: at ~300k
+                # unique sources the birthday bound gives ~10 collision pairs,
+                # silently mixing scores of different sources.
+                futures: dict[Future[BuildResult], tuple[str, str]] = {}
+                for src in self.population:
+                    src_hash = _source_digest(src)
+                    memoized = self._fitness_memo.get(src_hash)
+                    if memoized is not None:
+                        scored_pop.append((memoized, src))
+                        continue
+                    futures[executor.submit(self._compile_source, src)] = (src, src_hash)
                 for fut in as_completed(futures):
+                    src, src_hash = futures[fut]
                     try:
                         res = fut.result()
                     except (
@@ -541,14 +571,7 @@ class BinaryMatchingGA:
                         res = BuildResult(
                             ok=False, error_msg=f"exception during compilation: {exc}"
                         )
-                    # Source digest memoized per unique string (compile_cache
-                    # lru_cache) — the old full hashlib.sha256 per candidate
-                    # per generation re-hashed the same elite sources every
-                    # generation (perf-review F5).
-                    src_hash = _source_digest(futures[fut])[:8]
-                    scored_pop.append(
-                        (self._compute_fitness(res, src_hash, futures[fut]), futures[fut])
-                    )
+                    scored_pop.append((self._compute_fitness(res, src_hash, src), src))
 
             scored_pop.sort(key=lambda x: x[0])
             if not scored_pop:
@@ -730,6 +753,7 @@ def _parse_annotations(
     max_delta: int | None = None,
     ignored: set[str] | None = None,
     metadata_dir: Path | None = None,
+    min_va: int = 0x1000,
 ) -> list[StubInfo]:
     """Parse annotations with configurable status and delta filters.
 
@@ -755,7 +779,7 @@ def _parse_annotations(
         if parsed_status not in status_filter:
             continue
 
-        if ann.va < 0x1000:
+        if ann.va < min_va:
             continue
 
         symbol = resolve_symbol(ann, filepath)
@@ -794,10 +818,15 @@ def parse_stub_info(
     filepath: Path,
     ignored: set[str] | None = None,
     metadata_dir: Path | None = None,
+    min_va: int = 0x1000,
 ) -> list[StubInfo]:
     """Extract STUB annotation fields from a reversed .c file."""
     return _parse_annotations(
-        filepath, status_filter={"STUB"}, ignored=ignored, metadata_dir=metadata_dir
+        filepath,
+        status_filter={"STUB"},
+        ignored=ignored,
+        metadata_dir=metadata_dir,
+        min_va=min_va,
     )
 
 
@@ -806,6 +835,7 @@ def parse_matching_info(
     ignored: set[str] | None = None,
     max_delta: int = 10,
     metadata_dir: Path | None = None,
+    min_va: int = 0x1000,
 ) -> list[StubInfo]:
     """Extract NEAR_MATCHING annotation fields with byte delta <= max_delta."""
     return _parse_annotations(
@@ -814,6 +844,7 @@ def parse_matching_info(
         max_delta=max_delta,
         ignored=ignored,
         metadata_dir=metadata_dir,
+        min_va=min_va,
     )
 
 
@@ -821,10 +852,15 @@ def parse_matching_all(
     filepath: Path,
     ignored: set[str] | None = None,
     metadata_dir: Path | None = None,
+    min_va: int = 0x1000,
 ) -> list[StubInfo]:
     """Extract all NEAR_MATCHING annotations (no delta filter)."""
     return _parse_annotations(
-        filepath, status_filter={"NEAR_MATCHING"}, ignored=ignored, metadata_dir=metadata_dir
+        filepath,
+        status_filter={"NEAR_MATCHING"},
+        ignored=ignored,
+        metadata_dir=metadata_dir,
+        min_va=min_va,
     )
 
 
@@ -886,10 +922,11 @@ def find_all_stubs(
 ) -> list[StubInfo]:
     """Find all STUB files in reversed/ and return sorted by size."""
     md = cfg.metadata_dir if cfg is not None else None
+    min_va = min_valid_va_for(cfg) if cfg is not None else 0x1000
     return _collect_with_dedup(
         reversed_dir,
         cfg,
-        lambda cfile: parse_stub_info(cfile, ignored=ignored, metadata_dir=md),
+        lambda cfile: parse_stub_info(cfile, ignored=ignored, metadata_dir=md, min_va=min_va),
         sort_key=lambda x: x.size,
         warn_duplicates=warn_duplicates,
     )
@@ -904,11 +941,16 @@ def find_near_miss(
 ) -> list[StubInfo]:
     """Find NEAR_MATCHING functions with small byte deltas, sorted by delta ascending."""
     md = cfg.metadata_dir if cfg is not None else None
+    min_va = min_valid_va_for(cfg) if cfg is not None else 0x1000
     return _collect_with_dedup(
         reversed_dir,
         cfg,
         lambda cfile: parse_matching_info(
-            cfile, ignored=ignored, max_delta=max_delta, metadata_dir=md
+            cfile,
+            ignored=ignored,
+            max_delta=max_delta,
+            metadata_dir=md,
+            min_va=min_va,
         ),
         sort_key=lambda x: (x.delta, x.size),
         warn_duplicates=warn_duplicates,
@@ -923,10 +965,11 @@ def find_all_matching(
 ) -> list[StubInfo]:
     """Find all NEAR_MATCHING functions, sorted by byte delta then size."""
     md = cfg.metadata_dir if cfg is not None else None
+    min_va = min_valid_va_for(cfg) if cfg is not None else 0x1000
     return _collect_with_dedup(
         reversed_dir,
         cfg,
-        lambda cfile: parse_matching_all(cfile, ignored=ignored, metadata_dir=md),
+        lambda cfile: parse_matching_all(cfile, ignored=ignored, metadata_dir=md, min_va=min_va),
         sort_key=lambda x: (x.delta, x.size),
         warn_duplicates=warn_duplicates,
     )
@@ -1784,7 +1827,7 @@ def resolve_build_params(
             )
         anno = annos[0] if annos else None
     if anno:
-        eval_errs, eval_warns = anno.validate()
+        eval_errs, eval_warns = anno.validate(min_va=min_valid_va_for(cfg))
         if not json_output:
             for e in eval_errs:
                 console.print(f"[bold red]LINT ERROR:[/bold red] {e}")
@@ -1936,7 +1979,14 @@ def _run_single_flag_sweep(
         obj_bytes = res.obj_bytes
         if len(obj_bytes) > len(p.target_bytes):
             obj_bytes = obj_bytes[: len(p.target_bytes)]
-        sim_res = structural_similarity(p.target_bytes, obj_bytes, res.reloc_offsets)
+        import capstone
+
+        sim_cs_mode = (
+            capstone.CS_MODE_16 if getattr(p.cfg, "arch", "") == "x86_16" else capstone.CS_MODE_32
+        )
+        sim_res = structural_similarity(
+            p.target_bytes, obj_bytes, res.reloc_offsets, cs_mode=sim_cs_mode
+        )
 
     best_score = results[0][0] if results else float("inf")
 
@@ -2051,6 +2101,7 @@ _MSVC_TOOLCHAIN_PATHS: list[tuple[str, str, str]] = [
     ("msvc-7.0-win32", "msvc/7.0-win32/Bin/cl.exe", "msvc/7.0-win32/Include"),
     ("msvc-4.2-win32", "msvc/4.2-win32/bin/CL.EXE", "msvc/4.2-win32/include"),
     ("msvc-5.0-win32", "msvc/5.0-win32/bin/cl.exe", "msvc/5.0-win32/include"),
+    ("msvc-4.0-win32", "msvc/4.0-win32/BIN/CL.EXE", "msvc/4.0-win32/INCLUDE"),
 ]
 
 
@@ -2312,6 +2363,8 @@ def _run_single_ga(
         extra_include_dirs=[str(p.seed_c.parent.resolve())],
         posix_style=getattr(p.cfg, "posix_style", False),
         mutation_weights=mutation_weights,
+        profile=getattr(p.cfg, "compiler_profile", ""),
+        cfg=p.cfg,
     )
     try:
         best_src, best_score = ga.run()
@@ -2484,6 +2537,11 @@ def _run_one_stub_ga(
         posix_style=getattr(cfg, "posix_style", False),
         resume_from=resume_from,
         mutation_weights=mutation_weights,
+        cs_mode=(
+            capstone.CS_MODE_16 if getattr(cfg, "arch", "") == "x86_16" else capstone.CS_MODE_32
+        ),
+        profile=getattr(cfg, "compiler_profile", ""),
+        cfg=cfg,
     )
 
     matched = False

@@ -93,27 +93,50 @@ def parse_obj_symbol_and_relocs(
     ``lief.COFF.parse`` calls on the same file.  This single-parse variant
     returns everything both helpers produce so hot compile paths parse once.
     """
-    import lief
 
     # OMF objects (Open Watcom / MSVC 1.52) are converted to COFF via the
     # vendored objconv first — LIEF cannot parse OMF.
-    if _detect_obj_format(str(obj_path)) == "omf":
-        # 16-bit MSVC OMF crashes objconv — use the built-in minimal parser.
-        data = Path(obj_path).read_bytes()
+    data = Path(obj_path).read_bytes()
+    if _detect_obj_format_data(data[:4]) == "omf":
         from rebrew.matcher.omf16 import detect_omf16, parse_obj_omf16
 
         if detect_omf16(data):
             code, reloc_dict = parse_obj_omf16(obj_path, symbol)
             if code is not None:
                 return code, reloc_dict, []
-            return None, None, []
+            # 16-bit MSVC dialect the minimal parser cannot decode (the
+            # /O1 and far-code COMDAT models) — fall through to the
+            # objconv path below, which converts COMDAT records to COFF
+            # sections (requires the fixed objconv; the stock build errors
+            # and the parse yields None, surfacing as a failed match).
+        # Convert via objconv into a TemporaryDirectory so the .coff is
+        # cleaned up (the old NamedTemporaryFile(delete=False) leaked one
+        # /tmp file per OMF compile — every flag-sweep iteration).
         import tempfile
 
-        with tempfile.NamedTemporaryFile(suffix=".coff", delete=False) as tf:
-            _omf_to_coff(obj_path, tf.name)
-            obj_path = Path(tf.name)
+        with tempfile.TemporaryDirectory(prefix="omfcoff-") as td:
+            coff_path = Path(td) / "conv.coff"
+            _omf_to_coff(obj_path, coff_path)
+            return _parse_coff(obj_path, coff_path, symbol)
 
-    coff = lief.COFF.parse(str(obj_path))
+    return _parse_coff(obj_path, None, symbol)
+
+
+def _parse_coff(
+    obj_path: str | Path,
+    coff_path: Path | None,
+    symbol: str,
+) -> tuple[bytes | None, dict[int, str] | None, list[CoffRelocRecord]]:
+    """Parse a COFF object and extract *symbol*'s code + relocations.
+
+    *coff_path* is the objconv-converted file (inside a TemporaryDirectory
+    owned by the caller) when the source was OMF; ``None`` for a native
+    COFF object (parsed in place).
+    """
+    import lief
+
+    parse_path = coff_path if coff_path is not None else obj_path
+    coff = lief.COFF.parse(str(parse_path))
     if coff is None:
         return None, None, []
 
@@ -178,6 +201,17 @@ def _detect_obj_format(obj_path: str) -> str:
     """Detect object file format from magic bytes."""
     with open(obj_path, "rb") as f:
         magic = f.read(4)
+    return _detect_obj_format_data(magic)
+
+
+def _detect_obj_format_data(magic: bytes) -> str:
+    """Detect object file format from a 4-byte magic prefix.
+
+    Data-based sibling of :func:`_detect_obj_format` so hot paths that
+    already hold the file bytes (e.g. the OMF branch of
+    ``parse_obj_symbol_and_relocs``) do not re-open the file to re-detect
+    (perf-review: one open + read per compiled candidate is pure overhead).
+    """
     if magic == b"\x7fELF":
         return "elf"
     if magic in (
@@ -210,10 +244,18 @@ def _omf_to_coff(obj_path: str | Path, out_path: str | Path) -> None:
     import shutil
     import subprocess
 
-    objconv = shutil.which("objconv") or (
-        Path(__file__).resolve().parents[2] / "tools" / "objconv" / "objconv"
+    # Prefer the vendored (pinned) objconv over a PATH binary — the vendored
+    # copy is the byte-reproducible one and carries the 16-bit OMF fix; a
+    # system objconv may be an arbitrary version.  parents[3] is the repo
+    # root for the editable install (parsers.py → matcher → rebrew → src).
+    vendored_objconv = Path(__file__).resolve().parents[3] / "tools" / "objconv" / "objconv"
+    path_objconv = shutil.which("objconv")
+    objconv: Path | None = (
+        vendored_objconv
+        if vendored_objconv.exists()
+        else (Path(path_objconv) if path_objconv else None)
     )
-    if not Path(objconv).exists():
+    if objconv is None or not objconv.exists():
         raise FileNotFoundError(
             "objconv not found (needed to parse OMF objects) — vendored at tools/objconv"
         )
@@ -223,7 +265,13 @@ def _omf_to_coff(obj_path: str | Path, out_path: str | Path) -> None:
         text=True,
         timeout=60,
     )
-    if not Path(out_path).exists():
+    # The caller pre-creates the output tempfile, so mere existence is not
+    # proof of conversion: a failed objconv run (error aborts before Write)
+    # leaves an empty file that LIEF would silently parse as None.  Require
+    # a non-empty output AND a clean exit — a real COFF object is always at
+    # least the 20-byte file header.
+    out = Path(out_path)
+    if r.returncode != 0 or not out.exists() or out.stat().st_size == 0:
         raise ValueError(f"objconv failed to convert OMF {obj_path}: {r.stderr[-300:]}")
 
 

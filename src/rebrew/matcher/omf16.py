@@ -118,6 +118,13 @@ def parse_omf16(data: bytes) -> Omf16Module:
             saw_code = True
             off = int.from_bytes(body[1:3], "little")
             code_chunk = body[3:]
+            # TCC/wcc16 end their LEDATA records with an OMF checksum byte
+            # (whole record incl. type+length ≡ 0 mod 256); MSVC 1.52 does
+            # not.  Detect by the record sum and drop it — otherwise the
+            # code slice carries a spurious trailing byte that breaks
+            # byte-matching.
+            if code_chunk and ((sum(body) + t + (ln & 0xFF) + ((ln >> 8) & 0xFF)) % 256 == 0):
+                code_chunk = code_chunk[:-1]
             if len(mod.code) < off + len(code_chunk):
                 mod.code = mod.code.ljust(off + len(code_chunk), b"\x00")
             mod.code = mod.code[:off] + code_chunk + mod.code[off + len(code_chunk) :]
@@ -225,6 +232,10 @@ def _match_symbol(mod: Omf16Module, symbol: str) -> tuple[bytes | None, dict[int
         candidates += [symbol[1:], symbol[1:] + "_"]
     else:
         candidates += ["_" + symbol, symbol + "_"]
+    # Borland pascal convention: the symbol is emitted UPPERCASE without a
+    # leading underscore (``void far *pascal f(...)`` → ``F``), while the
+    # C-level name is lowercase — match that dialect too.
+    candidates += [symbol.strip("_").upper()]
     for name in candidates:
         if name in mod.publics:  # unoptimized dialect
             off = mod.publics[name]

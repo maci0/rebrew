@@ -26,7 +26,15 @@ from rebrew.annotation import (
     NEW_KV_RE,
     VALID_MARKERS,
 )
-from rebrew.cli import EXIT_MISMATCH, TargetOption, iter_sources, json_print, rel_display_path
+from rebrew.cli import (
+    EXIT_MISMATCH,
+    MIN_VALID_VA,
+    TargetOption,
+    iter_sources,
+    json_print,
+    min_valid_va_for,
+    rel_display_path,
+)
 from rebrew.config import ProjectConfig, load_config
 from rebrew.data_metadata import load_data_metadata
 from rebrew.metadata import load_metadata
@@ -108,9 +116,9 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
         if not stripped:
             continue
 
-        # Both NEW_FUNC_RE and NEW_KV_RE require a leading `//`; skip the
-        # regex calls on non-comment lines (the bulk of source files).
-        if not stripped.startswith("//"):
+        # NEW_FUNC_RE and NEW_KV_RE match `//` and `/*` comment lines; skip
+        # the regex calls on non-comment lines (the bulk of source files).
+        if not (stripped.startswith("//") or stripped.startswith("/*")):
             if in_block:
                 seen_code_after_marker = True
             continue
@@ -166,13 +174,11 @@ def _check_E001_marker(result: LintResult, marker: str) -> None:
         result.error(result.marker_line, "E001", f"Invalid marker type: {marker}")
 
 
-def _check_E002_va(result: LintResult, va_str: str) -> int | None:
+def _check_E002_va(result: LintResult, va_str: str, min_va: int = MIN_VALID_VA) -> int | None:
     try:
         va_int = int(va_str, 16)
-        if not (0x1000 <= va_int <= 0xFFFFFFFF):
-            result.error(
-                result.marker_line, "E002", f"VA {va_str} is suspicious (outside 32-bit range)"
-            )
+        if not (min_va <= va_int <= 0xFFFFFFFF):
+            result.error(result.marker_line, "E002", f"VA {va_str} is suspicious (outside range)")
         return va_int
     except ValueError:
         result.error(result.marker_line, "E002", f"Invalid VA format: {va_str}")
@@ -683,7 +689,9 @@ def lint_file(
             marker = found_keys.get("MARKER", "")
             _check_E001_marker(result, marker)
 
-            va_int = _check_E002_va(result, va_str)
+            va_int = _check_E002_va(
+                result, va_str, min_va=min_valid_va_for(cfg) if cfg else MIN_VALID_VA
+            )
 
             # Check EVERY block (module + VA keyed): a duplicate appearing in
             # a later block of a multi-function file used to be skipped by the

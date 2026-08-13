@@ -17,6 +17,27 @@ from pathlib import Path
 _DOSBOX_CONF_HEADER = "[sdl]\nfullscreen=false\n\n[cpu]\ncycles=fixed 30000\n\n[autoexec]\n"
 
 
+def _build_dosbox_conf(sandbox: Path, autoexec: list[str]) -> str:
+    """Build the DOSBox config for a run.
+
+    Byte-identical to the image-side driver (`wrapper-common.sh`'s
+    ``rebrew_dosbox_run`` printf) — the two are the docker-less fallback and
+    the containerized path for the same 16-bit compilers, enforced identical
+    by ``TestDosboxDriverSync`` (note the double backslash in ``cd \\\\``,
+    matching the shell single-quoted printf).
+    """
+    body = "\n".join(
+        [
+            "mount c " + str(sandbox),
+            "C:",
+            "cd \\\\",
+            *autoexec,
+            "exit",
+        ]
+    )
+    return _DOSBOX_CONF_HEADER + body + "\n"
+
+
 class DosboxError(RuntimeError):
     """DOSBox is missing or the run failed."""
 
@@ -40,19 +61,14 @@ def run_dosbox(
         )
     sandbox.mkdir(parents=True, exist_ok=True)
     conf = sandbox / "run.conf"
-    body = "\n".join(
-        [
-            "mount c " + str(sandbox),
-            "C:",
-            "cd \\",
-            *autoexec,
-            "exit",
-        ]
-    )
-    conf.write_text(_DOSBOX_CONF_HEADER + body + "\n", encoding="utf-8")
+    conf.write_text(_build_dosbox_conf(sandbox, autoexec), encoding="utf-8")
 
     env = dict(os.environ)
+    # Fully headless: the dummy video driver suppresses the DOSBox window
+    # (no X display needed), and the dummy audio driver silences the ALSA
+    # device chatter — a compile must never pop a window or touch audio.
     env.setdefault("SDL_VIDEODRIVER", "dummy")
+    env.setdefault("SDL_AUDIODRIVER", "dummy")
     try:
         subprocess.run(
             ["dosbox", "-conf", str(conf), "-noconsole"],
