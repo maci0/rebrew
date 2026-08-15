@@ -8,6 +8,17 @@ import pytest
 from rebrew.doctor import _FAIL, _PASS, _WARN, check_compiler, check_runner
 
 
+def _vendored_ok(profile: str) -> bool:
+    """True when the profile's vendored host compiler is actually present
+    (binaries are gitignored, so a fresh clone has the tree but not them)."""
+    from rebrew.toolchain import _vendored_binary, get_toolchain
+
+    try:
+        return _vendored_binary(get_toolchain(profile)) is not None
+    except Exception:
+        return False
+
+
 def _cfg(**overrides: object) -> SimpleNamespace:
     defaults: dict = {
         "compiler_command": "gcc",
@@ -581,8 +592,8 @@ class TestCheckToolchainBacked:
         assert result.status == _SKIP
 
     @pytest.mark.skipif(
-        not (Path(__file__).resolve().parents[1] / "tools" / "watcom-win32").is_dir(),
-        reason="vendored watcom-win32 toolchain not present (toolchain/watcom/2.0-win32)",
+        not _vendored_ok("watcom"),
+        reason="vendored watcom toolchain not present (toolchain/watcom/2.0-win32)",
     )
     def test_watcom_vendored_passes(self, monkeypatch) -> None:
         from rebrew.doctor import _PASS, check_toolchain_backed
@@ -617,7 +628,7 @@ class TestCheckCompilerRelativeCommand:
     def test_relative_command_resolves(self, tmp_path: Path) -> None:
         from rebrew.doctor import _PASS, check_compiler
 
-        cl = tmp_path / "tools" / "msvc-1.52-win16" / "BIN" / "CL.EXE"
+        cl = tmp_path / "toolchain" / "msvc" / "1.52-win16" / "BIN" / "CL.EXE"
         cl.parent.mkdir(parents=True)
         cl.write_bytes(b"")  # presence is what matters
         cfg = SimpleNamespace(
@@ -695,6 +706,10 @@ class TestToolchainDownloadHint:
 
 
 class TestCheckToolchainBackedNewProfiles:
+    @pytest.mark.skipif(
+        not _vendored_ok("tc16"),
+        reason="vendored Turbo C++ 3.1 toolchain not present (toolchain/borland/3.1-win16)",
+    )
     def test_tc16_vendored_passes(self, monkeypatch) -> None:
         from rebrew.doctor import _PASS, check_toolchain_backed
 
@@ -704,6 +719,10 @@ class TestCheckToolchainBackedNewProfiles:
         assert result.status == _PASS
         assert "3.1-win16" in result.message
 
+    @pytest.mark.skipif(
+        not _vendored_ok("borlandc55"),
+        reason="vendored Borland C++ 5.5 toolchain not present (toolchain/borland/5.5-win32)",
+    )
     def test_borlandc55_vendored_passes(self, monkeypatch) -> None:
         from rebrew.doctor import _PASS, check_toolchain_backed
 

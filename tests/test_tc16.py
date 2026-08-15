@@ -26,7 +26,7 @@ def _fake_tcc(monkeypatch, sandbox: Path) -> None:
 
 
 @pytest.mark.skipif(
-    not _REPO_TC16.is_dir(),
+    not (_REPO_TC16 / "BIN" / "TCC.EXE").exists(),
     reason="vendored Turbo C++ 3.1 toolchain not present (toolchain/borland/3.1-win16)",
 )
 class TestTc16Compile:
@@ -122,7 +122,7 @@ class TestDosboxDriverSync:
 
 
 @pytest.mark.skipif(
-    not _REPO_TC16.is_dir(),
+    not (_REPO_TC16 / "BIN" / "TCC.EXE").exists(),
     reason="vendored Turbo C++ 3.1 toolchain not present (toolchain/borland/3.1-win16)",
 )
 def test_tc16_compile_parse_match_roundtrip() -> None:
@@ -163,7 +163,7 @@ def test_tc16_compile_parse_match_roundtrip() -> None:
 
 
 @pytest.mark.skipif(
-    not _REPO_TC16.is_dir(),
+    not (_REPO_TC16 / "BIN" / "TCC.EXE").exists(),
     reason="vendored Turbo C++ 3.1 toolchain not present (toolchain/borland/3.1-win16)",
 )
 def test_tc16_object_no_trailing_checksum_byte() -> None:
@@ -185,7 +185,7 @@ def test_tc16_object_no_trailing_checksum_byte() -> None:
 
 
 @pytest.mark.skipif(
-    not _REPO_TC16.is_dir(),
+    not (_REPO_TC16 / "BIN" / "TCC.EXE").exists(),
     reason="vendored Turbo C++ 3.1 toolchain not present (toolchain/borland/3.1-win16)",
 )
 def test_mz_fixture_add_matches() -> None:
@@ -233,7 +233,7 @@ def test_mz_fixture_add_matches() -> None:
 
 
 @pytest.mark.skipif(
-    not _REPO_TC16.is_dir(),
+    not (_REPO_TC16 / "BIN" / "TCC.EXE").exists(),
     reason="vendored Turbo C++ 3.1 toolchain not present (toolchain/borland/3.1-win16)",
 )
 def test_mz_fixture_main_matches_with_reloc() -> None:
@@ -287,7 +287,7 @@ _REPO_TC20 = Path(__file__).resolve().parents[1] / "toolchain" / "borland" / "2.
 
 
 @pytest.mark.skipif(
-    not _REPO_TC20.is_dir(),
+    not (_REPO_TC20 / "BIN" / "TCC.EXE").exists(),
     reason="vendored Turbo C 2.0 toolchain not present (toolchain/borland/2.0-win16)",
 )
 def test_tc20_compiles_and_parses() -> None:
@@ -309,7 +309,7 @@ def test_tc20_compiles_and_parses() -> None:
 
 
 @pytest.mark.skipif(
-    not _REPO_TC16.is_dir(),
+    not (_REPO_TC16 / "BIN" / "TCC.EXE").exists(),
     reason="vendored Turbo C++ 3.1 toolchain not present (toolchain/borland/3.1-win16)",
 )
 def test_tc16_pascal_symbol_matches_via_cdecl_name() -> None:

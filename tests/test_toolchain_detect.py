@@ -156,6 +156,7 @@ class TestDetectWithDie:
                 ]
             }
         ]
+        monkeypatch.setattr("rebrew.toolchain_detect._find_diec", lambda: Path("diec"))
         monkeypatch.setattr("rebrew.toolchain_detect._run_diec", lambda *a, **k: dets)
         info = detect_with_die(Path("x.exe"))
         assert info is not None
@@ -177,6 +178,7 @@ class TestDetectWithDie:
                 ]
             }
         ]
+        monkeypatch.setattr("rebrew.toolchain_detect._find_diec", lambda: Path("diec"))
         monkeypatch.setattr("rebrew.toolchain_detect._run_diec", lambda *a, **k: dets)
         info = detect_with_die(Path("x.exe"))
         assert info is not None
@@ -186,6 +188,7 @@ class TestDetectWithDie:
         dets = [
             {"values": [{"type": "Heur", "name": "Debug data", "string": "Debug data: Contains"}]}
         ]
+        monkeypatch.setattr("rebrew.toolchain_detect._find_diec", lambda: Path("diec"))
         monkeypatch.setattr("rebrew.toolchain_detect._run_diec", lambda *a, **k: dets)
         info = detect_with_die(Path("x.exe"))
         assert info is not None
@@ -249,6 +252,7 @@ class TestOrchestration:
                 ]
             }
         ]
+        monkeypatch.setattr("rebrew.toolchain_detect._find_diec", lambda: Path("diec"))
         monkeypatch.setattr("rebrew.toolchain_detect._run_diec", lambda *a, **k: dets)
         monkeypatch.setattr("rebrew.toolchain_detect.detect_with_pdb", lambda *a, **k: None)
 
@@ -277,6 +281,7 @@ class TestOrchestration:
                 ]
             }
         ]
+        monkeypatch.setattr("rebrew.toolchain_detect._find_diec", lambda: Path("diec"))
         monkeypatch.setattr("rebrew.toolchain_detect._run_diec", lambda *a, **k: dets)
         info = detect_with_die(Path("x.exe"))
         assert info.family == "watcom"
@@ -295,6 +300,7 @@ class TestOrchestration:
                 ]
             }
         ]
+        monkeypatch.setattr("rebrew.toolchain_detect._find_diec", lambda: Path("diec"))
         monkeypatch.setattr("rebrew.toolchain_detect._run_diec", lambda *a, **k: dets)
         info = detect_with_die(Path("x.exe"))
         assert info.family == "borlandc"
@@ -560,6 +566,7 @@ class TestCrtLinkage:
     ]
 
     def _detect(self, monkeypatch, tmp_path: Path, dlls: list[str]) -> ToolchainInfo:
+        monkeypatch.setattr("rebrew.toolchain_detect._find_diec", lambda: Path("diec"))
         monkeypatch.setattr("rebrew.toolchain_detect._run_diec", lambda *a, **k: self._MSVC_DETS)
         monkeypatch.setattr("rebrew.toolchain_detect.detect_with_pdb", lambda *a, **k: None)
         monkeypatch.setattr(
