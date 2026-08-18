@@ -1,4 +1,6 @@
 ## [Unreleased]
+
+## [0.2.0] - 2026-08-18
 ### Fixed
 - **MZ code offset ignored the reloc-table position** (functionality-review
   HIGH): `parse_mz_header` computed `code_offset = cparhdr*16 + crlc*4`,
