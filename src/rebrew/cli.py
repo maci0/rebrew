@@ -405,6 +405,41 @@ def resolve_cflags(
     return cflags
 
 
+def resolve_compile_overrides(
+    cfg: ProjectConfig | None,
+    source_dir: str | Path,
+    per_function_toolchain: str | None,
+    per_function_cflags: str | None,
+    module: str = "",
+) -> tuple[str | None, str]:
+    """Resolve the effective (toolchain, cflags) for one source file.
+
+    Fallback chain, most specific first:
+
+    1. per-function metadata (rebrew-function.toml TOOLCHAIN / CFLAGS),
+    2. the nearest per-library ``rebrew-library.toml`` (walk-up from
+       *source_dir*; its known-library presets fill missing fields),
+    3. project defaults (``[compiler]`` profile/cflags via ``resolve_cflags``).
+
+    This is the single source of truth so verify / test / match / prove all
+    compile every function of a library with the same compiler + flags.
+    Returns ``(toolchain, cflags)`` — toolchain is ``None`` when no override
+    names a compiler (project default profile applies)."""
+    toolchain = (per_function_toolchain or "").strip() or None
+    cflags = (per_function_cflags or "").strip()
+    if toolchain is None or not cflags:
+        from rebrew.metadata import find_library_override
+
+        root = getattr(cfg, "root", None) if cfg is not None else None
+        ovr = find_library_override(source_dir, root)
+        if ovr is not None:
+            if toolchain is None and ovr.toolchain:
+                toolchain = ovr.toolchain
+            if not cflags and ovr.cflags:
+                cflags = ovr.cflags
+    return toolchain, resolve_cflags(cfg, cflags or None, module)
+
+
 def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
     """Resolve a source argument to an existing source file path.
 

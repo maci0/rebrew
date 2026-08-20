@@ -21,6 +21,16 @@ Install editable (`uv pip install -e .`) inside a workspace containing binaries,
 
 All images build reproducibly (pinned sources, sha256-verified downloads or committed tarballs; shared `rebrew/base` with pinned Debian digest) and `rebrew toolchain smoke` gates byte-reproducible objects for every image-backed toolchain — see `docs/TOOLCHAIN.md`.
 
+**Per-library toolchain/flags overrides** (`rebrew-library.toml` at a library
+root, managed by `rebrew library set/show/rm`): a source subtree whose
+functions were all built with one compiler + flags declares them once — every
+function under it compiles with that docker image + flags instead of
+per-function metadata.  Resolution (most specific first): per-function
+`TOOLCHAIN`/`CFLAGS` (`rebrew-function.toml`) → nearest `rebrew-library.toml`
+(walk-up) → project default.  Known shipped libraries (e.g. `msvcrt-static` =
+MSVC static CRT, `/MT /O2 /Gd`) fill missing fields via presets.  See
+`docs/TOOLCHAIN.md`.
+
 ## Build & Test Commands
 
 ```bash

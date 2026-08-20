@@ -69,6 +69,40 @@ below for the analysis-side support matrix.
 
 ---
 
+## Per-library overrides (rebrew-library.toml)
+
+Most codebases are one codebase: all functions were built with the same
+compiler and flags.  Per-function `TOOLCHAIN`/`CFLAGS` metadata (the
+`rebrew-function.toml` escape hatch for rare mixed builds) stays, but the
+right abstraction for "some parts of the codebase were built with other
+flags" is a **per-library** override: a `rebrew-library.toml` at a library
+root directory (e.g. `references/zlib/`, a shipped runtime, or any source
+subtree) applies to every function under it.  `rebrew library` manages it:
+
+```bash
+rebrew library set refs/zlib --preset msvcrt-static   # known shipped lib
+rebrew library set refs/zlib --toolchain msvc6 --cflags "/O2 /Gd /MT"
+rebrew library show refs/zlib/f                       # effective override (walk-up)
+rebrew library rm refs/zlib
+```
+
+```toml
+# refs/zlib/rebrew-library.toml
+library = "msvcrt-static"   # optional: known-library preset fills missing fields
+toolchain = "msvc600sp6"     # optional: compiler profile (docker image)
+cflags = "/O2 /Gd /MT"       # optional: compiler flags
+```
+
+Resolution (most specific first): per-function `TOOLCHAIN`/`CFLAGS` → the
+nearest `rebrew-library.toml` walking up from the function's directory →
+project defaults.  **Known-library presets** cover the shipped runtimes
+rebrew knows the build settings for — e.g. `msvcrt-static` expands to
+`msvc6` + `/O2 /Gd /MT` (the MSVC static CRT), `msvcrt-dynamic` to
+`/MD`, `msvc16-runtime` / `borland-runtime` / `watcom-runtime` for the
+16-bit and Borland/Watcom runtimes.  `rebrew toolchain` docker-only
+execution applies unchanged: the override selects the image.
+
+
 ## Toolchain standardization (docker-first)
 
 `rebrew toolchain` (see [CLI.md](CLI.md)) manages compiler toolchains

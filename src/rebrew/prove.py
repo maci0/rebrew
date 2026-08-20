@@ -1476,9 +1476,15 @@ def _prepare_prove_inputs(
     if not target_bytes:
         raise _ProveError(f"Failed to extract target bytes at VA 0x{va:08x} (size {size})")
 
-    from rebrew.cli import resolve_cflags
+    from rebrew.cli import resolve_compile_overrides
 
-    cflags_str = resolve_cflags(cfg, ann.cflags, getattr(ann, "module", ""))
+    toolchain, cflags_str = resolve_compile_overrides(
+        cfg,
+        Path(source_path).resolve().parent,
+        getattr(ann, "toolchain", ""),
+        getattr(ann, "cflags", ""),
+        getattr(ann, "module", ""),
+    )
     cflags_list = safe_shlex_split(cflags_str)
 
     # Watched VAs for memory side-effect checking: CLI flags + metadata.
@@ -1501,7 +1507,13 @@ def _prepare_prove_inputs(
             watched_vas.append(_va)
 
     with tempfile.TemporaryDirectory(prefix="rebrew_prove_") as workdir:
-        obj_path, err = compile_to_obj(cfg, source_path, cflags_list, workdir)
+        obj_path, err = compile_to_obj(
+            cfg,
+            source_path,
+            cflags_list,
+            workdir,
+            toolchain=toolchain,
+        )
         if obj_path is None:
             raise _ProveError(f"Compile error: {err}")
 
