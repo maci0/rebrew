@@ -57,6 +57,8 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import lief
+
 from rebrew.binary_loader import load_binary
 
 # ---------------------------------------------------------------------------
@@ -121,6 +123,69 @@ _MSVC_VERSION_HINTS = {
     "14.00": "MSVC 8.0",
 }
 
+#: PE optional-header linker version ("major.minor") -> MSVC compiler
+#: (major, minor).  The linker version is the strongest per-version signal
+#: for the classic linkers, and combined with the Rich-header C1 build it
+#: pins the exact compiler (e.g. linker 6.0 + C1 8168 = 12.00.8168 = VC 6.0).
+#: Early linkers (2.50-4.20) write no Rich header, so the linker version
+#: alone names the version (VC 2.0 .. 4.2).  Note MinGW's GNU ld also writes
+#: a 2.x linker version — the Rich header (or the family evidence) must
+#: disambiguate a bare 2.x.
+_MSVC_LINKER_VERSIONS: dict[str, tuple[int, int]] = {
+    "2.0": (9, 0),  # VC 2.0 (CL 9.00)
+    "2.5": (9, 0),
+    "2.50": (9, 0),
+    "3.0": (10, 0),  # VC 4.0 (10.00.5270)
+    "3.10": (10, 10),  # VC 4.1 (10.10.6038)
+    "4.20": (10, 20),  # VC 4.2 (10.20.7022)
+    "5.0": (11, 0),  # VC 5.0 (11.00.7022)
+    "5.10": (11, 0),
+    "5.12": (11, 0),
+    "6.0": (12, 0),  # VC 6.0
+    "7.0": (13, 0),  # VC 7.0 (2002)
+    "7.10": (13, 10),  # VC 7.1 (.NET 2003)
+    "8.0": (14, 0),  # VC 8.0 (2005)
+    "9.0": (15, 0),  # VC 9.0 (2008)
+    "10.0": (16, 0),  # VC 10.0 (2010)
+}
+
+
+#: Rich-header C1/C2 build numbers -> rebrew profiles carrying that exact
+#: compiler build.  Empirically dumped from the rebrew toolchain images:
+#: each image's linker records the front-end build, which for the VC 6.0
+#: service packs is the C1.DLL build (8168 RTM, 8447 SP3, 8966 SP5, 9782
+#: SP6 — SP builds are NOT the same compiler).  A tuple = profiles sharing
+#: the same build; the linker version further narrows it
+#: (13.10.3077 -> msvc7 vs msvc710).
+_RICH_BUILD_PROFILES: dict[int, tuple[str, ...]] = {
+    8168: ("msvc6",),  # 12.00.8168 (VC6 RTM)
+    8447: ("msvc600sp3",),  # 12.00.8447
+    8966: ("msvc600sp5",),  # 12.00.8966
+    9782: ("msvc600sp6",),  # 12.00.9782
+    9466: ("msvc700", "msvc700sp1"),  # 13.00.9466
+    9955: ("msvc700sp1",),  # 13.00.9955 (7.0 SP1 C1)
+    3077: ("msvc7", "msvc710"),  # 13.10.3077
+    6030: ("msvc710sp1",),  # 13.10.6030
+    50727: ("msvc800", "msvc800sp1"),  # 14.00.50727 (+.762 for SP1)
+    21022: ("msvc900",),  # 15.00.21022
+    30319: ("msvc1000",),  # 16.00.30319
+    40219: ("msvc1000sp1",),  # 16.00.40219
+}
+
+
+#: CRT import names -> MSVC version binder (msvcp60.dll = VC 6.0, etc.).
+#: The msvcpX.dll import is written by the /MD CRT of that toolchain; a
+#: strong secondary signal when the Rich header is absent (some linkers
+#: or post-processing strip it).
+_MSVCP_IMPORT_VERSIONS: dict[str, str] = {
+    "msvcp60.dll": "6.0",
+    "msvcp70.dll": "7.0",
+    "msvcp71.dll": "7.1",
+    "msvcp80.dll": "8.0",
+    "msvcp90.dll": "9.0",
+    "msvcp100.dll": "10.0",
+}
+
 
 @dataclass
 class ToolchainInfo:
@@ -137,6 +202,8 @@ class ToolchainInfo:
     crt_linkage: str = ""  # "dynamic" | "static" | "" (unknown)
     base_cflags: str = ""  # suggested base_cflags: "/MD" or "/MT" for MSVC-family binaries
     opt_level: str = ""  # suggested optimization: "/O1" or "/O2" (MSVC codegen fingerprint)
+    msvc_version: str = ""  # exact compiler version, e.g. "12.00.8168" (PE metadata)
+    suggested_profiles: list[str] = field(default_factory=list)  # version-exact rebrew profiles
     packed: str = ""  # packer name/version when the binary is packed ("lzexe 0.91")
 
     def add(self, text: str) -> None:
@@ -149,6 +216,7 @@ _BACKEND_DISPLAY: dict[str, str] = {
     "die": "Detect It Easy (diec)",
     "pdb": "PDB",
     "heuristics": "codegen heuristics",
+    "pe-meta": "PE metadata (Rich header / linker version)",
 }
 
 
@@ -503,6 +571,125 @@ def detect_with_pdb(path: Path) -> ToolchainInfo | None:
     return info
 
 
+
+
+def _msvc_version_hint(version: str, profiles: tuple[str, ...] | None) -> str:
+    """"MSVC 12.00.8168" (+ the rebrew profiles carrying that build)."""
+    hint = f"MSVC {version}"
+    if profiles:
+        hint += f" — matches {', '.join(profiles)}"
+    return hint
+
+
+# ---------------------------------------------------------------------------
+# Backend 2.5: PE metadata fingerprinting (Rich header, linker version, CRT)
+# ---------------------------------------------------------------------------
+
+
+def detect_with_pe_meta(path: Path) -> ToolchainInfo | None:
+    """Per-version MSVC fingerprinting from PE metadata.
+
+    LINK.EXE writes a **Rich header** into the DOS stub recording every tool
+    (compiler front/back end, linker) with its build number; combined with
+    the optional-header linker version this pins the exact compiler (e.g.
+    linker 6.0 + C1 8168 -> MSVC 6.0 12.00.8168).  VC 2.0-4.2 linkers write
+    no Rich header — their linker version alone names the version (2.50
+    -> VC 2.0, 3.0 -> 4.0, 3.10 -> 4.1, 4.20 -> 4.2).  The msvcpX.dll CRT
+    import is a secondary binder when the Rich header is stripped.
+
+    The Rich header is proof of the MSVC linker (family=msvc, high); a bare
+    2.x linker version is ambiguous with MinGW's GNU ld, so that case only
+    fills version/suggested_profiles evidence and lets the heuristics pick
+    the family.  Returns None for non-PE / unparseable binaries."""
+    try:
+        pe = lief.parse(str(path))
+    except Exception:
+        return None
+    # PE-only: only PE binaries expose an optional_header (ELF/Mach-O do
+    # not); duck-typing also keeps the backend testable with mocks.
+    if pe is None or not hasattr(pe, "optional_header"):
+        return None
+
+    info = ToolchainInfo(detected_by="pe-meta")
+    major = pe.optional_header.major_linker_version
+    minor = pe.optional_header.minor_linker_version
+    linker_ver = f"{major}.{minor}"
+    rich_builds: list[int] = []
+    rich = getattr(pe, "rich_header", None)
+    if rich is not None:
+        rich_builds = sorted({e.build_id for e in rich.entries})
+
+    # CRT import binder: msvcp60.dll -> VC 6.0 etc.
+    msvcp_version = ""
+    try:
+        for imp in pe.imports:
+            name = str(getattr(imp, "name", "") or "").lower()
+            if name in _MSVCP_IMPORT_VERSIONS:
+                msvcp_version = _MSVCP_IMPORT_VERSIONS[name]
+                break
+    except Exception:
+        pass
+    if msvcp_version:
+        info.add(f"msvcp import names MSVC {msvcp_version} CRT")
+
+    linker_mm = _MSVC_LINKER_VERSIONS.get(linker_ver)
+    if rich_builds:
+        # Rich header present = the MSVC linker wrote it — family is proven.
+        info.family = "msvc"
+        info.confidence = "high"
+        build = rich_builds[-1]  # front/back-end pair share one build
+        profiles = _RICH_BUILD_PROFILES.get(build)
+        mm = linker_mm or (12, 0)  # unknown linker -> VC6-era fallback
+        version = f"{mm[0]}.{mm[1]:02d}.{build}"
+        info.msvc_version = version
+        if profiles:
+            info.suggested_profiles = list(profiles)
+        info.add(f"Rich header: C1/C2 build {build}, linker {linker_ver}")
+        info.version_hint = _msvc_version_hint(version, profiles)
+        return info
+
+    if linker_mm is None and not msvcp_version:
+        return None  # not a classic MSVC linker and no CRT binder
+
+    # No Rich header: VC 2.0-4.2 (or a stripped/other linker).  The linker
+    # version names the era; a bare 2.x is ambiguous with MinGW's GNU ld,
+    # so only evidence/version is filled — the heuristics decide the family.
+    if linker_mm is not None:
+        version = f"{linker_mm[0]}.{linker_mm[1]:02d}"
+        info.msvc_version = version
+        if linker_mm == (9, 0):
+            info.suggested_profiles = ["msvc200"]
+        elif linker_mm == (10, 0):
+            info.suggested_profiles = ["msvc400"]
+        elif linker_mm == (10, 10):
+            info.suggested_profiles = ["msvc410"]
+        elif linker_mm == (10, 20):
+            info.suggested_profiles = ["msvc420"]
+        elif linker_mm == (11, 0):
+            info.suggested_profiles = ["msvc5", "msvc500sp1", "msvc500sp2", "msvc500sp3"]
+        if linker_mm == (9, 0):
+            info.add(f"linker {linker_ver} (MSVC 2.0 or MinGW GNU ld)")
+            if msvcp_version:
+                info.family = "msvc"
+                info.confidence = "medium"
+        else:
+            info.family = "msvc"
+            info.confidence = "high" if linker_mm != (11, 0) else "medium"
+            info.add(f"linker {linker_ver} -> MSVC {version}")
+    else:
+        # msvcp import only: the DLL name already names the version
+        # (msvcp71.dll -> VC 7.1).
+        version = msvcp_version
+        info.msvc_version = version
+        info.family = "msvc"
+        info.confidence = "medium"
+        info.add(f"msvcp {msvcp_version} CRT -> MSVC {version}")
+    info.version_hint = _msvc_version_hint(
+        info.msvc_version, tuple(info.suggested_profiles) or None
+    )
+    return info
+
+
 def detect_toolchain(path: Path | str) -> ToolchainInfo:
     """Detect the compiler family behind *path*.
 
@@ -545,6 +732,32 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
             info.confidence = "high"
             info.version_hint = pdb_info.version_hint
             info.detected_by = "pdb"
+
+    # --- Backend 2.5: PE metadata (Rich header / linker version / CRT) ---
+    # Strongest per-version MSVC fingerprint: the Rich header proves the
+    # MSVC linker and pins the exact compiler build (e.g. 12.00.8168).  Runs
+    # before the codegen heuristics so a version-exact answer wins.
+    pe_info = detect_with_pe_meta(path)
+    if pe_info is not None:
+        info.evidence.extend(pe_info.evidence)
+        if info.family == "unknown":
+            info.family = pe_info.family
+            info.confidence = pe_info.confidence
+            info.version_hint = pe_info.version_hint
+            info.detected_by = "pe-meta"
+        # Enrich with the exact version / suggested profiles even when
+        # pe-meta left the family unknown (the bare 2.x linker case is
+        # ambiguous with MinGW and only contributes evidence).
+        if pe_info.msvc_version:
+            info.msvc_version = pe_info.msvc_version
+        if pe_info.suggested_profiles:
+            info.suggested_profiles = pe_info.suggested_profiles
+        if pe_info.family == "msvc":
+            # The precise PE-meta hint ("MSVC 12.00.8168 — matches msvc6")
+            # always beats a coarser DIE/PDB era hint ("MSVC 6.0").
+            if pe_info.msvc_version:
+                info.version_hint = pe_info.version_hint
+            info.confidence = max(info.confidence, pe_info.confidence)
 
     # --- Backend 3: structural heuristics (always available) ---
     # String signals run FIRST — they decide the family for formats
@@ -1023,6 +1236,18 @@ def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, 
             f"configured profile '{profile}' does not align with detected family '{info.family}' "
             f"({', '.join(sorted(compatible))} would fit) — see docs/TOOLCHAIN.md",
         )
+    # Version-exact check: when the PE metadata pinned the exact MSVC build
+    # (Rich header / linker), a different-compiler profile cannot byte-match
+    # — every MSVC version is a different codegen.  This catches e.g. an
+    # msvc6 profile on a VC 8.0 binary (silent COMPILE_ERROR for every
+    # function) before the first compile.
+    if info.family == "msvc" and info.suggested_profiles and profile not in info.suggested_profiles:
+        return (
+            False,
+            f"binary was built with MSVC {info.msvc_version} — profile '{profile}' is a "
+            "different compiler build; switch to one of: "
+            f"{', '.join(sorted(info.suggested_profiles))}",
+        )
     # Arch dimension: a 16-bit DOS/NE binary can only be byte-matched by
     # 16-bit-capable profiles; conversely msvc1.52 cannot match a 32/64-bit
     # PE/ELF.  This catches the "msvc6 profile on a 16-bit project"
@@ -1060,15 +1285,21 @@ def _is_16bit_target(info: ToolchainInfo, binary: Path | None) -> bool:
         return True
     if binary is None:
         return False
+    if isinstance(binary, str):
+        binary = Path(binary)
     try:
-        head = binary.read_bytes()[:0x40]
+        data = binary.read_bytes()
     except OSError:
         return False
-    if len(head) < 2 or head[:2] != b"MZ":
+    if len(data) < 2 or data[:2] != b"MZ":
         return False
-    from rebrew.binary_loader import is_ne
-
-    return not is_ne(binary)
+    # A PE carries the "PE\0\0" signature at e_lfanew — it is NOT
+    # 16-bit.  Only NE (16-bit Windows) and plain DOS MZ executables are.
+    if len(data) >= 0x40:
+        e_lfanew = int.from_bytes(data[0x3C:0x40], "little")
+        if e_lfanew + 4 <= len(data) and data[e_lfanew : e_lfanew + 4] == b"PE\x00\x00":
+            return False
+    return True
 
 
 def suggest_profile(info: ToolchainInfo, binary: Path | None = None) -> str | None:
@@ -1083,6 +1314,12 @@ def suggest_profile(info: ToolchainInfo, binary: Path | None = None) -> str | No
     compatible = _PROFILE_COMPAT.get(info.family)
     if not compatible:
         return None
+    # Version-exact: the PE metadata pinned the compiler build — prefer a
+    # profile carrying that build over the generic family default.
+    if info.suggested_profiles:
+        for p in info.suggested_profiles:
+            if p in compatible and not _is_16bit_target(info, binary):
+                return p
     if _is_16bit_target(info, binary):
         for p in ("msvc1.52", "tc16", "watcom16"):
             if p in compatible:
