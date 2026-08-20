@@ -246,8 +246,9 @@ class TestInit:
     def test_msvc6_resolves_available_toolchain(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """msvc6 init must not write a broken toolchain/msvc/6.0-win32 path when the
-        machine only has the vendored mirrors (or no layout at all)."""
+        """msvc6 is docker-backed — init writes a docker-native config (empty
+        host command; the image is the compiler), no stale wine path, even
+        when a vendored toolchain layout exists on disk."""
         monkeypatch.chdir(tmp_path)
         init(
             target_name="server",
@@ -258,19 +259,14 @@ class TestInit:
             install_completions=False,
         )
         content = (tmp_path / "rebrew-project.toml").read_text()
-
-        from rebrew.utils import resolve_msvc_toolchain
-
-        layout = resolve_msvc_toolchain(tmp_path, "msvc6")
-        if layout is not None:
-            # A layout exists (project tools/ or the rebrew install's own
-            # vendored tree) — the generated command must point at it.
-            assert layout[0] in content, f"expected {layout[0]!r} in generated config"
-        else:
-            # No layout anywhere (CI: tools/ is gitignored) — the documented
-            # master default is kept, and the config-layer fallback reports
-            # the missing toolchain via doctor.
-            assert "toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE" in content
+        assert 'profile = "msvc6"' in content
+        assert 'command = ""' in content
+        assert 'runner = ""' in content
+        # no host wine invocation in the active [compiler] block
+        assert not any(
+            line.strip().startswith(("command", "runner")) and "wine" in line
+            for line in content.splitlines()
+        )
 
     def test_msvc7_resolves_available_toolchain(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

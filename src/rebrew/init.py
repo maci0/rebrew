@@ -83,8 +83,10 @@ marker = "{marker}"                  # annotation marker (e.g. // FUNCTION: SERV
 # GAME = "/O2 /Gd"
 
 # Per-target compiler override (optional — falls back to global [compiler]).
+# Windows/DOS toolchains run ONLY through their docker image; leave the
+# command/runner empty (the profile drives the image).  E.g.:
 # [targets."{target_name}".compiler]
-# command = "wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE"
+# profile = "msvc600sp6"
 
 # ---------------------------------------------------------------------------
 # Global compiler settings — shared across all targets
@@ -103,7 +105,9 @@ timeout = 60                         # compile subprocess timeout (seconds)
 [compiler.cflags_presets]
 GAME = "{cflags}"
 
-# Alternative compiler profiles — select with --profile <name> (future).
+# Per-directory overrides — rebrew-library.toml at a library root can
+# declare toolchain + flags for a whole subtree; per-function TOOLCHAIN/CFLAGS
+# metadata wins.  See docs/TOOLCHAIN.md.
 # [compiler.profiles.clang]
 # command = "clang"
 # includes = "/usr/include"
