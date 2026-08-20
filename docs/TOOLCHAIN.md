@@ -456,8 +456,11 @@ config/init/detect profile, a tools/ compat link, and a smoke-gate golden.
 | `msvc500sp2` | 5.0 SP2 | 11.00.7022 | (same CL) | archaic-msvc `msvc500sp2` | docker |
 | `msvc500sp3` | 5.0 SP3 | 11.00.7022 | (same CL) | archaic-msvc `msvc500sp3` | docker |
 | `msvc6` | 6.0 (1998) | 12.00.8168 | RTM..SP3 | archaic-msvc `msvc600` | docker |
+| `msvc600sp1` | 6.0 SP1 | 12.00.8168 | (same CL) | archaic-toolchains `msvc600_sp1` (RTM + SP1 fixes; SP1 payload not preserved) | docker |
+| `msvc600sp2` | 6.0 SP2 | 12.00.8168 | (same CL) | archaic-toolchains `msvc600_sp2` (RTM + official SP2 payload) | docker |
 | `msvc600sp3` | 6.0 SP3 | 12.00.8168 | (same CL) | decomp.me `msvc6.3` (archaic sp3 repo has no Bin/) | docker |
-| `msvc600sp5` | 6.0 SP5 | 12.00.8804 | | archaic-msvc `msvc600_sp5` | docker |
+| `msvc600sp4` | 6.0 SP4 | 12.00.8804 | | archaic-toolchains `msvc600_sp4` (headers/libs + Bin) | docker |
+| `msvc600sp5` | 6.0 SP5 | 12.00.8804 | (same CL) | archaic-msvc `msvc600_sp5` | docker |
 | `msvc600sp6` | 6.0 SP6 | 12.00.8804 | (same CL) | archaic-msvc `msvc600_sp6` | docker |
 | `msvc7` | 7.0 (2002) | 13.10.3077 | .NET 2003 build | archaic-msvc `msvc710` | docker |
 | `msvc700` | 7.0 RTM | 13.00.9466 | true 7.0 | archaic-msvc `msvc700` | docker |
@@ -467,8 +470,10 @@ config/init/detect profile, a tools/ compat link, and a smoke-gate golden.
 | `msvc800` | 8.0 (2005) | 14.00.50727 | | archaic-msvc `msvc800` | docker |
 | `msvc800sp1` | 8.0 SP1 | 14.00.50727.762 | | archaic-msvc `msvc800_sp1` | docker |
 | `msvc900` | 9.0 (2008) | 15.00.21022 | | archaic-msvc `msvc900` | docker |
+| `msvc900sp1` | 9.0 SP1 | 15.00.30729 | | archaic-toolchains `msvc900_sp1` (msvc900 + SP1 compiler) | docker |
 | `msvc1000` | 10.0 (2010) | 16.00.30319 | | archaic-msvc `msvc1000` | docker |
 | `msvc1000sp1` | 10.0 SP1 | 16.00.40219 | | archaic-msvc `msvc1000_sp1` | docker |
+| `msvc1100` | 11.0 (2012) | 17.00.50522 | | archaic-msvc `msvc1100` | docker |
 
 Notes:
 
@@ -483,15 +488,29 @@ Notes:
   by `rebrew.matcher.omf16` — smoke-gated and verified (the object for the
   smoke source is byte-identical to 1.5/1.52's, the shared 16-bit codegen).
 - **Service packs share compiler binaries**: the real VC 6.0 compiler line is
-  **12.00.8168 through SP3** (the RTM..SP3 driver is byte-identical, sha
-  `91ca0dde`) and **12.00.8804 from SP4 on** — verified against the official
-  Microsoft **Visual Studio 6 SP4 CD** (archive.org item
-  `microsoft-visual-studio-6-sp4-...-2000-microsoft-cd`, part numbers
-  X05-78387 / X05-78367D1): its `vc98/bin/cl.exe` is exactly 12.00.8804, the
-  same binary SP5/SP6 carry.  So SP1–SP4 are covered by `msvc6`/`msvc600sp3`
-  (8168) and `msvc600sp5`/`msvc600sp6` (8804); the only real gap is **VC 2008
-  SP1's compiler (15.00.30729)**, which has no public tarball (`archaic-msvc`
-  publishes only base `msvc900`).
+  **12.00.8168 through SP3** (the RTM..SP3 driver is byte-identical — sha
+  `c2eed74a…` in the pinned `msvc600` tarball; the legacy vendored tree
+  carries the `91ca0dde…` build of the same 12.00.8168 version) and
+  **12.00.8804 from SP4 on** — verified against the official Microsoft
+  **Visual Studio 6 SP4 CD** (archive.org item
+  `microsoft-visual-studio-6-sp4-x05-78387-x05-78367d1-2000-microsoft-cd`,
+  part numbers X05-78387 / X05-78367D1): its `vc98/bin/cl.exe` is exactly
+  12.00.8804, the same binary SP4/SP5/SP6 carry (sha `1bf99f20…`).
+- **SP1/SP2/SP4 profiles**: SP1/SP2/SP3 changed no compiler binaries and no
+  include headers (verified from the official SP2 disc payload) — the delta
+  is CRT/MFC sources+libs and the runtime DLLs.  `msvc600sp1` and
+  `msvc600sp2` therefore share msvc6's byte-identical smoke object; the
+  `msvc600sp1` tree is a reconstruction (RTM + the SP1-fixed files from the
+  cumulative SP2 payload) because the standalone SP1 payload
+  (`VSE600SP1.EXE`) is not preserved in any public archive — see the repo
+  README.  `msvc600sp4` carries the SP4 headers/libs + the 8804 compiler
+  (decomp.me `msvc6.4` Bin, sha-verified byte-identical to the SP4 CD).
+- **VC 2008 SP1 compiler closed**: `msvc900sp1` carries cl.exe 15.00.30729.01
+  (Professional-edition build; the SP1 patch also ships Standard/Team
+  variants) extracted from the official VS2008 SP1 DVD — this was previously
+  "the only real gap" (`archaic-msvc` publishes only base `msvc900`).
+- **VC 11.0**: `msvc1100` (VS 2012, cl.exe 17.00.50522) is the newest
+  compiler the `archaic-msvc` org carries.
 - **Legacy aliases**: the old `msvc6.3` / `msvc6.6` profile names map to the
   `6.0-sp3` / `6.0-sp6` layouts; `msvc7` keeps its historical 13.10.3077
   compiler (the canonical `7.0-win32` dir), while `msvc700` is the true VC 7.0
@@ -516,9 +535,14 @@ with a `Bin/`; the archaic `msvc600_sp3` repo has headers/libs only).
 | `archaic-msvc/msvc500` | VC 5.0 compiler | `46745771…` |
 | `archaic-msvc/msvc500sp1/2/3` | VC 5.0 SP1/SP2/SP3 | `f41e9e5a…` / `55113750…` / `cdba2878…` |
 | `archaic-msvc/msvc600` | VC 6.0 compiler (8168) | `19b72020…` |
+| `archaic-toolchains/msvc600_sp1` | VC 6.0 SP1 tree (RTM + SP1 fixes; reconstruction) | `2c3d1a6d…` |
+| `archaic-toolchains/msvc600_sp2` | VC 6.0 SP2 tree (RTM + official SP2 payload) | `088cd189…` |
 | decomp.me `msvc6.3` | VC 6.0 SP3 payload w/ Bin (only source) | `84f73e71…` |
+| `archaic-toolchains/msvc600_sp4` | VC 6.0 SP4 tree w/ Bin (headers/libs + msvc6.4 Bin) | `7aeb03f6…` |
 | `archaic-msvc/msvc600_sp5` | VC 6.0 SP5 full product tree | `a95a9c17…` |
 | `archaic-msvc/msvc600_sp6` | VC 6.0 SP6 full product tree | `7c2aa3dd…` |
+| `archaic-toolchains/msvc900_sp1` | VC 9.0 SP1 tree (msvc900 + 15.00.30729 from VS2008 SP1 DVD) | `33a66c77…` |
+| `archaic-msvc/msvc1100` | VC 11.0 / VS 2012 (17.00.50522) | `adba1882…` |
 | `archaic-msvc/msvc700` | VC 7.0 (2002) compiler (13.00.9466) | `5f75462f…` |
 | `archaic-msvc/msvc700_sp1` | VC 7.0 SP1 | `bc130062…` |
 | `archaic-msvc/msvc710` | VC 7.1 (.NET 2003) compiler (13.10.3077) | `618e876b…` |
@@ -532,7 +556,7 @@ with a `Bin/`; the archaic `msvc600_sp3` repo has headers/libs only).
 | archive.org `en_vc152_202512` | VC 1.52 (1995) 16-bit media | in-repo `msvc152.tar.xz` |
 | WinWorld `visual-c/1x` (3.5\" floppy set) | VC 1.0 Professional (1992) 16-bit media | in-repo `msvc10.tar.xz` |
 |
-| **Gap preservation repos** | the toolchains archaic-msvc does not carry — VC 1.0/1.5/1.52/4.0, 6.0-SP3 with its Bin, plus the non-MSV C line (Borland C++ 5.5, Turbo C 2.0/3.1, Open Watcom 2.0, Delphi 1.0) — are published one-per-repo at **`github.com/archaic-toolchains`** — same tree format, READMEs with provenance + checksums | — |
+| **Gap preservation repos** | the toolchains archaic-msvc does not carry — VC 1.0/1.5/1.52/4.0, 6.0-SP1/SP2/SP4 with their Bin (SP1/SP2 reconstructed from the official SP payloads, SP1 documented as not preserved standalone), 9.0-SP1's 15.00.30729 compiler, plus the non-MSV C line (Borland C++ 5.5, Turbo C 2.0/3.1, Open Watcom 2.0, Delphi 1.0) — are published one-per-repo at **`github.com/archaic-toolchains`** — same tree format, READMEs with provenance + checksums | — |
 
 Full sha256 values live in `_SOURCES` (`src/rebrew/toolchain.py`) — the
 Dockerfiles verify them at build time and `rebrew toolchain vendor` refuses a

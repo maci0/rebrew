@@ -1,4 +1,25 @@
 ## [Unreleased]
+### Added
+- **VC 6.0 SP1/SP2/SP4 toolchains** (`msvc600sp1`, `msvc600sp2`,
+  `msvc600sp4`): SP1/SP2 share the byte-identical 12.00.8168 driver with
+  `msvc6` (SP1-3 changed no compiler/headers); SP4 carries the 12.00.8804
+  driver (verified byte-identical to the official SP4 CD).  Sources
+  published to **`archaic-toolchains`** (`msvc600_sp1` — a documented
+  reconstruction, since the standalone SP1 payload is not preserved
+  publicly; `msvc600_sp2` — RTM + the full official SP2 payload from the
+  MSDN Disc 18; `msvc600_sp4` — SP4 headers/libs + the decomp.me `msvc6.4`
+  Bin).  Smoke-gated (SP1/SP2 golden == msvc6's; SP4 distinct).
+- **VC 2008 SP1 toolchain** (`msvc900sp1`, cl.exe 15.00.30729.01): closes
+  the "VC 2008 SP1 compiler has no public tarball" gap via
+  `archaic-toolchains/msvc900_sp1` (msvc900 base + the SP1 compiler from
+  the official VS2008 SP1 DVD patch).  `rebrew toolchain detect` now
+  maps Rich-header build 30729 to it.
+- **VC 11.0 / VS 2012 toolchain** (`msvc1100`, cl.exe 17.00.50522.1) from
+  `archaic-msvc/msvc1100`; detection maps linker 11.0 / build 50522 to it.
+- `rebrew toolchain detect` / init / doctor profile sets updated for all of
+  the above (config `_KNOWN_PROFILES`, `utils._MSVC_LAYOUTS`, init presets,
+  `_PROFILE_COMPAT`, `_RICH_BUILD_PROFILES`, `_LINKER_ERA_PROFILES`).
+
 ### Fixed
 - **docker-only compile broke project-relative includes** (C1083 on
   `#include "../../Units/..."` — the flat /work source copy + /incN
