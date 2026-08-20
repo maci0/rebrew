@@ -1,5 +1,16 @@
 ## [Unreleased]
 ### Added
+- **Code similarity score in `rebrew verify`** ("Sim %"): each verified
+  function now carries a 0–100 structural similarity score between its
+  compiled bytes and the target, computed via the sibling `resembl`
+  project's dependency-light scoring core (`resembl.scoring` — importable
+  without its sqlmodel/sqlalchemy DB stack).  Robust to register allocation
+  and immediate-value differences that byte-match is blind to.  Optional:
+  install the new `[similarity]` extra (`uv pip install -e .[similarity]`);
+  without it the column stays `None`.  Surfaced in the `--summary` table,
+  the failure-detail lines, the JSON report, cached results, and persisted to
+  `coverage.db`'s `verify_results.similarity` so the `recoverage` dashboard
+  can display it.
 - **VC 6.0 SP1/SP2/SP4 toolchains** (`msvc600sp1`, `msvc600sp2`,
   `msvc600sp4`): SP1/SP2 share the byte-identical 12.00.8168 driver with
   `msvc6` (SP1-3 changed no compiler/headers); SP4 carries the 12.00.8804
@@ -197,6 +208,19 @@
   msvc6.3` now rejects with the real profile list, and the detection
   compat table only admits registry profiles.
 
+### Changed
+- **16-bit toolchain images download from the `archaic-toolchains`
+  preservation repos**: the six 16-bit Dockerfiles (msvc1.52/1.5/1.0,
+  tc16, tc20, delphi16) no longer COPY an in-repo tar.xz — each curls the
+  pinned, sha256-verified codeload tarball of its matching
+  archaic-toolchains repo (`msvc152`/`msvc15`/`msvc10`/`tc31`/`tc20`/
+  `delphi10`) at build time, like the 32-bit images already did.  The
+  extraction content is byte-identical to the old tarballs (verified:
+  rebuilt msvc1.52/tc16/delphi16 pass the smoke gate; tc20's mismatch is
+  the documented pre-existing golden artifact).  Build context no longer
+  needs the tarballs (`.dockerignore` drops `*.tar.xz`).  The standalone
+  [maci0/rebrew-toolchains](https://github.com/maci0/rebrew-toolchains)
+  repo is synced and builds from scratch with only docker.
 ## [0.2.0] - 2026-08-18  comment.
 
 ## [0.2.0] - 2026-08-18
