@@ -5,4 +5,4 @@ engine, annotation pipeline, verification framework, and CLI tools for
 reconstructing exact C source from compiled binaries.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
