@@ -51,7 +51,6 @@ def test_vendored_enumeration_includes_msvc400() -> None:
     assert all(cl == "" and inc == "" for _p, cl, inc in toolchains[1:])
 
 
-
 def test_sweep_filter_matches() -> None:
     """Filter semantics: exact profile, profile prefix, version substring,
     arch substring."""
@@ -64,6 +63,7 @@ def test_sweep_filter_matches() -> None:
     assert _sweep_filter_matches("msvc6", "6.0-win32", ["6.0"])
     assert not _sweep_filter_matches("msvc1000", "10.0-win32", ["msvc2"])
     assert not _sweep_filter_matches("msvc400", "4.0-win32", ["5.0"])
+
 
 def test_vendored_enumeration_respects_only_exclude() -> None:
     """--sweep-only / --sweep-exclude narrow the registry enumeration."""
@@ -78,13 +78,17 @@ def test_vendored_enumeration_respects_only_exclude() -> None:
     assert "msvc6" in only_p and "msvc600sp6" in only_p
     assert "msvc200" not in only_p and "msvc1000" not in only_p
 
-    excl = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc6"), "", "", exclude="2.0,4.0")
+    excl = _vendored_msvc_toolchains(
+        SimpleNamespace(compiler_profile="msvc6"), "", "", exclude="2.0,4.0"
+    )
     excl_p = [p for p, _cl, _inc in excl]
     assert "msvc200" not in excl_p and "msvc400" not in excl_p
     assert "msvc6" in excl_p
 
     # the configured profile is always the baseline even when filtered out
-    only_sp6 = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc600sp6"), "", "", only="6.0-sp6")
+    only_sp6 = _vendored_msvc_toolchains(
+        SimpleNamespace(compiler_profile="msvc600sp6"), "", "", only="6.0-sp6"
+    )
     assert only_sp6[0][0] == "msvc600sp6"
 
 

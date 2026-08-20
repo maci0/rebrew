@@ -2157,8 +2157,6 @@ def run_flag_sweep(
 # ---------------------------------------------------------------------------
 
 
-
-
 def _sweep_filter_matches(name: str, verarch: str, filters: list[str]) -> bool:
     """True when *name* (profile id, e.g. msvc600sp6) matches a sweep filter.
 

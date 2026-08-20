@@ -87,7 +87,7 @@ Serializable GA state for resume: `generation`, `best_score`, `best_source`, `po
 
 ## Mutation Operators
 
-121 operators in `mutator.py` (`mut_*`):
+114 operators in `mutator.py` (`mut_*`):
 
 - **Commutative/logic**: `mut_commute_add_general`, `mut_commute_mul_general`, `mut_swap_eq_operands`, `mut_swap_ne_operands`, `mut_swap_or_operands`, `mut_swap_and_operands`, `mut_reassociate_add`, `mut_demorgan`
 - **Comparison/boolean**: `mut_flip_eq_zero`, `mut_flip_lt_ge`, `mut_comparison_boundary`, `mut_toggle_bool_not`, `mut_negate_condition`

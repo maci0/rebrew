@@ -315,7 +315,15 @@ class TestToolchainLinks:
 
         # profiles that have a vendored tools/ dir in the repo should be
         # linkable (msvc400 lacks a vendored dir and is fine to skip)
-        for profile in ("msvc6", "msvc1.52", "msvc5", "msvc420", "msvc600sp3", "msvc600sp6", "msvc7"):
+        for profile in (
+            "msvc6",
+            "msvc1.52",
+            "msvc5",
+            "msvc420",
+            "msvc600sp3",
+            "msvc600sp6",
+            "msvc7",
+        ):
             assert profile in _TOOLCHAIN_LINKS, profile
 
 

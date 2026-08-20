@@ -38,7 +38,7 @@ MSVC static CRT, `/MT /O2 /Gd`) fill missing fields via presets.  See
 uv pip install -e .
 uv sync --all-extras            # with dev deps
 
-# Run all tests (~3460)
+# Run all tests (~4620)
 uv run pytest tests/ -v
 
 # Single file

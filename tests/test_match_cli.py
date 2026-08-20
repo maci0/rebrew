@@ -475,4 +475,3 @@ class TestMatchCliLink:
         assert result.exit_code == 0
         assert "Linker command" in result.output
         assert "--link" in result.output
-

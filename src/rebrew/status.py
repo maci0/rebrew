@@ -509,7 +509,9 @@ def _render_terminal(report: StatusReport) -> None:
 
     # Pointer to the prioritized next-action list (PRD 05 status requirement)
     summary_lines.append(
-        "  [bold]Next:[/bold] rebrew todo" if report.total_functions > 0 else "  [dim]No functions yet[/dim]"
+        "  [bold]Next:[/bold] rebrew todo"
+        if report.total_functions > 0
+        else "  [dim]No functions yet[/dim]"
     )
 
     # Verify info
