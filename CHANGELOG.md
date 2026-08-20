@@ -165,6 +165,24 @@
   asserts the docker-native contract instead of matching the stale
   comment.
 
+### Fixed
+- **`rebrew diff` / GA / near-diag / prove / `test --multi` / round-trip
+  compiled from a docker-invisible temp dir** under sandboxed homes: the
+  bind-mounted `/work` silently lost the source and the image wrapper
+  died with `no readable source file in: <flags>`.  All six docker
+  compile sandboxes now use `writable_temp_dir` (workspace `.cache`
+  fallback) with explicit cleanup — `rebrew diff` and the GA flag
+  sweep work end-to-end again (verified on a real MSVC 6.0 PE).
+- **`rebrew analyze` printed double `0x0x` VAs**: the strings /
+  near-miss / library dossiers already format `va` as `0x…` strings
+  and the terminal prints prepended another `0x`.
+- **Per-version detection suggests the new VC6 SP1/SP2/SP4 profiles**:
+  those service packs kept the RTM C1 build (8168) / SP4 shared 8966
+  with SP5, so every profile carrying a build can byte-match; the
+  version-exact tests now assert membership instead of exact tuples.
+
+## [0.2.0] - 2026-08-18  comment.
+
 ## [0.2.0] - 2026-08-18
 ### Fixed
 - **MZ code offset ignored the reloc-table position** (functionality-review
