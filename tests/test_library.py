@@ -160,6 +160,24 @@ class TestLibraryCli:
         ovr = find_library_override(lib, tmp_path)
         assert ovr is not None and ovr.cflags == "/O2 /Gd /MT"
 
+
+    def test_unknown_toolchain_fails(self, tmp_path: Path) -> None:
+        lib = tmp_path / "lib"
+        lib.mkdir()
+        res = self._invoke("set", str(lib), "--toolchain", "bogus-nope")
+        assert res.exit_code == 2
+        assert "unknown toolchain" in res.output
+        assert not (lib / LIBRARY_METADATA_FILE).exists()
+
+    def test_known_toolchain_accepts_all_profiles(self, tmp_path: Path) -> None:
+        """Every registry profile is settable (docker-backed and native)."""
+        from rebrew.toolchain import TOOLCHAINS
+        for name in sorted(TOOLCHAINS):
+            lib = tmp_path / name
+            lib.mkdir()
+            res = self._invoke("set", str(lib), "--toolchain", name)
+            assert res.exit_code == 0, f"{name}: {res.output}"
+
     def test_unknown_preset_fails(self, tmp_path: Path) -> None:
         lib = tmp_path / "lib"
         lib.mkdir()

@@ -142,6 +142,18 @@ def set_cmd(
         else:
             console.print(f"[red]Error:[/red] {msg}")
         raise typer.Exit(code=2)
+    if toolchain is not None:
+        from rebrew.toolchain import TOOLCHAINS
+
+        if toolchain not in TOOLCHAINS:
+            msg = (
+                f"unknown toolchain {toolchain!r} (known: {sorted(TOOLCHAINS)})"
+            )
+            if json_output:
+                json_print({"error": msg, "code": 2})
+            else:
+                console.print(f"[red]Error:[/red] {msg}")
+            raise typer.Exit(code=2)
     path = target / LIBRARY_METADATA_FILE
     doc = tomlkit.document()
     if path.exists():
