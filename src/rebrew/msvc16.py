@@ -30,11 +30,11 @@ class Msvc16Result:
 
 def _find_vc152(version: str = "1.52-win16") -> Path:
     repo_tools = Path(__file__).resolve().parents[2] / "toolchain"
-    vc = repo_tools / "msvc" / version
+    vc = repo_tools / "msvc" / version / "source"
     if (vc / "BIN" / "CL.EXE").exists():
         return vc
     raise Msvc16Error(
-        f"vendored MSVC {version} not found under toolchain/msvc/{version} (BIN/INCLUDE/LIB "
+        f"vendored MSVC {version} not found under toolchain/msvc/{version}/source (BIN/INCLUDE/LIB "
         "required — rebrew toolchain vendor msvc1.52/msvc15)"
     )
 

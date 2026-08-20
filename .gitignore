@@ -115,6 +115,7 @@ rebrew-function.toml.lock
 !/toolchain/*/
 !/toolchain/*/*/
 !/toolchain/**/Dockerfile
+!/toolchain/**/.dockerignore
 !/toolchain/**/*.sh
 !/toolchain/**/pak_extract.py
 !/toolchain/**/*.tar.xz

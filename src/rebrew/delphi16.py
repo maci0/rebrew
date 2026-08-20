@@ -40,7 +40,7 @@ class Delphi16Result:
 def _find_dcc() -> Path:
     """Locate the vendored DCC.EXE (repo toolchain/delphi/1.0-win16)."""
     repo_tools = Path(__file__).resolve().parents[2] / "toolchain"
-    dcc = repo_tools / "delphi" / "1.0-win16" / "DCC.EXE"
+    dcc = repo_tools / "delphi" / "1.0-win16" / "source" / "DCC.EXE"
     if dcc.exists():
         return dcc
     raise Delphi16Error(

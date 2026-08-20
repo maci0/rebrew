@@ -49,7 +49,7 @@ def _find_tc16(version: str = "3.1") -> Path:
     tree = _TREES.get(version)
     if tree is None:
         raise Tc16Error(f"unknown Borland TCC version {version!r} (known: {sorted(_TREES)})")
-    root = Path(__file__).resolve().parents[2] / "toolchain" / tree
+    root = Path(__file__).resolve().parents[2] / "toolchain" / tree / "source"
     tcc = root / "BIN" / "TCC.EXE"
     if not tcc.exists():
         raise Tc16Error(

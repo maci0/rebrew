@@ -35,8 +35,6 @@ int f(int n)
 
 #: Legacy vendored toolchain dir -> rebrew profile (docker image).
 _TOOLCHAIN_PROFILES = {
-    "msvc6.3": "msvc600sp3",
-    "msvc6.6": "msvc600sp6",
     "msvc-7.0-win32": "msvc7",
     "msvc-4.2-win32": "msvc420",
     "msvc-5.0-win32": "msvc5",
@@ -99,8 +97,8 @@ def _compile_extract_compare(tmp_path: Path, toolchain: str, cflags: list[str]) 
 @pytest.mark.parametrize(
     ("toolchain", "cflags"),
     [
-        ("msvc6.3", ["/O2", "/Gd"]),
-        ("msvc6.6", ["/O2", "/Gd"]),
+        ("msvc600sp3", ["/O2", "/Gd"]),
+        ("msvc600sp6", ["/O2", "/Gd"]),
         ("msvc-7.0-win32", ["/O2", "/Ob0", "/Gd"]),
         ("msvc-4.2-win32", ["/O2", "/Gd"]),
         ("msvc-5.0-win32", ["/O2", "/Gd"]),

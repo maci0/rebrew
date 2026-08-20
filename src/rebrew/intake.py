@@ -46,8 +46,8 @@ app = typer.Typer(help="One-shot binary onboarding: init + detect + functions + 
 #: profile -> (project tools/ link name, vendored toolchain dir in the repo)
 _TOOLCHAIN_LINKS: dict[str, tuple[str, str]] = {
     "msvc6": ("msvc/6.0-win32", "msvc/6.0-win32"),
-    "msvc6.3": ("msvc/6.0-sp3-win32", "msvc/6.0-sp3-win32"),
-    "msvc6.6": ("msvc/6.0-sp6-win32", "msvc/6.0-sp6-win32"),
+    "msvc600sp3": ("msvc/6.0-sp3-win32", "msvc/6.0-sp3-win32"),
+    "msvc600sp6": ("msvc/6.0-sp6-win32", "msvc/6.0-sp6-win32"),
     "msvc7": ("msvc/7.0-win32", "msvc/7.0-win32"),
     "msvc5": ("msvc/5.0-win32", "msvc/5.0-win32"),
     "msvc420": ("msvc/4.2-win32", "msvc/4.2-win32"),

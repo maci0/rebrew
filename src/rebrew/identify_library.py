@@ -395,7 +395,7 @@ def _iter_libs(libs_dir: Path) -> Iterator[Path]:
 def _resolve_lib_dir(cfg: Any, lib_dir: Path | None) -> Path | None:
     """Locate the toolchain's .lib directory (for --build-sigs).
 
-    Order: explicit --lib-dir → ``toolchain/msvc/6.0-win32/VC98/Lib`` → first directory
+    Order: explicit --lib-dir → ``toolchain/msvc/6.0-win32/source/VC98/Lib`` → first directory
     under ``tools/`` containing ``*.lib`` files.
     """
     if lib_dir is not None:
@@ -420,7 +420,7 @@ def build_flirt_sigs(cfg: Any, lib_dir: Path | None = None) -> int:
     libs_dir = _resolve_lib_dir(cfg, lib_dir)
     if libs_dir is None:
         console.print(
-            "[yellow]warning:[/yellow] no .lib directory found (tried toolchain/msvc/6.0-win32/"
+            "[yellow]warning:[/yellow] no .lib directory found (tried toolchain/msvc/6.0-win32/source/"
             "VC98/Lib and tools/*/Lib) — pass --lib-dir"
         )
         return 0
@@ -466,7 +466,7 @@ def main(
         None,
         "--lib-dir",
         help="Toolchain .lib directory for --build-sigs (default: "
-        "toolchain/msvc/6.0-win32/VC98/Lib or the first tools/*/Lib found).",
+        "toolchain/msvc/6.0-win32/source/VC98/Lib or the first tools/*/Lib found).",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
