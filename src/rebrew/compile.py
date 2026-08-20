@@ -503,10 +503,26 @@ def _resolve_include_flags(flags: list[str], src_parent: Path, cfg_root: Path) -
     paths must be made absolute before passing to the compiler.
     """
     resolved: list[str] = []
-    for flag in flags:
+    i = 0
+    while i < len(flags):
+        flag = flags[i]
+        if flag in ("/I", "-I"):
+            # Space-separated two-token form ("/I ../Units"): merge the
+            # following path so it is resolved as one include flag.  A lone
+            # trailing /I is left untouched (CL will report it itself).
+            nxt = flags[i + 1] if i + 1 < len(flags) else None
+            if nxt is not None and not nxt.startswith("/") and not nxt.startswith("-"):
+                flag = flag + nxt
+                i += 1
         if flag.startswith(("/I", "-I")):
             prefix = flag[:2]
             inc_dir = flag[2:].strip('"').strip("'")
+            if not inc_dir:
+                # A bare /I with no path (e.g. a trailing or flag-adjacent
+                # token) is not an include dir - pass it through untouched.
+                resolved.append(flag)
+                i += 1
+                continue
             p = Path(inc_dir)
             if not p.is_absolute():
                 from_src = (src_parent / p).resolve()
@@ -521,6 +537,7 @@ def _resolve_include_flags(flags: list[str], src_parent: Path, cfg_root: Path) -
                 resolved.append(flag)
         else:
             resolved.append(flag)
+        i += 1
     return resolved
 
 
@@ -625,7 +642,9 @@ def compile_to_obj(
 
     The source file is copied into ``workdir`` (mounted at /work in the
     container).  Relative /I flags are rewritten to container paths;
-    absolute host include dirs are bind-mounted at /inc<N>.
+    absolute host include dirs are bind-mounted at their absolute host
+    path (same-path mount) so relative ``#include "../../x.h"`` resolves
+    exactly as on the host.
 
     When *use_cache* is ``True`` (the default), a persistent disk cache is
     consulted before invoking the compiler subprocess.  On cache hit the
