@@ -302,11 +302,18 @@ def build_candidate_obj_only(
             )
         from rebrew.compile import compile_to_obj
 
-        with tempfile.TemporaryDirectory(prefix="matcher_") as _td:
+        # The docker workdir must live on a real, container-visible disk:
+        # under sandboxed homes the system temp dir is invisible to docker
+        # and the bind mount silently loses the source (the image wrapper
+        # then reports "no readable source file").  writable_temp_dir
+        # prefers the workspace .cache for exactly this reason.
+        from rebrew.utils import writable_temp_dir
+
+        base = writable_temp_dir("matcher_")
+        try:
             # Write the source into a *sibling* dir of the compile workdir:
             # compile_to_obj copies source_path -> workdir, which fails when
             # they are already the same path.
-            base = Path(_td)
             src_dir = base / "src"
             src_dir.mkdir()
             src_path = src_dir / f"cand{source_ext}"
@@ -332,6 +339,8 @@ def build_candidate_obj_only(
             if code is None:
                 return BuildResult(ok=False, error_msg=f"Symbol {symbol} not found in .obj")
             return BuildResult(ok=True, obj_bytes=code, reloc_offsets=relocs)
+        finally:
+            shutil.rmtree(base, ignore_errors=True)
 
     src_name = f"cand{source_ext}"
     all_flags = shlex.split(cflags)
