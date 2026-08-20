@@ -198,8 +198,6 @@ class TestCompileToObj:
         assert obj_path is not None
         assert any("/FImy forced.h" in a for a in captured["args"])
 
-
-
     def test_cache_key_includes_extra_include_dirs(self, tmp_path: Path, monkeypatch) -> None:
         """extra_include_dirs are compile inputs (they add /I flags and bind
         mounts); two compiles differing only in them must not share a cache
@@ -738,9 +736,7 @@ class TestPerFunctionOverrideArgShape:
         source.write_text("int f(void){return 1;}\n", encoding="utf-8")
         work = tmp_path / "work"
         work.mkdir()
-        obj, err = compile_to_obj(
-            cfg, source, [], work, use_cache=False, toolchain="msvc1.52"
-        )
+        obj, err = compile_to_obj(cfg, source, [], work, use_cache=False, toolchain="msvc1.52")
         assert obj is not None and err == ""
         assert captured["args"][0] == "f.c"  # source first (wrapper convention)
         assert not any(a.startswith("/Fo") for a in captured["args"])
@@ -768,9 +764,7 @@ class TestCompileEdgeCases:
         src.write_text("int f(void){return 1;}", encoding="utf-8")
         work = tmp_path / "w"
         work.mkdir()
-        obj, err = compile_to_obj(
-            cfg, src, [], work, use_cache=False, obj_name="../evil.obj"
-        )
+        obj, err = compile_to_obj(cfg, src, [], work, use_cache=False, obj_name="../evil.obj")
         assert obj is None
         assert "plain filename" in err
 
@@ -803,4 +797,3 @@ class TestCompileEdgeCases:
         obj, err = compile_to_obj(cfg, src, [], work, use_cache=False)
         assert obj is None
         assert "produced no object" in err
-

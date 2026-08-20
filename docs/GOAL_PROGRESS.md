@@ -6619,3 +6619,123 @@ dialect parser, console port (docs/ROADMAP_CONSOLES.md proposal).
 
 Remaining external/large items: bcc32 (WinWorld source), 16-bit MSVC OMF
 dialect parser, console port (ROADMAP_CONSOLES.md).
+
+---
+
+## 2026-08-21 — Gap/feature inventory re-audit (post-v0.3.0)
+
+Full re-verification of the tracked bug/feature-gap inventory after the
+v0.3.0 release (cache v5 + flag canonicalization + mutation inverses +
+transactional toolchains).  Baseline: suite 4587 passed / 34 skipped
+(all skips = vendored 16-bit toolchains not present in this workspace);
+ruff check/format + pre-commit clean after the ruff-format hook reflowed
+8 pre-existing files (mechanical only).
+
+**docs/prd/00-source-gap-report.md — all 35 gaps verify as fixed:**
+
+- Blockers (3): verify-cache header invalidation — FIXED twice over
+  (`verify.py` per-entry `headers_fp` + `compile_cache` per-reached-header
+  fingerprints, shipped in v0.3.0); MCP endpoint — all code + skills agree
+  on `http://localhost:8080/mcp/message` (`skeleton.py:1272`,
+  `ghidra/client.py:373`, `rebrew-ghidra-sync/SKILL.md:40`); duplicate
+  PRINCIPLES.md — `docs/PRINCIPLES.md` is a symlink to
+  `src/rebrew/PRINCIPLES.md`.
+- Enhancements (17): `extract show --size` (`extract.py:378`);
+  `build-db` `--force` drop+recreate (`build_db.py:158`);
+  `data --gen-header-out` + `--force` (`data.py:1296`);
+  `data --dispatch --min-table-len/--max-pointer-stride` (`data.py:1275-1280`);
+  prove EDX:EAX + watched-VA memory (`--watch-va`, `test_prove_memory_watch.py`);
+  flag-sweep tiers documented (`docs/FLAG_SWEEP_TIERS.md`); status W019
+  inline-metadata hint (`status.py:29-93`); `graph --include-dispatch`
+  (`depgraph.py:12,144`); `sync --pull-structs --types-out` + per-module
+  (`ghidra/commands.py:1265`); offline fallback documented
+  (`ghidra/cli.py:371`); `--refresh-cache` refreshes data labels
+  (`ghidra/cli.py:748`); `rebrew skills list` (`main.py:298`);
+  SKILL.md command validation tests (`test_skill_commands_validate.py`,
+  `test_validate_skill_commands.py`); `cfg add-target` refuses missing
+  binary without `--force` (`cfg.py:426-430`); `cfg set-compiler`
+  (`cfg.py:699`); binsync-import shipped (`binsync_import.py`); ghudra-cli
+  backend (`ghidra/cli_backend.py`).
+- Nits (14): flirt epilog → positional `SIG_DIR` (`flirt.py:129`);
+  `catalog --csv` help states output path (`catalog/cli.py:83`);
+  lint `--fix --dry-run` example (`lint.py:789`); rename macro/string
+  warning (`rename.py:80-81`); test `--no-promote` auto-skip documented
+  (`test.py:193`); `match --extra-seed` precedence documented
+  (`match.py:1249-1255`); cache hit-rate telemetry (`cache_cli.py:52-57`);
+  data-metadata vs function-metadata split explicit
+  (`data_metadata.py:21`); doctor `--install-wibo` idempotency stated
+  (`doctor.py:941-944`); diff-vs-test exit-code alignment documented
+  (`docs/CLI.md` "Exit Code Alignment"); test-vs-verify-vs-match table
+  (`docs/CLI.md:20`); `METADATA_FORMAT.md` casing unified;
+  `docs/CONFIG.md` legacy `compiler_command` gone; intake skill chains
+  `cfg detect-crt` (`rebrew-intake/SKILL.md:11,163`).
+
+**GOAL_PROGRESS Open list (8) — all confirmed:** the binsync-import
+"deferral" is stale — the import command shipped (`binsync_import.py`).
+
+**TODO/FIXME markers (7 matches):** all false positives — generated
+skeleton placeholder comments and UI strings (`skeleton.py:127,132,1225`,
+`todo.py:911`); no code debt.
+
+**Review passes (fresh, 2026-08-21):**
+- test-review: suite green; 34 skips all environment (vendored 16-bit
+  toolchains) — no hidden failures.
+- error-review: no bare `except:`; no `except Exception` + `pass`
+  swallows; `tools/check_idempotency.py` — all 17 commands deterministic.
+- doc-review: FIXED stale `docs/IDEAS.md` "Open Ideas" — #23 (llm_seed),
+  #24 (ghidra-cli backend), #25 (prove memory watch) were shipped but
+  still listed as open; moved to Completed, section removed.  FIXED
+  stale counts: "121 operators" → 114 (`matcher/AGENTS.md:90`,
+  `GA_MUTATIONS.md`); "~3460 tests" → "~4620" (`AGENTS.md`); JSON-purity
+  contract "16 commands" → "17" (`IDEAS.md`).  FIXED by ruff-format:
+  8 files with pre-existing formatting drift (mechanical).
+- cli-review: no new drift found beyond the above.
+
+**Deferred (documented reasons, per inventory):** nothing new — the
+tracked inventory is fully closed out; remaining items require external
+resources (live Ghidra/LLM keys for on-demand sync/seeding paths already
+shipped behind flags).
+
+---
+
+## 2026-08-21 — Fresh deep bug hunt (post-audit, per-module review)
+
+Second pass after the inventory re-audit: a systematic fresh review beyond
+the tracked queues (which were fully closed).  Goal contract: per-module
+review of src/rebrew with CLI-contract, error-path, edge-case, and
+doc-vs-code checks; findings fixed with regression tests or deferred with
+reasons; conclude with the review log if nothing surfaces.
+
+**Reviewed surfaces (all clean):**
+
+- CLI surface: all 44 registered subcommands render `--help` without
+  crashing (scripted sweep).  JSON error paths emit valid JSON for 20+
+  commands exercised from a no-project dir and from a synthetic project
+  (`tests/fixtures/mini_pe.exe` as target): status/verify/analyze/data/
+  catalog/describe/strings/imports/graph/report/similar/near-diag/
+  identify-library/lint/todo/asm/diff/skeleton/xrefs/document-unmatched/
+  switch — stdout stays pure JSON, warnings go to stderr (verified by
+  separating the streams).  Exit codes sane (0 ok / 1 mismatch / 2 error).
+- Recently-shipped code (v0.3.0) re-probed adversarially:
+  `canonicalize_cflags` — 300-permutation probe confirms the contract:
+  cross-group permutations canonicalize identically, same-group order
+  (last-wins) still separates keys, unknown-flag anchors keep their
+  relative order (moving them would be unsound).  Probe attempts that
+  initially "failed" were probe-premise errors (shuffling same-group or
+  anchor flags), not code defects.  verify-cache per-entry guards,
+  `swap_toolchain_image`, `MutationLog` — covered by their fresh unit
+  tests; no edge-case findings.
+- Newer untested-by-audit commands: `binsync-import` (required-arg and
+  JSON behaviors correct), `cfg set` value validation (no JSON mode by
+  design — mutating command).
+- Error patterns re-scanned: no bare `except:`; no `except Exception` +
+  `pass` swallows; `tools/check_idempotency.py` — all 17 commands
+  deterministic.
+- Skipped tests (34): all environment-dependent (vendored 16-bit
+  toolchains absent) — no hidden failures.
+
+**Findings: none.**  Fixes: 0.  Deferred: 0.  No code changed this pass;
+the August review passes (test/cli/doc/error/perf/concurrency/sec/deps)
+plus this fresh sweep leave no known open bug or feature gap in the
+reviewed scope.  Working tree still carries the previous audit's
+uncommitted docs/format changes.

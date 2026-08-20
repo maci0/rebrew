@@ -13,7 +13,9 @@ from rebrew.toolchain import _toolchains_repo
 # (rebrew-toolchains/delphi/1.0-win16) and a dosbox binary on PATH
 # (CI: the tree is vendored into the rebrew-toolchains checkout, not
 # committed; dosbox absent).
-_has_delphi_toolchain = (_toolchains_repo() / "delphi" / "1.0-win16" / "source" / "DCC.EXE").exists()
+_has_delphi_toolchain = (
+    _toolchains_repo() / "delphi" / "1.0-win16" / "source" / "DCC.EXE"
+).exists()
 
 
 def _fake_compile(monkeypatch, sandbox: Path) -> None:

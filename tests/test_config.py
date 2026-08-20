@@ -1037,17 +1037,27 @@ command = "wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE"
         root = _make_project(tmp_path, self.TOML)
         cfg = load_config(root)
         assert (
-            cfg.compiler_includes == tmp_path / "toolchain" / "msvc" / "6.0-sp6-win32" / "source" / "Include"
+            cfg.compiler_includes
+            == tmp_path / "toolchain" / "msvc" / "6.0-sp6-win32" / "source" / "Include"
         )
 
     def test_existing_project_path_wins(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew import utils as rebrew_utils
 
         # Project-local toolchain/ present -> used, install copy ignored.
-        (tmp_path / "toolchain" / "msvc" / "6.0-win32" / "source" / "VC98" / "Include").mkdir(parents=True)
-        (tmp_path / "toolchain" / "msvc" / "6.0-win32" / "source" / "VC98" / "Include" / "stdio.h").write_text(
-            ""
+        (tmp_path / "toolchain" / "msvc" / "6.0-win32" / "source" / "VC98" / "Include").mkdir(
+            parents=True
         )
+        (
+            tmp_path
+            / "toolchain"
+            / "msvc"
+            / "6.0-win32"
+            / "source"
+            / "VC98"
+            / "Include"
+            / "stdio.h"
+        ).write_text("")
         monkeypatch.setattr(rebrew_utils, "_REPO_ROOT", tmp_path)
         root = _make_project(tmp_path, self.TOML)
         cfg = load_config(root)

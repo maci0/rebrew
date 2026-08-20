@@ -46,45 +46,14 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 | — | Library identification | `rebrew identify-library` — FLIRT + imports + CRT merged into `library_*.h`. |
 | — | Intelligence dossier | `rebrew analyze` — one-shot recon (toolchain, strings, imports, dispatch, FLIRT); `--output report.md`, `--function 0xVA` drill. |
 | — | In-repo binary fixtures | `tests/fixtures/` + `tools/gen_fixtures.py` — CI parse/compare/reloc coverage without wine. |
-| — | JSON purity contract | `tests/test_json_purity.py` + `tools/check_idempotency.py` (16 commands, CI step). |
+| — | JSON purity contract | `tests/test_json_purity.py` + `tools/check_idempotency.py` (17 commands, CI step). |
 | — | Typed metadata facade | `metadata_model.MetadataEntry` + property round-trip tests. |
 | — | Ghidra enum/typedef sync | `extract_enums_from_file`, push via CParser, merge-safe `--pull-datatypes`. |
 | — | GA scoring fast paths | identical-bytes + mnemonic-equality shortcuts (1.76× measured; `docs/PERFORMANCE.md`). |
 | — | Recoverage schema parity | `tests/test_recoverage_contract.py` pins the DB contract recoverage reads. |
-
-## Open Ideas
-
-### 23. LLM-assisted GA seed generation
-
-**Pain**: GA mutations are currently generated using fixed deterministic rules in `mutator.py`. These might miss subtle patterns needed to nudge the compiler.
-
-**Proposed**: Integrate an optional LLM call in `rebrew match` that looks at the `NEAR_MATCHING` assembly diff and suggests specialized C source permutations to seed the genetic algorithm.
-
-**Impact**: High — could break through the "systemic ceiling" of register allocation issues by coming up with creative C constructs.
-
-### 25. Memory side-effect checking in `rebrew prove` (E9 v2)
-
-**Pain**: `rebrew prove` compares EAX (and optionally EDX) but ignores memory writes. Functions that write to global variables or through output-pointer arguments can be falsely promoted to PROVEN when their memory side effects differ between the original and the compiled version.
-
-**Proposed**: Thread a list of "watched" virtual addresses through `prove_equivalence` and compare `state.memory.load(va, 4)` across state pairs for each watched address. The user would specify watched VAs via `prove_constraints` metadata (e.g. `watched_vas = [0x10123456]`) or via a future `--watch-va` CLI flag.
-
-**Impact**: Medium-high — closes a correctness gap for functions with observable side effects. Prerequisite: the watched-VA list must be small (< 10) to avoid Z3 blowup.
-
-### 24. Ghidra-CLI as alternative Ghidra transport *(done)*
-
-`ghidra_backend = "cli"` in `rebrew-project.toml` routes sync push (apply)
-and pull (functions/symbols/comments) through the `ghidra-cli` binary instead
-of ReVa MCP (`src/rebrew/ghidra/cli_backend.py`). Per-op invocations are used
-deliberately for push: the `batch` file format splits lines on whitespace, so
-args containing spaces (plate comments, signatures) cannot be batched safely.
-
-**Pain**: `rebrew sync` currently requires a running Ghidra instance with the ReVa MCP extension installed. ReVa is a heavyweight requirement: AI-tuned, MCP-only, brings its own dependencies, and breaks the workflow for users who want plain headless Ghidra scripting.
-
-**Proposed**: Add a second sync backend on top of [`ghidra-cli`](https://github.com/nonsleepr/ghidra-cli) — a thin command-line wrapper around Ghidra's headless analyzer that exposes function rename, label, comment, and struct operations via stdin/stdout JSON. Selectable via `cfg.ghidra_backend = "reva" | "cli"` (default keeps ReVa for back-compat). The push/pull command set stays identical; only the transport changes. Lets users without ReVa still sync, and makes CI integration easier (no live Ghidra instance needed — ghidra-cli spawns one per call).
-
-**Impact**: Medium-high — removes ReVa as a hard dependency and unlocks headless / CI sync. Implementation footprint is contained to `src/rebrew/ghidra/` (new `cli.py` backend alongside the existing MCP client).
-
----
+| 23 | LLM-assisted GA seed generation | `rebrew match --llm-seed` (`llm_seed.py`) — optional LLM alternative-implementation seeding for the GA (NEAR_MATCHING diff → suggested C permutations). |
+| 24 | Ghidra-CLI sync backend | `ghidra_backend = "cli"` (`ghidra/cli_backend.py`) — headless `ghidra-cli` transport alongside ReVa MCP (no live ReVa instance needed). |
+| 25 | Memory side-effect checking in prove | `prove --watch-va` / `prove_constraints.watched_vas` — EDX:EAX returns + watched-VA memory comparison (`test_prove_memory_watch.py`, 11 tests). |
 
 ## Observations (Reference Knowledge)
 

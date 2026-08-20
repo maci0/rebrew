@@ -964,9 +964,7 @@ def _render_globals(console: Console, scan: ScanResult, conflicts_only: bool = F
     console.print(Panel(tbl, title=title, border_style="blue"))
 
 
-def _section_summary(
-    scan: ScanResult, sections: dict[str, dict[str, Any]]
-) -> list[dict[str, Any]]:
+def _section_summary(scan: ScanResult, sections: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     """Per-section progress: globals, annotated bytes, and % byte coverage.
 
     Annotated bytes are estimated from each annotated global's declared type
@@ -1021,9 +1019,7 @@ def _render_summary(
     for row in rows:
         sec_name = row["name"]
         size_str = f"{row['section_size']:,}B" if row["section_size"] else "—"
-        coverage_str = (
-            f"{row['coverage_pct']}%" if row["section_size"] else "—"
-        )
+        coverage_str = f"{row['coverage_pct']}%" if row["section_size"] else "—"
         tbl.add_row(
             sec_name,
             str(row["globals"]),

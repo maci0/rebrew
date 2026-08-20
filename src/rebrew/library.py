@@ -146,9 +146,7 @@ def set_cmd(
         from rebrew.toolchain import TOOLCHAINS
 
         if toolchain not in TOOLCHAINS:
-            msg = (
-                f"unknown toolchain {toolchain!r} (known: {sorted(TOOLCHAINS)})"
-            )
+            msg = f"unknown toolchain {toolchain!r} (known: {sorted(TOOLCHAINS)})"
             if json_output:
                 json_print({"error": msg, "code": 2})
             else:

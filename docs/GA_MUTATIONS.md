@@ -14,7 +14,7 @@ by [tree-sitter](https://tree-sitter.github.io/) AST queries — never regex.
 
 ```
 Source (.c) ──→ mutate_code(source, rng)
-                  ├─ Pick random mutation from ALL_MUTATIONS (121 operators)
+                  ├─ Pick random mutation from ALL_MUTATIONS (114 operators)
                   ├─ Apply AST-level transform to source text
                   ├─ Validate syntax (fast_syntax_check)
                   └─ Return (mutated_source, mutation_name) or None
@@ -360,7 +360,7 @@ mutated, name = mutate_code(source, rng, mutation_weights=weights)
 Children have a 35% chance of undergoing 2–3 **chained mutations** in a
 single generation step.  This enables larger jumps in the search space
 that single mutations cannot reach.  (Bumped from 30% after expanding
-to 121 operators.)
+to 114 operators.)
 
 ---
 
