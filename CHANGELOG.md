@@ -1,4 +1,12 @@
 ## [Unreleased]
+### Fixed
+- **docker-only compile broke project-relative includes** (C1083 on
+  `#include "../../Units/..."` — the flat /work source copy + /incN
+  mounts lost the original tree).  `compile_to_obj` now same-path
+  bind-mounts the project root and every absolute include dir at its
+  host path (`-v <dir>:<dir>`), so relative includes resolve exactly as
+  under the old host-wine Z: mapping.
+
 ### Added
 - **Per-library toolchain/flags overrides** (`rebrew-library.toml` at a
   library root, managed by `rebrew library set/show/rm`): the right
@@ -25,8 +33,9 @@
   missing (`rebrew toolchain build <name>`).  Host wine/wibo/Xvfb glue
   (`vendored_msvc_env`, `vendored_compiler_command`) is removed;
   native-Linux compilers (gcc-pe, watcom16 wcc) still exec directly.
-  `compile_to_obj` bind-mounts project include dirs into the container
-  (`-v dir:/incN`) so /I flags keep working.
+  `compile_to_obj` same-path bind-mounts project include dirs into the
+  container (at their absolute host paths) so /I flags and relative
+  `#include "../.."` paths keep working.
 
 ### Added
 - **Complete MSVC 1.0–10.0 toolchain matrix** (docs/TOOLCHAIN.md): 20 wine/
