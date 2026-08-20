@@ -48,7 +48,10 @@ class TestVersionTables:
         assert _RICH_BUILD_PROFILES[8447] == ("msvc600sp3",)
         assert _RICH_BUILD_PROFILES[8966] == ("msvc600sp5",)
         assert _RICH_BUILD_PROFILES[9782] == ("msvc600sp6",)
-        assert 9466 in _RICH_BUILD_PROFILES and _RICH_BUILD_PROFILES[9466] == ("msvc700", "msvc700sp1")
+        assert 9466 in _RICH_BUILD_PROFILES and _RICH_BUILD_PROFILES[9466] == (
+            "msvc700",
+            "msvc700sp1",
+        )
         assert _RICH_BUILD_PROFILES[21022] == ("msvc900",)
 
     def test_msvcp_import_binder(self) -> None:
@@ -76,12 +79,32 @@ class TestDetectWithPeMeta:
         assert info.suggested_profiles == ["msvc6"]
 
     def test_sp6_rich_build(self, monkeypatch) -> None:
-        monkeypatch.setattr(
-            "rebrew.toolchain_detect.lief.parse", lambda p: _fake_pe("6.0", [9782])
-        )
+        monkeypatch.setattr("rebrew.toolchain_detect.lief.parse", lambda p: _fake_pe("6.0", [9782]))
         info = detect_with_pe_meta(Path("x.exe"))
         assert info.msvc_version == "12.00.9782"
         assert info.suggested_profiles == ["msvc600sp6"]
+
+    def test_rich_mode_picks_compiler_pair_over_newer_linker(self, monkeypatch) -> None:
+        """Rich entries [8168, 8168, 9782] = C1/C2 pair at 8168 plus a
+        newer linker build (9782).  The compiler's build is the MODE,
+        not the max, so this pins msvc6, not msvc600sp6."""
+        monkeypatch.setattr(
+            "rebrew.toolchain_detect.lief.parse",
+            lambda p: _fake_pe("6.0", [8168, 8168, 9782]),
+        )
+        info = detect_with_pe_meta(Path("x.exe"))
+        assert info is not None
+        assert info.msvc_version == "12.00.8168"
+        assert info.suggested_profiles == ["msvc6"]
+
+    def test_rich_mode_pair_wins_over_single_other(self, monkeypatch) -> None:
+        """[9782, 8168, 8168] (order-insensitive): still msvc6."""
+        monkeypatch.setattr(
+            "rebrew.toolchain_detect.lief.parse",
+            lambda p: _fake_pe("6.0", [9782, 8168, 8168]),
+        )
+        info = detect_with_pe_meta(Path("x.exe"))
+        assert info.msvc_version == "12.00.8168"
 
     def test_no_rich_header_linker_names_era(self, monkeypatch) -> None:
         """VC 4.2: no Rich header, linker 4.20 -> 10.20 msvc420."""
@@ -100,11 +123,12 @@ class TestDetectWithPeMeta:
         assert info.suggested_profiles == ["msvc200"]
 
     def test_msvcp_import_binder_without_rich(self, monkeypatch) -> None:
-        monkeypatch.setattr("rebrew.toolchain_detect.lief.parse", lambda p: _fake_pe("0.0", imports=["msvcp71.dll"]))
+        monkeypatch.setattr(
+            "rebrew.toolchain_detect.lief.parse", lambda p: _fake_pe("0.0", imports=["msvcp71.dll"])
+        )
         info = detect_with_pe_meta(Path("x.exe"))
         assert info.family == "msvc"
         assert info.msvc_version == "7.1"
-
 
     def test_unknown_rich_build_falls_back_to_linker_era(self, monkeypatch) -> None:
         """An unrecognized Rich build (e.g. a hotfix like 11.00.9049) still
@@ -126,7 +150,9 @@ class TestDetectWithPeMeta:
 
 
 class TestProfileMatchingVersionExact:
-    def _info(self, version: str = "12.00.9782", profiles: list[str] | None = None) -> ToolchainInfo:
+    def _info(
+        self, version: str = "12.00.9782", profiles: list[str] | None = None
+    ) -> ToolchainInfo:
         info = ToolchainInfo(family="msvc", confidence="high", msvc_version=version)
         info.suggested_profiles = profiles or []
         return info

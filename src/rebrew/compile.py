@@ -671,7 +671,12 @@ def compile_to_obj(
     tc_spec = None
     if toolchain:
         tc_spec = TOOLCHAINS.get(toolchain)
-        if tc_spec is None or (tc_spec.image is None and tc_spec.runtime != "native"):
+        if tc_spec is None:
+            return None, (
+                f"per-function toolchain {toolchain!r} is unknown "
+                f"(known: {sorted(TOOLCHAINS)})"
+            )
+        if tc_spec.image is None and tc_spec.runtime != "native":
             return None, (
                 f"per-function toolchain {toolchain!r} has no docker image — "
                 "all compiles run through their docker images; "
