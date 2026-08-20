@@ -659,6 +659,10 @@ def compile_to_obj(
     local_src = workdir / src_name
 
     obj_name = obj_name or (source_path.stem + ".obj")
+    if obj_name != Path(obj_name).name:
+        # A separator would write the object outside the workdir (and the
+        # docker mount) — reject it instead of silently losing the output.
+        return None, f"obj_name must be a plain filename, got {obj_name!r}"
     inc_path = str(cfg.compiler_includes)
     profile = getattr(cfg, "compiler_profile", "")
     # Per-function toolchain override (metadata TOOLCHAIN, e.g. "msvc5"):
@@ -802,6 +806,8 @@ def compile_to_obj(
             )
         if tr.returncode != 0 or not obj_file.exists():
             err = (tr.stdout + "\n" + tr.stderr).strip()
+            if not err:
+                err = f"compiler produced no object ({obj_name}) and no output"
             return None, err
         if cc is not None and cache_key is not None:
             with contextlib.suppress(OSError):
