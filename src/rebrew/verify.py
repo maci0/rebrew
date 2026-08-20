@@ -114,12 +114,19 @@ def verify_entry(
     if entry.size <= 0:
         return _failed_result("MISSING_SIZE", "MISSING_SIZE: No SIZE annotation")
 
-    from rebrew.cli import resolve_cflags
+    from rebrew.cli import resolve_compile_overrides
 
-    cflags_str = entry.cflags
-    # Shared fallback chain (per-function → preset → compiler.cflags) so
-    # verify compiles with the same flags as match/diff/test.
-    cflags = resolve_cflags(cfg, cflags_str, getattr(entry, "module", ""))
+    # Shared fallback chain (per-function metadata → per-library
+    # rebrew-library.toml → preset → compiler.cflags) so verify compiles
+    # every function of a library with the same toolchain + flags as
+    # match/diff/test.
+    toolchain, cflags = resolve_compile_overrides(
+        cfg,
+        cfile.parent,
+        getattr(entry, "toolchain", ""),
+        getattr(entry, "cflags", ""),
+        getattr(entry, "module", ""),
+    )
     symbol = entry.symbol if entry.symbol else "_" + entry.name
 
     from rebrew.binary_loader import extract_raw_bytes
@@ -141,7 +148,7 @@ def verify_entry(
         cache=cache,
         name_to_va=name_to_va,
         section_va=entry.va,
-        toolchain=(entry.toolchain or "").strip() or None,
+        toolchain=toolchain,
     )
     if not result.matched and result.obj_bytes:
         # Populate diff_lines (number of differing disassembly lines) for
@@ -705,9 +712,16 @@ def _save_verify_cache(
         # `rebrew cfg set-cflags` or [compiler].cflags edit changed the
         # effective flags without changing the cache key or entry guard, and
         # stale results kept being served (config-review F3).
-        from rebrew.cli import resolve_cflags
+        from rebrew.cli import resolve_compile_overrides
 
-        cflags_by_va[va_key] = resolve_cflags(cfg, entry.cflags, getattr(entry, "module", ""))
+        _tc, _cf = resolve_compile_overrides(
+            cfg,
+            (cfg.reversed_dir / entry.filepath).parent if entry.filepath else cfg.root,
+            getattr(entry, "toolchain", ""),
+            getattr(entry, "cflags", ""),
+            getattr(entry, "module", ""),
+        )
+        cflags_by_va[va_key] = _cf
         size_by_va[va_key] = entry.size or 0
         relative_path = getattr(entry, "filepath", "")
         if not relative_path:
@@ -1408,9 +1422,16 @@ def prepare_entries(
         # so a `rebrew cfg set-cflags` / [compiler].cflags edit invalidates
         # cached results (previously only the metadata CFLAGS were compared,
         # leaving stale EXACT/RELOC served after a config change).
-        from rebrew.cli import resolve_cflags
+        from rebrew.cli import resolve_compile_overrides
 
-        if cached_entry.cflags != resolve_cflags(cfg, entry.cflags, getattr(entry, "module", "")):
+        _tc, _cf2 = resolve_compile_overrides(
+            cfg,
+            (cfg.reversed_dir / entry.filepath).parent if entry.filepath else cfg.root,
+            getattr(entry, "toolchain", ""),
+            getattr(entry, "cflags", ""),
+            getattr(entry, "module", ""),
+        )
+        if cached_entry.cflags != _cf2:
             continue
 
         # SIZE is metadata-only too (catalog --fix-sizes rewrites it without

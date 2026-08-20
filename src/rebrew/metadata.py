@@ -69,8 +69,10 @@ from __future__ import annotations
 import contextlib
 import logging
 import threading
+import tomllib
 import typing
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -681,6 +683,9 @@ def merge_into_annotation(ann: Annotation, directory: Path) -> Annotation:
     if "cflags" in entry:
         ann.cflags = str(entry["cflags"])
 
+    if "toolchain" in entry:
+        ann.toolchain = str(entry["toolchain"])
+
     if "status" in entry:
         ann.status = str(entry["status"])
 
@@ -764,3 +769,117 @@ def coerce_metadata_value(key: str, value: Any) -> Any:
         with contextlib.suppress(ValueError, TypeError):
             return int(value)
     return value
+
+
+# ---------------------------------------------------------------------------
+# Per-library toolchain/flags overrides (rebrew-library.toml)
+# ---------------------------------------------------------------------------
+#
+# A library is a source-directory subtree whose functions were all built with
+# the same compiler + flags (the normal case — one codebase, one toolchain).
+# Declaring a ``rebrew-library.toml`` at the library root applies to every
+# function under it, instead of tagging each function's rebrew-function.toml.
+# Discovery is walk-up (nearest ancestor file wins), unlike the function
+# metadata which lives only at cfg.metadata_dir.
+
+
+#: File name of the per-library override (looked up by walking up from the
+#: function's directory toward the project root).
+LIBRARY_METADATA_FILE = "rebrew-library.toml"
+
+
+class LibraryOverrideError(RuntimeError):
+    """A declared library override is malformed (bad TOML / bad fields)."""
+
+
+@dataclass(frozen=True)
+class LibraryOverride:
+    """Effective per-library compile override found for a source directory.
+
+    Empty fields mean "inherit" (project default or a wider library file);
+    *presets* lists any known-library defaults that were merged in.
+    """
+
+    path: Path  # the rebrew-library.toml that matched (nearest ancestor)
+    toolchain: str = ""  # override compiler profile, e.g. "msvc6"
+    cflags: str = ""  # override flags, e.g. "/O2 /Gd /MT"
+    library: str = ""  # declared library name (may drive presets)
+    presets: tuple[str, ...] = ()  # preset names that filled empty fields
+
+
+#: Known shipped-library build settings.  ``library = "<name>"`` in a
+#: rebrew-library.toml fills the *missing* fields from this table — rebrew
+#: knows what the shipped runtimes were built with (the standard MSVC /MT
+#: vs /MD shapes, the 16-bit models, Borland/Watcom defaults), so users
+#: declare ``library = "msvcrt-static"`` instead of handwriting flags.
+_LIBRARY_PRESETS: dict[str, dict[str, str]] = {
+    # MSVC shipped CRT: libc.lib (static single-thread), libcmt.lib (static
+    # multi-thread = /MT), msvcrt.lib (dynamic = /MD) — the classic /O2 /Gd
+    "msvcrt-static": {"toolchain": "msvc6", "cflags": "/O2 /Gd /MT"},
+    "msvcrt-dynamic": {"toolchain": "msvc6", "cflags": "/O2 /Gd /MD"},
+    "msvc16-runtime": {"toolchain": "msvc1.52", "cflags": "/O1 /Gd"},
+    "borland-runtime": {"toolchain": "tc16", "cflags": "-O2"},
+    "watcom-runtime": {"toolchain": "watcom", "cflags": "-ot"},
+}
+
+
+def parse_library_metadata(path: Path) -> dict[str, Any]:
+    """Parse a ``rebrew-library.toml`` into a plain dict.
+
+    Returns ``{}`` for an absent file.  Raises :class:`LibraryOverrideError`
+    on malformed TOML or a non-dict document."""
+    if not path.exists():
+        return {}
+    try:
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise LibraryOverrideError(f"bad {LIBRARY_METADATA_FILE} at {path}: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise LibraryOverrideError(f"{path} must be a TOML table")
+    return raw
+
+
+def apply_library_presets(meta: dict[str, Any]) -> tuple[dict[str, Any], tuple[str, ...]]:
+    """Fill missing toolchain/cflags from the known-library presets.
+
+    Returns ``(merged, preset_names_used)``.  Explicit fields always win.
+    """
+    name = str(meta.get("library") or "").strip()
+    preset = _LIBRARY_PRESETS.get(name, {})
+    if not preset:
+        return meta, ()
+    merged = {**meta}
+    for key, value in preset.items():
+        if not str(merged.get(key) or "").strip():
+            merged[key] = value
+    return merged, (name,)
+
+
+def find_library_override(
+    start_dir: str | Path, root: str | Path | None = None
+) -> LibraryOverride | None:
+    """Find the nearest ``rebrew-library.toml`` by walking up from *start_dir*.
+
+    The walk stops at *root* (project root — ``cfg.root``) inclusive.  Returns
+    the merged override (explicit fields + known-library presets) or ``None``
+    when no library file exists on the path."""
+    cur = Path(start_dir).resolve()
+    root_p = Path(root).resolve() if root is not None else None
+    while True:
+        candidate = cur / LIBRARY_METADATA_FILE
+        if candidate.exists():
+            meta = parse_library_metadata(candidate)
+            merged, presets = apply_library_presets(meta)
+            return LibraryOverride(
+                path=candidate,
+                toolchain=str(merged.get("toolchain") or "").strip(),
+                cflags=str(merged.get("cflags") or "").strip(),
+                library=str(merged.get("library") or "").strip(),
+                presets=presets,
+            )
+        if root_p is not None and cur == root_p:
+            break
+        if cur.parent == cur:
+            break
+        cur = cur.parent
+    return None

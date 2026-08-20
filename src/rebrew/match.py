@@ -1858,10 +1858,19 @@ def resolve_build_params(
     # IS msvc_env_from_config(cfg) (the old code computed it a second time
     # and discarded the helper's copy).
     cl_resolved, inc_resolved, msvc_env, cc = resolve_compiler_env(cfg)
-    # Per-function toolchain override (metadata TOOLCHAIN, e.g. "msvc5"):
-    # compile THIS function with THAT toolchain's docker image.  Every
-    # compile runs through docker images — there is no host wine/wibo path.
-    toolchain_name = (meta.get("TOOLCHAIN") or "").strip()
+    # Per-library / per-function toolchain override: the nearest
+    # rebrew-library.toml (walk-up from the source dir) or the function's
+    # own TOOLCHAIN metadata selects the docker image.  Every compile runs
+    # through docker images — there is no host wine/wibo path.
+    from rebrew.cli import resolve_compile_overrides
+
+    toolchain_name, _lib_cflags = resolve_compile_overrides(
+        cfg,
+        Path(seed_c).resolve().parent,
+        meta.get("TOOLCHAIN"),
+        meta.get("CFLAGS"),
+        getattr(anno, "module", "") if anno else "",
+    )
     if toolchain_name:
         from rebrew.toolchain import TOOLCHAINS
 
@@ -1906,13 +1915,11 @@ def resolve_build_params(
         )
 
     if not cflags:
-        # Single source of truth: per-function CFLAGS → cflags_presets →
-        # [compiler].cflags → "/O2 /Gd" (shared with verify/test/prove so
-        # every tool compiles the same function with the same flags).
-        from rebrew.cli import resolve_cflags
-
-        mod = getattr(anno, "module", "") if anno else ""
-        cflags = resolve_cflags(compile_cfg, meta.get("CFLAGS", ""), mod)
+        # Single source of truth: per-function CFLAGS → per-library
+        # rebrew-library.toml → cflags_presets → [compiler].cflags →
+        # "/O2 /Gd" (shared with verify/test/prove so every tool compiles
+        # the same function with the same flags).
+        cflags = _lib_cflags
     cflags = _compile_cflags(
         cflags,
         getattr(compile_cfg, "base_cflags", "") or "",

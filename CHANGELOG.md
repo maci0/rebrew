@@ -1,4 +1,18 @@
 ## [Unreleased]
+### Added
+- **Per-library toolchain/flags overrides** (`rebrew-library.toml` at a
+  library root, managed by `rebrew library set/show/rm`): the right
+  abstraction for "some parts of the codebase were built with other
+  flags" — a source subtree declares its compiler (`toolchain`) and
+  flags (`cflags`) once, and every function under it compiles with that
+  docker image + flags (resolve_compile_overrides: per-function metadata
+  > per-library walk-up > project default).  Known-library presets fill
+  missing fields from what rebrew knows the shipped runtimes were built
+  with (`msvcrt-static` = MSVC static CRT /MT /O2 /Gd, `msvcrt-dynamic`
+  /MD, `msvc16-runtime`, `borland-runtime`, `watcom-runtime`).  Wired
+  into verify / test / match / prove so a library compiles consistently
+  everywhere.
+
 ### Changed
 - **Docker-only toolchain execution** (ADR-008): the host never calls
   CL.EXE / DCC.EXE / TCC.EXE / bcc32.exe directly anymore — every

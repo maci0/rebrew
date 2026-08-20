@@ -173,6 +173,9 @@ def main(
     target_bin: str | None = typer.Option(None, "--target-bin", help="Target .bin file"),
     size: int | None = typer.Option(None, "--size", help="Size in bytes"),
     cflags: str | None = typer.Option(None, "--cflags", help="Compiler flags"),
+    toolchain: str | None = typer.Option(
+        None, "--toolchain", help="Vendored compiler (e.g. msvc5) - overrides the project default"
+    ),
     all_sources: bool = typer.Option(False, "--all", help="Batch test all reversed .c files"),
     batch_dir: str | None = typer.Option(
         None, "--dir", help="With --all, restrict to this subdirectory"
@@ -420,10 +423,19 @@ def main(
         except ValueError:
             error_exit(f"Invalid SIZE metadata: {meta['SIZE']!r}", json_mode=json_output)
 
-    from rebrew.cli import resolve_cflags
+    from rebrew.cli import resolve_compile_overrides
 
     _mod = (sel_ann or lint_annos[0]).module if lint_annos else ""
-    cflags_str = resolve_cflags(cfg, cflags or meta.get("CFLAGS", ""), _mod)
+    # Shared fallback chain (per-function metadata → per-library
+    # rebrew-library.toml → preset → compiler.cflags); an explicit
+    # --toolchain / --cflags wins over the metadata value.
+    toolchain_name, cflags_str = resolve_compile_overrides(
+        cfg,
+        Path(source).resolve().parent,
+        toolchain or meta.get("TOOLCHAIN"),
+        cflags or meta.get("CFLAGS"),
+        _mod,
+    )
 
     section_va: int | None = None
     if va_str is not None and size_val is not None:
@@ -441,9 +453,6 @@ def main(
         )
 
     # Shared compile→extract→compare path (same as rebrew verify).
-    # Per-function toolchain override (metadata TOOLCHAIN, e.g. "msvc5"):
-    # compile this function with a different vendored compiler.
-    toolchain_name = (meta.get("TOOLCHAIN") or "").strip() or None
     cmp = compile_and_compare(
         cfg,
         source,
@@ -579,6 +588,22 @@ def main(
                 logging.warning(
                     "Could not persist CFLAGS for 0x%x: %s (verify may recompile "
                     "with different flags and demote the match)",
+                    va_int_for_promote,
+                    exc,
+                )
+        # Persist an EXPLICIT --toolchain override for the same reason: the
+        # function's best compiler may differ from the project default (the
+        # target is a mix of MSVC 4.2/5.0/6.0 output), and verify must
+        # recompile with the toolchain that produced the match.
+        if toolchain_name and not no_promote and not dry_run:
+            try:
+                update_field(
+                    cfg.metadata_dir, va_int_for_promote, "toolchain", toolchain_name, anno_module
+                )
+            except Exception as exc:  # noqa: BLE001 — metadata write is best-effort
+                logging.warning(
+                    "Could not persist TOOLCHAIN for 0x%x: %s (verify may recompile "
+                    "with the project default compiler)",
                     va_int_for_promote,
                     exc,
                 )
