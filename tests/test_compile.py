@@ -645,3 +645,48 @@ class TestCompileToObjBorlandc55:
         assert "-c" in captured["args"]
         assert "t.c" in captured["args"]
         assert "-o" not in captured["args"]
+
+
+class TestPerFunctionOverrideArgShape:
+    def test_16bit_override_gets_wrapper_args(self, tmp_path: Path, monkeypatch) -> None:
+        """A per-function TOOLCHAIN override to a 16-bit toolchain must use
+        the 16-bit DOSBox wrapper arg shape (source first), not the config
+        profile's 32-bit /Fo shape (spec.name drives the branch)."""
+        from rebrew.compile import compile_to_obj
+        from rebrew.toolchain import RunResult
+
+        captured: dict = {}
+
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
+            captured["args"] = args
+            (workdir / "F.OBJ").write_bytes(b"OMF")
+            return RunResult(0, "", "", backend="docker")
+
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+
+        cfg: Any = SimpleNamespace(
+            root=tmp_path,
+            compiler_profile="msvc6",  # 32-bit config profile
+            compiler_command="",
+            compiler_runner="",
+            compiler_includes="toolchain/msvc/6.0-win32/VC98/Include",
+            base_cflags="",
+            compile_timeout=30,
+            posix_style=False,
+            cflags_presets={},
+            cflags="",
+            cflags_explicit=False,
+        )
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        source = src_dir / "f.c"
+        source.write_text("int f(void){return 1;}\n", encoding="utf-8")
+        work = tmp_path / "work"
+        work.mkdir()
+        obj, err = compile_to_obj(
+            cfg, source, [], work, use_cache=False, toolchain="msvc1.52"
+        )
+        assert obj is not None and err == ""
+        assert captured["args"][0] == "f.c"  # source first (wrapper convention)
+        assert not any(a.startswith("/Fo") for a in captured["args"])
