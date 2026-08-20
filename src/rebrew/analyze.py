@@ -715,7 +715,7 @@ def main(
     strings = dossier["strings"]
     console.print(f"[bold]Strings:[/bold] {strings['count']} found")
     for s in strings["top"]:
-        console.print(f"  [dim]0x{s['va']}[/dim] ({s['refs']} refs): {s['text']!r}")
+        console.print(f"  [dim]{s['va']}[/dim] ({s['refs']} refs): {s['text']!r}")
 
     imports = dossier["imports"]
     console.print(
@@ -741,7 +741,7 @@ def main(
     if near_match:
         console.print(f"[bold]NEAR_MATCHING:[/bold] {len(near_match)} blocked function(s)")
         for nm in near_match[:10]:
-            console.print(f"  [dim]0x{nm['va']}[/dim] {nm['blocker'][:70]}")
+            console.print(f"  [dim]{nm['va']}[/dim] {nm['blocker'][:70]}")
         if len(near_match) > 10:
             console.print(f"  [dim]... and {len(near_match) - 10} more[/dim]")
 
@@ -758,7 +758,7 @@ def main(
         console.print(f"[bold]Library functions:[/bold] {len(library)} identified")
         for lib in library[:10]:
             console.print(
-                f"  [dim]0x{lib['va']}[/dim] {lib['name']} ({lib['module']}, "
+                f"  [dim]{lib['va']}[/dim] {lib['name']} ({lib['module']}, "
                 f"{lib['kind']}, conf {lib['confidence']:.2f})"
             )
 
