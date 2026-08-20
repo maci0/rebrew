@@ -105,6 +105,17 @@ class TestDetectWithPeMeta:
         assert info.family == "msvc"
         assert info.msvc_version == "7.1"
 
+
+    def test_unknown_rich_build_falls_back_to_linker_era(self, monkeypatch) -> None:
+        """An unrecognized Rich build (e.g. a hotfix like 11.00.9049) still
+        suggests the linker-era family instead of the generic default."""
+        monkeypatch.setattr(
+            "rebrew.toolchain_detect.lief.parse", lambda p: _fake_pe("5.12", [9049])
+        )
+        info = detect_with_pe_meta(Path("x.exe"))
+        assert info.msvc_version == "11.00.9049"
+        assert "msvc5" in info.suggested_profiles
+
     def test_non_msvc_linker_returns_none(self, monkeypatch) -> None:
         monkeypatch.setattr("rebrew.toolchain_detect.lief.parse", lambda p: _fake_pe("2.34"))
         assert detect_with_pe_meta(Path("x.exe")) is None
