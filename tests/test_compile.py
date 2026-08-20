@@ -690,3 +690,63 @@ class TestPerFunctionOverrideArgShape:
         assert obj is not None and err == ""
         assert captured["args"][0] == "f.c"  # source first (wrapper convention)
         assert not any(a.startswith("/Fo") for a in captured["args"])
+
+
+class TestCompileEdgeCases:
+    def test_obj_name_with_separator_rejected(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.compile import compile_to_obj
+
+        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+        cfg: Any = SimpleNamespace(
+            root=tmp_path,
+            compiler_profile="msvc6",
+            compiler_command="",
+            compiler_runner="",
+            compiler_includes="",
+            base_cflags="",
+            compile_timeout=10,
+            posix_style=False,
+            cflags_presets={},
+            cflags="",
+            cflags_explicit=False,
+        )
+        src = tmp_path / "f.c"
+        src.write_text("int f(void){return 1;}", encoding="utf-8")
+        work = tmp_path / "w"
+        work.mkdir()
+        obj, err = compile_to_obj(
+            cfg, src, [], work, use_cache=False, obj_name="../evil.obj"
+        )
+        assert obj is None
+        assert "plain filename" in err
+
+    def test_success_without_object_reports_error(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.compile import compile_to_obj
+        from rebrew.toolchain import RunResult
+
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
+            return RunResult(0, "", "", backend="docker")  # no object written
+
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+        cfg: Any = SimpleNamespace(
+            root=tmp_path,
+            compiler_profile="msvc6",
+            compiler_command="",
+            compiler_runner="",
+            compiler_includes="",
+            base_cflags="",
+            compile_timeout=10,
+            posix_style=False,
+            cflags_presets={},
+            cflags="",
+            cflags_explicit=False,
+        )
+        src = tmp_path / "f.c"
+        src.write_text("int f(void){return 1;}", encoding="utf-8")
+        work = tmp_path / "w"
+        work.mkdir()
+        obj, err = compile_to_obj(cfg, src, [], work, use_cache=False)
+        assert obj is None
+        assert "produced no object" in err
+

@@ -977,7 +977,12 @@ def run_toolchain(
             native binary for a native-runtime toolchain.
     """
     workdir = Path(workdir) if workdir is not None else Path.cwd()
-    workdir.mkdir(parents=True, exist_ok=True)
+    try:
+        workdir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        # An un-creatable workdir must surface as a ToolchainError (callers
+        # catch that), not a raw OSError escaping into the GA/flag-sweep path.
+        raise ToolchainError(f"cannot create workdir {workdir}: {exc}") from exc
 
     if spec.image is not None:
         if not docker_available():
