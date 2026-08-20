@@ -768,7 +768,6 @@ def smoke_cmd(
     """
     import hashlib
     import os
-    import shutil
     import subprocess
 
     from rebrew.toolchain import get_toolchain
@@ -780,9 +779,11 @@ def smoke_cmd(
     targets = [name] if name else sorted(_SMOKE_GOLDEN)
     results: dict[str, str] = {}
     ok = True
-    workdir = Path("/tmp/rebrew-smoke")
-    shutil.rmtree(workdir, ignore_errors=True)
-    workdir.mkdir(parents=True)
+    # A real-disk, docker-visible workdir (the system temp dir may be
+    # tmpfs or docker-invisible in sandboxed environments).
+    from rebrew.utils import writable_temp_dir
+
+    workdir = writable_temp_dir("rebrew_smoke_")
     for tool in targets:
         spec = get_toolchain(tool)
         if spec.image is None and spec.host_path is None:
@@ -1285,9 +1286,9 @@ def update_cmd(
         # 3. rebuild the docker image.
         build_cmd(name, json_output=False)
         # 4. regenerate the smoke golden (stable across two compiles) + write it.
-        workdir = Path("/tmp/rebrew-smoke")
-        shutil.rmtree(workdir, ignore_errors=True)
-        workdir.mkdir(parents=True)
+        from rebrew.utils import writable_temp_dir
+
+        workdir = writable_temp_dir("rebrew_smoke_")
         h1 = _image_smoke_hash(name, workdir)
         h2 = _image_smoke_hash(name, workdir)
         if h1 is None or h2 is None:
