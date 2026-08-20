@@ -604,12 +604,16 @@ def _toolchain_cache_id(spec: "ToolchainSpec") -> str:
     OLD image are never served as if they came from the new one.  Falls
     back to the bare tag when docker is unavailable or the inspect fails.
     """
-    digest = _toolchain_digest_cache.get(spec.image)
+    image = spec.image
+    # A toolchain always carries a non-null image tag for cache identity;
+    # assert so mypy knows `image` is a str below.
+    assert image is not None, "toolchain cache id requires an image"
+    digest = _toolchain_digest_cache.get(image)
     if digest is None:
         digest = ""
         try:
             r = subprocess.run(
-                ["docker", "image", "inspect", "--format", "{{.Id}}", spec.image],
+                ["docker", "image", "inspect", "--format", "{{.Id}}", image],
                 capture_output=True,
                 text=True,
                 timeout=15,
@@ -618,8 +622,8 @@ def _toolchain_cache_id(spec: "ToolchainSpec") -> str:
                 digest = r.stdout.strip().removeprefix("sha256:")[:12]
         except (OSError, subprocess.TimeoutExpired):
             digest = ""
-        _toolchain_digest_cache[spec.image] = digest
-    return f"{spec.image}@{digest}" if digest else spec.image
+        _toolchain_digest_cache[image] = digest
+    return f"{image}@{digest}" if digest else image
 
 
 def compile_to_obj(
