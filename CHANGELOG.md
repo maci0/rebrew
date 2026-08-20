@@ -1,4 +1,4 @@
-## [Unreleased]
+## [0.3.0] - 2026-08-21
 ### Changed
 - **Compile-cache key v5: per-source header dependencies instead of
   whole-directory fingerprints** (`compile_cache.py`).  The key now resolves
