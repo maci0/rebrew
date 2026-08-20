@@ -9,7 +9,7 @@ GA engine for binary-matching decompilation. Compiles C with MSVC6 under Wine, s
 | `core.py` | Types (pure, no logic) | `Score`, `BuildResult`, `BuildCache`, `GACheckpoint`, `StructuralSimilarity` |
 | `compiler.py` | Compilation backend | `build_candidate()`, `build_candidate_obj_only(cache=)`, `flag_sweep(cache=)`, `generate_flag_combinations()` |
 | `scoring.py` | Binary comparison (pure) | `score_candidate()`, `diff_functions()`, `structural_similarity()` |
-| `mutator.py` | C mutations (pure) | `mutate_code()`, `crossover()`, `compute_population_diversity()`, 120 `mut_*` operators |
+| `mutator.py` | C mutations (pure) | `mutate_code()`, `mutate_chain()`, `MutationLog`, `crossover()`, `compute_population_diversity()`, 120 `mut_*` operators |
 | `parsers.py` | Object parsing (read-only) | `parse_obj_symbol_bytes()`, `list_obj_symbols()`, `extract_function_from_binary()` |
 | `flags.py` | Flag primitives | `FlagSet`, `Checkbox` (frozen), `Flags` alias |
 | `flag_data.py` | MSVC flag defs | `MSVC6_FLAGS`, `COMMON_MSVC_FLAGS`, `MSVC_SWEEP_TIERS` |

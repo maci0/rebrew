@@ -363,13 +363,17 @@ def build_candidate_obj_only(
 
     cache_key: str | None = None
     if cache is not None:
+        from rebrew.compile import _extract_include_dirs
+
         cmd_parts = _compiler_cmd_parts(cl_cmd, env)
         toolchain_id = " ".join(cmd_parts)
         cache_key = compile_cache_key(
             source_content=source_code,
             source_filename=src_name,
             cflags=all_flags + ["/c"],
-            include_dirs=[inc_dir, *extra_inc],
+            # The /I dirs carried by the flags join the search set so their
+            # headers participate in the per-source dependency fingerprints.
+            include_dirs=[inc_dir, *extra_inc, *_extract_include_dirs(all_flags)],
             toolchain_id=toolchain_id,
             source_ext=source_ext,
         )

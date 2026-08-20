@@ -60,6 +60,11 @@ from rebrew.utils import atomic_write_text
 
 log = logging.getLogger(__name__)
 
+#: Sentinel stored in VerifyCacheEntry.toolchain when no override names a
+#: compiler (the project's default profile applies).  Distinct from ``""`` so
+#: legacy entries (written before the field existed) are re-verified once.
+_DEFAULT_TOOLCHAIN = "(default)"
+
 # ---------------------------------------------------------------------------
 # Verification
 # ---------------------------------------------------------------------------
@@ -430,6 +435,35 @@ def _source_hash(filepath: Path) -> str:
     return hashlib.sha256(filepath.read_bytes()).hexdigest()
 
 
+def _entry_headers_fp(cfg: ProjectConfig, filepath: Path, cflags_str: str) -> str:
+    """Per-source header-dependency fingerprint for a verify-cache entry.
+
+    Resolves the source's ``#include`` closure against the same dirs the
+    compile would search (``compiler_includes``, the source's own dir, and
+    the ``/I`` dirs of the base + resolved per-function flags) and hashes the
+    reached headers via ``compile_cache.header_dependency_hash``.  Editing a
+    header therefore re-verifies exactly the entries whose source reaches it
+    — replacing the old global ``headers_hash`` gate that re-verified
+    everything on any header change.  Returns ``""`` when the source cannot
+    be read (the entry is treated as stale).
+    """
+    import shlex
+
+    from rebrew.compile import _extract_include_dirs, _resolve_include_flags
+    from rebrew.compile_cache import header_dependency_hash
+
+    source_dir = filepath.parent
+    inc_path = str(getattr(cfg, "compiler_includes", "") or "")
+    flags = shlex.split(getattr(cfg, "base_cflags", "") or "") + shlex.split(cflags_str)
+    flags = _resolve_include_flags(flags, source_dir, cfg.root)
+    include_dirs = [d for d in [inc_path, str(source_dir), *_extract_include_dirs(flags)] if d]
+    try:
+        content = filepath.read_bytes().decode("utf-8", errors="surrogateescape")
+    except OSError:
+        return ""
+    return header_dependency_hash(content, str(source_dir), include_dirs)
+
+
 @dataclass
 class VerifyResult:
     """Represents the verification result of a single compiled function."""
@@ -493,6 +527,27 @@ class VerifyCacheEntry:
     source hash cannot detect it either.  Entries written before this field
     existed carry ``-1`` (unknown) and are re-verified once."""
 
+    headers_fp: str = ""
+    """Per-source header-dependency fingerprint (reached ``#include`` closure).
+
+    Computed via ``compile_cache.header_dependency_hash`` over the same
+    search dirs the compile uses, so editing a header re-verifies exactly the
+    entries whose source reaches it.  This replaced the global
+    ``headers_hash`` gate, which invalidated *every* entry on any header
+    change.  Entries written before this field existed carry ``""`` and are
+    re-verified once."""
+
+    toolchain: str = ""
+    """Resolved per-function toolchain override at cache time (e.g. ``watcom``).
+
+    The TOOLCHAIN field lives in ``rebrew-function.toml`` / ``rebrew-library.toml``,
+    not in the ``.c`` file, so the source hash cannot detect a toolchain
+    change.  Only the resolved *cflags* were stored before this field, so a
+    library ``TOOLCHAIN`` override edit served stale EXACT/RELOC for every
+    function under it (the config fallback chain: per-function → per-library
+    → project default).  ``"(default)"`` records "no override — project
+    profile applies"; ``""`` marks a legacy entry, re-verified once."""
+
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "VerifyCacheEntry":
         """Reconstruct a VerifyCacheEntry from a JSON dictionary."""
@@ -503,6 +558,8 @@ class VerifyCacheEntry:
             result=VerifyResult.from_dict(d.get("result", {})),
             cflags=str(d.get("cflags", "")),
             size=int(d.get("size", -1)),
+            headers_fp=str(d.get("headers_fp", "")),
+            toolchain=str(d.get("toolchain", "")),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -518,7 +575,7 @@ class VerifyCache:
     compiler_hash: str
     target: str
     entries: dict[str, VerifyCacheEntry]
-    headers_hash: str = ""  # SHA256 of all .h files under reversed_dir; "" means unchecked
+    headers_hash: str = ""  # informational only — per-entry headers_fp is authoritative
     binary_id: str = ""  # SHA256 of target binary (mtime_ns + size); "" = legacy cache
 
     @classmethod
@@ -700,8 +757,10 @@ def _load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> VerifyCache | No
         return None
     if data.compiler_hash != _compiler_config_hash(cfg):
         return None
-    if data.headers_hash != _headers_hash(cfg):
-        return None
+    # Header invalidation is per-entry via VerifyCacheEntry.headers_fp (a
+    # reached-header fingerprint), checked at serve time in prepare_entries —
+    # the old global headers_hash gate re-verified the whole cache on any
+    # header change, defeating per-source precision.
     # Legacy caches carry no binary_id — accept them; a cached binary_id that
     # no longer matches the current binary must invalidate.
     if data.binary_id and data.binary_id != _binary_id(cfg):
@@ -719,6 +778,8 @@ def _save_verify_cache(
     filepath_info: dict[str, tuple[int, str]] = {}
     cflags_by_va: dict[str, str] = {}
     size_by_va: dict[str, int] = {}
+    headers_fp_by_va: dict[str, str] = {}
+    toolchain_by_va: dict[str, str] = {}
     for entry in entries:
         va_key = f"0x{entry.va:08x}"
         # Store the RESOLVED effective flags (per-function metadata → module
@@ -738,12 +799,14 @@ def _save_verify_cache(
         )
         cflags_by_va[va_key] = _cf
         size_by_va[va_key] = entry.size or 0
+        toolchain_by_va[va_key] = _tc or _DEFAULT_TOOLCHAIN
         relative_path = getattr(entry, "filepath", "")
         if not relative_path:
             continue
         filepath = cfg.reversed_dir / relative_path
         if filepath.exists():
             filepath_info[relative_path] = (filepath.stat().st_mtime_ns, _source_hash(filepath))
+            headers_fp_by_va[va_key] = _entry_headers_fp(cfg, filepath, _cf)
 
     cache_entries: dict[str, dict[str, Any]] = {}
     for result in results:
@@ -780,6 +843,8 @@ def _save_verify_cache(
             "result": res_dict,
             "cflags": cflags_by_va.get(str(va_key), ""),
             "size": size_by_va.get(str(va_key), 0),
+            "headers_fp": headers_fp_by_va.get(str(va_key), ""),
+            "toolchain": toolchain_by_va.get(str(va_key), ""),
         }
 
     cache_data = VerifyCache(
@@ -1431,13 +1496,18 @@ def prepare_entries(
         if cached_entry.filepath != getattr(entry, "filepath", ""):
             continue
 
-        # CFLAGS come from rebrew-function.toml AND the config fallback chain
-        # (module preset → [compiler].cflags), so a flag change is invisible
-        # to the source hash below.  The entry stores the RESOLVED effective
-        # flags the compile used; compare against the freshly-resolved value
-        # so a `rebrew cfg set-cflags` / [compiler].cflags edit invalidates
-        # cached results (previously only the metadata CFLAGS were compared,
-        # leaving stale EXACT/RELOC served after a config change).
+        # CFLAGS/TOOLCHAIN come from rebrew-function.toml AND the config
+        # fallback chain (per-function → per-library rebrew-library.toml →
+        # preset → [compiler].cflags), so a metadata edit is invisible to the
+        # source hash below.  The entry stores the RESOLVED effective values
+        # the compile used; compare against the freshly-resolved ones so a
+        # `rebrew library set` / `rebrew cfg set-cflags` / [compiler].cflags
+        # edit invalidates cached results (previously only the metadata CFLAGS
+        # were compared, leaving stale EXACT/RELOC served after a config
+        # change — and TOOLCHAIN was not stored at all, so a library toolchain
+        # override swap served stale results for every function under it).
+        import shlex
+
         from rebrew.cli import resolve_compile_overrides
 
         _tc, _cf2 = resolve_compile_overrides(
@@ -1447,8 +1517,29 @@ def prepare_entries(
             getattr(entry, "cflags", ""),
             getattr(entry, "module", ""),
         )
-        if cached_entry.cflags != _cf2:
+        # Legacy entries written before the toolchain field existed carry ""
+        # — re-verify them once (same pattern as cflags/headers_fp).
+        if not cached_entry.toolchain:
             continue
+        if cached_entry.toolchain != (_tc or _DEFAULT_TOOLCHAIN):
+            continue
+
+        if cached_entry.cflags != _cf2:
+            # Raw strings differ — but only a change that could alter the
+            # compiled object is material.  A rebrew-library.toml edit that
+            # merely reorders flags (e.g. preset vs override ordering) or
+            # deduplicates them compiles identically, so compare the
+            # canonicalized equivalence class (observational equivalence:
+            # the compiler is the observer) and treat it as a hit.  A legacy
+            # or degenerate entry ("" on either side) is re-verified once.
+            if not (cached_entry.cflags and _cf2):
+                continue
+            from rebrew.compile_cache import canonicalize_cflags
+
+            if canonicalize_cflags(shlex.split(cached_entry.cflags)) != canonicalize_cflags(
+                shlex.split(_cf2)
+            ):
+                continue
 
         # SIZE is metadata-only too (catalog --fix-sizes rewrites it without
         # touching the .c); a size change must invalidate the cached result.
@@ -1457,6 +1548,16 @@ def prepare_entries(
 
         filepath = cfg.reversed_dir / getattr(entry, "filepath", "")
         if not filepath.exists():
+            continue
+
+        # Per-source header dependency: editing a header this source reaches
+        # must invalidate the entry (the old global headers_hash gate
+        # re-verified the whole cache on any header change).  Legacy entries
+        # written before headers_fp existed carry "" and are re-verified once,
+        # like the cflags/size legacy handling.
+        if not cached_entry.headers_fp:
+            continue
+        if cached_entry.headers_fp != _entry_headers_fp(cfg, filepath, _cf2):
             continue
 
         try:

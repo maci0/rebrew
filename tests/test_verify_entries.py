@@ -106,12 +106,32 @@ class TestPrepareEntriesCache:
         if not source_hash:
             p = Path(cfg_reversed_dir()) / filepath
             source_hash = verify_mod._source_hash(p) if p.exists() else "no-file"
+        # Mirror the new writer: the entry stores the reached-header
+        # dependency fingerprint, so a hit requires the freshly-computed
+        # value to match (a header the source reaches must invalidate it).
+        p = Path(cfg_reversed_dir()) / filepath
+        headers_fp = (
+            verify_mod._entry_headers_fp(_cfg(Path(cfg_reversed_dir())), p, cflags)
+            if p.exists()
+            else ""
+        )
+        # Mirror the new writer: the resolved toolchain override
+        # (per-function → per-library → project default), so a TOOLCHAIN edit
+        # invalidates the entry.
+        from rebrew.cli import resolve_compile_overrides
+
+        _tc, _cf2 = resolve_compile_overrides(
+            _cfg(Path(cfg_reversed_dir())), Path(cfg_reversed_dir()), "", "", ""
+        )
+        toolchain = _tc or verify_mod._DEFAULT_TOOLCHAIN
         return {
             "source_hash": source_hash,
             "filepath": filepath,
             "mtime_ns": mtime,
             "size": size,  # 64 matches _ann's default annotation size
             "cflags": cflags,
+            "headers_fp": headers_fp,
+            "toolchain": toolchain,
             "result": {
                 "status": "EXACT" if passed else "STUB",
                 "va": "0x1000",
@@ -270,6 +290,75 @@ class TestPrepareEntriesCache:
         assert cached == 1
         assert failed == 1
         assert len(fail_details) == 1
+
+    def test_cached_toolchain_change_invalidates_cache(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A library/function TOOLCHAIN override edit must invalidate the
+        entry — only the resolved cflags were stored before, so a toolchain
+        swap served stale EXACT/RELOC for every function under the library
+        (paper: the resolved-config change is classified against the entry's
+        (toolchain, cflags) specification)."""
+        entry = _ann(0x1000)
+        cfg = self._setup(tmp_path, monkeypatch, entry)
+        cache = {
+            "0x00001000": verify_mod.VerifyCacheEntry.from_dict(
+                self._cache_entry("f.c", cflags="/O2 /Gd")
+            )
+        }
+        cache["0x00001000"].toolchain = "watcom"  # cached under a library override
+        monkeypatch.setattr(
+            verify_mod,
+            "_load_verify_cache",
+            lambda *a, **k: verify_mod.VerifyCache(
+                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+            ),
+        )
+        _, _, _, _, _, cached, _, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        assert cached == 0
+
+    def test_cached_toolchain_match_served(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The entry's stored toolchain matches the freshly-resolved value."""
+        entry = _ann(0x1000)
+        cfg = self._setup(tmp_path, monkeypatch, entry)
+        cache = {"0x00001000": verify_mod.VerifyCacheEntry.from_dict(self._cache_entry("f.c"))}
+        monkeypatch.setattr(
+            verify_mod,
+            "_load_verify_cache",
+            lambda *a, **k: verify_mod.VerifyCache(
+                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+            ),
+        )
+        _, _, _, _, _, cached, _, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        assert cached == 1
+
+    def test_cflags_order_only_change_keeps_cache(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A rebrew-library.toml edit that only reorders flags compiles
+        identically — the canonicalized equivalence class matches, so the
+        entry is served (observational equivalence: material-change
+        classification rather than raw-string comparison)."""
+        entry = _ann(0x1000)
+        cfg = self._setup(tmp_path, monkeypatch, entry)
+        # Resolved flags are "/O2 /Gd"; the cached entry holds the same flags
+        # in a different order — no material change.
+        cache = {
+            "0x00001000": verify_mod.VerifyCacheEntry.from_dict(
+                self._cache_entry("f.c", cflags="/Gd /O2")
+            )
+        }
+        monkeypatch.setattr(
+            verify_mod,
+            "_load_verify_cache",
+            lambda *a, **k: verify_mod.VerifyCache(
+                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+            ),
+        )
+        _, _, _, _, _, cached, _, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        assert cached == 1
 
     def test_cached_filepath_mismatch_skipped(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

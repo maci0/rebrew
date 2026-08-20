@@ -7,9 +7,11 @@ from typing import Any, cast
 from rebrew.compile_cache import (
     CACHE_SCHEMA_VERSION,
     CompileCache,
+    _resolve_include_paths,
     close_all_caches,
     compile_cache_key,
     get_compile_cache,
+    header_dependency_hash,
     include_fingerprint,
 )
 from rebrew.config import ProjectConfig
@@ -111,10 +113,53 @@ class TestCompileCacheKey:
         k2 = compile_cache_key("int f(){return 1;}", "f.c", ["/O2"], ["/inc"], "wine CL", ".cpp")
         assert k1 != k2
 
-    def test_flag_order_matters(self) -> None:
+    def test_flag_order_insensitive_classes_same_key(self) -> None:
+        """Flags setting distinct compiler options commute — /O2 and /Gd are
+        different options, so their order cannot change the object."""
         k1 = compile_cache_key("src", "f.c", ["/O2", "/Gd"], ["/inc"], "wine CL")
         k2 = compile_cache_key("src", "f.c", ["/Gd", "/O2"], ["/inc"], "wine CL")
+        assert k1 == k2
+
+    def test_last_wins_flags_keep_order(self) -> None:
+        """/O1 /O2 and /O2 /O1 compile differently (the last wins) — order
+        within an option group must still separate the keys."""
+        k1 = compile_cache_key("src", "f.c", ["/O1", "/O2"], ["/inc"], "wine CL")
+        k2 = compile_cache_key("src", "f.c", ["/O2", "/O1"], ["/inc"], "wine CL")
         assert k1 != k2
+
+    def test_duplicate_flags_same_key(self) -> None:
+        k1 = compile_cache_key("src", "f.c", ["/O2", "/O2"], ["/inc"], "wine CL")
+        k2 = compile_cache_key("src", "f.c", ["/O2"], ["/inc"], "wine CL")
+        assert k1 == k2
+
+    def test_group_collapses_to_last_occurrence(self) -> None:
+        """Within one option group only the last occurrence matters."""
+        k1 = compile_cache_key("src", "f.c", ["/O1", "/O2"], ["/inc"], "wine CL")
+        k2 = compile_cache_key("src", "f.c", ["/O2"], ["/inc"], "wine CL")
+        assert k1 == k2
+
+    def test_unknown_flag_order_preserved(self) -> None:
+        """A flag outside the synced definitions is an anchor: reordering it
+        against a known flag could change compilation, so it must not."""
+        k1 = compile_cache_key("src", "f.c", ["/O2", "/custom"], ["/inc"], "wine CL")
+        k2 = compile_cache_key("src", "f.c", ["/custom", "/O2"], ["/inc"], "wine CL")
+        assert k1 != k2
+
+    def test_include_dir_flag_order_preserved(self) -> None:
+        """/I flags set the include search order — never canonicalized."""
+        k1 = compile_cache_key("src", "f.c", ["/Iinc1", "/Iinc2"], ["/inc"], "wine CL")
+        k2 = compile_cache_key("src", "f.c", ["/Iinc2", "/Iinc1"], ["/inc"], "wine CL")
+        assert k1 != k2
+
+    def test_default_rebrew_flags_canonicalize(self) -> None:
+        """The everyday flag set (/O2 /Gd /MT) canonicalizes to one key
+        regardless of input order — flag sweeps and repeated compiles share
+        entries."""
+        flags_a = ["/O2", "/Gd", "/MT"]
+        flags_b = ["/MT", "/Gd", "/O2"]
+        k1 = compile_cache_key("src", "f.c", flags_a, ["/inc"], "wine CL")
+        k2 = compile_cache_key("src", "f.c", flags_b, ["/inc"], "wine CL")
+        assert k1 == k2
 
     def test_returns_hex_string(self) -> None:
         key = compile_cache_key("src", "f.c", ["/O2"], ["/inc"], "wine CL")
@@ -142,12 +187,11 @@ class TestIncludeFingerprint:
         inc.mkdir()
         header = inc / "library_foo.h"
         header.write_text("#define N 1\n")
-        include_fingerprint.cache_clear()
-        k1 = compile_cache_key("src", "f.c", ["/O2"], [str(inc)], "wine CL")
+        src = "#include <library_foo.h>\nint f(void){return 1;}\n"
+        k1 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
 
         header.write_text("#define N 22222\n")  # different size => different stat
-        include_fingerprint.cache_clear()
-        k2 = compile_cache_key("src", "f.c", ["/O2"], [str(inc)], "wine CL")
+        k2 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
         assert k1 != k2
 
     def test_non_header_files_ignored(self, tmp_path: Path) -> None:
@@ -161,6 +205,145 @@ class TestIncludeFingerprint:
         include_fingerprint.cache_clear()
         k2 = compile_cache_key("src", "f.c", ["/O2"], [str(inc)], "wine CL")
         assert k1 == k2
+
+
+class TestHeaderDependencyHash:
+    """Per-source #include-closure fingerprints (paper-driven precision).
+
+    The v4 key tracks each translation unit's *reached* headers instead of a
+    whole-directory fingerprint: editing a header invalidates exactly the
+    entries that include it, and an edit to an unreached header is a hit.
+    """
+
+    def test_no_includes_is_fixed_digest(self) -> None:
+        """A unit with no header deps gets a stable, non-empty digest ("" is
+        reserved by the verify cache for legacy entries)."""
+        d = header_dependency_hash("int f(void){return 1;}", None, ["/inc"])
+        assert len(d) == 64
+        int(d, 16)  # hex
+        assert header_dependency_hash("int g(void){return 2;}", None, ["/inc"]) == d
+
+    def test_unreached_header_edit_keeps_key(self, tmp_path: Path) -> None:
+        """THE precision win: only reached headers shape the key."""
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        (inc / "a.h").write_text("typedef int A;\n")
+        (inc / "b.h").write_text("typedef int B;\n")
+        src = "#include <a.h>\nint f(void){return 1;}\n"
+        k1 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
+
+        (inc / "b.h").write_text("typedef long B;\n")
+        k2 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
+        assert k1 == k2
+
+    def test_reached_header_edit_changes_key(self, tmp_path: Path) -> None:
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        (inc / "a.h").write_text("typedef int A;\n")
+        src = "#include <a.h>\nint f(void){return 1;}\n"
+        k1 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
+
+        (inc / "a.h").write_text("typedef long A;\n")
+        k2 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
+        assert k1 != k2
+
+    def test_nested_header_dependency(self, tmp_path: Path) -> None:
+        """An edit to a header included transitively must invalidate."""
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        (inc / "a.h").write_text("#include <b.h>\n#define A 1\n")
+        (inc / "b.h").write_text("#define B 1\n")
+        src = "#include <a.h>\nint f(void){return 1;}\n"
+        k1 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
+
+        (inc / "b.h").write_text("#define B 2\n")
+        k2 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
+        assert k1 != k2
+
+    def test_quote_include_from_source_dir(self, tmp_path: Path) -> None:
+        """A quote include next to the source is tracked via source_dir."""
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        (src_dir / "local.h").write_text("#define L 1\n")
+        src = '#include "local.h"\nint f(void){return 1;}\n'
+        k1 = compile_cache_key(src, "f.c", ["/O2"], [], "wine CL", source_dir=str(src_dir))
+
+        (src_dir / "local.h").write_text("#define L 2\n")
+        k2 = compile_cache_key(src, "f.c", ["/O2"], [], "wine CL", source_dir=str(src_dir))
+        assert k1 != k2
+
+    def test_created_header_changes_key_for_reacher(self, tmp_path: Path) -> None:
+        """A header created later in a searched dir changes the resolved set
+        on the next key computation (resolution is re-run per process)."""
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        src = "#include <new.h>\nint f(void){return 1;}\n"
+        k1 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
+
+        (inc / "new.h").write_text("#define N 1\n")
+        _resolve_include_paths.cache_clear()  # structure change needs a fresh resolution
+        k2 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
+        assert k1 != k2
+
+    def test_missing_include_no_crash(self) -> None:
+        """An include that resolves nowhere (CRT headers live inside the
+        immutable toolchain image) is left untracked — no crash, stable key."""
+        src = "#include <nonexistent.h>\nint f(void){return 1;}\n"
+        k1 = compile_cache_key(src, "f.c", ["/O2"], ["/nope"], "wine CL")
+        k2 = compile_cache_key(src, "f.c", ["/O2"], ["/nope"], "wine CL")
+        assert k1 == k2
+
+    def test_nonliteral_include_falls_back_to_dir_fingerprint(self, tmp_path: Path) -> None:
+        """#include MACRO cannot be resolved statically — fall back to the
+        conservative whole-directory fingerprint (any header edit invalidates)."""
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        (inc / "a.h").write_text("typedef int A;\n")
+        src = "#include LIB_H\nint f(void){return 1;}\n"
+        k1 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
+
+        (inc / "a.h").write_text("typedef long A;\n")
+        include_fingerprint.cache_clear()
+        k2 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
+        assert k1 != k2
+
+    def test_include_in_block_comment_not_tracked(self, tmp_path: Path) -> None:
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        (inc / "a.h").write_text("typedef int A;\n")
+        src = "/* #include <a.h> */\nint f(void){return 1;}\n"
+        k1 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
+
+        (inc / "a.h").write_text("typedef long A;\n")
+        k2 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
+        assert k1 == k2
+
+    def test_comment_prefixed_include_tracked(self, tmp_path: Path) -> None:
+        """/* c */ #include <a.h> must still be resolved (an under-approximation
+        would risk a stale hit)."""
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        (inc / "a.h").write_text("typedef int A;\n")
+        src = "/* c */ #include <a.h>\nint f(void){return 1;}\n"
+        k1 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
+
+        (inc / "a.h").write_text("typedef long A;\n")
+        k2 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
+        assert k1 != k2
+
+    def test_force_include_flag_falls_back(self, tmp_path: Path) -> None:
+        """/FI pulls a header into every compile invisibly — conservative
+        whole-directory fingerprints are used instead."""
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        (inc / "a.h").write_text("typedef int A;\n")
+        src = "int f(void){return 1;}\n"
+        k1 = compile_cache_key(src, "f.c", ["/O2", f"/FI{inc}/a.h"], [str(inc)], "wine CL")
+
+        (inc / "a.h").write_text("typedef long A;\n")
+        include_fingerprint.cache_clear()
+        k2 = compile_cache_key(src, "f.c", ["/O2", f"/FI{inc}/a.h"], [str(inc)], "wine CL")
+        assert k1 != k2
 
 
 class TestGetCompileCache:
