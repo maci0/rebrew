@@ -576,6 +576,7 @@ def compile_to_obj(
     use_cache: bool = True,
     obj_name: str | None = None,
     toolchain: str | None = None,
+    extra_include_dirs: list[str] | None = None,
 ) -> tuple[str | None, str]:
     """Compile a .c file to .obj through the toolchain's docker image.
 
@@ -606,6 +607,9 @@ def compile_to_obj(
         use_cache: Set to ``False`` to bypass the cache entirely.
         toolchain: Per-function toolchain override (metadata TOOLCHAIN) —
             compile with THAT toolchain's docker image.
+        extra_include_dirs: Additional absolute include dirs (e.g. the GA/
+            diff source's parent, for relative #include resolution) —
+            same-path mounted into the container like the other /I dirs.
 
     Returns:
         (obj_path, error_msg) — obj_path is ``None`` on failure;
@@ -715,6 +719,10 @@ def compile_to_obj(
                     extra_inc.append(str(src_parent))
                 if inc_path and not _is_vendored_toolchain_tree(Path(inc_path)):
                     extra_inc.append(str(inc_path))
+                # The GA / diff paths compile from a temp source copy and
+                # pass the original source's parent (for relative includes)
+                # — mount those dirs too.
+                extra_inc.extend(d for d in (extra_include_dirs or []) if d)
                 prefix = "/I" if spec.flags_style == "msvc" else "-I"
                 for d in extra_inc:
                     rewritten, extra_mounts = _docker_include_rewrite([f"{prefix}{d}"], workdir)
