@@ -443,13 +443,12 @@ build <name>` builds `rebrew/msvc:<version>-<arch>` from the same tarball), a
 config/init/detect profile, a tools/ compat link, and a smoke-gate golden.
 
 **Standalone use**: the same images are published as a self-contained build
-source in [`archaic-toolchains/rebrew-toolchains`](https://github.com/archaic-toolchains/rebrew-toolchains)
+source in [`maci0/rebrew-toolchains`](https://github.com/maci0/rebrew-toolchains)
 — Dockerfiles, wrappers, the shared `base` image and the pinned-source manifest
 (`sources.json`), with **no compiler binaries in the repo** (every 32-bit image
 curls its sha256-verified source at build time; the six 16-bit images document
 their reconstructed-media tarball prerequisite).  Any tool — e.g. the
-[`recompile.online`](https://github.com/archaic-toolchains/recompile.online)
-compiler-as-a-service — can build or pull these images without rebrew itself.
+`recompile`-style compiler-as-a-service can build or pull these images without rebrew itself.
 
 | Profile | Version | CL.EXE | Compiler | Source | Runtime |
 |---|---|---|---|---|---|
