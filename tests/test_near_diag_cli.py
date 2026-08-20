@@ -41,7 +41,7 @@ def _setup(
     obj = tmp_path / "out.obj"
     obj.write_bytes(b"x")
 
-    def _compile(cfg, src, cflags, workdir):
+    def _compile(cfg, src, cflags, workdir, **kwargs):
         if compile_error is not None:
             return None, compile_error
         return obj, None

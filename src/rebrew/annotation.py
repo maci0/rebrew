@@ -508,6 +508,7 @@ def make_func_entry(
     note: str = "",
     inline_error: str = "",
     globals_list: list[str] | None = None,
+    toolchain: str = "",
 ) -> Annotation:
     """Create an Annotation instance."""
     return Annotation(
@@ -518,6 +519,7 @@ def make_func_entry(
         module=module,
         status=status,
         cflags=cflags,
+        toolchain=toolchain,
         marker_type=marker_type,
         filepath=filepath,
         source=source,
