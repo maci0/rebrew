@@ -199,6 +199,60 @@ class TestCompileToObj:
         assert any("/FImy forced.h" in a for a in captured["args"])
 
 
+
+    def test_cache_key_includes_extra_include_dirs(self, tmp_path: Path, monkeypatch) -> None:
+        """extra_include_dirs are compile inputs (they add /I flags and bind
+        mounts); two compiles differing only in them must not share a cache
+        entry."""
+        seen: list[str] = []
+
+        class _FakeCache:
+            def get(self, key: str):  # noqa: ANN001, ANN201
+                seen.append(key)
+                return None
+
+            def put(self, key: str, data: bytes) -> None:  # noqa: ANN001
+                pass
+
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
+            (workdir / "f.obj").write_bytes(b"\x00")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: _FakeCache())
+
+        cfg: Any = SimpleNamespace(
+            root=tmp_path,
+            compiler_includes=tmp_path,
+            base_cflags="/nologo",
+            compile_timeout=3,
+            compiler_command="CL.EXE",
+            compiler_runner="",
+            compiler_libs=tmp_path,
+            compiler_profile="msvc6",
+            posix_style=False,
+            msvc_env=lambda: {},
+        )
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        source = src_dir / "f.c"
+        source.write_text("int f(void){return 1;}\n", encoding="utf-8")
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+
+        compile_to_obj(cast(ProjectConfig, cfg), source, ["/O2"], workdir, cache=_FakeCache())
+        compile_to_obj(
+            cast(ProjectConfig, cfg),
+            source,
+            ["/O2"],
+            workdir,
+            cache=_FakeCache(),
+            extra_include_dirs=["/proj/other/inc"],
+        )
+        assert len(seen) == 2
+        assert seen[0] != seen[1], "cache key must differ with extra_include_dirs"
+
+
 class TestCompileToObjPosix:
     """gcc-pe / mingw (POSIX-style) compiler routing."""
 
