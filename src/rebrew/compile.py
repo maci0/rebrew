@@ -716,8 +716,10 @@ def compile_to_obj(
             # outside the vendored toolchain trees are bind-mounted; the
             # toolchain's own include tree ships inside the image (byte-identical
             # to the vendored tree it was built from) and needs no mount.  The
-            # 16-bit DOSBox wrappers stage their own include tree.
-            if profile not in ("msvc1.52", "msvc15", "msvc10", "tc16", "tc20"):
+            # 16-bit DOSBox wrappers stage their own include tree — follow the
+            # ACTIVE spec (a per-function TOOLCHAIN override may swap in a
+            # 16-bit toolchain under a 32-bit project profile).
+            if spec.name not in ("msvc1.52", "msvc15", "msvc10", "tc16", "tc20"):
                 extra_inc: list[str] = []
                 if src_parent.resolve() != workdir.resolve():
                     extra_inc.append(str(src_parent))
@@ -735,14 +737,14 @@ def compile_to_obj(
                 # Same-path mounts may repeat across dirs — docker rejects
                 # duplicate -v targets.
                 mounts = list(dict.fromkeys(mounts))
-        if profile in ("msvc1.52", "msvc15", "msvc10", "tc16", "tc20"):
+        if spec.name in ("msvc1.52", "msvc15", "msvc10", "tc16", "tc20"):
             # 16-bit DOSBox wrappers stage their own include tree.
             args = [src_name, *all_flags]
-        elif profile == "borlandc55":
+        elif spec.name == "borlandc55":
             # bcc32: `-c` compiles only; the object name follows the source
             # stem (add.c → add.obj), which matches obj_name.
             args = all_flags + ["-c", src_name]
-        elif profile in ("watcom", "watcom16"):
+        elif spec.name in ("watcom", "watcom16"):
             args = all_flags + [f"-fo={obj_name}", "-zq", src_name]
         elif spec.flags_style == "posix":
             # Native posix compilers (gcc-pe): -I/-c/-o, no MSVC /Fo.
@@ -755,7 +757,7 @@ def compile_to_obj(
         except ToolchainError as exc:
             return None, str(exc)
         obj_file = workdir / obj_name
-        if profile in ("msvc1.52", "msvc15", "msvc10", "tc16", "tc20") and not obj_file.exists():
+        if spec.name in ("msvc1.52", "msvc15", "msvc10", "tc16", "tc20") and not obj_file.exists():
             # The DOSBox wrappers FAT-uppercase the object (T.OBJ).
             stem = Path(obj_name).stem
             obj_file = next(
