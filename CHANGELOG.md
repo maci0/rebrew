@@ -181,6 +181,22 @@
   with SP5, so every profile carrying a build can byte-match; the
   version-exact tests now assert membership instead of exact tuples.
 
+### Changed
+- **Canonical `source/` layout for every vendored toolchain tree**: each
+  `toolchain/<family>/<version>-<arch>/` folder now has the same shape —
+  `Dockerfile` + wrappers/tarballs + the actual toolchain nested one level
+  under `source/`.  Previously flat trees (VC6 sp3/sp6, VC7.0, 2.0/4.x/5.x,
+  Borland, Watcom, Delphi) sat at the folder root while the master trees
+  wrapped in `VC98/`/`Common7/Vc7/`/`Microsoft SDKs/VC/`.  `rebrew toolchain
+  vendor` extracts into `source/`, `_vendored_binary`/`_vendored_include`
+  and the 16-bit finders resolve it, the MSVC layout table + init defaults
+  follow, and a per-tree `.dockerignore` keeps the extracted trees out of
+  the docker build context (builds only need Dockerfile + wrappers).
+- **Legacy `msvc6.3`/`msvc6.4`/`msvc6.5`/`msvc6.6` names removed**: no
+  backward-compat aliases for old toolchain names — `rebrew init -c
+  msvc6.3` now rejects with the real profile list, and the detection
+  compat table only admits registry profiles.
+
 ## [0.2.0] - 2026-08-18  comment.
 
 ## [0.2.0] - 2026-08-18
